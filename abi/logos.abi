@@ -204,6 +204,7 @@ sym	logos.std.data.persistent.bt.shuttle.ShuttleResult__type_id__g__ref_T
 sym	logos.std.data.persistent.handle.InsertError__type_id__g__ref_T
 sym	logos.std.deem.AggState__type_id__g__ref_T
 sym	logos.std.deem.Arr__type_id__g__ref_T
+sym	logos.std.deem.FactStore__type_id__g__ref_T
 sym	logos.std.deem.IncrJoin__type_id__g__ref_T
 sym	logos.std.deem.IncrRec__type_id__g__ref_T
 sym	logos.std.deem.QBodyTab__type_id__g__ref_T
@@ -1956,6 +1957,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__skip_while__g__OptionIte
 sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$FactStore__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$File__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$File__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$File__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2698,6 +2717,7 @@ sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$i64__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$slice_u8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$u32__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$u8__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__FactStore__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__File__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__HttpError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__IncrJoin__into_iter__g__Option
@@ -2745,6 +2765,7 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$i64
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$u32
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$u8
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__FactStore
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__File
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__HttpError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__IncrJoin
@@ -3077,6 +3098,21 @@ sym	logos_lang..logos.lang.iter.PeekableIter$G2$Utf8Chunks$Utf8Chunk__skip_while
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$Utf8Chunks$Utf8Chunk__step_by__g__PeekableIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$Utf8Chunks$Utf8Chunk__take__g__PeekableIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$Utf8Chunks$Utf8Chunk__take_while__g__PeekableIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$FactStore__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$File__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$File__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$File__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -3455,6 +3491,7 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$u8__skip_while__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$u8__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$u8__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$u8__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.Result__FactStore__&[u8]__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__File__i32__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__IncrJoin__QError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__IncrRec__QError__into_iter__g__Result
@@ -3487,6 +3524,7 @@ sym	logos_lang..logos.lang.iter.Result__i64__IoUringError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__i64__ParseIntError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__i64__i32__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__i8__ConvertError__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__FactStore__&[u8]
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__File__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__IncrJoin__QError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__IncrRec__QError
@@ -5276,6 +5314,20 @@ sym	logos_lang..logos.lang.option.Option__EnumPair$G1$u8__unwrap__g__Option
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$u8__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$u8__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$u8__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__FactStore__default__g__void
+sym	logos_lang..logos.lang.option.Option__FactStore__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__FactStore__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__FactStore__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__FactStore__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__FactStore__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__FactStore__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__FactStore__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__FactStore__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__FactStore__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__FactStore__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__FactStore__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__FactStore__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__FactStore__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__File__default__g__void
 sym	logos_lang..logos.lang.option.Option__File__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__File__filter__g__Option__fn(T) -> bool
@@ -5642,6 +5694,7 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$i64
 sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__default__g__void__FactStore
 sym	logos_lang..logos.lang.option.Option__default__g__void__File
 sym	logos_lang..logos.lang.option.Option__default__g__void__HttpError
 sym	logos_lang..logos.lang.option.Option__default__g__void__IncrJoin
@@ -5696,6 +5749,7 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__FactStore
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__File
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__HttpError
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__IncrJoin
@@ -5778,6 +5832,7 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Enum
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__FactStore
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__File
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__HttpError
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__IncrJoin
@@ -5888,6 +5943,7 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$i6
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__FactStore
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__File
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__HttpError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__IncrJoin
@@ -5942,6 +5998,7 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$i6
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__FactStore
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__File
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__HttpError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__IncrJoin
@@ -5996,6 +6053,7 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__FactStore
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__File
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__HttpError
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__IncrJoin
@@ -6050,6 +6108,7 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$i64
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__FactStore
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__File
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__HttpError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__IncrJoin
@@ -6104,6 +6163,7 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__En
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__FactStore
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__File
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__HttpError
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__IncrJoin
@@ -6200,6 +6260,7 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__FactStore
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__File
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__HttpError
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__IncrJoin
@@ -6254,6 +6315,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$i6
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__FactStore
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__File
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__HttpError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__IncrJoin
@@ -6364,6 +6426,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$i64
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__FactStore
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__File
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__HttpError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__IncrJoin
@@ -6418,6 +6481,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$i
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__FactStore
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__File
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__HttpError
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__IncrJoin
@@ -6472,6 +6536,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__FactStore
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__File
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__HttpError
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__IncrJoin
@@ -6526,6 +6591,7 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$i6
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$u32
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$u8
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__FactStore
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__File
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__HttpError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__IncrJoin
@@ -6749,6 +6815,18 @@ sym	logos_lang..logos.lang.rc.Rc$G1$udyn_Resident__deref__g__ref_Rc$G1$T
 sym	logos_lang..logos.lang.rc.Rc$G1$udyn_Resident__deref_mut__g__refmut_Rc$G1$T
 sym	logos_lang..logos.lang.rc.Rc$G1$udyn_Resident__drop__g__Rc$G1$T
 sym	logos_lang..logos.lang.rc.Rc$G1$udyn_Resident__drop_rc__g__pmut_Rc$G1$T
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__err__g__Result
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__FactStore__&[u8]__unwrap_or_else__g__Result__fn(E) -> T
 sym	logos_lang..logos.lang.result.Result__File__i32__err__g__Result
 sym	logos_lang..logos.lang.result.Result__File__i32__expect__g__Result__slice_u8
 sym	logos_lang..logos.lang.result.Result__File__i32__expect_err__g__Result__slice_u8
@@ -6965,6 +7043,7 @@ sym	logos_lang..logos.lang.result.Result__char__ConvertError__unwrap__g__Result
 sym	logos_lang..logos.lang.result.Result__char__ConvertError__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__char__ConvertError__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__char__ConvertError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__err__g__Result__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__err__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__IncrRec__QError
@@ -7003,6 +7082,7 @@ sym	logos_lang..logos.lang.result.Result__err__g__Result__u32__ParseIntError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__File__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__IncrRec__QError
@@ -7041,6 +7121,7 @@ sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u32__Pars
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__File__i32
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__IncrRec__QError
@@ -7247,6 +7328,7 @@ sym	logos_lang..logos.lang.result.Result__i8__ConvertError__unwrap__g__Result
 sym	logos_lang..logos.lang.result.Result__i8__ConvertError__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__i8__ConvertError__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__i8__ConvertError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__File__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__IncrRec__QError
@@ -7285,6 +7367,7 @@ sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u32__ParseIntEr
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__File__i32
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__IncrRec__QError
@@ -7323,6 +7406,7 @@ sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__File__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__IncrRec__QError
@@ -7361,6 +7445,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u32__ParseIntErr
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__File__i32
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__IncrRec__QError
@@ -7399,6 +7484,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__IncrRec__QError
@@ -7509,6 +7595,7 @@ sym	logos_lang..logos.lang.result.Result__u8__ConvertError__unwrap__g__Result
 sym	logos_lang..logos.lang.result.Result__u8__ConvertError__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__u8__ConvertError__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__u8__ConvertError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__IncrRec__QError
@@ -7547,6 +7634,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u32__ParseIntError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__IncrRec__QError
@@ -7585,6 +7673,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u32__ParseIntEr
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__IncrRec__QError
@@ -7623,6 +7712,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u32__ParseInt
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__FactStore__&[u8]
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__IncrJoin__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__IncrRec__QError
@@ -8086,6 +8176,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Error
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ErrorKind
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ExitStatus
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ExprBlob
+sym	logos_lang.logos.lang.any$type_id_of__g__void__FactStore
 sym	logos_lang.logos.lang.any$type_id_of__g__void__FdReader
 sym	logos_lang.logos.lang.any$type_id_of__g__void__FdWriter
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Fiber
@@ -8614,6 +8705,7 @@ sym	logos_lang.logos.lang.mem$dealloc__f__pmut_u8
 sym	logos_lang.logos.lang.mem$fill_bytes__f__pmut_u8__i32__i64
 sym	logos_lang.logos.lang.mem$move_bytes__f__pmut_u8__pcst_u8__i64
 sym	logos_lang.logos.lang.mem$realloc_buf__f__pmut_u8__i64
+sym	logos_lang.logos.lang.mem$replace__g__pmut_T__T__ZBatch
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__&[u8]
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__&dyn Error
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Alignment
@@ -8630,6 +8722,7 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$i
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$slice_u8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$u32
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$u8
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__FactStore
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__File
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__HttpError
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__IncrJoin
@@ -9053,6 +9146,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__get__g__ref_Vec$G1$T__
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__borrow__g__ref_Vec$G1$T__i64
@@ -9491,6 +9585,14 @@ sym	logos_std..logos.std.compiler.metaprog.Type__is_void__f__ref_Type
 sym	logos_std..logos.std.compiler.tokens.TokenStream__is_empty__f__ref_TokenStream
 sym	logos_std..logos.std.compiler.tokens.TokenStream__length__f__ref_TokenStream
 sym	logos_std..logos.std.compiler.tokens.TokenStream__push__f__refmut_TokenStream__TokenTree
+sym	logos_std..logos.std.deem.FactStore__arena__f__ref_FactStore
+sym	logos_std..logos.std.deem.FactStore__arena_ptr__f__ref_FactStore
+sym	logos_std..logos.std.deem.FactStore__build_present__f__ref_FactStore
+sym	logos_std..logos.std.deem.FactStore__count__f__ref_FactStore
+sym	logos_std..logos.std.deem.FactStore__insert__f__refmut_FactStore__WAny
+sym	logos_std..logos.std.deem.FactStore__new__f__ref_SchemaCatalog__slice_u8__slice_slice_u8__i64
+sym	logos_std..logos.std.deem.FactStore__retract__f__refmut_FactStore__WAny
+sym	logos_std..logos.std.deem.FactStore__take_delta__f__refmut_FactStore
 sym	logos_std..logos.std.deem.IncrJoin__epoch__f__refmut_IncrJoin__ref_ZBatch__ref_ZBatch
 sym	logos_std..logos.std.deem.IncrJoin__snapshot__f__ref_IncrJoin
 sym	logos_std..logos.std.deem.IncrRec__epoch__f__refmut_IncrRec__ref_ZBatch
@@ -9536,6 +9638,8 @@ sym	logos_std..logos.std.deem.ZBatch__clear__f__refmut_ZBatch
 sym	logos_std..logos.std.deem.ZBatch__len__f__ref_ZBatch
 sym	logos_std..logos.std.deem.ZBatch__new__f__void
 sym	logos_std..logos.std.deem.ZBatch__push__f__refmut_ZBatch__WAny__i64
+sym	logos_std..logos.std.deem.ZBatch__row__f__ref_ZBatch__i64
+sym	logos_std..logos.std.deem.ZBatch__weight__f__ref_ZBatch__i64
 sym	logos_std..logos.std.fmt.__fmt_eprint__f__slice_u8
 sym	logos_std..logos.std.fmt.__fmt_eprintln__f__slice_u8
 sym	logos_std..logos.std.fmt.__fmt_panic__f__slice_u8
@@ -9750,6 +9854,8 @@ sym	logos_std.logos.std.crypto$sha256_hex_str__f__slice_u8__refmut_String
 sym	logos_std.logos.std.crypto$sha256_str__f__slice_u8__refmut_String
 sym	logos_std.logos.std.data.persistent.bt.shuttle$shuttle_max_u64__f__pcst_PrimVec$G1$u64__u64
 sym	logos_std.logos.std.data.persistent.bt.shuttle$shuttle_sum_u64__f__pcst_PrimVec$G1$u64__u64
+sym	logos_std.logos.std.deem$pump_join__f__refmut_FactStore__refmut_FactStore__refmut_IncrJoin
+sym	logos_std.logos.std.deem$pump_rec__f__refmut_FactStore__refmut_IncrRec
 sym	logos_std.logos.std.env$arg__f__i32
 sym	logos_std.logos.std.env$args_count__f__void
 sym	logos_std.logos.std.env$current_dir__f__void
@@ -10306,6 +10412,7 @@ type	logos.std.data.persistent.store.LockingStore	fields=[dag:Vec<CommitEntry<ST
 type	logos.std.data.persistent.store.MutSnapshot	fields=[root:Arc<dyn BTreeNode>,parent_id:<cfg-slot-type>,snapshot_id:<cfg-slot-type>,id_ctr_p:*mut <cfg-slot-type>]
 type	logos.std.deem.AggState	fields=[keyv:Vec<RtVal>,gcount:Vec<i64>,gsum:Vec<i64>,live:Vec<bool>,idx:HashMap<u64, Vec<i64>>,vbest:Vec<i64>,vmap:Vec<HashMap<i64, i64>>]
 type	logos.std.deem.Arr	fields=[var:&[u8],node:Vec<WAny>,wt:Vec<i64>,key:Vec<RtVal>,mc:Vec<i64>,id:HashMap<u64, i64>,idx:HashMap<u64, Vec<i64>>]
+type	logos.std.deem.FactStore	fields=[doc:Writ,cat:SchemaCatalog,sname:&[u8],keyf:Vec<&[u8]>,node:Vec<WAny>,key:Vec<Vec<FsKey>>,present:Vec<bool>,idx:HashMap<u64, Vec<i64>>,pend:ZBatch]
 type	logos.std.deem.IncrJoin	fields=[arena:Writ,a:Arr,b:Arr,out:ZOut,cat:SchemaCatalog,envp:i64,on_w:i64,equi_w:i64,build_w:i64,probe_w:i64,pred_w:i64,has_pred:bool,sel_w:i64,lvar:&[u8],rvar:&[u8],has_distinct:bool,is_anti:bool,ncols:i64,ckind:[i32; 8],is_aggr:bool,agg_n:i64,agg_fnid:[i32; 8],agg_arg_w:[i64; 8],agg_out:[&[u8]; 8],key_w:i64,agg:AggState]
 type	logos.std.deem.IncrRec	fields=[qptr:i64,env:QEnv,edoc:Writ,enode:Vec<WAny>,ewt:Vec<i64>,eid:HashMap<u64, i64>,rows:Vec<RtVal>,rhm:HashMap<u64, Vec<i64>>,ptot:i64,edge_src:&[u8],ncols:i64,rec_body:i64,rec_ovr:i64,nbase:i64,base_b:[i64; 8],agg:bool,agg_dir:i32,best:HashMap<i64, i64>]
 type	logos.std.deem.QBodyTab	fields=[n:i64,owner:Vec<i64>,root:Vec<i64>,empty:Vec<i64>,occ_off:Vec<i64>,occ_n:Vec<i64>,ow:Vec<i64>,orel:Vec<i64>,on:i64]

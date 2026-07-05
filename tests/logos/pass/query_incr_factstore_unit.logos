@@ -1,0 +1,127 @@
+// query_incr_factstore_unit — slice-8 FactStore SET semantics + effective-delta
+// emission, WITHOUT the engine (ADR 0013 §6, change-capture A). The store OWNS
+// the U1 clamp that the harnesses used to do by hand (src_apply): it tracks
+// per-fact presence and emits ONLY effective ±deltas on a stable CANONICAL
+// handle. Asserted directly on take_delta() contents:
+//   insert-new (+1) · insert-present (no-op, empty) · retract (−1) ·
+//   retract-absent (no-op, empty) · re-insert-after-retract (+1) ·
+//   two content-distinct facts independent · intra-epoch insert-then-retract
+//   (batch = [+1,−1] on ONE canonical raw = net-zero) · content-interning
+//   (two separately-built mk_edge(0,1) map to ONE slot / ONE canonical raw).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema Edge : code(0x0E08_0000_0000_0001) {
+    src: i64 = 0,
+    dst: i64 = 1,
+}
+resource cat = schema_catalog!{ Edge };
+
+// Build the edge in the store's OWN arena (passed as a raw pointer so the
+// returned WAny is NOT lifetime-tied to a borrow of the store — otherwise the
+// canonical handle would keep a shared borrow alive and block store mutation).
+fn mk_edge(dp: *const Writ, s: i64, t: i64) -> WAny {
+    let d: &Writ = unsafe { &*dp };
+    let e: Edge = d.make::<Edge>();
+    e.src = s; e.dst = t;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let kf: [str; 2] = ["src", "dst"];
+
+    // Ctor validation: a non-scalar / unknown key field → Err.
+    let bad: [str; 1] = ["nope"];
+    match FactStore::new(&c, "Edge", &bad[..], 4096i64) {
+        Result::Ok(_s)  => { return 10i32; }   // must reject unknown field
+        Result::Err(_e) => { }
+    }
+
+    let mut st: FactStore = match FactStore::new(&c, "Edge", &kf[..], 65536i64) {
+        Result::Ok(s)   => { s }
+        Result::Err(_e) => { return 11i32; }
+    };
+
+    // ── insert-new (0→1): one +1 on a fresh canonical handle. ──
+    let a: WAny = mk_edge(st.arena_ptr(), 0i64, 1i64);
+    st.insert(a);
+    let d0: ZBatch = st.take_delta();
+    if d0.len() != 1i64 { return 20i32; }
+    if d0.weight(0i64) != 1i64 { return 21i32; }
+    let canon01: i64 = d0.row(0i64).raw();
+    if st.count() != 1i64 { return 22i32; }
+
+    // ── insert-present: no-op, empty delta. ──
+    st.insert(a);
+    let d1: ZBatch = st.take_delta();
+    if d1.len() != 0i64 { return 30i32; }
+    if st.count() != 1i64 { return 31i32; }
+
+    // ── content-interning: a DIFFERENT handle with the SAME content (0,1) must
+    // map to the SAME slot (no new +1), and build_present's canonical raw must
+    // equal the first insert's canonical raw. ──
+    let a2: WAny = mk_edge(st.arena_ptr(), 0i64, 1i64);
+    if a2.raw() == a.raw() { return 40i32; }   // genuinely distinct handles
+    st.insert(a2);
+    let d2: ZBatch = st.take_delta();
+    if d2.len() != 0i64 { return 41i32; }       // interned → no-op
+    if st.count() != 1i64 { return 42i32; }
+
+    // ── retract (1→0): one −1 on the canonical handle (== canon01). ──
+    st.retract(a2);
+    let d3: ZBatch = st.take_delta();
+    if d3.len() != 1i64 { return 50i32; }
+    if d3.weight(0i64) != -1i64 { return 51i32; }
+    if d3.row(0i64).raw() != canon01 { return 52i32; }   // stable canonical handle
+    if st.count() != 0i64 { return 53i32; }
+
+    // ── retract-absent: no-op, no phantom minus. ──
+    st.retract(a);
+    let d4: ZBatch = st.take_delta();
+    if d4.len() != 0i64 { return 60i32; }
+
+    // ── re-insert-after-retract: +1 again on the canonical handle. ──
+    st.insert(a);
+    let d5: ZBatch = st.take_delta();
+    if d5.len() != 1i64 { return 70i32; }
+    if d5.weight(0i64) != 1i64 { return 71i32; }
+    if d5.row(0i64).raw() != canon01 { return 72i32; }
+    if st.count() != 1i64 { return 73i32; }
+
+    // ── two content-distinct facts are independent. ──
+    let b: WAny = mk_edge(st.arena_ptr(), 2i64, 3i64);
+    st.insert(b);
+    let d6: ZBatch = st.take_delta();
+    if d6.len() != 1i64 { return 80i32; }
+    if d6.row(0i64).raw() == canon01 { return 81i32; }   // distinct canonical
+    if st.count() != 2i64 { return 82i32; }
+
+    // ── intra-epoch insert-then-retract of the SAME (new) content: the batch
+    // carries [+1, −1] on ONE canonical raw (the engine coalesces to net-zero).
+    // present ends false; count back to 2. ──
+    let e: WAny = mk_edge(st.arena_ptr(), 4i64, 5i64);
+    st.insert(e);
+    st.retract(e);
+    let d7: ZBatch = st.take_delta();
+    if d7.len() != 2i64 { return 90i32; }
+    let r0: i64 = d7.row(0i64).raw();
+    let r1: i64 = d7.row(1i64).raw();
+    if r0 != r1 { return 91i32; }                         // same canonical handle
+    if d7.weight(0i64) + d7.weight(1i64) != 0i64 { return 92i32; }  // net-zero
+    if d7.weight(0i64) != 1i64 { return 93i32; }
+    if d7.weight(1i64) != -1i64 { return 94i32; }
+    if st.count() != 2i64 { return 95i32; }               // (4,5) not present
+
+    return 0i32;
+}

@@ -71,6 +71,8 @@ use logos.lang.result;            // Result — the error-as-value carrier
 use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
 use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
 use logos.mem.string;             // String
+use logos.lang.mem;               // replace — FactStore::take_delta move-out
+use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
 use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
@@ -4530,6 +4532,264 @@ impl ZBatch {
         self.wt   = vec_new::<i64>();
     }
     pub fn len(self: &ZBatch) -> i64 { return self.node.len(); }
+    // Per-row accessors (test/tooling inspection of a produced changelog).
+    pub fn row(self: &ZBatch, i: i64) -> WAny { return self.node.get(i); }
+    pub fn weight(self: &ZBatch, i: i64) -> i64 { return self.wt.get(i); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FactStore — slice-8: a MUTABLE in-memory fact-store (working memory) that
+// OWNS the U1 clamp and PRODUCES the ZBatch changelog (ADR 0013 §6, change-
+// capture A). One store per named source relation. It is the first real
+// producer behind the ZBatch seam: today the engine consumes hand-synthesized
+// batches; the store lets a caller insert/retract facts and `take_delta` the
+// net ± changes since the last epoch — feeding IncrJoin/IncrRec unchanged.
+//
+// SET semantics (a working-memory relation is a SET, not a bag): the store
+// tracks per-fact presence {absent,present} and emits ONLY effective deltas —
+// insert-of-present = no-op, retract-of-absent = no-op, re-insert-after-retract
+// = +1. This is exactly the `src_apply` clamp the harnesses did by hand, now
+// owned by the store.
+//
+// FACT IDENTITY (the crux): the engine dedups on `node.raw()` (absolute pointer
+// bits) and rt_eq(Node,Node)=false by design, so the store CANNOT identify
+// facts by handle nor content-eq whole Nodes. Instead it content-keys on the
+// schema's SCALAR fields via `field_read` (the SAME decode the oracle uses),
+// maps content → ONE canonical handle, and always re-emits that canonical
+// handle so the engine sees a stable pointer. Content-key fields MUST be scalar
+// (i64/f64/bool/str): `field_read` returns RtVal::Node for edge/edge-array
+// fields, which hash to one bucket and never rt_eq — unusable as identity. The
+// ctor validates each key field via `cat.field_ty` and returns Err otherwise.
+pub struct FactStore {
+    doc:     Writ,               // OWNS the arena the canonical handles point into
+                                 // (must outlive the engine — bind_source contract)
+    cat:     SchemaCatalog,      // owned catalog snapshot (field_read needs it)
+    sname:   str,                // schema name (documentation / validation)
+    keyf:    Vec<str>,           // scalar content-key field names
+    node:    Vec<WAny>,          // canonical handle per DISTINCT content
+    key:     Vec<Vec<FsKey>>,    // OWNED scalar key tuple per slot (identity)
+    present: Vec<bool>,          // SET presence per slot
+    idx:     HashMap<u64, Vec<i64>>,  // content-hash → candidate slot indices
+    pend:    ZBatch,             // pending ± changelog since last take_delta
+}
+
+// An OWNED scalar key element. RtVal::S carries a `str` VIEW (borrows the source
+// node), so a Vec<RtVal> key would tie the store's identity to node lifetimes
+// AND make key_of's return borrow `self` — blocking the mutable store ops. FsKey
+// OWNS its bytes (String) so a key tuple is fully self-contained: identity
+// survives even a transient source node, and key_of returns a borrow-free value.
+//   k: 0 null · 1 i64 · 2 f64 · 3 bool · 4 str
+struct FsKey { k: i32, i: i64, f: f64, b: bool, s: String }
+
+fn fskey_of(v: RtVal) -> FsKey {
+    match v {
+        RtVal::I(x)  => { return FsKey { k: 1i32, i: x,     f: 0.0f64, b: false, s: String::new() }; }
+        RtVal::F(x)  => { return FsKey { k: 2i32, i: 0i64,  f: x,      b: false, s: String::new() }; }
+        RtVal::B(bb) => { return FsKey { k: 3i32, i: 0i64,  f: 0.0f64, b: bb,    s: String::new() }; }
+        RtVal::S(ss) => { let mut t: String = String::new(); t.push_str(ss);
+                          return FsKey { k: 4i32, i: 0i64,  f: 0.0f64, b: false, s: t }; }
+        _            => { return FsKey { k: 0i32, i: 0i64,  f: 0.0f64, b: false, s: String::new() }; }
+    }
+}
+
+fn fskey_eq(a: &FsKey, b: &FsKey) -> bool {
+    if a.k != b.k { return false; }
+    if a.k == 1i32 { return a.i == b.i; }
+    if a.k == 2i32 { return a.f == b.f; }
+    if a.k == 3i32 { return a.b == b.b; }
+    if a.k == 4i32 { return a.s.eq_string(&b.s); }
+    return true;   // both null
+}
+
+fn fskey_hash(e: &FsKey) -> u64 {
+    let mut h: u64 = 14695981039346656037u64;
+    if e.k == 1i32 { h = h_step(h, 1u64); h = h_step(h, e.i as u64); return h; }
+    if e.k == 3i32 { h = h_step(h, 3u64); h = h_step(h, if e.b { 1u64 } else { 0u64 }); return h; }
+    if e.k == 4i32 {
+        h = h_step(h, 2u64);
+        let s: str = e.s.as_str();
+        let n: i64 = s.len();
+        let mut i: i64 = 0i64;
+        while i < n { h = h_step(h, str_byte_at(s, i) as u64); i = i + 1i64; }
+        return h;
+    }
+    if e.k == 2i32 { h = h_step(h, 4u64); h = h_step(h, f64_to_bits(e.f)); return h; }
+    h = h_step(h, 0u64);
+    return h;
+}
+
+// FNV-fold fskey_hash over the key-tuple elements (bucket key for `idx`).
+fn fs_key_hash(k: &Vec<FsKey>) -> u64 {
+    let mut h: u64 = 14695981039346656037u64;
+    let n: i64 = k.len();
+    let mut i: i64 = 0i64;
+    while i < n { h = h_step(h, fskey_hash(k.borrow(i))); i = i + 1i64; }
+    return h;
+}
+
+// Element-wise equality over two key tuples (resolves hash-bucket collisions).
+fn fs_key_eq(a: &Vec<FsKey>, b: &Vec<FsKey>) -> bool {
+    if a.len() != b.len() { return false; }
+    let n: i64 = a.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if !fskey_eq(a.borrow(i), b.borrow(i)) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+impl FactStore {
+    // Build a store over `sname` in `cat`, content-keyed on `keyf` (a list of
+    // SCALAR field names). Validates every key field is scalar via field_ty;
+    // Err on a non-scalar (edge/arr/any) or unknown field, or empty key list.
+    // `seg` sizes the owned arena's segments (canonical handles live here).
+    pub fn new(cat: &SchemaCatalog, sname: str, keyf: &[str], seg: i64)
+        -> Result<FactStore, str> {
+        let n: i64 = keyf.len();
+        if n == 0i64 { return Result::Err("FactStore: need ≥1 key field"); }
+        let mut kf: Vec<str> = vec_new::<str>();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let f: str = keyf[i];
+            let ty: str = cat.field_ty(sname, f);
+            let ok: bool = str_eq(ty, "i64") || str_eq(ty, "f64")
+                        || str_eq(ty, "bool") || str_eq(ty, "str");
+            if !ok { return Result::Err("FactStore: key field must be scalar (i64/f64/bool/str)"); }
+            kf.push(f);
+            i = i + 1i64;
+        }
+        return Result::Ok(FactStore {
+            doc:     writ_new(seg),
+            cat:     catalog_clone(cat),
+            sname:   sname,
+            keyf:    kf,
+            node:    vec_new::<WAny>(),
+            key:     vec_new::<Vec<FsKey>>(),
+            present: vec_new::<bool>(),
+            idx:     hashmap_new::<u64, Vec<i64>>(),
+            pend:    ZBatch::new(),
+        });
+    }
+
+    // The store's owned arena — build fact nodes into it (mk_edge(store.arena(),…))
+    // so the canonical handles the store interns live as long as the store.
+    pub fn arena(self: &FactStore) -> &Writ { return &self.doc; }
+    // Raw-pointer view of the owned arena. Building fact nodes through this (vs
+    // the &Writ `arena`) keeps the resulting WAny handle free of a tracked borrow
+    // of the store, so node-build then store-mutate compose in one scope.
+    pub fn arena_ptr(self: &FactStore) -> *const Writ { return &self.doc as *const Writ; }
+
+    // Decode a node's scalar key tuple (the content identity). Returns an OWNED
+    // Vec<FsKey> — fskey_of consumes each RtVal, so the result borrows nothing.
+    fn key_of(self: &FactStore, node: WAny) -> Vec<FsKey> {
+        let mut k: Vec<FsKey> = vec_new::<FsKey>();
+        let n: i64 = self.keyf.len();
+        let mut i: i64 = 0i64;
+        while i < n { k.push(fskey_of(field_read(&self.cat, node, self.keyf.get(i)))); i = i + 1i64; }
+        return k;
+    }
+
+    // Slot of the content key (−1 miss): hash bucket + element-wise eq scan.
+    fn find(self: &mut FactStore, k: &Vec<FsKey>) -> i64 {
+        let h: u64 = fs_key_hash(k);
+        let ixp: *mut HashMap<u64, Vec<i64>> = &mut self.idx;
+        let vp: *const Vec<i64> = unsafe { ixp.get(&h) };
+        if (vp as i64) == 0i64 { return -1i64; }
+        let cand: &Vec<i64> = unsafe { &*vp };
+        let m: i64 = cand.len();
+        let mut j: i64 = 0i64;
+        while j < m {
+            let slot: i64 = cand.get(j);
+            if fs_key_eq(self.key.borrow(slot), k) { return slot; }
+            j = j + 1i64;
+        }
+        return -1i64;
+    }
+
+    // Insert a fact (SET semantics, effective-delta emit — the U1 clamp OWNED
+    // here). New content → append canonical slot + push +1. Present-again → NO
+    // push (idempotent). Absent-again (present==false) → present, push +1 on the
+    // CANONICAL handle (so the engine sees a stable pointer across re-inserts).
+    pub fn insert(self: &mut FactStore, node: WAny) {
+        let k: Vec<FsKey> = self.key_of(node);
+        let i: i64 = self.find(&k);
+        if i >= 0i64 {
+            if !self.present.get(i) {
+                self.present.set(i, true);
+                let cn: WAny = self.node.get(i);
+                self.pend.push(cn, 1i64);
+            }
+            return;   // present-again → no-op, no push
+        }
+        let slot: i64 = self.node.len();
+        let h: u64 = fs_key_hash(&k);
+        self.node.push(node);
+        self.key.push(k);
+        self.present.push(true);
+        let ixp: *mut HashMap<u64, Vec<i64>> = &mut self.idx;
+        unsafe {
+            let vp: *mut Vec<i64> = ixp.get_or_insert(h, vec_new::<i64>());
+            (&mut *vp).push(slot);
+        }
+        self.pend.push(node, 1i64);
+    }
+
+    // Retract a fact. Miss OR already-absent → no-op (no phantom minus). Present
+    // → clear presence, push −1 on the canonical handle.
+    pub fn retract(self: &mut FactStore, node: WAny) {
+        let k: Vec<FsKey> = self.key_of(node);
+        let i: i64 = self.find(&k);
+        if i < 0i64 { return; }
+        if !self.present.get(i) { return; }
+        self.present.set(i, false);
+        let cn: WAny = self.node.get(i);
+        self.pend.push(cn, -1i64);
+    }
+
+    // Move out the accumulated ± changelog and reset it. The returned ZBatch is
+    // the net-change EPOCH batch since the last call — feed it to epoch directly
+    // (intra-epoch multi-touch on one content = +1 then −1 on the SAME canonical
+    // raw; the engine admit loops coalesce by raw() → net zero, no manual netting).
+    pub fn take_delta(self: &mut FactStore) -> ZBatch {
+        let pp: *mut ZBatch = &mut self.pend;
+        return unsafe { replace::<ZBatch>(pp, ZBatch::new()) };
+    }
+
+    // Materialize the CURRENT present set into the owned arena as a Writ array of
+    // canonical handles — the batch oracle binds this via bind_source. One handle
+    // per present slot (byte-role-identical to the harnesses' build_src).
+    pub fn build_present(self: &FactStore) -> WAny {
+        let arr: &mut WArray<WAny> = self.doc.array(self.node.len() + 1i64);
+        let n: i64 = self.node.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if self.present.get(i) { arr.push(self.node.get(i)); }
+            i = i + 1i64;
+        }
+        return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+    }
+
+    // Count of currently-present facts (test probe).
+    pub fn count(self: &FactStore) -> i64 {
+        let n: i64 = self.node.len();
+        let mut c: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < n { if self.present.get(i) { c = c + 1i64; } i = i + 1i64; }
+        return c;
+    }
+}
+
+// ── Drivers (ADR 0013 §6): pump a store's pending delta into a standing engine.
+// IncrJoin/IncrRec are distinct types (no shared trait needed) — two thin helpers.
+pub fn pump_rec(store: &mut FactStore, eng: &mut IncrRec) {
+    let d: ZBatch = store.take_delta();
+    eng.epoch(&d);
+}
+pub fn pump_join(sa: &mut FactStore, sb: &mut FactStore, eng: &mut IncrJoin) {
+    let da: ZBatch = sa.take_delta();
+    let db: ZBatch = sb.take_delta();
+    eng.epoch(&da, &db);
 }
 
 // An integrated, arranged Z-set of ONE join input, keyed on the join key.
