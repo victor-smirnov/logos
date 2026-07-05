@@ -1,0 +1,370 @@
+// query_diff_fuzz — DIFFERENTIAL fuzzer for the Deem query engine (Phase-0
+// adversarial backbone). A deterministic LCG generates, each iteration, a random
+// VALID query over two i64 sources A/B plus random data, then executes it TWO
+// independent ways and asserts they agree as a multiset of rows:
+//
+//   • the ENGINE      — the query TEXT is built at runtime and run through
+//                       Query::compile / Query::run (the queue-2 interpreter,
+//                       which shares the queue-1 lowering the static `deem!`
+//                       macro also uses);
+//   • a NAIVE oracle  — a brute-force nested-loop evaluator hand-written in this
+//                       file that shares ZERO code with the engine.
+//
+// The naive evaluator and the engine are two independent implementations of the
+// SAME abstract query, so any disagreement is a real bug in one of them. Values
+// are drawn from a tiny range to force joins/duplicates/empty-groups; row counts
+// include 0 (empty source) as an adversarial boundary. Exit 0 iff every iteration
+// agrees; a nonzero code names the failing template.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema A : code(0x0DF0_0000_0000_0001) { a0: i64 = 0, a1: i64 = 1, a2: i64 = 2 }
+pub schema B : code(0x0DF0_0000_0000_0002) { b0: i64 = 0, b1: i64 = 1, b2: i64 = 2 }
+resource cat = schema_catalog!{ A, B };
+
+// ── deterministic RNG (Knuth MMIX LCG) ────────────────────────────────────────
+struct Rng { s: u64 }
+impl Rng {
+    // wrapping_* — plain */+ on u64 TRAP on overflow (Rust-style checked
+    // arithmetic); the LCG relies on modular wraparound.
+    fn next(self: &mut Rng) -> u64 {
+        self.s = wrapping_add(wrapping_mul(self.s, 6364136223846793005u64), 1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+    // uniform in [0, n)
+    fn upto(self: &mut Rng, n: i64) -> i64 {
+        return (self.next() % (n as u64)) as i64;
+    }
+    fn range(self: &mut Rng, lo: i64, hi: i64) -> i64 { return lo + self.upto(hi - lo); }
+}
+
+// ── operator menu ─────────────────────────────────────────────────────────────
+fn cmp(a: i64, op: i64, b: i64) -> bool {
+    if op == 0i64 { return a == b; }
+    if op == 1i64 { return a != b; }
+    if op == 2i64 { return a <  b; }
+    if op == 3i64 { return a <= b; }
+    if op == 4i64 { return a >  b; }
+    return a >= b;                       // op == 5
+}
+fn op_str(op: i64) -> str {
+    if op == 0i64 { return "=="; }
+    if op == 1i64 { return "!="; }
+    if op == 2i64 { return "<";  }
+    if op == 3i64 { return "<="; }
+    if op == 4i64 { return ">";  }
+    return ">=";
+}
+
+// ── raw data (flat row-major, stride 3) ──────────────────────────────────────
+fn gen_rows(rng: &mut Rng, n: i64, vrange: i64) -> Vec<i64> {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < n * 3i64 { v.push(rng.upto(vrange)); i = i + 1i64; }
+    return v;
+}
+fn rowget(v: &Vec<i64>, row: i64, col: i64) -> i64 { return v.get(row * 3i64 + col); }
+fn nrows_of(v: &Vec<i64>) -> i64 { return v.len() / 3i64; }
+
+fn contains(v: &Vec<i64>, x: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() { if v.get(i) == x { return true; } i = i + 1i64; }
+    return false;
+}
+
+// ── result multiset: flat cells row-major, width nc; sorted then compared ─────
+fn row_lt(cells: &Vec<i64>, nc: i64, i: i64, j: i64) -> bool {
+    let mut c: i64 = 0i64;
+    while c < nc {
+        let x: i64 = cells.get(i * nc + c);
+        let y: i64 = cells.get(j * nc + c);
+        if x < y { return true; }
+        if x > y { return false; }
+        c = c + 1i64;
+    }
+    return false;                        // equal
+}
+fn row_swap(cells: &mut Vec<i64>, nc: i64, i: i64, j: i64) {
+    let mut c: i64 = 0i64;
+    while c < nc {
+        let t: i64 = cells.get(i * nc + c);
+        cells.set(i * nc + c, cells.get(j * nc + c));
+        cells.set(j * nc + c, t);
+        c = c + 1i64;
+    }
+}
+fn rows_sort(cells: &mut Vec<i64>, nc: i64) {
+    if nc <= 0i64 { return; }
+    let nr: i64 = cells.len() / nc;
+    let mut i: i64 = 0i64;
+    while i < nr {
+        let mut m: i64 = i;
+        let mut j: i64 = i + 1i64;
+        while j < nr { if row_lt(cells, nc, j, m) { m = j; } j = j + 1i64; }
+        if m != i { row_swap(cells, nc, i, m); }
+        i = i + 1i64;
+    }
+}
+// multiset equality: both are sorted in place, then compared cell-by-cell.
+fn rows_eq(a: &mut Vec<i64>, b: &mut Vec<i64>, nc: i64) -> bool {
+    if a.len() != b.len() { return false; }
+    rows_sort(a, nc);
+    rows_sort(b, nc);
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+// ── engine side: build Writ sources + extract QRows into flat cells ───────────
+fn mkA(d: &Writ, x0: i64, x1: i64, x2: i64) -> WAny {
+    let r: A = d.make::<A>(); r.a0 = x0; r.a1 = x1; r.a2 = x2;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn mkB(d: &Writ, x0: i64, x1: i64, x2: i64) -> WAny {
+    let r: B = d.make::<B>(); r.b0 = x0; r.b1 = x1; r.b2 = x2;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn build_src(d: &Writ, raw: &Vec<i64>, is_a: bool) -> WAny {
+    let n: i64 = nrows_of(raw);
+    let arr: &mut WArray<WAny> = d.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c0: i64 = rowget(raw, i, 0i64);
+        let c1: i64 = rowget(raw, i, 1i64);
+        let c2: i64 = rowget(raw, i, 2i64);
+        if is_a { arr.push(mkA(d, c0, c1, c2)); } else { arr.push(mkB(d, c0, c1, c2)); }
+        i = i + 1i64;
+    }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+fn eng_cells(r: &QRows) -> Vec<i64> {
+    let mut out: Vec<i64> = vec_new::<i64>();
+    let nr: i64 = r.row_count();
+    let ncol: i64 = r.col_count();
+    let mut i: i64 = 0i64;
+    while i < nr {
+        let mut c: i64 = 0i64;
+        while c < ncol { out.push(r.get_i64(i, c)); c = c + 1i64; }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// field-name emit helpers
+fn push_af(q: &mut String, var: str, i: i64) { q.push_str(var); q.push_str(".a"); q.push_i64(i); }
+fn push_bf(q: &mut String, var: str, i: i64) { q.push_str(var); q.push_str(".b"); q.push_i64(i); }
+
+fn main() -> i32 {
+    let mut rng: Rng = Rng { s: 0x2545F4914F6CDD1Du64 };
+    let c: SchemaCatalog = cat();
+
+    let NITER: i64 = 3000i64;
+    let MAXROWS: i64 = 8i64;             // includes 0 (empty source)
+
+    let mut it: i64 = 0i64;
+    while it < NITER {
+        let tmpl: i64 = rng.upto(10i64);
+        // vary value density per iteration: small range → dup/collision-heavy;
+        // wider range → sparse joins/groups. Both regimes adversarial.
+        let VRANGE: i64 = rng.range(2i64, 8i64);
+        let na: i64 = rng.upto(MAXROWS);
+        let av: Vec<i64> = gen_rows(&mut rng, na, VRANGE);
+        let nb: i64 = rng.upto(MAXROWS);
+        let bv: Vec<i64> = gen_rows(&mut rng, nb, VRANGE);
+
+        let d: Writ = writ_new(8192i64);
+        let asrc: WAny = build_src(&d, &av, true);
+        let bsrc: WAny = build_src(&d, &bv, false);
+        let mut env: QEnv = QEnv::new();
+        env.bind_source("A", asrc);
+        env.bind_source("B", bsrc);
+
+        let mut qt: String = String::new();
+        let mut want: Vec<i64> = vec_new::<i64>();
+        let mut ncol: i64 = 0i64;
+
+        if tmpl == 0i64 {
+            // FILTER: from A x where x.[i] [op] [C] select (x.[j], x.[k])
+            let i: i64 = rng.upto(3i64); let op: i64 = rng.upto(6i64); let cc: i64 = rng.upto(VRANGE);
+            let j: i64 = rng.upto(3i64); let k: i64 = rng.upto(3i64);
+            ncol = 2i64;
+            qt.push_str("from A x where "); push_af(&mut qt, "x", i);
+            qt.push_str(" "); qt.push_str(op_str(op)); qt.push_str(" "); qt.push_i64(cc);
+            qt.push_str(" select ("); push_af(&mut qt, "x", j); qt.push_str(", "); push_af(&mut qt, "x", k); qt.push_str(")");
+            let mut r: i64 = 0i64;
+            while r < na {
+                if cmp(rowget(&av, r, i), op, cc) { want.push(rowget(&av, r, j)); want.push(rowget(&av, r, k)); }
+                r = r + 1i64;
+            }
+        } else if tmpl == 1i64 {
+            // JOIN: from A x join B y on x.[i]==y.[j] select (x.[k], y.[l])
+            let i: i64 = rng.upto(3i64); let j: i64 = rng.upto(3i64);
+            let k: i64 = rng.upto(3i64); let l: i64 = rng.upto(3i64);
+            ncol = 2i64;
+            qt.push_str("from A x join B y on "); push_af(&mut qt, "x", i); qt.push_str(" == "); push_bf(&mut qt, "y", j);
+            qt.push_str(" select ("); push_af(&mut qt, "x", k); qt.push_str(", "); push_bf(&mut qt, "y", l); qt.push_str(")");
+            let mut ra: i64 = 0i64;
+            while ra < na {
+                let mut rb: i64 = 0i64;
+                while rb < nb {
+                    if rowget(&av, ra, i) == rowget(&bv, rb, j) { want.push(rowget(&av, ra, k)); want.push(rowget(&bv, rb, l)); }
+                    rb = rb + 1i64;
+                }
+                ra = ra + 1i64;
+            }
+        } else if tmpl == 2i64 {
+            // ANTI: from A x anti join B y on x.[i]==y.[j] select x.[k]
+            let i: i64 = rng.upto(3i64); let j: i64 = rng.upto(3i64); let k: i64 = rng.upto(3i64);
+            ncol = 1i64;
+            qt.push_str("from A x anti join B y on "); push_af(&mut qt, "x", i); qt.push_str(" == "); push_bf(&mut qt, "y", j);
+            qt.push_str(" select "); push_af(&mut qt, "x", k);
+            let mut ra: i64 = 0i64;
+            while ra < na {
+                let mut hit: bool = false;
+                let mut rb: i64 = 0i64;
+                while rb < nb { if rowget(&av, ra, i) == rowget(&bv, rb, j) { hit = true; } rb = rb + 1i64; }
+                if !hit { want.push(rowget(&av, ra, k)); }
+                ra = ra + 1i64;
+            }
+        } else if tmpl == 3i64 {
+            // GROUP count: from A x group by x.[g] aggregate c=count() select (key, c)
+            let g: i64 = rng.upto(3i64);
+            ncol = 2i64;
+            qt.push_str("from A x group by "); push_af(&mut qt, "x", g);
+            qt.push_str(" aggregate c = count() select (key, c)");
+            let mut keys: Vec<i64> = vec_new::<i64>();
+            let mut r: i64 = 0i64;
+            while r < na { let kk: i64 = rowget(&av, r, g); if !contains(&keys, kk) { keys.push(kk); } r = r + 1i64; }
+            let mut ki: i64 = 0i64;
+            while ki < keys.len() {
+                let kk: i64 = keys.get(ki); let mut cnt: i64 = 0i64;
+                let mut r2: i64 = 0i64;
+                while r2 < na { if rowget(&av, r2, g) == kk { cnt = cnt + 1i64; } r2 = r2 + 1i64; }
+                want.push(kk); want.push(cnt);
+                ki = ki + 1i64;
+            }
+        } else if tmpl == 4i64 {
+            // GROUP sum: from A x group by x.[g] aggregate s=sum(x.[v]) select (key, s)
+            let g: i64 = rng.upto(3i64); let v: i64 = rng.upto(3i64);
+            ncol = 2i64;
+            qt.push_str("from A x group by "); push_af(&mut qt, "x", g);
+            qt.push_str(" aggregate s = sum("); push_af(&mut qt, "x", v); qt.push_str(") select (key, s)");
+            let mut keys: Vec<i64> = vec_new::<i64>();
+            let mut r: i64 = 0i64;
+            while r < na { let kk: i64 = rowget(&av, r, g); if !contains(&keys, kk) { keys.push(kk); } r = r + 1i64; }
+            let mut ki: i64 = 0i64;
+            while ki < keys.len() {
+                let kk: i64 = keys.get(ki); let mut sm: i64 = 0i64;
+                let mut r2: i64 = 0i64;
+                while r2 < na { if rowget(&av, r2, g) == kk { sm = sm + rowget(&av, r2, v); } r2 = r2 + 1i64; }
+                want.push(kk); want.push(sm);
+                ki = ki + 1i64;
+            }
+        } else if tmpl == 5i64 {
+            // DISTINCT: from A x select distinct x.[i]
+            let i: i64 = rng.upto(3i64);
+            ncol = 1i64;
+            qt.push_str("from A x select distinct "); push_af(&mut qt, "x", i);
+            let mut r: i64 = 0i64;
+            while r < na { let vv: i64 = rowget(&av, r, i); if !contains(&want, vv) { want.push(vv); } r = r + 1i64; }
+        } else if tmpl == 6i64 {
+            // FILTER conj/disj: from A x where P1 [&&|||] P2 select x.[k]
+            let i: i64 = rng.upto(3i64); let op1: i64 = rng.upto(6i64); let c1: i64 = rng.upto(VRANGE);
+            let j: i64 = rng.upto(3i64); let op2: i64 = rng.upto(6i64); let c2: i64 = rng.upto(VRANGE);
+            let k: i64 = rng.upto(3i64); let disj: bool = rng.upto(2i64) == 1i64;
+            ncol = 1i64;
+            qt.push_str("from A x where "); push_af(&mut qt, "x", i);
+            qt.push_str(" "); qt.push_str(op_str(op1)); qt.push_str(" "); qt.push_i64(c1);
+            if disj { qt.push_str(" || "); } else { qt.push_str(" && "); }
+            push_af(&mut qt, "x", j); qt.push_str(" "); qt.push_str(op_str(op2)); qt.push_str(" "); qt.push_i64(c2);
+            qt.push_str(" select "); push_af(&mut qt, "x", k);
+            let mut r: i64 = 0i64;
+            while r < na {
+                let p1: bool = cmp(rowget(&av, r, i), op1, c1);
+                let p2: bool = cmp(rowget(&av, r, j), op2, c2);
+                let keep: bool = if disj { p1 || p2 } else { p1 && p2 };
+                if keep { want.push(rowget(&av, r, k)); }
+                r = r + 1i64;
+            }
+        } else if tmpl == 7i64 {
+            // FILTER with PARAM: from A x where x.[i] >= p select x.[j]; bind_i64("p", C)
+            let i: i64 = rng.upto(3i64); let j: i64 = rng.upto(3i64); let pv: i64 = rng.upto(VRANGE);
+            ncol = 1i64;
+            env.bind_i64("p", pv);
+            qt.push_str("from A x where "); push_af(&mut qt, "x", i);
+            qt.push_str(" >= p select "); push_af(&mut qt, "x", j);
+            let mut r: i64 = 0i64;
+            while r < na { if rowget(&av, r, i) >= pv { want.push(rowget(&av, r, j)); } r = r + 1i64; }
+        } else if tmpl == 8i64 {
+            // JOIN + RESIDUAL: from A x join B y on x.[i]==y.[j] && x.[k] [op] y.[l] select (x.[m], y.[n])
+            let i: i64 = rng.upto(3i64); let j: i64 = rng.upto(3i64);
+            let k: i64 = rng.upto(3i64); let op: i64 = rng.upto(6i64); let l: i64 = rng.upto(3i64);
+            let m: i64 = rng.upto(3i64); let nn: i64 = rng.upto(3i64);
+            ncol = 2i64;
+            qt.push_str("from A x join B y on "); push_af(&mut qt, "x", i); qt.push_str(" == "); push_bf(&mut qt, "y", j);
+            qt.push_str(" && "); push_af(&mut qt, "x", k); qt.push_str(" "); qt.push_str(op_str(op)); qt.push_str(" "); push_bf(&mut qt, "y", l);
+            qt.push_str(" select ("); push_af(&mut qt, "x", m); qt.push_str(", "); push_bf(&mut qt, "y", nn); qt.push_str(")");
+            let mut ra: i64 = 0i64;
+            while ra < na {
+                let mut rb: i64 = 0i64;
+                while rb < nb {
+                    if rowget(&av, ra, i) == rowget(&bv, rb, j) && cmp(rowget(&av, ra, k), op, rowget(&bv, rb, l)) {
+                        want.push(rowget(&av, ra, m)); want.push(rowget(&bv, rb, nn));
+                    }
+                    rb = rb + 1i64;
+                }
+                ra = ra + 1i64;
+            }
+        } else {
+            // GROUP min/max: from A x group by x.[g] aggregate lo=min(x.[v]), hi=max(x.[v]) select (key, lo, hi)
+            let g: i64 = rng.upto(3i64); let v: i64 = rng.upto(3i64);
+            ncol = 3i64;
+            qt.push_str("from A x group by "); push_af(&mut qt, "x", g);
+            qt.push_str(" aggregate lo = min("); push_af(&mut qt, "x", v); qt.push_str("), hi = max("); push_af(&mut qt, "x", v);
+            qt.push_str(") select (key, lo, hi)");
+            let mut keys: Vec<i64> = vec_new::<i64>();
+            let mut r: i64 = 0i64;
+            while r < na { let kk: i64 = rowget(&av, r, g); if !contains(&keys, kk) { keys.push(kk); } r = r + 1i64; }
+            let mut ki: i64 = 0i64;
+            while ki < keys.len() {
+                let kk: i64 = keys.get(ki);
+                let mut lo: i64 = 0i64; let mut hi: i64 = 0i64; let mut seen: bool = false;
+                let mut r2: i64 = 0i64;
+                while r2 < na {
+                    if rowget(&av, r2, g) == kk {
+                        let vv: i64 = rowget(&av, r2, v);
+                        if !seen { lo = vv; hi = vv; seen = true; } else { if vv < lo { lo = vv; } if vv > hi { hi = vv; } }
+                    }
+                    r2 = r2 + 1i64;
+                }
+                want.push(kk); want.push(lo); want.push(hi);
+                ki = ki + 1i64;
+            }
+        }
+
+        // run the engine
+        let q: Query = match Query::compile(qt.as_str(), &c) {
+            Result::Ok(v) => { v } Result::Err(_e) => { return 20i32 + (tmpl as i32); }
+        };
+        let rows: QRows = match q.run(&env) {
+            Result::Ok(v) => { v } Result::Err(_e2) => { return 30i32 + (tmpl as i32); }
+        };
+        if rows.col_count() != ncol { return 60i32 + (tmpl as i32); }
+        let mut got: Vec<i64> = eng_cells(&rows);
+
+        if !rows_eq(&mut want, &mut got, ncol) { return 40i32 + (tmpl as i32); }
+
+        it = it + 1i64;
+    }
+    return 0i32;
+}
