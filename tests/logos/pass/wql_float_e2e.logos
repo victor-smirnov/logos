@@ -35,13 +35,13 @@ fn main() -> i32 {
     ];
 
     // where p.price > 10.5 → 20.75, 11.5 (10.25 and 8.5 filtered out).
-    let hp: Vec<f64> = pricey(&items[..]);
+    let hp: Vec<f64> = pricey(&items[..]).unwrap();
     if hp.len() != 2i64 { return 1i32; }
     if hp.get(0i64) != 20.75f64 { return 2i32; }
     if hp.get(1i64) != 11.5f64  { return 3i32; }
 
     // p.price * 2 → 20.5, 41.5, 17.0, 23.0.
-    let d: Vec<f64> = doubled(&items[..]);
+    let d: Vec<f64> = doubled(&items[..]).unwrap();
     if d.len() != 4i64 { return 4i32; }
     if d.get(0i64) != 20.5f64 { return 5i32; }
     if d.get(1i64) != 41.5f64 { return 6i32; }
@@ -52,7 +52,7 @@ fn main() -> i32 {
     //         → 31.0*1000 + 15.5*100 + 10.25*10 + 20.75 = 32673.25
     // dept 2: sum=20.0 avg=10.0 lo=8.5  hi=11.5
     //         → 20000 + 1000 + 85 + 11.5 = 21096.5
-    let st: Vec<f64> = dept_price(&items[..]);
+    let st: Vec<f64> = dept_price(&items[..]).unwrap();
     if st.len() != 2i64 { return 9i32; }
     if st.get(0i64) != 32673.25f64 { return 10i32; }
     if st.get(1i64) != 21096.5f64  { return 11i32; }

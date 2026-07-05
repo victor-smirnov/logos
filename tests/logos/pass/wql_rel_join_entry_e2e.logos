@@ -31,7 +31,7 @@ fn main() -> i32 {
     ];
 
     // hops = {(1,100),(2,200)}; join on b == id → [(1,"hub"), (2,"edge")].
-    let out: Vec<(i64, str)> = dst_labels(&edges[..], &names[..]);
+    let out: Vec<(i64, str)> = dst_labels(&edges[..], &names[..]).unwrap();
     if out.len() != 2i64 { return 1i32; }
     let r0: (i64, str) = out.get(0i64);
     if r0.0 != 1i64              { return 2i32; }

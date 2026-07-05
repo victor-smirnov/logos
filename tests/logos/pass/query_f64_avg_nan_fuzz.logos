@@ -228,7 +228,7 @@ fn main() -> i32 {
 
         if shape == 0i64 {
             // SELECT f64
-            let st: Vec<f64> = s_sel(sla.as_slice());
+            let st: Vec<f64> = s_sel(sla.as_slice()).unwrap();
             let dv: Vec<f64> = dyn_f("from a x select x.v", &c, &env);
             let mut nv: Vec<f64> = vec_new::<f64>();
             let mut r: i64 = 0i64;
@@ -237,7 +237,7 @@ fn main() -> i32 {
             if !ueq3(&mut sb, &mut db, &mut nb2) { return 10i32; }
         } else if shape == 1i64 {
             // FILTER f64: v > 0.5
-            let st: Vec<f64> = s_flt(sla.as_slice());
+            let st: Vec<f64> = s_flt(sla.as_slice()).unwrap();
             let dv: Vec<f64> = dyn_f("from a x where x.v > 0.5 select x.v", &c, &env);
             let mut nv: Vec<f64> = vec_new::<f64>();
             let mut r: i64 = 0i64;
@@ -246,7 +246,7 @@ fn main() -> i32 {
             if !ueq3(&mut sb, &mut db, &mut nb2) { return 11i32; }
         } else if shape == 2i64 {
             // JOIN on f64 key (nested-loop tier), project x.g
-            let mut st: Vec<i64> = s_join(sla.as_slice(), slb.as_slice());
+            let mut st: Vec<i64> = s_join(sla.as_slice(), slb.as_slice()).unwrap();
             let mut dv: Vec<i64> = dyn_i("from a x join b y on x.v == y.v select x.g", &c, &env);
             let mut nv: Vec<i64> = vec_new::<i64>();
             let mut ra: i64 = 0i64;
@@ -261,28 +261,28 @@ fn main() -> i32 {
             if !ieq3(&mut st, &mut dv, &mut nv) { return 12i32; }
         } else if shape == 3i64 {
             // GROUP BY int, avg(f64)  (bit-exact)
-            let st: Vec<f64> = s_avg(sla.as_slice());
+            let st: Vec<f64> = s_avg(sla.as_slice()).unwrap();
             let dv: Vec<f64> = dyn_f("from a x group by x.g aggregate m = avg(x.v) select m", &c, &env);
             let mut nv: Vec<f64> = naive_agg(&ga, &va, 5i64);
             let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
             if !ueq3(&mut sb, &mut db, &mut nb2) { return 15i32; }
         } else if shape == 4i64 {
             // GROUP BY int, sum(f64)
-            let st: Vec<f64> = s_sum(sla.as_slice());
+            let st: Vec<f64> = s_sum(sla.as_slice()).unwrap();
             let dv: Vec<f64> = dyn_f("from a x group by x.g aggregate s = sum(x.v) select s", &c, &env);
             let mut nv: Vec<f64> = naive_agg(&ga, &va, 2i64);
             let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
             if !ueq3(&mut sb, &mut db, &mut nb2) { return 16i32; }
         } else if shape == 5i64 {
             // GROUP BY int, min(f64)
-            let st: Vec<f64> = s_min(sla.as_slice());
+            let st: Vec<f64> = s_min(sla.as_slice()).unwrap();
             let dv: Vec<f64> = dyn_f("from a x group by x.g aggregate lo = min(x.v) select lo", &c, &env);
             let mut nv: Vec<f64> = naive_agg(&ga, &va, 3i64);
             let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
             if !ueq3(&mut sb, &mut db, &mut nb2) { return 17i32; }
         } else if shape == 6i64 {
             // GROUP BY int, max(f64)
-            let st: Vec<f64> = s_max(sla.as_slice());
+            let st: Vec<f64> = s_max(sla.as_slice()).unwrap();
             let dv: Vec<f64> = dyn_f("from a x group by x.g aggregate hi = max(x.v) select hi", &c, &env);
             let mut nv: Vec<f64> = naive_agg(&ga, &va, 4i64);
             let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);

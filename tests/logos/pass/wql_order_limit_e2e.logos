@@ -42,7 +42,7 @@ fn main() -> i32 {
     ];
 
     // asc int: 12, 30, 30, 41, 45 (stable: Cleo's 30 before Dane's 30).
-    let a: Vec<i64> = ages_asc(&people[..]);
+    let a: Vec<i64> = ages_asc(&people[..]).unwrap();
     if a.len() != 5i64 { return 1i32; }
     if a.get(0i64) != 12i64 { return 2i32; }
     if a.get(1i64) != 30i64 { return 3i32; }
@@ -51,13 +51,13 @@ fn main() -> i32 {
     if a.get(4i64) != 45i64 { return 6i32; }
 
     // desc int + limit 2: 45, 41.
-    let t: Vec<i64> = top2_ages(&people[..]);
+    let t: Vec<i64> = top2_ages(&people[..]).unwrap();
     if t.len() != 2i64 { return 7i32; }
     if t.get(0i64) != 45i64 { return 8i32; }
     if t.get(1i64) != 41i64 { return 9i32; }
 
     // asc str: Ada, Bob, Cleo, Dane, Eve.
-    let n: Vec<str> = names_by_name(&people[..]);
+    let n: Vec<str> = names_by_name(&people[..]).unwrap();
     if n.len() != 5i64 { return 10i32; }
     if !str_eq(n.get(0i64), "Ada")  { return 11i32; }
     if !str_eq(n.get(1i64), "Bob")  { return 12i32; }
@@ -67,14 +67,14 @@ fn main() -> i32 {
 
     // asc f64 weight: Eve(40.25), Ada(58.0), Cleo(61.5), Dane(75.5), Bob(82.0);
     // limit 2 → Eve, Ada.
-    let l: Vec<str> = lightest2(&people[..]);
+    let l: Vec<str> = lightest2(&people[..]).unwrap();
     if l.len() != 2i64 { return 16i32; }
     if !str_eq(l.get(0i64), "Eve") { return 17i32; }
     if !str_eq(l.get(1i64), "Ada") { return 18i32; }
 
     // where (age>=18) keeps Cleo/Ada/Bob/Dane; order by age desc → Ada(45),
     // Bob(41), Cleo(30), Dane(30); limit 2 → Ada, Bob.
-    let w: Vec<str> = adult_names(&people[..]);
+    let w: Vec<str> = adult_names(&people[..]).unwrap();
     if w.len() != 2i64 { return 19i32; }
     if !str_eq(w.get(0i64), "Ada") { return 20i32; }
     if !str_eq(w.get(1i64), "Bob") { return 21i32; }

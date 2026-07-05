@@ -25,8 +25,8 @@ fn streq(s: &String, want: str) -> bool {
 
 fn main() -> i32 {
     let a: Product = Product { name: "ada", price: 2.5f64 };
-    if !streq(&label(&a), "ada: 2.5 (x2 = 5) [cheap] s=3.5") { return 1i32; }
+    if !streq(&label(&a).unwrap(), "ada: 2.5 (x2 = 5) [cheap] s=3.5") { return 1i32; }
     let b: Product = Product { name: "bob", price: 12.75f64 };
-    if !streq(&label(&b), "bob: 12.75 (x2 = 25.5) [spendy] s=3.5") { return 2i32; }
+    if !streq(&label(&b).unwrap(), "bob: 12.75 (x2 = 25.5) [spendy] s=3.5") { return 2i32; }
     return 0i32;
 }

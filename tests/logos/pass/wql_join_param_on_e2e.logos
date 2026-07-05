@@ -29,13 +29,13 @@ fn main() -> i32 {
     ];
 
     // min_b = 100: only dept 1 qualifies.
-    let hi: Vec<i64> = rich_sal(&emps[..], &depts[..], 100i64);
+    let hi: Vec<i64> = rich_sal(&emps[..], &depts[..], 100i64).unwrap();
     if hi.len() != 2i64      { return 1i32; }
     if hi.get(0i64) != 50i64 { return 2i32; }
     if hi.get(1i64) != 70i64 { return 3i32; }
 
     // min_b = 50: both depts qualify — same fn, new argument.
-    let lo: Vec<i64> = rich_sal(&emps[..], &depts[..], 50i64);
+    let lo: Vec<i64> = rich_sal(&emps[..], &depts[..], 50i64).unwrap();
     if lo.len() != 3i64      { return 4i32; }
     if lo.get(1i64) != 60i64 { return 5i32; }
     return 0i32;

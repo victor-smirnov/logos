@@ -45,13 +45,13 @@ fn main() -> i32 {
     ];
 
     // Joined totals {55, 69, 75} → desc order [75, 69, 55] → limit 2.
-    let t: Vec<i64> = top2(&emps[..], &depts[..], &regs[..]);
+    let t: Vec<i64> = top2(&emps[..], &depts[..], &regs[..]).unwrap();
     if t.len() != 2i64      { return 1i32; }
     if t.get(0i64) != 75i64 { return 2i32; }
     if t.get(1i64) != 69i64 { return 3i32; }
 
     // first + asc order → 55.
-    let m: Option<i64> = least(&emps[..], &depts[..], &regs[..]);
+    let m: Option<i64> = least(&emps[..], &depts[..], &regs[..]).unwrap();
     match m {
         Option::Some(v) => { if v != 55i64 { return 4i32; } }
         Option::None    => { return 5i32; }
@@ -59,7 +59,7 @@ fn main() -> i32 {
 
     // Empty base → first yields None.
     let none: [Emp; 0] = [];
-    let m0: Option<i64> = least(&none[..], &depts[..], &regs[..]);
+    let m0: Option<i64> = least(&none[..], &depts[..], &regs[..]).unwrap();
     match m0 {
         Option::Some(_) => { return 6i32; }
         Option::None    => { }

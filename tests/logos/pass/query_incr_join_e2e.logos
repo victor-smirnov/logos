@@ -130,6 +130,9 @@ fn cmp(eng: &IncrJoin, q: &Query, doc: &Writ, eh: &Vec<WAny>, ew: &Vec<i64>,
     oenv.bind_source("emps", es);
     oenv.bind_source("depts", ds);
     let orc: QRows = match q.run(oenv) { Result::Ok(r) => { r } Result::Err(_e) => { return false; } };
+    // Error-returning EL policy: no epoch in this battery does integer arithmetic
+    // that overflows, so the engine must never latch a math error.
+    if eng.had_error() { return false; }
     let snap: QRows = eng.snapshot();
     return multiset_eq(&snap, &orc);
 }

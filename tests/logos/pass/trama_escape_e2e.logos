@@ -28,7 +28,7 @@ resource render = trama!(c: &Ctx){ "a\{{{ c.n }}\}b\\c" };
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx { n: 7i64 };
-    let s: String = render(&ctx);
+    let s: String = render(&ctx).unwrap();
 
     // Expect the literal braces + backslash: a{7}b\c
     let want: str = "a{7}b\\c";

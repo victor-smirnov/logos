@@ -1658,7 +1658,9 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
     prelude.push_str(prm.rel_names[r]);
     prelude.push_str("(");
     push_call_args(prelude, prm, scc.dep_mask[r]);
-    prelude.push_str(");\n");
+    // Result-returning rel fn (error-returning EL arithmetic): unwrap with `?`
+    // — a math fault in a rel body propagates to the entry fn's Result.
+    prelude.push_str(")?;\n");
     prelude.push_str("    let ");
     prelude.push_str(prm.rel_srcs[r]);
     prelude.push_str(": &[");
@@ -1707,7 +1709,8 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
         }
         r3 = r3 + 1i64;
     }
-    prelude.push_str(");\n");
+    // Result-returning SCC driver: `?` propagates a rel-body math fault.
+    prelude.push_str(")?;\n");
     let mut r4: i64 = 0i64;
     while r4 < prm.rel_n {
         if scc.comp[r4] == c {

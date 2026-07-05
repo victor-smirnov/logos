@@ -44,7 +44,7 @@ fn main() -> i32 {
     // region 10: m = 100*10 = 1000, total = 200 → 10*100000 + 1000 + 200 = 1001200
     // region 20: m = 90*10  = 900 (having m > 500 keeps), total = 90
     //            → 20*100000 + 900 + 90 = 2000990
-    let r: Vec<i64> = region_stats(&orders[..], &depts[..]);
+    let r: Vec<i64> = region_stats(&orders[..], &depts[..]).unwrap();
     if r.len() != 2i64 { return 1i32; }
     if r.get(0i64) != 1001200i64 { return 2i32; }
     if r.get(1i64) != 2000990i64 { return 3i32; }

@@ -22,7 +22,7 @@ fn main() -> i32 {
         Emp { dept: 2i64, name: "ann", id: 4i64 },   // same name, new dept
     ];
 
-    let rows: Vec<(i64, str)> = dept_names(&emps[..]);
+    let rows: Vec<(i64, str)> = dept_names(&emps[..]).unwrap();
     if rows.len() != 3i64 { return 1i32; }
     let r0: (i64, str) = rows.get(0i64);
     if r0.0 != 1i64 { return 2i32; }

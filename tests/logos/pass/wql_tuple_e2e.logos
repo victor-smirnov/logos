@@ -38,7 +38,7 @@ fn main() -> i32 {
     ];
 
     // (id, name) — all rows, source order.
-    let rows: Vec<(i64, str)> = id_names(&emps[..]);
+    let rows: Vec<(i64, str)> = id_names(&emps[..]).unwrap();
     if rows.len() != 3i64 { return 1i32; }
     let r0: (i64, str) = rows.get(0i64);
     if r0.0 != 1i64 { return 2i32; }
@@ -48,7 +48,7 @@ fn main() -> i32 {
     if !str_eq(r2.1, "cyd") { return 5i32; }
 
     // (id, name, score) — filtered, exact values incl. the f64 column.
-    let top: Vec<(i64, str, f64)> = top_rows(&emps[..]);
+    let top: Vec<(i64, str, f64)> = top_rows(&emps[..]).unwrap();
     if top.len() != 2i64 { return 6i32; }
     let t0: (i64, str, f64) = top.get(0i64);
     if t0.0 != 2i64 { return 7i32; }
@@ -58,14 +58,14 @@ fn main() -> i32 {
     if t1.2 != 3.5f64 { return 10i32; }
 
     // Component expressions: (5*id, len(name)).
-    let calc: Vec<(i64, i64)> = calc_rows(&emps[..]);
+    let calc: Vec<(i64, i64)> = calc_rows(&emps[..]).unwrap();
     if calc.len() != 3i64 { return 11i32; }
     let c1: (i64, i64) = calc.get(1i64);
     if c1.0 != 10i64 { return 12i32; }
     if c1.1 != 3i64 { return 13i32; }
 
     // Grouping stays scalar.
-    let g: Vec<i64> = grouped(&emps[..]);
+    let g: Vec<i64> = grouped(&emps[..]).unwrap();
     if g.len() != 3i64 { return 14i32; }
     if g.get(1i64) != 2i64 { return 15i32; }
 

@@ -35,7 +35,7 @@ fn main() -> i32 {
         Reg { rid: 20i64, label: "south" },
     ];
 
-    let rows: Vec<(str, i64, str)> = emp_geo(&emps[..], &depts[..], &regs[..]);
+    let rows: Vec<(str, i64, str)> = emp_geo(&emps[..], &depts[..], &regs[..]).unwrap();
     if rows.len() != 2i64 { return 1i32; }
     let r0: (str, i64, str) = rows.get(0i64);
     if !str_eq(r0.0, "ann") { return 2i32; }

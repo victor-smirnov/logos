@@ -27,7 +27,7 @@ resource render = trama!(c: &Ctx){ "{% if 1 > 0 %}T{% else %}{{ undefined_dead_a
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx { nums: [0i64] };
-    let s: String = render(&ctx);
+    let s: String = render(&ctx).unwrap();
 
     // Expect exactly "T-F": the live branch of each folded `if`.
     let want: str = "T-F";

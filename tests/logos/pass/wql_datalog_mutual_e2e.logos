@@ -48,22 +48,22 @@ fn main() -> i32 {
     ];
 
     // Odd-length paths from 1: 1 hop → 2, 3 hops → 4.
-    let o1: Vec<i64> = odd_reach(&edges[..], 1i64);
+    let o1: Vec<i64> = odd_reach(&edges[..], 1i64).unwrap();
     if o1.len() != 2i64      { return 1i32; }
     if o1.get(0i64) != 2i64  { return 2i32; }
     if o1.get(1i64) != 4i64  { return 3i32; }
 
     // Even-length paths from 1: 2 hops → 3, 4 hops → 5.
-    let e1: Vec<i64> = even_reach(&edges[..], 1i64);
+    let e1: Vec<i64> = even_reach(&edges[..], 1i64).unwrap();
     if e1.len() != 2i64      { return 4i32; }
     if e1.get(0i64) != 3i64  { return 5i32; }
     if e1.get(1i64) != 5i64  { return 6i32; }
 
     // From 2: odd → {3, 5}; even → {4}.
-    let o2: Vec<i64> = odd_reach(&edges[..], 2i64);
+    let o2: Vec<i64> = odd_reach(&edges[..], 2i64).unwrap();
     if o2.len() != 2i64      { return 7i32; }
     if o2.get(1i64) != 5i64  { return 8i32; }
-    let e2: Vec<i64> = even_reach(&edges[..], 2i64);
+    let e2: Vec<i64> = even_reach(&edges[..], 2i64).unwrap();
     if e2.len() != 1i64      { return 9i32; }
     if e2.get(0i64) != 4i64  { return 10i32; }
 

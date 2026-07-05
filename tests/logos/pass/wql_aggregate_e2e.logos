@@ -55,7 +55,7 @@ fn main() -> i32 {
         Sale { dept: 1i64, amount: 3i64  },
     ];
 
-    let rows: Vec<i64> = dept_totals(&sales[..]);
+    let rows: Vec<i64> = dept_totals(&sales[..]).unwrap();
 
     // Two distinct depts (1, 2), discovered in first-occurrence order.
     //   dept 1: sum = 10+20+3 = 33, count = 3 → 1*1000 + 33*10 + 3 = 1333
@@ -71,7 +71,7 @@ fn main() -> i32 {
     //          min=10 max=20 avg=(10+20)/2=15.0 → 1*1e6 +10*1e4 +20*100 +15.0 = 1102015.0
     //   dept 2 kept amounts: 5, 7
     //          min=5  max=7  avg=(5+7)/2=6.0     → 2*1e6 + 5*1e4 + 7*100 + 6.0  = 2050706.0
-    let stats: Vec<f64> = dept_stats(&sales[..]);
+    let stats: Vec<f64> = dept_stats(&sales[..]).unwrap();
     if stats.len() != 2i64 { return 4i32; }
     if stats.get(0i64) != 1102015.0f64 { return 5i32; }
     if stats.get(1i64) != 2050706.0f64 { return 6i32; }

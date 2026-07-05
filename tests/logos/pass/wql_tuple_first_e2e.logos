@@ -27,7 +27,7 @@ fn main() -> i32 {
         Person { name: "Cleo", age: 70i64 },
     ];
 
-    match first_adult(&people[..]) {
+    match first_adult(&people[..]).unwrap() {
         Option::Some(t) => {
             if !str_eq(t.0, "Ada") { return 1i32; }
             if t.1 != 45i64 { return 2i32; }
@@ -35,12 +35,12 @@ fn main() -> i32 {
         Option::None => { return 3i32; }
     }
 
-    match first_ancient(&people[..]) {
+    match first_ancient(&people[..]).unwrap() {
         Option::Some(_) => { return 4i32; }
         Option::None => { }
     }
 
-    match oldest(&people[..]) {
+    match oldest(&people[..]).unwrap() {
         Option::Some(t) => {
             if !str_eq(t.0, "Cleo") { return 5i32; }
             if t.1 != 70i64 { return 6i32; }

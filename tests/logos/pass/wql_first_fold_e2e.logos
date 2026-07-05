@@ -33,33 +33,33 @@ fn main() -> i32 {
         Person { name: "Bob", age: 41i64 },
     ];
 
-    match nobody_first(&people[..]) {
+    match nobody_first(&people[..]).unwrap() {
         Option::Some(_) => { return 1i32; }
         Option::None => { }
     }
 
-    match find_nothing(&people[..]) {
+    match find_nothing(&people[..]).unwrap() {
         Option::Some(_) => { return 2i32; }
         Option::None => { }
     }
 
-    match find_any(&people[..]) {
+    match find_any(&people[..]).unwrap() {
         Option::Some(q) => { if !str_eq(q.name, "Eve") { return 3i32; } }
         Option::None => { return 4i32; }
     }
 
-    match head_person(&people[..]) {
+    match head_person(&people[..]).unwrap() {
         Option::Some(q) => { if q.age != 12i64 { return 5i32; } }
         Option::None => { return 6i32; }
     }
 
     // Head-row over an EMPTY slice → None (both identity-collapsed forms).
     let empty: [Person; 0] = [];
-    match find_any(&empty[..]) {
+    match find_any(&empty[..]).unwrap() {
         Option::Some(_) => { return 7i32; }
         Option::None => { }
     }
-    match head_person(&empty[..]) {
+    match head_person(&empty[..]).unwrap() {
         Option::Some(_) => { return 8i32; }
         Option::None => { }
     }

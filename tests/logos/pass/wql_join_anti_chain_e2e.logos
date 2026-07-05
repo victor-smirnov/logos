@@ -33,14 +33,14 @@ fn main() -> i32 {
     ];
     let bans: [Ban; 1] = [ Ban { dept: 2i64 } ];
 
-    let rows: Vec<i64> = ok_salaries(&emps[..], &depts[..], &bans[..]);
+    let rows: Vec<i64> = ok_salaries(&emps[..], &depts[..], &bans[..]).unwrap();
     if rows.len() != 2i64      { return 1i32; }
     if rows.get(0i64) != 50i64 { return 2i32; }
     if rows.get(1i64) != 70i64 { return 3i32; }
 
     // Empty ban list → the anti step passes everything with a dept row.
     let nobans: [Ban; 0] = [];
-    let all: Vec<i64> = ok_salaries(&emps[..], &depts[..], &nobans[..]);
+    let all: Vec<i64> = ok_salaries(&emps[..], &depts[..], &nobans[..]).unwrap();
     if all.len() != 3i64 { return 4i32; }
     return 0i32;
 }

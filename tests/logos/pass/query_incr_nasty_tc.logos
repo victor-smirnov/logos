@@ -152,6 +152,9 @@ fn cmp(eng: &IncrRec, q: &Query, doc: &Writ, eh: &Vec<WAny>, ew: &Vec<i64>,
     let es: WAny = build_src(doc, eh, ew);
     oenv.bind_source("edges", es);
     let orc: QRows = match q.run(oenv) { Result::Ok(r) => { r } Result::Err(_e) => { return false; } };
+    // Error-returning EL policy: transitive-closure recursion mints no arithmetic,
+    // so the engine must never latch a math error.
+    if eng.had_error() { return false; }
     let snap: QRows = eng.snapshot();
     return multiset_eq(&snap, &orc);
 }

@@ -40,7 +40,7 @@ resource render = trama!(c: &Ctx){ "nums:{% for n in c.nums %}[{{ n }}]{% endfor
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx { nums: [1i64, 2i64, 3i64], flag: true };
-    let s: String = render(&ctx);
+    let s: String = render(&ctx).unwrap();
 
     // Expect "nums:[1][2][3]!".
     let want: str = "nums:[1][2][3]!";

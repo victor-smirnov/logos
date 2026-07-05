@@ -78,7 +78,7 @@ fn main() -> i32 {
         Edge { src: 4i64, dst: 5i64, cap: 7i64 },
     ];
 
-    let got: Vec<(i64, i64)> = widest(&src[..], &edges[..]);
+    let got: Vec<(i64, i64)> = widest(&src[..], &edges[..]).unwrap();
     let want: Vec<(i64, i64)> = ref_widest(&edges[..], 1i64, 5i64, 1000i64);
 
     if got.len() != want.len() { return 1i32; }

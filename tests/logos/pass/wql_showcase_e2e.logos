@@ -60,7 +60,7 @@ fn main() -> i32 {
 
     // (A) seniors → Vec<str>: age>=40 AND dept==1 ⇒ Ada (45,1) and Dane (41,1).
     // Bob (50,2) fails dept; Cleo (30,1) fails age.
-    let names: Vec<str> = seniors(&emps[..]);
+    let names: Vec<str> = seniors(&emps[..]).unwrap();
     if names.len() != 2i64 { return 1i32; }
     if !str_eq(names.get(0i64), "Ada")  { return 2i32; }
     if !str_eq(names.get(1i64), "Dane") { return 3i32; }
@@ -70,7 +70,7 @@ fn main() -> i32 {
     // (B) dept_ages → Vec<i64>: only dept 1 (budget 200 > 100) matches; its
     // employees are Ada(45), Cleo(30), Dane(41), in source order. Bob's dept 2
     // (budget 80) fails the post-join `where`.
-    let ages: Vec<i64> = dept_ages(&emps[..], &depts[..]);
+    let ages: Vec<i64> = dept_ages(&emps[..], &depts[..]).unwrap();
     if ages.len() != 3i64 { return 5i32; }
     if ages.get(0i64) != 45i64 { return 6i32; }
     if ages.get(1i64) != 30i64 { return 7i32; }

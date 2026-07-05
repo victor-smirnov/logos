@@ -41,35 +41,35 @@ fn main() -> i32 {
     ];
 
     // hit → Some("Ada") (first in scan order past Eve).
-    match first_adult(&people[..]) {
+    match first_adult(&people[..]).unwrap() {
         Option::Some(n) => { if !str_eq(n, "Ada") { return 1i32; } }
         Option::None => { return 2i32; }
     }
 
     // miss → None.
-    match first_ancient(&people[..]) {
+    match first_ancient(&people[..]).unwrap() {
         Option::Some(_) => { return 3i32; }
         Option::None => { }
     }
 
     // order by age desc → Cleo (70).
-    match oldest_name(&people[..]) {
+    match oldest_name(&people[..]).unwrap() {
         Option::Some(n) => { if !str_eq(n, "Cleo") { return 4i32; } }
         Option::None => { return 5i32; }
     }
 
     // scalar param: >= 46 keeps only Cleo; >= 200 keeps nobody.
-    match first_over(&people[..], 46i64) {
+    match first_over(&people[..], 46i64).unwrap() {
         Option::Some(n) => { if !str_eq(n, "Cleo") { return 6i32; } }
         Option::None => { return 7i32; }
     }
-    match first_over(&people[..], 200i64) {
+    match first_over(&people[..], 200i64).unwrap() {
         Option::Some(_) => { return 8i32; }
         Option::None => { }
     }
 
     // join first: scan order hits Ada(45)×mgmt before Bob(41)×eng.
-    match first_dept(&people[..], &depts[..]) {
+    match first_dept(&people[..], &depts[..]).unwrap() {
         Option::Some(l) => { if !str_eq(l, "mgmt") { return 9i32; } }
         Option::None => { return 10i32; }
     }

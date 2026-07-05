@@ -34,7 +34,7 @@ fn main() -> i32 {
     // p = {(1,2), (3,4), (8,9)} — 4 raw within-body rows + 2 reversed rows
     // collapse to 3 distinct pairs. The entry projects s.a (no distinct —
     // the SET already deduped), so the COUNT proves set semantics.
-    let out: Vec<i64> = pair_count(&edges[..], &back[..]);
+    let out: Vec<i64> = pair_count(&edges[..], &back[..]).unwrap();
     if out.len() != 3i64 { return 10i32 + (out.len() as i32); }
     if out.get(0i64) != 1i64 { return 2i32; }
     if out.get(1i64) != 3i64 { return 3i32; }

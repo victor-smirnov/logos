@@ -27,7 +27,7 @@ fn main() -> i32 {
     let drivers: [Driver; 1] = [ Driver { k: 0i64 } ];
     let nums: [i64; 5] = [ 1i64, 3i64, 2i64, 7i64, 0i64 ];
 
-    let rows: Vec<Vec<i64>> = doubles(&drivers[..], &nums[..], 2i64);
+    let rows: Vec<Vec<i64>> = doubles(&drivers[..], &nums[..], 2i64).unwrap();
 
     // One driver row → one comprehension result.
     if rows.len() != 1i64 { return 1i32; }

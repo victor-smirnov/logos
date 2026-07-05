@@ -16,6 +16,9 @@ package logos.std.wql.el;
 
 use logos.lang.str;
 use logos.mem.string;   // String — wql_upper/wql_lower/wql_f64_to_str results
+use logos.lang.option;  // Option — checked_* return type (el_add/…/el_neg)
+use logos.lang.result;  // Result — the error-returning el_* arithmetic
+use logos.lang.cmp;     // i64 checked_add/sub/mul/div/rem/neg
 
 // ── Operator ids (CEL canon; stable across backends) ──────────────────────
 // SBin op ids.
@@ -35,6 +38,41 @@ pub fn OP_MOD() -> i32 { return 13i32; }  // %
 // SUn op ids.
 pub fn OP_NOT() -> i32 { return 1i32; }   // !
 pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
+
+// ── EL math-error type + error-returning integer arithmetic ────────────────
+// EL scripts (deem!/trama!) are ERROR-RETURNING on a math fault: an integer
+// overflow or a division/remainder by zero becomes a RETURNED error, never a
+// host trap (compiled Logos traps on overflow by default; EL scripts do not).
+// This is the STATIC mirror of the dynamic interpreter's `RtVal::Error` policy
+// (logos.std.deem): both `div`/`rem` treat a zero divisor as `DivByZero` and a
+// `checked_* == None` (i64::MIN / -1) as `Overflow`. ONE math-error type is
+// shared by the static emitted fns AND the incremental engine's error channel.
+pub enum ElError { Overflow, DivByZero }
+
+// i64 checked arithmetic returning ElError. `checked_add/sub/mul/div/rem/neg`
+// (Option<i64>) already exist in logos.lang.cmp.ord. The generated static
+// resource/render fns call these with `?` so a fault propagates to the fn's
+// `Result<_, ElError>` return.
+pub fn el_add(a: i64, b: i64) -> Result<i64, ElError> {
+    match a.checked_add(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+pub fn el_sub(a: i64, b: i64) -> Result<i64, ElError> {
+    match a.checked_sub(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+pub fn el_mul(a: i64, b: i64) -> Result<i64, ElError> {
+    match a.checked_mul(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+pub fn el_div(a: i64, b: i64) -> Result<i64, ElError> {
+    if b == 0i64 { return Result::Err(ElError::DivByZero); }
+    match a.checked_div(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+pub fn el_rem(a: i64, b: i64) -> Result<i64, ElError> {
+    if b == 0i64 { return Result::Err(ElError::DivByZero); }
+    match a.checked_rem(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+pub fn el_neg(a: i64) -> Result<i64, ElError> {
+    match a.checked_neg() { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
 
 // ── Builtin function registry (CEL canon + common Trama filters) ──────────
 // `SCall.fn_name` carries the call NAME directly (self-describing IR); the

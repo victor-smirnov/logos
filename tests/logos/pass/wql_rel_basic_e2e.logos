@@ -34,13 +34,13 @@ fn main() -> i32 {
     ];
 
     // rel e2 = {(1,10), (2,20), (3,15)}; entry: b > 12, desc → [20, 15].
-    let out: Vec<i64> = big_dsts(&edges[..], 12i64);
+    let out: Vec<i64> = big_dsts(&edges[..], 12i64).unwrap();
     if out.len() != 2i64      { return 1i32; }
     if out.get(0i64) != 20i64 { return 2i32; }
     if out.get(1i64) != 15i64 { return 3i32; }
 
     // Threshold excludes everything → empty.
-    let none: Vec<i64> = big_dsts(&edges[..], 99i64);
+    let none: Vec<i64> = big_dsts(&edges[..], 99i64).unwrap();
     if none.len() != 0i64 { return 4i32; }
 
     return 0i32;

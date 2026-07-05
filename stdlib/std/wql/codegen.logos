@@ -47,6 +47,15 @@ pub fn begin_chunk(em: &mut Emitter, view: &OView) {
     // — a chunk is a SEPARATE AST and needs its own use-decls.
     em.push_text("use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option; ");
     em.push_text("use logos.mem.collections.hashmap; use logos.mem.collections.set; use logos.mem.collections.btree; ");
+    // logos.lang.result — the emitted resource/render fn returns `Result<_, ElError>`
+    // and builds it via `Result::Ok`/`Result::Err`; a chunk is a separate AST with
+    // NO implicit prelude, so Result must be imported explicitly.
+    em.push_text("use logos.lang.result; ");
+    // logos.std.wql.el — the error-returning EL integer arithmetic (`el_add`/…/
+    // `el_neg`, all `-> Result<i64, ElError>`) the emitter calls with `?`, plus
+    // the `ElError` type the generated resource/render fn returns. `el` is in the
+    // compile's load closure (imported by codegen.logos) so a chunk may import it.
+    em.push_text("use logos.std.wql.el; ");
 }
 
 // ── Builtin function registry ───────────────────────────────────────────────
@@ -306,6 +315,25 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
             // type-checks. Logical ops never mix (both sides BOOL).
             let lt: i32 = infer_ty(lhs, t);
             let rt: i32 = infer_ty(rhs, t);
+            // ERROR-RETURNING integer arithmetic (EL-script policy): an INT-typed
+            // +,-,*,/,% emits a CHECKED call `el_op((L), (R))?` — an overflow or a
+            // division/remainder by zero becomes a returned `ElError` propagated to
+            // the generated fn's `Result` return, never a host trap. Result is INT
+            // iff arithmetic op with neither operand FLT and (for +) neither STR
+            // (string concat stays infix); FLT arithmetic is IEEE (infix, no trap).
+            let is_arith: bool = op == OP_ADD() || op == OP_SUB() || op == OP_MUL()
+                              || op == OP_DIV() || op == OP_MOD();
+            let res_int: bool = is_arith && lt != EL_TY_FLT() && rt != EL_TY_FLT()
+                && !(op == OP_ADD() && (lt == EL_TY_STR() || rt == EL_TY_STR()));
+            if res_int {
+                out.push_str(el_int_op_fn(op));
+                out.push_str("((");
+                emit_sexpr(out, lhs, t, var);
+                out.push_str("), (");
+                emit_sexpr(out, rhs, t, var);
+                out.push_str("))?");
+                return;
+            }
             let cast_l: bool = lt == EL_TY_INT() && rt == EL_TY_FLT();
             let cast_r: bool = rt == EL_TY_INT() && lt == EL_TY_FLT();
             out.push_str("(");
@@ -321,6 +349,15 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
         SExpr::Un(u) => {
             let op: i32 = u.op;
             let arg: SExpr = u.arg_expr();
+            // Error-returning unary minus on INT: `el_neg((arg))?` (i64::MIN
+            // negation is an Overflow error, not a trap). `!` and FLT negation
+            // stay infix (bool / IEEE, no trap).
+            if op == OP_NEG() && infer_ty(arg, t) == EL_TY_INT() {
+                out.push_str("el_neg((");
+                emit_sexpr(out, arg, t, var);
+                out.push_str("))?");
+                return;
+            }
             out.push_str("(");
             if op == OP_NOT() { out.push_str("!"); } else { out.push_str("-"); }
             emit_sexpr(out, arg, t, var);
@@ -580,6 +617,23 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
             }
             return true;
         }
+        SExpr::Lit(l) => {
+            // Out-of-range integer literal: the tokenizer poisoned it to i64::MIN
+            // (unrepresentable by a valid non-negative decimal token). Surface a
+            // clean COMPILE error here — the one IR walk that already reports
+            // per-clause diagnostics — instead of clamping or trapping.
+            let v: WAny = l.val;
+            if !v.is_string() && !v.is_bool() && !v.is_float() {
+                if v.as_i64() == el_lit_poison() {
+                    let mut m: String = String::new();
+                    m.push_str(ctx);
+                    m.push_str(": integer literal out of range — exceeds i64::MAX (9223372036854775807)");
+                    error(string_as_str(&m));
+                    return false;
+                }
+            }
+            return true;
+        }
         _ => { return true; }
     }
 }
@@ -720,6 +774,18 @@ pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
     out.push_str("((");
     emit_sexpr(out, e, t, var);
     out.push_str(") != 0i64)");
+}
+
+// SBin arithmetic op id → the error-returning i64 checked-op fn NAME (logos.std
+// .wql.el, imported bare by begin_chunk). Emitted as `el_op((L),(R))?` so a math
+// fault propagates to the generated fn's Result. Only the arithmetic ops map;
+// callers gate on `is_arith` first.
+pub fn el_int_op_fn(op: i32) -> str {
+    if op == OP_ADD() { return "el_add"; }
+    if op == OP_SUB() { return "el_sub"; }
+    if op == OP_MUL() { return "el_mul"; }
+    if op == OP_DIV() { return "el_div"; }
+    return "el_rem";
 }
 
 // SBin op id (el.logos CEL canon) → Logos infix operator text (spaces padded).

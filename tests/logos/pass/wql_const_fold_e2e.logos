@@ -31,7 +31,7 @@ fn main() -> i32 {
         Person { name: 3i64, age: 40i64 },
         Person { name: 4i64, age: 9i64  },
     ];
-    let rows: Vec<i64> = all_plus6(&people[..]);
+    let rows: Vec<i64> = all_plus6(&people[..]).unwrap();
 
     // The folded `where true` keeps ALL four rows; each age + 6.
     if rows.len() != 4i64 { return 1i32; }

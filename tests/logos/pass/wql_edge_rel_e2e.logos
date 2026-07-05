@@ -41,19 +41,19 @@ fn main() -> i32 {
     nodes.push(mk_node(3i64, -1i64, -1i64));
     nodes.push(mk_node(4i64, -1i64, -1i64));
 
-    let es: Vec<i64> = edges(nodes.as_slice());
+    let es: Vec<i64> = edges(nodes.as_slice()).unwrap();
     if es.len() != 3i64 { return 1i32; }
     if es.get(0i64) != 102i64 { return 2i32; }
     if es.get(1i64) != 103i64 { return 3i32; }
     if es.get(2i64) != 204i64 { return 4i32; }
 
-    let rs: Vec<i64> = reachable(nodes.as_slice(), 1i64);
+    let rs: Vec<i64> = reachable(nodes.as_slice(), 1i64).unwrap();
     if rs.len() != 3i64 { return 5i32; }
     if rs.get(0i64) != 2i64 { return 6i32; }   // seed round order
     if rs.get(1i64) != 3i64 { return 7i32; }
     if rs.get(2i64) != 4i64 { return 8i32; }   // discovered via the delta round
 
-    let rs4: Vec<i64> = reachable(nodes.as_slice(), 4i64);
+    let rs4: Vec<i64> = reachable(nodes.as_slice(), 4i64).unwrap();
     if rs4.len() != 0i64 { return 9i32; }
     return 0i32;
 }

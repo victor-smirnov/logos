@@ -1,0 +1,68 @@
+// query_diff_err_e2e — STATIC ≡ DYNAMIC on ERROR inputs. The same overflowing /
+// divide-by-zero query, run BOTH ways (a static deem! resource fn AND a dynamic
+// Query::compile+run) over the SAME data, must BOTH return an error — static
+// Result::Err(ElError), dynamic Result::Err(QError). And a valid query must
+// return Ok both ways with the SAME rows. This pins the whole-engine policy: a
+// math error is a returned error on every Deem surface, never a host trap, and
+// the two executors agree on error inputs (not just valid ones).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct SA { pub a0: i64, pub a1: i64 }
+pub schema A : code(0x0DFF_0000_0000_0001) { a0: i64 = 0, a1: i64 = 1 }
+resource cat = schema_catalog!{ A };
+
+// overflow: a0 = 4e9, 4e9 * 4e9 = 1.6e19 > i64::MAX
+resource s_ov  = deem!(a: &[SA]) { from a x select x.a0 * 4000000000 : i64 };
+// division by zero
+resource s_dz  = deem!(a: &[SA]) { from a x select x.a0 / x.a1 : i64 };
+// valid
+resource s_ok  = deem!(a: &[SA]) { from a x select x.a0 + x.a1 : i64 };
+
+fn static_errored_ov(sl: &[SA]) -> bool { match s_ov(sl) { Result::Ok(_v) => { return false; } Result::Err(_e) => { return true; } } }
+fn static_errored_dz(sl: &[SA]) -> bool { match s_dz(sl) { Result::Ok(_v) => { return false; } Result::Err(_e) => { return true; } } }
+
+// dynamic: -1 = errored, else row count
+fn dyn_outcome(qt: str, c: &SchemaCatalog, env: &QEnv) -> i64 {
+    match Query::compile(qt, c) {
+        Result::Ok(q) => { match q.run(env) { Result::Ok(r) => { return r.row_count(); } Result::Err(_e) => { return -1i64; } } }
+        Result::Err(_e2) => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let d: Writ = writ_new(4096i64);
+    let arr: &mut WArray<WAny> = d.array(2i64);
+    let r0: A = d.make::<A>(); r0.a0 = 4000000000i64; r0.a1 = 0i64;   // a1=0 → div-by-zero; a0 large → overflow
+    arr.push(WAny::ref_to((r0.m as i64) as *const u8));
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("a", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
+
+    let sl: [SA; 1] = [ SA { a0: 4000000000i64, a1: 0i64 } ];
+
+    // ── OVERFLOW: static AND dynamic must BOTH error ─────────────────────────
+    if !static_errored_ov(&sl[..]) { return 1i32; }                                     // static errored
+    if dyn_outcome("from a x select x.a0 * 4000000000", &c, &env) != -1i64 { return 2i32; }  // dynamic errored
+
+    // ── DIVISION BY ZERO: both error ─────────────────────────────────────────
+    if !static_errored_dz(&sl[..]) { return 3i32; }
+    if dyn_outcome("from a x select x.a0 / x.a1", &c, &env) != -1i64 { return 4i32; }
+
+    // ── VALID query: both Ok, SAME result ────────────────────────────────────
+    let sok: Vec<i64> = match s_ok(&sl[..]) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if sok.len() != 1i64 { return 6i32; }
+    if sok.get(0i64) != 4000000000i64 { return 7i32; }   // 4e9 + 0
+    if dyn_outcome("from a x select x.a0 + x.a1", &c, &env) != 1i64 { return 8i32; }   // dynamic: 1 row, no error
+
+    return 0i32;
+}

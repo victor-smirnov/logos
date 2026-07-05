@@ -37,7 +37,7 @@ fn main() -> i32 {
     depts.push(Dept { did: 2i64, emps: d2 });
     depts.push(Dept { did: 3i64, emps: Vec::<Emp>::new() });   // no rows → no group
 
-    let rows: Vec<i64> = skills_per_dept(depts.as_slice());
+    let rows: Vec<i64> = skills_per_dept(depts.as_slice()).unwrap();
     if rows.len() != 2i64 { return 1i32; }
     if rows.get(0i64) != 13i64 { return 2i32; }   // dept 1: 3 skills
     if rows.get(1i64) != 21i64 { return 3i32; }   // dept 2: 1 skill

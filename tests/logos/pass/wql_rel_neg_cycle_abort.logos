@@ -37,7 +37,7 @@ fn main() -> i32 {
         Edge { src: 2i64, dst: 3i64, w: -1i64 },
         Edge { src: 3i64, dst: 2i64, w: -2i64 },
     ];
-    let got: Vec<(i64, i64)> = sssp(&src[..], &edges[..]);
+    let got: Vec<(i64, i64)> = sssp(&src[..], &edges[..]).unwrap();
     // Unreachable: the guard aborts before returning.
     return got.len() as i32;
 }

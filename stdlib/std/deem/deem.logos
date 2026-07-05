@@ -1151,6 +1151,13 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             if v.is_string() { return ct(CT_STR); }
             if v.is_bool()   { return ct(CT_BOOL); }
             if v.is_float()  { return ct(CT_FLT); }
+            // Out-of-range integer literal: the tokenizer poisoned it to i64::MIN
+            // (unrepresentable by a valid non-negative decimal token) — surface a
+            // compile error so Query::compile / Tpl::compile return Err.
+            if v.as_i64() == el_lit_poison() {
+                chk_fail(chk, "integer literal out of range — exceeds i64::MAX (9223372036854775807)", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
             return ct(CT_INT);
         }
         SExpr::Param(p) => { return check_root(p.name, cat, env, strict, lb, chk, reg); }
@@ -5031,11 +5038,17 @@ pub struct ZOut {
     wt:    Vec<i64>,
     memb:  Vec<bool>,
     idx:   HashMap<u64, Vec<i64>>,
+    // Error-returning EL policy (incremental): set true when a projected cell
+    // evaluated to RtVal::Error (integer overflow / division by zero). Surfaced
+    // by the engine's `had_error()` (the harness checks it after an epoch);
+    // never traps the host.
+    math_err: bool,
 }
 fn zout_new(nc: i64) -> ZOut {
     return ZOut {
         ncols: nc, cells: vec_new::<RtVal>(), wt: vec_new::<i64>(),
         memb: vec_new::<bool>(), idx: hashmap_new::<u64, Vec<i64>>(),
+        math_err: false,
     };
 }
 
@@ -5100,6 +5113,19 @@ fn zout_upsert(zp: *mut ZOut, arena: &Writ, cells: &Vec<RtVal>, off: i64) -> i64
     return slot;
 }
 
+// Error-returning EL policy (incremental): flag the scratch ZOut when any
+// projected cell evaluated to RtVal::Error (integer overflow / div-by-zero).
+// The flag rides the scratch delta into the persistent engine (out_apply /
+// epoch), where `had_error()` reads it — never a host trap.
+fn zout_note_errs(zp: *mut ZOut, cells: &Vec<RtVal>) {
+    let n: i64 = cells.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if rt_is_err(cells.get(i)) { let z: &mut ZOut = unsafe { &mut *zp }; z.math_err = true; return; }
+        i = i + 1i64;
+    }
+}
+
 // RProj weight-coalesce (§10.4): Δout[π(t)] += w, ADDITIVE (never 1:1).
 fn zout_bump(zp: *mut ZOut, arena: &Writ, cells: &Vec<RtVal>, off: i64, w: i64) {
     if w == 0i64 { return; }
@@ -5113,6 +5139,8 @@ fn zout_bump(zp: *mut ZOut, arena: &Writ, cells: &Vec<RtVal>, off: i64, w: i64) 
 // (§10.4 RDistinct crossing, NOT w>0).
 fn out_apply(outp: *mut ZOut, arena: &Writ, odp: *const ZOut, has_distinct: bool) {
     let od: &ZOut = unsafe { &*odp };
+    // Latch a scratch-delta math error into the persistent out (had_error reads it).
+    if od.math_err { let op: &mut ZOut = unsafe { &mut *outp }; op.math_err = true; }
     let nc: i64 = od.ncols;
     let n: i64 = od.wt.len();
     let mut i: i64 = 0i64;
@@ -5170,6 +5198,7 @@ fn ij_emit(odp: *mut ZOut, arena: &Writ, a_node: WAny, b_node: WAny, w: i64,
         }
         _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
     }
+    zout_note_errs(odp, &cells);
     zout_bump(odp, arena, &cells, 0i64, w);
 }
 
@@ -5237,6 +5266,7 @@ fn ij_anti_emit(odp: *mut ZOut, arena: &Writ, l_node: WAny, w: i64,
         }
         _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
     }
+    zout_note_errs(odp, &cells);
     zout_bump(odp, arena, &cells, 0i64, w);
 }
 
@@ -5268,6 +5298,7 @@ fn ag_emit(odp: *mut ZOut, arena: &Writ, key: RtVal, aggvals: &Vec<RtVal>, an: i
         }
         _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
     }
+    zout_note_errs(odp, &cells);
     zout_bump(odp, arena, &cells, 0i64, w);
 }
 
@@ -5412,6 +5443,10 @@ pub struct IncrJoin {
     agg_out:   [str; 8],     // bound out-name of each agg column (projection reads it)
     key_w:     i64,          // raw SExpr of the group key (evaluated per scan row)
     agg:       AggState,     // the maintained per-group accumulators (a/b unused here)
+    // Error-returning EL policy: latched when any per-epoch key/projection cell
+    // evaluated to RtVal::Error (overflow / div-by-zero). Read via had_error();
+    // never traps the host.
+    math_err:  bool,
 }
 
 impl IncrJoin {
@@ -5421,6 +5456,9 @@ impl IncrJoin {
         // slice-3: GROUP aggregation is a SINGLE-SCAN operator — consume only `da`
         // (the scan source); `db` is ignored (no second source in this fragment).
         if self.is_aggr { self.ag_run(da); return; }
+        // Raw handle to the engine's math-error latch (set below on a key error),
+        // captured BEFORE the shared `&self.cat` borrow so the two don't conflict.
+        let mep: *mut bool = &mut self.math_err;
         let cat: &SchemaCatalog = &self.cat;
         let env: &QEnv = unsafe { &*(self.envp as *const QEnv) };
         let scratch: Writ = writ_new(2048i64);
@@ -5434,13 +5472,17 @@ impl IncrJoin {
         let mut dakeys: Vec<RtVal> = vec_new::<RtVal>();
         let mut ia: i64 = 0i64;
         while ia < da.node.len() {
-            dakeys.push(ij_key(probe_w, lvar, da.node.get(ia), cat, env, &scratch));
+            let kva: RtVal = ij_key(probe_w, lvar, da.node.get(ia), cat, env, &scratch);
+            if rt_is_err(kva) { unsafe { *mep = true; } }
+            dakeys.push(kva);
             ia = ia + 1i64;
         }
         let mut dbkeys: Vec<RtVal> = vec_new::<RtVal>();
         let mut ib: i64 = 0i64;
         while ib < db.node.len() {
-            dbkeys.push(ij_key(build_w, rvar, db.node.get(ib), cat, env, &scratch));
+            let kvb: RtVal = ij_key(build_w, rvar, db.node.get(ib), cat, env, &scratch);
+            if rt_is_err(kvb) { unsafe { *mep = true; } }
+            dbkeys.push(kvb);
             ib = ib + 1i64;
         }
 
@@ -5582,6 +5624,9 @@ impl IncrJoin {
     //   • empty-group DROP: gcount→0 stages ONLY the −old retraction and sets
     //     live=false — never a stale 0-count row, never a +（key,0).
     fn ag_run(self: &mut IncrJoin, da: &ZBatch) {
+        // Math-error latch handle (set on a key/arg error), captured before the
+        // shared `&self.cat` borrow.
+        let mep: *mut bool = &mut self.math_err;
         let cat: &SchemaCatalog = &self.cat;
         let env: &QEnv = unsafe { &*(self.envp as *const QEnv) };
         let scratch: Writ = writ_new(2048i64);
@@ -5614,6 +5659,7 @@ impl IncrJoin {
                 kb.bind_val(lvar, RtVal::Node(node));
                 let kbp: *const RBinds = &kb;
                 let k: RtVal = eval_sexpr(sx_of(key_w), cat, env, kbp, &scratch);
+                if rt_is_err(k) { unsafe { *mep = true; } }
                 let slot: i64 = aggstate_ensure(&mut self.agg, k, n, &self.arena);
                 // grow the OLD/seen scratch to cover `slot`
                 while seen.len() <= slot {
@@ -5642,6 +5688,7 @@ impl IncrJoin {
                     let fnid: i32 = self.agg_fnid[ai];
                     if fnid == 2i32 || fnid == 5i32 {
                         let av: RtVal = eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch);
+                        if rt_is_err(av) { unsafe { *mep = true; } }
                         let cur: i64 = self.agg.gsum.get(slot * n + ai);
                         self.agg.gsum.set(slot * n + ai, cur + w * rt_i(av));
                     } else if fnid == 3i32 || fnid == 4i32 {
@@ -5754,6 +5801,15 @@ impl IncrJoin {
         }
 
         out_apply(&mut self.out, &self.arena, &od, self.has_distinct);
+    }
+
+    // Error-returning EL policy: true iff any epoch so far hit a math error
+    // (integer overflow / division-by-zero) in a key or projection cell. The
+    // harness checks this after epochs; the engine never traps the host. Latches
+    // (once true, stays true). Reads both the key latch (self.math_err) and the
+    // projection latch propagated into self.out (out_apply).
+    pub fn had_error(self: &IncrJoin) -> bool {
+        return self.math_err || self.out.math_err;
     }
 
     // Read the maintained state as a self-contained QRows (compare at
@@ -5948,6 +6004,7 @@ impl Query {
                     ncols: ancols, ckind: ackind,
                     is_aggr: true, agg_n: an, agg_fnid: afnid, agg_arg_w: aargw,
                     agg_out: aout, key_w: akey_w, agg: aggstate_new(),
+                    math_err: false,
                 };
                 // base-fill: +1/identity per source element through the SAME
                 // accumulate+emit path (seeds AggState and the initial out).
@@ -6010,6 +6067,7 @@ impl Query {
             ncols: ncols, ckind: ckind,
             is_aggr: false, agg_n: 0i64, agg_fnid: [0i32; 8], agg_arg_w: [0i64; 8],
             agg_out: [""; 8], key_w: 0i64, agg: aggstate_new(),
+            math_err: false,
         };
         let scratch: Writ = writ_new(2048i64);
         // fill arrangements from the base sources (+1/identity per element)
@@ -6142,6 +6200,9 @@ pub struct IncrRec {
     agg:      bool,
     agg_dir:  i32,
     best:     HashMap<i64, i64>,
+    // Error-returning EL policy: latched on a math error (overflow / div-by-zero)
+    // in a recursive-body projection/aggregate cell. Read via had_error().
+    math_err: bool,
 }
 
 // Build a WArray<WAny> in `edoc` from `nodes` and bind it as the edge source.
@@ -6313,6 +6374,7 @@ impl IncrRec {
         if self.agg { rctx_set_best(&mut ctx, 0i64, best_i); }   // slice-7 absorb
         let cp: *mut Chk = &mut chk;
         qrel_materialize(q, &self.env, &qp, &scratch, &mut ctx, cp);
+        if chk.failed { self.math_err = true; }
         self.ptot = self.rows.len() / self.ncols;
     }
 
@@ -6467,6 +6529,9 @@ impl IncrRec {
             qrel_run_body(q, rec_body, &self.env, &qp, &scratch, ctxp, cp);
             rctx_set_ovr(ctxp, 0i64);
         }
+        // Error-returning EL policy: a math fault in a recursive-body cell latched
+        // the Chk (via eval_sx); surface it on the engine for had_error().
+        if chk.failed { self.math_err = true; }
         self.ptot = self.rows.len() / self.ncols;
     }
 
@@ -6565,7 +6630,7 @@ impl IncrRec {
             qrel_run_body(q, rec_body, &self.env, &qp, &scratch, pctxp, cp);
             rctx_set_ovr(pctxp, 0i64);
         }
-        if chk_bad(cp) { return; }
+        if chk_bad(cp) { self.math_err = true; return; }
 
         // ── PHASE 2: COMPACT — self.rows/self.rhm ← old[0,ptot) ∖ OD ──
         let mut new_rows: Vec<RtVal> = vec_new::<RtVal>();
@@ -6625,7 +6690,15 @@ impl IncrRec {
             qrel_run_body(q, rec_body, &self.env, &qp, &scratch, rctxp, cp);
             rctx_set_ovr(rctxp, 0i64);
         }
+        if chk.failed { self.math_err = true; }
         self.ptot = self.rows.len() / ncols;
+    }
+
+    // Error-returning EL policy: true iff any epoch hit a math error (overflow /
+    // division-by-zero) in a recursive-body cell. The harness checks this after
+    // epochs; the engine never traps the host. Latches.
+    pub fn had_error(self: &IncrRec) -> bool {
+        return self.math_err;
     }
 
     // Read the maintained closure as a self-contained QRows via the ENTRY
@@ -6924,6 +6997,7 @@ impl Query {
             agg: rel_dir != 0i32,
             agg_dir: rel_dir,
             best: hashmap_new::<i64, i64>(),
+            math_err: false,
         };
         // seed the edge multiset from the bound base relation (+1/identity)
         let sn: i64 = sarr.len();

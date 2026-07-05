@@ -80,7 +80,7 @@ fn main() -> i32 {
         Edge { src: 6i64, dst: 5i64, w: 9i64  },
     ];
 
-    let got: Vec<(i64, i64)> = sssp(&src[..], &edges[..]);
+    let got: Vec<(i64, i64)> = sssp(&src[..], &edges[..]).unwrap();
     let want: Vec<(i64, i64)> = ref_sssp(&edges[..], 1i64, 6i64);
 
     if got.len() != want.len() { return 1i32; }

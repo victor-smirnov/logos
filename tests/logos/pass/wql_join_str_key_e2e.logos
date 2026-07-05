@@ -33,14 +33,14 @@ fn main() -> i32 {
         Hub { city: "lviv", code: 2i64 },
     ];
 
-    let s: Vec<i64> = hub_sal(&emps[..], &hubs[..]);
+    let s: Vec<i64> = hub_sal(&emps[..], &hubs[..]).unwrap();
     if s.len() != 3i64      { return 1i32; }
     if s.get(0i64) != 51i64 { return 2i32; }
     if s.get(1i64) != 62i64 { return 3i32; }
     if s.get(2i64) != 71i64 { return 4i32; }
 
     // Anti over the str key: only the hub-less city remains.
-    let r: Vec<i64> = remote_sal(&emps[..], &hubs[..]);
+    let r: Vec<i64> = remote_sal(&emps[..], &hubs[..]).unwrap();
     if r.len() != 1i64      { return 5i32; }
     if r.get(0i64) != 99i64 { return 6i32; }
     return 0i32;

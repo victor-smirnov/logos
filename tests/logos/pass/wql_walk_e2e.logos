@@ -35,7 +35,7 @@ fn main() -> i32 {
         Person { name: 3i64, age: 40i64 },
         Person { name: 4i64, age: 9i64  },
     ];
-    let ages: Vec<i64> = adults(&people[..]);
+    let ages: Vec<i64> = adults(&people[..]).unwrap();
     if ages.len() != 2i64      { return 1i32; }
     if ages.get(0i64) != 18i64 { return 2i32; }
     if ages.get(1i64) != 40i64 { return 3i32; }
@@ -46,7 +46,7 @@ fn main() -> i32 {
         Dept { id: 2i64, head: 20i64 },
         Dept { id: 3i64, head: 30i64 },
     ];
-    let heads: Vec<i64> = joined(&people[..], &depts[..]);
+    let heads: Vec<i64> = joined(&people[..], &depts[..]).unwrap();
     if heads.len() != 2i64      { return 10i32; }
     if heads.get(0i64) != 20i64 { return 11i32; }   // p.name=2 matches d.id=2
     if heads.get(1i64) != 30i64 { return 12i32; }   // p.name=3 matches d.id=3
@@ -58,7 +58,7 @@ fn main() -> i32 {
         Order { dept: 9i64, amt: 200i64 },
         Order { dept: 7i64, amt: 50i64  },
     ];
-    let sums: Vec<i64> = totals(&orders[..]);
+    let sums: Vec<i64> = totals(&orders[..]).unwrap();
     if sums.len() != 2i64       { return 20i32; }
     if sums.get(0i64) != 150i64 { return 21i32; }   // dept 7
     if sums.get(1i64) != 200i64 { return 22i32; }   // dept 9

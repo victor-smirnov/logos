@@ -39,13 +39,13 @@ fn main() -> i32 {
         Emp { name: 3i64, age: 40i64 },
         Emp { name: 4i64, age: 9i64  },
     ];
-    let rows: Vec<i64> = adults(&people[..]);
+    let rows: Vec<i64> = adults(&people[..]).unwrap();
     if rows.len() != 2i64 { return 1i32; }
     if rows.get(0i64) != 18i64 { return 2i32; }
     if rows.get(1i64) != 40i64 { return 3i32; }
 
     let ctx: Ctx = Ctx { nums: [1i64, 2i64, 3i64], flag: true };
-    let s: String = render(&ctx);
+    let s: String = render(&ctx).unwrap();
     let want: str = "nums:[1][2][3]!";
     if s.len() != want.len() { return 4i32; }
     let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };

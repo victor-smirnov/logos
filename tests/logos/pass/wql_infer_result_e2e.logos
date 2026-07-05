@@ -44,20 +44,20 @@ fn main() -> i32 {
     ];
 
     // eng_names → Vec<str> ["Ada", "Cleo"]
-    let names: Vec<str> = eng_names(&people[..]);
+    let names: Vec<str> = eng_names(&people[..]).unwrap();
     if names.len() != 2i64 { return 1i32; }
     if !str_eq(names.get(0i64), "Ada")  { return 2i32; }
     if !str_eq(names.get(1i64), "Cleo") { return 3i32; }
 
     // ages → Vec<i64> [36, 41, 52]
-    let a: Vec<i64> = ages(&people[..]);
+    let a: Vec<i64> = ages(&people[..]).unwrap();
     if a.len() != 3i64 { return 4i32; }
     if a.get(0i64) != 36i64 { return 5i32; }
     if a.get(1i64) != 41i64 { return 6i32; }
     if a.get(2i64) != 52i64 { return 7i32; }
 
     // is_adult → Vec<bool>; with $min=40, only Bob (41) and Dane (52) are true.
-    let flags: Vec<bool> = is_adult(&people[..], 40i64);
+    let flags: Vec<bool> = is_adult(&people[..], 40i64).unwrap();
     if flags.len() != 4i64 { return 8i32; }
     if flags.get(0i64) != false { return 9i32; }   // 36 < 40
     if flags.get(1i64) != true  { return 10i32; }  // 41 >= 40

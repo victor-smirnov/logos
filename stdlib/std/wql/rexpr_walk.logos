@@ -173,7 +173,15 @@ fn apply_scalar_params(ty: &mut ElTypes, prm: &MacroParams) {
 // Validate a `limit <ident>` reference: the ident must name a SCALAR param
 // declared in the deem!(…) list. Surfaces an `error` (build failure) otherwise.
 fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
-    if !mods.has_limit || !mods.limit_is_param { return true; }
+    if !mods.has_limit { return true; }
+    if !mods.limit_is_param {
+        // Literal limit: reject an out-of-range value (tokenizer poison i64::MIN).
+        if mods.limit_n == el_lit_poison() {
+            error("wql!: `limit` integer literal out of range — exceeds i64::MAX (9223372036854775807)");
+            return false;
+        }
+        return true;
+    }
     if prm.is_scalar(mods.limit_param) { return true; }
     error("wql!: `limit <ident>` must name a scalar (i64) parameter declared in the deem!(…) parameter list");
     return false;
@@ -475,18 +483,18 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     emit_fn_head(&mut em, fn_name, params_text);
     if first {
         // Single-row mode: constant None (no scan loop).
-        em.push_text(") -> Option<");
+        em.push_text(") -> Result<Option<");
         em.push_text(result_elem);
-        em.push_text("> {\n");
-        em.push_text("    return Option::None;\n");
+        em.push_text(">, ElError> {\n");
+        em.push_text("    return Result::Ok(Option::None);\n");
     } else {
-        em.push_text(") -> Vec<");
+        em.push_text(") -> Result<Vec<");
         em.push_text(result_elem);
-        em.push_text("> {\n");
+        em.push_text(">, ElError> {\n");
         // The const-false filter proved emptiness: return the empty Vec directly.
-        em.push_text("    return Vec::<");
+        em.push_text("    return Result::Ok(Vec::<");
         em.push_text(result_elem);
-        em.push_text(">::new();\n");
+        em.push_text(">::new());\n");
     }
     em.push_text("}\n");
     em.commit();
@@ -501,10 +509,10 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> bo
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
-    em.push_text(") -> Option<&");
+    em.push_text(") -> Result<Option<&");
     em.push_text(sc.row_ty);
-    em.push_text("> {\n");
-    em.push_text("    return Option::None;\n");
+    em.push_text(">, ElError> {\n");
+    em.push_text("    return Result::Ok(Option::None);\n");
     em.push_text("}\n");
     em.commit();
     return true;
@@ -524,15 +532,15 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> boo
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
-    em.push_text(") -> Option<&");
+    em.push_text(") -> Result<Option<&");
     em.push_text(row_ty);
-    em.push_text("> {\n");
+    em.push_text(">, ElError> {\n");
     em.push_text("    if (");
     em.push_text(src_name);
-    em.push_text(").len() > 0i64 { return Option::Some(&(");
+    em.push_text(").len() > 0i64 { return Result::Ok(Option::Some(&(");
     em.push_text(src_name);
-    em.push_text(")[0i64]); }\n");
-    em.push_text("    return Option::None;\n");
+    em.push_text(")[0i64])); }\n");
+    em.push_text("    return Result::Ok(Option::None);\n");
     em.push_text("}\n");
     em.commit();
     return true;
@@ -553,12 +561,12 @@ fn emit_identity(scan_e: RExpr,
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
-    em.push_text(") -> &[");
+    em.push_text(") -> Result<&[");
     em.push_text(row_ty);
-    em.push_text("] {\n");
-    em.push_text("    return ");
+    em.push_text("], ElError> {\n");
+    em.push_text("    return Result::Ok(");
     em.push_text(src_name);
-    em.push_text(";\n");
+    em.push_text(");\n");
     em.push_text("}\n");
     em.commit();
     return true;
@@ -790,14 +798,14 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
     if first {
-        em.push_text(") -> Option<");
+        em.push_text(") -> Result<Option<");
         em.push_text(result_elem);
-        em.push_text("> {\n");
+        em.push_text(">, ElError> {\n");
         em.push_text(prelude);
     } else {
-        em.push_text(") -> Vec<");
+        em.push_text(") -> Result<Vec<");
         em.push_text(result_elem);
-        em.push_text("> {\n");
+        em.push_text(">, ElError> {\n");
         em.push_text(prelude);
         em.push_text("    let mut __out: Vec<");
         em.push_text(result_elem);
@@ -853,9 +861,9 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             em.push_text(" = &(");
             em.push_text(src_name);
             em.push_text(")[__ix0.get(0i64)];\n");
-            em.push_text("        return Option::Some(");
+            em.push_text("        return Result::Ok(Option::Some(");
             em.push_text(string_as_str(&body));
-            em.push_text(");\n");
+            em.push_text("));\n");
             em.push_text("    }\n");
         } else {
             // Phase 3: project in sorted order (distinct dedups; limit caps).
@@ -894,18 +902,18 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             em.push_text(" {\n");
             if first {
                 // Early exit: the FIRST matching row's projection is the answer.
-                em.push_text("            return Option::Some(");
+                em.push_text("            return Result::Ok(Option::Some(");
                 em.push_text(string_as_str(&body));
-                em.push_text(");\n");
+                em.push_text("));\n");
             } else {
                 emit_push_guarded(&mut em, "            ", result_elem, string_as_str(&body), mods.distinct);
             }
             em.push_text("        }\n");
         } else {
             if first {
-                em.push_text("        return Option::Some(");
+                em.push_text("        return Result::Ok(Option::Some(");
                 em.push_text(string_as_str(&body));
-                em.push_text(");\n");
+                em.push_text("));\n");
             } else {
                 emit_push_guarded(&mut em, "        ", result_elem, string_as_str(&body), mods.distinct);
             }
@@ -914,9 +922,9 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         em.push_text("    }\n");
     }
     if first {
-        em.push_text("    return Option::None;\n");
+        em.push_text("    return Result::Ok(Option::None);\n");
     } else {
-        em.push_text("    return __out;\n");
+        em.push_text("    return Result::Ok(__out);\n");
     }
     em.push_text("}\n");
     em.commit();
@@ -956,9 +964,9 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
-    em.push_text(") -> Option<&");
+    em.push_text(") -> Result<Option<&");
     em.push_text(row_ty);
-    em.push_text("> {\n");
+    em.push_text(">, ElError> {\n");
     em.push_text(prelude);
     em.push_text("    let mut __i: i64 = 0i64;\n");
     em.push_text("    while __i < (");
@@ -974,17 +982,17 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     if has_pred {
         em.push_text("        if ");
         em.push_text(string_as_str(&pred_body));
-        em.push_text(" { return Option::Some(");
+        em.push_text(" { return Result::Ok(Option::Some(");
         em.push_text(var_name);
-        em.push_text("); }\n");
+        em.push_text(")); }\n");
     } else {
-        em.push_text("        return Option::Some(");
+        em.push_text("        return Result::Ok(Option::Some(");
         em.push_text(var_name);
-        em.push_text(");\n");
+        em.push_text("));\n");
     }
     em.push_text("        __i = __i + 1i64;\n");
     em.push_text("    }\n");
-    em.push_text("    return Option::None;\n");
+    em.push_text("    return Result::Ok(Option::None);\n");
     em.push_text("}\n");
     em.commit();
     return true;
@@ -1920,14 +1928,14 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
     if first {
-        em.push_text(") -> Option<");
+        em.push_text(") -> Result<Option<");
         em.push_text(result_ty);
-        em.push_text("> {\n");
+        em.push_text(">, ElError> {\n");
         em.push_text(prelude);
     } else {
-        em.push_text(") -> Vec<");
+        em.push_text(") -> Result<Vec<");
         em.push_text(result_ty);
-        em.push_text("> {\n");
+        em.push_text(">, ElError> {\n");
         em.push_text(prelude);
         em.push_text("    let mut __out: Vec<");
         em.push_text(result_ty);
@@ -2019,9 +2027,9 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         em.push_text(");\n");
     } else if first {
         push_ind(&mut em, lvl);
-        em.push_text("return Option::Some(");
+        em.push_text("return Result::Ok(Option::Some(");
         em.push_text(string_as_str(&proj_body));
-        em.push_text(");\n");
+        em.push_text("));\n");
     } else {
         let inds: String = ind_string(lvl);
         emit_push_guarded(&mut em, string_as_str(&inds), result_ty,
@@ -2068,9 +2076,9 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
                 em.push_text(".get(0i64)];\n");
                 rk = rk + 1i64;
             }
-            em.push_text("        return Option::Some(");
+            em.push_text("        return Result::Ok(Option::Some(");
             em.push_text(string_as_str(&proj_body));
-            em.push_text(");\n");
+            em.push_text("));\n");
             em.push_text("    }\n");
         } else {
             em.push_text("    let mut __o: i64 = 0i64;\n");
@@ -2100,9 +2108,9 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         }
     }
     if first {
-        em.push_text("    return Option::None;\n");
+        em.push_text("    return Result::Ok(Option::None);\n");
     } else {
-        em.push_text("    return __out;\n");
+        em.push_text("    return Result::Ok(__out);\n");
     }
     em.push_text("}\n");
     em.commit();
@@ -2240,9 +2248,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
-    em.push_text(") -> Vec<");
+    em.push_text(") -> Result<Vec<");
     em.push_text(result_ty);
-    em.push_text("> {\n");
+    em.push_text(">, ElError> {\n");
     em.push_text(prelude);
     em.push_text("    let mut __out: Vec<");
     em.push_text(result_ty);
@@ -2510,7 +2518,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         em.push_text("        __o = __o + 1i64;\n");
         em.push_text("    }\n");
     }
-    em.push_text("    return __out;\n");
+    em.push_text("    return Result::Ok(__out);\n");
     em.push_text("}\n");
     em.commit();
     return true;
@@ -2961,9 +2969,9 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view);
     emit_fn_head(&mut em, fn_name, params_text);
-    em.push_text(") -> Vec<");
+    em.push_text(") -> Result<Vec<");
     em.push_text(result_ty);
-    em.push_text("> {\n");
+    em.push_text(">, ElError> {\n");
     em.push_text(prelude);
     em.push_text("    let mut __out: Vec<");
     em.push_text(result_ty);
@@ -3281,7 +3289,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
     em.push_text("        __o = __o + 1i64;\n");
     em.push_text("    }\n");
-    em.push_text("    return __out;\n");
+    em.push_text("    return Result::Ok(__out);\n");
     em.push_text("}\n");
     em.commit();
     return true;
@@ -3942,9 +3950,9 @@ fn emit_rel_fn_oneshot(em: &mut Emitter, rel: RQRel, ri: i64, fn_name: str,
     em.push_text("(");
     em.push_text(params_text);
     push_dep_params(em, prm, scc.dep_mask[ri]);
-    em.push_text(") -> Vec<");
+    em.push_text(") -> Result<Vec<");
     em.push_text(row_ty);
-    em.push_text("> {\n");
+    em.push_text(">, ElError> {\n");
     em.push_text("    let mut __out: Vec<");
     em.push_text(row_ty);
     em.push_text("> = Vec::<");
@@ -3965,7 +3973,7 @@ fn emit_rel_fn_oneshot(em: &mut Emitter, rel: RQRel, ri: i64, fn_name: str,
         if !emit_rel_body(em, bodies.body_any(b), ri, prm, h) { return false; }
         b = b + 1i64;
     }
-    em.push_text("    return __out;\n");
+    em.push_text("    return Result::Ok(__out);\n");
     em.push_text("}\n");
     return true;
 }
@@ -4124,7 +4132,7 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
         em.push_text(">");
         m0 = m0 + 1i64;
     }
-    em.push_text(") {\n");
+    em.push_text(") -> Result<(), ElError> {\n");
     // ── Per-member state ──
     // Plain (set-semantics) member: a shadow HashSet + current/next delta Vecs.
     // AGGREGATE member (recursive min/max): a best-per-key MAP + its raw pointer
@@ -4373,6 +4381,7 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
         }
         mt = mt + 1i64;
     }
+    em.push_text("    return Result::Ok(());\n");
     em.push_text("}\n");
     return true;
 }

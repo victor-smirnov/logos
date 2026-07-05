@@ -100,13 +100,13 @@ fn check(base: i32, do_max: bool, ss: &Vec<SS>, se: &Vec<SE>,
     env.bind_source("src", dsrc(&d, ids));
     env.bind_source("edges", dedge(&d, es, et, ew));
 
-    let mut s1: Vec<i64> = sssp(ss.as_slice(), se.as_slice());
+    let mut s1: Vec<i64> = sssp(ss.as_slice(), se.as_slice()).unwrap();
     let mut d1: Vec<i64> = dyn_run("rel dist(node: i64, d: i64) { from src s select (s.id, 0); from dist x join edges e on e.src == x.node group by e.dst aggregate d = min(x.d + e.w) select (e.dst, d); } from dist r select r.node * 1000 + r.d", c, &env);
     if s1.len() == 0i64 { return base + 8i32; }          // static broke → different regression
     if !veq(&mut s1, &mut d1) { return base + 1i32; }    // SSSP (min) dynamic != static (the bug)
 
     if do_max {
-        let mut s2: Vec<i64> = longest(ss.as_slice(), se.as_slice());
+        let mut s2: Vec<i64> = longest(ss.as_slice(), se.as_slice()).unwrap();
         let mut d2: Vec<i64> = dyn_run("rel hop(node: i64, d: i64) { from src s select (s.id, 0); from hop x join edges e on e.src == x.node group by e.dst aggregate d = max(x.d + 1) select (e.dst, d); } from hop r select r.node * 1000 + r.d", c, &env);
         if !veq(&mut s2, &mut d2) { return base + 2i32; } // max-aggregate dynamic != static
     }

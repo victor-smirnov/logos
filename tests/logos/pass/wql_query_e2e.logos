@@ -39,7 +39,7 @@ fn main() -> i32 {
         Person { name: 3i64, age: 40i64 },
         Person { name: 4i64, age: 9i64  },
     ];
-    let rows: Vec<i64> = adults(&people[..]);
+    let rows: Vec<i64> = adults(&people[..]).unwrap();
 
     // Expect [18, 40] — the two adults' ages, in source order.
     if rows.len() != 2i64 { return 1i32; }

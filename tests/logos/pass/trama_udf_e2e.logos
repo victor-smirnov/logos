@@ -32,13 +32,13 @@ resource render = trama!(u: &User){
 
 fn main() -> i32 {
     let a: User = User { name: "ada", score: 120i64 };
-    let s1: String = render(&a);
+    let s1: String = render(&a).unwrap();
     let want1: str = "ada! s=240 [vip]";
     let v1: str = unsafe { str_from_raw(s1.as_ptr(), s1.len()) };
     if !str_eq(v1, want1) { return 1i32; }
 
     let b: User = User { name: "bob", score: 40i64 };
-    let s2: String = render(&b);
+    let s2: String = render(&b).unwrap();
     let want2: str = "bob! s=80 [std]";
     let v2: str = unsafe { str_from_raw(s2.as_ptr(), s2.len()) };
     if !str_eq(v2, want2) { return 2i32; }

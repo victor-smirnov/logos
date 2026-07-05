@@ -41,11 +41,11 @@ fn main() -> i32 {
     depts.push(Dept { dname: "eng",  emps: eng_emps });
     depts.push(Dept { dname: "idle", emps: Vec::<Emp>::new() });   // empty → empty_depts
 
-    let ed: Vec<str> = empty_depts(depts.as_slice());
+    let ed: Vec<str> = empty_depts(depts.as_slice()).unwrap();
     if ed.len() != 1i64 { return 1i32; }
     if !str_eq(ed.get(0i64), "idle") { return 2i32; }
 
-    let nr: Vec<str> = no_rust(depts.as_slice());
+    let nr: Vec<str> = no_rust(depts.as_slice()).unwrap();
     if nr.len() != 2i64 { return 3i32; }
     if !str_eq(nr.get(0i64), "bob") { return 4i32; }
     if !str_eq(nr.get(1i64), "cid") { return 5i32; }

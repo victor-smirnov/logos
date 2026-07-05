@@ -27,7 +27,7 @@ fn main() -> i32 {
         Person { age: 40i64 },   // adult → 40
         Person { age: 9i64  },   // minor → 0
     ];
-    let r: Vec<i64> = clamp(&people[..]);
+    let r: Vec<i64> = clamp(&people[..]).unwrap();
 
     if r.len() != 4i64 { return 1i32; }
     if r.get(0i64) != 0i64  { return 2i32; }

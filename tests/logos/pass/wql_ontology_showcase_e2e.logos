@@ -151,7 +151,7 @@ fn main() -> i32 {
         Loc { ind: "vs1", room: "room101" },
     ];
     println!("== unmonitored rotating equipment ==");
-    let bad: Vec<(str, str)> = audit(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]);
+    let bad: Vec<(str, str)> = audit(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]).unwrap();
     let mut i: i64 = 0i64;
     while i < bad.len() {
         let row: (str, str) = bad.get(i);
@@ -160,7 +160,7 @@ fn main() -> i32 {
     }
 
     println!("== asset census per building ==");
-    let cs: Vec<(str, i64)> = census(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]);
+    let cs: Vec<(str, i64)> = census(&subs[..], &inst[..], &mons[..], &parts[..], &locs[..]).unwrap();
     let mut j: i64 = 0i64;
     while j < cs.len() {
         let g: (str, i64) = cs.get(j);
@@ -169,7 +169,7 @@ fn main() -> i32 {
     }
 
     println!("== inferred classes of 'sx' ==");
-    let sx: Vec<str> = classify(&subs[..], &inst[..], &mons[..], "sx");
+    let sx: Vec<str> = classify(&subs[..], &inst[..], &mons[..], "sx").unwrap();
     let mut k: i64 = 0i64;
     while k < sx.len() {
         println!("{}", sx.get(k));

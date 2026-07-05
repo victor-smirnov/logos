@@ -46,7 +46,7 @@ fn main() -> i32 {
         Dept { id: 2i64, dname: "data" },
     ];
 
-    let g: Vec<(str, str)> = emp_geo(emps.as_slice(), &depts[..]);
+    let g: Vec<(str, str)> = emp_geo(emps.as_slice(), &depts[..]).unwrap();
     if g.len() != 2i64 { return 1i32; }
     let g0: (str, str) = g.get(0i64);
     if !str_eq(g0.0, "core") { return 2i32; }
@@ -61,7 +61,7 @@ fn main() -> i32 {
     let mut orgs: Vec<Org> = Vec::<Org>::new();
     orgs.push(Org { oname: "acme", emps: o_emps });
 
-    let od: Vec<(str, str, str)> = org_depts(orgs.as_slice(), &depts[..]);
+    let od: Vec<(str, str, str)> = org_depts(orgs.as_slice(), &depts[..]).unwrap();
     if od.len() != 1i64 { return 6i32; }
     let od0: (str, str, str) = od.get(0i64);
     if !str_eq(od0.0, "acme") { return 7i32; }

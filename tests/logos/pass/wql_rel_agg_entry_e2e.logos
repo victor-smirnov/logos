@@ -29,7 +29,7 @@ fn main() -> i32 {
 
     // p = {(1,10),(2,20),(1,30)} — the (1,10) dup collapses. Groups:
     //   key 1 → n=2, total=40;  key 2 → n=1, total=20.
-    let out: Vec<(i64, i64, i64)> = src_sums(&edges[..]);
+    let out: Vec<(i64, i64, i64)> = src_sums(&edges[..]).unwrap();
     if out.len() != 2i64 { return 1i32; }
     let g0: (i64, i64, i64) = out.get(0i64);
     if g0.0 != 1i64  { return 2i32; }

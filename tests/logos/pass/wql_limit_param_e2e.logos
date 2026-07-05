@@ -27,21 +27,21 @@ fn main() -> i32 {
     ];
 
     // Adults in source order: 45, 41, 30, 33. Cap 2 → 45, 41.
-    let r2: Vec<i64> = first_ages(&people[..], 2i64);
+    let r2: Vec<i64> = first_ages(&people[..], 2i64).unwrap();
     if r2.len() != 2i64 { return 1i32; }
     if r2.get(0i64) != 45i64 { return 2i32; }
     if r2.get(1i64) != 41i64 { return 3i32; }
 
     // Cap larger than the match count → all 4 adults.
-    let r9: Vec<i64> = first_ages(&people[..], 9i64);
+    let r9: Vec<i64> = first_ages(&people[..], 9i64).unwrap();
     if r9.len() != 4i64 { return 4i32; }
 
     // Runtime cap 0 → empty.
-    let r0: Vec<i64> = first_ages(&people[..], 0i64);
+    let r0: Vec<i64> = first_ages(&people[..], 0i64).unwrap();
     if r0.len() != 0i64 { return 5i32; }
 
     // Sorted desc (45, 41, 33, 30, 12), runtime cap 3 → 45, 41, 33.
-    let t3: Vec<i64> = top_ages(&people[..], 3i64);
+    let t3: Vec<i64> = top_ages(&people[..], 3i64).unwrap();
     if t3.len() != 3i64 { return 6i32; }
     if t3.get(0i64) != 45i64 { return 7i32; }
     if t3.get(1i64) != 41i64 { return 8i32; }

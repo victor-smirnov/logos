@@ -50,7 +50,7 @@ fn main() -> i32 {
             Box { label: "B", lines: [ Line { sku: "Y1", qty: 1i64 }, Line { sku: "Y2", qty: 9i64 } ] },
         ],
     };
-    let r: String = manifest(&ship);
+    let r: String = manifest(&ship).unwrap();
     // `-%}` trims the newline+indent after each loop tag, so the item lines pack
     // flush-left (the 2-space template indent is part of the trimmed run).
     let want: str = "carrier: UPS\nbox A:\nX1 x3\nX2 x5\nbox B:\nY1 x1\nY2 x9\ndone";

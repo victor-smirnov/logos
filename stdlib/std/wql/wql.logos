@@ -16,7 +16,10 @@
 //     e.g.  resource top = deem!(emps: &[Emp], n: i64) {
 //               from emps e where e.salary > 50.0 select e.name limit n };
 //
-//   →  pub fn top(emps: &[Emp], n: i64) -> Vec<str> { … }
+//   →  pub fn top(emps: &[Emp], n: i64) -> Result<Vec<str>, ElError> { … }
+//        (error-returning: an integer overflow / division-by-zero in an EL
+//         expression becomes `Err(ElError)`, never a host trap — call with `?`
+//         or `match`; f64 arithmetic stays IEEE, string concat is unchanged.)
 //
 // The PARENS carry a genuine Logos parameter list — parsed + TYPE-CHECKED by
 // the compiler because the handler re-emits it VERBATIM into the generated fn

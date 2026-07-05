@@ -50,8 +50,8 @@ fn main() -> i32 {
         IDept { id: 2i64, budget: 80i64  },
     ];
 
-    let f: Vec<i64> = f_sal(&femps[..], &fdepts[..]);
-    let i: Vec<i64> = i_sal(&iemps[..], &idepts[..]);
+    let f: Vec<i64> = f_sal(&femps[..], &fdepts[..]).unwrap();
+    let i: Vec<i64> = i_sal(&iemps[..], &idepts[..]).unwrap();
     // Same cardinality, same values, same order — tier-independent semantics.
     if f.len() != i.len() { return 1i32; }
     let mut k: i64 = 0i64;

@@ -54,24 +54,24 @@ fn streq_all(s: &String, want: str) -> bool {
 fn main() -> i32 {
     // (1) elif → "B"
     let g: Grade = Grade { score: 75i64 };
-    let gr: String = grade(&g);
+    let gr: String = grade(&g).unwrap();
     if !streq_all(&gr, "B") { return 1i32; }
     // and the other branches, to prove the chain (not a fixed string).
-    let ga: String = grade(&Grade { score: 95i64 });
+    let ga: String = grade(&Grade { score: 95i64 }).unwrap();
     if !streq_all(&ga, "A") { return 2i32; }
-    let gc: String = grade(&Grade { score: 50i64 });
+    let gc: String = grade(&Grade { score: 50i64 }).unwrap();
     if !streq_all(&gc, "C") { return 3i32; }
 
     // (2) truthiness — count=0 (i64, coerced false), flag=true (bare bool) → "Y"
-    let t1: String = truthy(&Counts { count: 0i64, flag: true });
+    let t1: String = truthy(&Counts { count: 0i64, flag: true }).unwrap();
     if !streq_all(&t1, "Y") { return 4i32; }
     // count=5 (coerced true), flag=false → "nonzero"
-    let t2: String = truthy(&Counts { count: 5i64, flag: false });
+    let t2: String = truthy(&Counts { count: 5i64, flag: false }).unwrap();
     if !streq_all(&t2, "nonzero") { return 5i32; }
 
     // (3) ws-trim — tight "items:a,b,c,"
     let w: WsCtx = WsCtx { items: ["a", "b", "c"] };
-    let ws_out: String = ws(&w);
+    let ws_out: String = ws(&w).unwrap();
     if !streq_all(&ws_out, "items:a,b,c,") { return 6i32; }
     // ws-trim proof: no layout newline survived the `{%-`/`-%}` markers (the raw
     // template is multi-line + indented, so an untrimmed render WOULD carry \n).

@@ -351,20 +351,28 @@ fn wstr_decode_i64(p: *const u8) -> i64 {
     let n: i64 = s.len();
     let mut v: i64 = 0i64;
     let mut i: i64 = 0i64;
+    let mut ovf: bool = false;
     while i < n {
         let c: u8 = str_byte_at(s, i);
         if c < 48u8 || c > 57u8 { break; }
-        // Clamp accumulation on i64 overflow: plain v*10 traps (checked
-        // arithmetic) so an out-of-range literal (> i64::MAX) would SIGILL the
-        // whole process. Saturate instead — matching wstr_decode_f64's guard —
-        // so a huge literal parses to a bounded value rather than crashing.
-        // 922337203685477580 == i64::MAX/10 (floor); v below it keeps v*10+9
-        // ≤ i64::MAX.
-        if v < 922337203685477580i64 {
-            v = v * 10i64 + ((c as i64) - 48i64);
+        // Error-returning integer-literal policy (EL scripts): a literal that
+        // exceeds i64::MAX is a COMPILE error — NOT a clamp (the old saturating
+        // guard) and NOT a trap (plain v*10 would SIGILL on overflow). Detect
+        // overflow with a manual guard (no checked_*/Option — this generated
+        // parser imports neither): i64::MAX = 9223372036854775807, so MAX/10 =
+        // 922337203685477580 rem 7. Overflow iff v exceeds that, or equals it
+        // with a digit > 7. On overflow return the POISON sentinel i64::MIN
+        // (unrepresentable by a non-negative decimal token) which the check phase
+        // (codegen::check_calls / deem check_expr) turns into a clean compile error.
+        let d: i64 = (c as i64) - 48i64;
+        if v > 922337203685477580i64 || (v == 922337203685477580i64 && d > 7i64) {
+            ovf = true;
+            break;
         }
+        v = v * 10i64 + d;
         i = i + 1i64;
     }
+    if ovf { return el_lit_poison(); }
     return v;
 }
 // Decode a captured FLOAT token (digits '.' digits) into its f64 VALUE —

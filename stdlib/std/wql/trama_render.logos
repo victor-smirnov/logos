@@ -19,11 +19,13 @@
 // §6); the handler receives it as `name`, the raw params text as `params`, and
 // the raw template body as `body`.
 //
-//   →  pub fn <name>(<params>) -> String {
+//   →  pub fn <name>(<params>) -> Result<String, ElError> {
 //          let mut __out: String = String::new();
 //          … walk the Trama AST …
-//          return __out;
+//          return Result::Ok(__out);
 //      }
+//   (error-returning: an integer overflow / division-by-zero in an embedded
+//    `{{ … }}` EL expression becomes `Err(ElError)`, never a host trap.)
 //
 // Each param whose type resolves to a schema struct (reflect.logos) is REFLECTED
 // so its field accesses (`{{ o.total }}`) type automatically (NO `with` clause);
@@ -647,10 +649,10 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     em.push_text(fn_name);
     em.push_text("(");
     em.push_text(params);
-    em.push_text(") -> String {\n");
+    em.push_text(") -> Result<String, ElError> {\n");
     em.push_text("    let mut __out: String = String::new();\n");
     emit_stmts(&mut em, head_word, &ty, &vtys, ctx0, 0i64, &h);
-    em.push_text("    return __out;\n");
+    em.push_text("    return Result::Ok(__out);\n");
     em.push_text("}\n");
     em.commit();
 

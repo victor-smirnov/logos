@@ -30,7 +30,7 @@ fn main() -> i32 {
         Person { name: "Bob",  dept: "hr"  },   // no "A"       → drop
         Person { name: "Amir", dept: "sec" },   // contains "A" → keep
     ];
-    let r: Vec<str> = pick(&people[..], "A");
+    let r: Vec<str> = pick(&people[..], "A").unwrap();
 
     if r.len() != 3i64 { return 1i32; }
     if !str_eq(r.get(0i64), "eng") { return 2i32; }
@@ -39,7 +39,7 @@ fn main() -> i32 {
 
     // Negative: a needle present in NO row yields an empty result (proves the
     // SECOND arg — the needle — actually drives the filter, not just the first).
-    let none: Vec<str> = pick(&people[..], "zzz");
+    let none: Vec<str> = pick(&people[..], "zzz").unwrap();
     if none.len() != 0i64 { return 5i32; }
     return 0i32;
 }

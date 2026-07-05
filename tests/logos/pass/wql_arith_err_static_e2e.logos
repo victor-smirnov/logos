@@ -1,0 +1,55 @@
+// STATIC error-returning EL policy (deem! codegen) — an integer overflow or a
+// division-by-zero in an emitted resource fn becomes a RETURNED `Err(ElError)`,
+// never a host trap. Compiled Logos traps on overflow by default; EL SCRIPTS do
+// not. This proves the static path mirrors the dynamic interpreter's policy:
+//   • `r.big + r.big` overflows i64 (big ≈ 9e18, sum ≈ 1.8e19 > i64::MAX)  → Err
+//   • `r.big / r.zero` divides by zero                                     → Err
+//   • a non-overflowing row projects Ok with the exact value.
+// The generated fn signature is `-> Result<Vec<i64>, ElError>` (call with `?`
+// or `match`); f64 arithmetic and string concatenation are unaffected.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct Row {
+    pub big:  i64,
+    pub zero: i64,
+}
+
+resource dbl  = deem!(xs: &[Row]) { from xs r select r.big + r.big : i64 };
+resource divz = deem!(xs: &[Row]) { from xs r select r.big / r.zero : i64 };
+resource ok   = deem!(xs: &[Row]) { from xs r select r.big + 1i64 : i64 };
+
+fn main() -> i32 {
+    // big = 9_000_000_000_000_000_000 (< i64::MAX ≈ 9.22e18); big+big overflows.
+    let rows: [Row; 1] = [ Row { big: 9000000000000000000i64, zero: 0i64 } ];
+
+    // OVERFLOW → Err (NOT a trap, NOT a wrapped value).
+    match dbl(&rows[..]) {
+        Result::Ok(_v)  => { return 1i32; }
+        Result::Err(_e) => { }
+    }
+
+    // DIVISION BY ZERO → Err.
+    match divz(&rows[..]) {
+        Result::Ok(_v)  => { return 2i32; }
+        Result::Err(_e) => { }
+    }
+
+    // NON-OVERFLOWING row → Ok with the exact projected value.
+    let good: [Row; 2] = [
+        Row { big: 10i64, zero: 3i64 },
+        Row { big: 40i64, zero: 5i64 },
+    ];
+    let out: Vec<i64> = match ok(&good[..]) {
+        Result::Ok(v)   => { v }
+        Result::Err(_e) => { return 3i32; }
+    };
+    if out.len() != 2i64      { return 4i32; }
+    if out.get(0i64) != 11i64 { return 5i32; }
+    if out.get(1i64) != 41i64 { return 6i32; }
+
+    return 0i32;
+}

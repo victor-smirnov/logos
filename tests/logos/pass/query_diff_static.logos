@@ -187,12 +187,12 @@ fn main() -> i32 {
 
         if shape == 0i64 {
             env.bind_i64("thr", thr);
-            stat = sf(sla.as_slice(), thr);
+            stat = sf(sla.as_slice(), thr).unwrap();
             dynv = dyn_run("from a x where x.a0 >= thr select x.a1 * 100 + x.a2", &c, &env);
             let mut r: i64 = 0i64;
             while r < na { if rg(&av, r, 0i64) >= thr { naive.push(rg(&av, r, 1i64) * 100i64 + rg(&av, r, 2i64)); } r = r + 1i64; }
         } else if shape == 1i64 {
-            stat = sj(sla.as_slice(), slb.as_slice());
+            stat = sj(sla.as_slice(), slb.as_slice()).unwrap();
             dynv = dyn_run("from a x join b y on x.a0 == y.b0 select x.a1 * 100 + y.b1", &c, &env);
             let mut ra: i64 = 0i64;
             while ra < na {
@@ -201,7 +201,7 @@ fn main() -> i32 {
                 ra = ra + 1i64;
             }
         } else if shape == 2i64 {
-            stat = sa(sla.as_slice(), slb.as_slice());
+            stat = sa(sla.as_slice(), slb.as_slice()).unwrap();
             dynv = dyn_run("from a x anti join b y on x.a0 == y.b0 select x.a1", &c, &env);
             let mut ra: i64 = 0i64;
             while ra < na {
@@ -211,7 +211,7 @@ fn main() -> i32 {
                 ra = ra + 1i64;
             }
         } else if shape == 3i64 {
-            stat = sg(sla.as_slice());
+            stat = sg(sla.as_slice()).unwrap();
             dynv = dyn_run("from a x group by x.a0 aggregate s = sum(x.a1) select key * 100 + s", &c, &env);
             let mut keys: Vec<i64> = vec_new::<i64>(); let mut r: i64 = 0i64;
             while r < na { let k: i64 = rg(&av, r, 0i64); if !contains(&keys, k) { keys.push(k); } r = r + 1i64; }
@@ -222,7 +222,7 @@ fn main() -> i32 {
                 naive.push(k * 100i64 + sm2); ki = ki + 1i64;
             }
         } else if shape == 4i64 {
-            stat = sm(sla.as_slice());
+            stat = sm(sla.as_slice()).unwrap();
             dynv = dyn_run("from a x group by x.a0 aggregate lo = min(x.a1), hi = max(x.a1) select key * 10000 + lo * 100 + hi", &c, &env);
             let mut keys: Vec<i64> = vec_new::<i64>(); let mut r: i64 = 0i64;
             while r < na { let k: i64 = rg(&av, r, 0i64); if !contains(&keys, k) { keys.push(k); } r = r + 1i64; }
@@ -239,7 +239,7 @@ fn main() -> i32 {
                 naive.push(k * 10000i64 + lo * 100i64 + hi); ki = ki + 1i64;
             }
         } else {
-            stat = sd(sla.as_slice());
+            stat = sd(sla.as_slice()).unwrap();
             dynv = dyn_run("from a x select distinct x.a1", &c, &env);
             let mut r: i64 = 0i64;
             while r < na { let vv: i64 = rg(&av, r, 1i64); if !contains(&naive, vv) { naive.push(vv); } r = r + 1i64; }

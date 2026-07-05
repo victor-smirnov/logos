@@ -46,13 +46,13 @@ fn main() -> i32 {
 
     // region 10: total 200, n 3 → 10*1e6 + 200*100 + 3 = 10020003
     // region 20: total  90, n 1 → 20*1e6 +  90*100 + 1 = 20009001
-    let t: Vec<i64> = region_totals(&orders[..], &depts[..]);
+    let t: Vec<i64> = region_totals(&orders[..], &depts[..]).unwrap();
     if t.len() != 2i64            { return 1i32; }
     if t.get(0i64) != 10020003i64 { return 2i32; }   // first-seen group order
     if t.get(1i64) != 20009001i64 { return 3i32; }
 
     // having total > 100 keeps only region 10 (200); order by total desc.
-    let b: Vec<i64> = big_regions(&orders[..], &depts[..]);
+    let b: Vec<i64> = big_regions(&orders[..], &depts[..]).unwrap();
     if b.len() != 1i64       { return 4i32; }
     if b.get(0i64) != 10i64  { return 5i32; }
     return 0i32;

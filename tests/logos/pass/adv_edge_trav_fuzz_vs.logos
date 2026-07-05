@@ -464,61 +464,61 @@ fn main() -> i32 {
 
         if shape == 0i64 {
             let depts: Vec<Dept> = gen_depts(&mut rng);
-            let mut st: Vec<i64> = r_flat(depts.as_slice());
+            let mut st: Vec<i64> = r_flat(depts.as_slice()).unwrap();
             let mut nv: Vec<i64> = nv_flat(&depts);
             if !ms_eq(&mut st, &mut nv) { return 10i32; }
         } else if shape == 1i64 {
             let p1: i64 = rng.upto(4i64); let p2: i64 = rng.upto(8i64); let p3: i64 = rng.upto(4i64);
             let depts: Vec<Dept> = gen_depts(&mut rng);
-            let mut st: Vec<i64> = r_resid(depts.as_slice(), p1, p2, p3);
+            let mut st: Vec<i64> = r_resid(depts.as_slice(), p1, p2, p3).unwrap();
             let mut nv: Vec<i64> = nv_resid(&depts, p1, p2, p3);
             if !ms_eq(&mut st, &mut nv) { return 11i32; }
         } else if shape == 2i64 {
             let depts: Vec<Dept> = gen_depts(&mut rng);
-            let mut st: Vec<i64> = r_empty(depts.as_slice());
+            let mut st: Vec<i64> = r_empty(depts.as_slice()).unwrap();
             let mut nv: Vec<i64> = nv_empty(&depts);
             if !ms_eq(&mut st, &mut nv) { return 12i32; }
         } else if shape == 3i64 {
             let target: i64 = rng.upto(8i64);
             let depts: Vec<Dept> = gen_depts(&mut rng);
-            let mut st: Vec<i64> = r_norsk(depts.as_slice(), target);
+            let mut st: Vec<i64> = r_norsk(depts.as_slice(), target).unwrap();
             let mut nv: Vec<i64> = nv_norsk(&depts, target);
             if !ms_eq(&mut st, &mut nv) { return 13i32; }
         } else if shape == 4i64 {
             let depts: Vec<Dept> = gen_depts(&mut rng);
-            let mut st: Vec<i64> = r_cnt(depts.as_slice());
+            let mut st: Vec<i64> = r_cnt(depts.as_slice()).unwrap();
             let mut nv: Vec<i64> = nv_cnt(&depts);
             if !ms_eq(&mut st, &mut nv) { return 14i32; }
         } else if shape == 5i64 {
             let nodes: Vec<Node> = gen_nodes(&mut rng);
             let root: i64 = rng.upto(7i64);   // may exceed node count → empty seed
-            let mut st: Vec<i64> = r_reach(nodes.as_slice(), root);
+            let mut st: Vec<i64> = r_reach(nodes.as_slice(), root).unwrap();
             let mut nv: Vec<i64> = nv_reach(&nodes, root);
             if !ms_eq(&mut st, &mut nv) { return 15i32; }
         } else if shape == 6i64 {
             let depts: Vec<Dept> = gen_depts(&mut rng);
-            let mut st: Vec<i64> = r_rout(depts.as_slice());
+            let mut st: Vec<i64> = r_rout(depts.as_slice()).unwrap();
             let mut nv: Vec<i64> = nv_rout(&depts);
             if !ms_eq(&mut st, &mut nv) { return 16i32; }
         } else if shape == 7i64 {
             let depts: Vec<Dept> = gen_depts(&mut rng);
-            let mut st: Vec<i64> = r_gleaf(depts.as_slice());
+            let mut st: Vec<i64> = r_gleaf(depts.as_slice()).unwrap();
             let mut nv: Vec<i64> = nv_gleaf(&depts);
             if !ms_eq(&mut st, &mut nv) { return 17i32; }
         } else if shape == 8i64 {
             let depts: Vec<Dept> = gen_depts(&mut rng);
-            let mut st: Vec<i64> = r_seid(depts.as_slice());
+            let mut st: Vec<i64> = r_seid(depts.as_slice()).unwrap();
             let mut nv: Vec<i64> = nv_seid(&depts);
             if !ms_eq(&mut st, &mut nv) { return 18i32; }
         } else if shape == 9i64 {
             let orgs: Vec<Org> = gen_orgs(&mut rng);
             let depts: Vec<DeptT> = gen_deptt(&mut rng);
-            let mut st: Vec<i64> = r_mixed(orgs.as_slice(), depts.as_slice());
+            let mut st: Vec<i64> = r_mixed(orgs.as_slice(), depts.as_slice()).unwrap();
             let mut nv: Vec<i64> = nv_mixed(&orgs, &depts);
             if !ms_eq(&mut st, &mut nv) { return 19i32; }
         } else {
             let cos: Vec<Co> = gen_cos(&mut rng);
-            let mut st: Vec<i64> = r_deep(cos.as_slice());
+            let mut st: Vec<i64> = r_deep(cos.as_slice()).unwrap();
             let mut nv: Vec<i64> = nv_deep(&cos);
             if !ms_eq(&mut st, &mut nv) { return 20i32; }
         }

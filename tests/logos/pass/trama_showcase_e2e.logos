@@ -77,7 +77,7 @@ fn main() -> i32 {
         ],
         total: 120i64,
     };
-    let r: String = receipt(&order);
+    let r: String = receipt(&order).unwrap();
     let want: str = "=== ACME ===\nBolt x4\nWasher x12\nNut x8\ntotal: 120\nshipping: free";
     if !streq_all(&r, want) { return 1i32; }
 
@@ -91,7 +91,7 @@ fn main() -> i32 {
         ],
         total: 60i64,
     };
-    let r2: String = receipt(&order2);
+    let r2: String = receipt(&order2).unwrap();
     let want2: str = "=== ACME ===\nBolt x1\nWasher x1\nNut x1\ntotal: 60\nshipping: flat";
     if !streq_all(&r2, want2) { return 2i32; }
 
@@ -105,7 +105,7 @@ fn main() -> i32 {
         ],
         total: 10i64,
     };
-    let r3: String = receipt(&order3);
+    let r3: String = receipt(&order3).unwrap();
     let want3: str = "=== ACME ===\nBolt x1\nWasher x1\nNut x1\ntotal: 10\nshipping: std";
     if !streq_all(&r3, want3) { return 3i32; }
 

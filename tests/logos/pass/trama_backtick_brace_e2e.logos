@@ -24,7 +24,7 @@ resource render = trama!(c: &Ctx){ `x}\{{{ c.n }}` };
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx { n: 5i64 };
-    let s: String = render(&ctx);
+    let s: String = render(&ctx).unwrap();
 
     let want: str = "x}{5";
     if s.len() != want.len() { return 1i32; }

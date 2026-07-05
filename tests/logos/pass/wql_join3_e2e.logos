@@ -39,7 +39,7 @@ fn main() -> i32 {
         Reg { rid: 30i64, bonus: 9i64 },
     ];
 
-    let rows: Vec<i64> = emp_bonus(&emps[..], &depts[..], &regs[..]);
+    let rows: Vec<i64> = emp_bonus(&emps[..], &depts[..], &regs[..]).unwrap();
     if rows.len() != 2i64      { return 1i32; }
     if rows.get(0i64) != 55i64 { return 2i32; }   // source order preserved
     if rows.get(1i64) != 75i64 { return 3i32; }

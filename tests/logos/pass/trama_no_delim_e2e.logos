@@ -22,8 +22,8 @@ fn streq(s: &String, want: str) -> bool {
 
 fn main() -> i32 {
     let u: User = User { name: "ada", role: "eng" };
-    if !streq(&greet(&u, "Hi"), "Hi, ADA! [eng]") { return 1i32; }
+    if !streq(&greet(&u, "Hi").unwrap(), "Hi, ADA! [eng]") { return 1i32; }
     let u2: User = User { name: "bob", role: "sales" };
-    if !streq(&greet(&u2, "Yo"), "Yo, BOB! [other]") { return 2i32; }
+    if !streq(&greet(&u2, "Yo").unwrap(), "Yo, BOB! [other]") { return 2i32; }
     return 0i32;
 }

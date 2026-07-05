@@ -24,10 +24,10 @@ fn main() -> i32 {
         Person { name: "Eve",  age: 12i64 },
     ];
 
-    let r: Vec<i64> = nobody(&people[..]);
+    let r: Vec<i64> = nobody(&people[..]).unwrap();
     if r.len() != 0i64 { return 1i32; }
 
-    let z: Vec<i64> = none_now(&people[..]);
+    let z: Vec<i64> = none_now(&people[..]).unwrap();
     if z.len() != 0i64 { return 2i32; }
     return 0i32;
 }

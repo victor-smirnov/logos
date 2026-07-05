@@ -35,13 +35,13 @@ fn main() -> i32 {
     ];
 
     // const-true `where` dropped → all four rows survive, in order.
-    let a: Vec<i64> = all_rows(&people[..]);
+    let a: Vec<i64> = all_rows(&people[..]).unwrap();
     if a.len() != 4i64 { return 1i32; }
     if a.get(0i64) != 15i64 { return 2i32; }
     if a.get(3i64) != 9i64  { return 3i32; }
 
     // const-false `where` → empty plan → zero rows (empty-Vec thin form).
-    let n: Vec<i64> = none_rows(&people[..]);
+    let n: Vec<i64> = none_rows(&people[..]).unwrap();
     if n.len() != 0i64 { return 4i32; }
 
     return 0i32;

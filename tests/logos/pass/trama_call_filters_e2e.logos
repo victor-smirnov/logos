@@ -32,7 +32,7 @@ resource render = trama!(c: &Ctx){
 
 fn main() -> i32 {
     let ctx: Ctx = Ctx { title: "team", city: "NYC" };
-    let s: String = render(&ctx);
+    let s: String = render(&ctx).unwrap();
 
     // Expect "TEAM-nyc" — title upper-cased, city lower-cased.
     let want: str = "TEAM-nyc";

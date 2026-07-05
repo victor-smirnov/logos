@@ -11,6 +11,7 @@ package logos.std.wql.trama_selfuse;
 use logos.std.wql.trama_render;
 use logos.mem.string;
 use logos.lang.str;
+use logos.lang.result;   // the render fn now returns Result<String, ElError>
 
 resource selfuse_greet = trama!(name: str, excited: bool){
 Hello, {{ upper(name) }}{% if excited %}!{% else %}.{% endif %}
@@ -19,5 +20,7 @@ Hello, {{ upper(name) }}{% if excited %}!{% else %}.{% endif %}
 // Exercise the generated render fn so the canary checks RUNTIME behavior,
 // not just expansion: callers (tests) assert the woven text.
 pub fn trama_selfuse_probe(name: str, excited: bool) -> String {
-    return selfuse_greet(name, excited);
+    // The render fn is error-returning now (Result<String, ElError>); this
+    // template has no integer arithmetic, so it never errors — unwrap the Ok.
+    return selfuse_greet(name, excited).unwrap();
 }

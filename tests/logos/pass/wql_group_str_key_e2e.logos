@@ -55,7 +55,7 @@ fn main() -> i32 {
     ];
 
     // (A) eng:(2,14)  ops:(1,2)  sales:(2,8), ordered by key asc.
-    let a: Vec<(str, i64, i64)> = by_dept(&rows[..]);
+    let a: Vec<(str, i64, i64)> = by_dept(&rows[..]).unwrap();
     if a.len() != 3i64 { return 1i32; }
     let a0: (str, i64, i64) = a.get(0i64);
     if a0.0 != "eng" || a0.1 != 2i64 || a0.2 != 14i64 { return 2i32; }
@@ -65,7 +65,7 @@ fn main() -> i32 {
     if a2.0 != "sales" || a2.1 != 2i64 || a2.2 != 8i64 { return 4i32; }
 
     // (B) west = 10+4+2 = 16, east = 7+1 = 8; desc by key → [west, east].
-    let b: Vec<(str, i64)> = by_region(&rows[..], &depts[..]);
+    let b: Vec<(str, i64)> = by_region(&rows[..], &depts[..]).unwrap();
     if b.len() != 2i64 { return 5i32; }
     let b0: (str, i64) = b.get(0i64);
     if b0.0 != "west" || b0.1 != 16i64 { return 6i32; }
@@ -73,7 +73,7 @@ fn main() -> i32 {
     if b1.0 != "east" || b1.1 != 8i64 { return 7i32; }
 
     // (C) rel filters amt>5 → {(eng,10),(sales,7)} → eng:1, sales:1.
-    let c: Vec<(str, i64)> = by_rel(&rows[..]);
+    let c: Vec<(str, i64)> = by_rel(&rows[..]).unwrap();
     if c.len() != 2i64 { return 8i32; }
     let c0: (str, i64) = c.get(0i64);
     if c0.0 != "eng" || c0.1 != 1i64 { return 9i32; }

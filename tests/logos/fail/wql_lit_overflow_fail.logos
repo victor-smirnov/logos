@@ -1,0 +1,19 @@
+// STATIC error-returning EL policy (Part 4): an integer literal that EXCEEDS
+// i64::MAX in a deem! query is a COMPILE error — NOT a saturating clamp (the
+// old crash-fix) and NOT a host trap. The tokenizer poisons the out-of-range
+// literal to i64::MIN and the check phase turns it into this diagnostic.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Person { pub name: i64, pub age: i64 }
+
+// 99999999999999999999 (20 nines) > i64::MAX (9223372036854775807).
+resource bad = deem!(people: &[Person]) { from people p select p.age + 99999999999999999999 : i64 };
+
+fn main() -> i32 {
+    let people: [Person; 1] = [ Person { name: 1i64, age: 15i64 } ];
+    let _r: Vec<i64> = bad(&people[..]).unwrap();
+    return 0i32;
+}

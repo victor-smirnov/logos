@@ -33,7 +33,7 @@ fn main() -> i32 {
     ];
 
     // pairs = {(1,10),(2,30),(3,20)}; bigy = {30, 20}; ordered → [20, 30].
-    let out: Vec<i64> = layered(&edges[..]);
+    let out: Vec<i64> = layered(&edges[..]).unwrap();
     if out.len() != 2i64      { return 1i32; }
     if out.get(0i64) != 20i64 { return 2i32; }
     if out.get(1i64) != 30i64 { return 3i32; }

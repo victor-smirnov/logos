@@ -47,7 +47,7 @@ fn main() -> i32 {
         P { g: 2i64, v: 9i64  },    // g2 mean = 8
         P { g: 3i64, v: 42i64 },    // g3 mean = 42 (n = 1)
     ];
-    let r: Vec<i64> = means(&xs[..]);
+    let r: Vec<i64> = means(&xs[..]).unwrap();
     if r.len() != 3i64 { return 1i32; }
     if r.get(0i64) != 1015i64 { return 2i32; }
     if r.get(1i64) != 2008i64 { return 3i32; }
@@ -55,7 +55,7 @@ fn main() -> i32 {
 
     // Join keeps groups 1 and 2 only (no K row for g=3).
     let ks: [K; 2] = [ K { id: 1i64 }, K { id: 2i64 } ];
-    let jr: Vec<i64> = joined_means(&xs[..], &ks[..]);
+    let jr: Vec<i64> = joined_means(&xs[..], &ks[..]).unwrap();
     if jr.len() != 2i64 { return 5i32; }
     if jr.get(0i64) != 1015i64 { return 6i32; }
     if jr.get(1i64) != 2008i64 { return 7i32; }

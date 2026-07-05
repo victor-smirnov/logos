@@ -36,7 +36,7 @@ fn main() -> i32 {
     depts.push(Dept { dname: "eng", emps: eng_emps });
     depts.push(Dept { dname: "ops", emps: ops_emps });
 
-    let rows: Vec<(str, str, str)> = all_skills(depts.as_slice());
+    let rows: Vec<(str, str, str)> = all_skills(depts.as_slice()).unwrap();
     if rows.len() != 3i64 { return 1i32; }
     let r0: (str, str, str) = rows.get(0i64);
     if !str_eq(r0.0, "eng")  { return 2i32; }

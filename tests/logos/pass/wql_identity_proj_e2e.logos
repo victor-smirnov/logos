@@ -28,7 +28,7 @@ fn main() -> i32 {
     ];
     // The return type is `&[Person]` (the thin form). Binding to `&[Person]`
     // typechecks ONLY because the identity peephole fired.
-    let rows: &[Person] = all_people(&people[..]);
+    let rows: &[Person] = all_people(&people[..]).unwrap();
     if rows.len() != 3i64 { return 1i32; }
     if rows[1i64].age != 18i64 { return 2i32; }   // slice IS the source, in order
     if rows[2i64].name != 3i64 { return 3i32; }

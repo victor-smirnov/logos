@@ -57,14 +57,14 @@ fn streq_all(s: &String, want: str) -> bool {
 
 fn main() -> i32 {
     let u: User = User { name: "Ada", age: 36i64, tags: ["math", "eng"] };
-    let s: String = card(&u, "Hello", 3i64);
+    let s: String = card(&u, "Hello", 3i64).unwrap();
 
     // "Hello, Ada (36) tags:math,eng, x3!"
     let want: str = "Hello, Ada (36) tags:math,eng, x3!";
     if !streq_all(&s, want) { return 1i32; }
 
     // count = 0 ⇒ the `{% if count %}` guard is false (i64 truthiness), no "!".
-    let s0: String = card(&u, "Hi", 0i64);
+    let s0: String = card(&u, "Hi", 0i64).unwrap();
     let want0: str = "Hi, Ada (36) tags:math,eng, x0";
     if !streq_all(&s0, want0) { return 2i32; }
 

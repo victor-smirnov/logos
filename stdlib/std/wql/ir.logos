@@ -26,6 +26,17 @@ use logos.lang.writ.allocator;   // Allocator (WritField::to_wany param)
 use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
 
+// ── Integer-literal overflow POISON sentinel ──────────────────────────────
+// The three EL/surface/template tokenizers (`wstr_decode_i64`) accumulate an
+// integer literal with CHECKED ops; a literal exceeding i64::MAX yields this
+// sentinel (i64::MIN) instead of clamping or trapping. i64::MIN is
+// unrepresentable by a valid (non-negative decimal) token, so the STATIC check
+// phase (codegen::check_calls) and the DYNAMIC checker (deem check_expr/
+// check_rexpr) detect it unambiguously and raise a clean COMPILE error. Spelled
+// as `(i64::MAX-negated) - 1` so the stdlib source itself never writes the
+// out-of-range literal `-9223372036854775808` (which would fail to parse).
+pub fn el_lit_poison() -> i64 { return (-9223372036854775807i64) - 1i64; }
+
 // ── WRef<S> — a typed edge handle ─────────────────────────────────────────
 // A `WRef<S>` is the one graph-edge primitive (the bounded step). It carries a
 // `WAny` ref handle; `S` is a phantom compile-time tag naming the target node

@@ -30,7 +30,7 @@ fn main() -> i32 {
     ];
 
     // hit → a borrow of Bob's row; fields read THROUGH the borrow.
-    match find_41(&people[..]) {
+    match find_41(&people[..]).unwrap() {
         Option::Some(q) => {
             if !str_eq(q.name, "Bob") { return 1i32; }
             if q.age != 41i64 { return 2i32; }
@@ -39,17 +39,17 @@ fn main() -> i32 {
     }
 
     // miss → None.
-    match find_ancient(&people[..]) {
+    match find_ancient(&people[..]).unwrap() {
         Option::Some(_) => { return 4i32; }
         Option::None => { }
     }
 
     // scalar param: 45 → Ada; 99 → None.
-    match find_by_age(&people[..], 45i64) {
+    match find_by_age(&people[..], 45i64).unwrap() {
         Option::Some(q) => { if !str_eq(q.name, "Ada") { return 5i32; } }
         Option::None => { return 6i32; }
     }
-    match find_by_age(&people[..], 99i64) {
+    match find_by_age(&people[..], 99i64).unwrap() {
         Option::Some(_) => { return 7i32; }
         Option::None => { }
     }

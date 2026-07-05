@@ -164,21 +164,21 @@ fn main() -> i32 {
 
         if shape == 0i64 {
             // order by a0 ASC
-            stat = so_asc(sla.as_slice());
+            stat = so_asc(sla.as_slice()).unwrap();
             dynv = dyn_run("from a x select x.a0 * 1000 + x.a2 order by x.a0", &c, &env);
             let ord: Vec<i64> = stable_order(&av, 0i64, false);
             let mut k: i64 = 0i64;
             while k < ord.len() { let r: i64 = ord.get(k); naive.push(rg(&av, r, 0i64) * 1000i64 + rg(&av, r, 2i64)); k = k + 1i64; }
         } else if shape == 1i64 {
             // order by a0 DESC
-            stat = so_desc(sla.as_slice());
+            stat = so_desc(sla.as_slice()).unwrap();
             dynv = dyn_run("from a x select x.a0 * 1000 + x.a2 order by x.a0 desc", &c, &env);
             let ord: Vec<i64> = stable_order(&av, 0i64, true);
             let mut k: i64 = 0i64;
             while k < ord.len() { let r: i64 = ord.get(k); naive.push(rg(&av, r, 0i64) * 1000i64 + rg(&av, r, 2i64)); k = k + 1i64; }
         } else if shape == 2i64 {
             // order by a1 ASC (different key column)
-            stat = so_k1(sla.as_slice());
+            stat = so_k1(sla.as_slice()).unwrap();
             dynv = dyn_run("from a x select x.a1 * 1000 + x.a2 order by x.a1", &c, &env);
             let ord: Vec<i64> = stable_order(&av, 1i64, false);
             let mut k: i64 = 0i64;
@@ -187,7 +187,7 @@ fn main() -> i32 {
             // where a1>=thr, order by a0 DESC, limit param
             env.bind_i64("thr", thr);
             env.bind_i64("n", lim);
-            stat = so_wlim(sla.as_slice(), thr, lim);
+            stat = so_wlim(sla.as_slice(), thr, lim).unwrap();
             let mut qs: String = String::new();
             qs.push_str("from a x where x.a1 >= thr select x.a0 * 1000 + x.a2 order by x.a0 desc limit n");
             dynv = dyn_run(qs.as_str(), &c, &env);
@@ -202,7 +202,7 @@ fn main() -> i32 {
         } else if shape == 4i64 {
             // order by a0 ASC, limit param
             env.bind_i64("n", lim);
-            stat = so_lim(sla.as_slice(), lim);
+            stat = so_lim(sla.as_slice(), lim).unwrap();
             dynv = dyn_run("from a x select x.a0 * 1000 + x.a2 order by x.a0 limit n", &c, &env);
             let ord: Vec<i64> = stable_order(&av, 0i64, false);
             let cap: i64 = if lim < 0i64 { 0i64 } else { lim };
@@ -210,7 +210,7 @@ fn main() -> i32 {
             while k < ord.len() && k < cap { let r: i64 = ord.get(k); naive.push(rg(&av, r, 0i64) * 1000i64 + rg(&av, r, 2i64)); k = k + 1i64; }
         } else if shape == 5i64 {
             // group by a0 aggregate sum(a1), order by key DESC
-            stat = sg_ord(sla.as_slice());
+            stat = sg_ord(sla.as_slice()).unwrap();
             dynv = dyn_run("from a x group by x.a0 aggregate s = sum(x.a1) select key * 1000 + s order by key desc", &c, &env);
             // distinct keys, then order desc
             let mut keys: Vec<i64> = vec_new::<i64>(); let mut r: i64 = 0i64;
@@ -231,7 +231,7 @@ fn main() -> i32 {
             }
         } else if shape == 6i64 {
             // group by a0 aggregate count, having c>=2, order by key ASC
-            stat = sg_hav(sla.as_slice());
+            stat = sg_hav(sla.as_slice()).unwrap();
             dynv = dyn_run("from a x group by x.a0 aggregate c = count() having c >= 2 select key * 100 + c order by key", &c, &env);
             let mut keys: Vec<i64> = vec_new::<i64>(); let mut r: i64 = 0i64;
             while r < na { let k: i64 = rg(&av, r, 0i64); if !contains(&keys, k) { keys.push(k); } r = r + 1i64; }
@@ -253,7 +253,7 @@ fn main() -> i32 {
         } else {
             // limit-only (no order): first `lim` in SCAN order (non-sorted scan-limit path)
             env.bind_i64("n", lim);
-            stat = so_scan(sla.as_slice(), lim);
+            stat = so_scan(sla.as_slice(), lim).unwrap();
             dynv = dyn_run("from a x select x.a0 * 1000 + x.a2 limit n", &c, &env);
             let cap: i64 = if lim < 0i64 { 0i64 } else { lim };
             let mut k: i64 = 0i64;

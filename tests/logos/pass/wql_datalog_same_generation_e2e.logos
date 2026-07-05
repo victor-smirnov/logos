@@ -50,15 +50,15 @@ fn main() -> i32 {
     ];
 
     // sg = {(2,3),(3,2)} ∪ {(4,5),(5,4)} (cousins via the recursive rule).
-    let s2: Vec<i64> = sgq(&pars[..], 2i64);
+    let s2: Vec<i64> = sgq(&pars[..], 2i64).unwrap();
     if s2.len() != 1i64      { return 1i32; }
     if s2.get(0i64) != 3i64  { return 2i32; }
 
-    let s4: Vec<i64> = sgq(&pars[..], 4i64);
+    let s4: Vec<i64> = sgq(&pars[..], 4i64).unwrap();
     if s4.len() != 1i64      { return 3i32; }
     if s4.get(0i64) != 5i64  { return 4i32; }
 
-    let s1: Vec<i64> = sgq(&pars[..], 1i64);
+    let s1: Vec<i64> = sgq(&pars[..], 1i64).unwrap();
     if s1.len() != 0i64      { return 5i32; }
 
     // Nonlinear TC over the chain 1→2→3→4.
@@ -67,13 +67,13 @@ fn main() -> i32 {
         Edge { src: 2i64, dst: 3i64 },
         Edge { src: 3i64, dst: 4i64 },
     ];
-    let t1: Vec<i64> = tcq(&edges[..], 1i64);
+    let t1: Vec<i64> = tcq(&edges[..], 1i64).unwrap();
     if t1.len() != 3i64      { return 6i32; }
     if t1.get(0i64) != 2i64  { return 7i32; }
     if t1.get(1i64) != 3i64  { return 8i32; }
     if t1.get(2i64) != 4i64  { return 9i32; }
 
-    let t2: Vec<i64> = tcq(&edges[..], 2i64);
+    let t2: Vec<i64> = tcq(&edges[..], 2i64).unwrap();
     if t2.len() != 2i64      { return 10i32; }
     if t2.get(1i64) != 4i64  { return 11i32; }
 

@@ -284,17 +284,24 @@ fn wstr_decode_i64(p: *const u8) -> i64 {
     let n: i64 = s.len();
     let mut v: i64 = 0i64;
     let mut i: i64 = 0i64;
+    let mut ovf: bool = false;
     while i < n {
         let c: u8 = str_byte_at(s, i);
         if c < 48u8 || c > 57u8 { break; }
-        // Clamp on i64 overflow — plain v*10 traps (checked arithmetic), so an
-        // out-of-range literal would SIGILL the process. Saturate instead
-        // (matches the f64 mantissa guard below). 922337203685477580 == i64::MAX/10.
-        if v < 922337203685477580i64 {
-            v = v * 10i64 + ((c as i64) - 48i64);
+        // Error-returning integer-literal policy: a literal exceeding i64::MAX is
+        // a COMPILE error — not a clamp, not a trap. Manual overflow guard (no
+        // checked_*/Option imports here): i64::MAX/10 = 922337203685477580 rem 7.
+        // On overflow return the POISON sentinel i64::MIN which the check phase
+        // turns into a compile error.
+        let d: i64 = (c as i64) - 48i64;
+        if v > 922337203685477580i64 || (v == 922337203685477580i64 && d > 7i64) {
+            ovf = true;
+            break;
         }
+        v = v * 10i64 + d;
         i = i + 1i64;
     }
+    if ovf { return el_lit_poison(); }
     return v;
 }
 // Decode a captured FLOAT token (digits '.' digits) into its f64 VALUE —

@@ -35,7 +35,7 @@ fn main() -> i32 {
         Sale { dept: 3i64, amount: 7i64 },     // singleton → dropped by having
     ];
 
-    let stats: Vec<(i64, i64, f64)> = dept_stats(&sales[..]);
+    let stats: Vec<(i64, i64, f64)> = dept_stats(&sales[..]).unwrap();
     if stats.len() != 2i64 { return 1i32; }
     let s0: (i64, i64, f64) = stats.get(0i64);   // dept 1: n=2, mean=15.0
     if s0.0 != 1i64 { return 2i32; }
@@ -46,7 +46,7 @@ fn main() -> i32 {
     if s1.1 != 2i64 { return 6i32; }
     if s1.2 != 150.0f64 { return 7i32; }
 
-    let totals: Vec<(i64, i64)> = dept_totals(&sales[..]);
+    let totals: Vec<(i64, i64)> = dept_totals(&sales[..]).unwrap();
     if totals.len() != 3i64 { return 8i32; }
     let t0: (i64, i64) = totals.get(0i64);
     if t0.0 != 1i64 { return 9i32; }

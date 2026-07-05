@@ -215,14 +215,14 @@ fn main() -> i32 {
 
         let mut naive: Vec<i64> = naive_tc(&sv, &dv, N);
         let mut dynv: Vec<i64> = dyn_run("rel path(a: i64, b: i64) { from edges e select (e.src, e.dst); from path p join edges e on p.b == e.src select (p.a, e.dst); } from path p select p.a * 100 + p.b", &c, &env);
-        let mut stat: Vec<i64> = tc(sl.as_slice());
+        let mut stat: Vec<i64> = tc(sl.as_slice()).unwrap();
 
         if !veq(&mut stat, &mut naive) { return 10i32; }
         if !veq(&mut dynv, &mut naive) { return 20i32; }
 
         // ── mutual recursion odd/even ──
         let mut nodd: Vec<i64> = naive_odd(&sv, &dv, N);
-        let mut sodd: Vec<i64> = mut_odd(sl.as_slice());
+        let mut sodd: Vec<i64> = mut_odd(sl.as_slice()).unwrap();
         let mut dodd: Vec<i64> = dyn_run("rel odd(a: i64, b: i64) { from edges e select (e.src, e.dst); from even v join edges e on v.b == e.src select (v.a, e.dst); } rel even(a: i64, b: i64) { from odd o join edges e on o.b == e.src select (o.a, e.dst); } from odd p select p.a * 100 + p.b", &c, &env);
         if !veq(&mut sodd, &mut nodd) { return 30i32; }
         if !veq(&mut dodd, &mut nodd) { return 40i32; }

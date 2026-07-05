@@ -29,18 +29,18 @@ fn main() -> i32 {
     ];
 
     // Every cycle member reaches all three members (itself included).
-    let out1: Vec<i64> = reach(&edges[..], 1i64);
+    let out1: Vec<i64> = reach(&edges[..], 1i64).unwrap();
     if out1.len() != 3i64      { return 1i32; }
     if out1.get(0i64) != 1i64  { return 2i32; }
     if out1.get(1i64) != 2i64  { return 3i32; }
     if out1.get(2i64) != 3i64  { return 4i32; }
 
-    let out2: Vec<i64> = reach(&edges[..], 2i64);
+    let out2: Vec<i64> = reach(&edges[..], 2i64).unwrap();
     if out2.len() != 3i64      { return 5i32; }
     if out2.get(0i64) != 1i64  { return 6i32; }
 
     // Self-loop: 4 reaches exactly itself.
-    let out4: Vec<i64> = reach(&edges[..], 4i64);
+    let out4: Vec<i64> = reach(&edges[..], 4i64).unwrap();
     if out4.len() != 1i64      { return 7i32; }
     if out4.get(0i64) != 4i64  { return 8i32; }
 

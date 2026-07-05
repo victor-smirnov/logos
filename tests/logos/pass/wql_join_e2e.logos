@@ -51,7 +51,7 @@ fn main() -> i32 {
         Dept { id: 3i64, budget: 500i64 },
     ];
 
-    let rows: Vec<i64> = emp_salaries(&emps[..], &depts[..]);
+    let rows: Vec<i64> = emp_salaries(&emps[..], &depts[..]).unwrap();
 
     // Expect [50, 70] — the two employees in dept 1 (budget 200 > 100), in
     // source order. Emp dept 2 fails the budget filter; emp dept 9 has no match.
@@ -64,7 +64,7 @@ fn main() -> i32 {
 
     // ANTI JOIN: only emp dept 9 has no matching department (depts are 1/2/3),
     // so just its salary (99) survives the anti-join.
-    let orphans: Vec<i64> = orphan_salaries(&emps[..], &depts[..]);
+    let orphans: Vec<i64> = orphan_salaries(&emps[..], &depts[..]).unwrap();
     if orphans.len() != 1i64 { return 6i32; }
     if orphans.get(0i64) != 99i64 { return 7i32; }
     return 0i32;
