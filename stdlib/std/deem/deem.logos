@@ -736,8 +736,15 @@ pub enum RtVal {
     S(str),
     Node(WAny),
     Null,
+    // A math ERROR (integer overflow / division-or-remainder by zero). Distinct
+    // from Null (lenient miss): Error PROPAGATES through arithmetic like Null but
+    // ABORTS the query at the eval boundary (eval_sx → chk_fail → QError) rather
+    // than dropping the row. EL scripts get error-returning arithmetic; compiled
+    // Logos keeps the trap-on-overflow default.
+    Error,
 }
 impl Copy for RtVal {}
+fn rt_is_err(v: RtVal) -> bool { match v { RtVal::Error => { return true; } _ => { return false; } } }
 
 // ── UDF/UDA function-pointer shapes (ADR §6, MVP) ───────────────────────────
 // UDF: eval'd args in, one value out. UDA: init() seeds the accumulator,
@@ -762,6 +769,7 @@ fn rt_kind(v: RtVal) -> i32 {
         RtVal::S(_x)    => { return 4i32; }
         RtVal::Node(_x) => { return 5i32; }
         RtVal::Null     => { return 0i32; }
+        RtVal::Error    => { return 6i32; }
     }
 }
 fn rt_i(v: RtVal) -> i64 {
@@ -798,6 +806,7 @@ fn rt_truthy(v: RtVal) -> bool {
         RtVal::S(s)     => { return s.len() != 0i64; }
         RtVal::Node(_w) => { return true; }
         RtVal::Null     => { return false; }
+        RtVal::Error    => { return false; }
     }
 }
 
@@ -1568,6 +1577,7 @@ impl RBinds {
             RtVal::S(x) => { self.kinds[i] = QB_STR;  self.svals[i] = x; }
             RtVal::Node(w) => { self.kinds[i] = QB_NODE; self.words[i] = w.raw(); }
             RtVal::Null => { self.kinds[i] = 0i32; }
+            RtVal::Error => { self.kinds[i] = 0i32; }   // math error binds as null-ish; boundary aborts
         }
     }
 }
@@ -1664,19 +1674,26 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             let op: i32 = b.op;
             // Short-circuit boolean tier.
             if op == OP_AND() {
-                if !rt_truthy(eval_sexpr(b.lhs_expr(), cat, env, lb, scratch)) {
-                    return RtVal::B(false);
-                }
-                return RtVal::B(rt_truthy(eval_sexpr(b.rhs_expr(), cat, env, lb, scratch)));
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(lv) { return RtVal::Error; }
+                if !rt_truthy(lv) { return RtVal::B(false); }
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(rv) { return RtVal::Error; }
+                return RtVal::B(rt_truthy(rv));
             }
             if op == OP_OR() {
-                if rt_truthy(eval_sexpr(b.lhs_expr(), cat, env, lb, scratch)) {
-                    return RtVal::B(true);
-                }
-                return RtVal::B(rt_truthy(eval_sexpr(b.rhs_expr(), cat, env, lb, scratch)));
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(lv) { return RtVal::Error; }
+                if rt_truthy(lv) { return RtVal::B(true); }
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(rv) { return RtVal::Error; }
+                return RtVal::B(rt_truthy(rv));
             }
             let l: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
             let r: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+            // A math error in either operand propagates (like Null) — the eval
+            // boundary (eval_sx) turns it into a QError.
+            if rt_is_err(l) || rt_is_err(r) { return RtVal::Error; }
             if op == OP_EQ() { return RtVal::B(rt_eq(l, r)); }
             if op == OP_NE() { return RtVal::B(!rt_eq(l, r)); }
             if op == OP_LT() || op == OP_LE() || op == OP_GT() || op == OP_GE() {
@@ -1712,36 +1729,44 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                     return RtVal::S(intern(scratch, &t));
                 }
                 if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 {
-                    return RtVal::F(rt_f(l) + rt_f(r));
+                    return RtVal::F(rt_f(l) + rt_f(r));   // IEEE f64: no trap
                 }
-                return RtVal::I(rt_i(l) + rt_i(r));
+                // Integer tier: error-returning (checked) arithmetic — overflow
+                // yields RtVal::Error instead of trapping (EL-script policy).
+                match rt_i(l).checked_add(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
             if op == OP_SUB() {
                 if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) - rt_f(r)); }
-                return RtVal::I(rt_i(l) - rt_i(r));
+                match rt_i(l).checked_sub(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
             if op == OP_MUL() {
                 if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) * rt_f(r)); }
-                return RtVal::I(rt_i(l) * rt_i(r));
+                match rt_i(l).checked_mul(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
             if op == OP_DIV() {
                 if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) / rt_f(r)); }
-                return RtVal::I(rt_i(l) / rt_i(r));   // div-by-zero traps (static parity)
+                // checked_div → None on divide-by-zero AND on i64::MIN / -1.
+                match rt_i(l).checked_div(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
-            // OP_MOD — integer tier only (checker-enforced).
-            return RtVal::I(rt_i(l) % rt_i(r));
+            // OP_MOD — integer tier only (checker-enforced). checked_rem → None
+            // on rem-by-zero and i64::MIN % -1.
+            match rt_i(l).checked_rem(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
         }
         SExpr::Un(u) => {
             let a: RtVal = eval_sexpr(u.arg_expr(), cat, env, lb, scratch);
+            if rt_is_err(a) { return RtVal::Error; }
             if u.op == OP_NOT() { return RtVal::B(!rt_truthy(a)); }
             match a {
                 RtVal::F(x) => { return RtVal::F(0.0f64 - x); }
                 RtVal::Null => { return RtVal::Null; }   // -Null → Null (ADR §4)
-                _ => { return RtVal::I(0i64 - rt_i(a)); }
+                // integer negation is checked (i64::MIN negation overflows)
+                _ => { match rt_i(a).checked_neg() { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
             }
         }
         SExpr::Cond(c) => {
-            if rt_truthy(eval_sexpr(c.cond_expr(), cat, env, lb, scratch)) {
+            let cv: RtVal = eval_sexpr(c.cond_expr(), cat, env, lb, scratch);
+            if rt_is_err(cv) { return RtVal::Error; }
+            if rt_truthy(cv) {
                 return eval_sexpr(c.then_expr(), cat, env, lb, scratch);
             }
             return eval_sexpr(c.else_expr(), cat, env, lb, scratch);
@@ -3220,7 +3245,7 @@ fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             let mut r: i64 = 0i64;
             while r < input.nrows {
                 rs_load(&input, r, bp);
-                if rt_truthy(eval_sexpr(f.pred_expr(), cat, env, bp, scratch)) {
+                if rt_truthy(eval_sx(f.pred_expr(), cat, env, bp, scratch, chk)) {
                     rs_push_ext(&mut out, &input, r, false, RtVal::Null);
                 }
                 r = r + 1i64;
@@ -3238,7 +3263,7 @@ fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             let mut r: i64 = 0i64;
             while r < input.nrows {
                 rs_load(&input, r, bp);
-                keys.push(eval_sexpr(s.key_expr(), cat, env, bp, scratch));
+                keys.push(eval_sx(s.key_expr(), cat, env, bp, scratch, chk));
                 r = r + 1i64;
             }
             let mut order: Vec<i64> = vec_new::<i64>();
@@ -3365,7 +3390,7 @@ fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                         unsafe { (&mut *bp).set_val(eslot, ev); }
                         let mut pass: bool = true;
                         if ed.has_on {
-                            pass = rt_truthy(eval_sexpr(ed.on_expr(), cat, env, bp, scratch));
+                            pass = rt_truthy(eval_sx(ed.on_expr(), cat, env, bp, scratch, chk));
                         }
                         if pass {
                             matched = true;
@@ -3379,7 +3404,7 @@ fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                     unsafe { (&mut *bp).set_val(eslot, ev1); }
                     let mut pass1: bool = true;
                     if ed.has_on {
-                        pass1 = rt_truthy(eval_sexpr(ed.on_expr(), cat, env, bp, scratch));
+                        pass1 = rt_truthy(eval_sx(ed.on_expr(), cat, env, bp, scratch, chk));
                     }
                     if pass1 {
                         matched = true;
@@ -3448,7 +3473,7 @@ fn exec_join(left: RowSet, right: RowSet, on_w: i64, node_w: i64, anti: bool,
             let mut j: i64 = 0i64;
             while j < right.nrows {
                 rs_load(&right, j, rbp);
-                let bk: RtVal = eval_sexpr(sx_of(qp.jbuild[ji]), cat, env, rbp, scratch);
+                let bk: RtVal = eval_sx(sx_of(qp.jbuild[ji]), cat, env, rbp, scratch, chk);
                 rkeys.push(bk);
                 unsafe {
                     let vp: *mut Vec<i64> = mp.get_or_insert(rt_key_hash(bk), vec_new::<i64>());
@@ -3461,7 +3486,7 @@ fn exec_join(left: RowSet, right: RowSet, on_w: i64, node_w: i64, anti: bool,
         let mut r: i64 = 0i64;
         while r < left.nrows {
             rs_load(&left, r, cbp);
-            let pk: RtVal = eval_sexpr(sx_of(qp.jprobe[ji]), cat, env, cbp, scratch);
+            let pk: RtVal = eval_sx(sx_of(qp.jprobe[ji]), cat, env, cbp, scratch, chk);
             let hp: u64 = rt_key_hash(pk);
             let bp2: *const Vec<i64> = unsafe { mp.get(&hp) };
             let mut matched: bool = false;
@@ -3500,7 +3525,7 @@ fn exec_join(left: RowSet, right: RowSet, on_w: i64, node_w: i64, anti: bool,
         let mut j3: i64 = 0i64;
         while j3 < right.nrows {
             rs_load_at(&right, j3, cbp, rslot);
-            if rt_truthy(eval_sexpr(on_e, cat, env, cbp, scratch)) {
+            if rt_truthy(eval_sx(on_e, cat, env, cbp, scratch, chk)) {
                 matched2 = true;
                 if !anti {
                     rs_push_row(&mut out, &left, r2, &right, j3);
@@ -3534,7 +3559,7 @@ fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
     let mut r: i64 = 0i64;
     while r < input.nrows {
         rs_load(&input, r, bp);
-        let k: RtVal = eval_sexpr(g.key_expr(), cat, env, bp, scratch);
+        let k: RtVal = eval_sx(g.key_expr(), cat, env, bp, scratch, chk);
         // group lookup by VALUE equality (rt_eq — group counts are small; a
         // keyed index is a later optimization, mirrors the static O(n²) MVP)
         let mut gi: i64 = -1i64;
@@ -3574,7 +3599,7 @@ fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             if fnid2 == 1i32 {
                 nv = RtVal::I(rt_i(cur) + 1i64);
             } else {
-                let av: RtVal = eval_sexpr(a.arg_expr(), cat, env, bp, scratch);
+                let av: RtVal = eval_sx(a.arg_expr(), cat, env, bp, scratch, chk);
                 if fnid2 == 2i32 {
                     if isf2 { nv = RtVal::F(rt_f(cur) + rt_f(av)); }
                     else    { nv = RtVal::I(rt_i(cur) + rt_i(av)); }
@@ -3638,6 +3663,22 @@ fn ot_new(nc: i64) -> OutTab {
 }
 
 // exec_root — RLimit?( RDistinct?( RProj( pipeline ) ) ).
+// Evaluate an EL expression at a query BOUNDARY (filter predicate, projection
+// cell, join/group key, aggregate arg). If the evaluation produced a math error
+// (RtVal::Error from checked arithmetic), record it on the Chk sink so run() /
+// render() surface it as a QError, and return Null in its place (the row is
+// then irrelevant — the whole query aborts). Internal (recursive) eval stays on
+// eval_sexpr; only the boundaries convert Error → error.
+fn eval_sx(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
+           scratch: &Writ, chk: *mut Chk) -> RtVal {
+    let v: RtVal = eval_sexpr(e, cat, env, lb, scratch);
+    if rt_is_err(v) {
+        chk_fail_p(chk, "arithmetic error (integer overflow or division by zero) in a query expression", "", "", "", "");
+        return RtVal::Null;
+    }
+    return v;
+}
+
 fn exec_root(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
              scratch: &Writ, chk: *mut Chk, rctx: *const RelCtx) -> OutTab {
     if chk_bad(chk) { return ot_new(0i64); }
@@ -3729,12 +3770,12 @@ fn exec_root(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                         let nn: i64 = items.len();
                         let mut c: i64 = 0i64;
                         while c < nn {
-                            out.cells.push(eval_sexpr(items.arg_at(c), cat, env, bp, scratch));
+                            out.cells.push(eval_sx(items.arg_at(c), cat, env, bp, scratch, chk));
                             c = c + 1i64;
                         }
                     }
                     _ => {
-                        out.cells.push(eval_sexpr(sel, cat, env, bp, scratch));
+                        out.cells.push(eval_sx(sel, cat, env, bp, scratch, chk));
                     }
                 }
                 out.nrows = out.nrows + 1i64;

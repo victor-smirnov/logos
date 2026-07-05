@@ -1,0 +1,59 @@
+// query_el_arith_err_e2e — EL arithmetic is ERROR-RETURNING on the dynamic
+// (interpreter) query path. Per the language policy, compiled Logos traps on a
+// math error by default; but Deem/Trama/EL *scripts* must not crash the host —
+// `a + b` inside a query uses checked arithmetic and a math error (integer
+// overflow / division-or-remainder by zero) surfaces as a QError from
+// Query::run, never a SIGFPE/SIGILL trap.
+//
+// Exit 0 iff every math-error query returns Result::Err (compile-Ok, run-Err)
+// and every valid query runs clean. Covers the where-predicate, the projection,
+// the group-by aggregate argument, and both overflow and division-by-zero.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+pub schema A : code(0x0DFC_0000_0000_0001) { a0: i64 = 0, a1: i64 = 1 }
+resource cat = schema_catalog!{ A };
+
+// outcome: 0 = compile-Err, 1 = run-Err (the math-error case), 2 = run-Ok
+fn outcome(t: str, c: &SchemaCatalog, env: &QEnv) -> i32 {
+    match Query::compile(t, c) {
+        Result::Ok(q) => { match q.run(env) { Result::Ok(_r) => { return 2i32; } Result::Err(_e) => { return 1i32; } } }
+        Result::Err(_e2) => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let d: Writ = writ_new(4096i64);
+    let arr: &mut WArray<WAny> = d.array(4i64);
+    // a0 = 4e9 (in range; 4e9 * 4e9 = 1.6e19 overflows i64::MAX ≈ 9.2e18)
+    let r0: A = d.make::<A>(); r0.a0 = 4000000000i64; r0.a1 = 7i64; arr.push(WAny::ref_to((r0.m as i64) as *const u8));
+    let r1: A = d.make::<A>(); r1.a0 = 3i64; r1.a1 = 7i64; arr.push(WAny::ref_to((r1.m as i64) as *const u8));
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("A", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
+
+    // ── math errors must be run-time QError (outcome 1) ──────────────────────
+    if outcome("from A x where x.a0 / 0 == 1 select x.a1", &c, &env) != 1i32 { return 1i32; }   // div-zero in where
+    if outcome("from A x select x.a1 / 0", &c, &env) != 1i32 { return 2i32; }                    // div-zero in select
+    if outcome("from A x where x.a1 % 0 == 0 select x.a1", &c, &env) != 1i32 { return 3i32; }    // rem-zero in where
+    if outcome("from A x select x.a0 * 4000000000", &c, &env) != 1i32 { return 4i32; }           // overflow in select
+    if outcome("from A x group by x.a1 aggregate s = sum(x.a0 * 4000000000) select (key, s)", &c, &env) != 1i32 { return 5i32; }  // overflow in aggregate arg
+    if outcome("from A x select (x.a1 > 0 ? x.a0 * 4000000000 : 0)", &c, &env) != 1i32 { return 6i32; }  // overflow in a ternary branch
+
+    // ── valid arithmetic must still run clean (outcome 2) ────────────────────
+    if outcome("from A x select x.a0 + x.a1", &c, &env) != 2i32 { return 10i32; }
+    if outcome("from A x where x.a1 * 2 > 5 select x.a1", &c, &env) != 2i32 { return 11i32; }
+    if outcome("from A x select x.a1 / 1", &c, &env) != 2i32 { return 12i32; }
+    if outcome("from A x group by x.a1 aggregate s = sum(x.a1) select (key, s)", &c, &env) != 2i32 { return 13i32; }
+
+    return 0i32;
+}
