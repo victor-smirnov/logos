@@ -1,0 +1,352 @@
+// f64_avg_nan_fuzz — 3-way differential (STATIC deem! vs DYNAMIC Query::run vs
+// independent NAIVE oracle) targeting the f64 / avg / NaN dimension of the Deem
+// engine. Data columns: g:i64 (group/join key), v:f64 drawn from an adversarial
+// pool { +0.0, -0.0, 1.0, 2.0, NaN, 0.5, -1.0, 3.0 } so every iteration mixes
+// signed zeros, NaN, and dyadic values. f64 results are compared BIT-EXACT
+// (f64_to_bits multiset) — NaN==NaN is false, so a value compare would be
+// meaningless; the engine and the oracle must agree on the exact bit pattern,
+// accumulating avg/sum in the SAME (input) order. Exit 0 iff all three agree
+// every iteration; nonzero code = failing shape (+ side).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.std.deem;
+use logos.lang.result;
+use logos.lang.num.float;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+// static side: plain structs
+struct SA { pub g: i64, pub v: f64 }
+struct SB { pub g: i64, pub v: f64 }
+// dynamic side: schema'd Writ rows (same columns)
+pub schema A : code(0x0DFA_0000_0000_0001) { g: i64 = 0, v: f64 = 1 }
+pub schema B : code(0x0DFA_0000_0000_0002) { g: i64 = 0, v: f64 = 1 }
+resource cat = schema_catalog!{ A, B };
+
+// STATIC resources (native emitted fns)
+resource s_sel  = deem!(a: &[SA]) { from a x select x.v };
+resource s_flt  = deem!(a: &[SA]) { from a x where x.v > 0.5 select x.v };
+resource s_join = deem!(a: &[SA], b: &[SB]) { from a x join b y on x.v == y.v select x.g };
+resource s_avg  = deem!(a: &[SA]) { from a x group by x.g aggregate m = avg(x.v) select m };
+resource s_sum  = deem!(a: &[SA]) { from a x group by x.g aggregate s = sum(x.v) select s };
+resource s_min  = deem!(a: &[SA]) { from a x group by x.g aggregate lo = min(x.v) select lo };
+resource s_max  = deem!(a: &[SA]) { from a x group by x.g aggregate hi = max(x.v) select hi };
+
+// ── RNG ───────────────────────────────────────────────────────────────────────
+struct Rng { s: u64 }
+impl Rng {
+    fn next(self: &mut Rng) -> u64 {
+        self.s = wrapping_add(wrapping_mul(self.s, 6364136223846793005u64), 1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+    fn upto(self: &mut Rng, n: i64) -> i64 { return (self.next() % (n as u64)) as i64; }
+}
+
+// adversarial f64 value pool
+fn poolf(i: i64) -> f64 {
+    if i == 0i64 { return 0.0f64; }
+    if i == 1i64 { return f64_from_bits(0x8000000000000000u64); }   // -0.0
+    if i == 2i64 { return 1.0f64; }
+    if i == 3i64 { return 2.0f64; }
+    if i == 4i64 { return f64_from_bits(0x7ff8000000000000u64); }   // NaN (quiet)
+    if i == 5i64 { return 0.5f64; }
+    if i == 6i64 { return -1.0f64; }
+    if i == 7i64 { return 3.0f64; }
+    if i == 8i64 { return f64_from_bits(0x7ff0000000000000u64); }   // +inf
+    return f64_from_bits(0xfff0000000000000u64);                    // -inf
+}
+
+// raw data: parallel Vec<i64> of g and vidx
+fn nrows_of(g: &Vec<i64>) -> i64 { return g.len(); }
+
+// ── u64 (bit) multiset ────────────────────────────────────────────────────────
+fn usort(v: &mut Vec<u64>) {
+    let n: i64 = v.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let mut m: i64 = i;
+        let mut j: i64 = i + 1i64;
+        while j < n { if v.get(j) < v.get(m) { m = j; } j = j + 1i64; }
+        if m != i { let t: u64 = v.get(i); v.set(i, v.get(m)); v.set(m, t); }
+        i = i + 1i64;
+    }
+}
+fn ueq(a: &mut Vec<u64>, b: &mut Vec<u64>) -> bool {
+    if a.len() != b.len() { return false; }
+    usort(a); usort(b);
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
+    return true;
+}
+fn ueq3(a: &mut Vec<u64>, b: &mut Vec<u64>, c: &mut Vec<u64>) -> bool {
+    return ueq(a, b) && ueq(b, c);
+}
+
+// ── i64 multiset ──────────────────────────────────────────────────────────────
+fn isort(v: &mut Vec<i64>) {
+    let n: i64 = v.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let mut m: i64 = i;
+        let mut j: i64 = i + 1i64;
+        while j < n { if v.get(j) < v.get(m) { m = j; } j = j + 1i64; }
+        if m != i { let t: i64 = v.get(i); v.set(i, v.get(m)); v.set(m, t); }
+        i = i + 1i64;
+    }
+}
+fn ieq(a: &mut Vec<i64>, b: &mut Vec<i64>) -> bool {
+    if a.len() != b.len() { return false; }
+    isort(a); isort(b);
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
+    return true;
+}
+fn ieq3(a: &mut Vec<i64>, b: &mut Vec<i64>, c: &mut Vec<i64>) -> bool {
+    return ieq(a, b) && ieq(b, c);
+}
+
+// f64 Vec -> bits Vec
+fn f_bits(v: &Vec<f64>) -> Vec<u64> {
+    let mut o: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = 0i64;
+    while i < v.len() { o.push(f64_to_bits(v.get(i))); i = i + 1i64; }
+    return o;
+}
+
+// ── dynamic Writ builders ─────────────────────────────────────────────────────
+fn mkA(d: &Writ, g: i64, v: f64) -> WAny {
+    let r: A = d.make::<A>(); r.g = g; r.v = v;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn mkB(d: &Writ, g: i64, v: f64) -> WAny {
+    let r: B = d.make::<B>(); r.g = g; r.v = v;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn wsrcA(d: &Writ, gs: &Vec<i64>, vi: &Vec<i64>) -> WAny {
+    let n: i64 = gs.len(); let arr: &mut WArray<WAny> = d.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n { arr.push(mkA(d, gs.get(i), poolf(vi.get(i)))); i = i + 1i64; }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+fn wsrcB(d: &Writ, gs: &Vec<i64>, vi: &Vec<i64>) -> WAny {
+    let n: i64 = gs.len(); let arr: &mut WArray<WAny> = d.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n { arr.push(mkB(d, gs.get(i), poolf(vi.get(i)))); i = i + 1i64; }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+
+// dynamic run → Vec<f64> (col 0)
+fn dyn_f(qt: str, c: &SchemaCatalog, env: &QEnv) -> Vec<f64> {
+    let mut out: Vec<f64> = vec_new::<f64>();
+    match Query::compile(qt, c) {
+        Result::Ok(q) => {
+            match q.run(env) {
+                Result::Ok(r) => {
+                    let nr: i64 = r.row_count();
+                    let mut i: i64 = 0i64;
+                    while i < nr { out.push(r.get_f64(i, 0i64)); i = i + 1i64; }
+                }
+                Result::Err(_e2) => { out.push(-999.0f64); }
+            }
+        }
+        Result::Err(_e) => { out.push(-998.0f64); }
+    }
+    return out;
+}
+// dynamic run → Vec<i64> (col 0)
+fn dyn_i(qt: str, c: &SchemaCatalog, env: &QEnv) -> Vec<i64> {
+    let mut out: Vec<i64> = vec_new::<i64>();
+    match Query::compile(qt, c) {
+        Result::Ok(q) => {
+            match q.run(env) {
+                Result::Ok(r) => {
+                    let nr: i64 = r.row_count();
+                    let mut i: i64 = 0i64;
+                    while i < nr { out.push(r.get_i64(i, 0i64)); i = i + 1i64; }
+                }
+                Result::Err(_e2) => { out.push(-999i64); }
+            }
+        }
+        Result::Err(_e) => { out.push(-998i64); }
+    }
+    return out;
+}
+
+// static slabs
+fn slabA(gs: &Vec<i64>, vi: &Vec<i64>) -> Vec<SA> {
+    let mut v: Vec<SA> = vec_new::<SA>(); let n: i64 = gs.len(); let mut i: i64 = 0i64;
+    while i < n { v.push(SA { g: gs.get(i), v: poolf(vi.get(i)) }); i = i + 1i64; }
+    return v;
+}
+fn slabB(gs: &Vec<i64>, vi: &Vec<i64>) -> Vec<SB> {
+    let mut v: Vec<SB> = vec_new::<SB>(); let n: i64 = gs.len(); let mut i: i64 = 0i64;
+    while i < n { v.push(SB { g: gs.get(i), v: poolf(vi.get(i)) }); i = i + 1i64; }
+    return v;
+}
+
+// distinct int-key list in first-occurrence order
+fn contains_i(v: &Vec<i64>, x: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() { if v.get(i) == x { return true; } i = i + 1i64; }
+    return false;
+}
+
+fn main() -> i32 {
+    let mut rng: Rng = Rng { s: 0xDEADBEEF12345678u64 };
+    let c: SchemaCatalog = cat();
+    let NITER: i64 = 6000i64;
+    let MAXROWS: i64 = 7i64;
+
+    let mut it: i64 = 0i64;
+    while it < NITER {
+        let shape: i64 = rng.upto(8i64);
+        let na: i64 = rng.upto(MAXROWS);
+        let nb: i64 = rng.upto(MAXROWS);
+
+        let mut ga: Vec<i64> = vec_new::<i64>();
+        let mut va: Vec<i64> = vec_new::<i64>();
+        let mut r0: i64 = 0i64;
+        while r0 < na { ga.push(rng.upto(3i64)); va.push(rng.upto(10i64)); r0 = r0 + 1i64; }
+        let mut gb: Vec<i64> = vec_new::<i64>();
+        let mut vb: Vec<i64> = vec_new::<i64>();
+        let mut r1: i64 = 0i64;
+        while r1 < nb { gb.push(rng.upto(3i64)); vb.push(rng.upto(10i64)); r1 = r1 + 1i64; }
+
+        let d: Writ = writ_new(16384i64);
+        let mut env: QEnv = QEnv::new();
+        env.bind_source("a", wsrcA(&d, &ga, &va));
+        env.bind_source("b", wsrcB(&d, &gb, &vb));
+        let sla: Vec<SA> = slabA(&ga, &va);
+        let slb: Vec<SB> = slabB(&gb, &vb);
+
+        if shape == 0i64 {
+            // SELECT f64
+            let st: Vec<f64> = s_sel(sla.as_slice());
+            let dv: Vec<f64> = dyn_f("from a x select x.v", &c, &env);
+            let mut nv: Vec<f64> = vec_new::<f64>();
+            let mut r: i64 = 0i64;
+            while r < na { nv.push(poolf(va.get(r))); r = r + 1i64; }
+            let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
+            if !ueq3(&mut sb, &mut db, &mut nb2) { return 10i32; }
+        } else if shape == 1i64 {
+            // FILTER f64: v > 0.5
+            let st: Vec<f64> = s_flt(sla.as_slice());
+            let dv: Vec<f64> = dyn_f("from a x where x.v > 0.5 select x.v", &c, &env);
+            let mut nv: Vec<f64> = vec_new::<f64>();
+            let mut r: i64 = 0i64;
+            while r < na { let x: f64 = poolf(va.get(r)); if x > 0.5f64 { nv.push(x); } r = r + 1i64; }
+            let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
+            if !ueq3(&mut sb, &mut db, &mut nb2) { return 11i32; }
+        } else if shape == 2i64 {
+            // JOIN on f64 key (nested-loop tier), project x.g
+            let mut st: Vec<i64> = s_join(sla.as_slice(), slb.as_slice());
+            let mut dv: Vec<i64> = dyn_i("from a x join b y on x.v == y.v select x.g", &c, &env);
+            let mut nv: Vec<i64> = vec_new::<i64>();
+            let mut ra: i64 = 0i64;
+            while ra < na {
+                let mut rb: i64 = 0i64;
+                while rb < nb {
+                    if poolf(va.get(ra)) == poolf(vb.get(rb)) { nv.push(ga.get(ra)); }
+                    rb = rb + 1i64;
+                }
+                ra = ra + 1i64;
+            }
+            if !ieq3(&mut st, &mut dv, &mut nv) { return 12i32; }
+        } else if shape == 3i64 {
+            // GROUP BY int, avg(f64)  (bit-exact)
+            let st: Vec<f64> = s_avg(sla.as_slice());
+            let dv: Vec<f64> = dyn_f("from a x group by x.g aggregate m = avg(x.v) select m", &c, &env);
+            let mut nv: Vec<f64> = naive_agg(&ga, &va, 5i64);
+            let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
+            if !ueq3(&mut sb, &mut db, &mut nb2) { return 15i32; }
+        } else if shape == 4i64 {
+            // GROUP BY int, sum(f64)
+            let st: Vec<f64> = s_sum(sla.as_slice());
+            let dv: Vec<f64> = dyn_f("from a x group by x.g aggregate s = sum(x.v) select s", &c, &env);
+            let mut nv: Vec<f64> = naive_agg(&ga, &va, 2i64);
+            let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
+            if !ueq3(&mut sb, &mut db, &mut nb2) { return 16i32; }
+        } else if shape == 5i64 {
+            // GROUP BY int, min(f64)
+            let st: Vec<f64> = s_min(sla.as_slice());
+            let dv: Vec<f64> = dyn_f("from a x group by x.g aggregate lo = min(x.v) select lo", &c, &env);
+            let mut nv: Vec<f64> = naive_agg(&ga, &va, 3i64);
+            let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
+            if !ueq3(&mut sb, &mut db, &mut nb2) { return 17i32; }
+        } else if shape == 6i64 {
+            // GROUP BY int, max(f64)
+            let st: Vec<f64> = s_max(sla.as_slice());
+            let dv: Vec<f64> = dyn_f("from a x group by x.g aggregate hi = max(x.v) select hi", &c, &env);
+            let mut nv: Vec<f64> = naive_agg(&ga, &va, 4i64);
+            let mut sb: Vec<u64> = f_bits(&st); let mut db: Vec<u64> = f_bits(&dv); let mut nb2: Vec<u64> = f_bits(&nv);
+            if !ueq3(&mut sb, &mut db, &mut nb2) { return 18i32; }
+        }
+        // (An f64 `group by` KEY is rejected by both engines — no total order /
+        // stable hash; that rejection is pinned cleanly by query_compile_robust_e2e.
+        // This fuzzer stays on the f64 VALUE-aggregation dimension where the
+        // engines agree bit-exactly.)
+
+        it = it + 1i64;
+    }
+    return 0i32;
+}
+
+// naive per-int-group aggregate over f64 values; fn: 2=sum 3=min 4=max 5=avg.
+// Accumulates in INPUT order per group (matches engine accumulation order).
+fn naive_agg(gs: &Vec<i64>, vi: &Vec<i64>, fnid: i64) -> Vec<f64> {
+    let n: i64 = gs.len();
+    let mut keys: Vec<i64> = vec_new::<i64>();
+    let mut r: i64 = 0i64;
+    while r < n { let k: i64 = gs.get(r); if !contains_i(&keys, k) { keys.push(k); } r = r + 1i64; }
+    let mut out: Vec<f64> = vec_new::<f64>();
+    let mut ki: i64 = 0i64;
+    while ki < keys.len() {
+        let k: i64 = keys.get(ki);
+        let mut acc: f64 = 0.0f64;
+        if fnid == 3i64 { acc = 1.7976931348623157e308f64; }
+        if fnid == 4i64 { acc = -1.7976931348623157e308f64; }
+        let mut cnt: i64 = 0i64;
+        let mut r2: i64 = 0i64;
+        while r2 < n {
+            if gs.get(r2) == k {
+                let x: f64 = poolf(vi.get(r2));
+                cnt = cnt + 1i64;
+                if fnid == 2i64 { acc = acc + x; }
+                else if fnid == 5i64 { acc = acc + x; }
+                else if fnid == 3i64 { if x < acc { acc = x; } }
+                else if fnid == 4i64 { if x > acc { acc = x; } }
+            }
+            r2 = r2 + 1i64;
+        }
+        if fnid == 5i64 { out.push(if cnt > 0i64 { acc / (cnt as f64) } else { 0.0f64 }); }
+        else { out.push(acc); }
+        ki = ki + 1i64;
+    }
+    return out;
+}
+
+// naive group-by f64 key with `==` semantics (NaN each own group), count per
+// group, first-occurrence order.  Mirrors dynamic rt_eq linear-scan grouping.
+fn naive_group_fkey_count(vi: &Vec<i64>) -> Vec<i64> {
+    let n: i64 = vi.len();
+    let mut kf: Vec<f64> = vec_new::<f64>();
+    let mut cnt: Vec<i64> = vec_new::<i64>();
+    let mut r: i64 = 0i64;
+    while r < n {
+        let x: f64 = poolf(vi.get(r));
+        let mut gi: i64 = -1i64;
+        let mut j: i64 = 0i64;
+        while j < kf.len() { if kf.get(j) == x { gi = j; break; } j = j + 1i64; }
+        if gi < 0i64 { kf.push(x); cnt.push(1i64); }
+        else { cnt.set(gi, cnt.get(gi) + 1i64); }
+        r = r + 1i64;
+    }
+    return cnt;
+}

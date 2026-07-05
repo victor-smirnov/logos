@@ -1,0 +1,528 @@
+// ADVERSARIAL: WQL edge-traversal (static deem!) vs independent naive oracle.
+// Dimension: `.`-path collection-field join steps over nested Writ-shaped data.
+// Hunts: empty edge sets, group-key COLLISIONS across depts, residual `on`
+// filters at multiple levels, anti+empty containment, self-loops & CYCLES in a
+// recursive graph-reachability rel. Data is fuzzed (seeded LCG); query shapes
+// are fixed (macro). Each shape projects to a single i64 compared as a multiset
+// against a brute-force nested-loop oracle. Exit 0 = all agree; nonzero names
+// the failing shape.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Emp  { pub eid: i64, pub skills: Vec<i64> }
+struct Dept { pub did: i64, pub emps: Vec<Emp> }
+struct Node { pub id: i64, pub kids: Vec<i64> }
+struct Emp2  { pub eid: i64, pub dept: i64 }
+struct Org   { pub oid: i64, pub emps: Vec<Emp2> }
+struct DeptT { pub id: i64, pub val: i64 }
+struct Co    { pub cid: i64, pub depts: Vec<Dept> }
+
+// ── fixed static edge-traversal shapes ────────────────────────────────────────
+resource r_flat = deem!(depts: &[Dept]) {
+    from depts d join d.emps e join e.skills s
+    select d.did * 10000i64 + e.eid * 100i64 + s : i64 };
+
+resource r_resid = deem!(depts: &[Dept], p1: i64, p2: i64, p3: i64) {
+    from depts d
+    join d.emps e on e.eid != p1
+    join e.skills s on s > p2
+    where d.did != p3
+    select d.did * 10000i64 + e.eid * 100i64 + s : i64 };
+
+resource r_empty = deem!(depts: &[Dept]) {
+    from depts d anti join d.emps e select d.did : i64 };
+
+resource r_norsk = deem!(depts: &[Dept], target: i64) {
+    from depts d join d.emps e
+    anti join e.skills s on s == target
+    select e.eid : i64 };
+
+resource r_cnt = deem!(depts: &[Dept]) {
+    from depts d join d.emps e join e.skills s
+    group by d.did aggregate n = count()
+    select key * 100i64 + n : i64 };
+
+resource r_reach = deem!(nodes: &[Node], root: i64) {
+    rel reach(x: i64) {
+        from nodes n join n.kids k where n.id == root select k;
+        from reach r join nodes n on n.id == r.x join n.kids k select k;
+    }
+    from reach r select r.x : i64 };
+
+// residual compares the LEAF element to the OUTER row var (cross-level ref)
+resource r_rout = deem!(depts: &[Dept]) {
+    from depts d join d.emps e join e.skills s on s >= d.did
+    select d.did * 10000i64 + e.eid * 100i64 + s : i64 };
+
+// group by the LEAF value (traversed scalar as key)
+resource r_gleaf = deem!(depts: &[Dept]) {
+    from depts d join d.emps e join e.skills s
+    group by s aggregate n = count() select key * 100i64 + n : i64 };
+
+// sum of traversed leaves grouped by a MID-level var
+resource r_seid = deem!(depts: &[Dept]) {
+    from depts d join d.emps e join e.skills s
+    group by e.eid aggregate t = sum(s) select key * 10000i64 + t : i64 };
+
+// traversal THEN keyed hash join over the traversal-bound var
+resource r_mixed = deem!(orgs: &[Org], depts: &[DeptT]) {
+    from orgs o join o.emps e join depts d on e.dept == d.id
+    select o.oid * 10000i64 + e.eid * 100i64 + d.val : i64 };
+
+// DEEP chain: 3 traversal steps (co → depts → emps → skills)
+resource r_deep = deem!(cos: &[Co]) {
+    from cos c join c.depts d join d.emps e join e.skills s
+    where s != c.cid
+    select c.cid * 1000000i64 + d.did * 10000i64 + e.eid * 100i64 + s : i64 };
+
+// ── RNG (wrapping — plain */+ trap on u64 overflow) ──────────────────────────
+struct Rng { s: u64 }
+impl Rng {
+    fn next(self: &mut Rng) -> u64 {
+        self.s = wrapping_add(wrapping_mul(self.s, 6364136223846793005u64), 1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+    fn upto(self: &mut Rng, n: i64) -> i64 { if n <= 0i64 { return 0i64; } return (self.next() % (n as u64)) as i64; }
+}
+
+// ── multiset compare of two Vec<i64> ─────────────────────────────────────────
+fn isort(v: &mut Vec<i64>) {
+    let n: i64 = v.len(); let mut i: i64 = 0i64;
+    while i < n {
+        let mut m: i64 = i; let mut j: i64 = i + 1i64;
+        while j < n { if v.get(j) < v.get(m) { m = j; } j = j + 1i64; }
+        if m != i { let t: i64 = v.get(i); v.set(i, v.get(m)); v.set(m, t); }
+        i = i + 1i64;
+    }
+}
+fn ms_eq(a: &mut Vec<i64>, b: &mut Vec<i64>) -> bool {
+    if a.len() != b.len() { return false; }
+    isort(a); isort(b);
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
+    return true;
+}
+fn ic(v: &Vec<i64>, x: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() { if v.get(i) == x { return true; } i = i + 1i64; }
+    return false;
+}
+
+// ── nested data generators ───────────────────────────────────────────────────
+fn gen_depts(rng: &mut Rng) -> Vec<Dept> {
+    let mut depts: Vec<Dept> = Vec::<Dept>::new();
+    let nd: i64 = rng.upto(5i64);           // 0..4 depts
+    let mut di: i64 = 0i64;
+    while di < nd {
+        let did: i64 = rng.upto(4i64);      // small range → id COLLISIONS across depts
+        let mut emps: Vec<Emp> = Vec::<Emp>::new();
+        let ne: i64 = rng.upto(4i64);       // 0..3 emps (0 → empty containment)
+        let mut ei: i64 = 0i64;
+        while ei < ne {
+            let eid: i64 = rng.upto(4i64);
+            let mut sk: Vec<i64> = Vec::<i64>::new();
+            let ns: i64 = rng.upto(4i64);   // 0..3 skills (0 → vacuous anti / no-flatten)
+            let mut si: i64 = 0i64;
+            while si < ns { sk.push(rng.upto(8i64)); si = si + 1i64; }
+            emps.push(Emp { eid: eid, skills: sk });
+            ei = ei + 1i64;
+        }
+        depts.push(Dept { did: did, emps: emps });
+        di = di + 1i64;
+    }
+    return depts;
+}
+fn gen_nodes(rng: &mut Rng) -> Vec<Node> {
+    let mut nodes: Vec<Node> = Vec::<Node>::new();
+    let nn: i64 = rng.upto(6i64);           // ids 0..nn-1 (unique)
+    let mut i: i64 = 0i64;
+    while i < nn {
+        let mut kids: Vec<i64> = Vec::<i64>::new();
+        let nk: i64 = rng.upto(4i64);
+        let mut j: i64 = 0i64;
+        while j < nk { kids.push(rng.upto(nn)); j = j + 1i64; }  // may point to self → self-loop / cycles
+        nodes.push(Node { id: i, kids: kids });
+        i = i + 1i64;
+    }
+    return nodes;
+}
+
+// ── naive oracles ────────────────────────────────────────────────────────────
+fn nv_flat(depts: &Vec<Dept>) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut di: i64 = 0i64;
+    while di < depts.len() {
+        let d: &Dept = depts.borrow(di);
+        let mut ei: i64 = 0i64;
+        while ei < d.emps.len() {
+            let e: &Emp = d.emps.borrow(ei);
+            let mut si: i64 = 0i64;
+            while si < e.skills.len() {
+                out.push(d.did * 10000i64 + e.eid * 100i64 + e.skills.get(si));
+                si = si + 1i64;
+            }
+            ei = ei + 1i64;
+        }
+        di = di + 1i64;
+    }
+    return out;
+}
+fn nv_resid(depts: &Vec<Dept>, p1: i64, p2: i64, p3: i64) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut di: i64 = 0i64;
+    while di < depts.len() {
+        let d: &Dept = depts.borrow(di);
+        if d.did != p3 {
+            let mut ei: i64 = 0i64;
+            while ei < d.emps.len() {
+                let e: &Emp = d.emps.borrow(ei);
+                if e.eid != p1 {
+                    let mut si: i64 = 0i64;
+                    while si < e.skills.len() {
+                        let s: i64 = e.skills.get(si);
+                        if s > p2 { out.push(d.did * 10000i64 + e.eid * 100i64 + s); }
+                        si = si + 1i64;
+                    }
+                }
+                ei = ei + 1i64;
+            }
+        }
+        di = di + 1i64;
+    }
+    return out;
+}
+fn nv_empty(depts: &Vec<Dept>) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut di: i64 = 0i64;
+    while di < depts.len() {
+        let d: &Dept = depts.borrow(di);
+        if d.emps.len() == 0i64 { out.push(d.did); }
+        di = di + 1i64;
+    }
+    return out;
+}
+fn nv_norsk(depts: &Vec<Dept>, target: i64) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut di: i64 = 0i64;
+    while di < depts.len() {
+        let d: &Dept = depts.borrow(di);
+        let mut ei: i64 = 0i64;
+        while ei < d.emps.len() {
+            let e: &Emp = d.emps.borrow(ei);
+            let mut hit: bool = false; let mut si: i64 = 0i64;
+            while si < e.skills.len() { if e.skills.get(si) == target { hit = true; } si = si + 1i64; }
+            if !hit { out.push(e.eid); }
+            ei = ei + 1i64;
+        }
+        di = di + 1i64;
+    }
+    return out;
+}
+fn nv_cnt(depts: &Vec<Dept>) -> Vec<i64> {
+    // count flattened (d,e,s) rows per DISTINCT did (collisions merge across depts)
+    let mut keys: Vec<i64> = Vec::<i64>::new();
+    let mut cnts: Vec<i64> = Vec::<i64>::new();
+    let mut di: i64 = 0i64;
+    while di < depts.len() {
+        let d: &Dept = depts.borrow(di);
+        let mut ei: i64 = 0i64;
+        while ei < d.emps.len() {
+            let e: &Emp = d.emps.borrow(ei);
+            let n: i64 = e.skills.len();
+            if n > 0i64 {
+                // find key slot
+                let mut idx: i64 = -1i64; let mut ki: i64 = 0i64;
+                while ki < keys.len() { if keys.get(ki) == d.did { idx = ki; } ki = ki + 1i64; }
+                if idx < 0i64 { keys.push(d.did); cnts.push(n); }
+                else { cnts.set(idx, cnts.get(idx) + n); }
+            }
+            ei = ei + 1i64;
+        }
+        di = di + 1i64;
+    }
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut i: i64 = 0i64;
+    while i < keys.len() { out.push(keys.get(i) * 100i64 + cnts.get(i)); i = i + 1i64; }
+    return out;
+}
+fn nv_rout(depts: &Vec<Dept>) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut di: i64 = 0i64;
+    while di < depts.len() {
+        let d: &Dept = depts.borrow(di);
+        let mut ei: i64 = 0i64;
+        while ei < d.emps.len() {
+            let e: &Emp = d.emps.borrow(ei);
+            let mut si: i64 = 0i64;
+            while si < e.skills.len() {
+                let s: i64 = e.skills.get(si);
+                if s >= d.did { out.push(d.did * 10000i64 + e.eid * 100i64 + s); }
+                si = si + 1i64;
+            }
+            ei = ei + 1i64;
+        }
+        di = di + 1i64;
+    }
+    return out;
+}
+fn nv_gleaf(depts: &Vec<Dept>) -> Vec<i64> {
+    let mut keys: Vec<i64> = Vec::<i64>::new();
+    let mut cnts: Vec<i64> = Vec::<i64>::new();
+    let mut di: i64 = 0i64;
+    while di < depts.len() {
+        let d: &Dept = depts.borrow(di);
+        let mut ei: i64 = 0i64;
+        while ei < d.emps.len() {
+            let e: &Emp = d.emps.borrow(ei);
+            let mut si: i64 = 0i64;
+            while si < e.skills.len() {
+                let s: i64 = e.skills.get(si);
+                let mut idx: i64 = -1i64; let mut ki: i64 = 0i64;
+                while ki < keys.len() { if keys.get(ki) == s { idx = ki; } ki = ki + 1i64; }
+                if idx < 0i64 { keys.push(s); cnts.push(1i64); } else { cnts.set(idx, cnts.get(idx) + 1i64); }
+                si = si + 1i64;
+            }
+            ei = ei + 1i64;
+        }
+        di = di + 1i64;
+    }
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut i: i64 = 0i64;
+    while i < keys.len() { out.push(keys.get(i) * 100i64 + cnts.get(i)); i = i + 1i64; }
+    return out;
+}
+fn nv_seid(depts: &Vec<Dept>) -> Vec<i64> {
+    let mut keys: Vec<i64> = Vec::<i64>::new();
+    let mut sums: Vec<i64> = Vec::<i64>::new();
+    let mut di: i64 = 0i64;
+    while di < depts.len() {
+        let d: &Dept = depts.borrow(di);
+        let mut ei: i64 = 0i64;
+        while ei < d.emps.len() {
+            let e: &Emp = d.emps.borrow(ei);
+            let mut si: i64 = 0i64;
+            while si < e.skills.len() {
+                let s: i64 = e.skills.get(si);
+                let mut idx: i64 = -1i64; let mut ki: i64 = 0i64;
+                while ki < keys.len() { if keys.get(ki) == e.eid { idx = ki; } ki = ki + 1i64; }
+                if idx < 0i64 { keys.push(e.eid); sums.push(s); } else { sums.set(idx, sums.get(idx) + s); }
+                si = si + 1i64;
+            }
+            ei = ei + 1i64;
+        }
+        di = di + 1i64;
+    }
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut i: i64 = 0i64;
+    while i < keys.len() { out.push(keys.get(i) * 10000i64 + sums.get(i)); i = i + 1i64; }
+    return out;
+}
+fn nv_mixed(orgs: &Vec<Org>, depts: &Vec<DeptT>) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut oi: i64 = 0i64;
+    while oi < orgs.len() {
+        let o: &Org = orgs.borrow(oi);
+        let mut ei: i64 = 0i64;
+        while ei < o.emps.len() {
+            let e: &Emp2 = o.emps.borrow(ei);
+            let mut ddi: i64 = 0i64;
+            while ddi < depts.len() {
+                let d: &DeptT = depts.borrow(ddi);
+                if e.dept == d.id { out.push(o.oid * 10000i64 + e.eid * 100i64 + d.val); }
+                ddi = ddi + 1i64;
+            }
+            ei = ei + 1i64;
+        }
+        oi = oi + 1i64;
+    }
+    return out;
+}
+fn gen_orgs(rng: &mut Rng) -> Vec<Org> {
+    let mut orgs: Vec<Org> = Vec::<Org>::new();
+    let no: i64 = rng.upto(4i64);
+    let mut oi: i64 = 0i64;
+    while oi < no {
+        let oid: i64 = rng.upto(3i64);
+        let mut emps: Vec<Emp2> = Vec::<Emp2>::new();
+        let ne: i64 = rng.upto(4i64);
+        let mut ei: i64 = 0i64;
+        while ei < ne { emps.push(Emp2 { eid: rng.upto(4i64), dept: rng.upto(5i64) }); ei = ei + 1i64; }
+        orgs.push(Org { oid: oid, emps: emps });
+        oi = oi + 1i64;
+    }
+    return orgs;
+}
+fn nv_deep(cos: &Vec<Co>) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut ci: i64 = 0i64;
+    while ci < cos.len() {
+        let c: &Co = cos.borrow(ci);
+        let mut di: i64 = 0i64;
+        while di < c.depts.len() {
+            let d: &Dept = c.depts.borrow(di);
+            let mut ei: i64 = 0i64;
+            while ei < d.emps.len() {
+                let e: &Emp = d.emps.borrow(ei);
+                let mut si: i64 = 0i64;
+                while si < e.skills.len() {
+                    let s: i64 = e.skills.get(si);
+                    if s != c.cid { out.push(c.cid * 1000000i64 + d.did * 10000i64 + e.eid * 100i64 + s); }
+                    si = si + 1i64;
+                }
+                ei = ei + 1i64;
+            }
+            di = di + 1i64;
+        }
+        ci = ci + 1i64;
+    }
+    return out;
+}
+fn gen_cos(rng: &mut Rng) -> Vec<Co> {
+    let mut cos: Vec<Co> = Vec::<Co>::new();
+    let nc: i64 = rng.upto(3i64);
+    let mut ci: i64 = 0i64;
+    while ci < nc {
+        let cid: i64 = rng.upto(3i64);
+        let mut depts: Vec<Dept> = Vec::<Dept>::new();
+        let nd: i64 = rng.upto(3i64);
+        let mut di: i64 = 0i64;
+        while di < nd {
+            let did: i64 = rng.upto(4i64);
+            let mut emps: Vec<Emp> = Vec::<Emp>::new();
+            let ne: i64 = rng.upto(3i64);
+            let mut ei: i64 = 0i64;
+            while ei < ne {
+                let eid: i64 = rng.upto(4i64);
+                let mut sk: Vec<i64> = Vec::<i64>::new();
+                let ns: i64 = rng.upto(3i64);
+                let mut si: i64 = 0i64;
+                while si < ns { sk.push(rng.upto(6i64)); si = si + 1i64; }
+                emps.push(Emp { eid: eid, skills: sk });
+                ei = ei + 1i64;
+            }
+            depts.push(Dept { did: did, emps: emps });
+            di = di + 1i64;
+        }
+        cos.push(Co { cid: cid, depts: depts });
+        ci = ci + 1i64;
+    }
+    return cos;
+}
+fn gen_deptt(rng: &mut Rng) -> Vec<DeptT> {
+    let mut v: Vec<DeptT> = Vec::<DeptT>::new();
+    let n: i64 = rng.upto(5i64);
+    let mut i: i64 = 0i64;
+    while i < n { v.push(DeptT { id: rng.upto(5i64), val: rng.upto(4i64) }); i = i + 1i64; }
+    return v;
+}
+fn nv_reach(nodes: &Vec<Node>, root: i64) -> Vec<i64> {
+    let mut seen: Vec<i64> = Vec::<i64>::new();
+    // seed: kids of every node whose id == root
+    let mut ni: i64 = 0i64;
+    while ni < nodes.len() {
+        let n: &Node = nodes.borrow(ni);
+        if n.id == root {
+            let mut ki: i64 = 0i64;
+            while ki < n.kids.len() { let k: i64 = n.kids.get(ki); if !ic(&seen, k) { seen.push(k); } ki = ki + 1i64; }
+        }
+        ni = ni + 1i64;
+    }
+    // fixpoint expansion
+    let mut changed: bool = true;
+    while changed {
+        changed = false;
+        let mut xi: i64 = 0i64;
+        while xi < seen.len() {
+            let x: i64 = seen.get(xi);
+            let mut nj: i64 = 0i64;
+            while nj < nodes.len() {
+                let n: &Node = nodes.borrow(nj);
+                if n.id == x {
+                    let mut ki: i64 = 0i64;
+                    while ki < n.kids.len() {
+                        let k: i64 = n.kids.get(ki);
+                        if !ic(&seen, k) { seen.push(k); changed = true; }
+                        ki = ki + 1i64;
+                    }
+                }
+                nj = nj + 1i64;
+            }
+            xi = xi + 1i64;
+        }
+    }
+    return seen;
+}
+
+fn main() -> i32 {
+    let mut rng: Rng = Rng { s: 0x243F6A8885A308D3u64 };
+    let NITER: i64 = 6000i64;
+    let mut it: i64 = 0i64;
+    while it < NITER {
+        let shape: i64 = rng.upto(11i64);
+
+        if shape == 0i64 {
+            let depts: Vec<Dept> = gen_depts(&mut rng);
+            let mut st: Vec<i64> = r_flat(depts.as_slice());
+            let mut nv: Vec<i64> = nv_flat(&depts);
+            if !ms_eq(&mut st, &mut nv) { return 10i32; }
+        } else if shape == 1i64 {
+            let p1: i64 = rng.upto(4i64); let p2: i64 = rng.upto(8i64); let p3: i64 = rng.upto(4i64);
+            let depts: Vec<Dept> = gen_depts(&mut rng);
+            let mut st: Vec<i64> = r_resid(depts.as_slice(), p1, p2, p3);
+            let mut nv: Vec<i64> = nv_resid(&depts, p1, p2, p3);
+            if !ms_eq(&mut st, &mut nv) { return 11i32; }
+        } else if shape == 2i64 {
+            let depts: Vec<Dept> = gen_depts(&mut rng);
+            let mut st: Vec<i64> = r_empty(depts.as_slice());
+            let mut nv: Vec<i64> = nv_empty(&depts);
+            if !ms_eq(&mut st, &mut nv) { return 12i32; }
+        } else if shape == 3i64 {
+            let target: i64 = rng.upto(8i64);
+            let depts: Vec<Dept> = gen_depts(&mut rng);
+            let mut st: Vec<i64> = r_norsk(depts.as_slice(), target);
+            let mut nv: Vec<i64> = nv_norsk(&depts, target);
+            if !ms_eq(&mut st, &mut nv) { return 13i32; }
+        } else if shape == 4i64 {
+            let depts: Vec<Dept> = gen_depts(&mut rng);
+            let mut st: Vec<i64> = r_cnt(depts.as_slice());
+            let mut nv: Vec<i64> = nv_cnt(&depts);
+            if !ms_eq(&mut st, &mut nv) { return 14i32; }
+        } else if shape == 5i64 {
+            let nodes: Vec<Node> = gen_nodes(&mut rng);
+            let root: i64 = rng.upto(7i64);   // may exceed node count → empty seed
+            let mut st: Vec<i64> = r_reach(nodes.as_slice(), root);
+            let mut nv: Vec<i64> = nv_reach(&nodes, root);
+            if !ms_eq(&mut st, &mut nv) { return 15i32; }
+        } else if shape == 6i64 {
+            let depts: Vec<Dept> = gen_depts(&mut rng);
+            let mut st: Vec<i64> = r_rout(depts.as_slice());
+            let mut nv: Vec<i64> = nv_rout(&depts);
+            if !ms_eq(&mut st, &mut nv) { return 16i32; }
+        } else if shape == 7i64 {
+            let depts: Vec<Dept> = gen_depts(&mut rng);
+            let mut st: Vec<i64> = r_gleaf(depts.as_slice());
+            let mut nv: Vec<i64> = nv_gleaf(&depts);
+            if !ms_eq(&mut st, &mut nv) { return 17i32; }
+        } else if shape == 8i64 {
+            let depts: Vec<Dept> = gen_depts(&mut rng);
+            let mut st: Vec<i64> = r_seid(depts.as_slice());
+            let mut nv: Vec<i64> = nv_seid(&depts);
+            if !ms_eq(&mut st, &mut nv) { return 18i32; }
+        } else if shape == 9i64 {
+            let orgs: Vec<Org> = gen_orgs(&mut rng);
+            let depts: Vec<DeptT> = gen_deptt(&mut rng);
+            let mut st: Vec<i64> = r_mixed(orgs.as_slice(), depts.as_slice());
+            let mut nv: Vec<i64> = nv_mixed(&orgs, &depts);
+            if !ms_eq(&mut st, &mut nv) { return 19i32; }
+        } else {
+            let cos: Vec<Co> = gen_cos(&mut rng);
+            let mut st: Vec<i64> = r_deep(cos.as_slice());
+            let mut nv: Vec<i64> = nv_deep(&cos);
+            if !ms_eq(&mut st, &mut nv) { return 20i32; }
+        }
+        it = it + 1i64;
+    }
+    return 0i32;
+}

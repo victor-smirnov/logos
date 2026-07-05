@@ -1,0 +1,246 @@
+// query_parser_robust_advX — ADVERSARIAL parser / EL-robustness probe for the
+// Deem dynamic engine. Feeds a battery of MALFORMED and edge query strings to
+// Query::compile (+ q.run when compile succeeds) and asserts the engine returns
+// a clean QError and NEVER crashes. Also differential-checks EL operator
+// precedence on VALID queries against a hand computation.
+//
+// Exit 0 = every malformed input handled cleanly AND precedence agrees.
+// A crash (SIGILL/SIGSEGV/abort) on any input = high-severity finding; the
+// stderr progress line names the offending case index+text.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.std.io;
+
+pub schema A : code(0x0DF0_0000_0000_0011) { a0: i64 = 0, a1: i64 = 1, a2: i64 = 2 }
+resource cat = schema_catalog!{ A };
+
+fn mkA(d: &Writ, x0: i64, x1: i64, x2: i64) -> WAny {
+    let r: A = d.make::<A>(); r.a0 = x0; r.a1 = x1; r.a2 = x2;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn build_A(d: &Writ, rows: &Vec<i64>) -> WAny {
+    let n: i64 = rows.len() / 3i64;
+    let arr: &mut WArray<WAny> = d.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n {
+        arr.push(mkA(d, rows.get(i*3i64), rows.get(i*3i64+1i64), rows.get(i*3i64+2i64)));
+        i = i + 1i64;
+    }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+
+fn dbg(idx: i64, s: str) {
+    let mut m: String = String::new();
+    m.push_str("[case "); m.push_i64(idx); m.push_str("] "); m.push_str(s);
+    eprintln(m.as_str());
+}
+
+// Compile a (possibly malformed) query; if it compiles, also run it. We do NOT
+// treat a successful parse of an odd input as a failure (leniency is allowed);
+// the invariant under test is "no crash / clean Result". Returns 1 if it
+// compiled+ran (Ok path), 0 if it returned a QError. Either is acceptable.
+fn probe(text: str, c: &SchemaCatalog, env: &QEnv) -> i64 {
+    let q: Query = match Query::compile(text, c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e) => { return 0i64; }
+    };
+    match q.run(env) {
+        Result::Ok(_r) => { return 1i64; }
+        Result::Err(_e2) => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+
+    // Build a small source: rows with a0 in {0,1,2,3}
+    let mut rows: Vec<i64> = vec_new::<i64>();
+    rows.push(0i64); rows.push(10i64); rows.push(100i64);
+    rows.push(1i64); rows.push(11i64); rows.push(101i64);
+    rows.push(2i64); rows.push(12i64); rows.push(102i64);
+    rows.push(3i64); rows.push(13i64); rows.push(103i64);
+    let d: Writ = writ_new(8192i64);
+    let asrc: WAny = build_A(&d, &rows);
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("A", asrc);
+    env.bind_i64("p", 2i64);
+    env.bind_str("sp", "hi");
+
+    // ── malformed / edge battery ────────────────────────────────────────────
+    let mut B: Vec<str> = vec_new::<str>();
+    // empty / whitespace / junk
+    B.push("");
+    B.push("   ");
+    B.push("\n\t  \n");
+    B.push("garbage tokens here");
+    B.push("!@#$%^&*");
+    // missing clauses
+    B.push("from A x");
+    B.push("select x.a0");
+    B.push("from A x where");
+    B.push("from A x where x.a0 ==");
+    B.push("from A x where == 3 select x.a0");
+    B.push("from A x select");
+    B.push("from x select x.a0");
+    B.push("from A select A.a0");
+    // unbalanced parens / braces
+    B.push("from A x select (x.a0");
+    B.push("from A x select x.a0)");
+    B.push("from A x select ((x.a0)");
+    B.push("from A x where (x.a0 == 1 select x.a0");
+    B.push("from A x where x.a0 == 1) select x.a0");
+    B.push("rel r(a: i64) { from A x select (x.a0) from r p select (p.a)");
+    B.push("rel r(a: i64  { from A x select (x.a0); } from r p select p.a");
+    // trailing / leading / doubled operators
+    B.push("from A x where x.a0 == 1 && select x.a0");
+    B.push("from A x where x.a0 == 1 || || x.a1 == 2 select x.a0");
+    B.push("from A x where x.a0 + select x.a0");
+    B.push("from A x where + x.a0 == 1 select x.a0");
+    B.push("from A x where x.a0 * * x.a1 == 0 select x.a0");
+    B.push("from A x where x.a0 == == 1 select x.a0");
+    B.push("from A x where x.a0 <><> 1 select x.a0");
+    // unknown fields / vars / sources
+    B.push("from A x where x.a9 == 1 select x.a0");
+    B.push("from A x where y.a0 == 1 select x.a0");
+    B.push("from NoSuch x select x.a0");
+    B.push("from A x select x.nope");
+    B.push("from A x select y.a0");
+    // NOTE: integer `/ 0` and `% 0` in an EL predicate crash with SIGFPE, and
+    // out-of-range integer literals crash with SIGILL (i64 overflow in the
+    // tokenizer decode). Those two crash classes are captured in the dedicated
+    // repro files query_divzero_advX_repro.logos / query_bigint_advX_repro.logos
+    // and are intentionally EXCLUDED here so this stays a green coverage probe.
+    // In-range near-boundary literals (must NOT overflow):
+    B.push("from A x where x.a0 == 9223372036854775807 select x.a0");
+    B.push("from A x where x.a0 == -9223372036854775807 select x.a0");
+    // deeply nested EL (paren bombs)
+    B.push("from A x where ((((((((((x.a0)))))))))) == 1 select x.a0");
+    B.push("from A x where (((((((((((((((((((((((((((((((x.a0 == 1))))))))))))))))))))))))))))))) select x.a0");
+    B.push("from A x where !!!!!!!!!!!!!!!!!!!!(x.a0 == 1) select x.a0");
+    B.push("from A x where -----------x.a0 == 1 select x.a0");
+    B.push("from A x where x.a0 == 1 && x.a1 == 1 && x.a2 == 1 && x.a0 == 1 && x.a1 == 1 && x.a2 == 1 && x.a0 == 1 && x.a1 == 1 select x.a0");
+    // string literal edge cases (unterminated / escapes / unicode)
+    B.push("from A x where x.a0 == \"unterminated select x.a0");
+    B.push("from A x where upper(\"a\\nb\") == \"x\" select x.a0");
+    B.push("from A x where contains(\"\\t\\r\\\\\", \"x\") select x.a0");
+    B.push("from A x where x.a0 == \"пример\" select x.a0");
+    B.push("from A x where upper(\"日本語\") == \"y\" select x.a0");
+    B.push("from A x where x.a0 == '' select x.a0");
+    // reserved words as field / var names
+    B.push("from A from select from.a0");
+    B.push("from A select select x.a0");
+    B.push("from A where where x.a0");
+    B.push("from A group select group.a0");
+    B.push("from A join select join.a0");
+    // duplicate clauses
+    B.push("from A x where x.a0 == 1 where x.a1 == 2 select x.a0");
+    B.push("from A x select x.a0 select x.a1");
+    B.push("from A x order by x.a0 order by x.a1 select x.a0");
+    B.push("from A x limit 3 limit 5 select x.a0");
+    B.push("from A x group by x.a0 group by x.a1 aggregate c=count() select key");
+    // builtin arity / unknown builtins
+    B.push("from A x where len() == 0 select x.a0");
+    B.push("from A x where upper(x.a0, x.a1) == 0 select x.a0");
+    B.push("from A x where bogus_fn(x.a0) == 0 select x.a0");
+    B.push("from A x where contains(x.a0) select x.a0");
+    // aggregate misuse
+    B.push("from A x group by x.a0 aggregate c=count(x.a1) select (key, c)");
+    B.push("from A x group by x.a0 aggregate c=badagg(x.a1) select (key, c)");
+    B.push("from A x group by x.a0 aggregate select key");
+    B.push("from A x aggregate c=count() select c");
+    B.push("from A x group by x.a0 having c > 0 select key");
+    // ternary / mixed weirdness
+    B.push("from A x where x.a0 == 1 ? 2 select x.a0");
+    B.push("from A x where x.a0 ? : x.a1 select x.a0");
+    B.push("from A x select (x.a0 ? x.a1 : )");
+    // limit / order edge
+    B.push("from A x order by select x.a0");
+    B.push("from A x limit select x.a0");
+    B.push("from A x limit -5 select x.a0");
+    B.push("from A x order by x.a9 select x.a0");
+    // join malformed
+    B.push("from A x join on x.a0 == 1 select x.a0");
+    B.push("from A x join A y on select x.a0");
+    B.push("from A x join A y select x.a0");
+    B.push("from A x anti select x.a0");
+    B.push("from A x join A y on x.a0 select x.a0");
+    // extremely long token
+    B.push("from A x where x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa == 1 select x.a0");
+    // control chars / null-ish
+    B.push("from\tA\tx\tselect\tx.a0");
+    B.push("from A x where x.a0==1&&x.a1==2||x.a2==3 select x.a0");
+
+    let n: i64 = B.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: str = B.get(i);
+        dbg(i, t);              // on a crash, this is the last line printed
+        let _r: i64 = probe(t, &c, &env);
+        i = i + 1i64;
+    }
+    eprintln("battery complete — no crash");
+
+    // ── EL precedence differential on VALID queries ─────────────────────────
+    // Rows: a0 in {0,1,2,3}. Predicate P = a0==0 || a0==1 && a0==2.
+    // With correct precedence (&& binds tighter): a0==0 || (a0==1 && a0==2)
+    //   → true only for a0==0  → 1 row.
+    // A left-assoc bug ((a0==0||a0==1)&&a0==2) → 0 rows. Distinguishes.
+    let q1: Query = match Query::compile(
+        "from A x where x.a0 == 0 || x.a0 == 1 && x.a0 == 2 select x.a0", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 71i32; }
+    };
+    let r1: QRows = match q1.run(&env) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 72i32; }
+    };
+    if r1.row_count() != 1i64 { return 41i32; }
+    if r1.get_i64(0i64, 0i64) != 0i64 { return 42i32; }
+
+    // ! precedence: !x.a0 == 0 → in Rust `!x` binds tighter than ==, but here a0
+    // is i64 so `!(a0)` is ill-typed; instead test !(pred) vs !pred over a bool.
+    // Use: where !(x.a0 == 0) → all rows except a0==0 → 3 rows.
+    let q2: Query = match Query::compile(
+        "from A x where !(x.a0 == 0) select x.a0", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 73i32; }
+    };
+    let r2: QRows = match q2.run(&env) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 74i32; }
+    };
+    if r2.row_count() != 3i64 { return 43i32; }
+
+    // arithmetic precedence in a filter constant: a1 == a0 + 10 (all rows: a1=a0+10)
+    // and a2 == a0 * 100 + a0*... use: where x.a2 == x.a0 * 100 → holds when a2=100*a0.
+    // Our rows: a0=0→a2=100(no, 0), a0=1→a2=101(vs 100 no). Instead check a1-a0==10.
+    // Use mixed: where x.a1 == x.a0 + 10 → all 4 rows.
+    let q3: Query = match Query::compile(
+        "from A x where x.a1 == x.a0 + 10 select x.a0", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 75i32; }
+    };
+    let r3: QRows = match q3.run(&env) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 76i32; }
+    };
+    if r3.row_count() != 4i64 { return 44i32; }
+
+    // multiplicative binds tighter than additive: 1 + 2 * 3 == 7 (not 9).
+    // where x.a0 == 1 + 2 * 3 - 7  → RHS = 1+(6)-7 = 0 → matches a0==0 → 1 row.
+    let q4: Query = match Query::compile(
+        "from A x where x.a0 == 1 + 2 * 3 - 7 select x.a0", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 77i32; }
+    };
+    let r4: QRows = match q4.run(&env) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 78i32; }
+    };
+    if r4.row_count() != 1i64 { return 45i32; }
+    if r4.get_i64(0i64, 0i64) != 0i64 { return 46i32; }
+
+    return 0i32;
+}
