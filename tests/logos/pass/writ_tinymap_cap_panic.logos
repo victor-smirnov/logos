@@ -1,0 +1,46 @@
+// writ_tinymap_cap_panic — a WTinyValMap (fixed-cap bitmap map) used to SILENTLY
+// DROP a value when a NEW key was inserted into a FULL map (size stayed at cap,
+// the entry vanished — data loss with no signal). Now an over-capacity insert is
+// a bounds violation and PANICS (compiled-Logos policy — like an out-of-range
+// index), so the loss can never happen silently. This asserts:
+//   • filling exactly to cap works and every entry is retrievable;
+//   • an over-cap insert PANICS (caught via catch_unwind → Result::Err).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.panic;   // catch_unwind
+use logos.lang.result;
+
+// Over-fill a cap-2 map — the 3rd distinct key must PANIC (not silently drop).
+fn overfill() {
+    let h: Writ = writ_new(256i64);
+    let m: &mut WTinyValMap = h.tinymap(2i64);
+    m.set(0u8, WAny::from(10i8));
+    m.set(1u8, WAny::from(11i8));
+    m.set(2u8, WAny::from(12i8));   // NEW key into a full map → panic
+}
+
+fn main() -> i32 {
+    // ── filling to cap works; every entry retrievable ────────────────────────
+    let h: Writ = writ_new(256i64);
+    let m: &mut WTinyValMap = h.tinymap(3i64);
+    m.set(5u8, WAny::from(105i8));
+    m.set(2u8, WAny::from(102i8));
+    m.set(40u8, WAny::from(40i8));
+    if m.size() != 3i64 { return 1i32; }
+    if m.get(5u8).as_i8()  != 105i8 { return 2i32; }
+    if m.get(2u8).as_i8()  != 102i8 { return 3i32; }
+    if m.get(40u8).as_i8() != 40i8 { return 4i32; }
+    // overwrite of an EXISTING key at cap is fine (no new slot)
+    m.set(2u8, WAny::from(122i8));
+    if m.get(2u8).as_i8() != 122i8 || m.size() != 3i64 { return 5i32; }
+
+    // ── over-cap insert PANICS (no silent data loss) ─────────────────────────
+    match catch_unwind(overfill) {
+        Result::Ok(_)  => { return 6i32; }   // BUG: it silently dropped instead of panicking
+        Result::Err(_) => { }                // panicked as required
+    }
+    return 0i32;
+}

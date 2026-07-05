@@ -27,6 +27,7 @@ use logos.lang.hash;                // fnv1a_bytes
 use logos.lang.str;                 // str, str_eq
 use logos.lang.cell;
 use logos.lang.ptr;                 // byte_add
+use logos.lang.panic;               // panic — over-capacity insert is a bounds violation
 
 #[pinned]
 pub struct WMapEntry {
@@ -366,7 +367,11 @@ impl WMap<Wu6, WAny> {
             let cap: i64  = ((self.header >> 52u64) & 0x3Fu64) as i64;
             let buf: *zoned mut WAny = self.data;
             if (bitmap & kb) == 0u64 {
-                if size >= cap { return; }
+                // Inserting a NEW key into a FULL fixed-cap map used to silently
+                // DROP the value (data loss with no signal). A capacity violation
+                // is a bounds error, like an out-of-range index — PANIC loudly
+                // (compiled-Logos policy) instead of losing data.
+                if size >= cap { panic("WTinyValMap: capacity exceeded — insert of a new key past the fixed cap"); }
                 let mut i: i64 = size;
                 while i > pos { *(buf.add(i)) = *(buf.add(i - 1i64)); i = i - 1i64; }
                 let cap_bits:  u64 = (cap as u64) << 52u64;
