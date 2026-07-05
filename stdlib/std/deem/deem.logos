@@ -1847,32 +1847,33 @@ fn push_deescaped(out: &mut String, s: str) {
 // `lb` is a RAW pointer through the whole walk (the eval reborrow-laundering
 // contract of eval_root — RtVal payloads never point into RBinds storage).
 fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
-                scratch: &Writ, out: &mut String) {
+                scratch: &Writ, out: &mut String, chk: *mut Chk) {
     let mut cur: i64 = head;
     while cur != 0i64 {
+        if chk_bad(chk) { return; }   // a math error in a prior {{…}} aborts the render
         let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
         match e {
             TStmt::Text(t) => { push_deescaped(out, ttext_str(&t)); }
             TStmt::Var(v) => {
-                let val: RtVal = eval_sexpr(v.expr_expr(), cat, env, lb, scratch);
+                let val: RtVal = eval_sx(v.expr_expr(), cat, env, lb, scratch, chk);
                 rt_push(out, val);
             }
             TStmt::If(i) => {
-                let cv: RtVal = eval_sexpr(i.expr_expr(), cat, env, lb, scratch);
+                let cv: RtVal = eval_sx(i.expr_expr(), cat, env, lb, scratch, chk);
                 let mark: i64 = unsafe { (&*lb).n };
                 if rt_truthy(cv) {
-                    render_stmts(body_word(&i.body), cat, env, lb, scratch, out);
+                    render_stmts(body_word(&i.body), cat, env, lb, scratch, out, chk);
                 } else {
                     let altw: i64 = alt_word(&i.alt);
                     if altw != 0i64 {
-                        render_stmts(altw, cat, env, lb, scratch, out);
+                        render_stmts(altw, cat, env, lb, scratch, out, chk);
                     }
                 }
                 let lbm: &mut RBinds = unsafe { &mut *lb };
                 lbm.n = mark;
             }
             TStmt::For(f) => {
-                let it: RtVal = eval_sexpr(f.expr_expr(), cat, env, lb, scratch);
+                let it: RtVal = eval_sx(f.expr_expr(), cat, env, lb, scratch, chk);
                 match it {
                     RtVal::Node(w) => {
                         if w.is_array() {
@@ -1887,7 +1888,7 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
                                 // nodes stay Node, scalar elements (FK_EARR
                                 // arrays) become their scalar RtVal.
                                 unsafe { (&mut *lb).set_val(slot, wany_to_rt(arr.get(i2))); }
-                                render_stmts(body_word(&f.body), cat, env, lb, scratch, out);
+                                render_stmts(body_word(&f.body), cat, env, lb, scratch, out, chk);
                                 i2 = i2 + 1i64;
                             }
                             let lbm2: &mut RBinds = unsafe { &mut *lb };
@@ -1899,7 +1900,7 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
                 }
             }
             TStmt::Set(s) => {
-                let sv: RtVal = eval_sexpr(s.expr_expr(), cat, env, lb, scratch);
+                let sv: RtVal = eval_sx(s.expr_expr(), cat, env, lb, scratch, chk);
                 unsafe { (&mut *lb).bind_val(s.var, sv); }
             }
         }
@@ -1956,7 +1957,10 @@ impl Tpl {
         let mut rb: RBinds = rbinds_new();
         let rbp: *mut RBinds = &mut rb;
         let mut out: String = String::new();
-        render_stmts(self.head, &self.cat, env, rbp, &scratch, &mut out);
+        // reuse the (passed) chk sink: a math error in a {{ … }} expression
+        // (eval_sx → chk_fail) aborts the render as a QError.
+        render_stmts(self.head, &self.cat, env, rbp, &scratch, &mut out, &mut chk);
+        if chk.failed { return Result::Err(chk_err(chk)); }
         return Result::Ok(out);
     }
 }

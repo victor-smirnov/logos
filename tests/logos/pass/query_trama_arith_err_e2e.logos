@@ -1,0 +1,49 @@
+// query_trama_arith_err_e2e — Trama TEMPLATE arithmetic is error-returning on
+// the dynamic render path: a math error (integer overflow / division by zero) in
+// a `{{ … }}` expression surfaces as a QError from Tpl::render instead of
+// trapping the host process. Same policy as the query path (query_el_arith_err_e2e).
+// Exit 0 iff every math-error template errors at render and every valid one
+// renders clean.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+pub schema E : code(0x0DFE_0000_0000_0001) { x: i64 = 0 }
+resource cat = schema_catalog!{ E };
+
+// 0 = compile-Err, 1 = render-Err (math error), 2 = render-Ok
+fn outcome(t: str, c: &SchemaCatalog, env: &QEnv) -> i32 {
+    match Tpl::compile(t, c) {
+        Result::Ok(tp) => { match tp.render(env) { Result::Ok(_r) => { return 2i32; } Result::Err(_e) => { return 1i32; } } }
+        Result::Err(_e2) => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let d: Writ = writ_new(4096i64);
+    let e0: E = d.make::<E>(); e0.x = 4000000000i64;   // 4e9: 4e9*4e9 overflows i64
+    let mut env: QEnv = QEnv::new();
+    env.bind_node("e", WAny::ref_to((e0.m as i64) as *const u8));
+
+    // math errors → render-time QError (outcome 1)
+    if outcome("v = {{ e.x / 0 }}", &c, &env) != 1i32 { return 1i32; }              // div-zero
+    if outcome("v = {{ e.x % 0 }}", &c, &env) != 1i32 { return 2i32; }              // rem-zero
+    if outcome("v = {{ e.x * 4000000000 }}", &c, &env) != 1i32 { return 3i32; }     // overflow
+    if outcome("{% if e.x / 0 > 0 %}yes{% endif %}", &c, &env) != 1i32 { return 4i32; }  // in an {% if %}
+    if outcome("{% set y = e.x * 4000000000 %}{{ y }}", &c, &env) != 1i32 { return 5i32; } // in a {% set %}
+
+    // valid arithmetic → renders clean (outcome 2)
+    if outcome("v = {{ e.x + 1 }}", &c, &env) != 2i32 { return 10i32; }
+    if outcome("v = {{ e.x / 2 }}", &c, &env) != 2i32 { return 11i32; }
+    if outcome("{% if e.x > 0 %}{{ e.x - 1 }}{% endif %}", &c, &env) != 2i32 { return 12i32; }
+
+    return 0i32;
+}
