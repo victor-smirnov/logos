@@ -6082,6 +6082,93 @@ fn dred_in_od(od_rows: &Vec<RtVal>, od_rhm_i: i64, nc: i64,
     return false;
 }
 
+// ── SLICE-9 (R4 provenance, BOUNDED to the linear-recursive transitive closure).
+// One immediate derivation step in a witness chain; a fact (a,c) derived over a
+// path a→v1→…→c is explained as a sequence of these, base-first. `is_base` marks
+// the head edge (a→v1, a direct edge, terminal). For a recursive step (a,v_{i+1})
+// ⟸ (a,v_i) + edge(v_i,v_{i+1}): `supp_fid` = the row index of the supporting
+// path fact (a,v_i) in the maintained rel, `edge_id` = the edge slot of
+// (v_i,v_{i+1}). `src`/`dst` = the concrete edge endpoints; `a`/`c` = the fact
+// this step produces. All handles are valid ONLY for the state at explain() time.
+pub struct WitStep {
+    pub is_base:  bool,
+    pub supp_fid: i64,   // row index of supporting (a,src) in rows; -1 iff is_base
+    pub edge_id:  i64,   // edge slot of (src,dst); always ≥ 0
+    pub src:      i64,
+    pub dst:      i64,
+    pub a:        i64,
+    pub c:        i64,
+}
+
+// explain() result. `present` == false ⇒ the fact is absent (retracted / never
+// derived) and `steps` is empty — an honest "gone". Otherwise `steps` is the
+// base-first witness chain; steps is empty iff !present (except the documented
+// reflexive a==c corner, out of the bounded first cut).
+pub struct Explain {
+    pub present: bool,
+    pub steps:   Vec<WitStep>,
+}
+
+impl Explain {
+    pub fn is_present(self: &Explain) -> bool { return self.present; }
+    pub fn nsteps(self: &Explain) -> i64 { return self.steps.len(); }
+    pub fn step(self: &Explain, i: i64) -> WitStep { return self.steps.get(i); }
+}
+
+// The (a,b) pair a supporting-fact row-index resolves to. `a == -1 && b == -1`
+// is the out-of-range sentinel — see IncrRec::fact_ab.
+pub struct FactAB {
+    pub a: i64,
+    pub b: i64,
+}
+
+// Row index of the 2-column path fact (a,c) in the maintained rel (ri = 0),
+// content-addressed identically to qrel_push_out / dred_in_od. Returns the row
+// index or -1 if absent. Scope: ncols == 2 (TC (a,b) shape).
+fn ir_probe_ac(rows: &Vec<RtVal>, rhm_i: i64, a: i64, c: i64) -> i64 {
+    let mut h: u64 = 14695981039346656037u64;
+    h = h_step(h, 0u64);   // ri = 0
+    h = h_step(h, rt_key_hash(RtVal::I(a)));
+    h = h_step(h, rt_key_hash(RtVal::I(c)));
+    let hm: *mut HashMap<u64, Vec<i64>> = rhm_i as *mut HashMap<u64, Vec<i64>>;
+    let sp: *const Vec<i64> = unsafe { hm.get(&h) };
+    if (sp as i64) == 0i64 { return -1i64; }
+    let bv: &Vec<i64> = unsafe { &*sp };
+    let nb: i64 = bv.len();
+    let mut t: i64 = 0i64;
+    while t < nb {
+        let enc: i64 = bv.get(t);
+        if (enc & 7i64) == 0i64 {
+            let idx: i64 = enc >> 3;
+            if rt_eq(rows.get(idx * 2i64 + 0i64), RtVal::I(a))
+            && rt_eq(rows.get(idx * 2i64 + 1i64), RtVal::I(c)) {
+                return idx;
+            }
+        }
+        t = t + 1i64;
+    }
+    return -1i64;
+}
+
+// Edge slot of a present (weight > 0) direct edge (s→t), or -1. Endpoints read
+// via the schema fields "src"/"dst" (the TC edge convention). Linear scan (E is
+// small for the diagnostic path this serves).
+fn ir_find_edge(enode: &Vec<WAny>, ewt: &Vec<i64>, cat: &SchemaCatalog, s: i64, t: i64) -> i64 {
+    let n: i64 = enode.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if ewt.get(i) > 0i64 {
+            let node: WAny = enode.get(i);
+            if rt_i(field_read(cat, node, "src")) == s
+            && rt_i(field_read(cat, node, "dst")) == t {
+                return i;
+            }
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
 impl IncrRec {
     // Recompute the closure from scratch over the CURRENT edge set (batch
     // semi-naïve). Used at build to seed the initial state.
@@ -6498,6 +6585,119 @@ impl IncrRec {
         }
         rows.nrows = nkeep;
         return rows;
+    }
+
+    // ── SLICE-9 (R4 provenance, BOUNDED to the linear-recursive transitive
+    // closure). Reconstruct the WITNESS / derivation tree for a path fact (a,c):
+    // the immediate-derivation chain back to base edges (why-provenance). Design
+    // A — ON-DEMAND reconstruction, NO stored witness: a BFS over the CURRENT
+    // concrete edge set from `a`, restricted to path-fact frontier nodes, reads
+    // off a canonical SIMPLE path a→v1→…→c (visited-set ⇒ terminates on DAGs,
+    // diamonds AND cycles); each prefix (a,v_{i+1}) becomes a WitStep (is_base for
+    // the head edge a→v1, else supporting-fact-id + edge-id). explain() is a pure
+    // function of current state, so DRed-validity is FREE: a retracted fact fails
+    // the present-check → present:false; a re-derived fact yields a fresh chain;
+    // nothing dangles across a COMPACT row-reassignment (no index-keyed witness
+    // is persisted). SCOPE: TC only (self.agg == false, ncols == 2); ONE canonical
+    // witness per fact (set semantics — alternative derivations not enumerated).
+    // Handles/ids are valid only for the state at the call instant — do NOT cache
+    // a WitStep across an epoch (mirrors the snapshot node-handle contract).
+    pub fn explain(self: &IncrRec, a: i64, c: i64) -> Explain {
+        let mut steps: Vec<WitStep> = vec_new::<WitStep>();
+        if self.agg || self.ncols != 2i64 {
+            return Explain { present: false, steps: steps };   // out of bounded scope
+        }
+        let q: &Query = unsafe { &*(self.qptr as *const Query) };
+        let rhm_i: i64 = (&self.rhm as *const HashMap<u64, Vec<i64>>) as i64;
+        // present-check — absent ⇒ honest "gone", zero dangling risk.
+        if ir_probe_ac(&self.rows, rhm_i, a, c) < 0i64 {
+            return Explain { present: false, steps: steps };
+        }
+        // Reflexive / cyclic self-fact (a==c): present, but self-witness cycle
+        // reconstruction is out of the bounded first cut → honest empty chain.
+        if a == c {
+            return Explain { present: true, steps: steps };
+        }
+        // BFS from `a` over present concrete edges, restricted to path-fact nodes.
+        // `parent` doubles as the visited set (presence == visited); parent[a]=a.
+        let mut parent: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let pmp: *mut HashMap<i64, i64> = &mut parent;
+        unsafe { let _z0: *mut i64 = pmp.get_or_insert(a, a); }
+        let mut queue: Vec<i64> = vec_new::<i64>();
+        queue.push(a);
+        let mut qh: i64 = 0i64;
+        let ne: i64 = self.enode.len();
+        let mut found: bool = false;
+        while qh < queue.len() && !found {
+            let x: i64 = queue.get(qh);
+            qh = qh + 1i64;
+            let mut i: i64 = 0i64;
+            while i < ne && !found {
+                if self.ewt.get(i) > 0i64 {
+                    let node: WAny = self.enode.get(i);
+                    if rt_i(field_read(&q.cat, node, "src")) == x {
+                        let ed: i64 = rt_i(field_read(&q.cat, node, "dst"));
+                        let pp: *const i64 = unsafe { pmp.get(&ed) };
+                        if (pp as i64) == 0i64 {
+                            // restrict to the path-fact frontier: (a,ed) ∈ rhm —
+                            // always true for a real a→…→ed path (guards strays).
+                            if ir_probe_ac(&self.rows, rhm_i, a, ed) >= 0i64 {
+                                unsafe { let _z1: *mut i64 = pmp.get_or_insert(ed, x); }
+                                if ed == c { found = true; } else { queue.push(ed); }
+                            }
+                        }
+                    }
+                }
+                i = i + 1i64;
+            }
+        }
+        if !found {
+            // present in rhm but no simple edge path — should not happen for a
+            // valid TC fact; honest: present, empty chain.
+            return Explain { present: true, steps: steps };
+        }
+        // Walk parent map c → a; collect the reversed node path.
+        let mut rev: Vec<i64> = vec_new::<i64>();
+        let mut cur: i64 = c;
+        loop {
+            rev.push(cur);
+            if cur == a { break; }
+            let pp: *const i64 = unsafe { pmp.get(&cur) };
+            cur = unsafe { *pp };
+        }
+        // Forward path a=v0→v1→…→vk=c.
+        let mut path: Vec<i64> = vec_new::<i64>();
+        let mut ri: i64 = rev.len() - 1i64;
+        while ri >= 0i64 { path.push(rev.get(ri)); ri = ri - 1i64; }
+        // Emit base-first steps for each prefix (a,v_{i+1}).
+        let np: i64 = path.len();
+        let mut si: i64 = 0i64;
+        while si < np - 1i64 {
+            let vfrom: i64 = path.get(si);
+            let vto:   i64 = path.get(si + 1i64);
+            let eslot: i64 = ir_find_edge(&self.enode, &self.ewt, &q.cat, vfrom, vto);
+            let is_b:  bool = si == 0i64;
+            let supp:  i64 = if is_b { -1i64 } else { ir_probe_ac(&self.rows, rhm_i, a, vfrom) };
+            steps.push(WitStep {
+                is_base: is_b, supp_fid: supp, edge_id: eslot,
+                src: vfrom, dst: vto, a: a, c: vto,
+            });
+            si = si + 1i64;
+        }
+        return Explain { present: true, steps: steps };
+    }
+
+    // R4 provenance accessor: resolve a WitStep's `supp_fid` (a supporting-fact
+    // row-index) back to the (a,b) pair stored at that row, so a caller can VERIFY
+    // a recursive witness genuinely indexes the fact (a,src) it claims to support.
+    // Bounds-checked: an out-of-range fid yields the sentinel (-1,-1) rather than
+    // faulting. Row indices are valid ONLY for the rel state at the call (they
+    // shift across epochs), matching the WitStep handle contract.
+    pub fn fact_ab(self: &IncrRec, fid: i64) -> FactAB {
+        if fid < 0i64 { return FactAB { a: -1i64, b: -1i64 }; }
+        let base: i64 = fid * self.ncols;
+        if base + 1i64 >= self.rows.len() { return FactAB { a: -1i64, b: -1i64 }; }
+        return FactAB { a: rt_i(self.rows.get(base + 0i64)), b: rt_i(self.rows.get(base + 1i64)) };
     }
 }
 
