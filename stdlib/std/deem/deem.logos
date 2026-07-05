@@ -1321,8 +1321,11 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
         SExpr::Cond(c) => {
             let cc: CTy = check_expr(c.cond_expr(), cat, env, strict, lb, chk, reg);
             if chk.failed { return ct(CT_UNKNOWN); }
-            if ct_is_obj(cc.t) {
-                chk_fail(chk, "an object is not a condition", "", "", "", "");
+            // The condition must be a bool (mirrors a where/having predicate and
+            // the static codegen) — not C-style truthiness over an int/str/obj.
+            // ct_is_open admits the compile-phase-open / lenient DYN cases.
+            if cc.t != CT_BOOL && !ct_is_open(cc.t) {
+                chk_fail(chk, "a ternary condition must be a bool", "", "", "", "");
                 return ct(CT_UNKNOWN);
             }
             let tt: CTy = check_expr(c.then_expr(), cat, env, strict, lb, chk, reg);
@@ -2273,6 +2276,13 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 chk_fail(chk, "a `group by` key must be a scalar", "", "", "", "");
                 return;
             }
+            // f64 keys have no total order / stable hash (rt_key_hash has no F
+            // arm) — the static codegen and `distinct` reject them; the dynamic
+            // group-by must too, else it silently mis-buckets f64 keys.
+            if kt.t == CT_FLT {
+                chk_fail(chk, "a `group by` key cannot be f64", "", "", "", "");
+                return;
+            }
             let aggs: RAggArr = g.aggs_arr();
             let an2: i64 = aggs.len();
             let mut rets: [i32; 8] = [0i32; 8];
@@ -2967,6 +2977,33 @@ fn qrel_push_agg(rctx: *mut RelCtx, ri: i64, reg: &QRelReg, out: &OutTab) {
         }
         r = r + 1i64;
     }
+}
+
+// Project an aggregate rel's CHAMPION rows from its best-map (key → least/
+// greatest value) into `rows`, REPLACING the append-only improvement log (which
+// keeps every superseded relaxation). key = col 0, value = last col, middle cols
+// padded 0 — mirrors IncrRec::snapshot's champion projection. Returns the
+// champion row count. The batch run() calls this before the entry scan so a
+// recursive semilattice-aggregate rel (SSSP/widest-path) projects the maintained
+// least/greatest-per-key view, not every intermediate improvement.
+fn rebuild_champ(rows: &mut Vec<RtVal>, best: &HashMap<i64, i64>, ncols: i64) -> i64 {
+    rows.clear();
+    let bp: *const HashMap<i64, i64> = best as *const HashMap<i64, i64>;
+    let mut kit: HashMapKeys<i64, i64> = unsafe { bp.keys() };
+    loop {
+        match kit.next() {
+            Option::Some(kp) => {
+                let node: i64 = *kp;
+                let dv: i64 = unsafe { *(bp.get(&node)) };
+                rows.push(RtVal::I(node));
+                let mut c: i64 = 1i64;
+                while c < ncols - 1i64 { rows.push(RtVal::I(0i64)); c = c + 1i64; }
+                rows.push(RtVal::I(dv));
+            }
+            Option::None => { break; }
+        }
+    }
+    return best.len();
 }
 
 // A row set: named columns (row vars) × rows, cells flattened at stride nvars.
@@ -4453,6 +4490,18 @@ impl Query {
         let mut rr5: Vec<RtVal> = vec_new::<RtVal>();
         let mut rr6: Vec<RtVal> = vec_new::<RtVal>();
         let mut rr7: Vec<RtVal> = vec_new::<RtVal>();
+        // Per-rel semilattice champion maps (min/max recursive aggregate). The
+        // incremental engine allocates one (rctx_set_best, slice-7); the batch
+        // executor must too, else qrel_push_agg early-returns on best_i==0 and a
+        // recursive-aggregate rel (SSSP/widest-path) materializes NOTHING.
+        let mut rb0: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb1: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb2: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb3: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb4: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb5: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb6: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb7: HashMap<i64, i64> = hashmap_new::<i64, i64>();
         let mut rhm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
         let mut ctx: RelCtx = relctx_new();
         ctx.n = self.reg.n;
@@ -4467,10 +4516,32 @@ impl Query {
         ctx.rowsp[6] = (&mut rr6 as *mut Vec<RtVal>) as i64;
         ctx.rowsp[7] = (&mut rr7 as *mut Vec<RtVal>) as i64;
         let ctxp: *mut RelCtx = &mut ctx;
+        // Wire a champion map per AGGREGATE rel (rel_agg[ri] != 0 ⇒ min/max
+        // semilattice head) so qrel_push_agg has somewhere to absorb; plain rels
+        // route through qrel_push_out and never read bestp.
+        if self.reg.n > 0i64 && self.reg.rel_agg[0] != 0i32 { rctx_set_best(ctxp, 0i64, (&mut rb0 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 1i64 && self.reg.rel_agg[1] != 0i32 { rctx_set_best(ctxp, 1i64, (&mut rb1 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 2i64 && self.reg.rel_agg[2] != 0i32 { rctx_set_best(ctxp, 2i64, (&mut rb2 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 3i64 && self.reg.rel_agg[3] != 0i32 { rctx_set_best(ctxp, 3i64, (&mut rb3 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 4i64 && self.reg.rel_agg[4] != 0i32 { rctx_set_best(ctxp, 4i64, (&mut rb4 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 5i64 && self.reg.rel_agg[5] != 0i32 { rctx_set_best(ctxp, 5i64, (&mut rb5 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 6i64 && self.reg.rel_agg[6] != 0i32 { rctx_set_best(ctxp, 6i64, (&mut rb6 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 7i64 && self.reg.rel_agg[7] != 0i32 { rctx_set_best(ctxp, 7i64, (&mut rb7 as *mut HashMap<i64, i64>) as i64); }
         if self.reg.n > 0i64 {
             qrel_materialize(self, env, &qp, &scratch, ctxp, cp);
             if chk_bad(cp) { return Result::Err(chk_err(chk)); }
         }
+        // Project each recursive-aggregate rel's CHAMPIONS (least/greatest per
+        // key from its best-map) over its raw improvement log before the entry
+        // scan reads it — else superseded relaxations leak into the result.
+        if self.reg.n > 0i64 && self.reg.rel_agg[0] != 0i32 { rctx_set_tot(ctxp, 0i64, rebuild_champ(&mut rr0, &rb0, self.reg.ncols[0])); }
+        if self.reg.n > 1i64 && self.reg.rel_agg[1] != 0i32 { rctx_set_tot(ctxp, 1i64, rebuild_champ(&mut rr1, &rb1, self.reg.ncols[1])); }
+        if self.reg.n > 2i64 && self.reg.rel_agg[2] != 0i32 { rctx_set_tot(ctxp, 2i64, rebuild_champ(&mut rr2, &rb2, self.reg.ncols[2])); }
+        if self.reg.n > 3i64 && self.reg.rel_agg[3] != 0i32 { rctx_set_tot(ctxp, 3i64, rebuild_champ(&mut rr3, &rb3, self.reg.ncols[3])); }
+        if self.reg.n > 4i64 && self.reg.rel_agg[4] != 0i32 { rctx_set_tot(ctxp, 4i64, rebuild_champ(&mut rr4, &rb4, self.reg.ncols[4])); }
+        if self.reg.n > 5i64 && self.reg.rel_agg[5] != 0i32 { rctx_set_tot(ctxp, 5i64, rebuild_champ(&mut rr5, &rb5, self.reg.ncols[5])); }
+        if self.reg.n > 6i64 && self.reg.rel_agg[6] != 0i32 { rctx_set_tot(ctxp, 6i64, rebuild_champ(&mut rr6, &rb6, self.reg.ncols[6])); }
+        if self.reg.n > 7i64 && self.reg.rel_agg[7] != 0i32 { rctx_set_tot(ctxp, 7i64, rebuild_champ(&mut rr7, &rb7, self.reg.ncols[7])); }
         let out: OutTab = exec_root(root, &self.cat, env, &qp, &scratch, cp,
                                     ctxp as *const RelCtx);
         if chk_bad(cp) { return Result::Err(chk_err(chk)); }
