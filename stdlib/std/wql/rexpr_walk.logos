@@ -2384,6 +2384,18 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
             em.push_text(" = __agg_");
             em.push_text(aname2);
             em.push_text(" + 1i64;\n");
+        } else if fnid2 == AGG_SUM() && !agg_flt[c1] {
+            // i64 `sum` ACCUMULATOR is error-returning: a running-total overflow
+            // becomes Err(ElError) via el_add(…)?, never a trap — the sibling of
+            // EL scalar arithmetic (the arg is already checked) and of the
+            // dynamic/incremental sum accumulators.
+            em.push_text("                    __agg_");
+            em.push_text(aname2);
+            em.push_text(" = el_add(__agg_");
+            em.push_text(aname2);
+            em.push_text(", (");
+            em.push_text(string_as_str(&agg_body[c1]));
+            em.push_text("))?;\n");
         } else if fnid2 == AGG_SUM() || fnid2 == AGG_AVG() {
             em.push_text("                    __agg_");
             em.push_text(aname2);

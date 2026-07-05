@@ -3613,7 +3613,13 @@ fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                 let av: RtVal = eval_sx(a.arg_expr(), cat, env, bp, scratch, chk);
                 if fnid2 == 2i32 {
                     if isf2 { nv = RtVal::F(rt_f(cur) + rt_f(av)); }
-                    else    { nv = RtVal::I(rt_i(cur) + rt_i(av)); }
+                    // sum ACCUMULATOR is error-returning too: a running-total
+                    // i64 overflow yields a QError, not a trap (mirrors EL scalar
+                    // arithmetic — the accumulator is the sibling site).
+                    else    { match rt_i(cur).checked_add(rt_i(av)) {
+                        Option::Some(v) => { nv = RtVal::I(v); }
+                        Option::None    => { chk_fail_p(chk, "arithmetic overflow in an aggregate `sum` accumulator", "", "", "", ""); nv = cur; }
+                    } }
                 } else if fnid2 == 3i32 {
                     if isf2 { if rt_f(av) < rt_f(cur) { nv = RtVal::F(rt_f(av)); } }
                     else    { if rt_i(av) < rt_i(cur) { nv = RtVal::I(rt_i(av)); } }
@@ -5690,7 +5696,11 @@ impl IncrJoin {
                         let av: RtVal = eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch);
                         if rt_is_err(av) { unsafe { *mep = true; } }
                         let cur: i64 = self.agg.gsum.get(slot * n + ai);
-                        self.agg.gsum.set(slot * n + ai, cur + w * rt_i(av));
+                        // checked accumulation: a running-total overflow latches
+                        // math_err (surfaced via had_error()), not a trap.
+                        let prod: i64 = match w.checked_mul(rt_i(av)) { Option::Some(p) => { p } Option::None => { unsafe { *mep = true; } 0i64 } };
+                        let tot:  i64 = match cur.checked_add(prod)   { Option::Some(t) => { t } Option::None => { unsafe { *mep = true; } cur } };
+                        self.agg.gsum.set(slot * n + ai, tot);
                     } else if fnid == 3i32 || fnid == 4i32 {
                         // SEMILATTICE min/max (ADR 0013 §3.1, slice-4): maintain a
                         // value→live-multiplicity map + cached best; O(1) improve on
