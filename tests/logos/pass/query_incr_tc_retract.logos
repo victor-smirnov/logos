@@ -68,7 +68,11 @@ fn main() -> i32 {
     let doc: Writ = writ_new(65536i64);
     let c: SchemaCatalog = cat();
     let q: Query = match Query::compile(
-        "rel path(a: i64, b: i64) { from edges e select (e.src, e.dst); from path p join edges e on p.b == e.src select (p.a, e.dst); } from path p select (p.a, p.b)",
+        r#"rel path(a: i64, b: i64) {
+             from edges e select (e.src, e.dst);
+             from path p join edges e on p.b == e.src select (p.a, e.dst);
+           }
+           from path p select (p.a, p.b)"#,
         &c)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 90i32; } };
 

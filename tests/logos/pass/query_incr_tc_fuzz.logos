@@ -208,7 +208,11 @@ fn main() -> i32 {
     init.set(pool_idx(3i64, 4i64), 1i64);
 
     let q: Query = match Query::compile(
-        "rel path(a: i64, b: i64) { from edges e select (e.src, e.dst); from path p join edges e on p.b == e.src select (p.a, e.dst); } from path p select (p.a, p.b)",
+        r#"rel path(a: i64, b: i64) {
+             from edges e select (e.src, e.dst);
+             from path p join edges e on p.b == e.src select (p.a, e.dst);
+           }
+           from path p select (p.a, p.b)"#,
         &c)
     {
         Result::Ok(v) => { v }

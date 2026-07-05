@@ -44,19 +44,34 @@ fn main() -> i32 {
 
     // (1) recursive MIN aggregate — ADMITTED.
     let qmin: Query = match Query::compile(
-        "rel dist(node: i64, d: i64) { from edges e where e.src == 0 select (e.dst, e.w); from dist x join edges e on e.src == x.node group by e.dst aggregate d = min(x.d + e.w) select (e.dst, d); } from dist r select (r.node, r.d)",
+        r#"rel dist(node: i64, d: i64) {
+             from edges e where e.src == 0 select (e.dst, e.w);
+             from dist x join edges e on e.src == x.node
+                 group by e.dst aggregate d = min(x.d + e.w) select (e.dst, d);
+           }
+           from dist r select (r.node, r.d)"#,
         &c)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
 
     // (2) recursive MAX aggregate — ADMITTED (symmetric semilattice).
     let _ok_max: bool = match Query::compile(
-        "rel wide(node: i64, d: i64) { from edges e where e.src == 0 select (e.dst, e.w); from wide x join edges e on e.src == x.node group by e.dst aggregate d = max(x.d + e.w) select (e.dst, d); } from wide r select (r.node, r.d)",
+        r#"rel wide(node: i64, d: i64) {
+             from edges e where e.src == 0 select (e.dst, e.w);
+             from wide x join edges e on e.src == x.node
+                 group by e.dst aggregate d = max(x.d + e.w) select (e.dst, d);
+           }
+           from wide r select (r.node, r.d)"#,
         &c)
     { Result::Ok(_v) => { true } Result::Err(_e) => { return 11i32; } };
 
     // (3) recursive SUM aggregate — REJECTED (abelian-group / non-stratifiable).
     let _rej_sum: bool = match Query::compile(
-        "rel bad(node: i64, d: i64) { from edges e where e.src == 0 select (e.dst, e.w); from bad x join edges e on e.src == x.node group by e.dst aggregate d = sum(x.d + e.w) select (e.dst, d); } from bad r select (r.node, r.d)",
+        r#"rel bad(node: i64, d: i64) {
+             from edges e where e.src == 0 select (e.dst, e.w);
+             from bad x join edges e on e.src == x.node
+                 group by e.dst aggregate d = sum(x.d + e.w) select (e.dst, d);
+           }
+           from bad r select (r.node, r.d)"#,
         &c)
     { Result::Ok(_v) => { return 12i32; } Result::Err(_e) => { true } };
 
