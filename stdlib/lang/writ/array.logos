@@ -44,26 +44,36 @@ use logos.lang.cell;
 // stores `data` SELF-RELATIVE (RelOffset, anchored to its slot; ref-repr §6).
 
 // ── Typed generic base: packed primitive elements (WArray<T>, T: WArrTag) ──────
+/// Typed homogeneous packed array of a primitive `T: WArrTag`, in-arena and never moved.
+/// Generic base of the pair; the `WArray<WAny>` specialisation is the heterogeneous array.
 #[zone_mut]
 #[pinned]
 #[zoned]
 pub struct WArray<T> {
+    /// Number of elements.
     pub len:  i64,
+    /// Allocated element capacity.
     pub cap:  i64,
+    /// Element buffer: packed plain `T`s behind a self-relative pointer.
     pub data: *mut T,   // packed T[] (auto-relative ptr; plain position-independent elements)
 }
 
 // ── Heterogeneous spec: AT-REST WAny elements (WArray<WAny>) ───────────────────
+/// Heterogeneous array of `WAny` (the JSON array): at-rest `WAny` words in a zoned buffer.
+/// Wins over the generic `WArray<T>` base by specificity; growth re-anchors each slot.
 #[zone_mut]
 #[pinned]
 #[zoned]
 pub struct WArray<WAny> {
+    /// Number of elements.
     pub len:   i64,
+    /// Allocated element capacity.
     pub cap:   i64,
     // Element buffer of AT-REST WAny words. `*zoned mut WAny`: each `*(buf.add(i))`
     // materialises the slot (Ref delta → absolute) and `*(buf.add(i)) = v` lowers
     // it — the compiler owns the at-rest↔value bridge (no WAnyRel, no ha_*). The
     // pointer ITSELF is also auto-relative (#[zoned] field → RelOffset).
+    /// Element buffer of at-rest `WAny` words; the pointer itself is self-relative.
     pub data:  *zoned mut WAny,
 }
 
@@ -133,9 +143,8 @@ unsafe fn array_get(a: *const WArray<WAny>, i: i64) -> WAny {
 // (The residency `holder` for ESCAPING references, and the enforced borrow-tie
 // ref ≤ holder + mutation-exclusivity, are the next steps of this model.)
 impl Writ {
-    // Create an empty array; returns a fresh `&mut` to it. `&self` allocation
-    // (interior-mut): the returned `&mut` is to brand-new never-move storage, so
-    // multiple `array(&self)` calls coexist (each &mut is a distinct object).
+    /// Creates an empty heterogeneous array in this container; returns a fresh fat `&mut` to it.
+    /// Interior-mut `&self` allocation into never-move storage: multiple `array` calls coexist.
     pub fn array<'a>(self: &'a Writ, cap: i64) -> &'a mut WArray<WAny> {
         unsafe {
             // Fat `&mut` carrying this container's zone (the allocator) — push/grow
@@ -143,8 +152,8 @@ impl Writ {
             return zone_mut_ref::<WArray<WAny>>(array_new(self as *const Writ as *mut Writ, cap), self.allocator.get() as *mut u8);
         }
     }
-    // Resolve a Ref element back to the array it points at, tied to THIS container
-    // (the returned `&WArray<WAny>` may not outlive the container).
+    /// Resolves a Ref element back to the array it points at, tied to this container.
+    /// The returned `&WArray<WAny>` may not outlive the container.
     pub fn array_of<'a>(self: &'a Writ, e: WAny) -> &'a WArray<WAny> {
         return unsafe { &*(e.resolve() as *const WArray<WAny>) };
     }
@@ -157,6 +166,7 @@ impl WArray<WAny> {
     // NOTE on ordering: `zone_of(self)` reborrows self (no move), but
     // `self as *mut WArray<WAny>` (the cast) CONSUMES the fat &mut — so bind the
     // zone FIRST, and let the cast be self's LAST use inside `array_push(...)`.
+    /// Appends a `WAny` element, growing the buffer 2× via the zone carried by the fat `&mut`.
     pub fn push(self: &mut WArray<WAny>, v: WAny) {
         unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, v); }
     }
@@ -167,25 +177,38 @@ impl WArray<WAny> {
     //   • f64  → boxed (W_F64) into the arena (never fits the inline Pod)
     //   • bool → an inline Pod
     //   • &WString / &WArray<WAny> → a Ref to an already-interned arena object
+    /// Appends an `i64` — inline Pod when it fits i56, else boxed (`W_I64`) into the arena.
     pub fn push(self: &mut WArray<WAny>, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, make_int(z, v)); } }
+    /// Appends a `u64` — always boxed (`W_U64`); there is no inline unsigned Pod form.
     pub fn push(self: &mut WArray<WAny>, v: u64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, box_u64(z, v)); } }
+    /// Appends an `f32` — boxed (`W_F32`) into the arena.
     pub fn push(self: &mut WArray<WAny>, v: f32)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, box_f32(z, v)); } }
+    /// Appends an `f64` — boxed (`W_F64`) into the arena; never fits the inline Pod.
     pub fn push(self: &mut WArray<WAny>, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, box_f64(z, v)); } }
+    /// Appends a `bool` as an inline Pod.
     pub fn push(self: &mut WArray<WAny>, v: bool) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
     // Exact-width inline integers — value-form WAny (no boxing); the zone is only
     // needed for a potential grow inside array_push.
+    /// Appends an `i8` as an exact-width inline Pod (no boxing).
     pub fn push(self: &mut WArray<WAny>, v: i8)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
+    /// Appends a `u8` as an exact-width inline Pod (no boxing).
     pub fn push(self: &mut WArray<WAny>, v: u8)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
+    /// Appends an `i16` as an exact-width inline Pod (no boxing).
     pub fn push(self: &mut WArray<WAny>, v: i16) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
+    /// Appends a `u16` as an exact-width inline Pod (no boxing).
     pub fn push(self: &mut WArray<WAny>, v: u16) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
+    /// Appends an `i24` as an exact-width inline Pod (no boxing).
     pub fn push(self: &mut WArray<WAny>, v: i24) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
+    /// Appends a `u24` as an exact-width inline Pod (no boxing).
     pub fn push(self: &mut WArray<WAny>, v: u24) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
+    /// Appends a Ref to an already-interned arena `WString` (no copy).
     pub fn push(self: &mut WArray<WAny>, v: &WString)      { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
+    /// Appends a Ref to an arena-resident nested array (no copy).
     pub fn push(self: &mut WArray<WAny>, v: &WArray<WAny>)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut WArray<WAny>, z, WAny::from(v)); } }
 
-    // `str` → intern the bytes into THIS array's zone (via zone_of(self)) as an
-    // WString, then push a Ref to it. (A `String` caller passes `s.as_str()` —
-    // String lives in the `mem` tier, above `lang`.) Lives as long as the container.
+    // (A `String` caller passes `s.as_str()` — String lives in the `mem` tier, above `lang`.)
+    /// Appends a `str` by interning its bytes into this array's zone as a `WString`, pushing a Ref.
+    /// The interned copy lives as long as the container.
     pub fn push(self: &mut WArray<WAny>, v: str) {
         unsafe {
             let z: *mut Allocator = zone_of(self) as *mut Allocator;
@@ -194,13 +217,15 @@ impl WArray<WAny> {
         }
     }
 
+    /// Returns element `i` by value. No bounds check — `i` must be less than `len()`.
     pub fn get(self: &WArray<WAny>, i: i64) -> WAny { return unsafe { array_get(self as *const WArray<WAny>, i) }; }
+    /// Returns the number of elements.
     pub fn len(self: &WArray<WAny>) -> i64 { return unsafe { array_len(self as *const WArray<WAny>) }; }
 
-    // Mutable cursor onto element `i` — the element SLOT plus THIS array's zone
-    // (zone_of(self)), so a nested child can grow in the same arena and a Pod
-    // element reads/replaces in place. Bind the zone FIRST (no move); `self as *mut`
-    // (the cast) is the last use.
+    // Bind the zone FIRST (no move); `self as *mut` (the cast) is the last use.
+    /// Returns a mutable cursor onto element `i`: the element slot plus this array's zone,
+    /// so a nested child can grow in the same arena and a Pod reads/replaces in place.
+    /// No bounds check.
     pub fn get_mut(self: &mut WArray<WAny>, i: i64) -> WAnyMut {
         unsafe {
             let z: *mut u8 = zone_of(self);
@@ -211,19 +236,19 @@ impl WArray<WAny> {
 }
 
 impl WAnyMut {
-    // Resolve a Ref cursor to a fat `&mut WArray<WAny>` carrying its zone — ready
-    // to push/grow in the same arena. (Check is_array() first.)
+    /// Resolves a Ref cursor to a fat `&mut WArray<WAny>` carrying its zone.
+    /// Ready to push/grow in the same arena; check `is_array()` first.
     pub fn as_array_mut(self: WAnyMut) -> &mut WArray<WAny> {
         return unsafe { zone_mut_ref::<WArray<WAny>>(self.get().resolve() as *mut WArray<WAny>, self.zone) };
     }
 }
 
 impl WAny {
-    // A nested array as a heterogeneous value (Ref to the child's header).
+    /// Wraps a nested array as a heterogeneous value: a Ref to the child's header (no copy).
     pub fn from(a: &WArray<WAny>) -> WAny { return WAny::ref_to(a as *const WArray<WAny> as *const u8); }
 
-    // Resolve a Ref cursor to a borrowed `&WArray<WAny>` (read-only). Check
-    // is_array() first. Encapsulates the resolve()+cast so callers stay safe.
+    /// Resolves a Ref to a borrowed read-only `&WArray<WAny>`; check `is_array()` first.
+    /// Encapsulates the `resolve()`+cast so callers stay safe.
     pub fn as_array(self: &WAny) -> &WArray<WAny> {
         return unsafe { &*(self.resolve() as *const WArray<WAny>) };
     }
@@ -239,6 +264,9 @@ impl WAny {
 
 // Per-element Writ wire tag (WritTag ArrayU8=2101 .. ArrayF64=2110) so a typed
 // array carries the precise element-type code (type_code() emits it; wbs-ready).
+/// Marks a primitive as a typed-array element; `arr_code()` returns its Writ wire tag.
+/// Implemented for u8..u64, i8..i64, f32, f64 (codes 2101–2110); `WAny` does not satisfy it,
+/// which keeps the typed and heterogeneous method sets from colliding.
 pub trait WArrTag { fn arr_code() -> u64; }
 impl WArrTag for u8  { fn arr_code() -> u64 { return 2101u64; } }
 impl WArrTag for u16 { fn arr_code() -> u64 { return 2102u64; } }
@@ -279,18 +307,22 @@ unsafe fn warr_push<T: WArrTag>(a: *mut WArray<T>, alloc: *mut Allocator, v: T) 
 }
 
 impl<T: WArrTag> WArray<T> {
+    /// Returns the number of elements.
     pub fn len(self: &WArray<T>) -> i64 { return self.len; }
+    /// Returns element `i` by value. No bounds check — `i` must be less than `len()`.
     pub fn get(self: &WArray<T>, i: i64) -> T { return unsafe { *(self.data.add(i)) }; }
     // Bind the zone FIRST (zone_of reborrows); `self as *mut WArray<T>` (the cast)
     // consumes the fat &mut, so it must be self's LAST use.
+    /// Appends `v`, growing the buffer 2× via the zone carried by the fat `&mut`.
+    /// Growth is a plain element copy (primitives are position-independent).
     pub fn push(self: &mut WArray<T>, v: T) {
         unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; warr_push::<T>(self as *mut WArray<T>, z, v); }
     }
 }
 
 impl Writ {
-    // Create an empty typed array; returns a fresh fat `&mut` carrying this
-    // container's zone (interior-mut `&self` allocation, like `array`).
+    /// Creates an empty typed array; returns a fresh fat `&mut` carrying this container's zone.
+    /// Interior-mut `&self` allocation, like `array`.
     pub fn tarray<'a, T: WArrTag>(self: &'a Writ, cap: i64) -> &'a mut WArray<T> {
         unsafe {
             return zone_mut_ref::<WArray<T>>(warr_new::<T>(self as *const Writ as *mut Writ, cap), self.allocator.get() as *mut u8);

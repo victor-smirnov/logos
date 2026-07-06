@@ -20,10 +20,16 @@ use logos.lang.cell;
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.ptr;                 // byte_add
 
+/// A Writ SDN datatype instantiation `@Type(params?) = <initializer>`, wire code 4115.
+/// Holds three at-rest `WAny` words as raw `i64`; read/write goes through `*zoned` slot
+/// pointers, so reads materialise the Ref-delta and writes lower it.
 #[pinned]
 pub struct WTypedValue {
+    /// At-rest `WAny` word: `Ref` to the interned type-name `WString`.
     pub type_name: i64,   // at-rest WAny: Ref to the type-name WString
+    /// At-rest `WAny` word: the params (`Array<WAny>` or null).
     pub params:    i64,   // at-rest WAny: params (Array<WAny> or null)
+    /// At-rest `WAny` word: the initializer value.
     pub init:      i64,   // at-rest WAny: the initializer value
 }
 
@@ -46,24 +52,24 @@ unsafe fn tv_new(h: *mut Writ, type_name: WAny, params: WAny, init: WAny) -> *mu
 }
 
 impl WTypedValue {
-    // The type-name value (a Ref to an WString).
+    /// Returns the type-name value (a `Ref` to a `WString`).
     pub fn type_name(self: &WTypedValue) -> WAny { return unsafe { *(tv_slot_c(self as *const WTypedValue, 0i64)) }; }
-    // The params value (Array<WAny> or null).
+    /// Returns the params value (`Array<WAny>` or null).
     pub fn params(self: &WTypedValue)    -> WAny { return unsafe { *(tv_slot_c(self as *const WTypedValue, 8i64)) }; }
-    // The initializer value.
+    /// Returns the initializer value.
     pub fn init(self: &WTypedValue)      -> WAny { return unsafe { *(tv_slot_c(self as *const WTypedValue, 16i64)) }; }
 
-    // The type name as a string view (resolves the Ref → WString → bytes).
+    /// Returns the type name as a string view (resolves the `Ref` to the interned `WString`).
     pub fn type_name_str(self: &WTypedValue) -> str {
         return unsafe { (&*(self.type_name().resolve() as *const WString)).as_str() };
     }
-    // Are params present (non-null)?
+    /// Returns `true` if params are present (non-null).
     pub fn has_params(self: &WTypedValue) -> bool { return !self.params().is_null(); }
 }
 
 impl Writ {
-    // Build a typed value `@type_name(params?) = init` in THIS arena; the type name
-    // is interned as an WString. Pass a null WAny for `params` when none.
+    /// Builds a typed value `@type_name(params?) = init` in this arena, returning a `Ref` to it.
+    /// The type name is interned as a `WString`; pass a null `WAny` for `params` when none.
     pub fn typed_value(self: &Writ, type_name: str, params: WAny, init: WAny) -> WAny {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
@@ -75,11 +81,12 @@ impl Writ {
 }
 
 impl WAny {
+    /// Returns `true` if this value is a `Ref` to a `WTypedValue`.
     pub fn is_typed_value(self: &WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_TYPEDVALUE;
     }
-    // Borrow the pointed-at typed value (check is_typed_value first).
+    /// Borrows the pointed-at typed value; unchecked — call `is_typed_value` first.
     pub fn as_typed_value(self: &WAny) -> &WTypedValue { return unsafe { &*(self.resolve() as *const WTypedValue) }; }
-    // A typed value as a heterogeneous value (Ref to it).
+    /// Creates a heterogeneous value holding a `Ref` to `tv`.
     pub fn from(tv: &WTypedValue) -> WAny { return WAny::ref_to(tv as *const WTypedValue as *const u8); }
 }

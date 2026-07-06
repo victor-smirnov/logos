@@ -35,51 +35,42 @@ use logos.lang.drop;
 // `#[repr(transparent)]` — same layout / ABI as `T`. Required for
 // `UnsafeCell::from_mut` to be a sound `&mut T → &mut UnsafeCell<T>`
 // reinterpret, and for the documented zero-cost guarantee.
+/// Wraps a `T` mutable through `&self` — the primitive underlying all interior-mutability types.
+/// Auto-`!Sync` and invariant in `T`; aliasing discipline is the caller's `unsafe` obligation.
 #[repr(transparent)]
 pub struct UnsafeCell<T> {
     value: T,
 }
 
 impl<T> UnsafeCell<T> {
-    // Construct a new cell wrapping `value`.
+    /// Creates a new `UnsafeCell` wrapping `value`.
     pub fn new(value: T) -> UnsafeCell<T> {
         return UnsafeCell { value: value };
     }
 
-    // Hand back the underlying value, consuming the cell. The only
-    // way to recover `T` without involving raw pointers — useful
-    // when ownership of the cell is being released.
+    /// Consumes the cell, returning the wrapped value — the only way to recover `T`
+    /// without raw pointers.
     pub fn into_inner(self: UnsafeCell<T>) -> T {
         return self.value;
     }
 
-    // Returns a raw `*mut T` aimed at the wrapped value. Despite
-    // taking `&self`, the returned pointer is writable — this is
-    // the whole point of the type. Mirrors Rust's
-    // `UnsafeCell::get(&self) -> *mut T`.
-    //
-    // SAFETY (caller): writes through the returned pointer create
-    // an aliasing hazard if any `&T` or `&mut T` derived from the
-    // same cell is alive; concurrent writes from multiple threads
-    // without external synchronisation are UB.
+    /// Returns a raw `*mut T` to the wrapped value — writable despite taking `&self`.
+    ///
+    /// Writing while any `&T`/`&mut T` derived from this cell is live, or racing
+    /// unsynchronised writes across threads, is UB.
     pub fn get(&self) -> *mut T {
         unsafe {
             return (&self.value) as *const T as *mut T;
         }
     }
 
-    // `&mut self` access — the proper compile-time exclusive view.
-    // Since we already hold `&mut UnsafeCell<T>`, no aliasing can
-    // exist; the borrow checker enforces the rest.
+    /// Returns `&mut T` to the wrapped value; `&mut self` already guarantees exclusivity.
     pub fn get_mut(&mut self) -> &mut T {
         return &mut self.value;
     }
 
-    // Same as `get` but takes a raw `*const Self` instead of `&self`,
-    // for callers that don't want to materialise a reference (e.g.
-    // a MaybeUninit-style gradual init where `&` would touch
-    // uninitialised memory). Mirrors Rust's
-    // `UnsafeCell::raw_get(this: *const Self) -> *mut T`.
+    /// Returns `*mut T` like `get`, but from a raw `*const Self` — no reference is
+    /// materialised, so it is usable while the interior is uninitialised.
     pub fn raw_get(this: *const UnsafeCell<T>) -> *mut T {
         unsafe {
             return this as *const T as *mut T;
@@ -101,42 +92,50 @@ impl<T> UnsafeCell<T> {
 // resolve `T::default()` from a where-clause-bound T inside an inherent
 // impl (same workaround as `option_unwrap_or_default`).
 
+/// Provides safe interior mutability for `Copy` types via by-value `get`/`set`.
 #[repr(transparent)]
 pub struct Cell<T> {
     inner: UnsafeCell<T>,
 }
 
 impl<T> Cell<T> {
+    /// Creates a new `Cell` containing `value`.
     pub fn new(value: T) -> Cell<T> {
         return Cell { inner: UnsafeCell::new(value) };
     }
 
+    /// Consumes the cell, returning the wrapped value.
     pub fn into_inner(self: Cell<T>) -> T {
         return self.inner.into_inner();
     }
 
+    /// Returns a raw `*mut T` to the underlying value.
     pub fn as_ptr(&self) -> *mut T {
         return self.inner.get();
     }
 
+    /// Returns a mutable reference to the underlying value.
     pub fn get_mut(&mut self) -> &mut T {
         return self.inner.get_mut();
     }
 }
 
 impl<T: Copy> Cell<T> {
+    /// Returns a copy of the contained value.
     pub fn get(&self) -> T {
         unsafe {
             return *self.inner.get();
         }
     }
 
+    /// Sets the contained value.
     pub fn set(&self, val: T) {
         unsafe {
             *self.inner.get() = val;
         }
     }
 
+    /// Replaces the contained value with `val`, returning the old value.
     pub fn replace(&self, val: T) -> T {
         unsafe {
             let p: *mut T = self.inner.get();
@@ -146,6 +145,7 @@ impl<T: Copy> Cell<T> {
         }
     }
 
+    /// Swaps the values of two cells.
     pub fn swap(&self, other: &Cell<T>) {
         unsafe {
             let a: *mut T = self.inner.get();
@@ -156,6 +156,7 @@ impl<T: Copy> Cell<T> {
         }
     }
 
+    /// Replaces the contained value with `f` applied to the current value.
     pub fn update(&self, f: fn(T) -> T) {
         unsafe {
             let p: *mut T = self.inner.get();
@@ -166,6 +167,7 @@ impl<T: Copy> Cell<T> {
 
 // Free-fn form of `Cell::take` — see module comment for why this can't
 // live inside `impl<T: Copy + Default> Cell<T>` today.
+/// Takes the cell's value, leaving `T::default()` in its place.
 pub fn cell_take<T: Copy + Default>(c: &Cell<T>) -> T {
     unsafe {
         let p: *mut T = c.as_ptr();
@@ -199,25 +201,32 @@ pub fn cell_take<T: Copy + Default>(c: &Cell<T>) -> T {
 // outlive the cell. Memory safety relies on the existing borrow
 // checker treating the guard's deref as a normal `&T`/`&mut T`.
 
+/// Returned by `RefCell::try_borrow` when the value is already mutably borrowed.
 pub struct BorrowError {}
+/// Returned by `RefCell::try_borrow_mut` when the value is already borrowed.
 pub struct BorrowMutError {}
 
+/// Wraps a value with runtime-checked dynamic borrowing via `Ref`/`RefMut` guards.
+/// Guards hold raw pointers, not lifetimes — a guard must not outlive its cell.
 pub struct RefCell<T> {
     state: UnsafeCell<i32>,
     value: UnsafeCell<T>,
 }
 
+/// Guards a shared borrow of a `RefCell` value; access via `get`, released on drop.
 pub struct Ref<T> {
     value: *const T,
     state: *mut i32,
 }
 
+/// Guards an exclusive borrow of a `RefCell` value; access via `get`/`get_mut`, released on drop.
 pub struct RefMut<T> {
     value: *mut T,
     state: *mut i32,
 }
 
 impl<T> RefCell<T> {
+    /// Creates a new `RefCell` containing `value`.
     pub fn new(value: T) -> RefCell<T> {
         return RefCell {
             state: UnsafeCell::new(0i32),
@@ -225,18 +234,22 @@ impl<T> RefCell<T> {
         };
     }
 
+    /// Consumes the cell, returning the wrapped value.
     pub fn into_inner(self: RefCell<T>) -> T {
         return self.value.into_inner();
     }
 
+    /// Returns a raw `*mut T` to the underlying value, bypassing borrow tracking.
     pub fn as_ptr(&self) -> *mut T {
         return self.value.get();
     }
 
+    /// Returns `&mut T` directly; `&mut self` proves exclusivity, so no runtime check.
     pub fn get_mut(&mut self) -> &mut T {
         return self.value.get_mut();
     }
 
+    /// Attempts a shared borrow, returning a `Ref` guard; errors if mutably borrowed.
     pub fn try_borrow(&self) -> Result<Ref<T>, BorrowError> {
         unsafe {
             let sp: *mut i32 = self.state.get();
@@ -251,6 +264,8 @@ impl<T> RefCell<T> {
         }
     }
 
+    /// Borrows the value shared, returning a `Ref` guard.
+    /// Panics if the value is currently mutably borrowed.
     pub fn borrow(&self) -> Ref<T> {
         match self.try_borrow() {
             Result::Ok(r)  => { return r; }
@@ -264,6 +279,7 @@ impl<T> RefCell<T> {
         }
     }
 
+    /// Attempts an exclusive borrow, returning a `RefMut` guard; errors if any borrow is active.
     pub fn try_borrow_mut(&self) -> Result<RefMut<T>, BorrowMutError> {
         unsafe {
             let sp: *mut i32 = self.state.get();
@@ -278,6 +294,8 @@ impl<T> RefCell<T> {
         }
     }
 
+    /// Borrows the value exclusively, returning a `RefMut` guard.
+    /// Panics if the value is currently borrowed.
     pub fn borrow_mut(&self) -> RefMut<T> {
         match self.try_borrow_mut() {
             Result::Ok(r)  => { return r; }
@@ -291,6 +309,8 @@ impl<T> RefCell<T> {
         }
     }
 
+    /// Replaces the wrapped value with `t`, returning the old value.
+    /// Panics if the value is currently borrowed.
     pub fn replace(&self, t: T) -> T {
         let mut g: RefMut<T> = self.borrow_mut();
         unsafe {
@@ -300,6 +320,8 @@ impl<T> RefCell<T> {
         }
     }
 
+    /// Swaps the wrapped values of two cells.
+    /// Panics if either cell is currently borrowed, or if `self` and `other` are the same cell.
     pub fn swap(&self, other: &RefCell<T>) {
         let mut a: RefMut<T> = self.borrow_mut();
         let mut b: RefMut<T> = other.borrow_mut();
@@ -313,15 +335,18 @@ impl<T> RefCell<T> {
 
 impl<T> Ref<T> {
     // Deref-equivalent (Logos has no Deref trait — methods instead).
+    /// Returns a shared reference to the borrowed value.
     pub fn get(&self) -> &T {
         unsafe { return &*self.value; }
     }
 }
 
 impl<T> RefMut<T> {
+    /// Returns a shared reference to the borrowed value.
     pub fn get(&self) -> &T {
         unsafe { return &*self.value; }
     }
+    /// Returns a mutable reference to the borrowed value.
     pub fn get_mut(&mut self) -> &mut T {
         unsafe { return &mut *self.value; }
     }
@@ -355,6 +380,7 @@ impl<T> Drop for RefMut<T> {
 // (no closure captures) — same behaviour for the typical refcell-map
 // use case where the mapping is a struct field projection.
 
+/// Maps a `Ref<T>` into a `Ref<U>` for a component of the borrowed data, keeping the borrow.
 pub fn ref_map<T, U>(orig: Ref<T>, f: fn(&T) -> &U) -> Ref<U> {
     unsafe {
         let target: &U = f(&*orig.value);
@@ -368,6 +394,7 @@ pub fn ref_map<T, U>(orig: Ref<T>, f: fn(&T) -> &U) -> Ref<U> {
     }
 }
 
+/// Maps a `Ref<T>` to `Ref<U>` if `f` yields `Some`, else returns the original guard in `Err`.
 pub fn ref_filter_map<T, U>(
     orig: Ref<T>,
     f: fn(&T) -> Option<&U>,
@@ -389,6 +416,7 @@ pub fn ref_filter_map<T, U>(
     }
 }
 
+/// Maps a `RefMut<T>` into a `RefMut<U>` for a component of the borrowed data.
 pub fn ref_mut_map<T, U>(orig: RefMut<T>, f: fn(&mut T) -> &mut U) -> RefMut<U> {
     unsafe {
         let target: &mut U = f(&mut *orig.value);
@@ -407,6 +435,8 @@ pub fn ref_mut_map<T, U>(orig: RefMut<T>, f: fn(&mut T) -> &mut U) -> RefMut<U> 
 
 // Free-fn `RefCell::take` — same `T::default()` from where-clause-bound
 // T workaround as `cell_take`.
+/// Takes the wrapped value, leaving `T::default()` in its place.
+/// Panics if the value is currently borrowed.
 pub fn refcell_take<T: Default>(c: &RefCell<T>) -> T {
     return c.replace(T::default());
 }
@@ -432,11 +462,14 @@ pub fn refcell_take<T: Default>(c: &RefCell<T>) -> T {
 // TODO: switch storage to `MaybeUninit<T>` and relax `T: Default`
 // once `mem::uninit::MaybeUninit` lives in a layer below lang.
 
+/// Provides write-once interior mutability: set once via `&self`, then read-only.
+/// Construct with `once_cell_new` (bears the `T: Default` bound that seeds storage).
 pub struct OnceCell<T> {
     storage: UnsafeCell<T>,
     present: UnsafeCell<bool>,
 }
 
+/// Creates an empty `OnceCell`; storage is seeded with `T::default()` but never observed.
 pub fn once_cell_new<T: Default>() -> OnceCell<T> {
     return OnceCell {
         storage: UnsafeCell::new(T::default()),
@@ -445,11 +478,12 @@ pub fn once_cell_new<T: Default>() -> OnceCell<T> {
 }
 
 impl<T> OnceCell<T> {
+    /// Returns `true` if a value has been set.
     pub fn is_set(&self) -> bool {
         unsafe { return *self.present.get(); }
     }
 
-    // Raw pointer to the stored T. Returns null when not set.
+    /// Returns a raw pointer to the stored value, or null when unset.
     pub fn get_ptr(&self) -> *const T {
         unsafe {
             if !*self.present.get() { return 0 as *const T; }
@@ -457,8 +491,7 @@ impl<T> OnceCell<T> {
         }
     }
 
-    // Rust-style `OnceCell::get(&self) -> Option<&T>`. None when
-    // unset, Some(&value) when set.
+    /// Returns `Some(&value)` if set, `None` otherwise.
     pub fn get(&self) -> Option<&T> {
         unsafe {
             if !*self.present.get() { return Option::<&T>::None; }
@@ -467,6 +500,7 @@ impl<T> OnceCell<T> {
         }
     }
 
+    /// Sets the value if unset; returns `Err(value)` when already set.
     pub fn set(&self, value: T) -> Result<(), T> {
         unsafe {
             if *self.present.get() {
@@ -478,6 +512,7 @@ impl<T> OnceCell<T> {
         }
     }
 
+    /// Returns the value, initialising it with `f()` first if unset.
     pub fn get_or_init(&self, f: fn() -> T) -> &T {
         unsafe {
             if !*self.present.get() {
@@ -488,6 +523,7 @@ impl<T> OnceCell<T> {
         }
     }
 
+    /// Consumes the cell, returning `Some(value)` if set, `None` otherwise.
     pub fn into_inner(self: OnceCell<T>) -> Option<T> {
         if self.is_set() {
             unsafe {
@@ -509,16 +545,20 @@ impl<T> OnceCell<T> {
 // Divergence: stores `fn() -> T` (function pointer) instead of
 // `F: FnOnce() -> T`. Closures with captures wait on Fn-family traits.
 
+/// Defers initialisation: first `force` calls the stored `fn() -> T` and caches the result.
+/// Construct with `lazy_cell_new`.
 pub struct LazyCell<T> {
     cell: OnceCell<T>,
     init: fn() -> T,
 }
 
+/// Creates a `LazyCell` that initialises with `init` on first `force`.
 pub fn lazy_cell_new<T: Default>(init: fn() -> T) -> LazyCell<T> {
     return LazyCell { cell: once_cell_new::<T>(), init: init };
 }
 
 impl<T> LazyCell<T> {
+    /// Returns the cached value, computing it via `init` on first call.
     pub fn force(&self) -> &T {
         return self.cell.get_or_init(self.init);
     }

@@ -15,21 +15,25 @@ use logos.lang.option;
 use logos.lang.result;
 
 impl bool {
+    /// Returns `Some(f())` if `self` is `true`, else `None`.
     pub fn then<T>(self: bool, f: fn() -> T) -> Option<T> {
         if self { return Some(f()); }
         return None;
     }
 
+    /// Returns `Some(x)` if `self` is `true`, else `None`.
     pub fn then_some<T>(self: bool, x: T) -> Option<T> {
         if self { return Some(x); }
         return None;
     }
 
+    /// Returns `Ok(())` if `self` is `true`, else `Err(err)`.
     pub fn ok_or<E>(self: bool, err: E) -> Result<(), E> {
         if self { return Ok(()); }
         return Err(err);
     }
 
+    /// Returns `Ok(())` if `self` is `true`, else `Err(f())`.
     pub fn ok_or_else<E>(self: bool, f: fn() -> E) -> Result<(), E> {
         if self { return Ok(()); }
         return Err(f());

@@ -20,13 +20,17 @@ extern fn logos_thread_get() -> *mut u8;
 
 // ── FutureSlot<T> ─────────────────────────────────────────────────────────
 
+/// Heap-allocated one-shot slot shared between a producer and its consumer.
 pub struct FutureSlot<T: Send> {
+    /// Pointer to the delivered value; null until `future_complete` fills it in.
     value_ptr:  *mut T,   // null until complete; heap-allocated, freed by get()
+    /// `*mut Fiber` of the suspended consumer as `i64`, or 0 if none is waiting.
     waiter:     i64,      // *mut Fiber of the suspended consumer, or 0
+    /// `*mut Thread` of the waiting consumer as `i64`; 0 means same-thread.
     waiter_thr: i64,      // *mut Thread of consumer as i64 (0 = same-thread)
 }
 
-// Allocate a new slot (both producer and consumer share this pointer).
+/// Allocates a new `FutureSlot<T>`, shared between the producer and consumer.
 pub fn future_slot_new<T: Send>() -> *mut FutureSlot<T> {
     let raw: *mut u8 = alloc(sizeof::<FutureSlot<T>>());
     let slot: *mut FutureSlot<T> = raw as *mut FutureSlot<T>;
@@ -38,7 +42,8 @@ pub fn future_slot_new<T: Send>() -> *mut FutureSlot<T> {
     return slot;
 }
 
-// Producer side: store val and wake the waiting consumer (if any).
+/// Stores `val` into `slot` and wakes its waiting consumer, if any.
+/// Wakes cross-thread via `cross_thread_enqueue` when the waiter lives on another thread.
 pub fn future_complete<T: Send>(slot: *mut FutureSlot<T>, val: T) {
     let vp: *mut T = alloc(sizeof::<T>()) as *mut T;
     unsafe { *vp = val; }
@@ -59,9 +64,8 @@ pub fn future_complete<T: Send>(slot: *mut FutureSlot<T>, val: T) {
     }
 }
 
-// Consumer side: return value immediately if ready; otherwise suspend until
-// the producer calls future_complete.
-// The caller is responsible for freeing the slot after get() returns.
+/// Returns the value from `slot`, suspending the current fiber until it is ready.
+/// Caller is responsible for freeing `slot` itself after `future_get` returns.
 pub fn future_get<T: Send>(slot: *mut FutureSlot<T>) -> T {
     // Fast path: value already available.
     let vp0: i64 = unsafe { slot.value_ptr } as i64;

@@ -17,8 +17,10 @@ use logos.lang.writ.wstring;    // WString
 use logos.lang.str;
 use logos.lang.arith;          // wrapping_mul (FNV intentionally wraps)
 
+/// Returns the FNV-1a 64-bit offset basis, the initial hash state.
 pub fn fnv_init() -> u64 { return 14695981039346656037u64; }
 
+/// Mixes 8-byte value `v` into hash state `h`, one byte at a time (FNV-1a).
 pub fn fnv_mix_u64(h: u64, v: u64) -> u64 {
     let mut x: u64 = h;
     let mut i: i64 = 0;
@@ -34,6 +36,9 @@ fn fnv_mix_byte(h: u64, b: u8) -> u64 {
 }
 
 // Per-kind salts keep cross-kind collisions away (array vs map vs string...).
+/// Computes a structural FNV-1a hash of writ value `v` (value-semantic, not identity).
+/// Equal documents (per `mem.writ.equal`) hash equal; the converse is best-effort only.
+/// Map entries are XOR-folded so hash is independent of entry order.
 pub fn writ_hash(v: WAny) -> u64 {
     if v.is_null()  { return fnv_mix_u64(fnv_init(), 0u64); }
     if v.is_bool()  { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 2u64), if v.as_bool() { 1u64 } else { 0u64 }); }

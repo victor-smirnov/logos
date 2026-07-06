@@ -30,7 +30,10 @@ use logos.lang.default;
 use logos.lang.cmp;
 use logos.lang.clone;
 
+/// Wraps a value of type `T` with the invariant that it never equals zero (`T::default()`).
+/// Unlike Rust, `Option<NonZero<T>>` gets no niche optimization yet — layout equals plain `T`.
 pub struct NonZero<T> {
+    /// The wrapped value; non-zero whenever constructed via `new` / `new_unchecked`.
     // `pub` so the Debug/Display impls (which must live in mem.fmt, a layer
     // above lang.num) can read the wrapped value. The non-zero invariant is
     // still enforced by the `new` / `new_unchecked` constructors.
@@ -47,8 +50,8 @@ impl<T: Eq> Eq for NonZero<T> {
 }
 
 impl<T: Default + Eq + Copy> NonZero<T> {
-    // Checked construction. Returns None if `n` equals `T::default()`
-    // (the zero sentinel for integer types).
+    /// Creates a `NonZero` if `n` is non-zero.
+    /// Returns `None` when `n` equals `T::default()` (the zero sentinel for integer types).
     pub fn new(n: T) -> Option<NonZero<T>> {
         if n == T::default() {
             return Option::None;
@@ -56,12 +59,13 @@ impl<T: Default + Eq + Copy> NonZero<T> {
         return Option::Some(NonZero { val: n });
     }
 
-    // Unchecked construction. Caller swears `n != 0`. UB if not.
+    /// Creates a `NonZero` without checking that `n` is non-zero.
+    /// UB if `n == T::default()`; the caller must guarantee `n` is non-zero.
     pub unsafe fn new_unchecked(n: T) -> NonZero<T> {
         return NonZero { val: n };
     }
 
-    // Extract the inner value (always non-zero by invariant).
+    /// Returns the wrapped value (always non-zero by invariant).
     pub fn get(self: NonZero<T>) -> T {
         return self.val;
     }
@@ -69,13 +73,23 @@ impl<T: Default + Eq + Copy> NonZero<T> {
 
 // ── Per-type aliases ───────────────────────────────────────────────
 // Match Rust's `NonZeroI32` etc. naming so ports read as expected.
+/// An `i8` that is known not to equal zero.
 pub type NonZeroI8    = NonZero<i8>;
+/// An `i16` that is known not to equal zero.
 pub type NonZeroI16   = NonZero<i16>;
+/// An `i32` that is known not to equal zero.
 pub type NonZeroI32   = NonZero<i32>;
+/// An `i64` that is known not to equal zero.
 pub type NonZeroI64   = NonZero<i64>;
+/// An `isize` that is known not to equal zero.
 pub type NonZeroIsize = NonZero<isize>;
+/// A `u8` that is known not to equal zero.
 pub type NonZeroU8    = NonZero<u8>;
+/// A `u16` that is known not to equal zero.
 pub type NonZeroU16   = NonZero<u16>;
+/// A `u32` that is known not to equal zero.
 pub type NonZeroU32   = NonZero<u32>;
+/// A `u64` that is known not to equal zero.
 pub type NonZeroU64   = NonZero<u64>;
+/// A `usize` that is known not to equal zero.
 pub type NonZeroUsize = NonZero<usize>;

@@ -34,8 +34,8 @@ use logos.lang.writ.anyval;      // W_STRING
 
 // ── String ─────────────────────────────────────────────────────────────────
 
-// Owned, heap-allocated, growable byte string.
-// Invariant: data[nbytes] == 0 (null terminator always present when cap > 0).
+/// Owned, heap-allocated, growable byte string.
+/// Invariant: `data[nbytes] == 0` (null terminator always present when `cap > 0`).
 pub struct String {
     data:   *mut u8,   // heap buffer (or null when cap == 0)
     nbytes: i64,       // number of content bytes (not counting null terminator)
@@ -50,12 +50,13 @@ unsafe impl Send for String {}
 unsafe impl Sync for String {}
 
 impl String {
-    // Empty string, no heap allocation.
+    /// Creates an empty `String` with no heap allocation.
     pub static fn new() -> String {
         return String { data: 0 as *mut u8, nbytes: 0, cap: 0 };
     }
 
-    // Empty string with pre-allocated capacity (avoids early reallocations).
+    /// Creates an empty `String` with capacity for `cap` content bytes.
+    /// On allocation failure, returns the unallocated `String::new()` state.
     pub static fn with_capacity(cap: i64) -> String {
         let buf: *mut u8 = alloc(cap + 1);
         // Bug 5 guard: alloc can return null on OOM; writing buf[0] = 0 without
@@ -67,26 +68,27 @@ impl String {
         return String { data: buf, nbytes: 0, cap: cap };
     }
 
-    // Copy from a null-terminated C string.
+    /// Creates a `String` by copying a null-terminated C string.
     pub static fn from_cstr(s: *const u8) -> String {
         let mut out: String = String::new();
         out.push_cstr(s);
         return out;
     }
 
-    // Copy from a byte slice (ptr + length).
+    /// Creates a `String` by copying `n` bytes from `s`.
     pub static fn from_bytes(s: *const u8, n: i64) -> String {
         let mut out: String = String::new();
         out.push_bytes(s, n);
         return out;
     }
 
-    // Copy from a `str` slice (Rust-style `String::from("...")`).
+    /// Creates a `String` by copying a `str` slice (Rust-style `String::from("...")`).
     pub static fn from(s: str) -> String {
         unsafe { return String::from_bytes(s.as_ptr(), s.len()); }
     }
 
-    // Ensure capacity for `needed` additional bytes (+ null terminator).
+    /// Ensures capacity for `needed` additional content bytes plus the null terminator.
+    /// No-op (buffer and length preserved) on `needed < 0`, overflow, or allocation failure.
     pub fn grow(&mut self, needed: i64) {
         if needed < 0 as i64 { return; }
         let required: i64 = self.nbytes + needed + 1;
@@ -113,7 +115,7 @@ impl String {
         self.cap = new_cap - 1;
     }
 
-    // Append a single byte.
+    /// Appends a single byte.
     pub fn push_u8(&mut self, c: u8) {
         self.grow(1);
         unsafe {
@@ -123,7 +125,7 @@ impl String {
         }
     }
 
-    // Append `n` bytes from `s`.
+    /// Appends `n` bytes from `s`; no-op if `n <= 0`.
     pub fn push_bytes(&mut self, s: *const u8, n: i64) {
         // Bug 1 guard: n=0 on String::new() (data=null, cap=0) would skip grow
         // (required=1 == cap+1=1) and then write null[0]=0 — a null-ptr dereference.
@@ -135,45 +137,45 @@ impl String {
         unsafe { self.data[self.nbytes] = 0 as u8; }
     }
 
-    // Append a null-terminated C string.
+    /// Appends a null-terminated C string.
     pub fn push_cstr(&mut self, s: *const u8) {
         let n: i64 = str_len(s);
         self.push_bytes(s, n);
     }
 
-    // Append a str slice.
+    /// Appends a `str` slice.
     pub fn push_str(&mut self, s: str) {
         self.push_bytes(s.as_ptr(), s.len());
     }
 
-    // Read-only pointer to the bytes. Always null-terminated.
+    /// Returns a read-only pointer to the null-terminated bytes; null if never allocated.
     pub fn as_ptr(&self) -> *const u8 {
         return self.data as *const u8;
     }
 
-    // Read-only str view of the String's bytes. Safe wrapper over
-    // `str_from_raw(self.as_ptr(), self.len())` — the raw ptr is
+    /// Returns a read-only `str` view of the content bytes.
+    // Safe wrapper over `str_from_raw(self.as_ptr(), self.len())` — the raw ptr is
     // guaranteed valid because it came from this String.
     pub fn as_str(&self) -> str {
         unsafe { return str_from_raw(self.data as *const u8, self.nbytes); }
     }
 
-    // Number of content bytes (not counting null terminator).
+    /// Returns the number of content bytes, excluding the null terminator.
     pub fn len(&self) -> i64 {
         return self.nbytes;
     }
 
-    // Allocated capacity (not counting null terminator slot).
+    /// Returns the allocated capacity in bytes, excluding the null-terminator slot.
     pub fn capacity(&self) -> i64 {
         return self.cap;
     }
 
-    // True if no bytes have been written.
+    /// Returns `true` if the length is zero.
     pub fn is_empty(&self) -> bool {
         return self.nbytes == 0;
     }
 
-    // Reset length to zero, keep the allocation.
+    /// Resets the length to zero, keeping the allocation.
     pub fn clear(&mut self) {
         self.nbytes = 0;
         if self.data != 0 as *mut u8 {
@@ -181,8 +183,8 @@ impl String {
         }
     }
 
-    // Truncate length to `new_len` bytes. No-op if new_len >= current len.
-    // Negative values are clamped to 0. Allocation is preserved.
+    /// Truncates the length to `new_len` bytes; no-op if `new_len >= len()`.
+    /// Negative values clamp to 0. The allocation is preserved.
     pub fn truncate(&mut self, new_len: i64) {
         if new_len < 0 as i64 { self.clear(); return; }
         if new_len >= self.nbytes { return; }
@@ -192,9 +194,8 @@ impl String {
         }
     }
 
-    // Ensure `reserve` spare bytes, return pointer to first spare byte.
-    // Used by Display impls and Formatter helpers to write
-    // directly into the buffer.
+    /// Ensures `reserve` spare bytes and returns a pointer to the first spare byte.
+    /// Write directly into the buffer, then call `advance_len`.
     pub fn spare_ptr(&mut self, reserve: i64) -> *mut u8 {
         self.grow(reserve);
         unsafe {
@@ -203,27 +204,28 @@ impl String {
         }
     }
 
-    // Advance the content length by `n` bytes and null-terminate.
-    // Call after writing into spare_ptr().
+    /// Advances the content length by `n` bytes and writes the null terminator.
+    /// Call after writing into the buffer returned by `spare_ptr`.
     pub fn advance_len(&mut self, n: i64) {
         self.nbytes = self.nbytes + n;
         unsafe { self.data[self.nbytes] = 0 as u8; }
     }
 
-    // Append the decimal representation of a signed 64-bit integer.
+    /// Appends the decimal representation of a signed 64-bit integer.
     pub fn push_i64(&mut self, v: i64) {
         let ptr: *mut u8 = self.spare_ptr(22);
         let n: i64 = write_i64(ptr, 0, v);
         self.advance_len(n);
     }
 
-    // Append the decimal representation of an unsigned 64-bit integer.
+    /// Appends the decimal representation of an unsigned 64-bit integer.
     pub fn push_u64(&mut self, v: u64) {
         let ptr: *mut u8 = self.spare_ptr(22);
         let n: i64 = write_u64(ptr, 0, v);
         self.advance_len(n);
     }
 
+    /// Returns `true` if the content bytes equal `other`'s.
     // True if the string content equals another String. Compares by length +
     // bytes directly (NOT via eq_cstr, which calls str_len on the buffer): an
     // empty String has a NULL backing buffer, so the cstr path dereferenced
@@ -244,7 +246,7 @@ impl String {
         return true;
     }
 
-    // True if the string content equals the str slice `s`.
+    /// Returns `true` if the content equals the `str` slice `s`.
     pub fn eq_str(&self, s: str) -> bool {
         let n: i64 = s.len();
         if self.nbytes != n { return false; }
@@ -261,7 +263,7 @@ impl String {
         return true;
     }
 
-    // True if the string content equals the null-terminated C string `s`.
+    /// Returns `true` if the content equals the null-terminated C string `s`.
     pub fn eq_cstr(&self, s: *const u8) -> bool {
         let n: i64 = str_len(s);
         if self.nbytes != n { return false; }
@@ -310,7 +312,10 @@ extern fn logos_fmt_f32_g(buf: *mut u8, cap: i32, x: f32) -> i32;
 // Method shape uses `self: Self` (by value) — primitives are Copy, so
 // the move semantics don't bite; user types that want `&self` can
 // implement ToString directly.
+/// Converts a value to an owned `String` (Rust-style `.to_string()`).
+/// Takes `self` by value; the blanket `impl<T: Display> ToString for T` lives in `mem.fmt`.
 pub trait ToString {
+    /// Returns the value's string representation.
     fn to_string(self: Self) -> String;
 }
 
@@ -428,6 +433,8 @@ impl ToString for str {
 // Encode a Unicode codepoint as UTF-8 and append to the String.
 // Invalid codepoints append U+FFFD.
 impl String {
+    /// Encodes the Unicode codepoint `cp` as UTF-8 and appends it.
+    /// Invalid codepoints (surrogates, above U+10FFFF) append U+FFFD.
     pub fn push_char(&mut self, cp: u32) {
         self.grow(4);
         unsafe {
@@ -489,9 +496,11 @@ impl Eq for String {
 // Buffer<DView> / Map<DView,…> accept a heap String as a key/value.
 impl Datum for String {
     fn datum_tag(self: *const String) -> u64 { return W_STRING; }
+    /// Captures the UTF-8 content bytes (not the `{ptr,len,cap}` struct) as a `W_STRING` view.
     fn as_datum(&self) -> DView {
         return DView::from_parts(self.as_ptr(), self.len() as u64, W_STRING, 0u64);
     }
+    /// Materializes an owned `String` by copying the content bytes out of `d`.
     // READ: materialize an OWNED heap String from the stored content bytes
     // (override — the default's by-value POD read would misread the bytes as a
     // {ptr,len,cap} struct). The copy is independent of the view's source.

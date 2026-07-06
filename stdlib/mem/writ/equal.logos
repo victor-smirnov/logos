@@ -36,6 +36,9 @@ unsafe fn elem_width(tc: u64) -> i64 {
 // input (mirrors compactify / the parser guard). Realistic docs nest few levels.
 const WRITEQ_MAX_DEPTH: i64 = 4096i64;
 
+/// Returns whether `a` and `b` are structurally equal by value semantics.
+/// Recurses into arrays/maps/typed values; deep enough input (> 4096 levels) is
+/// reported as not-equal rather than overflowing the native stack.
 pub fn writ_equal(a: WAny, b: WAny) -> bool {
     return writ_equal_d(a, b, 0i64);
 }

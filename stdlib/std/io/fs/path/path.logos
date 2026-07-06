@@ -9,19 +9,21 @@ use logos.lang.str;
 
 // ---- predicates -------------------------------------------------------------
 
+/// Returns `true` if `p` starts with `/`; the empty path is not absolute.
 pub fn is_absolute(p: str) -> bool {
     if p.len() == 0 as i64 { return false; }
     unsafe { return (p[0 as i64] as i32) == 47; }  // '/'
 }
 
+/// Returns `true` if `p` is not absolute.
 pub fn is_relative(p: str) -> bool {
     return !is_absolute(p);
 }
 
 // ---- component extraction ---------------------------------------------------
 
-// Returns the last path component as a new String.
-// "a/b/c" -> "c",  "/foo" -> "foo",  "foo" -> "foo",  "/" -> ""
+/// Returns the last path component as a new `String`, ignoring trailing slashes.
+/// `"a/b/c"` → `"c"`, `"/foo"` → `"foo"`, `"foo/"` → `"foo"`, `"/"` → `"/"`, `""` → `""`.
 pub fn basename(p: str) -> String {
     let n: i64 = p.len();
     if n == 0 as i64 { return String::new(); }
@@ -44,8 +46,8 @@ pub fn basename(p: str) -> String {
     }
 }
 
-// Returns the directory portion as a new String.
-// "a/b/c" -> "a/b",  "/foo/bar" -> "/foo",  "foo" -> ".",  "/" -> "/"
+/// Returns the directory portion of `p` as a new `String`, ignoring trailing slashes.
+/// `"a/b/c"` → `"a/b"`, `"/foo/bar"` → `"/foo"`, `"foo"` → `"."`, `"/"` → `"/"`, `""` → `"."`.
 pub fn dirname(p: str) -> String {
     let n: i64 = p.len();
     let mut s: String = String::new();
@@ -80,8 +82,9 @@ pub fn dirname(p: str) -> String {
     return s;
 }
 
-// Returns the file extension including the dot, or "" if none.
-// "foo.txt" -> ".txt",  "archive.tar.gz" -> ".gz",  "Makefile" -> ""
+/// Returns the file extension of the last component including the dot, or `""` if none.
+/// `"foo.txt"` → `".txt"`, `"archive.tar.gz"` → `".gz"`, `"Makefile"` → `""`; dotfiles such as
+/// `".bashrc"` have no extension.
 pub fn extension(p: str) -> String {
     let n: i64 = p.len();
     let mut s: String = String::new();
@@ -105,8 +108,8 @@ pub fn extension(p: str) -> String {
     return s;
 }
 
-// Returns the filename without its extension.
-// "foo.txt" -> "foo",  "archive.tar.gz" -> "archive.tar",  "Makefile" -> "Makefile"
+/// Returns the basename of `p` without its extension.
+/// `"foo.txt"` → `"foo"`, `"archive.tar.gz"` → `"archive.tar"`, `".bashrc"` → `".bashrc"`.
 pub fn stem(p: str) -> String {
     let mut b: String = basename(p);
     let n: i64 = b.len();
@@ -126,9 +129,9 @@ pub fn stem(p: str) -> String {
 
 // ---- joining ----------------------------------------------------------------
 
-// Join two path components with a single '/'.
-// join("a/b", "c") -> "a/b/c",  join("a/b/", "c") -> "a/b/c"
-// If b is absolute it overrides a (POSIX semantics).
+/// Joins two path components with a single `/`, returning a new `String`.
+/// `join("a/b", "c")` → `"a/b/c"`, `join("a/b/", "c")` → `"a/b/c"`.
+/// If `b` is absolute it replaces `a` (POSIX semantics).
 pub fn join(a: str, b: str) -> String {
     if is_absolute(b) {
         let mut s: String = String::new();
@@ -147,7 +150,8 @@ pub fn join(a: str, b: str) -> String {
     return s;
 }
 
-// Append a component to an existing String path in place.
+/// Appends `component` to `base` in place, inserting a `/` separator if needed.
+/// If `component` is absolute it replaces `base` entirely (POSIX semantics).
 pub fn join_into(base: &mut String, component: str) {
     if is_absolute(component) {
         base.clear();
@@ -165,17 +169,11 @@ pub fn join_into(base: &mut String, component: str) {
 
 // ---- normalization ----------------------------------------------------------
 
-// Lexical normalization (no FS access, no symlink resolution).
-// Collapses repeated slashes, removes "." segments, resolves ".." against
-// preceding non-".." segments. Behavior matches Go's path.Clean / Python's
-// posixpath.normpath:
-//   "a//b/./c"      -> "a/b/c"
-//   "a/b/../c"      -> "a/c"
-//   "/../a"         -> "/a"        (".." cannot escape root)
-//   "../a/../b"     -> "../b"      (relative ".." preserved)
-//   ""              -> "."
-//   "/"             -> "/"
-// Trailing "/" is dropped except when the result is exactly "/".
+/// Normalizes `p` lexically: collapses `//`, drops `.` segments, resolves `..` (no FS access).
+/// Matches Go `path.Clean` / Python `posixpath.normpath`: `..` cannot escape root on absolute
+/// paths but is preserved on relative ones (`"/../a"` → `"/a"`, `"../a/../b"` → `"../b"`);
+/// `""` → `"."`; a trailing `/` is dropped unless the result is exactly `"/"`.
+/// Segment tracking is capped at 256 deep; `..` may mis-resolve beyond that.
 pub fn normalize(p: str) -> String {
     let n: i64 = p.len();
     let mut out: String = String::new();

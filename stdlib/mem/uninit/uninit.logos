@@ -33,19 +33,23 @@ package logos.mem.uninit;
 
 use logos.lang.mem;
 
+/// Wraps a possibly-uninitialized `T`; mirrors `core::mem::MaybeUninit`.
+/// Storage is an inner `value: T` field, not a union: `uninit()` zero-fills, so reads are
+/// defined-but-meaningless rather than UB. Caller must still initialize before reading as `T`.
+/// If `T: Drop`, going out of scope without `assume_init` runs drop on the zero-shaped value.
 pub struct MaybeUninit<T> {
     value: T,
 }
 
 impl<T> MaybeUninit<T> {
-    // Wrap an initialized value.
+    /// Wraps an already-initialized value.
     pub fn new(val: T) -> MaybeUninit<T> {
         return MaybeUninit { value: val };
     }
 
-    // Zero-filled storage. Always sound to read as bytes; reading as `T`
-    // is sound only when zero is a valid bit-pattern for T (true for
-    // integer / pointer-typed primitives; not generally for enums / refs).
+    /// Creates zero-filled storage.
+    /// Always sound to read as bytes; reading as `T` is sound only when zero is a valid
+    /// bit-pattern for `T` (integer/pointer primitives yes; not generally enums/refs).
     pub fn zeroed() -> MaybeUninit<T> {
         unsafe {
             let sz: i64 = sizeof::<MaybeUninit<T>>();
@@ -57,52 +61,54 @@ impl<T> MaybeUninit<T> {
         }
     }
 
-    // Caller swears to write before read. In Logos this is the same as
-    // `zeroed()` (no "true undef" representation); the contract / safety
-    // notes are inherited from Rust.
+    /// Creates storage the caller promises to write before reading.
+    /// Identical to `zeroed()` in Logos (no "true undef" representation); the safety
+    /// contract is inherited from Rust.
     pub fn uninit() -> MaybeUninit<T> {
         return MaybeUninit::<T>::zeroed();
     }
 
-    // Initialize the slot with `val` and hand back a `&mut T` for further
-    // mutation. Subsequent `assume_init*` calls are safe (provided no
-    // intervening uninit-write happens).
+    /// Initializes the slot with `val` and returns a `&mut T` for further mutation.
+    /// Subsequent `assume_init*` calls are safe (provided no intervening uninit-write).
     pub fn write(self: &mut MaybeUninit<T>, val: T) -> &mut T {
         self.value = val;
         return &mut self.value;
     }
 
-    // Pointer to the underlying storage. Safe to call; using the pointer
-    // before initialization is the caller's responsibility.
+    /// Returns a const pointer to the underlying storage.
+    /// Safe to call; using the pointer before initialization is the caller's responsibility.
     pub fn as_ptr(&self) -> *const T {
         unsafe { return (&self.value) as *const T; }
     }
 
+    /// Returns a mutable pointer to the underlying storage; same contract as `as_ptr`.
     pub fn as_mut_ptr(self: &mut MaybeUninit<T>) -> *mut T {
         unsafe { return (&mut self.value) as *mut T; }
     }
 
-    // Consume the wrapper and return the inner value. Caller MUST have
-    // written a valid `T` first (via `write`, `as_mut_ptr` + ptr-write,
-    // or `new`). Reading from a freshly-uninited MaybeUninit is UB by
-    // Rust's contract; in Logos the bytes are zero so behavior is
-    // defined but the value is whatever the zero bit-pattern means for T.
+    /// Consumes the wrapper and returns the inner value.
+    /// Caller MUST have written a valid `T` first (via `write`, `new`, or ptr-write
+    /// through `as_mut_ptr`). Reading a freshly-uninited value is UB by Rust's contract;
+    /// in Logos the bytes are zero, so the result is whatever zero means for `T`.
     pub unsafe fn assume_init(self: MaybeUninit<T>) -> T {
         return self.value;
     }
 
-    // Same as assume_init but takes `&self`. Useful when T is `Copy`
-    // (Rust permits this for any T; Logos shadows the same shape).
+    /// Reads the inner value through `&self` without consuming the wrapper.
+    /// Same contract as `assume_init`; duplicates the value, so intended for `T: Copy`
+    /// (Rust permits any `T`; Logos shadows the same shape).
     pub unsafe fn assume_init_read(&self) -> T {
         unsafe {
             return *((&self.value) as *const T);
         }
     }
 
+    /// Returns a shared reference to the inner value; same contract as `assume_init`.
     pub unsafe fn assume_init_ref(&self) -> &T {
         return &self.value;
     }
 
+    /// Returns a mutable reference to the inner value; same contract as `assume_init`.
     pub unsafe fn assume_init_mut(self: &mut MaybeUninit<T>) -> &mut T {
         return &mut self.value;
     }

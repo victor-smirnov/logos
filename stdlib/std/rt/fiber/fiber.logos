@@ -45,7 +45,9 @@ let GUARD_SIZE:    i64 = 4096;    // 4 KiB guard page (catches overflow)
 // pub const not yet supported end-to-end (grammar/sema/import);
 // FLS_SLOTS is effectively internal to the fiber package.
 let FLS_SLOTS: i64 = 8;
+/// Returns the number of fiber-local storage slots per fiber.
 pub fn fls_slots() -> i64 { return FLS_SLOTS; }
+/// Returns the FLS key reserved for the fiber reactor's CQE result (slot 0).
 pub fn fls_key_cqe_result() -> i64 { return 0 as i64; }
 
 let PROT_NONE:     i32 = 0;
@@ -55,10 +57,10 @@ let MAP_PRIVATE:   i32 = 2;
 let MAP_ANONYMOUS: i32 = 32;     // Linux MAP_ANONYMOUS = 0x20
 
 // ── FiberCtx ───────────────────────────────────────────────────────────────
-//
-// Maps 1:1 to the register save area in fiber_ctx.S.
-// Field order and sizes MUST NOT change without updating the asm offsets.
 
+/// Holds the register state of a suspended fiber (callee-saved regs + `rsp`).
+/// Maps 1:1 to the register save area in `fiber_ctx.S`; field order and sizes
+/// MUST NOT change without updating the asm offsets.
 pub struct FiberCtx {
     rbp: i64,
     rbx: i64,
@@ -71,6 +73,8 @@ pub struct FiberCtx {
 
 // ── Fiber ─────────────────────────────────────────────────────────────────
 
+/// Represents one cooperative fiber: saved context, owned stack, FLS slots,
+/// and intrusive ready-queue link.
 pub struct Fiber {
     ctx:        FiberCtx,
     stack_base: *mut u8,
@@ -85,6 +89,8 @@ pub struct Fiber {
 // chained via Fiber.next.  Unbounded; no heap buffer, no modular arithmetic.
 // All access is single-threaded (scheduler's own thread).
 
+/// Owns one thread's cooperative fiber state: intrusive ready FIFO, running
+/// fiber, deferred-free slot, and optional retired-stack pool.
 pub struct Scheduler {
     ready_head: *mut Fiber, // 0 when empty
     ready_tail: *mut Fiber, // 0 when empty
@@ -178,8 +184,8 @@ fn retire_fiber(s: *mut Scheduler, dead: *mut Fiber) {
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-// Allocate and initialise a new scheduler.  The caller owns it and must
-// call sched_free() when done.
+/// Allocates and initialises a new scheduler.
+/// The caller owns it and must call `sched_free()` when done.
 pub fn sched_new() -> *mut Scheduler {
     let raw: *mut u8 = alloc(sizeof::<Scheduler>());
     let s: *mut Scheduler = raw as *mut Scheduler;
@@ -203,16 +209,15 @@ pub fn sched_new() -> *mut Scheduler {
     return s;
 }
 
-// Register this scheduler as the current one for this thread.
-// Must be called before spawn() or yield_fiber().
+/// Registers this scheduler as the current one for this thread.
+/// Must be called before `spawn()` or `yield_fiber()` (`sched_run` sets it itself).
 pub fn sched_set_current(s: *mut Scheduler) {
     unsafe { logos_sched_set(s as *mut u8); }
 }
 
-// Enable (or resize) the stack pool.  Must be called after sched_new()
-// and before the first spawn().  `cap = 0` disables pooling; any other
-// value allocates a fresh slot buffer.  Existing pool contents are
-// munmap'd before the buffer is replaced.
+/// Enables (or resizes) the retired-stack pool; `cap = 0` disables pooling.
+/// Call after `sched_new()` and before the first `spawn()`.  Existing pool
+/// contents are munmap'd before the slot buffer is replaced.
 pub fn sched_set_stack_pool_cap(s: *mut Scheduler, cap: i64) {
     unsafe {
         // Drain the old pool, if any, before resizing.
@@ -236,7 +241,7 @@ pub fn sched_set_stack_pool_cap(s: *mut Scheduler, cap: i64) {
     }
 }
 
-// Free scheduler and its queue buffer (does NOT free pending fibers).
+/// Frees the scheduler, munmapping any pooled stacks (does NOT free live fibers).
 pub fn sched_free(s: *mut Scheduler) {
     unsafe {
         // Drain stack pool (if enabled): munmap every retired stack still held.
@@ -254,8 +259,8 @@ pub fn sched_free(s: *mut Scheduler) {
     }
 }
 
-// Spawn a fiber that will call f(arg) on a fresh stack.
-// The scheduler must have been set via logos_sched_set (sched_run does this).
+/// Spawns a fiber that will call `f(arg)` on its own stack and enqueues it as ready.
+/// The current scheduler must have been set (`sched_set_current` or `sched_run`).
 pub fn spawn(f: fn(i64) -> (), arg: i64) {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
 
@@ -313,8 +318,8 @@ pub fn spawn(f: fn(i64) -> (), arg: i64) {
     sched_enqueue(s, fiber as i64);
 }
 
-// Voluntarily yield: push the current fiber back onto the ready queue and
-// switch to the scheduler.  Returns when the scheduler picks us again.
+/// Yields voluntarily: re-enqueues the current fiber and switches to the scheduler.
+/// Returns when the scheduler picks this fiber again.
 pub fn yield_fiber() {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
     let cur: i64 = unsafe { s.current };
@@ -327,9 +332,10 @@ pub fn yield_fiber() {
     // Execution resumes here when the scheduler switches back to this fiber.
 }
 
-// Called by the logos_fiber_entry trampoline (fiber_ctx.S) after the fiber
-// function returns.  Notifies the scheduler to free this fiber and switches
-// back to the scheduler context.
+/// Terminates the current fiber: marks it for freeing and switches back to the
+/// scheduler context; never returns.
+/// Called by the `logos_fiber_entry` trampoline (`fiber_ctx.S`) after the fiber
+/// function returns.
 #[no_mangle]
 pub fn logos_fiber_done() {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
@@ -345,8 +351,8 @@ pub fn logos_fiber_done() {
     // Never reached.
 }
 
-// Run the scheduler until the ready queue is empty.
-// Sets the global scheduler pointer so spawn() and yield_fiber() work.
+/// Runs the scheduler loop until the ready queue is empty.
+/// Sets the per-thread scheduler pointer so `spawn()` and `yield_fiber()` work.
 pub fn sched_run(s: *mut Scheduler) {
     unsafe { logos_sched_set(s as *mut u8); }
 
@@ -385,6 +391,8 @@ pub fn sched_run(s: *mut Scheduler) {
 // picked by user code by convention.  On key collision, we'll later add a
 // simple key allocator — for now keys are constants.
 
+/// Returns the current fiber's FLS value for `key`, or 0 when no fiber is running.
+/// `key` is not bounds-checked; valid range is `0..fls_slots()`.
 pub fn fls_get(key: i64) -> i64 {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
     if s == 0 as *mut Scheduler { return 0 as i64; }
@@ -397,6 +405,8 @@ pub fn fls_get(key: i64) -> i64 {
     }
 }
 
+/// Sets the current fiber's FLS value for `key`; no-op when no fiber is running.
+/// `key` is not bounds-checked; valid range is `0..fls_slots()`.
 pub fn fls_set(key: i64, val: i64) {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
     if s == 0 as *mut Scheduler { return; }
@@ -410,11 +420,11 @@ pub fn fls_set(key: i64, val: i64) {
 }
 
 // ── Reactor hook — park current fiber ─────────────────────────────────────
-//
-// Similar to yield_fiber(), but the current fiber is NOT re-enqueued.
-// It is the caller's responsibility to arrange for the fiber to be
-// re-enqueued later (e.g. via sched_enqueue from a reactor CQE handler).
-// Returns when the fiber is resumed.
+
+/// Parks the current fiber: like `yield_fiber()` but WITHOUT re-enqueueing it.
+/// The caller must arrange re-enqueueing later (e.g. `unpark_fiber` from a
+/// reactor CQE handler).  Returns when the fiber is resumed; no-op when no
+/// fiber is running.
 pub fn park_fiber() {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
     if s == 0 as *mut Scheduler { return; }
@@ -428,17 +438,18 @@ pub fn park_fiber() {
     // Resume point: reactor has re-enqueued us and scheduler switched back.
 }
 
-// Returns a pointer-sized identifier of the current fiber (or 0 if none).
-// Reactor stores this as io_uring SQE user_data so that on CQE delivery
-// it knows which fiber to re-enqueue.
+/// Returns a pointer-sized identifier of the current fiber, or 0 if none.
+/// The reactor stores this as io_uring SQE `user_data` to know which fiber to
+/// re-enqueue on CQE delivery.
 pub fn current_fiber() -> i64 {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
     if s == 0 as *mut Scheduler { return 0 as i64; }
     return unsafe { s.current };
 }
 
-// Re-enqueue a previously-parked fiber into the ready queue.
-// Called by the reactor when a CQE for a parked fiber arrives.
+/// Re-enqueues a previously-parked fiber into the ready queue.
+/// Called by the reactor when a CQE for a parked fiber arrives; no-op when no
+/// scheduler is set.
 pub fn unpark_fiber(fiber_ptr: i64) {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
     if s == 0 as *mut Scheduler { return; }

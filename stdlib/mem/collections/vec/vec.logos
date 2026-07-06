@@ -15,6 +15,8 @@ use logos.lang.cmp;
 use logos.lang.panic;
 use logos.lang.result;
 
+/// Growable heap-allocated array of `T`, contiguous in memory (Rust `Vec` analog).
+/// On drop, each live element is dropped and the buffer is freed.
 pub struct Vec<T> {
     ptr: *mut T,
     len: i64,
@@ -26,6 +28,7 @@ pub struct Vec<T> {
 unsafe impl<T: Send> Send for Vec<T> {}
 unsafe impl<T: Sync> Sync for Vec<T> {}
 
+/// Creates an empty `Vec<T>`; allocates an initial capacity of 8 up front.
 pub fn vec_new<T>() -> Vec<T> {
     let init_cap: i64 = 8;
     let byte_size: i64 = init_cap * sizeof::<T>();
@@ -34,10 +37,8 @@ pub fn vec_new<T>() -> Vec<T> {
     return Vec { ptr: ptr, len: 0, cap: init_cap };
 }
 
-// `vec_from_arr([1, 2, 3])` — build a Vec from a fixed-size array,
-// inferring both element type and length from the argument shape (no
-// turbofish needed). Works hand-in-hand with the `vec!` fn-macro:
-// `vec!(1, 2, 3)` lowers to exactly this call.
+/// Builds a `Vec` from a fixed-size array, inferring element type and length from the
+/// argument shape (no turbofish). `vec!(1, 2, 3)` lowers to exactly this call.
 pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
     let mut v: Vec<T> = vec_new::<T>();
     let mut i: i64 = 0i64;
@@ -49,6 +50,8 @@ pub fn vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
 }
 
 impl<T> Vec<T> {
+    /// Appends `val` to the end, doubling capacity when full.
+    /// Growth reallocates the buffer, invalidating outstanding raw pointers.
     pub fn push(&mut self, val: T) {
         unsafe {
             if self.len == self.cap {
@@ -62,7 +65,7 @@ impl<T> Vec<T> {
         }
     }
 
-    // Indexed read. Panics on out-of-bounds.
+    /// Returns the element at index `i` by value. Panics on out-of-bounds.
     pub fn get(&self, i: i64) -> T {
         if i < 0 || i >= self.len {
             panic("Vec::get: index out of bounds");
@@ -70,24 +73,20 @@ impl<T> Vec<T> {
         unsafe { return self.ptr[i]; }
     }
 
-    // Pointer to the i-th element (no copy). Caller must ensure the Vec
-    // outlives the pointer and no resizing push happens meanwhile.
-    // Returns a raw pointer — signature is unsafe; bounds-check is the
-    // caller's responsibility. (Equivalent to Rust's
-    // `vec.as_mut_ptr().add(i)` idiom.)
+    /// Returns a raw mutable pointer to the `i`-th element (no copy, no bounds check).
+    /// Caller must keep the `Vec` alive and un-resized while the pointer is used.
+    /// Rust's `vec.as_mut_ptr().add(i)` idiom.
     pub unsafe fn at(&mut self, i: i64) -> *mut T {
         return &mut self.ptr[i];
     }
 
-    // Returns a raw pointer — signature is unsafe; bounds-check is the
-    // caller's responsibility.
+    /// Returns a raw const pointer to the `i`-th element; bounds check is the caller's job.
     pub unsafe fn at_const(&self, i: i64) -> *const T {
         return &self.ptr[i];
     }
 
-    // Borrow a reference to the i-th element. Bounds-checked: panics on
-    // out-of-bounds. Equivalent to Rust's `&vec[i]`. Use when the caller
-    // wants to read/inspect a struct element without copying.
+    /// Borrows the `i`-th element without copying (Rust's `&vec[i]`).
+    /// Panics on out-of-bounds.
     pub fn borrow(&self, i: i64) -> &T {
         if i < 0 || i >= self.len {
             panic("Vec::borrow: index out of bounds");
@@ -95,8 +94,7 @@ impl<T> Vec<T> {
         unsafe { return &self.ptr[i]; }
     }
 
-    // Borrow a mutable reference to the i-th element. Bounds-checked.
-    // Equivalent to Rust's `&mut vec[i]`.
+    /// Mutably borrows the `i`-th element (Rust's `&mut vec[i]`). Panics on out-of-bounds.
     pub fn borrow_mut(&mut self, i: i64) -> &mut T {
         if i < 0 || i >= self.len {
             panic("Vec::borrow_mut: index out of bounds");
@@ -104,20 +102,19 @@ impl<T> Vec<T> {
         unsafe { return &mut self.ptr[i]; }
     }
 
-    // Non-panicking ref accessor. Returns Some(&T) on hit, None on
-    // out-of-bounds. Equivalent to Rust's `vec.get(i)`.
+    /// Returns `Some(&T)` for an in-bounds index, `None` otherwise (Rust's `vec.get(i)`).
     pub fn try_borrow(&self, i: i64) -> Option<&T> {
         if i < 0 || i >= self.len { return Option::None; }
         unsafe { return Option::Some(&self.ptr[i]); }
     }
 
-    // Mutable counterpart. Equivalent to Rust's `vec.get_mut(i)`.
+    /// Returns `Some(&mut T)` for an in-bounds index, `None` otherwise (Rust's `vec.get_mut(i)`).
     pub fn try_borrow_mut(&mut self, i: i64) -> Option<&mut T> {
         if i < 0 || i >= self.len { return Option::None; }
         unsafe { return Option::Some(&mut self.ptr[i]); }
     }
 
-    // Indexed write. Panics on out-of-bounds.
+    /// Writes `val` at index `i`. Panics on out-of-bounds.
     pub fn set(&mut self, i: i64, val: T) {
         if i < 0 || i >= self.len {
             panic("Vec::set: index out of bounds");
@@ -125,46 +122,50 @@ impl<T> Vec<T> {
         unsafe { self.ptr[i] = val; }
     }
 
+    /// Returns the number of elements. Logos-specific alias of `len`.
     pub fn length(&self) -> i64 {
         return self.len;
     }
 
-    // Raw pointer to the contiguous element buffer (Rust's `Vec::as_ptr`).
-    // Returning the pointer is safe; only dereferencing it is unsafe. Valid
-    // until the next growth/realloc. Handy for handing the buffer to C/FFI.
+    /// Returns a raw const pointer to the contiguous element buffer (Rust's `Vec::as_ptr`).
+    /// Safe to obtain, unsafe to dereference; valid until the next growth/realloc.
     pub fn as_ptr(&self) -> *const T {
         return self.ptr as *const T;
     }
 
+    /// Returns a raw mutable pointer to the element buffer; valid until the next growth/realloc.
     pub fn as_mut_ptr(&mut self) -> *mut T {
         return self.ptr;
     }
 
     // §2 Wave 9 — Rust API parity: `len()` is the canonical name. The
     // existing `length()` stays as a Logos-specific alias.
+    /// Returns the number of elements.
     pub fn len(&self) -> i64 {
         return self.len;
     }
 
+    /// Returns `true` if the vector contains no elements.
     pub fn is_empty(&self) -> bool {
         return self.len == 0 as i64;
     }
 
     // §2 Wave 9 — Rust API parity additions.
+    /// Returns a reference to the first element, or `None` if empty.
     pub fn first(&self) -> Option<&T> {
         if self.len == 0i64 { return Option::None; }
         unsafe { return Option::Some(&self.ptr[0i64]); }
     }
+    /// Returns a reference to the last element, or `None` if empty.
     pub fn last(&self) -> Option<&T> {
         if self.len == 0i64 { return Option::None; }
         unsafe { return Option::Some(&self.ptr[self.len - 1i64]); }
     }
-    // Rust `Vec::new()` constructor — delegates to the existing free
-    // fn vec_new::<T>().
+    /// Creates an empty `Vec<T>`; delegates to `vec_new` (preallocates capacity 8).
     pub fn new() -> Vec<T> {
         return vec_new::<T>();
     }
-    // Swap two elements by index (Rust API parity).
+    /// Swaps the elements at indices `i` and `j`. Panics if either index is out of bounds.
     pub fn swap(&mut self, i: i64, j: i64) {
         if i < 0i64 || i >= self.len || j < 0i64 || j >= self.len {
             panic("Vec::swap: index out of bounds");
@@ -177,7 +178,7 @@ impl<T> Vec<T> {
         }
     }
 
-    // Remove and return the last element, or None if empty.
+    /// Removes and returns the last element, or `None` if empty.
     pub fn pop(&mut self) -> Option<T> {
         if self.len == 0 as i64 { 
             return Option::None; 
@@ -189,8 +190,8 @@ impl<T> Vec<T> {
         }
     }
 
-    // Remove element at index i, shifting subsequent elements left.
-    // Panics if i is out of bounds.
+    /// Removes and returns the element at index `i`, shifting later elements left (O(n)).
+    /// Panics if `i` is out of bounds.
     pub fn remove(&mut self, i: i64) -> T {
         if i < 0 || i >= self.len {
             panic("Vec::remove: index out of bounds");
@@ -207,7 +208,7 @@ impl<T> Vec<T> {
         }
     }
 
-    // In-place reverse — swap (0, len-1), (1, len-2), … until they meet.
+    /// Reverses the order of elements in place.
     pub fn reverse(&mut self) {
         unsafe {
             if self.len < 2i64 { return; }
@@ -223,8 +224,7 @@ impl<T> Vec<T> {
         }
     }
 
-    // Clear all elements — drops each (Rust parity), len reset to 0,
-    // capacity preserved (buffer kept for reuse).
+    /// Clears the vector, dropping every element; capacity is preserved for reuse.
     pub fn clear(&mut self) {
         unsafe {
             let p: *mut T = self.ptr;
@@ -239,14 +239,12 @@ impl<T> Vec<T> {
         self.len = 0i64;
     }
 
-    // Borrow the whole Vec as a slice `&[T]` (Rust's `Vec::as_slice` /
-    // `Deref<Target=[T]>`). Used to give `for x in &vec` Rust-correct
-    // by-reference iteration (yields `&T`).
+    /// Borrows the whole vector as `&[T]` (Rust's `Vec::as_slice`).
     pub fn as_slice(&self) -> &[T] {
         unsafe { return slice_from_raw::<T>(self.ptr as *const T, self.len); }
     }
 
-    // Return a read-only iterator yielding &T (Rust parity: `.iter()` borrows).
+    /// Returns a borrowing iterator yielding `&T`.
     pub fn iter(&self) -> VecIter<T> {
         return VecIter {
             data: self.ptr as *const T, len: self.len,
@@ -254,7 +252,7 @@ impl<T> Vec<T> {
         };
     }
 
-    // Return a mutable iterator yielding &mut T.
+    /// Returns a mutable iterator yielding `&mut T`.
     pub fn iter_mut(&mut self) -> VecIterMut<T> {
         return VecIterMut { data: self.ptr, len: self.len, idx: 0 };
     }
@@ -272,8 +270,8 @@ impl<T> IndexMut<i64, T> for Vec<T> {
 
 // ── VecIter<T> ────────────────────────────────────────────────────────────────
 
-// Borrowing iterator (`Vec::iter()` / `for x in &v`): yields `&T`, owns
-// nothing, Drop is a no-op. Mirrors Rust's `slice::Iter`.
+/// Borrowing iterator over a `Vec<T>` (`Vec::iter()` / `for x in &v`); yields `&T`.
+/// Owns nothing; `Drop` is a no-op. Mirrors Rust's `slice::Iter`.
 #[borrow_carrying]
 pub struct VecIter<T> {
     data: *const T,
@@ -316,6 +314,8 @@ impl<T> ExactSizeIterator<&T> for VecIter<T> {
 // Yields `T` by value and OWNS the buffer: Drop walks un-yielded elements
 // (firing T's Drop on each, mirroring Vec::drop) and deallocates. Mirrors
 // Rust's `vec::IntoIter`.
+/// Owning iterator over a `Vec<T>` (`into_iter` / `for x in v`); yields `T` by value.
+/// On drop, un-yielded elements are dropped and the buffer is deallocated.
 pub struct VecIntoIter<T> {
     data: *const T,
     len:  i64,
@@ -371,6 +371,7 @@ impl<T> Drop for VecIntoIter<T> {
 
 // ── VecIterMut<T> ─────────────────────────────────────────────────────────────
 
+/// Mutable borrowing iterator over a `Vec<T>` (`Vec::iter_mut()`); yields `&mut T`.
 #[borrow_carrying]
 pub struct VecIterMut<T> {
     data: *mut T,
@@ -464,7 +465,8 @@ impl<T, E> FromIterator<Result<T, E>> for Result<Vec<T>, E> {
     }
 }
 
-// Linear-search contains; requires T: Eq (free function to avoid bound on main impl).
+/// Returns `true` if `v` contains an element equal to `val` — linear scan, requires `T: Eq`.
+/// Free-fn form keeps the base `impl<T> Vec<T>` bound-free; see also `Vec::contains`.
 pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
     let mut i: i64 = 0;
     unsafe {
@@ -483,6 +485,7 @@ pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
 // Bound `T: Eq` keyed on a separate impl block so the bare `impl<T> Vec<T>`
 // stays bound-free for other methods.
 impl<T: Eq> Vec<T> {
+    /// Returns `true` if the vector contains an element equal to `val` (linear scan).
     pub fn contains(&self, val: &T) -> bool {
         return vec_contains::<T>(self, val);
     }
@@ -514,6 +517,8 @@ impl<T> Drop for Vec<T> {
 // SL-sl-05: drain an iterator of `Result<T, E>` into `Result<Vec<T>, E>`,
 // short-circuiting on the first Err (matches Rust's
 // `collect::<Result<Vec<T>, E>>()`).
+/// Collects an iterator of `Result<T, E>` into `Result<Vec<T>, E>`,
+/// short-circuiting on the first `Err`.
 pub fn iter_collect_result_vec<I: Iterator<Result<T, E>>, T, E>(iter: I) -> Result<Vec<T>, E> {
     let mut it: I = iter;
     let mut out: Vec<T> = vec_new::<T>();
@@ -534,6 +539,7 @@ pub fn iter_collect_result_vec<I: Iterator<Result<T, E>>, T, E>(iter: I) -> Resu
 // the standard `.collect::<Vec<T>>()` Rust path needs FromIterator infra
 // (and turbofish on a method-generic call) that isn't wired up yet. Lives
 // in this package — `iter` can't depend on `vec` (cycle).
+/// Drains an iterator into a new `Vec<T>`.
 pub fn iter_collect_vec<I: Iterator<T>, T>(iter: I) -> Vec<T> {
     let mut it: I = iter;
     let mut out: Vec<T> = vec_new::<T>();
@@ -546,10 +552,8 @@ pub fn iter_collect_vec<I: Iterator<T>, T>(iter: I) -> Vec<T> {
     return out;
 }
 
-// `iter_partition_vec` — splits an iterator into two Vecs by a
-// predicate. Items where `pred(v)` is true go to the first Vec,
-// the rest go to the second. Matches Rust's
-// `Iterator::partition::<Vec<T>>(pred)` shape (free fn form here).
+/// Splits an iterator into two `Vec`s by a predicate: items where `pred` is true go to
+/// `first`, the rest to `second`. Rust's `Iterator::partition::<Vec<T>>` in free-fn form.
 pub fn iter_partition_vec<I: Iterator<T>, T>(
     iter: I, pred: fn(T) -> bool,
 ) -> ZipPair<Vec<T>, Vec<T>> {

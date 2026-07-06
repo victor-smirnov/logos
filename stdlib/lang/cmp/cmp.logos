@@ -10,10 +10,13 @@ use logos.lang.str;
 use logos.lang.option;
 use logos.lang.result;
 
+/// Defines total equality via `eq`, with `ne` derived by default.
+/// Not implemented for floats — NaN != NaN breaks totality; see `PartialEq` instead.
 pub trait Eq {
+    /// Returns `true` if `self` and `other` are equal.
     fn eq(&self, other: &Self) -> bool;
-    // Default `.ne` derived from `.eq`. Mirrors Rust's
-    // `PartialEq::ne(&self, &Self) -> bool { !self.eq(other) }`.
+    /// Returns `true` if `self` and `other` are not equal; the default derives it from `eq`.
+    // Mirrors Rust's `PartialEq::ne(&self, &Self) -> bool { !self.eq(other) }`.
     fn ne(&self, other: &Self) -> bool { return !self.eq(other); }
 }
 
@@ -26,8 +29,12 @@ pub trait Eq {
 // `eq` via the bound-check fallback in sema_collect.cpp that treats
 // `Eq` as a PartialEq satisfier — no per-impl migration needed for
 // the integer types.
+/// Defines partial equality via `eq`, with `ne` derived by default.
+/// Unlike `Eq`, does not require totality — implemented for floats where NaN != NaN.
 pub trait PartialEq {
+    /// Returns `true` if `self` and `other` are equal.
     fn eq(&self, other: &Self) -> bool;
+    /// Returns `true` if `self` and `other` are not equal; the default derives it from `eq`.
     fn ne(&self, other: &Self) -> bool { return !self.eq(other); }
 }
 // PartialOrd kept as an empty marker — full method shape
@@ -37,6 +44,7 @@ pub trait PartialEq {
 // than `Option<Ordering>`. The marker plus the sema bound-check
 // fallback (Ord ⇒ PartialOrd) covers the integer types. Floats need
 // a separate `partial_cmp` shape — deferred until a driver appears.
+/// Marker trait for partial ordering — currently empty pending a `partial_cmp` method shape.
 pub trait PartialOrd {}
 
 // f32 / f64 PartialEq impls — IEEE equality semantics (NaN != NaN).

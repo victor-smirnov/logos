@@ -42,6 +42,7 @@ use logos.std.data.persistent.bt.descent;
 use logos.std.data.persistent.bt.mutate;
 use logos.std.data.persistent.bt.iter;
 
+/// Specifies the directory-tree node layout: key = `u64` ctr id, val = `NodeARC`, fanout 16.
 // DirCfg — directory layout. Key = ctr_id (u64), val = NodeARC (heterogeneous
 // container roots). fanout drives branch + leaf max-keys. Multi-level: dir
 // can grow into a tree when a leaf overflows.
@@ -53,14 +54,19 @@ pub const DirCfg: WritStatic = @{ "key": <type:u64>, "fanout": 16 };
 // excludes NodeARC. These helpers mirror split_leaf + insert_rec +
 // bt_insert for the dir-flavoured layout.
 
+/// Reports the result of a recursive dir-tree insert; on split, carries the new right subtree.
 // DirInsertOutcome — paired with InsertOutcome's max-key model. On split,
 // `right_max` carries the max ctr_id in the new right subtree; the parent
 // inserts (right_max, right_arc) at i+1 and updates parent.keys[i] = the
 // new max of its left child.
 pub struct DirInsertOutcome<const STORE_CFG: WritStatic> {
+    /// Indicates the node split; `right`/`right_max` are then populated.
     pub split:              bool,
+    /// Holds the new right subtree; `Some` iff `split`.
     pub right:              Option<NodeARC<STORE_CFG>>,   // Some iff split
+    /// Mirrors `split`; set when `right_max` is meaningful.
     pub right_max_present:  bool,
+    /// Carries the max ctr id in the new right subtree; valid only on split.
     pub right_max:          u64,
 }
 
@@ -237,6 +243,8 @@ unsafe fn alloc_id_dir<const STORE_CFG: WritStatic>(p: *mut BlockId<STORE_CFG>) 
     return *p;
 }
 
+/// Inserts `ctr_id` → `val_arc` into the dir tree, growing a new root on split.
+/// Takes ownership of `val_arc`; an existing `ctr_id` has its value replaced.
 // Top-level dir insert: descend, possibly grow root with [old_max, right_max] keys.
 pub unsafe fn dir_insert<const STORE_CFG: WritStatic>(
     snap_dir: &mut NodeARC<STORE_CFG>,
@@ -263,7 +271,7 @@ pub unsafe fn dir_insert<const STORE_CFG: WritStatic>(
     }
 }
 
-// Find ctr_id in dir tree; return *mut NodeARC slot or null.
+/// Finds `ctr_id` in the dir tree; returns its `NodeARC` slot pointer, or null when absent.
 pub unsafe fn dir_lookup<const STORE_CFG: WritStatic>(
     snap_dir: &NodeARC<STORE_CFG>, ctr_id: u64,
 ) -> *mut NodeARC<STORE_CFG> {
@@ -295,7 +303,9 @@ pub unsafe fn dir_lookup<const STORE_CFG: WritStatic>(
 unsafe impl<const STORE_CFG: WritStatic> Send for LockingStore<STORE_CFG> {}
 unsafe impl<const STORE_CFG: WritStatic> Sync for LockingStore<STORE_CFG> {}
 
+/// Wraps a shared `Arc<LockingStore>` — the user-facing handle to a persistent store.
 pub struct Store<const STORE_CFG: WritStatic> {
+    /// Shares the backing `LockingStore`; cloned into every forked `Snap`.
     pub arc: Arc<LockingStore<STORE_CFG>>,
 }
 
@@ -306,8 +316,10 @@ pub struct Store<const STORE_CFG: WritStatic> {
 // Multiple independent root histories should each live in their own
 // Store — keeping a single store linear simplifies merge / GC /
 // on-disk serialisation when those land.
+/// Identifies the empty genesis commit (id 0) seeded by `store_open`; fork it for fresh work.
 pub const GENESIS: u64 = 0u64;
 
+/// Creates a store seeded with an empty genesis commit at id `GENESIS`.
 pub fn store_open<const STORE_CFG: WritStatic>() -> Store<STORE_CFG> {
     let s: LockingStore<STORE_CFG> = locking_store_new::<STORE_CFG>();
     let arc: Arc<LockingStore<STORE_CFG>> = arc_new::<LockingStore<STORE_CFG>>(s);
@@ -333,6 +345,7 @@ pub fn store_open<const STORE_CFG: WritStatic>() -> Store<STORE_CFG> {
 }
 
 impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
+    /// Forks a mutable snapshot off `parent_commit`; shares its dir, CoWs on first write.
     // Fork a mutable snapshot off `parent_commit`. The fork sees that
     // commit's directory tree (shared via rc) and CoWs on first write.
     // Pass `GENESIS` for the empty initial dir (id 0, seeded by store_open).
@@ -341,23 +354,29 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
     }
 
     // ── DAG introspection (delegates to LockingStore via *mut self) ──
+    /// Returns the total number of commits ever registered, including released tombstones.
     pub fn commit_count(&mut self) -> i64 {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).commit_count() };
     }
+    /// Returns an owned copy of the parent commit ids of `id`.
     pub fn parents_of(&mut self, id: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).parents_of(id) };
     }
+    /// Returns an owned copy of the child commit ids of `id`.
     pub fn children_of(&mut self, id: SnpId<STORE_CFG>) -> Vec<SnpId<STORE_CFG>> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).children_of(id) };
     }
+    /// Returns the ids of live parentless commits (released tombstones excluded).
     pub fn roots(&mut self) -> Vec<SnpId<STORE_CFG>> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).roots() };
     }
 
+    /// Releases commit `id`, reclaiming blocks unique to its tree.
+    /// The DAG slot persists as a tombstone; fork/checkout on a released id is invalid.
     // Release a commit. Drops its root NodeARC; blocks unique to this
     // commit's tree are reclaimed via the auto-Drop chain. Blocks
     // shared with siblings/descendants stay live (their rc decrements
@@ -369,6 +388,7 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
         unsafe { (s as *mut LockingStore<STORE_CFG>).release_snapshot(id); }
     }
 
+    /// Returns whether commit `id` has been released.
     pub fn is_released(&mut self, id: SnpId<STORE_CFG>) -> bool {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).is_released(id) };
@@ -376,11 +396,18 @@ impl<const STORE_CFG: WritStatic> Store<STORE_CFG> {
 }
 
 // ── Snap<STORE_CFG> ──────────────────────────────────────────────────
+/// Represents a live writable snapshot: the dir-tree root plus a shared ref to its store.
+/// Dropping releases the whole dir chain; `commit` consumes the snap into the DAG instead.
 pub struct Snap<const STORE_CFG: WritStatic> {
+    /// Owns the snapshot's directory-tree root.
     pub dir: NodeARC<STORE_CFG>,    // directory tree root
+    /// Shares the backing store.
     pub arc: Arc<LockingStore<STORE_CFG>>,
+    /// Identifies this snapshot — the CoW key `make_unique` compares against.
     pub snapshot_id: SnpId<STORE_CFG>,
+    /// Records the commit this snap forked from; becomes the new commit's parent.
     pub parent_id:   SnpId<STORE_CFG>,  // commit id this snap forked from
+    /// Counts `ContainerRef`s open on this snap; `commit` panics while nonzero.
     // DYNAMIC commit guard: count of ContainerRefs currently open on this
     // snap. create_ctr/open_ctr bump it; ContainerRef::drop decrements via a
     // raw pointer to this field. commit() refuses (panics) while any container
@@ -392,7 +419,7 @@ pub struct Snap<const STORE_CFG: WritStatic> {
     pub open_containers: u64,
 }
 
-// snap_fork — start a new mutable snapshot from a committed parent.
+/// Starts a new mutable snapshot from committed `parent_commit` with a fresh snapshot id.
 pub fn snap_fork<const STORE_CFG: WritStatic>(
     store: &mut Store<STORE_CFG>,
     parent_commit: SnpId<STORE_CFG>,
@@ -410,6 +437,9 @@ pub fn snap_fork<const STORE_CFG: WritStatic>(
 }
 
 impl<const STORE_CFG: WritStatic> Snap<STORE_CFG> {
+    /// Commits the dir tree as a new DAG entry; returns the new commit id.
+    /// Consumes the snap — committed blocks become shared/immutable.
+    /// Panics while any `ContainerRef` is still open on this snap.
     // Commit the dir tree as a new DAG entry; returns the new commit id.
     //
     // CONSUMES the snapshot (takes `self` by value). A committed snap must
@@ -447,15 +477,18 @@ impl<const STORE_CFG: WritStatic> Snap<STORE_CFG> {
     // descent and handle API, and reuses these to live in the snapshot + commit
     // DAG. `attach`/`lookup` return a SnapCtx the specialization embeds.
 
+    /// Returns a raw pointer to the store's next-block-id counter.
     pub fn id_ctr(&mut self) -> *mut BlockId<STORE_CFG> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG> };
     }
+    /// Bumps and returns the store's next block id.
     pub fn alloc_block(&mut self) -> BlockId<STORE_CFG> {
         let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
         return unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_block_id() };
     }
 
+    /// Builds the `SnapCtx` for `ctr_id` and claims an open-container slot (commit guard).
     // Build the snap-side context for ctr_id and CLAIM an open-container slot
     // (released in the handle's Drop). The shared tail of attach/lookup.
     pub fn make_ctx(&mut self, ctr_id: u64) -> SnapCtx<STORE_CFG> {
@@ -470,6 +503,7 @@ impl<const STORE_CFG: WritStatic> Snap<STORE_CFG> {
         };
     }
 
+    /// Plants `root` in the dir under `ctr_id` (ownership transfers) and returns the handle ctx.
     // Plant a freshly-built container root under ctr_id (CoW into the dir;
     // TRANSFERS root's share to the dir entry) and return the handle's context.
     pub fn attach(&mut self, ctr_id: u64, root: NodeARC<STORE_CFG>) -> SnapCtx<STORE_CFG> {
@@ -478,6 +512,7 @@ impl<const STORE_CFG: WritStatic> Snap<STORE_CFG> {
         return self.make_ctx(ctr_id);
     }
 
+    /// Resolves `ctr_id` to `Some((root_clone, ctx))`, claiming an open slot; `None` when absent.
     // Find an existing container root under ctr_id (CoW the dir up-front so a
     // later writeback lands in this snap's dir). Some((root_clone, ctx)) — the
     // root sharing the dir slot's rc, paired with the handle's context (which
@@ -497,16 +532,22 @@ impl<const STORE_CFG: WritStatic> Snap<STORE_CFG> {
 // snapshot id (CoW key), the block-id allocator, and the open-container guard.
 // A specialization stores a SnapCtx + its own root/handle, and uses these
 // methods for writeback / id allocation / release.
+/// Carries the snap-side wiring a container handle embeds: dir slot, CoW key, ids, commit guard.
 pub struct SnapCtx<const STORE_CFG: WritStatic> {
+    /// Points at `Snap.dir`; stable for the snap's life.
     pub dir_root_p: *mut NodeARC<STORE_CFG>,   // &Snap.dir — stable for the snap's life
+    /// Identifies this container within the dir.
     pub ctr_id:     u64,                        // this container's id within the dir
+    /// Keys the CoW check in `make_unique`.
     pub snap_id:    SnpId<STORE_CFG>,           // CoW key (make_unique)
+    /// Points at the store's `next_block_id`.
     pub id_ctr_p:   *mut BlockId<STORE_CFG>,    // &store.next_block_id
+    /// Points at `Snap.open_containers` (the commit guard).
     pub open_ctr_p: *mut u64,                    // &Snap.open_containers (commit guard)
 }
 
 impl<const STORE_CFG: WritStatic> SnapCtx<STORE_CFG> {
-    // Bump + return the next block id (for the specialization's node allocs).
+    /// Bumps and returns the next block id (for the specialization's node allocs).
     pub fn next_block_id(&self) -> BlockId<STORE_CFG> {
         unsafe {
             let n: BlockId<STORE_CFG> = *self.id_ctr_p + 1u64;
@@ -514,6 +555,7 @@ impl<const STORE_CFG: WritStatic> SnapCtx<STORE_CFG> {
             return n;
         }
     }
+    /// Syncs the dir's slot for `ctr_id` with `root`; no-op when absent or already identical.
     // Sync the dir's slot for ctr_id with `root` (re-resolved freshly each call —
     // survives dir realloc/split/root-grow; never a cached interior pointer).
     pub unsafe fn writeback(&self, root: &NodeARC<STORE_CFG>) {
@@ -523,7 +565,7 @@ impl<const STORE_CFG: WritStatic> SnapCtx<STORE_CFG> {
         if node_arc_same::<STORE_CFG>(&*slot, root) { return; }
         arc_replace_in_slot::<STORE_CFG>(slot, root.clone());
     }
-    // Release this container's open-claim (the commit guard).
+    /// Releases this container's open-claim (the commit guard).
     pub unsafe fn release(&self) {
         if self.open_ctr_p != 0 as *mut u64 { *self.open_ctr_p = *self.open_ctr_p - 1u64; }
     }
@@ -540,20 +582,28 @@ impl<const STORE_CFG: WritStatic> SnapCtx<STORE_CFG> {
 // type. Multi-level descent (where root may be a BranchNode) lands
 // when mutate gains splits. Single-leaf bring-up first.
 
+/// Describes why a checked insert (`try_insert`) rejected a key or value.
 // Why a checked insert may fail: the offered key or value is inconsistent with
 // the container's runtime-discovered element type (a DView container is
 // homogeneous — one tag per buffer). Static-typed containers never produce this.
 pub enum InsertError {
+    /// Indicates the offered key's runtime type mismatches the container's key type.
     KeyType,
+    /// Indicates the offered value's runtime type mismatches the container's value type.
     ValueType,
 }
 
+/// Handles one map container in a snap: owns the root rc and embeds the snap-side `SnapCtx`.
+/// Dropping releases the snap's open-container claim.
 pub struct ContainerRef<const STORE_CFG: WritStatic, const CFG: WritStatic> {
+    /// Owns an rc share of the container root.
     pub arc: NodeARC<STORE_CFG>,    // owning rc on the container root
+    /// Embeds the shared snap-side wiring.
     pub ctx: SnapCtx<STORE_CFG>,    // shared snap-side wiring (dir / CoW / ids / guard)
 }
 
 impl<const STORE_CFG: WritStatic, const CFG: WritStatic> Drop for ContainerRef<STORE_CFG, CFG> {
+    /// Releases the snap's open-container claim; no writeback (mutators write back eagerly).
     fn drop(self: ContainerRef<STORE_CFG, CFG>) {
         // Release this snap's open-container claim (the commit guard).
         // self.arc auto-drops after this body, releasing its rc.
@@ -561,6 +611,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> Drop for ContainerRef<S
     }
 }
 
+/// Creates an empty container under `ctr_id` in the snap's dir and returns its open handle.
 // create_ctr — alloc a fresh empty leaf for the container, insert it
 // into the dir under ctr_id (descending the dir tree, splitting on
 // overflow), return a ContainerRef holding the open-claim handle.
@@ -583,6 +634,7 @@ pub fn create_ctr<const CFG: WritStatic, const STORE_CFG: WritStatic>(
     return ContainerRef::<STORE_CFG, CFG> { arc: arc_for_ref, ctx: ctx };
 }
 
+/// Opens the container at `ctr_id`: `Some(ContainerRef)` sharing the dir slot's rc, else `None`.
 // open_ctr — look up ctr_id in the snapshot's dir tree. Some(ContainerRef)
 // sharing rc with the dir's slot, or None when ctr_id isn't present (Rust
 // parity — no more null-handle sentinel the caller must remember to test).
@@ -606,14 +658,17 @@ pub fn open_ctr<const CFG: WritStatic, const STORE_CFG: WritStatic>(
 // route through the mutate's CoW-aware descent without round-trip
 // through the Store.
 impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG, CFG> {
+    /// Returns the number of entries in the container.
     pub fn len(&self) -> u64 {
         return bt_size_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
     }
 
+    /// Returns `true` when the container has no entries.
     pub fn is_empty(&self) -> bool {
         return self.len() == 0u64;
     }
 
+    /// Replaces the contents with an empty leaf; old tree blocks are released recursively.
     // Replace the container's contents with an empty leaf. Old root's
     // rc is decremented via arc_replace_in_slot — recursive release
     // through the auto-Drop chain frees every block reachable from
@@ -630,12 +685,13 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         self.writeback();
     }
 
+    /// Returns `true` when `key` is present.
     pub fn contains(&self, key: <type:CFG.key>::ViewInStore) -> bool {
         return bt_contains_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
             &self.arc, key);
     }
 
-    // Rust BTreeMap::get parity: Some(value) on hit, None on miss.
+    /// Returns `Some(value)` for `key`, `None` on miss (`BTreeMap::get` parity).
     pub fn get(&self, key: <type:CFG.key>::ViewInStore) -> Option<<type:CFG.value>::ViewInStore> {
         unsafe {
             return bt_get_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
@@ -643,6 +699,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         }
     }
 
+    /// Returns the n-th entry (zero-indexed, sorted order), or `None` when `n >= len()`.
     // Position-indexed lookup: Some((key, value)) at the n-th slot in sorted
     // order (zero-indexed), None if n >= len. O(depth) descent via the per-op
     // SUM-shuttle wrapper emitted on BranchNode for the `subtree_size`
@@ -666,8 +723,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         }
     }
 
-    // Rust BTreeMap::insert parity: Some(old_value) if the key was present,
-    // None if newly inserted.
+    /// Inserts `key` → `val`; returns the previous value if present (`BTreeMap::insert` parity).
     pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore)
         -> Option<<type:CFG.value>::ViewInStore> {
         let r: Option<<type:CFG.value>::ViewInStore> = unsafe {
@@ -679,6 +735,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         return r;
     }
 
+    /// Inserts after checking runtime key/value types; `Err` on mismatch instead of mis-storing.
     // CHECKED insert: reject a key/value whose runtime type is inconsistent with
     // what the container already holds (Err) instead of mis-storing, otherwise
     // insert and return Ok(old). For a homogeneous DView container this is the
@@ -707,6 +764,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         return Result::Ok(self.insert(key, val));
     }
 
+    /// Removes `key`; returns `true` when it was present.
     pub fn remove(&mut self, key: <type:CFG.key>::ViewInStore) -> bool {
         let r: bool = unsafe {
             bt_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
@@ -717,6 +775,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         return r;
     }
 
+    /// Syncs the dir's slot for this container with the current root `self.arc`.
     // Sync the dir's slot for ctr_id with self.arc. Insert/remove that
     // grow/collapse the root replaced self.arc (via arc_replace_in_slot)
     // but the dir's vals[i] still has the pre-mutation handle. The slot is
@@ -728,6 +787,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         unsafe { self.ctx.writeback(&self.arc); }
     }
 
+    /// Returns the smallest position whose key is `>= k`, or `len()` when `k` exceeds every key.
     // Smallest position N (zero-indexed) such that key-at-N ≥ k.
     // Returns len() if k exceeds every key. O(depth) via shuttle_max_k
     // + per-level subtree_size accumulation. Safe: read-only descent.
@@ -738,6 +798,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         }
     }
 
+    /// Returns the smallest position whose key is `> k` (strict), or `len()` when none exceeds.
     // Smallest position N such that key-at-N > k (strict). Returns len()
     // if k ≥ every key. Safe: read-only descent.
     pub fn upper_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
@@ -747,6 +808,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         }
     }
 
+    /// Opens an iterator at the n-th entry (zero-indexed); invalid iter when `n >= len()`.
     // Open an iter positioned at the n-th entry (zero-indexed) in
     // sorted order. O(depth) construction via the SUM-shuttle descent
     // — no need to walk leftmost + n forward steps. n >= len returns
@@ -757,6 +819,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         }
     }
 
+    /// Opens a forward iterator in key order; borrowing `&self` blocks mutation while live.
     // Forward iterator over the container's entries in key order. Safe to
     // call: BtIter is #[borrow_carrying] and borrows &self, so the borrow
     // checker forbids mutating the container while the iterator is live (the
@@ -768,6 +831,7 @@ impl<const STORE_CFG: WritStatic, const CFG: WritStatic> ContainerRef<STORE_CFG,
         }
     }
 
+    /// Opens a reverse iterator at the largest key; walk with `step_back()`.
     // Reverse iterator: positioned at the largest key. Walk descending order
     // with step_back() (valid()/key()/val() are direction-agnostic). Same
     // borrow rule + safety as iter().

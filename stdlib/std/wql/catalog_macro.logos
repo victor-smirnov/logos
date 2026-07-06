@@ -244,6 +244,13 @@ fn str_of(s: &String) -> str {
 //   pub fn <name>() -> SchemaCatalog {
 //       return SchemaCatalog::from_static(@{ …blob… });
 //   }
+/// Token-macro handler for `schema_catalog!{ S1, S2, … }` (see `resource` decls
+/// like `resource cat = schema_catalog!{ Emp, Dept };` in `logos.std.deem` callers).
+/// Reflects the named `schema` decls out of the trigger module's AST and emits a
+/// `pub fn <name>() -> SchemaCatalog` returning a `SchemaCatalog::from_static` view
+/// over a deduped `@{…}` Writ blob, for use by `Query::compile`/`Tpl::compile`.
+/// Raises a diagnostic (via `error`) and returns an empty `ItemList` on a missing
+/// binding name, an unknown/non-`schema` name, or a schema missing `code(0x…)`.
 #[token_macro]
 pub fn schema_catalog(name: str, s: str) -> ItemList {
     let out: ItemList = item_list_new();

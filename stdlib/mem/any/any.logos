@@ -35,69 +35,82 @@ fn sview2_to_stringview(sv: SView2) -> StringView {
 
 // ── TypeInfo ─────────────────────────────────────────────────────────────────
 
+/// Typed view over the static reflection blob emitted by `reflect::<T>()`.
 pub struct TypeInfo {
     inner: WritStatic,
 }
 
 impl TypeInfo {
+    /// Creates the `TypeInfo` for type `_T` via `reflect::<_T>()`.
     // T appears only in the `reflect::<T>()` body call (turbofish), which
     // the unused-tparam check doesn't follow. Rename to `_T` to opt out.
     pub fn make<_T>() -> TypeInfo {
         return TypeInfo { inner: reflect::<_T>() };
     }
 
+    /// Returns the type's unqualified name; the declaring package is read via `pkg`.
     pub fn name(self: &TypeInfo) -> StringView {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "name");
         return sview2_to_stringview(v.get_str_view(av));
     }
 
+    /// Returns the name of the package the type is declared in.
     pub fn pkg(self: &TypeInfo) -> StringView {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "pkg");
         return sview2_to_stringview(v.get_str_view(av));
     }
 
+    /// Returns the compiler-assigned unique type code for this type.
     pub fn type_code(self: &TypeInfo) -> u64 {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "type_code");
         return v.get_u64(av);
     }
 
+    /// Returns the type-kind code: `1` = plain struct, `2` = datatype (zoned struct), `3` = trait.
     pub fn kind(self: &TypeInfo) -> i64 {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "kind");
         return v.get_int(av);
     }
 
+    /// Returns `true` if the reflected type is a datatype (zoned struct), i.e. `kind() == 2`.
     pub fn is_datatype(self: &TypeInfo) -> bool {
         return self.kind() == 2;
     }
 
+    /// Returns `true` for DataPlain types: no relative-pointer (zone-offset) fields,
+    /// directly or transitively.
     pub fn is_data_plain(self: &TypeInfo) -> bool {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "is_data_plain");
         return v.get_bool(av);
     }
 
+    /// Returns a view over the type's field descriptors.
     pub fn fields(self: &TypeInfo) -> FieldsView {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "fields");
         return FieldsView { info: self.inner, arr_bits: av.raw() };
     }
 
+    /// Returns a view over the annotation instances attached to the type.
     pub fn annotations(self: &TypeInfo) -> AnnotationsView {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "annotations");
         return AnnotationsView { info: self.inner, arr_bits: av.raw() };
     }
 
+    /// Returns the number of fields, without constructing a `FieldsView`.
     pub fn field_count(self: &TypeInfo) -> u64 {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "fields");
         return v.array_len(av);
     }
 
+    /// Returns the number of annotation instances, without constructing an `AnnotationsView`.
     pub fn annotation_count(self: &TypeInfo) -> u64 {
         let v: WView2 = wview2_from_ptr(self.inner.ptr);
         let av: WAny = v.map_get(v.root(), "annotations");
@@ -109,17 +122,20 @@ impl TypeInfo {
 //
 // The array node is stashed as the raw WAny word (i64) and rebuilt on use.
 
+/// Array view over a `TypeInfo`'s field descriptors, obtained via `TypeInfo::fields`.
 pub struct FieldsView {
     info:     WritStatic,
     arr_bits: i64,
 }
 
 impl FieldsView {
+    /// Returns the number of field descriptors.
     pub fn len(self: &FieldsView) -> u64 {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         return v.array_len(wany_from_word(self.arr_bits));
     }
 
+    /// Returns the field descriptor at index `idx`.
     pub fn get(self: &FieldsView, idx: u64) -> FieldInfo {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         let elem: WAny = v.array_get(wany_from_word(self.arr_bits), idx);
@@ -129,18 +145,22 @@ impl FieldsView {
 
 // ── FieldInfo ─────────────────────────────────────────────────────────────────
 
+/// Descriptor of a single struct field: its name and the name of its type.
 pub struct FieldInfo {
     info:     WritStatic,
     map_bits: i64,
 }
 
 impl FieldInfo {
+    /// Returns the field's name.
     pub fn name(self: &FieldInfo) -> StringView {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         let av: WAny = v.map_get(wany_from_word(self.map_bits), "name");
         return sview2_to_stringview(v.get_str_view(av));
     }
 
+    /// Returns the name of the field's type (primitives as spelled, named types by bare name);
+    /// types the emitter cannot name read as `"?"`.
     pub fn type_name(self: &FieldInfo) -> StringView {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         let av: WAny = v.map_get(wany_from_word(self.map_bits), "type_name");
@@ -150,17 +170,20 @@ impl FieldInfo {
 
 // ── AnnotationsView ───────────────────────────────────────────────────────────
 
+/// Array view over a `TypeInfo`'s annotation instances, obtained via `TypeInfo::annotations`.
 pub struct AnnotationsView {
     info:     WritStatic,
     arr_bits: i64,
 }
 
 impl AnnotationsView {
+    /// Returns the number of annotation instances.
     pub fn len(self: &AnnotationsView) -> u64 {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         return v.array_len(wany_from_word(self.arr_bits));
     }
 
+    /// Returns the annotation descriptor at index `idx`.
     pub fn get(self: &AnnotationsView, idx: u64) -> AnnotationInfo {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         let elem: WAny = v.array_get(wany_from_word(self.arr_bits), idx);
@@ -170,20 +193,21 @@ impl AnnotationsView {
 
 // ── AnnotationInfo ────────────────────────────────────────────────────────────
 
+/// Descriptor of a single annotation instance: its type name plus key/value arguments.
 pub struct AnnotationInfo {
     info:     WritStatic,
     map_bits: i64,
 }
 
 impl AnnotationInfo {
-    // Fully-qualified annotation type name (e.g. "reflect_basic::Deprecated").
+    /// Returns the fully-qualified annotation type name (e.g. `"reflect_basic::Deprecated"`).
     pub fn type_name(self: &AnnotationInfo) -> StringView {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         let av: WAny = v.map_get(wany_from_word(self.map_bits), "type");
         return sview2_to_stringview(v.get_str_view(av));
     }
 
-    // Read a string field from the annotation by key. Returns empty view if absent.
+    /// Reads a string argument of the annotation by key; returns an empty view if absent.
     pub fn get_str(self: &AnnotationInfo, key: str) -> StringView {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         let av: WAny = v.map_get(wany_from_word(self.map_bits), key);
@@ -193,7 +217,7 @@ impl AnnotationInfo {
         return sview2_to_stringview(v.get_str_view(av));
     }
 
-    // Read an integer field from the annotation by key. Returns 0 if absent.
+    /// Reads an integer argument of the annotation by key; returns `0` if absent or non-integer.
     pub fn get_int(self: &AnnotationInfo, key: str) -> i64 {
         let v: WView2 = wview2_from_ptr(self.info.ptr);
         let av: WAny = v.map_get(wany_from_word(self.map_bits), key);

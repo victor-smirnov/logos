@@ -35,12 +35,18 @@ use logos.lang.writ.anyval;      // W_U64 / W_I64 / WA_BOOL / W_STRING type code
 //     e.g. heap String / str), a DIFFERENT code space; the dispatcher for that
 //     space knows how to compare and how to convert to the storage format on
 //     store_push.
+/// Masks the low 56 code bits of a `DView` tag (drops the code-space selector).
 pub const DV_CODE_MASK:    u64 = 0x00FFFFFFFFFFFFFFu64;   // low 56 bits
+/// Code space 0: the code is a raw Writ datatag (storage format).
 pub const DV_SPACE_WRIT: u8  = 0u8;
+/// Code space 1: the code is a captured Logos processing type (e.g. heap `String` / `str`).
 pub const DV_SPACE_LOGOS:  u8  = 1u8;
 
+/// Returns the code-space selector (high 8 bits) of a `DView` tag.
 pub fn dv_space(tag: u64) -> u8  { return (tag >> 56u64) as u8; }
+/// Returns the within-space code (low 56 bits) of a `DView` tag.
 pub fn dv_code(tag: u64)  -> u64 { return tag & DV_CODE_MASK; }
+/// Packs `(space, code)` into a `DView` tag; `code` is truncated to its low 56 bits.
 pub fn dv_make_tag(space: u8, code: u64) -> u64 {
     return ((space as u64) << 56u64) | (code & DV_CODE_MASK);
 }
@@ -57,9 +63,14 @@ pub fn dv_make_tag(space: u8, code: u64) -> u64 {
 //     captures a sized POD BY VALUE (its bytes + tag) — correct when the storage
 //     form IS the in-memory bytes. Types whose storage form differs (str/String
 //     → the content bytes, not the {ptr,len}/struct) OVERRIDE it.
+/// Presents a type as a `DView` — the capture seam from a concrete value to its storage form.
 pub trait Datum {
+    /// Returns the type-level `DView` tag; `self` is a phantom pointer, never dereferenced.
     fn datum_tag(self: *const Self) -> u64;
+    /// Returns the packed per-value metadata word; the default is 0 (no metadata).
     fn datum_meta(&self) -> u64 { return 0u64; }
+    /// Borrows `self` as its storage-form `DView`.
+    /// Default views a sized POD's in-memory bytes; types whose storage form differs override.
     fn as_datum(&self) -> DView {
         let phantom: *const Self = 0 as *const Self;
         return DView::from_parts(
@@ -73,6 +84,8 @@ pub trait Datum {
     // whose storage form ≠ Self (String → an OWNED heap copy of the content
     // bytes) override it. Phantom `self` (never read) sidesteps the
     // assoc-fn-on-type-param mono gap, like datum_tag.
+    /// Materializes `Self` from a storage-form `DView` (inverse of `as_datum`).
+    /// Default reads a sized POD by value; `self` is a phantom pointer, never read.
     fn from_datum(self: *const Self, d: DView) -> Self {
         return unsafe { *(d.obj_ptr() as *const Self) };
     }
@@ -83,6 +96,8 @@ impl Datum for bool { fn datum_tag(self: *const bool) -> u64 { return WA_BOOL as
 
 // ── DView — the borrowed, type-erased view ──────────────────────────────────
 // `tag` and `len` are u64 — the native Writ widths (type codes are u64).
+/// Non-owning, type-erased view: borrowed object bytes plus a `(space, code)` tag and metadata.
+/// Does not extend lifetimes; to own a runtime-typed value use the Writ container (`WAny`).
 pub struct DView {
     obj:  *const u8,     // → object bytes (borrowed; not owned)
     len:  u64,           // object byte length
@@ -95,52 +110,60 @@ pub struct DView {
 impl Copy for DView {}
 
 impl DView {
-    // Type-erase a concrete value into a non-owning view (borrows `v`) by asking
-    // the type to present its storage form. T inferred (`DView::from(&v)`).
+    /// Type-erases a concrete value into a non-owning view (borrows `v`) by asking the type to
+    /// present its storage form. `T` is inferred (`DView::from(&v)`).
     pub static fn from<T: Datum>(v: &T) -> DView {
         return v.as_datum();
     }
 
-    // Explicit-zones constructor (for in-container views: a stored object + tag).
+    /// Creates a view from explicit parts (for in-container views: a stored object + tag).
     pub static fn from_parts(obj: *const u8, len: u64, tag: u64, meta: u64) -> DView {
         return DView { obj: obj, len: len, tag: tag, meta: meta };
     }
 
-    // Type-erase a string (datatype String, code W_STRING). str is unsized (a
-    // {ptr,len} fat value), so it can't ride the generic `from<T>` (which assumes
-    // a sized T + thin ptr); dedicated. The block IS the UTF-8 bytes — directly
-    // the Writ String content, so it stays the Writ space.
+    /// Type-erases a string into a `W_STRING` view over its UTF-8 bytes (borrows `s`).
+    /// Dedicated because `str` is unsized (a `{ptr,len}` fat value) and can't ride the generic
+    /// `from<T>`; the byte block IS the Writ String content, so it stays in the Writ space.
     pub static fn from_str(s: str) -> DView {
         return DView { obj: s.as_ptr(), len: s.len() as u64, tag: W_STRING, meta: 0u64 };
     }
 
-    // Materialize a string from the view's bytes (str over obj/len). Borrows the
-    // same bytes the view does (valid for the view's lifetime).
+    /// Materializes a `str` over the view's bytes; borrows the same bytes the view does
+    /// (valid for the view's lifetime). No tag check.
     pub fn as_str(&self) -> str {
         return unsafe { str_from_raw(self.obj, self.len as i64) };
     }
 
+    /// Returns the full tag word (code-space selector + code).
     pub fn type_code(&self) -> u64 { return self.tag; }
+    /// Returns the borrowed pointer to the object bytes.
     pub fn obj_ptr(&self) -> *const u8 { return self.obj; }
+    /// Returns the object byte length.
     pub fn obj_len(&self) -> u64 { return self.len; }
+    /// Returns the packed per-value metadata word (0 if none).
     pub fn meta_word(&self) -> u64 { return self.meta; }
 
     // ── capabilities ────────────────────────────────────────────────────────
     // generic / concrete-typed (`is`/`as` are reserved keywords → is_a/try_to):
+    /// Returns whether the view's tag equals `T`'s `Datum` tag.
     pub fn is_a<T: Datum>(&self) -> bool {
         let phantom: *const T = 0 as *const T;
         return self.tag == unsafe { phantom.datum_tag() };
     }
+    /// Materializes a `T` from the view if the tag matches; `None` on a tag mismatch.
     pub fn try_to<T: Datum>(&self) -> Option<T> { // checked materialize
         let phantom: *const T = 0 as *const T;
         if self.tag != unsafe { phantom.datum_tag() } { return Option::None; }
         return Option::Some(unsafe { phantom.from_datum(*self) });
     }
+    /// Materializes a `T` from the view without a tag check; a mismatched tag reads garbage.
     pub fn to<T: Datum>(&self) -> T {              // asserted materialize
         let phantom: *const T = 0 as *const T;
         return unsafe { phantom.from_datum(*self) };
     }
     // runtime-dispatched (over self.tag, via the shared layer):
+    /// Compares two views' object bytes via the shared tag-keyed layer (`htag_cmp`).
+    /// Dispatches on `self.tag`; both views must carry the same tag.
     pub fn compare(&self, other: &DView) -> Ordering {
         return unsafe { htag_cmp(self.tag, self.meta, self.obj, self.len, other.obj, other.len) };
     }
@@ -161,9 +184,9 @@ unsafe fn load_le(p: *const u8, n: u64) -> u64 {
     return v;
 }
 
-// Total order over two same-tagged object-byte runs. Dispatched on (space,
-// code): only the Writ space (0) is wired today; other spaces route here once
-// their comparators land.
+/// Compares two same-tagged object-byte runs (total order), dispatched on `(space, code)`.
+/// Only the Writ space (0) is wired today; unrecognized codes fall back to unsigned LE compare.
+/// Reads via LE byte assembly, so possibly-unaligned borrowed offsets are fine.
 pub unsafe fn htag_cmp(tag: u64, meta: u64, a: *const u8, alen: u64, b: *const u8, blen: u64) -> Ordering {
     let code: u64 = dv_code(tag);
     if dv_space(tag) == DV_SPACE_WRIT && code == W_I64 {
@@ -196,7 +219,7 @@ pub unsafe fn htag_cmp(tag: u64, meta: u64, a: *const u8, alen: u64, b: *const u
     return Ordering::Equal;
 }
 
-// Object byte stride for a tag (for the at-rest / store path). 0 = unknown.
+/// Returns the object byte stride for a tag (the at-rest/store path); 0 = unknown.
 pub fn htag_size(tag: u64, meta: u64) -> u64 {
     if dv_space(tag) == DV_SPACE_WRIT {
         let code: u64 = dv_code(tag);
@@ -207,9 +230,9 @@ pub fn htag_size(tag: u64, meta: u64) -> u64 {
     return 0u64;
 }
 
-// Required alignment of a tag's object bytes (a power of two). The Buffer aligns
-// every element's entry to this so in-place reads (`to::<T>` pointer-casts, a
-// byte-copied compactified Writ object) are valid.
+/// Returns the required alignment of a tag's object bytes (a power of two).
+/// The Buffer aligns every element's entry to this so in-place reads (`to::<T>` pointer-casts,
+/// a byte-copied compactified Writ object) are valid.
 pub fn htag_align(tag: u64, meta: u64) -> u64 {
     if dv_space(tag) == DV_SPACE_WRIT {
         let code: u64 = dv_code(tag);
@@ -233,6 +256,9 @@ fn align_up(x: u64, a: u64) -> u64 { return ((x + a - 1u64) / a) * a; }
 // reallocs — the in-container borrow contract). Object zone is the variable
 // block; `meta` is the separate u64 zone (carried on the store, per the
 // homogeneous-container model).
+/// Variable-width, aligned, owning at-rest store for `DView` elements (backs `Buffer<DView>`).
+/// Homogeneous: the first stored element declares the container's `tag`/`meta`.
+/// `storage_get` returns a view INTO the arena — valid only until the arena reallocates.
 pub struct DViewStore {
     tag:     u64,
     meta:    u64,

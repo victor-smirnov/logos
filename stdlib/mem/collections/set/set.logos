@@ -12,44 +12,51 @@ use logos.lang.iter;
 use logos.lang.ops;
 use logos.lang.option;
 
+/// Unordered set of unique keys, backed by `HashMap<K, u8>`.
 pub struct HashSet<K> {
     inner: HashMap<K, u8>,
 }
 
+/// Creates an empty `HashSet` with capacity 16.
 pub fn hashset_new<K: Hash + Eq>() -> HashSet<K> {
     return HashSet { inner: hashmap_new::<K, u8>() };
 }
 
+/// Creates an empty `HashSet` with `cap_hint` rounded up to a power of two (minimum 8).
 pub fn hashset_with_capacity<K: Hash + Eq>(cap_hint: i64) -> HashSet<K> {
     return HashSet { inner: hashmap_with_capacity::<K, u8>(cap_hint) };
 }
 
 impl<K: Hash + Eq> HashSet<K> {
+    /// Returns the number of elements in the set.
     pub fn len(&self) -> i64 { return self.inner.len(); }
 
+    /// Returns `true` if the set contains no elements.
     pub fn is_empty(&self) -> bool { return self.inner.is_empty(); }
 
-    // Insert key; returns true if the key was newly added, false if it already existed.
+    /// Inserts `key`; returns `true` if it was newly added, `false` if it already existed.
     pub unsafe fn insert(self: *mut HashSet<K>, key: K) -> bool {
         let already: bool = self.inner.contains_key(&key);
         self.inner.insert(key, 0 as u8);
         return !already;
     }
 
+    /// Returns `true` if `key` is present in the set.
     pub unsafe fn contains(self: *mut HashSet<K>, key: &K) -> bool {
         return self.inner.contains_key(key);
     }
 
-    // Remove key; returns true if it was present.
+    /// Removes `key`; returns `true` if it was present.
     pub unsafe fn remove(self: *mut HashSet<K>, key: &K) -> bool {
         return self.inner.remove(key);
     }
 
+    /// Removes all elements from the set.
     pub unsafe fn clear(self: *mut HashSet<K>) {
         self.inner.clear();
     }
 
-    // Iterator over set elements (yields K values).
+    /// Returns an iterator over the set's elements, yielding `&K`.
     pub unsafe fn iter(self: *const HashSet<K>) -> HashSetIter<K> {
         return HashSetIter { inner: self.inner.keys() };
     }
@@ -57,6 +64,7 @@ impl<K: Hash + Eq> HashSet<K> {
 
 // ── HashSetIter<K> ────────────────────────────────────────────────────────────
 
+/// Iterator over a `HashSet`'s elements, yielding `&K`.
 pub struct HashSetIter<K> {
     inner: HashMapKeys<K, u8>,
 }

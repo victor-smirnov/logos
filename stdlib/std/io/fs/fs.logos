@@ -13,16 +13,20 @@ use logos.lang.result;
 
 // ── File ──────────────────────────────────────────────────────────────────
 
+/// Open file handle paired with its own `IoRing`; all I/O is issued through io_uring.
 pub struct File {
     fd:   i32,
     ring: IoRing,
 }
 
 impl File {
+    /// Returns `true` if the handle holds a valid file descriptor (not yet closed).
     pub fn is_open(self: &File) -> bool {
         return self.fd >= 0;
     }
 
+    /// Reads up to `len` bytes at absolute `offset` into `buf`.
+    /// Returns bytes read (0 = EOF) or a negative errno on failure.
     pub fn read_at(self: &mut File, buf: *mut u8, len: i64, offset: i64) -> i32 {
         match (&mut self.ring).read(self.fd, buf, len, offset) {
             Result::Ok(n)  => { return n as i32; }
@@ -30,6 +34,8 @@ impl File {
         }
     }
 
+    /// Writes `len` bytes from `buf` at absolute `offset`.
+    /// Returns bytes written (may be short) or a negative errno on failure.
     pub fn write_at(self: &mut File, buf: *const u8, len: i64, offset: i64) -> i32 {
         match (&mut self.ring).write(self.fd, buf, len, offset) {
             Result::Ok(n)  => { return n as i32; }
@@ -37,6 +43,8 @@ impl File {
         }
     }
 
+    /// Closes the file descriptor and marks the handle closed; idempotent.
+    /// Returns 0 on success (or if already closed), a negative errno on failure.
     pub fn close(self: &mut File) -> i32 {
         if self.fd < 0 { return 0; }
         let rc: i32 = match (&mut self.ring).close(self.fd) {
@@ -61,20 +69,25 @@ fn ring_open(path: *const u8, flags: i32, mode: i32) -> Result<File, i32> {
     }
 }
 
+/// Opens NUL-terminated `path` read-only (`O_RDONLY`); `Err` carries a negative errno.
 pub fn open(path: *const u8) -> Result<File, i32> {
     return ring_open(path, 0, 0);
 }
 
+/// Creates or truncates NUL-terminated `path` (`O_RDWR|O_CREAT|O_TRUNC`, mode 0666).
 pub fn create(path: *const u8) -> Result<File, i32> {
     return ring_open(path, 578, 438);   // O_RDWR|O_CREAT|O_TRUNC, 0666
 }
 
+/// Opens NUL-terminated `path` for append (`O_WRONLY|O_CREAT|O_APPEND`, mode 0666).
 pub fn open_append(path: *const u8) -> Result<File, i32> {
     return ring_open(path, 1089, 438);  // O_WRONLY|O_CREAT|O_APPEND, 0666
 }
 
 // ── Convenience: read entire file into a String ───────────────────────────
 
+/// Reads the entire file at NUL-terminated `path` into a `String` (4 KiB chunks until EOF).
+/// No UTF-8 validation; bytes are appended verbatim. `Err` carries a negative errno.
 pub fn read_to_string(path: *const u8) -> Result<String, i32> {
     let mut f: File = match ring_open(path, 0, 0) {
         Result::Ok(f)  => { f }
@@ -110,7 +123,7 @@ pub fn read_to_string(path: *const u8) -> Result<String, i32> {
     return Result::Ok(out);
 }
 
-// Safe str form: null-terminate the path, then read the whole file.
+/// Reads the entire file into a `String`; safe `str` overload that null-terminates `path`.
 pub fn read_to_string(path: str) -> Result<String, i32> {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);
@@ -119,6 +132,8 @@ pub fn read_to_string(path: str) -> Result<String, i32> {
 
 // ── Convenience: write String to file (overwrite) ────────────────────────
 
+/// Creates or truncates the file at NUL-terminated `path`, then writes `s` with one `write`.
+/// Returns bytes written; a short write is possible. `Err` carries a negative errno.
 pub fn write_string(path: *const u8, s: &String) -> Result<i32, i32> {
     let mut f: File = match ring_open(path, 578, 438) {
         Result::Ok(f)  => { f }
@@ -133,7 +148,7 @@ pub fn write_string(path: *const u8, s: &String) -> Result<i32, i32> {
     return Result::Ok(nw);
 }
 
-// Safe str form: null-terminate the path, then overwrite the file with `s`.
+/// Overwrites the file with `s`; safe `str` overload that null-terminates `path`.
 pub fn write_string(path: str, s: &String) -> Result<i32, i32> {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);

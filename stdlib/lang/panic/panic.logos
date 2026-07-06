@@ -26,6 +26,9 @@ extern fn logos_run_with_recovery(fn_ptr: fn()) -> i32;
 extern fn logos_panic_last_msg() -> *const u8;
 extern fn logos_panic_last_msg_len() -> i64;
 
+/// Aborts execution with an unrecoverable error, printing `panic: <msg>` to stderr.
+/// If a recovery handler is installed (`catch_unwind` or the `#[test]` runner), control
+/// longjmps to it instead of aborting the process.
 pub fn panic(msg: str) -> ! {
     unsafe {
         let prefix: str = "panic: ";
@@ -38,6 +41,7 @@ pub fn panic(msg: str) -> ! {
     }
 }
 
+/// Panics with `msg` if `cond` is false.
 pub fn assert(cond: bool, msg: str) {
     if !cond { panic(msg); }
 }
@@ -52,12 +56,19 @@ pub fn assert(cond: bool, msg: str) {
 // helpers; rely on the `panic: <msg>` line printed by `panic()` for
 // fallback context.
 
+/// Identifies the source position (file, line, column) where a panic originated.
+/// Mirror of `core::panic::Location`; populated only by explicit construction today —
+/// there is no compiler-injected `caller()` yet.
 pub struct Location {
+    /// Source file path.
     pub file:   str,
+    /// Line number within `file`.
     pub line:   u32,
+    /// Column number within `line`.
     pub column: u32,
 }
 
+/// Creates a `Location` for the given source position.
 pub fn location(file: str, line: u32, column: u32) -> Location {
     return Location { file: file, line: line, column: column };
 }
@@ -69,8 +80,11 @@ pub fn location(file: str, line: u32, column: u32) -> Location {
 // the Location is `Option::None` because the panic hook doesn't
 // capture call-site location (would need `#[track_caller]`).
 
+/// Carries a panic's message plus its optional origin; mirror of `core::panic::PanicInfo`.
 pub struct PanicInfo {
+    /// The `str` that was passed to `panic()`.
     pub message:  str,
+    /// Panic origin; currently always `None` — the hook does not capture call-site location.
     pub location: Option<Location>,
 }
 
@@ -85,6 +99,9 @@ pub struct PanicInfo {
 // captures), returns nothing on success, and captures the panic
 // message as str instead of Any. Sufficient for test-harness-style
 // isolation; richer Any-based capture waits on a Box<dyn Any> port.
+/// Runs `f` under panic recovery: `Ok(())` on normal return, `Err(msg)` if `f` panicked.
+/// The error is the `str` passed to `panic()`. Diverges from Rust: takes a plain fn-ptr
+/// (no closure captures) and captures the message as `str`, not `Box<dyn Any>`.
 pub fn catch_unwind(f: fn()) -> Result<(), str> {
     unsafe {
         let rv: i32 = logos_run_with_recovery(f);
@@ -113,10 +130,17 @@ pub fn catch_unwind(f: fn()) -> Result<(), str> {
 // that unconditionally asserts UnwindSafe (Rust uses tuple-struct
 // `(pub T)`; Logos uses a named field for the same shape).
 
+/// Marks a type as safe to observe after an unwind (`catch_unwind` bound).
+/// Not auto-derived today — opt in with an explicit impl or `AssertUnwindSafe`.
 pub trait UnwindSafe {}
+/// Marks `&T` as unwind-safe — the shared-reference analogue of `UnwindSafe`.
+/// Not auto-derived today.
 pub trait RefUnwindSafe {}
 
+/// Wraps a value to unconditionally assert `UnwindSafe`/`RefUnwindSafe` — the escape
+/// hatch for types without the marker impls.
 pub struct AssertUnwindSafe<T> {
+    /// The wrapped value.
     pub value: T,
 }
 

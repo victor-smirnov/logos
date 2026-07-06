@@ -72,9 +72,8 @@ unsafe fn slice_from(s: str, off: i64) -> str {
 
 // ── Public API ───────────────────────────────────────────────────────────
 
-// Returns true if either `--long` or `-short` appears as a bare flag in
-// argv (up to but not past a '--' terminator).  `short` may be "" to
-// disable short-flag matching.
+/// Returns true if `--long_name` or `-short_name` appears as a bare flag in argv.
+/// Stops scanning at the `--` terminator; `short_name` may be `""` to disable short-flag matching.
 pub fn has_flag(long_name: str, short_name: str) -> bool {
     let n: i32 = count();
     let mut i: i32 = 0;
@@ -103,11 +102,9 @@ pub fn has_flag(long_name: str, short_name: str) -> bool {
     return false;
 }
 
-// Look up an option value:
-//   --long=VALUE     (inline)
-//   --long VALUE     (next arg)
-//   -s VALUE         (next arg; only when short_name.len() == 1)
-// Returns Some(value) or None.  Stops at '--' positional terminator.
+/// Looks up an option value: `--long=VALUE`, `--long VALUE`, or `-s VALUE` (short form
+/// only when `short_name.len() == 1`).
+/// Returns `Option::None` if not found, or if scanning reaches the `--` terminator first.
 pub fn get_option(long_name: str, short_name: str) -> Option<str> {
     let n: i32 = count();
     let mut i: i32 = 0;
@@ -153,8 +150,7 @@ pub fn get_option(long_name: str, short_name: str) -> Option<str> {
     return Option::None;
 }
 
-// Count of positional arguments (non-flags; everything after '--' is also
-// positional).
+/// Returns the count of positional arguments (non-flags; everything after `--` counts too).
 pub fn positional_count() -> i32 {
     let n: i32 = count();
     let mut i: i32 = 0;
@@ -174,7 +170,7 @@ pub fn positional_count() -> i32 {
     return count_p;
 }
 
-// Return the idx-th positional argument (0-indexed), or "" if out of range.
+/// Returns the `idx`-th positional argument (0-indexed), or `""` if out of range.
 pub fn positional(idx: i32) -> str {
     let n: i32 = count();
     let mut i: i32 = 0;
@@ -196,7 +192,7 @@ pub fn positional(idx: i32) -> str {
     return "";
 }
 
-// Program name (argv[0]) — useful for usage messages.
+/// Returns the program name (`argv[0]`); useful for usage messages.
 pub fn program_name() -> str {
     return arg(0);
 }

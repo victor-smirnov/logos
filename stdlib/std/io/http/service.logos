@@ -10,16 +10,20 @@
 
 package logos.std.io.http;
 
+/// Turns a `Request` into a `Response`; implement to plug a handler into the conn loop.
 pub trait Service {
+    /// Handles one `req` and returns the `Response` to send back.
     fn call(self: &mut Self, req: &Request) -> Response;
 }
 
 // ── FnService — adapter for `fn(&Request) -> Response` ──────────────────────
 
+/// `Service` adapter wrapping a plain `fn(&Request) -> Response` handler.
 pub struct FnService {
     f: fn(&Request) -> Response,
 }
 
+/// Wraps `f` in a `FnService` so a fn-pointer handler can be used as a `Service`.
 pub fn fn_service(f: fn(&Request) -> Response) -> FnService {
     return FnService { f: f };
 }

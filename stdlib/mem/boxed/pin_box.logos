@@ -16,23 +16,28 @@ use logos.lang.marker;     // Unpin
 use logos.lang.ops;        // Deref / DerefMut
 
 impl<T> Pin<Box<T>> {
+    /// Pins `b` on the heap without checking that `T: Unpin`.
+    /// Safety: caller must uphold the pin guarantee — the pointee must never move again.
     pub unsafe fn new_unchecked_box(b: Box<T>) -> Pin<Box<T>> {
         return Pin::new_unchecked(b);
     }
-    // Downgrade a heap pin to a borrowed pin (shared / mutable).
+    /// Reborrows the heap pin as a shared pin `Pin<&T>`.
     pub fn as_ref(self: &Pin<Box<T>>) -> Pin<&T> {
         return unsafe { Pin::new_unchecked(&**self.pointer_ref()) };
     }
+    /// Reborrows the heap pin as a mutable pin `Pin<&mut T>`.
     pub fn as_mut(self: &mut Pin<Box<T>>) -> Pin<&mut T> {
         return unsafe { Pin::new_unchecked(&mut **self.pointer_mut()) };
     }
 }
 
 impl<T: Unpin> Pin<Box<T>> {
-    // Safe for Unpin targets: the pin guarantee is vacuous.
+    /// Pins `b` on the heap; safe because `T: Unpin` makes the pin guarantee vacuous.
     pub fn new(b: Box<T>) -> Pin<Box<T>> {
         return unsafe { Pin::new_unchecked(b) };
     }
+    /// Unwraps the pin, returning the inner `Box<T>`.
+    /// Only callable for `T: Unpin`, since dropping the pin is otherwise unsound.
     pub fn into_inner(self: Pin<Box<T>>) -> Box<T> {
         return unsafe { self.into_pointer_unchecked() };
     }
@@ -48,8 +53,8 @@ impl<T: Unpin> DerefMut<T> for Pin<Box<T>> {
     }
 }
 
-// Box::pin — heap-pin a value. The value moves INTO the box, then is never
-// moved again: sound for any T because the unpinned phase ends at this call.
+/// Heap-pins `val`, moving it into a new `Box` first.
+/// Sound for any `T`: the value's unpinned phase ends at this call, before pinning.
 pub fn box_pin<T>(val: T) -> Pin<Box<T>> {
     let b: Box<T> = box_new(val);
     return unsafe { Pin::new_unchecked(b) };

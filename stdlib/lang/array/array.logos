@@ -16,11 +16,15 @@ use logos.lang.ops;
 
 // ── ArrayIntoIter<T, const N> — owned-array iterator ─────────────────────
 
+/// Owned-array iterator; yields the elements of `[T; N]` by value.
 pub struct ArrayIntoIter<T, const N: i64> {
+    /// The array being consumed.
     pub buf: [T; N],
+    /// Index of the next element to yield.
     pub idx: i64,
 }
 
+/// Converts an owned `[T; N]` array into an iterator that yields its elements by value.
 pub fn array_into_iter<T, const N: i64>(buf: [T; N]) -> ArrayIntoIter<T, N> {
     return ArrayIntoIter::<T, N> { buf: buf, idx: 0i64 };
 }
@@ -57,6 +61,7 @@ impl<T, const N: i64> FusedIterator<T> for ArrayIntoIter<T, N> {}
 // underlying memory layout is identical for `T` and `[T; 1]`, so this
 // is a no-op cast.
 
+/// Views a single reference as a 1-element array reference (zero-cost pointer reinterpret).
 pub fn array_from_ref<T>(t: &T) -> &[T; 1] {
     unsafe {
         let p: *const T = t as *const T;
@@ -64,6 +69,7 @@ pub fn array_from_ref<T>(t: &T) -> &[T; 1] {
     }
 }
 
+/// Views a single mutable reference as a 1-element mutable array reference.
 pub fn array_from_mut<T>(t: &mut T) -> &mut [T; 1] {
     unsafe {
         let p: *mut T = t as *mut T;

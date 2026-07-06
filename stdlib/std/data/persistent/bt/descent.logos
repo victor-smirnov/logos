@@ -31,6 +31,7 @@ unsafe fn cfg_int_or<const CFG: WritStatic>(key: str, dflt: u64) -> u64 {
     return v.get_int(av) as u64;
 }
 
+/// Returns the max key count for branch nodes: CFG `fanout_branch`, else `fanout`, else 4.
 pub unsafe fn max_keys_branch<const CFG: WritStatic>() -> u64 {
     let fb: u64 = cfg_int_or::<CFG>("fanout_branch", 0u64);
     if fb > 0u64 { return fb; }
@@ -39,6 +40,7 @@ pub unsafe fn max_keys_branch<const CFG: WritStatic>() -> u64 {
     return 4u64;
 }
 
+/// Returns the max key count for leaf nodes: CFG `fanout_leaf`, else `fanout`, else 4.
 pub unsafe fn max_keys_leaf<const CFG: WritStatic>() -> u64 {
     let fl: u64 = cfg_int_or::<CFG>("fanout_leaf", 0u64);
     if fl > 0u64 { return fl; }
@@ -53,11 +55,15 @@ pub unsafe fn max_keys_leaf<const CFG: WritStatic>() -> u64 {
 // adjacent under-min siblings always fit into one node ≤ M). For
 // min_keys = M/2 (integer div), max combined is 2*(M/2-1) + 1 = M-1
 // for branches (incl. promoted parent key) — fits, equal at M=4.
+/// Returns the min key count for a branch node (`max/2`, at least 1); fewer keys means the node
+/// underflowed and must borrow from a sibling or merge during remove rebalance.
 pub unsafe fn min_keys_branch<const CFG: WritStatic>() -> u64 {
     let m: u64 = max_keys_branch::<CFG>();
     if m < 2u64 { return 1u64; }
     return m / 2u64;
 }
+/// Returns the min key count for a leaf node (`max/2`, at least 1); fewer keys means the node
+/// underflowed and must borrow from a sibling or merge during remove rebalance.
 pub unsafe fn min_keys_leaf<const CFG: WritStatic>() -> u64 {
     let m: u64 = max_keys_leaf::<CFG>();
     if m < 2u64 { return 1u64; }
@@ -65,6 +71,7 @@ pub unsafe fn min_keys_leaf<const CFG: WritStatic>() -> u64 {
 }
 
 // ── Header reads via NodeARC ──────────────────────────────────────────
+/// Returns `true` if the node behind `arc` is a leaf, via a layout-driven `NodeBase` header read.
 pub unsafe fn arc_is_leaf<const STORE_CFG: WritStatic>(arc: &NodeARC<STORE_CFG>) -> bool {
     // Layout-driven header read: cast the data pointer to the SHARED
     // NodeBase<STORE_CFG> view (it is the first field of every node) and read
@@ -77,12 +84,16 @@ pub unsafe fn arc_is_leaf<const STORE_CFG: WritStatic>(arc: &NodeARC<STORE_CFG>)
     return (node_arc_data_ptr::<STORE_CFG>(arc) as *mut NodeBase<STORE_CFG>).is_leaf;
 }
 
+/// Casts `arc`'s node data pointer to a typed `LeafNode` pointer; caller must check
+/// `arc_is_leaf` first — no validation is performed.
 pub unsafe fn as_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>
 ) -> *mut LeafNode<K, V, STORE_CFG, CFG> {
     return node_arc_data_ptr::<STORE_CFG>(arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
 }
 
+/// Casts `arc`'s node data pointer to a typed `BranchNode` pointer; caller must check
+/// `arc_is_leaf` first — no validation is performed.
 pub unsafe fn as_branch<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>
 ) -> *mut BranchNode<K, STORE_CFG, CFG> {
@@ -90,6 +101,7 @@ pub unsafe fn as_branch<K: Container + ContainerOrd, const STORE_CFG: WritStatic
 }
 
 // ── In-leaf find / lower_bound ────────────────────────────────────────
+/// Returns the index of `key` in `leaf`, or `-1` if absent (linear scan).
 pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> i64 {
@@ -109,6 +121,7 @@ pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: Wri
     }
 }
 
+/// Returns the first in-leaf index with `keys[i] >= key`, or the key count if no such index.
 pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
@@ -127,8 +140,8 @@ pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_C
     }
 }
 
-// First in-leaf index where keys[i] > target (strict). Mirrors
-// leaf_lower_bound but with a strict-greater predicate.
+/// Returns the first in-leaf index with `keys[i] > key` (strict), or the key count if none.
+/// Mirrors `leaf_lower_bound` with a strict-greater predicate.
 pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
@@ -155,6 +168,9 @@ pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_C
 //   • read (contains/get): n means "not in tree"; return false.
 //   • insert: saturate to n−1 (descend last child, extend it); the new
 //     max bubbles up via parent.keys[i] = child.keys[last] update.
+/// Returns the smallest child index `i` with `keys[i] >= key`, or the key count `n` if `key`
+/// exceeds every subtree max. Invariant: `keys[i]` = max key of `children[i]` (parallel arrays);
+/// readers treat `n` as "not in tree", insert saturates to `n-1`.
 pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     branch: *mut BranchNode<K, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
@@ -174,6 +190,8 @@ pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: WritStat
 }
 
 // ── Recursive walks via NodeARC ───────────────────────────────────────
+/// Returns `true` if `key` is present in the subtree rooted at `arc` (read-only recursive
+/// descent; no rc bumps).
 pub fn bt_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> bool {
@@ -190,6 +208,7 @@ pub fn bt_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CF
     }
 }
 
+/// Returns the stored value view for `key` in the subtree rooted at `arc`, or `None` if absent.
 pub fn bt_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> Option<V::ViewInStore> {
@@ -219,6 +238,10 @@ pub fn bt_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: Wr
 // On success returns Some(leaf NodeARC) (rc bumped — caller drops normally)
 // and writes the leaf-relative index into *out_idx. On out-of-range, returns
 // None and writes 0 into *out_idx (Rust idiom — no null-handle sentinel).
+/// Descends from `arc` to the leaf holding the `n`-th key (zero-indexed, sorted order).
+///
+/// On success returns the leaf arc (rc bumped) and writes the leaf-relative slot to `*out_idx`;
+/// if `n >=` tree size, returns `None` and writes 0. O(depth) via the SUM-column shuttle.
 pub unsafe fn bt_descend_to_n<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, n: u64, out_idx: *mut u64,
 ) -> Option<NodeARC<STORE_CFG>> {
@@ -271,6 +294,8 @@ pub unsafe fn bt_descend_to_n<K: Container + ContainerOrd, V: Container, const S
 // sum of preceding children's subtree_size column entries to convert
 // the per-level child idx into a global position offset. At leaf, add
 // leaf_lower_bound. The accumulator gives the global index.
+/// Returns the smallest global sorted position whose key is `>= key`; the tree size if `key`
+/// exceeds every key in the tree.
 pub unsafe fn bt_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> u64 {
@@ -318,6 +343,8 @@ pub unsafe fn bt_lower_bound<K: Container + ContainerOrd, V: Container, const ST
 // that case naturally — leaf_upper_bound returns leaf.len, and the next
 // step would be to walk to the right sibling. To keep this O(depth)
 // without sibling-walk plumbing, fall back to scanning slots ourselves.
+/// Returns the smallest global sorted position whose key is `> key` (strict); the tree size if
+/// no key exceeds `key`.
 pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> u64 {
@@ -356,6 +383,9 @@ pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const ST
     }
 }
 
+/// Returns the total key count of the subtree rooted at `arc`.
+/// Sums the `subtree_size` SUM column when populated (no descent); otherwise falls back to a
+/// recursive walk over children.
 pub fn bt_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>
 ) -> u64 {

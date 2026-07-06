@@ -18,26 +18,47 @@ use logos.lang.option;
 // Mirrors the Rust variants users actually reach for. The rare ones
 // (Other / Unsupported / OutOfMemory / etc.) are present so port
 // code can pattern-match against the same enum.
+/// Category of an I/O error, mirroring Rust's `std::io::ErrorKind`.
 pub enum ErrorKind {
+    /// An entity was not found, often a file (`ENOENT`).
     NotFound,
+    /// The operation lacked the necessary privileges (`EACCES` / `EPERM`).
     PermissionDenied,
+    /// The connection was refused by the remote server (`ECONNREFUSED`).
     ConnectionRefused,
+    /// The connection was reset by the remote server (`ECONNRESET`).
     ConnectionReset,
+    /// The connection was aborted by the remote server (`ECONNABORTED`).
     ConnectionAborted,
+    /// The network operation failed because the socket was not connected (`ENOTCONN`).
     NotConnected,
+    /// A socket address is already in use elsewhere (`EADDRINUSE`).
     AddrInUse,
+    /// The requested address was not local or the interface does not exist (`EADDRNOTAVAIL`).
     AddrNotAvailable,
+    /// The operation failed because a pipe was closed (`EPIPE`).
     BrokenPipe,
+    /// An entity already exists, often a file (`EEXIST`).
     AlreadyExists,
+    /// The operation would need to block to complete (`EAGAIN` / `EWOULDBLOCK`).
     WouldBlock,
+    /// A parameter was incorrect (`EINVAL`).
     InvalidInput,
+    /// Data encountered was not valid for the operation (e.g. malformed input for the format).
     InvalidData,
+    /// The I/O operation's timeout expired (`ETIMEDOUT`).
     TimedOut,
+    /// A `write` returned zero bytes, so the operation could not complete.
     WriteZero,
+    /// The operation was interrupted (`EINTR`); typically retryable.
     Interrupted,
+    /// The operation is unsupported on this platform (`ENOTSUP`).
     Unsupported,
+    /// End of file was reached before the operation could complete.
     UnexpectedEof,
+    /// The operation failed to allocate enough memory (`ENOMEM`).
     OutOfMemory,
+    /// Any I/O error not covered above; also the fallback for unmapped `errno` values.
     Other,
 }
 
@@ -46,18 +67,24 @@ pub enum ErrorKind {
 // Named `IoError` (not `Error`) to dodge a name-collision with
 // `logos.lang.error::Error` trait. Carries kind + raw_os_error (-1
 // when not OS-derived) + a static message slot.
+/// Structured I/O error: an `ErrorKind` plus an optional OS `errno` and a static message.
 pub struct IoError {
+    /// Error category.
     pub kind:          ErrorKind,
+    /// Raw OS `errno`; `-1` when the error is not OS-derived.
     pub raw_os_error:  i32,
+    /// Static human-readable message; `""` when absent.
     pub message:       str,
 }
 
+/// Creates an `IoError` not attributed to any OS error; `raw_os_error()` on it returns `None`.
 pub fn io_error_new(kind: ErrorKind, message: str) -> IoError {
     return IoError { kind: kind, raw_os_error: 0i32 - 1i32, message: message };
 }
 
-// Wrap an OS-derived errno into a structured IoError. Maps the
-// usual subset to ErrorKind variants; unknown errno → Other.
+/// Wraps an OS-derived `errno` into a structured `IoError`.
+/// Maps the usual errno subset to `ErrorKind` variants; unknown values map to `ErrorKind::Other`.
+/// The message is left empty.
 pub fn io_error_from_errno(errno: i32) -> IoError {
     let k: ErrorKind =
         if errno == 2i32   { ErrorKind::NotFound }            // ENOENT
@@ -82,9 +109,11 @@ pub fn io_error_from_errno(errno: i32) -> IoError {
 }
 
 impl IoError {
+    /// Returns the error's `ErrorKind`.
     pub fn kind(&self) -> ErrorKind {
         return self.kind;
     }
+    /// Returns the originating OS `errno`, or `None` if the error is not OS-derived.
     pub fn raw_os_error(&self) -> Option<i32> {
         if self.raw_os_error < 0i32 {
             return Option::<i32>::None;
@@ -110,26 +139,37 @@ impl Error for IoError {
 // Logos port: simplified — assumes the underlying memory is already
 // initialised (no `MaybeUninit` machinery), and tracks `filled` as
 // the count of valid bytes written so far.
+/// Writable byte-buffer cursor tracking how many bytes have been filled so far.
+/// Simplified port of Rust's `io::BorrowedBuf`: memory is assumed initialised (no uninit tracking).
 pub struct BorrowedBuf {
+    /// Base pointer of the underlying writable buffer.
     pub data:     *mut u8,
+    /// Total buffer size in bytes.
     pub capacity: i64,
+    /// Count of valid bytes written so far, from the start of `data`.
     pub filled:   i64,
 }
 
+/// Creates a `BorrowedBuf` over `capacity` writable bytes at `data`, with nothing filled.
+/// `data` must point to at least `capacity` writable bytes that outlive the buffer.
 pub unsafe fn borrowed_buf_new(data: *mut u8, capacity: i64) -> BorrowedBuf {
     return BorrowedBuf { data: data, capacity: capacity, filled: 0i64 };
 }
 
 impl BorrowedBuf {
+    /// Returns the total buffer size in bytes.
     pub fn capacity(&self) -> i64 { return self.capacity; }
+    /// Returns the count of bytes filled so far.
     pub fn filled(&self) -> i64   { return self.filled; }
+    /// Returns the number of unfilled bytes remaining.
     pub fn remaining(&self) -> i64 { return self.capacity - self.filled; }
 
-    // Advance `filled` by `n`. Caller asserts n bytes are valid in
-    // [self.filled, self.filled + n).
+    /// Advances `filled` by `n`; no bounds check against `capacity`.
+    /// Caller asserts `n` bytes are valid in `[self.filled, self.filled + n)`.
     pub unsafe fn advance(&mut self, n: i64) {
         self.filled = self.filled + n;
     }
 
+    /// Resets `filled` to `0`; the underlying bytes are untouched.
     pub fn clear(&mut self) { self.filled = 0i64; }
 }

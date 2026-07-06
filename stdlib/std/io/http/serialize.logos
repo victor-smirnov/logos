@@ -14,6 +14,8 @@ fn write_str_bytes(s: str, out: &mut Vec<u8>) {
     }
 }
 
+/// Appends the decimal ASCII representation of `v` to `out`.
+/// Supports non-negative values only; `v < 0` appends nothing.
 pub fn write_i64_decimal(v: i64, out: &mut Vec<u8>) {
     if v == 0 { vec_push_u8(out, 48 as u8); return; }
     let mut buf: [u8; 24] = [0 as u8; 24];
@@ -51,7 +53,9 @@ fn write_headers(h: &Headers, out: &mut Vec<u8>) {
     }
 }
 
-// "METHOD /path?query HTTP/1.1\r\n<headers>\r\n<body>"
+/// Appends the full HTTP/1.1 request — request-line, headers, CRLF, body — to `out`.
+/// Wire form: `METHOD /path?query HTTP/1.1\r\n<headers>\r\n<body>`; empty path serializes as `/`,
+/// `?query` only when non-empty. Headers are written as stored; no `Content-Length` is synthesized.
 pub fn serialize_request(req: &Request, out: &mut Vec<u8>) {
     write_str_bytes(s2str(&req.method.name), out);
     vec_push_u8(out, 32 as u8);                              // SP
@@ -77,6 +81,8 @@ pub fn serialize_request(req: &Request, out: &mut Vec<u8>) {
     }
 }
 
+/// Appends the full HTTP/1.1 response — status-line, headers, CRLF, body — to `out`.
+/// Wire form: `HTTP/1.1 <status> <reason>\r\n<headers>\r\n<body>`; headers are written as stored.
 pub fn serialize_response(resp: &Response, out: &mut Vec<u8>) {
     write_str_bytes("HTTP/1.1 ", out);
     write_i64_decimal(resp.status as i64, out);
@@ -99,6 +105,8 @@ pub fn serialize_response(resp: &Response, out: &mut Vec<u8>) {
 // caller can call this then write the body bytes separately through the
 // same writer.
 
+/// Serializes the full request into one buffer and writes it to `w` via a single `write_all`.
+/// Returns `0` on success, negative `errno` on error.
 pub fn serialize_request_stream<W: Write>(req: &Request, w: &mut W) -> i64 {
     let mut buf: Vec<u8> = vec_new::<u8>();
     serialize_request(req, &mut buf);
@@ -108,6 +116,8 @@ pub fn serialize_request_stream<W: Write>(req: &Request, w: &mut W) -> i64 {
     return write_all::<W>(w, p, n);
 }
 
+/// Serializes the full response into one buffer and writes it to `w` via a single `write_all`.
+/// Returns `0` on success, negative `errno` on error.
 pub fn serialize_response_stream<W: Write>(resp: &Response, w: &mut W) -> i64 {
     let mut buf: Vec<u8> = vec_new::<u8>();
     serialize_response(resp, &mut buf);
@@ -117,9 +127,10 @@ pub fn serialize_response_stream<W: Write>(resp: &Response, w: &mut W) -> i64 {
     return write_all::<W>(w, p, n);
 }
 
-// Serialize just the head (status-line + headers + terminator CRLF) to `w`.
-// Use this when the body is large or framed by a different encoder
-// (ChunkedWriter, an already-open file, ...) — caller writes body after.
+/// Writes only the response head — status-line, headers, terminator CRLF — to `w`.
+/// Use when the body is large or framed by a different encoder (`ChunkedWriter`, an open
+/// file, ...); the caller writes the body afterwards through the same writer.
+/// Returns `0` on success, negative `errno` on error.
 pub fn serialize_response_head_stream<W: Write>(resp: &Response, w: &mut W) -> i64 {
     let mut buf: Vec<u8> = vec_new::<u8>();
     write_str_bytes("HTTP/1.1 ", &mut buf);
@@ -134,6 +145,9 @@ pub fn serialize_response_head_stream<W: Write>(resp: &Response, w: &mut W) -> i
     return write_all::<W>(w, p, n);
 }
 
+/// Writes only the request head — request-line, headers, terminator CRLF — to `w`.
+/// Request counterpart of `serialize_response_head_stream`; the caller writes the body afterwards.
+/// Returns `0` on success, negative `errno` on error.
 pub fn serialize_request_head_stream<W: Write>(req: &Request, w: &mut W) -> i64 {
     let mut buf: Vec<u8> = vec_new::<u8>();
     write_str_bytes(s2str(&req.method.name), &mut buf);

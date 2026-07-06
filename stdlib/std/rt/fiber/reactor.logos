@@ -40,13 +40,14 @@ extern fn logos_reactor_set(ptr: *mut u8);
 
 // ── Reactor ───────────────────────────────────────────────────────────────
 
+/// Per-thread io_uring reactor: one ring plus a count of fibers parked on in-flight I/O.
 pub struct Reactor {
     ring:         *mut u8,   // io_uring struct (size = logos_io_uring_sizeof())
     parked_count: i64,       // number of fibers awaiting CQEs
 }
 
-// Allocate and initialise a new reactor with `entries` SQ/CQ slots.
-// Returns 0 on failure.
+/// Allocates and initialises a new reactor with `entries` SQ/CQ slots.
+/// Returns `0` (null) on `io_uring` init failure.
 pub unsafe fn reactor_new(entries: i32) -> *mut Reactor {
     let sz: i32 = logos_io_uring_sizeof();
     let ring: *mut u8 = alloc(sz as i64);
@@ -62,7 +63,7 @@ pub unsafe fn reactor_new(entries: i32) -> *mut Reactor {
     return r;
 }
 
-// Tear down the reactor and free its allocations.
+/// Tears down the reactor and frees its allocations; no-op on null `r`.
 pub unsafe fn reactor_free(r: *mut Reactor) {
     if r == 0 as *mut Reactor { return; }
     logos_io_uring_exit(r.ring);
@@ -70,33 +71,32 @@ pub unsafe fn reactor_free(r: *mut Reactor) {
     dealloc(r as *mut u8);
 }
 
-// Install `r` as the reactor for the current thread (asm TLS slot).
+/// Installs `r` as the current thread's reactor (asm TLS slot).
 pub fn reactor_set_current(r: *mut Reactor) {
     unsafe { logos_reactor_set(r as *mut u8); }
 }
 
-// Fetch the current thread's reactor (0 if none installed).
+/// Returns the current thread's reactor, or `0` if none is installed.
 pub fn reactor_current() -> *mut Reactor {
     return unsafe { logos_reactor_get() } as *mut Reactor;
 }
 
-// Number of fibers currently parked waiting for CQEs.
+/// Returns `true` if any fibers are parked awaiting CQEs; `false` for a null `r`.
 pub fn reactor_has_parked(r: *const Reactor) -> bool {
     if r == 0 as *const Reactor { return false; }
     return unsafe { r.parked_count } > 0 as i64;
 }
 
-// Obtain a free SQE from the reactor's ring.  Returns 0 if the ring is full.
-// Caller must fill the SQE using a logos_io_uring_prep_* function before
-// calling reactor_submit_and_park.
+/// Obtains a free SQE from the reactor's ring; returns `0` if the ring is full.
+/// Caller must fill the SQE via a `logos_io_uring_prep_*` function before
+/// `reactor_submit_and_park`.
 pub unsafe fn reactor_get_sqe(r: *mut Reactor) -> *mut u8 {
     return logos_io_uring_get_sqe(r.ring);
 }
 
-// Attach the current fiber pointer to `sqe` as user_data, submit the ring,
-// and park the current fiber until a CQE for this operation arrives.
-// On resume the CQE result (stashed in FLS slot 0 by reactor_poll) is
-// returned to the caller.
+/// Submits `sqe` with the current fiber attached as `user_data`, parking until its CQE arrives.
+/// Returns the CQE result (stashed in FLS slot 0 by `reactor_poll`) on resume;
+/// -22 (`EINVAL`) when not running inside a fiber; negative submit errors pass through.
 pub unsafe fn reactor_submit_and_park(r: *mut Reactor, sqe: *mut u8) -> i32 {
     let fptr: i64 = current_fiber();
     // user_data=0 is reserved for the notify-fd multishot poll; if we are
@@ -115,11 +115,9 @@ pub unsafe fn reactor_submit_and_park(r: *mut Reactor, sqe: *mut u8) -> i32 {
     return fls_get(fls_key_cqe_result()) as i32;
 }
 
-// Drain completions from the ring.  For each CQE, look up the fiber via
-// user_data, stash the result in the fiber's FLS[0], and re-enqueue it.
-// If `blocking` is true AND at least one fiber is parked, blocks on the
-// first CQE; after that it drains any remaining completions non-blocking.
-// Returns the number of CQEs processed.
+/// Drains completions from the ring, re-enqueuing each CQE's fiber with the result in its FLS[0].
+/// If `blocking`, waits (unconditionally) for the first CQE, then drains the rest non-blocking.
+/// Returns the number of CQEs processed, or a negative errno from the blocking wait.
 pub unsafe fn reactor_poll(r: *mut Reactor, blocking: bool) -> i32 {
     let mut count: i32 = 0;
     let mut cqe: *mut u8 = 0 as *mut u8;
@@ -147,9 +145,8 @@ pub unsafe fn reactor_poll(r: *mut Reactor, blocking: bool) -> i32 {
     return count;
 }
 
-// Drive a scheduler together with its reactor until both the run queue
-// and the parked set are empty.  Useful for single-threaded tests and
-// simple drivers that don't need the full thread-pool machinery.
+/// Drives scheduler `s` and reactor `r` until both the run queue and the parked set are empty.
+/// Suits single-threaded tests and simple drivers without the full thread-pool machinery.
 pub unsafe fn reactor_run(s: *mut Scheduler, r: *mut Reactor) {
     loop {
         sched_run(s);
@@ -173,8 +170,10 @@ struct KernelTimespec {
 extern fn logos_io_uring_prep_timeout(sqe: *mut u8, ts: *const u8,
                                        count: i32, flags: i32);
 
-// Sleep the current fiber for `ns` nanoseconds.  Must be called from a
-// fiber on a thread with a reactor installed.
+/// Sleeps the current fiber for `ns` nanoseconds via `IORING_OP_TIMEOUT`.
+/// Must run inside a fiber on a thread with a reactor installed.
+/// Returns 0 on success (kernel `-ETIME` normalised); -22 for no reactor or
+/// negative `ns`, -12 when the SQ is full.
 pub fn fiber_sleep_ns(ns: i64) -> i32 {
     let r: *mut Reactor = reactor_current();
     if r == 0 as *mut Reactor { return 0 - 22; }
@@ -195,7 +194,8 @@ pub fn fiber_sleep_ns(ns: i64) -> i32 {
     }
 }
 
-// Sleep the current fiber for `ms` milliseconds.
+/// Sleeps the current fiber for `ms` milliseconds.
+/// Same return contract as `fiber_sleep_ns`; negative `ms` returns -22.
 pub fn fiber_sleep_ms(ms: i64) -> i32 {
     if ms < 0 as i64 { return 0 - 22; }
     return fiber_sleep_ns(ms * 1000000 as i64);

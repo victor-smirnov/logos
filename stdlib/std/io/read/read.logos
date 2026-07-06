@@ -9,12 +9,15 @@
 
 package logos.std.io.read;
 
+/// Abstraction for byte-oriented input sources.
 pub trait Read {
+    /// Reads up to `len` bytes into `buf`.
+    /// Returns the byte count read (`> 0`), `0` on end of stream, or `-errno` on error.
     fn read(self: &mut Self, buf: *mut u8, len: i64) -> i64;
 }
 
-// Read exactly `len` bytes into `buf`, looping over partial reads.
-// Returns 0 on success, -1 on early EOF, negative errno on error.
+/// Reads exactly `len` bytes into `buf`, looping over partial reads.
+/// Returns 0 on success, -1 on early EOF, negative errno on error.
 pub fn read_exact<R: Read>(r: &mut R, buf: *mut u8, len: i64) -> i64 {
     let mut total: i64 = 0;
     while total < len {

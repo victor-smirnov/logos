@@ -36,6 +36,8 @@ use logos.lang.panic;
 // the consumption correctly (the old intrusive code had to hand-neutralise a
 // struct-field arg to dodge a double-free; routing through a local + by-value
 // move makes that unnecessary).
+/// Inserts `new_arc` at index `idx` in `v`, shifting later elements right.
+/// Caller must ensure `idx <= v.len()`; the shift is whole-handle swaps (no refcount churn).
 pub unsafe fn vec_arc_insert_at<const STORE_CFG: WritStatic>(
     v: *mut Vec<NodeARC<STORE_CFG>>, idx: i64, new_arc: NodeARC<STORE_CFG>
 ) {
@@ -58,11 +60,18 @@ pub unsafe fn vec_arc_insert_at<const STORE_CFG: WritStatic>(
 // `right_max` carries the max key of the new right node; `right_max_present`
 // gates validity (K isn't Default-able in general, so we can't fill with
 // a sentinel).
+/// Outcome of a recursive insert: whether an existing key was replaced, and whether
+/// the visited node split.
 pub struct InsertOutcome<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic> {
+    /// True if `key` already existed (value was replaced, not inserted).
     pub hit:                bool,
+    /// True if the node split during this insert; `right`/`right_max*` are then valid.
     pub split:              bool,
+    /// The new right sibling produced by a split.
     pub right:              Option<NodeARC<STORE_CFG>>,   // Some iff split
+    /// True if `right_max` holds a valid value (K isn't `Default`-able in general).
     pub right_max_present:  bool,
+    /// Max key of `right`'s subtree, valid only when `right_max_present`.
     pub right_max:          K::ViewInStore,
 }
 
@@ -70,6 +79,7 @@ pub struct InsertOutcome<K: Container + ContainerOrd, const STORE_CFG: WritStati
 // as the local max — for branches, keys[last] = max of children[last] =
 // max of subtree (Memoria invariant). V parameter is needed only because
 // as_leaf is parametric over V; for branch reads it's unused.
+/// Returns the max key of `arc`'s subtree, relying on the leaf/branch max-key invariant.
 pub unsafe fn node_max_key<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &NodeARC<STORE_CFG>,
 ) -> K::ViewInStore {
@@ -92,6 +102,8 @@ unsafe fn alloc_id<const STORE_CFG: WritStatic>(p: *mut BlockId<STORE_CFG>) -> B
 // retains [0..mid]; right gets [mid..]. Both halves carry full entries.
 // Caller propagates max keys: parent.keys[i] = left.keys.last (new max
 // of left), parent.keys.insert(i+1, right.keys.last).
+/// Splits `leaf` in half, moving the upper half of entries into a freshly allocated
+/// right leaf; `leaf` keeps the lower half. Panics if `keys.len() != vals.len()`.
 pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>,
     new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
@@ -118,6 +130,8 @@ pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_
 // keeps [0..mid]. No separator promotion — both halves carry their own
 // (key, child) sequences. Caller updates parent.keys[i] = new left max
 // and inserts (right.keys[last], right_arc) at i+1.
+/// Splits `branch` in half, moving the upper half of keys/children/subtree_size into
+/// a freshly allocated right branch; `branch` keeps the lower half.
 pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     branch: *mut BranchNode<K, STORE_CFG, CFG>,
     new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
@@ -160,6 +174,10 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: WritSta
 }
 
 // ── Recursive insert ──────────────────────────────────────────────────
+/// Recursively inserts `key`/`val` (positioned by `qkey`) into the subtree rooted at
+/// `arc`, CoW-cloning any node not owned by `cur_snapshot_id` and splitting on overflow.
+/// Returns an `InsertOutcome` reporting whether an existing key was replaced and
+/// whether `arc` split.
 pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &mut NodeARC<STORE_CFG>,
     key: K::ViewInStore, val: V::ViewInStore, qkey: K::ViewInStore,
@@ -271,6 +289,9 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
 }
 
 // ── Top-level insert: descend, possibly grow root ─────────────────────
+/// Inserts `key`/`val` into the tree rooted at `root`, growing a new root when the
+/// old root splits. Returns the previous value if `key` already existed (mirrors
+/// Rust `BTreeMap::insert`).
 pub unsafe fn bt_insert<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     root: &mut NodeARC<STORE_CFG>,
     key: K::ViewInStore, val: V::ViewInStore, qkey: K::ViewInStore,
@@ -316,8 +337,12 @@ pub unsafe fn bt_insert<K: Container + ContainerOrd, V: Container, const STORE_C
 // ── Remove outcome — propagates underflow signal up the recursion ─────
 // `hit`: key was found and removed. `underflow`: this node is now
 // below min_keys and needs the parent to rebalance via siblings.
+/// Outcome of a recursive remove: whether the key was found, and whether the visited
+/// node underflowed and needs the parent to rebalance.
 pub struct RemoveOutcome {
+    /// True if the key was found and removed.
     pub hit:       bool,
+    /// True if the node is now below `min_keys` and the parent must rebalance it.
     pub underflow: bool,
 }
 
@@ -342,6 +367,9 @@ pub struct RemoveOutcome {
 //   merge-with-left:   parent.keys.erase(i-1) — keys[i] (child's old
 //                      max = merged left's new max) slides to i-1.
 //                      parent.children.remove_at(i).
+/// Rebalances leaf child `i` of `parent_branch` after underflow: merges with a
+/// sibling when the combined length fits `max_keys`, otherwise borrows one entry
+/// from whichever sibling has more keys.
 pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     parent_branch: *mut BranchNode<K, STORE_CFG, CFG>, i: i64,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
@@ -436,6 +464,9 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
 // ── Branch rebalance: merge-first, borrow only when forced ────────────
 // Same decision policy as rebalance_leaf_child but the unit transferred
 // is (key, child) pair instead of (key, val).
+/// Rebalances branch child `i` of `parent_branch` after underflow: merges with a
+/// sibling when the combined length fits `max_keys`, otherwise borrows one
+/// (key, child) pair from whichever sibling has more keys.
 pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     parent_branch: *mut BranchNode<K, STORE_CFG, CFG>, i: i64,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
@@ -528,6 +559,10 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
 }
 
 // ── Recursive remove with rebalance ───────────────────────────────────
+/// Recursively removes `qkey` from the subtree rooted at `arc`, CoW-cloning any node
+/// not owned by `cur_snapshot_id` and rebalancing children that underflow.
+/// Returns a `RemoveOutcome` reporting whether the key was found and whether `arc`
+/// itself underflowed.
 pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     arc: &mut NodeARC<STORE_CFG>,
     qkey: K::ViewInStore,
@@ -588,6 +623,8 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
 }
 
 // ── Top-level remove: descend, then collapse root if it shrank to one child ─
+/// Removes `qkey` from the tree rooted at `root`, collapsing the root while it's a
+/// branch with a single remaining child. Returns `true` if the key was found and removed.
 pub unsafe fn bt_remove<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
     root: &mut NodeARC<STORE_CFG>, qkey: K::ViewInStore,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,

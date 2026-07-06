@@ -24,16 +24,16 @@ package logos.lang.try_trait;
 
 use logos.lang.control_flow;
 
-// Two type parameters: the Continue value type, and the Residual
-// type — Rust's `type Continue` / `type Residual` associated types
-// lifted to free generic params for the slice-1 surface.
+/// Types that can be short-circuited by the `?` operator.
+/// `Continue`/`Residual` are Rust's `type Continue`/`type Residual` associated types,
+/// lifted to free generic params (slice-1 surface; no associated types yet).
 pub trait Try<Continue, Residual> {
+    /// Splits `self` into a `Continue` value or a `Break` residual for `?` to act on.
     fn branch(self: Self) -> ControlFlow<Residual, Continue>;
 }
 
-// From a Break residual (typically a stripped-of-Continue version
-// of the inner type), synthesize the outer fn's return value. Used
-// at the early-return site of `?`.
+/// Types a `?`-propagated residual can be converted into at the early-return site.
 pub trait FromResidual<R> {
+    /// Builds the outer fn's early-return value from a `Break` residual `r`.
     fn from_residual(r: R) -> Self;
 }

@@ -36,11 +36,16 @@ extern fn free(ptr: *mut u8);
 // thin-pointer plumbing below. `sizeof::<Segment>()` is the HEADER size (the
 // tail offset, a multiple of 8), so the data region starts 8-byte aligned.
 // See docs/internals/ref-repr-design.md §6 + writ-design.md §3.
+/// A never-moved chunk: an inline header followed by `cap` bytes of data.
 #[self_describing]
 pub struct Segment {
+    /// Absolute pointer to the next segment, or null if this is the last one.
     pub next: *mut Segment,   // next segment (absolute — stable, never moves)
+    /// Data capacity in bytes for this segment, excluding the header.
     pub cap:  i64,            // data capacity in bytes (excludes this header) = data.len()
+    /// Bump cursor: bytes already handed out within the data region.
     pub used: i64,            // bump cursor within the data region
+    /// Inline flexible-array tail holding the segment's raw data bytes.
     pub data: [u8],           // inline data region (flexible-array tail)
 }
 
@@ -69,16 +74,19 @@ unsafe fn segment_make(cap: i64) -> *mut Segment {
     return seg;
 }
 
-// Allocator — owns a singly-linked list of never-moved segments. Bump-allocates
-// within `current`, appends a new segment when full, frees all on drop.
+/// Owns a singly-linked list of never-moved segments.
+/// Bump-allocates within `current`, appends a new segment when full, frees all on drop.
 pub struct Allocator {
+    /// First segment — the walk start for freeing all segments en masse.
     pub head:     *mut Segment,   // first segment (free-en-masse walk start)
+    /// The segment currently being bump-allocated into.
     pub current:  *mut Segment,   // segment we bump into
+    /// Default data capacity in bytes for newly appended segments.
     pub seg_size: i64,            // default capacity for appended segments
 }
 
-// Create an allocator with an initial segment of `seg_size` data bytes.
-// On OOM the returned allocator has a null head (allocator_alloc then returns null).
+/// Creates an allocator with an initial segment of `seg_size` data bytes.
+/// On OOM the returned allocator has a null `head` (`allocator_alloc` then returns null).
 pub unsafe fn allocator_new(seg_size: i64) -> Allocator {
     let seg: *mut Segment = segment_make(seg_size);
     return Allocator { head: seg, current: seg, seg_size: seg_size };
@@ -109,6 +117,11 @@ unsafe fn allocator_append(a: *mut Allocator, min_cap: i64) -> *mut Segment {
 // handed back ≥2-aligned, because a Ref'd object's low bit must be 0 (the WAny
 // Pod/Ref tag). Returns a pointer into a never-moved segment (stable for the
 // allocator's lifetime), or null on OOM.
+/// Bump-allocates `size` bytes at `align` from the allocator, appending a new
+/// segment if the current one is full. `align` must be a power of two; the
+/// allocator floors it to 2 (a Ref'd object's low bit must be 0). Returns a
+/// pointer into a never-moved segment (stable for the allocator's lifetime), or
+/// null on OOM.
 pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64, align: i64) -> *mut u8 {
     let al: i64 = if align < 2i64 { 2i64 } else { align };
     let seg: *mut Segment = a.current;
@@ -133,9 +146,9 @@ pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64, align: i64) -> *mut 
     return na as *mut u8;
 }
 
-// Free all segments en masse. The allocator must not be used afterwards.
-// IDEMPOTENT: nulls head/current, so a second call (or the Drop below after an
-// explicit free) walks a null list and is a no-op — no double-free.
+/// Frees all segments en masse. The allocator must not be used afterwards.
+/// Idempotent: nulls `head`/`current`, so a second call (or the `Drop` impl after
+/// an explicit free) walks a null list and is a no-op — no double-free.
 pub unsafe fn allocator_free(a: *mut Allocator) {
     let mut seg: *mut Segment = a.head;
     while !seg.is_null() {
@@ -153,6 +166,7 @@ pub unsafe fn allocator_free(a: *mut Allocator) {
 // Composes with an explicit `allocator_free`/`writ_free`: that call nulls
 // `head`, so this drop then walks an empty list (idempotent — no double-free).
 impl Drop for Allocator {
+    /// Frees all segments en masse; a no-op if `allocator_free` already ran (idempotent).
     fn drop(self: Allocator) {
         unsafe {
             let mut seg: *mut Segment = self.head;

@@ -22,6 +22,10 @@ use logos.lang.cell;
 
 // The root container: owns the segment arena by value (the container is the
 // stable root — it does not move; only never-move segments hang off it).
+/// Owned, mutable root container for a never-move zoned document.
+///
+/// Owns the segment arena by value; placed objects never move, so pointers and
+/// self-relative references into them stay valid for the container's lifetime.
 pub struct Writ {
     // Both fields are interior-mutable: the container mutates its own arena and
     // root word through a shared `&Writ` (placement / `set_root` neither move nor
@@ -32,16 +36,21 @@ pub struct Writ {
     // can reach the arena via `.allocator.get()`; the UnsafeCell wrapper — not
     // field privacy — is what makes `Writ` non-Freeze and unblocks the
     // readonly/noalias exclusion.
+    /// The never-move segment arena; interior-mutable so placement works through `&Writ`.
     pub allocator: UnsafeCell<Allocator>,
     // The document ROOT — the top-level WAny, stored as its raw 8-byte word (0 =
     // null/unset). The legacy DocumentHeader analogue, folded into the root
     // container rather than a separate zone object.
+    /// The document root — the top-level `WAny` stored as its raw 8-byte word (0 = null/unset).
     pub root: UnsafeCell<i64>,
 }
 
 // Create a container whose segments default to `seg_size` data bytes. SAFE: the
 // returned container is a sound owned root (RAII-freed on drop); the segment
 // malloc is the only unsafe step and is fully encapsulated here.
+/// Creates a container whose segments default to `seg_size` data bytes.
+///
+/// Safe: the returned container is a sound owned root, RAII-freed on drop.
 pub fn writ_new(seg_size: i64) -> Writ {
     return Writ { allocator: UnsafeCell::new(unsafe { allocator_new(seg_size) }), root: UnsafeCell::new(0i64) };
 }
@@ -52,32 +61,38 @@ impl Writ {
     // invalidates anything in the never-move arena, so it coexists with live
     // references into the container. `root()` reconstructs the WAny from the stored
     // word (branchless: a Pod word reads back Pod, a Ref word reads back Ref).
+    /// Sets the document root to `v` (interior-mutable: `&self`; stores the raw word).
     pub fn set_root(self: &Writ, v: WAny) {
         unsafe { *(self.root.get()) = v.raw(); }
     }
+    /// Returns the document root `WAny` reconstructed from the stored word.
     pub fn root(self: &Writ) -> WAny { return WAny::ref_to((unsafe { *self.root.get() }) as *const u8); }
 }
 
-// Free the container and all its segments en masse. Must not be used after.
+/// Frees the container and all its segments en masse; `h` must not be used afterwards.
 pub unsafe fn writ_free(h: *mut Writ) {
     allocator_free(h.allocator.get());
 }
 
-// Place one uninitialised `T` into a never-move segment; return a pointer to it.
-// The caller initialises the storage. The pointer is stable for the container's
-// lifetime. Returns null on OOM.
+/// Places one uninitialised `T` into a never-move segment and returns a pointer to it.
+///
+/// The caller initialises the storage. The pointer is stable for the container's
+/// lifetime. Returns null on OOM.
 pub unsafe fn writ_alloc<T>(h: *mut Writ) -> *mut T {
     return allocator_alloc(h.allocator.get(), sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
 }
 
-// Place `n` contiguous uninitialised `T` (array backing) in one segment; return
-// a pointer to element 0. Stable for the container's lifetime. Null on OOM.
+/// Places `n` contiguous uninitialised `T` (array backing) in one segment.
+///
+/// Returns a pointer to element 0, stable for the container's lifetime. Null on OOM.
 pub unsafe fn writ_alloc_n<T>(h: *mut Writ, n: i64) -> *mut T {
     return allocator_alloc(h.allocator.get(), (sizeof::<T>() as i64) * n, align_of::<T>() as i64) as *mut T;
 }
 
-// Place `n` raw bytes (for self-describing blobs — Varchar payloads, etc.).
-// Stable for the container's lifetime. Null on OOM.
+/// Places `n` raw uninitialised bytes (8-aligned) and returns a pointer to them.
+///
+/// For self-describing blobs — Varchar payloads, etc. Stable for the container's
+/// lifetime. Null on OOM.
 pub unsafe fn writ_alloc_bytes(h: *mut Writ, n: i64) -> *mut u8 {
     return allocator_alloc(h.allocator.get(), n, 8i64);   // conservative: callers may place 8-aligned data
 }
@@ -87,6 +102,10 @@ pub unsafe fn writ_alloc_bytes(h: *mut Writ, n: i64) -> *mut u8 {
 // maps 3101+, Datatype 1001, TypedValue 4115) = a header byte (223 + n-1) at obj[-1]
 // plus `n` little-endian code bytes at obj[-2], obj[-3], …. The 8-byte pre-object
 // slot fits any ≤7-byte code. (Mirrors writ.datatag::write_tag.)
+/// Writes the in-band varint type tag `code` into the bytes immediately before `obj`.
+///
+/// Codes 1..=222 take one byte at `obj[-1]`; larger codes take a header byte at `obj[-1]`
+/// plus little-endian code bytes below it. `code == 0` writes nothing.
 pub unsafe fn w_write_tag(obj: *mut u8, code: u64) {
     if code == 0u64 { return; }
     if code <= 222u64 { *(((obj as i64) - 1i64) as *mut u8) = code as u8; return; }
@@ -108,6 +127,10 @@ pub unsafe fn w_write_tag(obj: *mut u8, code: u64) {
 // pointer; `w_type_code(obj)` reads the code back. Takes `*mut Allocator` so
 // containers holding only an allocator back-pointer (WArray<WAny>, WMap<WString,
 // WAny>, WTinyValMap) can tag-allocate without the full Writ.
+/// Allocates a tagged arena object: an 8-byte tag slot, then `size` 8-aligned object bytes.
+///
+/// Writes the varint type `code` ending at `obj[-1]` and returns the object pointer;
+/// `w_type_code(obj)` reads the code back.
 pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u64) -> *mut u8 {
     let base: *mut u8 = allocator_alloc(a, 8i64 + size, 8i64);
     let obj: *mut u8 = ((base as i64) + 8i64) as *mut u8;
@@ -117,29 +140,35 @@ pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u64) -> *mut u8 {
 
 // Box a WIDE scalar — a value that doesn't fit the 56-bit inline Pod — into its
 // own 8-byte tagged arena object, returning an WAny Ref to it.
+/// Boxes `v` into its own `W_I64`-tagged 8-byte arena object; returns a Ref `WAny` to it.
 pub unsafe fn box_i64(a: *mut Allocator, v: i64) -> WAny {
     let obj: *mut u8 = alloc_tagged(a, 8i64, W_I64);
     *(obj as *mut i64) = v;
     return WAny::ref_to(obj as *const u8);
 }
+/// Boxes `v` into its own `W_F64`-tagged 8-byte arena object; returns a Ref `WAny` to it.
 pub unsafe fn box_f64(a: *mut Allocator, v: f64) -> WAny {
     let obj: *mut u8 = alloc_tagged(a, 8i64, W_F64);
     *(obj as *mut f64) = v;
     return WAny::ref_to(obj as *const u8);
 }
-// u64 is ALWAYS boxed (no inline unsigned-56 tag — keeps `is_u64`/`as_u64` exact).
+/// Boxes `v` into its own `W_U64`-tagged 8-byte arena object; returns a Ref `WAny` to it.
+///
+/// `u64` is ALWAYS boxed (no inline unsigned-56 tag — keeps `is_u64`/`as_u64` exact).
 pub unsafe fn box_u64(a: *mut Allocator, v: u64) -> WAny {
     let obj: *mut u8 = alloc_tagged(a, 8i64, W_U64);
     *(obj as *mut u64) = v;
     return WAny::ref_to(obj as *const u8);
 }
-// f32 boxed in an 8-byte slot (4 used); never fits the inline integer Pod.
+/// Boxes `v` into a `W_F32`-tagged 8-byte arena slot (4 used); returns a Ref `WAny` to it.
+///
+/// `f32` never fits the inline integer Pod, so it is always boxed.
 pub unsafe fn box_f32(a: *mut Allocator, v: f32) -> WAny {
     let obj: *mut u8 = alloc_tagged(a, 8i64, W_F32);
     *(obj as *mut f32) = v;
     return WAny::ref_to(obj as *const u8);
 }
-// Make an integer WAny: inline Pod when it fits i56, else boxed.
+/// Makes an integer `WAny`: inline Pod when `v` fits i56, else boxed via `box_i64`.
 pub unsafe fn make_int(a: *mut Allocator, v: i64) -> WAny {
     if fits_i56(v) { return WAny::pod(v, WA_I56); }
     return box_i64(a, v);
@@ -148,9 +177,11 @@ pub unsafe fn make_int(a: *mut Allocator, v: i64) -> WAny {
 impl Writ {
     // Build a scalar WAny in THIS arena (boxing wide values). For walkers that
     // hold a `&Writ` (parse / wbs_read / compactify).
+    /// Makes an integer `WAny` in this arena: inline Pod when `v` fits i56, else boxed.
     pub fn int(self: &Writ, v: i64) -> WAny {
         unsafe { return make_int(self.allocator.get(), v); }
     }
+    /// Boxes `v` into a `W_F64`-tagged object in this arena; returns a Ref `WAny` to it.
     pub fn float(self: &Writ, v: f64) -> WAny {
         unsafe { return box_f64(self.allocator.get(), v); }
     }
@@ -168,11 +199,16 @@ impl Writ {
 //   • mutation excludes views — `get_mut` (or another `&mut self` placement) and
 //     a live `&self` view cannot coexist.
 // The raw `writ_alloc*` above stay `unsafe`; this layer is the safe surface.
+/// Opaque handle to a `T` placed in the container — a stable, never-moving location.
+///
+/// Not directly dereferenceable; read it via `Writ::get`/`get_mut`, which tie the
+/// borrow to the container so views cannot outlive it.
 pub struct Slot<T> { p: *mut T }
 
 impl Writ {
     // Place `v` into a never-move segment; return an opaque handle. `&mut self`:
     // placement is an exclusive operation. (Internally unsafe; the API is safe.)
+    /// Places `v` into a never-move segment and returns an opaque `Slot` handle to it.
     pub fn put<T>(self: &mut Writ, v: T) -> Slot<T> {
         unsafe {
             let p: *mut T = allocator_alloc(self.allocator.get(), sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
@@ -183,12 +219,14 @@ impl Writ {
 
     // Borrow the slot's value, tied to the container's lifetime: the returned
     // `&'a T` may not outlive `&'a self`. Many shared views may coexist.
+    /// Borrows the slot's value; the `&'a T` is tied to `&'a self`, shared views may coexist.
     pub fn get<'a, T>(self: &'a Writ, s: Slot<T>) -> &'a T {
         unsafe { return &*(s.p as *const T); }
     }
 
     // Exclusive borrow: `&'a mut self` → `&'a mut T`. While it lives, no other
     // view (shared or mutable) of the container is allowed.
+    /// Exclusively borrows the slot's value; excludes every other view of the container.
     pub fn get_mut<'a, T>(self: &'a mut Writ, s: Slot<T>) -> &'a mut T {
         unsafe { return &mut *(s.p); }
     }
@@ -204,28 +242,35 @@ impl Writ {
 // clone into a `Held<T>` that can be returned/stored. When the last holder drops,
 // the container drops (Drop frees all segments). (`dyn Resident` type-erasure of
 // the holder + the enforced ref ≤ holder borrow-tie are the next steps.)
+/// Creates a refcounted (held) container; when the last holder drops, all segments free.
 pub fn writ_rc(seg_size: i64) -> Rc<Writ> { return rc_new(writ_new(seg_size)); }
 
 // `Resident` — a residency root (a segment set), type-erased behind `dyn Resident`
 // so a holder is OPAQUE: it does not name `Writ`, and any future container type
 // is held uniformly. Dropping the last `Rc<dyn Resident>` runs the concrete
 // container's Drop (frees its segments).
+/// A residency root (a segment set), type-erased so a holder is opaque.
+///
+/// Dropping the last `Rc<dyn Resident>` runs the concrete container's `Drop`,
+/// freeing its segments.
 pub trait Resident { }
 impl Resident for Writ { }
 
+/// An escaped reference paired with a residency holder that keeps its arena alive.
 pub struct Held<T> { holder: Rc<dyn Resident>, ptr: *const T }
 
 // Pair a reference with a holder clone — the escape form of the reference. The
 // `Rc<Writ>` clone unsize-coerces to the opaque `Rc<dyn Resident>` holder at
 // the type-annotated let (Logos coerces Rc<T>→Rc<dyn> at an annotated let / call
 // arg, not yet at a struct-literal field).
+/// Pairs `r` with a clone of the container's residency holder — the escape form of a reference.
 pub fn hold<T>(h: &mut Rc<Writ>, r: &T) -> Held<T> {
     let holder: Rc<dyn Resident> = h.clone_ref();
     return Held { holder: holder, ptr: r as *const T };
 }
 
 impl<T> Held<T> {
-    // The held reference; valid while this Held (hence its holder) lives.
+    /// Returns the held reference; valid while this `Held` (hence its holder) lives.
     pub fn get(self: &Held<T>) -> &T { return unsafe { &*self.ptr }; }
 }
 
@@ -239,16 +284,18 @@ impl<T> Held<T> {
 // independent of any parent container. `HeldAny` is that escape package: it stores
 // the value BY VALUE (no `*const`, unlike `Held<T>`) + a Writ holder; while the
 // HeldAny lives the arena is alive, so `val()`/`resolve()` are well-defined.
+/// An escaping `WAny` (stored by value) paired with a Writ holder that keeps the arena alive.
 pub struct HeldAny { holder: Rc<dyn Resident>, val: WAny }
 
-// Pair an WAny with a clone of the container's residency holder.
+/// Pairs `v` with a clone of the container's residency holder — the escape form of a `WAny`.
 pub fn hold_any(h: &mut Rc<Writ>, v: WAny) -> HeldAny {
     let holder: Rc<dyn Resident> = h.clone_ref();
     return HeldAny { holder: holder, val: v };
 }
 
 impl HeldAny {
-    // The held value; valid while this HeldAny (hence its Writ holder) lives.
+    /// Returns the held value; valid while this `HeldAny` (hence its Writ holder) lives.
     pub fn val(self: &HeldAny) -> WAny { return self.val; }
+    /// Returns the held value's raw word as an absolute pointer (tagged object for a Ref).
     pub fn resolve(self: &HeldAny) -> *const u8 { return self.val.resolve(); }
 }

@@ -14,6 +14,7 @@ package logos.mem.collections.deque;
 use logos.lang.mem;
 use logos.lang.option;
 
+/// Double-ended queue backed by a power-of-two-capacity ring buffer.
 pub struct VecDeque<T> {
     buf:  *mut T,
     head: i64,
@@ -21,6 +22,7 @@ pub struct VecDeque<T> {
     cap:  i64,   // always a power of two
 }
 
+/// Creates an empty `VecDeque` with an initial capacity of 8.
 pub fn vecdeque_new<T>() -> VecDeque<T> {
     let init_cap: i64 = 8;
     let raw: *mut u8 = alloc(init_cap * sizeof::<T>());
@@ -33,16 +35,20 @@ pub fn vecdeque_new<T>() -> VecDeque<T> {
 }
 
 impl<T> VecDeque<T> {
+    /// Returns the number of elements currently stored.
     pub fn len(&self) -> i64 { return self.len; }
 
+    /// Returns `true` if the deque holds no elements.
     pub fn is_empty(&self) -> bool { return self.len == 0 as i64; }
 
-    // Get element at logical index i (0 = front).
+    /// Returns the element at logical index `i` (0 = front), by value.
+    /// Does not bounds-check `i` against `len`; out-of-range `i` reads stale/foreign slots.
     pub unsafe fn get(self: *const VecDeque<T>, i: i64) -> T {
         let mask: i64 = self.cap - 1 as i64;
         return self.buf[(self.head + i) & mask];
     }
 
+    /// Appends `val` to the back, growing the ring buffer (doubling capacity) if full.
     pub unsafe fn push_back(self: *mut VecDeque<T>, val: T) {
         if self.len == self.cap { self.grow(); }
         let mask: i64 = self.cap - 1 as i64;
@@ -51,6 +57,7 @@ impl<T> VecDeque<T> {
         self.len = self.len + 1 as i64;
     }
 
+    /// Prepends `val` to the front, growing the ring buffer (doubling capacity) if full.
     pub unsafe fn push_front(self: *mut VecDeque<T>, val: T) {
         if self.len == self.cap { self.grow(); }
         let mask: i64 = self.cap - 1 as i64;
@@ -59,6 +66,7 @@ impl<T> VecDeque<T> {
         self.len = self.len + 1 as i64;
     }
 
+    /// Removes and returns the front element, or `Option::None` if the deque is empty.
     pub unsafe fn pop_front(self: *mut VecDeque<T>) -> Option<T> {
         if self.len == 0 as i64 { return Option::None; }
         let mask: i64 = self.cap - 1 as i64;
@@ -68,6 +76,7 @@ impl<T> VecDeque<T> {
         return Option::Some(val);
     }
 
+    /// Removes and returns the back element, or `Option::None` if the deque is empty.
     pub unsafe fn pop_back(self: *mut VecDeque<T>) -> Option<T> {
         if self.len == 0 as i64 { return Option::None; }
         let mask: i64 = self.cap - 1 as i64;

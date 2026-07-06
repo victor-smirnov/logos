@@ -25,14 +25,18 @@ package logos.lang.hint;
 
 extern fn abort();
 
+/// Returns `x` unchanged, as an optimization barrier the compiler cannot fold across calls.
 pub fn black_box<T>(x: T) -> T {
     return x;
 }
 
+/// Hints that the caller is in a busy-wait spin loop.
+/// No-op today; backend would emit `pause` (x86) / `yield` (AArch64) here.
 pub fn spin_loop() {
     // No-op today; backend would emit `pause` / `yield` here.
 }
 
+/// Asserts this point is unreachable; diverges via `abort()` if control reaches it anyway.
 pub unsafe fn unreachable_unchecked() {
     // Defensive: callers promise this is unreachable, but if it fires
     // we abort rather than miscompile downstream code. Logos doesn't

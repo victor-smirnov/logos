@@ -8,24 +8,38 @@
 
 package logos.lang.unicode;
 
-// Subset of Unicode general-category codes. Variants follow Rust's
-// `core::unicode::category::Category` (which itself mirrors UCD's
-// GC abbreviations) — we expose just the ones our scaffolded tables
-// actually populate; the rest map to `Other` (Cn = unassigned).
+/// Subset of Unicode general-category codes.
+/// Variants mirror UCD GC abbreviations (as in Rust's `core::unicode::category::Category`);
+/// only the categories our scaffolded tables populate are exposed — the rest map to `Other`
+/// (Cn = unassigned).
 pub enum GeneralCategory {
+    /// Uppercase letter.
     Lu,  // Uppercase Letter
+    /// Lowercase letter.
     Ll,  // Lowercase Letter
+    /// Other letter.
     Lo,  // Other Letter
+    /// Decimal digit number.
     Nd,  // Decimal Number
+    /// Space separator.
     Zs,  // Space Separator
+    /// Control code.
     Cc,  // Control
+    /// Other punctuation.
     Po,  // Other Punctuation
+    /// Math symbol.
     Sm,  // Math Symbol
+    /// Currency symbol.
     Sc,  // Currency Symbol
+    /// Other symbol.
     So,  // Other Symbol
+    /// Catch-all for every category not listed above, including unassigned (Cn).
     Other,
 }
 
+/// Returns the Unicode general category of codepoint `cp`.
+/// Accurate only for ASCII + Latin-1 Supplement (U+0000–U+00FF), with Pd/Ps/Pe lumped into
+/// `Po`; every codepoint above U+00FF maps to `GeneralCategory::Other`.
 pub fn unicode_general_category(cp: u32) -> GeneralCategory {
     // Control: U+0000-001F, U+007F-009F.
     if cp <= 0x1Fu32 { return GeneralCategory::Cc; }
@@ -78,6 +92,8 @@ pub fn unicode_general_category(cp: u32) -> GeneralCategory {
     return GeneralCategory::Other;
 }
 
+/// Returns `true` if `cp` is a letter (`Lu`, `Ll`, or `Lo`).
+/// Category coverage stops at U+00FF; letters above that return `false`.
 pub fn unicode_is_alphabetic(cp: u32) -> bool {
     match unicode_general_category(cp) {
         GeneralCategory::Lu => { return true; }
@@ -87,6 +103,8 @@ pub fn unicode_is_alphabetic(cp: u32) -> bool {
     }
 }
 
+/// Returns `true` if `cp` is a lowercase letter (`Ll`).
+/// Category coverage stops at U+00FF; lowercase letters above that return `false`.
 pub fn unicode_is_lowercase(cp: u32) -> bool {
     match unicode_general_category(cp) {
         GeneralCategory::Ll => { return true; }
@@ -94,6 +112,8 @@ pub fn unicode_is_lowercase(cp: u32) -> bool {
     }
 }
 
+/// Returns `true` if `cp` is an uppercase letter (`Lu`).
+/// Category coverage stops at U+00FF; uppercase letters above that return `false`.
 pub fn unicode_is_uppercase(cp: u32) -> bool {
     match unicode_general_category(cp) {
         GeneralCategory::Lu => { return true; }
@@ -101,6 +121,8 @@ pub fn unicode_is_uppercase(cp: u32) -> bool {
     }
 }
 
+/// Returns `true` if `cp` is a decimal digit (`Nd`).
+/// With the current table only ASCII `0`–`9` qualify.
 pub fn unicode_is_numeric(cp: u32) -> bool {
     match unicode_general_category(cp) {
         GeneralCategory::Nd => { return true; }
@@ -108,6 +130,9 @@ pub fn unicode_is_numeric(cp: u32) -> bool {
     }
 }
 
+/// Returns `true` if `cp` has the Unicode `White_Space` property.
+/// Uses an explicit full list (not limited to U+00FF), but omits U+0085 (NEL), unlike UCD
+/// and Rust's `char::is_whitespace`.
 pub fn unicode_is_whitespace(cp: u32) -> bool {
     if cp == 0x20u32 { return true; }   // SPACE
     if cp == 0x09u32 { return true; }   // TAB
@@ -126,6 +151,8 @@ pub fn unicode_is_whitespace(cp: u32) -> bool {
     return false;
 }
 
+/// Returns `true` if `cp` is a control code (`Cc`): U+0000–U+001F or U+007F–U+009F.
+/// Exact for all of Unicode — `Cc` exists only in those ranges.
 pub fn unicode_is_control(cp: u32) -> bool {
     match unicode_general_category(cp) {
         GeneralCategory::Cc => { return true; }

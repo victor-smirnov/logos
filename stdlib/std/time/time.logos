@@ -21,55 +21,66 @@ extern fn clock_gettime(clk_id: i32, tp: *mut u8) -> i32;
 
 // ── Duration ──────────────────────────────────────────────────────────────
 
-// A span of time, stored as a signed nanosecond count.
-// Negative values are valid (represent time going backwards).
+/// A span of time, stored as a signed nanosecond count (range ~±292 years).
+/// Negative values are valid (represent time going backwards).
 pub struct Duration {
     nanos: i64,
 }
 
 impl Copy for Duration {}
 
+/// Creates a `Duration` from a nanosecond count.
 pub fn duration_from_nanos(ns: i64) -> Duration {
     return Duration { nanos: ns };
 }
 
+/// Creates a `Duration` from a microsecond count.
 pub fn duration_from_micros(us: i64) -> Duration {
     return Duration { nanos: us * 1000 as i64 };
 }
 
+/// Creates a `Duration` from a millisecond count.
 pub fn duration_from_millis(ms: i64) -> Duration {
     return Duration { nanos: ms * 1000000 as i64 };
 }
 
+/// Creates a `Duration` from a whole-second count.
 pub fn duration_from_secs(s: i64) -> Duration {
     return Duration { nanos: s * 1000000000 as i64 };
 }
 
 impl Duration {
+    /// Returns the total nanoseconds in this duration.
     pub fn as_nanos(self: Duration) -> i64 {
         return self.nanos;
     }
 
+    /// Returns the total whole microseconds, truncated toward zero.
     pub fn as_micros(self: Duration) -> i64 {
         return self.nanos / 1000 as i64;
     }
 
+    /// Returns the total whole milliseconds, truncated toward zero.
     pub fn as_millis(self: Duration) -> i64 {
         return self.nanos / 1000000 as i64;
     }
 
+    /// Returns the total whole seconds, truncated toward zero.
     pub fn as_secs(self: Duration) -> i64 {
         return self.nanos / 1000000000 as i64;
     }
 
+    /// Returns the sub-second nanosecond remainder; negative for negative durations.
     pub fn subsec_nanos(self: Duration) -> i64 {
         return self.nanos % 1000000000 as i64;
     }
 
+    /// Returns `true` if the duration is exactly zero.
     pub fn is_zero(self: Duration) -> bool {
         return self.nanos == 0 as i64;
     }
 
+    /// Returns `true` if the duration is negative.
     pub fn is_negative(self: Duration) -> bool {
         return self.nanos < 0 as i64;
     }
@@ -87,14 +98,16 @@ unsafe fn read_timespec_nanos(buf: *mut u8) -> i64 {
 
 // ── Instant ───────────────────────────────────────────────────────────────
 
-// A measurement from a monotonic clock.
-// The absolute value has no meaning — only differences between Instants.
+/// A measurement from a monotonic clock.
+/// The absolute value has no meaning — only differences between `Instant`s.
 pub struct Instant {
     nanos: i64,   // nanoseconds since unspecified monotonic epoch
 }
 
 impl Copy for Instant {}
 
+/// Returns the current `Instant` from the monotonic clock (`CLOCK_MONOTONIC`).
+/// `unsafe`: allocates a raw buffer for the libc `clock_gettime` call.
 pub unsafe fn instant_now() -> Instant {
     let buf: *mut u8 = alloc(16 as i64);
     clock_gettime(1, buf);   // CLOCK_MONOTONIC = 1
@@ -104,17 +117,19 @@ pub unsafe fn instant_now() -> Instant {
 }
 
 impl Instant {
-    // Elapsed time between two Instants (later - earlier).
+    /// Returns the elapsed time from `earlier` to `self` (`self - earlier`).
+    /// Negative if `earlier` is actually later; never panics (unlike Rust).
     pub fn since(self: Instant, earlier: Instant) -> Duration {
         return Duration { nanos: self.nanos - earlier.nanos };
     }
 
-    // Elapsed time since this Instant was created.
+    /// Returns the elapsed time since this `Instant` was captured.
     pub unsafe fn elapsed(self: Instant) -> Duration {
         let now: Instant = instant_now();
         return Duration { nanos: now.nanos - self.nanos };
     }
 
+    /// Returns the raw nanosecond reading; meaningful only relative to other `Instant`s.
     pub fn nanos_since_epoch(self: Instant) -> i64 {
         return self.nanos;
     }
@@ -122,12 +137,14 @@ impl Instant {
 
 // ── SystemTime ────────────────────────────────────────────────────────────
 
-// Wall-clock time (Unix epoch = 1970-01-01 00:00:00 UTC).
-// May go backwards on NTP adjustments.
+/// Wall-clock time (Unix epoch = 1970-01-01 00:00:00 UTC).
+/// May go backwards on NTP adjustments.
 pub struct SystemTime {
     nanos: i64,   // nanoseconds since Unix epoch
 }
 
+/// Returns the current wall-clock time (`CLOCK_REALTIME`).
+/// `unsafe`: allocates a raw buffer for the libc `clock_gettime` call.
 pub unsafe fn system_time_now() -> SystemTime {
     let buf: *mut u8 = alloc(16 as i64);
     clock_gettime(0, buf);   // CLOCK_REALTIME = 0
@@ -137,22 +154,22 @@ pub unsafe fn system_time_now() -> SystemTime {
 }
 
 impl SystemTime {
-    // Nanoseconds since the Unix epoch.
+    /// Returns nanoseconds since the Unix epoch.
     pub fn unix_nanos(self: SystemTime) -> i64 {
         return self.nanos;
     }
 
-    // Whole seconds since the Unix epoch.
+    /// Returns whole seconds since the Unix epoch, truncated toward zero.
     pub fn unix_secs(self: SystemTime) -> i64 {
         return self.nanos / 1000000000 as i64;
     }
 
-    // Milliseconds since the Unix epoch.
+    /// Returns whole milliseconds since the Unix epoch, truncated toward zero.
     pub fn unix_millis(self: SystemTime) -> i64 {
         return self.nanos / 1000000 as i64;
     }
 
-    // Duration between two SystemTimes (self - earlier).
+    /// Returns the duration from `earlier` to `self` (`self - earlier`); may be negative.
     pub fn since(self: SystemTime, earlier: SystemTime) -> Duration {
         return Duration { nanos: self.nanos - earlier.nanos };
     }
@@ -162,7 +179,8 @@ impl SystemTime {
 
 extern fn nanosleep(req: *const u8, rem: *mut u8) -> i32;
 
-// Sleep for the given duration (uses nanosleep; may wake early on signal).
+/// Sleeps for the given duration via `nanosleep`; may wake early on a signal.
+/// Returns immediately if `d` is zero or negative.
 pub unsafe fn sleep(d: Duration) {
     if d.nanos <= 0 as i64 { return; }
     let buf: *mut u8 = alloc(16 as i64);

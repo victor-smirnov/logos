@@ -30,6 +30,9 @@ use logos.lang.ptr;
 // compactify / parser guards). Realistic docs nest only a few levels.
 const WEQUAL_MAX_DEPTH: i64 = 4096i64;
 
+/// Returns whether `a` and `b` are structurally (deep) equal by value.
+/// Recurses through arrays/maps; bails to `false` past `WEQUAL_MAX_DEPTH` rather
+/// than overflowing the stack. Int and float never compare equal cross-type.
 pub fn equal(a: WAny, b: WAny) -> bool {
     return equal_d(a, b, 0i64);
 }

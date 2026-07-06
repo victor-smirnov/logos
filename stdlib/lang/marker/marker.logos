@@ -14,34 +14,38 @@
 
 package logos.lang.marker;
 
+/// Marks a type safe to transfer across thread boundaries.
+/// Auto trait: the compiler synthesizes impls from field types. Raw pointers are `!Send`;
+/// opt back in with `unsafe impl Send for MyType {}`.
 pub auto trait Send {}
+/// Marks a type safe to share by reference across threads: `&T` is `Send` iff `T: Sync`.
+/// Auto trait: synthesized from field types; raw pointers are `!Sync`.
 pub auto trait Sync {}
+/// Marks a type whose size is known at compile time.
+/// Implicit bound on every generic type parameter unless opted out with `T: ?Sized`.
+/// Unsized types (`str`, `[T]`, `dyn Trait`) appear only behind (fat) references/pointers.
 pub trait Sized {}
 
-// Unpin — a type that can be safely moved even after being pinned. Mirrors
-// `core::marker::Unpin`. Auto-trait: the compiler derives it STRUCTURALLY —
-// a type is Unpin unless it stores a `PhantomPinned` or is `#[pinned]`; refs
-// and raw pointers are always Unpin. The `Pin<P>` ergonomics layer ships in
-// `logos.lang.pin`.
+/// Marks a type that can be safely moved even after being pinned.
+/// Auto trait: derived structurally — a type is `Unpin` unless it stores a `PhantomPinned`
+/// field or is marked `#[pinned]`; refs and raw pointers are always `Unpin`. `Pin<P>`
+/// ergonomics ship in `logos.lang.pin`.
 pub auto trait Unpin {}
 
-// PhantomPinned — a zero-sized field that opts a struct OUT of Unpin: a
-// struct containing one (or marked `#[pinned]`) is `!Unpin`, so it cannot be
-// moved out of a `Pin<P>`. Mirrors `core::marker::PhantomPinned`.
+/// A zero-sized field that opts a struct out of `Unpin`.
+/// A struct containing one (or marked `#[pinned]`) is `!Unpin`, so it cannot be moved
+/// out of a `Pin<P>`.
 pub struct PhantomPinned {}
 
-// PhantomData<T> — a zero-sized type-anchor. In Rust this controls
-// dropck + variance + auto-traits; in Logos today it serves just the
-// type-anchor role (same as our existing `_t: T` idiom but without
-// needing an actual T value at construction). Construction:
-// `PhantomData::<T>{}` — empty struct literal.
+/// A zero-sized type-anchor for `T`.
+/// Unlike Rust, does not drive dropck/variance/auto-traits here — serves only as a
+/// type anchor, equivalent to a `_t: T` field without needing an actual `T` value.
+/// Construct with the empty struct literal `PhantomData::<T>{}`.
 pub struct PhantomData<T> {}
 
-// Infallible — an empty (uninhabited) enum: the error type of a `Result`
-// that can never be `Err` (`Result<T, Infallible>`). Mirrors
-// `core::convert::Infallible`. NOT the never type: Logos has a real `!`
-// (the type of a divergent `fn … -> !`, rendered `!`) — use `!` for
-// divergence and `Infallible` only as a "this variant is impossible" stand-in.
+/// An empty (uninhabited) enum: the error type of a `Result` that can never be `Err`.
+/// Not the never type — Logos has a real `!` (type of a divergent `fn … -> !`); use `!`
+/// for divergence and `Infallible` only as a "this variant is impossible" stand-in.
 pub enum Infallible {}
 
 // SelfDescribing — a custom-DST (`struct Foo { hdr…, tail: [T] }`) whose tail
@@ -57,6 +61,14 @@ pub enum Infallible {}
 // the tail's ELEMENT count (not byte size). Stronger than stable Rust, whose
 // only thin custom DST (`extern type`) is opaque-sized; mirrors the
 // Writ/zoned self-describing model (ref-repr §6, zoned-types §4).
+/// Implemented by custom-DSTs (`#[self_describing]` structs) to recover their tail length.
+/// All reference forms (`*Foo`, `&Foo`, `&mut Foo`) become thin pointers; the compiler
+/// calls `dst_len` whenever it needs the tail length (materializing a fat `&Foo`,
+/// building a `foo.tail` view, bound-checking `foo.tail[i]`).
 pub trait SelfDescribing {
+    /// Returns the tail's element count (not byte size).
+    /// Receiver is the thin `*const Self`: only sized prefix fields are needed to
+    /// recover the length, avoiding the chicken-and-egg of needing a fat reference
+    /// (which itself carries the length) to compute it.
     fn dst_len(self: *const Self) -> i64;
 }

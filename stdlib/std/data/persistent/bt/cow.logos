@@ -49,14 +49,22 @@ use logos.std.compiler.metaprog;        // brings #[derive_branch_node] trigger 
 // per-level on bubble-up. This slice lands the column + alloc/
 // cow_clone hooks; mutate-side maintenance is deferred (until then
 // the column stays length=0 — bt_size_rec keeps recursing).
+/// Declares the aggregate columns `#[derive_branch_node]` adds to the emitted branch struct.
+/// Each op is a `{"field", "type", "kind"}` map; `kind` picks the shuttle reducer (`SUM`/`MAX`).
 pub const BRANCH_OPS: WritStatic = @[
     @{ "field": "subtree_size", "type": "u64", "kind": "SUM" },
 ];
 
+/// Seeds `#[derive_branch_node]`, which emits `BranchNode` from this struct's type params.
+/// Not used as a node type itself; the emitted branch carries `keys`, `children`, and one
+/// aggregate column per `BRANCH_OPS` op (`subtree_size: PrimVec<u64>`).
 #[derive_branch_node(branch = "BranchNode", ops = "BRANCH_OPS")]
 pub struct LeafNodeForBranch<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic> {
+    /// Holds the common node header (`id`, `snapshot_id`, `is_leaf`, `block_code`).
     pub base: NodeBase<STORE_CFG>,
+    /// Stores the sorted keys, parallel to `vals`.
     pub keys: Buffer<K>,
+    /// Stores the values, parallel to `keys`.
     pub vals: Buffer<V>,
 }
 
@@ -104,6 +112,9 @@ impl<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritSt
     }
 }
 
+/// Allocates a new `BranchNode` and returns it wrapped as a `NodeARC`.
+/// `BranchNode` is macro-derived with no struct-literal form, so this builds the control
+/// block uninitialised and fills the node fields in place through a raw pointer.
 pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic>(id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
     // BranchNode is macro-derived and has no literal form, so build the control
     // block uninitialised and fill the node in place (the old alloc style, minus
@@ -128,9 +139,13 @@ pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: WritStatic, co
 }
 
 // ── LeafNode (data flavour) ────────────────────────────────────────────
+/// Data-leaf node: `keys` and `vals` are parallel `Buffer`s of container data, no `NodeARC` children.
 pub struct LeafNode<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic> {
+    /// Holds the common node header (`id`, `snapshot_id`, `is_leaf`, `block_code`).
     pub base: NodeBase<STORE_CFG>,
+    /// Stores the sorted keys, parallel to `vals`.
     pub keys: Buffer<K>,
+    /// Stores the values, parallel to `keys`.
     pub vals: Buffer<V>,
 }
 
@@ -162,6 +177,7 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, con
     }
 }
 
+/// Builds a `LeafNode` struct literal and moves it into a fresh `NodeARC`.
 pub fn leaf_alloc<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
     let node: LeafNode<K, V, STORE_CFG, CFG> = LeafNode::<K, V, STORE_CFG, CFG> {
         base: NodeBase::<STORE_CFG> {
@@ -185,9 +201,13 @@ pub fn leaf_alloc<K: Container + ContainerOrd, V: Container, const STORE_CFG: Wr
 // CFG carries directory-specific layout (key type = ctr_id, fanout, etc.)
 // so the same LeafDirNode shape can host different directory cfgs in
 // future (e.g. on-disk variants).
+/// Directory-leaf node: `vals` are `NodeARC` handles to child container roots, not raw data.
 pub struct LeafDirNode<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic> {
+    /// Holds the common node header (`id`, `snapshot_id`, `is_leaf`, `block_code`).
     pub base: NodeBase<STORE_CFG>,
+    /// Stores the sorted keys, parallel to `vals`.
     pub keys: Buffer<K>,
+    /// Stores `NodeARC` handles to child container roots, parallel to `keys`.
     pub vals: Vec<NodeARC<STORE_CFG>>,
 }
 
@@ -227,6 +247,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritSt
     }
 }
 
+/// Builds a `LeafDirNode` struct literal and moves it into a fresh `NodeARC`.
 pub fn leaf_dir_alloc<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic>(id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG> {
     let node: LeafDirNode<K, STORE_CFG, CFG> = LeafDirNode::<K, STORE_CFG, CFG> {
         base: NodeBase::<STORE_CFG> {

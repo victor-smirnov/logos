@@ -13,22 +13,30 @@ package logos.lang.num.error;
 use logos.lang.error;
 use logos.lang.option;
 
-// Kind of error encountered when parsing an integer or trying to fit
-// it into a narrower type. Same variants as Rust's IntErrorKind.
+/// Classifies why integer parsing or a narrowing integer conversion failed.
+///
+/// Same variants as Rust's `core::num::IntErrorKind`.
 pub enum IntErrorKind {
+    /// The input string was empty.
     Empty,
+    /// The input contained a character that is not a valid digit in the radix.
     InvalidDigit,
+    /// The value was too large for the target type.
     PosOverflow,
+    /// The value was too small for the target type.
     NegOverflow,
+    /// The value was zero, which is invalid for a `NonZero` target.
     Zero,
 }
 
-// Returned by `i32::from_str_radix` / `from_ascii` / etc.
+/// Represents a failed integer parse; returned by `i32::from_str_radix` / `from_ascii` / etc.
 pub struct ParseIntError {
+    /// Classifies the failure.
     pub kind: IntErrorKind,
 }
 
 impl ParseIntError {
+    /// Creates a `ParseIntError` with the given `kind`.
     pub fn new(kind: IntErrorKind) -> ParseIntError {
         return ParseIntError { kind: kind };
     }
@@ -41,13 +49,16 @@ impl Error for ParseIntError {
     }
 }
 
-// Returned by `i32::try_from(big)` / etc. when the value doesn't fit
-// the target type. Mirrors core::num::TryFromIntError(IntErrorKind).
+/// Represents a failed `try_from` integer conversion: the value did not fit the target type.
+///
+/// Unlike Rust's opaque `core::num::TryFromIntError`, the `kind` is public.
 pub struct TryFromIntError {
+    /// Classifies the failure.
     pub kind: IntErrorKind,
 }
 
 impl TryFromIntError {
+    /// Creates a `TryFromIntError` with the given `kind`.
     pub fn new(kind: IntErrorKind) -> TryFromIntError {
         return TryFromIntError { kind: kind };
     }
@@ -65,16 +76,24 @@ impl Error for TryFromIntError {
 // `f64::from_str`. Rust's enum form is private; we expose the kind so
 // callers can branch on it.
 
+/// Classifies why float parsing failed.
+///
+/// Rust's equivalent enum is private; exposed here so callers can branch on it.
 pub enum FloatErrorKind {
+    /// The input string was empty.
     Empty,
+    /// The input was not a valid float representation.
     Invalid,
 }
 
+/// Represents a failed float parse; returned by `f32::from_str` / `f64::from_str`.
 pub struct ParseFloatError {
+    /// Classifies the failure.
     pub kind: FloatErrorKind,
 }
 
 impl ParseFloatError {
+    /// Creates a `ParseFloatError` with the given `kind`.
     pub fn new(kind: FloatErrorKind) -> ParseFloatError {
         return ParseFloatError { kind: kind };
     }

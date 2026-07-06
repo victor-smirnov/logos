@@ -11,30 +11,51 @@ package logos.std.os.unix.signal;
 
 // ---- signal numbers (Linux) ------------------------------------------------
 
+/// Returns the Linux `SIGHUP` signal number (terminal hangup).
 pub fn SIGHUP()  -> i32 { return 1; }
+/// Returns the Linux `SIGINT` signal number (keyboard interrupt, Ctrl-C).
 pub fn SIGINT()  -> i32 { return 2; }
+/// Returns the Linux `SIGQUIT` signal number (keyboard quit, Ctrl-\).
 pub fn SIGQUIT() -> i32 { return 3; }
+/// Returns the Linux `SIGILL` signal number (illegal instruction).
 pub fn SIGILL()  -> i32 { return 4; }
+/// Returns the Linux `SIGABRT` signal number (abort).
 pub fn SIGABRT() -> i32 { return 6; }
+/// Returns the Linux `SIGFPE` signal number (erroneous arithmetic operation).
 pub fn SIGFPE()  -> i32 { return 8; }
+/// Returns the Linux `SIGKILL` signal number (kill); cannot be caught, blocked, or ignored.
 pub fn SIGKILL() -> i32 { return 9; }  // uncatchable
+/// Returns the Linux `SIGSEGV` signal number (invalid memory reference).
 pub fn SIGSEGV() -> i32 { return 11; }
+/// Returns the Linux `SIGPIPE` signal number (write to a pipe with no readers).
 pub fn SIGPIPE() -> i32 { return 13; }
+/// Returns the Linux `SIGALRM` signal number (timer set by `schedule_alarm` expired).
 pub fn SIGALRM() -> i32 { return 14; }
+/// Returns the Linux `SIGTERM` signal number (termination request).
 pub fn SIGTERM() -> i32 { return 15; }
+/// Returns the Linux `SIGUSR1` signal number (user-defined signal 1).
 pub fn SIGUSR1() -> i32 { return 10; }
+/// Returns the Linux `SIGUSR2` signal number (user-defined signal 2).
 pub fn SIGUSR2() -> i32 { return 12; }
+/// Returns the Linux `SIGCHLD` signal number (child stopped or terminated).
 pub fn SIGCHLD() -> i32 { return 17; }
+/// Returns the Linux `SIGCONT` signal number (continue if stopped).
 pub fn SIGCONT() -> i32 { return 18; }
+/// Returns the Linux `SIGSTOP` signal number (stop process); cannot be caught, blocked, or ignored.
 pub fn SIGSTOP() -> i32 { return 19; }  // uncatchable
 
 // sigprocmask "how" values.
+/// Returns the `sigprocmask` `how` value that adds the given set to the blocked mask.
 pub fn SIG_BLOCK()   -> i32 { return 0; }
+/// Returns the `sigprocmask` `how` value that removes the given set from the blocked mask.
 pub fn SIG_UNBLOCK() -> i32 { return 1; }
+/// Returns the `sigprocmask` `how` value that replaces the blocked mask with the given set.
 pub fn SIG_SETMASK() -> i32 { return 2; }
 
 // Handler sentinels.  Cast via (N as *const u8) on the wire.
+/// Returns the default-action handler sentinel; cast via `as *const u8` for `install`.
 pub fn SIG_DFL() -> i64 { return 0 as i64; }
+/// Returns the ignore-signal handler sentinel; cast via `as *const u8` for `install`.
 pub fn SIG_IGN() -> i64 { return 1 as i64; }
 
 // ---- externs ---------------------------------------------------------------
@@ -54,35 +75,38 @@ extern fn alarm(seconds: u32) -> u32;
 
 // ---- handler installation --------------------------------------------------
 
-// Install a signal handler.  `handler` must be a function pointer with
-// signature fn(i32)  (cast via `as *const u8`).  Use SIG_DFL()/SIG_IGN() for
-// the default / ignore handlers.
-// Returns the previous handler pointer.
+/// Installs a signal handler for `signum` and returns the previous handler pointer.
+/// `handler` must be a `fn(i32)` function pointer (cast via `as *const u8`), or the
+/// `SIG_DFL()`/`SIG_IGN()` sentinels. Handlers run asynchronously: async-signal-safe code only.
 pub fn install(signum: i32, handler: *const u8) -> *const u8 {
     unsafe { return signal(signum, handler); }
 }
 
+/// Restores the default action (`SIG_DFL`) for `signum`.
 pub fn reset_default(signum: i32) {
     unsafe { signal(signum, SIG_DFL() as *const u8); }
 }
 
+/// Sets the disposition of `signum` to ignore (`SIG_IGN`).
 pub fn ignore(signum: i32) {
     unsafe { signal(signum, SIG_IGN() as *const u8); }
 }
 
 // ---- send signals ----------------------------------------------------------
 
+/// Sends `signum` to process `pid` via kill(2); returns 0 on success, -1 on error.
 pub fn send_signal(pid: i32, signum: i32) -> i32 {
     unsafe { return kill(pid, signum); }
 }
 
+/// Sends `signum` to the calling thread via raise(2); returns 0 on success, nonzero on error.
 pub fn raise_self(signum: i32) -> i32 {
     unsafe { return raise(signum); }
 }
 
 // ---- signal mask -----------------------------------------------------------
 
-// Block `signum` in the current thread.  Returns 0 on success.
+/// Blocks delivery of `signum` in the current thread's signal mask; returns 0 on success.
 pub fn block(signum: i32) -> i32 {
     unsafe {
         // sigset_t is 128 bytes on glibc/Linux x86-64.
@@ -93,6 +117,7 @@ pub fn block(signum: i32) -> i32 {
     }
 }
 
+/// Unblocks delivery of `signum` in the current thread's signal mask; returns 0 on success.
 pub fn unblock(signum: i32) -> i32 {
     unsafe {
         let mut set: [u8; 128] = [
@@ -120,8 +145,8 @@ pub fn unblock(signum: i32) -> i32 {
 
 // ---- alarm -----------------------------------------------------------------
 
-// Schedule a SIGALRM after `seconds` seconds.  Returns seconds remaining on
-// any previously scheduled alarm, or 0 if none.  seconds=0 cancels.
+/// Schedules a `SIGALRM` after `seconds` seconds; `seconds == 0` cancels any pending alarm.
+/// Returns seconds remaining on a previously scheduled alarm, or 0 if none.
 pub fn schedule_alarm(seconds: u32) -> u32 {
     unsafe { return alarm(seconds); }
 }

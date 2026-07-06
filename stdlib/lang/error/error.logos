@@ -19,14 +19,16 @@ package logos.lang.error;
 
 use logos.lang.option;
 
+/// Root error trait with chained-cause (`source()`) introspection.
 pub trait Error {
+    /// Returns the underlying cause of this error, or `None` if it is the root cause.
     fn source(&self) -> Option<&dyn Error>;
 }
 
-// Count links in the error chain starting at `e` (1 if `e` has no
-// source, 2 if it sources one error, ...). Walks until `source`
-// returns None; bounded by the chain's depth — caller's responsibility
-// if cycles are introduced via `source()`.
+/// Counts links in the error chain starting at `e` (1 if `e` has no source, 2 if
+/// it sources one error, ...).
+/// Walks until `source` returns `None`; bounded by the chain's depth — caller's
+/// responsibility if cycles are introduced via `source()`.
 pub fn error_chain_len(e: &dyn Error) -> i32 {
     let mut n: i32 = 1;
     let mut cur: &dyn Error = e;

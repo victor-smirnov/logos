@@ -11,18 +11,23 @@
 
 package logos.lang.control_flow;
 
+/// Two-state control-flow signal used to short-circuit iteration or `?`-desugaring.
 pub enum ControlFlow<B, C> {
+    /// Keep going, carrying the intermediate success value `C`.
     Continue(C),
+    /// Stop early, carrying the residual/break value `B`.
     Break(B),
 }
 
 impl<B, C> ControlFlow<B, C> {
+    /// Returns `true` if `self` is `ControlFlow::Continue`.
     pub fn is_continue(&self) -> bool {
         match self {
             ControlFlow::Continue(_) => { return true; }
             ControlFlow::Break(_)    => { return false; }
         }
     }
+    /// Returns `true` if `self` is `ControlFlow::Break`.
     pub fn is_break(&self) -> bool {
         match self {
             ControlFlow::Continue(_) => { return false; }

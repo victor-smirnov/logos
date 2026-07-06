@@ -21,43 +21,67 @@ use logos.lang.option;
 // Rust code write `impl Add for MyType`. No primitive impls yet —
 // add on demand.
 
+/// Overloads the binary `+` operator.
 pub trait Add {
+    /// Performs the `+` operation.
     fn add(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the binary `-` operator.
 pub trait Sub {
+    /// Performs the `-` operation.
     fn sub(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the binary `*` operator.
 pub trait Mul {
+    /// Performs the `*` operation.
     fn mul(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the binary `/` operator.
 pub trait Div {
+    /// Performs the `/` operation.
     fn div(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the binary `%` (remainder) operator.
 pub trait Rem {
+    /// Performs the `%` operation.
     fn rem(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the unary `-` (negation) operator.
 pub trait Neg {
+    /// Returns the negation of `self`.
     fn neg(self: Self) -> Self;
 }
+/// Overloads the binary `<<` (left-shift) operator.
 pub trait Shl {
+    /// Performs the `<<` operation.
     fn shl(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the binary `>>` (right-shift) operator.
 pub trait Shr {
+    /// Performs the `>>` operation.
     fn shr(self: Self, rhs: Self) -> Self;
 }
 
 // ── Bitwise ───────────────────────────────────────────────────────
 
+/// Overloads the binary `&` (bitwise AND) operator.
 pub trait BitAnd {
+    /// Performs the `&` operation.
     fn bitand(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the binary `|` (bitwise OR) operator.
 pub trait BitOr {
+    /// Performs the `|` operation.
     fn bitor(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the binary `^` (bitwise XOR) operator.
 pub trait BitXor {
+    /// Performs the `^` operation.
     fn bitxor(self: Self, rhs: Self) -> Self;
 }
+/// Overloads the unary `!` (logical/bitwise NOT) operator.
 pub trait Not {
+    /// Returns the logical/bitwise negation of `self`.
     fn not(self: Self) -> Self;
 }
 
@@ -76,15 +100,25 @@ pub trait Not {
 // which dispatches via Add (creates a new Self). Primitive `+=`/`-=`/
 // etc. are codegen-builtin and don't consult these traits.
 
+/// Overloads the `+=` operator, adding `rhs` in place.
 pub trait AddAssign    { fn add_assign(&mut self,    rhs: Self); }
+/// Overloads the `-=` operator, subtracting `rhs` in place.
 pub trait SubAssign    { fn sub_assign(&mut self,    rhs: Self); }
+/// Overloads the `*=` operator, multiplying by `rhs` in place.
 pub trait MulAssign    { fn mul_assign(&mut self,    rhs: Self); }
+/// Overloads the `/=` operator, dividing by `rhs` in place.
 pub trait DivAssign    { fn div_assign(&mut self,    rhs: Self); }
+/// Overloads the `%=` operator, taking the remainder by `rhs` in place.
 pub trait RemAssign    { fn rem_assign(&mut self,    rhs: Self); }
+/// Overloads the `&=` operator, bitwise-ANDing with `rhs` in place.
 pub trait BitAndAssign { fn bitand_assign(&mut self, rhs: Self); }
+/// Overloads the `|=` operator, bitwise-ORing with `rhs` in place.
 pub trait BitOrAssign  { fn bitor_assign(&mut self,  rhs: Self); }
+/// Overloads the `^=` operator, bitwise-XORing with `rhs` in place.
 pub trait BitXorAssign { fn bitxor_assign(&mut self, rhs: Self); }
+/// Overloads the `<<=` operator, left-shifting by `rhs` in place.
 pub trait ShlAssign    { fn shl_assign(&mut self,    rhs: Self); }
+/// Overloads the `>>=` operator, right-shifting by `rhs` in place.
 pub trait ShrAssign    { fn shr_assign(&mut self,    rhs: Self); }
 
 // ── Primitive impls for bool ─────────────────────────────────────
@@ -127,18 +161,24 @@ impl Not for bool {
 // of weaker-from-stronger methods (`call_mut` from `call`, etc.) is
 // in place.
 
+/// Overloads call syntax for callables consumed by the call (by-value receiver).
 pub trait FnOnce<A...> {
     type Output;
+    /// Performs the call, consuming `self`.
     fn call_once(self: Self, args: A...) -> Self::Output;
 }
 
+/// Overloads call syntax for callables that may mutate captured state.
 pub trait FnMut<A...> {
     type Output;
+    /// Performs the call, mutably borrowing `self`.
     fn call_mut(&mut self, args: A...) -> Self::Output;
 }
 
+/// Overloads call syntax for callables that only read captured state.
 pub trait Fn<A...> {
     type Output;
+    /// Performs the call, immutably borrowing `self`.
     fn call(&self, args: A...) -> Self::Output;
 }
 
@@ -161,11 +201,15 @@ pub trait Fn<A...> {
 // these traits. New types should `impl Deref` to opt into the same
 // surface.
 
+/// Overloads immutable dereference: `*x` on a `Deref` type yields the pointee.
 pub trait Deref<Target> {
+    /// Dereferences the value, yielding a shared reference to the pointee.
     fn deref(&self) -> &Target;
 }
 
+/// Overloads mutable dereference; `*x = v` is not yet auto-dispatched (call `deref_mut`).
 pub trait DerefMut<Target>: Deref<Target> {
+    /// Mutably dereferences the value, yielding an exclusive reference to the pointee.
     fn deref_mut(&mut self) -> &mut Target;
 }
 
@@ -182,11 +226,15 @@ pub trait DerefMut<Target>: Deref<Target> {
 // Primitive `[i]` on arrays/slices/refs is handled directly by codegen
 // (no trait dispatch); this trait covers user types like maps.
 
+/// Overloads immutable indexing: `a[i]` on user types (e.g. maps).
 pub trait Index<Idx, Output> {
+    /// Returns a shared reference to the element at `idx`; may panic if out of bounds.
     fn index(&self, idx: Idx) -> &Output;
 }
 
+/// Overloads mutable indexing; `a[i] = v` is not yet auto-dispatched (call `index_mut`).
 pub trait IndexMut<Idx, Output>: Index<Idx, Output> {
+    /// Returns a mutable reference to the element at `idx`; may panic if out of bounds.
     fn index_mut(&mut self, idx: Idx) -> &mut Output;
 }
 
@@ -207,18 +255,23 @@ pub trait IndexMut<Idx, Output>: Index<Idx, Output> {
 //     consult traits; routing `?` through ControlFlow is a follow-up
 //     once the broader `core::ops::try_trait` surface lands.
 
+/// Directs short-circuiting operations: keep going with a `C`, or halt early with a `B`.
 pub enum ControlFlow<B, C> {
+    /// Keeps the operation going, carrying the updated accumulator/state.
     Continue(C),
+    /// Halts the operation early, carrying the terminal result.
     Break(B),
 }
 
 impl<B, C> ControlFlow<B, C> {
+    /// Returns `true` if this is `Continue`.
     pub fn is_continue(&self) -> bool {
         match self {
             ControlFlow::Continue(_) => { return true; }
             ControlFlow::Break(_)    => { return false; }
         }
     }
+    /// Returns `true` if this is `Break`.
     pub fn is_break(&self) -> bool {
         match self {
             ControlFlow::Continue(_) => { return false; }
@@ -228,12 +281,14 @@ impl<B, C> ControlFlow<B, C> {
 
     // Convert to Option<C> / Option<B>. Mirror of Rust's
     // `continue_value`/`break_value`.
+    /// Returns the `Continue` payload as `Some`, or `None` if `Break`; consumes `self`.
     pub fn continue_value(self: Self) -> Option<C> {
         match self {
             ControlFlow::Continue(c) => { return Option::<C>::Some(c); }
             ControlFlow::Break(_)    => { return Option::<C>::None; }
         }
     }
+    /// Returns the `Break` payload as `Some`, or `None` if `Continue`; consumes `self`.
     pub fn break_value(self: Self) -> Option<B> {
         match self {
             ControlFlow::Continue(_) => { return Option::<B>::None; }
@@ -244,6 +299,7 @@ impl<B, C> ControlFlow<B, C> {
     // Map either side, leaving the other intact. Rust signature uses
     // FnOnce; FnMut is the wider bound that Logos's iter terminals
     // already exercise — matches the rest of this module's surface.
+    /// Maps the `Continue` payload with `f`, passing `Break` through unchanged.
     pub fn map_continue<C2, MapCFn: FnMut(C) -> C2>(self: Self, f: MapCFn) -> ControlFlow<B, C2> {
         let mut g: MapCFn = f;
         match self {
@@ -255,6 +311,7 @@ impl<B, C> ControlFlow<B, C> {
             }
         }
     }
+    /// Maps the `Break` payload with `f`, passing `Continue` through unchanged.
     pub fn map_break<B2, MapBFn: FnMut(B) -> B2>(self: Self, f: MapBFn) -> ControlFlow<B2, C> {
         let mut g: MapBFn = f;
         match self {

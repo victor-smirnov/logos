@@ -23,8 +23,11 @@ use logos.lang.default;
 use logos.lang.result;
 use logos.lang.mem;
 
+/// Represents an optional value: either `Some(T)` or `None`.
 pub enum Option<T> {
+    /// Contains a value of type `T`.
     Some(T),
+    /// No value.
     None,
 }
 
@@ -32,6 +35,7 @@ impl<T> Option<T> {
     // CP-cm-17 leg (b): `&self` rather than by-value so chained-temporary
     // callers (`a.and(n).is_some()`) and non-Copy payloads don't get
     // consumed by the predicate.
+    /// Returns `true` if the option is a `Some` value.
     pub fn is_some(&self) -> bool {
         match self {
             Option::Some(_) => { return true; }
@@ -39,6 +43,7 @@ impl<T> Option<T> {
         }
     }
 
+    /// Returns `true` if the option is a `None` value.
     pub fn is_none(&self) -> bool {
         match self {
             Option::Some(_) => { return false; }
@@ -46,7 +51,8 @@ impl<T> Option<T> {
         }
     }
 
-    // Unwrapping: panics on None.
+    /// Returns the contained `Some` value.
+    /// Panics if the value is `None`.
     pub fn unwrap(self: Option<T>) -> T {
         match self {
             Option::Some(v) => { return v; }
@@ -54,7 +60,8 @@ impl<T> Option<T> {
         }
     }
 
-    // Same as unwrap but with caller-supplied panic message.
+    /// Returns the contained `Some` value.
+    /// Panics with `msg` if the value is `None`.
     pub fn expect(self: Option<T>, msg: str) -> T {
         match self {
             Option::Some(v) => { return v; }
@@ -62,7 +69,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Returns the contained Some value or a provided default.
+    /// Returns the contained `Some` value or the provided `default`.
     pub fn unwrap_or(self: Option<T>, default: T) -> T {
         match self {
             Option::Some(v) => { return v; }
@@ -71,8 +78,8 @@ impl<T> Option<T> {
     }
 
 
-    // Returns the contained Some value or computes one from a closure.
-    // `f` is a fn-pointer; non-capturing closures coerce automatically.
+    /// Returns the contained `Some` value or computes one from `f`.
+    /// `f` is a fn-pointer; non-capturing closures coerce automatically.
     pub fn unwrap_or_else(self: Option<T>, f: fn() -> T) -> T {
         match self {
             Option::Some(v) => { return v; }
@@ -80,7 +87,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Maps an Option<T> to Option<U> by applying a function to a contained value.
+    /// Maps `Option<T>` to `Option<U>` by applying `f` to a contained value.
     pub fn map<U>(self: Option<T>, f: fn(T) -> U) -> Option<U> {
         match self {
             Option::Some(v) => { return Option::Some(f(v)); }
@@ -88,7 +95,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Returns `default` (if None) or applies `f` to the contained Some value.
+    /// Returns `default` if `None`, otherwise applies `f` to the contained value.
     pub fn map_or<U>(self: Option<T>, default: U, f: fn(T) -> U) -> U {
         match self {
             Option::Some(v) => { return f(v); }
@@ -96,7 +103,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Computes a default from `dfl` if None, else applies `f`.
+    /// Computes a result from `dfl` if `None`, otherwise applies `f` to the contained value.
     pub fn map_or_else<U>(self: Option<T>, dfl: fn() -> U, f: fn(T) -> U) -> U {
         match self {
             Option::Some(v) => { return f(v); }
@@ -104,8 +111,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Transforms Option<T> into Result<T, E>, mapping Some(v) → Ok(v) and
-    // None → Err(err).
+    /// Transforms into `Result<T, E>`, mapping `Some(v)` to `Ok(v)` and `None` to `Err(err)`.
     pub fn ok_or<E>(self: Option<T>, err: E) -> Result<T, E> {
         match self {
             Option::Some(v) => { return Result::Ok(v); }
@@ -113,7 +119,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Same as ok_or but the err value is computed lazily.
+    /// Transforms into `Result<T, E>` like `ok_or`, computing the error lazily from `err`.
     pub fn ok_or_else<E>(self: Option<T>, err: fn() -> E) -> Result<T, E> {
         match self {
             Option::Some(v) => { return Result::Ok(v); }
@@ -121,7 +127,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Returns None if self is None, otherwise returns `optb`.
+    /// Returns `None` if `self` is `None`, otherwise returns `optb`.
     pub fn and<U>(self: Option<T>, optb: Option<U>) -> Option<U> {
         match self {
             Option::Some(_) => { return optb; }
@@ -129,8 +135,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Returns None if the option is None, otherwise calls f with the wrapped
-    // value and returns the result.
+    /// Returns `None` if `self` is `None`, otherwise applies `f` to the wrapped value.
     pub fn and_then<U>(self: Option<T>, f: fn(T) -> Option<U>) -> Option<U> {
         match self {
             Option::Some(v) => { return f(v); }
@@ -138,7 +143,7 @@ impl<T> Option<T> {
         }
     }
 
-    // True iff Some and the predicate accepts the wrapped value.
+    /// Returns `true` iff the option is `Some` and `pred` accepts the wrapped value.
     pub fn is_some_and(self: Option<T>, pred: fn(T) -> bool) -> bool {
         match self {
             Option::Some(v) => { return pred(v); }
@@ -146,7 +151,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Returns self if it contains a value, otherwise returns `other`.
+    /// Returns `self` if it contains a value, otherwise returns `other`.
     pub fn or(self: Option<T>, other: Option<T>) -> Option<T> {
         match self {
             Option::Some(v) => { return Option::Some(v); }
@@ -154,7 +159,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Returns self if it contains a value, otherwise calls f and returns the result.
+    /// Returns `self` if it contains a value, otherwise calls `f` and returns the result.
     pub fn or_else(self: Option<T>, f: fn() -> Option<T>) -> Option<T> {
         match self {
             Option::Some(v) => { return Option::Some(v); }
@@ -162,8 +167,8 @@ impl<T> Option<T> {
         }
     }
 
-    // Takes the value out of the option, leaving a `None` in its place.
     // SL-sl-03 (mutating &mut self surface).
+    /// Takes the value out of the option, leaving `None` in its place.
     pub fn take(self: &mut Option<T>) -> Option<T> {
         // Exactly Rust's `mem::replace(self, None)`. We can't `match self {
         // Some(v) => Some(v) }`: under RFC 2005 ergonomics `v` binds `&mut T`,
@@ -173,8 +178,7 @@ impl<T> Option<T> {
         return replace_ref(self, Option::None);
     }
 
-    // Replaces the actual value in the option with the value given in
-    // parameter, returning the old value if present.
+    /// Replaces the value in the option with `value`, returning the old value if present.
     pub fn replace(self: &mut Option<T>, value: T) -> Option<T> {
         // Exactly Rust's `mem::replace(self, Some(value))`.
         return replace_ref(self, Option::Some(value));
@@ -184,6 +188,7 @@ impl<T> Option<T> {
     // raw-pointer arithmetic to lift a `&T` out of the Some payload —
     // Logos's `ref v` binding inside `Option::Some(ref v)` doesn't yet
     // produce a payload-typed reference through variant-data patterns.
+    /// Converts `&Option<T>` to `Option<&T>`.
     pub fn as_ref(self: &Option<T>) -> Option<&T> {
         match self {
             Option::Some(ref v) => { return Option::Some(v); }
@@ -191,7 +196,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Converts `&mut Option<T>` → `Option<&mut T>`. Symmetric to as_ref.
+    /// Converts `&mut Option<T>` to `Option<&mut T>`.
     pub fn as_mut(self: &mut Option<T>) -> Option<&mut T> {
         match self {
             Option::Some(ref mut v) => { return Option::Some(v); }
@@ -199,7 +204,7 @@ impl<T> Option<T> {
         }
     }
 
-    // Returns Some iff exactly one of `self` and `other` is Some.
+    /// Returns `Some` iff exactly one of `self` and `other` is `Some`, otherwise `None`.
     pub fn xor(self: Option<T>, other: Option<T>) -> Option<T> {
         match self {
             Option::Some(a) => {
@@ -217,8 +222,8 @@ impl<T> Option<T> {
         }
     }
 
-    // Returns Some(v) if self is Some(v) and `pred(v)` is true,
-    // else None. Mirrors Rust's `Option::filter`.
+    /// Returns `Some(v)` if `self` is `Some(v)` and `pred(v)` is `true`, otherwise `None`.
+    /// `pred` receives the wrapped value by bitwise copy; the original is returned untouched.
     pub fn filter(self: Option<T>, pred: fn(T) -> bool) -> Option<T> {
         match self {
             Option::None    => { return Option::None; }
@@ -241,6 +246,7 @@ impl<T> Option<T> {
 // `Option::<A>::None` now picks up A from the turbofish instead of
 // falling through to `error_t()` at the type-args build site) plus
 // mono's Phase 1 `contains_typevar` gate.
+/// Unzips `Option<(A, B)>` into `(Option<A>, Option<B>)`; `None` yields `(None, None)`.
 pub fn option_unzip<A, B>(opt: Option<(A, B)>) -> (Option<A>, Option<B>) {
     match opt {
         Option::None => {
@@ -255,6 +261,7 @@ pub fn option_unzip<A, B>(opt: Option<(A, B)>) -> (Option<A>, Option<B>) {
 // Option::zip — combines two Options into Option<(T, U)>.
 // Returns Some((t, u)) iff both are Some; else None. Free fn
 // rather than method because the U tparam isn't on the impl side.
+/// Zips two options: returns `Some((t, u))` iff both are `Some`, otherwise `None`.
 pub fn option_zip<T, U>(a: Option<T>, b: Option<U>) -> Option<(T, U)> {
     match a {
         Option::None    => { return Option::None; }
@@ -272,6 +279,7 @@ pub fn option_zip<T, U>(a: Option<T>, b: Option<U>) -> Option<(T, U)> {
 // where `T::default()` doesn't resolve from the impl-T context in Logos
 // (the `where T: Default` clause on an inherent impl method doesn't yet
 // bind T to the trait for trait-static dispatch on T).
+/// Returns the contained `Some` value or `T::default()`.
 pub fn option_unwrap_or_default<T: Default>(opt: Option<T>) -> T {
     match opt {
         Option::Some(v) => { return v; }
@@ -285,7 +293,7 @@ impl<T> Default for Option<T> {
     fn default() -> Option<T> { return Option::<T>::None; }
 }
 
-// Flatten a doubly-wrapped Option<Option<T>> into Option<T>.
+/// Flattens `Option<Option<T>>` into `Option<T>`.
 pub fn option_flatten<T>(opt: Option<Option<T>>) -> Option<T> {
     match opt {
         Option::Some(inner) => { return inner; }
@@ -300,6 +308,7 @@ pub fn option_flatten<T>(opt: Option<Option<T>>) -> Option<T> {
 // turbofish-on-enum-lit fix + mono Phase 1 contains_typevar gate.
 
 impl<T> Option<Option<T>> {
+    /// Flattens `Option<Option<T>>` into `Option<T>`.
     pub fn flatten(self: Option<Option<T>>) -> Option<T> {
         match self {
             Option::Some(inner) => { return inner; }
@@ -309,6 +318,7 @@ impl<T> Option<Option<T>> {
 }
 
 impl<A, B> Option<(A, B)> {
+    /// Unzips into `(Option<A>, Option<B>)`; `None` yields `(None, None)`.
     pub fn unzip(self: Option<(A, B)>) -> (Option<A>, Option<B>) {
         match self {
             Option::None => {
@@ -323,6 +333,7 @@ impl<A, B> Option<(A, B)> {
 
 // `Option::<Result<T, E>>::transpose() -> Result<Option<T>, E>`
 impl<T, E> Option<Result<T, E>> {
+    /// Transposes into `Result<Option<T>, E>`; `None` maps to `Ok(None)`.
     pub fn transpose(self: Option<Result<T, E>>) -> Result<Option<T>, E> {
         match self {
             Option::None    => { return Result::<Option<T>, E>::Ok(Option::<T>::None); }
@@ -338,10 +349,14 @@ impl<T, E> Option<Result<T, E>> {
 
 // Free-function shims for compat with pre-existing call-sites in stdlib
 // and earlier Logos tests. New code should prefer the method form.
+/// Returns the contained value or `def`.
+/// Compat shim for older call-sites; prefer `opt.unwrap_or(def)`.
 pub fn unwrap_or_i32(opt: Option<i32>, def: i32) -> i32 {
     return opt.unwrap_or(def);
 }
 
+/// Returns `true` if `opt` is `Some`.
+/// Compat shim for older call-sites; prefer `opt.is_some()`.
 pub fn is_some_i32(opt: Option<i32>) -> bool {
     return opt.is_some();
 }

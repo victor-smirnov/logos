@@ -16,22 +16,29 @@ extern fn logos_sched_get() -> *mut u8;
 
 // ── Latch ─────────────────────────────────────────────────────────────────
 
+/// Count-down latch: a single waiter fiber suspends until the count reaches 0.
+///
+/// Single-thread only; supports at most one concurrent waiter.
 pub struct Latch {
     count:  i64,   // decrements toward 0; waiter woken when 0
     waiter: i64,   // *mut Fiber or 0
 }
 
+/// Creates a heap-allocated `Latch` with the given initial count; free with `latch_free`.
 pub fn latch_new(count: i64) -> *mut Latch {
     let l: *mut Latch = alloc(sizeof::<Latch>()) as *mut Latch;
     unsafe { l.count = count; l.waiter = 0; }
     return l;
 }
 
+/// Deallocates a `Latch` created by `latch_new`.
 pub fn latch_free(l: *mut Latch) {
     dealloc(l as *mut u8);
 }
 
-// Called by workers; wakes waiter when count reaches 0.
+/// Decrements the count (called by workers); wakes the waiter when the count reaches 0.
+///
+/// Extra calls after the count hits 0 are no-ops (no underflow).
 pub fn latch_count_down(l: *mut Latch) {
     // Bug 4 fix: guard against underflow — extra count_down calls are no-ops.
     let cur_count: i64 = unsafe { l.count };
@@ -48,7 +55,9 @@ pub fn latch_count_down(l: *mut Latch) {
     }
 }
 
-// Called by the single waiter; suspends if count > 0.
+/// Suspends the current fiber until the count reaches 0; returns immediately if already 0.
+///
+/// Single waiter only: a second concurrent `latch_wait` overwrites the first, deadlocking it.
 pub fn latch_wait(l: *mut Latch) {
     let c: i64 = unsafe { l.count };
     if c == 0 { return; }
@@ -66,6 +75,10 @@ pub fn latch_wait(l: *mut Latch) {
 // Ring buffer of sizeof::<T>()-byte slots.
 // send_val holds a heap *mut T when a sender is suspended.
 
+/// Bounded FIFO channel between fibers on one thread, backed by a ring buffer.
+///
+/// At most one suspended sender AND one suspended receiver at a time; violating
+/// this invariant is a caller error (see `chan_send` / `chan_recv`).
 pub struct Chan<T> {
     buf:        *mut u8,  // ring buffer: cap * sizeof::<T>() bytes
     head:       i64,      // read index
@@ -78,6 +91,7 @@ pub struct Chan<T> {
     recv_fiber: i64,      // *mut Fiber of suspended receiver, or 0
 }
 
+/// Creates a heap-allocated channel holding up to `cap` items; free with `chan_free`.
 pub fn chan_new<T>(cap: i64) -> *mut Chan<T> {
     let sz: i64 = sizeof::<T>();
     let ch: *mut Chan<T> = alloc(sizeof::<Chan<T>>()) as *mut Chan<T>;
@@ -96,6 +110,7 @@ pub fn chan_new<T>(cap: i64) -> *mut Chan<T> {
     return ch;
 }
 
+/// Deallocates the channel, its ring buffer, and any pending suspended-send value.
 pub fn chan_free<T>(ch: *mut Chan<T>) {
     // Bug 3 fix: free any heap-allocated pending send value.
     let sv: i64 = unsafe { ch.send_val };
@@ -134,7 +149,10 @@ fn chan_ring_read<T>(ch: *mut Chan<T>) -> T {
     return val;
 }
 
-// Send val into the channel; suspends if full.
+/// Sends `val` into the channel; suspends the current fiber while the channel is full.
+///
+/// Wakes a suspended receiver if one is waiting. If another sender is already
+/// suspended (caller error), returns immediately and `val` is silently dropped.
 pub fn chan_send<T>(ch: *mut Chan<T>, val: T) {
     let cap: i64 = unsafe { ch.cap };
     let len: i64 = unsafe { ch.len };
@@ -172,7 +190,10 @@ pub fn chan_send<T>(ch: *mut Chan<T>, val: T) {
     unsafe { logos_fiber_switch(from, to); }
 }
 
-// Receive a value from the channel; suspends if empty.
+/// Receives a value from the channel; suspends the current fiber while the channel is empty.
+///
+/// Unblocks a suspended sender by moving its pending value into the ring. If another
+/// receiver is already suspended (caller error), the result is undefined (null read).
 pub fn chan_recv<T>(ch: *mut Chan<T>) -> T {
     let len: i64 = unsafe { ch.len };
 

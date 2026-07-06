@@ -28,25 +28,38 @@ use logos.lang.mem;
 // `View<S>` from the leaf's capabilities (see Datatype trait below).
 // ---------------------------------------------------------------------------
 
+/// Base storage capability: element type, length, and indexed read.
 pub trait Storage {
     type Elem;
+    /// Returns the number of elements held by `s`.
     fn storage_len(s: *const Self) -> u64;
+    /// Returns the element at `idx`.
     fn storage_get(s: *const Self, idx: u64) -> Self::Elem;
 }
 
+/// `Storage` that owns its backing memory and must be explicitly dropped.
 pub trait OwningStorage: Storage {
+    /// Releases the backing memory of `s`.
     fn storage_drop(s: *mut Self);
 }
 
+/// `OwningStorage` that can grow and mutate in place.
 pub trait DynamicStorage: OwningStorage {
+    /// Creates a new empty store.
     fn storage_new()  -> Self;
+    /// Appends `v` to the end of `s`.
     fn storage_push(s: *mut Self, v: Self::Elem);
+    /// Removes all elements from `s`.
     fn storage_clear(s: *mut Self);
+    /// Overwrites the element at `idx` with `v`.
     fn storage_set(s: *mut Self, idx: u64, v: Self::Elem);
+    /// Inserts `v` at `idx`, shifting the tail right by one.
     fn storage_insert_at(s: *mut Self, idx: u64, v: Self::Elem);
+    /// Removes the element at `idx`, shifting the tail left by one.
     fn storage_remove_at(s: *mut Self, idx: u64);
 }
 
+/// Marker for read-only, non-owning storage views; no drop, no grow, safe to discard.
 pub trait BorrowedStorage: Storage {
     // Read-only view; no drop, no grow. Marker-like, relies on Storage.
 }
@@ -64,6 +77,7 @@ pub trait BorrowedStorage: Storage {
 // container-Storage for use by Buffer<DT>.
 // ---------------------------------------------------------------------------
 
+/// Describes how to interpret bytes held by a `Storage`: `View<S>` is the processing form.
 pub trait Datatype {
     type View<S: Storage>;
 }
@@ -77,6 +91,7 @@ pub trait Datatype {
 // view from the container-store layout.
 // ---------------------------------------------------------------------------
 
+/// A `Datatype` paired with its canonical `DynamicStorage`, as used by `Buffer<DT>`.
 pub trait Container: Datatype {
     // Container-Store's Elem matches View<Store>.  Thin bridge methods
     // forward to the Store's DynamicStorage impl.  `ViewInStore` is the
@@ -85,19 +100,26 @@ pub trait Container: Datatype {
     // inside generic code (Buffer<DT> sees a plain assoc type, not a GAT).
     type Store: DynamicStorage;
     type ViewInStore;
+    /// Creates a new empty canonical store.
     fn new_store() -> Self::Store;
+    /// Releases the store's backing memory.
     fn drop_store(s: *mut Self::Store);
+    /// Returns the number of elements in `s`.
     fn store_len(s: *const Self::Store) -> u64;
+    /// Appends `v` to the end of `s`.
     fn store_push(s: *mut Self::Store, v: Self::ViewInStore);
+    /// Returns the view of the element at `idx`.
     fn store_get(s: *const Self::Store, idx: u64) -> Self::ViewInStore;
+    /// Overwrites the element at `idx` with `v`.
     fn store_set(s: *mut Self::Store, idx: u64, v: Self::ViewInStore);
+    /// Inserts `v` at `idx`, shifting the tail right by one.
     fn store_insert_at(s: *mut Self::Store, idx: u64, v: Self::ViewInStore);
+    /// Removes the element at `idx`, shifting the tail left by one.
     fn store_remove_at(s: *mut Self::Store, idx: u64);
-    // Would the store accept `v` (consistent with whatever it already holds)?
-    // DEFAULT yes — most stores have no per-element invariant. A store that is
-    // homogeneous in some runtime-discovered way (DView: one tag per buffer)
-    // overrides this so the CHECKED insert path can reject a violator with a
-    // recoverable error instead of mis-storing. Read-only.
+    /// Returns whether the store would accept `v`, consistent with what it already holds.
+    /// Default `true` — most stores have no per-element invariant. A store homogeneous in
+    /// some runtime-discovered way (`DView`: one tag per buffer) overrides this so the
+    /// checked insert path can reject with a recoverable error instead of mis-storing.
     fn store_accepts(s: *const Self::Store, v: Self::ViewInStore) -> bool { return true; }
 }
 
@@ -108,15 +130,18 @@ pub trait Container: Datatype {
 // the store's `storage_drop`.
 // ---------------------------------------------------------------------------
 
+/// Typed homogeneous container backed by `DT::Store`; elements pass as `DT::ViewInStore`.
 pub struct Buffer<DT: Container> {
     storage: DT::Store,
 }
 
 impl<DT: Container> Buffer<DT> {
+    /// Creates an empty `Buffer` with a fresh canonical store.
     pub static fn new() -> Buffer<DT> {
         return Buffer { storage: DT::new_store() };
     }
 
+    /// Returns the number of elements.
     pub fn len(&self) -> u64 {
         unsafe {
             let sp: *const DT::Store = &self.storage as *const DT::Store;
@@ -124,6 +149,7 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
+    /// Appends `v` to the end of the buffer.
     pub fn push(&mut self, v: DT::ViewInStore) {
         unsafe {
             let sp: *mut DT::Store =
@@ -132,6 +158,7 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
+    /// Returns the view of the element at `idx`. No bounds check.
     pub fn get(&self, idx: u64) -> DT::ViewInStore {
         unsafe {
             let sp: *const DT::Store = &self.storage as *const DT::Store;
@@ -139,8 +166,8 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
-    // Would pushing/inserting `v` keep this buffer consistent? (Default true;
-    // DView's homogeneous store says false on a tag/meta mismatch.) Read-only.
+    /// Returns whether pushing/inserting `v` would keep this buffer consistent. Read-only.
+    /// Default `true`; `DView`'s homogeneous store says false on a tag/meta mismatch.
     pub fn accepts(&self, v: DT::ViewInStore) -> bool {
         unsafe {
             let sp: *const DT::Store = &self.storage as *const DT::Store;
@@ -148,6 +175,7 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
+    /// Overwrites the element at `idx` with `v`.
     pub fn set(&mut self, idx: u64, v: DT::ViewInStore) {
         unsafe {
             let sp: *mut DT::Store =
@@ -156,6 +184,7 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
+    /// Inserts `v` at `idx`, shifting subsequent elements right; `idx == len()` appends.
     pub fn insert(&mut self, idx: u64, v: DT::ViewInStore) {
         unsafe {
             let sp: *mut DT::Store =
@@ -164,6 +193,7 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
+    /// Removes the element at `idx`, shifting subsequent elements left.
     pub fn erase(&mut self, idx: u64) {
         unsafe {
             let sp: *mut DT::Store =
@@ -172,10 +202,10 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
-    // Split off elements [at, len) into a NEW Buffer; self keeps [0, at).
-    // The B+tree leaf/branch split. Element-wise through the Container interface,
-    // so it works for every DT (DView re-encodes into the right buffer's cells;
-    // WAny/primitives copy by value). O(len - at).
+    /// Splits off elements `[at, len)` into a new `Buffer`; `self` keeps `[0, at)`.
+    /// The B+tree leaf/branch split. Element-wise through the `Container` interface,
+    /// so it works for every `DT` (`DView` re-encodes into the right buffer's cells;
+    /// `WAny`/primitives copy by value). O(len - at).
     pub fn split_at(&mut self, at: u64) -> Buffer<DT> {
         let mut right: Buffer<DT> = Buffer::<DT>::new();
         let n: u64 = self.len();
@@ -186,20 +216,18 @@ impl<DT: Container> Buffer<DT> {
         return right;
     }
 
-    // Append all of `other` (consumed) onto self — the leaf/branch merge. `other`
-    // is dropped at the end, freeing its backing storage.
+    /// Appends all of `other` (consumed) onto `self` — the leaf/branch merge.
+    /// `other` is dropped at the end, freeing its backing storage.
     pub fn merge(&mut self, other: Buffer<DT>) {
         let n: u64 = other.len();
         let mut i: u64 = 0u64;
         while i < n { self.push(other.get(i)); i = i + 1u64; }
     }
 
-    // Pointer-receiver counterpart to `Drop::drop` — releases the backing
-    // storage without consuming the Buffer struct.  Required when a Buffer
-    // lives as a field inside a heap-allocated record that's deallocated
-    // through a raw pointer (e.g. an intrusive-RC node), since by-value
-    // Drop can't be invoked through `*mut`.  After this call the Buffer
-    // header's storage is in moved-from state; do not call again.
+    /// Releases the backing storage without consuming the `Buffer` struct —
+    /// the pointer-receiver counterpart to `Drop::drop`, for Buffers held inside
+    /// heap records deallocated through a raw pointer (by-value `Drop` can't be
+    /// invoked through `*mut`). Afterwards the storage is moved-from; do not call again.
     pub unsafe fn drop_in_place(self: *mut Buffer<DT>) {
         let sp: *mut DT::Store = &mut self.storage as *mut DT::Store;
         DT::drop_store(sp);
@@ -237,6 +265,7 @@ impl<DT: Container> Drop for Buffer<DT> {
 // Primitive — ≤16B POD, value view
 // ---------------------------------------------------------------------------
 
+/// Marks ≤16-byte POD datatypes whose processing view is the `Prim` value type, copied in/out.
 pub trait Primitive {
     type Prim;
 }
@@ -269,6 +298,7 @@ impl Primitive for bool { type Prim = bool; }
 // and the container-side write path uses `*mut DT`.
 // ---------------------------------------------------------------------------
 
+/// Marks >16-byte POD datatypes viewed by reference: `*const DT` reads, `*mut DT` writes.
 pub trait PodRef {}
 
 // ---------------------------------------------------------------------------
@@ -278,17 +308,24 @@ pub trait PodRef {}
 // also usable directly for typed arrays.
 // ---------------------------------------------------------------------------
 
+/// Growable heap-backed vector of POD `T` — the generic `DynamicStorage` leaf.
 pub struct PrimVec<T> {
+    /// Pointer to the heap buffer; null when nothing is allocated.
     pub data: *mut T,
+    /// Number of live elements.
     pub len:  u64,
+    /// Allocated capacity, in elements.
     pub cap:  u64,
 }
 
 impl<T> PrimVec<T> {
+    /// Creates an empty `PrimVec` with no allocation.
     pub static fn empty() -> PrimVec<T> {
         return PrimVec { data: 0 as *mut T, len: 0 as u64, cap: 0 as u64 };
     }
 
+    /// Appends `v`, doubling capacity as needed (initial capacity 4).
+    /// Silently drops `v` if (re)allocation fails.
     pub fn push(&mut self, v: T) {
         unsafe {
             let stride: i64 = sizeof::<T>();
@@ -310,6 +347,7 @@ impl<T> PrimVec<T> {
         }
     }
 
+    /// Returns a copy of the element at `idx`. No bounds check.
     pub fn get(&self, idx: u64) -> T {
         unsafe {
             let stride: i64 = sizeof::<T>();
@@ -318,6 +356,7 @@ impl<T> PrimVec<T> {
         }
     }
 
+    /// Frees the heap buffer and resets to empty. Idempotent.
     pub fn clear(&mut self) {
         unsafe {
             if self.data != 0 as *mut T {
@@ -329,8 +368,8 @@ impl<T> PrimVec<T> {
         }
     }
 
-    // Overwrite the slot at `idx` with `v`.  Out-of-range is a programmer
-    // error and silently no-ops here (caller validates).
+    /// Overwrites the slot at `idx` with `v`. Out-of-range is a programmer
+    /// error and silently no-ops here (caller validates).
     pub fn set(&mut self, idx: u64, v: T) {
         unsafe {
             if idx >= self.len { return; }
@@ -340,8 +379,8 @@ impl<T> PrimVec<T> {
         }
     }
 
-    // Insert `v` at `idx`, shifting the tail right by one slot.  `idx`
-    // may equal `len` (append at end).  Out-of-range silently no-ops.
+    /// Inserts `v` at `idx`, shifting the tail right by one slot. `idx`
+    /// may equal `len` (append at end). Out-of-range silently no-ops.
     pub fn insert_at(&mut self, idx: u64, v: T) {
         unsafe {
             if idx > self.len { return; }
@@ -373,8 +412,8 @@ impl<T> PrimVec<T> {
         }
     }
 
-    // Remove the element at `idx`, shifting the tail left by one slot.
-    // Capacity is preserved.  Out-of-range silently no-ops.
+    /// Removes the element at `idx`, shifting the tail left by one slot.
+    /// Capacity is preserved. Out-of-range silently no-ops.
     pub fn remove_at(&mut self, idx: u64) {
         unsafe {
             if idx >= self.len { return; }
@@ -530,7 +569,10 @@ impl<DT: PodRef> Container for DT {
 // Callers do `let phantom: *const K = 0 as *const K; phantom.cmp_views(a, b)`.
 // ---------------------------------------------------------------------------
 
+/// `Container` with 3-way comparison of stored views, for ordered collections (Map, Set).
 pub trait ContainerOrd: Container {
+    /// Compares two `ViewInStore` values 3-way. The receiver is a phantom `*const Self`,
+    /// never read: call as `let p: *const K = 0 as *const K; p.cmp_views(a, b)`.
     unsafe fn cmp_views(self: *const Self, a: Self::ViewInStore, b: Self::ViewInStore) -> Ordering;
 }
 
@@ -576,6 +618,8 @@ impl<DT: Primitive + Ord> ContainerOrd for DT {
 // plug into.)
 // ---------------------------------------------------------------------------
 
+/// Marks "fixed `Meta` + variable `Atom` tail" datatypes (string bytes, bigint limbs, ...).
+/// Class-marker only for now: the `Container`/SoA blanket over it is not yet landed.
 pub trait UnsizedPayload {
     type Meta;
     type Atom;

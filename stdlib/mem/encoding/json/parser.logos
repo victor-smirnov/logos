@@ -35,27 +35,42 @@ use logos.mem.collections.vec;
 
 // ── AST ───────────────────────────────────────────────────────────────────
 
+/// Represents one key/value member of a JSON object.
 pub struct JsonField {
+    /// Member key, with string escapes already decoded.
     pub key: String,
+    /// Member value.
     pub val: Json,
 }
 
+/// Represents a parsed JSON value (RFC 8259 AST).
 pub enum Json {
+    /// JSON `null`.
     Null,
+    /// JSON `true` or `false`.
     Bool(bool),
+    /// JSON number; all numbers are stored as `f64`.
     Number(f64),
+    /// JSON string, with escapes decoded.
     Str(String),
+    /// JSON array of values, in source order.
     Array(Vec<Json>),
+    /// JSON object as a field list in source order; duplicate keys are kept as-is.
     Object(Vec<JsonField>),
 }
 
+/// Describes a JSON parse failure: what went wrong and where.
 pub struct JsonError {
+    /// Byte offset into the source where the error was detected.
     pub offset:  i64,    // byte offset into source where the error was detected
+    /// Human-readable error description.
     pub message: String,
 }
 
 // ── Parser state ──────────────────────────────────────────────────────────
 
+/// Tracks the byte cursor over the source during recursive-descent parsing.
+/// All fields and helpers are private; use the free `parse` function instead.
 pub struct Parser {
     src: *const u8,
     len: i64,
@@ -385,6 +400,9 @@ unsafe fn parse_object(p: &mut Parser) -> Result<Json, JsonError> {
 
 // ── Public entry point ────────────────────────────────────────────────────
 
+/// Parses `src` as a single complete JSON document into a `Json` AST.
+/// Errors carry the byte offset of the failure; trailing non-whitespace content is an error.
+/// Strings support ASCII escapes only — `\uXXXX` sequences are rejected as invalid.
 pub fn parse(src: str) -> Result<Json, JsonError> {
     let mut p: Parser = parser_new(src);
     unsafe {
@@ -403,7 +421,8 @@ pub fn parse(src: str) -> Result<Json, JsonError> {
 
 // ── Object lookup ─────────────────────────────────────────────────────────
 
-// Linear search by key. Returns the index of the first matching field or -1.
+/// Returns the index of the first field whose key equals `key`, or `-1` if absent.
+/// Linear search.
 pub fn json_field_index(fields: &Vec<JsonField>, key: str) -> i64 {
     let n: i64 = fields.length();
     let mut i: i64 = 0 as i64;

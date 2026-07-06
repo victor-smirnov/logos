@@ -18,9 +18,12 @@ use logos.lang.cell;
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.ptr;                 // byte_add
 
+/// A Writ query-parameter (`?name`) capture slot: an interned name plus an optional bound value.
 #[pinned]
 pub struct WParameter {
+    /// At-rest `WAny` word: a Ref to the interned parameter-name `WString`.
     pub name:  i64,   // at-rest WAny: Ref to the parameter-name WString
+    /// At-rest `WAny` word: the bound value, or null while unbound.
     pub value: i64,   // at-rest WAny: the bound value, or null if unbound
 }
 
@@ -42,22 +45,22 @@ unsafe fn param_new(h: *mut Writ, name: WAny, value: WAny) -> *mut WParameter {
 }
 
 impl WParameter {
-    // The parameter-name value (a Ref to an WString).
+    /// Returns the parameter-name value: a `WAny` Ref to the interned `WString`.
     pub fn name(self: &WParameter)  -> WAny { return unsafe { *(param_slot_c(self as *const WParameter, 0i64)) }; }
-    // The bound value (or null if unbound).
+    /// Returns the bound value, or a null `WAny` if the parameter is unbound.
     pub fn value(self: &WParameter) -> WAny { return unsafe { *(param_slot_c(self as *const WParameter, 8i64)) }; }
 
-    // The parameter name as a string view (resolves the Ref → WString → bytes).
+    /// Returns the parameter name as a `str` view (resolves the Ref to the `WString` bytes).
     pub fn name_str(self: &WParameter) -> str {
         return unsafe { (&*(self.name().resolve() as *const WString)).as_str() };
     }
-    // Is the parameter bound to a value (non-null)?
+    /// Returns `true` if the parameter is bound to a non-null value.
     pub fn is_bound(self: &WParameter) -> bool { return !self.value().is_null(); }
 }
 
 impl Writ {
-    // Build a query parameter `?name` in THIS arena (name interned as an WString).
-    // Pass a null WAny for `value` to leave it unbound.
+    /// Creates a query parameter `?name` in this arena and returns a Ref to it.
+    /// `name` is interned as a `WString`; pass a null `WAny` as `value` to leave it unbound.
     pub fn parameter(self: &Writ, name: str, value: WAny) -> WAny {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
@@ -69,11 +72,12 @@ impl Writ {
 }
 
 impl WAny {
+    /// Returns `true` if this value is a Ref to a `WParameter`.
     pub fn is_parameter(self: &WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_PARAMETER;
     }
-    // Borrow the pointed-at parameter (check is_parameter first).
+    /// Borrows the pointed-at `WParameter`; check `is_parameter` first.
     pub fn as_parameter(self: &WAny) -> &WParameter { return unsafe { &*(self.resolve() as *const WParameter) }; }
-    // A parameter as a heterogeneous value (Ref to it).
+    /// Returns a `WAny` Ref to the given `WParameter`.
     pub fn from(p: &WParameter) -> WAny { return WAny::ref_to(p as *const WParameter as *const u8); }
 }

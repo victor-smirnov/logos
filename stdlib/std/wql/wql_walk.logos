@@ -21,6 +21,12 @@ use logos.std.wql.params;                // MacroParams / parse_macro_params —
 use logos.std.wql.wql_surface_parser;    // parse_program — the GENERATED surface parser
 use logos.std.wql.plan_walker;           // walk_program_params — the program walker-emitter
 
+/// Implements the `wql_walk!` macro: `resource <name> = wql_walk!(<params>){ from … select … }`.
+/// Parses `params` into `MacroParams`, parses `body` via the peg-generated surface parser into
+/// an `RQuery` plan, then walks that plan with `plan_walker::walk_program_params` to emit the
+/// native query fn as `name`.
+/// On a missing `name`, empty `params`, or a malformed `body`, emits a compiler `error` and
+/// returns an empty `ItemList` (no panic).
 #[token_macro]
 pub fn deem_walk(name: str, params: str, body: str) -> ItemList {
     let out: ItemList = item_list_new();

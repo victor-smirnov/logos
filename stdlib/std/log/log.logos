@@ -13,11 +13,17 @@ use logos.lang.str;
 extern fn getenv(name: *const u8) -> *const u8;
 
 // ── Level constants ──────────────────────────────────────────────────────
+/// Returns the `TRACE` level code (0), the most verbose level.
 pub fn TRACE() -> i32 { return 0; }
+/// Returns the `DEBUG` level code (1).
 pub fn DEBUG() -> i32 { return 1; }
+/// Returns the `INFO` level code (2), the default threshold.
 pub fn INFO()  -> i32 { return 2; }
+/// Returns the `WARN` level code (3).
 pub fn WARN()  -> i32 { return 3; }
+/// Returns the `ERROR` level code (4).
 pub fn ERROR() -> i32 { return 4; }
+/// Returns the `OFF` level code (100); as a threshold it suppresses all messages.
 pub fn OFF()   -> i32 { return 100; }
 
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
@@ -48,6 +54,9 @@ unsafe fn cstr_eq_ci(p: *const u8, expected: str) -> bool {
     return p[i] == 0 as u8;
 }
 
+/// Returns the current minimum log level, read from the `LOGOS_LOG` env variable.
+/// Recognizes TRACE/DEBUG/INFO/WARN/ERROR/OFF (case-insensitive); unset or
+/// unrecognized values yield `INFO()`. Re-reads the environment on every call.
 pub fn threshold() -> i32 {
     unsafe {
         let v: *const u8 = getenv("LOGOS_LOG".as_ptr());
@@ -73,6 +82,9 @@ fn level_prefix(level: i32, out: &mut String) {
 
 // ── Emit API ─────────────────────────────────────────────────────────────
 
+/// Writes `msg` to stderr as one line prefixed with the level name.
+/// Silently dropped when `level` is below `threshold()`. Short writes are retried;
+/// write errors are ignored.
 pub fn emit(level: i32, msg: str) {
     if level < threshold() { return; }
     let mut buf: String = String::new();
@@ -82,6 +94,8 @@ pub fn emit(level: i32, msg: str) {
     unsafe { write_all(buf.as_ptr(), buf.len()); }
 }
 
+/// Writes `msg` followed by a ` key=value` pair (integer) to stderr as one line.
+/// Silently dropped when `level` is below `threshold()`.
 pub fn log_kv_i64(level: i32, msg: str, key: str, value: i64) {
     if level < threshold() { return; }
     let mut buf: String = String::new();
@@ -95,6 +109,9 @@ pub fn log_kv_i64(level: i32, msg: str, key: str, value: i64) {
     unsafe { write_all(buf.as_ptr(), buf.len()); }
 }
 
+/// Writes `msg` followed by a ` key="value"` pair to stderr as one line.
+/// Silently dropped when `level` is below `threshold()`. `value` is quoted but
+/// NOT escaped — embedded `"` or newlines pass through verbatim.
 pub fn log_kv_str(level: i32, msg: str, key: str, value: str) {
     if level < threshold() { return; }
     let mut buf: String = String::new();
@@ -110,8 +127,13 @@ pub fn log_kv_str(level: i32, msg: str, key: str, value: str) {
     unsafe { write_all(buf.as_ptr(), buf.len()); }
 }
 
+/// Logs `msg` at the `TRACE` level.
 pub fn trace(msg: str) { emit(TRACE(), msg); }
+/// Logs `msg` at the `DEBUG` level.
 pub fn debug(msg: str) { emit(DEBUG(), msg); }
+/// Logs `msg` at the `INFO` level.
 pub fn info(msg: str)  { emit(INFO(),  msg); }
+/// Logs `msg` at the `WARN` level.
 pub fn warn(msg: str)  { emit(WARN(),  msg); }
+/// Logs `msg` at the `ERROR` level.
 pub fn error(msg: str) { emit(ERROR(), msg); }

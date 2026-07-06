@@ -16,34 +16,41 @@ use logos.lang.option;
 
 impl char {
     // ── ASCII range membership ────────────────────────────────────────────
+    /// Returns `true` if `self` is in the ASCII range (`U+0000..=U+007F`).
     pub fn is_ascii(self: char) -> bool {
         return (self as u32) < 128u32;
     }
 
+    /// Returns `true` if `self` is an ASCII letter (`a-z` or `A-Z`).
     pub fn is_ascii_alphabetic(self: char) -> bool {
         let c: u32 = self as u32;
         return (c >= 65u32 && c <= 90u32) || (c >= 97u32 && c <= 122u32);
     }
 
+    /// Returns `true` if `self` is an ASCII lowercase letter (`a-z`).
     pub fn is_ascii_lowercase(self: char) -> bool {
         let c: u32 = self as u32;
         return c >= 97u32 && c <= 122u32;
     }
 
+    /// Returns `true` if `self` is an ASCII uppercase letter (`A-Z`).
     pub fn is_ascii_uppercase(self: char) -> bool {
         let c: u32 = self as u32;
         return c >= 65u32 && c <= 90u32;
     }
 
+    /// Returns `true` if `self` is an ASCII decimal digit (`0-9`).
     pub fn is_ascii_digit(self: char) -> bool {
         let c: u32 = self as u32;
         return c >= 48u32 && c <= 57u32;
     }
 
+    /// Returns `true` if `self` is an ASCII letter or decimal digit.
     pub fn is_ascii_alphanumeric(self: char) -> bool {
         return self.is_ascii_alphabetic() || self.is_ascii_digit();
     }
 
+    /// Returns `true` if `self` is an ASCII hexadecimal digit (`0-9`, `a-f`, `A-F`).
     pub fn is_ascii_hexdigit(self: char) -> bool {
         let c: u32 = self as u32;
         if c >= 48u32 && c <= 57u32 { return true; }
@@ -52,17 +59,19 @@ impl char {
         return false;
     }
 
-    // ASCII whitespace: space, tab, LF, FF, CR.
+    /// Returns `true` if `self` is ASCII whitespace: space, tab, LF, FF, or CR.
     pub fn is_ascii_whitespace(self: char) -> bool {
         let c: u32 = self as u32;
         return c == 32u32 || c == 9u32 || c == 10u32 || c == 12u32 || c == 13u32;
     }
 
+    /// Returns `true` if `self` is an ASCII control character (`U+0000..=U+001F` or `U+007F`).
     pub fn is_ascii_control(self: char) -> bool {
         let c: u32 = self as u32;
         return c < 32u32 || c == 127u32;
     }
 
+    /// Returns `true` if `self` is an ASCII punctuation character (graphic and non-alphanumeric).
     pub fn is_ascii_punctuation(self: char) -> bool {
         let c: u32 = self as u32;
         if c >= 33u32  && c <= 47u32  { return true; }  // ! " # $ % & ' ( ) * + , - . /
@@ -72,6 +81,7 @@ impl char {
         return false;
     }
 
+    /// Returns `true` if `self` is an ASCII graphic character (`U+0021..=U+007E`).
     pub fn is_ascii_graphic(self: char) -> bool {
         let c: u32 = self as u32;
         return c >= 33u32 && c <= 126u32;
@@ -82,6 +92,9 @@ impl char {
     // Full Unicode property tables are deferred — these return the
     // ASCII subset, which matches Rust semantics for ASCII inputs.
 
+    /// Returns `true` if `self` is whitespace.
+    ///
+    /// Covers ASCII whitespace plus `U+00A0`, `U+2007`, `U+202F` only — not the full Unicode set.
     pub fn is_whitespace(self: char) -> bool {
         // Includes a few Unicode whitespace codepoints that the
         // Rust coretest exercises explicitly (U+2007 figure space).
@@ -93,38 +106,46 @@ impl char {
         return false;
     }
 
+    /// Returns `true` if `self` is alphabetic (ASCII letters only for now; no Unicode tables).
     pub fn is_alphabetic(self: char) -> bool {
         return self.is_ascii_alphabetic();
     }
 
+    /// Returns `true` if `self` is lowercase (ASCII subset only for now).
     pub fn is_lowercase(self: char) -> bool {
         return self.is_ascii_lowercase();
     }
 
+    /// Returns `true` if `self` is uppercase (ASCII subset only for now).
     pub fn is_uppercase(self: char) -> bool {
         return self.is_ascii_uppercase();
     }
 
+    /// Returns `true` if `self` is numeric (ASCII decimal digits only for now).
     pub fn is_numeric(self: char) -> bool {
         return self.is_ascii_digit();
     }
 
+    /// Returns `true` if `self` is alphanumeric (ASCII subset only for now).
     pub fn is_alphanumeric(self: char) -> bool {
         return self.is_ascii_alphanumeric();
     }
 
+    /// Returns `true` if `self` is a control character (ASCII controls only for now).
     pub fn is_control(self: char) -> bool {
         return self.is_ascii_control();
     }
 
     // ── Case conversion (ASCII-only) ──────────────────────────────────────
 
+    /// Returns the ASCII-lowercase equivalent of `self`; chars other than `A-Z` are unchanged.
     pub fn to_ascii_lowercase(self: char) -> char {
         let c: u32 = self as u32;
         if c >= 65u32 && c <= 90u32 { return (c + 32u32) as char; }
         return self;
     }
 
+    /// Returns the ASCII-uppercase equivalent of `self`; chars other than `a-z` are unchanged.
     pub fn to_ascii_uppercase(self: char) -> char {
         let c: u32 = self as u32;
         if c >= 97u32 && c <= 122u32 { return (c - 32u32) as char; }
@@ -132,11 +153,11 @@ impl char {
     }
 
     // ── Numeric value of a digit ──────────────────────────────────────────
-    //
-    // Returns the digit value of this char in the given radix
-    // (2..=36), or None if it isn't a valid digit. Matches Rust's
-    // `char::to_digit(radix: u32) -> Option<u32>` shape.
 
+    /// Returns the value of `self` as a digit in `radix`, or `None` if it is not one.
+    ///
+    /// Digits are `0-9` and case-insensitive `a-z` for values 10-35, filtered by `radix`.
+    /// Unlike Rust, a `radix` outside `2..=36` does not panic.
     pub fn to_digit(self: char, radix: u32) -> Option<u32> {
         let c: u32 = self as u32;
         let mut val: u32 = 0u32;
@@ -150,6 +171,7 @@ impl char {
 
     // ── UTF-8 byte length ─────────────────────────────────────────────────
 
+    /// Returns the number of bytes (1-4) `self` occupies when encoded as UTF-8.
     pub fn len_utf8(self: char) -> i64 {
         let c: u32 = self as u32;
         if c < 0x80u32 { return 1i64; }

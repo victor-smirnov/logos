@@ -4,7 +4,9 @@
 
 package logos.lang.default;
 
+/// Types with a canonical zero/false/empty value.
 pub trait Default {
+    /// Returns the default value for `Self`.
     fn default() -> Self;
 }
 
@@ -22,6 +24,7 @@ impl Default for f32   { fn default() -> f32   { return 0.0 as f32; } }
 impl Default for f64   { fn default() -> f64   { return 0.0;        } }
 impl Default for bool  { fn default() -> bool  { return false;      } }
 
+/// Returns `T::default()`, inferring `T` from the call-site context.
 // Free-fn dispatch helper. Lets call sites that know the expected
 // type (struct-field initializer, let with annotation, etc.) write
 // `default()` and have sema infer T from context. Mirrors Rust's

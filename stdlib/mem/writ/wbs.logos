@@ -173,7 +173,7 @@ unsafe fn write_val(out: &mut Vec<u8>, v: WAny, depth: i64) {
     out.push(0u8);
 }
 
-// Serialize `v` (and its transitive references) to a fresh byte buffer.
+/// Serializes `v` (and its transitive references) to a fresh byte buffer.
 pub fn wbs_write(v: WAny) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
     unsafe { write_val(&mut out, v, 0i64); }
@@ -366,11 +366,9 @@ unsafe fn read_val(h: &Writ, data: *const u8, pos: *mut i64, end: i64, err: *mut
     return WAny::ref_to(0i64 as *const u8);
 }
 
-// Reconstruct a document from `len` bytes at `data` into the arena `h`; returns
-// the root WAny (strings/arrays/maps newly allocated in `h`). On a truncated or
-// malformed stream (any read past `len`, an untrusted length/count that overruns
-// the buffer, or an unknown lead byte) it returns a null WAny rather than reading
-// out of bounds.
+/// Reconstructs a document from `len` bytes at `data` into arena `h`, returning the
+/// root `WAny` (new strings/arrays/maps allocated in `h`).
+/// Returns a null `WAny` on a truncated/malformed stream instead of reading OOB.
 pub fn wbs_read(h: &Writ, data: *const u8, len: i64) -> WAny {
     let mut pos: i64 = 0i64;
     let mut err: bool = false;

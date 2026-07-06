@@ -74,6 +74,24 @@ use logos.std.wql.plan_walker;           // walk_program_params — the program 
 // params), then WALK (plan_walker → emitted native fn). The emitted source is
 // spliced by the host's Emitter/`logos_emit_source` (ADR 0012 §10.2); the
 // handler returns an (empty) ItemList.
+/// Handler behind the `deem!{}` macro — Logos's Datalog/query DSL over `Writ` data.
+///
+/// Invoked as `resource <name> = deem!(<params>) { <query> };`; `name` is the
+/// `resource` binding, `params` is the raw parenthesized fn-parameter-list source
+/// (slice params are query sources, scalar params are bare-referenced in clauses),
+/// and `body` is the raw `{ … }` query-block text. Splices a generated native fn
+/// named `name` back into the caller's module (this handler itself returns an
+/// empty `ItemList`); the generated fn's shape depends on the query's terminal
+/// clause:
+///   - `select <expr> : <ty>` → `pub fn name(<params>) -> Result<Vec<ty>, ElError>`,
+///     one row per match (error-returning: overflow/div-by-zero in the EL
+///     expression is `Err`, never a host trap);
+///   - `from <src> <v> find <P>` → `pub fn name(<params>) -> Result<Option<&Ty>, ElError>`,
+///     a borrow of the first row matching `P` (early-exit, zero-copy; `find`
+///     takes no other clause).
+/// Reports a compiler `error` (not a panic) and returns an empty `ItemList` on a
+/// missing binding name, an empty/malformed `params` list, or a query that fails
+/// to parse.
 #[token_macro]
 pub fn deem(name: str, params: str, body: str) -> ItemList {
     let out: ItemList = item_list_new();

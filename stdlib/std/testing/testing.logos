@@ -32,6 +32,7 @@ unsafe fn emit_bytes(p: *const u8, n: i64) {
     }
 }
 
+/// Accumulates test pass/fail counts; each failing assertion prints a diagnostic to stderr.
 pub struct TestCtx {
     passed: i32,
     failed: i32,
@@ -39,15 +40,17 @@ pub struct TestCtx {
 }
 
 impl TestCtx {
+    /// Creates a `TestCtx` with zero counts and no current test name.
     pub static fn new() -> TestCtx {
         return TestCtx { passed: 0, failed: 0, current: String::new() };
     }
 
+    /// Returns the number of passed assertions.
     pub fn passed(&self) -> i32 { return self.passed; }
+    /// Returns the number of failed assertions.
     pub fn failed(&self) -> i32 { return self.failed; }
 
-    // Start a named test case.  The name is included in failure messages
-    // until the next `begin` call.
+    /// Starts a named test case; `name` is included in failure messages until the next `begin`.
     pub fn begin(&mut self, name: str) {
         self.current.clear();
         self.current.push_str(name);
@@ -78,16 +81,19 @@ impl TestCtx {
         unsafe { emit_bytes(buf.as_ptr(), buf.len()); }
     }
 
+    /// Asserts `cond` is true; a failure is recorded and execution continues (no abort).
     pub fn assert_true(&mut self, cond: bool) {
         if cond { self.record_pass(); return; }
         self.record_fail("assert_true", "expected true");
     }
 
+    /// Asserts `cond` is false; a failure is recorded and execution continues (no abort).
     pub fn assert_false(&mut self, cond: bool) {
         if !cond { self.record_pass(); return; }
         self.record_fail("assert_false", "expected false");
     }
 
+    /// Asserts `actual == expected`; the failure diagnostic includes both values.
     pub fn assert_eq_i64(&mut self, actual: i64, expected: i64) {
         if actual == expected { self.record_pass(); return; }
         let mut d: String = String::new();
@@ -101,10 +107,12 @@ impl TestCtx {
         }
     }
 
+    /// Asserts `actual == expected`, widening to `i64` and delegating to `assert_eq_i64`.
     pub fn assert_eq_i32(&mut self, actual: i32, expected: i32) {
         self.assert_eq_i64(actual as i64, expected as i64);
     }
 
+    /// Asserts `actual` and `expected` are byte-for-byte equal.
     pub fn assert_eq_str(&mut self, actual: str, expected: str) {
         if actual.len() != expected.len() {
             self.record_fail("assert_eq_str", "length mismatch");
@@ -124,11 +132,12 @@ impl TestCtx {
         self.record_pass();
     }
 
+    /// Records an unconditional failure with `reason` in the diagnostic.
     pub fn fail(&mut self, reason: str) {
         self.record_fail("fail", reason);
     }
 
-    // Print summary and return exit code (0 on success, 1 on any failure).
+    /// Prints a pass/fail summary to stderr; returns exit code 0 on success, 1 on any failure.
     pub fn summary(&self) -> i32 {
         let mut buf: String = String::new();
         buf.push_str("tests: ");

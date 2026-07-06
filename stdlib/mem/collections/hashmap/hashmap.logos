@@ -25,6 +25,9 @@ struct Entry<K, V> {
     val: V,
 }
 
+/// Hash map with open addressing and linear probing; load factor 0.75, power-of-two capacity.
+/// Mutating/lookup methods are `unsafe` and take raw `self` pointers; construct via
+/// `hashmap_new` or `hashmap_with_capacity`.
 pub struct HashMap<K, V> {
     states:  *mut u8,
     entries: *mut Entry<K, V>,
@@ -32,10 +35,12 @@ pub struct HashMap<K, V> {
     cap:     i64,
 }
 
+/// Creates an empty `HashMap` with capacity 16.
 pub fn hashmap_new<K: Hash + Eq, V>() -> HashMap<K, V> {
     return hashmap_with_capacity::<K, V>(16 as i64);
 }
 
+/// Creates an empty `HashMap` with `cap_hint` rounded up to a power of two (minimum 8).
 pub fn hashmap_with_capacity<K: Hash + Eq, V>(cap_hint: i64) -> HashMap<K, V> {
     // Round up to next power of two, min 8.
     let mut cap: i64 = 8;
@@ -56,10 +61,13 @@ pub fn hashmap_with_capacity<K: Hash + Eq, V>(cap_hint: i64) -> HashMap<K, V> {
 }
 
 impl<K: Hash + Eq, V> HashMap<K, V> {
+    /// Returns the number of entries in the map.
     pub fn len(&self) -> i64 { return self.len; }
 
+    /// Returns `true` if the map contains no entries.
     pub fn is_empty(&self) -> bool { return self.len == 0 as i64; }
 
+    /// Returns the raw slot count of the table (always a power of two).
     pub fn capacity(&self) -> i64 { return self.cap; }
 
     // Compute starting slot index for a key: hash & (cap - 1).
@@ -93,6 +101,8 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         }
     }
 
+    /// Inserts `key` → `val`, overwriting the value if `key` is already present.
+    /// Resizes (x2) when the post-insert load factor would exceed 0.75.
     pub unsafe fn insert(self: *mut HashMap<K, V>, key: K, val: V) {
         // Resize when load factor exceeds 0.75.
         // (self.len + 1) * 4 > self.cap * 3  ⇔  load > 0.75 after insert.
@@ -111,11 +121,13 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         }
     }
 
+    /// Returns `true` if the map contains `key`.
     pub unsafe fn contains_key(self: *mut HashMap<K, V>, key: &K) -> bool {
         let (idx, found) = self.probe(key);
         return found;
     }
 
+    /// Returns a pointer to the value for `key`, or null if absent.
     pub unsafe fn get(self: *mut HashMap<K, V>, key: &K) -> *const V {
         let (idx, found) = self.probe(key);
         if !found { return 0 as *const V; }
@@ -123,6 +135,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         return &e.val as *const V;
     }
 
+    /// Returns a mutable pointer to the value for `key`, or null if absent.
     pub unsafe fn get_mut(self: *mut HashMap<K, V>, key: &K) -> *mut V {
         let (idx, found) = self.probe(key);
         if !found { return 0 as *mut V; }
@@ -130,11 +143,10 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         return &mut e.val as *mut V;
     }
 
-    // entry().or_insert() — single-probe find-or-insert. Returns a pointer to the
-    // value bound to `key`: the existing one if present, else `default` freshly
-    // inserted. ONE probe + ONE hash, vs get-then-insert's two of each — this is
-    // the idiomatic count/accumulate path (`*m.get_or_insert(k, 0) += 1`). When
-    // the key is already present `default` is dropped (matching Rust's or_insert).
+    /// Returns a pointer to the value bound to `key`, inserting `default` if absent.
+    /// Single-probe find-or-insert (Rust's `entry().or_insert()`): ONE probe + ONE hash vs
+    /// get-then-insert's two of each — the idiomatic count/accumulate path
+    /// (`*m.get_or_insert(k, 0) += 1`). If `key` is already present, `default` is dropped.
     pub unsafe fn get_or_insert(self: *mut HashMap<K, V>, key: K, default: V) -> *mut V {
         if (self.len + 1 as i64) * 4 as i64 > self.cap * 3 as i64 {
             self.resize(self.cap * 2 as i64);
@@ -150,6 +162,8 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         return &mut e.val as *mut V;
     }
 
+    /// Removes `key` from the map; returns `true` if it was present.
+    /// Tombstones the slot without moving out or dropping the entry's key/value.
     pub unsafe fn remove(self: *mut HashMap<K, V>, key: &K) -> bool {
         let (idx, found) = self.probe(key);
         if !found { return false; }
@@ -158,6 +172,8 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         return true;
     }
 
+    /// Removes and drops all entries, resetting every slot (tombstones included) to empty.
+    /// Capacity is retained.
     pub unsafe fn clear(self: *mut HashMap<K, V>) {
         let mut i: i64 = 0;
         while i < self.cap {
@@ -206,6 +222,8 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
 // ── Iteration ────────────────────────────────────────────────────────────────
 
+/// Iterator over `(&K, &V)` entries of a `HashMap`; created by `iter()`.
+/// Holds raw pointers into the table — inserting during iteration may resize and dangle them.
 pub struct HashMapIter<K, V> {
     states:  *const u8,
     entries: *const Entry<K, V>,
@@ -232,6 +250,7 @@ impl<K: Hash + Eq, V> Iterator<ZipPair<&K, &V>> for HashMapIter<K, V> {
     }
 }
 
+/// Iterator over `&K` keys of a `HashMap`; created by `keys()`.
 pub struct HashMapKeys<K, V> {
     states:  *const u8,
     entries: *const Entry<K, V>,
@@ -255,6 +274,7 @@ impl<K: Hash + Eq, V> Iterator<&K> for HashMapKeys<K, V> {
     }
 }
 
+/// Iterator over `&V` values of a `HashMap`; created by `values()`.
 pub struct HashMapValues<K, V> {
     states:  *const u8,
     entries: *const Entry<K, V>,
@@ -279,6 +299,8 @@ impl<K: Hash + Eq, V> Iterator<&V> for HashMapValues<K, V> {
 }
 
 impl<K: Hash + Eq, V> HashMap<K, V> {
+    /// Returns an iterator yielding `ZipPair<&K, &V>` for each occupied entry.
+    /// Order is arbitrary (table order). Do not insert while iterating.
     pub unsafe fn iter(self: *const HashMap<K, V>) -> HashMapIter<K, V> {
         return HashMapIter {
             states:  self.states as *const u8,
@@ -288,6 +310,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         };
     }
 
+    /// Returns an iterator over the map's keys, in arbitrary order.
     pub unsafe fn keys(self: *const HashMap<K, V>) -> HashMapKeys<K, V> {
         return HashMapKeys {
             states:  self.states as *const u8,
@@ -297,6 +320,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         };
     }
 
+    /// Returns an iterator over the map's values, in arbitrary order.
     pub unsafe fn values(self: *const HashMap<K, V>) -> HashMapValues<K, V> {
         return HashMapValues {
             states:  self.states as *const u8,

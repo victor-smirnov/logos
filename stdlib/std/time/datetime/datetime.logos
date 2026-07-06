@@ -9,13 +9,21 @@ package logos.std.time.datetime;
 use logos.mem.string;
 use logos.lang.str;
 
+/// Broken-down UTC civil time in the proleptic Gregorian calendar.
 pub struct CivilTime {
+    /// Proleptic-Gregorian year; may be negative.
     pub year:   i64,   // proleptic Gregorian; may be negative
+    /// Month of year, `1..=12`.
     pub month:  i32,   // 1..=12
+    /// Day of month, `1..=31`.
     pub day:    i32,   // 1..=31
+    /// Hour of day, `0..=23`.
     pub hour:   i32,   // 0..=23
+    /// Minute of hour, `0..=59`.
     pub minute: i32,   // 0..=59
+    /// Second of minute, `0..=59`; leap seconds are not represented.
     pub second: i32,   // 0..=59 (no leap seconds)
+    /// Day of week, `0` = Sunday through `6` = Saturday.
     pub wday:   i32,   // 0 = Sunday, 6 = Saturday
 }
 
@@ -70,7 +78,7 @@ fn fdiv(a: i64, b: i64) -> i64 {
     return q;
 }
 
-// Break a Unix-epoch second count into UTC civil time.
+/// Breaks a Unix-epoch second count into UTC civil time, including `wday`.
 pub fn from_unix_secs(secs: i64) -> CivilTime {
     let day: i64 = fdiv(secs, 86400 as i64);
     let tod: i64 = pmod(secs, 86400 as i64);
@@ -84,7 +92,8 @@ pub fn from_unix_secs(secs: i64) -> CivilTime {
     return ct;
 }
 
-// Convert a CivilTime (UTC) back to Unix seconds.
+/// Converts a `CivilTime` (UTC) back to Unix seconds.
+/// `wday` is ignored; fields are not range-checked.
 pub fn to_unix_secs(ct: &CivilTime) -> i64 {
     let day: i64 = days_from_civil(ct.year, ct.month, ct.day);
     return day * 86400 as i64
@@ -93,12 +102,14 @@ pub fn to_unix_secs(ct: &CivilTime) -> i64 {
          + ct.second as i64;
 }
 
+/// Returns `true` if year `y` is a leap year in the proleptic Gregorian calendar.
 pub fn is_leap(y: i64) -> bool {
     if y % 4 as i64 != 0 as i64 { return false; }
     if y % 100 as i64 != 0 as i64 { return true; }
     return y % 400 as i64 == 0 as i64;
 }
 
+/// Returns the number of days in month `m` of year `y`, or `0` if `m` is outside `1..=12`.
 pub fn days_in_month(y: i64, m: i32) -> i32 {
     if m == 1 || m == 3 || m == 5 || m == 7 || m == 8 || m == 10 || m == 12 { return 31; }
     if m == 4 || m == 6 || m == 9 || m == 11 { return 30; }
@@ -134,7 +145,8 @@ fn push_u_pad(out: &mut String, v: i64, width: i32) {
     }
 }
 
-// ISO-8601: "YYYY-MM-DDTHH:MM:SSZ"
+/// Appends `ct` to `out` as ISO-8601 `YYYY-MM-DDTHH:MM:SSZ` (UTC).
+/// Negative years are written with a leading `-`; the year is zero-padded to 4 digits.
 pub fn format_iso8601(ct: &CivilTime, out: &mut String) {
     if ct.year < 0 as i64 { out.push_u8(45 as u8); }    // '-'
     push_u_pad(out, ct.year, 4);
@@ -151,7 +163,7 @@ pub fn format_iso8601(ct: &CivilTime, out: &mut String) {
     out.push_u8(90 as u8);                               // 'Z'
 }
 
-// Date-only: "YYYY-MM-DD"
+/// Appends the date of `ct` to `out` as `YYYY-MM-DD` (leading `-` for negative years).
 pub fn format_date(ct: &CivilTime, out: &mut String) {
     if ct.year < 0 as i64 { out.push_u8(45 as u8); }
     push_u_pad(out, ct.year, 4);
@@ -161,7 +173,7 @@ pub fn format_date(ct: &CivilTime, out: &mut String) {
     push_u_pad(out, ct.day as i64, 2);
 }
 
-// Time-only: "HH:MM:SS"
+/// Appends the time of day of `ct` to `out` as `HH:MM:SS`.
 pub fn format_time(ct: &CivilTime, out: &mut String) {
     push_u_pad(out, ct.hour as i64, 2);
     out.push_u8(58 as u8);
@@ -170,7 +182,7 @@ pub fn format_time(ct: &CivilTime, out: &mut String) {
     push_u_pad(out, ct.second as i64, 2);
 }
 
-// Weekday name, full form ("Sunday" .. "Saturday").
+/// Returns the full English weekday name for `w` (`0` = `"Sunday"` … `6` = `"Saturday"`), or `""`.
 pub fn weekday_name(w: i32) -> str {
     if w == 0 { return "Sunday"; }
     if w == 1 { return "Monday"; }
@@ -182,7 +194,7 @@ pub fn weekday_name(w: i32) -> str {
     return "";
 }
 
-// Month name, full form ("January" .. "December").
+/// Returns the full English month name for `m` in `1..=12`, or `""` otherwise.
 pub fn month_name(m: i32) -> str {
     if m == 1  { return "January"; }
     if m == 2  { return "February"; }

@@ -48,6 +48,8 @@ let REACTOR_URING_ENTRIES: i32 = 256;
 
 // ── SpscRing ──────────────────────────────────────────────────────────────
 
+/// A bounded single-producer/single-consumer ring of `(fn_ptr, arg)` pairs.
+/// One slot stays unused: a ring of capacity `cap` holds at most `cap - 1` entries.
 pub struct SpscRing {
     buf:  *mut i64,
     head: i64,
@@ -135,6 +137,7 @@ fn wait_eventfd(notify_fd: i32) {
 
 // ── Thread ────────────────────────────────────────────────────────────────
 
+/// A worker thread: cooperative `Scheduler`, io_uring `Reactor`, SPSC inbox, wakeup eventfd.
 pub struct Thread {
     idx:        i32,
     pthread_id: i64,
@@ -148,6 +151,7 @@ pub struct Thread {
 
 // ── ThreadPool ────────────────────────────────────────────────────────────
 
+/// A fixed set of worker `Thread`s, each running its own per-thread reactor loop.
 pub struct ThreadPool {
     threads:  *mut i64,
     count:    i32,
@@ -287,6 +291,8 @@ fn thread_entry(arg: *mut u8) -> *mut u8 {
 
 // ── Public API ────────────────────────────────────────────────────────────
 
+/// Creates a pool of `n` workers, each with a scheduler, bounded SPSC inbox, eventfd,
+/// and io_uring reactor. No OS threads run until `thread_pool_start`.
 pub fn thread_pool_new(n: i32) -> *mut ThreadPool {
     let pool: *mut ThreadPool = alloc(sizeof::<ThreadPool>()) as *mut ThreadPool;
     let buf:  *mut u8         = alloc(n as i64 * 8);
@@ -319,10 +325,9 @@ pub fn thread_pool_new(n: i32) -> *mut ThreadPool {
     return pool;
 }
 
-// Configure the per-fiber stack pool on every worker's scheduler.
-// Must be called BEFORE thread_pool_start — once a worker thread is
-// running, its scheduler is accessed concurrently and touching these
-// fields from the outside is a data race.
+/// Configures the per-fiber stack-pool capacity on every worker's scheduler.
+/// Must be called BEFORE `thread_pool_start` — once a worker thread is running,
+/// its scheduler is accessed concurrently and touching it from outside is a data race.
 pub fn thread_pool_set_stack_pool_cap(pool: *mut ThreadPool, cap: i64) {
     let n:           i32      = unsafe { pool.count };
     let threads_buf: *mut i64 = unsafe { pool.threads };
@@ -336,6 +341,7 @@ pub fn thread_pool_set_stack_pool_cap(pool: *mut ThreadPool, cap: i64) {
     }
 }
 
+/// Spawns one OS thread per worker; each runs its reactor loop until shutdown.
 pub fn thread_pool_start(pool: *mut ThreadPool) {
     let n:           i32      = unsafe { pool.count };
     let threads_buf: *mut i64 = unsafe { pool.threads };
@@ -350,6 +356,8 @@ pub fn thread_pool_start(pool: *mut ThreadPool) {
     }
 }
 
+/// Submits `f(arg)` to run as a new fiber on worker `target_idx`, waking it if asleep.
+/// Spins while the target inbox is full. Assumes a single producer per inbox.
 pub fn thread_submit(pool: *mut ThreadPool, target_idx: i32,
                      f: fn(i64) -> (), arg: i64) {
     let threads_buf: *mut i64 = unsafe { pool.threads };
@@ -368,6 +376,8 @@ pub fn thread_submit(pool: *mut ThreadPool, target_idx: i32,
     }
 }
 
+/// Sets the shutdown flag and wakes every worker; each exits once its scheduler,
+/// inbox, and parked I/O are all drained.
 pub fn thread_pool_signal_done(pool: *mut ThreadPool) {
     unsafe { pool.shutdown = 1; }
     let n:           i32      = unsafe { pool.count };
@@ -383,6 +393,7 @@ pub fn thread_pool_signal_done(pool: *mut ThreadPool) {
     }
 }
 
+/// Blocks until every worker's OS thread exits (`pthread_join` on each).
 pub fn thread_pool_join(pool: *mut ThreadPool) {
     let n:           i32      = unsafe { pool.count };
     let threads_buf: *mut i64 = unsafe { pool.threads };
@@ -396,6 +407,8 @@ pub fn thread_pool_join(pool: *mut ThreadPool) {
     }
 }
 
+/// Frees all per-thread resources (inbox, scheduler, reactor, eventfd) and the pool itself.
+/// Call only after `thread_pool_join`.
 pub fn thread_pool_free(pool: *mut ThreadPool) {
     let n:           i32      = unsafe { pool.count };
     let threads_buf: *mut i64 = unsafe { pool.threads };

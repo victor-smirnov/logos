@@ -10,11 +10,13 @@
 
 package logos.lang.clone;
 
+/// Types whose values can be explicitly duplicated.
 pub trait Clone {
+    /// Returns a duplicate of `*self`, independent of the original.
     fn clone(&self) -> Self;
 }
 
-// Copy is a marker trait — no methods.
+/// Marker trait for types that can be duplicated by a plain bitwise copy.
 pub trait Copy {}
 
 impl Clone for i8    { fn clone(&self) -> i8    { return *self; } }

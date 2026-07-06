@@ -16,6 +16,7 @@ use logos.std.io.net.url;
 
 // ── Internal helpers (package-private) ───────────────────────────────────────
 
+/// Pushes byte `b` onto `v`.
 // Push a u8 into a Vec<u8> via a &mut Vec<u8>. The cast is the current
 // workaround for Vec::push taking *mut self; centralising it here keeps the
 // rest of the package free of inline raw-pointer casts.
@@ -26,6 +27,7 @@ pub fn vec_push_u8(v: &mut Vec<u8>, b: u8) {
     }
 }
 
+/// Returns the number of bytes in `v`.
 pub fn vec_len_u8(v: &Vec<u8>) -> i64 {
     unsafe {
         let p: *mut Vec<u8> = v as *const Vec<u8> as *mut Vec<u8>;
@@ -33,6 +35,7 @@ pub fn vec_len_u8(v: &Vec<u8>) -> i64 {
     }
 }
 
+/// Returns the byte at index `i` of `v`.
 pub fn vec_get_u8(v: &Vec<u8>, i: i64) -> u8 {
     unsafe {
         let p: *mut Vec<u8> = v as *const Vec<u8> as *mut Vec<u8>;
@@ -40,6 +43,7 @@ pub fn vec_get_u8(v: &Vec<u8>, i: i64) -> u8 {
     }
 }
 
+/// Returns a raw const pointer to the byte at index `i` of `v`.
 pub fn vec_at_const_u8(v: &Vec<u8>, i: i64) -> *const u8 {
     unsafe {
         let p: *mut Vec<u8> = v as *const Vec<u8> as *mut Vec<u8>;
@@ -47,13 +51,14 @@ pub fn vec_at_const_u8(v: &Vec<u8>, i: i64) -> *const u8 {
     }
 }
 
+/// Borrows a `String`'s contents as a `str` (no copy).
 // Borrow a String as str (no copy).  Free function because methods returning
 // `str` currently hit a codegen corner around sret.
 pub fn s2str(s: &String) -> str {
     return unsafe { str_from_raw((s).as_ptr(), (s).len()) };
 }
 
-// Compare two byte ranges exactly (ASCII, case-sensitive).
+/// Compares two byte ranges exactly (ASCII, case-sensitive).
 pub fn bytes_eq(a: *const u8, an: i64, b: *const u8, bn: i64) -> bool {
     if an != bn { return false; }
     let mut i: i64 = 0;
@@ -64,7 +69,7 @@ pub fn bytes_eq(a: *const u8, an: i64, b: *const u8, bn: i64) -> bool {
     return true;
 }
 
-// ASCII-only case-insensitive compare of two byte ranges.
+/// Compares two byte ranges case-insensitively (ASCII only).
 pub fn ascii_ieq(a: *const u8, an: i64, b: *const u8, bn: i64) -> bool {
     if an != bn { return false; }
     let mut i: i64 = 0;
@@ -85,8 +90,11 @@ pub fn ascii_ieq(a: *const u8, an: i64, b: *const u8, bn: i64) -> bool {
 // Small integer code plus literal token. Unknown / extension methods share
 // code == 7 and preserve the token verbatim in `name`.
 
+/// HTTP request method: a small integer `code` plus the literal token.
 pub struct Method {
+    /// Method code; known methods use 0–6, unknown/extension methods share 7.
     pub code: i32,
+    /// Method token verbatim (e.g. `"GET"`).
     pub name: String,
 }
 
@@ -97,21 +105,29 @@ fn method_with(code: i32, s: str) -> Method {
 }
 
 impl Method {
+    /// Returns the `GET` method.
     pub static fn get()     -> Method { return method_with(0, "GET");     }
+    /// Returns the `POST` method.
     pub static fn post()    -> Method { return method_with(1, "POST");    }
+    /// Returns the `PUT` method.
     pub static fn put()     -> Method { return method_with(2, "PUT");     }
+    /// Returns the `DELETE` method.
     pub static fn delete()  -> Method { return method_with(3, "DELETE");  }
+    /// Returns the `HEAD` method.
     pub static fn head()    -> Method { return method_with(4, "HEAD");    }
+    /// Returns the `OPTIONS` method.
     pub static fn options() -> Method { return method_with(5, "OPTIONS"); }
+    /// Returns the `PATCH` method.
     pub static fn patch()   -> Method { return method_with(6, "PATCH");   }
 
+    /// Returns `true` if the method token equals `s` exactly (case-sensitive).
     pub fn eq_str(&self, s: str) -> bool {
         return self.name.eq_str(s);
     }
 }
 
-// Parse a method token (ASCII, case-sensitive per RFC 7230).  Unknown tokens
-// return code == 7 with the original name preserved.
+/// Parses a method token (ASCII, case-sensitive per RFC 7230).
+/// Unknown tokens return `code == 7` with the original name preserved.
 pub fn method_parse(s: str) -> Method {
     let p: *const u8 = s.as_ptr();
     let n: i64 = s.len();
@@ -136,21 +152,31 @@ pub fn method_parse(s: str) -> Method {
 // value_len) quads. This sidesteps the current Vec-of-struct-with-Drop
 // limitation.
 
+/// Offset/length quad locating one header's name and value inside `Headers::buf`.
 pub struct Header {
+    /// Byte offset of the name within `Headers::buf`.
     pub name_off:  i32,
+    /// Byte length of the name.
     pub name_len:  i32,
+    /// Byte offset of the value within `Headers::buf`.
     pub value_off: i32,
+    /// Byte length of the value.
     pub value_len: i32,
 }
 
 impl Copy for Header {}
 
+/// Ordered list of HTTP header `(name, value)` pairs; duplicates allowed.
+/// Name lookup is ASCII case-insensitive (RFC 7230 §3.2).
 pub struct Headers {
+    /// Backing storage: every name and value back-to-back, NUL-separated.
     pub buf:     String,
+    /// Per-header offset/length quads indexing into `buf`.
     pub entries: Vec<Header>,
 }
 
 impl Headers {
+    /// Creates an empty header list.
     pub static fn new() -> Headers {
         return Headers {
             buf:     String::new(),
@@ -158,6 +184,7 @@ impl Headers {
         };
     }
 
+    /// Returns the number of header entries.
     pub fn len(&self) -> i64 {
         return (&self.entries).length();
     }
@@ -170,7 +197,7 @@ impl Headers {
         return (&self.buf).as_ptr().byte_add(h.value_off as i64);
     }
 
-    // Append a (name, value) pair unconditionally (preserves duplicates).
+    /// Appends a `(name, value)` pair unconditionally (preserves duplicates).
     pub fn append(&mut self, name: str, value: str) {
         let name_off: i32 = (&self.buf).len() as i32;
         let name_len: i32 = name.len() as i32;
@@ -192,6 +219,7 @@ impl Headers {
         }
     }
 
+    /// Returns `true` if any header matches `name` (ASCII case-insensitive).
     pub fn contains(&self, name: str) -> bool {
         let nptr: *const u8 = name.as_ptr();
         let nlen: i64 = name.len();
@@ -210,6 +238,7 @@ impl Headers {
         return false;
     }
 
+    /// Returns the value of the first header matching `name`, or `None`.
     pub fn get(&self, name: str) -> Option<String> {
         let nptr: *const u8 = name.as_ptr();
         let nlen: i64 = name.len();
@@ -230,6 +259,8 @@ impl Headers {
         return Option::None;
     }
 
+    /// Replaces the first header matching `name` with `value`, or appends if none matches.
+    /// Later duplicates of `name` are left in place.
     pub fn set(&mut self, name: str, value: str) {
         let nptr: *const u8 = name.as_ptr();
         let nlen: i64 = name.len();
@@ -261,6 +292,7 @@ impl Headers {
         self.append(name, value);
     }
 
+    /// Removes all headers matching `name`; returns the number removed.
     pub fn remove(&mut self, name: str) -> i64 {
         let nptr: *const u8 = name.as_ptr();
         let nlen: i64 = name.len();
@@ -284,25 +316,35 @@ impl Headers {
 
 // ── Request / Response ───────────────────────────────────────────────────────
 
+/// HTTP request: method, target URL, headers, and body.
 pub struct Request {
+    /// Request method.
     pub method:  Method,
+    /// Target URL.
     pub url:     Url,
+    /// Request headers.
     pub headers: Headers,
+    /// Request body bytes.
     pub body:    Vec<u8>,
-    // HTTP version minor digit from the request line.  0 for HTTP/1.0,
-    // 1 for HTTP/1.1.  Major is always 1 (higher majors are rejected by
-    // the parser).
+    /// HTTP version minor digit from the request line: 0 for HTTP/1.0, 1 for HTTP/1.1.
+    /// Major is always 1 (higher majors are rejected by the parser).
     pub version_minor: i32,
 }
 
+/// HTTP response: status code, reason phrase, headers, and body.
 pub struct Response {
+    /// Status code (e.g. `200`).
     pub status:  i32,
+    /// Reason phrase for the status line.
     pub reason:  String,
+    /// Response headers.
     pub headers: Headers,
+    /// Response body bytes.
     pub body:    Vec<u8>,
 }
 
 impl Request {
+    /// Creates a request with empty headers and body; `version_minor` defaults to 1.
     pub static fn new(method: Method, u: Url) -> Request {
         return Request {
             method:        method,
@@ -315,6 +357,7 @@ impl Request {
 }
 
 impl Response {
+    /// Creates a response with the canonical reason phrase for `status`, empty headers and body.
     pub static fn new(status: i32) -> Response {
         let mut r: String = String::new();
         r.push_str(http_reason_phrase(status));
@@ -329,15 +372,21 @@ impl Response {
 
 // ── HttpError ────────────────────────────────────────────────────────────────
 
+/// Errors produced by HTTP client and server operations.
 pub enum HttpError {
+    /// TCP connect / listen / accept failed.
     Connect,        // TCP connect / listen / accept failed
+    /// Send / recv failed mid-exchange.
     Io,             // send / recv failed mid-exchange
+    /// Malformed request or response bytes.
     Parse,          // malformed request/response bytes
+    /// Response status rejected by a caller; carries the status code.
     BadStatus(i32), // response whose status was rejected by a caller
+    /// `url_parse` failed or the host was not numeric IPv4.
     BadUrl,         // url_parse failed or host wasn't numeric-IPv4
 }
 
-// Minimal reason-phrase table.  Unknown codes → empty.
+/// Returns the standard reason phrase for `status`; unknown codes yield `""`.
 pub fn http_reason_phrase(status: i32) -> str {
     if status == 200 { return "OK"; }
     if status == 201 { return "Created"; }

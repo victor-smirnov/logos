@@ -18,22 +18,33 @@ use logos.lang.str;
 // ── Span ────────────────────────────────────────────────────────────────
 // Source location of a token. Slice 2: scaffolding only. Slice 3 wires
 // it from the lexer; slice 7 (hygiene) extends with scope tags.
+/// Source location of a token.
 pub struct Span {
+    /// Id of the source file; `-1` marks an unknown location.
     pub file_id: i32,
+    /// Line number within the file.
     pub line:    i32,
+    /// Column number within the line.
     pub col:     i32,
 }
 
+/// Returns the sentinel `Span` for tokens with no source location (`file_id == -1`).
 pub fn span_unknown() -> Span {
     return Span { file_id: -1i32, line: 0i32, col: 0i32 };
 }
 
 // ── Literal kind ────────────────────────────────────────────────────────
+/// Lexical category of a `TokenTree::Literal` token.
 pub enum LitKind {
+    /// Integer literal.
     Int,
+    /// Floating-point literal.
     Float,
+    /// String literal.
     Str,
+    /// Character literal.
     Char,
+    /// Boolean literal (`true`/`false`).
     Bool,
 }
 
@@ -41,15 +52,22 @@ pub enum LitKind {
 // `Joint`: this punct directly precedes another punct that is part of a
 // multi-char operator (e.g. `:` in `::`, `=` in `==`).
 // `Alone`: this punct is the last in its run.
+/// Whether a `Punct` is glued to the following punct as part of a multi-char operator.
 pub enum Spacing {
+    /// Directly precedes another punct of the same multi-char operator (e.g. `:` in `::`).
     Joint,
+    /// Last punct in its run.
     Alone,
 }
 
 // ── Group delimiter ─────────────────────────────────────────────────────
+/// Delimiter kind enclosing a `TokenTree::Group`.
 pub enum Delim {
+    /// Parentheses `( )`.
     Paren,    // ( )
+    /// Square brackets `[ ]`.
     Bracket,  // [ ]
+    /// Curly braces `{ }`.
     Brace,    // { }
 }
 
@@ -57,8 +75,11 @@ pub enum Delim {
 // Local Ident definition keeps tokens.logos free of an upward dep on
 // logos.std.compiler.metaprog (which is ast_only — wouldn't link here).
 // Layout matches the metaprog Ident — both are interchangeable byte-wise.
+/// Identifier token text as a non-owning `(ptr, len)` byte view.
 pub struct Ident {
+    /// Pointer to the first byte of the identifier text (UTF-8, not owned).
     pub ptr: *const u8,
+    /// Length of the identifier text in bytes.
     pub len: u64,
 }
 
@@ -68,21 +89,30 @@ pub struct Ident {
 //   Literal(Int, "42")           — text is the original lexeme (incl. suffix)
 //   Punct('+', Alone)
 //   Group(Paren, <inner stream>)
+/// One node of a token stream: a leaf token or a balanced delimited subgroup.
 pub enum TokenTree {
+    /// Identifier token.
     Ident(Ident, Span),
+    /// Literal token; the `String` holds the original lexeme, including any suffix.
     Literal(LitKind, String, Span),
+    /// Single punctuation character with its `Spacing`.
     Punct(char, Spacing, Span),
+    /// Delimited group wrapping a nested `TokenStream`.
     Group(Delim, TokenStream, Span),
 }
 
 // ── TokenStream ─────────────────────────────────────────────────────────
 // Flat sequence of TokenTrees. Recursion lives inside Group. Span is
 // the stream's outer span (set by the producer).
+/// Flat sequence of `TokenTree`s; nesting lives inside `Group` trees.
 pub struct TokenStream {
+    /// Trees in source order.
     pub trees: Vec<TokenTree>,
+    /// Outer span of the whole stream, set by the producer.
     pub span:  Span,
 }
 
+/// Creates an empty `TokenStream` with an unknown span.
 pub fn token_stream_new() -> TokenStream {
     return TokenStream {
         trees: vec_new::<TokenTree>(),
@@ -91,14 +121,17 @@ pub fn token_stream_new() -> TokenStream {
 }
 
 impl TokenStream {
+    /// Appends a tree to the end of the stream.
     pub fn push(&mut self, t: TokenTree) {
         self.trees.push(t);
     }
 
+    /// Returns the number of top-level trees in the stream.
     pub fn length(&self) -> i64 {
         return self.trees.length();
     }
 
+    /// Returns `true` if the stream contains no trees.
     pub fn is_empty(&self) -> bool {
         return self.trees.is_empty();
     }

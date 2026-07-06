@@ -22,9 +22,9 @@ use logos.lang.str;                  // str, str_eq
 
 fn null_wany() -> WAny { return WAny::Ref(0i64 as *const u8); }
 
-// Root WAny of a WritStatic @-literal scrutinee (the matcher's entry point).
-// Inlined root read (the DocumentHeader's self-relative word at ptr+0) so the
-// returned WAny borrows the &param's blob, not a local WView2 (borrow-checker).
+/// Returns root `WAny` of a `WritStatic` @-literal scrutinee — the matcher's entry point.
+/// Reads inline (the `DocumentHeader`'s self-relative word at `ptr+0`) so the result
+/// borrows the `&`param's blob, not a local `WView2` (borrow-checker).
 pub fn writ_pat_root(view: &WritStatic) -> WAny {
     let base: *const u8 = view.ptr;
     let w: i64 = unsafe { *(base as *const i64) };
@@ -33,24 +33,28 @@ pub fn writ_pat_root(view: &WritStatic) -> WAny {
     return WAny::Ref((base as i64 + w) as *const u8);
 }
 
-// Root WAny of a RUNTIME Rc<Writ> scrutinee (capture/comprehension results).
+/// Returns root `WAny` of a runtime `Rc<Writ>` scrutinee (capture/comprehension results).
 pub fn writ_pat_root_rc(c: &Rc<Writ>) -> WAny {
     let h: &Writ = &**c;
     return h.root();
 }
 
 // ── Scalar leaves ─────────────────────
+/// Returns `true` if the slot at `node` is the null/absent sentinel.
 pub unsafe fn writ_pat_is_null(node: *const WAny) -> bool {
     return (*node).is_null();
 }
+/// Returns `true` if the slot holds a bool equal to `b`.
 pub unsafe fn writ_pat_eq_bool(node: *const WAny, b: bool) -> bool {
     let n: WAny = *node;
     return n.is_bool() && n.as_bool() == b;
 }
+/// Returns `true` if the slot holds an int whose value equals `v` (widened to `i64`).
 pub unsafe fn writ_pat_eq_i24(node: *const WAny, v: i32) -> bool {
     let n: WAny = *node;
     return n.is_int() && n.as_i64() == (v as i64);
 }
+/// Returns `true` if the slot holds a string equal to `s`.
 pub unsafe fn writ_pat_eq_str(node: *const WAny, s: str) -> bool {
     let n: WAny = *node;
     if !n.is_string() { return false; }
@@ -58,35 +62,43 @@ pub unsafe fn writ_pat_eq_str(node: *const WAny, s: str) -> bool {
     return str_eq(hs.as_str(), s);
 }
 
-// Present = the looked-up slot is a real value (not the null/absent sentinel).
+/// Returns `true` if the slot is a real value, not the null/absent sentinel.
 pub unsafe fn writ_pat_is_present(node: *const WAny) -> bool {
     return !(*node).is_null();
 }
 
 // ── Containers ──────────────────────────────────────────────
+/// Returns `true` if the slot holds a map.
 pub unsafe fn writ_pat_is_map(node: *const WAny) -> bool {
     return (*node).is_map();
 }
+/// Returns the child `WAny` at `key` in the slot's map, or the null sentinel
+/// if the slot is absent or not a map.
 pub unsafe fn writ_pat_map_slot(node: *const WAny, key: str) -> WAny {
     let n: WAny = *node;
     if !n.is_map() { return null_wany(); }
     return (&*(n.resolve() as *const WMap<WString, WAny>)).get(key);
 }
+/// Returns the child `WAny` at `idx` in the slot's array, or the null sentinel
+/// if the slot is not an array.
 pub unsafe fn writ_pat_array_slot(node: *const WAny, idx: u64) -> WAny {
     let n: WAny = *node;
     if !n.is_array() { return null_wany(); }
     return (&*(n.resolve() as *const WArray<WAny>)).get(idx as i64);
 }
+/// Returns `true` if the slot is an array with length exactly `n`.
 pub unsafe fn writ_pat_array_len_eq(node: *const WAny, n: u64) -> bool {
     let v: WAny = *node;
     if !v.is_array() { return false; }
     return ((&*(v.resolve() as *const WArray<WAny>)).len() as u64) == n;
 }
+/// Returns `true` if the slot is an array with length at least `n`.
 pub unsafe fn writ_pat_array_len_ge(node: *const WAny, n: u64) -> bool {
     let v: WAny = *node;
     if !v.is_array() { return false; }
     return ((&*(v.resolve() as *const WArray<WAny>)).len() as u64) >= n;
 }
+/// Returns `true` if the slot is a ref whose resolved type code equals `tc`.
 pub unsafe fn writ_pat_has_type_code(node: *const WAny, tc: u64) -> bool {
     let n: WAny = *node;
     if !n.is_ref() { return false; }

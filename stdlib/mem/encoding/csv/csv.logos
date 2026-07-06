@@ -15,6 +15,8 @@ package logos.mem.encoding.csv;
 use logos.mem.string;
 use logos.lang.str;
 
+/// Stateful RFC 4180 CSV reader that decodes one field per `read_field` call.
+/// Holds a raw pointer into the source buffer; the source must outlive the reader.
 pub struct CsvReader {
     src: *const u8,
     pos: i64,
@@ -22,6 +24,8 @@ pub struct CsvReader {
 }
 
 impl CsvReader {
+    /// Creates a reader over the bytes of `s`.
+    /// Borrows `s` via raw pointer: `s` must remain live and unmodified while reading.
     pub static fn new(s: str) -> CsvReader {
         unsafe {
             return CsvReader {
@@ -32,13 +36,15 @@ impl CsvReader {
         }
     }
 
+    /// Returns `true` when all input has been consumed.
     pub fn eof(&self) -> bool {
         return self.pos >= self.end;
     }
 
-    // Read the next field into `out`.  Sets `is_row_end` if this was the
-    // last field on the line (a newline or EOF follows).  Returns true on
-    // success, false on EOF-before-any-content or malformed quoted field.
+    /// Reads the next field, appending its decoded bytes to `out`.
+    /// Sets `is_row_end` when the field is the last on its row (newline or EOF follows).
+    /// Returns `false` at EOF before any content, or on a malformed quoted field
+    /// (unterminated, or stray bytes after the closing quote); `out` may be partially filled.
     pub fn read_field(&mut self, out: &mut String, is_row_end: &mut bool) -> bool {
         *is_row_end = false;
         if self.pos >= self.end { return false; }
@@ -144,8 +150,8 @@ fn field_needs_quoting(src: *const u8, len: i64) -> bool {
     return false;
 }
 
-// Append one CSV field to `out`.  Quotes the field and doubles embedded
-// quotes if any of the delimiter characters appear in it.
+/// Appends the `len` bytes at `src` to `out` as one CSV field.
+/// Quotes the field and doubles embedded quotes when it contains `,`, `"`, CR, or LF.
 pub fn write_field(src: *const u8, len: i64, out: &mut String) {
     unsafe {
         if !field_needs_quoting(src, len) {
@@ -168,16 +174,17 @@ pub fn write_field(src: *const u8, len: i64, out: &mut String) {
     }
 }
 
+/// Appends `s` to `out` as one CSV field, quoting when necessary (see `write_field`).
 pub fn write_field_str(s: str, out: &mut String) {
     unsafe { write_field(s.as_ptr(), s.len(), out); }
 }
 
-// Write a separator (',').  Call between fields.
+/// Writes a field separator (`,`) to `out`; call between fields.
 pub fn write_sep(out: &mut String) {
     out.push_u8(44 as u8);
 }
 
-// Write a row terminator (CRLF per RFC 4180).
+/// Writes a row terminator (CRLF, per RFC 4180) to `out`.
 pub fn write_newline(out: &mut String) {
     out.push_u8(13 as u8);
     out.push_u8(10 as u8);

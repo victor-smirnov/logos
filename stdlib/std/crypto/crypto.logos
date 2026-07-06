@@ -101,8 +101,8 @@ fn rotr32(x: u32, n: u32) -> u32 {
     return (x >> n) | (x << (32 as u32 - n));
 }
 
-// Compute SHA-256 of [src, src+len).  Appends 32 raw bytes (big-endian)
-// to `out`.
+/// Computes SHA-256 of `[src, src+len)`, appending the 32-byte digest (big-endian) to `out`.
+/// `src` must be valid for `len` reads.
 pub fn sha256(src: *const u8, len: i64, out: &mut String) {
     unsafe {
         let mut h: [u32; 8] = [0 as u32; 8];
@@ -161,11 +161,13 @@ pub fn sha256(src: *const u8, len: i64, out: &mut String) {
     }
 }
 
+/// Computes SHA-256 of `s`, appending the 32-byte digest (big-endian) to `out`.
 pub fn sha256_str(s: str, out: &mut String) {
     unsafe { sha256(s.as_ptr(), s.len(), out); }
 }
 
-// Lowercase 64-char hex digest.
+/// Computes SHA-256 of `[src, src+len)`, appending the 64-char lowercase hex digest to `out`.
+/// `src` must be valid for `len` reads.
 pub fn sha256_hex(src: *const u8, len: i64, out: &mut String) {
     let mut bytes: String = String::new();
     unsafe { sha256(src, len, &mut bytes); }
@@ -180,6 +182,7 @@ pub fn sha256_hex(src: *const u8, len: i64, out: &mut String) {
     }
 }
 
+/// Computes SHA-256 of `s`, appending the 64-char lowercase hex digest to `out`.
 pub fn sha256_hex_str(s: str, out: &mut String) {
     unsafe { sha256_hex(s.as_ptr(), s.len(), out); }
 }
@@ -279,8 +282,8 @@ unsafe fn md5_process_block(block: *const u8, h: *mut u32) {
     h[2] = wrapping_add(h[2], c); h[3] = wrapping_add(h[3], d);
 }
 
-// Compute MD5 of [src, src+len).  Appends 16 raw bytes (little-endian per u32)
-// to `out`.
+/// Computes MD5 of `[src, src+len)`, appending the 16-byte digest (RFC 1321 order) to `out`.
+/// `src` must be valid for `len` reads. MD5 is cryptographically broken; legacy formats only.
 pub fn md5(src: *const u8, len: i64, out: &mut String) {
     unsafe {
         let mut h: [u32; 4] = [0 as u32; 4];
@@ -339,10 +342,13 @@ pub fn md5(src: *const u8, len: i64, out: &mut String) {
     }
 }
 
+/// Computes MD5 of `s`, appending the 16-byte digest to `out`.
 pub fn md5_str(s: str, out: &mut String) {
     unsafe { md5(s.as_ptr(), s.len(), out); }
 }
 
+/// Computes MD5 of `[src, src+len)`, appending the 32-char lowercase hex digest to `out`.
+/// `src` must be valid for `len` reads.
 pub fn md5_hex(src: *const u8, len: i64, out: &mut String) {
     let mut bytes: String = String::new();
     unsafe { md5(src, len, &mut bytes); }
@@ -357,6 +363,7 @@ pub fn md5_hex(src: *const u8, len: i64, out: &mut String) {
     }
 }
 
+/// Computes MD5 of `s`, appending the 32-char lowercase hex digest to `out`.
 pub fn md5_hex_str(s: str, out: &mut String) {
     unsafe { md5_hex(s.as_ptr(), s.len(), out); }
 }

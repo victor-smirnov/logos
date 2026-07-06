@@ -98,7 +98,7 @@ fn validate_header_value(p: *const u8, n: i64) -> bool {
 
 // ── Byte-level scanners ──────────────────────────────────────────────────────
 
-// Scan for CRLF starting at `from`.  Returns index of CR, or -1 if absent.
+/// Returns the index of the first CRLF's CR in `[from, len)`, or -1 if absent.
 pub fn find_crlf(src: *const u8, len: i64, from: i64) -> i64 {
     let mut i: i64 = from;
     unsafe {
@@ -162,8 +162,9 @@ fn copy_body(src: *const u8, from: i64, end: i64, dst: &mut Vec<u8>) {
 
 // ── Header block parser ──────────────────────────────────────────────────────
 
-// Parse headers from [pos, len) into `h`.  Returns the position just past the
-// empty CRLF terminator, or -1 on malformed input.
+/// Parses header lines from `[pos, len)` into `h`, appending each field.
+/// Returns the position just past the empty-CRLF terminator, or -1 on malformed
+/// input.  Names must be RFC 7230 tokens; values are OWS-trimmed.
 pub fn parse_headers(src: *const u8, len: i64, pos: i64, h: &mut Headers) -> i64 {
     let mut p: i64 = pos;
     unsafe {
@@ -202,11 +203,10 @@ pub fn parse_headers(src: *const u8, len: i64, pos: i64, h: &mut Headers) -> i64
     return 0 - 1;
 }
 
-// Body framing decision:
-//   >= 0: Content-Length bytes
-//   -1:   no framing (caller decides; response → read to EOF, request → empty)
-//   -2:   chunked
-//   -3:   malformed Content-Length
+/// Returns the body-framing decision for headers `h`.
+/// `>= 0`: Content-Length bytes; `-1`: no framing (caller decides; response →
+/// read to EOF, request → empty); `-2`: chunked; `-3`: malformed (invalid or
+/// conflicting Content-Length, non-`chunked` Transfer-Encoding, or TE with CL).
 pub fn body_length(h: &Headers) -> i64 {
     let mut has_chunked: bool = false;
     let mut bad_te:      bool = false;
@@ -267,6 +267,10 @@ pub fn body_length(h: &Headers) -> i64 {
 
 // ── Request / Response message parsers ──────────────────────────────────────
 
+/// Parses a complete HTTP request (request-line, headers, body) from `[src, src+len)`.
+/// Body framing follows `body_length`: Content-Length is copied, chunked is decoded,
+/// no framing yields an empty body.  Partial input is `HttpError::Parse` — the buffer
+/// must hold the whole message.
 pub fn parse_request_buf(src: *const u8, len: i64) -> Result<Request, HttpError> {
     let line_end: i64 = find_crlf(src, len, 0);
     if line_end < 0 { return Result::Err(HttpError::Parse); }
@@ -340,6 +344,9 @@ pub fn parse_request_buf(src: *const u8, len: i64) -> Result<Request, HttpError>
     return Result::Ok(req);
 }
 
+/// Parses a complete HTTP response (status-line, headers, body) from `[src, src+len)`.
+/// Body framing follows `body_length`: with no framing, the remainder of the buffer
+/// becomes the body (read-to-EOF semantics).
 pub fn parse_response_buf(src: *const u8, len: i64) -> Result<Response, HttpError> {
     let line_end: i64 = find_crlf(src, len, 0);
     if line_end < 0 { return Result::Err(HttpError::Parse); }
@@ -480,6 +487,10 @@ fn read_http_line<R: Read>(br: &mut BufReader<R>) -> Result<String, HttpError> {
     return Result::Ok(s);
 }
 
+/// Reads and parses a request head (request-line + headers) from `br`; no body is read.
+/// Leaves `br` at the first body byte; the returned `Request.body` is empty — frame it
+/// via `body_length(&req.headers)`.  Stricter than `parse_request_buf`: requires
+/// HTTP/1.0|1.1, origin-/asterisk-form target, Host on 1.1, and no Transfer-Encoding on 1.0.
 pub fn parse_request_stream<R: Read>(br: &mut BufReader<R>)
         -> Result<Request, HttpError> {
     // Request-line.
@@ -573,6 +584,9 @@ pub fn parse_request_stream<R: Read>(br: &mut BufReader<R>)
     return Result::Ok(req);
 }
 
+/// Reads and parses a response head (status-line + headers) from `br`; no body is read.
+/// Leaves `br` at the first body byte; the returned `Response.body` is empty — frame it
+/// via `body_length(&resp.headers)`.
 pub fn parse_response_stream<R: Read>(br: &mut BufReader<R>)
         -> Result<Response, HttpError> {
     // Status-line.

@@ -112,6 +112,9 @@ unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
 // Runtime fn that `format!` and the variadic `format` alias both lower
 // to when sema-resident lowering can't fire (dynamic pattern). Owns
 // the buffer + Formatter; returns the assembled String (Drop frees).
+/// Formats `args` into a new `String` per the `{}`/`{:?}` placeholders in `pat`.
+/// Runtime fallback for dynamic (non-literal) patterns; handles only `{}` (Display),
+/// `{:?}` (Debug), and `{{`/`}}` escapes — no format-spec parsing.
 pub fn format_args_str<T...: Display + Debug>(pat: str, args: T...) -> String {
     let mut buf: String = String::new();
     let mut f: Formatter = Formatter::new(&mut buf);
@@ -120,6 +123,7 @@ pub fn format_args_str<T...: Display + Debug>(pat: str, args: T...) -> String {
 }
 
 // Back-compat alias. Some pre-macro test code wrote `format::<T...>("...", a, b)`.
+/// Returns `format_args_str(pat, args...)`; back-compat alias for plain fn-call sites.
 pub fn format<T...: Display + Debug>(pat: str, args: T...) -> String {
     return format_args_str(pat, args...);
 }
@@ -133,6 +137,8 @@ pub fn format<T...: Display + Debug>(pat: str, args: T...) -> String {
 // the expansion site (same path that lets `format_args_str("...", a, b)`
 // work without turbofish in plain fn-call form).
 
+/// Implements the `format!` macro: expands to a `format_args_str(...)` call yielding `String`.
+/// Invocation: `let s: String = format!("n={}, ok={}", 42, true);`.
 #[fn_macro]
 pub fn format(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! { format_args_str(#(#args),*) };
@@ -142,11 +148,17 @@ pub fn format(args: Vec<ExprBlob>) -> ExprBlob {
 // at the user's call-site without forcing a separate `use logos.std.io;`.
 // Marked pub so the spliced expression sees them. Inline-trivial — the
 // optimizer collapses the wrapper.
+/// Writes `s` to stdout; `pub` only so `print!` expansions resolve it.
 pub fn __fmt_print(s: str)    { print(s); }
+/// Writes `s` and a newline to stdout; `pub` only so `println!` expansions resolve it.
 pub fn __fmt_println(s: str)  { println(s); }
+/// Writes `s` to stderr; `pub` only so `eprint!` expansions resolve it.
 pub fn __fmt_eprint(s: str)   { eprint(s); }
+/// Writes `s` and a newline to stderr; `pub` only so `eprintln!` expansions resolve it.
 pub fn __fmt_eprintln(s: str) { eprintln(s); }
 
+/// Implements the `print!` macro: formats and writes to stdout, no trailing newline.
+/// Invocation: `print!("n={}", 42);`.
 #[fn_macro]
 pub fn print(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! {
@@ -154,6 +166,8 @@ pub fn print(args: Vec<ExprBlob>) -> ExprBlob {
     };
 }
 
+/// Implements the `println!` macro: formats and writes a newline-terminated line to stdout.
+/// Invocation: `println!("n={}", 42);`.
 #[fn_macro]
 pub fn println(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! {
@@ -161,6 +175,8 @@ pub fn println(args: Vec<ExprBlob>) -> ExprBlob {
     };
 }
 
+/// Implements the `eprint!` macro: formats and writes to stderr, no trailing newline.
+/// Invocation: `eprint!("n={}", 42);`.
 #[fn_macro]
 pub fn eprint(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! {
@@ -168,6 +184,8 @@ pub fn eprint(args: Vec<ExprBlob>) -> ExprBlob {
     };
 }
 
+/// Implements the `eprintln!` macro: formats and writes a newline-terminated line to stderr.
+/// Invocation: `eprintln!("n={}", 42);`.
 #[fn_macro]
 pub fn eprintln(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! {
@@ -182,6 +200,8 @@ pub fn eprintln(args: Vec<ExprBlob>) -> ExprBlob {
 // specs directly; this `#[fn_macro]` body is the non-literal fallback (and the
 // registration that makes `write!`/`writeln!` callable). The sink is args[0];
 // the format string + value args follow.
+/// Implements the `write!` macro: formats and writes to a sink via `write_str`, yielding its
+/// `Result<(), Error>`. Invocation: `write!(f, "({}, {})", self.x, self.y)`.
 #[fn_macro]
 pub fn write(args: Vec<ExprBlob>) -> ExprBlob {
     let sink: ExprBlob = args.get(0i64);
@@ -194,6 +214,8 @@ pub fn write(args: Vec<ExprBlob>) -> ExprBlob {
     };
 }
 
+/// Implements the `writeln!` macro: like `write!` with a trailing newline appended.
+/// Invocation: `writeln!(sink, "m={}", 7)`.
 #[fn_macro]
 pub fn writeln(args: Vec<ExprBlob>) -> ExprBlob {
     let sink: ExprBlob = args.get(0i64);
@@ -217,6 +239,7 @@ pub fn writeln(args: Vec<ExprBlob>) -> ExprBlob {
 // `-> !`: panic never returns, and the Never return type is what makes a
 // `panic!(...)` expansion type as `!` in expression position (match-arm /
 // if-arm / let unifiers all key off `is_divergent_call_node`).
+/// Panics with `msg`; `-> !` makes `panic!` expansions type as `!` in expression position.
 pub fn __fmt_panic(msg: str) -> ! { panic(msg); }
 
 // `panic!(...)` macro — formats per Rust's panic! and aborts.
@@ -225,6 +248,8 @@ pub fn __fmt_panic(msg: str) -> ! { panic(msg); }
 // the variadic bound `T...: Display + Debug` on the runtime fn
 // never has to bind to non-Display types (Result<i32, str>, tuples
 // with only Debug, etc.).
+/// Implements the `panic!` macro: formats a message and aborts; the expansion types as `!`.
+/// Invocation: `panic!("bad state: {}", x);`.
 #[fn_macro]
 pub fn panic(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! {
@@ -238,6 +263,8 @@ pub fn panic(args: Vec<ExprBlob>) -> ExprBlob {
 // invocation's value. `panic` aborts, so the `()` tail in the panic
 // branch is unreachable — type-checker only sees that both branches
 // produce ().
+/// Implements the `assert!` macro: panics if the condition is false.
+/// Invocation: `assert!(a < b)` or `assert!(ok, "bad n={}", n)` (custom formatted message).
 #[fn_macro]
 pub fn assert(args: Vec<ExprBlob>) -> ExprBlob {
     let n: i64 = args.length();
@@ -263,6 +290,9 @@ pub fn assert(args: Vec<ExprBlob>) -> ExprBlob {
     };
 }
 
+/// Implements the `assert_eq!` macro: panics with both values Debug-rendered when `a != b`.
+/// Invocation: `assert_eq!(2 + 2, 4);`.
+/// The RHS is re-evaluated for the message on failure (at most one extra eval, failure-only).
 #[fn_macro]
 pub fn assert_eq(args: Vec<ExprBlob>) -> ExprBlob {
     // Bind only `__a` up-front; inline `#b` into the comparison so
@@ -292,6 +322,9 @@ pub fn assert_eq(args: Vec<ExprBlob>) -> ExprBlob {
     };
 }
 
+/// Implements the `assert_ne!` macro: panics with both values Debug-rendered when `a == b`.
+/// Invocation: `assert_ne!(id, 0);`.
+/// The RHS is re-evaluated for the message on failure (at most one extra eval, failure-only).
 #[fn_macro]
 pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
     let a: ExprBlob = args.get(0i64);

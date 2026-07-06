@@ -6,13 +6,18 @@
 
 package logos.lang.num.float;
 
-// Mirrors `core::num::FpCategory`. Variants in IEEE-754-classification
-// order: Nan / Infinite / Zero / Subnormal / Normal.
+/// Classification of an IEEE 754 floating-point number; mirrors `core::num::FpCategory`.
+/// Variants in IEEE-754-classification order: Nan / Infinite / Zero / Subnormal / Normal.
 pub enum FpCategory {
+    /// Not a number (quiet or signaling NaN).
     Nan,
+    /// Positive or negative infinity.
     Infinite,
+    /// Positive or negative zero.
     Zero,
+    /// Subnormal (denormalized): nonzero value with the minimum biased exponent.
     Subnormal,
+    /// Normal: neither zero, infinite, subnormal, nor NaN.
     Normal,
 }
 
@@ -22,6 +27,7 @@ pub enum FpCategory {
 // intrinsic, so we route through pointer casts — the underlying values
 // are stack-resident scalars, so this is well-defined.
 
+/// Returns the raw IEEE 754 bit pattern of `x` as a `u32` (same as `f32::to_bits`).
 pub fn f32_to_bits(x: f32) -> u32 {
     unsafe {
         let p: *const u32 = &x as *const f32 as *const u32;
@@ -29,6 +35,8 @@ pub fn f32_to_bits(x: f32) -> u32 {
     }
 }
 
+/// Reinterprets the IEEE 754 bit pattern `b` as an `f32` (same as `f32::from_bits`).
+/// Any bit pattern is accepted, including ones that decode to NaN or infinity.
 pub fn f32_from_bits(b: u32) -> f32 {
     unsafe {
         let p: *const f32 = &b as *const u32 as *const f32;
@@ -36,6 +44,7 @@ pub fn f32_from_bits(b: u32) -> f32 {
     }
 }
 
+/// Returns the raw IEEE 754 bit pattern of `x` as a `u64` (same as `f64::to_bits`).
 pub fn f64_to_bits(x: f64) -> u64 {
     unsafe {
         let p: *const u64 = &x as *const f64 as *const u64;
@@ -43,6 +52,8 @@ pub fn f64_to_bits(x: f64) -> u64 {
     }
 }
 
+/// Reinterprets the IEEE 754 bit pattern `b` as an `f64` (same as `f64::from_bits`).
+/// Any bit pattern is accepted, including ones that decode to NaN or infinity.
 pub fn f64_from_bits(b: u64) -> f64 {
     unsafe {
         let p: *const f64 = &b as *const u64 as *const f64;
@@ -56,6 +67,7 @@ pub fn f64_from_bits(b: u64) -> f64 {
 //   f32: 1 sign + 8 exp + 23 mantissa  (exp mask 0x7F800000, mant 0x007FFFFF)
 //   f64: 1 sign + 11 exp + 52 mantissa (exp mask 0x7FF00000_00000000)
 
+/// Returns the `FpCategory` of `x` by IEEE 754 exponent/mantissa inspection (`f32::classify`).
 pub fn f32_classify(x: f32) -> FpCategory {
     let bits: u32 = f32_to_bits(x);
     let exp:  u32 = bits & 0x7F800000u32;
@@ -71,6 +83,7 @@ pub fn f32_classify(x: f32) -> FpCategory {
     return FpCategory::Normal;
 }
 
+/// Returns the `FpCategory` of `x` by IEEE 754 exponent/mantissa inspection (`f64::classify`).
 pub fn f64_classify(x: f64) -> FpCategory {
     let bits: u64 = f64_to_bits(x);
     let exp:  u64 = bits & 0x7FF0000000000000u64;
@@ -88,6 +101,7 @@ pub fn f64_classify(x: f64) -> FpCategory {
 
 // ── Predicate sugar — match the Rust-side method names ──────────────────
 
+/// Returns `true` if `x` is NaN.
 pub fn f32_is_nan(x: f32) -> bool {
     match f32_classify(x) {
         FpCategory::Nan => { return true; }
@@ -95,6 +109,7 @@ pub fn f32_is_nan(x: f32) -> bool {
     }
 }
 
+/// Returns `true` if `x` is positive or negative infinity (`false` for NaN).
 pub fn f32_is_infinite(x: f32) -> bool {
     match f32_classify(x) {
         FpCategory::Infinite => { return true; }
@@ -102,6 +117,7 @@ pub fn f32_is_infinite(x: f32) -> bool {
     }
 }
 
+/// Returns `true` if `x` is neither infinite nor NaN.
 pub fn f32_is_finite(x: f32) -> bool {
     match f32_classify(x) {
         FpCategory::Nan      => { return false; }
@@ -110,6 +126,7 @@ pub fn f32_is_finite(x: f32) -> bool {
     }
 }
 
+/// Returns `true` if `x` is normal: not zero, subnormal, infinite, or NaN.
 pub fn f32_is_normal(x: f32) -> bool {
     match f32_classify(x) {
         FpCategory::Normal => { return true; }
@@ -117,6 +134,7 @@ pub fn f32_is_normal(x: f32) -> bool {
     }
 }
 
+/// Returns `true` if `x` is NaN.
 pub fn f64_is_nan(x: f64) -> bool {
     match f64_classify(x) {
         FpCategory::Nan => { return true; }
@@ -124,6 +142,7 @@ pub fn f64_is_nan(x: f64) -> bool {
     }
 }
 
+/// Returns `true` if `x` is positive or negative infinity (`false` for NaN).
 pub fn f64_is_infinite(x: f64) -> bool {
     match f64_classify(x) {
         FpCategory::Infinite => { return true; }
@@ -131,6 +150,7 @@ pub fn f64_is_infinite(x: f64) -> bool {
     }
 }
 
+/// Returns `true` if `x` is neither infinite nor NaN.
 pub fn f64_is_finite(x: f64) -> bool {
     match f64_classify(x) {
         FpCategory::Nan      => { return false; }
@@ -139,6 +159,7 @@ pub fn f64_is_finite(x: f64) -> bool {
     }
 }
 
+/// Returns `true` if `x` is normal: not zero, subnormal, infinite, or NaN.
 pub fn f64_is_normal(x: f64) -> bool {
     match f64_classify(x) {
         FpCategory::Normal => { return true; }
@@ -149,15 +170,23 @@ pub fn f64_is_normal(x: f64) -> bool {
 // Inherent method surface on the float primitives (Rust parity:
 // `x.is_nan()` etc.), delegating to the free-function classifiers above.
 impl f64 {
+    /// Returns `true` if `self` is NaN.
     pub fn is_nan(self: f64) -> bool      { return f64_is_nan(self); }
+    /// Returns `true` if `self` is positive or negative infinity (`false` for NaN).
     pub fn is_infinite(self: f64) -> bool { return f64_is_infinite(self); }
+    /// Returns `true` if `self` is neither infinite nor NaN.
     pub fn is_finite(self: f64) -> bool   { return f64_is_finite(self); }
+    /// Returns `true` if `self` is normal: not zero, subnormal, infinite, or NaN.
     pub fn is_normal(self: f64) -> bool   { return f64_is_normal(self); }
 }
 
 impl f32 {
+    /// Returns `true` if `self` is NaN.
     pub fn is_nan(self: f32) -> bool      { return f32_is_nan(self); }
+    /// Returns `true` if `self` is positive or negative infinity (`false` for NaN).
     pub fn is_infinite(self: f32) -> bool { return f32_is_infinite(self); }
+    /// Returns `true` if `self` is neither infinite nor NaN.
     pub fn is_finite(self: f32) -> bool   { return f32_is_finite(self); }
+    /// Returns `true` if `self` is normal: not zero, subnormal, infinite, or NaN.
     pub fn is_normal(self: f32) -> bool   { return f32_is_normal(self); }
 }

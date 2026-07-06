@@ -20,8 +20,16 @@ use logos.lang.arith;
 use logos.lang.ops;
 use logos.lang.cmp;
 
-pub struct Wrapping<T>   { pub v: T }
-pub struct Saturating<T> { pub v: T }
+/// Newtype wrapper whose `+` / `-` / `*` silently wrap on overflow (two's complement).
+pub struct Wrapping<T>   {
+    /// The wrapped value.
+    pub v: T
+}
+/// Newtype wrapper whose `+` / `-` clamp to `T::MIN` / `T::MAX` instead of overflowing.
+pub struct Saturating<T> {
+    /// The wrapped value.
+    pub v: T
+}
 
 // ── Wrapping impls — Add / Sub / Mul per integer primitive ─────────
 //

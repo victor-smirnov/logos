@@ -48,9 +48,9 @@ fn parse_ipv4(s: str) -> Option<u32> {
     return Option::Some(ip);
 }
 
-// Send `req` to host_ip:port over a fresh TCP connection; read response until
-// peer closes or a complete message is buffered.  `host_ip` must be numeric
-// IPv4 — DNS is not implemented.
+/// Sends `req` to `host_ip:port` over a fresh TCP connection and reads the response.
+/// Reads until the peer closes or a complete message is buffered.
+/// `host_ip` must be numeric IPv4 — DNS resolution is not implemented.
 pub fn http_send(host_ip: u32, port: u16, req: &Request) -> Result<Response, HttpError> {
     let mut buf: Vec<u8> = vec_new::<u8>();
     serialize_request(req, &mut buf);
@@ -83,7 +83,8 @@ pub fn http_send(host_ip: u32, port: u16, req: &Request) -> Result<Response, Htt
     return parse_response_buf(rx_ptr, rx_len);
 }
 
-// GET `path` from host_ip:port.  Builds a minimal Request with Host header.
+/// Issues a GET for `path` against `host_ip:port`, building a minimal `Request`
+/// with a `Host` header set to `host_hdr`.
 pub fn http_get_at(host_ip: u32, port: u16, host_hdr: str, path: str) -> Result<Response, HttpError> {
     let mut path_s: String = String::new();
     path_s.push_str(path);
@@ -99,8 +100,9 @@ pub fn http_get_at(host_ip: u32, port: u16, host_hdr: str, path: str) -> Result<
     return http_send(host_ip, port, &req);
 }
 
-// Parse `url_str` as absolute-form ("http://host[:port]/path[?query]") and
-// issue a GET.  Numeric-host only.
+/// Parses `url_str` as an absolute HTTP URL (`http://host[:port]/path[?query]`)
+/// and issues a GET.  Only numeric IPv4 hosts are supported; a hostname or a
+/// non-`http` scheme yields `HttpError::BadUrl`.
 pub fn http_get(url_str: str) -> Result<Response, HttpError> {
     let u: Url = match url_parse(url_str) {
         Option::Some(x) => x,

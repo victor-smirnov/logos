@@ -453,7 +453,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P, depth: i64) -> WAny {
     return parse_number(h, p);                   // number (int or float)
 }
 
-// Parse JSON-ish `text` into a fresh document rooted in `h`.
+/// Parses JSON-ish `text` into a fresh document rooted in `h`.
 pub fn parse(h: &Writ, text: str) -> WAny {
     unsafe {
         let mut p: P = P { data: text.as_ptr(), len: text.len(), pos: 0i64 };
@@ -461,11 +461,10 @@ pub fn parse(h: &Writ, text: str) -> WAny {
     }
 }
 
-// Parse `text` into a fresh, OWNED Writ container and stamp it as the root.
-// The one-call form of `writ_new + parse + set_root`: the returned Writ owns
-// the document (RAII-freed on drop) and you navigate straight from `h.root()` —
-// no need to thread a separate WAny or hand-roll the container. On a parse error
-// the root is null, so `h.root().is_null()` is the failure check.
+/// Parses `text` into a fresh, OWNED `Writ` container and stamps it as the root.
+/// One-call form of `writ_new` + `parse` + `set_root`; the returned `Writ` owns the
+/// document (RAII-freed on drop) — navigate from `h.root()` directly.
+/// On a parse error the root is null: check `h.root().is_null()`.
 pub fn parse_writ(text: str) -> Writ {
     let h: Writ = writ_new(4096i64);
     let root: WAny = parse(&h, text);

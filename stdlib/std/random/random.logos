@@ -14,13 +14,14 @@ extern fn getrandom(buf: *mut u8, buflen: i64, flags: u32) -> i64;
 
 // ---- OS randomness ---------------------------------------------------------
 
-// Fill buf with `len` cryptographic-quality random bytes.
-// Returns bytes written (== len on success) or -1 on error.
+/// Fills `buf` with `len` cryptographic-quality random bytes from the OS.
+/// Returns the number of bytes written (`len` on success) or -1 on error.
 pub fn os_random(buf: *mut u8, len: i64) -> i64 {
     unsafe { return getrandom(buf, len, 0 as u32); }
 }
 
-// Convenience: get a random u64 from OS entropy.
+/// Returns a random `u64` from OS entropy.
+/// The `getrandom` result is unchecked; if it fails, the zero-initialized buffer yields 0.
 pub fn os_u64() -> u64 {
     unsafe {
         let mut bytes: [u8; 8] = [0 as u8, 0 as u8, 0 as u8, 0 as u8,
@@ -36,21 +37,24 @@ pub fn os_u64() -> u64 {
 // splitmix64 is the mixer used to seed xorshift/xoshiro — small, fast, passes
 // standard statistical batteries for non-cryptographic use.
 
+/// Fast seedable pseudo-random number generator based on splitmix64.
+/// Deterministic for a given seed; not cryptographically secure — use `os_random` for that.
 pub struct Rng {
     state: u64,
 }
 
+/// Creates an `Rng` with the given seed; equal seeds yield identical sequences.
 pub fn rng_new(seed: u64) -> Rng {
     return Rng { state: seed };
 }
 
-// Seed from OS entropy.
+/// Creates an `Rng` seeded from OS entropy.
 pub fn rng_from_os() -> Rng {
     return Rng { state: os_u64() };
 }
 
 impl Rng {
-    // Raw splitmix64 step.
+    /// Returns the next pseudo-random `u64` (one raw splitmix64 step).
     pub fn next_u64(self: &mut Rng) -> u64 {
         unsafe {
             // splitmix64 — all of these wrap intentionally.
@@ -62,11 +66,14 @@ impl Rng {
         }
     }
 
+    /// Returns the next pseudo-random `u32` (low 32 bits of `next_u64`).
     pub fn next_u32(self: &mut Rng) -> u32 {
         unsafe { return self.next_u64() as u32; }
     }
 
-    // Uniform integer in [lo, hi).  Caller must ensure hi > lo.
+    /// Returns a pseudo-random `i64` uniform in `[lo, hi)`.
+    /// Caller must ensure `hi > lo` (`hi == lo` divides by zero); modulo reduction gives
+    /// negligible bias unless the span approaches 2^64.
     pub fn next_range_i64(self: &mut Rng, lo: i64, hi: i64) -> i64 {
         unsafe {
             let span: u64 = (hi - lo) as u64;
@@ -75,7 +82,7 @@ impl Rng {
         }
     }
 
-    // Uniform f64 in [0.0, 1.0).
+    /// Returns a pseudo-random `f64` uniform in `[0.0, 1.0)` with 53 bits of precision.
     pub fn next_f64(self: &mut Rng) -> f64 {
         unsafe {
             // Use top 53 bits (mantissa width) divided by 2^53.
@@ -84,6 +91,7 @@ impl Rng {
         }
     }
 
+    /// Returns a pseudo-random `bool`, each value with probability 1/2.
     pub fn next_bool(self: &mut Rng) -> bool {
         unsafe { return (self.next_u64() & 1 as u64) == 1 as u64; }
     }

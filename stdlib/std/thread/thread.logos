@@ -19,16 +19,19 @@ extern fn sched_yield() -> i32;
 
 // ---- JoinHandle ------------------------------------------------------------
 
+/// Owned handle to a spawned OS thread; used to `join` or `detach` it exactly once.
 pub struct JoinHandle {
     tid: i64,
     joined: bool,
 }
 
 impl JoinHandle {
+    /// Returns the underlying pthread thread ID.
     pub fn id(self: &JoinHandle) -> i64 { return self.tid; }
 
-    // Wait for the thread to finish. Returns the raw exit pointer from the
-    // thread function (whatever it returned cast to *mut u8).
+    /// Waits for the thread to finish and returns the raw exit pointer from the
+    /// thread function (whatever it returned, cast to `*mut u8`).
+    /// Returns null if the handle was already joined or detached.
     pub fn join(self: &mut JoinHandle) -> *mut u8 {
         unsafe {
             if self.joined { return 0 as *mut u8; }
@@ -39,7 +42,8 @@ impl JoinHandle {
         }
     }
 
-    // Detach: thread runs to completion independently; cannot be joined.
+    /// Detaches the thread: it runs to completion independently and can no longer be joined.
+    /// No-op if the handle was already joined or detached.
     pub fn detach(self: &mut JoinHandle) {
         unsafe {
             if self.joined { return; }
@@ -51,11 +55,10 @@ impl JoinHandle {
 
 // ---- spawn -----------------------------------------------------------------
 
-// Spawn a new OS thread.
-// `start` must be a function pointer with signature fn(*mut u8) -> *mut u8
-// (cast from a concrete Logos fn using `as *const u8`).
-// `arg` is passed through unchanged.
-// Returns JoinHandle with tid=-1 on failure.
+/// Spawns a new OS thread running `start(arg)`.
+/// `start` must be a function pointer with signature `fn(*mut u8) -> *mut u8`
+/// (cast from a concrete Logos fn using `as *const u8`); `arg` is passed through unchanged.
+/// On failure returns a `JoinHandle` with `tid == -1`, already marked joined.
 pub fn thread_spawn(start: *const u8, arg: *mut u8) -> JoinHandle {
     unsafe {
         let mut tid: i64 = 0;
@@ -69,12 +72,12 @@ pub fn thread_spawn(start: *const u8, arg: *mut u8) -> JoinHandle {
 
 // ---- thread-local ops ------------------------------------------------------
 
-// Current thread's pthread ID (opaque; comparable with ==).
+/// Returns the calling thread's pthread ID (opaque; comparable with `==`).
 pub fn current_id() -> i64 {
     unsafe { return pthread_self(); }
 }
 
-// Hint to the scheduler that the current thread can yield to others.
+/// Hints to the scheduler that the current thread is willing to yield to others.
 pub fn yield_now() {
     unsafe { sched_yield(); }
 }

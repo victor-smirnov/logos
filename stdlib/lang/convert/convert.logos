@@ -12,24 +12,41 @@ package logos.lang.convert;
 use logos.lang.option;
 use logos.lang.result;
 
+/// Converts a value of type `T` into `Self`; infallible and value-consuming.
+///
+/// Implementing `From<T> for U` also enables `t.into()` via the blanket `Into` impl,
+/// so implement `From` rather than `Into`.
 pub trait From<T> {
+    /// Performs the conversion.
     fn from(val: T) -> Self;
 }
 
+/// Converts `self` into a value of type `T`; infallible and value-consuming.
+///
+/// Do not implement directly: blanket-derived from every `From<S> for T` impl.
 pub trait Into<T> {
+    /// Performs the conversion, consuming `self`.
     fn into(self: Self) -> T;
 }
 
+/// Converts a value of type `T` into `Self`, failing with `ConvertError` when out of range.
 pub trait TryFrom<T> {
+    /// Performs the conversion, returning `Err(ConvertError)` on failure.
     fn try_from(val: T) -> Result<Self, ConvertError>;
 }
 
+/// Converts `self` into a value of type `T`, failing with `ConvertError` when out of range.
+///
+/// Do not implement directly: blanket-derived from every `TryFrom<S> for T` impl.
 pub trait TryInto<T> {
+    /// Performs the conversion, consuming `self`; returns `Err(ConvertError)` on failure.
     fn try_into(self: Self) -> Result<T, ConvertError>;
 }
 
-// Empty marker payload — TryFrom/TryInto conversions only fail in one
-// way (out-of-range), so the error value is information-free.
+/// Reports a failed `TryFrom`/`TryInto` conversion.
+///
+/// Empty marker payload: these conversions only fail in one way (out-of-range),
+/// so the error value is information-free.
 pub struct ConvertError {}
 
 // ─── Into / TryInto derived from From / TryFrom (blanket impls) ─────────
@@ -194,11 +211,18 @@ impl TryFrom<u32> for char {
 // Vec<T>`) ship alongside the consuming collections (mem/string,
 // mem/collections).
 
+/// Borrows `self` as a `&Borrowed` view.
+///
+/// Contract (as in Rust): `Eq`/`Ord`/`Hash` of the borrowed view must agree with
+/// the owned value — keyed collection lookups (`HashMap::get`) rely on it.
 pub trait Borrow<Borrowed> {
+    /// Immutably borrows `self` in the `Borrowed` form.
     fn borrow(&self) -> &Borrowed;
 }
 
+/// Borrows `self` as a `&mut Borrowed` view; mutable counterpart of `Borrow`.
 pub trait BorrowMut<Borrowed>: Borrow<Borrowed> {
+    /// Mutably borrows `self` in the `Borrowed` form.
     fn borrow_mut(&mut self) -> &mut Borrowed;
 }
 

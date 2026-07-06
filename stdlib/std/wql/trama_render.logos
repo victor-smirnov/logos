@@ -556,6 +556,24 @@ fn is_primitive_ty(name: str) -> bool {
 }
 
 // ── The resource handler ───────────────────────────────────────────────────
+/// Handler behind the `trama!{}` macro: compiles a template into a render fn.
+///
+/// Invocation form:
+/// ```text
+/// resource render = trama!(c: &Ctx){ "template text" };
+/// ```
+/// emits `pub fn render(c: &Ctx) -> Result<String, ElError>`. The parens carry a
+/// real Logos parameter list, re-emitted verbatim into the generated signature;
+/// the braces hold the template body, quoted (`"…"`) or backtick-delimited
+/// (backticks avoid escaping embedded `"` string literals in EL expressions).
+///
+/// Template syntax: `{{ expr }}` interpolation; `{% for x in coll %}…{% endfor %}`;
+/// `{% if cond %}…{% else %}…{% endif %}`; `{% set x = expr %}`. Struct-typed
+/// params are reflected (ADR 0012 Phase 2) so field/loop-var types — including
+/// nested loop element types — are inferred with no `with` clause needed.
+/// Arithmetic errors in an embedded expression (overflow, div-by-zero) surface as
+/// `Err(ElError)`, never a host trap. `name`/`params`/`s` are the raw macro
+/// input: the binding name, the parameter-list text, and the raw brace body.
 #[token_macro]
 pub fn trama(name: str, params: str, s: str) -> ItemList {
     let out: ItemList = item_list_new();

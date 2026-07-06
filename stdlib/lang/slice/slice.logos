@@ -22,13 +22,21 @@ use logos.lang.cmp;
 // `slice_from_raw::<T>(left_ptr, left_len)` if they want a typed
 // `&[T]` (or just use the raw form for iteration).
 
+/// Raw `(ptr, len)` halves of a slice split, as produced by `slice_split_at`.
 pub struct SplitPair<T> {
+    /// Pointer to the first element of the left half.
     pub left_ptr:  *const T,
+    /// Element count of the left half.
     pub left_len:  i64,
+    /// Pointer to the first element of the right half.
     pub right_ptr: *const T,
+    /// Element count of the right half.
     pub right_len: i64,
 }
 
+/// Splits `s` at `mid`, returning raw `(ptr, len)` pairs for both halves.
+/// `mid` is clamped to `s.len()` (no panic, unlike Rust). Rebuild typed `&[T]` halves
+/// with `slice_from_raw`.
 pub fn slice_split_at<T>(s: &[T], mid: i64) -> SplitPair<T> {
     let n: i64 = s.len() as i64;
     let m: i64 = if mid > n { n } else { mid };
@@ -44,9 +52,10 @@ pub fn slice_split_at<T>(s: &[T], mid: i64) -> SplitPair<T> {
     }
 }
 
-// Sub-slice `s[lo..hi]` (used by range-indexing desugar). Bounds are CLAMPED to
-// [0, len], so the open forms pass lo=0 / hi=i64::MAX and full pass both — the
-// clamp resolves them against the actual length. Inclusive `..=hi` passes hi+1.
+/// Returns the sub-slice `s[lo..hi]` (backs the range-indexing desugar).
+/// Bounds are clamped to `[0, len]`: open range forms pass `lo=0` / `hi=i64::MAX` and the
+/// clamp resolves them against the true length. Inclusive `..=hi` passes `hi+1`.
+/// Empty when `hi <= lo` after clamping.
 pub fn slice_get_range<T>(s: &[T], lo: i64, hi: i64) -> &[T] {
     let n: i64 = s.len() as i64;
     let l0: i64 = if lo < 0i64 { 0i64 } else { if lo > n { n } else { lo } };
@@ -59,8 +68,9 @@ pub fn slice_get_range<T>(s: &[T], lo: i64, hi: i64) -> &[T] {
     }
 }
 
-// Compiler intrinsic — mirrors `str_from_raw` in lang/str/str.logos.
-// Constructs an `&[T]` fat pointer from raw ptr + element count.
+/// Constructs an `&[T]` fat pointer from a raw pointer and element count.
+/// Compiler intrinsic (sema intercepts the call); mirrors `str_from_raw` in `lang/str`.
+/// `ptr` must be valid for reads of `len` elements for as long as the result is used.
 pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
     // Body unreachable — sema intercepts the call.
     let dummy: &[T] = &[];
@@ -72,13 +82,22 @@ pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
 // Mirrors `slice::chunks(size)`. Last chunk may be shorter than `size`
 // if `len % size != 0`. Empty input yields no chunks.
 
+/// Iterator over non-overlapping chunks of a slice, created by `slice_chunks`.
 pub struct Chunks<T> {
+    /// Base pointer of the underlying slice.
     pub data: *const T,
+    /// Total element count of the underlying slice.
     pub len:  i64,
+    /// Current element offset; advances by the yielded chunk's length.
     pub pos:  i64,
+    /// Chunk size in elements.
     pub step: i64,
 }
 
+/// Returns an iterator over non-overlapping `size`-element chunks of `s`.
+/// The last chunk is shorter when `s.len() % size != 0`; empty input yields no chunks.
+/// `size` must be positive: non-positive `size` is unchecked, and `size == 0` makes `next`
+/// yield empty chunks forever on a non-empty slice.
 pub fn slice_chunks<T>(s: &[T], size: i64) -> Chunks<T> {
     return Chunks {
         data: s.as_ptr() as *const T,
@@ -108,13 +127,20 @@ impl<T> Iterator<&[T]> for Chunks<T> {
 // elements; advances by 1 each step. Yields nothing if `size > len` or
 // `size == 0`.
 
+/// Iterator over overlapping `size`-element windows of a slice, created by `slice_windows`.
 pub struct Windows<T> {
+    /// Base pointer of the underlying slice.
     pub data: *const T,
+    /// Total element count of the underlying slice.
     pub len:  i64,
+    /// Current window start offset; advances by 1 per step.
     pub pos:  i64,
+    /// Window size in elements.
     pub size: i64,
 }
 
+/// Returns an iterator over overlapping `size`-element windows of `s`, advancing by 1.
+/// Yields nothing if `size <= 0` or `size > s.len()` (unlike Rust, `size == 0` does not panic).
 pub fn slice_windows<T>(s: &[T], size: i64) -> Windows<T> {
     return Windows {
         data: s.as_ptr() as *const T,
@@ -146,6 +172,9 @@ impl<T> Iterator<&[T]> for Windows<T> {
 // via raw-ptr arithmetic — Logos doesn't have a `[T]::get(i) -> &T`
 // surface tied to slice index syntax yet).
 
+/// Binary-searches sorted `s` for `target`.
+/// Returns `Ok(index)` on a match (any one, if `target` is duplicated) or `Err(i)` where `i`
+/// is the insertion index that keeps `s` sorted. Unspecified result if `s` is not sorted.
 pub fn slice_binary_search<T: Ord + Copy>(s: &[T], target: T) -> Result<i64, i64> {
     let n: i64 = s.len() as i64;
     let mut lo: i64 = 0i64;
@@ -179,6 +208,8 @@ pub fn slice_binary_search<T: Ord + Copy>(s: &[T], target: T) -> Result<i64, i64
 // for array LITERALS today, not for var-bound arrays. Callers pass
 // `&mut arr as *mut T` once arr is a binding.
 
+/// Sorts the `n` elements at `base` in place, ascending (stable insertion sort, O(n^2)).
+/// `base` must be valid for reads and writes of `n` elements. Intended for small `n`.
 pub unsafe fn slice_sort<T: Ord + Copy>(base: *mut T, n: i64) {
     let esz: i64 = sizeof::<T>() as i64;
     let mut i: i64 = 1i64;

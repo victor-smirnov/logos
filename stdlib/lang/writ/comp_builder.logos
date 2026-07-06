@@ -35,6 +35,9 @@ use logos.lang.cell;
 // directly. Tracked as a compiler deref-coercion gap.
 
 // ── List comprehension: @[expr for x in iter (if guard)?] ──────────────────────
+/// Creates the `Rc`-pinned `Writ` for a list comprehension, root = empty `WArray<WAny>`.
+/// `cap` is the arena segment size in bytes; the root is allocated only after the Rc pin,
+/// so it captures the stable heap allocator address (never-move design).
 pub fn writ_list_comp_new(cap: i64) -> Rc<Writ> {
     let rc: Rc<Writ> = rc_new(writ_new(cap));    // Writ pinned in Rc heap
     let h: &Writ = &*rc;
@@ -48,6 +51,7 @@ pub fn writ_list_comp_new(cap: i64) -> Rc<Writ> {
     return rc;
 }
 
+/// Pushes `v` onto the comprehension container's root `WArray<WAny>`.
 pub fn writ_list_comp_push(c: &Rc<Writ>, v: WAny) {
     let h: &Writ = &**c;
     let root: WAny = h.root();
@@ -61,6 +65,9 @@ pub fn writ_list_comp_push(c: &Rc<Writ>, v: WAny) {
 }
 
 // ── Map comprehension: @{kexpr: vexpr for x in iter (if guard)?} ───────────────
+/// Creates the `Rc`-pinned `Writ` for a map comprehension, root = empty `WMap<WString, WAny>`.
+/// `cap` is the arena segment size in bytes; slot count = next power of two >=
+/// `max(2 * slot_hint, 8)` (open-addressing mask). Root allocated after the Rc pin.
 pub fn writ_map_comp_new(cap: i64, slot_hint: i64) -> Rc<Writ> {
     let rc: Rc<Writ> = rc_new(writ_new(cap));    // Writ pinned in Rc heap
     let h: &Writ = &*rc;
@@ -75,6 +82,7 @@ pub fn writ_map_comp_new(cap: i64, slot_hint: i64) -> Rc<Writ> {
     return rc;
 }
 
+/// Sets key `k` to `v` in the comprehension container's root `WMap<WString, WAny>`.
 pub fn writ_map_comp_put(c: &Rc<Writ>, k: str, v: WAny) {
     let h: &Writ = &**c;
     let root: WAny = h.root();
@@ -85,8 +93,8 @@ pub fn writ_map_comp_put(c: &Rc<Writ>, k: str, v: WAny) {
     }
 }
 
-// String coercion allocates an WString in the CONTAINER's zone (needs_ctr form:
-// the compiler passes &Rc<Writ> first).
+/// Coerces `s` into a `WAny`, allocating the `WString` in the container's zone.
+/// `needs_ctr` form: the compiler passes the `&Rc<Writ>` first.
 pub fn writ_coerce_str(c: &Rc<Writ>, s: str) -> WAny {
     let h: &Writ = &**c;
     let hs: &WString = h.wstring(s);
@@ -94,10 +102,17 @@ pub fn writ_coerce_str(c: &Rc<Writ>, s: str) -> WAny {
 }
 
 // ── Scalar → WAny coercion (compiler auto-wraps the element expr by Logos type) ─
+/// Wraps a `bool` in an inline `WAny`.
 pub fn writ_coerce_bool(v: bool) -> WAny { return WAny::from(v); }
+/// Wraps an `i8` in an inline `WAny`, preserving the exact width type code.
 pub fn writ_coerce_i8(v: i8)   -> WAny { return WAny::from(v); }
+/// Wraps an `i16` in an inline `WAny`, preserving the exact width type code.
 pub fn writ_coerce_i16(v: i16) -> WAny { return WAny::from(v); }
+/// Wraps an `i32` in an inline `WAny`, widened to `i56` (exact width not preserved).
 pub fn writ_coerce_i32(v: i32) -> WAny { return WAny::from(v as i56); }
+/// Wraps a `u8` in an inline `WAny`, preserving the exact width type code.
 pub fn writ_coerce_u8(v: u8)   -> WAny { return WAny::from(v); }
+/// Wraps a `u16` in an inline `WAny`, preserving the exact width type code.
 pub fn writ_coerce_u16(v: u16) -> WAny { return WAny::from(v); }
+/// Wraps a `u32` in an inline `WAny`, widened to `i56` (exact width not preserved).
 pub fn writ_coerce_u32(v: u32) -> WAny { return WAny::from(v as i56); }

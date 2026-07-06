@@ -17,6 +17,7 @@ package logos.std.compiler.metaprog;
 // Diagnostic aid for metaprograms: turn a `t.kind` tag into a short
 // printable string. Mirrors `LogosType::Kind` enum order from
 // `include/logos/compiler/sema.hpp`. Unknown tags → "?".
+/// Returns a short printable name for a `Type` kind tag; unknown tags yield `"?"`.
 pub fn kind_name(k: u32) -> &[u8] {
     if k == (0 as u32)  { return "Void"; }
     if k == (1 as u32)  { return "i32"; }
@@ -50,6 +51,7 @@ pub fn kind_name(k: u32) -> &[u8] {
 //
 // Stand-alone so callers don't pull a heavier dep just for "is this
 // field named X". Bound to the specific shape (`a == b` byte-wise).
+/// Returns `true` iff byte slices `a` and `b` have equal length and contents.
 pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
     let na = a.len();
     let nb = b.len();
@@ -85,13 +87,13 @@ pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
 // a free-fn signature would freeze it to a fixed-size placeholder.
 // Use the keyword forms directly for those.
 
-// Pack length (compile-time constant; folds to a `lit_int`).
+/// Returns the pack length (compile-time constant; folds to a `lit_int`).
 pub fn length<T...>() -> i64 {
     return sizeof...(T) as i64;
 }
 
-// First pack element. Calling on an empty pack hits the array
-// out-of-range path of the B-side intrinsic.
+/// Returns the first pack element.
+/// Calling on an empty pack hits the array out-of-range path of the B-side intrinsic.
 pub fn head<T...>() -> Type {
     let arr = type_refs_of::<T...>();
     // Read the first element via a raw pointer: `Type` is move-classified, so a
@@ -108,6 +110,7 @@ pub fn head<T...>() -> Type {
 // form admitted by `arr_type` (see memory feat_arr_type_sizeof_pack_gap),
 // so each instantiation gets a concrete-length array. Pairs naturally
 // with `type_refs_of` and the per-pack-element folds below.
+/// Applies `f` to each pack member and returns the mapped `[Type; sizeof...(T)]` array.
 pub fn transform<T...>(f: fn(Type) -> Type) -> [Type; sizeof...(T)] {
     let mut arr: [Type; sizeof...(T)] = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -126,6 +129,8 @@ pub fn transform<T...>(f: fn(Type) -> Type) -> [Type; sizeof...(T)] {
 // the count of accepted elements packed into the front. Slots past the
 // returned count are left as the original pack contents and should be
 // ignored by the caller.
+/// Writes pack members satisfying `pred` front-packed into `out`; returns the accepted count.
+/// `out` must have room for `sizeof...(T)` elements; slots past the returned count are untouched.
 pub unsafe fn filter<T...>(pred: fn(Type) -> bool, out: *mut Type) -> i64 {
     let src = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -141,6 +146,7 @@ pub unsafe fn filter<T...>(pred: fn(Type) -> bool, out: *mut Type) -> i64 {
     return k;
 }
 
+/// Left-folds `f` over the pack's `Type`s starting from `init`.
 pub fn fold_to_type<T...>(init: Type, f: fn(Type, Type) -> Type) -> Type {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -166,10 +172,13 @@ pub fn fold_to_type<T...>(init: Type, f: fn(Type, Type) -> Type) -> Type {
 // Exposing them as `fn(Type) -> bool` lets user code feed predicates into
 // any of the B-folds above without re-deriving magic numbers each time.
 
+/// Returns `true` iff `t` is the `Void` kind.
 pub fn is_void(t: Type) -> bool { return t.kind == (0 as u32); }
 
+/// Returns `true` iff `t` is the `bool` kind.
 pub fn is_bool_kind(t: Type) -> bool { return t.kind == (5 as u32); }
 
+/// Returns `true` iff `t` is any integer kind (signed/unsigned, 8–128 bits incl. 24/56).
 pub fn is_integer(t: Type) -> bool {
     let k: u32 = t.kind;
     return k == (1 as u32)  || k == (2 as u32)  || k == (6 as u32)
@@ -180,10 +189,12 @@ pub fn is_integer(t: Type) -> bool {
         || k == (16 as u32) || k == (17 as u32);
 }
 
+/// Returns `true` iff `t` is `f32` or `f64`.
 pub fn is_float_kind(t: Type) -> bool {
     return t.kind == (3 as u32) || t.kind == (4 as u32);
 }
 
+/// Returns `true` iff `t` is a primitive scalar kind (integer, float, or `bool`; not `Void`).
 pub fn is_primitive_kind(t: Type) -> bool {
     let k: u32 = t.kind;
     return k == (1 as u32)  || k == (2 as u32)  || k == (3 as u32)
@@ -195,20 +206,24 @@ pub fn is_primitive_kind(t: Type) -> bool {
         || k == (16 as u32) || k == (17 as u32);
 }
 
+/// Returns `true` iff `t` is a struct or zoned-struct kind.
 pub fn is_struct(t: Type) -> bool {
     return t.kind == (22 as u32) || t.kind == (23 as u32);
 }
 
+/// Returns `true` iff `t` is the `Enum` kind.
 pub fn is_enum(t: Type) -> bool { return t.kind == (24 as u32); }
 
+/// Returns `true` iff `t` is `Ptr`, `Ref`, or `MutRef`.
 pub fn is_pointer(t: Type) -> bool {
     let k: u32 = t.kind;
     return k == (18 as u32) || k == (19 as u32) || k == (20 as u32);
 }
 
+/// Returns `true` iff `t` is the `Array` kind.
 pub fn is_array(t: Type) -> bool { return t.kind == (21 as u32); }
 
-// Count pack members for which `pred` returns true.
+/// Counts pack members for which `pred` returns `true`.
 pub fn count_if<T...>(pred: fn(Type) -> bool) -> i64 {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -221,7 +236,7 @@ pub fn count_if<T...>(pred: fn(Type) -> bool) -> i64 {
     return c;
 }
 
-// True iff every pack member satisfies `pred` (vacuously true on empty pack).
+/// Returns `true` iff every pack member satisfies `pred` (vacuously `true` on an empty pack).
 pub fn all<T...>(pred: fn(Type) -> bool) -> bool {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -233,7 +248,7 @@ pub fn all<T...>(pred: fn(Type) -> bool) -> bool {
     return true;
 }
 
-// True iff any pack member satisfies `pred` (false on empty pack).
+/// Returns `true` iff any pack member satisfies `pred` (`false` on an empty pack).
 pub fn any<T...>(pred: fn(Type) -> bool) -> bool {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -245,7 +260,7 @@ pub fn any<T...>(pred: fn(Type) -> bool) -> bool {
     return false;
 }
 
-// Sum of `proj(t)` over the pack — handy for total size, alignment, etc.
+/// Returns the sum of `proj(t)` over the pack — handy for total size, alignment, etc.
 pub fn sum_by<T...>(proj: fn(Type) -> i64) -> i64 {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -258,9 +273,9 @@ pub fn sum_by<T...>(proj: fn(Type) -> i64) -> i64 {
     return s;
 }
 
-// Generic fold over the pack with an i64 accumulator. Polymorphic-S
-// fold awaits closure-arg generics; i64 covers the common cases
-// (counts, sums, max, layout offsets) directly.
+/// Folds the pack into an `i64` accumulator via `step`, starting from `init`.
+/// Polymorphic-accumulator fold awaits closure-arg generics; `i64` covers the
+/// common cases (counts, sums, max, layout offsets) directly.
 pub fn fold_i64<T...>(init: i64, step: fn(i64, Type) -> i64) -> i64 {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -273,7 +288,7 @@ pub fn fold_i64<T...>(init: i64, step: fn(i64, Type) -> i64) -> i64 {
     return acc;
 }
 
-// Largest `proj(t)` over the pack (i64::MIN on empty pack).
+/// Returns the largest `proj(t)` over the pack (`i64::MIN` on an empty pack).
 pub fn max_by<T...>(proj: fn(Type) -> i64) -> i64 {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -288,7 +303,7 @@ pub fn max_by<T...>(proj: fn(Type) -> i64) -> i64 {
     return best;
 }
 
-// Smallest `proj(t)` over the pack (i64::MAX on empty pack).
+/// Returns the smallest `proj(t)` over the pack (`i64::MAX` on an empty pack).
 pub fn min_by<T...>(proj: fn(Type) -> i64) -> i64 {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -303,7 +318,7 @@ pub fn min_by<T...>(proj: fn(Type) -> i64) -> i64 {
     return best;
 }
 
-// Index of the first pack member satisfying `pred`, or -1 if none.
+/// Returns the index of the first pack member satisfying `pred`, or `-1` if none.
 pub fn find_index<T...>(pred: fn(Type) -> bool) -> i64 {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -315,8 +330,8 @@ pub fn find_index<T...>(pred: fn(Type) -> bool) -> i64 {
     return -1 as i64;
 }
 
-// Index of the pack member maximising `proj`, or -1 on empty pack.
-// Ties resolve to the lowest index.
+/// Returns the index of the pack member maximising `proj`, or `-1` on an empty pack.
+/// Ties resolve to the lowest index.
 pub fn argmax_by<T...>(proj: fn(Type) -> i64) -> i64 {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -332,8 +347,8 @@ pub fn argmax_by<T...>(proj: fn(Type) -> i64) -> i64 {
     return best;
 }
 
-// Index of the pack member minimising `proj`, or -1 on empty pack.
-// Ties resolve to the lowest index.
+/// Returns the index of the pack member minimising `proj`, or `-1` on an empty pack.
+/// Ties resolve to the lowest index.
 pub fn argmin_by<T...>(proj: fn(Type) -> i64) -> i64 {
     let arr = type_refs_of::<T...>();
     let n: i64 = sizeof...(T) as i64;
@@ -368,11 +383,17 @@ fn schema_mix(h: u64, x: u64) -> u64 {
 }
 
 // Fold `schema_code` over a component type-pack (base + head/tail recursion).
+/// Returns the FNV-1a offset basis — the empty-pack base case of the `schema_pack` fold.
 pub fn schema_pack() -> u64 { return 0xcbf29ce484222325 as u64; }   // FNV-1a offset
+/// Mixes `schema_code::<_H>()` into the fold over the tail pack (head/tail recursion).
 pub fn schema_pack<_H, T...>() -> u64 {   // _H: type-level only (schema_code::<_H>())
     return schema_mix(schema_code::<_H>(), schema_pack::<T...>());
 }
 
+/// Returns a layout-faithful structural hash of `_T`'s in-memory schema.
+/// Mixes kind/size/align, recursing into struct field types; structurally identical
+/// layouts hash equal regardless of names. Pointers are opaque leaves — recursion
+/// stops there, breaking cycles on self-referential types.
 pub fn schema_code<_T>() -> u64 {   // _T: type-level only (type_of::<_T>())
     let t: Type = type_of::<_T>();
     let mut h: u64 = schema_mix(0x5c4 as u64, t.kind as u64);

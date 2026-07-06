@@ -18,6 +18,10 @@ use logos.lang.iter;
 use logos.lang.ops;
 use logos.lang.option;
 
+/// Ordered map backed by a sorted parallel-array (not a real B-tree).
+///
+/// `get`/`contains_key` are `O(log n)` binary search; `insert`/`remove` are `O(n)`
+/// due to element shifting.
 pub struct BTreeMap<K, V> {
     keys: *mut K,
     vals: *mut V,
@@ -25,6 +29,7 @@ pub struct BTreeMap<K, V> {
     cap:  i64,
 }
 
+/// Creates a new, empty `BTreeMap` with initial capacity 8.
 pub fn btreemap_new<K: Ord, V>() -> BTreeMap<K, V> {
     let init_cap: i64 = 8;
     let kraw: *mut u8 = alloc(init_cap * sizeof::<K>());
@@ -38,8 +43,10 @@ pub fn btreemap_new<K: Ord, V>() -> BTreeMap<K, V> {
 }
 
 impl<K: Ord, V> BTreeMap<K, V> {
+    /// Returns the number of entries in the map.
     pub fn len(&self) -> i64 { return self.len; }
 
+    /// Returns `true` if the map contains no entries.
     pub fn is_empty(&self) -> bool { return self.len == 0 as i64; }
 
     // Return index of the first element with key >= target (lower bound).
@@ -57,6 +64,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
         return lo;
     }
 
+    /// Returns `true` if `key` is present in the map.
     pub unsafe fn contains_key(self: *const BTreeMap<K, V>, key: &K) -> bool {
         let pos: i64 = self.lower_bound(key);
         if pos >= self.len { return false; }
@@ -67,6 +75,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
         }
     }
 
+    /// Returns a pointer to the value for `key`, or a null `*const V` if absent.
     pub unsafe fn get(self: *const BTreeMap<K, V>, key: &K) -> *const V {
         let pos: i64 = self.lower_bound(key);
         if pos >= self.len { return 0 as *const V; }
@@ -77,6 +86,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
         }
     }
 
+    /// Returns a mutable pointer to the value for `key`, or a null `*mut V` if absent.
     pub unsafe fn get_mut(self: *mut BTreeMap<K, V>, key: &K) -> *mut V {
         let pos: i64 = self.lower_bound(key);
         if pos >= self.len { return 0 as *mut V; }
@@ -87,6 +97,8 @@ impl<K: Ord, V> BTreeMap<K, V> {
         }
     }
 
+    /// Inserts `key`/`val`, overwriting the existing value if `key` is already present.
+    /// Grows the backing storage (doubling capacity) when full.
     pub unsafe fn insert(self: *mut BTreeMap<K, V>, key: K, val: V) {
         let pos: i64 = self.lower_bound(&key);
         // If key already present, update value in place.
@@ -120,6 +132,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
         self.len = self.len + 1 as i64;
     }
 
+    /// Removes `key` from the map, returning `true` if it was present.
     pub unsafe fn remove(self: *mut BTreeMap<K, V>, key: &K) -> bool {
         let pos: i64 = self.lower_bound(key);
         if pos >= self.len { return false; }
@@ -138,10 +151,12 @@ impl<K: Ord, V> BTreeMap<K, V> {
         return true;
     }
 
+    /// Removes all entries from the map without deallocating the backing storage.
     pub unsafe fn clear(self: *mut BTreeMap<K, V>) {
         self.len = 0 as i64;
     }
 
+    /// Returns an iterator over `(&K, &V)` pairs in ascending key order.
     pub unsafe fn iter(self: *const BTreeMap<K, V>) -> BTreeMapIter<K, V> {
         return BTreeMapIter {
             keys: self.keys as *const K,
@@ -154,6 +169,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
 
 // ── Iterator ─────────────────────────────────────────────────────────────────
 
+/// Iterator over a `BTreeMap`'s entries in ascending key order, yielding `(&K, &V)`.
 pub struct BTreeMapIter<K, V> {
     keys: *const K,
     vals: *const V,
@@ -176,6 +192,7 @@ impl<K: Ord, V> Iterator<ZipPair<&K, &V>> for BTreeMapIter<K, V> {
     }
 }
 
+/// Deallocates the `keys`/`vals` backing storage of `m`.
 pub unsafe fn btreemap_free<K: Ord, V>(m: *mut BTreeMap<K, V>) {
     dealloc(m.keys as *mut u8);
     dealloc(m.vals as *mut u8);

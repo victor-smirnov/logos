@@ -17,7 +17,9 @@ use logos.lang.iter;
 use logos.lang.option;
 use logos.lang.ops;
 
-// Multi-byte separator splitter.
+/// Yields substrings of the input separated by a fixed multi-byte `str` separator.
+///
+/// Segments are sub-`str` views into the original buffer, which must outlive iteration.
 pub struct Splitter {
     rest: str,      // remaining input
     sep: str,       // separator
@@ -49,12 +51,17 @@ impl Iterator<str> for Splitter {
     }
 }
 
-// Split `s` on each occurrence of `sep`. Empty `sep` yields the whole `s` once.
+/// Splits `s` on each occurrence of `sep`, yielding sub-`str` views into `s`.
+///
+/// Empty `sep` yields the whole `s` once.
 pub fn split(s: str, sep: str) -> Splitter {
     return Splitter { rest: s, sep: sep, done: false };
 }
 
-// Single-byte separator splitter — common fast path for ',', '/', etc.
+/// Yields substrings of the input separated by a fixed single-byte separator.
+///
+/// Common fast path for `','`, `'/'`, etc. Segments are sub-`str` views into the
+/// original buffer, which must outlive iteration.
 pub struct ByteSplitter {
     rest: str,
     sep: u8,
@@ -83,6 +90,7 @@ impl Iterator<str> for ByteSplitter {
     }
 }
 
+/// Splits `s` on each occurrence of the single byte `sep`, yielding sub-`str` views into `s`.
 pub fn split_byte(s: str, sep: u8) -> ByteSplitter {
     return ByteSplitter { rest: s, sep: sep, done: false };
 }
@@ -97,6 +105,9 @@ pub fn split_byte(s: str, sep: u8) -> ByteSplitter {
 //   * pattern at start/end → empty segments
 //   * non-overlapping matches drive the split
 
+/// Generic pattern-driven splitter over a `str`, parameterized by any `Pattern` type.
+///
+/// Segments are sub-`str` views into the original buffer, which must outlive iteration.
 pub struct SplitPat<P> {
     haystack: str,
     pat:      P,
@@ -104,6 +115,7 @@ pub struct SplitPat<P> {
     done:     bool,
 }
 
+/// Splits `s` on each match of pattern `p`, yielding sub-`str` views into `s`.
 pub fn str_split_pat<P: Pattern>(s: str, p: P) -> SplitPat<P> {
     return SplitPat::<P> { haystack: s, pat: p, pos: 0i64, done: false };
 }

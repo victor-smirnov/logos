@@ -14,10 +14,14 @@ package logos.std.compiler.metaprog;
 
 use logos.mem.collections.vec;
 
+/// Multi-item return value for a metacall that emits more than one item.
 pub struct ItemList {
+    /// The emitted items, in emission order; each forwarded to
+    /// `logos_emit_item_blob_subst` by the metacall thunk.
     pub blobs: Vec<QuoteItemBlob>,
 }
 
+/// Creates an empty `ItemList` with no blobs.
 pub fn item_list_new() -> ItemList {
     return ItemList { blobs: vec_new::<QuoteItemBlob>() };
 }

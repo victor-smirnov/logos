@@ -14,9 +14,9 @@ use logos.lang.writ.wmap;
 use logos.lang.writ.wstring;
 use logos.lang.ptr;
 
-// Total number of value nodes in the tree rooted at `v`: each scalar / string /
-// array / map counts as one node, and container children are recursed. A null
-// root is an empty document (0 nodes).
+/// Counts value nodes in the tree rooted at `v`.
+/// Each scalar / string / array / map counts as one node; container children
+/// are recursed. A null root is an empty document (0 nodes).
 pub fn node_count(v: WAny) -> i64 {
     if v.is_null() { return 0i64; }
     if v.is_array() {
@@ -39,8 +39,8 @@ pub fn node_count(v: WAny) -> i64 {
     return 1i64;   // scalar / string leaf
 }
 
-// Maximum nesting depth of the tree rooted at `v` (a scalar/string = depth 1, an
-// empty container = 1, otherwise 1 + the deepest child).
+/// Returns the maximum nesting depth of the tree rooted at `v`.
+/// A scalar/string or empty container has depth 1; otherwise 1 + the deepest child.
 pub fn depth(v: WAny) -> i64 {
     if v.is_null() { return 0i64; }
     if v.is_array() {

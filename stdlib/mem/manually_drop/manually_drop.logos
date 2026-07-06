@@ -26,26 +26,28 @@ use logos.lang.ptr;
 // recover the inner value. (Without the attribute, Logos's structural
 // auto-Drop would recurse into `value` and run T's destructor, defeating the
 // whole purpose — this is the lang-item shape behind Rust's ManuallyDrop.)
+/// Wraps a `T` and suppresses its destructor at scope-exit.
+/// Destroy or recover the value explicitly via `manually_drop_drop` / `manually_drop_into_inner`.
 #[no_auto_drop]
 pub struct ManuallyDrop<T> {
+    /// Wrapped value; no drop glue runs for it automatically.
     pub value: T,
 }
 
+/// Wraps `v` in `ManuallyDrop`, suppressing its destructor at scope-exit.
 pub fn manually_drop_new<T>(v: T) -> ManuallyDrop<T> {
     return ManuallyDrop::<T> { value: v };
 }
 
-// Move the inner value out of the wrapper, consuming it. The
-// returned value behaves normally (its Drop, if any, fires at the
-// caller's scope-exit).
+/// Moves the inner value out of the wrapper, consuming it.
+/// The returned value behaves normally: its `Drop`, if any, fires at the caller's scope-exit.
 pub fn manually_drop_into_inner<T>(md: ManuallyDrop<T>) -> T {
     return md.value;
 }
 
-// Run the inner value's Drop (if any) in place, without consuming the
-// wrapper. Mirrors Rust's `unsafe fn ManuallyDrop::drop`, which calls
-// `ptr::drop_in_place(&mut self.value)`. Unsafe: after this the inner
-// value is logically gone — the caller must not read it or drop it again.
+/// Runs the inner value's `Drop` in place, without consuming the wrapper.
+/// Mirrors Rust's `unsafe fn ManuallyDrop::drop` (`ptr::drop_in_place` on the inner value).
+/// Unsafe: after this the inner value is logically gone — do not read it or drop it again.
 pub unsafe fn manually_drop_drop<T: Drop>(md: &mut ManuallyDrop<T>) {
     unsafe { drop_in_place::<T>(&mut md.value as *mut T); }
 }
@@ -56,14 +58,19 @@ pub unsafe fn manually_drop_drop<T: Drop>(md: &mut ManuallyDrop<T>) {
 // inner T. Rust's `MaybeDangling<T>` is internal-only; this Logos
 // port is informational — borrowck doesn't yet honour the marker
 // (when it does, the wrapper passes through transparently).
+/// Marks the inner `T` as exempt from dangling-reference checks.
+/// Informational for now: borrowck does not yet honour the marker.
 pub struct MaybeDangling<T> {
+    /// Wrapped, possibly-dangling value.
     pub value: T,
 }
 
+/// Wraps `v` in `MaybeDangling`.
 pub fn maybe_dangling_new<T>(v: T) -> MaybeDangling<T> {
     return MaybeDangling::<T> { value: v };
 }
 
+/// Moves the inner value out, consuming the wrapper.
 pub fn maybe_dangling_into_inner<T>(m: MaybeDangling<T>) -> T {
     return m.value;
 }
@@ -73,11 +80,13 @@ pub fn maybe_dangling_into_inner<T>(m: MaybeDangling<T>) -> T {
 // Power-of-2 alignment value, in bytes. Mirrors
 // `core::ptr::alignment::Alignment` (which is `core::mem::Alignment`
 // in newer std). Construction validates the invariant.
+/// Represents a power-of-2 alignment, in bytes.
 pub struct Alignment {
+    /// Alignment in bytes; a nonzero power of 2 when constructed via `alignment_new`.
     pub bytes: u64,
 }
 
-// Returns Some(alignment) if `n` is a power of 2 > 0, else None.
+/// Returns `Some(Alignment)` if `n` is a power of 2 > 0, else `None`.
 pub fn alignment_new(n: u64) -> Option<Alignment> {
     if n == 0u64 { return Option::<Alignment>::None; }
     // Power-of-2 check: `n & (n - 1) == 0`.
@@ -86,14 +95,16 @@ pub fn alignment_new(n: u64) -> Option<Alignment> {
     return Option::<Alignment>::Some(Alignment { bytes: n });
 }
 
-// Construction without the power-of-2 check. Caller must guarantee
-// validity. Mirrors Rust's `Alignment::new_unchecked`.
+/// Creates an `Alignment` without the power-of-2 check (Rust's `Alignment::new_unchecked`).
+/// Unsafe: caller must guarantee `n` is a nonzero power of 2.
 pub unsafe fn alignment_new_unchecked(n: u64) -> Alignment {
     return Alignment { bytes: n };
 }
 
 impl Alignment {
+    /// Returns the alignment in bytes.
     pub fn as_u64(&self) -> u64 { return self.bytes; }
+    /// Returns log2 of the alignment (trailing-zero count of `bytes`).
     pub fn log2(&self) -> u32 {
         // ceil-log2 of a power-of-2 — count trailing zeros.
         let mut n: u64 = self.bytes;
@@ -118,22 +129,29 @@ impl Alignment {
 // `armed` flag lets callers defuse the guard via `disarm()` so the
 // closure doesn't fire (e.g. when the work succeeded and cleanup
 // isn't needed).
+/// Runs the closure `f` at scope-exit (drop) unless defused via `disarm`.
 pub struct DropGuard<F> {
+    /// Cleanup closure; called exactly once at drop while `armed`.
     pub f:     F,
+    /// Whether the closure fires on drop; cleared by `disarm`.
     pub armed: bool,
 }
 
+/// Creates an armed `DropGuard` that runs `f` on drop.
 pub fn drop_guard_new<F>(f: F) -> DropGuard<F> {
     return DropGuard::<F> { f: f, armed: true };
 }
 
 impl<F: FnOnce() -> ()> DropGuard<F> {
+    /// Defuses the guard: the closure will not run on drop.
     pub fn disarm(&mut self) { self.armed = false; }
 }
 
 // Manual fire — pre-emptively run the cleanup closure and disarm.
 // Rust's pattern: `ScopeGuard::into_inner` returns the F without
 // firing; here we expose the moral equivalent.
+/// Consumes the guard, returning the closure `f` without running it.
+/// Extracting `f` by value suppresses the guard's `Drop`.
 pub fn drop_guard_disarm_into<F>(g: DropGuard<F>) -> F {
     // Move semantics: `g` is consumed here; its `Drop` doesn't fire
     // because we extract `f` by value below.

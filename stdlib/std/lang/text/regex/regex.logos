@@ -23,11 +23,14 @@ package logos.std.lang.text.regex;
 use logos.mem.string;
 use logos.lang.str;
 
+/// Compiled regex pattern: a raw `(pointer, length)` view into the pattern bytes.
+/// Does not own the bytes — the `str` passed to `compile` must outlive this `Regex`.
 pub struct Regex {
     pat: *const u8,
     plen: i64,
 }
 
+/// Compiles pattern `p` into a `Regex` that borrows `p`'s bytes; `p` must outlive it.
 pub fn compile(p: str) -> Regex {
     unsafe { return Regex { pat: p.as_ptr(), plen: p.len() }; }
 }
@@ -221,7 +224,7 @@ unsafe fn match_star(pat: *const u8, plen: i64, atom_pi: i64, alen: i64,
 
 // ── Public API ────────────────────────────────────────────────────────────
 
-// True if `re` matches anywhere in `s`.  '^' anchors to start; '$' to end.
+/// Returns `true` if `re` matches anywhere in `s`; `^` anchors to start, `$` to end.
 pub fn is_match(re: &Regex, s: str) -> bool {
     unsafe {
         let slen: i64 = s.len();
@@ -238,7 +241,7 @@ pub fn is_match(re: &Regex, s: str) -> bool {
     }
 }
 
-// Return the start index of the first match, or -1 if none.
+/// Returns the byte index of the first match in `s`, or `-1` if none.
 pub fn find(re: &Regex, s: str) -> i64 {
     unsafe {
         let slen: i64 = s.len();

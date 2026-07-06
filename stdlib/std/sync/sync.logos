@@ -44,11 +44,13 @@ extern fn pthread_rwlock_destroy(rwlock: *mut u8) -> i32;
 // 'raw' points to a 40-byte heap block holding the pthread_mutex_t.
 // 'data' holds the protected value inline in the struct.
 
+/// A mutual-exclusion lock protecting a `T`, backed by a heap-allocated `pthread_mutex_t`.
 pub struct Mutex<T> {
     data: UnsafeCell<T>,
     raw:  *mut u8,
 }
 
+/// Creates a new `Mutex` wrapping `data`, initializing the underlying `pthread_mutex_t`.
 pub fn mutex_new<T: Send>(data: T) -> Mutex<T> {
     let raw: *mut u8 = alloc(40 as i64);
     unsafe {
@@ -59,13 +61,14 @@ pub fn mutex_new<T: Send>(data: T) -> Mutex<T> {
 }
 
 impl<T: Send> Mutex<T> {
-    // Acquire the lock; returns a mutable pointer to the protected data.
+    /// Acquires the lock, blocking until available; returns a mutable pointer to the data.
     pub unsafe fn lock(self: *mut Mutex<T>) -> *mut T {
         pthread_mutex_lock(self.raw);
         return self.data.get();
     }
 
-    // Try to acquire without blocking.  Returns Some(*mut T) on success, None on contention.
+    /// Tries to acquire the lock without blocking.
+    /// Returns `Some` pointer to the data on success, `None` on contention.
     pub unsafe fn try_lock(self: *mut Mutex<T>) -> Option<*mut T> {
         let rc: i32 = pthread_mutex_trylock(self.raw);
         if rc == 0 {
@@ -74,7 +77,7 @@ impl<T: Send> Mutex<T> {
         return Option::None;
     }
 
-    // Release the lock.
+    /// Releases a previously acquired lock.
     pub unsafe fn unlock(self: *mut Mutex<T>) {
         pthread_mutex_unlock(self.raw);
     }
@@ -86,7 +89,7 @@ impl<T: Send> Mutex<T> {
 unsafe impl<T: Send> Send for Mutex<T> {}
 unsafe impl<T: Send> Sync for Mutex<T> {}
 
-// Destroy the pthread_mutex_t and free the raw block.
+/// Destroys the underlying `pthread_mutex_t` and frees the raw heap block.
 pub unsafe fn mutex_destroy<T: Send>(m: *mut Mutex<T>) {
     pthread_mutex_destroy(m.raw);
     dealloc(m.raw);
@@ -116,11 +119,13 @@ impl<T> Drop for Mutex<T> {
 // 'raw' points to a 56-byte heap block holding the pthread_rwlock_t.
 // Multiple readers may hold the lock simultaneously; writers are exclusive.
 
+/// A reader-writer lock protecting a `T`, backed by a heap-allocated `pthread_rwlock_t`.
 pub struct RwLock<T> {
     data: UnsafeCell<T>,
     raw:  *mut u8,
 }
 
+/// Creates a new `RwLock` wrapping `data`, initializing the underlying `pthread_rwlock_t`.
 pub fn rwlock_new<T: Send + Sync>(data: T) -> RwLock<T> {
     let raw: *mut u8 = alloc(56 as i64);
     unsafe {
@@ -131,13 +136,13 @@ pub fn rwlock_new<T: Send + Sync>(data: T) -> RwLock<T> {
 }
 
 impl<T: Send + Sync> RwLock<T> {
-    // Acquire a shared (reader) lock; returns a const pointer to the data.
+    /// Acquires a shared (reader) lock, blocking until available; returns a const pointer.
     pub unsafe fn read_lock(self: *mut RwLock<T>) -> *const T {
         pthread_rwlock_rdlock(self.raw);
         return self.data.get() as *const T;
     }
 
-    // Try to acquire a reader lock without blocking.
+    /// Tries to acquire a reader lock without blocking; `None` on contention.
     pub unsafe fn try_read_lock(self: *mut RwLock<T>) -> Option<*const T> {
         let rc: i32 = pthread_rwlock_tryrdlock(self.raw);
         if rc == 0 {
@@ -146,13 +151,13 @@ impl<T: Send + Sync> RwLock<T> {
         return Option::None;
     }
 
-    // Acquire an exclusive (writer) lock; returns a mutable pointer to the data.
+    /// Acquires an exclusive (writer) lock, blocking until available; returns a mutable pointer.
     pub unsafe fn write_lock(self: *mut RwLock<T>) -> *mut T {
         pthread_rwlock_wrlock(self.raw);
         return self.data.get();
     }
 
-    // Try to acquire a writer lock without blocking.
+    /// Tries to acquire a writer lock without blocking; `None` on contention.
     pub unsafe fn try_write_lock(self: *mut RwLock<T>) -> Option<*mut T> {
         let rc: i32 = pthread_rwlock_trywrlock(self.raw);
         if rc == 0 {
@@ -161,7 +166,7 @@ impl<T: Send + Sync> RwLock<T> {
         return Option::None;
     }
 
-    // Release any held lock (reader or writer).
+    /// Releases any lock (reader or writer) currently held by the caller.
     pub unsafe fn unlock(self: *mut RwLock<T>) {
         pthread_rwlock_unlock(self.raw);
     }
@@ -171,6 +176,7 @@ impl<T: Send + Sync> RwLock<T> {
 unsafe impl<T: Send> Send for RwLock<T> {}
 unsafe impl<T: Send + Sync> Sync for RwLock<T> {}
 
+/// Destroys the underlying `pthread_rwlock_t` and frees the raw heap block.
 pub unsafe fn rwlock_destroy<T: Send + Sync>(rw: *mut RwLock<T>) {
     pthread_rwlock_destroy(rw.raw);
     dealloc(rw.raw);

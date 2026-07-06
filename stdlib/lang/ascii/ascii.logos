@@ -31,27 +31,38 @@ use logos.lang.option;
 // as `impl char`'s ASCII methods, on the raw byte. `make_ascii_*` mutate
 // in place via `&mut self`.
 impl u8 {
+    /// Returns `true` if the byte is in the ASCII range (`0..=127`).
     pub fn is_ascii(self: u8) -> bool { return self < 128u8; }
+    /// Returns `true` for ASCII uppercase letters `'A'..='Z'`.
     pub fn is_ascii_uppercase(self: u8) -> bool { return self >= 65u8 && self <= 90u8; }
+    /// Returns `true` for ASCII lowercase letters `'a'..='z'`.
     pub fn is_ascii_lowercase(self: u8) -> bool { return self >= 97u8 && self <= 122u8; }
+    /// Returns `true` for ASCII letters `'A'..='Z'` or `'a'..='z'`.
     pub fn is_ascii_alphabetic(self: u8) -> bool {
         return self.is_ascii_uppercase() || self.is_ascii_lowercase();
     }
+    /// Returns `true` for ASCII digits `'0'..='9'`.
     pub fn is_ascii_digit(self: u8) -> bool { return self >= 48u8 && self <= 57u8; }
+    /// Returns `true` for ASCII letters or digits.
     pub fn is_ascii_alphanumeric(self: u8) -> bool {
         return self.is_ascii_alphabetic() || self.is_ascii_digit();
     }
+    /// Returns `true` for ASCII hex digits: `0-9`, `A-F`, or `a-f`.
     pub fn is_ascii_hexdigit(self: u8) -> bool {
         if self >= 48u8 && self <= 57u8 { return true; }
         if self >= 65u8 && self <= 70u8 { return true; }
         if self >= 97u8 && self <= 102u8 { return true; }
         return false;
     }
+    /// Returns `true` for ASCII octal digits `'0'..='7'`.
     pub fn is_ascii_octdigit(self: u8) -> bool { return self >= 48u8 && self <= 55u8; }
+    /// Returns `true` for ASCII whitespace: space, tab, LF, FF, or CR (VT excluded, as in Rust).
     pub fn is_ascii_whitespace(self: u8) -> bool {
         return self == 32u8 || self == 9u8 || self == 10u8 || self == 12u8 || self == 13u8;
     }
+    /// Returns `true` for ASCII control characters: `0..=31` or DEL (127).
     pub fn is_ascii_control(self: u8) -> bool { return self < 32u8 || self == 127u8; }
+    /// Returns `true` for ASCII punctuation (byte ranges 33..=47, 58..=64, 91..=96, 123..=126).
     pub fn is_ascii_punctuation(self: u8) -> bool {
         if self >= 33u8  && self <= 47u8  { return true; }
         if self >= 58u8  && self <= 64u8  { return true; }
@@ -59,28 +70,38 @@ impl u8 {
         if self >= 123u8 && self <= 126u8 { return true; }
         return false;
     }
+    /// Returns `true` for printable ASCII characters excluding space: `'!'..='~'` (33..=126).
     pub fn is_ascii_graphic(self: u8) -> bool { return self >= 33u8 && self <= 126u8; }
 
+    /// Returns the byte with `'a'..='z'` mapped to `'A'..='Z'`; all other bytes unchanged.
     pub fn to_ascii_uppercase(self: u8) -> u8 {
         if self >= 97u8 && self <= 122u8 { return self - 32u8; }
         return self;
     }
+    /// Returns the byte with `'A'..='Z'` mapped to `'a'..='z'`; all other bytes unchanged.
     pub fn to_ascii_lowercase(self: u8) -> u8 {
         if self >= 65u8 && self <= 90u8 { return self + 32u8; }
         return self;
     }
+    /// Returns `true` if the two bytes are equal ignoring ASCII case.
     pub fn eq_ignore_ascii_case(self: u8, other: &u8) -> bool {
         return self.to_ascii_lowercase() == (*other).to_ascii_lowercase();
     }
+    /// Converts the byte to ASCII uppercase in place.
     pub fn make_ascii_uppercase(self: &mut u8) { *self = (*self).to_ascii_uppercase(); }
+    /// Converts the byte to ASCII lowercase in place.
     pub fn make_ascii_lowercase(self: &mut u8) { *self = (*self).to_ascii_lowercase(); }
 }
 
+/// An ASCII character: a `u8` guaranteed to be in `0..=127`.
+///
+/// Newtype struct, not Rust's 128-variant enum; constructors enforce the range invariant.
 pub struct AsciiChar {
     byte: u8,
 }
 
 impl AsciiChar {
+    /// Creates an `AsciiChar` from a byte, returning `None` if `b >= 128`.
     pub fn from_u8(b: u8) -> Option<AsciiChar> {
         if b < 128u8 {
             return Option::<AsciiChar>::Some(AsciiChar { byte: b });
@@ -88,14 +109,20 @@ impl AsciiChar {
         return Option::<AsciiChar>::None;
     }
 
+    /// Creates an `AsciiChar` without range validation.
+    ///
+    /// Caller must guarantee `b < 128`; a larger byte silently breaks the type invariant.
     pub unsafe fn from_u8_unchecked(b: u8) -> AsciiChar {
         return AsciiChar { byte: b };
     }
 
+    /// Returns the underlying byte value.
     pub fn as_u8(self: AsciiChar) -> u8 { return self.byte; }
 
+    /// Returns the character widened to `char` (same codepoint).
     pub fn as_char(self: AsciiChar) -> char { return self.byte as char; }
 
+    /// Returns `true` for ASCII letters `'A'..='Z'` or `'a'..='z'`.
     pub fn is_alphabetic(self: AsciiChar) -> bool {
         let v: i32 = self.byte as i32;
         if v >= 97 && v <= 122 { return true; }
@@ -103,26 +130,31 @@ impl AsciiChar {
         return false;
     }
 
+    /// Returns `true` for ASCII lowercase letters `'a'..='z'`.
     pub fn is_lowercase(self: AsciiChar) -> bool {
         let v: i32 = self.byte as i32;
         return v >= 97 && v <= 122;
     }
 
+    /// Returns `true` for ASCII uppercase letters `'A'..='Z'`.
     pub fn is_uppercase(self: AsciiChar) -> bool {
         let v: i32 = self.byte as i32;
         return v >= 65 && v <= 90;
     }
 
+    /// Returns `true` for ASCII digits `'0'..='9'`.
     pub fn is_digit(self: AsciiChar) -> bool {
         let v: i32 = self.byte as i32;
         return v >= 48 && v <= 57;
     }
 
+    /// Returns `true` for ASCII letters or digits.
     pub fn is_alphanumeric(self: AsciiChar) -> bool {
         if self.is_alphabetic() { return true; }
         return self.is_digit();
     }
 
+    /// Returns `true` for ASCII hex digits: `0-9`, `A-F`, or `a-f`.
     pub fn is_hexdigit(self: AsciiChar) -> bool {
         let v: i32 = self.byte as i32;
         if v >= 48 && v <= 57  { return true; }
@@ -131,16 +163,21 @@ impl AsciiChar {
         return false;
     }
 
+    /// Returns `true` for whitespace: space, tab, LF, VT, FF, or CR.
+    ///
+    /// Includes VT (0x0B), unlike `u8::is_ascii_whitespace`.
     pub fn is_whitespace(self: AsciiChar) -> bool {
         let v: i32 = self.byte as i32;
         return v == 32 || v == 9 || v == 10 || v == 13 || v == 11 || v == 12;
     }
 
+    /// Returns `true` for ASCII control characters: `0..=31` or DEL (127).
     pub fn is_control(self: AsciiChar) -> bool {
         let v: i32 = self.byte as i32;
         return v < 32 || v == 127;
     }
 
+    /// Returns the character lowercased if `'A'..='Z'`, unchanged otherwise.
     pub fn to_ascii_lowercase(self: AsciiChar) -> AsciiChar {
         if self.is_uppercase() {
             return AsciiChar { byte: self.byte + 32u8 };
@@ -148,6 +185,7 @@ impl AsciiChar {
         return self;
     }
 
+    /// Returns the character uppercased if `'a'..='z'`, unchanged otherwise.
     pub fn to_ascii_uppercase(self: AsciiChar) -> AsciiChar {
         if self.is_lowercase() {
             return AsciiChar { byte: self.byte - 32u8 };
@@ -159,14 +197,25 @@ impl AsciiChar {
 // Free-fn constructors for common named values. Mirrors Rust's
 // AsciiChar::Null / AsciiChar::Tab / etc. — Logos uses fns instead of
 // enum variants since we're a struct wrapper.
+/// Returns the NUL character (`0x00`).
 pub fn ascii_null()         -> AsciiChar { return AsciiChar { byte:   0u8 }; }
+/// Returns the BEL (bell) character (`0x07`).
 pub fn ascii_bell()         -> AsciiChar { return AsciiChar { byte:   7u8 }; }
+/// Returns the BS (backspace) character (`0x08`).
 pub fn ascii_backspace()    -> AsciiChar { return AsciiChar { byte:   8u8 }; }
+/// Returns the TAB character (`0x09`).
 pub fn ascii_tab()          -> AsciiChar { return AsciiChar { byte:   9u8 }; }
+/// Returns the LF (line feed) character (`0x0A`).
 pub fn ascii_line_feed()    -> AsciiChar { return AsciiChar { byte:  10u8 }; }
+/// Returns the VT (vertical tab) character (`0x0B`).
 pub fn ascii_vert_tab()     -> AsciiChar { return AsciiChar { byte:  11u8 }; }
+/// Returns the FF (form feed) character (`0x0C`).
 pub fn ascii_form_feed()    -> AsciiChar { return AsciiChar { byte:  12u8 }; }
+/// Returns the CR (carriage return) character (`0x0D`).
 pub fn ascii_carriage_ret() -> AsciiChar { return AsciiChar { byte:  13u8 }; }
+/// Returns the ESC (escape) character (`0x1B`).
 pub fn ascii_escape()       -> AsciiChar { return AsciiChar { byte:  27u8 }; }
+/// Returns the SPACE character (`0x20`).
 pub fn ascii_space()        -> AsciiChar { return AsciiChar { byte:  32u8 }; }
+/// Returns the DEL character (`0x7F`).
 pub fn ascii_delete()       -> AsciiChar { return AsciiChar { byte: 127u8 }; }

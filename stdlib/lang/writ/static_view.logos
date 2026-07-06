@@ -21,41 +21,43 @@ use logos.lang.writ.array;      // WArray<WAny>
 use logos.lang.writ.wstring;    // WString
 use logos.lang.str;
 
-// Borrowed UTF-8 bytes of a blob string.
+/// Borrowed UTF-8 bytes of a blob string.
 pub struct SView2 {
+    /// Pointer to the first byte of the UTF-8 data (borrowed from the blob).
     pub ptr: *const u8,
+    /// Length in bytes.
     pub len: u64,
 }
 
 impl Copy for SView2 {}
 
-// Read view over a writ rodata blob. `base` is the first blob byte (the
-// DocumentHeader, which holds the root AnyVal at offset 0). For a WritStatic
-// the blob ptr already points past the 8-byte size prefix, so `base = hs.ptr`.
+/// Read view over a writ rodata blob.
+/// `base` is the first blob byte (the DocumentHeader, holding the root AnyVal at offset 0).
+/// For a `WritStatic` the blob ptr already points past the 8-byte size prefix, so `base = hs.ptr`.
 pub struct WView2 {
+    /// First blob byte (the DocumentHeader).
     pub base: *const u8,
 }
 
 impl Copy for WView2 {}
 
-// Build a reader from a rodata blob pointer (WritStatic.ptr).
+/// Builds a reader from a rodata blob pointer (`WritStatic.ptr`).
 pub fn wview2_from_ptr(ptr: *const u8) -> WView2 {
     return WView2 { base: ptr };
 }
 
-// Reconstruct a value-form WAny from its raw word (WAny::raw()). Lets callers
-// stash a node handle as a plain i64 in a struct field (sidestepping the
-// borrow-checker's conservative treatment of the Ref raw-ptr) and rebuild it on
-// use. A value-form Ref's word IS its absolute ptr (low bit 0); Pod has low
-// bit 1; word 0 = null.
+/// Reconstructs a value-form `WAny` from its raw word (`WAny::raw()`).
+/// Lets callers stash a node handle as a plain `i64` field (sidestepping the borrow-checker's
+/// conservative treatment of the Ref raw-ptr) and rebuild it on use.
+/// A value-form Ref's word IS its absolute ptr (low bit 0); Pod has low bit 1; word 0 = null.
 pub fn wany_from_word(w: i64) -> WAny {
     if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
     return WAny::Ref(w as *const u8);
 }
 
 impl WView2 {
-    // The document root WAny. DocumentHeader = { WAny root } at base+0; the
-    // at-rest root word is self-relative to base — materialize it.
+    /// Returns the document root `WAny`.
+    /// The at-rest root word at `base+0` is self-relative; this materializes it to value form.
     pub fn root(self: WView2) -> WAny {
         let w: i64 = unsafe { *(self.base as *const i64) };
         if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
@@ -63,8 +65,8 @@ impl WView2 {
         return WAny::Ref((self.base as i64 + w) as *const u8);
     }
 
-    // String-keyed ObjectMap field read: `node` (Ref to WMap<WString,WAny>) →
-    // key → WAny. Null/non-ref node, or absent key, yields a null WAny.
+    /// Reads a string-keyed ObjectMap field: `node` (Ref to `WMap<WString,WAny>`) by `key`.
+    /// A null/non-ref `node`, or an absent key, yields a null `WAny`.
     pub fn map_get(self: WView2, node: WAny, key: str) -> WAny {
         if !node.is_ref() { return WAny::Ref(0i64 as *const u8); }
         let p: *const u8 = node.resolve();
@@ -72,7 +74,8 @@ impl WView2 {
         return unsafe { (&*(p as *const WMap<WString, WAny>)).get(key) };
     }
 
-    // u8-keyed TinyObjectMap field read (the AST/schema flavour: WMap<Wu6,WAny>).
+    /// Reads a u8-keyed TinyObjectMap field (the AST/schema flavour: `WMap<Wu6,WAny>`).
+    /// A null/non-ref `node`, or an absent key, yields a null `WAny`.
     pub fn tiny_map_get(self: WView2, node: WAny, key: u8) -> WAny {
         if !node.is_ref() { return WAny::Ref(0i64 as *const u8); }
         let p: *const u8 = node.resolve();
@@ -80,23 +83,26 @@ impl WView2 {
         return unsafe { (&*(p as *const WMap<Wu6, WAny>)).get(key) };
     }
 
-    // Scalar reads — an integer is an inline Pod OR a boxed zone W_I64/W_U64;
-    // as_i64/as_u64 read whichever form holds it. Non-int → 0 / false.
+    /// Returns `v` as `i64` — reads either an inline Pod int or a boxed zone `W_I64`/`W_U64`.
+    /// Non-int → `0`.
     pub fn get_int(self: WView2, v: WAny) -> i64 {
         if v.is_int() { return v.as_i64(); }
         return 0i64;
     }
+    /// Returns `v` as `i64`; alias for `get_int`.
     pub fn get_i64(self: WView2, v: WAny) -> i64 { return self.get_int(v); }
+    /// Returns `v` as `u64` (inline Pod int or boxed zone int). Non-int → `0`.
     pub fn get_u64(self: WView2, v: WAny) -> u64 {
         if v.is_int() { return v.as_u64(); }
         return 0u64;
     }
+    /// Returns `v` as `bool`. Non-Pod → `false`.
     pub fn get_bool(self: WView2, v: WAny) -> bool {
         if v.is_pod() { return v.as_bool(); }
         return false;
     }
 
-    // Borrowed UTF-8 bytes of a string node (Ref to WString). Empty if non-ref.
+    /// Returns borrowed UTF-8 bytes of a string node (Ref to `WString`); empty if null/non-ref.
     pub fn get_str_view(self: WView2, v: WAny) -> SView2 {
         if !v.is_ref() { return SView2 { ptr: 0 as *const u8, len: 0 as u64 }; }
         let p: *const u8 = v.resolve();
@@ -105,7 +111,7 @@ impl WView2 {
         return SView2 { ptr: s.as_ptr(), len: s.len() as u64 };
     }
 
-    // Array length / element. `v` is a Ref to WArray<WAny>; null/non-ref → 0 / null.
+    /// Returns the length of an array node (`v` = Ref to `WArray<WAny>`). Null/non-ref → `0`.
     pub fn array_len(self: WView2, v: WAny) -> u64 {
         if !v.is_ref() { return 0 as u64; }
         let p: *const u8 = v.resolve();
@@ -113,6 +119,7 @@ impl WView2 {
         return unsafe { (&*(p as *const WArray<WAny>)).len() as u64 };
     }
 
+    /// Returns element `idx` of an array node; null/non-ref → null `WAny`.
     pub fn array_get(self: WView2, v: WAny, idx: u64) -> WAny {
         if !v.is_ref() { return WAny::Ref(0i64 as *const u8); }
         let p: *const u8 = v.resolve();

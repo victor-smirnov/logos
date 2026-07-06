@@ -54,33 +54,43 @@ unsafe fn w_build_typed_array_raw(vals: *const u8, len: i64, width: i64,
 }
 
 // Per-element-type entry points (sema's `as <T>[]` lowering calls by name).
+/// Builds a tagged `i8[]` writ typed array (wire code 2105) from `len` raw elements.
 pub unsafe fn writ_build_array_i8(vals: *const i8, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 1, 2105u64);
 }
+/// Builds a tagged `u8[]` writ typed array (wire code 2101) from `len` raw elements.
 pub unsafe fn writ_build_array_u8(vals: *const u8, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals, len, 1, 2101u64);
 }
+/// Builds a tagged `i16[]` writ typed array (wire code 2106) from `len` raw elements.
 pub unsafe fn writ_build_array_i16(vals: *const i16, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 2, 2106u64);
 }
+/// Builds a tagged `u16[]` writ typed array (wire code 2102) from `len` raw elements.
 pub unsafe fn writ_build_array_u16(vals: *const u16, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 2, 2102u64);
 }
+/// Builds a tagged `i32[]` writ typed array (wire code 2107) from `len` raw elements.
 pub unsafe fn writ_build_array_i32(vals: *const i32, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 4, 2107u64);
 }
+/// Builds a tagged `u32[]` writ typed array (wire code 2103) from `len` raw elements.
 pub unsafe fn writ_build_array_u32(vals: *const u32, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 4, 2103u64);
 }
+/// Builds a tagged `i64[]` writ typed array (wire code 2108) from `len` raw elements.
 pub unsafe fn writ_build_array_i64(vals: *const i64, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 8, 2108u64);
 }
+/// Builds a tagged `u64[]` writ typed array (wire code 2104) from `len` raw elements.
 pub unsafe fn writ_build_array_u64(vals: *const u64, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 8, 2104u64);
 }
+/// Builds a tagged `f32[]` writ typed array (wire code 2109) from `len` raw elements.
 pub unsafe fn writ_build_array_f32(vals: *const f32, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 4, 2109u64);
 }
+/// Builds a tagged `f64[]` writ typed array (wire code 2110) from `len` raw elements.
 pub unsafe fn writ_build_array_f64(vals: *const f64, len: i64) -> Rc<Writ> {
     return w_build_typed_array_raw(vals as *const u8, len, 8, 2110u64);
 }
@@ -91,9 +101,13 @@ pub unsafe fn writ_build_array_f64(vals: *const f64, len: i64) -> Rc<Writ> {
 // writ re-design of the legacy 4-byte &[AnyVal]): Pods copy verbatim,
 // Refs deep-copy into the result zone (lang.writ.compactify).
 
+/// Parallel `i32` key / `WAny` value slices, the source for `(keys, vals) as <i32, AnyVal>{}`.
 pub struct MapSliceI32 { pub keys: &[i32], pub vals: &[WAny] }
+/// Parallel `u32` key / `WAny` value slices, the source for `(keys, vals) as <u32, AnyVal>{}`.
 pub struct MapSliceU32 { pub keys: &[u32], pub vals: &[WAny] }
+/// Parallel `i64` key / `WAny` value slices, the source for `(keys, vals) as <i64, AnyVal>{}`.
 pub struct MapSliceI64 { pub keys: &[i64], pub vals: &[WAny] }
+/// Parallel `u64` key / `WAny` value slices, the source for `(keys, vals) as <u64, AnyVal>{}`.
 pub struct MapSliceU64 { pub keys: &[u64], pub vals: &[WAny] }
 
 unsafe fn w_build_typed_map_raw(keys: *const u8, vals: *const i64, len: i64,
@@ -139,15 +153,23 @@ unsafe fn w_build_typed_map_raw(keys: *const u8, vals: *const i64, len: i64,
     return rc;
 }
 
+/// Builds a tagged `{i32: AnyVal}` writ typed map (wire code 3101) from parallel slices.
+/// `vals` holds raw `WAny` payload words; `Ref` values deep-copy into the result zone.
 pub unsafe fn writ_build_map_i32_anyval(keys: *const i32, vals: *const i64, len: i64) -> Rc<Writ> {
     return w_build_typed_map_raw(keys as *const u8, vals, len, 4, 3101u64);
 }
+/// Builds a tagged `{u32: AnyVal}` writ typed map (wire code 3102) from parallel slices.
+/// `vals` holds raw `WAny` payload words; `Ref` values deep-copy into the result zone.
 pub unsafe fn writ_build_map_u32_anyval(keys: *const u32, vals: *const i64, len: i64) -> Rc<Writ> {
     return w_build_typed_map_raw(keys as *const u8, vals, len, 4, 3102u64);
 }
+/// Builds a tagged `{i64: AnyVal}` writ typed map (wire code 3103) from parallel slices.
+/// `vals` holds raw `WAny` payload words; `Ref` values deep-copy into the result zone.
 pub unsafe fn writ_build_map_i64_anyval(keys: *const i64, vals: *const i64, len: i64) -> Rc<Writ> {
     return w_build_typed_map_raw(keys as *const u8, vals, len, 8, 3103u64);
 }
+/// Builds a tagged `{u64: AnyVal}` writ typed map (wire code 3104) from parallel slices.
+/// `vals` holds raw `WAny` payload words; `Ref` values deep-copy into the result zone.
 pub unsafe fn writ_build_map_u64_anyval(keys: *const u64, vals: *const i64, len: i64) -> Rc<Writ> {
     return w_build_typed_map_raw(keys as *const u8, vals, len, 8, 3104u64);
 }

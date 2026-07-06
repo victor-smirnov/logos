@@ -10,8 +10,13 @@ package logos.lang.result;
 use logos.lang.option;
 use logos.lang.panic;
 
+/// Represents either success (`Ok(T)`) or failure (`Err(E)`).
+///
+/// The `?` operator propagates `Err` early from functions returning `Result<_, E>`.
 pub enum Result<T, E> {
+    /// Contains the success value.
     Ok(T),
+    /// Contains the error value.
     Err(E),
 }
 
@@ -19,6 +24,7 @@ impl<T, E> Result<T, E> {
     // CP-cm-17 leg (b): `&self` rather than by-value so chained-temporary
     // callers (`a.and(n).is_ok()`) and non-Copy payloads don't get
     // consumed by the predicate.
+    /// Returns `true` if the result is `Ok`.
     pub fn is_ok(&self) -> bool {
         match self {
             Result::Ok(_)  => { return true; }
@@ -26,6 +32,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns `true` if the result is `Err`.
     pub fn is_err(&self) -> bool {
         match self {
             Result::Ok(_)  => { return false; }
@@ -33,6 +40,9 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns `true` if the result is `Ok` and `pred` returns `true` for the contained value.
+    ///
+    /// Consumes `self` (the value is passed to `pred` by value).
     pub fn is_ok_and(self: Result<T, E>, pred: fn(T) -> bool) -> bool {
         match self {
             Result::Ok(v)  => { return pred(v); }
@@ -40,6 +50,9 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns `true` if the result is `Err` and `pred` returns `true` for the contained error.
+    ///
+    /// Consumes `self` (the error is passed to `pred` by value).
     pub fn is_err_and(self: Result<T, E>, pred: fn(E) -> bool) -> bool {
         match self {
             Result::Ok(_)  => { return false; }
@@ -47,6 +60,9 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns the contained `Ok` value; panics if the result is `Err`.
+    ///
+    /// The panic message is fixed — the error value is not formatted into it.
     pub fn unwrap(self: Result<T, E>) -> T {
         match self {
             Result::Ok(v)  => { return v; }
@@ -54,6 +70,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns the contained `Err` value; panics if the result is `Ok`.
     pub fn unwrap_err(self: Result<T, E>) -> E {
         match self {
             Result::Ok(_)  => { panic("called `Result::unwrap_err()` on an `Ok` value"); }
@@ -61,6 +78,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns the contained `Ok` value; panics with `msg` if the result is `Err`.
     pub fn expect(self: Result<T, E>, msg: str) -> T {
         match self {
             Result::Ok(v)  => { return v; }
@@ -68,6 +86,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns the contained `Err` value; panics with `msg` if the result is `Ok`.
     pub fn expect_err(self: Result<T, E>, msg: str) -> E {
         match self {
             Result::Ok(_)  => { panic(msg); }
@@ -75,6 +94,9 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns the contained `Ok` value or `default`.
+    ///
+    /// `default` is eagerly evaluated; use `unwrap_or_else` for a lazily computed fallback.
     pub fn unwrap_or(self: Result<T, E>, default: T) -> T {
         match self {
             Result::Ok(v)  => { return v; }
@@ -82,6 +104,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns the contained `Ok` value or computes a fallback from the error with `f`.
     pub fn unwrap_or_else(self: Result<T, E>, f: fn(E) -> T) -> T {
         match self {
             Result::Ok(v)  => { return v; }
@@ -89,6 +112,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Converts to `Option<T>`: `Ok(v)` becomes `Some(v)`, discarding the error.
     pub fn ok(self: Result<T, E>) -> Option<T> {
         match self {
             Result::Ok(v)  => { return Option::Some(v); }
@@ -96,6 +120,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Converts to `Option<E>`: `Err(e)` becomes `Some(e)`, discarding the success value.
     pub fn err(self: Result<T, E>) -> Option<E> {
         match self {
             Result::Ok(_)  => { return Option::None; }
@@ -103,6 +128,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Applies `f` to a contained `Ok` value, leaving an `Err` value untouched.
     pub fn map<U>(self: Result<T, E>, f: fn(T) -> U) -> Result<U, E> {
         match self {
             Result::Ok(v)  => { return Result::Ok(f(v)); }
@@ -110,6 +136,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Applies `f` to a contained `Err` value, leaving an `Ok` value untouched.
     pub fn map_err<F>(self: Result<T, E>, f: fn(E) -> F) -> Result<T, F> {
         match self {
             Result::Ok(v)  => { return Result::Ok(v); }
@@ -117,7 +144,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
-    // Returns `default` (if Err) or applies `f` to the contained Ok value.
+    /// Returns `default` if `Err`, or applies `f` to the contained `Ok` value.
     pub fn map_or<U>(self: Result<T, E>, default: U, f: fn(T) -> U) -> U {
         match self {
             Result::Ok(v)  => { return f(v); }
@@ -125,7 +152,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
-    // Maps a Result<T,E> to U by applying `f` to Ok, or `dfl` to Err.
+    /// Maps to `U` by applying `f` to a contained `Ok` value, or `dfl` to a contained `Err`.
     pub fn map_or_else<U>(self: Result<T, E>, dfl: fn(E) -> U, f: fn(T) -> U) -> U {
         match self {
             Result::Ok(v)  => { return f(v); }
@@ -133,6 +160,9 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns `res` if the result is `Ok`, otherwise the `Err` value of `self`.
+    ///
+    /// `res` is eagerly evaluated; use `and_then` for a lazily computed continuation.
     pub fn and<U>(self: Result<T, E>, res: Result<U, E>) -> Result<U, E> {
         match self {
             Result::Ok(_)  => { return res; }
@@ -140,6 +170,9 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Returns `res` if the result is `Err`, otherwise the `Ok` value of `self`.
+    ///
+    /// `res` is eagerly evaluated; use `or_else` for a lazily computed fallback.
     pub fn or<F>(self: Result<T, E>, res: Result<T, F>) -> Result<T, F> {
         match self {
             Result::Ok(v)  => { return Result::Ok(v); }
@@ -147,6 +180,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Calls `f` with the contained `Ok` value, otherwise propagates the `Err`.
     pub fn and_then<U>(self: Result<T, E>, f: fn(T) -> Result<U, E>) -> Result<U, E> {
         match self {
             Result::Ok(v)  => { return f(v); }
@@ -154,6 +188,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Calls `f` with the contained `Err` value, otherwise propagates the `Ok`.
     pub fn or_else<F>(self: Result<T, E>, f: fn(E) -> Result<T, F>) -> Result<T, F> {
         match self {
             Result::Ok(v)  => { return Result::Ok(v); }
@@ -162,6 +197,7 @@ impl<T, E> Result<T, E> {
     }
 
     // Borrowing introspectors — Rust shape.
+    /// Converts from `&Result<T, E>` to `Result<&T, &E>`, borrowing the contained value.
     pub fn as_ref(self: &Result<T, E>) -> Result<&T, &E> {
         match self {
             Result::Ok(ref v)  => { return Result::<&T, &E>::Ok(v); }
@@ -169,6 +205,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Converts from `&mut Result<T, E>` to `Result<&mut T, &mut E>`.
     pub fn as_mut(self: &mut Result<T, E>) -> Result<&mut T, &mut E> {
         match self {
             Result::Ok(ref mut v)  => { return Result::<&mut T, &mut E>::Ok(v); }
@@ -180,6 +217,9 @@ impl<T, E> Result<T, E> {
 // `unwrap_or_default` lives as a free fn (an `impl<T: Default, E>
 // Result<T, E>` block triggers a mono cascade — see
 // [[baghunt-partial-spec-inherent-impl]] for the broader pattern).
+/// Returns the contained `Ok` value, or `T::default()` if `Err`.
+///
+/// Free-fn form of Rust's `Result::unwrap_or_default`.
 pub fn result_unwrap_or_default<T: Default, E>(r: Result<T, E>) -> T {
     match r {
         Result::Ok(v)  => { return v; }
@@ -193,6 +233,7 @@ pub fn result_unwrap_or_default<T: Default, E>(r: Result<T, E>) -> T {
 // on nested generic shapes. The cascade that previously broke these
 // signatures is now closed (sema turbofish-on-enum-lit fix + mono
 // Phase 1 `contains_typevar` gate).
+/// Removes one level of `Result` nesting; free-fn form of `flatten`.
 pub fn result_flatten<T, E>(r: Result<Result<T, E>, E>) -> Result<T, E> {
     match r {
         Result::Ok(inner) => { return inner; }
@@ -200,6 +241,10 @@ pub fn result_flatten<T, E>(r: Result<Result<T, E>, E>) -> Result<T, E> {
     }
 }
 
+/// Transposes a `Result` of an `Option` into an `Option` of a `Result`; free-fn form of
+/// `transpose`.
+///
+/// `Ok(None)` → `None`; `Ok(Some(v))` → `Some(Ok(v))`; `Err(e)` → `Some(Err(e))`.
 pub fn result_transpose<T, E>(r: Result<Option<T>, E>) -> Option<Result<T, E>> {
     match r {
         Result::Ok(inner) => {
@@ -220,6 +265,7 @@ pub fn result_transpose<T, E>(r: Result<Option<T>, E>) -> Option<Result<T, E>> {
 // mono Phase 1 contains_typevar gate.
 
 impl<T, E> Result<Result<T, E>, E> {
+    /// Removes one level of nesting: `Ok(inner)` yields `inner`, `Err(e)` stays `Err(e)`.
     pub fn flatten(self: Result<Result<T, E>, E>) -> Result<T, E> {
         match self {
             Result::Ok(inner) => { return inner; }
@@ -229,6 +275,9 @@ impl<T, E> Result<Result<T, E>, E> {
 }
 
 impl<T, E> Result<Option<T>, E> {
+    /// Transposes a `Result` of an `Option` into an `Option` of a `Result`.
+    ///
+    /// `Ok(None)` → `None`; `Ok(Some(v))` → `Some(Ok(v))`; `Err(e)` → `Some(Err(e))`.
     pub fn transpose(self: Result<Option<T>, E>) -> Option<Result<T, E>> {
         match self {
             Result::Ok(inner) => {
@@ -243,12 +292,15 @@ impl<T, E> Result<Option<T>, E> {
 }
 
 // Free-function shims for compat with pre-existing call-sites.
+/// Returns the contained `Ok` value or `def`; `i32`-monomorphic shim for `unwrap_or`.
 pub fn unwrap_or_i32(r: Result<i32, i32>, def: i32) -> i32 {
     return r.unwrap_or(def);
 }
+/// Returns `true` if `r` is `Ok`; `i32`-monomorphic shim for `is_ok`.
 pub fn is_ok_i32(r: Result<i32, i32>) -> bool {
     return r.is_ok();
 }
+/// Returns `true` if `r` is `Err`; `i32`-monomorphic shim for `is_err`.
 pub fn is_err_i32(r: Result<i32, i32>) -> bool {
     return r.is_err();
 }

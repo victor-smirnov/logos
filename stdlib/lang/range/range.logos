@@ -18,9 +18,13 @@ use logos.lang.ops;
 // §6.12: `Step` trait — Rust's iterator-element shape for ranges.
 // Three primitives: forward step, backward step, and ordered-lt
 // (so next() stops when current >= end).
+/// Provides the primitive stepping operations that range iterators require.
 pub trait Step {
+    /// Returns the successor of `self`.
     fn step_forward(self: Self) -> Self;
+    /// Returns the predecessor of `self`.
     fn step_backward(self: Self) -> Self;
+    /// Returns `true` if `self` orders strictly before `other`.
     fn step_lt(self: Self, other: Self) -> bool;
 }
 
@@ -53,11 +57,15 @@ impl Step for u64 {
 // code can also use the concrete `RangeI32`/`RangeI64` (below) for
 // for-loop interop; the generic shape covers iterators over u32 /
 // u64 / char / user types that impl Step.
+/// Iterates the half-open range `[current, end)` for any `T: Step + Copy`.
 pub struct RangeOf<T: Step + Copy> {
+    /// Next value to yield.
     pub current: T,
+    /// Exclusive upper bound.
     pub end:     T,
 }
 
+/// Creates the half-open range `[start, end)`.
 pub fn range_of<T: Step + Copy>(start: T, end: T) -> RangeOf<T> {
     return RangeOf { current: start, end: end };
 }
@@ -75,12 +83,17 @@ impl<T: Step + Copy> Iterator<T> for RangeOf<T> {
 
 // §6.12: generic inclusive range `[start, end]` — yields `end`
 // as the last value, then stops.
+/// Iterates the inclusive range `[current, end]` for any `T: Step + Copy`.
 pub struct RangeOfIncl<T: Step + Copy> {
+    /// Next value to yield.
     pub current: T,
+    /// Inclusive upper bound.
     pub end:     T,
+    /// Set once the final value has been yielded.
     pub done:    bool,
 }
 
+/// Creates the inclusive range `[start, end]`; empty when `end` precedes `start`.
 pub fn range_incl_of<T: Step + Copy>(start: T, end: T) -> RangeOfIncl<T> {
     return RangeOfIncl { current: start, end: end, done: false };
 }
@@ -102,10 +115,13 @@ impl<T: Step + Copy> Iterator<T> for RangeOfIncl<T> {
 // §6.12: generic `RangeOfFrom<T>` — unbounded `[start, …)`. Never
 // returns None — callers must impose their own termination
 // (`.take(n)` etc.).
+/// Iterates unboundedly from `current`; `next()` never returns `None`.
 pub struct RangeOfFrom<T: Step + Copy> {
+    /// Next value to yield.
     pub current: T,
 }
 
+/// Creates the unbounded range `[start, ..)`; terminate externally (e.g. `.take(n)`).
 pub fn range_from_of<T: Step + Copy>(start: T) -> RangeOfFrom<T> {
     return RangeOfFrom { current: start };
 }
@@ -124,20 +140,28 @@ impl<T: Step + Copy> Iterator<T> for RangeOfFrom<T> {
 // `.next()` on a bare RangeOfTo without an explicit start is a
 // caller error (Rust's `RangeTo` doesn't implement Iterator directly
 // either; it's mainly used as a slicing-index shape).
+/// Carries the exclusive upper bound of a start-less range `[.., end)`.
+/// Slicing-index shape; not an iterator.
 pub struct RangeOfTo<T: Step + Copy> {
+    /// Exclusive upper bound.
     pub end: T,
 }
 
+/// Creates a `RangeOfTo<T>` carrying the exclusive upper bound `end`.
 pub fn range_to_of<T: Step + Copy>(end: T) -> RangeOfTo<T> {
     return RangeOfTo { end: end };
 }
 
 // §6.12: generic `RangeOfToIncl<T>` — half-open `[<unspecified>, end]`.
 // Same caller-supplied-start model as RangeOfTo.
+/// Carries the inclusive upper bound of a start-less range `[.., end]`.
+/// Slicing-index shape; not an iterator.
 pub struct RangeOfToIncl<T: Step + Copy> {
+    /// Inclusive upper bound.
     pub end: T,
 }
 
+/// Creates a `RangeOfToIncl<T>` carrying the inclusive upper bound `end`.
 pub fn range_to_incl_of<T: Step + Copy>(end: T) -> RangeOfToIncl<T> {
     return RangeOfToIncl { end: end };
 }
@@ -146,19 +170,25 @@ pub fn range_to_incl_of<T: Step + Copy>(end: T) -> RangeOfToIncl<T> {
 // no values. Used as a slicing-index shape (`s[..]`). The legacy
 // `RangeFull` + `range_full()` further down stay for backward
 // compat (slicing receivers that already use them).
+/// Marks the full unbounded range (`..`); stateless slicing-index shape.
 pub struct RangeOfFull {}
 
+/// Creates the stateless `RangeOfFull` marker.
 pub fn range_full_of() -> RangeOfFull {
     return RangeOfFull {};
 }
 
 // ── RangeI32 — exclusive range [start, end) over i32 ─────────────────────────
 
+/// Iterates the half-open `i32` range `[current, end)`.
 pub struct RangeI32 {
+    /// Next value to yield.
     pub current: i32,
+    /// Exclusive upper bound.
     pub end: i32,
 }
 
+/// Creates the half-open `i32` range `[lo, hi)`.
 pub fn range_i32(lo: i32, hi: i32) -> RangeI32 {
     return RangeI32 { current: lo, end: hi };
 }
@@ -189,8 +219,11 @@ impl ExactSizeIterator<i32> for RangeI32 {
 
 // ── RevRangeI32 — same elements as RangeI32, yielded in reverse order ────────
 
+/// Iterates the elements of a `RangeI32` in reverse order.
 pub struct RevRangeI32 {
+    /// Exclusive upper cursor (decrement-then-yield).
     pub current: i32,  // next value to yield is current-1 (decrement-then-yield)
+    /// Inclusive lower bound (yielded last).
     pub start:   i32,
 }
 
@@ -203,13 +236,14 @@ impl Iterator<i32> for RevRangeI32 {
 }
 
 impl RangeI32 {
-    // Specialised RevRangeI32 form kept for back-compat; prefer the
-    // DoubleEndedIterator `.rev()` trait-default (returns RevIter)
-    // for new code.
+    /// Converts into a `RevRangeI32` yielding the same elements in reverse.
+    /// Back-compat form; prefer the `DoubleEndedIterator` `.rev()` trait default
+    /// (returns `RevIter`) for new code.
     pub fn into_rev_range(self: RangeI32) -> RevRangeI32 {
         return RevRangeI32 { current: self.end, start: self.current };
     }
 
+    /// Returns `true` if `item` lies in the half-open interval `[current, end)`.
     // Rust's `Range::contains` — half-open interval test. By-value
     // arg rather than `&i32` since Logos's `&T`-on-primitive method
     // dispatch is sparse (CP-cm-01 family).
@@ -217,7 +251,7 @@ impl RangeI32 {
         return self.current <= item && item < self.end;
     }
 
-    // Rust's `Range::is_empty` — true iff start >= end.
+    /// Returns `true` iff `current >= end` (Rust's `Range::is_empty`).
     pub fn is_empty(self: RangeI32) -> bool {
         return self.current >= self.end;
     }
@@ -227,11 +261,15 @@ impl RangeI32 {
 
 // ── RangeI64 — exclusive range [start, end) over i64 ─────────────────────────
 
+/// Iterates the half-open `i64` range `[current, end)`.
 pub struct RangeI64 {
+    /// Next value to yield.
     pub current: i64,
+    /// Exclusive upper bound.
     pub end: i64,
 }
 
+/// Creates the half-open `i64` range `[lo, hi)`.
 pub fn range_i64(lo: i64, hi: i64) -> RangeI64 {
     return RangeI64 { current: lo, end: hi };
 }
@@ -262,8 +300,11 @@ impl ExactSizeIterator<i64> for RangeI64 {
 
 // ── RevRangeI64 — reverse iteration over RangeI64 ────────────────────────────
 
+/// Iterates the elements of a `RangeI64` in reverse order.
 pub struct RevRangeI64 {
+    /// Exclusive upper cursor (decrement-then-yield).
     pub current: i64,
+    /// Inclusive lower bound (yielded last).
     pub start:   i64,
 }
 
@@ -276,14 +317,18 @@ impl Iterator<i64> for RevRangeI64 {
 }
 
 impl RangeI64 {
+    /// Converts into a `RevRangeI64` yielding the same elements in reverse.
+    /// Back-compat form; prefer the `DoubleEndedIterator` `.rev()` trait default.
     pub fn into_rev_range(self: RangeI64) -> RevRangeI64 {
         return RevRangeI64 { current: self.end, start: self.current };
     }
 
+    /// Returns `true` if `item` lies in the half-open interval `[current, end)`.
     pub fn contains(self: RangeI64, item: i64) -> bool {
         return self.current <= item && item < self.end;
     }
 
+    /// Returns `true` iff `current >= end` (Rust's `Range::is_empty`).
     pub fn is_empty(self: RangeI64) -> bool {
         return self.current >= self.end;
     }
@@ -311,10 +356,14 @@ impl FusedIterator<i64> for RevRangeI64 {}
 // `RangeInclusive` includes both endpoints; `next()` yields None after
 // the end has been emitted (uses an internal `done` flag).
 
+/// Iterates `i32` values unboundedly from `current`; `next()` never returns `None`.
 pub struct RangeFromI32 { pub current: i32 }
+/// Iterates `i64` values unboundedly from `current`; `next()` never returns `None`.
 pub struct RangeFromI64 { pub current: i64 }
 
+/// Creates the unbounded `i32` range `[start, ..)`; terminate externally (e.g. `.take(n)`).
 pub fn range_from_i32(start: i32) -> RangeFromI32 { return RangeFromI32 { current: start }; }
+/// Creates the unbounded `i64` range `[start, ..)`; terminate externally (e.g. `.take(n)`).
 pub fn range_from_i64(start: i64) -> RangeFromI64 { return RangeFromI64 { current: start }; }
 
 impl Iterator<i32> for RangeFromI32 {
@@ -334,12 +383,14 @@ impl Iterator<i64> for RangeFromI64 {
 }
 
 impl RangeFromI32 {
+    /// Returns `true` if `item >= current`.
     pub fn contains(self: RangeFromI32, item: i32) -> bool {
         return self.current <= item;
     }
 }
 
 impl RangeFromI64 {
+    /// Returns `true` if `item >= current`.
     pub fn contains(self: RangeFromI64, item: i64) -> bool {
         return self.current <= item;
     }
@@ -347,46 +398,63 @@ impl RangeFromI64 {
 
 // RangeTo<Idx> — exclusive upper-bound carrier. Used as slice index;
 // not iterable in Rust either.
+/// Carries the exclusive `i32` upper bound of a start-less range `[.., end)`; not an iterator.
 pub struct RangeToI32 { pub end: i32 }
+/// Carries the exclusive `i64` upper bound of a start-less range `[.., end)`; not an iterator.
 pub struct RangeToI64 { pub end: i64 }
 
+/// Creates a `RangeToI32` carrying the exclusive upper bound `end`.
 pub fn range_to_i32(end: i32) -> RangeToI32 { return RangeToI32 { end: end }; }
+/// Creates a `RangeToI64` carrying the exclusive upper bound `end`.
 pub fn range_to_i64(end: i64) -> RangeToI64 { return RangeToI64 { end: end }; }
 
 impl RangeToI32 {
+    /// Returns `true` if `item < end`.
     pub fn contains(self: RangeToI32, item: i32) -> bool {
         return item < self.end;
     }
 }
 
 impl RangeToI64 {
+    /// Returns `true` if `item < end`.
     pub fn contains(self: RangeToI64, item: i64) -> bool {
         return item < self.end;
     }
 }
 
-// RangeFull — bound-less marker. Single value carries no state.
+/// Marks the full unbounded range (`..`); bound-less, carries no state.
 pub struct RangeFull {}
 
+/// Creates the stateless `RangeFull` marker.
 pub fn range_full() -> RangeFull { return RangeFull {}; }
 
 // RangeInclusive — [start..=end].
+/// Iterates the inclusive `i32` range `[current, end]`.
 pub struct RangeInclI32 {
+    /// Next value to yield.
     pub current: i32,
+    /// Inclusive upper bound.
     pub end:     i32,
+    /// Set once `end` has been yielded (or when constructed empty).
     pub done:    bool,
 }
 
+/// Iterates the inclusive `i64` range `[current, end]`.
 pub struct RangeInclI64 {
+    /// Next value to yield.
     pub current: i64,
+    /// Inclusive upper bound.
     pub end:     i64,
+    /// Set once `end` has been yielded (or when constructed empty).
     pub done:    bool,
 }
 
+/// Creates the inclusive `i32` range `[lo, hi]`; empty when `lo > hi`.
 pub fn range_incl_i32(lo: i32, hi: i32) -> RangeInclI32 {
     return RangeInclI32 { current: lo, end: hi, done: lo > hi };
 }
 
+/// Creates the inclusive `i64` range `[lo, hi]`; empty when `lo > hi`.
 pub fn range_incl_i64(lo: i64, hi: i64) -> RangeInclI64 {
     return RangeInclI64 { current: lo, end: hi, done: lo > hi };
 }
@@ -418,16 +486,20 @@ impl Iterator<i64> for RangeInclI64 {
 }
 
 impl RangeInclI32 {
+    /// Returns `true` if `item` lies in the closed interval `[current, end]`.
     pub fn contains(self: RangeInclI32, item: i32) -> bool {
         return self.current <= item && item <= self.end;
     }
+    /// Returns `true` once the range has yielded its final value (or was constructed empty).
     pub fn is_empty(self: RangeInclI32) -> bool { return self.done; }
 }
 
 impl RangeInclI64 {
+    /// Returns `true` if `item` lies in the closed interval `[current, end]`.
     pub fn contains(self: RangeInclI64, item: i64) -> bool {
         return self.current <= item && item <= self.end;
     }
+    /// Returns `true` once the range has yielded its final value (or was constructed empty).
     pub fn is_empty(self: RangeInclI64) -> bool { return self.done; }
 }
 

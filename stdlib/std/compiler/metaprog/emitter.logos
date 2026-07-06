@@ -76,9 +76,14 @@ extern fn logos_qib_free_cursors(blob: *const u8);
 //       and substitutes the blob's root expr in place of the
 //       placeholder VAR_REF.
 // Cursor (count > 1) is only meaningful for kind=0.
+/// Describes one substitution binding passed to the `quote_expr!` host shim.
 pub struct IdentSpan {
+    /// Pointer to an `Ident` slot array (kind 0) or to `ExprBlob` data past its 8-byte
+    /// size prefix (kind 1).
     pub ptr: *const Ident,
+    /// Slot count at `ptr` for kind 0 (1 = scalar, M = cursor); unused for kind 1.
     pub count: u64,
+    /// Substitution mode: 0 = `Ident` (scalar or cursor), 1 = `ExprBlob` splice.
     pub kind: u64,
 }
 
@@ -102,6 +107,8 @@ extern fn logos_metaprog_error_at(target_offset: u32, msg: *const u8) -> ();
 
 // Push a NUL-terminated copy of `msg` to the host diag channel.
 // Allocates a small heap buffer (str isn't NUL-terminated by default).
+/// Reports `msg` as a metaprog-hook error; the host fails compilation after the hook returns.
+/// A hook may report several errors per invocation; all surface together.
 pub fn error(msg: str) {
     let mut buf: String = String::new();
     buf.push_str(msg);
@@ -113,6 +120,8 @@ pub fn error(msg: str) {
 // `target_offset` — typically the offset received by a
 // #[metaprog_handler] hook. Host prefixes the message with
 // <file>:<line>: read from the node's SRC_LINE field.
+/// Reports `msg` like `error`, attributed to the user-AST node at `target_offset`.
+/// The host prefixes the message with `<file>:<line>:` from the node's `SRC_LINE` field.
 pub fn error_at(target_offset: u32, msg: str) {
     let mut buf: String = String::new();
     buf.push_str(msg);
@@ -120,15 +129,21 @@ pub fn error_at(target_offset: u32, msg: str) {
     unsafe { logos_metaprog_error_at(target_offset, buf.as_ptr() as *const u8); }
 }
 
+/// Buffers one Logos compilation unit (a `package <name>; ...` chunk) for the host compiler.
+/// Fill via `emit_*`/`push_*`/`tpl*` (or `buf` directly), then flush with `commit`; the host
+/// parser wants exactly one `package` statement per committed chunk.
 pub struct Emitter {
+    /// Buffered source text of the current chunk; cleared by `commit`.
     pub buf: String,
 }
 
 impl Emitter {
+    /// Creates an `Emitter` with an empty buffer.
     pub static fn new() -> Emitter {
         return Emitter { buf: String::new() };
     }
 
+    /// Appends `src` to the buffer followed by a newline.
     pub fn emit_raw(&mut self, src: str) {
         self.buf.push_str(src);
         self.buf.push_u8(10);
@@ -137,6 +152,7 @@ impl Emitter {
     // Begin a new chunk in package `pkg`: writes `package <pkg>; ` to
     // the buffer. Caller appends the rest (use decls, item source) and
     // calls commit(). Sugar so hooks don't hard-code `package main;`.
+    /// Begins a new chunk by writing `package <pkg>; ` to the buffer.
     pub fn emit_into(&mut self, pkg: str) {
         self.buf.push_str("package ");
         self.buf.push_str(pkg);
@@ -147,6 +163,7 @@ impl Emitter {
     // the user's root MODULE node via `view.module_package_append`.
     // Exactly what most `#[metaprog_handler]` hooks want — the synth
     // lands in the same package as the trigger.
+    /// Begins a new chunk in the user's own package, read from `view`'s root MODULE node.
     pub fn emit_target_pkg(&mut self, view: &OView) {
         self.buf.push_str("package ");
         view.module_package_append(&mut self.buf);
@@ -157,6 +174,7 @@ impl Emitter {
     // sense that the host dedupes by source-string equality, so a
     // double-commit is harmless but wasteful — Emitter clears its
     // buffer after a successful commit.
+    /// Flushes buffered source to the host compiler and clears the buffer; no-op when empty.
     pub fn commit(&mut self) {
         if self.buf.len() == 0 { return; }
         self.buf.push_u8(0);
@@ -168,17 +186,20 @@ impl Emitter {
     //
     // Push raw text (str) without trailing newline — the difference from
     // emit_raw which adds one. Useful inside tighter expressions.
+    /// Appends `s` to the buffer without a trailing newline (unlike `emit_raw`).
     pub fn push_text(&mut self, s: str) {
         self.buf.push_str(s);
     }
 
     // Push the bytes of a SView verbatim, hiding the unsafe push_bytes
     // ceremony that hooks otherwise repeat per AST-name reference.
+    /// Appends the bytes of `v` verbatim.
     pub fn push_view(&mut self, v: SView) {
         unsafe { self.buf.push_bytes(v.ptr, v.len as i64); }
     }
 
     // Push a u64 in decimal — direct shortcut over self.buf.push_u64.
+    /// Appends `n` in decimal.
     pub fn push_num(&mut self, n: u64) {
         self.buf.push_u64(n);
     }
@@ -196,6 +217,8 @@ impl Emitter {
     // ident chars: [A-Za-z_][A-Za-z0-9_]*. Values are SView so they can
     // come from AST nodes directly (`view.ast_node_name(item)`); use
     // view_of_str() to bind a literal str.
+    /// Renders `tmpl` into the buffer, replacing `$k1` with the bytes of `v1`.
+    /// `$$` emits a literal `$`; an unmatched `$ident` passes through unchanged.
     pub fn tpl1(&mut self, tmpl: str, k1: str, v1: SView) {
         unsafe {
             tpl_render_into(&mut self.buf, tmpl,
@@ -205,6 +228,7 @@ impl Emitter {
         }
     }
 
+    /// Renders `tmpl` into the buffer, substituting two `$key` bindings; same rules as `tpl1`.
     pub fn tpl2(&mut self, tmpl: str,
                 k1: str, v1: SView,
                 k2: str, v2: SView) {
@@ -216,6 +240,7 @@ impl Emitter {
         }
     }
 
+    /// Renders `tmpl` into the buffer, substituting three `$key` bindings; same rules as `tpl1`.
     pub fn tpl3(&mut self, tmpl: str,
                 k1: str, v1: SView,
                 k2: str, v2: SView,
@@ -230,12 +255,15 @@ impl Emitter {
 }
 
 // Wrap a str as a SView for use as a tpl* binding value.
+/// Wraps a `str` as an `SView`, e.g. to bind a literal as a `tpl*` value.
 pub fn view_of_str(s: str) -> SView {
     return SView { ptr: s.as_ptr(), len: s.len() as u64 };
 }
 
 // Wrap a String as a SView (borrows the string's buffer; valid only
 // while the source String is alive and unmodified).
+/// Wraps a `String`'s buffer as an `SView`.
+/// Borrows: the view is valid only while the source `String` is alive and unmodified.
 pub fn view_of_string(s: &String) -> SView {
     return SView { ptr: s.as_ptr(), len: s.len() as u64 };
 }

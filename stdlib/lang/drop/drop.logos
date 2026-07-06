@@ -5,15 +5,17 @@
 
 package logos.lang.drop;
 
+/// Types with custom cleanup logic run automatically when a value goes out of scope.
 pub trait Drop {
+    /// Runs cleanup for `self`, called automatically by the compiler at scope exit.
     fn drop(self: Self);
 }
 
-// Take ownership of `value` and drop it immediately (mirrors `core::mem::drop`).
-// The by-value parameter is dropped when this function returns, so callers can
-// force an early drop of an owned value (`drop(x);`) before its lexical scope
-// would otherwise end. Generic over all `T`; for a non-droppable `T` this is a
-// no-op move.
+/// Takes ownership of `value` and drops it immediately (mirrors `core::mem::drop`).
+/// The by-value parameter is dropped when this function returns, so callers can
+/// force an early drop of an owned value (`drop(x);`) before its lexical scope
+/// would otherwise end. Generic over all `T`; for a non-droppable `T` this is a
+/// no-op move.
 pub fn drop<T>(value: T) {
     let _dropped: T = value;
 }

@@ -11,6 +11,8 @@ use logos.lang.marker;
 use logos.lang.ops;
 use logos.mem.manually_drop;
 
+/// Owns a heap-allocated `T` exclusively; move-only, drops the value and frees the block on
+/// scope exit (no manual free).
 #[non_null]
 pub struct Box<T: ?Sized> {
     ptr: *mut T,
@@ -21,28 +23,24 @@ pub struct Box<T: ?Sized> {
 unsafe impl<T: ?Sized + Send> Send for Box<T> {}
 unsafe impl<T: ?Sized + Sync> Sync for Box<T> {}
 
+/// Allocates a heap block sized for `T`, moves `val` into it, and returns the `Box`.
 pub fn box_new<T>(val: T) -> Box<T> {
     let p: *mut T = alloc(sizeof::<T>()) as *mut T;
     unsafe { p[0] = val; }
     return Box { ptr: p };
 }
 
-// Consume the Box and return its raw heap pointer WITHOUT running Box's Drop
-// (the heap block is NOT freed — ownership of the allocation transfers to the
-// caller, who must eventually reconstitute a Box via `box_from_raw` or free it
-// manually). Rust parity: `Box::into_raw`. Implemented exactly as Rust does —
-// wrap the Box in ManuallyDrop to suppress its destructor, then read the ptr.
+/// Consumes the `Box` and returns its raw heap pointer without running `Box`'s `Drop`.
+/// The heap block is NOT freed — ownership of the allocation transfers to the caller,
+/// who must reconstitute a `Box` via `box_from_raw` or free it manually.
 pub fn box_into_raw<T>(b: Box<T>) -> *mut T {
     let md: ManuallyDrop<Box<T>> = manually_drop_new::<Box<T>>(b);
     return md.value.ptr;
 }
 
-// Box DerefMove primitive: consume the Box, MOVE its contents out (no Drop of
-// the contents — ownership transfers to the caller), and free the heap block.
-// This is what Rust's built-in `*b` move (`let x = *b`) does. The compiler
-// desugars `let x = *b` over a move-typed Box to this; `box_into_raw` suppresses
-// Box's destructor, the raw read moves the value out (bit-copy, no drop), and
-// `dealloc` frees only the block.
+/// Consumes the `Box`, moves its contents out (no drop of the contents — ownership
+/// transfers to the caller), and frees the heap block.
+/// The compiler desugars `let x = *b` over a move-typed `Box` to this call.
 pub fn box_take<T>(b: Box<T>) -> T {
     let p: *mut T = box_into_raw::<T>(b);
     unsafe {
@@ -52,19 +50,16 @@ pub fn box_take<T>(b: Box<T>) -> T {
     }
 }
 
-// Reconstitute a Box from a raw pointer previously produced by `box_into_raw`
-// (or any pointer to a heap block allocated with the matching layout). The Box
-// re-takes ownership: its Drop will run T's destructor and free the block.
-// Unsafe — caller guarantees `raw` is a live, uniquely-owned allocation of T.
-// Rust parity: `Box::from_raw`.
+/// Reconstitutes a `Box` from a raw pointer previously produced by `box_into_raw`
+/// (or any pointer to a heap block allocated with the matching layout).
+/// The `Box` re-takes ownership: its `Drop` will run `T`'s destructor and free the block.
+/// Unsafe — caller guarantees `raw` is a live, uniquely-owned allocation of `T`.
 pub unsafe fn box_from_raw<T>(raw: *mut T) -> Box<T> {
     return Box { ptr: raw };
 }
 
-// Consume the Box and leak its contents, returning a `&mut T` that lives for
-// the rest of the program (the allocation is never freed). Rust parity:
-// `Box::leak`. Built on `box_into_raw` — same ownership give-up, just exposed
-// as a reference instead of a raw pointer.
+/// Consumes the `Box` and leaks its contents, returning a `&mut T` that lives for
+/// the rest of the program. The allocation is never freed.
 pub fn box_leak<T>(b: Box<T>) -> &mut T {
     let p: *mut T = box_into_raw::<T>(b);
     unsafe { return &mut *p; }
@@ -74,16 +69,17 @@ impl<T> Box<T> {
     // §6 Wave 9 — Rust API parity: `Box::new(v)` is the canonical
     // constructor. Delegates to the existing free-fn `box_new` so
     // both styles are usable.
+    /// Creates a new `Box` holding `val`.
     pub fn new(val: T) -> Box<T> {
         return box_new::<T>(val);
     }
 
-    // Immutable access to the boxed value.
+    /// Returns a `*const T` to the boxed value.
     pub unsafe fn get(self: *mut Box<T>) -> *const T {
         return self.ptr as *const T;
     }
 
-    // Mutable access to the boxed value.
+    /// Returns a `*mut T` to the boxed value.
     pub unsafe fn get_mut(self: *mut Box<T>) -> *mut T {
         return self.ptr;
     }

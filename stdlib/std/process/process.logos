@@ -23,28 +23,30 @@ extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
 
 // ---- ExitStatus -------------------------------------------------------------
 
+/// Exit status of a terminated child process, wrapping the raw `waitpid` status word.
 pub struct ExitStatus {
     raw: i32,  // raw waitpid status word
 }
 
 impl ExitStatus {
-    // True if the process exited normally (not killed by signal).
+    /// Returns `true` if the process exited normally with exit code 0.
     pub fn success(self: &ExitStatus) -> bool {
         // WIFEXITED: (status & 0x7f) == 0
         return (self.raw & 127) == 0 && self.code() == 0;
     }
 
+    /// Returns `true` if the process exited normally (was not killed by a signal).
     pub fn exited(self: &ExitStatus) -> bool {
         return (self.raw & 127) == 0;
     }
 
-    // Exit code when exited() is true; otherwise 0.
+    /// Returns the exit code when `exited()` is true; 0 otherwise.
     pub fn code(self: &ExitStatus) -> i32 {
         // WEXITSTATUS: (status >> 8) & 0xff
         return (self.raw >> 8) & 255;
     }
 
-    // Signal number if killed by signal; 0 otherwise.
+    /// Returns the terminating signal number if killed by a signal; 0 otherwise.
     pub fn signal(self: &ExitStatus) -> i32 {
         // WTERMSIG: status & 0x7f
         return self.raw & 127;
@@ -53,6 +55,7 @@ impl ExitStatus {
 
 // ---- Child ------------------------------------------------------------------
 
+/// Handle to a spawned child process; owns the parent-side pipe fds.
 pub struct Child {
     pid:    i32,
     stdin:  i32,  // write end of stdin pipe (-1 if not piped)
@@ -61,9 +64,11 @@ pub struct Child {
 }
 
 impl Child {
+    /// Returns the child's OS process id (-1 if `spawn` failed to fork).
     pub fn pid(self: &Child) -> i32 { return self.pid; }
 
-    // Write to child stdin (only valid if Command::pipe_stdin was set).
+    /// Writes up to `len` bytes from `buf` to the child's stdin pipe.
+    /// Returns bytes written, or -1 if stdin was not piped at spawn time.
     pub fn write_stdin(self: &Child, buf: *const u8, len: i64) -> i64 {
         unsafe {
             if self.stdin < 0 { return 0 - 1 as i64; }
@@ -71,7 +76,8 @@ impl Child {
         }
     }
 
-    // Read from child stdout (only valid if Command::pipe_stdout was set).
+    /// Reads up to `len` bytes from the child's stdout pipe into `buf`.
+    /// Returns bytes read (0 at EOF), or -1 if stdout was not piped at spawn time.
     pub fn read_stdout(self: &Child, buf: *mut u8, len: i64) -> i64 {
         unsafe {
             if self.stdout < 0 { return 0 - 1 as i64; }
@@ -79,28 +85,29 @@ impl Child {
         }
     }
 
-    // Close child stdin pipe (signals EOF to child).
+    /// Closes the child's stdin pipe, signaling EOF to the child. No-op if already closed.
     pub fn close_stdin(self: &mut Child) {
         unsafe {
             if self.stdin >= 0 { close(self.stdin); self.stdin = 0 - 1; }
         }
     }
 
-    // Close child stdout pipe.
+    /// Closes the child's stdout pipe. No-op if already closed.
     pub fn close_stdout(self: &mut Child) {
         unsafe {
             if self.stdout >= 0 { close(self.stdout); self.stdout = 0 - 1; }
         }
     }
 
-    // Close child stderr pipe.
+    /// Closes the child's stderr pipe. No-op if already closed.
     pub fn close_stderr(self: &mut Child) {
         unsafe {
             if self.stderr >= 0 { close(self.stderr); self.stderr = 0 - 1; }
         }
     }
 
-    // Wait for child to exit. Returns ExitStatus.
+    /// Blocks until the child exits and returns its `ExitStatus`.
+    /// Closes any still-open stdin/stdout/stderr pipes before returning.
     pub fn wait(self: &mut Child) -> ExitStatus {
         unsafe {
             let mut status: i32 = 0;
@@ -115,11 +122,10 @@ impl Child {
 
 // ---- spawn ------------------------------------------------------------------
 
-// Spawn a child process.
-// argv must be a null-terminated array of null-terminated C strings.
-// The first element is the program name/path.
-// pipe_stdin / pipe_stdout / pipe_stderr: if true, open a pipe for that fd.
-// Returns Child with pid=-1 on fork failure.
+/// Spawns a child process via `fork` + `execvp`.
+/// `argv` must be a null-terminated array of NUL-terminated C strings; `argv[0]` is the program.
+/// Each `pipe_*` flag redirects that child fd through a pipe held open on the returned `Child`.
+/// On fork failure returns a `Child` with pid -1; if exec fails the child exits with code 127.
 pub fn spawn(argv: *const *const u8,
              pipe_stdin: bool, pipe_stdout: bool, pipe_stderr: bool) -> Child {
     unsafe {
@@ -175,7 +181,7 @@ pub fn spawn(argv: *const *const u8,
     }
 }
 
-// Convenience: spawn without any pipes (inherit parent fds).
+/// Spawns a child with no pipes; the child inherits the parent's stdio fds.
 pub fn spawn_simple(argv: *const *const u8) -> Child {
     return spawn(argv, false, false, false);
 }
@@ -192,6 +198,8 @@ pub fn spawn_simple(argv: *const *const u8) -> Child {
 // fd with io_uring and yield the fiber on empty buffer (instead of blocking).
 // API shape stays the same.
 
+/// Buffered line iterator over a pipe fd, yielding lines with the `\n` terminator stripped.
+/// A trailing partial line at EOF is also yielded. Reads block (no reactor integration yet).
 pub struct LineReader {
     fd:        i32,
     buf:       *mut u8,
@@ -283,14 +291,13 @@ fn line_reader_new(fd: i32) -> LineReader {
 }
 
 impl Child {
-    // Iterator over lines from child stdout. Newline-terminated lines have
-    // the terminator stripped; final partial line at EOF is also yielded.
-    // Requires Command-equivalent pipe_stdout=true at spawn time.
+    /// Returns a `LineReader` iterating lines from the child's stdout.
+    /// Requires stdout to have been piped at spawn time (`pipe_stdout = true`).
     pub fn stdout_lines(self: &mut Child) -> LineReader {
         return line_reader_new(self.stdout);
     }
 
-    // Iterator over lines from child stderr. Same semantics as stdout_lines.
+    /// Returns a `LineReader` over the child's stderr lines; same semantics as `stdout_lines`.
     pub fn stderr_lines(self: &mut Child) -> LineReader {
         return line_reader_new(self.stderr);
     }

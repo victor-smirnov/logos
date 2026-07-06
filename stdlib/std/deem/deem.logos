@@ -93,12 +93,15 @@ use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct se
 // The generated parsers do not stamp source offsets into IR nodes (yet), so
 // the position is carried as the OFFENDING NAME/OPERATOR inside the message.
 // ═══════════════════════════════════════════════════════════════════════════
+/// Runtime error value returned by the fallible Deem APIs (`compile`/`render`/`run`).
+/// Carries the offending name/operator inside the message text; no source offsets.
 pub struct QError {
+    /// The owned error message text.
     pub msg: String,
 }
 
 impl QError {
-    // The error text as a borrowed view (valid while the QError lives).
+    /// Returns the error text as a borrowed `str` view, valid while the `QError` lives.
     pub fn message(self: &QError) -> str {
         return unsafe { str_from_raw(self.msg.as_ptr(), self.msg.len()) };
     }
@@ -458,6 +461,10 @@ const QENV_FNS:     i64 = 8i64;
 const QENV_FN_ARGS: i64 = 4i64;   // max declared args per UDF
 const QENV_AGGS:    i64 = 4i64;
 
+/// Runtime binding environment for `Tpl::render` / `Query::run`: named scalar parameters,
+/// data nodes/sources, and the UDF/UDA registry.
+/// Holds at most 24 value/source bindings; binds past capacity are silently ignored.
+/// Rebinding an existing name overwrites it (last write wins).
 pub struct QEnv {
     names: [str; 24],
     kinds: [i32; 24],
@@ -486,6 +493,7 @@ pub struct QEnv {
 }
 
 impl QEnv {
+    /// Creates an empty environment with no bindings and no registered UDFs/UDAs.
     pub fn new() -> QEnv {
         let dfn: QFn      = qfn_nop;
         let din: QAggInit = qagg_init_nop;
@@ -520,9 +528,9 @@ impl QEnv {
         return self.n - 1i64;
     }
 
-    // Bind a schema'd Writ OBJECT (a WAny ref to a schema-stamped TOM). The
-    // schema code is read off the object; a non-schema value binds with code 0
-    // and is diagnosed by the strict checker on first use.
+    /// Binds `name` to a schema'd Writ object (a `WAny` ref to a schema-stamped TOM).
+    /// The schema code is read off the object; a non-schema value binds with code 0 and is
+    /// diagnosed by the strict checker on first use.
     pub fn bind_node(self: &mut QEnv, name: str, node: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
@@ -530,24 +538,28 @@ impl QEnv {
         self.words[i] = node.raw();
         self.codes[i] = node_schema_code(node);
     }
+    /// Binds `name` to an `i64` query/template parameter.
     pub fn bind_i64(self: &mut QEnv, name: str, v: i64) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_I64;
         self.ivals[i] = v;
     }
+    /// Binds `name` to an `f64` query/template parameter.
     pub fn bind_f64(self: &mut QEnv, name: str, v: f64) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_F64;
         self.fvals[i] = v;
     }
+    /// Binds `name` to a `bool` query/template parameter.
     pub fn bind_bool(self: &mut QEnv, name: str, v: bool) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
         self.kinds[i] = QB_BOOL;
         self.bvals[i] = v;
     }
+    /// Binds `name` to a `str` parameter; the view must stay valid across `render`/`run`.
     pub fn bind_str(self: &mut QEnv, name: str, v: str) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
@@ -555,10 +567,10 @@ impl QEnv {
         self.svals[i] = v;
     }
 
-    // Bind a query SOURCE: a Writ ARRAY of schema'd rows (`from <name> v`
-    // scans it). The element schema is resolved LIVE at `run` (off the first
-    // element's stamped code) — an EMPTY array binds fine and yields no rows.
-    // The caller keeps the backing doc alive across `run`.
+    /// Binds `name` to a query source: a Writ array of schema'd rows (`from <name> v` scans it).
+    /// The element schema resolves live at `run` (off the first element's stamped code) — an
+    /// empty array binds fine and yields no rows.
+    /// The caller keeps the backing doc alive across `run`.
     pub fn bind_source(self: &mut QEnv, name: str, arr: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
@@ -568,11 +580,10 @@ impl QEnv {
     }
 
     // ── LENIENT binds (ADR §4, the D4 queue-2 half) ─────────────────────────
-    // Bind an ERASED node: `name.field` resolves at RUNTIME by name — a
-    // string-keyed Writ map gets by key; a schema-stamped TOM whose schema is
-    // in the catalog gets by the cataloged key; anything else (missing key,
-    // unknown schema, non-object) reads as RtVal::Null, which propagates
-    // CEL-style through operators. No catalog entry is required.
+    /// Binds `name` to an erased (lenient) node: `name.field` resolves at runtime by name.
+    /// A string-keyed Writ map gets by key; a schema-stamped TOM whose schema is in the catalog
+    /// gets by the cataloged key; anything else (missing key, unknown schema, non-object) reads
+    /// as `RtVal::Null`, which propagates CEL-style through operators. No catalog entry needed.
     pub fn bind_node_erased(self: &mut QEnv, name: str, node: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
@@ -581,10 +592,9 @@ impl QEnv {
         self.codes[i] = 0u64;
     }
 
-    // Bind an ERASED source: a Writ ARRAY whose elements are lenient rows
-    // (string-keyed maps / arbitrary Writ values). Scans bind the row var
-    // leniently; field types are unknown at compile, so lenient rows never
-    // serve as HASH-join keys (such joins take the loop tier — documented).
+    /// Binds `name` to an erased source: a Writ array of lenient rows (string-keyed maps /
+    /// arbitrary Writ values). Scans bind the row var leniently; field types are unknown at
+    /// compile, so lenient rows never serve as hash-join keys (such joins take the loop tier).
     pub fn bind_source_erased(self: &mut QEnv, name: str, arr: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }
@@ -594,13 +604,12 @@ impl QEnv {
     }
 
     // ── UDF/UDA registration (ADR §6) ───────────────────────────────────────
-    // Register a scalar UDF with its DECLARED signature: `args` are EL type
-    // names ("i64"/"f64"/"bool"/"str", max 4), `ret` likewise. The checker
-    // resolves calls against builtins FIRST, then this registry.
-    // Re-registering a name overwrites it. Returns FALSE (and registers
-    // nothing) on an out-of-lattice type name, more than 4 declared args, or
-    // a full registry — never a silent no-op (I3; the I2 behavior was a
-    // silent drop, which made the later "unknown function" error misleading).
+    // I3: returns false instead of the I2 silent drop, which made the later
+    // "unknown function" error misleading.
+    /// Registers a scalar UDF with its declared signature: `args` are EL type names
+    /// (`"i64"`/`"f64"`/`"bool"`/`"str"`, max 4), `ret` likewise. The checker resolves calls
+    /// against builtins first, then this registry; re-registering a name overwrites it.
+    /// Returns `false` (registers nothing) on a bad type name, >4 args, or a full registry.
     pub fn register_fn(self: &mut QEnv, name: str, f: QFn, args: &[str], ret: str) -> bool {
         let rc: i32 = el_ret_class(ret);
         if rc < 0i32 { return false; }
@@ -638,11 +647,10 @@ impl QEnv {
         return -1i64;
     }
 
-    // Register a UDA: init() → acc, step(acc, arg) → acc, fin(acc) → result.
-    // `arg_ty`/`ret_ty` are the DECLARED EL types of the aggregate argument
-    // and the finalized result. Builtin aggregate names shadow UDAs.
-    // Returns FALSE (nothing registered) on an out-of-lattice type name or a
-    // full registry (same contract as register_fn).
+    /// Registers a UDA: `init() -> acc`, `step(acc, arg) -> acc`, `fin(acc) -> result`.
+    /// `arg_ty`/`ret_ty` are the declared EL types of the aggregate argument and the finalized
+    /// result. Builtin aggregate names shadow UDAs. Returns `false` (nothing registered) on a
+    /// bad type name or a full registry (same contract as `register_fn`).
     pub fn register_agg(self: &mut QEnv, name: str, init: QAggInit, step: QAggStep,
                         fin: QAggFin, arg_ty: str, ret_ty: str) -> bool {
         let ac: i32 = el_ret_class(arg_ty);
@@ -729,18 +737,25 @@ fn wany_to_rt(v: WAny) -> RtVal {
 // word-sized views/handles). `S` carries a VIEW — a UDF returning `S` must
 // return a view that outlives the call (a literal, or a view into an input).
 // ═══════════════════════════════════════════════════════════════════════════
+/// Runtime scalar value of the Deem evaluator — the argument/result type of UDFs and UDAs.
+/// Cheap to copy (all payloads are word-sized views/handles).
 pub enum RtVal {
+    /// 64-bit integer.
     I(i64),
+    /// 64-bit float.
     F(f64),
+    /// Boolean.
     B(bool),
+    /// Borrowed string view. A UDF returning `S` must return a view that outlives the call
+    /// (a literal, or a view into an input).
     S(str),
+    /// Handle to a Writ object (schema'd row / node) in the caller's data doc.
     Node(WAny),
+    /// Absent value (lenient miss); propagates CEL-style through operators.
     Null,
-    // A math ERROR (integer overflow / division-or-remainder by zero). Distinct
-    // from Null (lenient miss): Error PROPAGATES through arithmetic like Null but
-    // ABORTS the query at the eval boundary (eval_sx → chk_fail → QError) rather
-    // than dropping the row. EL scripts get error-returning arithmetic; compiled
-    // Logos keeps the trap-on-overflow default.
+    /// Math error (integer overflow / division-or-remainder by zero). Distinct from `Null`:
+    /// it propagates through arithmetic like `Null` but aborts the query at the eval boundary
+    /// as a `QError` rather than dropping the row.
     Error,
 }
 impl Copy for RtVal {}
@@ -750,9 +765,13 @@ fn rt_is_err(v: RtVal) -> bool { match v { RtVal::Error => { return true; } _ =>
 // UDF: eval'd args in, one value out. UDA: init() seeds the accumulator,
 // step(acc, arg) folds one row, fin(acc) finalizes (pass an identity fn when
 // no finalization is needed).
+/// Scalar UDF: evaluated argument values in, one value out.
 pub type QFn      = fn(&[RtVal]) -> RtVal;
+/// UDA initializer: seeds the accumulator.
 pub type QAggInit = fn() -> RtVal;
+/// UDA step: folds one row's value into the accumulator.
 pub type QAggStep = fn(RtVal, RtVal) -> RtVal;
+/// UDA finalizer: maps the accumulator to the result (pass an identity fn when unneeded).
 pub type QAggFin  = fn(RtVal) -> RtVal;
 
 // Registry no-op seeds (the fixed-slot tables need an initial value).
@@ -1919,6 +1938,8 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
 // Tpl — compile-once / render-many dynamic template (ADR §3).
 // Owns the parsed IR doc (never-move arena) + a catalog snapshot.
 // ═══════════════════════════════════════════════════════════════════════════
+/// Compiled dynamic template — compile once with `Tpl::compile`, render many with `render`.
+/// Owns the parsed IR and a catalog snapshot; independent of any `QEnv` until render time.
 pub struct Tpl {
     doc:  Writ,            // owns the Trama AST + embedded SExpr IR
     head: i64,             // TStmt chain head word (into `doc`'s arena)
@@ -1933,6 +1954,10 @@ impl Tpl {
     // render-time strict check (I3 registry unification: templates resolve
     // UDFs against the SAME env registry queries do — builtin-first, ADR §6;
     // I1/I2 rejected them eagerly, which made template UDFs impossible).
+    /// Compiles template text against the catalog into a reusable `Tpl`.
+    /// Runs parse, the shared IR optimizer, and the env-independent checks; unknown function
+    /// names defer to the render-time strict check (they may be env-registered UDFs).
+    /// Errors are values (`Result`), never compile diagnostics.
     pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Tpl, QError> {
         let doc: Writ = writ_new(4096i64);
         let tpl_any: WAny = parse_tpl(text, &doc);
@@ -1952,8 +1977,10 @@ impl Tpl {
         return Result::Ok(Tpl { doc: doc, head: head, cat: catalog_clone(cat) });
     }
 
-    // STRICT check against (catalog + this env's declarations), then walk.
-    // Re-entrant over different envs (the check is per-env by design).
+    /// Renders the template against `env`, returning the output string.
+    /// Runs the full strict check (var→schema resolution, field types) against this env first;
+    /// a math error in an embedded expression aborts the render as a `QError`.
+    /// Re-entrant over different envs (the check is per-env by design).
     pub fn render(self: &Tpl, env: &QEnv) -> Result<String, QError> {
         let reg0: QRelReg = qrelreg_new();
         let mut lb: CBinds = cbinds_new();
@@ -3814,6 +3841,9 @@ fn exec_root(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
 // projections) are handles into the CALLER's data doc — the caller keeps it
 // alive while reading them (the bind_source contract).
 // ═══════════════════════════════════════════════════════════════════════════
+/// Materialized query result. Self-contained: string cells are interned into a `QRows`-owned
+/// arena and outlive both the run and the `Query`; node cells are handles into the caller's
+/// data doc, which must stay alive while they are read (the `bind_source` contract).
 pub struct QRows {
     arena: Writ,
     ncols: i64,
@@ -3823,9 +3853,11 @@ pub struct QRows {
 }
 
 impl QRows {
+    /// Returns the number of result rows.
     pub fn row_count(self: &QRows) -> i64 { return self.nrows; }
+    /// Returns the number of result columns.
     pub fn col_count(self: &QRows) -> i64 { return self.ncols; }
-    // Option-shaped accessor for `select first` / `find`: did a row match?
+    /// Returns whether any row matched — the Option-shaped probe for `select first` / `find`.
     pub fn is_some(self: &QRows) -> bool { return self.nrows > 0i64; }
 
     fn cell(self: &QRows, r: i64, c: i64) -> RtVal {
@@ -3833,21 +3865,27 @@ impl QRows {
         return self.cells.get(r * self.ncols + c);
     }
 
+    /// Returns cell (`r`,`c`) as `i64`; float/bool cells coerce, anything else reads as 0.
     pub fn get_i64(self: &QRows, r: i64, c: i64) -> i64 { return rt_i(self.cell(r, c)); }
+    /// Returns cell (`r`,`c`) as `f64`; integer cells coerce, anything else reads as 0.0.
     pub fn get_f64(self: &QRows, r: i64, c: i64) -> f64 { return rt_f(self.cell(r, c)); }
+    /// Returns cell (`r`,`c`) as `bool`; non-bool and out-of-range cells read as `false`.
     pub fn get_bool(self: &QRows, r: i64, c: i64) -> bool { return rt_b(self.cell(r, c)); }
-    // The view is owned by THIS QRows (interned) — valid while it lives.
+    /// Returns cell (`r`,`c`) as a `str` view owned by this `QRows` (interned) — valid while
+    /// it lives. Non-string and out-of-range cells read as `""`.
     pub fn get_str(self: &QRows, r: i64, c: i64) -> str { return rt_s(self.cell(r, c)); }
-    // A row-object handle (identity / `find` projections).
+    /// Returns cell (`r`,`c`) as a row-object handle (identity / `find` projections) into the
+    /// caller's data doc.
     pub fn get_node(self: &QRows, r: i64, c: i64) -> WAny { return rt_node(self.cell(r, c)); }
-    // Is the cell Null? (LENIENT projections may carry Null — ADR §4; the
-    // typed getters return zero-values for it, this is the distinguishing
-    // probe. Out-of-range reads also report null.)
+    /// Returns whether cell (`r`,`c`) is Null. Lenient projections may carry Null (the typed
+    /// getters read zero-values for it) — this is the distinguishing probe. Out-of-range
+    /// reads also report `true`.
     pub fn is_null(self: &QRows, r: i64, c: i64) -> bool {
         return rt_kind(self.cell(r, c)) == 0i32;
     }
 
-    // The column's checked type name: "i64"/"str"/"bool"/"f64"/"node"/"dyn"/"".
+    /// Returns column `c`'s checked type name — `"i64"`/`"str"`/`"bool"`/`"f64"`/`"node"`/
+    /// `"dyn"` (lenient, runtime-typed) — or `""` out of range.
     pub fn col_ty(self: &QRows, c: i64) -> str {
         if c < 0i64 || c >= self.ncols { return ""; }
         let t: i32 = self.kinds[c];
@@ -3935,6 +3973,8 @@ fn lower_rel_body(q: RQuery, is_agg: bool, h: &Writ) -> WRef<RExpr> {
     return lower_rquery_to_rexpr(q, h);
 }
 
+/// Compiled relational query — compile once with `Query::compile`, run many with `run`.
+/// Owns the lowered algebra, a catalog snapshot, and the compiled `rel` blocks.
 pub struct Query {
     doc:      Writ,            // owns the parsed plan + lowered algebra
     root:     i64,             // simplified ENTRY RExpr root word (into `doc`)
@@ -4108,6 +4148,9 @@ impl Query {
     // parse → rel registration/validation/SCC/stratification (I3) → envelope
     // validation → lower (REUSED) → simplify (REUSED) → rel-field rewrite →
     // env-independent checks. Errors are VALUES.
+    /// Compiles query text against the catalog into a reusable `Query`.
+    /// Parses, registers/stratifies `rel` blocks, lowers and simplifies the algebra, and runs
+    /// the env-independent checks. Errors are values (`Result`), never compile diagnostics.
     pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Query, QError> {
         let doc: Writ = writ_new(8192i64);
         let prog_any: WAny = parse_program(text, &doc);
@@ -4489,6 +4532,10 @@ impl Query {
     // entry. Re-entrant over different envs (compile-once/run-many; the check
     // + cascade are per-env because sources, params and the UDF/UDA registry
     // live there).
+    /// Executes the query against `env` and materializes the result as a self-contained `QRows`.
+    /// Runs the full strict check against this env first, then materializes the `rel`s (topo
+    /// order, semi-naive where recursive) and executes the entry pipeline. Re-entrant over
+    /// different envs (sources, params and the UDF/UDA registry live on the env).
     pub fn run(self: &Query, env: &QEnv) -> Result<QRows, QError> {
         let root: RExpr = WAny::ref_to(self.root as *const u8).view::<RExpr>();
         let mut chk: Chk = chk_new();

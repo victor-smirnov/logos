@@ -29,17 +29,20 @@ use logos.lang.cell;
 use logos.lang.ptr;                 // byte_add
 use logos.lang.panic;               // panic — over-capacity insert is a bounds violation
 
+/// Stores one open-addressing slot: two at-rest `WAny` words (key @0, val @8).
 #[pinned]
 pub struct WMapEntry {
     // Two AT-REST WAny words (key @0, val @8). Held as raw `i64` and accessed
     // through `*zoned mut WAny` slot pointers (ent_key/ent_val), so each read
     // materialises and each write lowers — no WAnyRel, no ha_*. key==0 = empty.
+    /// At-rest Ref to the interned `WString` key; `0` marks an empty slot.
     pub key: i64,   // Ref to the interned WString key; ==0 = empty slot
+    /// The stored value as an at-rest `WAny` word.
     pub val: i64,   // the stored WAny value
 }
 
-// WMap<K, V> — empty base; per-key-shape partial SPECIALISATIONS attach layout +
-// impl (mirrors legacy Map<K,V>). Never instantiated directly.
+/// Anchors the `WMap<K, V>` family as an empty base; never instantiated directly.
+/// Per-key-shape partial specialisations attach layout and impls (mirrors legacy `Map<K,V>`).
 #[zoned]
 pub struct WMap<K, V> {}
 
@@ -48,17 +51,21 @@ pub struct WMap<K, V> {}
 // allocator) — grow/intern reach it via zone_of(self); read `&` stays thin.
 // `#[zoned]`: `data` is stored SELF-RELATIVE and materialises to the absolute
 // entry buffer on read (ref-repr-design §6). No manual delta.
+/// Implements the string-keyed hash map (the JSON object) via open addressing + FNV-1a.
+/// Keys are interned `WString`s; grows 2× past 0.75 load; a fat `&mut` carries the zone.
 #[zone_mut]
 #[pinned]
 #[zoned]
 pub struct WMap<WString, V> {
+    /// Number of occupied slots.
     pub count: i64,             // occupied slots
+    /// Number of slots (a power of 2).
     pub cap:   i64,             // number of slots (power of 2)
+    /// Entry buffer; stored self-relative (`#[zoned]`), absolute on read.
     pub data:  *mut WMapEntry,  // entry buffer (auto-relative via #[zoned])
 }
 
-// Ergonomic alias for the heterogeneous string-keyed map (the only instantiation
-// today): write `WValMap` for `WMap<WString, WAny>`.
+/// Aliases `WMap<WString, WAny>`, the heterogeneous string-keyed map (sole instantiation today).
 pub type WValMap = WMap<WString, WAny>;
 
 // Absolute entry buffer (header + delta).
@@ -204,8 +211,8 @@ unsafe fn om_get_slot(m: *mut WMap<WString, WAny>, key: str) -> *zoned mut WAny 
 
 // ── Direct-reference surface (like WArray<WAny>) ────────────────────────────────
 impl Writ {
-    // Create an empty string-keyed map with at least `cap` slots (rounded to a
-    // power of two, min 8). `&self` interior-mut allocation into never-move storage.
+    /// Creates an empty string-keyed map with at least `cap` slots (power-of-two rounded, min 8).
+    /// `&self` interior-mut allocation into never-move storage; the fat `&mut` carries the zone.
     pub fn map<'a>(self: &'a Writ, cap: i64) -> &'a mut WMap<WString, WAny> {
         unsafe {
             // Fat `&mut` carrying this container's zone (the allocator); set/grow/
@@ -219,16 +226,23 @@ impl WMap<WString, WAny> {
     // The zone (allocator) for grow/intern comes from the fat `&mut self` via
     // zone_of(self) — bind it FIRST (no move), then `self as *mut WMap<WString, WAny>` (the cast
     // consumes the fat ref) is self's last use in the om_set call.
+    /// Inserts or updates `key → val`; a new key's `str` is interned into this map's arena.
+    /// Grows (2×, rehash) when load would exceed 0.75.
     pub fn set(self: &mut WMap<WString, WAny>, key: str, val: WAny) {
         unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; om_set(self as *mut WMap<WString, WAny>, z, key, val); }
     }
+    /// Returns the value at `key`, or a null `WAny` if absent.
     pub fn get(self: &WMap<WString, WAny>, key: str) -> WAny { return unsafe { om_get(self as *const WMap<WString, WAny>, key) }; }
+    /// Returns `true` if `key` is present.
     pub fn contains(self: &WMap<WString, WAny>, key: str) -> bool { return !self.get(key).is_null(); }
+    /// Returns the number of entries.
     pub fn len(self: &WMap<WString, WAny>) -> i64 { return self.count; }
 
     // Mutable cursor onto the value at `key` (a Ref value — nested container/string):
     // carries THIS map's zone (zone_of(self)) so the child can grow in the same arena.
     // Bind the zone FIRST (no move); `self as *const` is self's last use.
+    /// Returns a mutable cursor onto the value at `key`, carrying this map's zone.
+    /// The cursor's slot is null when `key` is absent — callers must ensure the key exists.
     pub fn get_mut(self: &mut WMap<WString, WAny>, key: str) -> WAnyMut {
         unsafe {
             let z: *mut u8 = zone_of(self);
@@ -240,7 +254,9 @@ impl WMap<WString, WAny> {
     // Slot iteration (for generic walkers — stringify/binary). Walk 0..slots();
     // a slot is occupied iff its key is non-null. The key is a Ref to the interned
     // WString; the value is the stored WAny.
+    /// Returns the slot count (`cap`) for raw slot iteration over `0..slots()`.
     pub fn slots(self: &WMap<WString, WAny>) -> i64 { return self.cap; }
+    /// Returns the key at slot `i` (interned `WString` Ref); null `WAny` if the slot is empty.
     pub fn key_at(self: &WMap<WString, WAny>, i: i64) -> WAny {
         unsafe {
             let ep: *const WMapEntry = om_buf(self as *const WMap<WString, WAny>).add(i);
@@ -248,6 +264,7 @@ impl WMap<WString, WAny> {
             return *(ent_key(ep as *mut WMapEntry));
         }
     }
+    /// Returns the value at slot `i`; null `WAny` if the slot is empty.
     pub fn val_at(self: &WMap<WString, WAny>, i: i64) -> WAny {
         unsafe {
             let ep: *const WMapEntry = om_buf(self as *const WMap<WString, WAny>).add(i);
@@ -258,12 +275,19 @@ impl WMap<WString, WAny> {
 
     // Overloaded set for the common value types (no manual WAny::from), mirroring
     // WArray<WAny>::push. A `str` VALUE is interned into the same arena as a Ref.
+    /// Inserts or updates `key` with an integer value (inline i56 Pod, boxed when wider).
     pub fn set(self: &mut WMap<WString, WAny>, key: str, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, make_int(z, v)); } }
+    /// Inserts or updates `key` with an `f64` value (boxed into this map's arena).
     pub fn set(self: &mut WMap<WString, WAny>, key: str, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, box_f64(z, v)); } }
+    /// Inserts or updates `key` with a `bool` value.
     pub fn set(self: &mut WMap<WString, WAny>, key: str, v: bool) { self.set(key, WAny::from(v)); }
+    /// Inserts or updates `key` with a Ref to an existing `WString`.
     pub fn set(self: &mut WMap<WString, WAny>, key: str, v: &WString) { self.set(key, WAny::from(v)); }
+    /// Inserts or updates `key` with a Ref to a nested `WArray<WAny>`.
     pub fn set(self: &mut WMap<WString, WAny>, key: str, v: &WArray<WAny>) { self.set(key, WAny::from(v)); }
+    /// Inserts or updates `key` with a Ref to a nested map.
     pub fn set(self: &mut WMap<WString, WAny>, key: str, v: &WMap<WString, WAny>) { self.set(key, WAny::from(v)); }
+    /// Inserts or updates `key` with a `str` value, interning it into this map's arena.
     pub fn set(self: &mut WMap<WString, WAny>, key: str, v: str) {
         unsafe {
             let z: *mut Allocator = zone_of(self) as *mut Allocator;
@@ -274,19 +298,19 @@ impl WMap<WString, WAny> {
 }
 
 impl WAnyMut {
-    // Resolve a mutable cursor to a fat `&mut WMap<WString, WAny>` carrying its zone — ready to
-    // set/grow in the same arena. (Check is_map() first.)
+    /// Resolves this cursor to a fat `&mut WMap<WString, WAny>` carrying its zone.
+    /// Check `is_map()` first; the child can then set/grow in the same arena.
     pub fn as_map_mut(self: WAnyMut) -> &mut WMap<WString, WAny> {
         return unsafe { zone_mut_ref::<WMap<WString, WAny>>(self.get().resolve() as *mut WMap<WString, WAny>, self.zone) };
     }
 }
 
 impl WAny {
-    // A map as a heterogeneous value — a Ref to its header.
+    /// Wraps a map as a heterogeneous `WAny` value (a Ref to its header).
     pub fn from(m: &WMap<WString, WAny>) -> WAny { return WAny::ref_to(m as *const WMap<WString, WAny> as *const u8); }
 
-    // Resolve a Ref cursor to a borrowed `&WMap<WString, WAny>` (read-only). Check
-    // is_map() first. Encapsulates the resolve()+cast so callers stay unsafe-free.
+    /// Resolves a Ref `WAny` to a borrowed read-only `&WMap<WString, WAny>`.
+    /// Check `is_map()` first; encapsulates the resolve()+cast so callers stay unsafe-free.
     pub fn as_map(self: &WAny) -> &WMap<WString, WAny> {
         return unsafe { &*(self.resolve() as *const WMap<WString, WAny>) };
     }
@@ -300,19 +324,24 @@ impl WAny {
 // cap), so it's a thin `&mut`. `data` is the value buffer (`*zoned mut WAny`: each
 // `*(buf.add(i))` is a self-relative element access — at-rest ↔ value, like WArray).
 
-// Wu6 — a pure type-level label for the 6-bit key (keys 0..51): the bitmap-indexed
-// map is `WMap<Wu6, WAny>`, aliased WTinyValMap.
+/// Labels the 6-bit key (keys `0..51`) at the type level.
+/// The bitmap-indexed map is `WMap<Wu6, WAny>`, aliased `WTinyValMap`.
 #[zoned] pub struct Wu6 {}
 
+/// Implements the bitmap-indexed fixed-capacity tiny map: up to 52 keys (`0..51`) → `WAny`.
+/// O(1) lookup via popcount; values compacted in key order; `set` never allocates (thin `&mut`).
 #[pinned]
 #[zoned]
 pub struct WMap<Wu6, V> {
+    /// Packed `bitmap[0:51] | cap[52:57] | size[58:63]`.
     pub header: u64,               // bitmap[0:51] | cap[52:57] | size[58:63]
+    /// Node-class discriminator (`0` = none); byte-shared with the C++ TOM.
     pub schema_code: u64,          // node-class discriminator (0 = none); byte-shared with C++ TOM (was `schema`; renamed — `schema` is now a keyword, ADR 0011)
+    /// Value array (`cap` slots, self-relative); only `[0, size)` is initialised.
     pub data:   *zoned mut WAny,   // value array (cap slots; auto-relative) — zoned ptr stays LAST
 }
 
-// The bitmap-indexed tiny map (legacy TinyObjectMap); was the standalone WTinyValMap.
+/// Aliases `WMap<Wu6, WAny>`, the bitmap-indexed tiny map (legacy TinyObjectMap; was standalone).
 pub type WTinyValMap = WMap<Wu6, WAny>;
 
 const WTV_BITMAP_MASK: u64 = 0x000FFFFFFFFFFFFFu64;   // bits[0:51] presence bitmap
@@ -334,19 +363,22 @@ unsafe fn wtv_new(h: *mut Writ, cap: i64) -> *mut WMap<Wu6, WAny> {
 }
 
 impl WMap<Wu6, WAny> {
+    /// Returns the number of present entries.
     pub fn size(self: &WMap<Wu6, WAny>) -> i64 { return ((self.header >> 58u64) & 0x3Fu64) as i64; }
+    /// Returns the fixed slot capacity (max 52).
     pub fn cap(self: &WMap<Wu6, WAny>)  -> i64 { return ((self.header >> 52u64) & 0x3Fu64) as i64; }
 
-    // Node-class discriminator (0 = none); byte-shared with the C++ TinyObjectMap.
+    /// Returns the node-class discriminator (`0` = none); byte-shared with the C++ TinyObjectMap.
     pub fn schema_type_code(self: &WMap<Wu6, WAny>) -> u64 { return self.schema_code; }
+    /// Sets the node-class discriminator.
     pub fn set_schema_type_code(self: &mut WMap<Wu6, WAny>, code: u64) { self.schema_code = code; }
 
-    // Is `key` present?
+    /// Returns `true` if `key` is present.
     pub fn contains(self: &WMap<Wu6, WAny>, key: u8) -> bool {
         return (self.header & WTV_BITMAP_MASK & (1u64 << (key as u64))) != 0u64;
     }
 
-    // Value at `key`, or null WAny if absent / key out of range.
+    /// Returns the value at `key`, or a null `WAny` if absent or `key >= 52`.
     pub fn get(self: &WMap<Wu6, WAny>, key: u8) -> WAny {
         if key >= 52u8 { return WAny::ref_to(0i64 as *const u8); }
         let bitmap: u64 = self.header & WTV_BITMAP_MASK;
@@ -356,7 +388,8 @@ impl WMap<Wu6, WAny> {
         return unsafe { *(self.data.add(pos)) };
     }
 
-    // Insert or update `key → val`. `key >= 52` or a full map (new key) is a no-op.
+    /// Inserts or updates `key → val`; `key >= 52` is a silent no-op.
+    /// Panics when a NEW key would exceed the fixed capacity (over-capacity insert = bounds error).
     pub fn set(self: &mut WMap<Wu6, WAny>, key: u8, val: WAny) {
         if key >= 52u8 { return; }
         unsafe {
@@ -384,7 +417,8 @@ impl WMap<Wu6, WAny> {
 }
 
 impl Writ {
-    // Create an empty bitmap-indexed tiny map; thin `&mut` (fixed capacity → no zone).
+    /// Creates an empty bitmap-indexed tiny map; thin `&mut` (fixed capacity → no carried zone).
+    /// `cap` is clamped to `0..=52`.
     pub fn tinymap<'a>(self: &'a Writ, cap: i64) -> &'a mut WMap<Wu6, WAny> {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
@@ -395,6 +429,7 @@ impl Writ {
     // ADR 0011 — allocate a TOM and stamp a schema type-code, returning the raw
     // view pointer. The compiler's `schema`/`make::<S>()` desugaring wraps this
     // in the typed view `S { m }` (S is a compiler-side view type over this TOM).
+    /// Allocates a schema-stamped TOM; returns the raw view pointer (ADR 0011).
     pub fn make_schema(self: &Writ, cap: i64, code: u64) -> *const WMap<Wu6, WAny> {
         let m: &mut WMap<Wu6, WAny> = self.tinymap(cap);
         m.set_schema_type_code(code);
@@ -405,6 +440,8 @@ impl Writ {
     // allocator, so the schema view can box wide values (i64/u64/f64/strings) on
     // write. Layout {m, z} is IDENTICAL to the compiler-synthesized schema view,
     // which `make::<S>()` reinterprets (retype) to the typed view `S`.
+    /// Allocates a schema-stamped TOM as a `WSchemaH` carrying the arena allocator.
+    /// `make::<S>()` retypes the result to the typed view `S` (identical layout).
     pub fn make_schema_h(self: &Writ, cap: i64, code: u64) -> WSchemaH {
         let m: &mut WMap<Wu6, WAny> = self.tinymap(cap);
         m.set_schema_type_code(code);
@@ -415,8 +452,12 @@ impl Writ {
 // ADR 0011 — the runtime shape of a schema view: a TOM pointer + the arena
 // allocator (for boxing wide values on write). The compiler's schema view type
 // `S` has this exact layout; `make::<S>()` reinterprets a WSchemaH as S.
+/// Carries the runtime shape of a schema view: TOM pointer + arena allocator (ADR 0011).
+/// The compiler's view type `S` has this exact layout; `make::<S>()` retypes `WSchemaH` to `S`.
 pub struct WSchemaH {
+    /// The underlying TOM (`WMap<Wu6, WAny>`) header.
     pub m: *const WMap<Wu6, WAny>,
+    /// Arena allocator for boxing wide values on write.
     pub z: *mut u8,
 }
 
@@ -428,8 +469,12 @@ pub struct WSchemaH {
 // field conversion at monomorphization (`schema Box<T: WritField> { val: T }`).
 // `z` is the view-carried arena allocator (for boxing wide values); inline
 // conversions ignore it.
+/// Converts schema field values between `WAny` and `Self` (the seam behind schema field sugar).
+/// Implementing it makes a type schema-storable; generic schemas resolve it at monomorphization.
 pub trait WritField {
+    /// Materialises `Self` from a stored `WAny`.
     fn from_wany(v: WAny) -> Self;
+    /// Lowers `self` to a `WAny`; wide values box into allocator `z` (inline impls ignore it).
     fn to_wany(self: Self, z: *mut Allocator) -> WAny;
 }
 
@@ -470,6 +515,7 @@ impl WritField for f32   { fn from_wany(v: WAny) -> f32   { return v.as_f32();  
 impl WritField for f64   { fn from_wany(v: WAny) -> f64   { return v.as_f64();          } fn to_wany(self: f64,   z: *mut Allocator) -> WAny { return unsafe { box_f64(z, self) }; } }
 
 impl WAny {
+    /// Wraps a tiny map as a heterogeneous `WAny` value (a Ref to its header).
     pub fn from(m: &WMap<Wu6, WAny>) -> WAny { return WAny::ref_to(m as *const WMap<Wu6, WAny> as *const u8); }
 }
 
@@ -486,23 +532,29 @@ impl WAny {
 // behind the `K: WIntKeyTag` bound, which WString/Wu6 don't satisfy — so they never
 // collide with the string/bitmap inherent methods.
 
-// Per-key Writ wire tag (MapI32AnyVal=3101 .. MapU64AnyVal=3104).
+/// Supplies the per-key Writ wire tag (MapI32AnyVal=3101 .. MapU64AnyVal=3104).
 pub trait WIntKeyTag { fn map_code() -> u64; }
 impl WIntKeyTag for i32 { fn map_code() -> u64 { return 3101u64; } }
 impl WIntKeyTag for u32 { fn map_code() -> u64 { return 3102u64; } }
 impl WIntKeyTag for i64 { fn map_code() -> u64 { return 3103u64; } }
 impl WIntKeyTag for u64 { fn map_code() -> u64 { return 3104u64; } }
 
+/// Implements the dense fixed-capacity int-keyed map: scalar `K` (i32/u32/i64/u64) → `WAny`.
+/// Parallel key/value buffers with O(n) linear lookup; `set` never allocates (thin `&mut`).
 #[pinned]
 #[zoned]
 pub struct WMap<K, WAny> {
+    /// Number of entries.
     pub size: i64,
+    /// Fixed slot capacity.
     pub cap:  i64,
+    /// Key buffer `K[]` (plain elements; self-relative pointer).
     pub keys: *mut K,            // K[] (plain elements; auto-relative ptr)
+    /// Value buffer `WAny[]` (at-rest; self-relative pointer).
     pub vals: *zoned mut WAny,   // WAny[] (at-rest; auto-relative ptr)
 }
 
-// The dense int-keyed map (legacy Map<K,AnyVal>); was the standalone WIntMap<K>.
+/// Aliases `WMap<K, WAny>`, the dense int-keyed map (legacy Map<K,AnyVal>; was standalone).
 pub type WIntMap<K> = WMap<K, WAny>;
 
 unsafe fn wim_new<K: WIntKeyTag>(h: *mut Writ, cap: i64) -> *mut WMap<K, WAny> {
@@ -518,9 +570,12 @@ unsafe fn wim_new<K: WIntKeyTag>(h: *mut Writ, cap: i64) -> *mut WMap<K, WAny> {
 }
 
 impl<K: WIntKeyTag> WMap<K, WAny> {
+    /// Returns the number of entries.
     pub fn size(self: &WMap<K, WAny>) -> i64 { return self.size; }
+    /// Returns the fixed capacity.
     pub fn cap(self: &WMap<K, WAny>)  -> i64 { return self.cap; }
 
+    /// Returns `true` if `key` is present (O(n) scan).
     pub fn contains(self: &WMap<K, WAny>, key: K) -> bool {
         unsafe {
             let mut i: i64 = 0i64;
@@ -532,7 +587,7 @@ impl<K: WIntKeyTag> WMap<K, WAny> {
         }
     }
 
-    // Value at `key`, or null WAny if absent.
+    /// Returns the value at `key`, or a null `WAny` if absent.
     pub fn get(self: &WMap<K, WAny>, key: K) -> WAny {
         unsafe {
             let mut i: i64 = 0i64;
@@ -544,7 +599,7 @@ impl<K: WIntKeyTag> WMap<K, WAny> {
         }
     }
 
-    // Insert or update `key → val`. A full map (new key) is a no-op.
+    /// Inserts or updates `key → val`; inserting a NEW key into a full map is a silent no-op.
     pub fn set(self: &mut WMap<K, WAny>, key: K, val: WAny) {
         unsafe {
             let mut i: i64 = 0i64;
@@ -562,7 +617,7 @@ impl<K: WIntKeyTag> WMap<K, WAny> {
 }
 
 impl Writ {
-    // Create an empty int-keyed map; thin `&mut` (fixed capacity → no carried zone).
+    /// Creates an empty dense int-keyed map with fixed `cap`; thin `&mut` (no carried zone).
     pub fn intmap<'a, K: WIntKeyTag>(self: &'a Writ, cap: i64) -> &'a mut WMap<K, WAny> {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;

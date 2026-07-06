@@ -15,10 +15,11 @@ use logos.lang.result;
 use logos.lang.num.error;
 use logos.lang.str;
 
-// FromStr — Rust's `core::str::FromStr` ported with the Err type as
-// a trait type-param (Logos doesn't carry associated types on traits
-// outside the Fn-family).
+/// Parses a value of `Self` from a `str`; Rust's `core::str::FromStr` with the
+/// error type as trait type-param `E` (Logos traits carry no associated types
+/// outside the Fn-family). Backs the `s.parse::<T>()` idiom.
 pub trait FromStr<E> {
+    /// Parses the whole of `s` into `Self`, or returns `E` on failure.
     fn from_str(s: str) -> Result<Self, E>;
 }
 
@@ -43,6 +44,9 @@ fn parse_digit(b: u8, radix: i64) -> i64 {
     return d;
 }
 
+/// Parses `s` as an `i32` in the given `radix`, mirroring `i32::from_str_radix`.
+/// Accepts a leading `+`/`-`; errors: `Empty`, `InvalidDigit`, `PosOverflow`/`NegOverflow`.
+/// `radix` is unvalidated (no panic outside `2..=36`, unlike Rust); digit set `0-9`, `a-z`/`A-Z`.
 pub fn i32_from_str_radix(s: str, radix: u32) -> Result<i32, ParseIntError> {
     if s.len() == 0i64 {
         return Result::<i32, ParseIntError>::Err(
@@ -83,6 +87,10 @@ pub fn i32_from_str_radix(s: str, radix: u32) -> Result<i32, ParseIntError> {
     return Result::<i32, ParseIntError>::Ok(final_v as i32);
 }
 
+/// Parses `s` as an `i64` in the given `radix`, mirroring `i64::from_str_radix`.
+/// Accepts a leading `+`/`-`; errors: `Empty`, `InvalidDigit`, `PosOverflow`/`NegOverflow`.
+/// `radix` is not validated (no panic outside `2..=36`, unlike Rust).
+/// Trap: `i64::MIN` itself is rejected as `NegOverflow` (magnitude is capped at `i64::MAX`).
 pub fn i64_from_str_radix(s: str, radix: u32) -> Result<i64, ParseIntError> {
     if s.len() == 0i64 {
         return Result::<i64, ParseIntError>::Err(
@@ -120,6 +128,9 @@ pub fn i64_from_str_radix(s: str, radix: u32) -> Result<i64, ParseIntError> {
     return Result::<i64, ParseIntError>::Ok(if neg { 0i64 - acc } else { acc });
 }
 
+/// Parses `s` as a `u32` in the given `radix`, mirroring `u32::from_str_radix`.
+/// Accepts a leading `+`; a leading `-` is `InvalidDigit`. Errors: `Empty`,
+/// `InvalidDigit`, `PosOverflow`. `radix` is not validated (no panic outside `2..=36`).
 pub fn u32_from_str_radix(s: str, radix: u32) -> Result<u32, ParseIntError> {
     if s.len() == 0i64 {
         return Result::<u32, ParseIntError>::Err(
@@ -155,6 +166,9 @@ pub fn u32_from_str_radix(s: str, radix: u32) -> Result<u32, ParseIntError> {
     return Result::<u32, ParseIntError>::Ok(acc as u32);
 }
 
+/// Parses `s` as a `u64` in the given `radix`, mirroring `u64::from_str_radix`.
+/// Accepts a leading `+`; a leading `-` is `InvalidDigit`. Errors: `Empty`,
+/// `InvalidDigit`, `PosOverflow`. `radix` is not validated (no panic outside `2..=36`).
 pub fn u64_from_str_radix(s: str, radix: u32) -> Result<u64, ParseIntError> {
     if s.len() == 0i64 {
         return Result::<u64, ParseIntError>::Err(
@@ -193,15 +207,19 @@ pub fn u64_from_str_radix(s: str, radix: u32) -> Result<u64, ParseIntError> {
 }
 
 // Decimal convenience helpers — `s.parse::<T>()` lowers here.
+/// Parses `s` as a base-10 `i32`; `s.parse::<i32>()` lowers here.
 pub fn i32_from_str(s: str) -> Result<i32, ParseIntError> {
     return i32_from_str_radix(s, 10u32);
 }
+/// Parses `s` as a base-10 `i64`; `s.parse::<i64>()` lowers here.
 pub fn i64_from_str(s: str) -> Result<i64, ParseIntError> {
     return i64_from_str_radix(s, 10u32);
 }
+/// Parses `s` as a base-10 `u32`; `s.parse::<u32>()` lowers here.
 pub fn u32_from_str(s: str) -> Result<u32, ParseIntError> {
     return u32_from_str_radix(s, 10u32);
 }
+/// Parses `s` as a base-10 `u64`; `s.parse::<u64>()` lowers here.
 pub fn u64_from_str(s: str) -> Result<u64, ParseIntError> {
     return u64_from_str_radix(s, 10u32);
 }
@@ -253,6 +271,10 @@ fn str_eq_ci(s: str, lit: str) -> bool {
     return true;
 }
 
+/// Parses `s` as an `f64`, mirroring `f64::from_str`; the whole input must match.
+/// Accepts optional `+`/`-`, decimal mantissa with optional fraction, optional
+/// `e`/`E` exponent, and case-insensitive `inf`/`infinity`/`nan`.
+/// Not correctly rounded: accurate to a few ulp (unlike Rust's exact `dec2flt`).
 pub fn f64_from_str(s: str) -> Result<f64, ParseFloatError> {
     if s.len() == 0i64 {
         return Result::<f64, ParseFloatError>::Err(
@@ -360,6 +382,8 @@ pub fn f64_from_str(s: str) -> Result<f64, ParseFloatError> {
     return Result::<f64, ParseFloatError>::Ok(value);
 }
 
+/// Parses `s` as an `f32` by parsing as `f64` and narrowing (see `f64_from_str`).
+/// Double rounding may differ from a direct `f32` parse by an ulp.
 pub fn f32_from_str(s: str) -> Result<f32, ParseFloatError> {
     let r: Result<f64, ParseFloatError> = f64_from_str(s);
     match r {

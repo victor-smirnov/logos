@@ -31,9 +31,10 @@ use logos.lang.ptr;
 // only a handful of levels; the observed stack overflow needs tens of thousands.
 const COMPACTIFY_MAX_DEPTH: i64 = 4096i64;
 
-// Deep-copy `v` (and everything it transitively references) into `dst`; return the
-// new root WAny. Pods/null are position-independent (copied by value); Refs are
-// rebuilt and re-anchored.
+/// Deep-copies `v` (and everything it transitively references) into `dst`, returning
+/// the new root `WAny`.
+/// Pods/null are position-independent (copied by value); refs are rebuilt and
+/// re-anchored to their new slot.
 pub fn compactify(dst: &Writ, v: WAny) -> WAny {
     return compactify_d(dst, v, 0i64);
 }
@@ -74,8 +75,7 @@ fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> WAny {
     return v;
 }
 
-// Deep-copy `v` into arena `dst`, returning the new independent root. This IS
-// compaction (a full structural copy, re-anchoring every reference) — `clone` is
-// the same operation named for the by-value-copy intent (the legacy clone). Copy
-// into the SAME arena to duplicate a subtree; into a FRESH arena to compact.
+/// Deep-copies `v` into arena `dst`, returning the new independent root.
+/// Same operation as `compactify`, named for the by-value-copy intent (the legacy
+/// `clone`); pass the SAME arena to duplicate a subtree, a FRESH arena to compact.
 pub fn clone(dst: &Writ, v: WAny) -> WAny { return compactify(dst, v); }

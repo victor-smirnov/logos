@@ -7,10 +7,16 @@ use logos.lang.str;
 
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
+/// Writes `s` to standard output, without a trailing newline.
+///
+/// Unbuffered; write errors are silently ignored.
 pub fn print(s: str) {
     unsafe { write(1, s.as_ptr(), s.len()); }
 }
 
+/// Writes `s` followed by a newline to standard output.
+///
+/// Unbuffered; write errors are silently ignored.
 pub fn println(s: str) {
     unsafe {
         write(1, s.as_ptr(), s.len());
@@ -19,10 +25,16 @@ pub fn println(s: str) {
     }
 }
 
+/// Writes `s` to standard error, without a trailing newline.
+///
+/// Unbuffered; write errors are silently ignored.
 pub fn eprint(s: str) {
     unsafe { write(2, s.as_ptr(), s.len()); }
 }
 
+/// Writes `s` followed by a newline to standard error.
+///
+/// Unbuffered; write errors are silently ignored.
 pub fn eprintln(s: str) {
     unsafe {
         write(2, s.as_ptr(), s.len());
@@ -31,10 +43,16 @@ pub fn eprintln(s: str) {
     }
 }
 
+/// Writes `s` to standard output, without a trailing newline.
+///
+/// `String` counterpart of `print`. Unbuffered; write errors are silently ignored.
 pub fn print_string(s: &String) {
     unsafe { write(1, s.as_ptr(), s.len()); }
 }
 
+/// Writes `s` followed by a newline to standard output.
+///
+/// `String` counterpart of `println`. Unbuffered; write errors are silently ignored.
 pub fn println_string(s: &String) {
     unsafe {
         write(1, s.as_ptr(), s.len());
@@ -43,10 +61,16 @@ pub fn println_string(s: &String) {
     }
 }
 
+/// Writes `s` to standard error, without a trailing newline.
+///
+/// `String` counterpart of `eprint`. Unbuffered; write errors are silently ignored.
 pub fn eprint_string(s: &String) {
     unsafe { write(2, s.as_ptr(), s.len()); }
 }
 
+/// Writes `s` followed by a newline to standard error.
+///
+/// `String` counterpart of `eprintln`. Unbuffered; write errors are silently ignored.
 pub fn eprintln_string(s: &String) {
     unsafe {
         write(2, s.as_ptr(), s.len());

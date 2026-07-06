@@ -10,28 +10,33 @@
 
 package logos.lang.writ.wstatic;
 
+/// Compile-time handle to a `@`-literal writ blob laid out in rodata.
 pub struct WritStatic {
+    /// Points at the first blob byte, past the 8-byte size prefix.
     pub ptr: *const u8,
 }
 
-// Read the blob size stored 8 bytes before the blob pointer.
+/// Reads the u64 blob size stored 8 bytes before `ptr`.
+/// `ptr` must point past an intact `[u64 size][bytes]` rodata blob header.
 pub unsafe fn writ_static_size(ptr: *const u8) -> u64 {
     return *((ptr as i64 - 8) as *const u64);
 }
 
 impl WritStatic {
+    /// Returns the blob's size in bytes, read from its rodata size prefix.
     pub fn size(self: &WritStatic) -> u64 {
         unsafe { return writ_static_size(self.ptr); }
     }
 }
 
 // ── StringView ───────────────────────────────────────────────────────────────
-//
-// Non-owning byte-slice view: pointer + length. Returned by string reads of
-// blob-resident strings; pure value — no allocation.
 
+/// Non-owning byte-slice view (pointer + length) into blob-resident string data.
+/// Returned by string reads; a pure value — no allocation.
 pub struct StringView {
+    /// Pointer to the first byte of the string within its blob.
     pub ptr: *const u8,
+    /// Length of the string in bytes.
     pub len: u64,
 }
 

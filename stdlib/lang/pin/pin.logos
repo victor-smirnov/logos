@@ -18,6 +18,8 @@ package logos.lang.pin;
 use logos.lang.marker;     // Unpin, PhantomPinned
 use logos.lang.ops;        // Deref / DerefMut
 
+/// Wraps a pointer `P`, guaranteeing the pointee never moves again.
+/// For `T: !Unpin`, safe code cannot obtain `&mut T` or a by-value `T` through the pin.
 pub struct Pin<P> {
     pointer: P,
 }
@@ -34,17 +36,23 @@ impl<P: Copy> Copy for Pin<P> {}
 // (logos.mem.boxed, Rust's alloc Box::pin) — reach the wrapped pointer through
 // these accessors, so the field stays private AND lang never depends on mem.
 impl<P> Pin<P> {
-    // Rust's Pin::new_unchecked: the caller promises P's pointee never moves.
+    /// Creates a pin around `pointer` (Rust's `Pin::new_unchecked`).
+    /// Unsafe: the caller promises `pointer`'s pointee never moves again.
     pub unsafe fn new_unchecked(pointer: P) -> Pin<P> {
         return Pin { pointer: pointer };
     }
+    /// Borrows the wrapped pointer itself.
+    /// Unsafe: the caller must not use it to move or replace the pointee.
     pub unsafe fn pointer_ref(self: &Pin<P>) -> &P {
         return &self.pointer;
     }
+    /// Mutably borrows the wrapped pointer itself.
+    /// Unsafe: the caller must not move the pointee or swap in a pointer to unpinned state.
     pub unsafe fn pointer_mut(self: &mut Pin<P>) -> &mut P {
         return &mut self.pointer;
     }
-    // Rust's Pin::into_inner_unchecked.
+    /// Unwraps the pin into its pointer (Rust's `Pin::into_inner_unchecked`).
+    /// Unsafe: the caller must keep honoring the pin contract for the pointee.
     pub unsafe fn into_pointer_unchecked(self: Pin<P>) -> P {
         return self.pointer;
     }
@@ -53,45 +61,49 @@ impl<P> Pin<P> {
 // ── Construction ─────────────────────────────────────────────────────────────
 
 impl<T: Unpin> Pin<&T> {
-    // Safe: T is Unpin, so the pin guarantee is vacuous.
+    /// Pins a shared reference; safe because `T: Unpin` makes the pin guarantee vacuous.
     pub fn new(r: &T) -> Pin<&T> {
         return Pin { pointer: r };
     }
+    /// Unwraps the pin, returning the shared reference; safe because `T: Unpin`.
     pub fn into_inner(self: Pin<&T>) -> &T {
         return self.pointer;
     }
 }
 
 impl<T: Unpin> Pin<&mut T> {
+    /// Pins a mutable reference; safe because `T: Unpin` makes the pin guarantee vacuous.
     pub fn new(r: &mut T) -> Pin<&mut T> {
         return Pin { pointer: r };
     }
+    /// Unwraps the pin, returning the mutable reference; safe because `T: Unpin`.
     pub fn into_inner(self: Pin<&mut T>) -> &mut T {
         return self.pointer;
     }
 }
 
 impl<T> Pin<&T> {
-    // Shared access never moves — safe for any T.
+    /// Returns a shared reference to the pinned value.
+    /// Safe for any `T`: shared access can never move the pointee.
     pub fn get_ref(self: Pin<&T>) -> &T {
         return self.pointer;
     }
 }
 
 impl<T> Pin<&mut T> {
-    // Downgrade to a shared pin.
+    /// Reborrows the pin as a shared `Pin<&T>`.
     pub fn as_ref(self: &Pin<&mut T>) -> Pin<&T> {
         return Pin { pointer: &*self.pointer };
     }
-    // Unsafe escape hatch: `&mut T` for a possibly-!Unpin T — the caller
-    // promises not to move out of it.
+    /// Returns a mutable reference to the pinned value even for `!Unpin` targets.
+    /// Unsafe: the caller promises never to move the value out of it.
     pub unsafe fn get_unchecked_mut(self: Pin<&mut T>) -> &mut T {
         return self.pointer;
     }
 }
 
 impl<T: Unpin> Pin<&mut T> {
-    // Safe for Unpin targets.
+    /// Returns a mutable reference to the pinned value; safe because `T: Unpin`.
     pub fn get_mut(self: Pin<&mut T>) -> &mut T {
         return self.pointer;
     }

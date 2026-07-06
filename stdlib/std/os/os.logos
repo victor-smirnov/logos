@@ -18,14 +18,22 @@ extern fn exit(status: i32);
 
 // ---- identity --------------------------------------------------------------
 
+/// Returns the process id of the calling process.
 pub fn pid()  -> i32 { unsafe { return getpid();  } }
+/// Returns the process id of the parent of the calling process.
 pub fn ppid() -> i32 { unsafe { return getppid(); } }
+/// Returns the real user id of the calling process.
 pub fn uid()  -> i32 { unsafe { return getuid();  } }
+/// Returns the effective user id of the calling process.
 pub fn euid() -> i32 { unsafe { return geteuid(); } }
+/// Returns the real group id of the calling process.
 pub fn gid()  -> i32 { unsafe { return getgid();  } }
 
 // ---- hostname --------------------------------------------------------------
 
+/// Returns the system hostname.
+///
+/// Returns an empty `String` if `gethostname` fails.
 pub fn hostname() -> String {
     unsafe {
         let mut buf: [u8; 256] = [0 as u8; 256];
@@ -49,18 +57,27 @@ pub fn hostname() -> String {
 // supports x86-64 Linux; the constants are hard-coded until cross-compile
 // lands.
 
+/// Returns the CPU architecture the program was compiled for.
+///
+/// Hard-coded to `"x86_64"` until cross-compilation lands.
 pub fn arch() -> String {
     let mut s: String = String::new();
     s.push_str("x86_64");
     return s;
 }
 
+/// Returns the operating system the program was compiled for.
+///
+/// Hard-coded to `"linux"` until cross-compilation lands.
 pub fn os() -> String {
     let mut s: String = String::new();
     s.push_str("linux");
     return s;
 }
 
+/// Returns the OS family the program was compiled for.
+///
+/// Hard-coded to `"unix"` until cross-compilation lands.
 pub fn family() -> String {
     let mut s: String = String::new();
     s.push_str("unix");
@@ -69,6 +86,9 @@ pub fn family() -> String {
 
 // ---- exit ------------------------------------------------------------------
 
+/// Terminates the current process with `code` as the exit status.
+///
+/// Never returns; live locals are not dropped (calls libc `exit`).
 pub fn exit_process(code: i32) {
     unsafe { exit(code); }
 }

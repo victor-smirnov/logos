@@ -9,14 +9,19 @@ package logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.arith;
 
+/// The result of a total-order comparison between two values.
 pub enum Ordering {
+    /// The first value is less than the second.
     Less,
+    /// The two values are equal.
     Equal,
+    /// The first value is greater than the second.
     Greater,
 }
 
 impl Ordering {
     // Rust's `Ordering::reverse` — swap Less <-> Greater, Equal stays.
+    /// Returns the reversed ordering: `Less` <-> `Greater`, `Equal` unchanged.
     pub fn reverse(self: Ordering) -> Ordering {
         match self {
             Ordering::Less    => { return Ordering::Greater; }
@@ -27,27 +32,34 @@ impl Ordering {
 
     // Rust's `Ordering::is_lt` / `is_le` / `is_eq` / `is_ne` / `is_gt`
     // / `is_ge` predicate accessors.
+    /// Returns `true` if the ordering is `Less`.
     pub fn is_lt(self: Ordering) -> bool {
         match self { Ordering::Less => { return true; } _ => { return false; } }
     }
+    /// Returns `true` if the ordering is `Less` or `Equal`.
     pub fn is_le(self: Ordering) -> bool {
         match self { Ordering::Greater => { return false; } _ => { return true; } }
     }
+    /// Returns `true` if the ordering is `Equal`.
     pub fn is_eq(self: Ordering) -> bool {
         match self { Ordering::Equal => { return true; } _ => { return false; } }
     }
+    /// Returns `true` if the ordering is not `Equal`.
     pub fn is_ne(self: Ordering) -> bool {
         match self { Ordering::Equal => { return false; } _ => { return true; } }
     }
+    /// Returns `true` if the ordering is `Greater`.
     pub fn is_gt(self: Ordering) -> bool {
         match self { Ordering::Greater => { return true; } _ => { return false; } }
     }
+    /// Returns `true` if the ordering is `Greater` or `Equal`.
     pub fn is_ge(self: Ordering) -> bool {
         match self { Ordering::Less => { return false; } _ => { return true; } }
     }
 
     // Rust's `Ordering::then` — chain two orderings (this then other).
     // If self is Equal, return other; otherwise return self unchanged.
+    /// Returns `other` if `self` is `Equal`, else `self`; chains lexicographic comparisons.
     pub fn then(self: Ordering, other: Ordering) -> Ordering {
         match self {
             Ordering::Equal => { return other; }
@@ -58,6 +70,7 @@ impl Ordering {
 
     // Rust's `Ordering::then_with` — same as `.then` but lazy: only
     // calls the fallback when self is Equal.
+    /// Returns `f()` if `self` is `Equal`, else `self`; lazy variant of `then`.
     pub fn then_with(self: Ordering, f: fn() -> Ordering) -> Ordering {
         match self {
             Ordering::Equal => { return f(); }
@@ -72,20 +85,27 @@ impl Ordering {
 // values are incomparable ⇒ every ordered comparison is false). Concrete
 // (non-generic) so they are always available to compiler-generated calls
 // without a mono round-trip. `a < b` ⇒ `cmp_opt_is_lt(a.partial_cmp(&b))`.
+/// Returns `true` if `o` is `Some(Less)`; `None` (incomparable) yields `false`.
 pub fn cmp_opt_is_lt(o: Option<Ordering>) -> bool {
     match o { Option::Some(x) => { return x.is_lt(); } Option::None => { return false; } }
 }
+/// Returns `true` if `o` is `Some(Less)` or `Some(Equal)`; `None` yields `false`.
 pub fn cmp_opt_is_le(o: Option<Ordering>) -> bool {
     match o { Option::Some(x) => { return x.is_le(); } Option::None => { return false; } }
 }
+/// Returns `true` if `o` is `Some(Greater)`; `None` yields `false`.
 pub fn cmp_opt_is_gt(o: Option<Ordering>) -> bool {
     match o { Option::Some(x) => { return x.is_gt(); } Option::None => { return false; } }
 }
+/// Returns `true` if `o` is `Some(Greater)` or `Some(Equal)`; `None` yields `false`.
 pub fn cmp_opt_is_ge(o: Option<Ordering>) -> bool {
     match o { Option::Some(x) => { return x.is_ge(); } Option::None => { return false; } }
 }
 
+/// Trait for types that form a total order.
+/// Float types are intentionally excluded: `NaN` breaks totality.
 pub trait Ord {
+    /// Returns the `Ordering` of `self` relative to `other`.
     fn cmp(&self, other: &Self) -> Ordering;
 }
 
@@ -144,42 +164,55 @@ impl isize { pub fn abs(self: isize) -> isize { if self < 0isize { return 0isize
 // exposes `popcount_u64` / `leading_zeros_u64` / `trailing_zeros_u64`
 // intrinsics; wrap them with type-appropriate width-adjustments.
 impl u64   { pub fn count_ones(self: u64) -> u32 { return popcount_u64(self); }
+             /// Returns the number of zero bits.
              pub fn count_zeros(self: u64) -> u32 { return 64u32 - popcount_u64(self); }
+             /// Returns the number of leading zero bits.
              pub fn leading_zeros(self: u64) -> u32 { return leading_zeros_u64(self); }
+             /// Returns the number of trailing zero bits.
              pub fn trailing_zeros(self: u64) -> u32 { return trailing_zeros_u64(self); } }
 impl u32   { pub fn count_ones(self: u32) -> u32 { return popcount_u64(self as u64); }
+             /// Returns the number of zero bits.
              pub fn count_zeros(self: u32) -> u32 { return 32u32 - popcount_u64(self as u64); }
+             /// Returns the number of leading zero bits.
              pub fn leading_zeros(self: u32) -> u32 {
                  if self == 0u32 { return 32u32; }
                  // ctlz on u32 zero-extended to u64 over-counts by 32.
                  return leading_zeros_u64(self as u64) - 32u32;
              }
+             /// Returns the number of trailing zero bits.
              pub fn trailing_zeros(self: u32) -> u32 {
                  if self == 0u32 { return 32u32; }
                  // ctz on a non-zero u32 is unaffected by zero-extension.
                  return trailing_zeros_u64(self as u64);
              } }
 impl i32   { pub fn count_ones(self: i32) -> u32 { return popcount_u64((self as u32) as u64); }
+             /// Returns the number of zero bits.
              pub fn count_zeros(self: i32) -> u32 { return 32u32 - popcount_u64((self as u32) as u64); }
+             /// Returns the number of leading zero bits.
              pub fn leading_zeros(self: i32) -> u32 {
                  let u: u32 = self as u32;
                  if u == 0u32 { return 32u32; }
                  return leading_zeros_u64(u as u64) - 32u32;
              }
+             /// Returns the number of trailing zero bits.
              pub fn trailing_zeros(self: i32) -> u32 {
                  let u: u32 = self as u32;
                  if u == 0u32 { return 32u32; }
                  return trailing_zeros_u64(u as u64);
              } }
 impl i64   { pub fn count_ones(self: i64) -> u32 { return popcount_u64(self as u64); }
+             /// Returns the number of zero bits.
              pub fn count_zeros(self: i64) -> u32 { return 64u32 - popcount_u64(self as u64); }
+             /// Returns the number of leading zero bits.
              pub fn leading_zeros(self: i64) -> u32 { return leading_zeros_u64(self as u64); }
+             /// Returns the number of trailing zero bits.
              pub fn trailing_zeros(self: i64) -> u32 { return trailing_zeros_u64(self as u64); } }
 
 // Saturating arithmetic on signed integer primitives. Returns
 // MAX on positive overflow, MIN on negative overflow. The wider
 // i64 intermediate dodges the i32 overflow trap.
 impl i32 {
+    /// Returns `self + other`, saturating at the numeric bounds instead of overflowing.
     pub fn saturating_add(self: i32, other: i32) -> i32 {
         let i32_max: i64 =  2147483647i64;
         let i32_min: i64 = -2147483648i64;
@@ -188,6 +221,7 @@ impl i32 {
         if r < i32_min { return -2147483647i32 - 1i32; }
         return r as i32;
     }
+    /// Returns `self - other`, saturating at the numeric bounds instead of overflowing.
     pub fn saturating_sub(self: i32, other: i32) -> i32 {
         let i32_max: i64 =  2147483647i64;
         let i32_min: i64 = -2147483648i64;
@@ -196,6 +230,7 @@ impl i32 {
         if r < i32_min { return -2147483647i32 - 1i32; }
         return r as i32;
     }
+    /// Returns `self * other`, saturating at the numeric bounds instead of overflowing.
     pub fn saturating_mul(self: i32, other: i32) -> i32 {
         let i32_max: i64 =  2147483647i64;
         let i32_min: i64 = -2147483648i64;
@@ -204,12 +239,14 @@ impl i32 {
         if r < i32_min { return -2147483647i32 - 1i32; }
         return r as i32;
     }
+    /// Returns the absolute value, saturating: the minimum value maps to the maximum.
     pub fn saturating_abs(self: i32) -> i32 {
         // i32::MIN has no positive counterpart in i32; saturate to MAX.
         if self == -2147483647i32 - 1i32 { return 2147483647i32; }
         if self < 0i32 { return 0i32 - self; }
         return self;
     }
+    /// Returns `-self`, saturating: the minimum value maps to the maximum.
     pub fn saturating_neg(self: i32) -> i32 {
         if self == -2147483647i32 - 1i32 { return 2147483647i32; }
         return 0i32 - self;
@@ -221,39 +258,46 @@ impl i32 {
 // `checked_add` / `checked_sub` / `checked_mul` family but only
 // for i32 in this batch (i64 / u32 / u64 wait for ESI demand).
 impl i32 {
+    /// Returns `Some(self + other)`, or `None` on overflow.
     pub fn checked_add(self: i32, other: i32) -> Option<i32> {
         let r: i64 = (self as i64) + (other as i64);
         if r > 2147483647i64       { return Option::None; }
         if r < -2147483648i64      { return Option::None; }
         return Some(r as i32);
     }
+    /// Returns `Some(self - other)`, or `None` on overflow.
     pub fn checked_sub(self: i32, other: i32) -> Option<i32> {
         let r: i64 = (self as i64) - (other as i64);
         if r > 2147483647i64       { return Option::None; }
         if r < -2147483648i64      { return Option::None; }
         return Some(r as i32);
     }
+    /// Returns `Some(self * other)`, or `None` on overflow.
     pub fn checked_mul(self: i32, other: i32) -> Option<i32> {
         let r: i64 = (self as i64) * (other as i64);
         if r > 2147483647i64       { return Option::None; }
         if r < -2147483648i64      { return Option::None; }
         return Some(r as i32);
     }
+    /// Returns `Some(self / other)`, or `None` if `other == 0` or on overflow (`MIN / -1`).
     pub fn checked_div(self: i32, other: i32) -> Option<i32> {
         if other == 0i32 { return Option::None; }
         // i32::MIN / -1 overflows.
         if self == -2147483647i32 - 1i32 && other == -1i32 { return Option::None; }
         return Some(self / other);
     }
+    /// Returns `Some(self % other)`, or `None` if `other == 0` or on overflow (`MIN % -1`).
     pub fn checked_rem(self: i32, other: i32) -> Option<i32> {
         if other == 0i32 { return Option::None; }
         if self == -2147483647i32 - 1i32 && other == -1i32 { return Option::None; }
         return Some(self % other);
     }
+    /// Returns `Some(-self)`, or `None` when `self` is the minimum value.
     pub fn checked_neg(self: i32) -> Option<i32> {
         if self == -2147483647i32 - 1i32 { return Option::None; }
         return Some(0i32 - self);
     }
+    /// Returns `Some(|self|)`, or `None` when `self` is the minimum value.
     pub fn checked_abs(self: i32) -> Option<i32> {
         if self == -2147483647i32 - 1i32 { return Option::None; }
         if self < 0i32 { return Some(0i32 - self); }
@@ -264,25 +308,30 @@ impl i32 {
 // Overflowing arithmetic on i32. Returns (wrapping_result,
 // overflow_flag). Matches Rust's `overflowing_add` etc.
 impl i32 {
+    /// Returns the wrapped sum and a flag that is `true` if overflow occurred.
     pub fn overflowing_add(self: i32, other: i32) -> (i32, bool) {
         let r: i64 = (self as i64) + (other as i64);
         let overflowed: bool = r > 2147483647i64 || r < -2147483648i64;
         return ((r as i32), overflowed);
     }
+    /// Returns the wrapped difference and a flag that is `true` if overflow occurred.
     pub fn overflowing_sub(self: i32, other: i32) -> (i32, bool) {
         let r: i64 = (self as i64) - (other as i64);
         let overflowed: bool = r > 2147483647i64 || r < -2147483648i64;
         return ((r as i32), overflowed);
     }
+    /// Returns the wrapped product and a flag that is `true` if overflow occurred.
     pub fn overflowing_mul(self: i32, other: i32) -> (i32, bool) {
         let r: i64 = (self as i64) * (other as i64);
         let overflowed: bool = r > 2147483647i64 || r < -2147483648i64;
         return ((r as i32), overflowed);
     }
+    /// Returns the wrapped negation and a flag; `(MIN, true)` for the minimum value.
     pub fn overflowing_neg(self: i32) -> (i32, bool) {
         if self == -2147483647i32 - 1i32 { return (self, true); }
         return ((0i32 - self), false);
     }
+    /// Returns the wrapped absolute value and a flag; `(MIN, true)` for the minimum value.
     pub fn overflowing_abs(self: i32) -> (i32, bool) {
         if self == -2147483647i32 - 1i32 { return (self, true); }
         if self < 0i32 { return ((0i32 - self), false); }
@@ -295,18 +344,23 @@ impl i32 {
 // so the wrap is implemented via i64 intermediate + truncation
 // (i64→i32 cast wraps the lower 32 bits cleanly).
 impl i32 {
+    /// Returns `self + other`, wrapping around at the boundary of the type.
     pub fn wrapping_add(self: i32, other: i32) -> i32 {
         return ((self as i64) + (other as i64)) as i32;
     }
+    /// Returns `self - other`, wrapping around at the boundary of the type.
     pub fn wrapping_sub(self: i32, other: i32) -> i32 {
         return ((self as i64) - (other as i64)) as i32;
     }
+    /// Returns `self * other`, wrapping around at the boundary of the type.
     pub fn wrapping_mul(self: i32, other: i32) -> i32 {
         return ((self as i64) * (other as i64)) as i32;
     }
+    /// Returns `-self`, wrapping: the minimum value maps to itself.
     pub fn wrapping_neg(self: i32) -> i32 {
         return (0i64 - (self as i64)) as i32;
     }
+    /// Returns the absolute value, wrapping: the minimum value maps to itself.
     pub fn wrapping_abs(self: i32) -> i32 {
         if self < 0i32 { return (0i64 - (self as i64)) as i32; }
         return self;
@@ -318,11 +372,13 @@ impl i32 {
 // `n % BITS`. Implementation: `(x << k) | (x >> (BITS - k))` with
 // the `k == 0` corner case avoided (shifting by `BITS` is UB).
 impl u32 {
+    /// Rotates the bits left by `n` (taken modulo 32).
     pub fn rotate_left(self: u32, n: u32) -> u32 {
         let k: u32 = n & 31u32;
         if k == 0u32 { return self; }
         return (self << k) | (self >> (32u32 - k));
     }
+    /// Rotates the bits right by `n` (taken modulo 32).
     pub fn rotate_right(self: u32, n: u32) -> u32 {
         let k: u32 = n & 31u32;
         if k == 0u32 { return self; }
@@ -330,19 +386,23 @@ impl u32 {
     }
 }
 impl i32 {
+    /// Rotates the bits left by `n` (taken modulo 32).
     pub fn rotate_left(self: i32, n: u32) -> i32 {
         return ((self as u32).rotate_left(n)) as i32;
     }
+    /// Rotates the bits right by `n` (taken modulo 32).
     pub fn rotate_right(self: i32, n: u32) -> i32 {
         return ((self as u32).rotate_right(n)) as i32;
     }
 }
 impl u64 {
+    /// Rotates the bits left by `n` (taken modulo 64).
     pub fn rotate_left(self: u64, n: u32) -> u64 {
         let k: u32 = n & 63u32;
         if k == 0u32 { return self; }
         return (self << k) | (self >> (64u32 - k));
     }
+    /// Rotates the bits right by `n` (taken modulo 64).
     pub fn rotate_right(self: u64, n: u32) -> u64 {
         let k: u32 = n & 63u32;
         if k == 0u32 { return self; }
@@ -350,9 +410,11 @@ impl u64 {
     }
 }
 impl i64 {
+    /// Rotates the bits left by `n` (taken modulo 64).
     pub fn rotate_left(self: i64, n: u32) -> i64 {
         return ((self as u64).rotate_left(n)) as i64;
     }
+    /// Rotates the bits right by `n` (taken modulo 64).
     pub fn rotate_right(self: i64, n: u32) -> i64 {
         return ((self as u64).rotate_right(n)) as i64;
     }
@@ -364,35 +426,55 @@ impl i64 {
 //   * to_be / from_be are swap_bytes (self-inverse)
 //   * swap_bytes uses the bswap_u64 intrinsic with width shift
 impl u32 {
+    /// Reverses the byte order.
     pub fn swap_bytes(self: u32) -> u32 {
         return (bswap_u64(self as u64) >> 32u32) as u32;
     }
+    /// Converts to little-endian; identity on this little-endian target.
     pub fn to_le(self: u32) -> u32   { return self; }
+    /// Converts from little-endian; identity on this little-endian target.
     pub fn from_le(x: u32) -> u32    { return x; }
+    /// Converts to big-endian by swapping bytes.
     pub fn to_be(self: u32) -> u32   { return self.swap_bytes(); }
+    /// Converts from big-endian by swapping bytes.
     pub fn from_be(x: u32) -> u32    { return x.swap_bytes(); }
 }
 impl i32 {
+    /// Reverses the byte order.
     pub fn swap_bytes(self: i32) -> i32 {
         return ((self as u32).swap_bytes()) as i32;
     }
+    /// Converts to little-endian; identity on this little-endian target.
     pub fn to_le(self: i32) -> i32   { return self; }
+    /// Converts from little-endian; identity on this little-endian target.
     pub fn from_le(x: i32) -> i32    { return x; }
+    /// Converts to big-endian by swapping bytes.
     pub fn to_be(self: i32) -> i32   { return self.swap_bytes(); }
+    /// Converts from big-endian by swapping bytes.
     pub fn from_be(x: i32) -> i32    { return x.swap_bytes(); }
 }
 impl u64 {
+    /// Reverses the byte order.
     pub fn swap_bytes(self: u64) -> u64 { return bswap_u64(self); }
+    /// Converts to little-endian; identity on this little-endian target.
     pub fn to_le(self: u64) -> u64   { return self; }
+    /// Converts from little-endian; identity on this little-endian target.
     pub fn from_le(x: u64) -> u64    { return x; }
+    /// Converts to big-endian by swapping bytes.
     pub fn to_be(self: u64) -> u64   { return self.swap_bytes(); }
+    /// Converts from big-endian by swapping bytes.
     pub fn from_be(x: u64) -> u64    { return x.swap_bytes(); }
 }
 impl i64 {
+    /// Reverses the byte order.
     pub fn swap_bytes(self: i64) -> i64 { return bswap_u64(self as u64) as i64; }
+    /// Converts to little-endian; identity on this little-endian target.
     pub fn to_le(self: i64) -> i64   { return self; }
+    /// Converts from little-endian; identity on this little-endian target.
     pub fn from_le(x: i64) -> i64    { return x; }
+    /// Converts to big-endian by swapping bytes.
     pub fn to_be(self: i64) -> i64   { return self.swap_bytes(); }
+    /// Converts from big-endian by swapping bytes.
     pub fn from_be(x: i64) -> i64    { return x.swap_bytes(); }
 }
 
@@ -400,6 +482,7 @@ impl i64 {
 // on overflow (matches Rust's `wrapping_pow`; `pow` panics on
 // overflow in Rust debug builds but this version just wraps).
 impl i32 {
+    /// Returns `self` raised to the power of `exp`, computed by repeated squaring.
     pub fn pow(self: i32, exp: u32) -> i32 {
         let mut result: i32 = 1i32;
         let mut base: i32 = self;
@@ -413,6 +496,7 @@ impl i32 {
     }
 }
 impl i64 {
+    /// Returns `self` raised to the power of `exp`, computed by repeated squaring.
     pub fn pow(self: i64, exp: u32) -> i64 {
         let mut result: i64 = 1i64;
         let mut base: i64 = self;
@@ -426,6 +510,7 @@ impl i64 {
     }
 }
 impl u32 {
+    /// Returns `self` raised to the power of `exp`, computed by repeated squaring.
     pub fn pow(self: u32, exp: u32) -> u32 {
         let mut result: u32 = 1u32;
         let mut base: u32 = self;
@@ -439,6 +524,7 @@ impl u32 {
     }
 }
 impl u64 {
+    /// Returns `self` raised to the power of `exp`, computed by repeated squaring.
     pub fn pow(self: u64, exp: u32) -> u64 {
         let mut result: u64 = 1u64;
         let mut base: u64 = self;
@@ -461,20 +547,27 @@ impl u64 {
 
 // ── u32 ──────────────────────────────────────────────────────────────────
 impl u32 {
+    /// Returns `self + other`, wrapping around at the boundary of the type.
     pub fn wrapping_add(self: u32, other: u32) -> u32 { return wrapping_add::<u32>(self, other); }
+    /// Returns `self - other`, wrapping around at the boundary of the type.
     pub fn wrapping_sub(self: u32, other: u32) -> u32 { return wrapping_sub::<u32>(self, other); }
+    /// Returns `self * other`, wrapping around at the boundary of the type.
     pub fn wrapping_mul(self: u32, other: u32) -> u32 { return wrapping_mul::<u32>(self, other); }
+    /// Returns `0 - self` wrapped (two's-complement negation).
     pub fn wrapping_neg(self: u32) -> u32             { return wrapping_sub::<u32>(0u32, self); }
 
+    /// Returns `self + other`, saturating at the maximum value.
     pub fn saturating_add(self: u32, other: u32) -> u32 {
         let r: u32 = wrapping_add::<u32>(self, other);
         if r < self { return 0xFFFFFFFFu32; }
         return r;
     }
+    /// Returns `self - other`, saturating at zero.
     pub fn saturating_sub(self: u32, other: u32) -> u32 {
         if other > self { return 0u32; }
         return self - other;
     }
+    /// Returns `self * other`, saturating at the maximum value.
     pub fn saturating_mul(self: u32, other: u32) -> u32 {
         if self == 0u32 || other == 0u32 { return 0u32; }
         let r: u64 = (self as u64) * (other as u64);
@@ -482,36 +575,44 @@ impl u32 {
         return r as u32;
     }
 
+    /// Returns `Some(self + other)`, or `None` on overflow.
     pub fn checked_add(self: u32, other: u32) -> Option<u32> {
         let r: u32 = wrapping_add::<u32>(self, other);
         if r < self { return Option::None; }
         return Option::Some(r);
     }
+    /// Returns `Some(self - other)`, or `None` if `other > self`.
     pub fn checked_sub(self: u32, other: u32) -> Option<u32> {
         if other > self { return Option::None; }
         return Option::Some(self - other);
     }
+    /// Returns `Some(self * other)`, or `None` on overflow.
     pub fn checked_mul(self: u32, other: u32) -> Option<u32> {
         let r: u64 = (self as u64) * (other as u64);
         if r > 0xFFFFFFFFu64 { return Option::None; }
         return Option::Some(r as u32);
     }
+    /// Returns `Some(self / other)`, or `None` if `other == 0`.
     pub fn checked_div(self: u32, other: u32) -> Option<u32> {
         if other == 0u32 { return Option::None; }
         return Option::Some(self / other);
     }
+    /// Returns `Some(self % other)`, or `None` if `other == 0`.
     pub fn checked_rem(self: u32, other: u32) -> Option<u32> {
         if other == 0u32 { return Option::None; }
         return Option::Some(self % other);
     }
 
+    /// Returns the wrapped sum and a flag that is `true` if overflow occurred.
     pub fn overflowing_add(self: u32, other: u32) -> (u32, bool) {
         let r: u32 = wrapping_add::<u32>(self, other);
         return (r, r < self);
     }
+    /// Returns the wrapped difference and a flag that is `true` if underflow occurred.
     pub fn overflowing_sub(self: u32, other: u32) -> (u32, bool) {
         return (wrapping_sub::<u32>(self, other), other > self);
     }
+    /// Returns the wrapped product and a flag that is `true` if overflow occurred.
     pub fn overflowing_mul(self: u32, other: u32) -> (u32, bool) {
         let r: u64 = (self as u64) * (other as u64);
         return (r as u32, r > 0xFFFFFFFFu64);
@@ -520,20 +621,27 @@ impl u32 {
 
 // ── u64 ──────────────────────────────────────────────────────────────────
 impl u64 {
+    /// Returns `self + other`, wrapping around at the boundary of the type.
     pub fn wrapping_add(self: u64, other: u64) -> u64 { return wrapping_add::<u64>(self, other); }
+    /// Returns `self - other`, wrapping around at the boundary of the type.
     pub fn wrapping_sub(self: u64, other: u64) -> u64 { return wrapping_sub::<u64>(self, other); }
+    /// Returns `self * other`, wrapping around at the boundary of the type.
     pub fn wrapping_mul(self: u64, other: u64) -> u64 { return wrapping_mul::<u64>(self, other); }
+    /// Returns `0 - self` wrapped (two's-complement negation).
     pub fn wrapping_neg(self: u64) -> u64             { return wrapping_sub::<u64>(0u64, self); }
 
+    /// Returns `self + other`, saturating at the maximum value.
     pub fn saturating_add(self: u64, other: u64) -> u64 {
         let r: u64 = wrapping_add::<u64>(self, other);
         if r < self { return 0xFFFFFFFFFFFFFFFFu64; }
         return r;
     }
+    /// Returns `self - other`, saturating at zero.
     pub fn saturating_sub(self: u64, other: u64) -> u64 {
         if other > self { return 0u64; }
         return self - other;
     }
+    /// Returns `self * other`, saturating at the maximum value.
     pub fn saturating_mul(self: u64, other: u64) -> u64 {
         if self == 0u64 || other == 0u64 { return 0u64; }
         // Overflow check without a u128 intermediate: if a > MAX/b then overflow.
@@ -542,37 +650,45 @@ impl u64 {
         return wrapping_mul::<u64>(self, other);
     }
 
+    /// Returns `Some(self + other)`, or `None` on overflow.
     pub fn checked_add(self: u64, other: u64) -> Option<u64> {
         let r: u64 = wrapping_add::<u64>(self, other);
         if r < self { return Option::None; }
         return Option::Some(r);
     }
+    /// Returns `Some(self - other)`, or `None` if `other > self`.
     pub fn checked_sub(self: u64, other: u64) -> Option<u64> {
         if other > self { return Option::None; }
         return Option::Some(self - other);
     }
+    /// Returns `Some(self * other)`, or `None` on overflow.
     pub fn checked_mul(self: u64, other: u64) -> Option<u64> {
         if self == 0u64 || other == 0u64 { return Option::Some(0u64); }
         let max: u64 = 0xFFFFFFFFFFFFFFFFu64;
         if self > max / other { return Option::None; }
         return Option::Some(wrapping_mul::<u64>(self, other));
     }
+    /// Returns `Some(self / other)`, or `None` if `other == 0`.
     pub fn checked_div(self: u64, other: u64) -> Option<u64> {
         if other == 0u64 { return Option::None; }
         return Option::Some(self / other);
     }
+    /// Returns `Some(self % other)`, or `None` if `other == 0`.
     pub fn checked_rem(self: u64, other: u64) -> Option<u64> {
         if other == 0u64 { return Option::None; }
         return Option::Some(self % other);
     }
 
+    /// Returns the wrapped sum and a flag that is `true` if overflow occurred.
     pub fn overflowing_add(self: u64, other: u64) -> (u64, bool) {
         let r: u64 = wrapping_add::<u64>(self, other);
         return (r, r < self);
     }
+    /// Returns the wrapped difference and a flag that is `true` if underflow occurred.
     pub fn overflowing_sub(self: u64, other: u64) -> (u64, bool) {
         return (wrapping_sub::<u64>(self, other), other > self);
     }
+    /// Returns the wrapped product and a flag that is `true` if overflow occurred.
     pub fn overflowing_mul(self: u64, other: u64) -> (u64, bool) {
         if self == 0u64 || other == 0u64 { return (0u64, false); }
         let max: u64 = 0xFFFFFFFFFFFFFFFFu64;
@@ -583,10 +699,15 @@ impl u64 {
 
 // ── i64 ──────────────────────────────────────────────────────────────────
 impl i64 {
+    /// Returns `self + other`, wrapping around at the boundary of the type.
     pub fn wrapping_add(self: i64, other: i64) -> i64 { return wrapping_add::<i64>(self, other); }
+    /// Returns `self - other`, wrapping around at the boundary of the type.
     pub fn wrapping_sub(self: i64, other: i64) -> i64 { return wrapping_sub::<i64>(self, other); }
+    /// Returns `self * other`, wrapping around at the boundary of the type.
     pub fn wrapping_mul(self: i64, other: i64) -> i64 { return wrapping_mul::<i64>(self, other); }
+    /// Returns `-self`, wrapping: the minimum value maps to itself.
     pub fn wrapping_neg(self: i64) -> i64             { return wrapping_sub::<i64>(0i64, self); }
+    /// Returns the absolute value, wrapping: the minimum value maps to itself.
     pub fn wrapping_abs(self: i64) -> i64 {
         if self < 0i64 { return wrapping_sub::<i64>(0i64, self); }
         return self;
@@ -594,18 +715,21 @@ impl i64 {
 
     // Signed overflow detection without i128: r = wrapping_add(a, b);
     // overflow iff (sign(a) == sign(b)) && (sign(r) != sign(a)).
+    /// Returns the wrapped sum and a flag that is `true` if overflow occurred.
     pub fn overflowing_add(self: i64, other: i64) -> (i64, bool) {
         let r: i64 = wrapping_add::<i64>(self, other);
         let same_sign: bool = (self < 0i64) == (other < 0i64);
         let flipped:   bool = (self < 0i64) != (r < 0i64);
         return (r, same_sign && flipped);
     }
+    /// Returns the wrapped difference and a flag that is `true` if overflow occurred.
     pub fn overflowing_sub(self: i64, other: i64) -> (i64, bool) {
         let r: i64 = wrapping_sub::<i64>(self, other);
         let diff_sign: bool = (self < 0i64) != (other < 0i64);
         let flipped:   bool = (self < 0i64) != (r < 0i64);
         return (r, diff_sign && flipped);
     }
+    /// Returns the wrapped product and a flag that is `true` if overflow occurred.
     pub fn overflowing_mul(self: i64, other: i64) -> (i64, bool) {
         if self == 0i64 || other == 0i64 { return (0i64, false); }
         let r: i64 = wrapping_mul::<i64>(self, other);
@@ -617,11 +741,13 @@ impl i64 {
         let check: i64 = r / other;
         return (r, check != self);
     }
+    /// Returns the wrapped negation and a flag; `(MIN, true)` for the minimum value.
     pub fn overflowing_neg(self: i64) -> (i64, bool) {
         let i64_min: i64 = (0x8000000000000000u64) as i64;
         if self == i64_min { return (i64_min, true); }
         return (wrapping_sub::<i64>(0i64, self), false);
     }
+    /// Returns the wrapped absolute value and a flag; `(MIN, true)` for the minimum value.
     pub fn overflowing_abs(self: i64) -> (i64, bool) {
         let i64_min: i64 = (0x8000000000000000u64) as i64;
         if self == i64_min { return (i64_min, true); }
@@ -629,38 +755,45 @@ impl i64 {
         return (self, false);
     }
 
+    /// Returns `Some(self + other)`, or `None` on overflow.
     pub fn checked_add(self: i64, other: i64) -> Option<i64> {
         let r: (i64, bool) = self.overflowing_add(other);
         if r.1 { return Option::None; }
         return Option::Some(r.0);
     }
+    /// Returns `Some(self - other)`, or `None` on overflow.
     pub fn checked_sub(self: i64, other: i64) -> Option<i64> {
         let r: (i64, bool) = self.overflowing_sub(other);
         if r.1 { return Option::None; }
         return Option::Some(r.0);
     }
+    /// Returns `Some(self * other)`, or `None` on overflow.
     pub fn checked_mul(self: i64, other: i64) -> Option<i64> {
         let r: (i64, bool) = self.overflowing_mul(other);
         if r.1 { return Option::None; }
         return Option::Some(r.0);
     }
+    /// Returns `Some(self / other)`, or `None` if `other == 0` or on overflow (`MIN / -1`).
     pub fn checked_div(self: i64, other: i64) -> Option<i64> {
         if other == 0i64 { return Option::None; }
         let i64_min: i64 = (0x8000000000000000u64) as i64;
         if self == i64_min && other == -1i64 { return Option::None; }
         return Option::Some(self / other);
     }
+    /// Returns `Some(self % other)`, or `None` if `other == 0` or on overflow (`MIN % -1`).
     pub fn checked_rem(self: i64, other: i64) -> Option<i64> {
         if other == 0i64 { return Option::None; }
         let i64_min: i64 = (0x8000000000000000u64) as i64;
         if self == i64_min && other == -1i64 { return Option::None; }
         return Option::Some(self % other);
     }
+    /// Returns `Some(-self)`, or `None` when `self` is the minimum value.
     pub fn checked_neg(self: i64) -> Option<i64> {
         let i64_min: i64 = (0x8000000000000000u64) as i64;
         if self == i64_min { return Option::None; }
         return Option::Some(wrapping_sub::<i64>(0i64, self));
     }
+    /// Returns `Some(|self|)`, or `None` when `self` is the minimum value.
     pub fn checked_abs(self: i64) -> Option<i64> {
         let i64_min: i64 = (0x8000000000000000u64) as i64;
         if self == i64_min { return Option::None; }
@@ -668,6 +801,7 @@ impl i64 {
         return Option::Some(self);
     }
 
+    /// Returns `self + other`, saturating at the numeric bounds instead of overflowing.
     pub fn saturating_add(self: i64, other: i64) -> i64 {
         let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
         let i64_min: i64 = (0x8000000000000000u64) as i64;
@@ -676,6 +810,7 @@ impl i64 {
         if other > 0i64 { return i64_max; }
         return i64_min;
     }
+    /// Returns `self - other`, saturating at the numeric bounds instead of overflowing.
     pub fn saturating_sub(self: i64, other: i64) -> i64 {
         let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
         let i64_min: i64 = (0x8000000000000000u64) as i64;
@@ -684,6 +819,7 @@ impl i64 {
         if other < 0i64 { return i64_max; }
         return i64_min;
     }
+    /// Returns `self * other`, saturating at the numeric bounds instead of overflowing.
     pub fn saturating_mul(self: i64, other: i64) -> i64 {
         let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
         let i64_min: i64 = (0x8000000000000000u64) as i64;
@@ -693,6 +829,7 @@ impl i64 {
         if same_sign { return i64_max; }
         return i64_min;
     }
+    /// Returns the absolute value, saturating: the minimum value maps to the maximum.
     pub fn saturating_abs(self: i64) -> i64 {
         let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
         let i64_min: i64 = (0x8000000000000000u64) as i64;
@@ -700,6 +837,7 @@ impl i64 {
         if self < 0i64 { return wrapping_sub::<i64>(0i64, self); }
         return self;
     }
+    /// Returns `-self`, saturating: the minimum value maps to the maximum.
     pub fn saturating_neg(self: i64) -> i64 {
         let i64_max: i64 =  0x7FFFFFFFFFFFFFFFi64;
         let i64_min: i64 = (0x8000000000000000u64) as i64;
@@ -712,6 +850,7 @@ impl i64 {
 // max_by}`. Caller supplies an `fn(T, T) -> Ordering` comparator (Logos
 // closures coerce to fn-ptr when non-capturing, so call sites can pass
 // `|a, b| { … }`).
+/// Returns the smaller of `a` and `b` per `compare`; `a` when they compare equal.
 pub fn cmp_min_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
     match compare(a, b) {
         Ordering::Greater => { return b; }
@@ -720,6 +859,7 @@ pub fn cmp_min_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
     }
 }
 
+/// Returns the larger of `a` and `b` per `compare`; `b` when they compare equal.
 pub fn cmp_max_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
     // Note: Rust's `cmp::max_by` returns the *second* argument when
     // `compare` yields `Equal`. Mirror that for parity with coretests.
@@ -733,6 +873,7 @@ pub fn cmp_max_by<T>(a: T, b: T, compare: fn(T, T) -> Ordering) -> T {
 // SL-sl-05: key-flavoured variants. Caller supplies `fn(T) -> K` (by
 // value — Logos's closure-on-references aren't fully wired); both
 // arguments are projected and the result compared via `K: Ord`.
+/// Returns the argument whose `key` projection is smaller; `a` when the keys compare equal.
 pub fn cmp_min_by_key<T: Copy, K: Ord>(a: T, b: T, key: fn(T) -> K) -> T {
     let ka: K = key(a);
     let kb: K = key(b);
@@ -743,6 +884,7 @@ pub fn cmp_min_by_key<T: Copy, K: Ord>(a: T, b: T, key: fn(T) -> K) -> T {
     }
 }
 
+/// Returns the argument whose `key` projection is larger; `b` when the keys compare equal.
 pub fn cmp_max_by_key<T: Copy, K: Ord>(a: T, b: T, key: fn(T) -> K) -> T {
     let ka: K = key(a);
     let kb: K = key(b);
@@ -759,26 +901,42 @@ pub fn cmp_max_by_key<T: Copy, K: Ord>(a: T, b: T, key: fn(T) -> K) -> T {
 // `wrapping_add::<T>` intrinsic). Mirror the wrapping family so `a.wrapping_add(b)`
 // works for i8/u8/i16/u16 too (mlir-gen lowers `wrapping_add::<T>` per width).
 impl i8 {
+    /// Returns `self + other`, wrapping around at the boundary of the type.
     pub fn wrapping_add(self: i8, other: i8) -> i8 { return wrapping_add::<i8>(self, other); }
+    /// Returns `self - other`, wrapping around at the boundary of the type.
     pub fn wrapping_sub(self: i8, other: i8) -> i8 { return wrapping_sub::<i8>(self, other); }
+    /// Returns `self * other`, wrapping around at the boundary of the type.
     pub fn wrapping_mul(self: i8, other: i8) -> i8 { return wrapping_mul::<i8>(self, other); }
+    /// Returns `-self`, wrapping: the minimum value maps to itself.
     pub fn wrapping_neg(self: i8) -> i8            { return wrapping_sub::<i8>(0i8, self); }
 }
 impl u8 {
+    /// Returns `self + other`, wrapping around at the boundary of the type.
     pub fn wrapping_add(self: u8, other: u8) -> u8 { return wrapping_add::<u8>(self, other); }
+    /// Returns `self - other`, wrapping around at the boundary of the type.
     pub fn wrapping_sub(self: u8, other: u8) -> u8 { return wrapping_sub::<u8>(self, other); }
+    /// Returns `self * other`, wrapping around at the boundary of the type.
     pub fn wrapping_mul(self: u8, other: u8) -> u8 { return wrapping_mul::<u8>(self, other); }
+    /// Returns `0 - self` wrapped (two's-complement negation).
     pub fn wrapping_neg(self: u8) -> u8            { return wrapping_sub::<u8>(0u8, self); }
 }
 impl i16 {
+    /// Returns `self + other`, wrapping around at the boundary of the type.
     pub fn wrapping_add(self: i16, other: i16) -> i16 { return wrapping_add::<i16>(self, other); }
+    /// Returns `self - other`, wrapping around at the boundary of the type.
     pub fn wrapping_sub(self: i16, other: i16) -> i16 { return wrapping_sub::<i16>(self, other); }
+    /// Returns `self * other`, wrapping around at the boundary of the type.
     pub fn wrapping_mul(self: i16, other: i16) -> i16 { return wrapping_mul::<i16>(self, other); }
+    /// Returns `-self`, wrapping: the minimum value maps to itself.
     pub fn wrapping_neg(self: i16) -> i16             { return wrapping_sub::<i16>(0i16, self); }
 }
 impl u16 {
+    /// Returns `self + other`, wrapping around at the boundary of the type.
     pub fn wrapping_add(self: u16, other: u16) -> u16 { return wrapping_add::<u16>(self, other); }
+    /// Returns `self - other`, wrapping around at the boundary of the type.
     pub fn wrapping_sub(self: u16, other: u16) -> u16 { return wrapping_sub::<u16>(self, other); }
+    /// Returns `self * other`, wrapping around at the boundary of the type.
     pub fn wrapping_mul(self: u16, other: u16) -> u16 { return wrapping_mul::<u16>(self, other); }
+    /// Returns `0 - self` wrapped (two's-complement negation).
     pub fn wrapping_neg(self: u16) -> u16             { return wrapping_sub::<u16>(0u16, self); }
 }

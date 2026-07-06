@@ -17,6 +17,9 @@ use logos.lang.writ.array;      // WArray<WAny>
 use logos.lang.writ.wmap;       // WMap<WString, WAny>
 use logos.lang.writ.wstring;    // WString
 
+/// Recursively validates structural invariants of the writ value graph reachable from `v`.
+/// Returns `false` on the first violation found (unknown pod code, null/corrupt ref,
+/// bad container size/capacity, non-string map key, unset type tag); `true` if all sound.
 pub fn writ_check(v: WAny) -> bool {
     if v.is_null() { return true; }
     if v.is_pod() {

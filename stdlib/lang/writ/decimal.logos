@@ -17,9 +17,13 @@ use logos.lang.writ.anyval;      // WAny, w_type_code
 use logos.lang.writ.allocator;   // Allocator
 use logos.lang.cell;
 
+/// Represents a fixed-precision signed decimal `(neg ? -1 : 1) * coeff / 10^scale` (wire code 102).
+/// Fixed-size tagged arena object; `scale` is limited to 0..4095 and the coefficient to `u64`.
 #[pinned]
 pub struct WDecimal {
+    /// Packs the scale in bits `[0:11]` (0..4095) and the sign in bit 31 (1 = negative).
     pub spec:  u32,   // scale (bits[0:11]) | sign (bit[31])
+    /// Holds the coefficient magnitude, i.e. `|value| * 10^scale`.
     pub coeff: u64,   // coefficient magnitude (value_abs)
 }
 
@@ -37,11 +41,15 @@ unsafe fn decimal_new(h: *mut Writ, coeff: u64, scale: u32, neg: bool) -> *mut W
 }
 
 impl WDecimal {
+    /// Returns the decimal scale (number of fractional digits, 0..4095).
     pub fn scale(self: &WDecimal)  -> u32  { return self.spec & DEC_SCALE_MASK; }
+    /// Returns `true` if the sign bit is set; may hold for a zero coefficient (`-0`),
+    /// which `hdec_cmp`/`hdec_add` treat as non-negative.
     pub fn is_neg(self: &WDecimal) -> bool { return (self.spec & DEC_SIGN_BIT) != 0u32; }
+    /// Returns the coefficient magnitude (`|value| * 10^scale`).
     pub fn coeff(self: &WDecimal)  -> u64  { return self.coeff; }
-    // Approximate value as f64 (coeff / 10^scale, signed). Exact decimal arithmetic
-    // stays on the integer coeff+scale; this is the convenience float view.
+    /// Returns the approximate value as `f64` (`coeff / 10^scale`, signed).
+    /// Convenience float view; exact arithmetic stays on the integer `coeff`+`scale`.
     pub fn to_f64(self: &WDecimal) -> f64 {
         let mut d: f64 = self.coeff as f64;
         let mut s: u32 = self.scale();
@@ -52,7 +60,8 @@ impl WDecimal {
 }
 
 impl Writ {
-    // Build a decimal in THIS arena; returns a Ref WAny to it.
+    /// Builds a `WDecimal` in this arena and returns a Ref `WAny` to it.
+    /// Returns a null `WAny` if `scale > 4095` (the `spec` field ceiling).
     pub fn decimal(self: &Writ, coeff: u64, scale: u32, neg: bool) -> WAny {
         if scale > 4095u32 { return WAny::ref_to(0i64 as *const u8); }   // spec field ceiling
         unsafe {
@@ -63,20 +72,21 @@ impl Writ {
 }
 
 impl WAny {
+    /// Returns `true` if this is a Ref to a `WDecimal` (tag `W_DECIMAL`).
     pub fn is_decimal(self: &WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_DECIMAL;
     }
-    // Borrow the pointed-at decimal (check is_decimal first).
+    /// Borrows the pointed-at `WDecimal`; the caller must check `is_decimal()` first.
     pub fn as_decimal(self: &WAny) -> &WDecimal { return unsafe { &*(self.resolve() as *const WDecimal) }; }
-    // A decimal as a heterogeneous value (Ref to it).
+    /// Wraps a `WDecimal` as a heterogeneous value (Ref `WAny` to it).
     pub fn from(d: &WDecimal) -> WAny { return WAny::ref_to(d as *const WDecimal as *const u8); }
 }
 
 // ── parse / arithmetic / compare (the dec_* surface) ──────────────────────────
 
-// Parse "[-]digits[.digits]" into a zone decimal. Null WAny on: empty digits,
-// >19 significant digits (u64 overflow guard), a second point, junk bytes,
-// scale > 4095.
+/// Parses `"[-]digits[.digits]"` into a decimal in the arena of `h`.
+/// Returns a null `WAny` on: empty digits, more than 19 significant digits (u64 overflow
+/// guard), a second decimal point, junk bytes, or `scale > 4095`.
 pub unsafe fn hdec_from_str(h: &Writ, s: str) -> WAny {
     let n: i64 = s.len();
     let p: *const u8 = s.as_ptr();
@@ -107,7 +117,8 @@ pub unsafe fn hdec_from_str(h: &Writ, s: str) -> WAny {
     return h.decimal(coeff, scale as u32, neg);
 }
 
-// Value compare ignoring representation (1.50 == 1.5): -1 / 0 / 1.
+/// Compares two decimals by value, ignoring representation (`1.50 == 1.5`): -1 / 0 / 1.
+/// Both arguments must satisfy `is_decimal()`; `-0` compares equal to `0`.
 pub unsafe fn hdec_cmp(x: WAny, y: WAny) -> i32 {
     let a: &WDecimal = x.as_decimal();
     let b: &WDecimal = y.as_decimal();
@@ -127,7 +138,9 @@ pub unsafe fn hdec_cmp(x: WAny, y: WAny) -> i32 {
     return r;
 }
 
-// add with scale alignment + sign handling; null WAny on u64 overflow.
+/// Adds two decimals with scale alignment and sign handling; result carries the larger scale.
+/// Both arguments must satisfy `is_decimal()`. Returns a null `WAny` if scale alignment or the
+/// sum overflows `u64`.
 pub unsafe fn hdec_add(h: &Writ, x: WAny, y: WAny) -> WAny {
     let dx: &WDecimal = x.as_decimal();
     let dy: &WDecimal = y.as_decimal();

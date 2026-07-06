@@ -17,12 +17,16 @@ extern fn close(fd: i32) -> i32;
 
 // ── Pipe ──────────────────────────────────────────────────────────────────
 
+/// Unix pipe: a connected read/write file-descriptor pair.
+/// Descriptors are NOT closed on drop; call `close` (or `close_read`/`close_write`) explicitly.
 pub struct Pipe {
+    /// Read end of the pipe; `-1` when closed or on creation failure.
     pub read_fd:  i32,
+    /// Write end of the pipe; `-1` when closed or on creation failure.
     pub write_fd: i32,
 }
 
-// Create a pipe. Returns Pipe with both ends open, or Pipe{-1,-1} on error.
+/// Creates a pipe via `pipe2(2)`. Returns a `Pipe` with both ends open, or `Pipe{-1,-1}` on error.
 pub fn pipe_new() -> Pipe {
     unsafe {
         let mut fds: [i32; 2] = [0, 0];
@@ -34,6 +38,7 @@ pub fn pipe_new() -> Pipe {
     }
 }
 
+/// Creates a pipe with both ends in `O_NONBLOCK` mode. Returns `Pipe{-1,-1}` on error.
 pub fn pipe_new_nonblock() -> Pipe {
     unsafe {
         let mut fds: [i32; 2] = [0, 0];
@@ -47,10 +52,12 @@ pub fn pipe_new_nonblock() -> Pipe {
 }
 
 impl Pipe {
+    /// Returns `true` if both pipe ends hold open (non-negative) descriptors.
     pub fn is_valid(self: &Pipe) -> bool {
         return self.read_fd >= 0 && self.write_fd >= 0;
     }
 
+    /// Closes the read end and sets `read_fd` to `-1`; no-op if already closed.
     pub fn close_read(self: &mut Pipe) {
         unsafe {
             if self.read_fd >= 0 {
@@ -60,6 +67,7 @@ impl Pipe {
         }
     }
 
+    /// Closes the write end and sets `write_fd` to `-1`; no-op if already closed.
     pub fn close_write(self: &mut Pipe) {
         unsafe {
             if self.write_fd >= 0 {
@@ -69,19 +77,22 @@ impl Pipe {
         }
     }
 
+    /// Closes both ends of the pipe; idempotent.
     pub fn close(self: &mut Pipe) {
         self.close_read();
         self.close_write();
     }
 
-    // Vectored write to the pipe's write-end.  Returns total bytes written
-    // (>=0) or negative errno.  IoSlice layout matches struct iovec.
+    /// Performs a vectored write (`writev`) to the pipe's write end.
+    /// Returns total bytes written (>= 0) or negative on error.
+    /// `IoSlice` layout matches `struct iovec`.
     pub fn write_vectored(self: &mut Pipe,
                           iovs: *const IoSlice, nvecs: i32) -> i64 {
         unsafe { return writev(self.write_fd, iovs as *const u8, nvecs); }
     }
 
-    // Vectored read from the pipe's read-end.
+    /// Performs a vectored read (`readv`) from the pipe's read end.
+    /// Returns bytes read (0 = EOF) or negative on error.
     pub fn read_vectored(self: &mut Pipe,
                          iovs: *mut IoSlice, nvecs: i32) -> i64 {
         unsafe { return readv(self.read_fd, iovs as *mut u8, nvecs); }

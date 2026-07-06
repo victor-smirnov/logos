@@ -237,7 +237,7 @@ unsafe fn write_typed_map(out: &mut String, p: *const u8, tc: u64, depth: i64) {
     out.push_u8(125u8);                                    // }
 }
 
-// Render `v` (and its transitive references) to a fresh String.
+/// Renders `v` (and its transitive references) to a fresh `String`.
 pub fn stringify(v: WAny) -> String {
     let mut out: String = String::new();
     unsafe { write_val(&mut out, v, 0i64); }

@@ -14,12 +14,20 @@ use logos.lang.mem;
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
+/// SoA storage for strings: one packed byte buffer plus parallel end offsets.
+/// Owns `bytes` and `ends`; call `storage_drop` to free them before dropping the struct.
 pub struct WritStringStorage {
+    /// Packed string bytes, back-to-back with no separators.
     pub bytes: *mut u8,
+    /// Bytes currently used in `bytes`.
     pub b_len: u64,
+    /// Allocated capacity of `bytes`, in bytes.
     pub b_cap: u64,
+    /// Exclusive end offset of each stored string within `bytes`.
     pub ends:  *mut u32,
+    /// Number of strings stored (length of `ends`).
     pub o_len: u64,
+    /// Allocated capacity of `ends`, in elements.
     pub o_cap: u64,
 }
 impl Storage for WritStringStorage {
@@ -135,8 +143,14 @@ impl DynamicStorage for WritStringStorage {
     // without rewriting the bytes tail.  Persistent collections that need
     // this should pick a different Container; the methods are stubbed
     // here so the trait stays whole.
+    /// No-op stub — packed SoA storage can't overwrite a string in place; call silently
+    /// leaves the store unchanged.
     fn storage_set(s: *mut WritStringStorage, idx: u64, v: StringView) { }
+    /// No-op stub — packed SoA storage can't insert mid-sequence; call silently leaves
+    /// the store unchanged.
     fn storage_insert_at(s: *mut WritStringStorage, idx: u64, v: StringView) { }
+    /// No-op stub — packed SoA storage can't remove an element; call silently leaves
+    /// the store unchanged.
     fn storage_remove_at(s: *mut WritStringStorage, idx: u64) { }
 }
 
@@ -144,7 +158,7 @@ impl Datatype for WritString {
     type View<S: Storage> = StringView;
 }
 
-// Marker datatype: Buffer<StrDt> stores StringViews in the SoA store.
+/// Marker datatype: `Buffer<StrDt>` stores `StringView`s in the SoA string store.
 pub struct StrDt {}
 
 impl Datatype for StrDt {

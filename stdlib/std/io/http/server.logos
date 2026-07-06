@@ -18,10 +18,10 @@ use logos.std.io.buffered;
 use logos.std.rt.fiber;
 use logos.lang.mem;
 
-// Drain a full HTTP/1.1 request message from `s` into `buf`.  Reads until
-// headers are complete AND the entire Content-Length body (or chunked
-// terminator) has arrived, or the peer closes.  Returns Ok(bytes_in_buf) or
-// Err on IO / framing failure.
+/// Drains a full HTTP/1.1 request message from `s` into `buf`.
+/// Reads until headers are complete AND the entire Content-Length body (or chunked
+/// terminator) has arrived, or the peer closes. Returns `Ok(bytes_in_buf)` or `Err`
+/// on IO / framing failure.
 pub fn read_request_message(s: &TcpStream, buf: &mut Vec<u8>) -> Result<i64, HttpError> {
     let mut chunk: [u8; 2048] = [0 as u8; 2048];
     let mut hdr_end: i64 = 0 - 1;
@@ -103,6 +103,10 @@ fn send_error_response(sink: &mut AsyncTcpStream, status: i32) -> i64 {
 //     framed request bodies — dropped for now, P1.12 adds it),
 //   • a framing / I/O error occurs.
 // The TcpStream is always closed before return.
+/// Serves HTTP/1.1 requests from `stream` through `svc` in a keep-alive loop.
+/// Handles `Expect: 100-continue`; drains `Content-Length` bodies and decodes chunked
+/// bodies into `req.body`. Closes on `Connection: close` from either side or on a
+/// framing/IO error (malformed requests get a 400 reply first). Always returns 0.
 pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
     let astream: AsyncTcpStream = async_tcp_stream(stream);
     let mut br: BufReader<AsyncTcpStream> =
@@ -217,10 +221,10 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
 }
 
 // ── Accept loop + graceful shutdown ─────────────────────────────────────────
-// serve_bounded accepts up to `count` connections serially and runs each
-// through serve_connection (so keep-alive works per connection).  Returns
-// after `count` connections have been served or accept fails.  Use this in
-// tests and in "single request batch" scenarios.
+/// Accepts up to `count` connections serially, running each through `serve_connection`
+/// (keep-alive works per connection). Returns `Ok(())` after `count` connections have
+/// been served or accept fails; `Err(Connect)` if bind fails. For tests and
+/// "single request batch" scenarios.
 pub fn serve_bounded<S: Service>(port: u16, count: i64, svc: &mut S)
     -> Result<(), HttpError>
 {
@@ -237,10 +241,10 @@ pub fn serve_bounded<S: Service>(port: u16, count: i64, svc: &mut S)
     return Result::Ok(());
 }
 
-// serve_until accepts connections until `*stop_flag != 0`.  The stop flag
-// must be an i64 cell the caller mutates from another fiber / signal
-// handler — checked between accepts.  Returns Ok(()) on clean stop or
-// Err(Connect) if bind fails.
+/// Accepts connections until `*stop_flag != 0`, serving each through `serve_connection`.
+/// The stop flag must be an `i64` cell the caller mutates from another fiber / signal
+/// handler — checked between accepts; accept failure also stops. Returns `Ok(())` on
+/// clean stop or `Err(Connect)` if bind fails.
 pub fn serve_until<S: Service>(port: u16, svc: &mut S, stop_flag: *mut i64)
     -> Result<(), HttpError>
 {
@@ -257,9 +261,10 @@ pub fn serve_until<S: Service>(port: u16, svc: &mut S, stop_flag: *mut i64)
     return Result::Ok(());
 }
 
-// Bind, accept `count` connections serially, invoke `handler` for each,
-// serialize the response, write it back, close.  Returns Ok(()) once `count`
-// connections have been served, or Err on fatal bind/accept failure.
+/// Binds `port`, accepts `count` connections serially, invokes `handler` for each,
+/// writes the serialized response back, and closes — one request per connection.
+/// Returns `Ok(())` once `count` connections have been served, or `Err(Connect)` on
+/// fatal bind/accept failure.
 pub fn serve_n(port: u16, count: i64, handler: fn(&Request) -> Response) -> Result<(), HttpError> {
     let mut listener: TcpListener = tcp_listen(inaddr_any(), port, 16 as i32);
     if !(&listener).is_valid() { return Result::Err(HttpError::Connect); }
@@ -304,12 +309,14 @@ pub fn serve_n(port: u16, count: i64, handler: fn(&Request) -> Response) -> Resu
 }
 
 // ── serve_mt — multi-worker (Phase 2) ───────────────────────────────────────
-// ConnTask packs a connection fd + type-erased service pointer for handoff
-// across an SPSC inbox.  Heap-allocated by the acceptor, freed by the worker
-// fiber after it is consumed.
+/// Packs a connection fd + type-erased service pointer for handoff to a worker.
+/// Heap-allocated by the acceptor, freed by the worker fiber after it is consumed.
 pub struct ConnTask {
+    /// Raw fd of the accepted connection.
     pub fd:  i32,
+    /// Alignment padding; unused.
     pub pad: i32,
+    /// Type-erased `*mut FnService` (as `i64`) shared with the worker thread.
     pub svc: i64,
 }
 
@@ -331,14 +338,11 @@ fn serve_mt_conn_fnservice(arg: i64) {
     let _: i64 = serve_connection::<FnService>(stream, svc);
 }
 
-// Multi-worker server: bind on the calling thread's reactor, accept in a
-// loop, hand each connection round-robin to one of `n_workers` worker
-// threads.  Stops when *stop_flag != 0 or accept fails.  The caller supplies
-// a reactor+scheduler on the calling thread (same as serve_until).
-//
-// Safety: `svc` is shared by raw pointer across all worker threads.  For
-// stateless services (FnService, etc.) this is trivially safe.  Stateful
-// services must provide their own Sync via atomics or locks.
+/// Runs a multi-worker server: accepts on the calling thread's reactor and hands each
+/// connection round-robin to one of `n_workers` worker threads via `serve_connection`.
+/// Stops when `*stop_flag != 0` or accept fails; `Err(Connect)` if bind fails or
+/// `n_workers < 1`. Safety: `svc` is shared by raw pointer across workers — safe only
+/// for stateless services (e.g. `FnService`); stateful services need their own sync.
 pub fn serve_mt(port: u16, n_workers: i32, svc: &mut FnService,
                  stop_flag: *mut i64) -> Result<(), HttpError> {
     if n_workers < 1 as i32 { return Result::Err(HttpError::Connect); }
@@ -372,11 +376,10 @@ pub fn serve_mt(port: u16, n_workers: i32, svc: &mut FnService,
     return Result::Ok(());
 }
 
-// Bounded multi-worker variant: accept exactly `count` connections, hand
-// them round-robin to `n_workers` workers, then signal shutdown and RETURN
-// the pool to the caller.  Caller must thread_pool_join + thread_pool_free
-// AFTER its reactor has drained — doing that inside the fiber would block
-// the OS thread and deadlock client fibers sharing its scheduler.
+/// Accepts exactly `count` connections, handing each round-robin to `n_workers`
+/// workers, then signals shutdown and returns the pool without joining it.
+/// Caller must `thread_pool_join` + `thread_pool_free` only after its own reactor has
+/// drained — joining inside the fiber would block the OS thread and deadlock peers.
 pub fn serve_mt_bounded(port: u16, n_workers: i32, count: i64,
                          svc: &mut FnService) -> *mut ThreadPool {
     if n_workers < 1 as i32 { return 0 as *mut ThreadPool; }

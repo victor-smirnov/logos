@@ -15,9 +15,9 @@ use logos.mem.string;
 use logos.lang.str;
 
 // ── String escape ─────────────────────────────────────────────────────────
-// Append a JSON string literal (including the surrounding double quotes) that
-// encodes the bytes [src, src+len).  Non-ASCII bytes are passed through as-is
-// (valid per RFC 8259 for UTF-8 input).
+/// Appends a JSON string literal (including surrounding double quotes) encoding the bytes
+/// `[src, src+len)` to `out`.
+/// Non-ASCII bytes pass through as-is (valid per RFC 8259 for UTF-8 input).
 pub fn json_escape_string(src: *const u8, len: i64, out: &mut String) {
     unsafe {
         out.push_u8(34 as u8);          // '"'
@@ -52,14 +52,16 @@ pub fn json_escape_string(src: *const u8, len: i64, out: &mut String) {
     }
 }
 
+/// Appends a JSON string literal (quoted, escaped) encoding `s` to `out`.
 pub fn json_escape_str(s: str, out: &mut String) {
     unsafe { json_escape_string(s.as_ptr(), s.len(), out); }
 }
 
 // ── String unescape ──────────────────────────────────────────────────────
-// `src` must point at the opening '"'.  On success, appends the decoded
-// bytes to `out` and returns the number of bytes consumed from `src`
-// (including both quotes).  On malformed input, returns -1.
+/// Decodes the JSON string literal starting at `src` (must point at the opening `"`),
+/// appending the decoded bytes to `out`.
+/// Returns bytes consumed including both quotes, or -1 on malformed input — in which case
+/// `out` may already hold a partial decode.
 pub fn json_unescape_string(src: *const u8, len: i64, out: &mut String) -> i64 {
     unsafe {
         if len < 2 as i64 { return 0 - 1 as i64; }
@@ -116,8 +118,9 @@ pub fn json_unescape_string(src: *const u8, len: i64, out: &mut String) -> i64 {
 }
 
 // ── Validator ─────────────────────────────────────────────────────────────
-// Returns number of bytes consumed for the first valid JSON value in
-// [src, src+len), skipping leading whitespace.  -1 on malformed input.
+/// Returns the byte length of the first valid JSON value in `[src, src+len)`, after skipping
+/// leading whitespace; -1 on malformed input.
+/// Purely syntactic; trailing bytes after the value are ignored.
 pub fn json_validate(src: *const u8, len: i64) -> i64 {
     unsafe {
         let start: i64 = skip_ws(src, len, 0 as i64);
@@ -127,6 +130,8 @@ pub fn json_validate(src: *const u8, len: i64) -> i64 {
     }
 }
 
+/// Returns the byte length of the first valid JSON value in `s` (leading whitespace skipped);
+/// -1 on malformed input.
 pub fn json_validate_str(s: str) -> i64 {
     unsafe { return json_validate(s.as_ptr(), s.len()); }
 }
@@ -140,6 +145,9 @@ pub fn json_validate_str(s: str) -> i64 {
 //   kind:   0 = root, 1 = array, 2 = object
 //   count:  number of values already emitted in this frame
 //   expect_key: (object only) whether next `push_*` must be a key
+/// Structured builder that emits well-formed JSON into an owned `String`.
+/// Commas and object key/value alternation are handled automatically via a fixed 64-frame
+/// container stack (root frame included), capping nesting at 63 containers.
 pub struct JsonWriter {
     buf: String,
     stack_kind: [u8; 64],
@@ -149,6 +157,7 @@ pub struct JsonWriter {
 }
 
 impl JsonWriter {
+    /// Creates an empty writer at root depth.
     pub static fn new() -> JsonWriter {
         let s: String = String::new();
         let k: [u8; 64] = [0 as u8; 64];
@@ -163,9 +172,12 @@ impl JsonWriter {
         };
     }
 
+    /// Returns a raw pointer to the emitted bytes; valid for `len()` bytes until the next write.
     pub fn as_str(&self) -> *const u8 { return self.buf.as_ptr(); }
+    /// Returns the number of bytes emitted so far.
     pub fn len(&self) -> i64 { return self.buf.len(); }
 
+    /// Appends the emitted JSON bytes to `out`.
     pub fn append_into(&self, out: &mut String) {
         unsafe { out.push_bytes(self.buf.as_ptr(), self.buf.len()); }
     }
@@ -189,6 +201,7 @@ impl JsonWriter {
         }
     }
 
+    /// Opens a JSON array, emitting `[` and any needed comma separator.
     pub fn begin_array(&mut self) {
         self.emit_separator_for_value();
         self.buf.push_u8(91 as u8);              // '['
@@ -198,12 +211,14 @@ impl JsonWriter {
         self.object_expecting_key[self.depth] = false;
     }
 
+    /// Closes the current array with `]`.
     pub fn end_array(&mut self) {
         self.buf.push_u8(93 as u8);              // ']'
         self.depth = self.depth - 1;
         self.after_value();
     }
 
+    /// Opens a JSON object, emitting `{` and any needed comma separator.
     pub fn begin_object(&mut self) {
         self.emit_separator_for_value();
         self.buf.push_u8(123 as u8);             // '{'
@@ -213,12 +228,15 @@ impl JsonWriter {
         self.object_expecting_key[self.depth] = true;
     }
 
+    /// Closes the current object with `}`.
     pub fn end_object(&mut self) {
         self.buf.push_u8(125 as u8);             // '}'
         self.depth = self.depth - 1;
         self.after_value();
     }
 
+    /// Writes an object key (quoted, escaped) followed by `:`, with a preceding comma if needed.
+    /// Must be called before each value inside an object.
     pub fn write_key(&mut self, k: str) {
         let d: i32 = self.depth;
         if self.stack_count[d] > 0 { self.buf.push_u8(44 as u8); }
@@ -237,6 +255,7 @@ impl JsonWriter {
         // object values: key() already emitted the ':'; no separator needed here
     }
 
+    /// Writes the literal `null` as the next value.
     pub fn write_null(&mut self) {
         self.emit_separator_for_value();
         self.buf.push_u8(110 as u8); self.buf.push_u8(117 as u8);
@@ -244,6 +263,7 @@ impl JsonWriter {
         self.after_value();
     }
 
+    /// Writes `true` or `false` as the next value.
     pub fn write_bool(&mut self, v: bool) {
         self.emit_separator_for_value();
         if v {
@@ -257,26 +277,29 @@ impl JsonWriter {
         self.after_value();
     }
 
+    /// Writes `n` as a JSON number.
     pub fn write_i64(&mut self, n: i64) {
         self.emit_separator_for_value();
         self.buf.push_i64(n);
         self.after_value();
     }
 
+    /// Writes `n` as a JSON number.
     pub fn write_u64(&mut self, n: u64) {
         self.emit_separator_for_value();
         self.buf.push_u64(n);
         self.after_value();
     }
 
+    /// Writes `s` as a quoted, escaped JSON string value.
     pub fn write_str(&mut self, s: str) {
         self.emit_separator_for_value();
         json_escape_str(s, &mut self.buf);
         self.after_value();
     }
 
-    // Caller-supplied raw JSON fragment (e.g. a pre-formatted number).
-    // No validation.
+    /// Writes a caller-supplied raw JSON fragment verbatim (e.g. a pre-formatted number).
+    /// No validation — a malformed fragment corrupts the output.
     pub fn write_raw(&mut self, s: str) {
         self.emit_separator_for_value();
         self.buf.push_str(s);

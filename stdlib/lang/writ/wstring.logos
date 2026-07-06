@@ -27,8 +27,12 @@ use logos.lang.mem;                 // copy_bytes
 use logos.lang.ptr;                 // byte_add
 use logos.lang.vlen;                // vlen_encode_size / write / read / prefix_size
 
+/// UTF-8 string interned in the never-move arena as a self-describing custom DST.
+/// Layout is exactly the wire shape `[vlen(payload_len)][UTF-8 payload]` — the length is
+/// encoded in-band, no sized prefix. Borrow as `&WString`; read back with `as_str`.
 #[self_describing]
 pub struct WString {
+    /// The whole tail: vlen length prefix followed by the UTF-8 payload.
     pub bytes: [u8],        // [vlen(payload_len)][utf8 payload] — no sized prefix
 }
 
@@ -41,11 +45,10 @@ impl SelfDescribing for WString {
     }
 }
 
-// Intern `s` THROUGH AN ALLOCATOR (the shared core): allocate
-// `vlen_encode_size(n) + n` bytes in ONE arena chunk, write the vlen length
-// prefix, then copy the payload right after it. Taking `*mut Allocator` (rather
-// than the whole `Writ`) lets an arena container that holds only its allocator
-// back-pointer — e.g. `WArray<WAny>` — intern strings without the full handle.
+/// Interns `s` through a raw `Allocator`: allocates `vlen_encode_size(n) + n` bytes in
+/// one arena chunk, writes the vlen length prefix, then copies the payload after it.
+/// Taking `*mut Allocator` (not the whole `Writ`) lets a container that holds only its
+/// allocator back-pointer — e.g. `WArray<WAny>` — intern strings without the full handle.
 pub unsafe fn wstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut WString {
     let n: u64 = s.len() as u64;
     let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);
@@ -60,29 +63,31 @@ unsafe fn wstring_new(h: *mut Writ, s: str) -> *mut WString {
 }
 
 impl Writ {
-    // Intern a string into the arena; return a borrowed `&WString` into never-move
-    // storage (valid for the container's lifetime). Read it back with `as_str`.
+    /// Interns `s` into the arena; returns a borrowed `&WString` into never-move storage,
+    /// valid for the container's lifetime. Read it back with `as_str`.
     pub fn wstring<'a>(self: &'a Writ, s: str) -> &'a WString {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
             return &*wstring_new(h, s);
         }
     }
-    // Resolve a Ref `WAny` back to the `WString` it points at.
+    /// Resolves a Ref `WAny` back to the `WString` it points at.
+    /// `e` must be a Ref to an interned string — no type check is performed.
     pub fn wstring_of<'a>(self: &'a Writ, e: WAny) -> &'a WString {
         return unsafe { &*(e.resolve() as *const WString) };
     }
 }
 
 impl WString {
-    // Logical string length = the vlen-decoded payload count (NOT dst_len, which
-    // is the whole tail incl. the prefix). `self.bytes` materializes the tail; its
-    // data pointer is the vlen prefix.
+    /// Returns the logical string length in bytes — the vlen-decoded payload count.
+    /// NOT `dst_len`, which is the whole tail including the vlen prefix (`self.bytes`
+    /// materializes the tail; its data pointer is the vlen prefix).
     pub fn len(self: &WString) -> i64 {
         return unsafe { vlen_read(self.bytes.as_ptr()) as i64 };
     }
 
-    // The inline UTF-8 payload — the tail past its vlen prefix.
+    /// Returns the inline UTF-8 payload — the tail past its vlen prefix.
+    /// The `str` borrows arena storage and stays valid while the container lives.
     pub fn as_str(self: &WString) -> str {
         unsafe {
             let p: *const u8 = self.bytes.as_ptr();
@@ -94,15 +99,18 @@ impl WString {
 }
 
 impl WAny {
-    // An interned string as a heterogeneous value — a Ref to its header.
+    /// Wraps an interned string as a heterogeneous `WAny` — a Ref to its header.
     pub fn from(s: &WString) -> WAny { return WAny::ref_to(s as *const WString as *const u8); }
 
-    // Resolve a Ref cursor to a borrowed `&WString` (read-only). Check is_string()
-    // first. Encapsulates the resolve()+cast so callers stay unsafe-free.
+    /// Resolves a Ref `WAny` to a borrowed `&WString` (read-only); check `is_string()` first.
+    /// Encapsulates the `resolve()`+cast so callers stay `unsafe`-free.
     pub fn as_string(self: &WAny) -> &WString {
         return unsafe { &*(self.resolve() as *const WString) };
     }
 
+    /// Returns a null-safe `str` view of a `WAny` holding an interned `WString`.
+    /// Null, inline Pod, and non-string Ref values (guard: `!is_string()`) all yield
+    /// the empty `str` — the same default as an absent schema key.
     // ADR 0011 — null-safe str view of a WAny holding an interned WString. A
     // null/absent WAny (e.g. a schema field whose key isn't present) → empty str.
     // Used by the schema field-read sugar for `str`-typed fields. The guard is

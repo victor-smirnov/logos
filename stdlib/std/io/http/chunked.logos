@@ -29,7 +29,8 @@ fn write_hex_len(n: i64, out: &mut Vec<u8>) {
     while k > 0 { k = k - 1; vec_push_u8(out, buf[k]); }
 }
 
-// Append one chunk (hex-length + CRLF + data + CRLF) to `out`.
+/// Appends one chunk (hex-length + CRLF + data + CRLF) to `out`.
+/// `n == 0` emits bytes identical to the stream terminator; use `chunked_finalize` for that.
 pub fn chunked_write_chunk(data: *const u8, n: i64, out: &mut Vec<u8>) {
     write_hex_len(n, out);
     vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);
@@ -41,24 +42,23 @@ pub fn chunked_write_chunk(data: *const u8, n: i64, out: &mut Vec<u8>) {
     vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);
 }
 
-// Append the terminator ("0\r\n\r\n") to `out`.
+/// Appends the chunked-stream terminator (`0\r\n\r\n`) to `out`.
 pub fn chunked_finalize(out: &mut Vec<u8>) {
     vec_push_u8(out, 48 as u8);                        // "0"
     vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8);
     vec_push_u8(out, 13 as u8); vec_push_u8(out, 10 as u8); // trailer CRLF
 }
 
-// Encode a body as a single chunk followed by the zero-length terminator.
-// Suitable for "encode my whole body"; callers wanting streaming call
-// chunked_write_chunk repeatedly then chunked_finalize.
+/// Encodes a whole body as one chunk plus the zero-length terminator, appended to `out`.
+/// For streaming, call `chunked_write_chunk` repeatedly, then `chunked_finalize`.
 pub fn chunked_encode(data: *const u8, n: i64, out: &mut Vec<u8>) {
     if n > 0 { chunked_write_chunk(data, n, out); }
     chunked_finalize(out);
 }
 
-// Decode chunked bytes [src, src+len) into `out`.
-// Returns total input bytes consumed on success (through final trailer CRLF),
-// or -1 on malformed input.  Trailer headers are parsed and skipped.
+/// Decodes chunked bytes `[src, src+len)`, appending body data to `out`.
+/// Returns total input bytes consumed (through the final trailer CRLF), or -1 on malformed input.
+/// Trailer headers are parsed and skipped.
 pub fn chunked_decode(src: *const u8, len: i64, out: &mut Vec<u8>) -> i64 {
     let mut pos: i64 = 0;
     unsafe {
@@ -125,12 +125,15 @@ pub fn chunked_decode(src: *const u8, len: i64, out: &mut Vec<u8>) -> i64 {
 //   4 = done (EOF)
 //   5 = error (permanent)
 
+/// Decodes a chunked-encoded `Read` source, exposing the body as a plain `Read`.
 pub struct ChunkedReader<R> {
     reader:    R,
     state:     i32,
     remaining: i64,
 }
 
+/// Wraps `r` in a `ChunkedReader`, taking ownership.
+/// To keep the underlying reader available afterwards, use `read_chunked_body` instead.
 pub fn chunked_reader_wrap<R: Read>(r: R) -> ChunkedReader<R> {
     return ChunkedReader { reader: r, state: 0 as i32, remaining: 0 as i64 };
 }
@@ -208,6 +211,8 @@ impl<R: Read> ChunkedReader<R> {
 }
 
 impl<R: Read> Read for ChunkedReader<R> {
+    /// Reads decoded body bytes; returns 0 at end of the chunked body, -1 on malformed framing.
+    /// Errors are sticky: after a framing failure every subsequent call returns -1.
     fn read(self: &mut ChunkedReader<R>, buf: *mut u8, len: i64) -> i64 {
         if len <= 0 as i64 { return 0 as i64; }
         // Drive the state machine until we produce bytes or reach EOF/error.
@@ -255,12 +260,10 @@ impl<R: Read> Read for ChunkedReader<R> {
     }
 }
 
-// Read a full chunked-encoded body from `r` into `out` (appended).  Unlike
-// ChunkedReader, this helper takes a mutable reference and so can be used
-// when the caller must keep the underlying reader available afterwards
-// (e.g. an HTTP server that reads the request body then reads the next
-// request from the same BufReader).  Returns bytes appended on success,
-// -1 on malformed input / I/O error.
+/// Reads a full chunked-encoded body from `r`, appending decoded bytes to `out`.
+/// Returns bytes appended on success, -1 on malformed input / I/O error.
+/// Borrows `r` (unlike `ChunkedReader`), so e.g. an HTTP server can read the next request
+/// from the same `BufReader` afterwards.
 pub fn read_chunked_body<R: Read>(r: &mut R, out: &mut Vec<u8>) -> i64 {
     let mut total: i64 = 0 as i64;
     unsafe {
@@ -337,11 +340,14 @@ pub fn read_chunked_body<R: Read>(r: &mut R, out: &mut Vec<u8>) -> i64 {
 // body that came with a `Content-Length: N` header.  Returns 0 (EOF) once
 // the budget is exhausted; never reads past it from the underlying reader.
 
+/// Caps reads from a `Read` source at a fixed byte budget; frames a `Content-Length: N` body.
+/// Returns 0 (EOF) once the budget is exhausted; never reads past it on the underlying reader.
 pub struct ContentLengthReader<R> {
     reader:    R,
     remaining: i64,
 }
 
+/// Wraps `r` in a `ContentLengthReader` capped at `n` bytes; negative `n` is clamped to 0.
 pub fn content_length_reader_wrap<R: Read>(r: R, n: i64) -> ContentLengthReader<R> {
     let mut capped: i64 = n;
     if capped < 0 as i64 { capped = 0 as i64; }
@@ -372,11 +378,15 @@ impl<R: Read> Read for ContentLengthReader<R> {
 // rejected with -1.  Dropping without finish() leaves the stream malformed
 // — callers own this.
 
+/// Frames each `write` call to the wrapped `Write` sink as one chunked-encoded record.
+/// Call `finish` to emit the terminator; dropping without it leaves the stream malformed.
+/// For chatty producers, wrap the sink in a `BufWriter` first to coalesce small chunks.
 pub struct ChunkedWriter<W> {
     writer:   W,
     finished: bool,
 }
 
+/// Wraps `w` in a `ChunkedWriter`, taking ownership of the sink.
 pub fn chunked_writer_wrap<W: Write>(w: W) -> ChunkedWriter<W> {
     return ChunkedWriter { writer: w, finished: false };
 }
@@ -414,8 +424,8 @@ fn cw_write_crlf<W: Write>(w: &mut W) -> i64 {
 }
 
 impl<W: Write> ChunkedWriter<W> {
-    // Emit the zero-length terminator "0\r\n\r\n".  Idempotent-safe:
-    // subsequent calls return 0 without re-emitting.
+    /// Emits the zero-length terminator (`0\r\n\r\n`) and flushes the sink.
+    /// Returns 0 on success, <0 on write/flush error. Idempotent: repeat calls return 0.
     pub fn finish(self: &mut ChunkedWriter<W>) -> i64 {
         if self.finished { return 0 as i64; }
         self.finished = true;
@@ -429,10 +439,9 @@ impl<W: Write> ChunkedWriter<W> {
 }
 
 impl<W: Write> Write for ChunkedWriter<W> {
-    // Emit one chunk carrying the full [buf, buf+len) payload.  Empty
-    // writes (len==0) are ignored so callers don't accidentally emit the
-    // zero-length terminator ahead of finish().  Returns `len` on success,
-    // <0 on underlying write error.
+    /// Emits one chunk carrying the full `[buf, buf+len)` payload.
+    /// Returns `len` on success, <0 on underlying write error; -1 once `finish` has run.
+    /// Empty writes (`len <= 0`) are ignored so callers can't emit the terminator early.
     fn write(self: &mut ChunkedWriter<W>, buf: *const u8, len: i64) -> i64 {
         if self.finished { return 0 - 1 as i64; }
         if len <= 0 as i64 { return 0 as i64; }
