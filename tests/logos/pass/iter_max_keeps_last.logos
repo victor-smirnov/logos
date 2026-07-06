@@ -1,0 +1,17 @@
+// Regression: iterator max keeps the LAST of equal maxima (Rust semantics),
+// not the first. With an all-equal comparator over [10,20,30], max_by must
+// return the last element (30). The buggy version used `> 0` (kept the first).
+package iter_max_keeps_last;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+
+fn cmp_all_equal(a: &i32, b: &i32) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let mut v: Vec<i32> = Vec::<i32>::new();
+    v.push(10i32); v.push(20i32); v.push(30i32);
+    let m: Option<&i32> = iter_max_by(v.iter(), cmp_all_equal);
+    let mv: i32 = match m { Option::Some(x) => *x, Option::None => 0i32 };
+    if mv != 30i32 { return 1i32; }   // last of equals, not first (10)
+    return 0i32;
+}
