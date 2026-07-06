@@ -1,0 +1,30 @@
+// Regression: Debug for str/String escapes control chars and quotes
+// (Rust `escape_debug`). Debug of "x\ny" must NOT contain a raw newline
+// byte and MUST contain a backslash (the \n escape). Buggy version wrote
+// the string verbatim between quotes with no escaping.
+package fmt_debug_str_escape;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn scan(out: &String) -> i32 {
+    let p: *const u8 = out.as_str().as_ptr();
+    let n: i64 = out.len();
+    let mut has_backslash: bool = false;
+    let mut has_raw_nl: bool = false;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = unsafe { *(p.add(i)) };
+        if c == 92u8 { has_backslash = true; }   // '\'
+        if c == 10u8 { has_raw_nl = true; }       // raw newline
+        i = i + 1i64;
+    }
+    if !has_backslash { return 1i32; }   // must have escaped the newline
+    if has_raw_nl     { return 2i32; }   // must not contain a raw newline
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let out: String = format!("{:?}", "x\ny");
+    return scan(&out);
+}

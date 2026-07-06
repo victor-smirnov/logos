@@ -38,12 +38,15 @@ extern fn logos_fmt_f32_g(buf: *mut u8, cap: i32, x: f32) -> i32;
 // payload. Most uses pattern-match it as the `Err` arm of
 // `Result<(), Error>` (Rust's `fmt::Result`).
 
+/// Unit error returned by failed formatter operations; carries no payload.
 pub struct Error {}
 
+/// Returns `Ok(())`, the success value of a formatter operation.
 pub fn ok() -> Result<(), Error> {
     return Result::<(), Error>::Ok(());
 }
 
+/// Returns `Err(Error {})`, signalling formatter failure.
 pub fn err() -> Result<(), Error> {
     return Result::<(), Error>::Err(Error {});
 }
@@ -62,13 +65,17 @@ pub fn err() -> Result<(), Error> {
 // `std::io::Write` because the conflict resolves at import; the
 // underlying B-mv-02 bug here forces the rename until the trait
 // registry becomes package-aware.
+/// Byte/string sink that formatters write into; mirror of `core::fmt::Write`.
 pub trait FmtWrite {
+    /// Writes a string slice to the sink.
     fn write_str(&mut self, s: str) -> Result<(), Error>;
+    /// Writes a single byte to the sink.
     fn write_char(&mut self, c: u8) -> Result<(), Error>;
     // Build a Formatter that streams straight into this sink. The write!/
     // writeln! lowering calls `(sink).as_formatter()` — a method call so the
     // sink auto-refs whether it's a value (`Collector`) or already a borrow
     // (`&mut Formatter` inside a Display::fmt). Default body wraps self.
+    /// Returns a default-spec `Formatter` that streams directly into this sink.
     fn as_formatter(&mut self) -> Formatter { return formatter_for_sink(self); }
 }
 
@@ -97,18 +104,30 @@ impl FmtWrite for String {
 // Migrating to `&mut dyn Write` is straightforward once the dyn path
 // is exercised.
 
+/// Formatting state threaded through `Display`/`Debug` impls; mirror of `core::fmt::Formatter`.
+/// Bundles the output sink with the parsed spec of the current `{...}` placeholder.
 pub struct Formatter {
+    /// Output sink all writes go through.
     pub w:          *mut dyn FmtWrite,   // sink (String for format!, any FmtWrite for write!)
+    /// Fill byte used for width padding (default `' '`).
     pub fill:       u8,
+    /// Alignment code.
     pub align_code: u8,    // 0=Unknown→Right, 1=Left, 2=Right, 3=Center
+    /// Whether `+` was given: force a sign on non-negative numbers.
     pub sign_plus:  bool,
+    /// Whether `#` (alternate form) was given.
     pub alternate:  bool,
+    /// Whether `0` (zero padding) was given.
     pub zero_pad:   bool,
+    /// Minimum field width.
     pub width:      i64,   // -1 = unspecified
+    /// Maximum content length.
     pub precision:  i64,   // -1 = unspecified
+    /// Pretty-print nesting depth; preserved across `reset_spec`.
     pub indent:     i64,   // pretty-print depth (alternate `{:#?}` only)
 }
 
+/// Creates a default-spec `Formatter` writing into `buf`.
 pub fn formatter_for(buf: &mut String) -> Formatter {
     unsafe {
         return Formatter {
@@ -128,6 +147,7 @@ pub fn formatter_for(buf: &mut String) -> Formatter {
 // Build a Formatter that streams straight to an arbitrary FmtWrite sink
 // (no String intermediate). The metacall lowering for write!/writeln! uses
 // this so placeholders + their specs render directly into the sink.
+/// Creates a default-spec `Formatter` streaming into an arbitrary `FmtWrite` sink.
 pub fn formatter_for_sink(sink: &mut dyn FmtWrite) -> Formatter {
     unsafe {
         return Formatter {
@@ -149,6 +169,7 @@ impl Formatter {
     // metacall lowering so the synthesized block doesn't need a
     // package-level `use logos.mem.fmt;`. Struct symbols are visible
     // globally even without the use, while free-fn names are not.
+    /// Creates a default-spec `Formatter` over `buf`; static-call twin of `formatter_for`.
     pub static fn new(buf: &mut String) -> Formatter {
         return formatter_for(buf);
     }
@@ -158,6 +179,7 @@ impl Formatter {
     // so the per-placeholder field writes start from a clean state.
     // `indent` is preserved across resets — it's nesting state, not
     // a per-placeholder flag.
+    /// Resets spec fields to no-format defaults; `indent` (nesting state) is preserved.
     pub fn reset_spec(&mut self) {
         self.fill       = 32u8;     // ' '
         self.align_code = 0u8;
@@ -170,6 +192,7 @@ impl Formatter {
 
     // Pretty-print helper: emit a newline followed by `indent * 4`
     // spaces. Used by DebugBuilders when `alternate` is true.
+    /// Writes a newline followed by `indent * 4` spaces.
     pub fn write_indent(&mut self) -> Result<(), Error> {
         let _ = self.write_str("\n");
         let mut i: i64 = 0i64;
@@ -180,7 +203,9 @@ impl Formatter {
         return Result::<(), Error>::Ok(());
     }
 
+    /// Increments the pretty-print nesting depth.
     pub fn indent_inc(&mut self) { self.indent = self.indent + 1i64; }
+    /// Decrements the pretty-print nesting depth.
     pub fn indent_dec(&mut self) { self.indent = self.indent - 1i64; }
 }
 
@@ -211,6 +236,9 @@ impl Formatter {
     // emits  sign / prefix / zero-fill / content;  otherwise
     //        fill-left / sign / prefix / content / fill-right.
     // Matches Rust's `{:05x}` → "000ff" / `{:#05x}` → "0x0ff".
+    /// Writes `prefix` then `content` applying the full spec: width, fill, alignment,
+    /// precision, `sign_plus`, and zero padding; precision truncates `content` bytewise.
+    /// Zero padding inserts `0`s between sign/prefix and content (`{:#05x}` → `0x0ff`).
     pub fn pad(&mut self, content: str, prefix: str) -> Result<(), Error> {
         unsafe {
             let n_full: i64 = content.len();
@@ -268,16 +296,19 @@ impl Formatter {
     // Writes a signed-decimal integer through `pad()`. Renders to a
     // scratch String first so width/align/precision apply uniformly
     // (a sign-prefixed body counts toward the body width for centring).
+    /// Writes `n` in signed decimal through `pad` (spec applies).
     pub fn write_int_dec_i64(&mut self, n: i64) -> Result<(), Error> {
         let mut scratch: String = String::new();
         scratch.push_i64(n);
         return self.pad(scratch.as_str(), "");
     }
+    /// Writes `n` in unsigned decimal through `pad` (spec applies).
     pub fn write_int_dec_u64(&mut self, n: u64) -> Result<(), Error> {
         let mut scratch: String = String::new();
         scratch.push_u64(n);
         return self.pad(scratch.as_str(), "");
     }
+    /// Writes `"true"` or `"false"` through `pad` (spec applies).
     pub fn write_bool(&mut self, b: bool) -> Result<(), Error> {
         if b { return self.pad("true",  ""); }
         return self.pad("false", "");
@@ -286,6 +317,8 @@ impl Formatter {
     // sign-extension or u32-cast-via-mask for signed types — same
     // contract as Rust's `LowerHex`/`UpperHex`/`Octal`/`Binary` on
     // signed types (`format!("{:x}", -1i32)` → "ffffffff").
+    /// Writes `n` in the given radix (2/8/16) through `pad`; `upper` selects `A-F` digits.
+    /// Signless — callers mask signed values first. Alternate (`#`) adds `0x`/`0o`/`0b`.
     pub fn write_int_radix_u64(&mut self, n: u64, radix: u64, upper: bool) -> Result<(), Error> {
         let mut scratch: String = String::new();
         if n == 0u64 {
@@ -353,17 +386,22 @@ impl Formatter {
 // `mem.string`. After Session 4's legacy delete the trait registry is
 // clean and the methods rename back to plain `fmt`.
 
+/// User-facing formatting (`{}` placeholders); mirror of `core::fmt::Display`.
 pub trait Display {
+    /// Formats `self` into `f`.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error>;
 }
 
+/// Developer-facing formatting (`{:?}` placeholders); mirror of `core::fmt::Debug`.
 pub trait Debug {
+    /// Formats `self` into `f`.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error>;
 }
 
 // Render any Display value to an owned String using a default-spec
 // Formatter (no width/precision/sign). Equivalent to Rust's
 // `format!("{}", v)` once the metacall migration lands.
+/// Renders `val` via `Display` into a new `String` using a default-spec `Formatter`.
 pub fn fmt_display_to_string<T: Display>(val: &T) -> String {
     let mut buf: String = String::new();
     let mut f: Formatter = formatter_for(&mut buf);
@@ -371,6 +409,7 @@ pub fn fmt_display_to_string<T: Display>(val: &T) -> String {
     return buf;
 }
 
+/// Renders `val` via `Debug` into a new `String` using a default-spec `Formatter`.
 pub fn fmt_debug_to_string<T: Debug>(val: &T) -> String {
     let mut buf: String = String::new();
     let mut f: Formatter = formatter_for(&mut buf);
@@ -386,27 +425,35 @@ pub fn fmt_debug_to_string<T: Debug>(val: &T) -> String {
 // through a generic bound, letting `fmt_display(&x, f)` etc. select it
 // unambiguously. The format-family metacall lowering emits calls to these by
 // bare name (see format_trait_dispatcher in sema_fmt.cpp).
+/// Dispatches `arg.fmt(f)` through the `Display` bound (resolves the shared `fmt` name).
 pub fn fmt_display<T: Display>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
+/// Dispatches `arg.fmt(f)` through the `Debug` bound (resolves the shared `fmt` name).
 pub fn fmt_debug<T: Debug>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
+/// Dispatches `arg.fmt(f)` through the `LowerHex` bound (resolves the shared `fmt` name).
 pub fn fmt_lower_hex<T: LowerHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
+/// Dispatches `arg.fmt(f)` through the `UpperHex` bound (resolves the shared `fmt` name).
 pub fn fmt_upper_hex<T: UpperHex>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
+/// Dispatches `arg.fmt(f)` through the `Octal` bound (resolves the shared `fmt` name).
 pub fn fmt_octal<T: Octal>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
+/// Dispatches `arg.fmt(f)` through the `Binary` bound (resolves the shared `fmt` name).
 pub fn fmt_binary<T: Binary>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
+/// Dispatches `arg.fmt(f)` through the `LowerExp` bound (resolves the shared `fmt` name).
 pub fn fmt_lower_exp<T: LowerExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
+/// Dispatches `arg.fmt(f)` through the `UpperExp` bound (resolves the shared `fmt` name).
 pub fn fmt_upper_exp<T: UpperExp>(arg: &T, f: &mut Formatter) -> Result<(), Error> {
     return arg.fmt(f);
 }
@@ -421,15 +468,20 @@ pub fn fmt_upper_exp<T: UpperExp>(arg: &T, f: &mut Formatter) -> Result<(), Erro
 // primitives the eq handler uses. `fmt_seq` matches its first arg (so its
 // write side effect isn't dead-code-eliminated) and short-circuits on Err
 // like Rust's `write!(…)?`, otherwise returns the second.
+/// Returns `a` if it is `Err`, else `b`; short-circuit step in mono-expanded tuple `Debug` chains.
 pub fn fmt_seq(a: Result<(), Error>, b: Result<(), Error>) -> Result<(), Error> {
     match a {
         Result::Err(e) => { return Result::<(), Error>::Err(e); }
         Result::Ok(_)  => { return b; }
     }
 }
+/// Writes the tuple-`Debug` opener `(`.
 pub fn fmt_tuple_open(f: &mut Formatter)   -> Result<(), Error> { return f.write_str("("); }
+/// Writes the tuple-`Debug` separator `, `.
 pub fn fmt_tuple_sep(f: &mut Formatter)    -> Result<(), Error> { return f.write_str(", "); }
+/// Writes the tuple-`Debug` closer `)`.
 pub fn fmt_tuple_close(f: &mut Formatter)  -> Result<(), Error> { return f.write_str(")"); }
+/// Writes the 1-tuple closer `,)`.
 pub fn fmt_tuple_close1(f: &mut Formatter) -> Result<(), Error> { return f.write_str(",)"); }
 
 // ── Primitive impls ─────────────────────────────────────────────────
@@ -491,11 +543,39 @@ impl Display for str {
         return f.pad(*self, "");
     }
 }
+// Rust `escape_debug`-style escaping shared by the `Debug` impls of `str`/`String`:
+// wrap in `"` and escape `"`, `\`, `\n`, `\t`, `\r`, and other control bytes as
+// `\u{XX}`, so the debug output is unambiguous and round-trips.
+fn debug_write_escaped(s: str, f: &mut Formatter) -> Result<(), Error> {
+    let _ = f.write_char(34u8);                    // opening "
+    let p: *const u8 = s.as_ptr();
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = unsafe { *(p.add(i)) };
+        if c == 34u8        { let _ = f.write_char(92u8); let _ = f.write_char(34u8); }   // \"
+        else if c == 92u8   { let _ = f.write_char(92u8); let _ = f.write_char(92u8); }   // \\
+        else if c == 10u8   { let _ = f.write_char(92u8); let _ = f.write_char(110u8); }  // \n
+        else if c == 9u8    { let _ = f.write_char(92u8); let _ = f.write_char(116u8); }  // \t
+        else if c == 13u8   { let _ = f.write_char(92u8); let _ = f.write_char(114u8); }  // \r
+        else if c < 32u8 || c == 127u8 {                                                  // \u{XX}
+            let _ = f.write_char(92u8); let _ = f.write_char(117u8); let _ = f.write_char(123u8);
+            let hi: u8 = c / 16u8;
+            let lo: u8 = c % 16u8;
+            let _ = f.write_char(if hi < 10u8 { 48u8 + hi } else { 87u8 + hi });
+            let _ = f.write_char(if lo < 10u8 { 48u8 + lo } else { 87u8 + lo });
+            let _ = f.write_char(125u8);                                                  // }
+        }
+        else                { let _ = f.write_char(c); }
+        i = i + 1i64;
+    }
+    return f.write_char(34u8);                      // closing "
+}
+
 impl Debug for str {
+    /// Writes `self` in `"` quotes, escaping `"`, `\`, and control chars (Rust `escape_debug`).
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let _ = f.write_char(34u8);  // '"'
-        let _ = f.write_str(*self);
-        return f.write_char(34u8);
+        return debug_write_escaped(*self, f);
     }
 }
 
@@ -505,6 +585,7 @@ impl Debug for str {
 // FFI surfaces returning `char *`. No Debug — Rust doesn't define
 // it on raw pointers either; cast to *const () or use ptr::eq.
 impl Display for *const u8 {
+    /// Renders the pointed-to NUL-terminated C string; walks memory unchecked to the terminator.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let p: *const u8 = *self;
         let n: i64 = str_len(p);
@@ -656,22 +737,34 @@ impl<T: Debug> Debug for Vec<T> {
 // Display/Debug. Renamed to plain `LowerHex` etc. in Session 4
 // alongside the legacy delete.
 
+/// Lowercase hexadecimal formatting (`{:x}`); mirror of `core::fmt::LowerHex`.
 pub trait LowerHex {
+    /// Formats `self` into `f` as lowercase hex.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error>;
 }
+/// Uppercase hexadecimal formatting (`{:X}`); mirror of `core::fmt::UpperHex`.
 pub trait UpperHex {
+    /// Formats `self` into `f` as uppercase hex.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error>;
 }
+/// Octal formatting (`{:o}`); mirror of `core::fmt::Octal`.
 pub trait Octal {
+    /// Formats `self` into `f` as octal.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error>;
 }
+/// Binary formatting (`{:b}`); mirror of `core::fmt::Binary`.
 pub trait Binary {
+    /// Formats `self` into `f` as binary.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error>;
 }
+/// Lowercase scientific-notation formatting (`{:e}`); mirror of `core::fmt::LowerExp`.
 pub trait LowerExp {
+    /// Formats `self` into `f` in `1.5e3`-style notation.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error>;
 }
+/// Uppercase scientific-notation formatting (`{:E}`); mirror of `core::fmt::UpperExp`.
 pub trait UpperExp {
+    /// Formats `self` into `f` in `1.5E3`-style notation.
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error>;
 }
 
@@ -784,7 +877,9 @@ impl UpperExp for f32 {
 // this struct will hold the spec + arg pointers and grow a
 // `format()` method that writes through a `Formatter`.
 
+/// Placeholder mirror of `core::fmt::Arguments`; currently just carries the rendered text.
 pub struct Arguments {
+    /// The already-formatted result string.
     pub rendered: String,
 }
 
@@ -795,10 +890,9 @@ impl Display for String {
     }
 }
 impl Debug for String {
+    /// Writes the content in `"` quotes, escaping `"`, `\`, and control chars (Rust `escape_debug`).
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        let _ = f.write_char(34u8);
-        let _ = f.write_str(self.as_str());
-        return f.write_char(34u8);
+        return debug_write_escaped(self.as_str(), f);
     }
 }
 
@@ -845,33 +939,53 @@ impl Debug for Ordering {
 //       }
 //   }
 
+/// Builder for struct-shape `Debug` output (`Foo { x: 1 }`); from `Formatter::debug_struct`.
 pub struct DebugStruct {
+    /// Backing formatter.
     pub f:           *mut Formatter,
+    /// Running result returned by `finish`.
     pub result:      Result<(), Error>,
+    /// Whether any field has been written (drives comma/brace emission).
     pub has_fields:  bool,
 }
 
+/// Builder for tuple-shape `Debug` output (`Foo(1, 2)`); from `Formatter::debug_tuple`.
 pub struct DebugTuple {
+    /// Backing formatter.
     pub f:        *mut Formatter,
+    /// Running result returned by `finish`.
     pub result:   Result<(), Error>,
+    /// Count of fields written so far.
     pub fields:   i64,
 }
 
+/// Builder for list-shape `Debug` output (`[a, b]`); from `Formatter::debug_list`.
 pub struct DebugList {
+    /// Backing formatter.
     pub f:        *mut Formatter,
+    /// Running result returned by `finish`.
     pub result:   Result<(), Error>,
+    /// Whether any entry has been written (drives comma emission).
     pub has_any:  bool,
 }
 
+/// Builder for set-shape `Debug` output (`{a, b}`); from `Formatter::debug_set`.
 pub struct DebugSet {
+    /// Backing formatter.
     pub f:        *mut Formatter,
+    /// Running result returned by `finish`.
     pub result:   Result<(), Error>,
+    /// Whether any entry has been written (drives comma emission).
     pub has_any:  bool,
 }
 
+/// Builder for map-shape `Debug` output (`{k: v}`); from `Formatter::debug_map`.
 pub struct DebugMap {
+    /// Backing formatter.
     pub f:         *mut Formatter,
+    /// Running result returned by `finish`.
     pub result:    Result<(), Error>,
+    /// Whether any entry has been written (drives comma emission).
     pub has_any:   bool,
 }
 
@@ -880,6 +994,8 @@ impl Formatter {
     // first `.field()` call emits ` { name: value`. Empty finish keeps
     // just the name (Rust's `Foo` for unit struct, `Foo {}` only when
     // `.field()` was called).
+    /// Creates a struct-shape `Debug` builder, writing `name` immediately.
+    /// Braces appear only once `.field()` is called (unit structs render as bare `name`).
     pub fn debug_struct(&mut self, name: str) -> DebugStruct {
         let r: Result<(), Error> = self.write_str(name);
         unsafe {
@@ -891,6 +1007,7 @@ impl Formatter {
         }
     }
 
+    /// Creates a tuple-shape `Debug` builder, writing `name` immediately.
     pub fn debug_tuple(&mut self, name: str) -> DebugTuple {
         let r: Result<(), Error> = self.write_str(name);
         unsafe {
@@ -902,6 +1019,7 @@ impl Formatter {
         }
     }
 
+    /// Creates a list-shape `Debug` builder, writing the opening `[` immediately.
     pub fn debug_list(&mut self) -> DebugList {
         let r: Result<(), Error> = self.write_str("[");
         unsafe {
@@ -913,6 +1031,7 @@ impl Formatter {
         }
     }
 
+    /// Creates a set-shape `Debug` builder, writing the opening `{` immediately.
     pub fn debug_set(&mut self) -> DebugSet {
         let r: Result<(), Error> = self.write_str("{");
         unsafe {
@@ -924,6 +1043,7 @@ impl Formatter {
         }
     }
 
+    /// Creates a map-shape `Debug` builder, writing the opening `{` immediately.
     pub fn debug_map(&mut self) -> DebugMap {
         let r: Result<(), Error> = self.write_str("{");
         unsafe {
@@ -937,6 +1057,7 @@ impl Formatter {
 }
 
 impl DebugStruct {
+    /// Appends one `name: value` field rendered via `value`'s `Debug`.
     pub fn field<T: Debug>(&mut self, name: str, value: &T) -> &mut DebugStruct {
         unsafe {
             let pretty: bool = (*self.f).alternate;
@@ -964,6 +1085,7 @@ impl DebugStruct {
         return self;
     }
 
+    /// Closes the struct body (only if fields were written) and returns the running result.
     pub fn finish(&mut self) -> Result<(), Error> {
         if self.has_fields {
             unsafe {
@@ -983,6 +1105,7 @@ impl DebugStruct {
     // Mirror Rust's `finish_non_exhaustive` — emits `Foo { a: 1, .. }`
     // (or `Foo { .. }` with no prior fields) so the trailing `..` makes
     // it clear the struct has private fields not in the output.
+    /// Closes the body with a trailing `..` marker (`Foo { a: 1, .. }` / `Foo { .. }`).
     pub fn finish_non_exhaustive(&mut self) -> Result<(), Error> {
         unsafe {
             if (*self.f).alternate {
@@ -1009,6 +1132,7 @@ impl DebugStruct {
 }
 
 impl DebugTuple {
+    /// Appends one tuple field rendered via `value`'s `Debug`.
     pub fn field<T: Debug>(&mut self, value: &T) -> &mut DebugTuple {
         unsafe {
             let pretty: bool = (*self.f).alternate;
@@ -1034,6 +1158,7 @@ impl DebugTuple {
         return self;
     }
 
+    /// Closes with `)` (only if fields were written) and returns the running result.
     pub fn finish(&mut self) -> Result<(), Error> {
         if self.fields > 0i64 {
             unsafe {
@@ -1052,6 +1177,7 @@ impl DebugTuple {
 }
 
 impl DebugList {
+    /// Appends one entry rendered via `value`'s `Debug`.
     pub fn entry<T: Debug>(&mut self, value: &T) -> &mut DebugList {
         unsafe {
             let pretty: bool = (*self.f).alternate;
@@ -1074,6 +1200,7 @@ impl DebugList {
         return self;
     }
 
+    /// Closes with `]` and returns the running result.
     pub fn finish(&mut self) -> Result<(), Error> {
         unsafe {
             if (*self.f).alternate && self.has_any {
@@ -1088,6 +1215,7 @@ impl DebugList {
 }
 
 impl DebugSet {
+    /// Appends one entry rendered via `value`'s `Debug`.
     pub fn entry<T: Debug>(&mut self, value: &T) -> &mut DebugSet {
         unsafe {
             let pretty: bool = (*self.f).alternate;
@@ -1110,6 +1238,7 @@ impl DebugSet {
         return self;
     }
 
+    /// Closes with `}` and returns the running result.
     pub fn finish(&mut self) -> Result<(), Error> {
         unsafe {
             if (*self.f).alternate && self.has_any {
@@ -1126,6 +1255,7 @@ impl DebugSet {
 impl DebugMap {
     // Single-shot key-value entry. Most users want this over
     // separate `.key().value()` calls.
+    /// Appends one `k: v` entry, rendering key and value via their `Debug` impls.
     pub fn entry<K: Debug, V: Debug>(&mut self, k: &K, v: &V) -> &mut DebugMap {
         unsafe {
             let pretty: bool = (*self.f).alternate;
@@ -1150,6 +1280,7 @@ impl DebugMap {
         return self;
     }
 
+    /// Closes with `}` and returns the running result.
     pub fn finish(&mut self) -> Result<(), Error> {
         unsafe {
             if (*self.f).alternate && self.has_any {
