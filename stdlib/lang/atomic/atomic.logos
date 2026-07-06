@@ -37,11 +37,20 @@ use logos.lang.cell;
 //
 // All variants degrade to seq-cst on x86 today (see module header).
 
+/// Specifies memory ordering for atomic operations; mirrors `core::sync::atomic::Ordering`.
+///
+/// On the x86-64 backend every variant currently lowers to the same seq-cst
+/// primitive (see module header); the distinction matters on weaker targets.
 pub enum Ordering {
+    /// Guarantees only atomicity; imposes no cross-thread ordering.
     Relaxed,
+    /// Orders loads (and the load half of read-modify-write operations).
     Acquire,
+    /// Orders stores (and the store half of read-modify-write operations).
     Release,
+    /// Combines `Acquire` and `Release`; for read-modify-write operations.
     AcqRel,
+    /// Enforces a single total order across all `SeqCst` operations.
     SeqCst,
 }
 
@@ -118,25 +127,30 @@ extern fn logos_atomic_cas_weak64_ord(ptr: *mut i64, expected: i64, desired: i64
 
 // ── AtomicI32 ─────────────────────────────────────────────────────────────────
 
+/// Wraps an `i32` for lock-free atomic access shared across threads and fibers.
 pub struct AtomicI32 { val: UnsafeCell<i32> }
 
+/// Creates an `AtomicI32` initialized to `v`.
 pub fn atomic_i32_new(v: i32) -> AtomicI32 { return AtomicI32 { val: UnsafeCell::new(v) }; }
 
 impl AtomicI32 {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> i32 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32); }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicI32, v: i32) {
         unsafe { logos_atomic_store32(self.val.get(), v); }
     }
-    // Returns old value.
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicI32, delta: i32) -> i32 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta); }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicI32, delta: i32) -> i32 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), 0 - delta); }
     }
-    // Returns true if exchange happened.
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicI32, expected: i32, desired: i32) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected, desired); }
     }
@@ -146,50 +160,65 @@ impl AtomicI32 {
     // (when it's a literal `Ordering::Release` / `Acquire` / …) and
     // emit the matching LLVM atomic-op ordering. Non-literal args
     // fall back to seq_cst (conservative, always sound).
+    /// Loads the value using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn load_ordered(&self, ord: Ordering) -> i32 {
         unsafe { return logos_atomic_load32_ord(self.val.get() as *const i32, ord); }
     }
+    /// Stores `v` using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn store_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) {
         unsafe { logos_atomic_store32_ord(self.val.get(), v, ord); }
     }
+    /// Atomically adds `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_add_ordered(self: *mut AtomicI32, delta: i32, ord: Ordering) -> i32 {
         unsafe { return logos_atomic_fetch_add32_ord(self.val.get(), delta, ord); }
     }
+    /// Atomically subtracts `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_sub_ordered(self: *mut AtomicI32, delta: i32, ord: Ordering) -> i32 {
         unsafe { return logos_atomic_fetch_add32_ord(self.val.get(), 0 - delta, ord); }
     }
+    /// Performs `compare_exchange` with explicit success/failure orderings.
     pub fn compare_exchange_ordered(self: *mut AtomicI32, expected: i32, desired: i32,
                                     success: Ordering, failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas32_ord(self.val.get(), expected, desired, success, failure); }
     }
     // §5 Wave 9 — full RMW family.
+    /// Atomically replaces the value with `v`, returning the previous value.
     pub fn swap(self: *mut AtomicI32, v: i32) -> i32 {
         unsafe { return logos_atomic_swap32(self.val.get(), v); }
     }
+    /// Atomically ORs `v` into the value, returning the previous value.
     pub fn fetch_or(self: *mut AtomicI32, v: i32) -> i32 {
         unsafe { return logos_atomic_fetch_or32(self.val.get(), v); }
     }
+    /// Atomically ANDs `v` into the value, returning the previous value.
     pub fn fetch_and(self: *mut AtomicI32, v: i32) -> i32 {
         unsafe { return logos_atomic_fetch_and32(self.val.get(), v); }
     }
+    /// Atomically XORs `v` into the value, returning the previous value.
     pub fn fetch_xor(self: *mut AtomicI32, v: i32) -> i32 {
         unsafe { return logos_atomic_fetch_xor32(self.val.get(), v); }
     }
+    /// Performs a weak `compare_exchange` that may fail spuriously; intended for retry loops.
     pub fn compare_exchange_weak(self: *mut AtomicI32, expected: i32, desired: i32) -> bool {
         unsafe { return logos_atomic_cas_weak32(self.val.get(), expected, desired); }
     }
+    /// Atomically replaces the value with `v` using ordering `ord`, returning the previous value.
     pub fn swap_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) -> i32 {
         unsafe { return logos_atomic_swap32_ord(self.val.get(), v, ord); }
     }
+    /// Atomically ORs `v` into the value using ordering `ord`, returning the previous value.
     pub fn fetch_or_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) -> i32 {
         unsafe { return logos_atomic_fetch_or32_ord(self.val.get(), v, ord); }
     }
+    /// Atomically ANDs `v` into the value using ordering `ord`, returning the previous value.
     pub fn fetch_and_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) -> i32 {
         unsafe { return logos_atomic_fetch_and32_ord(self.val.get(), v, ord); }
     }
+    /// Atomically XORs `v` into the value using ordering `ord`, returning the previous value.
     pub fn fetch_xor_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) -> i32 {
         unsafe { return logos_atomic_fetch_xor32_ord(self.val.get(), v, ord); }
     }
+    /// Performs a weak `compare_exchange` with explicit success/failure orderings.
     pub fn compare_exchange_weak_ordered(self: *mut AtomicI32, expected: i32, desired: i32,
                                          success: Ordering, failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas_weak32_ord(self.val.get(), expected, desired, success, failure); }
@@ -198,41 +227,53 @@ impl AtomicI32 {
 
 // ── AtomicU32 — same layout, different sign convention ──────────────────────
 
+/// Wraps a `u32` for lock-free atomic access; stored internally as `i32` bits.
 pub struct AtomicU32 { val: UnsafeCell<i32> }  // stored as i32 bits
 
+/// Creates an `AtomicU32` initialized to `v`.
 pub fn atomic_u32_new(v: u32) -> AtomicU32 { return AtomicU32 { val: UnsafeCell::new(v as i32) }; }
 
 impl AtomicU32 {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> u32 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as u32; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicU32, v: u32) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicU32, delta: u32) -> u32 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as u32; }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicU32, delta: u32) -> u32 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), (0 as u32 - delta) as i32) as u32; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicU32, expected: u32, desired: u32) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }
     }
 
     // §6.14 ordering-aware variants — see AtomicI32 for the dispatch
     // rationale.
+    /// Loads the value using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn load_ordered(&self, ord: Ordering) -> u32 {
         unsafe { return logos_atomic_load32_ord(self.val.get() as *const i32, ord) as u32; }
     }
+    /// Stores `v` using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn store_ordered(self: *mut AtomicU32, v: u32, ord: Ordering) {
         unsafe { logos_atomic_store32_ord(self.val.get(), v as i32, ord); }
     }
+    /// Atomically adds `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_add_ordered(self: *mut AtomicU32, delta: u32, ord: Ordering) -> u32 {
         unsafe { return logos_atomic_fetch_add32_ord(self.val.get(), delta as i32, ord) as u32; }
     }
+    /// Atomically subtracts `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_sub_ordered(self: *mut AtomicU32, delta: u32, ord: Ordering) -> u32 {
         unsafe { return logos_atomic_fetch_add32_ord(self.val.get(), (0 as u32 - delta) as i32, ord) as u32; }
     }
+    /// Performs `compare_exchange` with explicit success/failure orderings.
     pub fn compare_exchange_ordered(self: *mut AtomicU32, expected: u32, desired: u32,
                                     success: Ordering, failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas32_ord(self.val.get(), expected as i32, desired as i32, success, failure); }
@@ -241,39 +282,51 @@ impl AtomicU32 {
 
 // ── AtomicI64 ─────────────────────────────────────────────────────────────────
 
+/// Wraps an `i64` for lock-free atomic access shared across threads and fibers.
 pub struct AtomicI64 { val: UnsafeCell<i64> }
 
+/// Creates an `AtomicI64` initialized to `v`.
 pub fn atomic_i64_new(v: i64) -> AtomicI64 { return AtomicI64 { val: UnsafeCell::new(v) }; }
 
 impl AtomicI64 {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> i64 {
         unsafe { return logos_atomic_load64(self.val.get() as *const i64); }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicI64, v: i64) {
         unsafe { logos_atomic_store64(self.val.get(), v); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicI64, delta: i64) -> i64 {
         unsafe { return logos_atomic_fetch_add64(self.val.get(), delta); }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicI64, delta: i64) -> i64 {
         unsafe { return logos_atomic_fetch_add64(self.val.get(), 0 as i64 - delta); }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicI64, expected: i64, desired: i64) -> bool {
         unsafe { return logos_atomic_cas64(self.val.get(), expected, desired); }
     }
 
+    /// Loads the value using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn load_ordered(&self, ord: Ordering) -> i64 {
         unsafe { return logos_atomic_load64_ord(self.val.get() as *const i64, ord); }
     }
+    /// Stores `v` using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn store_ordered(self: *mut AtomicI64, v: i64, ord: Ordering) {
         unsafe { logos_atomic_store64_ord(self.val.get(), v, ord); }
     }
+    /// Atomically adds `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_add_ordered(self: *mut AtomicI64, delta: i64, ord: Ordering) -> i64 {
         unsafe { return logos_atomic_fetch_add64_ord(self.val.get(), delta, ord); }
     }
+    /// Atomically subtracts `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_sub_ordered(self: *mut AtomicI64, delta: i64, ord: Ordering) -> i64 {
         unsafe { return logos_atomic_fetch_add64_ord(self.val.get(), 0 as i64 - delta, ord); }
     }
+    /// Performs `compare_exchange` with explicit success/failure orderings.
     pub fn compare_exchange_ordered(self: *mut AtomicI64, expected: i64, desired: i64,
                                     success: Ordering, failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas64_ord(self.val.get(), expected, desired, success, failure); }
@@ -282,39 +335,51 @@ impl AtomicI64 {
 
 // ── AtomicU64 ─────────────────────────────────────────────────────────────────
 
+/// Wraps a `u64` for lock-free atomic access; stored internally as `i64` bits.
 pub struct AtomicU64 { val: UnsafeCell<i64> }  // stored as i64 bits
 
+/// Creates an `AtomicU64` initialized to `v`.
 pub fn atomic_u64_new(v: u64) -> AtomicU64 { return AtomicU64 { val: UnsafeCell::new(v as i64) }; }
 
 impl AtomicU64 {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> u64 {
         unsafe { return logos_atomic_load64(self.val.get() as *const i64) as u64; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicU64, v: u64) {
         unsafe { logos_atomic_store64(self.val.get(), v as i64); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicU64, delta: u64) -> u64 {
         unsafe { return logos_atomic_fetch_add64(self.val.get(), delta as i64) as u64; }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicU64, delta: u64) -> u64 {
         unsafe { return logos_atomic_fetch_add64(self.val.get(), (0 as u64 - delta) as i64) as u64; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicU64, expected: u64, desired: u64) -> bool {
         unsafe { return logos_atomic_cas64(self.val.get(), expected as i64, desired as i64); }
     }
 
+    /// Loads the value using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn load_ordered(&self, ord: Ordering) -> u64 {
         unsafe { return logos_atomic_load64_ord(self.val.get() as *const i64, ord) as u64; }
     }
+    /// Stores `v` using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn store_ordered(self: *mut AtomicU64, v: u64, ord: Ordering) {
         unsafe { logos_atomic_store64_ord(self.val.get(), v as i64, ord); }
     }
+    /// Atomically adds `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_add_ordered(self: *mut AtomicU64, delta: u64, ord: Ordering) -> u64 {
         unsafe { return logos_atomic_fetch_add64_ord(self.val.get(), delta as i64, ord) as u64; }
     }
+    /// Atomically subtracts `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_sub_ordered(self: *mut AtomicU64, delta: u64, ord: Ordering) -> u64 {
         unsafe { return logos_atomic_fetch_add64_ord(self.val.get(), (0 as u64 - delta) as i64, ord) as u64; }
     }
+    /// Performs `compare_exchange` with explicit success/failure orderings.
     pub fn compare_exchange_ordered(self: *mut AtomicU64, expected: u64, desired: u64,
                                     success: Ordering, failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas64_ord(self.val.get(), expected as i64, desired as i64, success, failure); }
@@ -325,39 +390,51 @@ impl AtomicU64 {
 // T2-24: `core::sync::atomic::AtomicUsize` parity. Same layout/intrinsics as
 // AtomicU64 (usize is 64-bit on this target); the API is usize-typed.
 
+/// Wraps a `usize` (64-bit on this target) for lock-free atomic access; `i64`-backed.
 pub struct AtomicUsize { val: UnsafeCell<i64> }  // stored as i64 bits
 
+/// Creates an `AtomicUsize` initialized to `v`.
 pub fn atomic_usize_new(v: usize) -> AtomicUsize { return AtomicUsize { val: UnsafeCell::new(v as i64) }; }
 
 impl AtomicUsize {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> usize {
         unsafe { return logos_atomic_load64(self.val.get() as *const i64) as usize; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicUsize, v: usize) {
         unsafe { logos_atomic_store64(self.val.get(), v as i64); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicUsize, delta: usize) -> usize {
         unsafe { return logos_atomic_fetch_add64(self.val.get(), delta as i64) as usize; }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicUsize, delta: usize) -> usize {
         unsafe { return logos_atomic_fetch_add64(self.val.get(), (0 as usize - delta) as i64) as usize; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicUsize, expected: usize, desired: usize) -> bool {
         unsafe { return logos_atomic_cas64(self.val.get(), expected as i64, desired as i64); }
     }
 
+    /// Loads the value using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn load_ordered(&self, ord: Ordering) -> usize {
         unsafe { return logos_atomic_load64_ord(self.val.get() as *const i64, ord) as usize; }
     }
+    /// Stores `v` using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn store_ordered(self: *mut AtomicUsize, v: usize, ord: Ordering) {
         unsafe { logos_atomic_store64_ord(self.val.get(), v as i64, ord); }
     }
+    /// Atomically adds `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_add_ordered(self: *mut AtomicUsize, delta: usize, ord: Ordering) -> usize {
         unsafe { return logos_atomic_fetch_add64_ord(self.val.get(), delta as i64, ord) as usize; }
     }
+    /// Atomically subtracts `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_sub_ordered(self: *mut AtomicUsize, delta: usize, ord: Ordering) -> usize {
         unsafe { return logos_atomic_fetch_add64_ord(self.val.get(), (0 as usize - delta) as i64, ord) as usize; }
     }
+    /// Performs `compare_exchange` with explicit success/failure orderings.
     pub fn compare_exchange_ordered(self: *mut AtomicUsize, expected: usize, desired: usize,
                                     success: Ordering, failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas64_ord(self.val.get(), expected as i64, desired as i64, success, failure); }
@@ -366,39 +443,51 @@ impl AtomicUsize {
 
 // ── AtomicIsize — pointer-width signed (64-bit here), i64-backed ─────────────
 
+/// Wraps an `isize` (64-bit on this target) for lock-free atomic access; `i64`-backed.
 pub struct AtomicIsize { val: UnsafeCell<i64> }
 
+/// Creates an `AtomicIsize` initialized to `v`.
 pub fn atomic_isize_new(v: isize) -> AtomicIsize { return AtomicIsize { val: UnsafeCell::new(v as i64) }; }
 
 impl AtomicIsize {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> isize {
         unsafe { return logos_atomic_load64(self.val.get() as *const i64) as isize; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicIsize, v: isize) {
         unsafe { logos_atomic_store64(self.val.get(), v as i64); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicIsize, delta: isize) -> isize {
         unsafe { return logos_atomic_fetch_add64(self.val.get(), delta as i64) as isize; }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicIsize, delta: isize) -> isize {
         unsafe { return logos_atomic_fetch_add64(self.val.get(), (0 as isize - delta) as i64) as isize; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicIsize, expected: isize, desired: isize) -> bool {
         unsafe { return logos_atomic_cas64(self.val.get(), expected as i64, desired as i64); }
     }
 
+    /// Loads the value using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn load_ordered(&self, ord: Ordering) -> isize {
         unsafe { return logos_atomic_load64_ord(self.val.get() as *const i64, ord) as isize; }
     }
+    /// Stores `v` using ordering `ord`; a non-literal `ord` degrades to seq-cst.
     pub fn store_ordered(self: *mut AtomicIsize, v: isize, ord: Ordering) {
         unsafe { logos_atomic_store64_ord(self.val.get(), v as i64, ord); }
     }
+    /// Atomically adds `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_add_ordered(self: *mut AtomicIsize, delta: isize, ord: Ordering) -> isize {
         unsafe { return logos_atomic_fetch_add64_ord(self.val.get(), delta as i64, ord) as isize; }
     }
+    /// Atomically subtracts `delta` using ordering `ord`, returning the previous value.
     pub fn fetch_sub_ordered(self: *mut AtomicIsize, delta: isize, ord: Ordering) -> isize {
         unsafe { return logos_atomic_fetch_add64_ord(self.val.get(), (0 as isize - delta) as i64, ord) as isize; }
     }
+    /// Performs `compare_exchange` with explicit success/failure orderings.
     pub fn compare_exchange_ordered(self: *mut AtomicIsize, expected: isize, desired: isize,
                                     success: Ordering, failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas64_ord(self.val.get(), expected as i64, desired as i64, success, failure); }
@@ -407,38 +496,46 @@ impl AtomicIsize {
 
 // ── AtomicBool — backed by i32 (0 = false, 1 = true) ─────────────────────────
 
+/// Wraps a `bool` for lock-free atomic access; backed by an `i32` (0 = false, 1 = true).
 pub struct AtomicBool { val: UnsafeCell<i32> }
 
+/// Creates an `AtomicBool` initialized to `v`.
 pub fn atomic_bool_new(v: bool) -> AtomicBool {
     if v { return AtomicBool { val: UnsafeCell::new(1) }; }
     return AtomicBool { val: UnsafeCell::new(0) };
 }
 
 impl AtomicBool {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> bool {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) != 0; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicBool, v: bool) {
         let raw: i32 = if v { 1 } else { 0 };
         unsafe { logos_atomic_store32(self.val.get(), raw); }
     }
-    // Stores true, returns previous value.
+    /// Stores `true` and returns the previous value.
     pub fn swap_true(self: *mut AtomicBool) -> bool {
-        unsafe { return logos_atomic_fetch_add32(self.val.get(), 0) != 0; }
+        unsafe { return logos_atomic_swap32(self.val.get(), 1) != 0; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicBool, expected: bool, desired: bool) -> bool {
         let e: i32 = if expected { 1 } else { 0 };
         let d: i32 = if desired  { 1 } else { 0 };
         unsafe { return logos_atomic_cas32(self.val.get(), e, d); }
     }
 
+    /// Loads the current value; the ordering argument is currently ignored (seq-cst).
     pub fn load_ordered(&self, _ord: Ordering) -> bool {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) != 0; }
     }
+    /// Stores `v`; the ordering argument is currently ignored (seq-cst).
     pub fn store_ordered(self: *mut AtomicBool, v: bool, _ord: Ordering) {
         let raw: i32 = if v { 1 } else { 0 };
         unsafe { logos_atomic_store32(self.val.get(), raw); }
     }
+    /// Performs `compare_exchange`; the ordering arguments are currently ignored (seq-cst).
     pub fn compare_exchange_ordered(self: *mut AtomicBool, expected: bool, desired: bool,
                                     _success: Ordering, _failure: Ordering) -> bool {
         let e: i32 = if expected { 1 } else { 0 };
@@ -449,33 +546,42 @@ impl AtomicBool {
 
 // ── AtomicPtr<T> — pointer stored as i64 bits ─────────────────────────────────
 
+/// Wraps a raw `*mut T` pointer for lock-free atomic access; stored as `i64` bits.
 pub struct AtomicPtr<T> { val: UnsafeCell<i64> }
 
+/// Creates an `AtomicPtr<T>` initialized to `p`.
 pub fn atomic_ptr_new<T>(p: *mut T) -> AtomicPtr<T> {
     return AtomicPtr { val: UnsafeCell::new(p as i64) };
 }
 
+/// Creates an `AtomicPtr<T>` initialized to the null pointer.
 pub fn atomic_ptr_null<T>() -> AtomicPtr<T> {
     return AtomicPtr { val: UnsafeCell::new(0 as i64) };
 }
 
 impl<T> AtomicPtr<T> {
+    /// Loads the current pointer (seq-cst).
     pub fn load(&self) -> *mut T {
         unsafe { return logos_atomic_load64(self.val.get() as *const i64) as *mut T; }
     }
+    /// Stores `p` atomically (seq-cst).
     pub fn store(self: *mut AtomicPtr<T>, p: *mut T) {
         unsafe { logos_atomic_store64(self.val.get(), p as i64); }
     }
+    /// Atomically replaces the pointer with `desired` if it equals `expected`; `true` on success.
     pub fn compare_exchange(self: *mut AtomicPtr<T>, expected: *mut T, desired: *mut T) -> bool {
         unsafe { return logos_atomic_cas64(self.val.get(), expected as i64, desired as i64); }
     }
 
+    /// Loads the current pointer; the ordering argument is currently ignored (seq-cst).
     pub fn load_ordered(&self, _ord: Ordering) -> *mut T {
         unsafe { return logos_atomic_load64(self.val.get() as *const i64) as *mut T; }
     }
+    /// Stores `p`; the ordering argument is currently ignored (seq-cst).
     pub fn store_ordered(self: *mut AtomicPtr<T>, p: *mut T, _ord: Ordering) {
         unsafe { logos_atomic_store64(self.val.get(), p as i64); }
     }
+    /// Performs `compare_exchange`; the ordering arguments are currently ignored (seq-cst).
     pub fn compare_exchange_ordered(self: *mut AtomicPtr<T>, expected: *mut T, desired: *mut T,
                                     _success: Ordering, _failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas64(self.val.get(), expected as i64, desired as i64); }
@@ -489,144 +595,188 @@ impl<T> AtomicPtr<T> {
 // boundary so observable behaviour is bit-for-bit equivalent on a
 // strongly-ordered target.
 
+/// Wraps an `i8` for lock-free atomic access; storage widened to 32 bits (4-byte footprint).
 pub struct AtomicI8 { val: UnsafeCell<i32> }
 
+/// Creates an `AtomicI8` initialized to `v`.
 pub fn atomic_i8_new(v: i8) -> AtomicI8 { return AtomicI8 { val: UnsafeCell::new(v as i32) }; }
 
 impl AtomicI8 {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> i8 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as i8; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicI8, v: i8) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicI8, delta: i8) -> i8 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as i8; }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicI8, delta: i8) -> i8 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), 0 - (delta as i32)) as i8; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicI8, expected: i8, desired: i8) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }
     }
 
+    /// Loads the current value; the ordering argument is currently ignored (seq-cst).
     pub fn load_ordered(&self, _ord: Ordering) -> i8 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as i8; }
     }
+    /// Stores `v`; the ordering argument is currently ignored (seq-cst).
     pub fn store_ordered(self: *mut AtomicI8, v: i8, _ord: Ordering) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; ordering currently ignored (seq-cst).
     pub fn fetch_add_ordered(self: *mut AtomicI8, delta: i8, _ord: Ordering) -> i8 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as i8; }
     }
+    /// Performs `compare_exchange`; the ordering arguments are currently ignored (seq-cst).
     pub fn compare_exchange_ordered(self: *mut AtomicI8, expected: i8, desired: i8,
                                     _success: Ordering, _failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }
     }
 }
 
+/// Wraps an `i16` for lock-free atomic access; storage widened to 32 bits (4-byte footprint).
 pub struct AtomicI16 { val: UnsafeCell<i32> }
 
+/// Creates an `AtomicI16` initialized to `v`.
 pub fn atomic_i16_new(v: i16) -> AtomicI16 { return AtomicI16 { val: UnsafeCell::new(v as i32) }; }
 
 impl AtomicI16 {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> i16 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as i16; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicI16, v: i16) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicI16, delta: i16) -> i16 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as i16; }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicI16, delta: i16) -> i16 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), 0 - (delta as i32)) as i16; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicI16, expected: i16, desired: i16) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }
     }
 
+    /// Loads the current value; the ordering argument is currently ignored (seq-cst).
     pub fn load_ordered(&self, _ord: Ordering) -> i16 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as i16; }
     }
+    /// Stores `v`; the ordering argument is currently ignored (seq-cst).
     pub fn store_ordered(self: *mut AtomicI16, v: i16, _ord: Ordering) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; ordering currently ignored (seq-cst).
     pub fn fetch_add_ordered(self: *mut AtomicI16, delta: i16, _ord: Ordering) -> i16 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as i16; }
     }
+    /// Performs `compare_exchange`; the ordering arguments are currently ignored (seq-cst).
     pub fn compare_exchange_ordered(self: *mut AtomicI16, expected: i16, desired: i16,
                                     _success: Ordering, _failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }
     }
 }
 
+/// Wraps a `u8` for lock-free atomic access; storage widened to 32 bits (4-byte footprint).
 pub struct AtomicU8 { val: UnsafeCell<i32> }
 
+/// Creates an `AtomicU8` initialized to `v`.
 pub fn atomic_u8_new(v: u8) -> AtomicU8 { return AtomicU8 { val: UnsafeCell::new(v as i32) }; }
 
 impl AtomicU8 {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> u8 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as u8; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicU8, v: u8) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicU8, delta: u8) -> u8 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as u8; }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicU8, delta: u8) -> u8 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), 0 - (delta as i32)) as u8; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicU8, expected: u8, desired: u8) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }
     }
 
+    /// Loads the current value; the ordering argument is currently ignored (seq-cst).
     pub fn load_ordered(&self, _ord: Ordering) -> u8 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as u8; }
     }
+    /// Stores `v`; the ordering argument is currently ignored (seq-cst).
     pub fn store_ordered(self: *mut AtomicU8, v: u8, _ord: Ordering) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; ordering currently ignored (seq-cst).
     pub fn fetch_add_ordered(self: *mut AtomicU8, delta: u8, _ord: Ordering) -> u8 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as u8; }
     }
+    /// Performs `compare_exchange`; the ordering arguments are currently ignored (seq-cst).
     pub fn compare_exchange_ordered(self: *mut AtomicU8, expected: u8, desired: u8,
                                     _success: Ordering, _failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }
     }
 }
 
+/// Wraps a `u16` for lock-free atomic access; storage widened to 32 bits (4-byte footprint).
 pub struct AtomicU16 { val: UnsafeCell<i32> }
 
+/// Creates an `AtomicU16` initialized to `v`.
 pub fn atomic_u16_new(v: u16) -> AtomicU16 { return AtomicU16 { val: UnsafeCell::new(v as i32) }; }
 
 impl AtomicU16 {
+    /// Loads the current value (seq-cst).
     pub fn load(&self) -> u16 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as u16; }
     }
+    /// Stores `v` atomically (seq-cst).
     pub fn store(self: *mut AtomicU16, v: u16) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_add(self: *mut AtomicU16, delta: u16) -> u16 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as u16; }
     }
+    /// Atomically subtracts `delta`, returning the previous value; wraps on overflow.
     pub fn fetch_sub(self: *mut AtomicU16, delta: u16) -> u16 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), 0 - (delta as i32)) as u16; }
     }
+    /// Atomically replaces the value with `desired` if it equals `expected`; returns `true` on success.
     pub fn compare_exchange(self: *mut AtomicU16, expected: u16, desired: u16) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }
     }
 
+    /// Loads the current value; the ordering argument is currently ignored (seq-cst).
     pub fn load_ordered(&self, _ord: Ordering) -> u16 {
         unsafe { return logos_atomic_load32(self.val.get() as *const i32) as u16; }
     }
+    /// Stores `v`; the ordering argument is currently ignored (seq-cst).
     pub fn store_ordered(self: *mut AtomicU16, v: u16, _ord: Ordering) {
         unsafe { logos_atomic_store32(self.val.get(), v as i32); }
     }
+    /// Atomically adds `delta`, returning the previous value; ordering currently ignored (seq-cst).
     pub fn fetch_add_ordered(self: *mut AtomicU16, delta: u16, _ord: Ordering) -> u16 {
         unsafe { return logos_atomic_fetch_add32(self.val.get(), delta as i32) as u16; }
     }
+    /// Performs `compare_exchange`; the ordering arguments are currently ignored (seq-cst).
     pub fn compare_exchange_ordered(self: *mut AtomicU16, expected: u16, desired: u16,
                                     _success: Ordering, _failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas32(self.val.get(), expected as i32, desired as i32); }

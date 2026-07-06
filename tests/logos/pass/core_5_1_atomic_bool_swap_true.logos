@@ -1,0 +1,16 @@
+// logos-core §5.1 — AtomicBool::swap_true. Regression: swap_true previously
+// did fetch_add(0) (a no-op load that never stored true); it must atomically
+// store `true` AND return the prior value.
+package core_5_1_atomic_bool_swap_true;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut b: AtomicBool = atomic_bool_new(false);
+    let p: *mut AtomicBool = &mut b as *mut AtomicBool;
+    // First swap: previous value is false, and it must now store true.
+    unsafe { if p.swap_true() { return 1i32; } }   // prev must be false
+    if !b.load() { return 2i32; }                   // must now hold true
+    // Second swap: previous is true; value stays true.
+    unsafe { if !p.swap_true() { return 3i32; } }   // prev must be true
+    if !b.load() { return 4i32; }
+    return 0i32;
+}
