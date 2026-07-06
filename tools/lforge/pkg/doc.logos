@@ -1,0 +1,226 @@
+// lforge doc — extract API documentation for the workspace (ADR 0014, slice-3).
+//
+// For each lib target: build it, run `logosc --emit-module <manifest> --emit-docs`
+// to produce a .docwr doc-facts container, then resolve it into docs.json
+// (schema_version 1) with impl edges folded into implementors/implements cross-refs
+// and the undocumented public surface collected. Output: .lforge/<profile>/doc/<name>.json.
+// Rendering is the site's job (logos-site consumes docs.json).
+
+package lforge.doc;
+
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.mem.collections.vec;
+use logos.std.io.fs;
+
+use logos.lang.writ.anyval;   // WAny
+use logos.lang.writ.wmap;     // WMap
+use logos.lang.writ.array;    // WArray
+use logos.lang.writ.wstring;  // WString
+use logos.mem.writ.parser;    // parse_writ
+use logos.mem.encoding.json;  // JsonWriter
+
+use lforge.schema_types;
+use lforge.build_paths;
+use lforge.topo;
+use lforge.builder;
+use lforge.proc;
+use lforge.util;
+
+// ── .docwr → docs.json conversion (shared logic; mirrors tools/docgen) ──────
+
+fn field_str(m: &WMap<WString, WAny>, key: str) -> str {
+    let v = m.get(key);
+    if v.is_string() { return v.as_string().as_str(); }
+    return "";
+}
+
+fn write_implementors(jw: &mut JsonWriter, impls: &WArray<WAny>, trait_name: str) {
+    jw.begin_array();
+    let n = impls.len();
+    let mut i = 0i64;
+    while i < n {
+        let e = impls.get(i).as_map();
+        if field_str(e, "trait") == trait_name {
+            jw.write_str(field_str(e, "type"));
+        }
+        i = i + 1i64;
+    }
+    jw.end_array();
+}
+
+fn write_implements(jw: &mut JsonWriter, impls: &WArray<WAny>, type_name: str) {
+    jw.begin_array();
+    let n = impls.len();
+    let mut i = 0i64;
+    while i < n {
+        let e = impls.get(i).as_map();
+        if field_str(e, "type") == type_name {
+            jw.write_str(field_str(e, "trait"));
+        }
+        i = i + 1i64;
+    }
+    jw.end_array();
+}
+
+pub fn docwr_to_json(text: str) -> String {
+    let w = parse_writ(text);
+    let root = w.root();
+    let rm = root.as_map();
+    let items = rm.get("items").as_array();
+    let impls = rm.get("impls").as_array();
+
+    let mut jw = JsonWriter::new();
+    jw.begin_object();
+    jw.write_key("schema_version"); jw.write_i64(1i64);
+    jw.write_key("package"); jw.write_str(field_str(rm, "package"));
+
+    jw.write_key("items"); jw.begin_array();
+    let n = items.len();
+    let mut i = 0i64;
+    while i < n {
+        let it = items.get(i).as_map();
+        let kind = field_str(it, "kind");
+        let name = field_str(it, "name");
+        jw.begin_object();
+        jw.write_key("kind");       jw.write_str(kind);
+        jw.write_key("path");       jw.write_str(field_str(it, "path"));
+        jw.write_key("name");       jw.write_str(name);
+        jw.write_key("parent");     jw.write_str(field_str(it, "parent"));
+        jw.write_key("visibility"); jw.write_str(field_str(it, "vis"));
+        jw.write_key("signature");  jw.write_str(field_str(it, "sig"));
+        jw.write_key("doc");        jw.write_str(field_str(it, "doc"));
+        jw.write_key("src_file");   jw.write_str(field_str(it, "src_file"));
+        if kind == "trait" {
+            jw.write_key("implementors"); write_implementors(&mut jw, impls, name);
+        }
+        if kind == "struct" || kind == "enum" {
+            jw.write_key("implements"); write_implements(&mut jw, impls, name);
+        }
+        jw.end_object();
+        i = i + 1i64;
+    }
+    jw.end_array();
+
+    jw.write_key("undocumented"); jw.begin_array();
+    i = 0i64;
+    while i < n {
+        let it = items.get(i).as_map();
+        if field_str(it, "vis") == "pub" && field_str(it, "doc") == "" {
+            jw.write_str(field_str(it, "path"));
+        }
+        i = i + 1i64;
+    }
+    jw.end_array();
+
+    jw.end_object();
+    let mut out = String::new();
+    jw.append_into(&mut out);
+    return out;
+}
+
+// ── lforge doc ──────────────────────────────────────────────────────────────
+
+pub fn cmd_doc(m: &Manifest, profile: str) -> i32 {
+    unsafe {
+    let logosc: String = resolve_logosc_path();
+    let no_externals: Vec<ExternalLib> = vec_new::<ExternalLib>();
+
+    let order: Vec<i64> = match topo_order(&m.targets, &no_externals) {
+        Result::Err(e) => {
+            print_str(2, "lforge: ");
+            println_str(2, e.message.as_str());
+            return 1;
+        }
+        Result::Ok(o) => { o }
+    };
+
+    let mut doc_dir: String = String::new();
+    doc_dir.push_str(".lforge/");
+    doc_dir.push_str(profile);
+    doc_dir.push_str("/doc");
+    match mkdir_p(doc_dir.as_str()) {
+        Result::Err(_) => { println_str(2, "lforge: cannot create doc dir"); return 1; }
+        Result::Ok(_)  => { }
+    }
+
+    let gd: String = gen_dir_for(profile);
+    let n_ord: i64 = order.length();
+    let mut k: i64 = 0 as i64;
+    let mut wrote: i32 = 0;
+    while k < n_ord {
+        let idx: i64 = *order.borrow(k);
+        k = k + 1 as i64;
+        let t: &Target = m.targets.borrow(idx);
+        match t.kind {
+            TargetKind::Lib => {
+                if t.src.len() == 0 as i64 { continue; }   // no Logos sources → nothing to document
+
+                // Build the lib (generates its .module manifest + resolves deps).
+                let nod: String = String::new();
+                let nof: String = String::new();
+                let rc: i32 = build_lib(t, profile, &logosc, &no_externals, &nod, &nof, false);
+                if rc != 0 { println_str(2, "lforge: lib build failed; aborting doc"); return rc; }
+
+                // Whole-module doc emit: <doc_dir>/<name>.docwr (+ .o/.wr0 byproducts).
+                let mut man_path: String = String::new();
+                man_path.push_str(gd.as_str());
+                man_path.push_u8(47 as u8);
+                man_path.push_str(t.name.as_str());
+                man_path.push_str(".module");
+
+                let mut docprefix: String = String::new();
+                docprefix.push_str(doc_dir.as_str());
+                docprefix.push_u8(47 as u8);
+                docprefix.push_str(t.name.as_str());
+
+                let mut argv: Vec<String> = vec_new::<String>();
+                push_string_arg(&mut argv, &logosc);
+                push_arg(&mut argv, "--emit-module");
+                push_string_arg(&mut argv, &man_path);
+                push_arg(&mut argv, "--emit-docs");
+                push_arg(&mut argv, "-o");
+                push_string_arg(&mut argv, &docprefix);
+                let emit_rc: i32 = run_child(&argv);
+                if emit_rc != 0 { println_str(2, "lforge: --emit-docs failed"); return 1; }
+
+                // Resolve .docwr → docs.json.
+                let mut docwr_path: String = String::new();
+                docwr_path.push_str(docprefix.as_str());
+                docwr_path.push_str(".docwr");
+                let text: String = match read_to_string(docwr_path.as_str()) {
+                    Result::Ok(s)  => { s }
+                    Result::Err(_) => { println_str(2, "lforge: cannot read .docwr"); return 1; }
+                };
+                let json: String = docwr_to_json(text.as_str());
+
+                let mut json_path: String = String::new();
+                json_path.push_str(doc_dir.as_str());
+                json_path.push_u8(47 as u8);
+                json_path.push_str(t.name.as_str());
+                json_path.push_str(".json");
+                match write_string(json_path.as_str(), &json) {
+                    Result::Err(_) => { println_str(2, "lforge: cannot write docs.json"); return 1; }
+                    Result::Ok(_)  => { }
+                }
+
+                let mut msg: String = String::new();
+                msg.push_str("lforge: doc ");
+                msg.push_str(t.name.as_str());
+                msg.push_str(" -> ");
+                msg.push_str(json_path.as_str());
+                println_string(1, &msg);
+                wrote = wrote + 1;
+            }
+            TargetKind::Bin => { }
+        }
+    }
+
+    if wrote == 0 {
+        println_str(1, "lforge: no lib targets with Logos sources to document");
+    }
+    return 0;
+    }
+}

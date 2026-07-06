@@ -3108,6 +3108,7 @@ int main(int argc, char** argv) {
     bool stats_flag  = false;                    // --stats: print per-phase compile-time summary at end (also turns on inline phase trace).
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     bool        emit_abi_flag = false;            // --emit-abi: dump ABI surface spec
+    bool        emit_docs_flag = false;           // --emit-docs: modifier on --emit-module; also writes <out>.docwr doc facts (ADR 0014)
     bool        print_prefix  = false;            // --print-prefix:  this version's tree root
     bool        print_lib_dir = false;            // --print-lib-dir: this version's stdlib dir
     bool        print_metadata = false;           // --print-metadata: all of the above as a Writ doc
@@ -3240,6 +3241,7 @@ int main(int argc, char** argv) {
         else if (arg == "--expand") { expand_only = true; }
         else if (arg == "--emit-module" && i + 1 < argc) { emit_module_manifest = argv[++i]; }
         else if (arg == "--emit-abi") { emit_abi_flag = true; }
+        else if (arg == "--emit-docs") { emit_docs_flag = true; }
         else if (arg == "--print-prefix")  { print_prefix  = true; }
         else if (arg == "--print-lib-dir") { print_lib_dir = true; }
         else if (arg == "--print-metadata") { print_metadata = true; }
@@ -3422,6 +3424,7 @@ int main(int argc, char** argv) {
         mopts.extra_search_paths = search_paths;
         mopts.emit_mlir = emit_mlir;
         mopts.emit_llvm = emit_llvm;
+        mopts.emit_docs = emit_docs_flag;
         mopts.only_file = only_file;
         mopts.extra_lib_files = explicit_lib_files;
         mopts.opt_level = opt_level;

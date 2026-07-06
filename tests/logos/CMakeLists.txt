@@ -808,6 +808,31 @@ set_tests_properties(logos_15_emit_file PROPERTIES
     LABELS  "logos;lforge;suite_lforge"
 )
 
+# ADR 0014 slice-1: logosc --emit-docs writes a .docwr doc-facts container.
+add_test(
+    NAME logos_15_emit_docs
+    COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/emit_docs.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_15_emit_docs PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lforge;suite_lforge"
+)
+
+# ADR 0014 slice-2: tools/docgen resolves a .docwr into docs.json (impl edges →
+# implementors/implements cross-refs + undocumented surface).
+add_test(
+    NAME logos_15_doc_json
+    COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/doc_json.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_15_doc_json PROPERTIES
+    TIMEOUT 90
+    LABELS  "logos;lforge;suite_lforge"
+)
+
 # B1.3: lforge fans out per-file lib compilation in parallel + per-file
 # incremental rebuild.
 if (TARGET lforge)
@@ -820,6 +845,19 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_16_lforge_parallel PROPERTIES
         TIMEOUT 90
+        LABELS  "logos;lforge;suite_lforge"
+    )
+
+    # ADR 0014 slice-3: `lforge doc` builds libs, --emit-docs, resolves docs.json.
+    add_test(
+        NAME logos_16_lforge_doc
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/doc_cmd.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_16_lforge_doc PROPERTIES
+        TIMEOUT 120
         LABELS  "logos;lforge;suite_lforge"
     )
 

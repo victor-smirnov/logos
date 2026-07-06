@@ -332,6 +332,225 @@ static void apply_only_file_filter(lir::LProgram& prog,
     for (auto& fn : prog.functions) add(fn);
 }
 
+// ── Doc-facts sidecar (--emit-docs, ADR 0014) ───────────────────────────────
+// Sibling of the ABI-layout sidecar: walks the SAME post-sema decl views, but
+// emits DOCUMENTATION facts (kind / qualified-path / name / parent / visibility
+// / rendered-signature / doc-text) plus trait-impl edges, as a Writ-SDN document
+// that `lforge doc` loads as a Deem EDB. Doc text is read from the `.doc()`
+// accessors sema already populated from /// //! /** */ comments — the extractor
+// never re-lexes. Whole-module (no per-file filter): documentation wants the full
+// surface + cross-references resolved together, so `lforge doc` runs one emit per
+// package rather than per source file.
+static void emit_docs_facts(lir::LProgram& prog,
+                            const std::string& package,
+                            const std::string& docs_path) {
+    const auto* pool = prog.type_pool.impl();
+    auto qual = [](std::string_view pkg, std::string_view name) {
+        return pkg.empty() ? std::string(name)
+                           : std::string(pkg) + "." + std::string(name);
+    };
+    // `#[repr(transparent)]` UnsafeCell<X> renders as X (mirrors abi_type — the
+    // interior-mutability wrapper is not part of the documented signature).
+    auto rtype = [&](TypeRef t0) -> std::string {
+        TypeRef t{t0};
+        while (t && t.kind() == LogosType::Kind::Struct &&
+               t.struct_name() == "UnsafeCell" && t.pkg_name() == "logos.lang.cell" &&
+               !t.type_args().empty())
+            t = TypeRef(t.type_args()[0]);
+        return type_str(t);
+    };
+    // SDN string escaping — byte-for-byte the inverse of parse_writ (matches
+    // writ::quote in src/writ/stringify.cpp).
+    auto q = [](std::string_view s, std::string& out) {
+        out += '"';
+        for (char c : s) {
+            switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\t': out += "\\t";  break;
+            case '\r': out += "\\r";  break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8]; std::snprintf(buf, sizeof(buf), "\\u%04x", c); out += buf;
+                } else out += c;
+            }
+        }
+        out += '"';
+    };
+
+    std::string out;
+    out += "{\n  package: ";
+    q(package, out);
+    out += ",\n  items: [\n";
+
+    bool first_item = true;
+    auto item = [&](std::string_view kind, const std::string& path,
+                    std::string_view name, std::string_view parent,
+                    bool is_pub, const std::string& sig, std::string_view doc,
+                    std::string_view src_file) {
+        if (!first_item) out += ",\n";
+        first_item = false;
+        out += "    {kind: ";  q(kind, out);
+        out += ", path: ";     q(path, out);
+        out += ", name: ";     q(name, out);
+        out += ", parent: ";   q(parent, out);
+        out += ", vis: ";      q(is_pub ? "pub" : "priv", out);
+        out += ", sig: ";      q(sig, out);
+        out += ", doc: ";      q(doc, out);
+        out += ", src_file: "; q(src_file, out);
+        out += "}";
+    };
+    // Render "fn name(p: T, …) -> Ret" from a function/method view. `nm` is the
+    // SOURCE name (FunctionView::name() is the mangled link symbol; the un-mangled
+    // name lives in method_base()).
+    auto fn_sig = [&](auto& f, std::string_view nm) {
+        std::string sig = "fn " + std::string(nm) + "(";
+        bool pf = true;
+        f.each_param([&](auto p) {
+            if (!pf) sig += ", ";
+            sig += std::string(p.name()) + ": " + rtype(p.type(pool));
+            pf = false;
+        });
+        sig += ")";
+        TypeRef rt = f.ret_type(pool);
+        if (rt) sig += " -> " + rtype(rt);
+        return sig;
+    };
+
+    // Strip refs / pointers / `mut` / type-args off a rendered type, leaving the
+    // bare owner name (`&mut Result<T,E>` → `Result`) for the method→parent link.
+    auto bare_type = [](std::string s) {
+        size_t i = 0;
+        while (i < s.size() && (s[i] == '&' || s[i] == '*' || s[i] == ' ')) i++;
+        if (s.compare(i, 4, "mut ") == 0) i += 4;
+        s = s.substr(i);
+        if (auto lt = s.find('<'); lt != std::string::npos) s = s.substr(0, lt);
+        return s;
+    };
+    // Fallback owner extraction from the mangled link name, for `self`-less
+    // associated fns (e.g. `Vec::new`). Methods mangle as
+    // "<pkg>.<Owner>__<mbase>__f__…" (no '$' before "__f__"); free fns as
+    // "<hash>.<pkg>$<name>__f__…" ('$' before "__f__"). Returns "" for a free fn.
+    // Generic-type methods carry a '$' in the head and are NOT caught here — those
+    // are recognised by their `self` param instead.
+    auto owner_from_mangle = [](std::string_view mangled, std::string_view mbase) -> std::string {
+        if (mbase.empty()) return {};
+        auto fpos = mangled.find("__f__");
+        std::string_view head = (fpos == std::string_view::npos) ? mangled
+                                                                 : mangled.substr(0, fpos);
+        if (head.find('$') != std::string_view::npos) return {};
+        std::string suffix = "__" + std::string(mbase);
+        if (head.size() <= suffix.size() ||
+            head.compare(head.size() - suffix.size(), suffix.size(), suffix) != 0)
+            return {};
+        std::string_view before = head.substr(0, head.size() - suffix.size());
+        auto dot = before.rfind('.');
+        return std::string(dot == std::string_view::npos ? before : before.substr(dot + 1));
+    };
+    // Functions — free fns AND impl/inherent methods all live in prog.functions
+    // pre-mono. name() is the mangled link symbol; the source name is method_base().
+    // Method discriminant: a `self` first param (owner = its type — works for
+    // generic owners), else the mangled-name fallback (self-less associated fns).
+    for (auto& fn : prog.functions) {
+        if (!fn) continue;
+        if (fn.is_extern() || fn.is_metaprog_stub()) continue;
+        // Macro hooks (#[token_macro]/#[fn_macro]) ARE consumer surface — the
+        // macro `<name>!(…)` is how users invoke them — even inside wql-internal
+        // packages (the deem!/trama! handlers live there). Emit as kind "macro"
+        // BEFORE the wql-internal filter; everything else in those packages
+        // stays excluded.
+        if (fn.is_macro_hook()) {
+            std::string_view mnm = fn.method_base().empty() ? fn.name() : fn.method_base();
+            item("macro", qual(fn.package(), mnm), mnm, "", fn.is_pub(),
+                 "macro " + std::string(mnm) + "!", fn.doc(), fn.source_file());
+            continue;
+        }
+        if (is_wql_internal_pkg(fn.package())) continue;
+        std::string_view nm = fn.method_base().empty() ? fn.name() : fn.method_base();
+        std::string_view first_pname;
+        TypeRef first_ptype;
+        fn.each_param([&, seen = false](auto p) mutable {
+            if (seen) return;
+            seen = true; first_pname = p.name(); first_ptype = p.type(pool);
+        });
+        std::string owner;
+        if (first_pname == "self")
+            owner = bare_type(type_str(first_ptype));
+        if (owner.empty())
+            owner = owner_from_mangle(fn.name(), fn.method_base());
+        if (!owner.empty()) {
+            std::string parent = (owner.find('.') != std::string::npos)
+                                     ? owner : qual(fn.package(), owner);
+            std::string path = parent + "::" + std::string(nm);
+            item("method", path, nm, parent, fn.is_pub(), fn_sig(fn, nm),
+                 fn.doc(), fn.source_file());
+        } else {
+            std::string path = qual(fn.package(), nm);
+            item("fn", path, nm, "", fn.is_pub(), fn_sig(fn, nm),
+                 fn.doc(), fn.source_file());
+        }
+    }
+    // Structs / unions (+ fields). Methods come from prog.functions above
+    // (sd.methods() is not populated at this pre-mono point).
+    for (auto& sd : prog.structs) {
+        if (is_wql_internal_pkg(sd.pkg()) || is_deem_internal_type(sd.pkg(), sd.name())) continue;
+        std::string path = qual(sd.pkg(), sd.name());
+        item(sd.is_union() ? "union" : "struct", path, sd.name(), "", sd.is_pub(),
+             std::string(sd.is_union() ? "union " : "struct ") + std::string(sd.name()),
+             sd.doc(), "");
+        for (auto& fv : sd.fields())
+            item("field", path + "::" + std::string(fv.name()), fv.name(), path, sd.is_pub(),
+                 std::string(fv.name()) + ": " + rtype(fv.type(pool)), fv.doc(), "");
+    }
+    // Enums (+ variants).
+    for (auto& ed : prog.enums) {
+        if (is_wql_internal_pkg(ed.pkg()) || is_deem_internal_type(ed.pkg(), ed.name())) continue;
+        std::string path = qual(ed.pkg(), ed.name());
+        item("enum", path, ed.name(), "", ed.is_pub(),
+             "enum " + std::string(ed.name()), ed.doc(), "");
+        ed.each_variant([&](auto v) {
+            std::string sig = std::string(v.name());
+            if (v.has_payload()) {
+                sig += "(";
+                bool pf = true;
+                for (auto pt : v.payload_types(pool)) {
+                    if (!pf) sig += ", ";
+                    sig += rtype(pt);
+                    pf = false;
+                }
+                sig += ")";
+            }
+            item("variant", path + "::" + std::string(v.name()), v.name(), path,
+                 ed.is_pub(), sig, "", "");
+        });
+    }
+    // Traits (item + doc; per-method items are a fast follow once TraitView's
+    // method-sig iteration is wired — the implementor edges below already carry
+    // the key trait relation).
+    for (auto& td : prog.traits) {
+        if (is_wql_internal_pkg(td.pkg()) || is_deem_internal_type(td.pkg(), td.name())) continue;
+        std::string path = qual(td.pkg(), td.name());
+        item("trait", path, td.name(), "", /*is_pub=*/true,
+             "trait " + std::string(td.name()), td.doc(), "");
+    }
+
+    out += "\n  ],\n  impls: [\n";
+    bool first_impl = true;
+    for (auto& iv : prog.impls) {
+        if (iv.trait_name().empty()) continue;   // inherent impl — no implementor edge
+        if (!first_impl) out += ",\n";
+        first_impl = false;
+        out += "    {trait: "; q(iv.trait_name(), out);
+        out += ", type: ";     q(iv.target_type(), out);
+        out += "}";
+    }
+    out += "\n  ]\n}\n";
+
+    std::ofstream df(docs_path);
+    df << out;
+}
+
 static bool compile_to_object(std::vector<writ::Writ>& asts,
                                std::vector<std::string>& filenames,
                                const std::vector<bool>& ast_only_flags,
@@ -347,6 +566,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                                const std::vector<std::string>& per_ast_module_ids = {},
                                const std::unordered_map<std::string, std::string>& module_name_to_id = {},
                                const std::string& abi_layout_path = "",
+                               const std::string& docs_path = "",
                                int opt_level = 0,
                                bool overflow_checks = true,
                                const std::string& target_cpu = "generic") {
@@ -626,6 +846,12 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             af << rec << "]\n";
         }
     }
+
+    // ── Doc-facts sidecar (--emit-docs) ─────────────────────────────────────
+    // Same post-sema `prog` the ABI-layout block just walked; write the doc EDB
+    // before mono_pass moves prog away.
+    if (!module_name.empty() && !docs_path.empty())
+        emit_docs_facts(prog, module_name, docs_path);
 
     // Phase 5.B: snapshot generic template names + body mirror offsets
     // BEFORE mono_pass moves prog into its in_. Mono drops templates after
@@ -1287,6 +1513,9 @@ bool emit_module(const ModuleManifest& manifest,
                                /*per_ast_module_ids=*/per_ast_module_ids,
                                /*module_name_to_id=*/module_name_to_id,
                                /*abi_layout_path=*/output_path + ".abi-layout",
+                               /*docs_path=*/opts.emit_docs
+                                   ? (std::string(output_path) + ".docwr")
+                                   : std::string{},
                                /*opt_level=*/opts.opt_level,
                                /*overflow_checks=*/opts.overflow_checks,
                                /*target_cpu=*/opts.target_cpu)) {

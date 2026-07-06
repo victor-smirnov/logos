@@ -1,0 +1,134 @@
+// docgen — resolve a .docwr doc-facts container into docs.json (ADR 0014, slice-2).
+//
+// Reads a Writ-SDN doc-facts container (produced by `logosc --emit-docs`), folds
+// the trait-impl edges into per-item `implementors` / `implements` cross-refs,
+// collects the `undocumented` public surface, and serialises a resolved docs.json
+// (schema_version 1) that logos-site renders. Rendering/markdown are NOT here.
+//
+// Usage: docgen <in.docwr> <out.json>
+
+package docgen;
+
+use logos.mem.writ.parser;    // parse_writ
+use logos.lang.writ.anyval;   // WAny
+use logos.lang.writ.wmap;     // WMap
+use logos.lang.writ.array;    // WArray
+use logos.lang.writ.wstring;  // WString
+use logos.mem.encoding.json;  // JsonWriter
+use logos.std.io.fs;          // read_to_string, write_string
+use logos.mem.string;         // String
+use logos.std.env;            // arg, args_count
+use logos.lang.result;
+use logos.lang.option;
+
+// Read a string field from a fact map; "" when absent/non-string.
+fn field_str(m: &WMap<WString, WAny>, key: str) -> str {
+    let v = m.get(key);
+    if v.is_string() { return v.as_string().as_str(); }
+    return "";
+}
+
+// Write a JSON array of every impl `type` whose `trait` == trait_name.
+fn write_implementors(jw: &mut JsonWriter, impls: &WArray<WAny>, trait_name: str) {
+    jw.begin_array();
+    let n = impls.len();
+    let mut i = 0i64;
+    while i < n {
+        let e = impls.get(i).as_map();
+        if field_str(e, "trait") == trait_name {
+            jw.write_str(field_str(e, "type"));
+        }
+        i = i + 1i64;
+    }
+    jw.end_array();
+}
+
+// Write a JSON array of every impl `trait` whose `type` == type_name.
+fn write_implements(jw: &mut JsonWriter, impls: &WArray<WAny>, type_name: str) {
+    jw.begin_array();
+    let n = impls.len();
+    let mut i = 0i64;
+    while i < n {
+        let e = impls.get(i).as_map();
+        if field_str(e, "type") == type_name {
+            jw.write_str(field_str(e, "trait"));
+        }
+        i = i + 1i64;
+    }
+    jw.end_array();
+}
+
+fn convert(text: str) -> String {
+    let w = parse_writ(text);
+    let root = w.root();
+    let rm = root.as_map();
+    let items = rm.get("items").as_array();
+    let impls = rm.get("impls").as_array();
+
+    let mut jw = JsonWriter::new();
+    jw.begin_object();
+    jw.write_key("schema_version"); jw.write_i64(1i64);
+    jw.write_key("package"); jw.write_str(field_str(rm, "package"));
+
+    jw.write_key("items"); jw.begin_array();
+    let n = items.len();
+    let mut i = 0i64;
+    while i < n {
+        let it = items.get(i).as_map();
+        let kind = field_str(it, "kind");
+        let name = field_str(it, "name");
+        jw.begin_object();
+        jw.write_key("kind");      jw.write_str(kind);
+        jw.write_key("path");      jw.write_str(field_str(it, "path"));
+        jw.write_key("name");      jw.write_str(name);
+        jw.write_key("parent");    jw.write_str(field_str(it, "parent"));
+        jw.write_key("visibility"); jw.write_str(field_str(it, "vis"));
+        jw.write_key("signature"); jw.write_str(field_str(it, "sig"));
+        jw.write_key("doc");       jw.write_str(field_str(it, "doc"));
+        jw.write_key("src_file");  jw.write_str(field_str(it, "src_file"));
+        // Cross-refs folded from the impl edges (plain group-by).
+        if kind == "trait" {
+            jw.write_key("implementors"); write_implementors(&mut jw, impls, name);
+        }
+        if kind == "struct" || kind == "enum" {
+            jw.write_key("implements"); write_implements(&mut jw, impls, name);
+        }
+        jw.end_object();
+        i = i + 1i64;
+    }
+    jw.end_array();
+
+    // Doc-coverage: pub items with an empty doc string.
+    jw.write_key("undocumented"); jw.begin_array();
+    i = 0i64;
+    while i < n {
+        let it = items.get(i).as_map();
+        if field_str(it, "vis") == "pub" && field_str(it, "doc") == "" {
+            jw.write_str(field_str(it, "path"));
+        }
+        i = i + 1i64;
+    }
+    jw.end_array();
+
+    jw.end_object();
+    let mut out = String::new();
+    jw.append_into(&mut out);
+    return out;
+}
+
+fn main() -> i32 {
+    if args_count() < 3i32 {
+        return 2i32;
+    }
+    let in_path = arg(1i32);
+    let out_path = arg(2i32);
+    let text = match read_to_string(in_path) {
+        Result::Ok(s) => s,
+        Result::Err(e) => { return 3i32; }
+    };
+    let json = convert(text.as_str());
+    match write_string(out_path, &json) {
+        Result::Ok(v) => { return 0i32; }
+        Result::Err(e) => { return 4i32; }
+    }
+}

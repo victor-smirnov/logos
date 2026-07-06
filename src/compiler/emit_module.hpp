@@ -12,6 +12,12 @@ struct EmitModuleOptions {
     std::vector<std::string> extra_search_paths;  // -I flags
     bool emit_mlir = false;
     bool emit_llvm = false;
+    // --emit-docs: in addition to the normal module artifacts, walk the post-sema
+    // decl views and write <output_path>.docwr — a Writ-SDN container of
+    // documentation facts (items + impl edges) that `lforge doc` loads as a Deem
+    // EDB. Sibling of the .abi-layout sidecar; reads the `.doc()` accessors that
+    // sema already populates from /// //! /** */ comments (ADR 0014).
+    bool emit_docs = false;
     // Per-file emit mode (B1.7). When non-empty, emit_module produces only
     // the artifacts for THIS source file:
     //   <output_path>.o       — object code with body emission filtered to

@@ -70,6 +70,7 @@ use lforge.spawn_helpers;
 use lforge.builder;
 use lforge.external_build;
 use lforge.cmd;
+use lforge.doc;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -128,7 +129,7 @@ fn main() -> i32 {
     unsafe {
         let cmd: str = positional(0 as i32);
     if cmd.len() == 0 as i64 {
-        println_str(2, "usage: lforge <build|run|update|clean|test|install> [--release] [target] [-- args...]");
+        println_str(2, "usage: lforge <build|run|update|clean|test|install|doc> [--release] [target] [-- args...]");
         return 2;
     }
 
@@ -188,6 +189,9 @@ fn main() -> i32 {
     }
     if str_eq_local(cmd, "test") {
         return cmd_test(&m, profile);
+    }
+    if str_eq_local(cmd, "doc") {
+        return cmd_doc(&m, profile);
     }
     if str_eq_local(cmd, "install") {
         return cmd_install(&m, profile);
