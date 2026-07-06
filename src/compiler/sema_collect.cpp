@@ -4565,17 +4565,26 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
         for (auto t : spec_patterns) pa.push_type(t);
     }
 
-    // Lower fields (TypeVars from patterns now in scope).
+    // Lower fields (TypeVars from patterns now in scope). The grammar's
+    // `field_def_or_doc*` interleaves `///` DOC nodes with real FIELD_DEFs — skip
+    // the docs (accumulating them as F_DOC) and any other stray node, exactly as
+    // the sema-info spec path does (collect_struct_spec). Without the guard a
+    // field `///` reaches resolve_type as a null TYPE → "unexpected type node
+    // code -1" during specialization lowering.
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
         if (fields.size() > 0) {
             auto fa = sd.array(stk::FIELDS);
+            std::string field_doc;
             for (uint64_t i = 0; i < fields.size(); ++i) {
                 auto fnode = map_of(fields.get(i));
+                if (try_append_doc(field_doc, fnode)) continue;
+                if (code_of(fnode) != la::FIELD_DEF) continue;
                 auto fname = str_of(fnode.get(la::NAME.code));
                 auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
-                lir::LField fld{std::string(fname), ftype, false, {}};
+                lir::LField fld{std::string(fname), ftype, false, std::move(field_doc)};
                 fa.push_field(fld);
+                field_doc.clear();
             }
         }
     }

@@ -1,0 +1,15 @@
+// Regression: a `///` doc comment on a FIELD of an explicit specialization
+// struct must not break specialization lowering. The grammar interleaves DOC
+// nodes into the field list; lower_spec_struct previously fed them to
+// resolve_type → "unexpected type node code -1".
+package spec_struct_field_doc;
+
+pub struct Pair<T> { pub a: T }
+
+/// A documented specialization.
+pub struct Pair<i64> {
+    /// The value field — its doc comment used to crash lowering.
+    pub a: i64,
+}
+
+fn main() -> i32 { return 0i32; }
