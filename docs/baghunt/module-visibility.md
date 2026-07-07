@@ -2,7 +2,7 @@
 
 **Group**: 1 — Module & Visibility
 **Grammar rules covered**: `module`, `path_dot_ident`, `any_use_decl`, `pub_use_decl`, `use_decl`
-**Reference doc**: [docs/language/reference/modules.md](../language/reference/modules.md)
+**Reference doc**: [docs/spec/modules.md](../spec/modules.md)
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) (`cur_imports_`, `cur_package_`, `pkg_reexports_`, `check_pub_access`)
 - [src/compiler/sema_impl.hpp](../../src/compiler/sema_impl.hpp) (`find_*_by_name`, `effective_import_pkgs`, `sema_key`)

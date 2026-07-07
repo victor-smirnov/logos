@@ -24,8 +24,9 @@ output as code". A language with strong metaprogramming has *one*
 mechanism for all of these. A language without it grows N ad-hoc
 mechanisms, each with its own quirks.
 
-This connects directly to Platform Goal 1 in `docs/ai-platform/models.md`
-(*ease of offloading work from the LLM to deterministic components*).
+This connects directly to Platform Goal 1 — *ease of offloading work
+from the LLM to deterministic components* (see the AI-platform essays on
+[logos-lang.dev](https://logos-lang.dev/blog/)).
 Metafunctions are the in-language realization of that goal: the
 deterministic component is *itself a Logos function*, with full type
 checking, capability gating, and provenance — not an opaque external

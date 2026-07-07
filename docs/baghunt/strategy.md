@@ -292,7 +292,7 @@ These are listed for context but are NOT part of this strategy:
 After all sprints land:
 1. **Regression suite**: every catalog repro has a test in `tests/logos/`.
 2. **Cluster-level invariants**: e.g. "no bare-name lookup that bypasses pkg" should be a checked invariant via Datalog (Phase 5).
-3. **Documentation**: each cluster fix updates the relevant `docs/language/reference/*.md` page so users see the new behavior.
+3. **Documentation**: each cluster fix updates the relevant `docs/spec/*.md` page so users see the new behavior.
 4. **Crash-rate metric**: `LOGOS_ASSERT` triggers on user input → 0. Track in CI.
 
 ## What this plan does NOT do

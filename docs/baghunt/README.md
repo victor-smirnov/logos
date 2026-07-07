@@ -5,7 +5,7 @@ Result of Phase 1A of the [refactor + adversarial bag-hunt](../../../.claude/pla
 ## Conventions
 
 - **Grammar source**: [tools/peg_gen/grammars/logos.peg](../../tools/peg_gen/grammars/logos.peg). Production names below are quoted verbatim from the `%rules` block.
-- **Reference docs** live in [docs/language/reference/](../language/reference/). Where coverage is incomplete it's marked **GAP**.
+- **Reference docs** live in [docs/spec/](../spec/). Where coverage is incomplete it's marked **GAP**.
 - **Bug catalog** files have format `docs/baghunt/<group-slug>.md`. They don't exist yet on Phase 1A; Phase 2 fills them.
 - **Implementation entry points** are the primary `src/compiler/*.cpp` files for each group. Many features cross several files; only the dominant ones are listed.
 
@@ -46,7 +46,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `pub_use_decl` | 400 | `pub use <path>;` (re-export) |
 | `use_decl` | 403 | `use <path>;` |
 
-**Reference**: [docs/language/reference/items.md](../language/reference/items.md) covers `module`/`use` superficially. **GAP**: deep semantics of name resolution, visibility scope, re-export propagation, `use` ordering, and how multi-file packages work (`logos.module` files). Phase 1B may add `docs/language/reference/modules.md`.
+**Reference**: [docs/spec/items.md](../spec/items.md) covers `module`/`use` superficially. **GAP**: deep semantics of name resolution, visibility scope, re-export propagation, `use` ordering, and how multi-file packages work (`logos.module` files). Phase 1B may add `docs/spec/modules.md`.
 
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `cur_imports_`, `cur_package_`, `pkg_reexports_`
@@ -79,7 +79,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `impl_item` | 734 | Item inside impl (method / static) |
 | `meta_block` | 821 | `meta @{...}` block on struct/datatype/trait |
 
-**Reference**: [items.md](../language/reference/items.md). Coverage is comprehensive at the surface level. **GAP**: meta-block semantics + the relation between `auto trait` and ordinary `trait` deserve a dedicated section. (`genos` is a separate computable form-specification keyword, not a trait flavour.)
+**Reference**: [items.md](../spec/items.md). Coverage is comprehensive at the surface level. **GAP**: meta-block semantics + the relation between `auto trait` and ordinary `trait` deserve a dedicated section. (`genos` is a separate computable form-specification keyword, not a trait flavour.)
 
 **Implementation entry points**:
 - [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `lower_struct_def`, `lower_enum_def`, `lower_datatype_def`
@@ -103,7 +103,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `param_list` / `param` | 888/891 | Parameter syntax (incl. `&mut`, `*const`, `*mut`) |
 | `method_def` | 832 | Dispatcher for impl/struct method (via static_fn / fn) |
 
-**Reference**: [items.md](../language/reference/items.md), [statements.md](../language/reference/statements.md). Functions are surface-only; ABI rules and self-receiver lowering rules are in internals docs.
+**Reference**: [items.md](../spec/items.md), [statements.md](../spec/statements.md). Functions are surface-only; ABI rules and self-receiver lowering rules are in internals docs.
 
 **Implementation entry points**:
 - [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `lower_fn`, `lower_static_fn`
@@ -123,7 +123,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `const_def` | 510 | `pub const X<...>: T = expr;` (incl. parametric WritStatic) |
 | `type_alias` | 525 | `pub type Foo<...> = T;` |
 
-**Reference**: [items.md](../language/reference/items.md), [metaprog.md](../language/reference/metaprog.md) (parametric WritStatic section).
+**Reference**: [items.md](../spec/items.md), [metaprog.md](../spec/metaprogramming.md) (parametric WritStatic section).
 
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `collect_const`, `collect_type_alias`
@@ -144,7 +144,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `annot_args` | 493 | Comma-separated annotation arguments |
 | `meta_block` | 821 | `meta @{...}` Writ-literal payload on struct/trait/datatype |
 
-**Reference**: [attributes.md](../language/reference/attributes.md). **GAP**: complete registry of recognized `#[...]` forms (derive, repr, type_code, metaprog_handler, ad-hoc user annotations). Meta-block semantics also light. Phase 1B should expand this.
+**Reference**: [attributes.md](../spec/items.md). **GAP**: complete registry of recognized `#[...]` forms (derive, repr, type_code, metaprog_handler, ad-hoc user annotations). Meta-block semantics also light. Phase 1B should expand this.
 
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `parse_annotation`, derive registration, type_code attribute
@@ -184,7 +184,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `writ_map_type` | | Writ map shape at type-position |
 | `type_or_lt_arg` | | Type or lifetime argument (for type_arg_list) |
 
-**Reference**: [types.md](../language/reference/types.md). Comprehensive at surface. **Recent change** (2026-05-04): `wstatic_lit_type` removed from `type_ref` after parametric WritStatic landed.
+**Reference**: [types.md](../spec/types.md). Comprehensive at surface. **Recent change** (2026-05-04): `wstatic_lit_type` removed from `type_ref` after parametric WritStatic landed.
 
 **Implementation entry points**:
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_type` (~2000 lines into the file), `compute_type_uid`, `types_equal`, `mangle_type_for_name`, `concrete_struct_name`
@@ -211,7 +211,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `super_list` | 576 | (also in Items) — super traits |
 | `where_clause` | 843 | `where T: Bound` |
 
-**Reference**: [generics-traits.md](../language/reference/generics-traits.md). Comprehensive.
+**Reference**: [generics-traits.md](../spec/traits-generics.md). Comprehensive.
 
 **Implementation entry points**:
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `unify_types`, `match_type_sema`, type-param substitution
@@ -248,7 +248,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `field_index_write_stmt` / `field_index_compound_assign_stmt` | | `recv.field[i] = ...` |
 | `deref_write_stmt` / `deref_field_write_stmt` / `deref_field_compound_assign_stmt` | | `*p = ...`, `(*p).f = ...`, `(*p).f += ...` |
 
-**Reference**: [statements.md](../language/reference/statements.md). **GAP**: the assignment matrix (12 distinct forms × 10 compound ops) lacks an exhaustive table; bug-hunt should reveal which combinations are not actually wired up.
+**Reference**: [statements.md](../spec/statements.md). **GAP**: the assignment matrix (12 distinct forms × 10 compound ops) lacks an exhaustive table; bug-hunt should reveal which combinations are not actually wired up.
 
 **Implementation entry points**:
 - [src/compiler/sema_stmt.cpp](../../src/compiler/sema_stmt.cpp) — `lower_let`, `lower_assign`, `lower_compound_assign`, etc.
@@ -272,7 +272,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `pat_writ_map_entry` / `pat_writ_map_entries` | | `@{ "k": pat, .. }` Writ-map patterns |
 | `pat_writ_arr_elem` / `pat_writ_arr_elems` | | `@[a, b, ..]` Writ-array patterns |
 
-**Reference**: [patterns.md](../language/reference/patterns.md). Comprehensive.
+**Reference**: [patterns.md](../spec/patterns.md). Comprehensive.
 
 **Implementation entry points**:
 - [src/compiler/sema_pat.cpp](../../src/compiler/sema_pat.cpp) — pattern lowering, binding registration
@@ -303,7 +303,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `call_expr` | 1773 | `f(args)` / `f::<T>(args)` |
 | `call_arg_list` | 1768 | Comma-separated args |
 
-**Reference**: [expressions.md](../language/reference/expressions.md). Comprehensive.
+**Reference**: [expressions.md](../spec/expressions.md). Comprehensive.
 
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_expr`, all expr-kind handlers
@@ -331,7 +331,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `map_comp` | 1581 | `{k: v for ... }` (regular dict comp) |
 | `closure_expr` | 1670 | `\|x, y\| { ... }` |
 
-**Reference**: [expressions.md](../language/reference/expressions.md) covers most. List-comp and map-comp surface coverage is light. Closures are mentioned but capture rules deep in internals.
+**Reference**: [expressions.md](../spec/expressions.md) covers most. List-comp and map-comp surface coverage is light. Closures are mentioned but capture rules deep in internals.
 
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_struct_lit`, `lower_arr_lit`, `lower_tuple_lit`, `lower_closure_expr`
@@ -358,7 +358,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `writ_list_comp` | 1598 | `@[expr for x in iter]` (Writ-typed comprehension) |
 | `writ_map_comp` | 1603 | `@{k: v for ...}` (Writ-typed map comprehension) |
 
-**Reference**: [writ.md](../language/reference/writ.md). Comprehensive at design level.
+**Reference**: [writ.md](../spec/writ.md). Comprehensive at design level.
 
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_writ_val`, `lower_writ_lit`, `lower_writ_typed_*`
@@ -383,7 +383,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `quote_expr_expr` | 1706 | `quote_expr! { ... }` |
 | `quote_ty_expr` | 1714 | `quote_ty! { ... }` |
 
-**Reference**: [metaprog.md](../language/reference/metaprog.md). Surface coverage good. **GAP**: depth on quote-form semantics — antiquotation rules per-form, repeat-group expansion, hygiene model with gensym, `#[metaprog_handler]` lifecycle.
+**Reference**: [metaprog.md](../spec/metaprogramming.md). Surface coverage good. **GAP**: depth on quote-form semantics — antiquotation rules per-form, repeat-group expansion, hygiene model with gensym, `#[metaprog_handler]` lifecycle.
 
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_quote_item`, `lower_quote_expr`, `lower_quote_ty`, `lower_metacall_item`
@@ -398,7 +398,7 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 
 No `%rules` productions; lives in the grammar's `%tokens` block.
 
-**Reference**: [lexical.md](../language/reference/lexical.md). Comprehensive.
+**Reference**: [lexical.md](../spec/lexical.md). Comprehensive.
 
 **Implementation entry points**:
 - Generated lexer in [build/tools/peg_gen/](../../build/tools/peg_gen/) (regenerated from logos.peg)
@@ -412,10 +412,10 @@ No `%rules` productions; lives in the grammar's `%tokens` block.
 
 Confirmed from the inventory above:
 
-1. **`docs/language/reference/modules.md`** (NEW) — name resolution, `use` ordering, visibility scope, multi-file packages, `pub use` re-exports, find-best-spec across packages.
-2. **`docs/language/reference/attributes.md`** (EXTEND) — exhaustive registry of recognized `#[...]` attributes (derive_*, repr, type_code, metaprog_handler, custom user annotations) + meta-block (`@{...}`) semantics.
-3. **`docs/language/reference/statements.md`** (EXTEND) — exhaustive compound-assign matrix (12 LHS-shapes × 10 ops) + which combinations are wired up.
-4. **`docs/language/reference/metaprog.md`** (EXTEND) — antiquot rules per quote form, repeat-group expansion semantics, hygiene/gensym model, `#[metaprog_handler]` lifecycle.
+1. **`docs/spec/modules.md`** (NEW) — name resolution, `use` ordering, visibility scope, multi-file packages, `pub use` re-exports, find-best-spec across packages.
+2. **`docs/spec/items.md`** (EXTEND) — exhaustive registry of recognized `#[...]` attributes (derive_*, repr, type_code, metaprog_handler, custom user annotations) + meta-block (`@{...}`) semantics.
+3. **`docs/spec/statements.md`** (EXTEND) — exhaustive compound-assign matrix (12 LHS-shapes × 10 ops) + which combinations are wired up.
+4. **`docs/spec/metaprogramming.md`** (EXTEND) — antiquot rules per quote form, repeat-group expansion semantics, hygiene/gensym model, `#[metaprog_handler]` lifecycle.
 
 ---
 

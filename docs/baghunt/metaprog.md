@@ -2,7 +2,7 @@
 
 **Group**: 13 — Metaprog (quote / template / metacall / instantiate)
 **Grammar rules covered**: `metacall_item_decl`, `instantiate_decl`, `pub_instantiate_decl`, `template_decl`, `template_inner`, `quote_item_expr`, `quote_expr_expr`, `quote_ty_expr`
-**Reference doc**: [docs/language/reference/metaprog.md](../language/reference/metaprog.md)
+**Reference doc**: [docs/spec/metaprogramming.md](../spec/metaprogramming.md)
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_quote_item`, `lower_quote_expr`, `lower_quote_ty`, `lower_metacall_item`
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `generic_consts_`, parametric WritStatic substitution
@@ -44,7 +44,7 @@ instantiate Foo;   // not a generic
 fn main() -> i32 { return 0; }
 ```
 **Observed**: Compiles cleanly.
-**Expected**: Per [metaprog.md](../language/reference/metaprog.md): "`instantiate Foo<T>;` materializes Foo<T> as a root for monomorphization (analog of C++ `template class Foo<int>;`)". Non-generic types don't need instantiation hints. Should error: "type 'Foo' is not generic; `instantiate` only applies to generic templates".
+**Expected**: Per [metaprog.md](../spec/metaprogramming.md): "`instantiate Foo<T>;` materializes Foo<T> as a root for monomorphization (analog of C++ `template class Foo<int>;`)". Non-generic types don't need instantiation hints. Should error: "type 'Foo' is not generic; `instantiate` only applies to generic templates".
 **Suspected root**: `instantiate_decl` lowering doesn't check that the target type has type-params.
 **Tags**: `oversight:simple`, `tech-debt:no-validation`
 
@@ -93,7 +93,7 @@ fn make() -> StmtBlob {
 }
 ```
 **Observed**: `syntax error near 'quote_stmt' at line 4`.
-**Expected**: Per [metaprog.md](../language/reference/metaprog.md): "`quote_stmt!`, `quote_pat!`, `quote_ident!` — not implemented." Syntax error is correct; could provide a helpful message ("not yet implemented").
+**Expected**: Per [metaprog.md](../spec/metaprogramming.md): "`quote_stmt!`, `quote_pat!`, `quote_ident!` — not implemented." Syntax error is correct; could provide a helpful message ("not yet implemented").
 **Tags**: `design:incomplete`
 
 ### B-mt-06: `metacall` only accepted bare-call form (no `metacall (<expr>)` / `metacall { ... }`)

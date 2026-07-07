@@ -2,7 +2,7 @@
 
 **Group**: 11 — Literals (struct/array/tuple/closure)
 **Grammar rules covered**: `enum_lit`, `struct_lit`, `generic_struct_lit`, `struct_update_lit`, `field_init`, `arr_lit`, `arr_fill_lit`, `tuple_lit`, `list_comp`, `map_comp`, `closure_expr`
-**Reference doc**: [docs/language/reference/expressions.md](../language/reference/expressions.md) (closures + literals embedded)
+**Reference doc**: [docs/spec/expressions.md](../spec/expressions.md) (closures + literals embedded)
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_struct_lit`, `lower_arr_lit`, `lower_tuple_lit`, `lower_closure_expr`, `lower_list_comp`
 - [src/compiler/mlir_gen.cpp](../../src/compiler/mlir_gen.cpp) — `gen_struct_lit`

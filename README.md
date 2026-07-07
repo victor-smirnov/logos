@@ -45,7 +45,7 @@ Run the test suite:
 cd build && ctest --output-on-failure
 ```
 
-See [docs/language/getting-started.md](docs/language/getting-started.md) for prerequisites and details.
+See the [Getting Started guide](https://logos-lang.dev/docs/getting-started/) for prerequisites and details.
 
 ## Project Structure
 
@@ -56,37 +56,23 @@ logos/
   tests/          Language test suites (pass / fail)
   examples/       Example Logos programs
   tools/          Supporting tools (PEG generator, audits, HRPC codegen)
-  docs/           Documentation (start at docs/README.md)
+  docs/           Language spec, ADRs, and internal design notes
 ```
 
 ## Documentation
 
-The documentation lives in [docs/](docs/README.md) and is split into two tracks:
+User-facing documentation — the guide, language spec, subsystem references
+(Writ, Hest, Deem, Trama, Metacall), API reference, and essays — lives on the
+project site: **[logos-lang.dev](https://logos-lang.dev)**.
 
-**For users of the language**
-
-- [Overview](docs/language/overview.md) — what Logos is, design axes, comparisons.
-- [Getting Started](docs/language/getting-started.md) — build, run, test.
-- [Syntax](docs/language/syntax.md) — types, expressions, statements, patterns.
-- [Ownership and Borrowing](docs/language/ownership.md) — `&`/`&mut`, lifetimes.
-- [Generics and Traits](docs/language/generics-traits.md) — generic functions, trait impls.
-- [Comprehensions](docs/language/comprehensions.md) — list/map comprehensions over plain values and Writ.
-- [Writ in Logos](docs/language/writ.md) — literals, capture, view types.
-- [Language Reference](docs/language/reference/README.md) — normative reference (lexical, types, items, expressions, statements, patterns, plus cross-cutting topics).
-
-**For contributors**
+This repository keeps the normative **[language spec](docs/spec/)** (the source
+the site renders), the **[divergences register](docs/DIVERGENCES.md)**, and
+engineering notes for contributors:
 
 - [Compiler Architecture](docs/internals/architecture.md) — the `logosc` pipeline.
 - [Writ Runtime](docs/internals/writ-runtime.md) — Datatype/Storage/View, zones, type registry.
 - [Metaprogramming](docs/internals/metaprog.md) — current state of compile-time programming.
-
-**Status**
-
-- [Roadmap](docs/roadmap.md) — what is implemented, in progress, and planned.
-
-**Essays**
-
-- [AI Platform Era](docs/ai-platform/README.md) — how AI authorship reshapes the requirements on languages and platforms, and how Logos responds.
+- [Architecture Decision Records](docs/adr/) — design decisions and their rationale.
 
 ## Technology Stack
 
@@ -103,7 +89,7 @@ The documentation lives in [docs/](docs/README.md) and is split into two tracks:
 
 ## Status
 
-Active implementation. The compiler, runtime, and standard library are in daily use; the language has not stabilized and the documentation reflects the current state, not a frozen specification. See the [Roadmap](docs/roadmap.md) for what is in flight.
+Active implementation. The compiler, runtime, and standard library are in daily use; the language has not stabilized and the documentation reflects the current state, not a frozen specification.
 
 ## License
 

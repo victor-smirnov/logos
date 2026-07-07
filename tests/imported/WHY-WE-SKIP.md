@@ -48,7 +48,7 @@ compile time, and use `quote_expr!` / `quote_item!` for AST
 construction. The capability surface is the same (token-in,
 AST-out, sema sees the result); the API and packaging are
 different. Tests targeting the proc-macro packaging model don't
-translate. See [`docs/language/reference/macros.md`](../../docs/language/reference/macros.md).
+translate. See [`docs/spec/metaprogramming.md`](../../docs/spec/metaprogramming.md).
 
 ### `specialization` (113 files)
 

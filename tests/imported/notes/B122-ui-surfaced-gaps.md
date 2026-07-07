@@ -59,7 +59,7 @@ are §B catch-up TODOs (no new §A blessed divergence).
 
 - **Byte-char / byte-string literals** `b'a'`, `b"a\xF0\t"`, `br"…"` →
   `syntax error near 'b'`. Already documented pending in
-  `docs/language/reference/lexical.md` ("no character literal beyond `'a'`
+  `docs/spec/lexical.md` ("no character literal beyond `'a'`
   char; no byte-string literal `b\"…\"`; pending"). `array-slice-vec/byte-literals.rs`
   left unimported; `cast/u8-to-char-cast`-style byte values written as integer
   literals (`0x61u8 as char`) per the lexical-ref guidance.

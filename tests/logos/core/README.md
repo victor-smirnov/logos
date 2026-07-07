@@ -1,11 +1,10 @@
-# `tests/logos/core/` — verification tests for `logos-core.md` items
+# `tests/logos/core/` — verification tests for core-language items
 
-> Each test in this map proves a specific DoD-depth claim from
-> `docs/language/logos-core.md`. The scoreboard at
-> `logos-core.md §8a` is the canonical "closed at DoD-depth" register;
-> for an item to be ✅ there, it MUST have a verification test below
-> (or be marked "verified-by-suite" — pure internal refactor with
-> nothing user-visible to assert).
+> Each test in this map proves a specific DoD-depth claim about the core
+> language. The normative language spec lives in [`docs/spec/`](../../../docs/spec/)
+> (rendered at [logos-lang.dev/spec](https://logos-lang.dev/spec/)); an item is
+> "closed at DoD-depth" only if it has a verification test below (or is marked
+> "verified-by-suite" — pure internal refactor with nothing user-visible to assert).
 
 ## Naming convention
 
@@ -53,7 +52,7 @@ in `pass/` and `fail/`. Two reasons:
 | 4.2 | Match exhaustiveness | `tests/logos/pass/core_4_2_match_exhaustiveness.logos` ✓ + `tests/logos/fail/core_4_2_missing_variant.logos` ✓ | ✅ |
 | 4.3 | Chained autoderef in pat | `tests/logos/pass/core_4_3_match_double_ref.logos` ✓ | ✅ |
 | 5.1 | Atomics Ordering | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ | ✅ |
-| 5.2 | UB doc | `docs/language/undefined-behavior.md` exists ✓ | ✅ |
+| 5.2 | UB doc | documented in the language spec ([logos-lang.dev/spec](https://logos-lang.dev/spec/)) ✓ | ✅ |
 | 4.4 | `PAT_PATH` constants-as-patterns | `tests/logos/pass/core_4_4_pat_path_const.logos` ✓ | ✅ |
 | 4.5 | fn-params irrefutable patterns | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ | ✅ |
 | 6.1 | `union` item | `tests/logos/pass/core_6_1_union_parse.logos` ✓ + `tests/logos/fail/core_6_1_union_{safe_read,multi_init}.logos` ✓ | ✅ |

@@ -2,7 +2,7 @@
 
 **Group**: 3 — Functions & Methods
 **Grammar rules covered**: `pub_fn_def`, `fn_def`, `extern_fn_def`, `pub_static_fn_def`, `static_fn_def`, `param_list`, `param`, `method_def`
-**Reference doc**: [docs/language/reference/items.md](../language/reference/items.md), [docs/language/reference/statements.md](../language/reference/statements.md)
+**Reference doc**: [docs/spec/items.md](../spec/items.md), [docs/spec/statements.md](../spec/statements.md)
 **Implementation entry points**:
 - [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `lower_fn`, `lower_static_fn`
 - [src/compiler/mlir_gen_fn.cpp](../../src/compiler/mlir_gen_fn.cpp) — `make_fn_type`, `forward_declare`, `gen_function_body`
@@ -165,7 +165,7 @@ fn main() -> i32 { let x: i32 = 5; return standalone(&x as *const i32); }
 **Cluster preview**:
 - **Trailing-comma cluster** (B-fn-03/04/05/09) — single architectural fix: standardize `(COMMA T)* COMMA?` across all list productions in [logos.peg](../../tools/peg_gen/grammars/logos.peg).
 - **missing-uniqueness-check** (B-fn-02) — same cluster as B-it-03/04/05. Single `unique-names` helper used at all list-of-names registration sites.
-- **Design choices vs bugs** — B-fn-06/07 are intentional design decisions; should move to `docs/language/reference/roadmap.md` as "non-features" rather than bugs. Worth re-classifying in Phase 3.
+- **Design choices vs bugs** — B-fn-06/07 are intentional design decisions; should move to `docs/spec/items.md` as "non-features" rather than bugs. Worth re-classifying in Phase 3.
 
 ## Regression-confirmed (NOT bugs)
 

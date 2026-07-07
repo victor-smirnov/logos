@@ -142,7 +142,7 @@ Definition-of-Done for new features. Pre-PR checklist:
 - [ ] No inline `LogosTypeBuilder` construction (route through `make_*_type`)
 - [ ] No `LOGOS_ASSERT` on user input (use error productions)
 - [ ] If new attribute: registered in `attr_registry`
-- [ ] If new statement form: added to assignment matrix in [statements.md](../language/reference/statements.md)
+- [ ] If new statement form: added to assignment matrix in [statements.md](../spec/statements.md)
 - [ ] If new pattern shape: added to pattern surface coverage
 - [ ] If new sema-side validation: invariant added to `memory/invariants.md`
 

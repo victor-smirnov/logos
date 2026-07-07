@@ -172,7 +172,7 @@ Plus a single validation pass that checks every annotation against the registry.
 
 **Member bugs**: B-st-04 (`*p += v` not parsed)
 
-**Pattern**: Assignment matrix in [statements.md](../language/reference/statements.md) lists 15 LHS shapes × 10 compound ops = 150 combinations. Some are wired, some aren't. The matrix lacks systematic coverage.
+**Pattern**: Assignment matrix in [statements.md](../spec/statements.md) lists 15 LHS shapes × 10 compound ops = 150 combinations. Some are wired, some aren't. The matrix lacks systematic coverage.
 
 **Architectural fix**: Audit + complete the matrix. New helper to mechanically generate all combinations from a single core "assign" lowering.
 

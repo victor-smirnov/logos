@@ -68,7 +68,7 @@ practical, so cross-referencing upstream is straightforward.
   language; we only port stabilised behaviour.
 * Tests gated on target-specific or compiler-version flags.
 * Tests that exercise `macro_rules!` — Logos uses `#[fn_macro]` /
-  `#[token_macro]` (see [docs/language/reference/macros.md](../../docs/language/reference/macros.md));
+  `#[token_macro]` (see [docs/spec/metaprogramming.md](../../docs/spec/metaprogramming.md));
   feature parity tracked in other suites.
 
 ## Workflow for adding a batch

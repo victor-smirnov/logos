@@ -527,10 +527,10 @@ These are explicit gaps in the design, not just unwritten details.
 
 - [legacy-memoria-container-assembly.md](legacy-memoria-container-assembly.md)
   — the C++ prior art that this generalisation responds to.
-- [docs/language/reference/metaprog.md](../language/reference/metaprog.md)
+- [docs/spec/metaprogramming.md](../spec/metaprogramming.md)
   — what's currently shipping in the metaprog layer; the "vs Rust macros"
   table and the Query/Quote Asymmetry section are direct prerequisites.
-- [docs/language/reference/generics-traits.md](../language/reference/generics-traits.md)
+- [docs/spec/traits-generics.md](../spec/traits-generics.md)
   — the C++20 baseline of generics; component-based metaprog stacks **on
   top** of this, not in place of it.
 - Memory: `project_persistent_pkg`, `feat_metaprog_inversion`,

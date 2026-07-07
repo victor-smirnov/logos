@@ -2,7 +2,7 @@
 
 **Group**: 7 — Generics & Bounds
 **Grammar rules covered**: `type_param_list`, `type_param`, `lifetime_param`, `type_arg_list`, `bound_arg_list`, `bound_arg`, `trait_bound`, `super_list`, `where_clause`
-**Reference doc**: [docs/language/reference/generics-traits.md](../language/reference/generics-traits.md)
+**Reference doc**: [docs/spec/traits-generics.md](../spec/traits-generics.md)
 **Implementation entry points**:
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `unify_types`, `match_type_sema`, `find_best_sema_struct_spec`, type-param substitution
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — type-param collection, bound parsing

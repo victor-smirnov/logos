@@ -2,7 +2,7 @@
 
 **Group**: 9 — Pattern Matching
 **Grammar rules covered**: `pattern`, `pat_binding`, `pat_binding_list`, `pat_field`, `pat_field_list`, `pat_slice_elem`, `pat_slice_elems`, `pat_writ_map_entry`, `pat_writ_map_entries`, `pat_writ_arr_elem`, `pat_writ_arr_elems`
-**Reference doc**: [docs/language/reference/patterns.md](../language/reference/patterns.md)
+**Reference doc**: [docs/spec/patterns.md](../spec/patterns.md)
 **Implementation entry points**:
 - [src/compiler/sema_pat.cpp](../../src/compiler/sema_pat.cpp) (or sema_stmt.cpp/sema_expr.cpp — pattern lowering scattered) — pattern lowering, binding registration
 - [src/compiler/mlir_gen_stmt.cpp](../../src/compiler/mlir_gen_stmt.cpp) — match-arm emission

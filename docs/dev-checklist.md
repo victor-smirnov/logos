@@ -41,7 +41,7 @@ The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs t
 
 ### Documentation
 
-- [ ] **Reference doc updated.** [docs/language/reference/](language/reference/) has the right page for the feature; update it.
+- [ ] **Reference doc updated.** [docs/spec/](spec/) has the right page for the feature; update it.
 - [ ] **Internals doc updated** if the change is implementation-relevant.
 - [ ] **Memory file added** if this is a multi-month arc or load-bearing decision (`feat_*.md` for done work, `project_*.md` for in-progress).
 

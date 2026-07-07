@@ -2,7 +2,7 @@
 
 **Group**: 4 — Const & Type aliases
 **Grammar rules covered**: `const_def`, `type_alias`
-**Reference doc**: [docs/language/reference/items.md](../language/reference/items.md), [docs/language/reference/metaprog.md](../language/reference/metaprog.md) (for parametric WritStatic)
+**Reference doc**: [docs/spec/items.md](../spec/items.md), [docs/spec/metaprogramming.md](../spec/metaprogramming.md) (for parametric WritStatic)
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `collect_const`, `collect_type_alias`
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_wstatic_value`, `generic_consts_` storage

@@ -2,7 +2,7 @@
 
 **Group**: 13 — Attributes & Meta Blocks (numbered #5 in feature-group inventory)
 **Grammar rules covered**: `annotation`, `annot_val`, `annot_args`, `meta_block`
-**Reference doc**: [docs/language/reference/attributes.md](../language/reference/attributes.md)
+**Reference doc**: [docs/spec/items.md](../spec/items.md)
 **Implementation entry points**:
 - [src/compiler/sema_collect.cpp](../../src/compiler/sema_collect.cpp) — `parse_annotation`, `extract_meta_val`
 - [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `eval_static_writ_lit` for meta blocks
@@ -10,7 +10,7 @@
 **Hunt date**: 2026-05-04
 **Repros**: `/tmp/baghunt/attributes/`
 
-**Group note**: The attribute system has *minimal* validation today. Most "wrong attribute on wrong target" cases are silently accepted. Per [attributes.md](../language/reference/attributes.md): "Unknown attributes today produce no diagnostic; they will become a warning, then a hard error once the supported list is frozen." This catalog records the gap explicitly.
+**Group note**: The attribute system has *minimal* validation today. Most "wrong attribute on wrong target" cases are silently accepted. Per [attributes.md](../spec/items.md): "Unknown attributes today produce no diagnostic; they will become a warning, then a hard error once the supported list is frozen." This catalog records the gap explicitly.
 
 ## Bugs
 
@@ -37,7 +37,7 @@ struct Foo { x: i32 }
 struct Foo<T> { x: T }   // generic template — should reject
 ```
 **Observed**: Compiles cleanly.
-**Expected**: Per [attributes.md](../language/reference/attributes.md): "`#[type_code]` is rejected on an unspecialised generic template (`struct Foo<T> { ... }`); only fully-specialised forms or non-generic datatypes may carry it."
+**Expected**: Per [attributes.md](../spec/items.md): "`#[type_code]` is rejected on an unspecialised generic template (`struct Foo<T> { ... }`); only fully-specialised forms or non-generic datatypes may carry it."
 **Suspected root**: [sema_collect.cpp](../../src/compiler/sema_collect.cpp) annotation-handler doesn't check `type_params.empty()` before accepting `#[type_code]`.
 **Tags**: `oversight:simple`, `tech-debt:no-attribute-validation`
 
@@ -107,7 +107,7 @@ struct Foo { x: i32 }
 #[zoned] pub struct Foo { x: i32 }
 ```
 **Observed**: Compiles cleanly.
-**Expected**: Per [attributes.md](../language/reference/attributes.md): "Codes 1–127 are reserved for system use; user codes start at 128." Should warn or error.
+**Expected**: Per [attributes.md](../spec/items.md): "Codes 1–127 are reserved for system use; user codes start at 128." Should warn or error.
 **Suspected root**: No range check on `#[type_code]` value.
 **Tags**: `oversight:simple`, `tech-debt:no-attribute-validation`
 **Deferred** to Phase 5: stdlib primitives legitimately use codes in [1..128]; a static range check here is noisy without a "user-package" predicate. The fact-base will attribute each `#[type_code]` to its package and warn only on user code.

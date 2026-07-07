@@ -2,7 +2,7 @@
 
 **Group**: 14 — Lexical
 **Grammar source**: `%tokens` block in [tools/peg_gen/grammars/logos.peg](../../tools/peg_gen/grammars/logos.peg) — no `%rules` productions; lexer is regex-driven from token regex/literals.
-**Reference doc**: [docs/language/reference/lexical.md](../language/reference/lexical.md)
+**Reference doc**: [docs/spec/lexical.md](../spec/lexical.md)
 **Implementation entry points**:
 - Generated lexer in `build/tools/peg_gen/` (regenerated from `logos.peg` `%tokens`)
 - Numeric literal parsing — see [feedback_literal_saturation](../../../.claude/projects/-home-victor-devel-logos/memory/feedback_literal_saturation.md)

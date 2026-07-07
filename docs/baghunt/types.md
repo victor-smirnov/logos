@@ -2,7 +2,7 @@
 
 **Group**: 5 — Type System
 **Grammar rules covered**: `type_ref`, `simple_type`, `path_step`, `ptr_type`, `ref_type`, `ref_pointee`, `slice_type`, `arr_type`, `tagged_type`, `dyn_type`, `closure_type`, `closure_type_args`, `fn_ptr_type`, `fn_ptr_type_args`, `unit_type`, `tuple_type`, `impl_type`, `assoc_type_ref`, `antiquot_type`, `typeof_type`, `cfg_slot_type`, `cfg_slot_assoc_ref`, `wstatic_lit_type`, `writ_arr_type`, `writ_map_type`, `type_or_lt_arg`
-**Reference doc**: [docs/language/reference/types.md](../language/reference/types.md)
+**Reference doc**: [docs/spec/types.md](../spec/types.md)
 **Implementation entry points**:
 - [src/compiler/sema.cpp](../../src/compiler/sema.cpp) — `resolve_type` (~line 2400-2750), `compute_type_uid`, `types_equal`, `mangle_type_for_name`, `concrete_struct_name`, `type_str`
 - [src/compiler/sema_impl.hpp](../../src/compiler/sema_impl.hpp) — `make_struct_type`, `make_datatype_type`, `make_generic_struct`, etc.

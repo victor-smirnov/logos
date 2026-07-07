@@ -2,7 +2,7 @@
 
 **Group**: 12 — Writ Literals
 **Grammar rules covered**: `writ_lit`, `writ_map`, `writ_array`, `writ_entry`, `writ_val`, `writ_typed_array`, `writ_typed_map`, `writ_list_comp`, `writ_map_comp`
-**Reference doc**: [docs/language/reference/writ.md](../language/reference/writ.md)
+**Reference doc**: [docs/spec/writ.md](../spec/writ.md)
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) — `lower_writ_val`, `lower_writ_lit`, `lower_writ_typed_*`
 - [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `eval_static_writ_lit` (compile-time eval)
@@ -51,7 +51,7 @@ let h: WritStatic = @{ "k": 1, "k": 2 };
 let h: WritStatic = @{ 42: 99 };  // int key, not string
 ```
 **Observed**: Compiles cleanly.
-**Expected**: Per Writ spec ([docs/language/reference/writ.md](../language/reference/writ.md)) — Writ maps require string keys. Should reject: "Writ map keys must be string literals".
+**Expected**: Per Writ spec ([docs/spec/writ.md](../spec/writ.md)) — Writ maps require string keys. Should reject: "Writ map keys must be string literals".
 **Suspected root**: `writ_entry` grammar likely doesn't restrict key type to STRING; or the value-time validation accepts any `writ_val`.
 **Tags**: `oversight:simple`, `tech-debt:no-key-type-validation`
 
@@ -80,7 +80,7 @@ fn main() -> i32 {
     return 0;
 }
 ```
-**Observed**: `error: let 'h': type mismatch — expected WritStatic, got Writ`. The user sees a type mismatch but the real issue is "captures aren't allowed in WritStatic" (per [docs/language/reference/writ.md](../language/reference/writ.md)).
+**Observed**: `error: let 'h': type mismatch — expected WritStatic, got Writ`. The user sees a type mismatch but the real issue is "captures aren't allowed in WritStatic" (per [docs/spec/writ.md](../spec/writ.md)).
 **Expected**: Sema error: "`${capture}` not allowed in WritStatic literal; use `Writ` (runtime) instead OR remove the capture".
 **Suspected root**: Sema differentiates `Writ` (runtime, captures OK) from `WritStatic` (compile-time, no captures) but the error path reuses generic type-mismatch instead of capture-specific message.
 **Tags**: `tech-debt:diagnostic-imprecise`

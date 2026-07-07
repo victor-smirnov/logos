@@ -2,7 +2,7 @@
 
 **Group**: 10 — Expressions & Precedence
 **Grammar rules covered**: `expr`, `log_expr`, `cmp_expr`, `bitwise_expr`, `add_expr`, `mul_expr`, `cast_expr`, `unary_expr`, `atom`, `primary_expr`, `paren_expr`, `call_expr`, `call_arg_list`
-**Reference doc**: [docs/language/reference/expressions.md](../language/reference/expressions.md)
+**Reference doc**: [docs/spec/expressions.md](../spec/expressions.md)
 **Implementation entry points**:
 - [src/compiler/sema_expr.cpp](../../src/compiler/sema_expr.cpp) (~9000 lines) — every expression kind
 - [src/compiler/mlir_gen_expr.cpp](../../src/compiler/mlir_gen_expr.cpp) — emit-side
