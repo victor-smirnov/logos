@@ -1,122 +1,140 @@
 {
   "unit": "sema/sema_expr/lower_fn_macro_call_item",
   "layer": "sema",
-  "source": "src/compiler/sema_expr.cpp#L19142-L19686",
-  "source_hash": "86f9601713067984",
+  "source": "src/compiler/sema_expr.cpp#L19475-L20245",
+  "source_hash": "bfcce69d3740b069",
   "rules": [
     {
       "id": "metaprog.fn-macro-item.callee-must-be-fn-macro",
       "domain": "metaprog",
-      "title": "Item-position fn-macro invocation requires a #[fn_macro] callee",
-      "statement": "An item-position invocation `name!{...}` resolves `name` against the function overload set; it is an error unless some overload is a function attributed `#[fn_macro]`. Unknown `name` is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19154-L19174"
-      ]
+      "title": "Item-position macro call callee must be #[fn_macro] or #[token_macro]",
+      "statement": "`callee!{ ... }` / `callee!(...){...}` at ITEM position resolves `callee` in the function-overload set; if no overload is found, or none of the overloads carries `#[fn_macro]` or `#[token_macro]`, the item is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19483-L19508"],
+      "testability": "diagnostic"
     },
     {
       "id": "metaprog.fn-macro-item.return-type",
       "domain": "metaprog",
-      "title": "fn-macro callee must return ItemList or QuoteItemBlob",
-      "statement": "A `#[fn_macro]` callee invoked at item position must have return type `ItemList` or `QuoteItemBlob`; any other return type is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19176-L19185"
-      ]
+      "title": "Item-macro callee must return ItemList or QuoteItemBlob",
+      "statement": "An item-position `#[fn_macro]`/`#[token_macro]` callee's declared return type must be `ItemList` or `QuoteItemBlob`; any other return type is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19510-L19519"],
+      "testability": "diagnostic"
     },
     {
       "id": "metaprog.fn-macro-item.param-signature",
       "domain": "metaprog",
-      "title": "fn-macro item callee takes Vec<ExprBlob> or no args",
-      "statement": "A `#[fn_macro]` callee at item position must have either zero parameters, or a single parameter of type `Vec<ExprBlob>`; any other parameter signature is an error.",
+      "title": "Item-macro callee parameter shape is fixed per attribute",
+      "statement": "An item-position `#[fn_macro]` callee must have parameter list `(Vec<ExprBlob>)` or `()`. An item-position `#[token_macro]` callee must have parameter list `(str)`, `(name: str, body: str)`, or `(name: str, params: str, body: str)`. Any other arity/type combination for the given attribute is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19521-L19575"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "metaprog.token-macro-item.name-slot-scope",
+      "domain": "metaprog",
+      "title": "Resource NAME slot required for 2/3-arg token_macro, optional+dropped for 1-arg",
+      "statement": "`resource <name> = h!{...}` / `resource <name> = h!(<params>){...}` supplies the LHS binding as a NAME field on the item node. Targeting the 2-arg `(name: str, body: str)` or 3-arg `(name: str, params: str, body: str)` `#[token_macro]` form without a NAME is rejected. Targeting the 1-arg `(body: str)` form, a supplied NAME is accepted but the value is discarded — never delivered to the callee.",
       "evidence": [
-        "src/compiler/sema_expr.cpp#L19187-L19201"
-      ]
+        "src/compiler/sema_expr.cpp#L19577-L19592",
+        "src/compiler/sema_expr.cpp#L19658-L19663"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "metaprog.token-macro-item.params-slot-scope",
+      "domain": "metaprog",
+      "title": "Resource PARAMS slot only valid for the 3-arg token_macro form",
+      "statement": "`h!(<params>){...}` supplies a PARAMS field carrying the raw params source text. Supplying PARAMS against any callee signature other than the 3-arg `(name: str, params: str, body: str)` `#[token_macro]` is rejected; conversely, targeting the 3-arg form without a supplied PARAMS is also rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19600-L19620"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "metaprog.token-macro-item.raw-text-verbatim",
+      "domain": "metaprog",
+      "title": "token_macro item form receives raw block text unparsed",
+      "statement": "For an item-position `#[token_macro]` callee of shape `(str)`, `(name: str, body: str)`, or `(name: str, params: str, body: str)`, the full RAW_TEXT bytes of the macro's block (and, where present, the NAME and PARAMS text) are passed to the callee as opaque `str` values byte-for-byte — the content is NOT re-parsed as Logos source before the call.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19630-L19664", "src/compiler/sema_expr.cpp#L19670-L19707"],
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.fn-macro-item.raw-text-as-expr-list",
       "domain": "metaprog",
-      "title": "fn-macro item body parses as a comma-separated expression list",
-      "statement": "The raw token text of `name!{...}` is parsed as the argument list of a call `__c(<raw>)`; it must parse to EOF as a valid expression list, else an error. Empty body yields zero arguments.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19205-L19266"
-      ]
+      "title": "fn_macro Vec<ExprBlob> item form re-parses RAW_TEXT as a comma-separated expr list",
+      "statement": "For an item-position `#[fn_macro]` callee of shape `(Vec<ExprBlob>)`, the macro's RAW_TEXT is wrapped as `fn __f() { __c(<RAW_TEXT>); }`, parsed as Logos source, and the resulting call's ARGS elements are lowered one-for-one into `ExprBlob` values (each argument's AST subtree is copied into its own document, tagged with its original AST node CODE) and passed to the callee as `Vec<ExprBlob>`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19769-L19825", "src/compiler/sema_expr.cpp#L19838-L19876", "src/compiler/sema_expr.cpp#L19887-L19901"],
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.fn-macro-item.zero-arg-arity",
       "domain": "metaprog",
-      "title": "Zero-parameter fn-macro rejects supplied arguments",
-      "statement": "If the callee takes no parameters, the invocation must supply no arguments; supplying any argument is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19268-L19273"
-      ]
+      "title": "Zero-arg fn_macro item form rejects nonzero arg count",
+      "statement": "An item-position `#[fn_macro]` callee declared with zero parameters is invoked with the RAW_TEXT re-parsed as a (possibly empty) comma-separated arg list; if that re-parse yields one or more arguments, the item is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19773-L19825", "src/compiler/sema_expr.cpp#L19827-L19832"],
+      "testability": "diagnostic"
     },
     {
       "id": "metaprog.fn-macro-item.arg-must-be-ast-node",
       "domain": "metaprog",
-      "title": "Each fn-macro argument must be a parsed AST node",
-      "statement": "Each parsed argument of a `Vec<ExprBlob>` fn-macro must be a non-null AST object carrying a CODE tag; a malformed (non-pointer/null or CODE-less) argument is an error. Each argument is serialised into a per-call-site argument blob reconstituted at runtime as `ExprBlob`.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19281-L19342"
-      ],
-      "testability": "untestable"
+      "title": "Each re-parsed fn_macro item arg must be a valid AST node",
+      "statement": "Each element of the re-parsed RAW_TEXT arg list (for the `Vec<ExprBlob>` item form) must be a non-null pointer value whose root carries a nonzero AST CODE; otherwise the item is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19841-L19855"],
+      "testability": "diagnostic"
     },
     {
       "id": "metaprog.item-emit.itemlist-iteration",
       "domain": "metaprog",
-      "title": "ItemList-returning macro emits each contained item blob",
-      "statement": "When an item-position macro/metacall returns `ItemList`, every `QuoteItemBlob` in its `blobs` vector is emitted as a top-level item (via the host item-emit shim) in order.",
+      "title": "ItemList-returning item macro/metacall emits each contained item",
+      "statement": "When an item-position fn_macro/token_macro call or item-position `metacall` resolves to a callee returning `ItemList`, the compiler synthesises a void thunk that iterates `ItemList.blobs` and, for each `QuoteItemBlob` element, emits it into the surrounding module (substituting captured identifiers) then releases its idents/blobs/cursors buffers.",
       "evidence": [
-        "src/compiler/sema_expr.cpp#L19345-L19371",
-        "src/compiler/sema_expr.cpp#L19637-L19663"
-      ]
+        "src/compiler/sema_expr.cpp#L19709-L19736",
+        "src/compiler/sema_expr.cpp#L19904-L19930",
+        "src/compiler/sema_expr.cpp#L20196-L20222"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.item-emit.quoteitemblob-single",
       "domain": "metaprog",
-      "title": "QuoteItemBlob-returning macro emits one item",
-      "statement": "When an item-position macro/metacall returns a single `QuoteItemBlob`, that value is emitted as one top-level item (via the host item-emit shim).",
+      "title": "QuoteItemBlob-returning item macro/metacall emits a single item",
+      "statement": "When an item-position fn_macro/token_macro call or item-position `metacall` resolves to a callee returning `QuoteItemBlob` (not `ItemList`), the compiler synthesises a void thunk that emits that single blob into the surrounding module (substituting captured identifiers) then releases its idents/blobs/cursors buffers.",
       "evidence": [
-        "src/compiler/sema_expr.cpp#L19372-L19391",
-        "src/compiler/sema_expr.cpp#L19664-L19682"
-      ]
+        "src/compiler/sema_expr.cpp#L19737-L19757",
+        "src/compiler/sema_expr.cpp#L19931-L19950",
+        "src/compiler/sema_expr.cpp#L20223-L20241"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.metacall-item.callee-form",
       "domain": "metaprog",
-      "title": "Item-position metacall requires a free-function or static-method call",
-      "statement": "`metacall <expr>;` at item position requires `<expr>` to be a free-function call, generic (turbofish) call, or static-method call; any other expression form is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19421-L19430"
-      ],
-      "testability": "untestable"
+      "title": "Item-position metacall callee must be a call expression",
+      "statement": "`metacall <expr>;` at item position requires `<expr>` to be a free-function call, a generic (turbofish) call, or a static-method call; any other expression form is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19980-L19989"],
+      "testability": "diagnostic"
     },
     {
       "id": "metaprog.metacall-item.args-const-eval",
       "domain": "metaprog",
       "title": "Item-position metacall arguments must be compile-time constants",
-      "statement": "Each argument of an item-position `metacall` is evaluated by CTFE (with module-const path folding) to a printable literal; an argument that is not a compile-time constant is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19432-L19475",
-        "src/compiler/sema_expr.cpp#L19609-L19618"
-      ]
+      "statement": "Every argument in an item-position `metacall <callee>(args...)` is evaluated via CTFE (with module-level named consts resolvable through `lookup_const`); an argument that fails to fold to a constant is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L19991-L20034"],
+      "testability": "diagnostic"
     },
     {
       "id": "metaprog.metacall-item.return-type",
       "domain": "metaprog",
       "title": "Item-position metacall callee must return QuoteItemBlob or ItemList",
-      "statement": "The callee of an item-position `metacall` must have return type `QuoteItemBlob` or `ItemList`; any other return type is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19477-L19489"
-      ]
+      "statement": "The callee of an item-position `metacall` (after ordinary lowering/type-checking of the inner call) must have return type `QuoteItemBlob` or `ItemList`; any other return type is rejected.",
+      "evidence": ["src/compiler/sema_expr.cpp#L20038-L20047"],
+      "testability": "diagnostic"
     },
     {
       "id": "metaprog.metacall-item.turbofish-wstatic-source",
       "domain": "metaprog",
-      "title": "WritStatic turbofish type-args re-render to @-literal source",
-      "statement": "A turbofish type-argument that is a WritStatic literal (`Foo::<@{...}>`) is reconstructed to its original `@{...}` source form (objects `{k: v}`, arrays `[..]`, ints, neg-ints, floats, strings, bools, null, and `<type:..>` literals) rather than the non-reparsable `@hs_<hex>` rendering, so the synthesised thunk can re-parse it.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L19491-L19593"
-      ],
-      "testability": "transitive"
+      "title": "WritStatic turbofish type-args re-rendered as source for the metacall thunk",
+      "statement": "When building the literal call text for an item-position `metacall`'s generic/static call, a turbofish type-argument that is a `WritStatic` literal (`Foo::<@{...}>`) is re-rendered from its parsed writ-literal AST back into `@{...}` source syntax, rather than through the ordinary type-to-string path (which would emit the non-reparseable internal form `@hs_<hex>`).",
+      "evidence": ["src/compiler/sema_expr.cpp#L20050-L20126", "src/compiler/sema_expr.cpp#L20140-L20151"],
+      "testability": "behavioral",
+      "uncertainty": "Internal `@hs_<hex>` rendering form is inferred from the comment; the type_str() implementation itself is outside this slice."
     }
   ]
 }

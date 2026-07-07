@@ -1,8 +1,8 @@
 {
   "unit": "codegen/mlir_gen_fn/logos",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen_fn.cpp#L7-L467",
-  "source_hash": "becd47cd7f3b67b5",
+  "source": "src/compiler/mlir_gen_fn.cpp#L7-L542",
+  "source_hash": "4b8b420a5a224aed",
   "rules": [
     {
       "id": "coerce.return.aggregate-by-value",
@@ -10,9 +10,10 @@
       "title": "Aggregate return types are returned by value",
       "statement": "A function whose return type is a tuple, struct, ZonedStruct, or payload-carrying (tagged) enum returns the aggregate by value (as a value of the aggregate's storage type), never as a pointer to function-local storage; this guarantees the returned value outlives the callee frame.",
       "evidence": [
-        "src/compiler/mlir_gen_fn.cpp#L116-L137",
-        "src/compiler/mlir_gen_fn.cpp#L68-L82"
-      ]
+        "src/compiler/mlir_gen_fn.cpp#L68-L82",
+        "src/compiler/mlir_gen_fn.cpp#L116-L137"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "coerce.return.c-enum-as-integer",
@@ -20,9 +21,10 @@
       "title": "Payload-free enum returns as i32",
       "statement": "A function returning a C-style enum (an enum with no payload variants, so no tagged-enum layout) returns its discriminant as a 32-bit integer rather than an aggregate.",
       "evidence": [
-        "src/compiler/mlir_gen_fn.cpp#L129-L137",
-        "src/compiler/mlir_gen_fn.cpp#L78-L82"
-      ]
+        "src/compiler/mlir_gen_fn.cpp#L78-L82",
+        "src/compiler/mlir_gen_fn.cpp#L129-L137"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "coerce.return.ref-by-descriptor",
@@ -31,12 +33,12 @@
       "statement": "When the return type is a reference kind, its by-value return representation is the reference's RefRepr: dyn-trait and slice references return their 16-byte fat (pointer,metadata) pair by value; closure / custom-DST / thin references return their 8-byte value pointer.",
       "evidence": [
         "src/compiler/mlir_gen_fn.cpp#L83-L89",
-        "src/compiler/mlir_gen_fn.cpp#L138-L143"
+        "src/compiler/mlir_gen_fn.cpp#L138-L142"
       ],
-      "divergence": "A3/A4 fat-pointer return representation",
       "related": [
         "coerce.return.aggregate-by-value"
-      ]
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "type.anyval.repr-i32",
@@ -46,7 +48,7 @@
       "evidence": [
         "src/compiler/mlir_gen_fn.cpp#L67",
         "src/compiler/mlir_gen_fn.cpp#L98-L101",
-        "src/compiler/mlir_gen_fn.cpp#L113-L114"
+        "src/compiler/mlir_gen_fn.cpp#L113-L115"
       ],
       "uncertainty": "i32 likely encodes a handle/index into an AnyVal table; exact semantics inferred from representation only.",
       "testability": "untestable"
@@ -57,17 +59,21 @@
       "title": "Array parameters are passed by pointer",
       "statement": "A parameter whose type is an array [T; N] is passed by pointer (to the array storage), not by value.",
       "evidence": [
-        "src/compiler/mlir_gen_fn.cpp#L102-L104"
-      ]
+        "src/compiler/mlir_gen_fn.cpp#L102-L104",
+        "src/compiler/mlir_gen_fn.cpp#L412-L420"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "item.fn.vararg-extern-only",
       "domain": "item",
       "title": "Variadic functions are extern-only C-ABI declarations",
-      "statement": "A function declared variadic (vararg) is emitted only as an external declaration with C variadic calling convention; non-vararg parameters are typed normally and a missing return type denotes void.",
+      "statement": "A function declared variadic (vararg) is emitted only as an external declaration through the LLVM-dialect function op (`llvm.func`, `isVarArg=true`, external linkage) — the `func` dialect used for ordinary Logos functions has no vararg support — and is a declaration only in this path, with no Logos-level body generated for it.",
       "evidence": [
-        "src/compiler/mlir_gen_fn.cpp#L169-L184"
-      ]
+        "src/compiler/mlir_gen_fn.cpp#L243-L259"
+      ],
+      "uncertainty": "This unit shows only the vararg lowering path (llvm.func extern-style declaration, no body); whether a non-extern fn with a vararg parameter is rejected elsewhere (sema) is not visible in this slice.",
+      "testability": "behavioral"
     },
     {
       "id": "item.fn.unique-mangled-name",
@@ -75,10 +81,10 @@
       "title": "Each mangled function symbol must have at most one body",
       "statement": "Two distinct functions resolving to the same mangled link symbol is an error; in particular a private function in one package and a pub function of the same base name in an imported package must not collide, requiring rename to disambiguate.",
       "evidence": [
-        "src/compiler/mlir_gen_fn.cpp#L219-L235"
+        "src/compiler/mlir_gen_fn.cpp#L294-L310"
       ],
       "related": [
-        "module.symbol.function-symbol-name"
+        "module.symbol.method-link-prefix"
       ],
       "testability": "untestable"
     },
@@ -86,10 +92,11 @@
       "id": "module.symbol.method-link-prefix",
       "domain": "module",
       "title": "Methods are emitted under module-qualified link symbols",
-      "statement": "A function's emitted link symbol is its module-qualified name: methods gain the module prefix; free functions and extern functions keep their bare name. Symbol identity and forward-declaration deduplication key off this link name.",
+      "statement": "A function's emitted link symbol is its module-qualified name: methods gain the module prefix; free functions and extern functions keep their bare name. Symbol identity and forward-declaration deduplication key off this link name, while Logos-level parameter-type/coercion maps used at call sites are recorded under BOTH the qualified link name and the bare name (call sites may reference the bare name during body emission).",
       "evidence": [
-        "src/compiler/mlir_gen_fn.cpp#L164-L168",
-        "src/compiler/mlir_gen_fn.cpp#L186-L208"
+        "src/compiler/mlir_gen_fn.cpp#L238-L242",
+        "src/compiler/mlir_gen_fn.cpp#L260",
+        "src/compiler/mlir_gen_fn.cpp#L271-L282"
       ],
       "related": [
         "item.fn.unique-mangled-name"
@@ -100,10 +107,59 @@
       "id": "stmt.return.fallthrough-void-implicit",
       "domain": "stmt",
       "title": "Void function body may fall through to an implicit return",
-      "statement": "A function with no return type (void) whose body reaches the end without an explicit terminator returns implicitly; a non-void function reaching the end without returning is a reachability error rejected earlier in semantic analysis.",
+      "statement": "A function with no return type (void) whose body reaches the end of its final block without an explicit terminator gets a plain `return` with no operand inserted implicitly.",
       "evidence": [
-        "src/compiler/mlir_gen_fn.cpp#L448-L461"
-      ]
+        "src/compiler/mlir_gen_fn.cpp#L509-L525"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "stmt.return.exhaustive-tail-unreachable",
+      "domain": "stmt",
+      "title": "Sema-accepted exhaustive non-void tail lowers to `unreachable`, not a return",
+      "statement": "For a non-void function whose body falls through to the end of codegen without an explicit terminator (e.g. an exhaustive tuple/struct `match` with no wildcard arm — a path sema's reachability analysis has already accepted as complete, but which mlir-gen's dispatch lowering does not itself prove exhaustive), mlir-gen inserts an `unreachable` terminator instead of a value-producing return, so the function still verifies structurally; this path is dead code, never executed at runtime.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L523-L536"
+      ],
+      "related": [
+        "stmt.return.fallthrough-void-implicit"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "layout.enum.tagged-value-is-heap-ptr",
+      "domain": "layout",
+      "title": "A by-value tagged-enum parameter is one heap-pointer level",
+      "statement": "A by-value function parameter of a tagged (payload-carrying) enum type (e.g. `Option<i64>`) arrives at the callee as a single heap-pointer level (the boxed enum), not the aggregate itself and not a pointer-to-pointer; taking its address (`&x`) spills that pointer into a local slot to produce a genuine pointer-to-enum-pointer, as required by two-level-pointer enum methods (e.g. `==`). A payload-free (C-style) enum parameter is instead a plain i32 and takes the scalar-spill address-of path.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L479-L492"
+      ],
+      "uncertainty": "The underlying enum-boxing/representation decision (why tagged enums are one heap-pointer level as a value) is established by code outside this slice; this unit only consumes and documents the resulting parameter-binding convention.",
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.array.struct-elements-inline",
+      "domain": "layout",
+      "title": "Arrays of structs store elements inline, not as pointers",
+      "statement": "An array type `[Struct; N]` — including when reached through a reference/pointer parameter, which peels to the array's element type before indexing — lays out its elements inline and contiguously (each element occupies exactly the struct's full layout size), rather than storing a pointer per element; indexing strides by that element layout size, not by the size of a pointer.",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L379-L394",
+        "src/compiler/mlir_gen_fn.cpp#L420-L436"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.slice.fat-pointer-descriptor",
+      "domain": "layout",
+      "title": "Slice references are a {data-pointer, length} fat descriptor",
+      "statement": "A `&[T]` / `&mut [T]` reference parameter arrives as a pointer to a fat descriptor pair `{data: *T, len}`; indexed element access dereferences the descriptor's data-pointer field first, then applies the element's layout stride (using the element's full struct layout when the element type is itself a struct, so struct-typed slice elements are laid out inline within the pointed-to buffer).",
+      "evidence": [
+        "src/compiler/mlir_gen_fn.cpp#L395-L411"
+      ],
+      "related": [
+        "coerce.return.ref-by-descriptor"
+      ],
+      "testability": "behavioral"
     }
   ]
 }

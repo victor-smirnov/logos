@@ -1,82 +1,101 @@
 {
   "unit": "codegen/mlir_gen_expr/gen_expr_kind.part2",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen_expr.cpp#L1958-L2511",
-  "source_hash": "fd99216f9550049d",
+  "source": "src/compiler/mlir_gen_expr.cpp#L1987-L2572",
+  "source_hash": "da90009e7adc7bf6",
   "rules": [
     {
       "id": "intrinsic.atomic.primitive-set",
       "domain": "intrinsic",
-      "title": "Atomic intrinsic family",
-      "statement": "The language exposes atomic primitives over 32- and 64-bit integer cells, each in a default and an `_ord` form: load{32,64}, store{32,64}, fetch_add{32,64}, cas{32,64} and cas_weak{32,64}, swap{32,64} (xchg), fetch_{or,and,xor,sub}{32,64}. load/store/fetch_add/cas/cas_weak/swap/fetch_* on width W operate on iW values at a pointer; the result type matches the cell width (load, RMW return the cell value; store returns 0:i32; cas returns the success bit).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2118-L2189", "src/compiler/mlir_gen_expr.cpp#L2001-L2117"]
+      "title": "Atomic intrinsic family over 32/64-bit cells",
+      "statement": "The language exposes atomic primitives over 32- and 64-bit integer cells, each in a bare and an `_ord` form: load{32,64}, store{32,64}, fetch_add{32,64}, cas{32,64}, cas_weak{32,64}, swap{32,64} (exchange), fetch_{or,and,xor,sub}{32,64}. load and every fetch_*/swap RMW op return the cell's value from BEFORE the operation, at the cell's width (i32 or i64); store returns unit (represented as constant 0:i32); cas/cas_weak return a bool success flag (not the observed value).",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L2030-L2146",
+        "src/compiler/mlir_gen_expr.cpp#L2147-L2243"
+      ]
     },
     {
       "id": "intrinsic.atomic.default-ordering-seqcst",
       "domain": "intrinsic",
-      "title": "Non-ordered atomics are sequentially consistent",
-      "statement": "An atomic operation invoked through the non-`_ord` form has sequentially-consistent ordering. CAS/cas_weak use seq-cst for both success and failure orderings.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2001-L2004", "src/compiler/mlir_gen_expr.cpp#L2088-L2102", "src/compiler/mlir_gen_expr.cpp#L2118-L2133"]
+      "title": "Non-`_ord` atomics are sequentially consistent",
+      "statement": "An atomic operation invoked through the bare (non-`_ord`) form always has sequentially-consistent ordering; cas/cas_weak use seq-cst for both the success and the failure ordering.",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L2030-L2146",
+        "src/compiler/mlir_gen_expr.cpp#L2147-L2162",
+        "src/compiler/mlir_gen_expr.cpp#L2195-L2218"
+      ]
     },
     {
       "id": "intrinsic.atomic.ordering-enum-layout",
       "domain": "intrinsic",
       "title": "Ordering enum discriminant layout",
-      "statement": "The `Ordering` enum has fixed discriminants: Relaxed=0, Acquire=1, Release=2, AcqRel=3, SeqCst=4. The `_ord` atomic variants take an `Ordering` value as the trailing argument(s) which selects the memory ordering of the operation; for cas/cas_weak the two trailing args are (success, failure) orderings.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1983-L2000", "src/compiler/mlir_gen_expr.cpp#L2135-L2154", "src/compiler/mlir_gen_expr.cpp#L2149-L2154"]
+      "statement": "The `Ordering` enum has fixed discriminants: Relaxed=0, Acquire=1, Release=2, AcqRel=3, SeqCst=4. `_ord` atomic variants take one trailing `Ordering` argument (two, for cas/cas_weak: success then failure ordering) that selects the operation's memory ordering.",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L2006-L2029",
+        "src/compiler/mlir_gen_expr.cpp#L2164-L2183",
+        "src/compiler/mlir_gen_expr.cpp#L2219-L2243"
+      ]
     },
     {
       "id": "intrinsic.atomic.nonliteral-ordering-fallback",
       "domain": "intrinsic",
-      "title": "Non-literal ordering observably over-synchronizes",
-      "statement": "When the `Ordering` argument of an `_ord` atomic is not a compile-time `Ordering` enum literal, the operation behaves at least as strongly as the requested ordering (a stronger ordering is always sound). Observable behavior is never weaker than the dynamic argument requests.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2025-L2077", "src/compiler/mlir_gen_expr.cpp#L1969-L1976"],
-      "uncertainty": "Strength-monotone soundness is the stated semantic; exact runtime ordering for a non-literal arg is a target-dependent implementation choice (release/seq_cst) and not language-normative."
+      "title": "Non-literal ordering argument is conservatively over-synchronized",
+      "statement": "When the `Ordering` argument of an `_ord` atomic is not a compile-time `Ordering` enum literal (e.g. a runtime value threaded through a wrapper call), the operation's observable ordering is never weaker than what the dynamic value requests for every possible `Ordering` value — correctness is preserved by choosing an ordering that is sound (>=) for all cases, even though this may over-synchronize relative to a weaker requested ordering (e.g. Relaxed/Acquire).",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L2012-L2028",
+        "src/compiler/mlir_gen_expr.cpp#L2054-L2106"
+      ],
+      "uncertainty": "The precise runtime-selected ordering for a non-literal argument (e.g. release-vs-seqcst branch for stores, unconditional seq_cst for load/RMW/CAS) is an implementation choice; the language-normative guarantee is soundness (never weaker than requested), not the exact chosen ordering."
     },
     {
       "id": "intrinsic.str.from-raw-fatptr",
       "domain": "intrinsic",
       "title": "str_from_raw builds a str fat pointer",
-      "statement": "`str_from_raw(ptr: *const u8, len: i64) -> str` constructs a string slice as a two-field fat pointer {data: ptr, len: i64}; the length argument is coerced to i64.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2216-L2233"],
-      "related": ["layout.dst.slice-fatptr"]
+      "statement": "`str_from_raw(ptr: *const u8, len: i64) -> str` constructs a string slice as a two-field fat pointer `{data: ptr, len: i64}` in fresh storage; the `len` argument is coerced to i64 before being stored.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2245-L2261"]
     },
     {
       "id": "intrinsic.bits.count-ops-return-u32",
       "domain": "intrinsic",
       "title": "Bit-count intrinsics return u32",
-      "statement": "`popcount_u64`, `leading_zeros_u64`, `trailing_zeros_u64` take a u64 and return u32 (the count is truncated to 32 bits). `bswap_u64` and `bitreverse_u64` take and return u64.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2235-L2265"]
+      "statement": "`popcount_u64`, `leading_zeros_u64`, `trailing_zeros_u64` take a u64 operand and return u32 (the i64 count result is truncated to 32 bits). `bswap_u64` and `bitreverse_u64` take and return u64 (no truncation).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2264-L2293"]
     },
     {
       "id": "intrinsic.bits.ctlz-cttz-zero-defined",
       "domain": "intrinsic",
       "title": "Leading/trailing-zero count is defined at zero",
-      "statement": "`leading_zeros_u64`/`trailing_zeros_u64` are defined for a zero input (no poison): a zero operand yields the bit width.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2248-L2253"]
+      "statement": "`leading_zeros_u64` and `trailing_zeros_u64` are defined for a zero operand (not poison): a zero input yields the operand's bit width (64, before truncation to u32).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2277-L2282"]
     },
     {
       "id": "coerce.unsize.arg-struct-to-dyn-trait",
       "domain": "coerce",
       "title": "Implicit unsize coercion of call arguments to &dyn / Box<dyn>",
-      "statement": "At a call site, when the callee parameter type is `&dyn Trait`, `&mut dyn Trait`, or `Box<dyn Trait>` and the argument has a concrete (non-trait-object) type, the argument is implicitly unsize-coerced into a fat {data, vtable} trait object. The vtable is selected on the concrete pointee type T: `&T`/`&mut T` peel to T, `Box<T>` peels to T, and a bare struct value is spilled to storage to obtain a data pointer.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2417-L2481", "src/compiler/mlir_gen_expr.cpp#L2436-L2459"],
-      "related": ["coerce.unsize.struct-to-dyn-trait"]
+      "statement": "At a call site, when the callee's (mono-resolved) parameter type is a trait object (bare, or under `&`/`&mut`/`Box`) and the argument's static type is a concrete (non-trait-object) type, the argument is implicitly unsize-coerced into a fat `{data, vtable}` trait-object value. The vtable is looked up on the peeled concrete pointee: `&T`/`&mut T` and `Box<T>` both peel to `T`; a bare struct-valued argument (not already a reference or Box) is first spilled to storage to obtain a data pointer.",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L2449-L2510"
+      ]
     },
     {
       "id": "coerce.unsize.box-dyn-vtable-drops-concrete",
       "domain": "coerce",
       "title": "Owning Box<dyn> coercion threads the concrete destructor",
-      "statement": "When a concrete `Box<T>` argument is unsize-coerced to a `Box<dyn Trait>` parameter, the resulting fat trait-object value carries the vtable of the concrete T, including T's drop-in-place glue, so dropping the Box<dyn> runs T's destructor (not an empty no-op).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2446-L2480"],
+      "statement": "When a concrete `Box<T>` argument is unsize-coerced to a `Box<dyn Trait>` parameter, the vtable is keyed on the concrete monomorphized type `T` (not the literal `Box<T>`/angle-bracket type string), so the vtable's drop-in-place slot runs `T`'s destructor. The coerced value is passed as an inline fat data/vtable pair by value (the callee drops it directly), not as a separate heap handle.",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L2489-L2509"
+      ],
       "related": ["coerce.unsize.arg-struct-to-dyn-trait"]
     },
     {
       "id": "coerce.call.aggregate-arg-by-pointer",
       "domain": "coerce",
       "title": "Aggregate / tagged-enum arguments passed by pointer",
-      "statement": "When a callee parameter has aggregate (struct) or tagged-enum representation (passed by pointer) and the argument arrives as a value, the value is placed in fresh storage and the pointer is passed; scalar arguments to scalar parameters are numerically coerced to the parameter type instead.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L2483-L2505"]
+      "statement": "When a callee parameter has by-pointer representation (aggregate/struct or tagged-enum) and the argument is materialized as a value (a struct value or a niche-packed enum scalar), the value is spilled to fresh storage and its pointer is passed instead of the value. When the argument is a field-access expression naming an inline (non-Box) struct-typed field of a receiver, the field's address is computed directly (GEP into the receiver's storage) and passed as the pointer, instead of loading the field and spilling a disconnected copy — so a by-pointer parameter aliases the original receiver storage and any mutation through it (e.g. passing `&mut self.field`) is visible to the caller. Scalar arguments to scalar (non-pointer) parameters are instead numerically coerced to the parameter type.",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L2416-L2442",
+        "src/compiler/mlir_gen_expr.cpp#L2512-L2534"
+      ]
     }
   ]
 }

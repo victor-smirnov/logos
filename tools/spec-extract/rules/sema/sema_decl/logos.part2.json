@@ -1,109 +1,103 @@
 {
   "unit": "sema/sema_decl/logos.part2",
   "layer": "sema",
-  "source": "src/compiler/sema_decl.cpp#L570-L1153",
-  "source_hash": "24be40d740cfdb14",
+  "source": "src/compiler/sema_decl.cpp#L596-L1175",
+  "source_hash": "d79ab053f01a192f",
   "rules": [
-    {
-      "id": "type.never.param-uninhabited",
-      "domain": "type",
-      "title": "Never type forbidden in parameter position",
-      "statement": "A function parameter typed `!` (never) is rejected: `!` is uninhabited, so no value can be supplied. `!` remains valid in return position (a diverging function).",
-      "evidence": [
-        "src/compiler/sema_decl.cpp#L589-L595"
-      ],
-      "examples": [
-        "fn f(x: !) {}  // error",
-        "fn g() -> ! { loop {} }  // ok"
-      ]
-    },
     {
       "id": "item.fn-param.struct-pattern",
       "domain": "item",
       "title": "Struct-pattern function parameter",
-      "statement": "A parameter may be an irrefutable struct pattern `Name { a, b, ... }: Name`. Each named field (or its `f: binding` rename) becomes a body-visible binding of the field's type; `..` rest is ignored. The pattern is desugared to a synthetic parameter plus prologue `let bind = synth.field;`.",
+      "statement": "A parameter may be an irrefutable struct pattern `Name { a, b, ... }: Name`. Each named field (or its `f: binding` rename, skipping `..` rest and unnamed items) becomes a body-visible binding typed from the matching struct field; binding name `_` is not registered. Desugared to a synthetic parameter plus a prologue `let bind = synth.field;` per binding.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L604-L648",
-        "src/compiler/sema_decl.cpp#L999-L1045"
+        "src/compiler/sema_decl.cpp#L604-L649",
+        "src/compiler/sema_decl.cpp#L996-L1046"
       ],
       "examples": [
         "fn f(Point { x, y }: Point) -> i32 { x + y }"
-      ]
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.fn-param.tuple-pattern",
       "domain": "item",
       "title": "Tuple-destructure function parameter",
-      "statement": "A parameter may be an irrefutable tuple pattern `(a, b, ...): (T1, T2, ...)`. Each non-`_` element name becomes a body-visible binding of the corresponding tuple element type, desugared to a synthetic parameter plus prologue `let a = synth.0;` etc.",
+      "statement": "A parameter may be an irrefutable tuple pattern `(a, b, ...): (T1, T2, ...)`. Each non-`_` element name becomes a body-visible binding of the corresponding tuple-element type, desugared to a synthetic parameter plus prologue `let a = synth.0; let b = synth.1; ...` (tuple_index reads).",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L654-L684",
-        "src/compiler/sema_decl.cpp#L975-L994"
+        "src/compiler/sema_decl.cpp#L651-L684",
+        "src/compiler/sema_decl.cpp#L974-L995"
       ],
       "examples": [
         "fn f((a, b): (i32, i32)) -> i32 { a + b }"
-      ]
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.fn-param.self-reserved",
       "domain": "item",
       "title": "`self` reserved for impl receivers",
-      "statement": "A parameter named `self` is an error outside an impl-block; `self` is only the magic receiver inside impl methods.",
+      "statement": "A parameter literally named `self` is a compile error outside an impl-block context; `self` is only the magic receiver name inside impl methods.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L687-L694"
+        "src/compiler/sema_decl.cpp#L686-L694"
       ],
       "examples": [
         "fn f(self: i32) {}  // error outside impl"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "item.fn-param.datanode-by-value",
       "domain": "item",
       "title": "DataNode eidos cannot be passed by value",
-      "statement": "A parameter whose type is (or contains) a DataNode datatype (one holding relative-pointer fields) is rejected by value; it must be passed as `DataRef<T>` because the relative pointers require a zone base pointer.",
+      "statement": "A parameter whose type is (or is an array of) a DataNode datatype (one holding relative-pointer fields) is rejected by value at signature-collection time; the relative pointers require a zone base pointer unavailable in that position — use `DataRef<T>` instead.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L700-L713"
       ],
-      "divergence": "Logos addition (zoned/DataNode model); no Rust analog"
+      "divergence": "Logos addition (zoned/DataNode model); no Rust analog",
+      "testability": "diagnostic"
     },
     {
       "id": "item.fn-param.mut-binding",
       "domain": "item",
       "title": "`mut` parameter binding",
-      "statement": "A typed parameter `mut x: T` makes `x` a mutable, caller-invisible local binding: the body may reassign or take `&mut` of it. Desugared to an immutable synthetic parameter plus prologue `let mut x = synth;` (a move of the param value into the user local).",
+      "statement": "A typed parameter `mut x: T` makes `x` a mutable, caller-invisible local binding: the body may reassign or take `&mut` of it. Desugared to an immutable synthetic SSA parameter plus a prologue `let mut x = synth;` (a move of the param value into the user-visible local); the synth name is deliberately not registered as a tracked scope variable, so it is not itself drop-glued.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L714-L741",
-        "src/compiler/sema_decl.cpp#L1046-L1060"
+        "src/compiler/sema_decl.cpp#L1047-L1061"
       ],
       "examples": [
         "fn f(mut x: i32) { x += 1; }"
-      ]
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.fn-param.owning-box-dyn",
       "domain": "item",
       "title": "By-value Box<dyn Trait> param owns the box",
-      "statement": "A by-value parameter of owning trait-object type (`Box<dyn Trait>`) makes the callee own the box: it is dropped at the callee epilogue (vtable drop_in_place + dealloc) and call sites coerce the argument to a heap fat handle.",
+      "statement": "A by-value parameter whose type resolves to an owning trait-object (`Box<dyn Trait>`, collapsed to `TraitObject` with an owning bit) makes the callee own the box: the binding is tagged `owning_dyn` so the epilogue emits vtable `drop_in_place` + dealloc-data + dealloc-handle, and the parameter is tagged `owning_box_dyn` so call sites coerce the argument to a heap fat handle matching the callee's free().",
       "evidence": [
         "src/compiler/sema_decl.cpp#L742-L759"
       ],
       "examples": [
         "fn f(b: Box<dyn Trait>) {}"
-      ]
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.fn-param.unique-names",
       "domain": "item",
       "title": "Parameter names must be unique",
-      "statement": "All parameter names within one function signature must be distinct.",
+      "statement": "All parameter names within one function signature (including the user-visible names of destructured/mut-binding params) must be pairwise distinct; a duplicate is a compile error naming the function.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L765-L768"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "region.elision.ambiguous-output",
       "domain": "region",
       "title": "Output lifetime elision (E0106) ambiguity",
-      "statement": "When the return type structurally contains an unannotated reference (`&T`, `&&T`, `(&T,..)`, `[&T;N]`, `&[T]`; references inside generic type-args are excluded), elision requires a source: it is an error (E0106) if there are >=2 input lifetime positions and no `&self`/`&mut self` receiver. With exactly one input lifetime or a `&self` receiver, elision succeeds; the zero-input case is left to explicit annotation.",
+      "statement": "When a return type structurally contains an unannotated reference (`&T`/`&mut T`, recursed through pointee/elem/tuple-element positions but NOT through generic type-arguments), Rust elision rule 2/3 must supply a unique source: this is flagged as ill-formed (E0106) exactly when the input side has >=2 structural reference positions (counted through pointee/elem/tuple-elements AND type-args) and there is no `&self`/`&mut self` receiver. Exactly one input lifetime, or a `&self`/`&mut self` receiver, elides successfully; the zero-input case (e.g. a `'static`-sourced return) is left unflagged, deferred to explicit annotation or the dangling-borrow check.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L772-L836"
       ],
@@ -111,50 +105,64 @@
         "fn h(a:&i32, b:&i32) -> &i32  // error E0106",
         "fn f(a:&i32) -> &i32  // ok (rule 2)"
       ],
-      "uncertainty": "Zero-input elided-ref return (e.g. returning &'static) is not flagged here; deferred to dangling-borrow check."
+      "uncertainty": "Zero-input elided-ref return (e.g. returning &'static) is not flagged here; deferred to a separate dangling-borrow check not visible in this unit.",
+      "testability": "diagnostic"
     },
     {
       "id": "item.fn.tail-match-as-return",
       "domain": "item",
       "title": "Tail match arms are return values",
-      "statement": "When a non-void function's body ends with a `match` expression, each EXPR arm of that tail match is treated as the function's return value.",
+      "statement": "When a non-void function's body's last statement is a `match` expression, that match is lowered in tail-return position: its EXPR arms are treated as the function's return value.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L953-L972"
-      ]
+        "src/compiler/sema_decl.cpp#L954-L968"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.fn.impl-trait-return-infer",
       "domain": "item",
       "title": "impl Trait return inferred from body",
-      "statement": "A function declared `-> impl Trait` resolves its return type to the single concrete type inferred from the body's return expressions; if none can be inferred it is an error.",
+      "statement": "A function declared `-> impl Trait` has its return type resolved, after body lowering, to the concrete type inferred from the body's return expressions; failure to infer a concrete type is a compile error.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1061-L1070"
+        "src/compiler/sema_decl.cpp#L1062-L1071"
       ],
       "examples": [
         "fn f() -> impl Iterator { 0..3 }"
-      ]
-    },
-    {
-      "id": "item.fn.param-drop-epilogue",
-      "domain": "item",
-      "title": "By-value params dropped at function epilogue",
-      "statement": "By-value droppable (move-type) parameters are dropped at the function epilogue, equivalently to a `let` binding, when the body falls off the end without an explicit terminating return/break/continue. A parameter that was moved on any branch is conservatively skipped from the static epilogue drop (to avoid double-free on the move path).",
-      "evidence": [
-        "src/compiler/sema_decl.cpp#L1083-L1117"
       ],
-      "examples": [
-        "fn consume(_x: Move) {}  // _x dropped at end"
-      ]
+      "testability": "diagnostic"
     },
     {
       "id": "item.fn.all-paths-return",
       "domain": "item",
       "title": "Non-void fn must return on every path",
-      "statement": "A function whose declared return type is non-void and non-error is rejected (\"not all paths return a value\") unless every control-flow path through its body returns or diverges; a trailing tail expression counts as an implicit return.",
+      "statement": "A function whose declared return type is neither `void` nor an error type is rejected (\"not all paths return a value\") unless every control-flow path through its body returns or diverges; trailing tail expressions count as implicit returns while this check runs (tail-as-return context).",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1071-L1082",
-        "src/compiler/sema_collect.cpp#L4524-L4528"
-      ]
+        "src/compiler/sema_decl.cpp#L1072-L1083"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "item.fn.param-drop-epilogue",
+      "domain": "item",
+      "title": "By-value params dropped at function epilogue",
+      "statement": "A by-value function parameter of a droppable (move/owning) type is dropped at the function epilogue — mirroring `let`-binding drop semantics — when the body falls off the end without an explicit terminating `return`/`break`/`continue`. A parameter that was moved on any control-flow branch is conservatively excluded from this static epilogue drop, to avoid a double-free on the moved path (at the cost of a possible leak on the non-moved path).",
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1084-L1117"
+      ],
+      "examples": [
+        "fn consume(_x: Move) {}  // _x dropped at end"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "metaprog.abi.macro-hook-excluded",
+      "domain": "metaprog",
+      "title": "fn_macro/token_macro hooks excluded from ABI surface",
+      "statement": "A function attributed `#[fn_macro]` or `#[token_macro]` is a compiler-invoked metaprogramming hook (discovered by attribute and invoked by the metaprog driver), not a linkable consumer API entry point; it is flagged as a macro hook so ABI-surface extraction (`--emit-abi`) excludes it from the public pub-allowlist, preventing its churning signature from tripping the ABI-compat gate.",
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1138-L1146"
+      ],
+      "testability": "transitive"
     }
   ]
 }

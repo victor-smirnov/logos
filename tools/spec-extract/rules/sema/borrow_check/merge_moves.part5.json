@@ -1,112 +1,132 @@
 {
   "unit": "sema/borrow_check/merge_moves.part5",
   "layer": "sema",
-  "source": "src/compiler/borrow_check.cpp#L2733-L3271",
-  "source_hash": "f9b37e80508e2770",
+  "source": "src/compiler/borrow_check.cpp#L2741-L3289",
+  "source_hash": "999274dd8885804a",
   "rules": [
     {
       "id": "borrow.assign.borrowed-lhs",
       "domain": "borrow",
       "title": "Assignment to a borrowed variable is rejected",
       "statement": "Assigning to a variable `x` (`x = v`) is an error while `x` has any active borrow: a shared borrow ⇒ \"cannot assign to 'x' because it is borrowed\"; a mutable borrow ⇒ \"cannot assign to 'x' while it is mutably borrowed\".",
-      "evidence": ["src/compiler/borrow_check.cpp#L2748-L2755"],
-      "examples": ["let r = &x; x = 1;  // error: x is borrowed"]
+      "evidence": ["src/compiler/borrow_check.cpp#L2756-L2763"],
+      "examples": ["let r = &x; x = 1;  // error: x is borrowed"],
+      "testability": "diagnostic"
     },
     {
       "id": "borrow.assign.reinit-reowns",
       "domain": "borrow",
       "title": "Assignment re-owns the destination",
-      "statement": "An assignment `x = v` clears any prior move/borrow state of `x` (re-owns it): after the assignment `x` is a fully-initialized, unmoved binding. The RHS is consumed (moved) unless it is a reference value or an aggregate literal, in which case its constituent borrows are tracked instead.",
-      "evidence": ["src/compiler/borrow_check.cpp#L2756-L2770"]
+      "statement": "An assignment `x = v` clears any prior move/borrow state of `x` (re-owns it) while preserving the `is_mut_binding` (declared-`mut`) property across the reset; after the assignment `x` is a fully-initialized, unmoved binding. The RHS is consumed (moved) unless it is a reference value or an aggregate literal, in which case its constituent borrows are tracked (`take_ref_borrows`) instead of being moved.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2764-L2786"],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.fieldwrite.reinit-field",
       "domain": "borrow",
       "title": "Field write reinitializes the moved-out field and its subpaths",
-      "statement": "Writing to a field `r.f = v` reinitializes `r.f`, clearing the partially-moved state of `r.f` and every path beneath it; the receiver is no longer treated as partially-moved on account of `f`. The value is consumed.",
-      "evidence": ["src/compiler/borrow_check.cpp#L2805-L2828", "src/compiler/borrow_check.cpp#L2933-L2963"],
-      "examples": ["let _ = s.v; s.v = w;  // ok: s.v rebound"]
+      "statement": "Writing to a field place — surface `r.f = v`, or the lowered `SDerefWrite(AddrOfTemp(FieldRead-chain), v)` form for a nested `o.i.s = v` — reinitializes that field, clearing the partially-moved state of the field and every path beneath it from the receiver's `moved_fields` set before the write's own liveness check runs; the receiver is no longer treated as partially-moved on account of that field. The value is consumed.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2823-L2839", "src/compiler/borrow_check.cpp#L2951-L2981"],
+      "examples": ["let _ = s.v; s.v = w;  // ok: s.v rebound"],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.indexwrite.borrowed-container",
       "domain": "borrow",
       "title": "Element write through a borrowed container is rejected",
-      "statement": "An element write `arr[i] = v` (and `recv.f[i] = v`) is an error while the container/receiver root has any active borrow (shared or mutable); the write goes through the container and conflicts with the outstanding borrow. The index and value are consumed.",
-      "evidence": ["src/compiler/borrow_check.cpp#L2837-L2854", "src/compiler/borrow_check.cpp#L2859-L2876", "src/compiler/borrow_check.cpp#L2904-L2932"],
-      "examples": ["let r = &arr[0]; arr[1] = v;  // error: arr is borrowed"]
+      "statement": "An element write `arr[i] = v`, `recv.field[i] = v`, or a lowered `*AddrOfTemp(<root>[i]…)`/`*AddrOfTemp(<root>.f[i]…)` place (walked through FieldRead/IndexRead/SliceIndex/TupleIndex down to a root `VarRef`) is an error while the root container has any active borrow: shared ⇒ \"cannot assign to '<place>' because '<root>' is borrowed\"; mutable ⇒ \"...while '<root>' is mutably borrowed\". The index and value are consumed.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2855-L2872", "src/compiler/borrow_check.cpp#L2877-L2894", "src/compiler/borrow_check.cpp#L2922-L2950"],
+      "examples": ["let r = &arr[0]; arr[1] = v;  // error: arr is borrowed"],
+      "testability": "diagnostic"
     },
     {
       "id": "borrow.return.diverges",
       "domain": "borrow",
       "title": "Return consumes its value and diverges control flow",
       "statement": "A `return v` consumes (moves) `v` and marks the current control-flow path as diverged, so its post-state does not flow to a join point.",
-      "evidence": ["src/compiler/borrow_check.cpp#L2790-L2797"]
+      "evidence": ["src/compiler/borrow_check.cpp#L2808-L2814"],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.if.merge-survivors",
       "domain": "borrow",
       "title": "If/else move-state merge keeps only surviving branches",
-      "statement": "After `if c { A } else { B }`, the post-state is the merge (union of moves) of the non-diverging branches: if both branches diverge the whole `if` diverges; if exactly one diverges, the post-state is the surviving branch's; otherwise the two branches' move and provenance states are merged.",
-      "evidence": ["src/compiler/borrow_check.cpp#L3002-L3036"]
+      "statement": "After `if c { A } else { B }`, the post-state is the merge (union of moves) of the non-diverging branches: if both branches diverge the whole `if` diverges; if exactly one diverges, the post-state is the surviving branch's; otherwise the two branches' move and provenance states are merged (`merge_moves`/`merge_provs`).",
+      "evidence": ["src/compiler/borrow_check.cpp#L3020-L3053"],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.match.merge-arms",
       "domain": "borrow",
       "title": "Match move-state is the union over non-diverging arms",
-      "statement": "Each match arm is checked from the pre-match state; a diverging arm (return/break/continue tail) contributes nothing to the join. The post-match state unions moves across surviving arms (a path moved in any surviving arm is moved after the match); borrow-source and dangling facts are likewise unioned (a binding borrows/dangles if any arm makes it so). If every arm diverges, the match diverges.",
-      "evidence": ["src/compiler/borrow_check.cpp#L3076-L3159"]
+      "statement": "Each match arm is checked from the pre-match state (move/provenance/ref-borrow-source/dangling snapshots), independently of prior arms; a diverging arm (return/break/continue tail) contributes nothing to the join. The post-match state unions moves across surviving arms (a path moved in any surviving arm is moved after the match); borrow-source and dangling facts are likewise unioned across surviving arms (a binding borrows/dangles if any arm makes it so). If every arm diverges, the match diverges.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3094-L3177"],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.loop.body-fixpoint",
       "domain": "borrow",
       "title": "Loop bodies are borrow-checked under loop semantics",
-      "statement": "While/For/Loop/ForEach bodies are checked via the loop-body protocol: the condition (while) and range bounds (for) are consumed before the body; for-each iterators are inspected non-consumingly; the loop variable is a fresh binding scoped to the body.",
-      "evidence": ["src/compiler/borrow_check.cpp#L3039-L3073"]
+      "statement": "While/For/Loop/ForEach bodies are checked via the loop-body protocol: the condition (while) and range bounds (for) are consumed before the body; for-each's iterator expression is visited non-consumingly; the loop variable (for/for-each) is a fresh binding scoped to the body.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3057-L3091"],
+      "testability": "behavioral",
+      "uncertainty": "The loop-body fixpoint/merge algorithm itself (visit_loop_body) is defined outside this slice; only the per-loop-kind entry semantics (what's consumed, what's bound) are evidenced here."
     },
     {
       "id": "borrow.flow.break-continue-diverge",
       "domain": "borrow",
       "title": "Break and continue diverge the current statement flow",
       "statement": "`break` and `continue` mark the current control-flow path as diverged for move-state propagation; their post-state does not flow to the following statements at the same level.",
-      "evidence": ["src/compiler/borrow_check.cpp#L3161-L3166"]
+      "evidence": ["src/compiler/borrow_check.cpp#L3181-L3184"],
+      "testability": "behavioral"
     },
     {
       "id": "region.e0597.store-borrow-into-place",
       "domain": "region",
       "title": "Storing a borrow into a place records its lifetime sources",
-      "statement": "Storing a reference into a place (`x = &y`, `root.f = &y`, `root.0 = &y`, struct-literal field) records the borrow source `y` against the destination's root local; a later use of the root after `y` dies is an E0597 dangling-borrow error. Writes through a deref or into an element (not the root's own storage) do not record a source.",
-      "evidence": ["src/compiler/borrow_check.cpp#L2783-L2785", "src/compiler/borrow_check.cpp#L2824-L2827", "src/compiler/borrow_check.cpp#L2964-L2981", "src/compiler/borrow_check.cpp#L2993"]
+      "statement": "Storing a reference into a place — `x = &y` (rebind), `root.f = &y` / chained `root.f1.f2 = &y`, `root.N = &y` (tuple field), or a lowered `SDerefWrite` whose LHS walks a PURE FieldRead/TupleIndex chain to a non-parameter root `VarRef` — records the borrow source(s) `y` against the destination's root local (`record_ref_sources`/`add_ref_sources`); a rebind first re-owns the binding (clearing any prior dangling record). A later use of the root after `y` dies is diagnosed E0597 \"does not live long enough\". Writes through a deref or into an element (not the root's own storage) do not record a source.",
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L2801-L2803",
+        "src/compiler/borrow_check.cpp#L2842-L2845",
+        "src/compiler/borrow_check.cpp#L2896-L2903",
+        "src/compiler/borrow_check.cpp#L2982-L2999",
+        "src/compiler/borrow_check.cpp#L3006-L3013"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "borrow.dropck.assign-borrow-into-drop-struct",
       "domain": "borrow",
       "title": "Dropck-light: borrows stored in a Drop lifetime-struct are tracked",
-      "statement": "When an assignment fills a dropck-relevant (Drop-having, lifetime-parameterised) struct binding with freshly-borrowed locals, those borrow sources are recorded against the binding so its later Drop cannot reference a borrow whose source has died.",
-      "evidence": ["src/compiler/borrow_check.cpp#L2739-L2743", "src/compiler/borrow_check.cpp#L2771-L2782"],
-      "uncertainty": "Pattern is detected syntactically (dropck-light); exact soundness scope depends on struct_is_dropck_relevant/collect_borrow_locals outside this unit."
+      "statement": "When an assignment (re-)fills a dropck-relevant (Drop-having, lifetime-parameterised) struct binding with a value that syntactically wraps freshly-borrowed locals, those borrow sources are recorded against the binding (with the assignment's line) so its later Drop cannot reference a borrow whose source has died — the same bookkeeping performed at initial declaration.",
+      "evidence": ["src/compiler/borrow_check.cpp#L2789-L2800"],
+      "testability": "diagnostic",
+      "uncertainty": "Pattern is detected syntactically (dropck-light); exact soundness scope depends on struct_is_dropck_relevant/collect_borrow_locals defined outside this unit."
     },
     {
       "id": "borrow.generic.exclusivity-only-pre-mono",
       "domain": "borrow",
       "title": "Generic templates borrow-check exclusivity only, deferring move checks",
-      "statement": "When borrow-checking a generic function template before monomorphization, only borrow-exclusivity conflicts are reported; move/use-after-move diagnostics are suppressed (imprecise over TypeVar values) and are fully checked on each monomorphized specialization.",
-      "evidence": ["src/compiler/borrow_check.cpp#L3180-L3186"],
-      "divergence": "Implementation strategy, not a user-visible language divergence; final move-checking is Rust-conformant on concrete instantiations."
+      "statement": "When borrow-checking a generic function template before monomorphization (`exclusivity_only_=true`), only borrow-exclusivity conflicts (write vs. active shared/mut borrow) are reported; move/use-after-move diagnostics are suppressed (imprecise over TypeVar values) and are fully checked on each monomorphized specialization.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3198-L3204"],
+      "testability": "transitive",
+      "uncertainty": "Field declaration and rationale comment are in this slice; call sites that consult exclusivity_only_ to gate move-diagnostics are outside this slice."
     },
     {
       "id": "borrow.generic.copy-bound-is-copy-type",
       "domain": "borrow",
-      "title": "A type parameter is move unless it carries a Copy bound",
-      "statement": "In a generic body a bare type parameter `T` is move-classified for use-after-move tracking unless `T` is declared with a `Copy` bound, in which case its values are Copy and not consumed on use.",
-      "evidence": ["src/compiler/borrow_check.cpp#L3216-L3226"],
-      "divergence": "B1"
+      "title": "A type parameter is move unless it carries an explicit Copy bound",
+      "statement": "In a generic body a bare type parameter `T` is move-classified for use-after-move tracking unless `T` carries an explicit trait bound literally named `Copy` (recorded per-function in `copy_tvs_`), in which case its values are Copy and not consumed on use.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3234-L3244"],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.fn.scope-is-per-function",
       "domain": "borrow",
       "title": "Borrow checking is strictly per-function",
-      "statement": "Borrow/move/dangling/dropck state is established freshly per function: parameters are declared as initialized bindings, reference parameters record their lifetime (and pointee aggregate lifetime args), and no borrow facts cross function bodies. A body-less function (extern/stub) is not borrow-checked.",
-      "evidence": ["src/compiler/borrow_check.cpp#L3188-L3267"]
+      "statement": "Borrow/move/dangling/dropck/provenance state (VarState table, scope stack, ref-borrow-source/line maps, dangling map, dropck-source/line maps, Copy-typevar set, param-lifetime maps) is reset at the start of `check(fn)` for every function — no facts cross function bodies. A function with no body mirror (extern declaration / metaprog stub / materialized `from_binary_module`) is skipped entirely (returns before any block walk). Each parameter is declared as an initialized binding; a reference-typed parameter records its declared lifetime, and if it points to a lifetime-parameterized struct/enum, the pointee's explicit lifetime-argument list is also captured (even when empty) to support later return-lifetime validation.",
+      "evidence": ["src/compiler/borrow_check.cpp#L3206-L3285"],
+      "testability": "transitive"
     }
   ]
 }

@@ -1,0 +1,202 @@
+{
+  "unit": "sema/sema_expr/try_schema_method",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L9194-L9865",
+  "source_hash": "e47af311c23c607f",
+  "rules": [
+    {
+      "id": "writ.schema.dispatch-guard",
+      "domain": "writ",
+      "title": "Schema-method dispatch guard",
+      "statement": "A method call `recv.method::<T>(...)` is dispatched as a schema builtin (`make`, `view_checked`, `view`, `child`) only if exactly one explicit turbofish type-argument T is given and T names a struct declared with `#[schema]` (is_schema); otherwise normal method resolution proceeds.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9194-L9201"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.make-view",
+      "domain": "writ",
+      "title": "`.make::<S>()` constructs a fresh schema view",
+      "statement": "For a schema struct S, `recv.make::<S>()` (recv coercible to `&Writ`) allocates fresh Writ-managed storage tagged with S's (possibly generic-instantiation) schema_type_code, with capacity >= 1 and >= the number of S's declared schema fields, and reinterprets the resulting handle as an S-typed view (view layout {m,z} is identical across all schema instantiations).",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9247-L9266"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.view-checked",
+      "domain": "writ",
+      "title": "`.view_checked::<S>()` runtime-checked reinterpretation",
+      "statement": "For a schema struct S, `recv.view_checked::<S>()` yields `Option<S>`: recv (a `&WMap<Wu6,WAny>`/`*WMap<Wu6,WAny>`, or a `WAny` resolved via WAny::resolve) is compared at runtime — its stored `schema_type_code` against S's expected code (distinct per generic instantiation) — returning `Some(view)` on match, `None` otherwise.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9267-L9316"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.view-trusted",
+      "domain": "writ",
+      "title": "`.view::<S>()` / `.child::<S>()` unchecked reinterpretation",
+      "statement": "For a schema struct S, `recv.view::<S>()` and `recv.child::<S>()` reinterpret recv as an S-typed view WITHOUT any runtime schema_type_code check (trusted bind): a `WAny` receiver is resolved via WAny::resolve, a `&WMap`/`*WMap` receiver is cast directly.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9317-L9331"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.generic-instance-code",
+      "domain": "writ",
+      "title": "Per-instantiation schema type code",
+      "statement": "Each concrete instantiation of a generic schema struct has a distinct runtime schema_type_code: for a non-generic schema (or a use with no type-args) the code is the template's base schema_type_code unchanged; for a generic instantiation (e.g. `Box<i64>` vs `Box<str>`) the code is base_code's CATEGORY bits combined with a hash-derived VARIANT of `<package>::<concrete_struct_name(inst_type)>`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9335-L9342",
+        "src/compiler/sema_expr.cpp#L9215-L9219"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.field-generic-subst",
+      "domain": "writ",
+      "title": "Schema field type substitution at a concrete instantiation",
+      "statement": "A schema field whose declared type is a template type-parameter T is substituted with the receiver's concrete type-argument when the receiver type is a concrete generic instantiation (e.g. reading a `T`-typed field through `Box<i64>` yields `i64`); at a still-generic use-site the field type remains the unsubstituted TypeVar.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9746-L9757"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.field-read-desugar",
+      "domain": "writ",
+      "title": "Schema field read desugars to a keyed WMap lookup",
+      "statement": "For a schema struct S with a declared schema field named F, `recv.F` (recv: S) desugars to: read S's synthetic `m` field (`*const WMap<Wu6,WAny>`), reinterpret as `&WMap<Wu6,WAny>`, call `.get(KEY)` with F's assigned key byte to obtain a `WAny`, then convert that `WAny` to F's declared type. If F is not among S's declared schema fields, resolution falls through to ordinary struct field/place resolution.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9732-L9770"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.wany-conversion",
+      "domain": "writ",
+      "title": "WAny -> T conversion rules for a schema field read",
+      "statement": "Converting a stored `WAny` value to a schema field's declared type T follows: if T is a type-parameter, call `<T>__from_wany(v)` (retargeted to the concrete type at monomorphization); if T is `WAny`, identity (no conversion); if T is a pointer/reference type, resolve the WAny via `WAny::resolve` to an address and reinterpret-cast to T (pointers are not a `WritField`, no by-value conversion); otherwise (scalars, floats, `str`, or a struct/ZonedStruct type registering `<TypeName>__from_wany`), call `<TypeName>__from_wany(v)`; if none of these apply, the field type is not a `WritField` and it is a compile error.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9375-L9432"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.writfield-type-name",
+      "domain": "writ",
+      "title": "WritField primitive/struct type-name table",
+      "statement": "The `WritField` conversion hook name for a field type is: the primitive kind's canonical name for bool/integer/float kinds (i8,u8,i16,u16,i24,u24,i32,u32,i56,u56,i64,u64,isize,usize,f32,f64); `str` for `Slice<u8>`; the struct's bare template name for a Struct/ZonedStruct type IFF a `<Name>__from_wany` or `<Name>__to_wany` function is registered (i.e. the type implements `WritField`); no name (ineligible) for any other kind.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9344-L9373"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.wany-error",
+      "domain": "writ",
+      "title": "Diagnostic: schema field type is not a WritField",
+      "statement": "A schema field whose type has no eligible `WritField` conversion (per writ.schema.writfield-type-name / writ.schema.wany-conversion) is a compile error: \"schema '<S>' field '<f>': type '<T>' is not a WritField (no WAny↔T conversion)\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9428-L9430"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.field.autoderef",
+      "domain": "expr",
+      "title": "Field read auto-derefs through Deref",
+      "statement": "`b.v` where b has struct/zoned-struct type lacking a field named `v` but whose type implements `Deref` is resolved by repeatedly applying one Deref step (bounded, <=16 iterations) until a type with field `v` is reached: `b.v` ≡ `(*b).v`, uniformly for Box/Rc/Arc or any user Deref impl.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9454-L9469"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.field.self-describing-dst-tail",
+      "domain": "expr",
+      "title": "Self-describing DST tail access through a thin raw pointer",
+      "statement": "For a `#[self_describing]` struct whose last declared field has unsized-slice type `[T]`, accessing the tail field `p.tail` through a THIN `*const Self`/`*mut Self` pointer recovers the runtime element count by calling the struct's generated `<Struct>__dst_len(ptr)` function, and yields a `[T]` slice located at the field's statically-computed prefix-aligned byte offset from `p`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9473-L9538"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.field.ref-ref-autoderef",
+      "domain": "expr",
+      "title": "Depth-N reference autoderef for field read",
+      "statement": "For a receiver with N>1 stacked reference layers (e.g. `&&S`), field read `r.f` peels every extra reference layer via explicit deref down to a single reference before the one-level field projection: `r.f` ≡ `(*r).f` for `r: &&S`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9540-L9552"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.field.dst-prefix-offset",
+      "domain": "expr",
+      "title": "DST non-tail field addressed positionally",
+      "statement": "A non-tail (prefix) field of a custom-DST struct accessed through a DstRef fat pointer is addressed positionally: its byte offset is the sum of the ABI sizes (each padded to its natural alignment, capped at 8) of all preceding declared fields, with the DstRef's carried type-arguments substituted into generic field types; the field is read by dereferencing `data+offset` typed as the field's (substituted) type.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9682-L9717"
+      ],
+      "divergence": "B2",
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.field.privacy",
+      "domain": "expr",
+      "title": "Private field access restricted to defining package",
+      "statement": "A struct or spec field is subject to pub-visibility: a non-`pub` field is only readable from code in the package that defines the struct/spec; access elsewhere is a compile error.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9819-L9862"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.field.union-unsafe",
+      "domain": "expr",
+      "title": "Union field read requires unsafe; write does not",
+      "statement": "Reading a field of a struct declared `union` requires an enclosing `unsafe` block: \"field read of `<S>.<f>` requires `unsafe` block (`<S>` is a union - only one field is active at a time)\". Writing a union field is exempt from this check (unions permit overwriting any field without an activeness precondition).",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9829-L9842"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.field.variadic-match",
+      "domain": "expr",
+      "title": "Variadic field name matching",
+      "statement": "A struct field declared variadic with base name `f` additionally matches any accessed field name of the shape `f_<suffix>` (an underscore-joined suffix), resolving `x.f_<suffix>` against the single variadic field's declaration for pub-check purposes.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9843-L9848",
+        "src/compiler/sema_expr.cpp#L9854-L9856"
+      ],
+      "uncertainty": "This slice only shows the name-matching used for the pub-access check; the underlying variadic-field mechanism (declaration, storage, and full read/write semantics) is defined elsewhere.",
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.field.non-struct-receiver-error",
+      "domain": "expr",
+      "title": "Diagnostic: field read on a non-struct/class receiver",
+      "statement": "Reading a field on a receiver whose (dereferenced) type is not a struct or class is a compile error: \"field read: receiver is not a struct or class (got <T>)\"; the error is suppressed (result silently propagated as `<error>`) when metaprog discovery mode is active and the receiver's type is already `<error>` (a not-yet-derived struct in a chain).",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9793-L9810"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.dataref.field-ergonomic",
+      "domain": "expr",
+      "title": "DataRef<T> ergonomic field read",
+      "statement": "For `p: DataRef<T>` where T is a zoned-struct type declaring field `f`, `p.f` desugars to `p.ptr().f` (bypassing an explicit `let pw = p.ptr()` intermediate); this access requires an enclosing `unsafe` context: \"DataRef<T>.<f>: field access requires unsafe context\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9773-L9791"
+      ],
+      "testability": "diagnostic"
+    }
+  ]
+}

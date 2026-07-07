@@ -29,16 +29,6 @@
       ]
     },
     {
-      "id": "expr.field.raw-ptr-unsafe",
-      "domain": "expr",
-      "title": "Field read through raw pointer requires unsafe",
-      "statement": "Reading a field through a raw pointer receiver (type `*const T`/`*mut T`) is only permitted inside an `unsafe` context; otherwise it is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L9182-L9184",
-        "src/compiler/sema_expr.cpp#L9251"
-      ]
-    },
-    {
       "id": "expr.field.self-describing-thin-tail",
       "domain": "expr",
       "title": "Self-describing DST tail through a thin raw pointer",
@@ -50,39 +40,6 @@
       "related": [
         "expr.field.dst-tail-slice"
       ]
-    },
-    {
-      "id": "expr.field.dst-ref-unsafe",
-      "domain": "expr",
-      "title": "Field read through a non-self-describing &DstStruct requires unsafe",
-      "statement": "Field access on a fat-pointer (DstRef) receiver `&DstStruct` requires an `unsafe` context, EXCEPT when the struct is `#[self_describing]` (its tail length is recovered in-band, so the borrow is a complete safe reference).",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L9275-L9281"
-      ],
-      "divergence": "Custom-DST raw-pointer-shaped field access — see DIVERGENCES B2."
-    },
-    {
-      "id": "expr.field.dst-tail-slice",
-      "domain": "expr",
-      "title": "Slice-tail projection on a DstRef",
-      "statement": "For a fat-pointer receiver to a custom-DST struct whose last field `tail` has unsized-slice type `[T]`, `r.tail` yields a slice `{ data_ptr + prefix_byte_size, len }` reusing the fat pointer's len half; prefix_byte_size is the offset after all sized prefix fields, aligned to size_of(T) (capped at 8). Slice mutability follows the receiver: `(&mut Foo).tail: &mut [T]`, `(&Foo).tail: &[T]`.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L9296-L9345",
-        "src/compiler/sema_expr.cpp#L9369-L9393"
-      ],
-      "divergence": "Custom-DST model — see DIVERGENCES B2."
-    },
-    {
-      "id": "expr.field.dst-tail-dyn",
-      "domain": "expr",
-      "title": "dyn-tail projection on a DstRef shares the carried vtable",
-      "statement": "For a fat-pointer receiver to a custom-DST struct whose last field has unsized-dyn type `dyn Tr`, `r.tail` yields a `&dyn Tr` fat pair `{ data = base + prefix_byte_size, vtable = the receiver's OWN carried vtable }`. The tail's metadata is the wide pointer's metadata (no static vtable lookup). The dyn prefix offset is aligned to pointer width (8) since the concrete payload alignment is not known statically.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L9330-L9335",
-        "src/compiler/sema_expr.cpp#L9346-L9368"
-      ],
-      "divergence": "Custom-DST dyn-tail model — see DIVERGENCES B2/B3.",
-      "uncertainty": "Conservative 8-byte alignment for dyn tails noted as over-aligning vs Rust."
     },
     {
       "id": "expr.field.dst-prefix-positional",
@@ -112,15 +69,6 @@
       "statement": "A field read whose receiver does not resolve to a struct or class type is an error ('receiver is not a struct or class'), except during metaprog discovery when the receiver (or its pointee) is already of error type, in which case the error type is propagated silently.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L9460-L9478"
-      ]
-    },
-    {
-      "id": "expr.field.unknown-field-error",
-      "domain": "expr",
-      "title": "Unknown field is an error",
-      "statement": "Reading a field name not declared on the resolved struct type is an error ('struct S has no field f').",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L9481-L9485"
       ]
     },
     {
@@ -163,6 +111,63 @@
       ],
       "uncertainty": "Fallback is a metaprog-substitution artifact, not a user-facing surface rule.",
       "testability": "untestable"
+    },
+    {
+      "id": "expr.field.dst-ref-unsafe",
+      "domain": "expr",
+      "title": "Field read through a custom-DST fat-pointer reference requires unsafe unless self-describing",
+      "statement": "Reading any field through a fat-pointer (DstRef) receiver `&CustomDstStruct` requires an enclosing `unsafe` context, UNLESS the struct is declared `#[self_describing]` — its tail length is recovered in-band, making the borrow a complete, safe reference. Otherwise the program is rejected with: \"field read through `&DstStruct` requires unsafe context (custom-DST field access is raw-pointer-shaped)\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9275-L9281",
+        "src/compiler/sema_expr.cpp#L9564-L9569"
+      ],
+      "divergence": "B2 — custom-DST raw-pointer-shaped field access (see DIVERGENCES.md)."
+    },
+    {
+      "id": "expr.field.dst-tail-dyn",
+      "domain": "expr",
+      "title": "DST dyn-tail field projection shares the DstRef's carried vtable",
+      "statement": "For a custom-DST struct whose tail field's (generic-substituted) type is `dyn Trait`, projecting the tail field from a `&Struct` DstRef fat pointer `{data, vtable}` yields a `&dyn Trait` fat pair `{ data = base + prefix_byte_size, vtable = the receiver's OWN carried vtable }`, reusing the wide pointer's metadata verbatim — no static/independent vtable lookup for the tail. The dyn-tail prefix offset is aligned to pointer width (8 bytes) since the concrete payload alignment is not known statically.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9330-L9335",
+        "src/compiler/sema_expr.cpp#L9346-L9368",
+        "src/compiler/sema_expr.cpp#L9634-L9656"
+      ],
+      "divergence": "Custom-DST dyn-tail model — see DIVERGENCES B2/B3.",
+      "uncertainty": "Conservative 8-byte alignment for dyn tails noted as over-aligning vs Rust."
+    },
+    {
+      "id": "expr.field.dst-tail-slice",
+      "domain": "expr",
+      "title": "Slice-tail projection on a DstRef",
+      "statement": "For a fat-pointer receiver to a custom-DST struct whose last field `tail` has unsized-slice type `[T]`, `r.tail` yields a slice `{ data_ptr + prefix_byte_size, len }` reusing the fat pointer's len half; prefix_byte_size is the offset after all sized prefix fields, aligned to size_of(T) (capped at 8). Slice mutability follows the receiver: `(&mut Foo).tail: &mut [T]`, `(&Foo).tail: &[T]`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9296-L9345",
+        "src/compiler/sema_expr.cpp#L9369-L9393",
+        "src/compiler/sema_expr.cpp#L9657-L9681"
+      ],
+      "divergence": "Custom-DST model — see DIVERGENCES B2."
+    },
+    {
+      "id": "expr.field.raw-ptr-unsafe",
+      "domain": "expr",
+      "title": "Field read through raw pointer requires unsafe",
+      "statement": "Reading a field through a raw-pointer receiver (`p.f` where `p: *const T`/`*mut T`) requires an enclosing `unsafe` context; otherwise it is a compile error: \"field read through raw pointer requires unsafe context\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9182-L9184",
+        "src/compiler/sema_expr.cpp#L9251",
+        "src/compiler/sema_expr.cpp#L9470-L9472"
+      ]
+    },
+    {
+      "id": "expr.field.unknown-field-error",
+      "domain": "expr",
+      "title": "Unknown field on a known struct is a compile error",
+      "statement": "Reading a field name not declared on the receiver's (resolved) struct type is a compile error: \"field read: struct '<S>' has no field '<f>'\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9481-L9485",
+        "src/compiler/sema_expr.cpp#L9814-L9818"
+      ]
     }
   ]
 }

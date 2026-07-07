@@ -1,36 +1,45 @@
 {
   "unit": "sema/region_infer/compute_liveness",
   "layer": "sema",
-  "source": "src/compiler/region_infer.cpp#L772-L923",
-  "source_hash": "32f216e28ecd93a6",
+  "source": "src/compiler/region_infer.cpp#L811-L988",
+  "source_hash": "98b8b00c5fe14599",
   "rules": [
+    {
+      "id": "borrow.liveness.backward-dataflow",
+      "domain": "borrow",
+      "title": "Variable liveness computed by backward dataflow to fixed point",
+      "statement": "Liveness over program points (block, stmt-index) is solved by the standard backward dataflow equations: live_out(P) = ∪ live_in(succ(P)); live_in(P) = use(P) ∪ (live_out(P) \\ def(P)). Within a block the successor of a statement is the next statement; the successor of the last statement is the union of live_in at the first statement of each CFG successor block; an empty (zero-statement) block forwards its successors' live-in. The solution is the least fixed point, reached by iterating all points in reverse block/statement order (bounded iteration count).",
+      "evidence": ["src/compiler/region_infer.cpp#L811-L901"],
+      "testability": "transitive"
+    },
+    {
+      "id": "borrow.liveness.rebind-kills-cross-key",
+      "domain": "borrow",
+      "title": "A name rebind ends prior liveness across bare/slot-qualified key forms",
+      "statement": "Borrow-liveness tracks live variables by a key that is either bare (name only, e.g. an `Assign` LHS) or slot-qualified (name + binding-slot, e.g. a `let` binding). A bare def of a name kills liveness of every slot-qualified key sharing that name (a reassignment ends the currently-live binding's upward liveness). Symmetrically, a slot-qualified def (a fresh `let name = …` binding) kills the liveness of the bare key for the same name, so a borrow held under an earlier same-named binding does not leak liveness across a shadowing `let` of the same name into sibling scopes.",
+      "evidence": [
+        "src/compiler/region_infer.cpp#L866-L872",
+        "src/compiler/region_infer.cpp#L873-L890"
+      ],
+      "uncertainty": "The bare-vs-slot-qualified two-key liveness scheme is an internal representation detail for tracking `let`-shadowed bindings of the same name; the language-level guarantee inferred here is that shadowing a name with a new `let` binding starts a fresh liveness scope that does not spuriously conflict with borrows of the shadowed binding.",
+      "testability": "diagnostic"
+    },
     {
       "id": "borrow.conflict.overlapping-regions",
       "domain": "borrow",
       "title": "Borrow conflict requires same target, a mutable participant, and overlapping live regions",
-      "statement": "Two borrows b1, b2 of the same borrow target conflict iff (b1.target == b2.target) AND (b1.is_mut OR b2.is_mut) AND the inferred live point-sets of their regions intersect (∃ point P ∈ region(b1) ∩ region(b2)). Two shared (&) borrows of the same target never conflict; a borrow of a distinct target never conflicts.",
-      "evidence": [
-        "src/compiler/region_infer.cpp#L841-L868"
-      ]
+      "statement": "Two borrows b1, b2 of the same borrow target conflict iff (b1.target == b2.target) AND (b1.is_mut OR b2.is_mut) AND (barring the TPB-reservation/shared-read exception) the inferred live point-sets of their regions intersect (∃ point P ∈ region(b1) ∩ region(b2)). Two shared (&) borrows of the same target never conflict; a borrow of a distinct target never conflicts. The reported conflict point is the first point found shared between the two regions' point-sets.",
+      "evidence": ["src/compiler/region_infer.cpp#L903-L936"],
+      "related": ["borrow.conflict.tpb-reservation-shared-read"]
     },
     {
       "id": "borrow.conflict.tpb-reservation-shared-read",
       "domain": "borrow",
       "title": "A mut reservation passed as a call argument tolerates concurrent shared reads of the same target",
-      "statement": "A two-phase-borrow (TPB) mut-reservation does not conflict with a concurrent shared (&) borrow of the same target: when one of a conflicting pair is a TPB reservation and the other is non-mut, no conflict is reported. A reservation still conflicts with any other mut borrow or reservation of the same target.",
-      "evidence": [
-        "src/compiler/region_infer.cpp#L849-L854"
-      ]
-    },
-    {
-      "id": "borrow.liveness.backward-dataflow",
-      "domain": "borrow",
-      "title": "Variable liveness computed by backward dataflow to fixed point",
-      "statement": "Liveness over program points (block, stmt-index) is solved by the standard backward dataflow equations: live_out(P) = ∪ live_in(succ(P)); live_in(P) = use(P) ∪ (live_out(P) \\ def(P)). Within a block the successor of a statement is the next statement; the successor of the last statement is the union of live_in at the first statement of each CFG successor block; an empty block forwards its successors' live-in. The solution is the least fixed point.",
-      "evidence": [
-        "src/compiler/region_infer.cpp#L772-L835"
-      ],
-      "testability": "transitive"
+      "statement": "A two-phase-borrow (TPB) mut-reservation does not conflict with a concurrent shared (&) borrow/read of the same target: when one of a conflicting pair is a TPB reservation and the other is non-mut, no conflict is reported. A reservation still conflicts with any other mut borrow or reservation of the same target.",
+      "evidence": ["src/compiler/region_infer.cpp#L914-L919"],
+      "divergence": "Logos-specific carve-out with no Rust equivalent: Rust's borrow checker rejects a mutable borrow of a place that overlaps a concurrent shared borrow of the same place (E0502-style); Logos permits this specific pattern for TPB call-argument reservations.",
+      "testability": "behavioral"
     }
   ]
 }

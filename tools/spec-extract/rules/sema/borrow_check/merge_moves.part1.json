@@ -1,8 +1,8 @@
 {
   "unit": "sema/borrow_check/merge_moves.part1",
   "layer": "sema",
-  "source": "src/compiler/borrow_check.cpp#L648-L1172",
-  "source_hash": "2456b5bd3bdf1691",
+  "source": "src/compiler/borrow_check.cpp#L648-L1175",
+  "source_hash": "9159e8df70906a73",
   "rules": [
     {
       "id": "borrow.flow.merge-moved-on-join",
@@ -32,32 +32,33 @@
       "id": "borrow.scope.borrows-released-at-scope-end",
       "domain": "borrow",
       "title": "Borrows are released at the end of their lexical scope",
-      "statement": "Each borrow (shared, mutable, or outstanding mut-reservation) is held by the scope frame in which it was taken; on exit from that scope the borrow is released (shared count decremented, mut flag cleared, or one reservation removed), restoring the target's borrow availability.",
+      "statement": "Each borrow (shared, mutable, or outstanding mut-reservation) is held by the scope frame in which it was taken; on exit from that scope the borrow is released (shared count decremented, mut flag cleared, or one reservation removed), restoring the target's borrow availability. Field-path borrows recorded on the same frame are released the same way.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L826-L855"
-      ]
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.dropck.drop-binding-must-outlive-borrowed-local",
       "domain": "borrow",
       "title": "A Drop-having binding may not borrow a local that dies first",
-      "statement": "If a binding's type has a Drop impl and its declared type carries a lifetime parameter (dropck-relevant), then every local it borrows at construction must outlive the binding; a local going out of scope while such a binding still lives is rejected (the binding's Drop would run after the local dies).",
+      "statement": "A binding is dropck-relevant iff its type is a struct that has a Drop impl (needs_drop) AND either its declared template has a lifetime parameter or its TypeRef carries explicit lifetime_args. For such a binding, every local it borrows at construction must outlive it; a local going out of scope while the binding still lives is rejected (the binding's Drop would run after the local dies).",
       "evidence": [
         "src/compiler/borrow_check.cpp#L856-L877",
         "src/compiler/borrow_check.cpp#L918-L933"
       ],
-      "divergence": "B87"
+      "testability": "diagnostic"
     },
     {
       "id": "borrow.nll.dangling-ref-first-use-error",
       "domain": "borrow",
       "title": "NLL E0597: a borrow outliving its referent errors at first later use",
-      "statement": "A reference/borrow-carrying binding that outlives a local it borrows becomes dangling when that local goes out of scope; this is not an error in itself — only the FIRST subsequent USE of the dangling binding is rejected (NLL: a stored borrow never used after its referent dies is accepted). A binding dying in the same scope as its source is always fine.",
+      "statement": "A reference/borrow-carrying binding that outlives a local it borrows becomes dangling when that local goes out of scope; this is not an error in itself — only the FIRST subsequent USE of the dangling binding is rejected (a stored borrow never used after its referent dies is accepted, matching non-lexical-lifetime semantics). A binding dying in the same scope as its source is never flagged dangling.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L765-L775",
         "src/compiler/borrow_check.cpp#L878-L893"
       ],
-      "divergence": "B6"
+      "testability": "diagnostic"
     },
     {
       "id": "borrow.union.field-borrow-borrows-all",
@@ -67,7 +68,8 @@
       "evidence": [
         "src/compiler/borrow_check.cpp#L934-L949"
       ],
-      "testability": "transitive"
+      "testability": "diagnostic",
+      "divergence": "A-union-field-borrow-whole (Rust has no native untagged unions with this exact borrow-widening rule; treat as Logos-specific until reconciled against a §A tag)"
     },
     {
       "id": "borrow.path.prefix-conflict",
@@ -84,19 +86,21 @@
       "id": "borrow.path.access-vs-field-borrow",
       "domain": "borrow",
       "title": "Accessing a place conflicts with overlapping field borrows",
-      "statement": "Accessing target.path is rejected if it overlaps a tracked mutable field-borrow of the same root; an exclusive access (whole move or partial move) additionally conflicts with any overlapping shared field-borrow, whereas a plain read conflicts only with a mutable field-borrow.",
+      "statement": "Accessing target.path is rejected if it overlaps a tracked mutable field-borrow of the same root; an exclusive access (whole move or partial move) additionally conflicts with any overlapping shared field-borrow, whereas a plain read conflicts only with a mutable field-borrow. An empty path (whole-value access) overlaps and is rejected against every tracked field-borrow.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1131-L1165"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "borrow.prov.borrow-returning-call-ties-to-ref-inputs",
       "domain": "borrow",
       "title": "A borrow-returning call's provenance is its reference inputs",
-      "statement": "When a method or free function returns a reference (or borrow-carrying type), the result's borrow provenance is the set of reference-typed inputs (receiver and reference arguments) it was derived from — lifetime-elision provenance — so the result cannot escape the scope of any borrowed local it transitively names.",
+      "statement": "When a method or free function returns a reference (or borrow-carrying type), the result's borrow provenance is the set of reference-typed inputs (receiver and reference arguments for methods; reference arguments for free calls) it was derived from — a lifetime-elision provenance model — so the result cannot escape the scope of any borrowed local it transitively names.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1062-L1096"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.prov.ref-copy-propagates-sources",
@@ -105,7 +109,8 @@
       "statement": "Assigning one reference binding from another (o = r) makes o borrow whatever r borrows: the source set is propagated, so an aliased borrow cannot escape its referent's scope via a copy.",
       "evidence": [
         "src/compiler/borrow_check.cpp#L1097-L1106"
-      ]
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.prov.binding-never-borrows-itself",
@@ -113,18 +118,53 @@
       "title": "A binding is never recorded as borrowing itself",
       "statement": "When recording the local sources a binding borrows from, the binding's own name is removed from its source set; a reborrow such as let r2 = &*r records r (not r2) as the source.",
       "evidence": [
-        "src/compiler/borrow_check.cpp#L983-L1003"
-      ]
+        "src/compiler/borrow_check.cpp#L987-L1002",
+        "src/compiler/borrow_check.cpp#L1009-L1022"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "borrow.prov.locals-only-not-params",
       "domain": "borrow",
       "title": "Borrow-source tracking covers only local variables, not parameters",
-      "statement": "Provenance/dangling tracking records as borrow sources only locally declared variables; function parameters are filtered out, since a borrow of a parameter does not dangle within the function body.",
+      "statement": "Provenance/dangling tracking records as borrow sources only locally declared variables (present in the current function's state map); function parameters are filtered out, since a borrow of a parameter does not dangle within the function body.",
       "evidence": [
-        "src/compiler/borrow_check.cpp#L958-L962",
+        "src/compiler/borrow_check.cpp#L953-L963",
         "src/compiler/borrow_check.cpp#L1032-L1044"
-      ]
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "borrow.flow.two-phase-mut-reservation",
+      "domain": "borrow",
+      "title": "Mutable borrows taken during call-argument evaluation are reservations",
+      "statement": "While the checker is nested inside evaluation of a call's argument list (in_call_args_ > 0), a newly taken `&mut` borrow is recorded as a reservation (mut_reservations) rather than an activated exclusive borrow, so it does not conflict with concurrent shared reads of the same target for the remainder of that argument-list evaluation (two-phase borrow). The reservation is released the same as an activated mut borrow at scope end.",
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L736-L739",
+        "src/compiler/borrow_check.cpp#L833-L840"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "borrow.prov.desugared-index-mut-outer-mut-authoritative",
+      "domain": "borrow",
+      "title": "Outer &mut is authoritative for desugared IndexMut reborrows",
+      "statement": "For a compiler-desugared `&mut v[i]` (AddrOfTemp over Deref over a MethodCall to index_mut), the borrow's mutability is taken from the outer `&mut` regardless of what escape analysis can resolve for the inner desugared index_mut call — this prevents two concurrent `&mut v[i]` borrows on the same aggregate from being under-classified as shared and going undetected as aliasing.",
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L727-L732"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "borrow.nll.borrow-released-at-last-use",
+      "domain": "borrow",
+      "title": "Borrow released at last use, not only at scope end (NLL)",
+      "statement": "Independent of lexical scope-end release, a borrow whose holder variable's last-use line (computed once per function, over the whole body, before checking) has been reached is released — a non-lexical-lifetimes narrowing of the scope-based release.",
+      "evidence": [
+        "src/compiler/borrow_check.cpp#L796-L799"
+      ],
+      "uncertainty": "Only the field declaration and its documenting comment are within this unit; the comparison/release logic against cur_line lives outside this line range.",
+      "testability": "behavioral"
     }
   ]
 }

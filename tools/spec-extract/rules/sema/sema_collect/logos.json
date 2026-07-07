@@ -1,8 +1,8 @@
 {
   "unit": "sema/sema_collect/logos",
   "layer": "sema",
-  "source": "src/compiler/sema_collect.cpp#L16-L702",
-  "source_hash": "43e843a4b5967483",
+  "source": "src/compiler/sema_collect.cpp#L16-L723",
+  "source_hash": "84aaf8fe7ccc0ee9",
   "rules": [
     {
       "id": "module.use.enum-variant-alias",
@@ -59,22 +59,22 @@
       "id": "item.dup.odr-dedup",
       "domain": "item",
       "title": "structurally identical duplicate items dedup; differing ones error",
-      "statement": "Two item definitions (struct/union/datatype/enum) sharing the same name in the same package are an error UNLESS their AST sub-trees are structurally equal, in which case the duplicate is silently dropped (ODR-style dedup). Structural equality ignores source-line metadata, so identical items emitted by metaprogramming at different source positions still dedup.",
+      "statement": "Two item definitions (struct/union/schema/datatype/enum) sharing the same name in the same package are an error UNLESS their AST sub-trees are structurally equal, in which case the duplicate is silently dropped (ODR-style dedup). Structural equality recurses through TinyObjectMap-by-bitmap-key, Array-by-index and WritString-by-content, ignores SRC_LINE metadata (so identical items emitted by metaprogramming at different source positions still dedup), and treats any other value-kind pair as conservatively unequal.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L25-L75",
+        "src/compiler/sema_collect.cpp#L25-L76",
         "src/compiler/sema_collect.cpp#L267-L282",
-        "src/compiler/sema_collect.cpp#L378-L446"
+        "src/compiler/sema_collect.cpp#L374-L467"
       ],
       "divergence": "Logos addition: ODR dedup of metacall-emitted items (Rust has no metacall splice model).",
-      "testability": "untestable"
+      "testability": "diagnostic"
     },
     {
       "id": "item.name.forward-reference",
       "domain": "item",
       "title": "item names are visible before their definition (forward references)",
-      "statement": "Type names (struct, union, datatype, enum) and trait names are registered in a name-collection pass before bodies are collected, so an item may reference a type or trait declared later in the same or another module, and cross-file `impl Trait for X` resolves regardless of file order.",
+      "statement": "Type names (struct, union, schema, datatype, enum) across every compiled module, and trait names, are registered in name-collection passes before any item body is collected, so an item may reference a type or trait declared later in the same or another module, and cross-file `impl Trait for X` resolves regardless of file order.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L313-L478"
+        "src/compiler/sema_collect.cpp#L284-L500"
       ]
     },
     {
@@ -83,7 +83,7 @@
       "title": "cfg-false items do not register their name",
       "statement": "A `#[cfg(...)]` predicate is evaluated before name registration; an item whose cfg is false registers no name. This permits the same-name-under-mutually-exclusive-cfg idiom (e.g. cfg(unix)/cfg(windows) structs) without a duplicate-name error.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L358-L365"
+        "src/compiler/sema_collect.cpp#L359-L366"
       ]
     },
     {
@@ -92,7 +92,9 @@
       "title": "#[datatype]/#[annotation] promote a struct into the datatype pipeline",
       "statement": "A struct-syntax item annotated `#[datatype]` or `#[annotation]` is treated as a datatype declaration; `#[zoned]` marks self-relative fields and does NOT promote a struct to a datatype.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L366-L431"
+        "src/compiler/sema_collect.cpp#L367-L373",
+        "src/compiler/sema_collect.cpp#L374",
+        "src/compiler/sema_collect.cpp#L435"
       ],
       "divergence": "Logos addition: datatype/annotation/zoned attributes (no Rust equivalent).",
       "testability": "transitive"
@@ -101,9 +103,22 @@
       "id": "item.union.shared-namespace",
       "domain": "item",
       "title": "unions share the struct/enum type namespace",
-      "statement": "Union definitions occupy the same type namespace as structs and enums; a union name conflicts with a struct/enum of the same name, and `type Alias = U;` resolves U as a type.",
+      "statement": "Union definitions occupy the same type namespace as structs (registered in the same name table), so a union name conflicts with a struct/union of the same name, and `type Alias = U;` resolves U through the struct-name lookup.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L390-L413"
+        "src/compiler/sema_collect.cpp#L391-L414"
+      ]
+    },
+    {
+      "id": "item.schema.shares-struct-namespace",
+      "domain": "item",
+      "title": "schema/schema-enum declarations share the struct namespace",
+      "statement": "`schema S { … }` and `schema enum E { … }` item names are pre-registered into the same name table as STRUCT/UNION_DEF, mirroring struct/union registration so forward references (e.g. `type Alias = S;`) resolve before the schema body is collected in the later fields/variants pass. A name collision with an existing struct/union/schema of the same name is an error ('duplicate schema/struct'), suppressed only when the two definitions are ODR-equal.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L415-L434"
+      ],
+      "related": [
+        "item.union.shared-namespace",
+        "item.dup.odr-dedup"
       ]
     },
     {
@@ -112,7 +127,7 @@
       "title": "predeclared trait carries its visibility",
       "statement": "A trait name predeclared during name-collection carries its declared `pub` visibility, so a cross-package reference resolving before the trait's body is collected sees the correct public/private status.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L447-L475"
+        "src/compiler/sema_collect.cpp#L468-L496"
       ],
       "testability": "untestable"
     },
@@ -120,9 +135,9 @@
       "id": "item.attr.unknown-warn",
       "domain": "item",
       "title": "unknown attribute is warned",
-      "statement": "A top-level user `#[name]` attribute that is neither a builtin attribute, a registered metaprog-handler trigger, nor the name of an `#[annotation]` datatype is a warning (likely typo, missing import, or removed handler).",
+      "statement": "A top-level user `#[name]` attribute that is neither a builtin attribute target, a registered metaprog-handler trigger, nor the name of an `#[annotation]` datatype is a warning (likely typo, missing import, or removed handler). Evaluated only after all modules are collected, so the handler/annotation-type registries are complete.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L607-L665"
+        "src/compiler/sema_collect.cpp#L628-L686"
       ],
       "testability": "untestable"
     },
@@ -132,28 +147,30 @@
       "title": "recursive by-value type cycles are rejected",
       "statement": "A struct/enum graph that contains a by-value (non-indirected) cycle is an error; recursion through a type of statically unknown/infinite size must be broken by an indirection (e.g. a pointer/box).",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L544-L546"
-      ]
+        "src/compiler/sema_collect.cpp#L565-L567"
+      ],
+      "uncertainty": "check_recursive_value_types() body is defined outside this unit; only its invocation site is evidenced here."
     },
     {
       "id": "type.copy.structural-auto",
       "domain": "type",
       "title": "non-Drop struct of all-Copy fields is automatically Copy",
-      "statement": "A struct that does not implement Drop and whose every field type is Copy is automatically Copy, without an explicit `impl Copy`.",
+      "statement": "A struct that does not implement Drop and whose every field type is Copy is automatically Copy, without an explicit `impl Copy`; this runs after manually-written `impl Copy` entries are collected, so it only fills gaps rather than overriding explicit impls.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L674-L678"
+        "src/compiler/sema_collect.cpp#L695-L699"
       ],
-      "divergence": "A: diverges from Rust, which requires an explicit `#[derive(Copy)]`/`impl Copy`.",
-      "uncertainty": "Exact DIVERGENCES.md tag not confirmed; promotion logic lives in compute_auto_copy_types outside this unit."
+      "divergence": "Rust requires an explicit `#[derive(Copy)]`/`impl Copy`; Logos structurally auto-derives Copy for non-Drop, all-Copy-field structs.",
+      "uncertainty": "compute_auto_copy_types() body (the exact promotion algorithm) is defined outside this unit; only its invocation/purpose is evidenced here."
     },
     {
       "id": "trait.supertrait.impl-required",
       "domain": "trait",
       "title": "supertrait impls must be satisfied",
-      "statement": "For every `impl Trait for T`, the impls of all of Trait's supertraits for T must also be present (checked order-independently after all impls are collected).",
+      "statement": "For every `impl Trait for T`, the impls of all of Trait's supertraits for T must also be present (checked order-independently after all impls are collected, since `impl Foo for T` and `impl Super for T` may appear in either file order).",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L670-L672"
-      ]
+        "src/compiler/sema_collect.cpp#L691-L693"
+      ],
+      "uncertainty": "check_supertrait_impls() body is defined outside this unit; only its invocation site is evidenced here."
     },
     {
       "id": "generic.bound.well-formed",
@@ -161,8 +178,9 @@
       "title": "trait bounds are validated at the declaration site",
       "statement": "Trait bounds written on generic declarations are validated where written: each bound must name a known trait and supply the correct number of trait arguments.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L548-L550"
-      ]
+        "src/compiler/sema_collect.cpp#L569-L571"
+      ],
+      "uncertainty": "check_trait_bounds_well_formed() body is defined outside this unit; only its invocation site is evidenced here."
     },
     {
       "id": "generic.param.unused-warn",
@@ -170,38 +188,55 @@
       "title": "unused function type-parameter warns",
       "statement": "A function type-parameter that appears nowhere in the function's signature is a warning.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L552-L554"
+        "src/compiler/sema_collect.cpp#L573-L575"
       ],
-      "testability": "untestable"
+      "testability": "untestable",
+      "uncertainty": "check_unused_generics_in_funcs() body is defined outside this unit; only its invocation site is evidenced here."
     },
     {
       "id": "module.prelude.implicit-injection",
       "domain": "module",
       "title": "Implicit prelude is wildcard-injected into source modules unless opted out",
-      "statement": "The configured implicit-prelude package is implicitly wildcard-imported into every source-side module loaded for the current compilation, making prelude names resolvable unqualified, EXCEPT: (1) modules loaded from binary archives (their producer already applied its own prelude), (2) the prelude package itself, and (3) any file carrying the inner attribute `#![no_implicit_prelude]`. The injection is deduplicated against an explicit `use` of the same package, and an empty implicit-prelude setting injects nothing. The same injection is applied identically in the metaprog discovery pass and the final pass.",
+      "statement": "The configured implicit-prelude package is implicitly wildcard-imported into every source-side module loaded for the current compilation, making prelude names resolvable unqualified, EXCEPT: (1) modules loaded from a binary archive (their producer already applied its own prelude when the archive was built), (2) the prelude package itself (self-import skipped), and (3) any file carrying the inner attribute `#![no_implicit_prelude]`. The injection is deduplicated against an explicit `use` of the same package, and an empty implicit-prelude setting injects nothing.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L240-L266",
-        "src/compiler/sema.cpp#L6911-L6936",
-        "src/compiler/module_loader.hpp#L130-L134",
-        "src/compiler/metaprog_dispatch.hpp#L76-L80"
+        "src/compiler/sema_collect.cpp#L240-L266"
       ],
       "examples": [
         "#![no_implicit_prelude]"
-      ],
-      "divergence": "A6/note — prelude package is Logos's package-model analogue of Rust's std prelude; named injectable package + `#![no_implicit_prelude]` opt-out (Rust-analogous but explicitly package-configured).",
-      "related": [
-        "module.use.brace-group-desugar"
       ]
     },
     {
       "id": "module.use.from-module-restricts-candidates",
       "domain": "module",
       "title": "use pkg from module restricts candidates",
-      "statement": "`use pkg from <module>;` restricts the candidates of `pkg` to the named module. The `from` keyword is contextual (matched as a bare identifier); a missing/incorrect `from` keyword or a module name matching no loaded module is an error.",
+      "statement": "`use pkg from <module>;` restricts the candidates of `pkg` to the named module. The `from` keyword is contextual (matched as a bare identifier, so `From::from` stays valid); a missing/incorrect `from` keyword, a missing module name, or a module name matching no loaded module is an error — unless the module-name-to-id map isn't primed yet (e.g. an early metaprog discovery pass), in which case the restriction is silently skipped for that pass.",
       "evidence": [
         "src/compiler/sema_collect.cpp#L192-L225"
       ],
       "divergence": "Logos addition: per-import module qualification (no Rust equivalent)."
+    },
+    {
+      "id": "generic.spec.type-arg-classification",
+      "domain": "generic",
+      "title": "global name pre-scan disambiguates a partial specialization from a fresh generic base",
+      "statement": "Before per-module symbol registration, the compiler pre-scans every module's top-level STRUCT/DATATYPE/ENUM/UNION_DEF/SCHEMA_DEF/SCHEMA_ENUM_DEF item names across the whole compilation (order-independent) into a global declared-type-name set. Classifying a second same-named declaration with type arguments as a partial specialization (an argument names an already-declared concrete type, e.g. `Map<K, AnyVal>`) versus a fresh generic base (all arguments are unbound type parameters, e.g. `Map<K, V>`) consults this set, so the classification does not depend on whether the argument's defining module was processed first.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L284-L312"
+      ],
+      "uncertainty": "The actual classifier (is_specialization_fn / is_specialization_struct) is defined outside this unit; only the pre-scan it depends on, and its documented purpose, are evidenced here.",
+      "related": [
+        "item.name.forward-reference"
+      ]
+    },
+    {
+      "id": "metaprog.trigger.annotation-scan",
+      "domain": "metaprog",
+      "title": "top-level annotations matching a registered handler trigger are recorded as metaprog targets",
+      "statement": "After all modules complete field/variant/signature collection (so the metaprog-handler trigger registry is final), the compiler scans top-level ANNOTATION items in user (non-binary) ASTs; one or more consecutive annotations immediately preceding a non-annotation item, whose name matches a registered handler trigger, are each recorded as an (ast-index, item-byte-offset, trigger-name) metaprog target for the driver to dispatch against that following item.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L577-L626"
+      ],
+      "testability": "transitive"
     }
   ]
 }

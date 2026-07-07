@@ -1,138 +1,281 @@
 {
   "unit": "sema/sema_impl_hpp/logos.part8",
   "layer": "sema",
-  "source": "src/compiler/sema_impl.hpp#L3923-L4438",
-  "source_hash": "15e0f186966ea784",
+  "source": "src/compiler/sema_impl.hpp#L3969-L4492",
+  "source_hash": "0c4a17eab9073fa2",
   "rules": [
     {
       "id": "coerce.intlit.dispatch-unsuffixed-fits-narrower",
       "domain": "coerce",
-      "title": "Unsuffixed integer literal dispatches to any integer param it fits",
-      "statement": "For overload/call dispatch an argument that is an UNSUFFIXED integer literal is compatible with an integer parameter type P iff its value fits P; a SUFFIXED literal (e.g. `9u64`) has a concrete type and must match by type, not by value. The flex path excludes Enum params (P!=Enum) so an integer never reinterprets enum by-pointer storage.",
+      "title": "Unsuffixed int literal dispatches to any param it numerically fits",
+      "statement": "In overload/dispatch argument compatibility, an arg of Kind IntLit (unsuffixed literal) is compatible with param type P iff P is an integer kind ≠ Enum and the literal's value fits P (intlit_fits). A SUFFIXED literal (`9u64`) has a concrete int type and must match by type equality/compatibility only — it does not narrow-flex to other widths that also happen to fit the value (Rust parity: `9u64` is `u64`, period). A param whose kind is Enum can never be hit by a bare integer literal (would reinterpret the int as the enum's by-pointer storage).",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4411-L4432"
+        "src/compiler/sema_impl.hpp#L4465-L4486"
       ],
-      "examples": [
-        "push(7) // matches push(u8)",
-        "push(9u64) // matches push(i64)? NO — u64 only"
-      ]
+      "testability": "behavioral"
     },
     {
       "id": "coerce.int.widen-or-literal-fits",
       "domain": "coerce",
-      "title": "Integer expression widening to target type",
-      "statement": "An integer-typed expression e is implicitly widened to a target integer type T (via an inserted cast) iff can_widen(kind(e),T) holds, OR e is an integer literal whose value fits T. Otherwise no implicit widening occurs.",
+      "title": "Implicit int widening or literal-fits cast",
+      "statement": "widen_int_expr(e, target): if e's int kind ek differs from target kind tk, e is cast to target when either (a) ek widens to tk per can_widen_int, or (b) e carries a known literal value (get_intlit_value) that fits tk (intlit_fits). Otherwise e is left unchanged (also unchanged when ek == tk already).",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4401-L4409"
-      ]
+        "src/compiler/sema_impl.hpp#L4419-L4464"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "coerce.ref.widen-int-literal-temp-pointee",
       "domain": "coerce",
-      "title": "&<int-literal> sizes its temporary to the expected pointee width",
-      "statement": "When `&L` (an address-of an integer literal materialized as a temporary) is passed where `&T`/`&mut T` is expected and T is a wider integer type that L can widen to or fits, the inner literal is cast to T before being addressed, so the temporary's storage slot is sized to T (preventing a narrow temp read as the wider pointee).",
+      "title": "Widening a `&int-literal` argument widens the temp's inner literal, not the pointer",
+      "statement": "Coercing an argument whose type is `&T1`/`&mut T1` and lowered form is AddrOfTemp(int-literal) to an expected `&T2`/`&mut T2` (T1,T2 both integer kinds, T1≠T2, literal fits T2) rewrites the AddrOfTemp's INNER expr — casting the literal to T2 and rebuilding the AddrOfTemp with target type `&T2` — rather than casting the outer reference. Codegen sizes the temporary's stack slot from the literal's own (unwidened) type; leaving it un-rewritten would let the callee load T2 through a pointer to an undersized/mistyped slot, reading adjacent stack memory.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4365-L4400"
+        "src/compiler/sema_impl.hpp#L4423-L4454"
       ],
-      "testability": "untestable"
+      "testability": "behavioral"
     },
     {
       "id": "type.writ.container-kinds",
       "domain": "type",
-      "title": "Writ view container recognition",
-      "statement": "A type t (optionally behind one &/&mut) denotes a Writ value iff its underlying Struct/ZonedStruct name is one of {Writ, WritView, WritStatic, Rc} (Rc being the `Rc<Writ>` runtime container). One level of reference is peeled before matching.",
+      "title": "Writ-view type recognition",
+      "statement": "writ_view_inner(t): t, optionally stripped of one outer Ref/MutRef layer, is a \"Writ view\" type iff its Kind is Struct or ZonedStruct and its struct_name ∈ {Writ, WritView, WritStatic, Rc} (Rc<Writ> is the writ runtime container). Any other shape yields no inner view type.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4133-L4149"
+        "src/compiler/sema_impl.hpp#L4177-L4195"
       ],
-      "uncertainty": "Matches by struct name only; does not check Rc's type argument is Writ.",
-      "testability": "untestable"
+      "testability": "transitive"
     },
     {
       "id": "stmt.let-chain.nested-if-let-desugar",
       "domain": "stmt",
-      "title": "let-chain desugars to nested if-let with duplicated else",
-      "statement": "A let-chain (`if a && let P = e && b { .. } else { .. }`) desugars to nested `if let`/`if` over the segment list, with the ELSE branch textually duplicated at every fall-through site (matching Rust's classic desugar); user-visible side effects in ELSE are duplicated.",
+      "title": "`if let` chain desugars to nested if/if-let with duplicated else",
+      "statement": "An `if`/`if let` chain (segments joined by `&&`, mixing plain conditions and `let PAT = EXPR`) desugars to nested `if`/`if let` LIR, one nesting level per segment, matching rustc's classic chained-let expansion. The chain's `else` branch (if present) is duplicated at every fall-through nesting level, so side effects in `else` execute once per short-circuit exit rather than being deduplicated — an accepted consequence of the simple expansion.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4078-L4084"
+        "src/compiler/sema_impl.hpp#L4124-L4130"
       ],
-      "divergence": "Accepted limitation: ELSE side effects duplicated per fall-through site."
+      "testability": "behavioral"
     },
     {
       "id": "pat.or.payload-distributes-per-alternative",
       "domain": "pat",
-      "title": "Or-pattern inside a variant payload distributes into one arm per alternative",
-      "statement": "A multi-alternative or-pattern appearing as a variant payload arg (`Some(P|Q)`) is fanned out into one effective arm per alternative (`Some(P) | Some(Q)`); each re-evaluates the arm guard with its own bindings, so a failing guard backtracks to the next alternative.",
+      "title": "Or-pattern nested in a variant payload fans out into one arm per alternative",
+      "statement": "An or-pattern occurring inside a variant-payload position (`Some((a,_)|(_,a))`) is lowered by iterating its alternative indices and building one effective match arm per alternative (`Some(P)|Some(Q)` ⇒ arm-per-alt), each re-evaluating its own guard and bindings independently — matching rustc's per-alternative guard backtracking (a failing guard on one alternative does not skip the whole arm).",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4165-L4170"
-      ]
+        "src/compiler/sema_impl.hpp#L4211-L4216"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "pat.match.ast-exhaustiveness-nested-enum-payload",
       "domain": "pat",
-      "title": "Nested enum-payload exhaustiveness checked on AST patterns",
-      "statement": "Exhaustiveness for nested enum-payload patterns (`Some(Some(v))`/`Some(None)`/`None`) is decided over the original AST patterns, descending into each variant's single payload, because the LIR-level check skips guarded (desugared) arms.",
+      "title": "Exhaustiveness of nested enum-payload matches decided at the AST level",
+      "statement": "Exhaustiveness of a `match` whose patterns nest enum-payload sub-patterns (`Some(Some(v))`, `Some(None)`, `None`) is verified by recursing over the ORIGINAL (unguarded-arm) AST pattern nodes, descending into each variant's single payload — because the LIR-level exhaustiveness check skips guarded arms and cannot see through the desugared nested structure, and would otherwise spuriously report such a match as non-exhaustive.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4195-L4200",
-        "src/compiler/sema_impl.hpp#L4301-L4306"
-      ]
+        "src/compiler/sema_impl.hpp#L4241-L4246"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "region.temp-scope.receiver-temp-end-of-statement",
       "domain": "region",
-      "title": "Droppable auto-ref'd method receiver temporary lives to end of statement",
-      "statement": "When a droppable rvalue is auto-referenced as a `&self`/`&mut self` method receiver (`W::mk(..).get()`), the materialized temporary lives until the end of the enclosing statement and is then dropped (Rust temporary-scope semantics), via hoisting into a statement-scoped `let` whose scope-exit runs the destructor; the hoisted `let` is `let mut` when the receiver is `&mut self`.",
+      "title": "Auto-ref'd droppable receiver temporary lives to end of enclosing statement",
+      "statement": "A method call whose receiver is auto-ref'd from a freshly-materialized DROPPABLE rvalue (`W::mk(..).get()`) hoists that rvalue into a named local at the enclosing-statement boundary; the statement is wrapped in a block with that `let` prepended so the temporary's Drop fires at ordinary scope exit — realizing Rust's \"temporary scope = end of the enclosing statement\" without a dedicated drop-insertion mechanism. When the auto-ref is `&mut self`, the synthesized binding is declared `let mut` (a plain `let` would fail borrow-check on the subsequent mutable borrow).",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4214-L4240"
-      ]
+        "src/compiler/sema_impl.hpp#L4260-L4274",
+        "src/compiler/sema_impl.hpp#L4282-L4286"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "region.return.temp-drops-before-terminator",
       "domain": "region",
       "title": "Return-value temporaries drop before the return terminator",
-      "statement": "When lowering a `return <value>` whose value materialized statement-temporaries, the value is pre-bound to a local and the temporaries are dropped before the `return` terminator (`let __t..; let __rv = value; drop __t..; return __rv;`) so the drops are not dead code after the terminator.",
+      "statement": "If lowering a `return`'s value expression hoists statement-temporaries, their `let`s and drops are sequenced strictly before the `return` terminator (`let __t..; let __rv = <value>; drop __t..; return __rv;`); temporaries dropped after a terminator would be unreachable and leak.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4229-L4234"
-      ]
+        "src/compiler/sema_impl.hpp#L4275-L4280"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.deref.generic-autoderef-via-method-call",
       "domain": "expr",
-      "title": "Generic Deref/DerefMut autoderef lowers as a method call",
-      "statement": "Autoderef of a receiver whose type implements Deref/DerefMut — including a generic impl (Box/Rc/Arc) whose `deref` is not a concrete symbol at sema time — is emitted as a `deref()`/`deref_mut()` method call (monomorphized later), and the resulting Target place type is obtained by substituting the Deref impl's target pattern against the receiver type.",
+      "title": "Generic-impl auto-deref lowers to a real deref() method call",
+      "statement": "Auto-deref of a receiver whose type implements Deref/DerefMut — including a generic impl (Box/Rc/Arc) whose `deref` has no concrete symbol at sema time — lowers to an actual `.deref()`/`.deref_mut()` method_call, monomorphized identically to an explicit call, and yields a place of the Deref impl's Target type (computed by substituting the impl's target pattern against the receiver's concrete type). Produces nothing when the receiver's type implements no Deref.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4242-L4251"
-      ]
+        "src/compiler/sema_impl.hpp#L4288-L4297"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.assoc-const.generic-typeparam-projection",
       "domain": "expr",
-      "title": "T::CONST on an abstract type-param lowers to a per-impl accessor call",
-      "statement": "`T::CONST` where T is an abstract type-param bound by a trait declaring `const CONST` lowers to a zero-arg accessor call `T__kassoc_CONST()`; monomorphization rewrites `T__` to the concrete type and the per-impl accessor supplies the value.",
+      "title": "`T::CONST` projection through a bound type-parameter",
+      "statement": "`T::CONST`, where T is an abstract type-parameter whose bound trait declares `const CONST`, lowers to a zero-arg accessor call `T__kassoc_CONST()`; monomorphization rewrites the `T__` prefix to the concrete instantiating type, and lower_impl_block emits the per-impl accessor. Not treated as such a projection (returns null) unless `cname` names a bound-trait-declared const of the abstract type-param.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3938-L3943"
-      ]
+        "src/compiler/sema_impl.hpp#L3984-L3989"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.closure.infer-params-from-fn-bound",
       "domain": "expr",
       "title": "Untyped closure literal infers parameter types from an Fn-family bound",
-      "statement": "An untyped closure literal (`|x| ..`) appearing where an Fn-family-bounded type-param is expected infers its parameter types from the bound's signature, after the active substitution is applied; peeling through Ref/MutRef/Ptr and single-type-arg wrappers (`Box<dyn Fn(..)>`) to expose the inner callable type.",
+      "statement": "An untyped closure literal (`|x| ..`) appearing where an Fn-family-bounded type-parameter is expected (a method formal `F: FnMut(..)`, or a generic struct field `f: F`) has its parameter and return types synthesized as a Closure type from that bound's signature, with the ambient substitution (SemaSubst) applied to the bound's param/return types. No inference occurs (null) if the declared TypeVar is not Fn-bounded.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3944-L3959"
-      ]
+        "src/compiler/sema_impl.hpp#L3990-L3999"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "trait.assoc-type.dual-trait-typearg-key",
       "domain": "trait",
-      "title": "Associated-type lookup keyed by trait type-args when ambiguous",
-      "statement": "Associated-type resolution for two distinct `Trait<T>` impls of one target type is disambiguated by a `$G<n>$<a1>$..` suffix encoding the concrete trait type-args, preferring the suffixed key when args are known from the current impl context and falling back to the plain key for single/non-generic-trait impls.",
+      "title": "Trait-type-arg-suffixed keying disambiguates two impls of the same trait with different type-args",
+      "statement": "When a type has two impls of the SAME trait differing only in trait type-arguments (`impl Trait<A> for X`, `impl Trait<B> for X`), each impl's mangled method base carries a `$G<n>$<arg1>$..` suffix on the trait name (`X__Trait$G1$u64__m`, `$G` chosen so bare_fn_name's plain-`$`-as-pkg-separator stripping leaves it intact) so collect/lower/dispatch key on (trait, type-args) rather than trait name alone. An AssocType's trait_name may itself carry this suffix; `strip_trait_targ_suffix` recovers the bare trait name by truncating at the first `$`. `find_assoc_type_entry` looks up the suffixed key first (when the current impl context supplies concrete trait args via current_impl_trait_args_) then falls back to the plain key; null if neither exists.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L4282-L4300"
+        "src/compiler/sema_impl.hpp#L4336-L4354"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "pat.writ-scalar.match-only-context",
+      "domain": "pat",
+      "title": "Writ-scalar patterns are legal only inside an explicit match-over-writ context",
+      "statement": "A Writ-scalar pattern (PAT_WRIT_NULL/BOOL/INT) is accepted by build_pattern only while lowering match arms under an explicit \"matching a Writ scrutinee\" context, where it desugars to a runtime guard call evaluating the pattern against the AnyVal scrutinee. Outside that context, encountering a Writ-scalar pattern node is a diagnostic.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4164-L4199"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "pat.match.nested-variant-payload-destructure",
+      "domain": "pat",
+      "title": "Nested variant-payload sub-patterns bind via a synthesized irrefutable let-else prologue",
+      "statement": "A pattern with a nested variant payload sub-pattern (e.g. `Some(Some(v))`) binds the inner names through a body-prologue statement `let <sub-pattern> = <synth-local> else { loop {} };` against a synthesized local holding the payload, recursing for deeper nesting; the else arm is unreachable because the owning arm's guard already proved the match. The same mechanism is shared, byte-for-byte, by match arms, `if let`, and `while let`, so all three treat nested payload patterns identically; a `for_guard` mode omits this refutable let-else when only a guard expression (not a body) is being built.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4217-L4231"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "pat.for-loop.destructure-pattern",
+      "domain": "pat",
+      "title": "`for PATTERN in iter` destructures non-trivial patterns via body-prologue lets",
+      "statement": "A `for PATTERN in iter` loop variable that is not a bare single identifier (the NAME fast-path, handled by the caller before this reaches here) is bound by emitting body-prologue destructure `let`s against the per-element local, via the same nested-destructure mechanism used for match/if-let payloads. A PATTERN shape this path does not (yet) handle fails with a diagnostic rather than miscompiling silently.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4232-L4240"
+      ],
+      "testability": "diagnostic",
+      "uncertainty": "Only the declaration + doc-comment are in this slice; the implementation body (which pattern shapes are actually handled) lives outside L3969-4492."
+    },
+    {
+      "id": "pat.match.mut-binding-modifier",
+      "domain": "pat",
+      "title": "`mut x` match-arm pattern binds a mutable local",
+      "statement": "A `mut x` pattern in a match arm (`match scrut { mut z => .. }`) binds the name as a mutable local: build_pattern_impl records the name in a side-channel (current_pat_mut_names_) because the PatWild LIR mirror it lowers to carries no mutability flag, and bind_pattern_ref re-declares the binding as `mut` by consulting that side-channel.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4247-L4251"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "pat.match.refutable-payload-literal-guard",
+      "domain": "pat",
+      "title": "Refutable literal sub-patterns inside a variant payload become AND-combined arm guards",
+      "statement": "A refutable literal sub-pattern nested inside a variant-payload struct/tuple pattern (`E::Foo { f: 1 }`, `Option::Some(2)`) lowers to a synthesized `binding == value` boolean predicate, using the synth binding name chosen for that payload slot, appended to the current arm's refutable-guard list; the match-arm builder AND-combines all such predicates into the arm's overall guard, so the arm additionally requires the nested literal(s) to match.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4252-L4258"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "borrow.match.scrutinee-move-tracking",
+      "domain": "borrow",
+      "title": "Whole-value move-out through an unguarded match arm marks the scrutinee moved",
+      "statement": "When an unguarded match arm binds-and-moves the whole by-value move-type scrutinee — as a whole binding, or via struct/tuple/variant-payload destructure — the scrutinee variable is marked moved for the remainder of the enclosing scope, so the enum's own scope-exit Drop does not double-free a value now owned by an arm binding or by the match expression's result. Applied uniformly by both statement-position and expression-position match lowering.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4330-L4335"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "region.fn.lifetime-outlives-implied",
+      "domain": "region",
+      "title": "Fn lifetime_outlives derives from implied param/return bounds plus where-clause",
+      "statement": "A function's `lifetime_outlives` bound set is computed from (a) implied bounds carried by its parameter and return types, merged with (b) any explicit `where`-clause lifetime bounds; the where-clause lifetime bounds are additionally folded into the corresponding type-param's own `lifetime_outlives` field.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4376-L4388"
+      ],
+      "testability": "transitive",
+      "uncertainty": "Only the declaration + doc-comment are in this slice; compute_fn_lifetime_outlives' implementation body is defined elsewhere."
+    },
+    {
+      "id": "trait.static-method.bound-typeparam-dispatch",
+      "domain": "trait",
+      "title": "Static trait-method call through a bound type-parameter",
+      "statement": "A qualified call `Z::m(args)` / `Z::m::<T..>(args)`, where Z is a type-parameter bound by a trait declaring static method `m`, dispatches by substituting Self→Z and m's own type-params (from an explicit turbofish, else inferred from argument types) into m's return type, and passes the resolved type-args as the call's own type-args — so that once Z is later monomorphized to a concrete type, instantiation resolves to `<Concrete>__m::<..>`. Produces no lowering if Z does not name such a bound type-parameter.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4009-L4017"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "metaprog.fn-macro.builtin-macro-list",
+      "domain": "metaprog",
+      "title": "Fixed set of compiler-built-in function-style macros checked before user #[fn_macro]s",
+      "statement": "Function-style macro calls (`name!(args)` / `name![args]`) are first checked against a fixed compiler-built-in set — `cfg!`, `line!`, `column!`, `file!`, `include!`, `include_str!`, `include_bytes!`, `env!`, `concat!`, `concat_bytes!`, `stringify!`, `compile_error!` — handled by lower_builtin_macro; a callee name not in this set falls through to resolution against user `#[fn_macro]`-tagged functions.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4018-L4029"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "metaprog.builtin-macro.vec-desugar",
+      "domain": "metaprog",
+      "title": "`vec![...]` desugars via a synthesized `vec_from_arr` call",
+      "statement": "The `vec![...]` built-in macro's synthesized body is re-parsed as the tail expression of an ephemeral `fn __f() -> i32 { <wrap_body> }` and lowered in the current context, routing `vec![e1, e2, ..]` through a synthesized `vec_from_arr([e1, e2, ..])` call; a re-parse failure produces `error_expr()` after a diagnostic.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4032-L4039"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.closure.infer-through-wrapped-callable",
+      "domain": "expr",
+      "title": "Closure-literal Fn-bound inference peels through Ref/MutRef and single-arg generic wrappers",
+      "statement": "When the expected type for an untyped closure literal is not itself a bare Fn-bounded TypeVar but a Ref/MutRef or a single-type-arg generic wrapper around a callable (e.g. `Box<dyn Fn(..)>`), the compiler first peels the reference and the wrapper to expose the inner Closure/FnPtr signature, then applies Fn-bound parameter inference (rule expr.closure.infer-params-from-fn-bound) against that inner signature — e.g. inferring closure param types for `box_new(|x| ..)` where the enclosing fn's return type is `Box<dyn Fn(..)>`.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4000-L4005"
+      ],
+      "testability": "behavioral",
+      "related": [
+        "expr.closure.infer-params-from-fn-bound"
+      ]
+    },
+    {
+      "id": "metaprog.fn-macro.item-callee-resolution",
+      "domain": "metaprog",
+      "title": "Callee resolution and lowering of item-position fn-macro calls",
+      "statement": "A function-style macro invoked at module item position as `name!{...}` resolves its callee against `#[fn_macro]`-tagged functions (mirroring expression-position fn-macro calls) and routes its arguments through the per-site raw-capture arg-blob shim, mirroring metacall's item-position lowering.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L4050-L4055"
       ],
       "related": [
-        "mono.mangle.type-args-recursive"
+        "metaprog.fn-macro.item-position",
+        "metaprog.metacall.item-position",
+        "metaprog.fn-macro.builtin-macro-list"
+      ]
+    },
+    {
+      "id": "metaprog.metacall.item-position",
+      "domain": "metaprog",
+      "title": "Item-position metacall",
+      "statement": "`metacall <call-expr> ;` is legal at module item position (top level). The named metafunction is invoked at compile time and must return an item blob; the items it produces are spliced into the program at the metacall's position, replacing the `metacall` item itself.",
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L581-L582",
+        "src/compiler/sema_impl.hpp#L4044-L4049"
       ],
-      "testability": "untestable"
+      "examples": [
+        "metacall gen_items::<Foo>();"
+      ]
     }
   ]
 }

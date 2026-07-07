@@ -1,8 +1,8 @@
 {
   "unit": "mono/mono_clone/logos.part1",
   "layer": "mono",
-  "source": "src/compiler/mono_clone.cpp#L12-L538",
-  "source_hash": "fef28a55c7c80f75",
+  "source": "src/compiler/mono_clone.cpp#L12-L546",
+  "source_hash": "d38f8d8828c0cb4e",
   "rules": [
     {
       "id": "type.identity.structural-hash-layout-stable",
@@ -168,7 +168,7 @@
       "title": "Const-generic params used in value position substitute their concrete value",
       "statement": "A const-generic parameter `<const N: T>` referenced in expression position is monomorphized by splicing its concrete value: a scalar/IntLit binding lowers to an integer literal of the substituted value; a WritStatic-literal binding splices the registered WritStatic literal at the use site.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L509-L538"
+        "src/compiler/mono_clone.cpp#L509-L546"
       ],
       "divergence": "A1/A2 related: const-generics are real, distinct from const-eval"
     },
@@ -199,6 +199,62 @@
       "evidence": [
         "src/compiler/mono_clone.cpp#L416-L441"
       ],
+      "testability": "untestable"
+    },
+    {
+      "id": "type.identity.enum-hash-tag-only",
+      "domain": "type",
+      "title": "Enum structural identity is currently tag-only",
+      "statement": "An enum type's structural identity mixes only a fixed ENUM shape tag; it does not currently walk variant names or payload types, so two enums with different variant sets/payloads may collide on this identity hash.",
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L136-L140"
+      ],
+      "uncertainty": "Source comment explicitly flags this as incomplete ('refine when block_type_hash needs discriminate variants — when first persistent enum lands'); not a finished rule.",
+      "testability": "untestable"
+    },
+    {
+      "id": "type.identity.tuple-hash-structural",
+      "domain": "type",
+      "title": "Tuple structural identity mixes arity and each element identity in order",
+      "statement": "A tuple type's structural identity = tag(TUPLE) + element-count + identity(elem_0) + ... + identity(elem_n-1); tuples differing in arity, element types, or element order have distinct identity.",
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L115-L122"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "type.identity.fnptr-hash-opaque",
+      "domain": "type",
+      "title": "Function-pointer structural identity is signature-opaque",
+      "statement": "An FnPtr type's structural identity is a single fixed tag independent of parameter/return signature: two FnPtr types with different signatures currently have equal structural identity.",
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L123-L127"
+      ],
+      "uncertainty": "Source comment marks this as a deliberate placeholder ('conservative choice... refine if a wire format pins it down'); may change once fn-pointer identity needs to distinguish signatures.",
+      "testability": "untestable"
+    },
+    {
+      "id": "type.identity.writstatic-hash-by-value",
+      "domain": "type",
+      "title": "WritStatic literal type identity is its content hash, not a structural walk",
+      "statement": "A WStaticLit type's structural identity = tag(HSTAT) + the literal's own stored const_val (a hash of the underlying CFG value); the compiler does not recurse into the value's shape for this identity at the mono layer.",
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L128-L135"
+      ],
+      "testability": "untestable"
+    },
+    {
+      "id": "trait.auto.unresolved-conservative-true",
+      "domain": "trait",
+      "title": "Unresolved or self-referential auto-trait queries default to satisfied",
+      "statement": "An auto-trait (Send/Sync) check conservatively returns TRUE when: the queried type is Error or an unsubstituted TypeVar; the type's struct/enum definition cannot be located in either the output or input tables; or the same (type, trait) pair is already being checked further up the call stack (cyclic structural reference).",
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L193-L197",
+        "src/compiler/mono_clone.cpp#L255",
+        "src/compiler/mono_clone.cpp#L281",
+        "src/compiler/mono_clone.cpp#L292-L293"
+      ],
+      "uncertainty": "Comment at L255 states this is deliberate ('unknown — be lenient (matches sema)'); a conservative-soundness tradeoff rather than a type-system guarantee.",
       "testability": "untestable"
     }
   ]

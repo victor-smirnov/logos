@@ -1,214 +1,178 @@
 {
   "unit": "sema/sema_stmt/lower_block",
   "layer": "sema",
-  "source": "src/compiler/sema_stmt.cpp#L662-L1568",
-  "source_hash": "5723ef7021fa2f9b",
+  "source": "src/compiler/sema_stmt.cpp#L662-L1577",
+  "source_hash": "47056bf71e3db5b9",
   "rules": [
     {
       "id": "stmt.block.dead-code-after-terminator",
       "domain": "stmt",
-      "title": "Unreachable code after a terminator is warned",
-      "statement": "Within a block, a statement S that follows a hard terminator statement (return / break / continue) is unreachable; the compiler emits a `unreachable code after terminator` warning. Annotation statements following a terminator do not trigger the warning, and only the first such occurrence per block is reported.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L671-L697"
-      ],
-      "divergence": "Rust-conformant (unreachable_code lint, here always a warning not deny-by-default)",
-      "testability": "untestable"
+      "title": "Dead code after a hard terminator warns",
+      "statement": "While lowering a block's statement list, if the previously-lowered statement is a hard terminator (Return/Break/Continue) and the current AST statement is not an annotation node, block-lowering emits a \"unreachable code after terminator\" warning; the warning fires at most once per block (further statements in the same trailing tail are not re-warned).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L671", "src/compiler/sema_stmt.cpp#L679-L696"],
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.block.scope-drops-at-exit",
       "domain": "stmt",
-      "title": "Owned values are dropped at block exit",
-      "statement": "Each block introduces a lexical scope; on normal fall-through exit (block does not end in return/break/continue), every still-owned value bound in the scope is dropped in reverse-of-introduction order. If the block ends in a terminator, end-of-block drops are not emitted (the terminator path emits its own).",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L664",
-        "src/compiler/sema_stmt.cpp#L739-L755"
-      ]
+      "title": "Block lowering pushes/pops a lexical scope and drops at normal exit",
+      "statement": "lower_block pushes a new lexical scope on entry and pops it on exit; when the block's last lowered statement is not Return/Break/Continue, drops for every live local owned by this scope are appended (in declared order) immediately before the block's normal fall-through/end.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L664", "src/compiler/sema_stmt.cpp#L739-L754"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.return.drops-after-value-eval",
       "domain": "stmt",
-      "title": "Return value evaluated before scope drops",
-      "statement": "On `return e`, e is fully evaluated before any pending scope drops run: the value is hoisted into a fresh temporary, then all in-scope drops execute, then the temporary is returned. This ordering guarantees e may borrow locals that the drops would otherwise release first.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L699-L724"
-      ]
+      "title": "return evaluates its value before running pending scope drops",
+      "statement": "Lowering `return expr;` evaluates/lowers expr first; if any scope drops are pending at that point, the return value is spilled into a fresh temporary `__ret_tmp_N`, all pending drops are emitted, and the Return is rewritten to return the temporary — guaranteeing expr (which may borrow locals about to be dropped) is fully evaluated before drop glue runs. With no pending drops, the temp-spill step is skipped and drops are appended directly before the original Return.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L699-L724"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.break-continue.drops-to-loop-boundary",
       "domain": "stmt",
-      "title": "break/continue drops frames up to and including the loop body",
-      "statement": "A `break` or `continue` (including one nested inside an `if`) exits via the loop edge; before the control transfer it drops every live scope frame from the current point down to and including the loop body frame, bypassing the intervening blocks' normal end-of-block drops.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L665-L670",
-        "src/compiler/sema_stmt.cpp#L725-L735"
-      ]
+      "title": "break/continue drop every frame down to and including the loop-body frame",
+      "statement": "Lowering `break`/`continue` inserts drops for every scope frame from the current point down to AND INCLUDING the frame tagged as the enclosing loop's body boundary, so a `break`/`continue` nested inside an `if` inside the loop body still releases all intervening locals — bypassing the block's ordinary single-scope end-of-block drop sequence.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L667-L670", "src/compiler/sema_stmt.cpp#L726-L734"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let-destruct.tuple-required",
       "domain": "stmt",
-      "title": "let (..) = e requires tuple RHS",
-      "statement": "A tuple-binding `let (a, b, ...) = e;` requires e to have tuple type; otherwise it is an error.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L762-L767"
-      ]
+      "title": "let (...) = rhs requires a tuple-typed rhs",
+      "statement": "`let (p0, p1, ...) = rhs;` requires rhs's static type to have Tuple kind; any other kind is a compile error (\"right-hand side must be a tuple, got <T>\") and lowering degrades to a bare expression statement.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L758-L767"],
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.let-destruct.rest-and-arity",
       "domain": "stmt",
-      "title": "let-tuple binding arity and single rest",
-      "statement": "In `let (..) = e;` the binding list binds positionally against the tuple's arity. At most one `..` rest is permitted; with no rest the binding count must equal the tuple arity; with a rest the count of named bindings must not exceed the arity. Names before the rest bind low positions, names after bind the tail positions.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L791-L811",
-        "src/compiler/sema_stmt.cpp#L823-L836"
-      ]
+      "title": "Tuple destructuring-let: single `..` rest, arity checks, position mapping",
+      "statement": "In a tuple destructuring-let binding list: at most one `..` rest element is allowed (else error); without a rest the binding-list length must equal the tuple arity exactly (else \"expected N bindings, got M\"); with a rest, the named-binding count must not exceed the arity (else \"N bindings exceed tuple arity M\"). Names before the rest bind positions 0.. in order; names after the rest bind the trailing `arity - trailing_count ..` positions, so the rest absorbs the unmatched middle.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L800-L820", "src/compiler/sema_stmt.cpp#L832-L846"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let-destruct.nested-tuple",
       "domain": "stmt",
-      "title": "Nested tuple patterns in let-destructure",
-      "statement": "A tuple-binding element may itself be a nested tuple pattern `(b, c)`, recursively destructuring the corresponding tuple-typed element.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L841-L843"
-      ]
+      "title": "Tuple destructuring-let binds nested tuple sub-patterns recursively",
+      "statement": "A tuple destructuring-let binding-list element may itself be a nested tuple binding list (`PAT_TUPLE` with `NAMES`), recursively bound against that position's tuple-typed element, closing `let (a, (b, c)) = ...;` (and deeper nesting) over arbitrary depth.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L790-L793", "src/compiler/sema_stmt.cpp#L850-L852"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let-destruct.binding-uniqueness",
       "domain": "stmt",
-      "title": "let-tuple binding names must be unique",
-      "statement": "All binding names introduced by a `let (..)` destructure (across nesting) must be distinct.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L860-L863"
-      ]
+      "title": "Tuple destructuring-let binding names must be pairwise distinct",
+      "statement": "All leaf binding names introduced across an entire (possibly nested) tuple destructuring-let must be pairwise distinct across the whole pattern; a repeated name is a compile error in the `let (...) destructure` binding context.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L793", "src/compiler/sema_stmt.cpp#L855", "src/compiler/sema_stmt.cpp#L869-L872"],
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.let-destruct.move-on-bind",
       "domain": "stmt",
-      "title": "let-destructure consumes the source",
-      "statement": "Destructuring a move-typed value binds each element by moving it out of the source; the source place (and each consumed element) is marked moved so its scope-exit drop is suppressed, preventing double-free.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L812-L822",
-        "src/compiler/sema_stmt.cpp#L848-L853"
-      ],
+      "title": "Tuple destructuring-let marks each consumed source place moved",
+      "statement": "Destructuring a move-typed source marks the source place moved at every level it is consumed: the original rhs expression when spilled into the top temporary, each nested level's source place when spilled into its own temporary, and each leaf element's source expression when bound to a name — so no level's temporary double-frees a value now owned by a deeper binding. The move-marking helper self-gates to VarRef/FieldRead/TupleIndex places, so a tuple-literal rhs is a no-op.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L771-L778", "src/compiler/sema_stmt.cpp#L821-L826", "src/compiler/sema_stmt.cpp#L856-L859"],
       "testability": "behavioral"
     },
     {
       "id": "stmt.destructure-assign.tuple-array-struct",
       "domain": "stmt",
-      "title": "Destructuring assignment into existing places",
-      "statement": "Destructuring assignment (RFC 2909) assigns into pre-existing places: `(a,b)=e` reads tuple positions, `[a,b]=e` reads array indices, `S{x:a,y}=e` reads struct fields. The RHS type must match the form (tuple / array / struct respectively); a struct form also requires a struct/zoned-struct RHS.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L870-L877",
-        "src/compiler/sema_stmt.cpp#L914-L948",
-        "src/compiler/sema_stmt.cpp#L1028-L1039"
-      ]
+      "title": "Destructuring assignment supports tuple/array/struct rhs shapes",
+      "statement": "Destructuring assignment into existing places selects its rhs-shape requirement from the parsed op discriminant: tuple form (`(a,b) = e`, requires rhs Tuple), array form (`[a,b] = e`, requires rhs Array), struct form (`S{x:a,y} = e`, requires rhs Struct or ZonedStruct); a shape mismatch is a compile error (skipped when rhs is already Error-kind). The rhs is spilled once into a synthetic temporary, and each place is assigned an accessor read off that temporary (tuple-index / index-read / field-read respectively).",
+      "evidence": ["src/compiler/sema_stmt.cpp#L879-L897", "src/compiler/sema_stmt.cpp#L924-L929", "src/compiler/sema_stmt.cpp#L1038-L1045"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.destructure-assign.place-checks",
       "domain": "stmt",
-      "title": "Destructuring-assignment places must be mutable locals or `_`",
-      "statement": "Each destructuring-assignment place must name an existing variable, which must be mutable; `_` (or empty) discards by evaluating the accessor for effect only. Assignment to an undefined or immutable variable is an error. Each assigned place is treated as initialised (cleared from the uninitialised set).",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L895-L912"
-      ]
+      "title": "Destructuring-assignment places must be existing mutable locals",
+      "statement": "Each destructuring-assignment place is either `_`/empty (discarded — its accessor is still evaluated as a statement for side effects) or an existing variable name; assigning to an undefined name or to a non-`mut` variable is a compile error. A successful assignment clears the target from the currently-uninitialized set exactly as a scalar assignment would, even though this lowering path bypasses the ordinary assignment entry point.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L905-L920"],
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.destructure-assign.rest-and-redundant-parens",
       "domain": "stmt",
-      "title": "Destructuring-assignment rest and redundant parens",
-      "statement": "At most one `..` rest is allowed in a tuple/array destructuring-assignment list; places before it map to low positions and after it to the tail. With no rest the place count must equal the source arity; with a rest the named-place count must not exceed it. A single nested-tuple place whose source arity is not 1 (`((a,b)) = e`) is unwrapped to `(a,b) = e`.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L959-L989",
-        "src/compiler/sema_stmt.cpp#L998-L1004"
-      ]
+      "title": "Destructuring assignment: redundant-paren unwrap + rest/arity rules",
+      "statement": "In a tuple/array destructuring-assignment place-list: (a) a place-list of exactly one nested-tuple place, when the source arity is not 1, is treated as redundant parens and the inner list is bound directly (`((a,b)) = e` is equivalent to `(a,b) = e`); (b) at most one `..` rest place is allowed; without one the place-count must equal the source arity, with one the named-place count must not exceed it, and the rest absorbs the unmatched middle exactly as for destructuring-let.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L968-L998", "src/compiler/sema_stmt.cpp#L1007-L1013"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let-pat.struct-shapes-only",
       "domain": "stmt",
-      "title": "let <pattern> = e supports only irrefutable shapes",
-      "statement": "`let <pattern> = e;` accepts only irrefutable pattern shapes: struct patterns `S { .. }`, tuple-struct patterns `S(..)`, fixed-array patterns `[a,b,..]` matching the array length, and single-variant enum struct patterns `E::V { .. }`. Other (refutable) shapes are rejected, directing the user to `match` or let-else.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1118-L1127"
-      ]
+      "title": "let <pattern> = expr accepts only shapes provable irrefutable here",
+      "statement": "`let <pattern> = expr;` accepts only pattern shapes this lowering can prove irrefutable: plain struct patterns, tuple-struct patterns (rewritten via synthesized \"0\",\"1\",... field names), fixed-size array patterns whose element count matches the array length exactly (no rest), and struct-shaped single-variant-enum patterns; any other pattern shape at this position is rejected with a diagnostic directing the user to `match`/`let-else`.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1079-L1136"],
+      "divergence": "B4",
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.let-pat.struct-name-match",
       "domain": "stmt",
-      "title": "let struct-pattern name must match RHS struct",
-      "statement": "In `let S { .. } = e;` (and the tuple-struct form), the named struct must equal the RHS value's struct name, and the RHS must be a struct/zoned-struct; otherwise it is an error.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1316-L1321",
-        "src/compiler/sema_stmt.cpp#L1398-L1409"
-      ]
+      "title": "Struct-pattern let requires exact struct-kind and name match",
+      "statement": "A struct-pattern `let S{...} = rhs;` requires rhs's static type to be Struct/ZonedStruct AND the struct's name to equal the pattern's name S; a kind or name mismatch is a compile error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1407-L1418"],
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.let-pat.unknown-field",
       "domain": "stmt",
-      "title": "let struct-pattern fields must exist",
-      "statement": "Each field named in a `let` struct pattern must be a declared field of the matched struct; an unknown field is an error. Generic struct field types are substituted with the RHS's type arguments before binding.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1504-L1520"
-      ]
+      "title": "Struct destructuring-let rejects unknown field names",
+      "statement": "Each field named in a struct destructuring-let pattern must exist on the (possibly generic-substituted) matched struct's field list; a name absent from the field list is a compile error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1513-L1517"],
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.let-pat.field-binding-forms",
       "domain": "stmt",
-      "title": "let struct-pattern field binding forms",
-      "statement": "A `let` struct-pattern field is bound either by shorthand `{ x }` (binds to the field name), by alias `{ x: a }` where the value is a plain identifier, or by a nested struct pattern `{ x: S2 { .. } }` (recursive destructure). A nested pattern requires the field's type to be a struct whose name matches the nested pattern; other nested-pattern kinds are rejected.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1490-L1503",
-        "src/compiler/sema_stmt.cpp#L1535-L1554"
-      ]
+      "title": "Struct destructuring-let field entries: shorthand, rename, nested struct",
+      "statement": "A struct destructuring-let field entry binds via shorthand (`f` -> local binding named `f`) or a plain-identifier rename (`f: x` -> local binding named `x`); a nested struct sub-pattern (`f: T{...}`) recurses, requiring the sub-pattern's struct name to equal the field's struct type's name; any other sub-pattern form in field-value position is rejected as unsupported at this lowering.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1499-L1512", "src/compiler/sema_stmt.cpp#L1544-L1563"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let-pat.consumes-source",
       "domain": "stmt",
-      "title": "let struct-destructure consumes the whole value",
-      "statement": "A `let` struct/tuple-struct/array destructure of a move-typed RHS consumes the whole value: the source is marked moved so its scope-exit drop is suppressed; each field/element binding owns and later drops its own data.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1462-L1471",
-        "src/compiler/sema_stmt.cpp#L1558-L1563",
-        "src/compiler/sema_stmt.cpp#L1264-L1276"
-      ]
+      "title": "Struct destructuring-let marks both source and spill-temp moved",
+      "statement": "A struct destructuring-let that moves the matched value marks BOTH the original source place moved (suppressing its own scope-exit drop) AND the temporary holding the spilled value moved (suppressing that temp's drop too), since ownership of every field has transferred into the individual field bindings.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1471-L1474", "src/compiler/sema_stmt.cpp#L1567-L1572"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let-pat.union-requires-unsafe",
       "domain": "stmt",
-      "title": "let pattern on a union requires unsafe and exactly one field",
-      "statement": "An irrefutable `let U { f } = u;` over a union type requires an enclosing `unsafe` block (it reads the named field's memory) and must name exactly one field with no `..` rest.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1410-L1457"
-      ],
-      "divergence": "Rust-conformant (items.union.pattern.safety / one-field)"
+      "title": "Irrefutable let-pattern over a union requires unsafe + exactly one field",
+      "statement": "An irrefutable `let U{f} = u;` pattern over a union type reads memory through the named field (the same hazard as a `match` arm over a union) and is a compile error unless lowering occurs inside an `unsafe` block; the pattern must additionally name exactly one field and must not contain a `..` rest, each violation reported separately.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1419-L1466"],
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.let-pat.array-fixed-no-rest",
       "domain": "stmt",
-      "title": "let array pattern requires exact length, no rest",
-      "statement": "`let [a, b, ..] = arr;` is irrefutable only over a fixed-size array whose length equals the pattern's element count and with no `..` rest (rest is refutable for slices); element bindings must be plain identifiers (`_` discards). Length mismatch, a rest, or a non-identifier element is an error.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1111-L1121",
-        "src/compiler/sema_stmt.cpp#L1229-L1308"
-      ]
+      "title": "let [p0,p1,...] = arr requires exact fixed-length match, no rest",
+      "statement": "`let [p0, p1, ...] = arr;` is treated as irrefutable, and thus legal at `let`, only when arr's static type is a fixed-size Array and the pattern's element count equals the array length exactly; a `..` rest in this position is a compile error (refutable-shape restriction), and an element-count mismatch is a compile error. Each element position must bind a plain identifier or `_` to skip — any other element-pattern shape is a compile error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1120-L1136", "src/compiler/sema_stmt.cpp#L1238-L1269", "src/compiler/sema_stmt.cpp#L1286-L1317"],
+      "divergence": "B4",
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let-pat.tuple-struct-rest",
       "domain": "stmt",
-      "title": "let tuple-struct pattern field arity and single rest",
-      "statement": "`let S(a, b, ..) = e;` over a tuple struct binds by field position; at most one `..` rest is allowed (names before it bind low fields, after it bind the tail). Without a rest the binding count must equal the field count; the named-binding count must not exceed the arity; only plain-identifier element bindings are supported (`_` skips).",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1331-L1393"
-      ]
+      "title": "let Foo(p0,p1,...) = rhs: single rest, arity, position mapping",
+      "statement": "`let Foo(p0, p1, ...) = rhs;` over a tuple struct requires rhs's type to be exactly Struct `Foo`; at most one `..` rest is allowed among the positional bindings, the named-binding count must not exceed the struct's field arity, and — mirroring match-arm tuple-struct patterns — names before the rest map to low field positions while names after map to the trailing positions. Each position must bind a plain identifier or `_` to skip; any other pattern shape at a position is a compile error, as is a final field-count mismatch after rest expansion.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1322-L1406"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let-pat.single-variant-enum-struct",
       "domain": "stmt",
-      "title": "let E::V { f } over a single-variant enum is irrefutable",
-      "statement": "`let E::V { f1, f2 } = e;` is permitted when E is a single-variant enum and V is a struct-shaped variant (irrefutable by construction); each user binding is bound to the corresponding payload field, with shorthand `f` or rename `f: x` forms, and only plain-identifier bindings are supported at let-position.",
-      "evidence": [
-        "src/compiler/sema_stmt.cpp#L1077-L1108",
-        "src/compiler/sema_stmt.cpp#L1128-L1228"
-      ]
+      "title": "let E::V{...} = rhs is irrefutable only for a single-variant struct-shaped enum",
+      "statement": "`let E::V{f1, f2, ...} = rhs;` is treated as irrefutable, and thus legal at `let`, only when enum E has exactly one variant and that variant V is struct-shaped; it lowers to one synthetic `match` with a single irrefutable arm per requested binding, each projecting one payload field by position (other payload positions bound to `_`). Each pattern field must name an existing payload field of V (else compile error) and bind via shorthand or a plain-identifier rename — any other field-value pattern form is a compile error.",
+      "evidence": ["src/compiler/sema_stmt.cpp#L1086-L1119", "src/compiler/sema_stmt.cpp#L1137-L1237"],
+      "testability": "behavioral"
     }
   ]
 }

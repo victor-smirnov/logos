@@ -1,8 +1,8 @@
 {
   "unit": "mono/mono_clone/logos.part2",
   "layer": "mono",
-  "source": "src/compiler/mono_clone.cpp#L539-L1065",
-  "source_hash": "e8f58b0cbec81559",
+  "source": "src/compiler/mono_clone.cpp#L547-L1081",
+  "source_hash": "0ca7f2cb45016d8f",
   "rules": [
     {
       "id": "mono.const-arg.literal-substitution",
@@ -138,6 +138,16 @@
         "src/compiler/mono_clone.cpp#L988-L1001"
       ],
       "testability": "untestable"
+    },
+    {
+      "id": "mono.enum-lit.generic-mangle",
+      "domain": "mono",
+      "title": "Generic enum literal mangles to its concrete instantiation",
+      "statement": "An EnumLit whose target type is an Enum with a non-empty (substituted) type-argument list has its enum name rewritten to a mangled concrete name (base enum name, followed by `__`-joined mangled forms of each type argument), and that concrete enum instantiation is recorded as needed for codegen to emit its concrete layout/variants.",
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L1068-L1080"
+      ],
+      "testability": "behavioral"
     }
   ]
 }

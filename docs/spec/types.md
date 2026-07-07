@@ -12,13 +12,13 @@ Scope: structural type identity, layout/representation (ABI, enums, DSTs, refs, 
 
 A type alias with type parameters has no concrete standalone type; it is inlined at each use site. Only non-generic aliases resolve to a concrete type.
 
-**Source:** `src/compiler/sema_decl.cpp#L1570-L1577`
+**Source:** `src/compiler/sema_decl.cpp#L1602-L1608`
 
 ### `type.alias.impl-target-unfold` — Non-generic type aliases unfold at an impl target position
 
-When the impl target names a non-generic type alias `type A = B;`, the impl is treated as an impl on the aliased struct/datatype B (the alias is transparent): `impl Tr for A` ≡ `impl Tr for B`, including concrete-generic mangling of B.
+When the impl target names a non-generic type alias `type A = B;`, the impl is treated as an impl on the aliased Struct/ZonedStruct B (the alias is transparent): `impl Tr for A` ≡ `impl Tr for B`, including concrete-generic mangling of B when B carries type args.
 
-**Source:** `src/compiler/sema_decl.cpp#L1823-L1837`
+**Source:** `src/compiler/sema_decl.cpp#L1865-L1882`
 
 ### `type.alias.name-shadowing-order` — Type-alias name resolution shadowing order
 
@@ -44,11 +44,13 @@ A type antiquotation `$name` or pack-splice `$name...` is a hard error outside a
 
 ## type / anyval
 
-### `type.anyval.lowered-as-i32` — AnyVal is a 4-byte i32 everywhere
+### `type.anyval.lowered-as-i32` — AnyVal always lowers to a scalar i32
 
-The AnyVal type is uniformly represented as a scalar i32 (size/align {4,4}) in every position — value, argument, and struct field — never as a wrapped aggregate.
+The `AnyVal` type lowers UNIFORMLY to a scalar i32 — as a standalone value ({4,4} layout) and as a struct field — never wrapped in an aggregate (e.g. never `!llvm.struct<"AnyVal",(i32)>`), so that field loads/stores and argument-passing treat it as a plain i32 tag word rather than a 1-field struct value.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L32`; `src/compiler/mlir_gen_types.cpp#L445`; `src/compiler/mlir_gen_types.cpp#L199-L210`
+**Divergence:** A5
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L32`; `src/compiler/mlir_gen_types.cpp#L201-L212`; `src/compiler/mlir_gen_types.cpp#L447`
 
 ### `type.anyval.repr-i32` — AnyVal is represented as a 32-bit value
 
@@ -56,7 +58,7 @@ A value of type AnyVal is represented as a 32-bit integer in both parameter and 
 
 **Uncertainty:** i32 likely encodes a handle/index into an AnyVal table; exact semantics inferred from representation only.
 
-**Source:** `src/compiler/mlir_gen_fn.cpp#L67`; `src/compiler/mlir_gen_fn.cpp#L98-L101`; `src/compiler/mlir_gen_fn.cpp#L113-L114`
+**Source:** `src/compiler/mlir_gen_fn.cpp#L67`; `src/compiler/mlir_gen_fn.cpp#L98-L101`; `src/compiler/mlir_gen_fn.cpp#L113-L115`
 
 ## type / array
 
@@ -120,7 +122,7 @@ For `base::Item` where `base` is a type-variable, the owning trait of `Item` is 
 
 ### `type.assoc-ref.concrete-impl-fallback` — Assoc projection fallback to implementing trait
 
-If no owning trait is found from bounds or impl context, the projection's owning trait is found among traits that have an impl for the concrete base type (tried under both the full concrete type name and the bare struct name); if still none declares `Assoc`, a diagnostic 'no associated type Assoc found for <base>' is raised.
+If no owning trait is found from bounds or impl context, the projection's owning trait is found among traits that have an impl for the concrete base type (tried under both the full concrete type name and the bare struct name); if still none declares `Assoc`, a diagnostic 'no associated type Assoc found for `<base>`' is raised.
 
 **Source:** `src/compiler/sema.cpp#L5232-L5257`
 
@@ -128,13 +130,15 @@ If no owning trait is found from bounds or impl context, the projection's owning
 
 An unresolved projection yields a deferred AssocType node {base, trait, name, gat_args}; the trait name is suffixed with the concrete trait type-args so distinct `Trait<T>` instantiations produce distinct nodes (empty suffix for non-generic traits preserves the bare name). Bounds declared on the assoc type are propagated into the projection's bound context.
 
+**Divergence:** B-assoc
+
 **Source:** `src/compiler/sema.cpp#L5308-L5337`
 
 ### `type.assoc-ref.eager-concrete-projection` — Eager projection for concrete base with generic trait
 
 When the base is a concrete type and the resolved trait is generic (has type-args), the projection is resolved immediately by looking up the trait+args-suffixed assoc-type impl and substituting the base's type-args; this disambiguates two `Trait<T>` impls on one type that would otherwise intern to a single trait-arg-less deferred node and collapse.
 
-**Divergence:** G156-1 disambiguation of multiple `Trait<T>` impls.
+**Divergence:** B-assoc
 
 **Source:** `src/compiler/sema.cpp#L5275-L5307`
 
@@ -244,6 +248,8 @@ After collection, every declared type position is canonicalized by an identity s
 
 When `CFG` names a const-generic type-parameter of the enclosing item, `<type:CFG.path>` is NOT resolved eagerly; it yields a deferred CfgSlotType carrying the CFG ident and an encoded path, which monomorphization resolves once the parameter is bound to a concrete WritStatic value.
 
+**Divergence:** A6
+
 **Uncertainty:** Logos-specific; const-generic-of-WritStatic kind.
 
 **Source:** `src/compiler/sema.cpp#L4972-L4981`; `src/compiler/sema.cpp#L4982-L4983`; `src/compiler/sema.cpp#L5055`; `src/compiler/sema.cpp#L5101-L5105`
@@ -251,6 +257,8 @@ When `CFG` names a const-generic type-parameter of the enclosing item, `<type:CF
 ### `type.cfg-slot.const-param-must-be-writstatic` — cfg-slot base type-param must be const WritStatic
 
 If `CFG` in `<type:CFG.path>` names a type-parameter, that parameter must be declared `const CFG: WritStatic`; otherwise a diagnostic is raised (the param must be a const-generic whose type is the WritStatic struct).
+
+**Divergence:** A6
 
 **Uncertainty:** Logos-specific WritStatic const-generic requirement.
 
@@ -260,6 +268,8 @@ If `CFG` in `<type:CFG.path>` names a type-parameter, that parameter must be dec
 
 When `CFG` is not a type-param but resolves to a type alias bound to a WStaticLit (`pub type Cfg = @{...};`), the path is walked eagerly through that literal's registered Writ value at resolution time, producing the concrete projected type directly.
 
+**Divergence:** A6
+
 **Uncertainty:** Logos-specific.
 
 **Source:** `src/compiler/sema.cpp#L4974-L4976`; `src/compiler/sema.cpp#L5055-L5099`
@@ -267,6 +277,8 @@ When `CFG` is not a type-param but resolves to a type alias bound to a WStaticLi
 ### `type.cfg-slot.path-extraction` — Config-slot type projection
 
 `<type:CFG.path>` extracts a type from a WritStatic-typed binding `CFG` by walking a path of steps; each step is a struct-field access by name (on a string-keyed Writ map), an integer-field access by index (on an int-keyed Writ map), or an array index (on a Writ array). The path must be non-empty. The final reached Writ value must be a Type value; its named type is then resolved as the result.
+
+**Divergence:** A6
 
 **Uncertainty:** Logos-specific construct (no Rust analogue); semantics inferred from path-walk logic.
 
@@ -282,13 +294,21 @@ When `CFG` is not a type-param but resolves to a type alias bound to a WStaticLi
 
 ## type / char
 
-### `type.char.is-u32` — char is a 32-bit value
+### `type.char.is-u32` — `char` is a 4-byte scalar
 
-char is a 32-bit (4-byte, 4-align) value, representing a Unicode scalar.
+`char` lowers to a 32-bit integer SSA type and has layout {4,4} (size 4, align 4) — grouped with i32/u32/f32, not with the 1-byte types.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L63`; `src/compiler/mlir_gen_types.cpp#L457-L458`
+**Source:** `src/compiler/mlir_gen_types.cpp#L63`; `src/compiler/mlir_gen_types.cpp#L459-L460`
 
 ## type / closure
+
+### `type.closure.fat-fn-env-repr` — Closures represent uniformly as a 16-byte {fn,env} fat pair
+
+Every closure value (the `Closure` kind, which also covers `dyn Fn`/`FnMut`/`FnOnce`) has a FIXED 16-byte {fn-ptr, env-ptr} storage representation — not a per-closure anonymous capture struct sized by its captures. Stored inline in aggregates/arrays exactly like a Slice; a plain closure value elsewhere is a pointer to this 16-byte storage.
+
+**Divergence:** A10
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L111-L112`; `src/compiler/mlir_gen_types.cpp#L130`; `src/compiler/mlir_gen_types.cpp#L314-L321`; `src/compiler/mlir_gen_types.cpp#L468-L469`
 
 ### `type.closure.type` — Closure type
 
@@ -338,31 +358,31 @@ A plain-data `struct` with no `impl Drop` and at least one field, whose every fi
 
 ### `type.copy.structural-auto` — non-Drop struct of all-Copy fields is automatically Copy
 
-A struct that does not implement Drop and whose every field type is Copy is automatically Copy, without an explicit `impl Copy`.
+A struct that does not implement Drop and whose every field type is Copy is automatically Copy, without an explicit `impl Copy`; this runs after manually-written `impl Copy` entries are collected, so it only fills gaps rather than overriding explicit impls.
 
-**Divergence:** A: diverges from Rust, which requires an explicit `#[derive(Copy)]`/`impl Copy`.
+**Divergence:** Rust requires an explicit `#[derive(Copy)]`/`impl Copy`; Logos structurally auto-derives Copy for non-Drop, all-Copy-field structs.
 
-**Uncertainty:** Exact DIVERGENCES.md tag not confirmed; promotion logic lives in compute_auto_copy_types outside this unit.
+**Uncertainty:** compute_auto_copy_types() body (the exact promotion algorithm) is defined outside this unit; only its invocation/purpose is evidenced here.
 
-**Source:** `src/compiler/sema_collect.cpp#L674-L678`
+**Source:** `src/compiler/sema_collect.cpp#L695-L699`
 
 ## type / datatype
 
-### `type.datatype.data-plain-inference` — DataPlain vs DataNode inference for datatypes
+### `type.datatype.data-plain-inference` — DataPlain flag propagates through nested datatype fields
 
-A datatype is DataPlain unless it (transitively, through array element types) embeds a datatype field that is not itself DataPlain, or a generic/unknown datatype field; such fields demote the enclosing datatype to DataNode. A by-value concrete DataPlain nested datatype does NOT demote the outer type; generic datatype fields (non-empty type args, e.g. `RelPtr<Node>`) and forward-/cross-package-referenced datatypes are treated conservatively as DataNode.
+A datatype is DataPlain (info.is_data_plain) unless disproved by a field: for a (possibly array-wrapped) ZonedStruct field, if its type is generic (non-empty type_args) or its base name is not yet found in datatypes_ (forward reference / cross-package), the outer type is conservatively marked non-DataPlain (DataNode); if the nested type IS found and itself is_data_plain, embedding it by value does not clear the outer type's DataPlain flag. Array wrapping is stripped before the check, so a DataNode array element also demotes the owner.
 
 **Divergence:** A6: Writ datatype DataPlain/DataNode classification is Logos-only.
 
-**Source:** `src/compiler/sema_collect.cpp#L3945-L3964`
+**Source:** `src/compiler/sema_collect.cpp#L3974-L4003`
 
 ### `type.datatype.pod-field-restriction` — Writ datatype fields must be POD-compatible
 
-A field of a `datatype` (Writ fabric type) must be one of: a primitive scalar (i8..i128/u8..u128 incl. packed i24/u24/i56/u56, f32/f64, bool, integer/float literal types), an array whose element is datatype-safe, another datatype (ZonedStruct), a plain struct that is a `#[rel_ptr]` self-relative pointer, or an unresolved type variable (checked later by mono). Any other field type is rejected. Annotation types (compile-time only) are exempt and may hold non-POD fields such as `str`.
+A non-annotation `datatype` field type must be one of: an integer/float/bool/int-or-float-literal primitive kind (incl. packed i24/u24/i56/u56); an Array whose element type is itself datatype-safe (recursively); a ZonedStruct (nested datatype, always OK); a Struct only if it is a `#[rel_ptr]` self-relative pointer type (RelAny/`RelPtr<T>`, an 8-byte offset — plain structs that may carry heap/absolute pointers are rejected); or a TypeVar (deferred, resolved later by monomorphization). Any other field type raises a diagnostic error. Annotation types (is_annotation_type) are exempt (compile-time only, may hold e.g. str fields).
 
 **Divergence:** A6/A11: Writ datatype fabric is a Logos-only feature; uses extra packed int widths.
 
-**Source:** `src/compiler/sema_collect.cpp#L3892-L3933`
+**Source:** `src/compiler/sema_collect.cpp#L3931-L3973`
 
 ## type / default
 
@@ -374,19 +394,17 @@ The default value of an array type `[E; N]` is `[E::default(); N]`, recursing on
 
 ## type / drop
 
-### `type.drop.aggregate-recursive` — Struct/enum/tuple/array droppability is recursive plus explicit Drop
+### `type.drop.aggregate-recursive` — Aggregate types need drop transitively
 
-A (zoned) struct or enum needs drop iff it has a user `drop` method or any field/variant-payload type needs drop. A tuple needs drop iff any element needs drop. An array `[T; N]` needs drop iff `T` needs drop.
+A Struct/ZonedStruct, Tuple, Enum, or Array type requires drop iff it declares an explicit `drop` method OR any of its constituent parts (struct fields, tuple elements, enum-variant payload fields, array element type) recursively requires drop.
 
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L482-L502`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L485-L505`
 
-### `type.drop.closure-value-not-auto-dropped` — A closure value is not auto-reported as needs-drop
+### `type.drop.closure-value-not-auto-dropped` — Closure value type is excluded from the generic recursive drop check
 
-A closure value (e.g. stored in a struct field or iterator adapter, held by pointer) is not classified as needs-drop by recursive aggregate scanning; closure drop is driven narrowly only via the owning `Box<Closure>` path.
+A `Closure` value type is never reported as needing drop by the generic recursive `value_needs_drop` check. A closure held as a struct field or iterator-adapter field is stored through one level of indirection (a pointer to the {fn, env} pair); treating it as an inline aggregate value in a generic recursive drop would misread the pointer bytes as the pair itself. Closure environment release is instead driven narrowly by the owning `Box<Closure>` release path.
 
-**Divergence:** Narrows automatic Drop coverage relative to Rust for indirectly-stored closures; intentional to avoid misreading a pointer slot as a {fn,env} pair.
-
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L503-L511`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L506-L514`
 
 ### `type.drop.copy-bounded-typevar-not-droppable` — Copy-bounded type-param is non-droppable
 
@@ -406,6 +424,14 @@ When a local is dropped, fields (at any depth) that were moved out of it are exc
 
 **Source:** `src/compiler/sema.cpp#L3181-L3202`
 
+### `type.drop.needs-drop-composition` — needs_drop is custom-drop-fn OR any droppable field
+
+A type needs Drop iff it has a custom drop function, or it has fields that (transitively) need Drop: `needs_drop(T) = has_custom_drop(T) OR has_droppable_fields(T)`.
+
+**Related:** `borrow.move.no-move-out-of-array-index`, `trait.copy.auto-derive-conditions`
+
+**Source:** `src/compiler/sema_impl.hpp#L2260-L2264`
+
 ### `type.drop.no-auto-drop-suppresses-fields` — #[no_auto_drop] suppresses field destructors
 
 A struct marked `#[no_auto_drop]` (the `ManuallyDrop<T>` lang-item shape) is treated as having no droppable fields: the compiler does not run its inner field destructors at scope exit.
@@ -424,11 +450,11 @@ At scope exit, a frame's live (non-moved) locals are dropped in reverse of decla
 
 **Source:** `src/compiler/sema.cpp#L3213-L3273`
 
-### `type.drop.owning-dst-droppable` — Drop-need of dyn/slice/DST is decided by the owning bit
+### `type.drop.owning-dst-droppable` — DST-backed value needs drop iff it is the owning form
 
-An unsized handle is droppable iff it owns its heap data: `Box<dyn Trait>` (owning trait object), `Box<[T]>` (owning slice), and owning custom-DST `Box<Foo>` require drop; their borrowed counterparts `&dyn Trait`, `&[T]`, `&Foo` do not.
+A DST-backed value — `dyn Trait`, a slice, or a custom unsized struct (`DstRef`) — requires drop iff it is the OWNING form (`Box<dyn Trait>`/owning trait object, `Box<[T]>`/owning slice, `Box<CustomDst>`/owning DST), as tracked by the type's owning bit. The corresponding borrowed forms (`&dyn Trait`, `&[T]`, `&CustomDst`) never require drop.
 
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L474-L481`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L479-L484`
 
 ### `type.drop.receiver-shapes` — Drop method accepted by-value or by-reference receiver
 
@@ -436,11 +462,11 @@ The drop method for type `T` is matched whether its single parameter is `T` by v
 
 **Source:** `src/compiler/sema.cpp#L2742-L2780`
 
-### `type.drop.references-never-drop` — References and raw pointers are never droppable
+### `type.drop.references-never-drop` — References and raw pointers never need drop
 
-A value of type `&T`, `&mut T`, or `*T` (raw pointer) does not require drop.
+`&T`, `&mut T`, and raw pointer types never require a drop — a reference or raw pointer never owns its pointee.
 
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L469-L473`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L476`
 
 ### `type.drop.same-package-impl` — Drop impl must belong to the same package as the type
 
@@ -538,7 +564,7 @@ In an unsized-ok context (turbofish for `T: ?Sized`), bare `dyn Trait` resolves 
 
 ### `type.enum.backing-integer` — enum backing type must be integer
 
-An explicit enum backing type `enum Foo : T { … }` must be an integer kind; a non-integer T is rejected.
+An explicit enum backing type `enum Foo : T { … }` must resolve to an integer kind; a non-integer T is rejected and no backing type is set.
 
 **Examples**
 
@@ -546,7 +572,7 @@ An explicit enum backing type `enum Foo : T { … }` must be an integer kind; a 
 enum E : u64 { A }
 ```
 
-**Source:** `src/compiler/sema_collect.cpp#L1917-L1925`
+**Source:** `src/compiler/sema_collect.cpp#L1956-L1963`
 
 ### `type.enum.unresolved-when-fewer-args-or-nested-typevar` — Enum/struct type is unresolved if under-applied or nests an unresolved type
 
@@ -580,9 +606,9 @@ types_equal(a,b) holds iff both are non-null, drawn from the same type pool, and
 
 ### `type.field.placeholder-type-rejected` — Field types may not be inferred
 
-Struct/datatype field types are item signatures: the inference placeholder `_` is rejected at field-type resolution (E0121).
+A struct field's type is resolved under ItemSignatureGuard (in_item_signature_ = true): the `_` placeholder type is rejected in this position rather than deferred, since a struct field is part of the item's signature, not an inferable local context (E0121).
 
-**Source:** `src/compiler/sema_collect.cpp#L4062-L4067`
+**Source:** `src/compiler/sema_collect.cpp#L4264-L4269`
 
 ## type / fn-ptr
 
@@ -608,9 +634,19 @@ extern "C" fn(i32) -> i32
 
 ### `type.fnptr.methods-emit-non-generic` — Function-pointer impl methods emit once, non-generic
 
-A function-pointer impl target (`$fnptr$...`) is type-erased to a uniform pointer, so its impl methods are emitted once as non-generic functions; impl-level type parameters are cleared so no never-instantiated generic template is produced.
+If the impl target name has the `$fnptr$` prefix, impl_type_params_ is cleared before lowering the impl's items: a fn-ptr is type-erased to a uniform pointer, so its methods must emit exactly once as non-generic functions rather than a never-instantiated generic template.
 
-**Source:** `src/compiler/sema_decl.cpp#L2183-L2187`
+**Source:** `src/compiler/sema_decl.cpp#L2227-L2231`
+
+## type / freeze
+
+### `type.freeze.transitive-inline-no-cell` — Freeze = no interior mutability reachable through inline (non-pointer) structure
+
+A type T is Freeze iff no `UnsafeCell` is reachable through T's own transitively-inline bytes (fields/payload/array elements) without crossing a pointer or reference; a pointer/reference field stops the recursion, so a container holding `&UnsafeCell`/`*UnsafeCell` (e.g. Arc/Rc) stays Freeze. The check is conservative: an unknown/unresolvable type is treated as NOT Freeze, so it is never wrongly given readonly/noalias attributes on a `&T` of that type.
+
+**Uncertainty:** Doc-comment on a declaration; type_is_freeze's implementation body is defined outside this unit's line range.
+
+**Source:** `src/compiler/mlir_gen_impl.hpp#L849-L857`
 
 ## type / generic
 
@@ -632,7 +668,7 @@ A generic type argument may be a lifetime `'a` (stored as LIFETIME_PARAM and ski
 
 After default-filling, the type-argument count must match the struct/enum/datatype declared type-param count, and each argument must satisfy its param's trait bounds.
 
-**Source:** `src/compiler/sema.cpp#L5636-L5654`
+**Source:** `src/compiler/sema.cpp#L5650-L5668`
 
 ### `type.generic-inst.box-slice-dst-collapse` — `Box<[T]>` and `Box<DST-struct>` collapse to owning fat references
 
@@ -646,11 +682,13 @@ After default-filling, the type-argument count must match the struct/enum/dataty
 
 When fewer type-args are supplied than the generic has params, trailing params are filled from their declared defaults (`struct S<T, U = i64>`: `S<A>` ≡ `S<A, i64>`); a default may reference an earlier param and is substituted with the already-bound args.
 
-**Source:** `src/compiler/sema.cpp#L5588-L5604`
+**Source:** `src/compiler/sema.cpp#L5602-L5618`
 
 ### `type.generic-inst.generic-const` — Generic compile-time const instantiation
 
-Applying type-args to a generic const `pub const X<T..>: WritStatic = @{...}` re-evaluates the const's value AST under the supplied type-arg bindings, yielding a fresh per-instantiation WStaticLit identity. The argument count must equal the const's type-param count.
+Applying type-args to a generic const `pub const X<T1,T2>: WritStatic = @{...}` re-evaluates the const's value AST under the supplied type-arg bindings, yielding a fresh per-instantiation WStaticLit identity. The argument count must equal the const's type-param count.
+
+**Divergence:** A6
 
 **Uncertainty:** Logos-specific WritStatic generic const.
 
@@ -668,11 +706,21 @@ When a name resolves to multiple kinds (struct/datatype/enum) across packages, a
 
 **Source:** `src/compiler/sema.cpp#L5505-L5526`
 
+### `type.generic-inst.schema-unsized-arg-canonicalization` — Generic schema struct canonicalizes unsized type-args to sized fat form
+
+When instantiating a generic `schema` struct, an unsized type-argument (`UnsizedSlice<T>`, e.g. produced for `Wrap<str>` under `?Sized`/turbofish) is canonicalized to its sized fat-slice form `Slice<T>`, matching the schema's WAny-handle field storage and `impl WritField for str` (= `Slice<u8>`). Non-schema generics (e.g. `Box<str>`) are unaffected.
+
+**Divergence:** A6
+
+**Uncertainty:** Writ schema (ADR 0011) mechanism, no Rust analogue.
+
+**Source:** `src/compiler/sema.cpp#L5588-L5601`
+
 ### `type.generic-inst.smart-pointer-dyn-collapse` — `Box<dyn Trait>` collapses to an owning trait object
 
 `Box<dyn Trait>` (FQN-gated to the stdlib Box) collapses to an owning fat-pair trait object {data, vtable} tagged Box. Rc/Arc no longer collapse and instead resolve as ordinary generic structs whose inner pointer is a fat DST reference.
 
-**Uncertainty:** Mirrors Rust owned_box + CoerceUnsized lang item; Rc/Arc flip is Logos-specific.
+**Uncertainty:** Mirrors Rust owned_box + CoerceUnsized lang item; Rc/Arc flip is a Logos-specific representation choice, not an observable-behavior divergence.
 
 **Source:** `src/compiler/sema.cpp#L5432-L5477`
 
@@ -686,7 +734,7 @@ An unknown generic type name is an error, except during the metaprog discovery p
 
 A type-argument at a generic param declared `?Sized` (implicit_sized=false) may be a bare unsized type (`[T]`, `dyn Trait`); a type-arg at a `Sized` param must not be unsized. Passing an unsized type, or a `?Sized` outer type-param, to a `Sized` param is a diagnostic.
 
-**Source:** `src/compiler/sema.cpp#L5562-L5586`; `src/compiler/sema.cpp#L5605-L5635`
+**Source:** `src/compiler/sema.cpp#L5562-L5586`; `src/compiler/sema.cpp#L5619-L5649`
 
 ## type / identity
 
@@ -730,6 +778,14 @@ A trait-object `dyn Trait<..>` identity = (owning kind {Borrow/Box/Rc/Arc} in co
 
 **Source:** `src/compiler/sema.cpp#L884-L892`; `src/compiler/sema.cpp#L1032-L1035`
 
+### `type.identity.enum-hash-tag-only` — Enum structural identity is currently tag-only
+
+An enum type's structural identity mixes only a fixed ENUM shape tag; it does not currently walk variant names or payload types, so two enums with different variant sets/payloads may collide on this identity hash.
+
+**Uncertainty:** Source comment explicitly flags this as incomplete ('refine when block_type_hash needs discriminate variants — when first persistent enum lands'); not a finished rule.
+
+**Source:** `src/compiler/mono_clone.cpp#L136-L140`
+
 ### `type.identity.fnitem-distinct` — Each function item is a distinct zero-sized type
 
 A function-item type's identity = (function symbol name, turbofish type-args, signature params, return). Two distinct functions with identical signatures get distinct fn-item types, and distinct instantiations of one generic function (even when the resulting fn-ptr signature collapses, e.g. unused type param) get distinct fn-item types.
@@ -741,6 +797,14 @@ A function-item type's identity = (function symbol name, turbofish type-args, si
 A function-pointer type identity = (extern-ABI tag where empty = default Rust ABI, ordered parameter types, return type). Function pointers differing only in ABI are distinct types.
 
 **Source:** `src/compiler/sema.cpp#L864-L869`; `src/compiler/sema.cpp#L1015-L1019`
+
+### `type.identity.fnptr-hash-opaque` — Function-pointer structural identity is signature-opaque
+
+An FnPtr type's structural identity is a single fixed tag independent of parameter/return signature: two FnPtr types with different signatures currently have equal structural identity.
+
+**Uncertainty:** Source comment marks this as a deliberate placeholder ('conservative choice... refine if a wire format pins it down'); may change once fn-pointer identity needs to distinguish signatures.
+
+**Source:** `src/compiler/mono_clone.cpp#L123-L127`
 
 ### `type.identity.int-lit-value` — Integer-literal placeholder identity carries its value
 
@@ -802,6 +866,26 @@ Slice types are distinguished by element T, mutability, and owning kind (const_v
 
 **Source:** `src/compiler/sema.cpp#L841-L847`; `src/compiler/sema.cpp#L997-L1003`
 
+### `type.identity.stdlib-box-pkg-qualified` — Stdlib `Box` identity is package-qualified (not bare-name)
+
+Unlike other stdlib intrinsics, the owning-box type is recognised as struct name `Box` AND (package empty OR package == `logos.mem.boxed`). A user struct literally named `Box` in any other package is NOT recognised as the stdlib box and receives none of the box special-casing (unsize, owning-drop, deref).
+
+**Examples**
+
+```logos
+struct Box<T> { v: T } // user's own package: not the stdlib Box, no owning-drop/unsize special-casing
+```
+
+**Source:** `src/compiler/sema_impl.hpp#L1261-L1272`
+
+### `type.identity.stdlib-intrinsic-bare-name-match` — Stdlib intrinsic type predicates match by bare struct name
+
+Compiler special-casing for the stdlib intrinsic structs AnyVal, WritStatic, Writ, StringView, Ident, ExprBlob, DataRef, QuoteItemBlob, ItemList is keyed on bare struct name alone (Struct or ZonedStruct kind), independent of declaring package: any struct sharing one of these names is treated as the intrinsic.
+
+**Uncertainty:** Inferred from an internal helper/comment ("intentional, pkg-blind"); no diagnostic fires on a user name collision, so this is a silent-shadowing risk rather than a checked rule.
+
+**Source:** `src/compiler/sema_impl.hpp#L1249-L1255`; `src/compiler/sema_impl.hpp#L1273-L1281`
+
 ### `type.identity.struct-field-recursion` — Struct identity recurses through substituted field types
 
 Structural identity of a struct type `S<A...>` mixes the struct shape tag, the field count, and the identity of each field type after substituting S's type-params by the concrete type-args A.... Generic struct instances thus get distinct identity per instantiation by their concrete field layouts.
@@ -822,11 +906,23 @@ A tuple type's identity is the ordered sequence of its element types; tuples are
 
 **Source:** `src/compiler/sema.cpp#L838-L840`; `src/compiler/sema.cpp#L995-L996`
 
+### `type.identity.tuple-hash-structural` — Tuple structural identity mixes arity and each element identity in order
+
+A tuple type's structural identity = tag(TUPLE) + element-count + identity(elem_0) + ... + identity(elem_n-1); tuples differing in arity, element types, or element order have distinct identity.
+
+**Source:** `src/compiler/mono_clone.cpp#L115-L122`
+
 ### `type.identity.typevar-name` — Type/const variable identity = name
 
 A type variable or const variable is identified by its name (plus const_val); two type parameters with the same name denote the same type variable.
 
 **Source:** `src/compiler/sema.cpp#L899-L902`; `src/compiler/sema.cpp#L1040-L1043`
+
+### `type.identity.writstatic-hash-by-value` — WritStatic literal type identity is its content hash, not a structural walk
+
+A WStaticLit type's structural identity = tag(HSTAT) + the literal's own stored const_val (a hash of the underlying CFG value); the compiler does not recurse into the value's shape for this identity at the mono layer.
+
+**Source:** `src/compiler/mono_clone.cpp#L128-L135`
 
 ### `type.identity.wstatic-config` — WritStatic-literal type identity = its byte-hash
 
@@ -843,14 +939,6 @@ A type parameterized by a WritStatic literal config (`Foo::<@{...}>`) is identif
 If an `if` expression's result type is an unresolved integer literal and either branch's literal value exceeds the i32 range, the result type is i64.
 
 **Source:** `src/compiler/sema_expr.cpp#L14038-L14052`
-
-## type / impl-method
-
-### `trait.impl-method.unsized-self-seed` — Self seeded for unsized and str impl targets
-
-For an impl whose target is unsized (slice/dyn) or `str`, `Self` is seeded before method lowering: an unsized-slice/unsized-dyn target binds `Self` to that type, and `impl ... for str` binds `Self` to an unsized slice of `u8`, so `self: &Self` / `&Self` / `Self::...` in method bodies resolve.
-
-**Source:** `src/compiler/sema_decl.cpp#L2142-L2145`; `src/compiler/sema_decl.cpp#L2160-L2173`
 
 ## type / impl-trait
 
@@ -912,13 +1000,19 @@ If a callee's body always diverges (panic-tail or `loop {}`-tail) and a type-par
 
 **Divergence:** Rust-2024 `!`-fallback semantics (logos-core 1.1).
 
-**Source:** `src/compiler/sema_impl.hpp#L2550-L2560`
+**Source:** `src/compiler/sema_impl.hpp#L2574-L2584`
+
+### `type.infer.never-fallback-precompute` — Body-always-diverges flag precomputed for `!` fallback
+
+At fn-collection time, a cheap AST check determines whether a fn's body always diverges (based on its trailing statement) and stores the result on the fn's info; this feeds the Rust-2024 never-type (`!`) fallback rule applied later during type-argument inference.
+
+**Source:** `src/compiler/sema_collect.cpp#L4885-L4891`
 
 ### `type.infer.no-underscore-in-item-signature` — `_` placeholder type forbidden in item signatures
 
 The inferred-type placeholder `_` is not permitted within types in item signature positions (function parameter types, return type, const item type), including nested occurrences (`Vec<_>`, `&_`, `[_; N]`); such occurrences are an error rather than an inference hole.
 
-**Source:** `src/compiler/sema_impl.hpp#L1957-L1968`
+**Source:** `src/compiler/sema_impl.hpp#L1965-L1976`
 
 ## type / inhabited
 
@@ -1002,6 +1096,20 @@ An integer literal in type position resolves to an IntLit type carrying the (opt
 
 **Source:** `src/compiler/sema.cpp#L6127-L6138`
 
+## type / literal
+
+### `type.literal.float-default-f64` — Unresolved float literal defaults to f64
+
+A float literal (`FloatLit`) whose concrete type was not pinned down lowers/layouts identically to `f64` (value type f64, layout {8,8}) — the default floating-point type.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L65`; `src/compiler/mlir_gen_types.cpp#L462-L465`
+
+### `type.literal.int-default-i32` — Unresolved integer literal defaults to i32
+
+An integer literal (`IntLit`) whose concrete type was not pinned down lowers/layouts identically to `i32` (value type i32, layout {4,4}) — the default integer type.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L64`; `src/compiler/mlir_gen_types.cpp#L459-L460`
+
 ## type / method
 
 ### `type.method.recv-autoderef-resolution` — Receiver dereferenced for method resolution
@@ -1015,6 +1123,14 @@ For method resolution and struct-type-arg extraction, a receiver of reference ty
 The type of a method-call expression is the method's declared return type with the receiver/method type-var substitution and lifetime substitution applied.
 
 **Source:** `src/compiler/sema_expr.cpp#L9102-L9105`; `src/compiler/sema_expr.cpp#L9143`
+
+## type / method-arg
+
+### `type.method-arg.compat-diagnostic` — Method argument type must be compatible with the (substituted) param type
+
+After coercion, each argument's static type must satisfy `types_compatible` against the method's declared (struct/enum-substituted) param type, unless either side is already `Error`-kinded; otherwise it is an error `method '{}' arg {}: expected {}, got {}`.
+
+**Source:** `src/compiler/sema_expr.cpp#L8935-L8943`
 
 ## type / method-recv
 
@@ -1078,9 +1194,9 @@ A fully-qualified type `pkg.path.Type` is resolved by the final path segment alo
 
 ### `type.name.resolution-order` — Type-name resolution precedence
 
-A bare type name resolves in order: (1) an in-scope type parameter wins over all global lookups; (2) built-in primitive (i8..i128/u8..u128, i24/u24/i56/u56, usize/isize, f32/f64, bool, char, void); (3) a non-generic type alias (generic aliases are deferred to use-site); (4) a struct, then datatype, then enum of that name. Unresolved names yield no type.
+A bare type name resolves in order: (1) a scope-local binding in current_type_params_ (generic-const instantiation / generic fn / generic method scope wins over any global); (2) a fixed builtin primitive name table (i32,i64,f64,f32,bool,u8,i8,i16,u16,u32,u64,i24,u24,i56,u56,i128,u128,usize,isize,char,void); (3) a non-generic type alias (empty type_params — generic aliases are resolved at use sites elsewhere); (4) a struct found by name; (5) a datatype found by name; (6) an enum found by name. Failing all, the name does not resolve.
 
-**Source:** `src/compiler/sema_collect.cpp#L4132-L4178`
+**Source:** `src/compiler/sema_collect.cpp#L4335-L4381`
 
 ### `type.name.self-typevar` — Self resolves to the bound Self type parameter
 
@@ -1096,29 +1212,21 @@ A bare type name resolves in order: (1) an in-scope type parameter wins over all
 
 **Source:** `tools/peg_gen/grammars/logos.peg#L1719-L1720`
 
-### `type.never.param-uninhabited` — Never type forbidden in parameter position
+## type / never-return
 
-A function parameter typed `!` (never) is rejected: `!` is uninhabited, so no value can be supplied. `!` remains valid in return position (a diverging function).
+### `type.never-return.void-operand` — `return <e>` in a `!`-returning function emits an operand-less return
 
-**Examples**
+A function whose declared return type is the never type `!` has a zero-result signature. A `return <e>;` inside such a function still evaluates `<e>` (for its side effects — `<e>` may itself diverge and terminate the block), but if control survives, the emitted return carries no operand.
 
-```logos
-fn f(x: !) {}  // error
-```
-
-```logos
-fn g() -> ! { loop {} }  // ok
-```
-
-**Source:** `src/compiler/sema_decl.cpp#L589-L595`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2169-L2179`
 
 ## type / numeric
 
-### `type.numeric.classification` — Numeric type classification
+### `type.numeric.classification` — Numeric-type classification includes unbound TypeVar and deferred CfgSlotType
 
-A type is `numeric` iff it is f64/f32, an unresolved float literal, an integer kind, a type variable, or a cfg-slot type (the latter two deferred to monomorphization, trusted to resolve to a numeric primitive). A type is `integer` iff it is an integer kind.
+A type is classified numeric iff its kind is F64, F32, FloatLit, any integer kind, an unbound TypeVar (provisionally numeric), or CfgSlotType (a cfg-bound slot type deferred to mono, trusted to resolve to a numeric primitive there or fail with a precise mono-time error). `is_integer` holds iff the kind is an integer kind (excludes TypeVar/CfgSlotType/float).
 
-**Source:** `src/compiler/sema_impl.hpp#L3740-L3756`
+**Source:** `src/compiler/sema_impl.hpp#L3766-L3782`
 
 ## type / pack-expand
 
@@ -1129,6 +1237,12 @@ A type is `numeric` iff it is f64/f32, an unresolved float literal, an integer k
 **Source:** `src/compiler/sema.cpp#L6299-L6310`
 
 ## type / param
+
+### `type.param.never-type-forbidden` — Never type `!` forbidden as a parameter type
+
+A function parameter may not have the never type `!`: `!` is uninhabited (has no values), so a `!`-typed parameter makes the function uncallable and has no codegen representation. `!` remains valid in return position, denoting a diverging function.
+
+**Source:** `src/compiler/sema_decl.cpp#L584-L595`
 
 ### `type.param.unit-type-forbidden` — Unit-typed parameters forbidden
 
@@ -1166,7 +1280,7 @@ A type is non-movable iff: it is a `#[pinned]` struct; or a `#[zoned2]` struct (
 
 **Divergence:** Logos addition (zones/pin): `#[pinned]`/`#[zoned2]`/`#[rel_ptr]` anchoring has no Rust analog.
 
-**Source:** `src/compiler/sema_impl.hpp#L2096-L2146`; `src/compiler/sema_impl.hpp#L2126-L2142`
+**Source:** `src/compiler/sema_impl.hpp#L2104-L2154`
 
 ## type / primitive
 
@@ -1244,25 +1358,27 @@ A zoned raw pointer `*zoned T` is a type distinct from `*T`; the zoned bit parti
 
 A struct/enum graph that contains a by-value (non-indirected) cycle is an error; recursion through a type of statically unknown/infinite size must be broken by an indirection (e.g. a pointer/box).
 
-**Source:** `src/compiler/sema_collect.cpp#L544-L546`
+**Uncertainty:** check_recursive_value_types() body is defined outside this unit; only its invocation site is evidenced here.
+
+**Source:** `src/compiler/sema_collect.cpp#L565-L567`
 
 ## type / recursion
 
 ### `type.recursion.enum-finite-size` — Enum variant payload may not contain itself by value
 
-An enum type is ill-formed if any variant payload type transitively contains the enum itself by value (through struct/enum/tuple/array, not through indirection). Such recursion must be broken by boxing the payload behind a pointer (`*const T`).
+An enum type is ill-formed if any variant payload type transitively contains the enum itself by value (through Struct/ZonedStruct/Enum/Tuple, not through indirection). Such recursion must be broken by boxing the payload behind a pointer (`*const T`).
 
 **Source:** `src/compiler/sema_impl.hpp#L1729-L1749`; `src/compiler/sema_impl.hpp#L1742-L1746`
 
-### `type.recursion.indirection-breaks-cycle` — Pointers/references break size-cycle detection
+### `type.recursion.indirection-breaks-cycle` — Pointers/references (and arrays) break size-cycle detection
 
-Size-cycle traversal descends only through inline by-value containers (Struct, ZonedStruct, Enum, Tuple, Array element types); it does not descend through pointer or reference fields, so indirected self-reference is finite-size and legal.
+The size-cycle traversal (`walk`) descends only through inline Struct/ZonedStruct, Enum, and Tuple field/element types; it does not descend into Array element types, pointer fields, or reference fields, so self-reference occurring only through those forms is treated as finite by this check.
 
-**Source:** `src/compiler/sema_impl.hpp#L1693-L1706`
+**Source:** `src/compiler/sema_impl.hpp#L1690-L1706`
 
 ### `type.recursion.struct-finite-size` — Struct may not contain itself by value
 
-A struct type is ill-formed if its by-value field graph (transitively through struct/enum/tuple/array fields, but not through pointers or references) contains itself: cycle detection (white/gray/black) over field types rejects an infinite-size type. The fix is to indirect via a pointer or reference (`&T`).
+A struct type is ill-formed if its inline (by-value) field graph — transitively through Struct/ZonedStruct, Enum, and Tuple field types — contains itself: white/gray/black cycle detection over field types rejects an infinite-size type. Fix: indirect via a pointer or reference (`&T`).
 
 **Source:** `src/compiler/sema_impl.hpp#L1690-L1707`; `src/compiler/sema_impl.hpp#L1708-L1728`; `src/compiler/sema_impl.hpp#L1750-L1751`
 
@@ -1342,27 +1458,11 @@ A bare unsized pointee (`[T]`, `dyn`, `str`) is permitted directly under `&`/`&m
 
 ## type / ref-repr
 
-### `type.ref-repr.rel-ptr-self-relative` — #[rel_ptr] and #[zoned2] pointers are stored self-relative
+### `type.ref-repr.thin-vs-fat-classification` — Reference SSA value is always thin; fat pair lives only in storage
 
-A #[rel_ptr] struct is represented as a self-relative pointer: 8-byte i64 offset storage, resolved to an absolute thin pointer on access. Additionally, a thin-pointer field of a #[zoned2] struct is stored self-relative (offset) rather than absolute.
+For every reference-like kind, the SSA/register VALUE type is uniformly a thin pointer — the fat {data,meta} pair (for Slice/Closure/TraitObject/DstRef) exists only in memory storage (a struct field, array element, or local slot), never as a register value; a plain reference value is a pointer TO that storage.
 
-**Divergence:** Logos addition: self-relative pointer storage (persistent/Writ model), no Rust equivalent.
-
-**Source:** `src/compiler/mlir_gen_types.cpp#L579-L586`; `src/compiler/mlir_gen_types.cpp#L594-L603`
-
-### `type.ref-repr.thin-vs-fat-classification` — Reference representation classified by outer kind
-
-A reference's thin/fat representation is determined by its outermost kind, not its pointee: raw/safe pointers (*T, &T, *mut T to sized), fn pointers, and fn items are thin (8-byte); slice/dyn/closure values are fat (16-byte); a pointer wrapping an unsized pointee (e.g. *const dyn) stays thin while a bare dyn value is the fat pair. A self-describing custom-DST ref is physically thin (8-byte) since its tail length is in-band.
-
-**Source:** `src/compiler/mlir_gen_types.cpp#L543-L592`; `src/compiler/mlir_gen_types.cpp#L574-L577`
-
-### `type.ref-repr.zone-mut-fat` — &mut to a #[zone_mut] type is a fat zone-carrying ref
-
-A &mut T where T is a #[zone_mut] struct is a fat reference {data, zone} carrying its allocator/zone pointer, so growth methods reach the allocator through &mut self. A shared &T or *T to the same type stays thin (reads never grow).
-
-**Divergence:** Logos addition: zone-carrying mutable references (Writ/zone model), no Rust equivalent.
-
-**Source:** `src/compiler/mlir_gen_types.cpp#L552-L565`
+**Source:** `src/compiler/mlir_gen_types.cpp#L33-L38`; `src/compiler/mlir_gen_types.cpp#L448-L453`
 
 ## type / return
 
@@ -1398,11 +1498,21 @@ A method parameter written as `self` (no explicit type) has type `&Self` by defa
 
 ## type / self-describing
 
-### `type.self-describing.dst-len-required` — self_describing struct must implement SelfDescribing::dst_len
+### `type.self-describing.dst-len-required` — #[self_describing] types must implement SelfDescribing::dst_len
 
-A #[self_describing] struct must provide a SelfDescribing::dst_len method (sema-enforced) used to recover the in-band tail length from the thin header pointer; for a generic DST the method resolves to its monomorphized concrete instance.
+For a `#[self_describing]` struct, the tail length used wherever a slice/len is projected off a thin DstRef to it is recovered by calling that concrete type's monomorphized `dst_len` method on the thin header pointer. Every `#[self_describing]` struct is expected to have exactly one `SelfDescribing::dst_len` implementation (enforced elsewhere, in sema); this codegen path falls back to a defensive length of 0 only if no such symbol is found.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L5129-L5156`
+**Uncertainty:** The enforcement of "every #[self_describing] struct has a dst_len impl" happens in sema, not in this slice; this unit only shows the codegen-side lookup and its defensive fallback.
+
+**Source:** `src/compiler/mlir_gen_expr.cpp#L5185-L5218`
+
+## type / sig
+
+### `type.sig.underscore-rejected` — `_` rejected in fn signature type positions
+
+Within a fn's signature (parameter types and return type), resolution runs inside an ItemSignatureGuard (in_item_signature_) that rejects the inferred-type placeholder `_` (E0121) when it appears in those positions.
+
+**Source:** `src/compiler/sema_collect.cpp#L4872-L4874`; `src/compiler/sema_collect.cpp#L4879-L4884`
 
 ## type / slice
 
@@ -1464,13 +1574,13 @@ A bare struct name N (written without `<...>`) referring to a generic struct who
 
 ### `type.struct.dst-tail-slice-last-field` — Custom-DST slice tail only at last field
 
-A struct field may have an unsized slice type `[T]` only at the last field position; such a struct is marked dynamically-sized (DST). Unsized field types are otherwise rejected.
+An unsized slice type (`[T]`, UNSIZED_SLICE_TYPE node) is permitted as a struct field's type only when that field is the last FIELD_DEF in the struct; the unsized-allowed flag is set only for resolving that one field's type node and restored immediately after. When used there, the struct is marked is_dst.
 
 **Divergence:** B2: custom-DST tail-slice (DONE) — Logos supports `struct Foo { hdr: H, tail: [T] }`.
 
 **Related:** `item.struct.tuple-struct-fields`
 
-**Source:** `src/compiler/sema_collect.cpp#L4023-L4029`; `src/compiler/sema_collect.cpp#L4055-L4069`
+**Source:** `src/compiler/sema_collect.cpp#L4226-L4272`
 
 ### `type.struct.non-null-niche` — non_null single-pointer wrapper yields Option niche
 
@@ -1478,13 +1588,13 @@ A struct annotated `#[non_null]` wrapping a single non-null pointer makes `Optio
 
 **Divergence:** A: #[non_null] attribute is a Logos addition mirroring Rust NonNull niche.
 
-**Source:** `src/compiler/sema_decl.cpp#L1200-L1201`
+**Source:** `src/compiler/sema_decl.cpp#L1229-L1230`
 
 ### `type.struct.package-qualified-identity` — Struct types are identified by package-qualified name
 
-A struct type's identity carries its package prefix (pkg.Name); same-named structs in different packages are distinct types and do not alias. Method-symbol mangling uses the package-agnostic bare struct name.
+A struct/ZonedStruct's identity for MLIR layout is `<pkg>.<concrete_struct_name>` (qualify_pkg); the struct-layout registries look up the package-qualified key first, falling back to the bare (package-agnostic) name only as a back-compat, first-registered-wins alias. Same-named structs from different packages are distinct types with independent layouts; only the bare-name fallback can alias them together.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L667-L691`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L729-L774`
 
 ### `type.struct.rel-ptr-offset-storage` — rel_ptr struct is a self-relative pointer
 
@@ -1492,7 +1602,7 @@ A struct annotated `#[rel_ptr]` is classified as a self-relative pointer using 8
 
 **Divergence:** A: RefRepr RelOffset Logos addition, no Rust analog.
 
-**Source:** `src/compiler/sema_decl.cpp#L1194-L1196`
+**Source:** `src/compiler/sema_decl.cpp#L1223-L1225`
 
 ### `type.struct.self-describing-thin-ptr` — self_describing keeps *Self thin
 
@@ -1500,7 +1610,7 @@ A struct annotated `#[self_describing]` keeps `*Self` a thin pointer (no DstRef 
 
 **Divergence:** A: Writ/RefRepr Logos addition, no Rust analog.
 
-**Source:** `src/compiler/sema_decl.cpp#L1186-L1189`
+**Source:** `src/compiler/sema_decl.cpp#L1216-L1218`
 
 ### `type.struct.zone-mut-fat-ref` — zone_mut makes &mut T fat carrying its allocator
 
@@ -1508,7 +1618,7 @@ For a struct annotated `#[zone_mut]`, a `&mut T` reference is a fat `{data, zone
 
 **Divergence:** A: Writ zone model Logos addition; Rust &mut is thin.
 
-**Source:** `src/compiler/sema_decl.cpp#L1190-L1192`
+**Source:** `src/compiler/sema_decl.cpp#L1219-L1221`
 
 ### `type.struct.zoned2-relative-fields` — zoned2 struct fields use relative pointers
 
@@ -1516,7 +1626,7 @@ A struct annotated `#[zoned2]` stores its pointer fields as self-relative offset
 
 **Divergence:** A: Writ zoned2 Logos addition, no Rust analog.
 
-**Source:** `src/compiler/sema_decl.cpp#L1193`
+**Source:** `src/compiler/sema_decl.cpp#L1222`
 
 ## type / subtype
 
@@ -1592,7 +1702,7 @@ For same struct (matching pkg_name+struct_name), each type-arg position i and li
 
 **Source:** `tools/peg_gen/grammars/logos.peg#L1490-L1494`
 
-### `type.tagged.thin-ptr-dispatch` — &tagged<TS> Trait
+### `type.tagged.thin-ptr-dispatch` — `&tagged<TS>` Trait
 
 `&tagged<TS> Trait` resolves to a thin TaggedPtr with tag-based dispatch; Trait must be a registered trait and TS must resolve to a concrete struct type, else hard error.
 
@@ -1672,21 +1782,19 @@ A bare unsized slice `[T]` in a value position (param/return/field/alias/local) 
 
 **Source:** `src/compiler/sema.cpp#L5870-L5894`; `src/compiler/sema.cpp#L5999-L6008`
 
-### `type.unsized.value-position-forbidden` — Unsized types forbidden in value positions
+### `type.unsized.value-position-forbidden` — Bare unsized type at a value position is rejected unless the context explicitly permits it
 
-Resolving a type AST yields an unsized type (bare `[T]` or `dyn Trait`) only in contexts that genuinely permit one (turbofish argument for a `T: ?Sized` parameter, impl-self-type at a `?Sized` position). By default unsized results in value positions are an error, so `[T]`/`dyn Trait` cannot silently slip into a sized position.
+Resolving a bare unsized type-syntax node (e.g. `[T]`, `dyn Trait`) standalone at a value position is an error by default. Only contexts that genuinely permit an unsized result set the resolver's unsized-ok flag first (a turbofish type-argument bound for a `T: ?Sized` parameter, or an impl Self-type at a `?Sized` position); the flag is off by default so unsized types cannot silently slip into value positions.
 
-**Source:** `src/compiler/sema_impl.hpp#L3640-L3645`
+**Source:** `src/compiler/sema_impl.hpp#L3666-L3671`
 
 ## type / writ
 
-### `type.writ.container-kinds` — Writ view container recognition
+### `type.writ.container-kinds` — Writ-view type recognition
 
-A type t (optionally behind one &/&mut) denotes a Writ value iff its underlying Struct/ZonedStruct name is one of {Writ, WritView, WritStatic, Rc} (Rc being the `Rc<Writ>` runtime container). One level of reference is peeled before matching.
+writ_view_inner(t): t, optionally stripped of one outer Ref/MutRef layer, is a "Writ view" type iff its Kind is Struct or ZonedStruct and its struct_name ∈ {Writ, WritView, WritStatic, Rc} (`Rc<Writ>` is the writ runtime container). Any other shape yields no inner view type.
 
-**Uncertainty:** Matches by struct name only; does not check Rc's type argument is Writ.
-
-**Source:** `src/compiler/sema_impl.hpp#L4133-L4149`
+**Source:** `src/compiler/sema_impl.hpp#L4177-L4195`
 
 ### `type.writ.lit-and-array-map` — Writ literal / typed array / typed map types
 
@@ -1698,7 +1806,7 @@ A type t (optionally behind one &/&mut) denotes a Writ value iff its underlying 
 
 ## type / writ-arr
 
-### `type.writ-arr.elem-set` — Writ typed array type <Elem>[]
+### `type.writ-arr.elem-set` — Writ typed array type `<Elem>[]`
 
 `<Elem>[]` resolves to a generic struct `WritArr<elem>`; Elem must be one of I8/U8/I16/U16/I32/U32/I64/U64/F32/F64 (mapped to the Logos primitive), else hard error.
 
@@ -1708,7 +1816,7 @@ A type t (optionally behind one &/&mut) denotes a Writ value iff its underlying 
 
 ## type / writ-map
 
-### `type.writ-map.key-val-set` — Writ typed map type <K,V>{}
+### `type.writ-map.key-val-set` — Writ typed map type `<K,V>{}`
 
 `<K,V>{}` resolves to `WritMap<key,val>`; key must be I32/U32/I64/U64 and value must be `AnyVal` (default), else hard error.
 
@@ -1725,8 +1833,6 @@ A WritStatic literal `Foo::<@{...}>` (or a bare writ-lit value-AST in const reco
 **Divergence:** Logos-only WritStatic value-as-type-arg.
 
 **Source:** `src/compiler/sema.cpp#L6370-L6386`
-
----
 
 # Layout & Representation (`domain: layout`)
 
@@ -1776,51 +1882,81 @@ ABI size: void/never = 0; bool/u8/i8 = 1; i16/u16 = 2; i24/u24 = 3; i32/u32/f32/
 
 ## layout / aggregate
 
-### `layout.aggregate.field-order-padding` — Struct/tuple layout = ordered fields with natural padding
+### `layout.aggregate.field-order-padding` — Struct/tuple layout: declaration order + natural-alignment padding
 
-A struct or tuple lays out fields in declaration order: each field starts at the next offset rounded up to its alignment, the aggregate's align = max(field aligns), and total size = accumulated offset rounded up to the aggregate align. All aggregate members are embedded inline by value.
+A struct or tuple's fields/elements are laid out in declaration order; each field is placed at the next offset rounded up to its own alignment (inserting padding as needed), the aggregate's alignment is the max of its members' alignments, and the total size is rounded up to that alignment (matches non-packed C/LLVM layout).
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L416-L427`; `src/compiler/mlir_gen_types.cpp#L475-L479`; `src/compiler/mlir_gen_types.cpp#L507-L511`; `src/compiler/mlir_gen_types.cpp#L430-L438`
+**Source:** `src/compiler/mlir_gen_types.cpp#L419-L429`; `src/compiler/mlir_gen_types.cpp#L477-L481`; `src/compiler/mlir_gen_types.cpp#L513-L517`
 
-### `layout.aggregate.inline-by-value-members` — Aggregate fields are embedded by value, references inline as fat pairs
+### `layout.aggregate.inline-by-value-members` — All aggregate members stored inline by value
 
-A struct field whose type is a struct, tuple, tagged enum, slice, closure, custom-DST ref, or bare dyn trait object is embedded inline by value (the struct/enum's aggregate type, or its 16-byte fat pair, occupies the field). A field that is a pointer/reference to such a type (e.g. *Struct, &Struct, *const dyn) stores an 8-byte thin pointer instead.
+Every aggregate member position — struct field, array element, tuple element, or enum payload slot — stores its member INLINE by value (Rust layout): nested struct, tagged enum, tuple, slice, closure, dyn, and custom-DST members all occupy their full by-value footprint in the parent's storage, never a collapsed pointer to separately-allocated storage. A value of one of these kinds used OUTSIDE an aggregate slot (a plain local/SSA value) is instead a pointer to storage holding this layout.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L196-L319`; `src/compiler/mlir_gen_types.cpp#L244-L283`
+**Source:** `src/compiler/mlir_gen_types.cpp#L436-L439`; `src/compiler/mlir_gen_types.cpp#L197-L352`
+
+### `layout.aggregate.return-by-value` — Struct/array/enum return values are returned by value as the full aggregate
+
+A function returning a Struct, fixed-size array, or Enum type returns the aggregate BY VALUE: if the computed value is a pointer to storage, the full aggregate is loaded from it; if only a scalar (e.g. a bare enum discriminant) is available, it is first written into a fresh stack slot of the aggregate's layout, then that slot is loaded and returned.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2257-L2291`
 
 ## layout / aggregate-member
 
 ### `layout.aggregate-member.indirect-fat-types` — Fat-typed aggregate members are stored as an 8-byte pointer
 
-As a struct field, tuple element, or enum payload field: Slice/Closure/Tuple members are stored as an 8-byte pointer (not their by-value fat footprint); struct/enum/array/bare-dyn members are stored inline; an AnyVal member is stored as i32.
+As a struct field, tuple element, or enum-variant payload field: Slice/Closure/Tuple members are stored as an 8-byte pointer (not their by-value fat footprint); Struct/Enum/Array/bare-dyn members are stored inline (full aggregate layout); an AnyVal member is stored as i32.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L766-L771`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L858-L863`
 
 ## layout / anyval
 
-### `layout.anyval.scalar-i32` — AnyVal is a scalar value type
+### `layout.anyval.scalar-i32` — AnyVal is a scalar i32, never an aggregate
 
-The built-in type `AnyVal` has scalar value representation (a single machine word, narrowed to 32-bit), not an aggregate. It is never spilled to a by-value aggregate slot like a struct receiver.
+The built-in type `AnyVal` is represented as a bare i32 scalar value at every place a value of that type occurs (local bindings, receivers, struct fields) — never as an LLVM aggregate/struct value or a pointer-to-aggregate, and never spilled to a by-value aggregate slot the way a struct receiver would be.
 
-**Divergence:** Logos built-in type with no Rust analogue
+**Divergence:** Logos-specific built-in type; no Rust equivalent (addition).
 
-**Uncertainty:** 32-bit width inferred from coerce_numeric(raw, i32); the language-level width may be target-defined.
+**Uncertainty:** 32-bit width inferred from coerce_numeric(raw, i32) at L904; the language-level width contract may be defined elsewhere.
 
-**Source:** `src/compiler/mlir_gen.cpp#L743-L746`; `src/compiler/mlir_gen.cpp#L888-L903`; `src/compiler/mlir_gen.cpp#L865-L867`
+**Source:** `src/compiler/mlir_gen.cpp#L744-L757`; `src/compiler/mlir_gen.cpp#L866-L868`; `src/compiler/mlir_gen.cpp#L889-L904`
 
 ## layout / array
 
-### `layout.array.element-stride` — Array layout = N x element
+### `layout.array.assign-whole-copy` — Whole-array assignment copies all elements
 
-An array [T; N] has size = N * size_of(T) and align = align_of(T), where T's element representation is its full inline by-value footprint (struct/enum/slice/closure/dyn/tuple elements are embedded inline, not collapsed to a pointer).
+Arrays are represented by a pointer to their storage. Assigning one array value to another (`t = [a,b];` / `t = other_arr;`) copies the entire array's backing storage (memcpy of the array's full size), not just the source pointer.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L470-L474`; `src/compiler/mlir_gen_types.cpp#L74-L119`; `src/compiler/mlir_gen_types.cpp#L430-L438`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2136-L2149`
+
+### `layout.array.elem-inline-storage` — Struct/tuple/fat-typed elements are stored inline in array/slice/Vec buffers
+
+Struct- and tuple-typed elements of an array, slice, or Vec buffer are stored INLINE (the full aggregate embedded contiguously in the buffer), not as pointers to separately-allocated storage; TraitObject/Closure/Slice-typed elements are likewise stored inline as their 16-byte fat pair. Element iteration strides by the element's full in-buffer footprint accordingly (`sizeof` the struct/tuple/fat-pair), not by a collapsed pointer width.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2594-L2622`; `src/compiler/mlir_gen_stmt.cpp#L2745-L2769`
+
+### `layout.array.element-stride` — Array element stride matches the element's full by-value layout
+
+`[T; N]`'s element stride equals T's full by-value footprint, never a collapsed pointer — for T = Struct/ZonedStruct/tagged-Enum/Tuple/Slice/Closure/TraitObject the element is embedded INLINE at its real size (matching `layout_of`), so `arr[i]` indexing and `memcpy`-based array copies use the correct stride; a collapsed 8-byte handle would corrupt indexing/overflow the copy.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L74-L121`; `src/compiler/mlir_gen_types.cpp#L472-L476`
 
 ### `layout.array.inline-element-storage` — arrays and slice buffers store struct/tuple elements inline
 
 Struct, zoned-struct, and tuple elements are stored inline by value in array and slice buffers (stride = sizeof(element)); iterating yields a pointer directly into the inline storage. Trait-object/closure/slice elements are stored as 16-byte fat pairs. Scalar elements are stored by their natural representation.
 
 **Source:** `src/compiler/mlir_gen_stmt.cpp#L2451-L2468`; `src/compiler/mlir_gen_stmt.cpp#L2587-L2625`
+
+### `layout.array.struct-elements-inline` — Arrays of structs store elements inline, not as pointers
+
+An array type `[Struct; N]` — including when reached through a reference/pointer parameter, which peels to the array's element type before indexing — lays out its elements inline and contiguously (each element occupies exactly the struct's full layout size), rather than storing a pointer per element; indexing strides by that element layout size, not by the size of a pointer.
+
+**Source:** `src/compiler/mlir_gen_fn.cpp#L379-L394`; `src/compiler/mlir_gen_fn.cpp#L420-L436`
+
+### `layout.array.struct-elems-inline` — Array-literal let derives element storage type from the annotated array type
+
+`let name: [T; N] = [...];` derives the array slot's element storage type from the let's annotated array type when it resolves to an array type (so array-of-struct elements lay out as inline aggregates, not element pointers); if the annotation doesn't resolve to an array type, the element storage type falls back to the array literal's own element type, defaulting to i32 if neither resolves.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L1489-L1508`
 
 ## layout / assign
 
@@ -1840,11 +1976,11 @@ A closure, slice, or trait-object (dyn) r-value occupies a 16-byte two-word stor
 
 ## layout / call
 
-### `layout.call.aggregate-return-by-value` — Indirect calls return aggregates by value
+### `layout.call.aggregate-return-by-value` — Aggregate call results are spilled to an alloca
 
-For both closure and bare-function-pointer indirect calls, the call's return type matches the callee ABI: tuple/struct/enum results are returned by aggregate value rather than as a pointer; an aggregate result is materialized into stack storage (a fresh slot) so downstream code can treat it by-address.
+When an indirect call's (closure or bare fn-ptr) LLVM return type is a struct type, the caller spills the returned aggregate value to a fresh stack alloca and uses that pointer as the expression result, so downstream codegen can uniformly treat struct/tuple/enum values as `ptr`.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L4787-L4804`; `src/compiler/mlir_gen_expr.cpp#L4831-L4853`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L4861-L4865`; `src/compiler/mlir_gen_expr.cpp#L4908-L4914`
 
 ## layout / closure
 
@@ -1852,25 +1988,31 @@ For both closure and bare-function-pointer indirect calls, the call's return typ
 
 A closure has a 16-byte {fn_ptr, env_ptr} fat-pointer representation.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L787`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L879`
 
 ### `layout.closure.fn-env-pair` — Closure value is a {fn_ptr, env_ptr} pair
 
-A closure value is represented as a two-field aggregate (16 bytes on a 64-bit target): field 0 = function pointer, field 1 = environment pointer. Calling a closure invokes the function pointer with env_ptr prepended as the implicit first argument, followed by the user arguments.
+A closure value is represented as a struct with field 0 = function pointer and field 1 = environment pointer. Calling a closure loads both fields and invokes the function indirectly with env_ptr prepended as the first argument, ahead of the user-supplied arguments.
 
-**Divergence:** A10 — dyn Fn/FnMut/FnOnce collapse to this Closure pair; no separate Fn-trait vtable.
+**Divergence:** A10
 
 **Related:** `layout.fnptr.bare-call-no-env`
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L4759-L4799`; `src/compiler/mlir_gen_types.cpp#L957-L960`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L4819-L4845`
+
+### `layout.closure.repr` — Closure runtime representation is a 16-byte {fn,env} pair
+
+A closure's fat-pair storage representation is `{fn_ptr, env_ptr}`, 16 bytes total.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L1030-L1033`
 
 ## layout / customdst
 
 ### `layout.customdst.fat-pointer-pair` — Custom-DST references are a 16-byte {data,meta} fat pair
 
-A reference to a custom DST (DstRef) has a 16-byte {data_ptr, meta} fat-pointer representation, except a #[self_describing] DST whose metadata is recovered in-band from the header pointer, which is carried as a thin pointer.
+A reference to a custom DST (&CustomDst, DstRef) has a 16-byte {data_ptr, meta} fat-pointer representation, except a `#[self_describing]` DST whose tail length is recovered in-band from the header pointer (via the struct's `dst_len(*const Self)`), so its reference stays a thin pointer.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L788`; `src/compiler/mlir_gen_impl.hpp#L799-L810`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L880`; `src/compiler/mlir_gen_impl.hpp#L897-L902`
 
 ## layout / dst
 
@@ -1880,7 +2022,7 @@ A reference whose pointee struct has a `dyn`-tail (e.g. `&RcInner<dyn>`) is phys
 
 **Related:** `layout.dst.slice-tail-ref-is-fat`
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L876-L882`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L968-L973`
 
 ### `layout.dst.effective-dst-detection` — Effective-DST classification of a struct instance
 
@@ -1888,11 +2030,11 @@ A struct/zoned-struct type is an (effective) DST iff: it is declared unsized; or
 
 **Source:** `src/compiler/sema.cpp#L3740-L3791`
 
-### `layout.dst.fat-when-slice-tail` — DstRef is fat only with a literal slice tail
+### `layout.dst.fat-when-slice-tail` — DstRef is fat only when the pointee's tail is a literal slice
 
-A DstRef whose pointee struct's last field is a literal slice ([T] or unsized [T]) is genuinely fat (16B {data,len}); a DstRef with a dyn-tail or type-variable tail is physically thin (8B pointer).
+A `DstRef` is genuinely fat (16-byte {data,len}) only when the pointee struct's final field is a literal `[T]`/unsized-slice kind; a DstRef whose tail is `dyn`-typed or a generic type-variable is physically thin.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L4995-L5005`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L5056-L5066`
 
 ### `layout.dst.owned-tail-needs-fat-dstref` — An owned dyn-tail drop only fires through a fat DST reference
 
@@ -1922,15 +2064,13 @@ A reference to a `#[self_describing]` DST is physically thin (8-byte pointer str
 
 **Related:** `layout.dst.slice-tail-ref-is-fat`
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L884-L888`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L976-L980`
 
-### `layout.dst.self-describing-thin` — self_describing DST reference is thin
+### `layout.dst.self-describing-thin` — #[self_describing] DstRef is physically thin
 
-A DstRef whose pointee struct is #[self_describing] is physically THIN (8B pointer straight to the header); its tail length is not carried out-of-band but recovered in-band by calling SelfDescribing::dst_len(header_ptr). This contrasts with a plain [T]-tail DstRef which is an 8B pointer to a 16-byte {data,len} pair.
+A `DstRef` whose pointee struct is `#[self_describing]` is physically THIN (8-byte pointer straight to the header), even though its tail may be slice-shaped — the tail length is recovered in-band via the type's `dst_len` rather than carried out-of-band as a {data,len} pair. This is required so that returning `&Foo` from a function is sound: a fat pair would otherwise live in the callee's stack alloca and dangle after return, whereas the thin pointer IS the (heap-resident) header address.
 
-**Divergence:** Logos-only self_describing DST model (Rust's DST metadata is always out-of-band).
-
-**Source:** `src/compiler/mlir_gen_expr.cpp#L5007-L5032`; `src/compiler/mlir_gen_expr.cpp#L5124-L5157`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L5068-L5093`
 
 ### `layout.dst.slice-tail-ref-is-fat` — Custom-DST ref with [T] slice tail is a 16-byte {data,len} fat pointer
 
@@ -1938,7 +2078,7 @@ A reference to a custom-DST struct whose last field is a literal slice tail `[T]
 
 **Related:** `layout.dst.dyn-tail-ref-is-thin`, `layout.dst.self-describing-ref-is-thin`
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L875-L882`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L967-L974`
 
 ## layout / dstref
 
@@ -1958,7 +2098,7 @@ A custom-DST reference (&Foo/&mut Foo where Foo has a tail) is a 16-byte {data,l
 
 **Related:** `layout.dyn.fat-pair-16-byte`, `intrinsic.drop.owning-dyn-handle`
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L1022-L1027`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L1114-L1119`
 
 ### `layout.dyn.data-vtable-pair` — Trait object fat pair = {data,vtable}
 
@@ -1972,13 +2112,13 @@ A trait object (`dyn Trait`) has value representation as a 16-byte fat pair {dat
 
 **Related:** `layout.dyn.box-dyn-collapses-to-trait-object`
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L954-L955`; `src/compiler/mlir_gen_impl.hpp#L976-L985`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L1046-L1047`; `src/compiler/mlir_gen_impl.hpp#L1068-L1077`
 
-### `layout.dyn.fat-pair-data-vtable` — A trait-object handle is a {data, vtable} fat pair
+### `layout.dyn.fat-pair-data-vtable` — `dyn Trait` handle layout: {data, vtable}
 
-A trait-object value is a two-pointer fat pair: field 0 is the data pointer, field 1 is the vtable pointer; an owning smart-pointer `dyn` stores this pair inline.
+A `dyn Trait` fat handle is laid out as a 2-field struct `{data: ptr, vtable: ptr}` — field 0 is the concrete data pointer, field 1 is the vtable pointer.
 
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L520-L524`; `src/compiler/mlir_gen_stmt.cpp#L555-L573`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L524-L527`; `src/compiler/mlir_gen_stmt.cpp#L573-L576`
 
 ### `layout.dyn.fat-pointer-data-vtable-pair` — dyn trait object is a 16-byte {data, vtable} fat pair by value
 
@@ -1990,9 +2130,9 @@ A trait-object value is a two-pointer fat pair: field 0 is the data pointer, fie
 
 ### `layout.dyn.fat-pointer-pair` — Trait-object references are a 16-byte {data,vtable} fat pair
 
-A bare dyn / &dyn / &mut dyn trait object has a 16-byte {data_ptr, vtable_ptr} fat-pointer representation and is returned by value as that pair. A reference to such a reference (Ref/`MutRef<TraitObject>`) or a raw *const/*mut dyn remains a thin 8-byte pointer.
+A bare dyn / &dyn / &mut dyn trait object has a 16-byte {data_ptr, vtable_ptr} fat-pointer representation and is returned by value as that pair. A reference to such a reference (Ref/`MutRef<TraitObject>`, e.g. `Vec<&dyn T>::index` -> &T) and a raw *const/*mut dyn remain a thin 8-byte pointer.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L627-L638`; `src/compiler/mlir_gen_impl.hpp#L786`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L683-L694`; `src/compiler/mlir_gen_impl.hpp#L878`
 
 ### `layout.dyn.fat-pointer-two-word` — Trait-object value is a two-word {data,vtable} fat pointer
 
@@ -2000,11 +2140,23 @@ A trait-object (`dyn Trait`) value is a two-word structure {field 0 = data_ptr, 
 
 **Source:** `src/compiler/mlir_gen_dyn.cpp#L1523`; `src/compiler/mlir_gen_dyn.cpp#L1543-L1565`
 
+### `layout.dyn.owning-vtable-slots` — Owning-dyn vtable slot order: drop, size, align
+
+The vtable referenced by an OWNING `dyn Trait` fat handle (`Box`/`Rc`/`Arc<dyn Trait>`) exposes at least 3 pointer-sized slots in fixed order: slot 0 = `drop_in_place(T)` function pointer, slot 1 = `size_of::<T>()` encoded as a pointer-width integer, slot 2 = `align_of::<T>()` encoded as a pointer-width integer — used by the generic release path to run the destructor and to recover the `RcInner` header offset.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L590-L619`
+
+### `layout.dyn.repr` — Trait-object runtime representation is a 16-byte {data,vtable} pair
+
+A trait object's fat-pair storage representation is `{data_ptr, vtable_ptr}`, 16 bytes, stored inline wherever a `dyn`/`&dyn` value is held (field, element, payload); a `&dyn` reference value is a pointer to this 16-byte storage, mirroring the slice representation.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L1022-L1028`
+
 ### `layout.dyn.uniform-fat-pair` — Every dyn value is a 16-byte {data,vtable} pair
 
-Every trait-object value (`&dyn`, `*dyn`, `Box<dyn>`) is a 16-byte {data, vtable} pair stored inline, and a `*const/*mut dyn` always points at such a 16-byte slot; dereferencing such a raw dyn pointer is therefore a no-op reinterpret (the slot pointer is the dyn value).
+Every trait-object value (`&dyn`, `*dyn`, `Box<dyn>`) is a 16-byte {data, vtable} pair stored inline, and a `*const/*mut dyn Trait` handle always points at such a 16-byte slot. Dereferencing such a raw dyn pointer is therefore by default a no-op reinterpret (the slot pointer IS the dyn value) — except when the pointer is known, via provenance analysis, to point INTO a container slot storing just the handle (e.g. `HashMap::get -> *const Box<dyn Trait>`), in which case the stored handle is loaded.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L1749-L1760`; `src/compiler/mlir_gen_expr.cpp#L1922-L1941`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L1759-L1770`; `src/compiler/mlir_gen_expr.cpp#L1782-L1793`
 
 ### `layout.dyn.vtable-header-drop-size-align` — dyn-trait vtable layout: [drop_in_place, size, align, methods..., supers...]
 
@@ -2032,19 +2184,25 @@ alignof(tagged enum) = max(4, payload_align), i.e. at least the 4-byte discrimin
 
 **Related:** `layout.enum.tagged-repr`
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L65-L67`; `src/compiler/mlir_gen_impl.hpp#L72`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L64-L67`; `src/compiler/mlir_gen_impl.hpp#L72`
 
-### `layout.enum.clike-disc-sized` — C-like enum is a backing-type-sized discriminant
+### `layout.enum.assign-full-repr-copy` — Enum-valued assignment copies the whole {disc,payload} representation
 
-A fieldless (C-like) enum has no payload; its layout is a single discriminant whose size = ceil(disc_bits/8) bytes (min 1) with equal alignment, where disc_bits is the enum's backing integer width.
+An enum value is represented inline as `{disc, payload}` in its storage slot. Assigning a new enum value to an enum-typed place copies the FULL footprint (via memcpy) into the slot, not merely the discriminant word. If only a bare discriminant is available at the assignment site (e.g. a payload-less variant with no inferred type args), only the discriminant word of the slot is written, leaving the rest of the slot unspecified.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L530-L533`; `src/compiler/mlir_gen_types.cpp#L66-L69`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2052-L2072`
+
+### `layout.enum.clike-disc-sized` — C-like (payload-less) enum: discriminant-sized integer
+
+An enum with no tagged-enum info (a plain C-like enum, no variant carries data) lowers as a bare integer whose width is `ceil(disc_bits/8)` bytes (minimum 1 byte), sized to the enum's variant count / declared backing type — not a fixed i32.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L536-L538`; `src/compiler/mlir_gen_types.cpp#L66-L70`
 
 ### `layout.enum.discriminant-backing-type` — C-style enum discriminant uses its declared backing type, else i32
 
-A C-style enum's discriminant is represented with its explicitly declared backing integer type (e.g. `enum Foo : u64 {}`); absent an explicit backing type the discriminant defaults to i32.
+A C-style enum's discriminant is represented with its explicitly declared backing integer type (`enum Foo : u64 {}`); absent an explicit backing type, the discriminant defaults to i32.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L649-L665`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L705-L721`
 
 ### `layout.enum.field-store-heap-promote` — Enum value stored into an enum-typed field is heap-promoted
 
@@ -2054,21 +2212,47 @@ An enum-typed field is represented by a single heap pointer slot (two-level conv
 
 **Source:** `src/compiler/mlir_gen_stmt.cpp#L2725-L2747`
 
+### `layout.enum.identified-llvm-type-body-deferred` — An enum's LLVM body size is finalized once, after a whole-program fixpoint
+
+An enum's identified aggregate type is created immediately but its body (the payload byte-array size) is left unset at first registration -- a nested enum payload may still be a zero-byte stub at that point, under-sizing the outer enum. The body is set exactly once, after a fixpoint recomputes every enum's final payload size; an identified LLVM struct's body cannot be reset once set.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L928-L937`
+
+### `layout.enum.low-bit-niche` — Pointer-plus-small-integer two-arm enum packs into one word via a low-bit discriminant
+
+A two-variant enum where every variant has exactly one payload field, one variant's field is a reference (`&T`/`&mut T`) whose pointee has alignment >= 2 (guaranteeing its low bit is always 0), and the other variant's field is an integer of <= 56 bits, packs into a SINGLE machine word: the pointer arm is stored raw; the integer arm is stored shifted as `(v << 1) | 1`. The discriminant is the value's low bit (0 = pointer arm, 1 = integer arm) -- no separate discriminant word.
+
+**Divergence:** A6
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L869-L925`; `src/compiler/mlir_gen_types.cpp#L872-L890`
+
+### `layout.enum.low-bit-niche-zoned2-raw-arms` — `#[zoned2]` enums admit a raw untagged pointer arm and a raw 64-bit integer arm in the low-bit niche
+
+For an enum flagged `zoned2`, the low-bit-niche pointer arm additionally accepts any raw `*T`/`&T`/`&mut T` regardless of the pointee's declared alignment (the zoned2 allocator's invariant that all Writ zone objects are >= 2-aligned is trusted directly), and the integer arm additionally accepts a full 64-bit `i64`/`u64` stored RAW (no `<<1` shift) -- because the producer of such a `zoned2` value has already baked a low-bit-1 tag into the raw word itself.
+
+**Divergence:** A6
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L899-L924`
+
 ### `layout.enum.nested-payload-is-pointer` — A nested payload-bearing enum is stored by pointer
 
-When an enum variant's payload is itself a payload-bearing enum (e.g. `Option<Option<T>>`::Some carrying `Option<T>`), the nested enum lowers to a pointer in the outer payload rather than being inlined as a discriminant scalar.
+When an enum variant's payload is itself a payload-bearing enum (e.g. `Option<Option<T>>::Some` carrying `Option<T>`), the nested enum lowers to a pointer in the outer payload rather than being inlined as a discriminant scalar.
 
 **Uncertainty:** Inferred from the stub-registration comment; the precise inline-vs-pointer threshold lives in register_tagged_enum (another unit).
 
 **Source:** `src/compiler/mlir_gen.cpp#L93-L107`
 
-### `layout.enum.niche-low-bit` — Low-bit niche enum packs tag into the payload word's low bit
+### `layout.enum.nested-payload-representation` — Nested enum payload: inline for tagged, scalar for C-like
 
-A LowBit-niche enum packs a 64-bit word where the low bit distinguishes arms: low bit 0 → pointer arm (the aligned word IS the pointer, ptr_disc), low bit 1 → value arm. The value-arm payload is encoded as (v<`<1)|1 and decoded as word>`>1 (arithmetic shift if signed, logical otherwise), yielding val_disc. In raw mode (WAny Pod(u64)) both arms read the word verbatim with no decode.
+An enum-variant payload field whose declared type is itself an enum is represented INLINE within the payload area (the payload GEP address is the nested enum's own storage) when the nested enum is a tagged (data-carrying) enum; a fieldless (C-like) nested enum is instead represented as a scalar integer, loaded by value.
 
-**Divergence:** Niche layout is a Logos-defined packing not specified by Rust.
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L240-L251`
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L4897-L4919`; `src/compiler/mlir_gen_expr.cpp#L4926-L4931`; `src/compiler/mlir_gen_expr.cpp#L4963-L4976`
+### `layout.enum.niche-low-bit` — Low-bit niche packing discriminates value vs pointer arm
+
+A LowBit-niche enum encodes its two variants in one machine word: bit0==1 selects the inline scalar ("value") arm, whose payload is `word >> 1` (arithmetic shift if the value is signed, logical otherwise); bit0==0 selects the pointer arm, whose payload is the word itself (an aligned pointer, whose low bit is therefore guaranteed 0). In raw mode (`val_raw`) both arms read the storage word verbatim with no shift/decode. The discriminant is derived at load time from the low bit (no stored disc word); constructing a value-arm payload bakes the tag into the word at construction time (no separate disc store here).
+
+**Source:** `src/compiler/mlir_gen_expr.cpp#L4958-L4980`; `src/compiler/mlir_gen_expr.cpp#L4989-L4992`; `src/compiler/mlir_gen_expr.cpp#L5026-L5036`
 
 ### `layout.enum.niche-lowbit` — Low-bit niche for two data-arm enums
 
@@ -2108,13 +2292,11 @@ For a #[zoned2] low-bit niche enum whose value arm is a full 64-bit word (e.g. P
 
 **Source:** `src/compiler/mlir_gen_impl.hpp#L112-L116`
 
-### `layout.enum.niche-null-pointer` — Null-pointer niche enum has no discriminant word
+### `layout.enum.niche-null-pointer` — Null-pointer niche packing eliminates the discriminant word
 
-A null-pointer-niche enum (`Option<&T>` shape) has no separate discriminant word: the payload (a non-null pointer) occupies offset 0; the `none` variant is encoded as a null pointer at offset 0, and the `some` variant's non-null payload pointer is itself the discriminant. Decoding: null → none_disc, non-null → some_disc.
+For a niche-packed enum shaped like `Option<&T>` (one nullary variant + one pointer-payload variant), storage has no separate discriminant word: the payload IS the enum storage at offset 0, the nullary variant is encoded as a null pointer at that offset, and the non-null pointer of the payload variant simultaneously acts as the discriminant. Reassigning an untyped `none`-like value to a niche-packed enum slot (whose only nullary variant is this niche's `none`) is lowered as storing null at offset 0.
 
-**Divergence:** Niche layout is an unspecified Rust optimization; here it is observable/normative for `Option<&T>`-shaped enums.
-
-**Source:** `src/compiler/mlir_gen_expr.cpp#L4920-L4921`; `src/compiler/mlir_gen_expr.cpp#L4932-L4941`; `src/compiler/mlir_gen_expr.cpp#L4977-L4988`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L4981-L4982`; `src/compiler/mlir_gen_expr.cpp#L4993-L5001`; `src/compiler/mlir_gen_expr.cpp#L5012-L5017`; `src/compiler/mlir_gen_expr.cpp#L5038-L5048`
 
 ### `layout.enum.niche-nullptr` — Null-pointer niche optimization for `Option<&T>`-shape enums
 
@@ -2144,15 +2326,11 @@ enum Option<&T> { None, Some(&T) }  // sizeof == 8
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L761-L795`
 
-### `layout.enum.niche-packed-no-disc` — Niche-packed enum carries no discriminant word
+### `layout.enum.niche-packed-no-disc` — Niche-packed tagged enum has no discriminant word
 
-A niche-optimized (niche-packed) enum has no separate discriminant word: its representation is the niche-bearing payload alone, with layout {payload_bytes, payload_align} (pointer-sized when the niche field is a pointer). The active variant is distinguished by an in-payload niche value rather than a stored tag. A non-niche tagged enum instead carries an explicit discriminant word ({i32 disc, aligned payload}).
+A niche-packed tagged enum (one whose variants' presence can be encoded entirely inside its payload's bit pattern) has layout EXACTLY `{payload_bytes, payload_align}` — the separate `i32` discriminant word is elided; the tag is recovered from the payload bits alone.
 
-**Divergence:** Rust-conformant in intent (niche optimization); see ref_enum_niche.
-
-**Related:** `layout.enum.tagged-disc-plus-payload`
-
-**Source:** `src/compiler/mlir_gen_types.cpp#L522-L524`; `src/compiler/mlir_gen.cpp#L157-L162`
+**Source:** `src/compiler/mlir_gen_types.cpp#L528-L530`
 
 ### `layout.enum.niche-zoned-raw-word` — Zoned (#[zoned2]) raw 64-bit low-bit niche
 
@@ -2162,11 +2340,37 @@ In a `#[zoned2]` enum, the low-bit niche additionally accepts a raw `*T` pointer
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L811-L851`
 
+### `layout.enum.null-pointer-niche` — Two-variant enum with one fieldless + one single-non-null-pointer variant is pointer-sized
+
+An enum with exactly two variants, one fieldless (the niche/`none` arm) and one carrying a single payload field of reference kind `&T`/`&mut T` (guaranteed non-null), is laid out with NO separate discriminant word: the discriminant is encoded as null (none arm) vs non-null (some arm) in that single pointer field at offset 0, so the whole enum is pointer-sized (e.g. `size_of::<Option<&T>>() == size_of::<&T>()`).
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L830-L868`
+
+### `layout.enum.null-pointer-niche-nonnull-wrapper` — A `#[non_null]` single-8-byte-pointer wrapper struct also qualifies for the null-pointer niche
+
+In the two-variant fieldless+single-field niche shape, the single payload field also qualifies for the null-pointer niche when its type is a struct/zoned-struct flagged `non_null` whose total ABI byte size is exactly 8 (a Box/Rc/Arc-style single-pointer wrapper) -- its type invariant guarantees the pointer at offset 0 is never zero, so the same null-vs-non-null discriminant encoding applies.
+
+**Divergence:** A6
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L844-L868`
+
 ### `layout.enum.payload-by-value` — Enum payload members stored by value
 
 Enum variant payload members are laid out by value: each member contributes its full by-value layout (e.g. `Option<&[u8]>` payload = the 16-byte slice fat pair), unlike struct/tuple fields which may store a slice/closure/tuple as an 8-byte ptr.
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L707-L720`
+
+### `layout.enum.payload-fat-ref-inline` — A fat-reference-typed enum payload field is stored inline as its full fat pair
+
+An enum variant payload field whose type has a fat reference representation (`&dyn`/`dyn`, slice, closure, or a fat custom-DST ref) is stored INLINE in the variant payload as its full 16-byte fat storage pair, not collapsed to an 8-byte pointer -- so the payload carries no heap handle and requires no separate free/leak-avoidance. Thin reference kinds (ptr/ref/fn) keep their ordinary by-value pointer representation in the payload.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L737-L775`; `src/compiler/mlir_gen_types.cpp#L755-L763`
+
+### `layout.enum.payload-inline-struct-tuple-enum` — Struct/tuple/nested-enum-typed enum payload fields embed their full ABI footprint
+
+An enum variant payload field of Struct/ZonedStruct, Tuple, or (nested) Enum kind embeds that type's full identified/aggregate LLVM type in the payload slot, rather than the collapsed single-pointer form that a generic type lowering would otherwise produce -- the payload occupies the referent's real by-value size.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L743-L770`
 
 ### `layout.enum.payload-size-fixpoint` — Enum payload size = max over variants, to fixpoint over nesting
 
@@ -2188,17 +2392,17 @@ When returned by value, a trait object, slice, or zone-mut fat reference is mate
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L643-L659`
 
-### `layout.enum.tagged-disc-i32` — Tagged enum layout {i32 disc, payload}
+### `layout.enum.tagged-disc-i32` — Non-niche enum layout is {i32 disc, payload}
 
-A non-niche enum is laid out as {i32 discriminant at offset 0, payload at field 1}. The discriminant is read/written as an i32 at field 0; the payload is accessed at field 1.
+A tagged enum without niche packing is laid out as `{i32 discriminant, payload}`: the discriminant occupies field 0 (stored/loaded as a 32-bit value) and the payload begins at field 1.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L4922-L4925`; `src/compiler/mlir_gen_expr.cpp#L4942-L4946`; `src/compiler/mlir_gen_expr.cpp#L4989-L4992`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L4949-L4953`; `src/compiler/mlir_gen_expr.cpp#L4983-L4986`; `src/compiler/mlir_gen_expr.cpp#L5003-L5008`; `src/compiler/mlir_gen_expr.cpp#L5050-L5053`
 
-### `layout.enum.tagged-disc-payload` — Tagged enum layout = {i32 disc, aligned payload}
+### `layout.enum.tagged-disc-payload` — Tagged-enum value layout: {i32 disc, aligned payload}
 
-A tagged (data-carrying) enum has layout = aggregate of a 4-byte/4-align discriminant followed by the payload blob {payload_bytes, payload_align}: the payload starts at round_up(4, payload_align) and total size rounds up to the enum align. The payload is sized from the concrete instantiation so nested generics (e.g. `Option<Option<i64>>`) carry their full inline footprint.
+A tagged enum's by-value layout is `{ i32 discriminant, <payload> }`, where the payload sub-object is placed at the offset rounded up to the payload's own alignment (natural aggregate padding after the 4-byte disc word), and the whole is rounded to the max of (4, payload_align). The concrete instantiation is resolved so nested generic payloads (e.g. `Option<Option<i64>>`) size their full inline footprint. The SSA/value form of a tagged enum is a pointer to this storage.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L406-L409`; `src/compiler/mlir_gen_types.cpp#L516-L529`
+**Source:** `src/compiler/mlir_gen_types.cpp#L522-L534`; `src/compiler/mlir_gen_types.cpp#L66-L69`; `src/compiler/mlir_gen_types.cpp#L409-L411`
 
 ### `layout.enum.tagged-disc-plus-payload` — Tagged-enum layout: discriminant word + aligned payload blob
 
@@ -2216,6 +2420,14 @@ A tagged enum is laid out as a struct { i32 discriminant, payload-blob } where t
 
 **Source:** `src/compiler/mlir_gen_impl.hpp#L64-L79`
 
+### `layout.enum.tagged-value-is-heap-ptr` — A by-value tagged-enum parameter is one heap-pointer level
+
+A by-value function parameter of a tagged (payload-carrying) enum type (e.g. `Option<i64>`) arrives at the callee as a single heap-pointer level (the boxed enum), not the aggregate itself and not a pointer-to-pointer; taking its address (`&x`) spills that pointer into a local slot to produce a genuine pointer-to-enum-pointer, as required by two-level-pointer enum methods (e.g. `==`). A payload-free (C-style) enum parameter is instead a plain i32 and takes the scalar-spill address-of path.
+
+**Uncertainty:** The underlying enum-boxing/representation decision (why tagged enums are one heap-pointer level as a value) is established by code outside this slice; this unit only consumes and documents the resulting parameter-binding convention.
+
+**Source:** `src/compiler/mlir_gen_fn.cpp#L479-L492`
+
 ### `layout.enum.unit-variant-field-omitted` — Unit `()` payload field omitted
 
 A `()` (Void) payload field of an enum variant contributes no field and no bytes to the variant payload.
@@ -2228,21 +2440,35 @@ A tagged-enum value (with or without payload) is stored inline as a {discriminan
 
 **Source:** `src/compiler/mlir_gen_expr.cpp#L529-L547`; `src/compiler/mlir_gen_expr.cpp#L561-L568`
 
+### `layout.enum.variant-payload-aggregate-layout` — Variant payload {size,align} is computed as a padded aggregate, not a naive field-size sum
+
+A variant's payload {size,align} is derived by accumulating each payload field's by-value layout as if laying out a struct/tuple of those fields (inter-field alignment padding included), matching the actual LLVM aggregate the payload is lowered to. Enum payload fields store multi-field/fat-typed members BY VALUE (their full inline representation), unlike an ordinary struct/tuple FIELD which may collapse such members to a pointer -- so payload layout is computed with the by-value accumulator, not the aggregate-member accumulator used for struct/tuple fields.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L777-L800`
+
+### `layout.enum.variant-payload-inline-aggregate` — A struct/tuple-typed enum-variant payload field occupies its full inline ABI size, not the collapsed pointer size
+
+In a tagged-enum variant's payload struct, a struct- or tuple-typed field is laid out at its full inline ABI byte size (as the constructor's memcpy writes it), not the single-pointer collapsed representation otherwise used for such types elsewhere; a payload field following an aggregate field is offset according to that full inline size.
+
+**Uncertainty:** Stated only via an anti-bug rationale comment (misaligned field after an aggregate payload member); the general variant-payload shape itself is covered elsewhere (layout.enum.tagged-repr).
+
+**Source:** `src/compiler/mlir_gen_impl.hpp#L1022-L1030`
+
 ### `layout.enum.variant-payload-struct-layout` — Variant payload laid out as a struct
 
 A variant's payload is laid out exactly like a struct/tuple of its fields, including inter-field alignment padding; a multi-field variant's payload size is the aligned aggregate, not the naive sum of field sizes (e.g. `Cons{head:i32, tail:*const List}` = 16, not 12).
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L702-L720`
 
-### `layout.enum.zoned-niche-self-relative` — Zoned niche enum stores Ref arm self-relative
+### `layout.enum.zoned-niche-self-relative` — #[zoned2] niche enum: self-relative at rest, absolute in compute
 
-A #[zoned2] niche enum's at-rest 8-byte word encodes: r==0 → null; r&1==1 → Pod (position-independent, copied raw); else Ref → self-relative offset (anchor = slot address). Materialize: Ref → absolute = slot + r (null/Pod identity). Lower: Ref → delta = val − slot (null/Pod identity).
+A `#[zoned2]` niche enum's at-rest storage word `r` uses self-relative addressing for its reference arm (anchor = the slot's own address): r==0 → null; r&1==1 → Pod arm (position-independent, copied raw, identity on materialize/lower); otherwise → Ref arm, whose absolute address is `slot + r` on materialize and whose stored delta is `val − slot` on lower. The compute-side value is a fresh alloca holding the word with the Ref arm as an ABSOLUTE address, bridging storage (self-relative) and compute (absolute) representations.
 
-**Divergence:** Logos-only zoned representation; no Rust analogue.
+**Divergence:** A6
 
-**Uncertainty:** Exact bit-encoding of Pod vs Ref inferred from comments and the AND/shift sequence.
+**Uncertainty:** This is the compiler-owned generalization of writ's wa_materialize/wa_lower (per the source comment); tagged as a Writ-fabric-related Logos addition (A6) rather than a Rust behavioral divergence, since Rust has no zoned/self-relative reference concept at all.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L5034-L5074`; `src/compiler/mlir_gen_expr.cpp#L5076-L5081`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L5095-L5135`
 
 ### `layout.enum.zoned-self-relative` — #[zoned2] enum reference arm stored self-relative at rest
 
@@ -2254,11 +2480,25 @@ For a #[zoned2] niche enum, the reference (low-bit-0) arm is stored SELF-RELATIV
 
 ## layout / fat-ptr
 
-### `layout.fat-ptr.sixteen-byte` — Fat pointers are 16 bytes, pointer-aligned
+### `layout.fat-ptr.sixteen-byte` — Fat-pointer kinds are 16 bytes, 8-byte aligned
 
-Slice (&[T], str), closure value, trait object (dyn), and custom-DST reference each have layout {size=16, align=8}: a two-word fat pair (data + metadata). The metadata word is length for slices/custom-DST and a vtable pointer for trait objects; closures pair {fn, env}.
+Slice (incl. `str`), Closure, TraitObject (`dyn Trait`), and DstRef (custom-DST fat pointer) each have storage layout {16,8} — a two-word {data,meta} pair. Thin pointer-like kinds (Ptr/Ref/MutRef/FnPtr/TaggedPtr/Usize/Isize) are {8,8}.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L465-L467`; `src/compiler/mlir_gen_types.cpp#L294-L319`
+**Source:** `src/compiler/mlir_gen_types.cpp#L462-L469`; `src/compiler/mlir_gen_types.cpp#L296-L321`
+
+## layout / fatptr
+
+### `layout.fatptr.assign-pair-copy` — Slice/Closure/TraitObject-valued assignment copies the full 16-byte fat pair
+
+Slice (`&[T]`), Closure, and TraitObject values are represented as a 16-byte `{data, len|vtable}` pair. Assigning such a value to a place of that type copies both words (memcpy of 16 bytes); a plain pointer store would leave the second word (len/vtable) stale.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2120-L2135`
+
+### `layout.fatptr.return-by-value` — Already-fat-typed return values are returned by value as the 16-byte aggregate
+
+Returning a value whose static type is already a TraitObject, or whose declared return type is Slice, loads the 16-byte `{data,len|vtable}` pair from its storage pointer (if not already a loaded aggregate) and returns it by value — the function's MLIR-level return type is the 16-byte struct, not a pointer.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2219-L2256`
 
 ## layout / field
 
@@ -2308,13 +2548,13 @@ When indexing through a pointer-valued struct field (the stored pointer is loade
 
 ## layout / fnptr
 
-### `layout.fnptr.bare-call-no-env` — Bare function-pointer call passes no environment
+### `layout.fnptr.bare-call-no-env` — Bare fn-ptr call passes no environment
 
-A bare function-pointer value `fn_ptr` is a thin pointer; calling it `fn_ptr(a1,a2,...)` passes only the user arguments (no implicit environment), distinguishing it from a closure call.
+A bare function-pointer call `fn_ptr(args...)` (EFnPtrCall) invokes the callee with exactly the user arguments, no hidden environment operand. This is distinct from a closure call (EClosureCall), which loads {fn_ptr, env_ptr} from the closure value and prepends env_ptr to the argument list before the indirect call.
 
 **Related:** `layout.closure.fn-env-pair`
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L4807-L4846`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L4868-L4890`; `src/compiler/mlir_gen_expr.cpp#L4830-L4845`
 
 ## layout / index
 
@@ -2328,15 +2568,13 @@ Elements of arrays and contiguous buffers whose element type is a struct, a tagg
 
 ## layout / int
 
-### `layout.int.fixed-widths` — Primitive integer/float sizes and alignments
+### `layout.int.fixed-widths` — Fixed-width scalar sizes/alignments
 
-Scalar layout {size,align} in bytes: bool/i8/u8 = {1,1}; i16/u16 = {2,2}; i24/u24 = {3,1}; i32/u32/f32/char/{integer literal} = {4,4}; i56/u56 = {7,1}; i64/u64/f64/{float literal} = {8,8}; i128/u128 = {16,16}. usize/isize and all pointers are target-pointer-width-sized (8 on a 64-bit target).
+Scalar type layout is fixed and self-aligned: bool/i8/u8={1,1}; i16/u16={2,2}; i24/u24={3,1}; i32/u32/f32/char={4,4}; i56/u56={7,1}; i64/u64/f64={8,8}; i128/u128={16,16}; usize/isize={ptr-width,ptr-width}. The odd widths i24/u24/i56/u56 have byte size = ceil(bits/8) but align 1 (packed, not natively aligned).
 
-**Divergence:** A: Logos adds non-power-of-two integer widths i24/u24 (align 1) and i56/u56 (align 1) not present in Rust.
+**Divergence:** A11
 
-**Uncertainty:** Odd-width align=1 inferred from the literal {3,1}/{7,1} entries.
-
-**Source:** `src/compiler/mlir_gen_types.cpp#L453-L464`; `src/compiler/mlir_gen_types.cpp#L61-L62`
+**Source:** `src/compiler/mlir_gen_types.cpp#L44-L63`; `src/compiler/mlir_gen_types.cpp#L456-L466`
 
 ## layout / litstr
 
@@ -2348,11 +2586,13 @@ A string literal is represented as a fat pointer {ptr, len}: the backing storage
 
 ## layout / never
 
-### `layout.never.zero-size-field-skipped` — Never-typed fields are zero-size and uninitialized
+### `layout.never.zero-size-field-skipped` — A `!`-typed struct field is skipped at construction
 
-A struct field of the never type `!` (e.g. `PhantomData<!>` after monomorphization) is zero-size and uninhabited: it carries no runtime value and its initialization is elided. Such a field has no observable storage.
+A struct field whose initializer expression has type `!` (never) — e.g. a `PhantomData<!>` marker produced by monomorphizing a generic over the never type — has no runtime representation: the initializer is not materialized and no store to the field slot is emitted.
 
-**Source:** `src/compiler/mlir_gen.cpp#L978-L984`; `src/compiler/mlir_gen.cpp#L1018-L1024`
+**Uncertainty:** Generic instantiation over `!` is unstable/nightly in Rust; unclear whether this is Rust-conformant or a Logos-specific addition, so no divergence tag assigned.
+
+**Source:** `src/compiler/mlir_gen.cpp#L982-L988`; `src/compiler/mlir_gen.cpp#L1040-L1046`
 
 ## layout / non-null
 
@@ -2360,7 +2600,7 @@ A struct field of the never type `!` (e.g. `PhantomData<!>` after monomorphizati
 
 A `#[non_null]` struct is a single 8-byte pointer wrapper whose pointer is guaranteed non-null (Box/Rc/Arc shape), letting `Option<ThisStruct>` use the NullPtr niche (None = null pointer, pointer-sized enum). It is an opt-in soundness contract asserted by the author.
 
-**Source:** `src/compiler/sema_impl.hpp#L2473-L2479`
+**Source:** `src/compiler/sema_impl.hpp#L2481-L2487`
 
 ## layout / pinned
 
@@ -2370,7 +2610,7 @@ A `#[pinned]` type's bits are anchored to its storage slot: it must not be moved
 
 **Divergence:** A8
 
-**Source:** `src/compiler/sema_impl.hpp#L2446-L2453`
+**Source:** `src/compiler/sema_impl.hpp#L2454-L2461`
 
 ## layout / place
 
@@ -2378,7 +2618,7 @@ A `#[pinned]` type's bits are anchored to its storage slot: it must not be moved
 
 An lvalue place slot (array/Vec element stride) uses the type's full storage footprint: the concrete aggregate type for inline Struct/ZonedStruct/Tuple, the full inline {disc,payload} footprint for a tagged Enum element, and the reference repr's storage type for any reference kind — a thin pointer is 8 bytes while every fat reference (dyn trait object {data,vtable}, closure {fn,env}, slice {ptr,len}, custom-DST ref {ptr,len}) is its 16-byte pair. A self-describing DST is a thin pointer (8 bytes).
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L1199-L1232`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L1209-L1242`
 
 ## layout / pointer
 
@@ -2388,13 +2628,21 @@ The target pointer width is 64 bits. `usize` has underlying integer kind u64 and
 
 **Source:** `src/compiler/sema_impl.hpp#L208-L220`
 
+## layout / rc
+
+### `layout.rc.inner-struct-layout` — `RcInner` heap-block layout for owning `Rc`/`Arc`
+
+The heap block backing an owning `Rc<T>`/`Arc<T>` (including the `dyn Trait` case) is laid out as `RcInner = { strong: i32 (or atomic i32), weak: i32 (or atomic i32), val: T }`, with `val` at byte offset `round_up(8, align(T)) = (align(T) + 7) & ~(align(T) − 1)` from the block start (the two i32 counters occupy the first 8 bytes). The data pointer handed to consumers points at `val`; the block start is recovered by subtracting this offset from the data pointer.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L610-L629`
+
 ## layout / ref
 
-### `layout.ref.fat-lower-memcpy-16` — Lowering a fat reference copies the 16-byte pair
+### `layout.ref.fat-lower-memcpy-16` — Fat reference lowering is a 16-byte memcpy
 
-Lowering a fat reference (FatDyn/FatSlice/FatCustomDst) to its storage slot copies the full 16-byte {data, meta} pair; thin/non-ref reprs store the single pointer value.
+Lowering a fat reference value (FatDyn/FatSlice/FatCustomDst, always a 16-byte {data,meta} pair) into its storage slot is a raw 16-byte memcpy from the source pair's address to the slot, not a field-by-field store.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L5102-L5122`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L5178-L5183`
 
 ### `layout.ref.fat-pointer-sixteen-bytes` — Fat reference layout
 
@@ -2410,31 +2658,31 @@ A relative-offset (self-relative) reference is stored as a single i64 offset wor
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L622`; `src/compiler/mlir_gen_types.cpp#L637`
 
-### `layout.ref.relptr-self-relative` — RelOffset reference stores a self-relative byte offset
+### `layout.ref.relptr-self-relative` — Self-relative reference representation
 
-A RelOffset reference stores at its slot an i64 byte offset = target_addr − slot_addr, where the slot's own address is the anchor. Materializing computes target = slot + offset (GEP by bytes); a null target is encoded as offset = −slot and materializes back to address 0.
+RefReprKind::RelOffset stores a reference as an i64 byte offset relative to its own storage slot address (the slot is the anchor). Materialize: load the offset, GEP the slot's own address by it to get an absolute thin pointer. Lower: compute offset = target_addr − slot_addr and store it at the slot. A null target is encoded as off = −slot_addr, which materializes back to address 0.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L5088-L5096`; `src/compiler/mlir_gen_expr.cpp#L5107-L5116`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L5149-L5157`; `src/compiler/mlir_gen_expr.cpp#L5168-L5177`
 
 ### `layout.ref.repr-kinds` — Reference representation kinds
 
-Every reference type has a representation kind: ThinPtr / NotARef hold a single data pointer (8B); FatDyn holds a {data, vtable} pair (16B); FatSlice / FatCustomDst hold a {data, len:i64} pair (16B). For all fat reprs field 0 (offset 0) is the data pointer and field 1 is the metadata (vtable for dyn, length otherwise).
+A reference value is lowered under one of: ThinPtr/NotARef (the value IS the data pointer, no metadata), FatDyn ({data ptr, vtable ptr} pair), or FatSlice/FatCustomDst ({data ptr, i64 len} pair) — the fat pair is materialized via an entry alloca holding fields {0:data, 1:meta}.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L4863-L4886`; `src/compiler/mlir_gen_expr.cpp#L5244-L5261`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L4924-L4947`; `src/compiler/mlir_gen_expr.cpp#L5284-L5301`
 
 ### `layout.ref.self-relative-offset` — Self-relative (writ / rel_ptr) pointers store a byte offset
 
-A self-relative pointer (the writ / #[rel_ptr] zoned pointer) is stored as an i64 byte offset from the slot's own address; its compute/absolute form is slot_address + load_i64(slot), and lowering stores (target_address - slot_address). A thin-pointer field inside a #[zoned2] struct stores self-relative.
+A self-relative pointer (the writ / `#[rel_ptr]` zoned pointer) is stored as an i64 byte offset from its own storage slot's address; materialization = slot_address + load_i64(slot); lowering a target pointer stores (target_address − slot_address). A plain thin-pointer struct field is upgraded to this self-relative storage, even without an explicit `#[rel_ptr]` tag, when its owning struct is `#[zoned2]` (the untagged zoned-reference case).
 
 **Divergence:** Logos addition: self-relative zoned pointers, no Rust analogue.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L792-L795`; `src/compiler/mlir_gen_impl.hpp#L799-L803`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L884-L887`; `src/compiler/mlir_gen_impl.hpp#L890-L895`
 
 ### `layout.ref.thin-pointer` — Plain references and fn pointers are thin 8-byte pointers
 
-A *T, &T, &mut T, or function pointer to a Sized pointee has a thin 8-byte pointer representation.
+A *T, &T, &mut T, or function pointer to a Sized pointee has a thin 8-byte pointer representation with no side metadata.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L784`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L876`
 
 ### `layout.ref.thin-pointer-eight-bytes` — Thin reference layout
 
@@ -2444,11 +2692,71 @@ A thin reference (plain `&T`/`&mut T`/`*T`/fn-ptr to a Sized pointee) occupies o
 
 ### `layout.ref.zone-mut-fat-pair` — &mut T to a zone_mut type carries its allocator as a fat reference
 
-A &mut T where T is a #[zone_mut] type has a 16-byte {data, zone=*mut Allocator} fat representation, returned by value; the allocator rides the &mut so grow-style methods reach it from &mut self.
+A &mut T where T is a `#[zone_mut]` type has a 16-byte {data, zone=*mut Allocator} fat representation, returned by value like a slice fat pair; the allocator rides the &mut so grow-style methods reach it from &mut self.
 
 **Divergence:** Logos addition: zone/allocator-carrying mutable reference, no Rust analogue.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L789-L791`; `src/compiler/mlir_gen_impl.hpp#L507-L508`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L881-L883`
+
+## layout / refrepr
+
+### `layout.refrepr.classification` — Reference-representation classes by type kind
+
+Every type classifies into exactly one reference-representation kind, by its OUTER kind: `Ptr`/`Ref`/`FnPtr`/`FnItem` -> ThinPtr; `Slice` -> FatSlice; `TraitObject` -> FatDyn; `Closure` -> FatClosure; `DstRef` -> ThinPtr if the pointee is `#[self_describing]`, else FatCustomDst; `MutRef` -> FatZoneMut if the pointee is a `Struct`/`ZonedStruct` flagged `zone_mut`, else ThinPtr; `Struct`/`ZonedStruct` -> RelOffset if flagged `rel_ptr`, else NotARef; all other kinds -> NotARef. A raw/safe pointer is always thin even when its pointee is unsized at the type level (e.g. `*const dyn` collapses to a thin ptr) -- classification is by the outer kind, not by pointee unsizedness.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L622-L667`
+
+### `layout.refrepr.dst-self-describing-thin` — `#[self_describing]` custom-DST reference is a thin 8-byte pointer
+
+A `DstRef` to a `#[self_describing]` pointee is physically THIN: an 8-byte pointer straight to the header, with the tail length carried in-band (`dst_len`) rather than as a separate {data,len} metadata word. This is what allows a `&Foo` to such a type to be returned by value safely -- there is no stack-local metadata pair that could dangle. A `DstRef` to a non-self-describing pointee is FatCustomDst: a {data,meta} fat pair.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L648-L654`
+
+### `layout.refrepr.mut-ref-zone-fat` — `&mut T` to a zone-mut type is a fat {data,zone} pair
+
+`&mut T` where `T` is a struct/zoned-struct flagged `zone_mut` is a FAT reference carrying {data, zone=*mut Allocator} -- the mutable reference rides its Writ allocator so grow-methods can reach it from `&mut self`. Shared `&T`, `*T`, and `&mut T` to non-`zone_mut` types stay thin (a read path never grows the allocation).
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L631-L641`
+
+### `layout.refrepr.rel-ptr-struct` — `#[rel_ptr]` struct is a self-relative offset, not a reference
+
+A struct/zoned-struct flagged `rel_ptr` classifies as RelOffset: it is stored as an 8-byte `i64` self-relative offset (absolute address computed on access), not as a thin/fat pointer. A struct/zoned-struct without the flag is NotARef (an ordinary by-value aggregate).
+
+**Divergence:** A6
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L655-L662`
+
+### `layout.refrepr.return-by-value-abi` — By-value return ABI differs between fat-materialized and pointer-only kinds
+
+On return-by-value: FatDyn, FatSlice, and FatZoneMut are materialized as their full 16-byte storage pair in the caller's frame; FatClosure, FatCustomDst, ThinPtr, and RelOffset are returned as an 8-byte pointer/offset value (their storage, where fat, is not return-materialized).
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L718-L735`
+
+### `layout.refrepr.storage-layout-sizes` — Storage {size,align} per reference-representation kind
+
+The in-field/in-element storage layout by representation kind is: ThinPtr = {8,8}; FatSlice/FatDyn/FatClosure/FatCustomDst/FatZoneMut = {16,8} (a fat pair); RelOffset = {8,8} (one `i64` offset); NotARef = {0,1} (no reference footprint).
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L688-L716`
+
+### `layout.refrepr.unsized-pointee-not-ref` — Unsized pointee kinds (bare `[T]`, bare `dyn`) are not references
+
+The unsized-pointee kinds (an unsized slice `[T]` or unsized `dyn` used directly, not behind a pointer) classify as NotARef: they describe an unsized POINTEE, not a reference, and have no by-value footprint of their own.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L663-L665`
+
+### `layout.refrepr.value-type-thin` — Every reference VALUE (in a register) is a thin pointer
+
+Regardless of representation kind, the by-value (register/operand) form of any reference is a single thin pointer to its storage; a fat {data,meta} pair, where one exists, lives in the referent's STORAGE slot, never directly in a value/register.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L680-L686`
+
+### `layout.refrepr.zoned2-field-self-relative` — Thin-pointer field of a `#[zoned2]` struct is stored self-relative
+
+When computing a FIELD's reference representation (as opposed to a bare type's), a field whose representation would otherwise be ThinPtr is instead stored as RelOffset if the owning struct is flagged `zoned2`. Other representation kinds are unaffected by the owner's `zoned2` flag at this step.
+
+**Divergence:** A6
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L669-L678`
 
 ## layout / rel-ptr
 
@@ -2456,7 +2764,7 @@ A &mut T where T is a #[zone_mut] type has a 16-byte {data, zone=*mut Allocator}
 
 A `#[rel_ptr]` field is stored as an 8-byte i64 byte-offset from the field's own address and materializes to an absolute thin pointer on load; it is opaque (no field access) but transparent to `*Pointee` at the value level.
 
-**Source:** `src/compiler/sema_impl.hpp#L2440-L2444`
+**Source:** `src/compiler/sema_impl.hpp#L2448-L2453`
 
 ## layout / repr-transparent
 
@@ -2464,29 +2772,43 @@ A `#[rel_ptr]` field is stored as an 8-byte i64 byte-offset from the field's own
 
 A single-field wrapper marked `#[repr(transparent)]` inherits its field's layout exactly (size, align, and niche). Other `#[repr(...)]` modes (`C`/`packed`/`align`) are parsed then rejected.
 
-**Source:** `src/compiler/sema_impl.hpp#L2488-L2497`
+**Source:** `src/compiler/sema_impl.hpp#L2496-L2505`
 
-### `layout.repr-transparent.inherits-field` — #[repr(transparent)] inherits the single field's layout
+### `layout.repr-transparent.inherits-field` — `#[repr(transparent)]` inherits its single field's layout exactly
 
-A #[repr(transparent)] struct with exactly one field has layout identical to that field's layout (no added aggregate padding/alignment). Multi-field #[repr(transparent)] is rejected earlier (collect time), so the single-field invariant holds.
+A single-field struct annotated `#[repr(transparent)]` has EXACTLY its field's {size,align} — no aggregate wrapper or padding is added. (The single-field invariant is enforced elsewhere at collect time, so this code trusts it.)
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L490-L495`
+**Source:** `src/compiler/mlir_gen_types.cpp#L494-L501`
 
 ## layout / return
 
-### `layout.return.aggregate-by-value` — Struct/enum return values are returned by value as the full aggregate
+### `layout.return.aggregate-by-value` — Struct/enum return values are the full aggregate, not a pointer-shorthand
 
-A function returning a Struct/ZonedStruct/Enum returns the literal aggregate value by value (the registered LLVM struct/tagged-enum type), even though such types are passed by pointer at parameter/field/scope positions.
+A function returning a Struct/ZonedStruct/Enum by value returns the literal registered LLVM struct / tagged-enum aggregate type at the fn-signature/call/closure-synthesis boundary, distinct from the pointer-shorthand the same Logos type maps to at parameter/field/scope positions.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L603-L626`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L659-L682`
+
+### `layout.return.fat-ref-value-vs-pointer` — Return-position representation of a fat reference is a separate axis from its storage repr
+
+A reference value's return-position ABI is independent of its storage type: FatSlice and FatDyn return their 16-byte fat pair BY VALUE (avoiding a dangling pointer-to-local — the slice/dyn-return-by-value leak fix); FatClosure and FatCustomDst instead return an 8-byte POINTER to their fat pair (the pair's storage is owned by the callee's escape path or the caller's slot, not materialized fresh in the return); ThinPtr returns its 8-byte value directly; NotARef falls through to the ordinary non-reference return-type mapping.
+
+**Source:** `src/compiler/mlir_gen_impl.hpp#L914-L928`
 
 ## layout / slice
 
+### `layout.slice.fat-pointer-descriptor` — Slice references are a {data-pointer, length} fat descriptor
+
+A `&[T]` / `&mut [T]` reference parameter arrives as a pointer to a fat descriptor pair `{data: *T, len}`; indexed element access dereferences the descriptor's data-pointer field first, then applies the element's layout stride (using the element's full struct layout when the element type is itself a struct, so struct-typed slice elements are laid out inline within the pointed-to buffer).
+
+**Related:** `coerce.return.ref-by-descriptor`
+
+**Source:** `src/compiler/mlir_gen_fn.cpp#L395-L411`
+
 ### `layout.slice.fat-pointer-pair` — Slice/str values are a 16-byte {data,len} fat pair
 
-A slice type (and str = `Slice<u8>`) has a fat-pointer representation: a 16-byte {data_ptr, len} pair. Functions returning a slice return this pair by value.
+A slice type (and str = `Slice<u8>`) has a fat-pointer representation: a 16-byte {data_ptr, len} pair. A function returning Slice/str returns this pair BY VALUE at the LLVM fn-return level (distinct from the pointer-shorthand Slice uses at parameter/field/scope positions); the caller spills the returned value to a stack slot so downstream consumers see the usual pointer-to-{ptr,len}.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L496-L501`; `src/compiler/mlir_gen_impl.hpp#L639-L645`; `src/compiler/mlir_gen_impl.hpp#L784-L785`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L695-L702`; `src/compiler/mlir_gen_impl.hpp#L877`; `src/compiler/mlir_gen_impl.hpp#L557-L578`
 
 ### `layout.slice.fat-pointer-ptr-len` — slice fat pointer is {data_ptr, len}
 
@@ -2498,7 +2820,7 @@ A slice value is laid out as a two-field fat pointer: field 0 is the data pointe
 
 A slice-typed value (&[T] / &mut [T]) is represented as a fat descriptor { data-ptr, len }. Indexed access first reads field 0 (the data pointer) then strides by sizeof(element).
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L346-L350`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L364-L368`
 
 ### `layout.slice.owning-box-same-as-borrow` — `Box<[T]>` shares the borrowed-slice fat layout
 
@@ -2514,7 +2836,19 @@ A slice value (`&[T]`, `str`) is the pair {data: ptr, len: i64}.
 
 **Source:** `src/compiler/mlir_gen_types.cpp#L944-L947`
 
+### `layout.slice.repr` — Slice runtime representation is a 16-byte {ptr, i64 len} pair
+
+A slice's fat-pair storage representation is `{ptr, i64}` -- a data pointer and an 8-byte length, 16 bytes total.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L1017-L1020`
+
 ## layout / struct
+
+### `layout.struct.assign-value-copy` — Struct-valued assignment copies the full struct payload
+
+Assigning a struct (or zoned-struct) value to a struct-typed place (`acc = src;`) copies the entire struct footprint (memcpy of `sizeof(struct)`) into the destination storage — a plain pointer store would only overwrite the first machine word.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2073-L2088`
 
 ### `layout.struct.field-fat-ref-inline-storage` — Fat-ref struct/enum field stored inline
 
@@ -2529,6 +2863,12 @@ A struct field of pointer or reference type (*T / &T / &mut T) does not own the 
 **Source:** `src/compiler/mlir_gen_impl.hpp#L52-L55`
 
 ## layout / tuple
+
+### `layout.tuple.inline-aggregate-elements` — Tuple elements of struct/enum/slice/closure/dyn/tuple kind are embedded inline at full layout
+
+A tuple element is stored INLINE at its full by-value layout, matching the struct-field convention, for these element kinds: Struct/ZonedStruct (registered inline struct type), Enum (full {disc,payload} footprint), Slice (16-byte {ptr,len} fat pair, including `str` = `Slice<u8>`), Closure (16-byte {fn,env} pair), TraitObject/bare `&dyn` (16-byte {data,vtable} pair), and nested Tuple (its own aggregate, recursively). A `*mut dyn` (Ptr-to-TraitObject) is excluded from the dyn case and stays an 8-byte thin handle. `&(T,U)`/`&mut (T,U)`/`*(T,U)` typed as a tuple resolve through the pointee to the inner tuple's layout.
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L961-L1015`
 
 ### `layout.tuple.inline-elements` — Tuple elements stored inline by value
 
@@ -2556,15 +2896,15 @@ A tuple element whose type is a struct, enum, slice (incl. `str`), closure, trai
 
 A concrete (non-generic) zoned struct/datatype with TYPE_CODE==0 receives an auto-assigned code from the 56-bit hash of its canonical name pkg::Name; codes < 128 are bumped by +128 to stay outside the reserved inline-AnyVal range 1..127. Generic templates are hashed at instantiation time.
 
-**Source:** `src/compiler/sema.cpp#L7649-L7657`; `src/compiler/sema.cpp#L7770-L7781`
+**Source:** `src/compiler/sema.cpp#L7686-L7694`; `src/compiler/sema.cpp#L7805-L7817`
 
 ## layout / union
 
-### `layout.union.common-storage` — Union layout = max size / max align
+### `layout.union.common-storage` — Union layout: overlapping common storage
 
-A union's size = round_up(max(field sizes), align) and align = max(field aligns); all fields overlap at offset 0 (share field index 0). The physical body is {<largest-aligned field type>, [pad x i8]} so the aggregate's own align = max-align and raw size = max-size.
+A `union`'s size is max(field sizes) rounded up to max(field aligns); its alignment is max(field aligns). All fields occupy the SAME storage starting at offset 0 (they overlap); the field with the maximum alignment supplies the concrete LLVM field type at that offset, with trailing padding bytes appended to reach the union's full size.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L351-L382`; `src/compiler/mlir_gen_types.cpp#L496-L506`
+**Source:** `src/compiler/mlir_gen_types.cpp#L353-L388`; `src/compiler/mlir_gen_types.cpp#L502-L512`
 
 ### `layout.union.max-of-fields` — Union layout is max-size at max-alignment
 
@@ -2572,25 +2912,31 @@ A struct marked as a union (`#[repr(...)]` union) is laid out as the maximum fie
 
 **Divergence:** Logos union via #[repr]/union attribute; layout semantics match C/Rust unions.
 
-**Source:** `src/compiler/sema_decl.cpp#L1202-L1204`
+**Source:** `src/compiler/sema_decl.cpp#L1231-L1233`
 
 ## layout / unsized
 
 ### `layout.unsized.no-by-value` — Unsized pointees have no by-value footprint
 
-Unsized types — the slice pointee [T] (UnsizedSlice) and the dyn pointee (UnsizedDyn) — have layout {size=0, align=1}; they have no by-value representation and may only appear behind a pointer/reference.
+UnsizedSlice (`[T]`) and UnsizedDyn (bare `dyn Trait` pointee, not a reference to it) have layout {0,1} — they carry no by-value footprint; only reference/pointer/box forms of them exist as values (enforced upstream by sema/borrow-check).
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L468-L469`; `src/compiler/mlir_gen_types.cpp#L588-L590`
+**Source:** `src/compiler/mlir_gen_types.cpp#L470-L471`; `src/compiler/mlir_gen_types.cpp#L663-L665`
 
 ## layout / value
 
 ### `layout.value.scalar-vs-aggregate-storage` — Storage representation by type kind
 
-A binding's storage representation is fixed by type kind: scalars/fn-pointers/fn-items hold the value inline; structs, zoned-structs, arrays, and value-repr enums hold inline storage addressed by a pointer; tuples, closures, and slices/str are pointer-to-aggregate ({ptr,len} for slices); FnItem (per-instantiation ZST) lowers identically to a function pointer.
+A scalar-typed `let` binding is represented as a scalar-sized alloca holding the initializer's value, integer- and float-coerced to the declared type before the store. Struct/zoned-struct/enum(value-repr)/tuple/slice/str/closure/array-typed bindings are instead represented as pointers to their (inline) aggregate storage.
 
-**Related:** `layout.fatptr.slice-dyn-16-bytes`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L1872-L1911`; `src/compiler/mlir_gen_stmt.cpp#L1637-L1668`
 
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L1457-L1557`; `src/compiler/mlir_gen_stmt.cpp#L1528-L1541`; `src/compiler/mlir_gen_stmt.cpp#L1599-L1630`
+## layout / visibility
+
+### `layout.visibility.repr-query-no-pub-check` — Struct representation queries bypass privacy
+
+A struct lookup performed to answer a layout/representation question (e.g. an internal representation check consulted during monomorphization from a foreign package's context) uses a pub-check-free accessor, distinct from the pub-checked name-resolution accessor; visibility is not enforced for representation-only queries.
+
+**Source:** `src/compiler/sema_impl.hpp#L3180-L3195`
 
 ## layout / vtable
 
@@ -2600,13 +2946,27 @@ A trait-object vtable lays out the drop glue at slot 0, size_of(T) at slot 1, al
 
 **Source:** `src/compiler/mlir_gen_dyn.cpp#L1567-L1574`
 
+### `layout.vtable.supertrait-postorder` — dyn-Trait vtable slot order = post-order DFS over supertrait graph
+
+For trait T's dyn-T vtable, the method-slot order is a post-order DFS over T's transitive supertrait graph, deduplicated: for each supertrait (deepest ancestors first), that trait's OWN methods are appended before continuing; T's own methods are appended last. A method's index in this order is its vtable slot (codegen adds a fixed +3-slot header on top).
+
+**Source:** `src/compiler/sema_collect.cpp#L5105-L5114`; `src/compiler/sema_collect.cpp#L5119-L5137`
+
+### `layout.vtable.upcast-super-slots` — upcast &dyn Sub -> &dyn Super indexes a stored per-supertrait vtable-pointer slot
+
+After a trait's method slots, one stored super-vtable-pointer slot is emitted per transitive supertrait (every trait visited during the vtable walk except the root), in the same deepest-first DFS order as the method walk. Upcasting &dyn Sub to &dyn Super indexes this slot array by the supertrait's position in that order.
+
+**Source:** `src/compiler/sema_collect.cpp#L5110-L5114`; `src/compiler/sema_collect.cpp#L5132`
+
 ## layout / zero-size
 
-### `layout.zero-size.void-never` — Unit and never are zero-sized
+### `layout.zero-size.void-never` — Void/Never/unit-field are zero-sized, no SSA value
 
-The unit type () (Void) and the never type ! (Never) have layout {size=0, align=1}. As a struct/enum field each occupies a zero-size slot ([i8;0]) so sibling field offsets are unaffected; in value/result position they yield no SSA value.
+`Void` (absence of a return value) and `Never` (`!`, an uninhabited/diverging type) both have layout {0,1} and lower to no SSA value at all (a diverging expression emits its own terminator instead of a value). When either occurs as a concrete struct FIELD's type (e.g. a `!`-typed Err payload, or a unit `()` field), it is materialized as a genuine zero-size `[i8; 0]` storage slot so the aggregate's other field offsets stay correct, even though it is never read.
 
-**Source:** `src/compiler/mlir_gen_types.cpp#L453`; `src/compiler/mlir_gen_types.cpp#L320-L340`; `src/compiler/mlir_gen_types.cpp#L40-L43`
+**Divergence:** A12
+
+**Source:** `src/compiler/mlir_gen_types.cpp#L40-L43`; `src/compiler/mlir_gen_types.cpp#L322-L343`; `src/compiler/mlir_gen_types.cpp#L455`
 
 ## layout / zone-mut
 
@@ -2614,27 +2974,25 @@ The unit type () (Void) and the never type ! (Never) have layout {size=0, align=
 
 For a `#[zone_mut]` type, `&mut T` is a fat reference {data, zone=*mut Allocator} carrying its zone so grow methods can reach the allocator from `&mut self`; a read `&T` stays thin.
 
-**Source:** `src/compiler/sema_impl.hpp#L2454-L2458`
+**Source:** `src/compiler/sema_impl.hpp#L2462-L2466`
 
 ## layout / zone-mut-ref
 
-### `layout.zone-mut-ref.fat-data-zone` — &mut T of a zone_mut type is a fat {data, zone} pair
+### `layout.zone-mut-ref.fat-data-zone` — &mut T of a #[zone_mut] type is a fat {data, zone} pair
 
-A mutable reference `&mut T` where `T` is a `#[zone_mut]` (FatZoneMut) type is a two-word fat pointer carrying {data, zone}; the address of the referent object is the data half. Field and method access on such a receiver descend through the data pointer, not the fat-pair storage.
+A `&mut T` reference to a `#[zone_mut]` (FatZoneMut) type is represented as a two-word fat pointer pair `{data, zone}`. Field/method access on the referent resolves through the `data` half of the pair (peeled off before descent); every other (thin) reference kind is unaffected (identity).
 
-**Divergence:** Logos zone model; no Rust analogue
+**Divergence:** Logos-specific zone/Writ memory-model addition; no Rust equivalent.
 
-**Source:** `src/compiler/mlir_gen.cpp#L667-L680`
+**Source:** `src/compiler/mlir_gen.cpp#L668-L681`
 
 ## layout / zoned2
 
 ### `layout.zoned2.all-thin-fields-self-relative` — #[zoned2] stores all thin-pointer fields self-relative
 
-A `#[zoned2]` struct stores all of its thin-pointer fields as self-relative RelOffset i64 and materializes them to absolute pointers in compute; such a struct is non-movable (it cannot be stack-allocated because the offsets are anchored to the slot).
+A `#[zoned2]` struct (or a `#[zoned2]` enum's Ref arm) stores all of its thin-pointer fields as self-relative RelOffset i64 and materializes them to absolute pointers in compute; such a type is non-movable (it cannot be stack-allocated because the offsets are anchored to the slot).
 
-**Source:** `src/compiler/sema_impl.hpp#L2459-L2464`; `src/compiler/sema_impl.hpp#L2585`
-
----
+**Source:** `src/compiler/sema_impl.hpp#L2467-L2472`; `src/compiler/sema_impl.hpp#L2609`
 
 # Coercions & Casts (`domain: coerce`)
 
@@ -2642,13 +3000,13 @@ A `#[zoned2]` struct stores all of its thin-pointer fields as self-relative RelO
 
 ### `coerce.anyval.let-binds-i32` — AnyVal-typed let binds an i32
 
-A binding declared with type `AnyVal` coerces its RHS to a 32-bit integer and stores it as a scalar binding.
+`let name: AnyVal = expr;` numerically coerces expr's value to a 32-bit integer before storing; the binding's storage is a single i32-sized scalar slot.
 
-**Divergence:** No Rust equivalent (AnyVal is a Logos addition).
+**Divergence:** AnyVal itself is a Logos addition with no Rust equivalent (not a tracked DIVERGENCES.md tag).
 
-**Uncertainty:** AnyVal is a compiler-internal/metaprogramming type; the i32 coercion may be an implementation default rather than a stable language guarantee.
+**Uncertainty:** AnyVal is a Logos-specific type (no Rust equivalent); the i32 coercion is this call site's implementation choice, not independently cross-checked here.
 
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L1444-L1454`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L1465-L1474`
 
 ## coerce / arg
 
@@ -2657,6 +3015,12 @@ A binding declared with type `AnyVal` coerces its RHS to a 32-bit integer and st
 Implicit argument-to-parameter coercions are applied in one fixed canonical order: bare-enum retype, closure-literal→fn-pointer, array-ref↔slice unsize, dyn supertrait upcast, &Concrete→&dyn-Trait unsize, &mut auto-reborrow, then integer widening. The standard set enables all of these; a minimal set enables only auto-reborrow and integer widening.
 
 **Source:** `src/compiler/sema_impl.hpp#L450-L487`
+
+### `coerce.arg.canonical-flag-order` — Canonical coercion flag order for trait-method arguments
+
+Argument-to-parameter coercion for a resolved bounded-generic trait-method call applies, via a single coercion call, the canonical pipeline in flag order: dyn-widening (arg-to-dyn), implicit reborrow, then integer widening.
+
+**Source:** `src/compiler/sema_expr.cpp#L7572-L7577`
 
 ### `coerce.arg.method-canonical-coercions` — Method arguments coerced in canonical order
 
@@ -2690,6 +3054,14 @@ A reference or raw pointer to an array, `&[T;N]` / `&mut [T;N]` / `*const [T;N]`
 
 **Source:** `src/compiler/sema.cpp#L1938-L1941`; `src/compiler/sema.cpp#L1999-L2019`
 
+## coerce / array-lit
+
+### `coerce.array-lit.heterogeneous-element-unsize` — Array/slice literal elements unsize individually to an annotated dyn-Trait element type
+
+An array/slice literal typed against an expected element type via an outer annotation (e.g. `let arr: [&dyn Trait; N] = [...]`) may contain elements of different concrete reference types (`[&Sq, &Ci]`); each element unsizes (per-element, at codegen) to the expected `&dyn Trait` element type, rather than the literal being rejected for element-type mismatch.
+
+**Source:** `src/compiler/sema_impl.hpp#L3725-L3730`
+
 ## coerce / binop
 
 ### `coerce.binop.autoderef-numeric-ref` — Auto-deref reference operand to primitive in scalar binops
@@ -2716,9 +3088,9 @@ For bitwise/shift operators {&,|,^,<<,>>}, an operand of type &T is implicitly d
 
 ### `coerce.call.aggregate-arg-by-pointer` — Aggregate / tagged-enum arguments passed by pointer
 
-When a callee parameter has aggregate (struct) or tagged-enum representation (passed by pointer) and the argument arrives as a value, the value is placed in fresh storage and the pointer is passed; scalar arguments to scalar parameters are numerically coerced to the parameter type instead.
+When a callee parameter has by-pointer representation (aggregate/struct or tagged-enum) and the argument is materialized as a value (a struct value or a niche-packed enum scalar), the value is spilled to fresh storage and its pointer is passed instead of the value. When the argument is a field-access expression naming an inline (non-Box) struct-typed field of a receiver, the field's address is computed directly (GEP into the receiver's storage) and passed as the pointer, instead of loading the field and spilling a disconnected copy — so a by-pointer parameter aliases the original receiver storage and any mutation through it (e.g. passing `&mut self.field`) is visible to the caller. Scalar arguments to scalar (non-pointer) parameters are instead numerically coerced to the parameter type.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L2483-L2505`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L2416-L2442`; `src/compiler/mlir_gen_expr.cpp#L2512-L2534`
 
 ## coerce / cast
 
@@ -2726,7 +3098,7 @@ When a callee parameter has aggregate (struct) or tagged-enum representation (pa
 
 An `as`-cast where the source is an aggregate (struct/array/tuple/enum) and the target is a scalar is rejected, EXCEPT a payload-free (C-style) enum cast to integer/bool (discriminant cast). Symmetrically, casting a scalar/pointer to an aggregate target (struct/zoned-struct/array/tuple/enum) is rejected as a non-primitive cast target.
 
-**Source:** `src/compiler/sema_expr.cpp#L881-L956`
+**Source:** `src/compiler/sema_expr.cpp#L877-L956`
 
 ### `coerce.cast.as-bool-forbidden` — as bool is not a permitted cast
 
@@ -2744,25 +3116,31 @@ let b: bool = (i as bool);  // error
 
 A fat value cast to a thin pointer extracts field 0 (the data half): (a) `*mut/*const dyn` (`Ptr<TraitObject>`) → `*mut/*const ()` (void only); (b) any bare dyn/closure VALUE or `&dyn`/`&mut dyn` → void or any non-fat thin pointer; (c) `*const/*mut [T]` (Slice) → any non-fat thin pointer; (d) a non-self-describing DstRef → thin pointer; (e) a fat zone-mut `&mut T` → `*mut/*const T`. Runs before the identity check since both sides are MLIR pointer type.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3493-L3591`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3554-L3652`
+
+### `coerce.cast.float-ptr-forbidden` — Float <-> pointer as-cast is forbidden
+
+An `as`-cast between a float type (f32/f64) and a `Ptr` type, in either direction, is rejected — there is no meaningful direct numeric/address conversion; cast through an integer type instead (e.g. `x as usize as *const T`).
+
+**Source:** `src/compiler/sema_expr.cpp#L968-L984`
 
 ### `coerce.cast.float-to-float` — Float to float truncates or extends by width
 
 `E as F` (both float): truncate if width(F) < width(E), else extend.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3657-L3665`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3719-L3726`
 
 ### `coerce.cast.float-to-int-by-target-signedness` — Float to integer conversion respects target signedness
 
 `E as T` (E float, T integer) uses float-to-unsigned-int if T is unsigned (u8/u16/u24/u32/u56/u64/u128) else float-to-signed-int.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3666-L3679`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3727-L3740`
 
 ### `coerce.cast.identity-noop` — Same-representation cast is identity
 
 If the source value's representation equals the target representation, `E as T` is the identity (the value is returned unchanged).
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3617`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3678`
 
 ### `coerce.cast.int-null-to-trait-object` — Integer (null) cast to trait object yields zeroed fat pair
 
@@ -2770,37 +3148,37 @@ If the source value's representation equals the target representation, `E as T` 
 
 **Divergence:** Logos uniform-fat model: `*mut dyn`/`&dyn` are both 16-byte {data,vtable}; integer-to-dyn null cast is a Logos extension for null sentinels (no Rust analog).
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3170-L3193`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3236-L3253`
 
 ### `coerce.cast.int-to-float-by-signedness` — Integer to float conversion respects source signedness
 
 `E as F` (E integer, F float) uses unsigned-to-float if the source is unsigned (u8/u16/u24/u32/u56/u64/u128) or i1 (bool), else signed-to-float. Bool must be treated as unsigned: signed conversion of i1(1) gives -1.0.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3640-L3656`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3701-L3717`
 
 ### `coerce.cast.int-to-ptr` — Integer to pointer widens to 64-bit then reinterprets
 
 `E as *T` (E integer) first widens E to 64-bit (zero-extend if the source is unsigned, else sign/value-coerce) then reinterprets the integer as an address.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3681-L3697`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3743-L3758`
 
 ### `coerce.cast.int-truncate` — Integer narrowing truncates
 
 `E as T` where both are integers and width(T) < width(E) truncates to the low width(T) bits; equal widths are the identity.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3636-L3638`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3697-L3699`
 
 ### `coerce.cast.int-widen-by-signedness` — Integer widening sign- or zero-extends per source signedness
 
 `E as T` where both are integers and width(T) > width(E): zero-extend if the source is unsigned (u8/u16/u24/u32/u56/u64/u128, or i1) else sign-extend.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3619-L3635`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3682-L3696`
 
 ### `coerce.cast.ptr-to-int` — Pointer to integer reinterprets address
 
 `E as T` (E pointer, T integer) reinterprets the address as an integer of T's width.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3698-L3700`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3760-L3761`
 
 ### `coerce.cast.ref-to-scalar-autoderef` — &T as scalar auto-derefs the reference
 
@@ -2826,13 +3204,13 @@ Casting a `str` (`Slice<u8>`) to `*mut u8` is rejected because str data is read-
 
 **Divergence:** Rust-conformant (trait upcasting); vtable layout {drop,size,align, methods…, super-vtables…} is Logos-specific.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3254-L3303`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3321-L3364`
 
 ### `coerce.cast.u8-slice-to-u8-ptr` — &[u8]/str to *const u8 extracts data field
 
 `E as *const u8`/`*mut u8` where E has type `Slice<u8>` (str is `Slice<u8>`) extracts field 0 (the data pointer) of the {ptr,len} fat pair. Evaluated before the identity short-circuit because both the fat-struct alloca and `*const u8` are the same MLIR pointer type.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3339-L3351`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3400-L3412`
 
 ## coerce / cfgslot
 
@@ -2884,19 +3262,19 @@ types_compatible(from,to) is the directed implicit-coercion relation. It holds w
 
 ## coerce / deref
 
-### `coerce.deref.box-slice-borrow` — &`Box<[T]>` deref-coerces to &[T]
+### `coerce.deref.box-slice-borrow` — `&Box<[T]>` borrows as `&[T]`
 
-`&b` where `b` is an owning slice (`Box<[T]>`) yields a borrowed `&[T]` view over the same {data,len} storage with no copy or move; mutability is inherited from the owning slice.
+`&b` where `b: Box<[T]>` (an owning slice) is a Deref-coercion borrow: yields `&[T]` sharing the box's `{data,len}` representation — the same storage pointer re-typed as a borrowed slice, no copy, no move.
 
-**Source:** `src/compiler/sema_expr.cpp#L2516-L2521`
+**Source:** `src/compiler/sema_expr.cpp#L2533-L2538`
 
-### `coerce.deref.box-struct-borrow` — &`Box<Foo>` deref-coerces to &Foo
+### `coerce.deref.box-struct-borrow` — `&Box<S>` / `&Box<dyn Trait>` borrows as `&S` / `&dyn Trait`
 
-`&b` where `b` is an owning DST reference (`Box<Foo>`) yields a borrowed `&Foo` with the same reference value re-typed non-owning; mutability is inherited.
+`&b` where `b: Box<S>` for a custom-DST struct `S` (owning DstRef) or `b: Box<dyn Trait>` (owning trait object) is a Deref-coercion borrow: the box's VALUE is already the `{data,len}` DstRef pair or the `{data,vtable}` fat pair, so borrowing it reads the var's value (var_ref load) and re-types it non-owning — it never re-addresses the local slot, which would produce the wrong indirection (e.g. a thin `&&dyn Trait` where the callee expects the 16-byte fat pair by value).
 
-**Source:** `src/compiler/sema_expr.cpp#L2522-L2532`
+**Source:** `src/compiler/sema_expr.cpp#L2539-L2565`
 
-### `coerce.deref.ref-vec-to-slice` — &`Vec<T>` / &mut `Vec<T>` deref-coerces to slice &[T]
+### `coerce.deref.ref-vec-to-slice` — `&Vec<T>` / &mut `Vec<T>` deref-coerces to slice &[T]
 
 A Ref/MutRef over a stdlib `Vec<T>` struct coerces to a Slice with element compatible with Vec's first type-arg (Vec's {ptr,len,cap} has the {ptr,len} slice fat-pointer as a prefix).
 
@@ -2930,7 +3308,7 @@ An argument of trait-object type `dyn Sub` (bare or behind `&`/`&mut`) implicitl
 
 An enum literal passed as an argument with missing or unresolved type-args (e.g. bare `Opt::None`, partially-inferred `Opt::Some(3)`) is retyped to the parameter's concrete enum type, pinning the missing type-args. Retype fires only when the literal's already-known (non-error) type-args match the target's, so a genuine mismatch is still rejected.
 
-**Source:** `src/compiler/sema_impl.hpp#L500-L508`; `src/compiler/sema_impl.hpp#L582-L592`
+**Source:** `src/compiler/sema_impl.hpp#L500-L508`; `src/compiler/sema_impl.hpp#L582-L599`
 
 ### `coerce.enum.elementwise-typeargs-no-widen` — Same-named enums compatible by type-args, but concrete scalar args must match exactly
 
@@ -2944,7 +3322,7 @@ An enum literal whose value type has empty or unresolved type-args is retyped to
 
 **Uncertainty:** Compatibility predicate `types_compatible` defined elsewhere; here only the gating conditions are observable.
 
-**Source:** `src/compiler/sema_impl.hpp#L593-L618`
+**Source:** `src/compiler/sema_impl.hpp#L600-L619`
 
 ### `coerce.enum.retype-nested-payload-recursive` — Enum-literal retype projects type-args through variant payloads recursively
 
@@ -2962,9 +3340,9 @@ An Enum coerces to a non-enum integer kind (its discriminant). Enum to Enum via 
 
 ### `coerce.float.widen-truncate` — Float-to-float widening extends, narrowing truncates
 
-Converting a float to a wider float type extends; to a narrower float type truncates.
+Converting a float to a wider float type extends; to a narrower float type truncates. Equal-width is a no-op.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L561-L568`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L617-L625`
 
 ## coerce / fn
 
@@ -3014,45 +3392,35 @@ An integer coerces to a wider integer when can_widen_int holds (e.g. u32 to i64,
 
 ### `coerce.int.to-float-by-signedness` — Integer-to-float conversion respects source signedness
 
-An integer-to-float conversion uses unsigned-to-float when the source integer type is unsigned (one of {u8,u16,u32,u56,u64,u128}), otherwise signed-to-float. Float-to-int is not an implicit coercion and requires an explicit cast.
+An integer-to-float coercion uses unsigned-to-float when the source Logos type is one of {U8,U16,U32,U56,U64,U128}, otherwise signed-to-float (including when the source Logos type is unavailable). Float-to-int is not an implicit numeric coercion and requires an explicit cast.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L571-L597`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L627-L654`
 
 ### `coerce.int.truncate-on-narrowing` — Integer narrowing truncates
 
-Converting an integer value to a narrower integer type truncates to the destination width (low-order bits retained).
+Converting an integer value to a narrower integer type truncates to the destination width (low-order bits retained), independent of signedness.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L556-L557`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L612-L613`
 
 ### `coerce.int.widen-by-source-signedness` — Integer widening sign- vs zero-extends by source signedness
 
-Widening an integer value to a wider integer type sign-extends when the source type is signed and zero-extends when the source type is unsigned. Unsigned source kinds = {u8,u16,u24,u32,u56,u64,u128} (and bool). bool (i1) is always zero-extended.
+Widening an integer value to a wider integer type sign-extends when the source type is signed and zero-extends when the source type is unsigned. Unsigned source kinds = {U8,U16,U24,U32,U56,U64,U128} (and Bool). bool (i1) is always zero-extended. Without a known source Logos type, the coercion defaults to sign-extend.
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L534-L555`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L590-L615`
 
-### `coerce.int.widen-or-literal-fits` — Integer expression widening to target type
+### `coerce.int.widen-or-literal-fits` — Implicit int widening or literal-fits cast
 
-An integer-typed expression e is implicitly widened to a target integer type T (via an inserted cast) iff can_widen(kind(e),T) holds, OR e is an integer literal whose value fits T. Otherwise no implicit widening occurs.
+widen_int_expr(e, target): if e's int kind ek differs from target kind tk, e is cast to target when either (a) ek widens to tk per can_widen_int, or (b) e carries a known literal value (get_intlit_value) that fits tk (intlit_fits). Otherwise e is left unchanged (also unchanged when ek == tk already).
 
-**Source:** `src/compiler/sema_impl.hpp#L4401-L4409`
+**Source:** `src/compiler/sema_impl.hpp#L4419-L4464`
 
 ## coerce / intlit
 
-### `coerce.intlit.dispatch-unsuffixed-fits-narrower` — Unsuffixed integer literal dispatches to any integer param it fits
+### `coerce.intlit.dispatch-unsuffixed-fits-narrower` — Unsuffixed int literal dispatches to any param it numerically fits
 
-For overload/call dispatch an argument that is an UNSUFFIXED integer literal is compatible with an integer parameter type P iff its value fits P; a SUFFIXED literal (e.g. `9u64`) has a concrete type and must match by type, not by value. The flex path excludes Enum params (P!=Enum) so an integer never reinterprets enum by-pointer storage.
+In overload/dispatch argument compatibility, an arg of Kind IntLit (unsuffixed literal) is compatible with param type P iff P is an integer kind ≠ Enum and the literal's value fits P (intlit_fits). A SUFFIXED literal (`9u64`) has a concrete int type and must match by type equality/compatibility only — it does not narrow-flex to other widths that also happen to fit the value (Rust parity: `9u64` is `u64`, period). A param whose kind is Enum can never be hit by a bare integer literal (would reinterpret the int as the enum's by-pointer storage).
 
-**Examples**
-
-```logos
-push(7) // matches push(u8)
-```
-
-```logos
-push(9u64) // matches push(i64)? NO — u64 only
-```
-
-**Source:** `src/compiler/sema_impl.hpp#L4411-L4432`
+**Source:** `src/compiler/sema_impl.hpp#L4465-L4486`
 
 ### `coerce.intlit.to-integer-typevar-float` — Integer/float literal coercion to numeric, type-var, float
 
@@ -3120,11 +3488,13 @@ When a method parameter has type `dyn Trait` (a trait object, possibly after pee
 
 ## coerce / method-arg
 
-### `coerce.method-arg.pipeline` — Method argument coercions
+### `coerce.method-arg.pipeline` — Method-call arguments coerce through a fixed set of implicit conversions
 
-Each method argument is coerced to its (substituted) parameter type via the canonical coercion pipeline supporting closure-to-fn-ptr, `&Concrete`-to-`&dyn Trait` unsize, implicit reborrow, and integer widening, with widening applied last.
+Each explicit method-call argument is coerced toward its (substituted) declared param type via `coerce_arg_to_param` with flags: closure→fn-pointer coercion, arg→`dyn Trait` unsizing, implicit reborrow, and integer widening — applied through the canonical coercion pipeline (widen runs last; no coercion here depends on widen's output).
 
-**Source:** `src/compiler/sema_expr.cpp#L8873-L8887`
+**Source:** `src/compiler/sema_expr.cpp#L8920-L8934`
+
+> **Duplicate extraction (flagged):** a second artifact emits the same id `coerce.method-arg.pipeline` (titled “Method argument coercions”). Its statement: Each method argument is coerced to its (substituted) parameter type via the canonical coercion pipeline supporting closure-to-fn-ptr, `&Concrete`-to-`&dyn Trait` unsize, implicit reborrow, and integer widening, with widening applied last. — Source: `src/compiler/sema_expr.cpp#L8873-L8887`. The two statements agree; both are preserved here pending dedup in the extraction layer.
 
 ## coerce / method-recv
 
@@ -3150,6 +3520,14 @@ Never coerces to any type T (Never to T accepted unconditionally). The reverse T
 
 **Source:** `src/compiler/sema.cpp#L1827-L1835`
 
+## coerce / numeric
+
+### `coerce.numeric.return-value` — Scalar return values are numerically coerced to the declared return type
+
+For a scalar (non-aggregate, non-fat-pointer) return value whose type does not already match the function's return representation, the value is coerced (widened/narrowed/signed-adjusted) to the declared return type before the return is emitted.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2292-L2293`
+
 ## coerce / numericlit
 
 ### `coerce.numericlit.unify-to-concrete` — Numeric literal (int or float) unifies to the concrete operand
@@ -3166,7 +3544,7 @@ When unifying two numeric types where either operand may be a literal, an unsuff
 
 A parameter whose type is an array [T; N] is passed by pointer (to the array storage), not by value.
 
-**Source:** `src/compiler/mlir_gen_fn.cpp#L102-L104`
+**Source:** `src/compiler/mlir_gen_fn.cpp#L102-L104`; `src/compiler/mlir_gen_fn.cpp#L412-L420`
 
 ## coerce / reborrow
 
@@ -3214,13 +3592,13 @@ Reference and raw-pointer coercions require compatible pointees: &/&mut to *cons
 
 **Source:** `src/compiler/sema.cpp#L2020-L2061`
 
-### `coerce.ref.unsized-dyn-canonicalizes-to-traitobject` — &`UnsizedDyn<Trait>` canonicalizes to `TraitObject<Trait>`
+### `coerce.ref.unsized-dyn-canonicalizes-to-traitobject` — `&UnsizedDyn<Trait>` canonicalizes to `TraitObject<Trait>`
 
 Forming a reference to an unsized-dyn pointee, `&UnsizedDyn<Trait<args...>>`, canonicalizes to the trait-object fat-pointer type `TraitObject<Trait<args...>>`, preserving the trait's type-args. Ensures `&self` and `other: &Self` for an impl-on-dyn mangle identically.
 
 **Source:** `src/compiler/sema_impl.hpp#L243-L246`
 
-### `coerce.ref.unsized-slice-canonicalizes-to-slice` — &`UnsizedSlice<T>` canonicalizes to `Slice<T>`
+### `coerce.ref.unsized-slice-canonicalizes-to-slice` — `&UnsizedSlice<T>` canonicalizes to `Slice<T>`
 
 Forming a reference to an unsized-slice pointee, `&UnsizedSlice<T>`, canonicalizes to the fat-pointer slice type `Slice<T>` (= `&[T]`). The reference layer is collapsed into the slice's own fat pointer.
 
@@ -3228,11 +3606,11 @@ Forming a reference to an unsized-slice pointee, `&UnsizedSlice<T>`, canonicaliz
 
 **Source:** `src/compiler/sema_impl.hpp#L233-L242`
 
-### `coerce.ref.widen-int-literal-temp-pointee` — &<int-literal> sizes its temporary to the expected pointee width
+### `coerce.ref.widen-int-literal-temp-pointee` — Widening a `&int-literal` argument widens the temp's inner literal, not the pointer
 
-When `&L` (an address-of an integer literal materialized as a temporary) is passed where `&T`/`&mut T` is expected and T is a wider integer type that L can widen to or fits, the inner literal is cast to T before being addressed, so the temporary's storage slot is sized to T (preventing a narrow temp read as the wider pointee).
+Coercing an argument whose type is `&T1`/`&mut T1` and lowered form is AddrOfTemp(int-literal) to an expected `&T2`/`&mut T2` (T1,T2 both integer kinds, T1≠T2, literal fits T2) rewrites the AddrOfTemp's INNER expr — casting the literal to T2 and rebuilding the AddrOfTemp with target type `&T2` — rather than casting the outer reference. Codegen sizes the temporary's stack slot from the literal's own (unwidened) type; leaving it un-rewritten would let the callee load T2 through a pointer to an undersized/mistyped slot, reading adjacent stack memory.
 
-**Source:** `src/compiler/sema_impl.hpp#L4365-L4400`
+**Source:** `src/compiler/sema_impl.hpp#L4423-L4454`
 
 ## coerce / rel-ptr
 
@@ -3256,19 +3634,25 @@ A `#[rel_ptr]` struct `RP<T>` is value-transparent to `*T`/`&T`/`&mut T`: its co
 
 A function whose return type is a tuple, struct, ZonedStruct, or payload-carrying (tagged) enum returns the aggregate by value (as a value of the aggregate's storage type), never as a pointer to function-local storage; this guarantees the returned value outlives the callee frame.
 
-**Source:** `src/compiler/mlir_gen_fn.cpp#L116-L137`; `src/compiler/mlir_gen_fn.cpp#L68-L82`
+**Source:** `src/compiler/mlir_gen_fn.cpp#L68-L82`; `src/compiler/mlir_gen_fn.cpp#L116-L137`
+
+### `coerce.return.box-unsize-dyn` — `Box<Concrete>` coerces to `Box<dyn Trait>` at return
+
+A `Box<Concrete>` return value where the declared return type is an owning trait object (`Box<dyn Trait>`) is implicitly unsize-cast: the source Box is marked moved and the value is wrapped in the same `as`-unsize cast the explicit form uses, producing the {data,vtable} fat pair with Box drop-glue. Applies only to a bare `Box<Concrete>` source, not an already-unsized trait object or a non-Box return.
+
+**Source:** `src/compiler/sema_stmt.cpp#L2839-L2853`
 
 ### `coerce.return.c-enum-as-integer` — Payload-free enum returns as i32
 
 A function returning a C-style enum (an enum with no payload variants, so no tagged-enum layout) returns its discriminant as a 32-bit integer rather than an aggregate.
 
-**Source:** `src/compiler/mlir_gen_fn.cpp#L129-L137`; `src/compiler/mlir_gen_fn.cpp#L78-L82`
+**Source:** `src/compiler/mlir_gen_fn.cpp#L78-L82`; `src/compiler/mlir_gen_fn.cpp#L129-L137`
 
 ### `coerce.return.closure-to-fnptr` — Non-capturing closure coerces to fn-ptr at return
 
 A non-capturing closure literal returned where a fn-value type is expected coerces to that fn-pointer type (same coercion as let-annotation and call-arg sites).
 
-**Source:** `src/compiler/sema_stmt.cpp#L2819-L2825`
+**Source:** `src/compiler/sema_stmt.cpp#L2832-L2834`
 
 ### `coerce.return.enum-discriminant-to-aggregate` — returning an enum discriminant where an aggregate is expected wraps it
 
@@ -3280,7 +3664,7 @@ When the function return type is an aggregate (struct/enum representation) but t
 
 A float-literal return value is retyped to the concrete f32/f64 return type when the return type is a float; otherwise it defaults to f64.
 
-**Source:** `src/compiler/sema_stmt.cpp#L2852-L2857`
+**Source:** `src/compiler/sema_stmt.cpp#L2876-L2881`
 
 ### `coerce.return.numeric-to-ret-type` — scalar return value is coerced to the declared numeric return type
 
@@ -3292,11 +3676,9 @@ A scalar returned value is coerced (widened/narrowed/sign-adjusted) to the funct
 
 When the return type is a reference kind, its by-value return representation is the reference's RefRepr: dyn-trait and slice references return their 16-byte fat (pointer,metadata) pair by value; closure / custom-DST / thin references return their 8-byte value pointer.
 
-**Divergence:** A3/A4 fat-pointer return representation
-
 **Related:** `coerce.return.aggregate-by-value`
 
-**Source:** `src/compiler/mlir_gen_fn.cpp#L83-L89`; `src/compiler/mlir_gen_fn.cpp#L138-L143`
+**Source:** `src/compiler/mlir_gen_fn.cpp#L83-L89`; `src/compiler/mlir_gen_fn.cpp#L138-L142`
 
 ### `coerce.return.slice-by-value` — slice/str return is the {ptr,len} fat pair by value
 
@@ -3314,7 +3696,7 @@ When both the function return type and the returned value's type are trait objec
 
 A return value whose type can be unsized to the return type (e.g. `Rc<T>` → `Rc<dyn Tr>`) is implicitly coerced by rebuilding the smart-pointer struct, without an explicit `as`.
 
-**Source:** `src/compiler/sema_stmt.cpp#L2826-L2829`
+**Source:** `src/compiler/sema_stmt.cpp#L2835-L2838`
 
 ## coerce / slice
 
@@ -3330,6 +3712,14 @@ A shared slice `&[T]` that was formed from `&array_var` may coerce back to a ref
 
 **Source:** `src/compiler/sema_impl.hpp#L378-L408`
 
+## coerce / str
+
+### `coerce.str.slice-method-alias` — `str` receivers fall back to `Slice<u8>`-typed method lookup under the `str__` mangling
+
+`str` is represented as `&[u8]` (`type_str` yields `&[u8]`), but impls written `impl Trait for str` register methods mangled as `str__<method>`. When receiver type-string is `&[u8]` and lookup under the literal `&[u8]__<method>` key fails, resolution retries under `str__<method>` (concrete, then generic).
+
+**Source:** `src/compiler/sema_expr.cpp#L8233-L8242`
+
 ## coerce / struct
 
 ### `coerce.struct.elementwise-typeargs` — Same-named structs compatible iff type-args pairwise compatible
@@ -3342,17 +3732,23 @@ Two Struct types with equal struct_name and pkg_name and equal type-arg arity ar
 
 ## coerce / struct-lit
 
-### `coerce.struct-lit.field-numeric-coercion` — Struct-literal field initializers coerce to declared field type
+### `coerce.struct-lit.closure-to-fnptr-fallback` — closure literal field value coerces to fn-pointer field type
 
-A scalar initializer in a struct literal is coerced to the declared type of the target field (e.g. an integer literal to the field's integer type, a float literal to the field's float type) before being stored.
+Before reporting a field type-mismatch, a closure-literal field-init value is attempted to coerce to the declared fn-pointer field type (try_coerce_closure_to_fnptr); success suppresses the mismatch error.
 
-**Source:** `src/compiler/mlir_gen.cpp#L1008-L1017`
+**Source:** `src/compiler/sema_expr.cpp#L10282`; `src/compiler/sema_expr.cpp#L10420`
+
+### `coerce.struct-lit.field-numeric-coercion` — Struct-literal scalar fields coerce to the field's declared type
+
+When a struct-literal field initializer's value has a scalar type that differs from the field's declared type (e.g. an integer or float literal), the value is numerically coerced (widen/narrow/int-float conversion) to the field's declared type before being stored.
+
+**Source:** `src/compiler/mlir_gen.cpp#L1012-L1039`
 
 ## coerce / taggedptr
 
 ### `coerce.taggedptr.from-raw-ptr` — Raw pointer coerces to a tagged trait pointer
 
-Any *T (Ptr) coerces to a TaggedPtr (&tagged<TS> Trait, a thin pointer to a tagged object); the tag is read at dispatch time.
+Any *T (Ptr) coerces to a TaggedPtr (`&tagged<TS>` Trait, a thin pointer to a tagged object); the tag is read at dispatch time.
 
 **Source:** `src/compiler/sema.cpp#L2062-L2066`
 
@@ -3364,29 +3760,35 @@ Tuple types are compatible iff they have equal arity and each element pair is co
 
 **Source:** `src/compiler/sema.cpp#L1969-L1975`
 
+## coerce / tuple-lit
+
+### `coerce.tuple-lit.widen-to-expected-element-type` — Tuple literal elements widen to the expected tuple type's element types
+
+When a tuple literal appears in a position with a known expected tuple type (e.g. a parameter or `let` with a tuple-type annotation), each untyped integer-literal element widens to the corresponding expected element type at lowering, instead of defaulting to `i32` — preventing a narrower-typed literal buffer from being read back by the callee under the wider declared element type.
+
+**Source:** `src/compiler/sema_impl.hpp#L3708-L3713`
+
 ## coerce / unsize
 
 ### `coerce.unsize.already-fat-passthrough` — Fat-pointer source needs no rebuild
 
-When coercing to `dyn Trait`, if the RHS value is already a fat pointer (its type is `dyn Trait`, or `&/&mut/*` to `dyn Trait`, with `Box<dyn>` collapsing to the trait object), the existing {data, vtable} handle is used directly rather than rebuilt from the concrete type.
+Coercing a `let` initializer to `&dyn Trait` / `*const|*mut dyn Trait` / `Box<dyn Trait>` when the source expression's type is already a trait-object (fat {data,vtable} pair — including after peeling one level of `&`/`&mut`/`*const`/`*mut` wrapping a trait object) does not rebuild the fat pair from a concrete type: if the source is itself a POINTER to an existing fat place, a fresh 16-byte slot is allocated and the fat {data,vtable} pair is memcpy'd into it (Copy-value semantics for `&dyn`/`Box<dyn>` bindings); a raw `*const dyn Trait` / `*mut dyn Trait` instead binds the alias directly (handle semantics — aliasing is the defining property of a raw pointer, so no copy is made).
 
 **Related:** `coerce.unsize.box-concrete-to-box-dyn`
 
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L1688-L1709`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L1715-L1765`
 
 ### `coerce.unsize.arg-struct-to-dyn-trait` — Implicit unsize coercion of call arguments to &dyn / `Box<dyn>`
 
-At a call site, when the callee parameter type is `&dyn Trait`, `&mut dyn Trait`, or `Box<dyn Trait>` and the argument has a concrete (non-trait-object) type, the argument is implicitly unsize-coerced into a fat {data, vtable} trait object. The vtable is selected on the concrete pointee type T: `&T`/`&mut T` peel to T, `Box<T>` peels to T, and a bare struct value is spilled to storage to obtain a data pointer.
+At a call site, when the callee's (mono-resolved) parameter type is a trait object (bare, or under `&`/`&mut`/`Box`) and the argument's static type is a concrete (non-trait-object) type, the argument is implicitly unsize-coerced into a fat `{data, vtable}` trait-object value. The vtable is looked up on the peeled concrete pointee: `&T`/`&mut T` and `Box<T>` both peel to `T`; a bare struct-valued argument (not already a reference or Box) is first spilled to storage to obtain a data pointer.
 
-**Related:** `coerce.unsize.struct-to-dyn-trait`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L2449-L2510`
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L2417-L2481`; `src/compiler/mlir_gen_expr.cpp#L2436-L2459`
+### `coerce.unsize.array-to-slice` — `&array` unsizes to `&[T]`
 
-### `coerce.unsize.array-to-slice` — &array → slice
+`&arr` where `arr: [T; N]` (a named array local, static or otherwise) coerces to `&[T]`: produced as a slice literal `{ addr_of(arr) as &T, len = N }` typed `&[T]`, never `&[T; N]` (`Ref<Array>`). The same coercion applies to a bare array literal `&[e0, e1, …]`: the array rvalue is spilled to a stack slot first, then wrapped as `{addr, len}` typed `&[T]`.
 
-`&a` where `a: [T; N]` yields a slice value `&[T]` with len = N (an unsized coercion at the point of borrow), not `&[T; N]`. This applies to array variables, array statics, and bare array literals `&[e0, .., e_{N-1}]`.
-
-**Source:** `src/compiler/sema_expr.cpp#L2510-L2514`; `src/compiler/sema_expr.cpp#L2570-L2585`
+**Source:** `src/compiler/sema_expr.cpp#L2527-L2531`; `src/compiler/sema_expr.cpp#L2603-L2618`
 
 ### `coerce.unsize.box-array-to-box-slice` — `Box<[T;N]>` unsizes to owning `Box<[T]>`
 
@@ -3394,15 +3796,15 @@ At a call site, when the callee parameter type is `&dyn Trait`, `&mut dyn Trait`
 
 **Related:** `coerce.unsize.thin-array-ptr-to-slice`
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3305-L3337`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3366-L3398`
 
 ### `coerce.unsize.box-concrete-to-box-dyn` — `Box<Concrete>` unsizes to `Box<dyn Trait>`
 
-Binding a `Box<Concrete>` value to a `Box<dyn Trait>` (or `&Concrete`/`&dyn`/`*dyn`) target coerces the thin pointer to a fat {data, vtable} pair whose vtable is selected for the concrete type's impl of Trait. An owning `Box<dyn Trait>` is droppable: its drop runs drop_in_place on the data and frees it; a `&dyn`/`&mut dyn` borrow yields a non-owning fat pair; only raw `*const/*mut dyn` retains a separately-allocated 8-byte heap handle.
+Coercing a concrete-typed `let` initializer (`&Concrete`, `*const|*mut Concrete`, or owning `Box<Concrete>`) to `&dyn Trait` / `Box<dyn Trait>` / `*const|*mut dyn Trait` builds a {data,vtable} fat pair: one level of `&`/`&mut`/`*const`/`*mut` wrapping is peeled to the pointee; an owning `Box<Concrete>` source is unwrapped to its single type argument; the vtable is looked up keyed on the concrete type's fully mono-mangled name (not its surface generic-angle-bracket spelling). An owning `Box<Concrete>` source coercing to `Box<dyn Trait>` yields an owning `Box<dyn Trait>` whose data handle is heap-allocated (so the scope-exit drop_in_place+free sequence frees a real heap block); a `&Concrete` borrow source instead yields a stack-resident fat pair.
 
-**Related:** `coerce.unsize.struct-to-dyn-trait`
+**Related:** `coerce.unsize.already-fat-passthrough`
 
-**Source:** `src/compiler/mlir_gen_stmt.cpp#L1665-L1748`; `src/compiler/mlir_gen_stmt.cpp#L1721-L1745`
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L1766-L1800`; `src/compiler/mlir_gen_stmt.cpp#L1955-L1993`
 
 ### `coerce.unsize.box-consumes-source` — Unsize to owning trait object moves the source
 
@@ -3410,7 +3812,7 @@ An unsize cast to an owning trait object (e.g. `box_val as Box<dyn Trait>`) cons
 
 **Related:** `coerce.unsize.struct-coerce-unsized`
 
-**Source:** `src/compiler/sema_expr.cpp#L969-L974`
+**Source:** `src/compiler/sema_expr.cpp#L986-L991`
 
 ### `coerce.unsize.box-dyn-deref-then-unsize` — implicit value-to-dyn coercion unwraps refs and Box before unsizing
 
@@ -3420,11 +3822,11 @@ When a value's expected slot type is a trait object but the value's type is not,
 
 ### `coerce.unsize.box-dyn-vtable-drops-concrete` — Owning `Box<dyn>` coercion threads the concrete destructor
 
-When a concrete `Box<T>` argument is unsize-coerced to a `Box<dyn Trait>` parameter, the resulting fat trait-object value carries the vtable of the concrete T, including T's drop-in-place glue, so dropping the `Box<dyn>` runs T's destructor (not an empty no-op).
+When a concrete `Box<T>` argument is unsize-coerced to a `Box<dyn Trait>` parameter, the vtable is keyed on the concrete monomorphized type `T` (not the literal `Box<T>`/angle-bracket type string), so the vtable's drop-in-place slot runs `T`'s destructor. The coerced value is passed as an inline fat data/vtable pair by value (the callee drops it directly), not as a separate heap handle.
 
 **Related:** `coerce.unsize.arg-struct-to-dyn-trait`
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L2446-L2480`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L2489-L2509`
 
 ### `coerce.unsize.concrete-to-dyn-builds-fat-pair` — unsizing a concrete to dyn stores data + vtable into the fat pair
 
@@ -3438,13 +3840,33 @@ When coercing to a `dyn Trait + Send` / `+ Sync` target, the source pointee must
 
 **Source:** `src/compiler/sema_impl.hpp#L417-L422`
 
-### `coerce.unsize.dyn-field-and-element` — Unsize coercion for &dyn Trait fields and array elements
+### `coerce.unsize.dyn-field-and-element` — &dyn Trait struct field builds the fat pointer at init time
 
-Storing a concrete `&S`/`&mut S`/`*S` into a `&dyn Trait` struct field or a `[&dyn Trait; N]` array element triggers an unsize coercion that builds the fat {data, vtable} pointer (two words / 16 bytes) for the concrete struct's vtable; the thin source reference is never stored raw.
+Initializing a `&dyn Trait`/`&mut dyn Trait` struct field from a value whose static type is a concrete reference/pointer to a struct performs the trait-object unsizing coercion (builds the data-pointer+vtable fat pointer) at the initialization site before storing into the field; a value that is already a trait object is stored unchanged.
 
 **Related:** `layout.zone-mut-ref.fat-data-zone`
 
-**Source:** `src/compiler/mlir_gen.cpp#L987-L1007`; `src/compiler/mlir_gen.cpp#L1073-L1124`
+**Source:** `src/compiler/mlir_gen.cpp#L991-L1011`
+
+### `coerce.unsize.dyn-place-assign` — Assignment to a `&dyn Trait`-typed place performs unsize coercion
+
+Assigning a concrete-typed (or already-dyn) source to a place typed `&dyn Trait` coerces the source into the `{data,vtable}` fat-pointer representation (same coercion `let`/`return` apply) and copies the resulting 16-byte pair into the target slot. A raw `*const dyn T` / `*mut dyn T` place is exempt: it keeps plain pointer-store (aliasing) semantics.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2089-L2119`
+
+### `coerce.unsize.dyn-return-value` — Returning a concrete value where `Box<dyn Trait>`/`&dyn Trait` is expected performs unsize coercion
+
+When a function's return type is a TraitObject and the returned expression's type is a concrete (non-TraitObject) type, the concrete value is coerced to the `{data,vtable}` fat pair (vtable keyed on the underlying concrete type name, stripping one level of `&`/`&mut`/`*const`/`*mut` indirection) and returned BY VALUE as that 16-byte struct.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L2182-L2218`
+
+### `coerce.unsize.dyn-storage-stack-vs-heap` — Coercing to a dyn fat pair allocates on the stack for a borrow, on the heap for an owning handle
+
+Building a `{data, vtable}` fat pair for a trait-object coercion places the pair on the stack (alloca) when the destination is a BORROWING handle (`&dyn`/`&mut dyn` — value-fat-pair model; the consumer copies the 16 bytes if it escapes a struct field / array / by-value return), and on the heap (malloc(16)) when the destination is an OWNING handle (`Box<dyn>`, raw `*const/*mut dyn`) whose single 8-byte handle is itself stored/escapes and is freed by that handle's drop.
+
+**Related:** `layout.dyn.fat-pair-16-byte`, `intrinsic.drop.owning-dyn-handle`
+
+**Source:** `src/compiler/mlir_gen_impl.hpp#L1068-L1077`
 
 ### `coerce.unsize.dyn-supertrait-upcast` — &dyn Sub coerces to &dyn Super
 
@@ -3460,6 +3882,14 @@ A struct type-arg difference that is not a sized→fat unsize (e.g. lifetime-onl
 
 **Source:** `src/compiler/sema_expr.cpp#L669-L688`
 
+### `coerce.unsize.raw-ptr-dyn-handle-semantics` — Raw pointer-to-dyn-Trait bindings keep handle (non-copying) semantics
+
+A `let` binding of type `*const dyn Trait` / `*mut dyn Trait` keeps handle semantics distinct from `&dyn Trait`/`Box<dyn Trait>`: it is never copied into a fresh fat slot at bind time. The bound value is either the raw fat pointer itself (default: a coerced handle, a parameter, or a field read — a later dereference is a no-op read of the handle), or, when the initializer is recognized as the return of a container-accessor method call (or a chained copy of such a value), a pointer INTO existing storage — a later dereference must instead LOAD the stored handle from that address.
+
+**Uncertainty:** The accessor-return vs. coerced-handle distinction is determined by a syntactic heuristic (initializer is a MethodCall, or a VarRef previously so marked) rather than a type-level property; edge cases outside a direct method-call/var-chain may be misclassified.
+
+**Source:** `src/compiler/mlir_gen_stmt.cpp#L1719-L1722`; `src/compiler/mlir_gen_stmt.cpp#L1751-L1798`
+
 ### `coerce.unsize.ref-concrete-to-dyn-trait` — &Concrete unsizes to &dyn Trait in argument position
 
 An argument `&T` / `&mut T` coerces (unsizes) to a `&dyn Trait` / `&mut dyn Trait` parameter when the pointee implements the trait directly or via a blanket impl, or when the pointee is a type-variable whose in-scope bounds include the trait. The fat pointer is built at the call site.
@@ -3472,7 +3902,7 @@ An argument `&T` / `&mut T` coerces (unsizes) to a `&dyn Trait` / `&mut dyn Trai
 
 **Divergence:** Uniform-fat model: `&dyn` and `*mut dyn` are both 16-byte fat pairs (Logos), unlike Rust where only references unsize.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3406-L3432`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3470-L3493`
 
 ### `coerce.unsize.return-concrete-to-trait-object` — returning a concrete type where `dyn Trait` is expected unsizes to a fat pointer
 
@@ -3486,7 +3916,7 @@ When the function return type is a trait object `dyn Trait` and the returned val
 
 `Box<T>`/`Rc<T>`/`Arc<T>` (T concrete) cast to a dyn smart pointer builds a value fat pair {data,vtable}: for Box, data = field 0 (the heap pointer); for Rc/Arc, data = field0 + round_up(8, align(T)) (skipping the 2×i32 RcInner strong/weak header). vtable[0..2] = drop/size/align; drop is kind-specific (Box→free; Rc/Arc→dec strong + free RcInner). A dyn-payload smart pointer is already a handle and is not re-wrapped.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3434-L3491`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3502-L3552`
 
 ### `coerce.unsize.struct-coerce-unsized` — CoerceUnsized for single-field smart-pointer structs
 
@@ -3500,13 +3930,13 @@ let r: Rc<dyn Tr> = rc_a as Rc<dyn Tr>;
 
 **Related:** `coerce.unsize.box-consumes-source`
 
-**Source:** `src/compiler/sema_expr.cpp#L651-L699`
+**Source:** `src/compiler/sema_expr.cpp#L648-L699`
 
 ### `coerce.unsize.struct-dyn-tail-to-dstref` — Pointer to struct with concrete tail unsizes to DstRef with dyn tail
 
 `*mut/*const/& ConcreteStruct<…, Sized>` cast to a DstRef whose tail type-arg is a trait object (`*mut Inner<dyn Tr>`) builds a {data,vtable} fat pair: data = the source thin pointer to the whole struct; vtable = the concrete tail type's vtable for the tail trait (the tail binding is the source instance's last type-arg). This is CoerceUnsized for a struct with an unsized (`dyn`) tail field.
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3356-L3394`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3417-L3455`
 
 ### `coerce.unsize.struct-to-dyn-trait` — Struct (or &/&mut/*Struct) unsize-coerces to a trait object
 
@@ -3526,7 +3956,7 @@ A smart-pointer/wrapper struct with a single unsizable field coerces `Wrapper<A>
 
 **Related:** `coerce.unsize.box-array-to-box-slice`
 
-**Source:** `src/compiler/mlir_gen_expr.cpp#L3592-L3616`
+**Source:** `src/compiler/mlir_gen_expr.cpp#L3653-L3677`
 
 ### `coerce.unsize.value-to-dyn-at-trait-slot` — Concrete value unsized to a fat dyn handle when the destination slot is a trait object
 
@@ -3534,29 +3964,33 @@ When a destination slot has trait-object type (`dyn`/`Box<dyn>`/`&dyn`) but the 
 
 **Related:** `layout.dyn.fat-pair-16-byte`
 
-**Source:** `src/compiler/mlir_gen_impl.hpp#L986-L992`
+**Source:** `src/compiler/mlir_gen_impl.hpp#L1078-L1084`
 
 ## coerce / variance
 
-### `coerce.variance.gate-on-compatible` — Variance gate on coercion sites
+### `coerce.variance.gate-on-compatible` — Variance check gates a type-compatible coercion under the fn's outlives graph
 
-When `from` is type-compatible with `to`, the coercion is additionally subjected to a variance/subtype check: &mut is invariant, &T is covariant, fn params contravariant. A variance failure (lifetime structure incompatible) is rejected with a variance-mismatch error. The check is permissive (caller region inference may fill regions) at call-site argument passing, and strict at body sites (return, let-init) where both lifetimes are fn-scope-fixed.
+A coercion `from -> to` that already passed the base type-compatibility check must additionally satisfy the variance/subtype relation (`subtype(from,to)`) computed against the current fn's outlives graph and the program's fixed-point def-variance table, else diagnostic `variance mismatch — ... lifetime structure incompatible`. `permissive=true` (call-site arg-passing) forwards unresolved lifetime relations to the caller's region inference; `permissive=false` (return / let-init, fn-scope-fixed lifetimes) requires the relation to already hold.
 
-**Source:** `src/compiler/sema_impl.hpp#L3344-L3351`; `src/compiler/sema_impl.hpp#L3531-L3547`
+**Source:** `src/compiler/sema_impl.hpp#L3368-L3375`; `src/compiler/sema_impl.hpp#L3559-L3571`
 
 ## coerce / writ
 
-### `coerce.writ.mapslice-to-typed-map` — MapSlice as <K,AnyVal>{} builds a typed Writ map
+### `coerce.writ.mapslice-to-typed-map` — MapSlice as `<K,AnyVal>{}` builds a typed Writ map
 
-`src as <K,V>{}` (target struct WritMap) is permitted only for V = AnyVal and K in {I32,U32,I64,U64}, with source the matching `MapSlice<K>` struct; it lowers to a stdlib writ_build_map_<k>_anyval call returning `Rc<Writ>`. Any other key/value combination, a mismatched source, or a missing builder is an error.
+`src as <K,V>{}` (target struct WritMap) is permitted only for V = AnyVal and K in {I32,U32,I64,U64}, with source the matching `MapSlice<K>` struct; it lowers to a stdlib `writ_build_map_<k>`_anyval call returning `Rc<Writ>`. Any other key/value combination, a mismatched source, or a missing builder is an error.
 
-**Source:** `src/compiler/sema_expr.cpp#L775-L838`
+**Divergence:** A6
 
-### `coerce.writ.slice-to-typed-array` — &[T] as <T>[] builds a typed Writ array
+**Source:** `src/compiler/sema_expr.cpp#L774-L838`
 
-`src as <T>[]` (target struct WritArr) requires `src: &[T]` (a Slice) whose element kind equals the target element kind; element T must be one of i8/u8/i16/u16/i32/u32/i64/u64/f32/f64. It lowers to a stdlib writ_build_array_<T> call returning the builder's `Rc<Writ>` type; missing builder (no `use logos.lang.writ.typed_arr`) or non-slice source or element mismatch or unsupported element is an error.
+### `coerce.writ.slice-to-typed-array` — &[T] as `<T>[]` builds a typed Writ array
 
-**Source:** `src/compiler/sema_expr.cpp#L716-L772`
+`src as <T>[]` (target struct WritArr) requires `src: &[T]` (a Slice) whose element kind equals the target element kind; element T must be one of i8/u8/i16/u16/i32/u32/i64/u64/f32/f64. It lowers to a stdlib `writ_build_array_<T>` call returning the builder's `Rc<Writ>` type; missing builder (no `use logos.lang.writ.typed_arr`) or non-slice source or element mismatch or unsupported element is an error.
+
+**Divergence:** A6
+
+**Source:** `src/compiler/sema_expr.cpp#L716-L773`
 
 ## coerce / writ-anyval
 

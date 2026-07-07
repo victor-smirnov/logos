@@ -1,8 +1,8 @@
 {
   "unit": "sema/sema_decl/lower_struct_def.part1",
   "layer": "sema",
-  "source": "src/compiler/sema_decl.cpp#L1154-L1646",
-  "source_hash": "7781027cbfdff909",
+  "source": "src/compiler/sema_decl.cpp#L1176-L1690",
+  "source_hash": "639da176d9506f52",
   "rules": [
     {
       "id": "item.struct.type-param-unique",
@@ -10,7 +10,7 @@
       "title": "Struct type parameters must be uniquely named",
       "statement": "Within a struct declaration, two type parameters may not share a name; a duplicate is a compile error.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1265-L1269"
+        "src/compiler/sema_decl.cpp#L1295-L1298"
       ]
     },
     {
@@ -19,7 +19,7 @@
       "title": "Struct lifetime parameters must be uniquely named",
       "statement": "Within a struct declaration, two lifetime parameters may not share a name; a duplicate is a compile error.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1271-L1273"
+        "src/compiler/sema_decl.cpp#L1299-L1302"
       ]
     },
     {
@@ -28,7 +28,7 @@
       "title": "Struct field names must be unique",
       "statement": "Within a struct declaration, two fields may not share a name; a duplicate is a compile error.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1291-L1294"
+        "src/compiler/sema_decl.cpp#L1320-L1323"
       ]
     },
     {
@@ -37,8 +37,8 @@
       "title": "Outlives clauses reference only declared lifetimes",
       "statement": "Every lifetime name appearing in a struct or enum outlives bound (header `<'a: 'b>`, where-clause, or type-param `T: 'a`) must be a declared lifetime parameter of that item, the implicit `'static`, or empty; an undeclared lifetime is a compile error. `'static`/`static` are always known.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1241-L1264",
-        "src/compiler/sema_decl.cpp#L1448-L1471"
+        "src/compiler/sema_decl.cpp#L1270-L1293",
+        "src/compiler/sema_decl.cpp#L1480-L1503"
       ]
     },
     {
@@ -47,8 +47,8 @@
       "title": "Where-clause type-outlives bounds augment a type parameter",
       "statement": "A where-clause entry `T: 'a` (a TYPE_PARAM whose inner items include LIFETIME_PARAMs) attaches each lifetime as an outlives bound on the matching declared type parameter T; entries naming an unknown type parameter are ignored.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1211-L1240",
-        "src/compiler/sema_decl.cpp#L1418-L1447"
+        "src/compiler/sema_decl.cpp#L1239-L1269",
+        "src/compiler/sema_decl.cpp#L1449-L1479"
       ]
     },
     {
@@ -57,7 +57,7 @@
       "title": "repr(transparent) collapses to the single field's layout",
       "statement": "A struct annotated `#[repr(transparent)]` has the layout (size/alignment/ABI) of its single field.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1205-L1207"
+        "src/compiler/sema_decl.cpp#L1234-L1236"
       ],
       "uncertainty": "Single-field constraint is enforced elsewhere; this unit only propagates the flag."
     },
@@ -67,10 +67,10 @@
       "title": "Union layout is max-size at max-alignment",
       "statement": "A struct marked as a union (`#[repr(...)]` union) is laid out as the maximum field size aligned to the maximum field alignment; all fields overlap at offset 0.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1202-L1204"
+        "src/compiler/sema_decl.cpp#L1231-L1233"
       ],
       "divergence": "Logos union via #[repr]/union attribute; layout semantics match C/Rust unions.",
-      "testability": "untestable"
+      "testability": "transitive"
     },
     {
       "id": "type.struct.non-null-niche",
@@ -78,10 +78,10 @@
       "title": "non_null single-pointer wrapper yields Option niche",
       "statement": "A struct annotated `#[non_null]` wrapping a single non-null pointer makes `Option<T>` use the null-pointer value as the None niche (no discriminant overhead).",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1200-L1201"
+        "src/compiler/sema_decl.cpp#L1229-L1230"
       ],
       "divergence": "A: #[non_null] attribute is a Logos addition mirroring Rust NonNull niche.",
-      "testability": "untestable"
+      "testability": "transitive"
     },
     {
       "id": "type.struct.self-describing-thin-ptr",
@@ -89,10 +89,10 @@
       "title": "self_describing keeps *Self thin",
       "statement": "A struct annotated `#[self_describing]` keeps `*Self` a thin pointer (no DstRef fattening) under Ptr→DstRef canonicalization.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1186-L1189"
+        "src/compiler/sema_decl.cpp#L1216-L1218"
       ],
       "divergence": "A: Writ/RefRepr Logos addition, no Rust analog.",
-      "testability": "untestable"
+      "testability": "transitive"
     },
     {
       "id": "type.struct.zone-mut-fat-ref",
@@ -100,10 +100,10 @@
       "title": "zone_mut makes &mut T fat carrying its allocator",
       "statement": "For a struct annotated `#[zone_mut]`, a `&mut T` reference is a fat `{data, zone}` pair carrying the value's allocator/zone.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1190-L1192"
+        "src/compiler/sema_decl.cpp#L1219-L1221"
       ],
       "divergence": "A: Writ zone model Logos addition; Rust &mut is thin.",
-      "testability": "untestable"
+      "testability": "transitive"
     },
     {
       "id": "type.struct.zoned2-relative-fields",
@@ -111,10 +111,10 @@
       "title": "zoned2 struct fields use relative pointers",
       "statement": "A struct annotated `#[zoned2]` stores its pointer fields as self-relative offsets (RelOffset) rather than absolute addresses.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1193"
+        "src/compiler/sema_decl.cpp#L1222"
       ],
       "divergence": "A: Writ zoned2 Logos addition, no Rust analog.",
-      "testability": "untestable"
+      "testability": "transitive"
     },
     {
       "id": "type.struct.rel-ptr-offset-storage",
@@ -122,19 +122,19 @@
       "title": "rel_ptr struct is a self-relative pointer",
       "statement": "A struct annotated `#[rel_ptr]` is classified as a self-relative pointer using 8-byte offset storage.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1194-L1196"
+        "src/compiler/sema_decl.cpp#L1223-L1225"
       ],
       "divergence": "A: RefRepr RelOffset Logos addition, no Rust analog.",
-      "testability": "untestable"
+      "testability": "transitive"
     },
     {
       "id": "borrow.escape.borrow-carrying-struct",
       "domain": "borrow",
-      "title": "borrow_carrying struct values are escape-tracked like references",
-      "statement": "Values of a struct annotated `#[borrow_carrying]` are tracked by the borrow checker for escape/lifetime like ordinary references.",
+      "title": "borrow_carrying struct/enum values are escape-tracked like references",
+      "statement": "Values of a struct or enum annotated `#[borrow_carrying]` are tracked by the borrow checker for escape/lifetime like ordinary references.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1197-L1199",
-        "src/compiler/sema_decl.cpp#L1412"
+        "src/compiler/sema_decl.cpp#L1226-L1228",
+        "src/compiler/sema_decl.cpp#L1444"
       ],
       "divergence": "A: #[borrow_carrying] Logos addition for opaque borrow-holding types (WAny)."
     },
@@ -144,7 +144,8 @@
       "title": "Inline methods of a generic struct bind Self to the generic self-type",
       "statement": "For a generic struct `Struct<T...>`, methods declared in the struct body are lowered as if inside `impl<T...> Struct<T...>`: `Self` is bound to `Struct<T...>`, the struct's type params are recorded as the method's impl type-params, and the impl target pattern is `Struct<T...>` — so `-> Self` (and other Self uses) substitute correctly at monomorphization. Non-generic structs lower body methods with their own type params directly.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1307-L1372"
+        "src/compiler/sema_decl.cpp#L1336-L1359",
+        "src/compiler/sema_decl.cpp#L1365-L1368"
       ],
       "examples": [
         "struct Pair<A,B>{a:A,b:B; fn make(a:A,b:B)->Self{Self{a,b}}}  // Pair::<i32,i32>::make(..) yields Pair<i32,i32>"
@@ -156,7 +157,7 @@
       "title": "Generic struct body methods keep only method-level type params",
       "statement": "When lowering a body method of a generic struct, type parameters that coincide with the struct's own type parameters are removed from the method's TYPE_PARAMS (mono re-injects them via IMPL_TYPE_PARAMS); only method-introduced type parameters remain method-level.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1342-L1364"
+        "src/compiler/sema_decl.cpp#L1370-L1394"
       ],
       "testability": "transitive"
     },
@@ -166,7 +167,7 @@
       "title": "Enum type parameters must be uniquely named",
       "statement": "Within an enum declaration, two type parameters may not share a name; a duplicate is a compile error.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1472-L1475"
+        "src/compiler/sema_decl.cpp#L1504-L1507"
       ]
     },
     {
@@ -175,17 +176,17 @@
       "title": "Enum variant names must be unique",
       "statement": "Within an enum declaration, two variants may not share a name; a duplicate is a compile error.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1476-L1479"
+        "src/compiler/sema_decl.cpp#L1508-L1511"
       ]
     },
     {
       "id": "item.enum.explicit-discriminant",
       "domain": "item",
       "title": "Enum variants carry an explicit/assigned discriminant and optional backing type",
-      "statement": "Each enum variant has an integer discriminant value; an enum may declare an explicit backing integer type for its discriminant.",
+      "statement": "Each enum variant has an integer discriminant value; an enum may declare an explicit backing integer type controlling its discriminant representation.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1410",
-        "src/compiler/sema_decl.cpp#L1486-L1492"
+        "src/compiler/sema_decl.cpp#L1442",
+        "src/compiler/sema_decl.cpp#L1513-L1518"
       ]
     },
     {
@@ -194,7 +195,7 @@
       "title": "Const initializer must be compatible with the declared const type",
       "statement": "For `const NAME: T = expr`, the type of `expr` must be compatible with the declared type `T`; an incompatible initializer is a compile error reported at sema. Error types on either side suppress the check.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1541-L1560"
+        "src/compiler/sema_decl.cpp#L1573-L1592"
       ]
     },
     {
@@ -203,7 +204,7 @@
       "title": "WStaticLit initializer is compatible with a WritStatic const",
       "statement": "A const whose declared type is a WritStatic struct accepts an initializer whose type is a Writ-static literal (WStaticLit); this combination is treated as type-compatible.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1549-L1554"
+        "src/compiler/sema_decl.cpp#L1581-L1585"
       ],
       "divergence": "A: Writ-static literal coercion is a Logos addition."
     },
@@ -213,8 +214,8 @@
       "title": "Generic const value sees its type params as type variables",
       "statement": "When lowering a generic const's value expression, the const's type parameters are in scope as type variables so `<type:T>` uses resolve to the parameter rather than an unbound name; concrete instantiation happens per use-site.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1527-L1540",
-        "src/compiler/sema_decl.cpp#L1564"
+        "src/compiler/sema_decl.cpp#L1564-L1572",
+        "src/compiler/sema_decl.cpp#L1596"
       ]
     },
     {
@@ -223,7 +224,7 @@
       "title": "Generic type aliases are inlined at use sites",
       "statement": "A type alias with type parameters has no concrete standalone type; it is inlined at each use site. Only non-generic aliases resolve to a concrete type.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1570-L1577"
+        "src/compiler/sema_decl.cpp#L1602-L1608"
       ]
     },
     {
@@ -232,7 +233,7 @@
       "title": "Copy is excluded from a trait's supertrait list",
       "statement": "When recording a trait's declared supertraits, `Copy` is omitted from the supertrait set (it is an auto/marker bound, not a vtable-bearing supertrait).",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1621-L1625"
+        "src/compiler/sema_decl.cpp#L1665-L1669"
       ],
       "divergence": "A: Copy treated specially, excluded from supertrait closure."
     },
@@ -242,9 +243,20 @@
       "title": "Trait vtable layout spans the supertrait closure with ordered upcast targets",
       "statement": "A trait object's vtable layout is the method order over the trait's supertrait closure, together with an ordered list of upcast target supertraits; this single layout is the canonical slot order used for dispatch and upcasting.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1626-L1639"
+        "src/compiler/sema_decl.cpp#L1670-L1682"
       ],
       "testability": "behavioral"
+    },
+    {
+      "id": "trait.def.local-shadowing-resolution",
+      "domain": "trait",
+      "title": "Trait lowering resolves same-name collisions via package-qualified scope",
+      "statement": "When a user-defined trait's bare name collides with an already-registered trait of the same name (e.g. an imported/prelude trait), lowering resolves THIS definition's own info via scope-aware lookup (current package first), and uses that resolved (possibly package-qualified) registry key when computing the vtable/method-order layout — so a def is never bound to the wrong same-named trait's methods or vtable slot order. The trait's LIR name key itself stays the bare name; impls/vtables remain bare-keyed and are disambiguated by target type.",
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1625-L1637"
+      ],
+      "testability": "behavioral",
+      "uncertainty": "The collision/registration mechanics of find_trait_iter_scoped live outside this slice; only the consuming behavior at trait-lowering is directly evidenced here."
     }
   ]
 }

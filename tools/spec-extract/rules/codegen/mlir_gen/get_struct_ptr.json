@@ -1,110 +1,109 @@
 {
   "unit": "codegen/mlir_gen/get_struct_ptr",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen.cpp#L637-L1196",
-  "source_hash": "23399ed92b328175",
+  "source": "src/compiler/mlir_gen.cpp#L638-L1241",
+  "source_hash": "c6c0ccfc502c7b72",
   "rules": [
     {
       "id": "layout.anyval.scalar-i32",
       "domain": "layout",
-      "title": "AnyVal is a scalar value type",
-      "statement": "The built-in type `AnyVal` has scalar value representation (a single machine word, narrowed to 32-bit), not an aggregate. It is never spilled to a by-value aggregate slot like a struct receiver.",
+      "title": "AnyVal is a scalar i32, never an aggregate",
+      "statement": "The built-in type `AnyVal` is represented as a bare i32 scalar value at every place a value of that type occurs (local bindings, receivers, struct fields) — never as an LLVM aggregate/struct value or a pointer-to-aggregate, and never spilled to a by-value aggregate slot the way a struct receiver would be.",
       "evidence": [
-        "src/compiler/mlir_gen.cpp#L743-L746",
-        "src/compiler/mlir_gen.cpp#L888-L903",
-        "src/compiler/mlir_gen.cpp#L865-L867"
+        "src/compiler/mlir_gen.cpp#L744-L757",
+        "src/compiler/mlir_gen.cpp#L866-L868",
+        "src/compiler/mlir_gen.cpp#L889-L904"
       ],
-      "divergence": "Logos built-in type with no Rust analogue",
-      "uncertainty": "32-bit width inferred from coerce_numeric(raw, i32); the language-level width may be target-defined.",
+      "divergence": "Logos-specific built-in type; no Rust equivalent (addition).",
+      "uncertainty": "32-bit width inferred from coerce_numeric(raw, i32) at L904; the language-level width contract may be defined elsewhere.",
       "testability": "transitive"
     },
     {
       "id": "expr.struct-lit.anyval-raw-constructor",
       "domain": "expr",
-      "title": "AnyVal struct-literal constructor",
-      "statement": "`AnyVal { raw: e }` is a valid constructor expression that yields the scalar value of `e`. The literal must contain exactly one field named `raw`; any other field set is rejected.",
-      "evidence": [
-        "src/compiler/mlir_gen.cpp#L885-L903"
-      ],
-      "divergence": "Logos built-in; struct-literal syntax over a scalar type",
-      "related": [
-        "layout.anyval.scalar-i32"
-      ],
-      "testability": "untestable"
+      "title": "`AnyVal { raw: expr }` literal is a scalar constructor",
+      "statement": "A struct-literal expression naming `AnyVal` is not a normal struct literal but a constructor for the scalar AnyVal value: it must supply exactly one field named `raw`; its value is evaluated and numerically coerced to i32. Any other field count, or a field name other than `raw`, is rejected.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L888-L905"],
+      "examples": ["AnyVal { raw: 42 }"],
+      "related": ["layout.anyval.scalar-i32"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.zone-mut-ref.fat-data-zone",
       "domain": "layout",
-      "title": "&mut T of a zone_mut type is a fat {data, zone} pair",
-      "statement": "A mutable reference `&mut T` where `T` is a `#[zone_mut]` (FatZoneMut) type is a two-word fat pointer carrying {data, zone}; the address of the referent object is the data half. Field and method access on such a receiver descend through the data pointer, not the fat-pair storage.",
-      "evidence": [
-        "src/compiler/mlir_gen.cpp#L667-L680"
-      ],
-      "divergence": "Logos zone model; no Rust analogue",
-      "testability": "transitive"
+      "title": "&mut T of a #[zone_mut] type is a fat {data, zone} pair",
+      "statement": "A `&mut T` reference to a `#[zone_mut]` (FatZoneMut) type is represented as a two-word fat pointer pair `{data, zone}`. Field/method access on the referent resolves through the `data` half of the pair (peeled off before descent); every other (thin) reference kind is unaffected (identity).",
+      "evidence": ["src/compiler/mlir_gen.cpp#L668-L681"],
+      "divergence": "Logos-specific zone/Writ memory-model addition; no Rust equivalent.",
+      "testability": "behavioral"
     },
     {
       "id": "expr.receiver.ref-autoderef-to-struct",
       "domain": "expr",
-      "title": "Reference/pointer receiver auto-derefs to the struct",
-      "statement": "A method/field receiver of type `&S`, `&mut S`, `*const S`, or `*mut S` (pointee a struct or zoned-struct) resolves to the address of the pointed-to struct: one level of reference/pointer is stripped to obtain the struct object for field/method access.",
+      "title": "Pointer/reference receivers auto-deref to the pointee struct",
+      "statement": "Resolving a method/field-access receiver whose static type is `&T`, `&mut T`, `*const T`, or `*mut T` with `T` a struct or zoned-struct auto-derefs: the pointer/reference value (loaded from its storage slot first if it is a let-bound mutable-pointer local) is used directly as the struct's address, with no explicit deref required in source syntax.",
       "evidence": [
-        "src/compiler/mlir_gen.cpp#L716-L772",
-        "src/compiler/mlir_gen.cpp#L844-L859",
-        "src/compiler/mlir_gen.cpp#L869-L879"
-      ]
+        "src/compiler/mlir_gen.cpp#L699-L773",
+        "src/compiler/mlir_gen.cpp#L850-L861",
+        "src/compiler/mlir_gen.cpp#L870-L881"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.field.inline-vs-pointer-field-descent",
       "domain": "expr",
-      "title": "Field access descends in place for inline fields, loads for pointer fields",
-      "statement": "Accessing field `f` of a struct: if `f` is an inline-embedded aggregate or a scalar-represented named type, the field lives in place and its address is the access target (so a `&mut self` method mutates the original storage). Only a genuine pointer-typed field denotes a separate object and is loaded to descend into it.",
-      "evidence": [
-        "src/compiler/mlir_gen.cpp#L789-L805",
-        "src/compiler/mlir_gen.cpp#L813-L829"
-      ]
+      "title": "Chained field access descends by address for inline fields, by load for pointer fields",
+      "statement": "Descending into a struct field for chained access (`a.b.c`): a field embedded in-place (an inline aggregate, or a scalar-represented named type such as AnyVal or RelPtr) yields its own field-slot address directly, so further chained access — and mutation through `&mut self` methods — operates on the original storage; a field that is a genuine pointer is loaded first, and the loaded value becomes the address used for further descent.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L790-L830"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.array.struct-element-by-value",
       "domain": "expr",
-      "title": "Aggregate array elements are stored by value",
-      "statement": "When an array or array-typed struct field has aggregate element type (inline struct or nested array), each element initializer's value (not a pointer to it) is copied into the element slot. This makes returning and storing `[Struct; N]` / `[[T; M]; N]` by value well-defined.",
+      "title": "Struct array elements: addressed on read, value-copied on construction",
+      "statement": "Indexing a struct-typed array/tuple element (`a[i]`, `r.cells[i]`, nested `g.rows[i].cells[j]`) — including through an implicit `&`/`&mut` auto-ref wrapper on the receiver — resolves to the element's real address computed with the element's stride, not a loaded copy, so a `&mut self` call through it mutates the original element. Conversely, when a struct/array field is initialized from an array-literal whose elements are themselves aggregates (inline struct or nested array), each element is written into its destination slot by copying the element's byte value, never by storing a pointer to it.",
       "evidence": [
-        "src/compiler/mlir_gen.cpp#L937-L972",
-        "src/compiler/mlir_gen.cpp#L1126-L1160"
-      ]
+        "src/compiler/mlir_gen.cpp#L838-L861",
+        "src/compiler/mlir_gen.cpp#L944-L976"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "coerce.unsize.dyn-field-and-element",
       "domain": "coerce",
-      "title": "Unsize coercion for &dyn Trait fields and array elements",
-      "statement": "Storing a concrete `&S`/`&mut S`/`*S` into a `&dyn Trait` struct field or a `[&dyn Trait; N]` array element triggers an unsize coercion that builds the fat {data, vtable} pointer (two words / 16 bytes) for the concrete struct's vtable; the thin source reference is never stored raw.",
-      "evidence": [
-        "src/compiler/mlir_gen.cpp#L987-L1007",
-        "src/compiler/mlir_gen.cpp#L1073-L1124"
-      ],
-      "related": [
-        "layout.zone-mut-ref.fat-data-zone"
-      ]
+      "title": "&dyn Trait struct field builds the fat pointer at init time",
+      "statement": "Initializing a `&dyn Trait`/`&mut dyn Trait` struct field from a value whose static type is a concrete reference/pointer to a struct performs the trait-object unsizing coercion (builds the data-pointer+vtable fat pointer) at the initialization site before storing into the field; a value that is already a trait object is stored unchanged.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L991-L1011"],
+      "related": ["layout.zone-mut-ref.fat-data-zone"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.never.zero-size-field-skipped",
       "domain": "layout",
-      "title": "Never-typed fields are zero-size and uninitialized",
-      "statement": "A struct field of the never type `!` (e.g. `PhantomData<!>` after monomorphization) is zero-size and uninhabited: it carries no runtime value and its initialization is elided. Such a field has no observable storage.",
+      "title": "A `!`-typed struct field is skipped at construction",
+      "statement": "A struct field whose initializer expression has type `!` (never) — e.g. a `PhantomData<!>` marker produced by monomorphizing a generic over the never type — has no runtime representation: the initializer is not materialized and no store to the field slot is emitted.",
       "evidence": [
-        "src/compiler/mlir_gen.cpp#L978-L984",
-        "src/compiler/mlir_gen.cpp#L1018-L1024"
-      ]
+        "src/compiler/mlir_gen.cpp#L982-L988",
+        "src/compiler/mlir_gen.cpp#L1040-L1046"
+      ],
+      "uncertainty": "Generic instantiation over `!` is unstable/nightly in Rust; unclear whether this is Rust-conformant or a Logos-specific addition, so no divergence tag assigned.",
+      "testability": "behavioral"
     },
     {
       "id": "coerce.struct-lit.field-numeric-coercion",
       "domain": "coerce",
-      "title": "Struct-literal field initializers coerce to declared field type",
-      "statement": "A scalar initializer in a struct literal is coerced to the declared type of the target field (e.g. an integer literal to the field's integer type, a float literal to the field's float type) before being stored.",
-      "evidence": [
-        "src/compiler/mlir_gen.cpp#L1008-L1017"
-      ]
+      "title": "Struct-literal scalar fields coerce to the field's declared type",
+      "statement": "When a struct-literal field initializer's value has a scalar type that differs from the field's declared type (e.g. an integer or float literal), the value is numerically coerced (widen/narrow/int-float conversion) to the field's declared type before being stored.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L1012-L1039"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.struct-lit.array-field-value-copy",
+      "domain": "expr",
+      "title": "Array-typed struct field is copied by value from a non-literal source",
+      "statement": "An array-typed struct field (`[T; N]`) is stored in-place as an inline aggregate. When such a field is initialized from a source expression that is not itself an array literal (e.g. a local array-typed variable), the source array's element data is copied byte-for-byte into the field's slot rather than storing a reference to the source.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L1047-L1060"],
+      "testability": "behavioral"
     }
   ]
 }

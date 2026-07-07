@@ -1,200 +1,284 @@
 # Metaprogramming
 
-Scope: compile-time metaprogramming — macros, `metacall`, quotation/antiquotation, templates, annotations, `cfg`, reflection intrinsics, and the Writ/AnyVal carriers that back them. Rules are auto-assembled from extracted artifacts in `tools/spec-extract/rules/` (grammar, sema, mono, and codegen layers); each rule id is a permanent linkable address.
+Scope: compile-time metaprogramming — macros, `metacall`, quotation/antiquotation, templates, annotations, `cfg`, reflection intrinsics, and the Writ/`WAny`/`AnyVal` carriers and format machinery that back them. Auto-assembled from the `domain: metaprog` rules in `tools/spec-extract/rules/` (grammar, sema, mono, and codegen layers); each rule id is a permanent linkable address.
 
-## Macro invocation syntax
+## Discovery
 
-### `expr.macro.fn-style-call` — Function-style macro invocation
+### `metaprog.discovery.entry-body-skipped` — Entry-file function bodies are skipped during discovery
 
-Function-style macros invoke as `name!(…)`, `name![…]`, or `name!{…}`; the contents between balanced delimiters are captured as raw source text and re-interpreted at sema time per the callee's macro kind (#[fn_macro] re-parses as an expression list; #[token_macro] lexes as a TokenStream). In no-struct-lit (condition) position the brace form `name!{…}` is excluded.
+During the metaprog discovery pass, function bodies of the entry file are not lowered (metaprog_mode); only signatures/items needed for trigger discovery are processed. Name mangling during discovery must stay consistent with the final pass.
 
-**Evidence:** `tools/peg_gen/grammars/logos.peg#L2743-L2754`, `tools/peg_gen/grammars/logos.peg#L2550-L2559`
+**Uncertainty:** Exact set of skipped work is described only via comment.
 
-## Function-style macros (`#[fn_macro]`)
+**Evidence:** `src/compiler/metaprog_dispatch.hpp#L94-L95`, `src/compiler/metaprog_dispatch.hpp#L82-L87`
 
-### `metaprog.fn-macro.arg-passed-as-ast-blob` — Each fn-macro argument is passed as its serialized AST subtree (ExprBlob)
+## Handler triggers
 
-Each argument expression of `name!(...)` is passed to the callee unevaluated as an `ExprBlob` referencing the serialized AST subtree of that argument; the callee receives the syntax tree, not a runtime value. For the Vec form, all argument ExprBlobs are packed into a `Vec<ExprBlob>` in source order.
+### `metaprog.trigger.annotation-scan` — top-level annotations matching a registered handler trigger are recorded as metaprog targets
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19028-L19116`
+After all modules complete field/variant/signature collection (so the metaprog-handler trigger registry is final), the compiler scans top-level ANNOTATION items in user (non-binary) ASTs; one or more consecutive annotations immediately preceding a non-annotation item, whose name matches a registered handler trigger, are each recorded as an (ast-index, item-byte-offset, trigger-name) metaprog target for the driver to dispatch against that following item.
 
-### `metaprog.fn-macro.args-are-expr-list` — name!(...) arguments parse as a comma-separated expression list
+**Evidence:** `src/compiler/sema_collect.cpp#L577-L626`
 
-The raw text between the parentheses of `name!(...)` is parsed as a comma-separated list of expressions (each becoming one macro ARG). If it does not parse as such, the invocation is rejected.
+## Metaprog dispatch fixpoint
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18566-L18681`
+### `metaprog.dispatch.fixpoint-iteration` — Metaprog discovery iterates to fixpoint, capped at 16
 
-### `metaprog.fn-macro.callee-marker-required` — name!(...) resolves only #[fn_macro]/#[token_macro] callees
+Metaprogram item-generation runs as a discovery loop: each iteration re-lowers and fires triggers/metacalls that may emit new items; the loop repeats until an iteration emits nothing new (fixpoint), bounded by a hard cap of 16 iterations.
 
-A function-style macro call `name!(...)` resolves only callees marked `#[fn_macro]`; a `#[token_macro]` callee additionally receives its raw source text directly as a `str` argument.
+**Uncertainty:** Header doc comment; the loop body lives in the .cpp. Behavior of exceeding the cap (error vs silent stop) is not specified here.
 
-**Evidence:** `src/compiler/sema_impl.hpp#L2529-L2530`, `src/compiler/sema_impl.hpp#L2720-L2728`
+**Evidence:** `src/compiler/metaprog_dispatch.hpp#L94-L100`
 
-### `metaprog.fn-macro.callee-must-be-marked` — name!(...) callee must be a #[fn_macro] or #[token_macro] fn
+## Handler registration
 
-A `name!(...)` invocation resolves `name` against the function overload set; the callee selected must be a fn annotated `#[fn_macro]` or `#[token_macro]`. If `name` is unknown, or no overload bears such an annotation, the call is rejected. Only macro-annotated fns are callable via `name!(...)` syntax.
+### `metaprog.handler.register` — #[metaprog_handler("trigger")] registers a hook
 
-**Uncertainty:** Resolution is restricted to non-generic funcs_ (generic fn_macro out of scope for this slice).
+`#[metaprog_handler("trigger")]` on a function registers `(trigger, fn_name)`; the trigger is the annotation's first positional string-literal argument. The host driver later scans user items for a matching `#[trigger]` annotation and invokes the registered fn on each. A missing/unresolvable trigger string is recorded as the sentinel `<missing>` so a later validation pass can surface the misuse as a diagnostic.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18497-L18517`
+**Divergence:** A6: metaprog handler registration, Logos-only mechanism.
 
-### `metaprog.fn-macro.cfg-builtin` — cfg!(...) is a compile-time built-in predicate
+**Evidence:** `src/compiler/sema_collect.cpp#L1837-L1873`
 
-The built-in macro `cfg!(...)` is evaluated at compile (sema) time to a bool literal, before user fn-macro resolution. It accepts built-in target keys, the boolean combinators `all`/`any`/`not`, and user feature flags supplied via `--cfg`.
+## Derive hooks
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18489-L18493`
+### `metaprog.derive.no-rust-derive-syntax` — `#[derive(...)]` is rejected; use per-trait triggers
 
-### `metaprog.fn-macro.expr-and-item-forms` — Function-style macros resolve to #[fn_macro] fns
+The Rust-style `#[derive(Trait, ...)]` attribute (a `derive` annotation carrying args) is not Logos surface syntax and is an error. Logos uses one trigger annotation per derive, `#[derive_<trait>]`, paired with an in-scope `#[metaprog_handler("derive_<trait>")]` function.
 
-`name!(args)` / `name![args]` resolves CALLEE against `#[fn_macro]` functions with argument ASTs passed as expression blobs; `name!{...}` at item position routes through item-splice (callee returns an item list).
+**Divergence:** Logos replaces Rust `#[derive(...)]` with `#[derive_<trait>]` + `#[metaprog_handler]`.
 
-**Evidence:** `tools/peg_gen/grammars/logos.peg#L293-L294`
+**Evidence:** `src/compiler/sema_impl.hpp#L1762-L1774`
 
-### `metaprog.fn-macro.item-position` — Item-position fn-macro invocation
+### `metaprog.derive.trigger-may-emit-items` — Derive/handler hooks emit sibling items into the program
 
-`IDENT ! { ... }` at item position invokes a function-like macro whose body is captured as raw text; the macro must use brace delimiters at item position (parens/brackets are reserved for expression position). The callee returns a list of items.
+An annotated item bearing a `#[derive_*]` / metaprog-handler attribute invokes the corresponding handler during discovery; the handler may synthesize and splice additional top-level items into the program (alongside the annotated item).
+
+**Evidence:** `src/compiler/metaprog_dispatch.hpp#L94-L98`, `src/compiler/metaprog_dispatch.hpp#L1-L2`
+
+## Templates
+
+### `metaprog.template.decl` — Template declaration
+
+`template <item>` wraps a struct/enum/datatype/trait/impl/fn declaration as inert data (an AST blob) rather than a real binding; the inner names are never registered, so referencing the template as a type yields an unknown-type diagnostic. Templates are consumed by metafunctions via apply/metacall.
 
 ```logos
-my_macro! { struct A; }
+template struct Pair<A,B> { a: A, b: B }
 ```
 
-**Evidence:** `tools/peg_gen/grammars/logos.peg#L573-L574`
+**Divergence:** No Rust equivalent.
 
-### `metaprog.fn-macro.result-is-exprblob-spliced` — fn-macro call expands to the ExprBlob it returns
+**Evidence:** `tools/peg_gen/grammars/logos.peg#L604-L612`
 
-A `name!(...)` expression has the callee's return type `ExprBlob`; at expansion the AST produced by the macro (the returned ExprBlob) is spliced in place of the call site before final sema.
+## Annotations (attributes)
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19118-L19132`
+### `metaprog.annot.accumulate-until-item` — Annotations and doc-comments accumulate until next item
 
-### `metaprog.fn-macro.signature-shapes` — Accepted fn-macro/token-macro signatures
+Annotation nodes accumulate in a pending buffer and are consumed by the next non-annotation item; doc-comment lines/blocks (///, /**, //!, /*!) similarly accumulate. Both buffers are cleared after each item.
 
-A `#[fn_macro]` callee must have exactly one parameter and signature `(ExprBlob) -> ExprBlob` (single-arg form) or `(Vec<ExprBlob>) -> ExprBlob` (N-arg packed form). A `#[token_macro]` callee must have signature `(str) -> ExprBlob`. Any other signature is rejected.
+**Evidence:** `src/compiler/sema.cpp#L7304-L7305`, `src/compiler/sema.cpp#L7424-L7458`, `src/compiler/sema.cpp#L8055-L8058`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18525-L18555`
+### `metaprog.annot.builtin-target-validity` — Builtin attribute must match its allowed targets
 
-### `metaprog.fn-macro.single-arg-arity` — Single-arg fn-macro takes exactly one argument
+A builtin attribute is valid only on item kinds in its allowed target set; applying a builtin attribute to a target outside that set is an error. Non-builtin attribute names are not diagnosed at this phase (may be user annotations, cross-module metaprog triggers, or deferred typo checks).
 
-For a callee with signature `(ExprBlob) -> ExprBlob`, the `name!(...)` invocation must supply exactly one argument; supplying any other count is an error.
+**Evidence:** `src/compiler/sema_impl.hpp#L1775-L1790`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18536-L18539`, `src/compiler/sema_expr.cpp#L19017-L19022`
+### `metaprog.annot.eq-value-first-field` — #[A = lit] binds first field
 
-## Function-style macros in item position
+An annotation #[A = lit] maps the single value to the annotation datatype's first declared field; if the datatype has no fields it is an error ('annotation takes no arguments').
 
-### `metaprog.fn-macro-item.arg-must-be-ast-node` — Each fn-macro argument must be a parsed AST node
+```logos
+#[A = 5]
+```
 
-Each parsed argument of a `Vec<ExprBlob>` fn-macro must be a non-null AST object carrying a CODE tag; a malformed (non-pointer/null or CODE-less) argument is an error. Each argument is serialised into a per-call-site argument blob reconstituted at runtime as `ExprBlob`.
+**Evidence:** `src/compiler/sema.cpp#L7252-L7261`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19281-L19342`
+### `metaprog.annot.float-suffix-strip` — Float annotation literal: strip underscores and f32/f64 suffix
 
-### `metaprog.fn-macro-item.callee-must-be-fn-macro` — Item-position fn-macro invocation requires a #[fn_macro] callee
+A float annotation literal has all '_' separators removed and an optional trailing 'f32'/'f64' suffix stripped before parsing to a double.
 
-An item-position invocation `name!{...}` resolves `name` against the function overload set; it is an error unless some overload is a function attributed `#[fn_macro]`. Unknown `name` is an error.
+```logos
+#[A(3.14f64)]
+```
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19154-L19174`
+```logos
+#[A(1_000.5)]
+```
 
-### `metaprog.fn-macro-item.param-signature` — fn-macro item callee takes `Vec<ExprBlob>` or no args
+**Evidence:** `src/compiler/sema.cpp#L7173-L7180`
 
-A `#[fn_macro]` callee at item position must have either zero parameters, or a single parameter of type `Vec<ExprBlob>`; any other parameter signature is an error.
+### `metaprog.annot.literal-kinds` — Annotation argument literal kinds
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19187-L19201`
+An annotation argument literal is one of: integer, float, bool, string, enum-variant (Name::Variant), or array of literals. Arrays are parsed recursively element-by-element.
 
-### `metaprog.fn-macro-item.raw-text-as-expr-list` — fn-macro item body parses as a comma-separated expression list
+```logos
+#[A(42)]
+```
 
-The raw token text of `name!{...}` is parsed as the argument list of a call `__c(<raw>)`; it must parse to EOF as a valid expression list, else an error. Empty body yields zero arguments.
+```logos
+#[A("s")]
+```
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19205-L19266`
+```logos
+#[A(Color::Red)]
+```
 
-### `metaprog.fn-macro-item.return-type` — fn-macro callee must return ItemList or QuoteItemBlob
+```logos
+#[A([1, 2, 3])]
+```
 
-A `#[fn_macro]` callee invoked at item position must have return type `ItemList` or `QuoteItemBlob`; any other return type is an error.
+**Evidence:** `src/compiler/sema.cpp#L7165-L7229`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19176-L19185`
+### `metaprog.annot.named-by-field-name` — Named annotation args bind by field name
 
-### `metaprog.fn-macro-item.zero-arg-arity` — Zero-parameter fn-macro rejects supplied arguments
+A named argument key=value in #[A(...)] binds to the field whose name equals the key; an unknown field name is an error ('has no field') but does not abort parsing of remaining args.
 
-If the callee takes no parameters, the invocation must supply no arguments; supplying any argument is an error.
+```logos
+#[A(name = 3)]
+```
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19268-L19273`
+**Evidence:** `src/compiler/sema.cpp#L7271-L7281`
 
-## Token macros (`#[token_macro]`)
+### `metaprog.annot.no-args-bare` — Bare annotation #[A] takes no arguments
 
-### `metaprog.token-macro.raw-text-as-str` — token-macro receives unparsed raw text as str
+An annotation written #[A] (no ARGS, no VALUE) produces an instance with an empty argument list.
 
-For a `#[token_macro]` callee, the raw bytes between the delimiters of `name!(...)` are forwarded verbatim as a single `str` argument, bypassing expression-list parsing and per-argument AST serialization.
+```logos
+#[A]
+```
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18576-L18619`
+**Evidence:** `src/compiler/sema.cpp#L7249-L7250`
 
-## `format!` family
+### `metaprog.annot.positional-by-order` — Positional annotation args bind by declaration order
 
-### `metaprog.format.arity-check` — Format placeholder count must match the argument count
+Positional arguments in #[A(arg, ...)] bind to the annotation datatype's fields in declaration order; supplying more positional args than fields is an error ('takes at most N positional args').
 
-When no explicit `{N}` index appears, the number of value placeholders in the format string must equal the number of value arguments provided (args after the format string, and after the sink for write/writeln). When explicit indices are used, the number of value arguments must be at least max(explicit-index)+1. Otherwise the macro is rejected.
+```logos
+#[A(1, 2)]
+```
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18754-L18792`
+**Evidence:** `src/compiler/sema.cpp#L7282-L7292`
 
-### `metaprog.format.expansion-shape` — Format-family expansion builds a String/Formatter block
+### `metaprog.annot.string-escapes` — String annotation literal escape decoding
 
-format!/format_args_str! expand to a block yielding a `String` built via a `Formatter` over a `__buf`. The print family (`println`/`print`/`eprintln`/`eprint`) appends a drain of the buffer to stdout/stderr; `panic!` drains to a panic. write!/writeln! build a `Formatter` directly over the sink (via `(sink).as_formatter()`), stream placeholders into it, and yield `Result<(),Error>` (always Ok — per-placeholder errors are discarded); writeln! additionally writes a trailing newline.
+A quoted string annotation literal has surrounding quotes stripped and escapes \n \t \r \\ \" \0 decoded; an unrecognised escape is preserved verbatim (backslash + char). A raw string r"..." strips the r" prefix and trailing quote with no escape processing.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18828-L18941`
+```logos
+#[A("line\n")]
+```
 
-### `metaprog.format.literal-string-checked` — Format-family macros validate a literal format string at compile time
+```logos
+#[A(r"raw\n")]
+```
 
-For the format family (`format`, `print`, `println`, `eprint`, `eprintln`, `panic`, `format_args_str`) and the write family (`write`, `writeln`), when the format-string argument is a string literal it is parsed and validated at sema time (brace balance, placeholder structure). A non-literal format-string argument skips the check (mirroring Rust `format_args!`). The format string is arg[0] for the format family and arg[1] for the write family.
+**Evidence:** `src/compiler/sema.cpp#L7186-L7217`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18683-L18728`, `src/compiler/sema_expr.cpp#L18701-L18722`
+### `metaprog.annot.struct-flags-set-only` — Structural struct flags are set-only (monotonic)
 
-### `metaprog.format.placeholder-trait-dispatch` — Each format placeholder dispatches to its format-trait method
+Structural attributes #[zone_mut], #[zoned2], #[rel_ptr], #[self_describing], #[borrow_carrying] each set the corresponding boolean struct flag when present; a present flag can only set, never clear, the base value.
 
-Each format placeholder lowers to a call dispatching to the format trait selected by the placeholder's trait kind (e.g. `{}` -> Display, `{:?}` -> Debug, plus hex/oct/bin/exp variants), invoked on the argument value with a `&mut Formatter`. Per-placeholder format spec fields (fill, alignment, sign, alternate, zero-pad, width, precision) are applied to the Formatter before each dispatch and reset between placeholders.
+**Evidence:** `src/compiler/sema.cpp#L7344-L7360`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L18843-L18918`
+### `metaprog.annot.tag-dispatch-on-trait` — #[tag_dispatch(system)] on trait sets dispatch system name
 
-### `metaprog.format.requires-format-arg` — Format/write macros require a format-string argument
+#[tag_dispatch(system_name)] on a trait records system_name as the trait's TAG_DISPATCH_SYSTEM, identifying the tagged-dispatch system the trait participates in.
 
-A format-family or write-family invocation must supply at least the format-string argument; an empty argument list is an error.
+**Evidence:** `src/compiler/sema.cpp#L7367-L7376`
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19011-L19014`
+### `metaprog.annot.type-code-not-on-generic` — `#[type_code]` forbidden on generic items
 
-## Format specification mini-language
+`#[type_code]` may not be applied to an item that has type parameters; a type code must be assigned per concrete instantiation, not on the generic definition.
 
-### `metaprog.fmt.placeholder-arg-selection` — Placeholder argument selection: positional, explicit index, or named
+**Evidence:** `src/compiler/sema_impl.hpp#L1792-L1797`
 
-A format placeholder binds to an argument in one of three modes: positional auto-counter (`{}` consuming 0,1,2,… in order), explicit index (`{N}`), or named (`{name}`). Arity validation against positional args applies only when no placeholder uses the named or explicit-index form.
+### `metaprog.annot.type-code-on-struct` — #[type_code=N] on struct/datatype sets type code
 
-**Evidence:** `src/compiler/sema_fmt.hpp#L55-L66`, `src/compiler/sema_fmt.hpp#L71-L75`
+#[type_code=N] on a struct or datatype sets the type's TYPE_CODE to N and registers N under the fully-qualified name (pkg::Name) in the explicit-type-code table so `type_code_of::<T>()` resolves cross-package.
 
-### `metaprog.fmt.spec-alignment` — Format-spec alignment characters
+```logos
+#[type_code=42] datatype Foo { }
+```
 
-A format placeholder spec may carry an alignment: `<` = Left, `>` = Right, `^` = Center; when unspecified the default alignment is chosen per formatting trait.
+**Evidence:** `src/compiler/sema.cpp#L7313-L7323`
 
-**Evidence:** `src/compiler/sema_fmt.hpp#L31-L36`, `src/compiler/sema_fmt.hpp#L46`
+### `metaprog.annot.type-code-on-template-genos-forbidden` — #[type_code] forbidden on parametric (template) genos
 
-### `metaprog.fmt.spec-fill-and-flags` — Format-spec fill, sign, alternate, and zero flags
+#[type_code=N] on a parametric genos (trait with non-empty type params) is an error; the code must be attached to a concrete specialization, else every specialization would collide in the same tag-system slot.
 
-A format placeholder spec supports: a fill char (default space) used with alignment; a sign flag (`+` = always show sign, default none); an alternate flag `#` (emit base prefix `0x`/`0o`/`0b`); and a zero flag `0` (pad with zeros, overridden by an explicit fill char).
+**Evidence:** `src/compiler/sema.cpp#L8040-L8048`
 
-**Evidence:** `src/compiler/sema_fmt.hpp#L38-L42`, `src/compiler/sema_fmt.hpp#L45-L49`
+### `metaprog.annot.type-code-on-trait-genos` — #[type_code=N] on trait marks it a genos
 
-### `metaprog.fmt.spec-width-precision` — Format-spec width and precision
+#[type_code=N] on a trait sets the trait's TYPE_CODE: the code names the logical datatype family, and each `impl Trait for Eidos` propagates it to the target struct during lowering.
 
-A format placeholder spec may set width and precision; both are unset by default (sentinel -1), and when set precision >= 0 denotes an exact precision.
+**Evidence:** `src/compiler/sema.cpp#L7377-L7383`
 
-**Evidence:** `src/compiler/sema_fmt.hpp#L50-L51`
+### `metaprog.annot.type-code-reserved-range` — type_code values 1..128 reserved for stdlib
 
-### `metaprog.fmt.string-segmentation` — Format string parses into literal text + typed placeholder segments
+Explicit `#[type_code=N]` values with 1 <= N <= 128 are reserved for stdlib primitive tags (TypeTagSystem); user code outside package `std`/`std.*` using a reserved value is warned and should use codes >= 129.
 
-A format string body (without surrounding quotes) parses into an ordered sequence of segments, each either a literal-text run or a placeholder (carrying its argument selector and spec). Parsing is best-effort: a soft issue emits a diagnostic and continues, while a hard parse error halts at the broken placeholder and sets a failure flag.
+**Evidence:** `src/compiler/sema_impl.hpp#L1798-L1811`
 
-**Evidence:** `src/compiler/sema_fmt.hpp#L68-L89`
+### `metaprog.annot.user-annotation-requires-marker` — User annotation NAME must be an #[annotation]-marked datatype
 
-### `metaprog.fmt.trait-spec-types` — Format-spec type characters select a formatting trait
+An annotation whose name is not a compiler-internal key is treated as a user annotation only if NAME resolves to a registered datatype carrying the IS_ANNOTATION_TYPE marker; otherwise it is silently ignored.
 
-In a `format!`-family format string, a placeholder's trailing spec type char selects a formatting trait: no type / absent = Display (`{}`), `?` = Debug (`{:?}`), `x` = LowerHex, `X` = UpperHex, `o` = Octal, `b` = Binary, `e` = LowerExp, `E` = UpperExp. Each placeholder lowers to a call of that trait's method on the argument rather than a variadic runtime path.
+**Related:** `metaprog.annot.struct-flags-set-only`
 
-**Uncertainty:** LowerExp/UpperExp marked '(future)' in source; presence in enum implies recognized but possibly not yet lowered.
+**Evidence:** `src/compiler/sema.cpp#L7327-L7336`
 
-**Evidence:** `src/compiler/sema_fmt.hpp#L20-L29`, `src/compiler/sema_fmt.hpp#L52`
+### `metaprog.annot.value-int-or-enum-variant` — Attribute `= value` must be an integer or enum variant
+
+The right-hand value of an attribute `#[name = V]` read as an integer must be either an integer literal (`#[name = 123]`) or an enum variant path (`#[name = Enum::Variant]`, resolving to that variant's discriminant). Any other value form is an error; an unknown enum or unknown variant is also an error.
+
+```logos
+#[type_code = 42]
+```
+
+```logos
+#[type_code = Tag::Foo]
+```
+
+**Evidence:** `src/compiler/sema_impl.hpp#L1372-L1398`
+
+## Conditional compilation (`cfg`)
+
+### `metaprog.cfg.attr-multi-arg-implicit-and` — cfg attribute multi-arg implicit AND
+
+In `#[cfg(...)]` attribute position, a top-level multi-argument list is an implicit AND of its arguments; `#[cfg]` with no args matches (true).
+
+**Divergence:** Multi-arg implicit AND matches Rust (noted inline).
+
+**Evidence:** `src/compiler/sema.cpp#L3654-L3673`
+
+### `metaprog.cfg.bare-flag-predicates` — cfg bare-identifier flag resolution
+
+A cfg bare identifier matches as: `unix`/`windows` against target_family; `test`/`debug_assertions` against the feature set; otherwise as a feature-like flag checked against the active feature set.
+
+**Evidence:** `src/compiler/sema.cpp#L3519-L3528`, `src/compiler/sema.cpp#L3582`
+
+### `metaprog.cfg.cfg-attr-splice` — cfg_attr predicate-gated attribute splicing and item drop
+
+`#[cfg_attr(pred, attrs...)]` activates first: when pred is true its wrapped attrs are spliced into the item's annotation list, when false the entry is dropped (wrapped attrs are NOT re-fed to cfg_attr). After activation, every plain `#[cfg(...)]` is evaluated; an item is dropped from compilation iff any of its cfg predicates is false. The drop gate applies uniformly to both the collection and lowering walks.
+
+**Evidence:** `src/compiler/sema.cpp#L3606-L3652`
+
+### `metaprog.cfg.combinators` — cfg all/any/not combinators and boolean literals
+
+cfg predicates compose: `all(p...)` is the AND of its children, `any(p...)` the OR, `not(p)` requires exactly one child and negates it (else error/false). The literals `cfg(true)`/`cfg(false)` evaluate to true/false directly. Unknown combinators evaluate to false / raise an error in attribute position.
+
+**Divergence:** cfg(true)/cfg(false) per Rust 1.80 RFC 3695 (noted inline).
+
+**Evidence:** `src/compiler/sema.cpp#L3553-L3582`, `src/compiler/sema.cpp#L3692-L3708`, `src/compiler/sema.cpp#L3721-L3737`
+
+### `metaprog.cfg.key-value-predicates` — cfg key=value predicate resolution
+
+A cfg key=value predicate matches against compile-target metadata: target_arch, target_os, target_endian, target_family, target_pointer_width resolve to the host/target platform values; `feature = "name"` matches iff name is in the active feature set. Any unknown key evaluates to false.
+
+**Divergence:** Unknown-key-false matches Rust per inline comment.
+
+**Evidence:** `src/compiler/sema.cpp#L3507-L3517`, `src/compiler/sema.cpp#L3572-L3575`
 
 ## `metacall` — explicit compile-time evaluation
 
@@ -256,13 +340,13 @@ When a metacall returns an ExprBlob (an AST-expression fragment marker), pass-1 
 
 ### `metaprog.metacall.item-position` — Item-position metacall
 
-`metacall <call-expr> ;` at module top level invokes a metafunction that returns an item-blob; the produced items are spliced into the program at that position.
+`metacall <call-expr> ;` is legal at module item position (top level). The named metafunction is invoked at compile time and must return an item blob; the items it produces are spliced into the program at the metacall's position, replacing the `metacall` item itself.
 
 ```logos
 metacall gen_items::<Foo>();
 ```
 
-**Evidence:** `tools/peg_gen/grammars/logos.peg#L581-L582`
+**Evidence:** `tools/peg_gen/grammars/logos.peg#L581-L582`, `src/compiler/sema_impl.hpp#L4044-L4049`
 
 ### `metaprog.metacall.item-position-splice` — Item-position metacall splices synthesized items
 
@@ -292,7 +376,7 @@ In the block and parenthesized-expr forms, every VAR_REF must resolve to a name 
 
 ### `metaprog.metacall.return-type` — metacall result type must be primitive scalar, WritStatic, Writ, or ExprBlob
 
-The type produced by a metacall operand must be a primitive scalar (bool; integer kinds i8/i16/i24/i32/i56/i64 and u8/u16/u24/u32/u56/u64; f32/f64; integer/float literal types), a &str / `Slice<u8>`, WritStatic, Writ (incl. `Rc<Writ>`), or ExprBlob. Any other result type is a compile error.
+The type produced by a metacall operand must be a primitive scalar (bool; integer kinds i8/i16/i24/i32/i56/i64 and u8/u16/u24/u32/u56/u64; f32/f64; integer/float literal types), a `&str` / `Slice<u8>`, WritStatic, Writ (incl. `Rc<Writ>`), or ExprBlob. Any other result type is a compile error.
 
 **Divergence:** A1/A6: WritStatic/Writ/ExprBlob returns are Logos additions.
 
@@ -320,47 +404,215 @@ A metacall whose operand returns a (mutable) Writ / `Rc<Writ>` is auto-frozen: u
 
 **Evidence:** `src/compiler/sema_expr.cpp#L17537-L17568`, `src/compiler/sema_expr.cpp#L17597-L17603`
 
-## `metacall` in item position
+## Item-position `metacall`
 
 ### `metaprog.metacall-item.args-const-eval` — Item-position metacall arguments must be compile-time constants
 
-Each argument of an item-position `metacall` is evaluated by CTFE (with module-const path folding) to a printable literal; an argument that is not a compile-time constant is an error.
+Every argument in an item-position `metacall <callee>(args...)` is evaluated via CTFE (with module-level named consts resolvable through `lookup_const`); an argument that fails to fold to a constant is rejected.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19432-L19475`, `src/compiler/sema_expr.cpp#L19609-L19618`
+**Evidence:** `src/compiler/sema_expr.cpp#L19991-L20034`
 
-### `metaprog.metacall-item.callee-form` — Item-position metacall requires a free-function or static-method call
+### `metaprog.metacall-item.callee-form` — Item-position metacall callee must be a call expression
 
-`metacall <expr>;` at item position requires `<expr>` to be a free-function call, generic (turbofish) call, or static-method call; any other expression form is an error.
+`metacall <expr>;` at item position requires `<expr>` to be a free-function call, a generic (turbofish) call, or a static-method call; any other expression form is rejected.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19421-L19430`
+**Evidence:** `src/compiler/sema_expr.cpp#L19980-L19989`
 
 ### `metaprog.metacall-item.return-type` — Item-position metacall callee must return QuoteItemBlob or ItemList
 
-The callee of an item-position `metacall` must have return type `QuoteItemBlob` or `ItemList`; any other return type is an error.
+The callee of an item-position `metacall` (after ordinary lowering/type-checking of the inner call) must have return type `QuoteItemBlob` or `ItemList`; any other return type is rejected.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19477-L19489`
+**Evidence:** `src/compiler/sema_expr.cpp#L20038-L20047`
 
-### `metaprog.metacall-item.turbofish-wstatic-source` — WritStatic turbofish type-args re-render to @-literal source
+### `metaprog.metacall-item.turbofish-wstatic-source` — WritStatic turbofish type-args re-rendered as source for the metacall thunk
 
-A turbofish type-argument that is a WritStatic literal (`Foo::<@{...}>`) is reconstructed to its original `@{...}` source form (objects `{k: v}`, arrays `[..]`, ints, neg-ints, floats, strings, bools, null, and `<type:..>` literals) rather than the non-reparsable `@hs_<hex>` rendering, so the synthesised thunk can re-parse it.
+When building the literal call text for an item-position `metacall`'s generic/static call, a turbofish type-argument that is a `WritStatic` literal (`Foo::<@{...}>`) is re-rendered from its parsed writ-literal AST back into `@{...}` source syntax, rather than through the ordinary type-to-string path (which would emit the non-reparseable internal form `@hs_<hex>`).
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19491-L19593`
+**Uncertainty:** Internal `@hs_<hex>` rendering form is inferred from the comment; the type_str() implementation itself is outside this slice.
 
-## Templates
+**Evidence:** `src/compiler/sema_expr.cpp#L20050-L20126`, `src/compiler/sema_expr.cpp#L20140-L20151`
 
-### `metaprog.template.decl` — Template declaration
+## Macro invocation syntax
 
-`template <item>` wraps a struct/enum/datatype/trait/impl/fn declaration as inert data (an AST blob) rather than a real binding; the inner names are never registered, so referencing the template as a type yields an unknown-type diagnostic. Templates are consumed by metafunctions via apply/metacall.
+### `expr.macro.fn-style-call` — Function-style macro invocation
+
+Function-style macros invoke as `name!(…)`, `name![…]`, or `name!{…}`; the contents between balanced delimiters are captured as raw source text and re-interpreted at sema time per the callee's macro kind (#[fn_macro] re-parses as an expression list; #[token_macro] lexes as a TokenStream). In no-struct-lit (condition) position the brace form `name!{…}` is excluded.
+
+**Evidence:** `tools/peg_gen/grammars/logos.peg#L2743-L2754`, `tools/peg_gen/grammars/logos.peg#L2550-L2559`
+
+## Function-style macros (`#[fn_macro]`)
+
+### `metaprog.fn-macro.arg-passed-as-ast-blob` — Each fn-macro argument is passed as its serialized AST subtree (ExprBlob)
+
+Each argument expression of `name!(...)` is passed to the callee unevaluated as an `ExprBlob` referencing the serialized AST subtree of that argument; the callee receives the syntax tree, not a runtime value. For the Vec form, all argument ExprBlobs are packed into a `Vec<ExprBlob>` in source order.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19028-L19116`
+
+### `metaprog.fn-macro.args-are-expr-list` — name!(...) arguments parse as a comma-separated expression list
+
+The raw text between the parentheses of `name!(...)` is parsed as a comma-separated list of expressions (each becoming one macro ARG). If it does not parse as such, the invocation is rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L18566-L18681`
+
+### `metaprog.fn-macro.builtin-macro-list` — Fixed set of compiler-built-in function-style macros checked before user #[fn_macro]s
+
+Function-style macro calls (`name!(args)` / `name![args]`) are first checked against a fixed compiler-built-in set — `cfg!`, `line!`, `column!`, `file!`, `include!`, `include_str!`, `include_bytes!`, `env!`, `concat!`, `concat_bytes!`, `stringify!`, `compile_error!` — handled by lower_builtin_macro; a callee name not in this set falls through to resolution against user `#[fn_macro]`-tagged functions.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L4018-L4029`
+
+### `metaprog.fn-macro.callee-marker-required` — name!(...) resolves only #[fn_macro]/#[token_macro] callees
+
+A function-style macro call `name!(...)` resolves only callees marked `#[fn_macro]`; a `#[token_macro]` callee additionally receives its raw source text directly as a `str` argument.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L2553-L2554`
+
+### `metaprog.fn-macro.callee-must-be-marked` — name!(...) callee must be a #[fn_macro] or #[token_macro] fn
+
+A `name!(...)` invocation resolves `name` against the function overload set; the callee selected must be a fn annotated `#[fn_macro]` or `#[token_macro]`. If `name` is unknown, or no overload bears such an annotation, the call is rejected. Only macro-annotated fns are callable via `name!(...)` syntax.
+
+**Uncertainty:** Resolution is restricted to non-generic funcs_ (generic fn_macro out of scope for this slice).
+
+**Evidence:** `src/compiler/sema_expr.cpp#L18497-L18517`
+
+### `metaprog.fn-macro.cfg-builtin` — cfg!(...) is a compile-time built-in predicate
+
+The built-in macro `cfg!(...)` is evaluated at compile (sema) time to a bool literal, before user fn-macro resolution. It accepts built-in target keys, the boolean combinators `all`/`any`/`not`, and user feature flags supplied via `--cfg`.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L18489-L18493`
+
+### `metaprog.fn-macro.expr-and-item-forms` — Function-style macros resolve to #[fn_macro] fns
+
+`name!(args)` / `name![args]` resolves CALLEE against `#[fn_macro]` functions with argument ASTs passed as expression blobs; `name!{...}` at item position routes through item-splice (callee returns an item list).
+
+**Evidence:** `tools/peg_gen/grammars/logos.peg#L293-L294`
+
+### `metaprog.fn-macro.item-callee-resolution` — Callee resolution and lowering of item-position fn-macro calls
+
+A function-style macro invoked at module item position as `name!{...}` resolves its callee against `#[fn_macro]`-tagged functions (mirroring expression-position fn-macro calls) and routes its arguments through the per-site raw-capture arg-blob shim, mirroring metacall's item-position lowering.
+
+**Related:** `metaprog.fn-macro.item-position`, `metaprog.metacall.item-position`, `metaprog.fn-macro.builtin-macro-list`
+
+**Evidence:** `src/compiler/sema_impl.hpp#L4050-L4055`
+
+### `metaprog.fn-macro.item-position` — Item-position fn-macro invocation
+
+`IDENT ! { ... }` at item position invokes a function-like macro whose body is captured as raw text; the macro must use brace delimiters at item position (parens/brackets are reserved for expression position). The callee returns a list of items.
 
 ```logos
-template struct Pair<A,B> { a: A, b: B }
+my_macro! { struct A; }
 ```
 
-**Divergence:** No Rust equivalent.
+**Related:** `metaprog.fn-macro.item-callee-resolution`
 
-**Evidence:** `tools/peg_gen/grammars/logos.peg#L604-L612`
+**Evidence:** `tools/peg_gen/grammars/logos.peg#L573-L574`
 
-## Quotation — typed AST literals
+### `metaprog.fn-macro.result-is-exprblob-spliced` — fn-macro call expands to the ExprBlob it returns
+
+A `name!(...)` expression has the callee's return type `ExprBlob`; at expansion the AST produced by the macro (the returned ExprBlob) is spliced in place of the call site before final sema.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19118-L19132`
+
+### `metaprog.fn-macro.signature-shapes` — Accepted fn-macro/token-macro signatures
+
+A `#[fn_macro]` callee must have exactly one parameter and signature `(ExprBlob) -> ExprBlob` (single-arg form) or `(Vec<ExprBlob>) -> ExprBlob` (N-arg packed form). A `#[token_macro]` callee must have signature `(str) -> ExprBlob`. Any other signature is rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L18525-L18555`
+
+### `metaprog.fn-macro.single-arg-arity` — Single-arg fn-macro takes exactly one argument
+
+For a callee with signature `(ExprBlob) -> ExprBlob`, the `name!(...)` invocation must supply exactly one argument; supplying any other count is an error.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L18536-L18539`, `src/compiler/sema_expr.cpp#L19017-L19022`
+
+## Item-position function-style macros
+
+### `metaprog.fn-macro-item.arg-must-be-ast-node` — Each re-parsed fn_macro item arg must be a valid AST node
+
+Each element of the re-parsed RAW_TEXT arg list (for the `Vec<ExprBlob>` item form) must be a non-null pointer value whose root carries a nonzero AST CODE; otherwise the item is rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19841-L19855`
+
+### `metaprog.fn-macro-item.callee-must-be-fn-macro` — Item-position macro call callee must be #[fn_macro] or #[token_macro]
+
+`callee!{ ... }` / `callee!(...){...}` at ITEM position resolves `callee` in the function-overload set; if no overload is found, or none of the overloads carries `#[fn_macro]` or `#[token_macro]`, the item is rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19483-L19508`
+
+### `metaprog.fn-macro-item.param-signature` — Item-macro callee parameter shape is fixed per attribute
+
+An item-position `#[fn_macro]` callee must have parameter list `(Vec<ExprBlob>)` or `()`. An item-position `#[token_macro]` callee must have parameter list `(str)`, `(name: str, body: str)`, or `(name: str, params: str, body: str)`. Any other arity/type combination for the given attribute is rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19521-L19575`
+
+### `metaprog.fn-macro-item.raw-text-as-expr-list` — fn_macro `Vec<ExprBlob>` item form re-parses RAW_TEXT as a comma-separated expr list
+
+For an item-position `#[fn_macro]` callee of shape `(Vec<ExprBlob>)`, the macro's RAW_TEXT is wrapped as `fn __f() { __c(<RAW_TEXT>); }`, parsed as Logos source, and the resulting call's ARGS elements are lowered one-for-one into `ExprBlob` values (each argument's AST subtree is copied into its own document, tagged with its original AST node CODE) and passed to the callee as `Vec<ExprBlob>`.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19769-L19825`, `src/compiler/sema_expr.cpp#L19838-L19876`, `src/compiler/sema_expr.cpp#L19887-L19901`
+
+### `metaprog.fn-macro-item.return-type` — Item-macro callee must return ItemList or QuoteItemBlob
+
+An item-position `#[fn_macro]`/`#[token_macro]` callee's declared return type must be `ItemList` or `QuoteItemBlob`; any other return type is rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19510-L19519`
+
+### `metaprog.fn-macro-item.zero-arg-arity` — Zero-arg fn_macro item form rejects nonzero arg count
+
+An item-position `#[fn_macro]` callee declared with zero parameters is invoked with the RAW_TEXT re-parsed as a (possibly empty) comma-separated arg list; if that re-parse yields one or more arguments, the item is rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19773-L19825`, `src/compiler/sema_expr.cpp#L19827-L19832`
+
+## Built-in macros
+
+### `metaprog.builtin-macro.vec-desugar` — `vec![...]` desugars via a synthesized `vec_from_arr` call
+
+The `vec![...]` built-in macro's synthesized body is re-parsed as the tail expression of an ephemeral `fn __f() -> i32 { <wrap_body> }` and lowered in the current context, routing `vec![e1, e2, ..]` through a synthesized `vec_from_arr([e1, e2, ..])` call; a re-parse failure produces `error_expr()` after a diagnostic.
+
+**Evidence:** `src/compiler/sema_impl.hpp#L4032-L4039`
+
+## Token macros (`#[token_macro]`)
+
+### `metaprog.token-macro.raw-text-as-str` — token-macro receives unparsed raw text as str
+
+For a `#[token_macro]` callee, the raw bytes between the delimiters of `name!(...)` are forwarded verbatim as a single `str` argument, bypassing expression-list parsing and per-argument AST serialization.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L18576-L18619`
+
+## Item-position token macros
+
+### `metaprog.token-macro-item.name-slot-scope` — Resource NAME slot required for 2/3-arg token_macro, optional+dropped for 1-arg
+
+`resource <name> = h!{...}` / `resource <name> = h!(<params>){...}` supplies the LHS binding as a NAME field on the item node. Targeting the 2-arg `(name: str, body: str)` or 3-arg `(name: str, params: str, body: str)` `#[token_macro]` form without a NAME is rejected. Targeting the 1-arg `(body: str)` form, a supplied NAME is accepted but the value is discarded — never delivered to the callee.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19577-L19592`, `src/compiler/sema_expr.cpp#L19658-L19663`
+
+### `metaprog.token-macro-item.params-slot-scope` — Resource PARAMS slot only valid for the 3-arg token_macro form
+
+`h!(<params>){...}` supplies a PARAMS field carrying the raw params source text. Supplying PARAMS against any callee signature other than the 3-arg `(name: str, params: str, body: str)` `#[token_macro]` is rejected; conversely, targeting the 3-arg form without a supplied PARAMS is also rejected.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19600-L19620`
+
+### `metaprog.token-macro-item.raw-text-verbatim` — token_macro item form receives raw block text unparsed
+
+For an item-position `#[token_macro]` callee of shape `(str)`, `(name: str, body: str)`, or `(name: str, params: str, body: str)`, the full RAW_TEXT bytes of the macro's block (and, where present, the NAME and PARAMS text) are passed to the callee as opaque `str` values byte-for-byte — the content is NOT re-parsed as Logos source before the call.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19630-L19664`, `src/compiler/sema_expr.cpp#L19670-L19707`
+
+## Item emission (splice results)
+
+### `metaprog.item-emit.itemlist-iteration` — ItemList-returning item macro/metacall emits each contained item
+
+When an item-position fn_macro/token_macro call or item-position `metacall` resolves to a callee returning `ItemList`, the compiler synthesises a void thunk that iterates `ItemList.blobs` and, for each `QuoteItemBlob` element, emits it into the surrounding module (substituting captured identifiers) then releases its idents/blobs/cursors buffers.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19709-L19736`, `src/compiler/sema_expr.cpp#L19904-L19930`, `src/compiler/sema_expr.cpp#L20196-L20222`
+
+### `metaprog.item-emit.quoteitemblob-single` — QuoteItemBlob-returning item macro/metacall emits a single item
+
+When an item-position fn_macro/token_macro call or item-position `metacall` resolves to a callee returning `QuoteItemBlob` (not `ItemList`), the compiler synthesises a void thunk that emits that single blob into the surrounding module (substituting captured identifiers) then releases its idents/blobs/cursors buffers.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L19737-L19757`, `src/compiler/sema_expr.cpp#L19931-L19950`, `src/compiler/sema_expr.cpp#L20223-L20241`
+
+## Quotation — overview
 
 ### `metaprog.quote.typed-ast-literals` — quote_* produce typed AST/Type literals
 
@@ -368,7 +620,7 @@ template struct Pair<A,B> { a: A, b: B }
 
 **Evidence:** `tools/peg_gen/grammars/logos.peg#L268-L274`
 
-## Expression quotation
+## `quote_expr!`
 
 ### `metaprog.quote-expr.antiquot-carrier-positions` — Antiquots are recognized only in defined AST carrier positions
 
@@ -412,9 +664,9 @@ Within a single `#(...)*` group, all fixed-size `[Ident; N]` cursors must share 
 
 **Evidence:** `src/compiler/sema_expr.cpp#L16539-L16548`
 
-### `metaprog.quote-expr.repeat-cursor-type` — Repetition cursor must be [Ident;N], `Vec<Ident>`, or `Vec<ExprBlob>`
+### `metaprog.quote-expr.repeat-cursor-type` — Repetition cursor must be `[Ident;N]`, `Vec<Ident>`, or `Vec<ExprBlob>`
 
-A `#name` antiquot inside a `#(...)*` repetition group (a cursor) must bind a value of type `[Ident; N]` (fixed count N), `Vec<Ident>`, or `Vec<ExprBlob>` (dynamic count); any other type is rejected ("expected [Ident; N], `Vec<Ident>`, or `Vec<ExprBlob>`").
+A `#name` antiquot inside a `#(...)*` repetition group (a cursor) must bind a value of type `[Ident; N]` (fixed count N), `Vec<Ident>`, or `Vec<ExprBlob>` (dynamic count); any other type is rejected ("expected `[Ident; N]`, `Vec<Ident>`, or `Vec<ExprBlob>`").
 
 **Divergence:** A3/A6
 
@@ -444,7 +696,61 @@ A `#name` antiquot outside a repetition group, in a general expression position,
 
 **Evidence:** `src/compiler/sema_expr.cpp#L16815-L16981`, `src/compiler/sema_expr.cpp#L16866-L16943`
 
-## Item quotation
+## `quote_ty!`
+
+### `metaprog.quote-ty.antiquot-type-var` — $ident antiquot inside quote_ty! refers to a bound Type value
+
+An ANTIQUOT_TYPE `$x` inside `quote_ty!` lowers to a variable reference of type `Type` (the in-scope binding named `x`), instead of being reified from a static type.
+
+**Divergence:** A6 (Logos addition)
+
+**Evidence:** `src/compiler/sema_expr.cpp#L16182-L16184`, `src/compiler/sema_expr.cpp#L16314-L16316`
+
+### `metaprog.quote-ty.array-antiquot-literal-size` — quote_ty! array with antiquot element requires literal integer size
+
+`quote_ty! { [$t; N] }` lowers to `__array_type_apply__(elem_producer, N)`; the size N MUST be a literal integer (a non-numeric/symbolic size is rejected with "array antiquot requires literal integer size").
+
+**Divergence:** A6 (Logos addition)
+
+**Evidence:** `src/compiler/sema_expr.cpp#L16238-L16263`
+
+### `metaprog.quote-ty.generic-inst-antiquot` — quote_ty! generic instantiation with antiquot args lowers to `__type_apply__`
+
+`quote_ty! { Foo<args...> }` with at least one `$ident` antiquot among the args lowers to `__type_apply__("Foo", [elems])`, where each elem is a var-ref (for `$x`) or a reified `Type` struct literal (for a concrete type arg). Lifetime args and pack-expand args in this position are rejected ("lifetime / pack args not yet supported").
+
+**Divergence:** A6 (Logos addition)
+
+**Evidence:** `src/compiler/sema_expr.cpp#L16299-L16355`
+
+### `metaprog.quote-ty.pack-splice` — quote_ty! generic pack-splice lowers to `__type_apply__` with runtime array
+
+`quote_ty! { Foo<$ts...> }`, where the sole generic argument is an ANTIQUOT_PACK `$ts...`, lowers to `__type_apply__("Foo", ts)` where ts is a var-ref to a runtime `Array<Type>`. A pack-splice mixed with any other generic argument (`Foo<$t, $ts...>`) is rejected ("mixed pack-splice with other args not yet supported").
+
+**Divergence:** A6 (Logos addition)
+
+**Uncertainty:** Mixed-pack rejection is a current implementation limit, not a permanent language rule.
+
+**Evidence:** `src/compiler/sema_expr.cpp#L16271-L16294`
+
+### `metaprog.quote-ty.reify-type-to-struct` — quote_ty! reifies a type into a runtime Type value
+
+`quote_ty! { T }` evaluates to a value of struct type `Type` whose fields are { kind: u32 = `__type_kind_of__::<T>(),` name: &[u8] = `__type_name_of__::<T>(),` size: i64 = `size_of::<T>(),` align: i64 = `align_of::<T>(),` uid: u64 = `__type_uid_of__::<T>()` }.
+
+**Divergence:** A6 (Logos addition; metaprog reflection intrinsic)
+
+**Related:** `intrinsic.type-reflect.kind`, `intrinsic.type-reflect.name`, `intrinsic.type-reflect.uid`
+
+**Evidence:** `src/compiler/sema_expr.cpp#L16357-L16383`, `src/compiler/sema_expr.cpp#L16179`
+
+### `metaprog.quote-ty.tuple-antiquot` — quote_ty! tuple with antiquot lowers to `__tuple_type_apply__`
+
+`quote_ty! { ($t1, $t2, ...) }` where at least one element is an antiquot lowers to `__tuple_type_apply__([p1, p2, ...])` where each pi is the per-element Type producer (var-ref for `$x`, reified `Type` literal otherwise); mixed literal/antiquot elements are permitted.
+
+**Divergence:** A6 (Logos addition)
+
+**Evidence:** `src/compiler/sema_expr.cpp#L16209-L16234`
+
+## `quote_item!`
 
 ### `metaprog.quote-item.blob-result-type` — quote_item! evaluates to a QuoteItemBlob value
 
@@ -536,60 +842,6 @@ Inside a `#(...)*` repetition group, a `#name` placeholder becomes a Cursor whos
 
 **Evidence:** `src/compiler/sema_expr.cpp#L15859-L15894`, `src/compiler/sema_expr.cpp#L15805-L15819`
 
-## Type quotation
-
-### `metaprog.quote-ty.antiquot-type-var` — $ident antiquot inside quote_ty! refers to a bound Type value
-
-An ANTIQUOT_TYPE `$x` inside `quote_ty!` lowers to a variable reference of type `Type` (the in-scope binding named `x`), instead of being reified from a static type.
-
-**Divergence:** A6 (Logos addition)
-
-**Evidence:** `src/compiler/sema_expr.cpp#L16182-L16184`, `src/compiler/sema_expr.cpp#L16314-L16316`
-
-### `metaprog.quote-ty.array-antiquot-literal-size` — quote_ty! array with antiquot element requires literal integer size
-
-`quote_ty! { [$t; N] }` lowers to `__array_type_apply__(elem_producer, N)`; the size N MUST be a literal integer (a non-numeric/symbolic size is rejected with "array antiquot requires literal integer size").
-
-**Divergence:** A6 (Logos addition)
-
-**Evidence:** `src/compiler/sema_expr.cpp#L16238-L16263`
-
-### `metaprog.quote-ty.generic-inst-antiquot` — quote_ty! generic instantiation with antiquot args lowers to __type_apply__
-
-`quote_ty! { Foo<args...> }` with at least one `$ident` antiquot among the args lowers to `__type_apply__("Foo", [elems])`, where each elem is a var-ref (for `$x`) or a reified `Type` struct literal (for a concrete type arg). Lifetime args and pack-expand args in this position are rejected ("lifetime / pack args not yet supported").
-
-**Divergence:** A6 (Logos addition)
-
-**Evidence:** `src/compiler/sema_expr.cpp#L16299-L16355`
-
-### `metaprog.quote-ty.pack-splice` — quote_ty! generic pack-splice lowers to __type_apply__ with runtime array
-
-`quote_ty! { Foo<$ts...> }`, where the sole generic argument is an ANTIQUOT_PACK `$ts...`, lowers to `__type_apply__("Foo", ts)` where ts is a var-ref to a runtime `Array<Type>`. A pack-splice mixed with any other generic argument (`Foo<$t, $ts...>`) is rejected ("mixed pack-splice with other args not yet supported").
-
-**Divergence:** A6 (Logos addition)
-
-**Uncertainty:** Mixed-pack rejection is a current implementation limit, not a permanent language rule.
-
-**Evidence:** `src/compiler/sema_expr.cpp#L16271-L16294`
-
-### `metaprog.quote-ty.reify-type-to-struct` — quote_ty! reifies a type into a runtime Type value
-
-`quote_ty! { T }` evaluates to a value of struct type `Type` whose fields are { kind: u32 = __type_kind_of__::<T>(), name: &[u8] = __type_name_of__::<T>(), size: i64 = size_of::<T>(), align: i64 = align_of::<T>(), uid: u64 = __type_uid_of__::<T>() }.
-
-**Divergence:** A6 (Logos addition; metaprog reflection intrinsic)
-
-**Related:** `intrinsic.type-reflect.kind`, `intrinsic.type-reflect.name`, `intrinsic.type-reflect.uid`
-
-**Evidence:** `src/compiler/sema_expr.cpp#L16357-L16383`, `src/compiler/sema_expr.cpp#L16179`
-
-### `metaprog.quote-ty.tuple-antiquot` — quote_ty! tuple with antiquot lowers to __tuple_type_apply__
-
-`quote_ty! { ($t1, $t2, ...) }` where at least one element is an antiquot lowers to `__tuple_type_apply__([p1, p2, ...])` where each pi is the per-element Type producer (var-ref for `$x`, reified `Type` literal otherwise); mixed literal/antiquot elements are permitted.
-
-**Divergence:** A6 (Logos addition)
-
-**Evidence:** `src/compiler/sema_expr.cpp#L16209-L16234`
-
 ## Antiquotation
 
 ### `metaprog.antiquot.callee-skips-payload-arg` — Antiquoted callee drops synthetic first arg
@@ -608,21 +860,103 @@ Within a quoted/Writ literal, an antiquotation captures a value either by identi
 
 **Evidence:** `src/compiler/sema_render.cpp#L532-L537`
 
-## Item emission
+## Type reflection intrinsics
 
-### `metaprog.item-emit.itemlist-iteration` — ItemList-returning macro emits each contained item blob
+### `metaprog.type-intrinsic.apply-generic` — `__apply_generic__` instantiates a template struct type
 
-When an item-position macro/metacall returns `ItemList`, every `QuoteItemBlob` in its `blobs` vector is emitted as a top-level item (via the host item-emit shim) in order.
+For `__apply_generic__(tmpl_name, arg0..argN)`, each arg expr is resolved to a compile-time TypeRef via the type-producer-recover protocol (unresolvable arg aborts compilation with a diagnostic); the intrinsic builds LogosType::Struct{name=tmpl_name, type_args=[recovered...]} (pkg inherited from the matching struct def in out_.structs), interns the type, and replaces the call with that type's `Type` reflection value.
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19345-L19371`, `src/compiler/sema_expr.cpp#L19637-L19663`
+**Divergence:** A6
 
-### `metaprog.item-emit.quoteitemblob-single` — QuoteItemBlob-returning macro emits one item
+**Evidence:** `src/compiler/mono_clone.cpp#L2191-L2239`
 
-When an item-position macro/metacall returns a single `QuoteItemBlob`, that value is emitted as one top-level item (via the host item-emit shim).
+### `metaprog.type-intrinsic.array-type-apply` — `__array_type_apply__(Type, N)` builds an array type
 
-**Evidence:** `src/compiler/sema_expr.cpp#L19372-L19391`, `src/compiler/sema_expr.cpp#L19664-L19682`
+`__array_type_apply__(elem, size)` requires elem to resolve via type-producer-recover (unresolvable is a compile-time abort) and size (after chase) to be a LitInt literal (a non-literal is a compile-time abort); the intrinsic yields LogosType::Array{elem=recovered, arr_size=size}'s `Type` reflection value.
 
-## Writ literal capture
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2244-L2246`, `src/compiler/mono_clone.cpp#L2342-L2361`
+
+### `metaprog.type-intrinsic.tuple-type-apply` — `__tuple_type_apply__([Type;N])` builds a tuple type
+
+`__tuple_type_apply__(arr)` requires arg0 to chase to an ArrLit (a non-ArrLit is a compile-time abort); each element is resolved via type-producer-recover (unresolvable element aborts); the intrinsic yields LogosType::Tuple{tuple_elems=[recovered...]}'s `Type` reflection value.
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2244-L2246`, `src/compiler/mono_clone.cpp#L2316-L2341`
+
+### `metaprog.type-intrinsic.type-producer-recover` — Type-producer recovery protocol for type-apply intrinsics
+
+To resolve a LIR sub-expr to a compile-time TypeRef (shared by `__apply_generic__`/`__tuple_type_apply__`/`__array_type_apply__`): (1) chase through VarRef by looking up type_let_inits_, up to 8 hops; (2) if the result is a Call to `__typelist_nth__` or `__typelist_head__`, substitute its type-arg[0] (a type-list) through the current subst map and index into its type_args pack at the literal-int index given as `__typelist_nth__`'s value arg (`__typelist_head__` implicitly index 0); out-of-range index yields no type; (3) if the result is a StructLit with a field named "uid" whose initializer is a Call to `__type_uid_of__`, recover that call's type-arg[0] substituted through the subst map; (4) otherwise recovery fails (empty TypeRef).
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2152-L2189`, `src/compiler/mono_clone.cpp#L2255-L2315`
+
+### `metaprog.type-intrinsic.type-reflection-value` — Type reflection value shape and uid
+
+A reflected `Type` value (yielded by `__apply_generic__`/`__tuple_type_apply__`/`__array_type_apply__`) is the struct literal `Type{kind:u32=T.kind(), name:&[u8]=type_str(T), size:i64=size_of(T), align:i64=align_of(T), uid:u64}` where `uid = type_hash_64bit(type_hash_23(type_id_canon(T)))`; T is registered into out_.type_pool and uid_to_type_[uid]=T so a later `__type_uid_of__` lookup on that uid recovers T.
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2213-L2238`, `src/compiler/mono_clone.cpp#L2364-L2387`
+
+## Enum reflection intrinsics
+
+### `metaprog.enum-intrinsic.variant-count-of` — `__variant_count_of__::<E>()` yields variant count
+
+`__variant_count_of__` with type-arg E evaluates to a literal i64 equal to the variant count of E's enum definition when E resolves to a known LogosType::Enum with a matching def in in_.enums, else 0.
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2395-L2417`
+
+### `metaprog.enum-intrinsic.variant-names-of` — `__variant_names_of__::<E>()` yields variant names
+
+`__variant_names_of__` with type-arg E evaluates to a fixed-size array literal of each variant's name (string literal), in declaration order; empty array if E does not resolve to a known enum def.
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2395-L2407`, `src/compiler/mono_clone.cpp#L2421-L2425`, `src/compiler/mono_clone.cpp#L2470-L2477`
+
+### `metaprog.enum-intrinsic.variant-payload-counts-of` — `__variant_payload_counts_of__::<E>()` yields per-variant payload arities
+
+`__variant_payload_counts_of__` with type-arg E evaluates to a fixed-size array literal of i64, one per variant in declaration order, each equal to that variant's payload-field count; empty array if E does not resolve to a known enum def.
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2426-L2431`, `src/compiler/mono_clone.cpp#L2470-L2477`
+
+### `metaprog.enum-intrinsic.variant-payload-types-flat-of` — `__variant_payload_types_flat_of__::<E>()` yields flattened payload-type reflections
+
+`__variant_payload_types_flat_of__` with type-arg E evaluates to a flat fixed-size array literal of `Type` reflection values (per metaprog.type-intrinsic.type-reflection-value), one per payload type across all variants in declaration order (variant-major, field-minor), each payload type substituted through the current instantiation's subst map; empty array if E does not resolve to a known enum def.
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2432-L2469`
+
+## Variadic tuple intrinsics
+
+### `metaprog.variadic.tuple-all-eq` — `__tuple_all_eq__::<T>(a, b)` expands to an &&-chain of elementwise eq
+
+`__tuple_all_eq__` with type-arg T substituted to a concrete Tuple and exactly 2 args (a, b) expands to the left-associated `&&`-chain of per-element equality a.i.eq(&b.i): a Tuple-kind element inlines a recursive chain over the nested field refs (never re-emits `__tuple_all_eq__`, since mono does not re-process synthesized intrinsics); a Slice-kind element (canonicalized to element name "str" when it is `Slice<u8>`) is compared via a direct 2-arg by-value free-function call; any other element resolves a callee symbol by scanning out_.functions then in_.functions for a name containing `<elem-type-str>__eq__f__` at a `.`-delimited-or-leading boundary (falling back to `<elem-type-str>__eq`) and calls it as `a.eq(&b)` via method_call. When T is missing/non-Tuple or fewer than 2 args are present, the intrinsic degenerates to the boolean literal `true` (also the result for an empty tuple).
+
+**Divergence:** A6
+
+**Uncertainty:** Symbol resolution by substring scan is an implementation detail; the observable language rule is the &&-chain elementwise-Eq semantics.
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2488-L2584`
+
+### `metaprog.variadic.tuple-each-field-debug` — `__tuple_each_field_debug__::<T>(self, f)` expands variadic tuple Debug
+
+`__tuple_each_field_debug__` with type-arg T substituted to a concrete Tuple and exactly 2 args (self, f: &mut Formatter) expands to a `fmt_seq`-chained Result: fmt_tuple_open(f), then per element i in order: fmt_tuple_sep(f) folded in when i>0, then either (Tuple-kind element) an inline recursive build over the nested field ref, or (otherwise) a Debug-fmt call resolved as a symbol containing `<elem-type-str>__Debug__fmt__f__` else `<elem-type-str>__fmt__f__` at a `.`-delimited-or-leading boundary, else literally `<elem-type-str>__fmt` (elem-type-str = type_str(elem), with `Slice<u8>` canonicalized to "str"), invoked as `field.fmt(f)`; finally fmt_tuple_close1(f) if the tuple arity is 1, else fmt_tuple_close(f); each step is folded into the running chain via fmt_seq. Every reuse of the shared `f` argument after its first use goes through a reborrow wrapper (AddrOfTemp(Deref(f))), since `&mut Formatter` is a move-type under borrow-check and a bare reuse would consume it on the first call. When T is missing/non-Tuple or fewer than 2 args are present, the intrinsic degenerates to a single close-call.
+
+**Divergence:** A6
+
+**Evidence:** `src/compiler/mono_clone.cpp#L2591-L2683`
+
+## Writ `@`-literals
 
 ### `metaprog.writ-lit.capture-zone-alloc-kinds` — Capture kinds requiring zone allocation
 
@@ -648,7 +982,7 @@ An @-literal (Writ literal) without runtime captures is serialized to a constant
 
 **Evidence:** `src/compiler/mlir_gen_expr.cpp#L6151-L6196`, `src/compiler/mlir_gen_expr.cpp#L6234-L6267`
 
-## Writ AST blobs
+## Writ blobs (`WRIT_BLOB`)
 
 ### `metaprog.writ-blob.ast-fragment-recurse` — WRIT_BLOB carrying an AST-category root lowers as that expression
 
@@ -669,6 +1003,26 @@ A WRIT_BLOB whose root is null, non-TinyMap, or not of an AST expression categor
 **Related:** `metaprog.writ-blob.ast-fragment-recurse`
 
 **Evidence:** `src/compiler/sema_expr.cpp#L17056-L17060`
+
+## `WAny` value encoding
+
+### `metaprog.wany.bool-value-form` — WAny bool value-form encoding
+
+A `bool` coerced to an 8-byte WAny value word encodes as `(b << 8) | 5` (low byte = (WA_BOOL=2)<<1 | 1).
+
+**Evidence:** `src/compiler/mlir_gen_expr.cpp#L6055-L6073`
+
+### `metaprog.wany.identity-passthrough` — WAny passthrough and AnyVal zero-extension into WAny
+
+A value already of enum type `WAny` passes its niche word through unchanged (extracted if struct-typed). A legacy struct `AnyVal` coerced to WAny is its leading 4-byte word zero-extended to 64 bits (the i24/bool Pod encodings coincide in the low 32 bits).
+
+**Evidence:** `src/compiler/mlir_gen_expr.cpp#L6083-L6104`
+
+### `metaprog.wany.int-i56-value-form` — WAny integer value-form (i56 niche)
+
+Any integer type up to 64 bits (i8..i64/u8..u64/i24/u24) coerced to an 8-byte WAny word encodes as `(v << 8) | 3` (payload in the high 56 bits, tag = (WA_I56=1)<<1 | 1 = 3).
+
+**Evidence:** `src/compiler/mlir_gen_expr.cpp#L6074-L6082`
 
 ## `AnyVal` value encoding
 
@@ -706,356 +1060,85 @@ An i64/u64 coerced to an inline AnyVal word is truncated to its low 24 bits and 
 
 **Evidence:** `src/compiler/mlir_gen_expr.cpp#L6023-L6032`
 
-## `WAny` value encoding
+## Format-string parsing (`fmt` spec)
 
-### `metaprog.wany.bool-value-form` — WAny bool value-form encoding
+### `metaprog.fmt.placeholder-arg-selection` — Placeholder argument selection: positional, explicit index, or named
 
-A `bool` coerced to an 8-byte WAny value word encodes as `(b << 8) | 5` (low byte = (WA_BOOL=2)<<1 | 1).
+A format placeholder binds to an argument in one of three modes: positional auto-counter (`{}` consuming 0,1,2,… in order), explicit index (`{N}`), or named (`{name}`). Arity validation against positional args applies only when no placeholder uses the named or explicit-index form.
 
-**Evidence:** `src/compiler/mlir_gen_expr.cpp#L6055-L6073`
+**Evidence:** `src/compiler/sema_fmt.hpp#L55-L66`, `src/compiler/sema_fmt.hpp#L71-L75`
 
-### `metaprog.wany.identity-passthrough` — WAny passthrough and AnyVal zero-extension into WAny
+### `metaprog.fmt.spec-alignment` — Format-spec alignment characters
 
-A value already of enum type `WAny` passes its niche word through unchanged (extracted if struct-typed). A legacy struct `AnyVal` coerced to WAny is its leading 4-byte word zero-extended to 64 bits (the i24/bool Pod encodings coincide in the low 32 bits).
+A format placeholder spec may carry an alignment: `<` = Left, `>` = Right, `^` = Center; when unspecified the default alignment is chosen per formatting trait.
 
-**Evidence:** `src/compiler/mlir_gen_expr.cpp#L6083-L6104`
+**Evidence:** `src/compiler/sema_fmt.hpp#L31-L36`, `src/compiler/sema_fmt.hpp#L46`
 
-### `metaprog.wany.int-i56-value-form` — WAny integer value-form (i56 niche)
+### `metaprog.fmt.spec-fill-and-flags` — Format-spec fill, sign, alternate, and zero flags
 
-Any integer type up to 64 bits (i8..i64/u8..u64/i24/u24) coerced to an 8-byte WAny word encodes as `(v << 8) | 3` (payload in the high 56 bits, tag = (WA_I56=1)<<1 | 1 = 3).
+A format placeholder spec supports: a fill char (default space) used with alignment; a sign flag (`+` = always show sign, default none); an alternate flag `#` (emit base prefix `0x`/`0o`/`0b`); and a zero flag `0` (pad with zeros, overridden by an explicit fill char).
 
-**Evidence:** `src/compiler/mlir_gen_expr.cpp#L6074-L6082`
+**Evidence:** `src/compiler/sema_fmt.hpp#L38-L42`, `src/compiler/sema_fmt.hpp#L45-L49`
 
-## Annotations and attributes
+### `metaprog.fmt.spec-width-precision` — Format-spec width and precision
 
-### `metaprog.annot.accumulate-until-item` — Annotations and doc-comments accumulate until next item
+A format placeholder spec may set width and precision; both are unset by default (sentinel -1), and when set precision >= 0 denotes an exact precision.
 
-Annotation nodes accumulate in a pending buffer and are consumed by the next non-annotation item; doc-comment lines/blocks (///, /**, //!, /*!) similarly accumulate. Both buffers are cleared after each item.
+**Evidence:** `src/compiler/sema_fmt.hpp#L50-L51`
 
-**Evidence:** `src/compiler/sema.cpp#L7290-L7291`, `src/compiler/sema.cpp#L7395-L7429`, `src/compiler/sema.cpp#L8019-L8020`
+### `metaprog.fmt.string-segmentation` — Format string parses into literal text + typed placeholder segments
 
-### `metaprog.annot.builtin-target-validity` — Builtin attribute must match its allowed targets
+A format string body (without surrounding quotes) parses into an ordered sequence of segments, each either a literal-text run or a placeholder (carrying its argument selector and spec). Parsing is best-effort: a soft issue emits a diagnostic and continues, while a hard parse error halts at the broken placeholder and sets a failure flag.
 
-A builtin attribute is valid only on item kinds in its allowed target set; applying a builtin attribute to a target outside that set is an error. Non-builtin attribute names are not diagnosed at this phase (may be user annotations, cross-module metaprog triggers, or deferred typo checks).
+**Evidence:** `src/compiler/sema_fmt.hpp#L68-L89`
 
-**Evidence:** `src/compiler/sema_impl.hpp#L1775-L1790`
+### `metaprog.fmt.trait-spec-types` — Format-spec type characters select a formatting trait
 
-### `metaprog.annot.eq-value-first-field` — #[A = lit] binds first field
+In a `format!`-family format string, a placeholder's trailing spec type char selects a formatting trait: no type / absent = Display (`{}`), `?` = Debug (`{:?}`), `x` = LowerHex, `X` = UpperHex, `o` = Octal, `b` = Binary, `e` = LowerExp, `E` = UpperExp. Each placeholder lowers to a call of that trait's method on the argument rather than a variadic runtime path.
 
-An annotation #[A = lit] maps the single value to the annotation datatype's first declared field; if the datatype has no fields it is an error ('annotation takes no arguments').
+**Uncertainty:** LowerExp/UpperExp marked '(future)' in source; presence in enum implies recognized but possibly not yet lowered.
 
-```logos
-#[A = 5]
-```
+**Evidence:** `src/compiler/sema_fmt.hpp#L20-L29`, `src/compiler/sema_fmt.hpp#L52`
 
-**Evidence:** `src/compiler/sema.cpp#L7238-L7247`
+## Format-family macros (`format!`, `write!`, …)
 
-### `metaprog.annot.float-suffix-strip` — Float annotation literal: strip underscores and f32/f64 suffix
+### `metaprog.format.arity-check` — Format placeholder count must match the argument count
 
-A float annotation literal has all '_' separators removed and an optional trailing 'f32'/'f64' suffix stripped before parsing to a double.
+When no explicit `{N}` index appears, the number of value placeholders in the format string must equal the number of value arguments provided (args after the format string, and after the sink for write/writeln). When explicit indices are used, the number of value arguments must be at least max(explicit-index)+1. Otherwise the macro is rejected.
 
-```logos
-#[A(3.14f64)]
-#[A(1_000.5)]
-```
+**Evidence:** `src/compiler/sema_expr.cpp#L18754-L18792`
 
-**Evidence:** `src/compiler/sema.cpp#L7159-L7166`
+### `metaprog.format.expansion-shape` — Format-family expansion builds a String/Formatter block
 
-### `metaprog.annot.literal-kinds` — Annotation argument literal kinds
+format!/format_args_str! expand to a block yielding a `String` built via a `Formatter` over a `__buf`. The print family (`println`/`print`/`eprintln`/`eprint`) appends a drain of the buffer to stdout/stderr; `panic!` drains to a panic. write!/writeln! build a `Formatter` directly over the sink (via `(sink).as_formatter()`), stream placeholders into it, and yield `Result<(),Error>` (always Ok — per-placeholder errors are discarded); writeln! additionally writes a trailing newline.
 
-An annotation argument literal is one of: integer, float, bool, string, enum-variant (Name::Variant), or array of literals. Arrays are parsed recursively element-by-element.
+**Evidence:** `src/compiler/sema_expr.cpp#L18828-L18941`
 
-```logos
-#[A(42)]
-#[A("s")]
-#[A(Color::Red)]
-#[A([1, 2, 3])]
-```
+### `metaprog.format.literal-string-checked` — Format-family macros validate a literal format string at compile time
 
-**Evidence:** `src/compiler/sema.cpp#L7151-L7217`
+For the format family (`format`, `print`, `println`, `eprint`, `eprintln`, `panic`, `format_args_str`) and the write family (`write`, `writeln`), when the format-string argument is a string literal it is parsed and validated at sema time (brace balance, placeholder structure). A non-literal format-string argument skips the check (mirroring Rust `format_args!`). The format string is arg[0] for the format family and arg[1] for the write family.
 
-### `metaprog.annot.named-by-field-name` — Named annotation args bind by field name
+**Evidence:** `src/compiler/sema_expr.cpp#L18683-L18728`, `src/compiler/sema_expr.cpp#L18701-L18722`
 
-A named argument key=value in #[A(...)] binds to the field whose name equals the key; an unknown field name is an error ('has no field') but does not abort parsing of remaining args.
+### `metaprog.format.placeholder-trait-dispatch` — Each format placeholder dispatches to its format-trait method
 
-```logos
-#[A(name = 3)]
-```
+Each format placeholder lowers to a call dispatching to the format trait selected by the placeholder's trait kind (e.g. `{}` -> Display, `{:?}` -> Debug, plus hex/oct/bin/exp variants), invoked on the argument value with a `&mut Formatter`. Per-placeholder format spec fields (fill, alignment, sign, alternate, zero-pad, width, precision) are applied to the Formatter before each dispatch and reset between placeholders.
 
-**Evidence:** `src/compiler/sema.cpp#L7257-L7267`
+**Evidence:** `src/compiler/sema_expr.cpp#L18843-L18918`
 
-### `metaprog.annot.no-args-bare` — Bare annotation #[A] takes no arguments
+### `metaprog.format.requires-format-arg` — Format/write macros require a format-string argument
 
-An annotation written #[A] (no ARGS, no VALUE) produces an instance with an empty argument list.
+A format-family or write-family invocation must supply at least the format-string argument; an empty argument list is an error.
 
-```logos
-#[A]
-```
+**Evidence:** `src/compiler/sema_expr.cpp#L19011-L19014`
 
-**Evidence:** `src/compiler/sema.cpp#L7235-L7236`
+## ABI surface
 
-### `metaprog.annot.positional-by-order` — Positional annotation args bind by declaration order
+### `metaprog.abi.macro-hook-excluded` — fn_macro/token_macro hooks excluded from ABI surface
 
-Positional arguments in #[A(arg, ...)] bind to the annotation datatype's fields in declaration order; supplying more positional args than fields is an error ('takes at most N positional args').
+A function attributed `#[fn_macro]` or `#[token_macro]` is a compiler-invoked metaprogramming hook (discovered by attribute and invoked by the metaprog driver), not a linkable consumer API entry point; it is flagged as a macro hook so ABI-surface extraction (`--emit-abi`) excludes it from the public pub-allowlist, preventing its churning signature from tripping the ABI-compat gate.
 
-```logos
-#[A(1, 2)]
-```
+**Evidence:** `src/compiler/sema_decl.cpp#L1138-L1146`
 
-**Evidence:** `src/compiler/sema.cpp#L7253-L7278`
-
-### `metaprog.annot.string-escapes` — String annotation literal escape decoding
-
-A quoted string annotation literal has surrounding quotes stripped and escapes \n \t \r \\ \" \0 decoded; an unrecognised escape is preserved verbatim (backslash + char). A raw string r"..." strips the r" prefix and trailing quote with no escape processing.
-
-```logos
-#[A("line\n")]
-#[A(r"raw\n")]
-```
-
-**Evidence:** `src/compiler/sema.cpp#L7172-L7203`
-
-### `metaprog.annot.struct-flags-set-only` — Structural struct flags are set-only (monotonic)
-
-Structural attributes #[zone_mut], #[zoned2], #[rel_ptr], #[self_describing], #[borrow_carrying] each set the corresponding boolean struct flag when present; a present flag can only set, never clear, the base value.
-
-**Evidence:** `src/compiler/sema.cpp#L7337-L7346`
-
-### `metaprog.annot.tag-dispatch-on-trait` — #[tag_dispatch(system)] on trait sets dispatch system name
-
-#[tag_dispatch(system_name)] on a trait records system_name as the trait's TAG_DISPATCH_SYSTEM, identifying the tagged-dispatch system the trait participates in.
-
-**Evidence:** `src/compiler/sema.cpp#L7353-L7361`
-
-### `metaprog.annot.type-code-not-on-generic` — `#[type_code]` forbidden on generic items
-
-`#[type_code]` may not be applied to an item that has type parameters; a type code must be assigned per concrete instantiation, not on the generic definition.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1792-L1797`
-
-### `metaprog.annot.type-code-on-struct` — #[type_code=N] on struct/datatype sets type code
-
-#[type_code=N] on a struct or datatype sets the type's TYPE_CODE to N and registers N under the fully-qualified name (pkg::Name) in the explicit-type-code table so type_code_of::<T>() resolves cross-package.
-
-```logos
-#[type_code=42] datatype Foo { }
-```
-
-**Evidence:** `src/compiler/sema.cpp#L7300-L7309`
-
-### `metaprog.annot.type-code-on-template-genos-forbidden` — #[type_code] forbidden on parametric (template) genos
-
-#[type_code=N] on a parametric genos (trait with non-empty type params) is an error; the code must be attached to a concrete specialization, else every specialization would collide in the same tag-system slot.
-
-**Evidence:** `src/compiler/sema.cpp#L8000-L8011`
-
-### `metaprog.annot.type-code-on-trait-genos` — #[type_code=N] on trait marks it a genos
-
-#[type_code=N] on a trait sets the trait's TYPE_CODE: the code names the logical datatype family, and each `impl Trait for Eidos` propagates it to the target struct during lowering.
-
-**Evidence:** `src/compiler/sema.cpp#L7363-L7369`, `src/compiler/sema.cpp#L7887-L7888`
-
-### `metaprog.annot.type-code-reserved-range` — type_code values 1..128 reserved for stdlib
-
-Explicit `#[type_code=N]` values with 1 <= N <= 128 are reserved for stdlib primitive tags (TypeTagSystem); user code outside package `std`/`std.*` using a reserved value is warned and should use codes >= 129.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1798-L1811`
-
-### `metaprog.annot.user-annotation-requires-marker` — User annotation NAME must be an #[annotation]-marked datatype
-
-An annotation whose name is not a compiler-internal key is treated as a user annotation only if NAME resolves to a registered datatype carrying the IS_ANNOTATION_TYPE marker; otherwise it is silently ignored.
-
-**Related:** `metaprog.annot.struct-flags-set-only`
-
-**Evidence:** `src/compiler/sema.cpp#L7310-L7321`
-
-### `metaprog.annot.value-int-or-enum-variant` — Attribute `= value` must be an integer or enum variant
-
-The right-hand value of an attribute `#[name = V]` read as an integer must be either an integer literal (`#[name = 123]`) or an enum variant path (`#[name = Enum::Variant]`, resolving to that variant's discriminant). Any other value form is an error; an unknown enum or unknown variant is also an error.
-
-```logos
-#[type_code = 42]
-#[type_code = Tag::Foo]
-```
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1372-L1398`
-
-## Derive
-
-### `metaprog.derive.no-rust-derive-syntax` — `#[derive(...)]` is rejected; use per-trait triggers
-
-The Rust-style `#[derive(Trait, ...)]` attribute (a `derive` annotation carrying args) is not Logos surface syntax and is an error. Logos uses one trigger annotation per derive, `#[derive_<trait>]`, paired with an in-scope `#[metaprog_handler("derive_<trait>")]` function.
-
-**Divergence:** Logos replaces Rust `#[derive(...)]` with `#[derive_<trait>]` + `#[metaprog_handler]`.
-
-**Evidence:** `src/compiler/sema_impl.hpp#L1762-L1774`
-
-### `metaprog.derive.trigger-may-emit-items` — Derive/handler hooks emit sibling items into the program
-
-An annotated item bearing a `#[derive_*]` / metaprog-handler attribute invokes the corresponding handler during discovery; the handler may synthesize and splice additional top-level items into the program (alongside the annotated item).
-
-**Evidence:** `src/compiler/metaprog_dispatch.hpp#L94-L98`, `src/compiler/metaprog_dispatch.hpp#L1-L2`
-
-## `cfg` predicates
-
-### `metaprog.cfg.attr-multi-arg-implicit-and` — cfg attribute multi-arg implicit AND
-
-In `#[cfg(...)]` attribute position, a top-level multi-argument list is an implicit AND of its arguments; `#[cfg]` with no args matches (true).
-
-**Divergence:** Multi-arg implicit AND matches Rust (noted inline).
-
-**Evidence:** `src/compiler/sema.cpp#L3654-L3673`
-
-### `metaprog.cfg.bare-flag-predicates` — cfg bare-identifier flag resolution
-
-A cfg bare identifier matches as: `unix`/`windows` against target_family; `test`/`debug_assertions` against the feature set; otherwise as a feature-like flag checked against the active feature set.
-
-**Evidence:** `src/compiler/sema.cpp#L3519-L3528`, `src/compiler/sema.cpp#L3582`
-
-### `metaprog.cfg.cfg-attr-splice` — cfg_attr predicate-gated attribute splicing and item drop
-
-`#[cfg_attr(pred, attrs...)]` activates first: when pred is true its wrapped attrs are spliced into the item's annotation list, when false the entry is dropped (wrapped attrs are NOT re-fed to cfg_attr). After activation, every plain `#[cfg(...)]` is evaluated; an item is dropped from compilation iff any of its cfg predicates is false. The drop gate applies uniformly to both the collection and lowering walks.
-
-**Evidence:** `src/compiler/sema.cpp#L3606-L3652`
-
-### `metaprog.cfg.combinators` — cfg all/any/not combinators and boolean literals
-
-cfg predicates compose: `all(p...)` is the AND of its children, `any(p...)` the OR, `not(p)` requires exactly one child and negates it (else error/false). The literals `cfg(true)`/`cfg(false)` evaluate to true/false directly. Unknown combinators evaluate to false / raise an error in attribute position.
-
-**Divergence:** cfg(true)/cfg(false) per Rust 1.80 RFC 3695 (noted inline).
-
-**Evidence:** `src/compiler/sema.cpp#L3553-L3582`, `src/compiler/sema.cpp#L3692-L3708`, `src/compiler/sema.cpp#L3721-L3737`
-
-### `metaprog.cfg.key-value-predicates` — cfg key=value predicate resolution
-
-A cfg key=value predicate matches against compile-target metadata: target_arch, target_os, target_endian, target_family, target_pointer_width resolve to the host/target platform values; `feature = "name"` matches iff name is in the active feature set. Any unknown key evaluates to false.
-
-**Divergence:** Unknown-key-false matches Rust per inline comment.
-
-**Evidence:** `src/compiler/sema.cpp#L3507-L3517`, `src/compiler/sema.cpp#L3572-L3575`
-
-## Type intrinsics and reflection
-
-### `metaprog.type-intrinsic.apply-generic` — __apply_generic__(g, args) instantiates a struct template
-
-During monomorphization, __apply_generic__(g, [a0..aN]) requires g to resolve to a generic_of value carrying a non-empty template name and args to be an array literal; it constructs the Struct type tmpl_name<recover(a0)..recover(aN)>, threading the template definition's pkg, and yields a `Type` reflection value {kind, name=type_str(t), size=size_of(t), align=align_of(t), uid}. A missing template name or non-array args is a compile-time abort.
-
-**Divergence:** A6 (metaprog / variadics — Logos addition, no Rust equivalent)
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2130-L2140`, `src/compiler/mono_clone.cpp#L2191-L2239`
-
-### `metaprog.type-intrinsic.array-type-apply` — __array_type_apply__(Type, N) builds an array type
-
-__array_type_apply__(elem, n) requires elem to recover to a type producer and n (after var-chase) to be an integer literal; it constructs the Array type [recover(elem); n] and yields its `Type` reflection value. A non-producer elem or non-literal size is a compile-time abort.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2244-L2247`, `src/compiler/mono_clone.cpp#L2342-L2362`
-
-### `metaprog.type-intrinsic.tuple-type-apply` — __tuple_type_apply__([Type;N]) builds a tuple type
-
-__tuple_type_apply__(arr) requires arr (after var-chase) to be an array literal of type producers; it constructs the Tuple type (recover(e0),..,recover(eN-1)) and yields its `Type` reflection value. Non-array argument is a compile-time abort.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2244-L2247`, `src/compiler/mono_clone.cpp#L2317-L2341`
-
-### `metaprog.type-intrinsic.type-producer-recover` — Type-producer recovery for type-apply intrinsics
-
-An argument to a type-apply intrinsic denotes a type via one of: a __typelist_nth__(L,i)/__typelist_head__(L) call (resolving to element i (default 0) of the substituted type-list L's type_args, out-of-range yields no type), or a `Type` struct literal whose `uid` field is __type_uid_of__::<T>() (resolving to subst(T)). VarRef arguments are chased through type-let bindings (≤8 hops) before recovery. An argument that yields no type is a compile-time abort.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2141-L2190`, `src/compiler/mono_clone.cpp#L2255-L2315`
-
-### `metaprog.type-intrinsic.type-reflection-value` — Type reflection value shape and uid
-
-A reflected `Type` value is a struct literal with fields kind:u32 = t.kind, name:&[u8] = type_str(t), size:i64 = size_of(t), align:i64 = align_of(t), uid:u64 = type_hash_64bit(type_hash_23(type_id_canon(t))); the uid→type mapping is registered for the constructed type.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2214-L2238`, `src/compiler/mono_clone.cpp#L2363-L2387`
-
-## Enum reflection intrinsics
-
-### `metaprog.enum-intrinsic.variant-count-of` — __variant_count_of__::<E>() yields variant count
-
-__variant_count_of__::<E>() evaluates to an i64: the number of variants of E when E is an enum with a known definition, else 0.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2395-L2418`
-
-### `metaprog.enum-intrinsic.variant-names-of` — __variant_names_of__::<E>() yields variant names
-
-__variant_names_of__::<E>() evaluates to an array of the variant names (string literals) of E in declaration order; empty if E is not a known enum.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2395-L2399`, `src/compiler/mono_clone.cpp#L2421-L2425`, `src/compiler/mono_clone.cpp#L2470-L2477`
-
-### `metaprog.enum-intrinsic.variant-payload-counts-of` — __variant_payload_counts_of__::<E>() yields per-variant payload arities
-
-__variant_payload_counts_of__::<E>() evaluates to an i64 array giving, per variant in declaration order, the number of payload types it carries; empty if E is not a known enum.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2426-L2431`, `src/compiler/mono_clone.cpp#L2470-L2477`
-
-### `metaprog.enum-intrinsic.variant-payload-types-flat-of` — __variant_payload_types_flat_of__::<E>() yields flattened payload-type reflections
-
-__variant_payload_types_flat_of__::<E>() evaluates to an array of `Type` reflection values: every payload type of every variant of E, in declaration order, flattened across variants and substituted to concrete types; empty if E is not a known enum.
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2432-L2477`
-
-## Variadic tuple operations
-
-### `metaprog.variadic.tuple-all-eq` — __tuple_all_eq__::<T>(a, b) expands to an &&-chain of elementwise eq
-
-__tuple_all_eq__::<T>(a, b) with T = (t0,..,tn) expands to the left-associated && of per-element comparisons a.i.eq(&b.i): nested-tuple elements inline a recursive chain; slice elements (str renders as element name "str") are called by-value as a 2-arg free function; other elements use a method call resolving the symbol whose name contains "<elem>__eq__f__" at a `.`-boundary or start. When T is not a tuple or fewer than 2 args, it evaluates to bool literal `true`. An empty tuple yields `true`.
-
-**Divergence:** A6
-
-**Uncertainty:** symbol-resolution-by-substring is an implementation detail; the observable language rule is the &&-chain elementwise Eq semantics.
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2488-L2585`
-
-### `metaprog.variadic.tuple-each-field-debug` — __tuple_each_field_debug__::<T>(self, f) expands variadic tuple Debug
-
-__tuple_each_field_debug__::<T>(self, f) with T = (t0,..,tn) expands the variadic tuple Debug impl into a fmt_seq-combined Result chain interleaving fmt_tuple_open/sep/close helpers with each field's Debug::fmt, resolving each element formatter to "<elem>__Debug__fmt" (trait-qualified) or "<elem>__fmt"; the reused `&mut Formatter` is reborrowed per call. When T is not a tuple or fewer than 2 args, it evaluates to fmt_tuple_close(f).
-
-**Divergence:** A6
-
-**Evidence:** `src/compiler/mono_clone.cpp#L2591-L2634`
-
-## Handler registration
-
-### `metaprog.handler.register` — #[metaprog_handler("trigger")] registers a hook
-
-`#[metaprog_handler("trigger")]` on a function registers (trigger, fn-name); the trigger is the first positional string-literal argument and the host driver invokes the hook on each user item carrying a matching `#[trigger]`.
-
-**Divergence:** Logos addition (three-layer metaprog).
-
-**Evidence:** `src/compiler/sema_collect.cpp#L1798-L1834`
-
-## Dispatch fixpoint
-
-### `metaprog.dispatch.fixpoint-iteration` — Metaprog discovery iterates to fixpoint, capped at 16
-
-Metaprogram item-generation runs as a discovery loop: each iteration re-lowers and fires triggers/metacalls that may emit new items; the loop repeats until an iteration emits nothing new (fixpoint), bounded by a hard cap of 16 iterations.
-
-**Uncertainty:** Header doc comment; the loop body lives in the .cpp. Behavior of exceeding the cap (error vs silent stop) is not specified here.
-
-**Evidence:** `src/compiler/metaprog_dispatch.hpp#L94-L100`
-
-## Metaprogram discovery
-
-### `metaprog.discovery.entry-body-skipped` — Entry-file function bodies are skipped during discovery
-
-During the metaprog discovery pass, function bodies of the entry file are not lowered (metaprog_mode); only signatures/items needed for trigger discovery are processed. Name mangling during discovery must stay consistent with the final pass.
-
-**Uncertainty:** Exact set of skipped work is described only via comment.
-
-**Evidence:** `src/compiler/metaprog_dispatch.hpp#L94-L95`, `src/compiler/metaprog_dispatch.hpp#L82-L87`
+---
+*140 rules (138 unique ids) across 32 groups; assembled from `tools/spec-extract/rules/**` (domain `metaprog`).*

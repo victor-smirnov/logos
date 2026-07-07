@@ -1,8 +1,8 @@
 {
   "unit": "mono/mono_clone/walk",
   "layer": "mono",
-  "source": "src/compiler/mono_clone.cpp#L4227-L4858",
-  "source_hash": "0c0cae66335590a3",
+  "source": "src/compiler/mono_clone.cpp#L4291-L4935",
+  "source_hash": "8bf96562d08dcea8",
   "rules": [
     {
       "id": "mono.subst.pattern-structure-preserved",
@@ -10,7 +10,7 @@
       "title": "Pattern substitution preserves pattern shape, substitutes only types",
       "statement": "Monomorphizing a pattern reproduces the same pattern kind (Variant/Int/Bool/Wild/Range/VariantData/Or/Tuple/Struct/Slice/At/RefBind/RefPat) with identical structural fields (names, bindings, discriminants, has_rest, is_mut, slots); only the carried binding types are type-substituted. Sub-patterns are recursively substituted.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4227-L4367"
+        "src/compiler/mono_clone.cpp#L4291-L4431"
       ]
     },
     {
@@ -19,7 +19,7 @@
       "title": "Statement substitution preserves statement kind and effect flags",
       "statement": "Monomorphizing a statement reproduces the same statement kind with all sub-expressions, sub-blocks, types and side-channel flags re-emitted; child expressions/blocks/patterns/types are recursively substituted while non-type metadata (names, labels, indices, slots) is preserved.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4369-L4744"
+        "src/compiler/mono_clone.cpp#L4433-L4809"
       ]
     },
     {
@@ -28,8 +28,8 @@
       "title": "Drop-before-replace flag survives monomorphization",
       "statement": "For an assignment `x = v` and for deref-write `*p = v`, the drop-before-replace flag (drop old contents iff the place is initialized) is carried verbatim through substitution.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4406-L4412",
-        "src/compiler/mono_clone.cpp#L4536-L4542"
+        "src/compiler/mono_clone.cpp#L4470-L4476",
+        "src/compiler/mono_clone.cpp#L4600-L4606"
       ],
       "divergence": "B8 (resolved — Rust-conformant)",
       "related": [
@@ -42,7 +42,7 @@
       "title": "Generic-param drop resolves at instantiation to the substituted type's drop",
       "statement": "A drop statement whose drop-fn is the sentinel `__typevar_pending__drop` (original type was a generic param) is resolved against the substituted concrete type T: if T is Struct/ZonedStruct with a non-empty concrete name, drop-fn = `<concrete_name>__drop` and field-recursion is enabled when any field is droppable (Struct/ZonedStruct/Enum/Tuple/Array/Closure, owning TraitObject/Slice/DstRef); if T has no Drop impl the drop is skipped.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4560-L4621"
+        "src/compiler/mono_clone.cpp#L4624-L4685"
       ]
     },
     {
@@ -51,7 +51,7 @@
       "title": "Generic-param drop of an owning dyn payload routes to dyn drop-in-place",
       "statement": "When the substituted concrete type of a `__typevar_pending__drop` is an owning trait object, the move-out drop routes to `__box_dyn__drop`; an owned unsized-dyn tail projection (UnsizedDyn, or borrow-owning TraitObject whose move source is an owned dyn tail) routes to `__dyn_drop_in_place__` (run Drop, do not free); Enum/Tuple/Array/Closure enable field-recursion instead.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4631-L4672"
+        "src/compiler/mono_clone.cpp#L4695-L4736"
       ],
       "related": [
         "mono.drop.typevar-pending-resolve"
@@ -64,7 +64,7 @@
       "title": "Drop call to a generic-struct template is re-mangled to the monomorphized name",
       "statement": "A non-empty drop-fn whose type T is a Struct/ZonedStruct with non-empty type-args is rewritten from the template drop name to `<concrete_struct_name(T)>__drop`, pointing at the monomorphized Drop function emitted for the instance.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4674-L4686"
+        "src/compiler/mono_clone.cpp#L4738-L4750"
       ]
     },
     {
@@ -73,7 +73,7 @@
       "title": "Symbolic-length array iteration re-derives its length after substitution",
       "statement": "A `for x in arr` over a symbolic-length array (sema recorded arr_size==0, not a slice) re-derives arr_size from the substituted iterator's concrete array type once the pack/const length is known.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4708-L4724"
+        "src/compiler/mono_clone.cpp#L4772-L4789"
       ]
     },
     {
@@ -82,7 +82,7 @@
       "title": "A variadic param expands to one concrete param per pack element",
       "statement": "A variadic parameter `p: A...` whose type is a TypeVar bound to a type pack of length N expands into N non-variadic params named via the per-index pack-arg naming scheme, each typed by the corresponding pack element; non-variadic params are type-substituted unchanged with name/slot/owning-box-dyn flags preserved.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4791-L4818"
+        "src/compiler/mono_clone.cpp#L4868-L4896"
       ],
       "divergence": "A6 (Logos addition — variadics)"
     },
@@ -92,16 +92,17 @@
       "title": "Lifetime params and outlives bounds pass through mono unchanged",
       "statement": "Monomorphization substitutes only type parameters; lifetime parameters and their outlives bounds are not in the substitution map and are copied verbatim onto the cloned signature (lifetime substitution is identity).",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4776-L4790"
+        "src/compiler/mono_clone.cpp#L4853-L4867"
       ]
     },
     {
       "id": "mono.clone.instance-is-monomorphic",
       "domain": "mono",
       "title": "An instantiated function carries no type parameters",
-      "statement": "A function produced by instantiation is monomorphic: its type-parameter list is empty; signature flags (extern, vararg, local_count) and method-base/package are preserved, and return/param types are type-substituted.",
+      "statement": "A function produced by instantiation is monomorphic: its type-parameter list is empty; signature flags (extern, pub, macro-hook, vararg, local_count) and method-base/package are preserved, and return/param types are type-substituted.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4759-L4846"
+        "src/compiler/mono_clone.cpp#L4823-L4852",
+        "src/compiler/mono_clone.cpp#L4923-L4924"
       ]
     },
     {
@@ -110,7 +111,7 @@
       "title": "Clone origin: binary-module flag dropped, lazy-module flag propagated",
       "statement": "An instantiated function is never marked from-binary-module (instances are new, absent from the binary archive); the from-lazy-module flag IS propagated so the clone's body is subject to the same reach-based emit filtering as lazy-archive originals.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L4766-L4774"
+        "src/compiler/mono_clone.cpp#L4843-L4851"
       ],
       "testability": "untestable"
     }

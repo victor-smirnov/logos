@@ -1,8 +1,8 @@
 {
   "unit": "sema/sema/resolve_type_cfg_slot",
   "layer": "sema",
-  "source": "src/compiler/sema.cpp#L4967-L5656",
-  "source_hash": "b23a0768000a5808",
+  "source": "src/compiler/sema.cpp#L4967-L5670",
+  "source_hash": "02e8898d8dc5e481",
   "rules": [
     {
       "id": "type.cfg-slot.path-extraction",
@@ -14,6 +14,7 @@
         "src/compiler/sema.cpp#L5038-L5041",
         "src/compiler/sema.cpp#L5067-L5096"
       ],
+      "divergence": "A6",
       "uncertainty": "Logos-specific construct (no Rust analogue); semantics inferred from path-walk logic.",
       "testability": "untestable"
     },
@@ -28,6 +29,7 @@
         "src/compiler/sema.cpp#L5055",
         "src/compiler/sema.cpp#L5101-L5105"
       ],
+      "divergence": "A6",
       "uncertainty": "Logos-specific; const-generic-of-WritStatic kind.",
       "testability": "untestable"
     },
@@ -39,7 +41,9 @@
       "evidence": [
         "src/compiler/sema.cpp#L4985-L5004"
       ],
-      "uncertainty": "Logos-specific WritStatic const-generic requirement."
+      "divergence": "A6",
+      "uncertainty": "Logos-specific WritStatic const-generic requirement.",
+      "testability": "diagnostic"
     },
     {
       "id": "type.cfg-slot.eager-alias-resolution",
@@ -50,6 +54,7 @@
         "src/compiler/sema.cpp#L4974-L4976",
         "src/compiler/sema.cpp#L5055-L5099"
       ],
+      "divergence": "A6",
       "uncertainty": "Logos-specific.",
       "testability": "untestable"
     },
@@ -90,7 +95,8 @@
       "statement": "If no owning trait is found from bounds or impl context, the projection's owning trait is found among traits that have an impl for the concrete base type (tried under both the full concrete type name and the bare struct name); if still none declares `Assoc`, a diagnostic 'no associated type Assoc found for <base>' is raised.",
       "evidence": [
         "src/compiler/sema.cpp#L5232-L5257"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "type.assoc-ref.eager-concrete-projection",
@@ -100,7 +106,7 @@
       "evidence": [
         "src/compiler/sema.cpp#L5275-L5307"
       ],
-      "divergence": "G156-1 disambiguation of multiple Trait<T> impls."
+      "divergence": "B-assoc"
     },
     {
       "id": "type.assoc-ref.deferred-node",
@@ -109,7 +115,8 @@
       "statement": "An unresolved projection yields a deferred AssocType node {base, trait, name, gat_args}; the trait name is suffixed with the concrete trait type-args so distinct `Trait<T>` instantiations produce distinct nodes (empty suffix for non-generic traits preserves the bare name). Bounds declared on the assoc type are propagated into the projection's bound context.",
       "evidence": [
         "src/compiler/sema.cpp#L5308-L5337"
-      ]
+      ],
+      "divergence": "B-assoc"
     },
     {
       "id": "type.assoc-ref.equality-bound-normalization",
@@ -124,10 +131,11 @@
       "id": "type.generic-inst.generic-const",
       "domain": "type",
       "title": "Generic compile-time const instantiation",
-      "statement": "Applying type-args to a generic const `pub const X<T..>: WritStatic = @{...}` re-evaluates the const's value AST under the supplied type-arg bindings, yielding a fresh per-instantiation WStaticLit identity. The argument count must equal the const's type-param count.",
+      "statement": "Applying type-args to a generic const `pub const X<T1,T2>: WritStatic = @{...}` re-evaluates the const's value AST under the supplied type-arg bindings, yielding a fresh per-instantiation WStaticLit identity. The argument count must equal the const's type-param count.",
       "evidence": [
         "src/compiler/sema.cpp#L5345-L5392"
       ],
+      "divergence": "A6",
       "uncertainty": "Logos-specific WritStatic generic const."
     },
     {
@@ -147,7 +155,7 @@
       "evidence": [
         "src/compiler/sema.cpp#L5432-L5477"
       ],
-      "uncertainty": "Mirrors Rust owned_box + CoerceUnsized lang item; Rc/Arc flip is Logos-specific."
+      "uncertainty": "Mirrors Rust owned_box + CoerceUnsized lang item; Rc/Arc flip is a Logos-specific representation choice, not an observable-behavior divergence."
     },
     {
       "id": "type.generic-inst.box-slice-dst-collapse",
@@ -166,8 +174,20 @@
       "statement": "A type-argument at a generic param declared `?Sized` (implicit_sized=false) may be a bare unsized type (`[T]`, `dyn Trait`); a type-arg at a `Sized` param must not be unsized. Passing an unsized type, or a `?Sized` outer type-param, to a `Sized` param is a diagnostic.",
       "evidence": [
         "src/compiler/sema.cpp#L5562-L5586",
-        "src/compiler/sema.cpp#L5605-L5635"
-      ]
+        "src/compiler/sema.cpp#L5619-L5649"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "type.generic-inst.schema-unsized-arg-canonicalization",
+      "domain": "type",
+      "title": "Generic schema struct canonicalizes unsized type-args to sized fat form",
+      "statement": "When instantiating a generic `schema` struct, an unsized type-argument (`UnsizedSlice<T>`, e.g. produced for `Wrap<str>` under `?Sized`/turbofish) is canonicalized to its sized fat-slice form `Slice<T>`, matching the schema's WAny-handle field storage and `impl WritField for str` (= `Slice<u8>`). Non-schema generics (e.g. `Box<str>`) are unaffected.",
+      "evidence": [
+        "src/compiler/sema.cpp#L5588-L5601"
+      ],
+      "divergence": "A6",
+      "uncertainty": "Writ schema (ADR 0011) mechanism, no Rust analogue."
     },
     {
       "id": "type.generic-inst.default-type-args",
@@ -175,7 +195,7 @@
       "title": "Trailing default type arguments",
       "statement": "When fewer type-args are supplied than the generic has params, trailing params are filled from their declared defaults (`struct S<T, U = i64>`: `S<A>` ≡ `S<A, i64>`); a default may reference an earlier param and is substituted with the already-bound args.",
       "evidence": [
-        "src/compiler/sema.cpp#L5588-L5604"
+        "src/compiler/sema.cpp#L5602-L5618"
       ]
     },
     {
@@ -184,8 +204,9 @@
       "title": "Generic instantiation arity and bound checks",
       "statement": "After default-filling, the type-argument count must match the struct/enum/datatype declared type-param count, and each argument must satisfy its param's trait bounds.",
       "evidence": [
-        "src/compiler/sema.cpp#L5636-L5654"
-      ]
+        "src/compiler/sema.cpp#L5650-L5668"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "type.generic-inst.kind-disambiguation-local-shadow",
@@ -204,7 +225,8 @@
       "statement": "An unknown generic type name is an error, except during the metaprog discovery pass (before derive hooks emit items), where it silently yields error-type so a later non-metaprog pass can re-resolve once synthesized items exist.",
       "evidence": [
         "src/compiler/sema.cpp#L5527-L5538"
-      ]
+      ],
+      "testability": "diagnostic"
     }
   ]
 }

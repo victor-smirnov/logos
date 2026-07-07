@@ -1,0 +1,111 @@
+{
+  "unit": "sema/sema_expr/try_method_on_tuple.part2",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L7600-L8130",
+  "source_hash": "e1a90b643c50cd45",
+  "rules": [
+    {
+      "id": "const.intlit-fit.array-lit-method-arg",
+      "domain": "const",
+      "title": "Integer-literal array-element fit vs method array param",
+      "statement": "When a method call argument is an array-literal and the resolved formal parameter type is Array<E>, each integer-literal element of the array literal is range-checked against E; a literal whose value does not fit E is a compile error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7600-L7609"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "const.intlit-fit.tuple-lit-method-arg",
+      "domain": "const",
+      "title": "Integer-literal tuple-element fit vs method tuple param (recursive)",
+      "statement": "When a method call argument is a tuple-literal and the resolved formal parameter type is Tuple<T0,T1,...>, each element E_i of the tuple literal is checked against T_i by kind: integer-literal elements are range-checked against T_i; if T_i is Array<A> and E_i is itself an array-literal, its integer-literal elements are recursively range-checked against A; if T_i is Tuple<...> and E_i is itself a tuple-literal, the same element-wise recursive check applies to its sub-elements. Any literal that does not fit is a compile error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7613-L7656"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "trait.method-dispatch.self-subst-supertrait",
+      "domain": "trait",
+      "title": "Self/bound-arg substitution seed for supertrait-provided methods",
+      "statement": "When a method is resolved for a generic receiver via a trait bound (possibly a supertrait reference), the substitution used to instantiate the method's return type seeds Self := receiver's inner (dereferenced) type, and additionally binds each of the chosen trait's own type parameters to the concrete type argument supplied by the matching bound on the receiver's type parameter (e.g. a bound `T: Into<i32>` binds the trait's formal parameter to i32).",
+      "evidence": ["src/compiler/sema_expr.cpp#L7660-L7683", "src/compiler/sema_expr.cpp#L7717"]
+    },
+    {
+      "id": "trait.assoc-type.bound-requalify-projection",
+      "domain": "trait",
+      "title": "Associated-type return projection re-qualified to the dispatch bound's trait args",
+      "statement": "If a trait method's substituted return type is an associated-type projection (`Self::Assoc`-style) whose trait qualifier was resolved bare (no type arguments) at the trait declaration, and the receiver's matching bound specifies concrete trait type arguments, the projection's trait qualifier is rewritten to the type-argument-qualified trait name, so the returned associated type resolves to the same concrete impl selected by the bound (disambiguating between multiple `impl Trait<X>` for one receiver type).",
+      "evidence": ["src/compiler/sema_expr.cpp#L7718-L7741"]
+    },
+    {
+      "id": "region.lifetime-subst.method-call-pairing",
+      "domain": "region",
+      "title": "Lifetime substitution built by structural pairing of method formals vs actuals",
+      "statement": "For a resolved trait/generic method call, a lifetime-substitution map is built by structurally walking the method's formal parameter types (self first, then each argument in order) against the actual receiver/argument types: when both sides are Ref/MutRef, the formal's lifetime name is bound to the actual's lifetime name (first binding wins, ties broken by first occurrence) and the walk recurses into the pointee; when both sides are the same Struct/ZonedStruct/Enum kind, their lifetime-argument lists are paired positionally and bound the same way.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7684-L7716"]
+    },
+    {
+      "id": "expr.method-call.autoref-receiver",
+      "domain": "expr",
+      "title": "Implicit receiver auto-ref for by-reference self parameters",
+      "statement": "If the resolved method's self (first) formal parameter type is Ref or MutRef, and the receiver expression's own type is not already reference-like and not Ptr, the receiver is implicitly wrapped in an address-of expression of matching mutability before the call is constructed.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7743-L7758", "src/compiler/sema_expr.cpp#L8108-L8117"]
+    },
+    {
+      "id": "expr.method-call.autoref-receiver-ptr",
+      "domain": "expr",
+      "title": "Implicit receiver auto-ref to raw pointer for pointer self parameters",
+      "statement": "If the resolved method's self (first) formal parameter type is Ptr, and the receiver expression's own type is neither reference-like nor already Ptr, the receiver is implicitly wrapped into a pointer (of matching mutability) before the call is constructed.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8118-L8126"],
+      "uncertainty": "Only observed on the generic-enum method-dispatch path within this slice; scope of self-by-raw-pointer methods (declaration site) is not shown here."
+    },
+    {
+      "id": "trait.method-dispatch.deref-bound-fallback",
+      "domain": "trait",
+      "title": "Deref/DerefMut bound autoderef fallback for unresolved method on generic receiver",
+      "statement": "For a generic type-parameter receiver, if no bound on the type parameter directly provides the called method, but the type parameter carries a `Deref<Target>` or `DerefMut<Target>` bound, the receiver is rewritten to a call to `deref()`/`deref_mut()` (typed `&Target`/`&mut Target` respectively) and method resolution falls through to continue on the dereferenced value.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7845-L7868"]
+    },
+    {
+      "id": "trait.method-dispatch.no-bound-error",
+      "domain": "trait",
+      "title": "No-bound-provides-method is a compile error",
+      "statement": "Calling a method on a generic type-parameter receiver is a compile error (\"type parameter '{name}' has no trait bound providing method '{method}'\") when neither a direct trait bound provides the method nor a Deref/DerefMut bound fallback applies.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7869-L7873"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "trait.method-dispatch.trait-tag-mangling",
+      "domain": "trait",
+      "title": "Trait-qualified symbol tagging for multi-provider / inherent-shadowed methods",
+      "statement": "When a called method name is declared by more than one trait (or, more generally, whenever any trait declares it), the call site records the chosen trait as a dispatch tag, optionally suffixed with the bound's concrete trait type arguments, so that monomorphization may resolve the trait-qualified symbol `<Concrete>__<Trait>[<targs-suffix>]__<method>` instead of the plain name; this also correctly routes a `T: Trait` bound call to the trait method rather than to a same-named inherent method that would otherwise occupy the plain (unqualified) symbol on the concrete type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7800-L7841"]
+    },
+    {
+      "id": "generic.method-typaram.turbofish-binding",
+      "domain": "generic",
+      "title": "Turbofish type args bind to a method's own (non-receiver-inherited) type params in order",
+      "statement": "Explicit turbofish type arguments supplied at a method call site (`recv.method::<...>(...)`) are bound, in left-to-right order, to the callee's type parameters that are not already bound by the receiver's substitution (i.e. skipping struct/enum-inherited type parameters and binding only the method-level ones).",
+      "evidence": ["src/compiler/sema_expr.cpp#L7966-L7983"]
+    },
+    {
+      "id": "expr.method-call.closure-arg-hint",
+      "domain": "expr",
+      "title": "Contextual closure-argument typing from resolved method formal",
+      "statement": "When lowering a method call argument at a position whose resolved (receiver-substituted) formal parameter type is a function/closure kind, that formal type is used as a contextual hint for an untyped closure argument literal at that position; if the formal is instead an unresolved type-variable carrying an Fn-family trait bound, a closure-shape hint is synthesized from the bound's function signature so the closure's parameter types can be inferred.",
+      "evidence": ["src/compiler/sema_expr.cpp#L7985-L7996", "src/compiler/sema_expr.cpp#L8000-L8026"]
+    },
+    {
+      "id": "expr.method-call.unsafe-requires-unsafe-context",
+      "domain": "expr",
+      "title": "Unsafe generic-enum method call requires unsafe context",
+      "statement": "Calling a method resolved against a generic enum receiver (e.g. `Option<T>`) that is declared unsafe is a compile error (\"call to unsafe method '{name}' requires unsafe context\") unless the call site is within an unsafe context.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8072-L8075"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "mono.enum-method.generic-instantiation",
+      "domain": "mono",
+      "title": "Generic-enum method call resolves against base template, instantiated with enum + method type args",
+      "statement": "A method call on a receiver whose type is a generic enum with concrete type arguments (e.g. `Option<i32>`) is resolved by looking up the method on the enum's base (unparameterized) name, and the call is emitted carrying the full type-argument list (enum's type arguments as prefix, any method-level type arguments as suffix) for monomorphization to specialize.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8052-L8107"]
+    }
+  ]
+}

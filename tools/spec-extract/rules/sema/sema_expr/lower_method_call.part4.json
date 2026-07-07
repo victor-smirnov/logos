@@ -109,15 +109,6 @@
       ]
     },
     {
-      "id": "coerce.method-arg.pipeline",
-      "domain": "coerce",
-      "title": "Method argument coercions",
-      "statement": "Each method argument is coerced to its (substituted) parameter type via the canonical coercion pipeline supporting closure-to-fn-ptr, `&Concrete`-to-`&dyn Trait` unsize, implicit reborrow, and integer widening, with widening applied last.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L8873-L8887"
-      ]
-    },
-    {
       "id": "expr.method.arg-type-compat",
       "domain": "expr",
       "title": "Method argument type compatibility",
@@ -189,6 +180,16 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L9038",
         "src/compiler/sema_expr.cpp#L9132"
+      ]
+    },
+    {
+      "id": "coerce.method-arg.pipeline",
+      "domain": "coerce",
+      "title": "Method-call arguments coerce through the canonical implicit-coercion pipeline",
+      "statement": "Each explicit method-call argument is coerced toward its (substituted) declared parameter type via the canonical coercion pipeline, permitting: closure → fn-pointer coercion, `&Concrete` → `&dyn Trait` unsizing, implicit reborrow, and integer widening. Widening is applied last; no other coercion in the pipeline depends on widening's output.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8873-L8887",
+        "src/compiler/sema_expr.cpp#L8920-L8934"
       ]
     }
   ]

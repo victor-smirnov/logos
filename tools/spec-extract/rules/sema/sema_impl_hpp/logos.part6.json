@@ -1,36 +1,26 @@
 {
   "unit": "sema/sema_impl_hpp/logos.part6",
   "layer": "sema",
-  "source": "src/compiler/sema_impl.hpp#L2791-L3338",
-  "source_hash": "20b661c3574a8b79",
+  "source": "src/compiler/sema_impl.hpp#L2861-L3362",
+  "source_hash": "e9b3dc84f874b00c",
   "rules": [
-    {
-      "id": "lex.comment.block-doc-strip",
-      "domain": "lex",
-      "title": "Block doc-comment body stripping",
-      "statement": "A `/** ... */` doc comment yields its body with each line stripped of leading whitespace, one optional leading `*`, and one optional space after that `*`; trailing whitespace is removed; the envelope's own leading/trailing empty lines (from `/**\\n ... \\n*/`) are dropped.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L2791-L2827"
-      ],
-      "testability": "untestable"
-    },
     {
       "id": "item.static.mut-requires-unsafe",
       "domain": "item",
       "title": "static mut access requires unsafe",
       "statement": "Reading or place-assigning a `static mut` item requires an enclosing `unsafe` block.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2880-L2884"
+        "src/compiler/sema_impl.hpp#L2904-L2908"
       ]
     },
     {
       "id": "item.static.address-place-machinery",
       "domain": "item",
       "title": "static items addressed as places",
-      "statement": "Every `static [mut]` item has link symbol `<pkg>$<NAME>` (extern-block-declared statics keep the bare name); reads lower as a dereference of the static's address and writes as a store through the same address.",
+      "statement": "Every `static [mut]` item has link symbol `<pkg>$<NAME>` (extern-block-declared statics keep the bare name); reads lower as a dereference of the static's address (`Deref(VarRef(\"__static_addr:<sym>\", *T))`) and writes lower as a store through the same address expression.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2886-L2892",
-        "src/compiler/sema_impl.hpp#L2905-L2910"
+        "src/compiler/sema_impl.hpp#L2910-L2916",
+        "src/compiler/sema_impl.hpp#L2929-L2934"
       ],
       "testability": "transitive"
     },
@@ -40,34 +30,34 @@
       "title": "Local/param binding shadows a module static",
       "statement": "A module static name is treated as a static reference only when not shadowed by an in-scope local binding or a type/const-generic parameter of the same name.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2894-L2903"
+        "src/compiler/sema_impl.hpp#L2918-L2927"
       ]
     },
     {
       "id": "item.union.field-write-safety",
       "domain": "item",
       "title": "Union field write is safe, read is unsafe",
-      "statement": "Writing a union field is safe and does not require `unsafe`; only reading a union field requires an enclosing `unsafe` block.",
+      "statement": "Writing a union field is safe and does not require `unsafe`; only reading a union field requires an enclosing `unsafe` block. A transient write-lhs flag, set before lowering a place-assign's LHS and RAII-restored after, tells field-read lowering to skip the union-read unsafe gate for that write.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2912-L2919"
+        "src/compiler/sema_impl.hpp#L2936-L2943"
       ]
     },
     {
       "id": "item.tuple-struct.synthetic-field-names",
       "domain": "item",
       "title": "Tuple-struct fields named by ordinal",
-      "statement": "Tuple-struct fields are named by their zero-based positional index rendered as a decimal string (\"0\", \"1\", ...).",
+      "statement": "Tuple-struct fields are named by their zero-based positional index rendered as a decimal string (\"0\", \"1\", ...); the backing strings are pool-allocated so string_view field names stay valid for the struct registry's lifetime.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2921-L2932"
+        "src/compiler/sema_impl.hpp#L2945-L2956"
       ]
     },
     {
       "id": "const.generic.per-instantiation-reresolve",
       "domain": "const",
       "title": "Generic compile-time const re-resolved per instantiation",
-      "statement": "A generic compile-time const `const X<T1,...>: WritStatic = @{ ... };` re-resolves its value-AST under each use-site's bound type-args: `<type:Ti>` slots resolve to the concrete type and the resulting value has a distinct per-instantiation identity.",
+      "statement": "A generic compile-time const `const X<T1,...>: WritStatic = @{ ... };` re-resolves its value-AST under each use-site's bound type-args: `<type:Ti>` slots resolve to the concrete type and the resulting value has a distinct per-instantiation identity (via an FNV hash of the AST walk substituting each type-var name for the concrete type's string form).",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2934-L2947"
+        "src/compiler/sema_impl.hpp#L2958-L2971"
       ],
       "uncertainty": "Writ-static metaprogramming feature; identity-per-instantiation inferred from comment."
     },
@@ -77,35 +67,35 @@
       "title": "Trait-qualified method mangling on name collision",
       "statement": "When two distinct traits define a same-named method with the same signature on one type, the colliding methods re-key under `<target>__<trait>__<method>`; a plain base `<target>__<method>` with more than one such entry is ambiguous for concrete-receiver dispatch and requires disambiguation.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2856-L2862"
+        "src/compiler/sema_impl.hpp#L2880-L2886"
       ]
     },
     {
       "id": "trait.impl.distinct-trait-args-coexist",
       "domain": "trait",
       "title": "Multiple impls of one trait at distinct args coexist",
-      "statement": "Multiple impls of the same trait name for one Self type at distinct concrete trait type-args (e.g. `From<i8> for i32` and `From<i16> for i32`) are distinct impls; their methods are mangled with the impl's concrete trait type-args so they coexist, and coherence/duplicate-detection keys on `Trait[args]::Target`.",
+      "statement": "Multiple impls of the same trait name for one Self type at distinct concrete trait type-args (e.g. `From<i8> for i32` and `From<i16> for i32`, or a concrete `Iterator<i32>` vs a generic `Iterator<&T> for VecIter<T>`) are distinct impls: an all-impls registry (keyed same as the single-valued impl registry) retains every one so a parametrized bound `T: Trait<Args>` can be checked against actual trait-args; coherence/duplicate-detection keys separately on `Trait[arg1,...]::Target`; methods are mangled with the impl's concrete trait type-args so they coexist.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2950-L2963",
-        "src/compiler/sema_impl.hpp#L2990-L2993"
+        "src/compiler/sema_impl.hpp#L2974-L2987",
+        "src/compiler/sema_impl.hpp#L3014-L3017"
       ]
     },
     {
       "id": "trait.object.object-safety-required",
       "domain": "trait",
       "title": "Trait objects require object-safe traits",
-      "statement": "A trait used as a trait object (`&dyn`/`*dyn`/`Box<dyn>`) must be object-safe (dyn-compatible, Rust E0038); a non-object-safe trait used this way is an error reported once per offending trait.",
+      "statement": "A trait used as a trait object (`&dyn`/`*dyn`/`Box<dyn>`) must be object-safe (dyn-compatible, Rust E0038); a non-object-safe trait used this way is an error, checked when the `dyn Trait` type is resolved and reported once per offending trait.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3186-L3191"
+        "src/compiler/sema_impl.hpp#L3210-L3215"
       ]
     },
     {
       "id": "module.resolve.scope-order",
       "domain": "module",
       "title": "Name resolution order: current package, imports, bare",
-      "statement": "An unqualified type/enum/trait name resolves by trying the current package key, then each imported package and its transitive `pub use` re-exports, then the bare (legacy/unqualified) key.",
+      "statement": "An unqualified struct/datatype/enum/trait name resolves by trying the current package's qualified key, then each imported package (and its transitive `pub use` re-exports), then the bare (legacy/unqualified) key.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3096-L3151"
+        "src/compiler/sema_impl.hpp#L3120-L3176"
       ]
     },
     {
@@ -114,7 +104,8 @@
       "title": "Transitive pub-use re-export resolution",
       "statement": "Resolving a name in the context of imported packages searches each imported package plus, transitively and cycle-safely, all packages reachable through their `pub use` re-exports.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3059-L3085"
+        "src/compiler/sema_impl.hpp#L2862-L2864",
+        "src/compiler/sema_impl.hpp#L3083-L3109"
       ]
     },
     {
@@ -123,7 +114,7 @@
       "title": "Cross-package items checked even via bare key",
       "statement": "An item resolved through the bare/unqualified key is subject to the same pub-access check as a package-qualified hit when it belongs to a package different from the current one; only own-package bare entries (primitives/builtins) bypass the check.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3133-L3150"
+        "src/compiler/sema_impl.hpp#L3157-L3175"
       ]
     },
     {
@@ -132,7 +123,7 @@
       "title": "use pkg from module restricts type/enum/trait visibility",
       "statement": "`use pkg from <module>;` restricts the package's types, enums, and traits (not only its free functions) to the named owning module; a candidate whose package is owned by a different module than the one specified is skipped during resolution.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3107-L3118"
+        "src/compiler/sema_impl.hpp#L3130-L3142"
       ]
     },
     {
@@ -141,7 +132,7 @@
       "title": "Const-generic parameters bind as const-vars",
       "statement": "A const-generic type parameter `const N: T` binds in scope as a ConstVar carrying its declared const type; a non-const type parameter binds as a type variable.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3297-L3304"
+        "src/compiler/sema_impl.hpp#L3320-L3328"
       ]
     },
     {
@@ -150,17 +141,17 @@
       "title": "Type/const params shadow outer same-named params",
       "statement": "Pushing a scope of type parameters shadows any outer binding of the same name (type, bounds, and `?Sized` relaxation), and popping restores the prior binding exactly; this permits e.g. a method `<T>` to shadow an enclosing trait/impl `<T>`.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3268-L3331"
+        "src/compiler/sema_impl.hpp#L3292-L3355"
       ]
     },
     {
       "id": "generic.bounds.relaxed-only-sized",
       "domain": "generic",
       "title": "Only ?Sized is a permitted relaxed bound",
-      "statement": "A relaxed bound (`?Trait`) is permitted only for `Sized`; any other relaxed bound is an error. Seeing `?Sized` clears the parameter's implicit `Sized` requirement, and the relaxed entry is removed so downstream code sees only positive bounds.",
+      "statement": "A relaxed bound (`?Trait`) is permitted only for `Sized`; any other relaxed bound is an error. Seeing `?Sized` clears the parameter's implicit `Sized` requirement, and the relaxed entry is removed from the bounds list so downstream code sees only positive bounds.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3248-L3256",
-        "src/compiler/sema_impl.hpp#L3310-L3316"
+        "src/compiler/sema_impl.hpp#L3272-L3280",
+        "src/compiler/sema_impl.hpp#L3334-L3340"
       ]
     },
     {
@@ -169,7 +160,7 @@
       "title": "?Sized param substituted where Sized required errors",
       "statement": "When a type parameter carrying `?Sized` is passed as a type-argument to a callee whose corresponding parameter requires `Sized`, the same unsized-substitution diagnostic is emitted as for an explicit unsized substitution.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2996-L3001"
+        "src/compiler/sema_impl.hpp#L3020-L3025"
       ],
       "testability": "untestable"
     },
@@ -179,8 +170,110 @@
       "title": "Associated-type equality clauses must hold",
       "statement": "A bound `Trait<Assoc = Type>` holds for a concrete type only if each expected associated type equals the impl's actual `type Assoc = ...` resolution after substitution.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L3258-L3266"
+        "src/compiler/sema_impl.hpp#L3282-L3290"
       ]
+    },
+    {
+      "id": "pat.ident.const-value-not-binding",
+      "domain": "pat",
+      "title": "Bare identifier pattern naming a module const matches by value",
+      "statement": "In `match scrutinee { NAME => ... }`, if `NAME` names a module-level `const`, the arm's pattern is evaluated (ctfe) against the const's retained initializer AST and lowered as a value pattern (int/bool/char), rather than binding the scrutinee to a fresh local named `NAME`.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L2899-L2903"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "item.type-alias.generic-params",
+      "domain": "item",
+      "title": "Type alias may declare type and lifetime parameters",
+      "statement": "A `type` alias declaration may carry its own generic type parameters and lifetime parameters (e.g. `type Foo<'z, T> = ...;`); a non-generic alias has an empty type-params list.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L2887-L2893"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "generic.variance.field-based-fixpoint",
+      "domain": "generic",
+      "title": "Struct/enum variance computed by field-type fixpoint",
+      "statement": "Variance of each struct/enum's type and lifetime parameters is computed by a fixed-point iteration over its fields' types, and recorded per declaration (keyed `pkg.Name`) as a map from parameter index (`#i` for type params, `@i` for lifetime params) to variance.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L3254-L3258"
+      ],
+      "testability": "transitive",
+      "uncertainty": "Only the declaration and summary comment are in this slice; the fixed-point algorithm itself is defined elsewhere."
+    },
+    {
+      "id": "region.outlives.clause-syntax",
+      "domain": "region",
+      "title": "Declared lifetime outlives bounds 'long: 'short",
+      "statement": "A `'long: 'short` outlives clause may appear in a fn/struct/enum/impl generic header or `where` clause; sema reads these as (long, short) lifetime-name pairs from `LIFETIME_PARAM` items carrying a non-empty bound list.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L3259-L3266"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "trait.assoc.gat-own-params",
+      "domain": "trait",
+      "title": "Associated type definitions carry independent GAT params",
+      "statement": "An associated-type implementation (`type Item<T> = ...` inside an `impl`) records its own generic type parameters (from the GAT declaration) separately from the enclosing impl's type parameters; both parameter lists are retained for substitution at each projection use-site.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L2988-L2995"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "trait.assoc.self-projection-during-collect",
+      "domain": "trait",
+      "title": "Self::Item resolves through the impl's trait before impl registration",
+      "statement": "Inside a trait definition, `Self::Item` resolves via the trait currently being defined; inside an impl's method signatures during signature collection, `Self::Item<X>` resolves via the impl's trait even though the impl itself is not yet present in the impl registry at that point.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L3006-L3013"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "trait.impl.blanket-impl-fallback",
+      "domain": "trait",
+      "title": "Method-call dispatch falls back to blanket impls",
+      "statement": "A blanket impl `impl<T: Bound1 [+ Bound2...]> Trait for T { ... }` is consulted for method-call resolution when direct lookup on the concrete receiver type fails; it matches only if the receiver satisfies the primary bound AND every extra bound (AND-filter across all bounds), and, per associated-type-equality clauses declared on each bound, only if those associated-type equalities also hold for the receiver.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L3027-L3047"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "module.visibility.pub-module-scope",
+      "domain": "module",
+      "title": "pub(module) items are module-private across module boundaries",
+      "statement": "A type/enum/trait/struct marked module-only-public, resolved through an imported package, is checked against the accessing site's owning module: if the item's owning module differs from the accessing module, resolution reports a module-private diagnostic even though the item is otherwise `pub`.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L3143-L3153"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "module.visibility.trait-lookup-deferred",
+      "domain": "module",
+      "title": "Trait name lookup does not enforce pub-visibility",
+      "statement": "Resolving a trait name does not run the pub-access check that struct/datatype/enum lookup runs; a private/foreign trait name still resolves at general reference sites (bound checks, fallback probes). Visibility for a foreign trait is instead enforced explicitly at the site that introduces it into an impl.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L3202-L3209"
+      ],
+      "testability": "diagnostic",
+      "uncertainty": "The enforcement site (collect_impl) is outside this slice; only the deferral is directly observed here."
+    },
+    {
+      "id": "layout.visibility.repr-query-no-pub-check",
+      "domain": "layout",
+      "title": "Struct representation queries bypass privacy",
+      "statement": "A struct lookup performed to answer a layout/representation question (e.g. an internal representation check consulted during monomorphization from a foreign package's context) uses a pub-check-free accessor, distinct from the pub-checked name-resolution accessor; visibility is not enforced for representation-only queries.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L3180-L3195"
+      ],
+      "testability": "transitive"
     }
   ]
 }

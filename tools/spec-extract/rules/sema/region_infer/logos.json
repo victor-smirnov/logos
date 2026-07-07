@@ -1,8 +1,8 @@
 {
   "unit": "sema/region_infer/logos",
   "layer": "sema",
-  "source": "src/compiler/region_infer.cpp#L18-L771",
-  "source_hash": "c143e916cd59ee5d",
+  "source": "src/compiler/region_infer.cpp#L18-L810",
+  "source_hash": "f08f0fdadba73dda",
   "rules": [
     {
       "id": "region.lifetime.param-fresh-region",
@@ -10,16 +10,16 @@
       "title": "Each lifetime parameter denotes a distinct region",
       "statement": "Each non-empty declared lifetime parameter ('a, 'b, ...) of a function denotes its own distinct region; references to the same lifetime name within the function resolve to that one region.",
       "evidence": [
-        "src/compiler/region_infer.cpp#L52-L53"
+        "src/compiler/region_infer.cpp#L80-L81"
       ]
     },
     {
       "id": "region.outlives.declared-clause-seed",
       "domain": "region",
       "title": "where-clause `'longer: 'shorter` imposes an outlives constraint",
-      "statement": "A declared bound `'longer: 'shorter` imposes the constraint region('longer) ⊇ region('shorter) (longer must contain everything shorter contains). A clause naming a lifetime not declared on the function is ignored at this stage (already a sema error).",
+      "statement": "A declared bound `'longer: 'shorter` imposes the constraint region('longer) ⊇ region('shorter) (longer must contain everything shorter contains), seeded as a CFG-point-independent constraint. A clause naming a lifetime not declared on the function is ignored at this stage (already a sema error).",
       "evidence": [
-        "src/compiler/region_infer.cpp#L55-L70"
+        "src/compiler/region_infer.cpp#L82-L98"
       ],
       "testability": "untestable"
     },
@@ -29,26 +29,28 @@
       "title": "'static outlives every lifetime",
       "statement": "'static outlives every lifetime: 'static: 'a holds for all 'a.",
       "evidence": [
-        "src/compiler/region_infer.cpp#L124-L126"
+        "src/compiler/region_infer.cpp#L148-L150",
+        "src/compiler/region_infer.cpp#L159"
       ]
     },
     {
       "id": "region.outlives.static-requires-declared",
       "domain": "region",
       "title": "Outliving 'static must be explicitly declared",
-      "statement": "A concrete lifetime 'a does not outlive 'static (i.e. 'a: 'static does not hold) unless an explicit bound `'a: 'static` is declared; such a declared edge is honored.",
+      "statement": "A concrete lifetime 'a does not outlive 'static (i.e. 'a: 'static does not hold) unless an explicit bound `'a: 'static` is declared; such a declared edge is honored (through the same reachability walk used for all outlives clauses).",
       "evidence": [
-        "src/compiler/region_infer.cpp#L112-L117",
-        "src/compiler/region_infer.cpp#L129-L151"
+        "src/compiler/region_infer.cpp#L146-L156",
+        "src/compiler/region_infer.cpp#L163-L181"
       ]
     },
     {
       "id": "region.outlives.transitive",
       "domain": "region",
       "title": "Outlives is transitive (reachability over declared clauses)",
-      "statement": "Outlives is the reflexive-transitive closure of the declared outlives clauses: 'a: 'b holds iff 'b is reachable from 'a by following declared `'x: 'y` edges (including through 'static).",
+      "statement": "Outlives is the reflexive-transitive closure of the declared outlives clauses: 'a: 'b holds iff 'a == 'b, or 'b is reachable from 'a by following declared `'x: 'y` edges (including through 'static); unreachable pairs are conservatively rejected.",
       "evidence": [
-        "src/compiler/region_infer.cpp#L129-L151"
+        "src/compiler/region_infer.cpp#L144",
+        "src/compiler/region_infer.cpp#L163-L184"
       ]
     },
     {
@@ -57,7 +59,7 @@
       "title": "Outliving an unconstrained lifetime is vacuous",
       "statement": "Any lifetime outlives an unconstrained (empty/anonymous) shorter lifetime; an unconstrained longer lifetime outlives nothing (strict mode).",
       "evidence": [
-        "src/compiler/region_infer.cpp#L127-L128"
+        "src/compiler/region_infer.cpp#L160-L161"
       ],
       "uncertainty": "Empty-string lifetime denotes the unconstrained/anonymous case; mapping to surface syntax inferred.",
       "testability": "transitive"
@@ -68,8 +70,8 @@
       "title": "A borrow's region contains its creation point",
       "statement": "Every borrow expression `&x`, `&mut x`, or a borrow of a temporary creates a fresh region that must contain the CFG point at which the borrow is taken.",
       "evidence": [
-        "src/compiler/region_infer.cpp#L344-L361",
-        "src/compiler/region_infer.cpp#L363-L385"
+        "src/compiler/region_infer.cpp#L377-L393",
+        "src/compiler/region_infer.cpp#L396-L417"
       ]
     },
     {
@@ -78,16 +80,16 @@
       "title": "Borrow region spans the liveness of its holder (NLL)",
       "statement": "When a borrow is bound to a named holder (let/assign LHS), its region must contain every CFG point at which the holder variable is live. A borrow's region thus extends exactly to last-use of the reference, not to end of lexical scope (non-lexical lifetimes).",
       "evidence": [
-        "src/compiler/region_infer.cpp#L85-L104"
+        "src/compiler/region_infer.cpp#L113-L137"
       ]
     },
     {
       "id": "borrow.temp.distinct-targets",
       "domain": "borrow",
       "title": "Each borrow of a temporary is a distinct borrow target",
-      "statement": "Each borrow of a distinct temporary value is a distinct borrow with its own region; two temporary borrows never alias the same borrow target.",
+      "statement": "Each borrow of a distinct temporary value is a distinct borrow with its own region; two temporary borrows never alias the same borrow target (tagged uniquely by region id).",
       "evidence": [
-        "src/compiler/region_infer.cpp#L369-L374"
+        "src/compiler/region_infer.cpp#L401-L407"
       ]
     },
     {
@@ -96,9 +98,10 @@
       "title": "Mutable borrows in call-argument position are two-phase",
       "statement": "A `&mut` borrow taken while evaluating the arguments of a call (call/method-call/closure-call/fn-pointer-call/format-call) is a two-phase-borrow reservation rather than an immediately-active mutable borrow.",
       "evidence": [
-        "src/compiler/region_infer.cpp#L352",
-        "src/compiler/region_infer.cpp#L376",
-        "src/compiler/region_infer.cpp#L422-L458"
+        "src/compiler/region_infer.cpp#L371-L372",
+        "src/compiler/region_infer.cpp#L385",
+        "src/compiler/region_infer.cpp#L409",
+        "src/compiler/region_infer.cpp#L455-L491"
       ]
     },
     {
@@ -107,7 +110,7 @@
       "title": "Loop bodies have a back-edge to the loop head",
       "statement": "while/for/for-each loop bodies have control-flow back-edges to the loop head, and `loop` bodies back-edge to themselves; consequently a value live across a loop iteration is live at the loop head, extending borrow regions over the whole loop.",
       "evidence": [
-        "src/compiler/region_infer.cpp#L227-L269"
+        "src/compiler/region_infer.cpp#L260-L302"
       ]
     },
     {
@@ -116,16 +119,41 @@
       "title": "let-else else-block diverges",
       "statement": "The else-block of a let-else statement is a diverging branch with no control-flow edge to the code following the statement; bindings introduced by the let are not live in the else-block.",
       "evidence": [
-        "src/compiler/region_infer.cpp#L296-L304"
+        "src/compiler/region_infer.cpp#L329-L338"
       ]
     },
     {
       "id": "region.solve.constraint-fixpoint",
       "domain": "region",
       "title": "Region contents are the least fixpoint of Contains/Outlives constraints",
-      "statement": "Each region's set of CFG points is the least solution satisfying: Contains(r, P) ⟹ P ∈ r; Outlives(longer, shorter) ⟹ points(shorter) ⊆ points(longer). Lifetimes propagate monotonically from shorter to longer.",
+      "statement": "Each region's set of CFG points is the least solution satisfying: Contains(r, P) ⇒ P ∈ r; Outlives(longer, shorter) ⇒ points(shorter) ⊆ points(longer). Lifetimes propagate monotonically from shorter to longer.",
       "evidence": [
-        "src/compiler/region_infer.cpp#L154-L180"
+        "src/compiler/region_infer.cpp#L187-L213"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "region.liveness.slot-qualified-binding",
+      "domain": "region",
+      "title": "Liveness keys a binding by name+slot, not name alone",
+      "statement": "For NLL liveness computation, each declared binding introduced by let/for/for-each is keyed by \"name#slot\" using a fresh dense per-binding slot allocated at sema time (a shadowing redeclaration of the same name, including in a sibling or nested scope, allocates a new slot). Two same-named bindings in sibling scopes are therefore distinct liveness keys and their live ranges never merge.",
+      "evidence": [
+        "src/compiler/region_infer.cpp#L26-L46",
+        "src/compiler/region_infer.cpp#L532-L534",
+        "src/compiler/region_infer.cpp#L714-L718"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "region.liveness.slotless-fallback",
+      "domain": "region",
+      "title": "Slotless sites fall back to bare-name liveness with conservative merging",
+      "statement": "Sites without a binding slot (fn parameters, and statement-level write receivers such as an Assign LHS) use the bare variable name as the liveness key. A bare DEF (e.g. a plain `x = expr` reassignment) kills liveness of every slot-qualified variant of that name, ending the prior binding's upward live range; a bare USE conservatively marks every same-named slot-qualified holder as live, over-approximating rather than under-approximating region extent.",
+      "evidence": [
+        "src/compiler/region_infer.cpp#L34-L38",
+        "src/compiler/region_infer.cpp#L118-L128",
+        "src/compiler/region_infer.cpp#L536-L539",
+        "src/compiler/region_infer.cpp#L720-L726"
       ],
       "testability": "transitive"
     }

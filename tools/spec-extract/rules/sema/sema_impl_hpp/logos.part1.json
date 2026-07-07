@@ -1,8 +1,8 @@
 {
   "unit": "sema/sema_impl_hpp/logos.part1",
   "layer": "sema",
-  "source": "src/compiler/sema_impl.hpp#L44-L592",
-  "source_hash": "e5d4953945c1643a",
+  "source": "src/compiler/sema_impl.hpp#L44-L599",
+  "source_hash": "87b41a1cf63397ff",
   "rules": [
     {
       "id": "coerce.ref.unsized-slice-canonicalizes-to-slice",
@@ -173,7 +173,7 @@
       "statement": "An enum literal passed as an argument with missing or unresolved type-args (e.g. bare `Opt::None`, partially-inferred `Opt::Some(3)`) is retyped to the parameter's concrete enum type, pinning the missing type-args. Retype fires only when the literal's already-known (non-error) type-args match the target's, so a genuine mismatch is still rejected.",
       "evidence": [
         "src/compiler/sema_impl.hpp#L500-L508",
-        "src/compiler/sema_impl.hpp#L582-L592"
+        "src/compiler/sema_impl.hpp#L582-L599"
       ]
     },
     {

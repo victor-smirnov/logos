@@ -1,165 +1,183 @@
 {
   "unit": "sema/sema_impl_hpp/logos.part7",
   "layer": "sema",
-  "source": "src/compiler/sema_impl.hpp#L3339-L3922",
-  "source_hash": "a27ca769b15cb8e0",
+  "source": "src/compiler/sema_impl.hpp#L3363-L3968",
+  "source_hash": "5884771b2f0b409a",
   "rules": [
     {
       "id": "region.outlives.callee-bound-checked-at-call",
       "domain": "region",
       "title": "Callee `where 'a: 'b` bounds checked at the call site",
-      "statement": "When a fn declares outlives bounds `'a: 'b`, each call site must satisfy them under the callee→caller lifetime substitution induced by matching parameter types to argument types. The substitution is derived by walking paired (param_type, arg_type): for matched &/&mut, struct/zoned-struct/enum lifetime_args, tuple/slice/array/ptr elements, callee lifetimes map to the corresponding caller lifetimes. A bound is enforced only when BOTH its lifetimes appear at argument positions and map to concrete distinct caller lifetimes; otherwise (internal or elided) it is left to caller region inference. Unsatisfied → error.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3352-L3438"
-      ],
-      "related": [
-        "region.outlives.static-always-satisfies",
-        "region.outlives.struct-lit-bound-checked"
-      ]
+      "statement": "At a call site, for each callee `where 'a: 'b` outlives bound, build a callee-lifetime→caller-lifetime substitution by walking (param_type, arg_type) pairs (through refs, struct/zoned-struct/enum lifetime+type args, tuples, slices/arrays, raw ptrs). If both 'a and 'b map to concrete caller lifetimes and differ, the caller's current outlives graph must already prove `caller_long: caller_short`, else error `call to '{callee}': caller does not satisfy callee's outlives bound ...`. If either lifetime is unmapped (internal to callee or elided at the call site), the bound is NOT enforced here — deferred to caller's region inference.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3382-L3462"],
+      "related": ["region.outlives.static-always-satisfies", "region.outlives.struct-lit-bound-checked"]
     },
     {
       "id": "region.outlives.static-always-satisfies",
       "domain": "region",
-      "title": "`'static` satisfies any outlives bound",
-      "statement": "The `'static` lifetime is reserved and always satisfies any outlives obligation; an outlives bound whose longer side is `'static` is never checked.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3418-L3419",
-        "src/compiler/sema_impl.hpp#L3513-L3514"
-      ]
+      "title": "'static trivially satisfies any outlives bound",
+      "statement": "When checking a `where 'a: 'b` (or struct-declared) outlives bound, if the long lifetime 'a is `'static`, the bound is skipped unconditionally (never produces an error) — 'static always outlives everything.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3442-L3443", "src/compiler/sema_impl.hpp#L3538"]
     },
     {
       "id": "region.outlives.struct-lit-bound-checked",
       "domain": "region",
-      "title": "Struct declared outlives bounds checked at struct-literal construction",
-      "statement": "At a struct literal `S { .. }` or tuple-struct ctor where `S` declares `where 'a: 'b`, the caller's outlives graph must satisfy each bound under the substitution seeded by (a) explicit lifetime args and (b) walking each field's declared type against its initializer's type. A bound is enforced only when both lifetimes map to concrete distinct caller lifetimes; unsatisfied → error.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3440-L3529"
-      ],
-      "related": [
-        "region.outlives.callee-bound-checked-at-call"
-      ]
+      "title": "Struct/tuple-struct literal outlives bounds checked against caller's graph",
+      "statement": "At a struct or tuple-struct literal `S { ... }` whose declaration carries `where 'a: 'b` clauses, build a lifetime-parameter substitution from (a) explicit lifetime type-args at the literal and (b) walking (declared field type, literal field value type) pairs. For each declared bound whose both sides map to distinct concrete caller lifetimes, the caller's outlives graph must prove the substituted relation, else error `struct literal '{S}': caller does not satisfy declared outlives bound ...`. Bounds are skipped if unmapped, 'static, or both sides equal after substitution.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3468-L3553"],
+      "related": ["region.outlives.callee-bound-checked-at-call"]
     },
     {
       "id": "coerce.variance.gate-on-compatible",
       "domain": "coerce",
-      "title": "Variance gate on coercion sites",
-      "statement": "When `from` is type-compatible with `to`, the coercion is additionally subjected to a variance/subtype check: &mut is invariant, &T is covariant, fn params contravariant. A variance failure (lifetime structure incompatible) is rejected with a variance-mismatch error. The check is permissive (caller region inference may fill regions) at call-site argument passing, and strict at body sites (return, let-init) where both lifetimes are fn-scope-fixed.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3344-L3351",
-        "src/compiler/sema_impl.hpp#L3531-L3547"
-      ]
+      "title": "Variance check gates a type-compatible coercion under the fn's outlives graph",
+      "statement": "A coercion `from -> to` that already passed the base type-compatibility check must additionally satisfy the variance/subtype relation (`subtype(from,to)`) computed against the current fn's outlives graph and the program's fixed-point def-variance table, else diagnostic `variance mismatch — ... lifetime structure incompatible`. `permissive=true` (call-site arg-passing) forwards unresolved lifetime relations to the caller's region inference; `permissive=false` (return / let-init, fn-scope-fixed lifetimes) requires the relation to already hold.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3368-L3375", "src/compiler/sema_impl.hpp#L3559-L3571"]
     },
     {
       "id": "type.numeric.classification",
       "domain": "type",
-      "title": "Numeric type classification",
-      "statement": "A type is `numeric` iff it is f64/f32, an unresolved float literal, an integer kind, a type variable, or a cfg-slot type (the latter two deferred to monomorphization, trusted to resolve to a numeric primitive). A type is `integer` iff it is an integer kind.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3740-L3756"
-      ]
+      "title": "Numeric-type classification includes unbound TypeVar and deferred CfgSlotType",
+      "statement": "A type is classified numeric iff its kind is F64, F32, FloatLit, any integer kind, an unbound TypeVar (provisionally numeric), or CfgSlotType (a cfg-bound slot type deferred to mono, trusted to resolve to a numeric primitive there or fail with a precise mono-time error). `is_integer` holds iff the kind is an integer kind (excludes TypeVar/CfgSlotType/float).",
+      "evidence": ["src/compiler/sema_impl.hpp#L3766-L3782"]
     },
     {
       "id": "type.unsized.value-position-forbidden",
       "domain": "type",
-      "title": "Unsized types forbidden in value positions",
-      "statement": "Resolving a type AST yields an unsized type (bare `[T]` or `dyn Trait`) only in contexts that genuinely permit one (turbofish argument for a `T: ?Sized` parameter, impl-self-type at a `?Sized` position). By default unsized results in value positions are an error, so `[T]`/`dyn Trait` cannot silently slip into a sized position.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3640-L3645"
-      ],
-      "testability": "transitive"
+      "title": "Bare unsized type at a value position is rejected unless the context explicitly permits it",
+      "statement": "Resolving a bare unsized type-syntax node (e.g. `[T]`, `dyn Trait`) standalone at a value position is an error by default. Only contexts that genuinely permit an unsized result set the resolver's unsized-ok flag first (a turbofish type-argument bound for a `T: ?Sized` parameter, or an impl Self-type at a `?Sized` position); the flag is off by default so unsized types cannot silently slip into value positions.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3666-L3671"],
+      "testability": "diagnostic"
     },
     {
       "id": "expr.loop.empty-loop-diverges",
       "domain": "expr",
-      "title": "`loop {}` with no break is divergent (`!`)",
-      "statement": "A `loop { .. }` containing no `break` reaching its frame is a diverging expression of type `!` (Never), not `()`. Only `loop` (not `for`/`while`) reads its break frame to become a value-yielding expression; its value type is the unified type of `break <expr>` values targeting its frame.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3655-L3673"
-      ]
+      "title": "`loop {}` with no reachable break is a diverging (`!`) expression",
+      "statement": "A `loop { ... }` expression that contains no `break` reachable to its own frame is diverging: as an expression its type is `!`, not `()`. The per-lowering \"no break reached\" flag is reset on every `lower_loop` call so one loop's divergence does not leak into a sibling loop's typing.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3694-L3699"]
     },
     {
       "id": "expr.break.label-must-be-in-scope",
       "domain": "expr",
-      "title": "`break`/`continue 'label` require the label in scope",
-      "statement": "`break 'label` / `continue 'label` are valid only when `'label` names a currently-active labelled loop; an out-of-scope label is rejected. A labelled `break 'label v` attributes its value type to the frame matching the label; an unlabelled break targets the innermost loop frame.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3634-L3638",
-        "src/compiler/sema_impl.hpp#L3655-L3666"
-      ]
+      "title": "`break`/`continue` with a label must reference an enclosing labelled loop",
+      "statement": "`break 'label` / `continue 'label` is valid only when `'label` names a currently-active enclosing loop; the active-label stack contains only labelled loops (unlabelled loops push nothing), so referencing an out-of-scope or nonexistent label is a diagnostic.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3660-L3664"],
+      "testability": "diagnostic"
     },
     {
       "id": "expr.never.fallback-on-diverging-callee",
       "domain": "expr",
-      "title": "Never-fallback for unbound type params with diverging callee",
-      "statement": "During type-argument inference, an unbound type parameter falls back to `!` (Never) only when its callee body always diverges (panic-tail / `loop{}`-tail), matching Rust-2024 `!`-fallback narrowed to: variable unbound AND callee body always diverges.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3731-L3736"
-      ],
+      "title": "Unbound generic type-param falls back to `!` only when the callee body always diverges",
+      "statement": "An unconstrained generic type-parameter with no other binding information defaults to `!` (Never) exactly when the callee's function body ALWAYS diverges (every control path panics or ends in a diverging tail-loop) — strictly narrower than general \"always returns\": a body with a normal reachable `return` on any path disqualifies the `!`-fallback.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3757-L3762"],
       "testability": "transitive"
     },
     {
       "id": "expr.call.divergent-never-returning",
       "domain": "expr",
-      "title": "Calls to `-> !` functions diverge",
-      "statement": "A direct or macro call to a Never-returning function (`fn foo() -> !`, including panic/abort/exit) is a divergent syntactic position; this generalises away special-casing of `panic` once the Never type exists.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3791-L3796"
-      ]
+      "title": "Direct call to a `-> !` function is a diverging expression",
+      "statement": "A direct call or macro-call whose resolved callee has return type `!` (Never) — including the builtins `panic`/`abort`/`exit` and any user-declared `fn foo() -> !` — is treated as diverging at that syntactic position, generalizing the historical special-cased callee-name checks.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3817-L3822"]
     },
     {
       "id": "module.call.package-qualifier-disambiguates",
       "domain": "module",
-      "title": "Explicit package qualifier filters free-fn candidates by exact package",
-      "statement": "A call written with an explicit dotted package qualifier (`logos.lang.mem::replace(..)`) restricts free-fn candidate resolution to functions whose `.package` equals that qualifier exactly, disambiguating same-named free fns across packages. An empty qualifier means an unqualified call resolved through normal import scope.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3706-L3720"
-      ]
+      "title": "Explicit package qualifier restricts free-fn candidate lookup to that package",
+      "statement": "A call written with an explicit package qualifier (`pkg.sub::fn(...)`) restricts free-function candidate resolution to functions whose declared `.package` matches the dotted qualifier exactly (disambiguating same-named free fns across packages, e.g. `mem::replace` vs `ptr::replace`); an empty qualifier performs ordinary unqualified, import-based scope resolution.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3732-L3746"]
     },
     {
       "id": "trait.overload.generic-select-by-arg-shape",
       "domain": "trait",
-      "title": "Generic overload selection by substituted-param scoring",
-      "statement": "When a base name carries multiple generic overloads of equal arity (e.g. `Pin<&T>::new` vs `Pin<&mut T>::new` vs `Pin<Box<T>>::new`), the overload is selected by unifying each candidate's params against the actual arguments and scoring the SUBSTITUTED params: exact match scores higher than coercion-compatible, and any incompatible param rejects the candidate. With fewer than two overloads the first-arity-match (first-wins) behavior is retained.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3773-L3789"
-      ],
-      "testability": "untestable"
+      "title": "Generic overload selection scores candidates by substituted-parameter match against argument shape",
+      "statement": "When a generic base name has ≥2 overloads distinguished by parameter shape, overload selection unifies each candidate's params against the actual arg types, then scores the SUBSTITUTED params: +2 per exact-matching param, +1 per coercion-compatible param, and any incompatible param disqualifies the candidate entirely; the highest-scoring candidate is selected. With <2 overloads, or when no candidate matches, resolution falls back to first-arity-match (unchanged behavior).",
+      "evidence": ["src/compiler/sema_impl.hpp#L3799-L3811"]
     },
     {
       "id": "trait.blanket.recursive-satisfaction",
       "domain": "trait",
-      "title": "Recursive trait satisfaction through blanket-impl chains",
-      "statement": "A concrete type satisfies a trait if it implements it directly or transitively through any chain of blanket impls whose bounds are recursively satisfied. Cycle detection prevents infinite recursion through cyclic blanket chains, and each candidate is checked with an independent visited set so a failed candidate does not poison sibling candidates. Associated-type-equality clauses are NOT validated by this satisfaction check.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3579-L3596"
-      ]
+      "title": "Trait satisfaction is recursive through chains of blanket impls",
+      "statement": "A concrete type satisfies trait `T` if it has a direct impl of `T`, OR transitively via any chain of blanket impls (`impl<P: Bound> T for P`) whose bounds it recursively satisfies. Cycle detection via a `seen` set prevents infinite recursion through cyclic blanket chains; each candidate blanket receives its OWN copy of `seen`, so a failed first candidate does not poison sub-checks for the next candidate. Associated-type-equality clauses (ADR 0008) are NOT validated by this recursive check — callers needing them must check separately.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3603-L3620"]
     },
     {
       "id": "trait.blanket.method-dispatch-unique-or-error",
       "domain": "trait",
       "title": "Blanket-impl method dispatch requires a unique applicable blanket",
-      "statement": "For `impl<T: Bound> Trait for T { fn m .. }`, a method call on a receiver dispatches via the blanket only when exactly one registered blanket applies to the receiver type; two or more viable overlapping blankets is an ambiguity error. Value blankets (`impl<T> Trait for T`) reach primitive receivers as well as struct receivers.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3885-L3897"
-      ]
+      "statement": "Dispatching a method call to a blanket impl (`impl<T: Bound> Trait for T { fn m ... }`) tries every registered blanket for `Trait` against the receiver's type name: a UNIQUE applicable blanket dispatches the call via generic-call finish (consuming receiver + args); ≥2 viable (overlapping) blankets is an ambiguity error; none applicable leaves receiver/args untouched so the caller falls through to the next dispatch path. Applies uniformly to struct and primitive receivers, so a value blanket (`impl<T> Trait for T`) also reaches primitive receivers.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3911-L3923"]
     },
     {
       "id": "trait.auto.recursive-structural-satisfaction",
       "domain": "trait",
-      "title": "Auto-trait satisfaction is recursive/structural",
-      "statement": "A type satisfies an auto trait (Send/Sync) iff all of its constituent fields recursively satisfy it; the first non-satisfying field is reported as the offender.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3617-L3629"
-      ]
+      "title": "Auto-trait satisfaction is structural and recursive over constituent fields",
+      "statement": "A type satisfies an auto trait (e.g. `Send`/`Sync`) iff, recursively and structurally, every constituent field/element type also satisfies it; a `visited` set guards cyclic type graphs. The first field found NOT to satisfy the auto trait is recorded (name + type) to drive the offending-field diagnostic.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3645-L3655"]
     },
     {
       "id": "expr.tail.implicit-return-in-fn-body",
       "domain": "expr",
-      "title": "Tail expression is an implicit return only in fn-body context",
-      "statement": "A block's trailing tail-expression acts as an implicit return when lowering a fn body, but not inside block-as-expression contexts (match-arm body, unsafe-block-as-expr, if-as-expr) where the tail is the block's value rather than a function return.",
-      "evidence": [
-        "src/compiler/sema_impl.hpp#L3675-L3678"
-      ]
+      "title": "A function body's tail expression is an implicit return",
+      "statement": "Inside a function body (governed by a per-lowering flag), a `TAIL_EXPR` statement (the block's final expression with no trailing semicolon) acts as an implicit `return`. The flag is cleared while lowering nested block-as-expression contexts (match-arm body, unsafe-block-as-expr, if-as-expr), where the tail expression is instead the block's VALUE, not a function return.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3700-L3704"]
+    },
+    {
+      "id": "expr.break.value-attributed-to-labeled-frame",
+      "domain": "expr",
+      "title": "`break 'label v` attributes its value to the matching labeled loop frame, not an inner loop",
+      "statement": "Each active loop (for/while/loop), regardless of kind, pushes a break-frame {label, value_type, without_value}. A `break 'label v` attributes v's type to the frame whose label matches; an unlabeled `break v` targets the innermost frame. Only a `loop { ... }` expression reads its OWN frame's value_type to become value-yielding — so a value breaking to an outer labeled loop is not incorrectly captured as the type of an intervening inner `loop`.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3679-L3692"],
+      "related": ["expr.break.label-must-be-in-scope", "expr.loop.empty-loop-diverges"]
+    },
+    {
+      "id": "coerce.tuple-lit.widen-to-expected-element-type",
+      "domain": "coerce",
+      "title": "Tuple literal elements widen to the expected tuple type's element types",
+      "statement": "When a tuple literal appears in a position with a known expected tuple type (e.g. a parameter or `let` with a tuple-type annotation), each untyped integer-literal element widens to the corresponding expected element type at lowering, instead of defaulting to `i32` — preventing a narrower-typed literal buffer from being read back by the callee under the wider declared element type.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3708-L3713"]
+    },
+    {
+      "id": "generic.infer.unify-return-type-from-let-annotation",
+      "domain": "generic",
+      "title": "`let` type annotation fills missing turbofish type-args via return-type unification",
+      "statement": "When a `let` binding carries an explicit type annotation and its initializer is a generic call whose supplied turbofish under-determines the callee's type parameters, the callee's return type is unified against the let's annotated type to fill the remaining type-args — covering the case where a type parameter appears only in the function's return type, not in any argument.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3714-L3719"]
+    },
+    {
+      "id": "expr.closure.infer-param-types-from-call-site",
+      "domain": "expr",
+      "title": "Untyped closure parameters infer their types from the call-site's expected formal",
+      "statement": "A closure literal with untyped parameters (`|x| body`, no `: T` annotation) has its parameter types inferred from the corresponding call-site formal parameter's `fn(T,...) -> R` / Closure type, when the call-site path (`lower_call` / `lower_method_call`) supplies such a hint for that argument position.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3720-L3724"]
+    },
+    {
+      "id": "coerce.array-lit.heterogeneous-element-unsize",
+      "domain": "coerce",
+      "title": "Array/slice literal elements unsize individually to an annotated dyn-Trait element type",
+      "statement": "An array/slice literal typed against an expected element type via an outer annotation (e.g. `let arr: [&dyn Trait; N] = [...]`) may contain elements of different concrete reference types (`[&Sq, &Ci]`); each element unsizes (per-element, at codegen) to the expected `&dyn Trait` element type, rather than the literal being rejected for element-type mismatch.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3725-L3730"]
+    },
+    {
+      "id": "expr.deref.box-move-out-non-copy",
+      "domain": "expr",
+      "title": "Dereferencing a bare move-typed Box local moves its contents out",
+      "statement": "`*box_var` where `box_var` is a bare local of type `Box<T>` with non-Copy `T` lowers to a move-out (`box_take`) rather than a borrowing deref. When the operand is not a bare Box-typed variable, or its element type is Copy, this special case does not apply and the caller falls through to normal deref lowering.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3836-L3839"]
+    },
+    {
+      "id": "trait.index.mut-place-projection",
+      "domain": "trait",
+      "title": "`&f[i]`/`&mut f[i]` over a user Index/IndexMut type dispatches directly to index()/index_mut()",
+      "statement": "Taking a place reference to an element of a user-defined Index/IndexMut container (`&f[i]` or `&mut f[i]`) dispatches directly to that type's `index()`/`index_mut()` method and yields the returned reference AS the place — with no additional deref and no temporary. The mutable form requires the type implement `IndexMut`; this path applies only over user Index/IndexMut types, otherwise the caller falls through to the generic address-of path.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3947-L3953"]
+    },
+    {
+      "id": "writ.schema.distinct-code-per-instantiation",
+      "domain": "writ",
+      "title": "Generic schema instantiations get a distinct runtime type-code per type-argument set",
+      "statement": "For a generic schema instantiation (e.g. `Wrap<i64>`), the runtime schema_type_code folds the concrete type-arguments into the variant bits, yielding a code DISTINCT per instantiation; a non-generic schema's code is its unmodified base_code. `make`/`view`/`view_checked` and schema-enum `match` all compute this code through the same shared function, so the three call sites cannot drift apart.",
+      "evidence": ["src/compiler/sema_impl.hpp#L3934-L3940"],
+      "testability": "transitive"
     }
   ]
 }

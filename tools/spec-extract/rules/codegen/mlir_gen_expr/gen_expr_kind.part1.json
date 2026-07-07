@@ -1,106 +1,157 @@
 {
   "unit": "codegen/mlir_gen_expr/gen_expr_kind.part1",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen_expr.cpp#L1398-L1957",
-  "source_hash": "87b23494caf86099",
+  "source": "src/compiler/mlir_gen_expr.cpp#L1408-L1986",
+  "source_hash": "93e80237e50a82a6",
   "rules": [
     {
       "id": "expr.addrof.var-place-identity",
       "domain": "expr",
       "title": "&x yields the address of x's own storage",
       "statement": "`&x` / `&mut x` over a local or parameter denotes the address of that binding's storage slot. A by-value binding (scalar, by-value-fat, or pointer-family) is first spilled to its own stack slot whose address is the reference; a slot-backed binding (aggregate, address-holding) hands back its existing slot address directly.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1398-L1447"]
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1408-L1457"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addrof.ref-param-rebind",
       "domain": "expr",
       "title": "&p on a reference parameter rebinds to a single shared slot",
-      "statement": "When `&p` (or `&mut p`) is taken on a parameter of reference type, the parameter's value is spilled once to a slot and the binding is rebound to that slot, so subsequent reads and further `&p` operations share one storage location (write-through for `&mut` chains).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1428-L1441"]
+      "statement": "When `&p` (or `&mut p`) is taken on a parameter whose SSA arg is a value (not already `ptr`-typed) or a pointer-family parameter, the parameter's value is spilled once to a fresh entry-block alloca whose address is the reference. If `p` is a `Ref`/`MutRef` parameter, the scope binding is REBOUND to that alloca, so subsequent reads and further `&p` share one storage location (write-through for `&&mut T` chains); other by-value parameters get address-of-a-copy with the binding left untouched.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1429-L1450"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addrof.module-const-temp",
       "domain": "expr",
       "title": "&CONST materializes a temporary slot",
-      "statement": "Taking the address of a module-level const that has no local storage materializes a fresh stack slot, stores the const value, and yields that slot's address as the reference.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1403-L1415"]
+      "statement": "Taking the address of a module-level const that has no local storage evaluates the const's initializer, materializes a fresh stack slot, stores the value, and yields that slot's address as the reference.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1412-L1425"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addrof.mut-place-element-address",
       "domain": "expr",
       "title": "&mut over an index/field/tuple place yields the real element address",
-      "statement": "`&[mut] <place>` over a place expression (`a[i]`, `(*p).0`, `s.f`, nested mixes) yields the actual element/field address computed with the correct per-element stride — never the address of a by-value copy — so writes through the resulting reference reach the original aggregate.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1456-L1477", "src/compiler/mlir_gen_expr.cpp#L1512-L1559", "src/compiler/mlir_gen_expr.cpp#L1560-L1653"]
+      "statement": "`&[mut] <place>` over a place expression (`a[i]`, `(*p).0`, `s.f`, nested/chained mixes such as `a[i][j]`, `(*p).0`, `arr[i].field`) yields the actual element/field address computed with the correct per-element stride and layout — never the address of a by-value copy — so writes through the resulting reference reach the original aggregate. The immutable `&x.N` tuple-index path is deliberately left on the value-copy behavior (relied on elsewhere for spilled-copy semantics).",
+      "evidence": [
+        "src/compiler/mlir_gen_expr.cpp#L1466-L1487",
+        "src/compiler/mlir_gen_expr.cpp#L1522-L1539",
+        "src/compiler/mlir_gen_expr.cpp#L1540-L1569",
+        "src/compiler/mlir_gen_expr.cpp#L1570-L1663"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addrof.reborrow-pointer-identity",
       "domain": "expr",
       "title": "&[mut] *r is identity on r",
-      "statement": "Reborrowing `&[mut] *r` where r holds a reference or raw pointer (`&T`/`&mut T`/`*T`) is equivalent to the pointer value r itself (no extra indirection). A fat `&mut T` reborrowed to a thin reference (`&T`) is peeled to its data half; reborrowed to another fat `&mut T` it keeps the full pair.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1479-L1510"]
+      "statement": "Reborrowing `&[mut] *r` where r holds a reference or raw pointer (`&T`/`&mut T`/`*T`) is equivalent to the pointer value r itself (no extra indirection): r is loaded and returned unchanged. A fat zone-mut `&mut T` reborrowed to a thin result type is peeled to its data half; reborrowed to another fat `&mut T` it keeps the full pair; reborrowing a thin pointer to a `#[self_describing]` DST yields the thin header pointer.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1494-L1520"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addrof.temp-aggregate-spill",
       "domain": "expr",
       "title": "& over a by-value aggregate temporary extends its lifetime via a slot",
-      "statement": "`&<temp>` where the operand is a by-value aggregate (struct, tuple, array, slice, trait-object, enum produced by a call) spills the temporary once to a stack slot, and that slot is the reference (temporary lifetime extension). Aggregates already held by pointer are returned unchanged.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1704-L1746"]
+      "statement": "`&<temp>` where the operand is a by-value aggregate (struct, tuple, array, slice, trait-object) spills the temporary once to a stack slot only if it is not already pointer-represented (e.g. a by-value aggregate returned from a call), and that slot is the reference (temporary lifetime extension to the enclosing statement). Aggregates already held by pointer are returned unchanged.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1714-L1733"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addrof.enum-single-level",
       "domain": "expr",
       "title": "& over an enum is one level of indirection",
-      "statement": "A tagged enum is represented as a pointer to its inline {discriminant,payload} storage; `&enum` therefore yields that storage address directly (one indirection level, like `&struct`), not a pointer-to-pointer. A C-like (scalar-discriminant) enum is spilled to a slot whose address is the reference.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1442-L1447", "src/compiler/mlir_gen_expr.cpp#L1724-L1741"]
+      "statement": "A tagged (payload-carrying) enum is represented as a pointer to its inline {discriminant,payload} storage; `&enum` therefore yields that storage address directly (one indirection level, like `&struct`), never a pointer-to-pointer. A local already bound to its storage address returns it directly; a freshly constructed enum temp returns its own storage alloca; a by-value enum (e.g. a call return) is spilled once into a slot shaped like the enum's layout. A C-like (scalar-discriminant) enum is spilled to a slot whose address is the reference.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1452-L1456", "src/compiler/mlir_gen_expr.cpp#L1734-L1751"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.addrof.enum-autoref-slot",
+      "domain": "expr",
+      "title": "autoref of a slot-backed tagged-enum local returns the real slot",
+      "statement": "Autoref `(&mut o).method()` of a tagged-enum local that is bound to a genuine storage slot returns that slot's address directly, not a spilled copy of the pointer held in scope, so the callee's `*self = …` rebind (e.g. `Option::take`) is observed through the caller's binding.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1664-L1682"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.addrof.scalar-autoref-slot",
+      "domain": "expr",
+      "title": "autoref of a slot-backed scalar local returns the local's own slot",
+      "statement": "Autoref `(&mut b).method()` of a scalar-primitive `let`-bound local (integer/float/bool/char/usize/isize width) that is backed by a real alloca returns the variable's own storage slot address (not a spilled copy), so a callee's mutation through `*self` reaches the caller's binding; scalar function PARAMETERS (SSA-value args, not slot-backed) keep the copy-and-spill behavior instead.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1683-L1713"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.deref.aggregate-pointer-identity",
       "domain": "expr",
       "title": "*p on aggregate-typed pointee is a no-op reinterpret",
-      "statement": "`*p` whose result type is a struct, tuple, array, slice, or trait-object yields the same pointer value (no load), since those types are pointer-represented; subsequent field/index access or by-value copy handles the byte-level move.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1762-L1802"]
+      "statement": "`*p` whose result type is a struct, zoned-struct, tuple, array, or trait-object (dyn handle) yields the same pointer value (no load), since those types are pointer-represented; subsequent field/index access or by-value copy handles the byte-level move.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1794-L1812"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.deref.scalar-load",
       "domain": "expr",
-      "title": "*p on scalar-typed pointee loads the value",
-      "statement": "`*p` whose result type is a scalar (integer, float, bool, char) or a C-like enum loads the value of the pointee type from the pointer.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1811-L1819"]
+      "title": "*p default case loads the pointee's representation type",
+      "statement": "`*p` for any pointee type not matched by a pointer-identity or materialize special case loads exactly one value of the pointee's representation type from the address p.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1846-L1848"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.deref.tagged-enum-identity",
       "domain": "expr",
       "title": "*p on a tagged enum yields the storage pointer",
-      "statement": "A tagged enum is pointer-to-inline-storage, so `*p` over a `&Enum`/`*Enum` to a tagged enum yields the same pointer (no load); only C-like enums load.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1811-L1816"]
+      "statement": "A tagged (payload-carrying) enum is pointer-to-inline-storage, so `*p` over a `&Enum`/`*Enum` to a tagged enum yields the same pointer (no load); a C-like (fieldless) enum instead follows the generic scalar-load rule.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1821-L1826"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.deref.fatslice-pointer-identity",
+      "domain": "expr",
+      "title": "*p on a fat-slice pointee (str / &[T]) is a no-op reinterpret",
+      "statement": "`*p` where p's reference-representation kind is FatSlice (a `str`/`&[T]` pointee) yields the same pointer (no load): the slice value convention is pointer-to-{data,len}-pair storage, so the pair's address IS the dereferenced value. Restricted to FatSlice among fat kinds: a Closure value is a distinct 8-byte pointer-to-{fn,env} handle and still loads; TraitObject has its own identity rule; other fat kinds (RelOffset, FatCustomDst, FatZoneMut) remain on the load branch as unexercised.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1827-L1845"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.deref.zoned-enum-materialize",
+      "domain": "expr",
+      "title": "*p over an at-rest zoned niche-enum slot materializes the value",
+      "statement": "`*p` where the operand's static type is a zoned pointer to a niche-optimizable enum materializes the by-pointer enum value from its at-rest self-relative encoding (the Ref arm is anchored to the slot address p). Both an at-rest zoned slot and a plain value-form local share the surface type `*Enum`; the operand's zoned-pointer marker is what disambiguates, and a non-zoned `*Enum` falls through to the ordinary tagged-enum/scalar rules.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1813-L1820"],
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.wrapping.silent-twos-complement",
       "domain": "intrinsic",
       "title": "wrapping_add/sub/mul opt out of overflow trapping",
-      "statement": "`wrapping_add`, `wrapping_sub`, `wrapping_mul` perform two's-complement add/sub/mul that wraps silently and explicitly opts out of the runtime overflow trap applied to `+`/`-`/`*`. Operands of differing integer width are zero-extended to the wider width before the operation.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1839-L1881"]
+      "statement": "`wrapping_add(a,b)` / `wrapping_sub(a,b)` / `wrapping_mul(a,b)` perform two's-complement add/sub/mul that wraps silently, explicitly opting out of the runtime overflow trap applied to `+`/`-`/`*`. Operands of differing integer width are zero-extended to the wider width before the operation.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1869-L1910"],
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.dyn.vtable-of",
       "domain": "intrinsic",
       "title": "vtable_of::<Trait, T> yields the static vtable address",
-      "statement": "`vtable_of::<Trait, T>()` returns `*const u8`, the address of the static vtable for `impl Trait for T`, with Trait given as a string argument and T as the first type argument.",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1906-L1921"]
+      "statement": "`vtable_of::<Trait, T>() -> *const u8` returns the address of the compiler-materialized static vtable for `impl Trait for T`, with Trait given as a string-literal value argument (arg 0) and T as the sole type argument.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1935-L1950"],
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.dyn.from-parts",
       "domain": "intrinsic",
       "title": "dyn_from_parts assembles a fat dyn pointer",
-      "statement": "`dyn_from_parts::<Trait>(data, vtable)` assembles a fat trait-object pointer as the 16-byte {data, vtable} pair from the two raw half pointers, yielding `*mut dyn Trait`; the trait argument is irrelevant to layout (uniform).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1922-L1941"]
+      "statement": "`dyn_from_parts::<Trait>(data: *mut u8, vtable: *const u8) -> *mut dyn Trait` assembles a fat trait-object handle as the 16-byte {data, vtable} pair from the two raw half pointers, storing them into a freshly allocated slot and returning that slot's address; the trait argument is unused at codegen (layout is uniform across traits).",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1954-L1970"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.dyn.uniform-fat-pair",
       "domain": "layout",
       "title": "Every dyn value is a 16-byte {data,vtable} pair",
-      "statement": "Every trait-object value (`&dyn`, `*dyn`, `Box<dyn>`) is a 16-byte {data, vtable} pair stored inline, and a `*const/*mut dyn` always points at such a 16-byte slot; dereferencing such a raw dyn pointer is therefore a no-op reinterpret (the slot pointer is the dyn value).",
-      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1749-L1760", "src/compiler/mlir_gen_expr.cpp#L1922-L1941"]
+      "statement": "Every trait-object value (`&dyn`, `*dyn`, `Box<dyn>`) is a 16-byte {data, vtable} pair stored inline, and a `*const/*mut dyn Trait` handle always points at such a 16-byte slot. Dereferencing such a raw dyn pointer is therefore by default a no-op reinterpret (the slot pointer IS the dyn value) — except when the pointer is known, via provenance analysis, to point INTO a container slot storing just the handle (e.g. `HashMap::get -> *const Box<dyn Trait>`), in which case the stored handle is loaded.",
+      "evidence": ["src/compiler/mlir_gen_expr.cpp#L1759-L1770", "src/compiler/mlir_gen_expr.cpp#L1782-L1793"],
+      "testability": "transitive"
     }
   ]
 }

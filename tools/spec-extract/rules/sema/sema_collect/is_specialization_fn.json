@@ -1,0 +1,240 @@
+{
+  "unit": "sema/sema_collect/is_specialization_fn",
+  "layer": "sema",
+  "source": "src/compiler/sema_collect.cpp#L4434-L5114",
+  "source_hash": "1f2b6f42a888e4ba",
+  "rules": [
+    {
+      "id": "generic.spec.classify-fn",
+      "domain": "generic",
+      "title": "Specialization-vs-generic classification for fn type-param lists",
+      "statement": "A fn's type-parameter list classifies the fn as a SPECIALIZATION (rather than a plain generic fn) iff at least one entry is either a structured type pattern (pointer type `*T` or array type `[T; N]`), or a bare identifier naming an already-known concrete type (resolved via the known-type table, or — if not yet resolvable — found in the pre-scanned pass-0 set of all declared names). Otherwise the fn is an ordinary generic fn.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4434-L4457"
+      ],
+      "divergence": "A6 — generic specialization has no stable-Rust analogue (Rust `min_specialization` is nightly-only); Logos-only addition.",
+      "testability": "diagnostic"
+    },
+    {
+      "id": "generic.spec.classify-struct",
+      "domain": "generic",
+      "title": "Specialization-vs-generic classification for struct/datatype type-param lists",
+      "statement": "A struct/datatype decl's type-parameter list classifies it as a SPECIALIZATION iff: (a) an entry is a structured pattern (ptr/array type) — always; or (b) a bare-IDENT entry names a known concrete/primitive type — always; or (c) a bare-IDENT entry names a user-declared type from the pass-0 name set AND a struct/datatype of the SAME name is already registered in the current package (the specialization's \"base\"). Condition (c)'s base-existence gate prevents a fresh generic struct's own type-param name from being misclassified as a specialization merely because an unrelated type of the same name exists elsewhere (e.g. `struct ChainIter<A, B, T>` colliding with an unrelated `struct A`/`struct B` in another module).",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4461-L4507",
+        "src/compiler/sema_collect.cpp#L4484-L4491",
+        "src/compiler/sema_collect.cpp#L4501-L4503"
+      ],
+      "divergence": "A6 — generic specialization has no stable-Rust analogue; Logos-only addition.",
+      "testability": "diagnostic"
+    },
+    {
+      "id": "generic.spec.pass0-forward-ref",
+      "domain": "generic",
+      "title": "Order-independent concrete-type recognition via pass-0 name set",
+      "statement": "Classifying a bare type-param name as a concrete-type specialization leg also consults a pre-scanned set of ALL declared type names across modules (pass0_decl_names_), so a spec pattern naming a concrete type whose defining module has not yet been processed in this compilation pass is still classified as a specialization, independent of inter-module processing order.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4450-L4454",
+        "src/compiler/sema_collect.cpp#L4501-L4503"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "generic.spec.pattern-legs",
+      "domain": "generic",
+      "title": "Spec-pattern leg resolution and TypeVar scoping",
+      "statement": "For a specialization fn/struct, each type-param-list entry resolves to one SPEC_PATTERNS leg: a structured type node (ptr/array) resolves via full type resolution, and any TypeVars nested inside it are extracted into the pattern's TypeVar scope; a bare-IDENT entry WITH trait bounds always stays a TypeVar (bounds are recorded, never coerced to a concrete leg); a bare-IDENT entry WITHOUT bounds resolves to a concrete type if it names a known type, else becomes a fresh unbounded TypeVar. All pattern TypeVars are in scope only while lowering that spec's signature/fields/methods, then removed.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4524-L4562",
+        "src/compiler/sema_collect.cpp#L4630-L4682",
+        "src/compiler/sema_collect.cpp#L4606-L4607",
+        "src/compiler/sema_collect.cpp#L4746-L4748"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "generic.spec.fn-skip-registration",
+      "domain": "generic",
+      "title": "Specialization fns bypass normal overload registration",
+      "statement": "A fn classified as a specialization is validated and lowered inline (via lower_spec_fn, routed into the program's specialization set) and is NOT entered into the ordinary fn overload/registration tables (funcs_ / generic_funcs_) used for plain fn name resolution.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4761-L4764",
+        "src/compiler/sema_collect.cpp#L4798-L4799"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "stmt.return.all-paths-required",
+      "domain": "stmt",
+      "title": "Non-void fn body must return on all paths",
+      "statement": "In a specialization fn body, if the declared return type is neither void nor an error type, every control-flow path through the lowered body must return a value; otherwise it is a compile error \"not all paths return a value\".",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4736-L4741"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "type.infer.never-fallback-precompute",
+      "domain": "type",
+      "title": "Body-always-diverges flag precomputed for `!` fallback",
+      "statement": "At fn-collection time, a cheap AST check determines whether a fn's body always diverges (based on its trailing statement) and stores the result on the fn's info; this feeds the Rust-2024 never-type (`!`) fallback rule applied later during type-argument inference.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4885-L4891"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "item.extern-fn.dedup-signature",
+      "domain": "item",
+      "title": "Repeated identical extern declarations coalesce",
+      "statement": "Extern fns keep their raw (unmangled) name as the registration/link key. A second `extern fn` declaration with the same base name and the same parameter-type/vararg signature as an already-registered extern is accepted silently (no re-registration, no error) rather than triggering \"duplicate function\" — so multiple modules may redeclare the same ABI symbol (e.g. libc `malloc`/`free`).",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4927-L4941"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "item.fn.no-mangle-bare-symbol",
+      "domain": "item",
+      "title": "main / no_mangle / metacall-thunk fns keep bare symbol",
+      "statement": "A function named `main`, marked `#[no_mangle]` (pending_no_mangle_), or whose base name starts with `__metacall_thunk_`, is registered under its bare base name as symbol_name — package/signature mangling is suppressed for these.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5074-L5080"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "generic.typaram.shadow-warn",
+      "domain": "generic",
+      "title": "Fn type-param shadowing an existing type/trait is warned",
+      "statement": "A (non-specialization) fn type-parameter whose name matches an existing struct, datatype, enum, or trait name (via package-qualified lookup) is accepted but triggers a warning, since the collision currently breaks fn-name resolution at call sites.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4827-L4842"
+      ],
+      "uncertainty": "Warning documents a current resolution limitation rather than a designed rule.",
+      "testability": "diagnostic"
+    },
+    {
+      "id": "generic.desugar.impl-trait-param",
+      "domain": "generic",
+      "title": "`impl Trait` parameter desugars to a synthetic generic type-param",
+      "statement": "While collecting a fn's parameter types, an `impl Trait`-style parameter type is desugared into a synthetic generic type-parameter appended to the fn's type_params list (collected via impl_param_desugar_active_/pending_impl_trait_params_); the fn becomes an ordinary generic fn over that parameter's position.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4868-L4877"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "type.sig.underscore-rejected",
+      "domain": "type",
+      "title": "`_` rejected in fn signature type positions",
+      "statement": "Within a fn's signature (parameter types and return type), resolution runs inside an ItemSignatureGuard (in_item_signature_) that rejects the inferred-type placeholder `_` (E0121) when it appears in those positions.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4872-L4874",
+        "src/compiler/sema_collect.cpp#L4879-L4884"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "generic.impl.typarams-combine",
+      "domain": "generic",
+      "title": "Impl-block type-params combine with method's own",
+      "statement": "For a method collected inside a generic impl block, the impl block's own type-parameters are prepended to the method's type_params (impl_type_params_ ++ info.type_params) — the method's generic scope is the union of impl-level and method-level params. When the impl itself is generic, the impl's target type pattern is additionally stamped onto the method (impl_target_pattern) for later specialization-pattern matching.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4914-L4922"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "generic.mangling.duplicate-fn-error",
+      "domain": "generic",
+      "title": "Duplicate function detection is full-signature + package qualified",
+      "statement": "A fn's registration key (symbol_name) is derived from its package, base name, and parameter-type/vararg signature. Two fn declarations (generic or non-generic) whose fully computed symbol_name collide within the same base-name overload bucket are rejected with error \"duplicate function '<base>'\" — EXCEPT when both are `extern` declarations of the same signature (accepted silently, see item.extern-fn.dedup-signature). Because the key includes package and full parameter signature, the SAME base name with a DIFFERING parameter signature, or the SAME base+signature in a DIFFERENT package, does not collide and both coexist.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4924-L4926",
+        "src/compiler/sema_collect.cpp#L5049-L5067",
+        "src/compiler/sema_collect.cpp#L5077-L5093"
+      ],
+      "divergence": "Rust does not permit free-function overloading by parameter-type signature under one name in one scope; Logos's signature-keyed registration allows same-named fns with differing signatures to coexist.",
+      "testability": "diagnostic"
+    },
+    {
+      "id": "generic.spec.lifetime-param-skip",
+      "domain": "generic",
+      "title": "Lifetime params contribute no spec-pattern leg",
+      "statement": "A LIFETIME_PARAM entry in a specialization fn's type-parameter list contributes no spec-pattern leg; lifetime handling is deferred entirely to the borrow checker.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4431",
+        "src/compiler/sema_collect.cpp#L4536",
+        "src/compiler/sema_collect.cpp#L4643"
+      ]
+    },
+    {
+      "id": "generic.spec.method-shadows-impl-param-warn",
+      "domain": "generic",
+      "title": "Method type-param shadowing an impl-block param becomes an implicit specialization (warned)",
+      "statement": "Inside a generic impl block, if a method declares a bare, unbounded type-param whose name is identical to one of the enclosing impl block's type-params, the method is silently classified as a specialization on the impl's param (not a fresh method-level generic); the compiler emits a warning naming the shadowed parameter and the method and recommending a rename if a fresh generic was intended.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4763-L4797",
+        "src/compiler/sema_collect.cpp#L4551-L4586"
+      ],
+      "divergence": "No Rust analogue: Rust treats the method's type-param as a plain shadowing generic, never as an implicit specialization leg; Logos reinterprets it as a specialization on the impl's param (warned)."
+    },
+    {
+      "id": "item.extern-fn.implicit-pub-unsafe",
+      "domain": "item",
+      "title": "extern fn is implicitly pub + unsafe",
+      "statement": "An `extern fn` item is implicitly `pub`, `unsafe`, and extern, independent of any explicit visibility or unsafety markers written on the item.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4896-L4899",
+        "src/compiler/sema_collect.cpp#L4684-L4688"
+      ]
+    },
+    {
+      "id": "item.fn.self-ref-param-type",
+      "domain": "item",
+      "title": "Self-receiver parameter type resolution",
+      "statement": "A parameter marked IS_REF (a `self`/`&self`/`&mut self` receiver) resolves to type `&Self` or `&mut Self` per its IS_MUT marker, substituting the currently in-scope `Self` type, regardless of any explicit written type on the node.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4710-L4719",
+        "src/compiler/sema_collect.cpp#L4855-L4859",
+        "src/compiler/sema_collect.cpp#L4498-L4502",
+        "src/compiler/sema_collect.cpp#L4643-L4647"
+      ]
+    },
+    {
+      "id": "trait.method.disambiguating-mangle",
+      "domain": "trait",
+      "title": "Colliding same-name/signature trait methods coexist via trait-qualified mangling",
+      "statement": "When two distinct traits (or a trait and an inherent impl) define a method with identical name and parameter signature on the same target type, the flat `<target>__<method>` naming cannot hold both: on first collision, the pre-existing entry is re-keyed to a trait-qualified base `<target>__<trait>[$<typeargs>]__<method>` and the new method is registered under its own trait-qualified base; the trait's concrete type arguments are folded into the base so `impl Trait<u64> for X` and `impl Trait<u8> for X` mangle distinctly. Non-colliding methods keep the plain `<target>__<method>` base unchanged.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4943-L5047",
+        "src/compiler/sema_collect.cpp#L4731-L4835"
+      ]
+    },
+    {
+      "id": "trait.method.inherent-preferred",
+      "domain": "trait",
+      "title": "Inherent method preferred over same-name trait method",
+      "statement": "When an inherent (non-trait) method and a trait method share name and signature on the same type, the inherent method is preferred: it keeps the plain `<target>__<method>` base so concrete-receiver dispatch finds it directly, and only the trait method is re-keyed to its trait-qualified base. A `T: Trait`-bounded dispatch resolves through the trait-qualified name, never the inherent method.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4978-L4979",
+        "src/compiler/sema_collect.cpp#L4999-L5013"
+      ]
+    },
+    {
+      "id": "trait.method.trait-typearg-distinct",
+      "domain": "trait",
+      "title": "Distinct trait type-args disambiguate identically-named methods",
+      "statement": "Two impls of the same trait NAME but with different concrete trait type-arguments on the same target (e.g. `impl Trait<u64> for X` vs `impl Trait<u8> for X`) providing a same-name+signature method are NOT merged as a collision; each is mangled with its own trait-type-arg suffix (`X__Trait$u64__m` vs `X__Trait$u8__m`) so both coexist distinctly, and re-keying an existing entry uses ITS OWN trait type-args (not the new method's) to avoid re-colliding the two.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L4954-L4960",
+        "src/compiler/sema_collect.cpp#L4990-L4994",
+        "src/compiler/sema_collect.cpp#L5024-L5025",
+        "src/compiler/sema_collect.cpp#L4742-L4749",
+        "src/compiler/sema_collect.cpp#L4778-L4782",
+        "src/compiler/sema_collect.cpp#L4808-L4821"
+      ]
+    }
+  ]
+}

@@ -11,7 +11,7 @@ Scope: every expression-form (`expr`) and compiler-intrinsic (`intrinsic`) seman
 
 A float literal must be well-formed; underscores are stripped from the digits; a recognized 3-char float suffix sets the literal's concrete type (e.g. f32/f64) while a suffix-less float literal has the inference type FloatLit.
 
-_Source: `src/compiler/sema_expr.cpp#L999-L1013`_
+_Source: `src/compiler/sema_expr.cpp#L1016-L1031`_
 
 
 ### `expr.literal.kinds` — Primary literal forms
@@ -142,20 +142,20 @@ _Source: `src/compiler/sema_expr.cpp#L376-L401`_
 
 ## String literals
 
-### `expr.str.as-bytes-identity` — &str.as_bytes() is the identity
+### `expr.str.as-bytes-identity` — &str.as_bytes() is a representation identity
 
-Because `&str` is represented as `Slice<u8>` (same fat-pointer ABI as `&[u8]`), `s.as_bytes()` on a `Slice<u8>` receiver returns the receiver verbatim with no conversion.
+`&str` is modeled as `Slice<u8>` — the same fat-pointer ABI as `&[u8]`. Calling `.as_bytes()` on a receiver whose slice element kind is `U8` lowers to the receiver expression unchanged (no conversion emitted).
 
-**Divergence.** Logos models &str as `Slice<u8>` (writ/string-repr); identity conversion.
+**Divergence.** Logos models &str as `Slice<u8>;` .as_bytes() is a no-op identity conversion by construction.
 
-_Source: `src/compiler/sema_expr.cpp#L6472-L6481`_
+_Source: `src/compiler/sema_expr.cpp#L6505-L6514`_
 
 
-### `expr.str.method-forwarding` — &str methods forward to stdlib free functions
+### `expr.str.method-forwarding` — &str method-call syntax forwards to stdlib free functions
 
-On a `Slice<u8>` (= `&str`) receiver, the methods {starts_with→str_starts_with, ends_with→str_ends_with, contains→str_contains, eq_str→str_eq, cmp→str_cmp, index_of→str_index_of, find→str_index_of, trim→str_trim, trim_start→str_trim_start, trim_end→str_trim_end, split→split} desugar to a call of the named stdlib free function with the receiver as the first argument, when that function exists.
+On a `Slice<u8>` (`&str`) receiver, the method names `starts_with, ends_with, contains, eq_str, cmp, index_of, find, trim, trim_start, trim_end, split` resolve, if no more specific match applies, by forwarding to the stdlib free functions `str_starts_with, str_ends_with, str_contains, str_eq, str_cmp, str_index_of` (for both `index_of` and `find`), `str_trim, str_trim_start, str_trim_end, split` respectively, called as `fn(receiver, ...explicit_args)`.
 
-_Source: `src/compiler/sema_expr.cpp#L6482-L6517`_
+_Source: `src/compiler/sema_expr.cpp#L6515-L6550`_
 
 
 ## Byte-string literals
@@ -174,6 +174,41 @@ _Source: `src/compiler/sema_expr.cpp#L405-L471`_
 An array literal is a comma-separated element list in brackets: `[e0, e1, ...]`.
 
 _Source: `src/compiler/sema_render.cpp#L333-L344`_
+
+
+### `expr.array-lit.dyn-elem-fat-repr` — &dyn Trait array elements are stored as inline fat pointer pairs
+
+Each element slot of a `[&dyn Trait; N]` array is an inline `{data-ptr, vtable-ptr}` pair (uniform fat-pointer model, matching the type's own layout as two pointer-sized words); the coerced fat value is written as a single unit into the slot, never split into an 8-byte partial store, so both the data and vtable halves are always initialized together.
+
+_Source: `src/compiler/mlir_gen.cpp#L1293-L1300`_
+
+
+### `expr.array-lit.dyn-elem-unsize` — Array literal elements coerce &Concrete to &dyn Trait
+
+In an array literal typed `[&dyn Trait; N]`, an element expression of type `&Concrete` (or `&mut Concrete`/`*Concrete`) is unsize-coerced to the trait object representation before being stored: the concrete struct behind the source reference is resolved and a `{data, vtable}` fat pointer is synthesized for that (struct, trait) pair — the same coercion `gen_struct_lit` applies to a `&dyn` struct field.
+
+_Source: `src/compiler/mlir_gen.cpp#L1250-L1254`, `src/compiler/mlir_gen.cpp#L1255-L1262`, `src/compiler/mlir_gen.cpp#L1270-L1292`_
+
+
+### `expr.array-lit.nested-array-elem-by-value` — Nested-array-typed elements copy element-wise by value
+
+When an array literal's element type is itself an array type (`[[T; M]; N]`), each outer element is materialized by copying every inner element individually (load from source, store to destination slot) rather than aliasing or bulk-memcpy-ing the source, giving the nested array value copy semantics.
+
+_Source: `src/compiler/mlir_gen.cpp#L1324-L1337`_
+
+
+### `expr.array-lit.scalar-elem-numeric-coerce` — Scalar array literal elements undergo numeric coercion to the element type
+
+When an array literal's element type is a plain scalar (not a trait object, struct, or nested array), each element expression's value is numerically coerced to the array's element type before being stored into the slot (e.g. an untyped/differently-typed integer literal is widened/converted to match).
+
+_Source: `src/compiler/mlir_gen.cpp#L1338-L1343`_
+
+
+### `expr.array-lit.struct-elem-by-value` — Struct-typed array literal elements copy by value
+
+When an array literal's element type is an aggregate (struct) type, each element expression is evaluated and its full byte representation is copied into the array slot by value (a full-size copy, not a pointer/reference store) — regardless of whether the element expression yields a pointer to the aggregate (e.g. a nested struct literal or local) or the aggregate value directly (e.g. a function-call return). This gives `[Struct; N]` value semantics: each slot holds an independent copy.
+
+_Source: `src/compiler/mlir_gen.cpp#L1303-L1322`_
 
 
 ## Array literals (arr-lit)
@@ -236,11 +271,11 @@ Array literals: element list `[e1, e2, …]` and fill form `[value; N]` where N 
 _Source: `tools/peg_gen/grammars/logos.peg#L2863-L2873`, `tools/peg_gen/grammars/logos.peg#L2703-L2704`_
 
 
-### `expr.array.struct-element-by-value` — Aggregate array elements are stored by value
+### `expr.array.struct-element-by-value` — Struct array elements: addressed on read, value-copied on construction
 
-When an array or array-typed struct field has aggregate element type (inline struct or nested array), each element initializer's value (not a pointer to it) is copied into the element slot. This makes returning and storing `[Struct; N]` / `[[T; M]; N]` by value well-defined.
+Indexing a struct-typed array/tuple element (`a[i]`, `r.cells[i]`, nested `g.rows[i].cells[j]`) — including through an implicit `&`/`&mut` auto-ref wrapper on the receiver — resolves to the element's real address computed with the element's stride, not a loaded copy, so a `&mut self` call through it mutates the original element. Conversely, when a struct/array field is initialized from an array-literal whose elements are themselves aggregates (inline struct or nested array), each element is written into its destination slot by copying the element's byte value, never by storing a pointer to it.
 
-_Source: `src/compiler/mlir_gen.cpp#L937-L972`, `src/compiler/mlir_gen.cpp#L1126-L1160`_
+_Source: `src/compiler/mlir_gen.cpp#L838-L861`, `src/compiler/mlir_gen.cpp#L944-L976`_
 
 
 ## Array fill expressions
@@ -283,20 +318,18 @@ _Source: `src/compiler/sema_render.cpp#L318-L331`_
 
 ### `expr.tuple.unit-and-element-typing` — Tuple literal: unit, expected-type widening, overflow upgrade
 
-`()` is the unit value of type `()`. Each tuple element is widened to its expected element type from a tuple type hint; an int-literal element that overflows i32 is upgraded to i64; the tuple type is the tuple of element types.
+`()` is the unit value of type `()`. Each tuple element widens toward its expected positional element type from an enclosing tuple-type hint (propagated into nested-tuple elements only); an int-literal element that overflows i32 is upgraded to i64; the literal's type is the tuple of the (possibly widened) element types.
 
-_Source: `src/compiler/sema_expr.cpp#L1585-L1633`_
+_Source: `src/compiler/sema_expr.cpp#L1602-L1651`_
 
 
 ## Range expressions
 
 ### `expr.range.desugar-range-struct` — lo..hi / lo..=hi desugar to stdlib Range constructors
 
-A range expression requires integer bounds. Exclusive `lo..hi` lowers to `range_i32`/`range_i64`; inclusive `lo..=hi` lowers to the generic `range_incl_of` (`RangeOfIncl<T>`). The bound width is i64 if either bound is wider than 32 bits or an integer literal overflows i32, else i32; both bounds are widened to that bound type. Missing stdlib constructors are an error.
+A range expression requires integer bounds. Exclusive `lo..hi` lowers to `range_i32`/`range_i64`; inclusive `lo..=hi` lowers to the generic `range_incl_of` `(RangeOfIncl<T>),` which stores the real end plus a `done` flag (avoiding an overflow-prone `hi+1` encoding at the bound type's maximum value). The bound width is i64 if either bound is wider than 32 bits or an integer literal overflows i32, else i32; both bounds are widened to that bound type. Missing stdlib constructors are an error.
 
-**Divergence.** Ranges are nominal stdlib structs (RangeI32/RangeI64/RangeOfIncl), not language built-ins
-
-_Source: `src/compiler/sema_expr.cpp#L1310-L1387`_
+_Source: `src/compiler/sema_expr.cpp#L1327-L1404`_
 
 
 ### `expr.range.family` — Range expressions
@@ -306,22 +339,36 @@ Range value-expressions: `lo..hi` (half-open), `lo..=hi` (inclusive), `lo..` (fr
 _Source: `tools/peg_gen/grammars/logos.peg#L2392-L2409`_
 
 
+### `expr.range.for-induction-widen` — Range-`for` induction variable is typed as the wider of the range endpoints
+
+For `for i in lo..hi` / `for i in lo..=hi`, the induction variable `i` takes the wider of `lo`'s and `hi`'s integer types (so a narrower bound is not truncated relative to a wider one), and the loop-exit comparison uses an unsigned comparison when the corresponding bound's type is one of `u8/u16/u24/u32/u56/u64/u128`, signed otherwise.
+
+_Source: `src/compiler/mlir_gen_stmt.cpp#L2405-L2469`_
+
+
+### `expr.range.inclusive-exclusive-bound` — Inclusive vs exclusive range bound in `for`
+
+`for i in lo..hi {}` excludes `hi` (loop condition `i < hi`); `for i in lo..=hi {}` includes `hi` (loop condition `i <= hi`), with signedness of the comparison selected per `expr.range.for-induction-widen`.
+
+_Source: `src/compiler/mlir_gen_stmt.cpp#L2459-L2469`_
+
+
 ## Never / diverging expressions
 
-### `expr.never.fallback-on-diverging-callee` — Never-fallback for unbound type params with diverging callee
+### `expr.never.fallback-on-diverging-callee` — Unbound generic type-param falls back to `!` only when the callee body always diverges
 
-During type-argument inference, an unbound type parameter falls back to `!` (Never) only when its callee body always diverges (panic-tail / `loop{}`-tail), matching Rust-2024 `!`-fallback narrowed to: variable unbound AND callee body always diverges.
+An unconstrained generic type-parameter with no other binding information defaults to `!` (Never) exactly when the callee's function body ALWAYS diverges (every control path panics or ends in a diverging tail-loop) — strictly narrower than general "always returns": a body with a normal reachable `return` on any path disqualifies the `!`-fallback.
 
-_Source: `src/compiler/sema_impl.hpp#L3731-L3736`_
+_Source: `src/compiler/sema_impl.hpp#L3757-L3762`_
 
 
 ## Name references
 
 ### `expr.name.innermost-scope-wins` — Name resolution: innermost binding wins, then module consts
 
-A name resolves to its innermost in-scope local binding (shadowing-correct); if no local binding exists it falls back to a module-level const; otherwise it is unresolved.
+A name resolves to its innermost in-scope local binding (shadowing-correct); if no local binding exists it falls back to a module-level const; otherwise it is unresolved. Slot lookup (for the Phase-1 dense-slot scheme) follows the identical innermost-wins order; names with no local binding carry no slot and fall back to name-keying downstream.
 
-_Source: `src/compiler/sema_impl.hpp#L2358-L2379`_
+_Source: `src/compiler/sema_impl.hpp#L2366-L2374`, `src/compiler/sema_impl.hpp#L2376-L2387`_
 
 
 ## Variable references
@@ -406,11 +453,20 @@ _Source: `src/compiler/sema_expr.cpp#L595-L628`_
 
 ## Associated-constant references
 
-### `expr.assoc-const.generic-typeparam-projection` — T::CONST on an abstract type-param lowers to a per-impl accessor call
+### `expr.assoc-const.generic-typeparam-projection` — `T::CONST` projection through a bound type-parameter
 
-`T::CONST` where T is an abstract type-param bound by a trait declaring `const CONST` lowers to a zero-arg accessor call `T__kassoc_CONST()`; monomorphization rewrites `T__` to the concrete type and the per-impl accessor supplies the value.
+`T::CONST`, where T is an abstract type-parameter whose bound trait declares `const CONST`, lowers to a zero-arg accessor call `T__kassoc_CONST()`; monomorphization rewrites the `T__` prefix to the concrete instantiating type, and lower_impl_block emits the per-impl accessor. Not treated as such a projection (returns null) unless `cname` names a bound-trait-declared const of the abstract type-param.
 
-_Source: `src/compiler/sema_impl.hpp#L3938-L3943`_
+_Source: `src/compiler/sema_impl.hpp#L3984-L3989`_
+
+
+## `DataRef` expressions
+
+### `expr.dataref.field-ergonomic` — `DataRef<T>` ergonomic field read
+
+For `p: DataRef<T>` where T is a zoned-struct type declaring field `f`, `p.f` desugars to `p.ptr().f` (bypassing an explicit `let pw = p.ptr()` intermediate); this access requires an enclosing `unsafe` context: `"DataRef<T>.<f>:` field access requires unsafe context".
+
+_Source: `src/compiler/sema_expr.cpp#L9773-L9791`_
 
 
 ## Binary operators
@@ -428,7 +484,7 @@ _Source: `src/compiler/mlir_gen_expr.cpp#L903-L908`_
 
 **Divergence.** bool ordering forced unsigned to preserve Rust's `false < true` despite i1 signed representation; documented inline as Rust-conformant intent.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1134-L1156`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1144-L1166`_
 
 
 ### `expr.binop.div-rem-signedness` — Division and remainder select signed/unsigned by type
@@ -490,7 +546,7 @@ _Source: `src/compiler/sema_render.cpp#L121-L126`_
 
 When operands are pointers (and not the deref-eligible reference-to-primitive case), `==`/`!=` compare pointer addresses.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1080-L1133`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1091-L1143`_
 
 
 ### `expr.binop.precedence-cascade` — Binary operator precedence
@@ -515,7 +571,7 @@ _Source: `src/compiler/sema_expr.cpp#L2274-L2289`_
 
 For `==`/`!=` where both operands are references (`&T`/`&mut T`) to the same primitive scalar type, the operands are dereferenced and the underlying values compared (value equality), rather than comparing the reference addresses. Matches the PartialEq-for-&T blanket impl.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1080-L1121`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1090-L1131`_
 
 
 ### `expr.binop.shift-right-signedness` — Right shift is arithmetic or logical by signedness
@@ -541,14 +597,14 @@ _Source: `src/compiler/sema_expr.cpp#L2194-L2221`_
 
 ### `expr.binop.str-relational-cmp` — str ordering via str_cmp compared to 0
 
-Relational operators {<,<=,>,>=} between two str operands desugar to `str_cmp(lhs, rhs) OP 0`, where str_cmp returns lexicographic -1/0/1 (i32).
+Relational operators `{<,<=,>,>=}` between two str operands desugar to `str_cmp(lhs, rhs) OP 0`, where str_cmp returns lexicographic -1/0/1 (i32).
 
 _Source: `src/compiler/sema_expr.cpp#L2223-L2250`_
 
 
 ### `expr.binop.string-vs-str-eq` — String == str views String as str
 
-For == and !=, when one operand is the struct String and the other is str (`Slice<u8>`), the String operand is viewed as str via .as_str() so the comparison proceeds through the str equality path.
+For == and !=, when one operand is the struct String and the other is str `(Slice<u8>),` the String operand is viewed as str via .as_str() so the comparison proceeds through the str equality path.
 
 ```logos
 s == "lit"
@@ -563,16 +619,16 @@ _Source: `src/compiler/sema_expr.cpp#L1782-L1808`_
 
 For two tuples of equal arity with all-primitive element types, `<`/`<=`/`>`/`>=` compare lexicographically (left-to-right element priority), folding right-to-left as `lt_i || (eq_i && rest)`; the all-equal result is false for strict (`<`,`>`) and true for non-strict (`<=`,`>=`). `>`/`>=` are the operand-swapped forms of `<`/`<=`. Per-element comparison uses unsigned ordering for unsigned/bool/char element types and signed otherwise.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1006-L1078`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1012-L1088`_
 
 
 ### `expr.binop.tuple-structural-eq` — Tuple == / != is structural
 
-For two tuples of equal arity with all-primitive element types, `==` is the conjunction of element-wise `==` and `!=` is its negation; comparison is performed per element (float elements compared with float equality). Tuples containing non-primitive elements (str, nested tuple, struct) are not structurally compared by this rule.
+For two tuples of equal arity with all-primitive element types, `==` is the conjunction of element-wise `==` and `!=` is its negation; comparison is performed per element (float elements compared with float equality), regardless of whether an operand is a named place or an SSA call-result value. Tuples containing non-primitive elements (str, nested tuple, struct) are not structurally compared by this rule.
 
 **Uncertainty.** Restriction to all-primitive fields is an implementation limitation noted as a follow-up, not a language design intent.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L923-L1004`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L923-L1010`_
 
 
 ### `expr.binop.unknown-operator` — Unknown binary operator is an error
@@ -582,13 +638,31 @@ A binary operator not in the recognized set is rejected as an unknown binary ope
 _Source: `src/compiler/sema_expr.cpp#L2466-L2467`_
 
 
+## Arithmetic
+
+### `expr.arith.overflow-checks-default` — Integer +/-/* trap on overflow by default; `-C overflow-checks=off` switches to wrapping
+
+Runtime overflow checks (trap) on integer +, -, * are ON by default. With overflow-checks explicitly turned off, +/-/* lower to plain wrapping arithmetic instead (vectorizable, branchless, matching release-mode wrapping semantics). The mode is a whole-codegen-pass setting (fixed before code generation begins), not per-expression.
+
+_Source: `src/compiler/mlir_gen_impl.hpp#L136-L141`, `src/compiler/mlir_gen_impl.hpp#L156`_
+
+
+### `expr.arith.wrapping-intrinsics-unchecked` — Explicit wrapping_add/sub/mul are always unchecked
+
+The explicit wrapping_add / wrapping_sub / wrapping_mul intrinsic methods are always unchecked (wrapping) regardless of the overflow-checks setting that governs the plain +/-/* operators.
+
+**Related.** `expr.arith.overflow-checks-default`
+
+_Source: `src/compiler/mlir_gen_impl.hpp#L136-L140`_
+
+
 ## Comparison operators
 
 ### `expr.cmp.chained-comparison-forbidden` — Chained comparisons are not supported
 
-A chained comparison such as `a < b < c` is rejected; it must be written `a < b && b < c`.
+A chained comparison such as `a < b < c` (captured as a distinct grammar node) is rejected; it must be written `a < b && b < c`.
 
-_Source: `src/compiler/sema_expr.cpp#L1079-L1086`_
+_Source: `src/compiler/sema_expr.cpp#L1096-L1103`_
 
 
 ### `expr.cmp.no-chained-comparisons` — Chained comparisons rejected
@@ -609,62 +683,60 @@ _Source: `tools/peg_gen/grammars/logos.peg#L2589-L2600`, `tools/peg_gen/grammars
 
 ## Unary operators
 
-### `expr.unary.double-ref` — Double address-of
+### `expr.unary.double-ref` — `&&e` desugars to `&(&e)`
 
-`&&v` (lexed as a single AND token) is the double address-of of `v`: it lowers to `&(&v)` with type `& & typeof(v)`. If `typeof(v)` is an error type the whole expression is an error.
+Unary `&&e` (lexed as a single AND token) desugars to `&(&e)`: lower e, build ADDR_OF(ADDR_OF(e)) — inner ref type `&T`, outer `&&T`. If e's type is Error, propagate Error (return error-expr) instead.
 
-_Source: `src/compiler/sema_expr.cpp#L2476-L2486`_
-
-
-### `expr.unary.neg-literal-fold` — Negated integer literal folds the sign
-
-`-L` where L is an integer literal is parsed as the single negative literal `-L`, so the minimum suffixed value (e.g. `-128i8`) is accepted even though the bare positive literal would be out of range for its type.
-
-_Source: `src/compiler/sema_expr.cpp#L2591-L2598`_
+_Source: `src/compiler/sema_expr.cpp#L2495-L2503`_
 
 
-### `expr.unary.neg-numeric` — Unary minus requires a numeric operand
+### `expr.unary.neg-literal-fold` — `-LIT_INT` folds the sign before range-checking
 
-`-x` on a non-struct operand requires `x` to be of numeric type (else a type error); the result type equals the operand type.
+`-LIT_INT` folds the negative sign into the integer-literal lowering (negate=true) rather than lowering the bare literal and negating the result, so a suffix-edge value like `-128i8` (the i8 minimum) is accepted — lowering the bare `128i8` first would reject it as out-of-range for i8.
 
-_Source: `src/compiler/sema_expr.cpp#L2625-L2640`_
+_Source: `src/compiler/sema_expr.cpp#L2627-L2631`_
 
 
-### `expr.unary.neg-unsigned-rejected` — Unary minus on an unsigned type is rejected
+### `expr.unary.neg-numeric` — Unary `-` requires a numeric operand
 
-`-x` where `x` has any unsigned integer type (u8/u16/u24/u32/u56/u64/u128) is a compile error; an explicit cast to a signed type is required (e.g. `-(x as i64)`).
+Unary `-x` requires `x` numeric (`is_numeric`); the result type equals the operand's type exactly (no widening/promotion). Non-numeric operands are a diagnostic error.
 
-**Divergence.** Extra unsigned widths u24/u56 are Logos-only (A11); the unary-minus-on-unsigned rejection itself matches Rust (no `Neg` impl for unsigned).
+_Source: `src/compiler/sema_expr.cpp#L2658-L2660`, `src/compiler/sema_expr.cpp#L2673`_
 
-_Source: `src/compiler/sema_expr.cpp#L2628-L2639`_
+
+### `expr.unary.neg-unsigned-rejected` — Unary `-` on an unsigned integer type is rejected
+
+Unary `-x` is rejected for every unsigned integer kind (u8/u16/u24/u32/u56/u64/u128) with a diagnostic instructing the user to cast to a signed type first (e.g. `-(x as i64)`); negation on an unsigned operand would otherwise wrap silently.
+
+_Source: `src/compiler/sema_expr.cpp#L2661-L2672`_
 
 
 ### `expr.unary.negation` — Unary minus
 
 `-x` negates: floating-point negation for floats, `0 - x` for integers.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1166-L1172`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1176-L1181`_
 
 
 ### `expr.unary.not` — Unary not is logical on bool, bitwise on integers
 
 `!x` is logical NOT (XOR with 1) when `x` is bool (i1) and bitwise complement (XOR with all-ones) when `x` is a wider integer. Applying `!` to a non-integer type is an error.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1173-L1189`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1183-L1198`_
 
 
-### `expr.unary.not-bool-or-integer` — Unary ! is logical-not on bool and bitwise-not on integers
+### `expr.unary.not-bool-or-integer` — Unary `!` is bool-not or bitwise-not
 
-`!x` requires `x` to be `bool` (result `bool`) or an integer type (result = operand type; an untyped integer literal becomes `i32`); any other operand type is a type error.
+Unary `!x`: for `x: bool` yields bool (logical NOT). For x of any integer kind or the untyped IntLit, yields bitwise NOT with result type = operand's type, except an untyped IntLit operand defaults its result type to i32. Any other operand type is a diagnostic error (result type defaults to bool so lowering continues).
 
-_Source: `src/compiler/sema_expr.cpp#L2641-L2650`_
+_Source: `src/compiler/sema_expr.cpp#L2674-L2683`_
 
 
-### `expr.unary.operator-overload` — Unary operators dispatch to Neg/Not impls on struct operands
+### `expr.unary.operator-overload` — Unary `-`/`!` on a struct dispatch to Neg/Not
 
-For a struct operand, `-x` resolves to the `Neg::neg(self)->Self` method and `!x` to the `Not::not(self)->Self` method via mangled `<Type>__neg`/`<Type>__not` signature lookup; when found, the unary expression becomes that method call.
+Unary `-x` / `!x` where x has Struct kind dispatch to the operator-overload trait method: `-x` resolves `<Type>__neg` (trait Neg, method `neg`), `!x` resolves `<Type>__not` (trait Not, method `not`), looked up via `find_func_by_base_and_signature` against the concrete struct name and invoked as a static call with `x` as sole argument. If no matching impl exists, lowering falls through to the built-in numeric/bool unary rules (which then reject the struct operand).
 
-_Source: `src/compiler/sema_expr.cpp#L2605-L2622`_
+_Source: `src/compiler/sema_expr.cpp#L2639-L2655`_
 
 
 ### `expr.unary.operator-set` — Unary / prefix operators
@@ -717,7 +789,9 @@ _Source: `tools/peg_gen/grammars/logos.peg#L2324-L2327`_
 
 `p.field = v` where `p: DataRef<Z>` with `Z` a zoned struct desugars to `{ let t = p.mut_ptr(); (*t).field = v; }` (the DerefMut analog); it requires an `unsafe` context, `p` must be a mutable binding, and `v` must be type-compatible with the field type.
 
-_Source: `src/compiler/sema_stmt.cpp#L7170-L7211`, `src/compiler/sema_stmt.cpp#L7303-L7312`_
+**Divergence.** Logos-specific: `DataRef<T>` is a zoned-memory smart pointer with no direct Rust counterpart; unlike Rust's DerefMut (auto-deref without an unsafe requirement), this ergonomic field-write path mandates an enclosing `unsafe` block.
+
+_Source: `src/compiler/sema_stmt.cpp#L7194-L7235`_
 
 
 ### `expr.assign.deref-write` — Dereference write statement
@@ -735,69 +809,80 @@ Assigning to a field place over an owned local root drops the place's prior valu
 
 **Divergence.** Rust-conformant (expr.assign.drop-target / B8)
 
-_Source: `src/compiler/sema_stmt.cpp#L7237-L7299`, `src/compiler/sema_stmt.cpp#L7450-L7455`, `src/compiler/sema_stmt.cpp#L7461-L7462`_
+_Source: `src/compiler/sema_stmt.cpp#L7386-L7436`, `src/compiler/sema_stmt.cpp#L7592-L7604`_
 
 
 ### `expr.assign.index-mut-desugar` — Indexed assignment uses IndexMut
 
-For a type implementing `IndexMut`, `a[i] = v` desugars to a store through `*index_mut(&mut a, i)` (the trait method produces the writable place); the receiver `a` must be a mutable binding.
+For a type implementing `IndexMut`, `a[i] = v` desugars to a store through the trait's produced reference (`*<Type>__index_mut(&mut a, i)` or `*a.index_mut(i)`, index widened to the trait's index-type parameter); the receiver `a` must be a mutable binding, else 'index write to immutable struct' is diagnosed.
 
-_Source: `src/compiler/sema_stmt.cpp#L7106-L7163`, `src/compiler/sema_stmt.cpp#L7225-L7236`_
+_Source: `src/compiler/sema_stmt.cpp#L7130-L7187`, `src/compiler/sema_stmt.cpp#L7140-L7141`, `src/compiler/sema_stmt.cpp#L7364-L7373`_
 
 
 ### `expr.assign.place-nesting-bound` — Deeply-nested assignment targets rejected
 
-A place-write target is accepted only for shapes the address-of machinery can lower: a bare variable, `*p`, and index/field/tuple-index chains bounded over those roots; deeper nestings (e.g. 3-level `a[i][j][k]`, `g.rows[i].cells[j].v`) are rejected with a clean diagnostic rather than miscompiled.
+A place-write target is accepted only for shapes the address-of machinery can lower: a bare variable or `*p` bottoming out a recursion, INDEX_READ recursing to arbitrary depth over its receiver, and FIELD_READ/TUPLE_INDEX bounded to a receiver that is itself var/deref, a field chain over one, or an index into a supported place. Deeper/other nestings are rejected with 'assignment target too deeply nested to assign in place yet' (suggesting an intermediate `&mut` binding) rather than mis-lowered.
+
+**Divergence.** Compiler-side lowering limitation: Rust places arbitrary-depth field/index/tuple-index nesting; this compiler's general place-write path currently accepts only the bounded shapes above, erroring (with a workaround) on deeper nestings rather than treating the program as ill-formed.
 
 **Uncertainty.** The exact accepted shape set is defined by place_write_supported/place_field_base_ok recursion; bound is an implementation limitation, not a language-design boundary.
 
-_Source: `src/compiler/sema_stmt.cpp#L6929-L6940`, `src/compiler/sema_stmt.cpp#L7316-L7321`_
+_Source: `src/compiler/sema_stmt.cpp#L6927-L6964`, `src/compiler/sema_stmt.cpp#L7455-L7463`_
 
 
 ### `expr.assign.place-only` — Assignment LHS must be an assignable place
 
-The left side of a compound place assignment must be a genuine lvalue shape: an index `a[i]`, field access `a.f`, tuple index `a.N`, or dereference `*p`. Any other LHS (call result, literal, arithmetic) is rejected as 'not an assignable place'.
+The left side of a compound place assignment must be a genuine lvalue shape: an index `a[i]`, field access `a.f`, tuple index `a.N`, or dereference `*p`. Any other LHS (call result, literal, arithmetic) is rejected with 'invalid assignment target: left side is not an assignable place'.
 
-_Source: `src/compiler/sema_stmt.cpp#L7213-L7224`_
+_Source: `src/compiler/sema_stmt.cpp#L7350-L7361`, `src/compiler/sema_stmt.cpp#L6908-L6919`_
 
 
 ### `expr.assign.type-mismatch` — Assignment value must match place type
 
 The assigned value's type must be compatible with the place's type (modulo `#[rel_ptr]`↔`*T` relations); otherwise a type-mismatch error is raised. Before the store the value is integer-widened to the place type, and the place type hints enum/struct literal RHS resolution.
 
-_Source: `src/compiler/sema_stmt.cpp#L7354-L7373`, `src/compiler/sema_stmt.cpp#L7448`_
+_Source: `src/compiler/sema_stmt.cpp#L7493-L7515`_
 
 
 ### `expr.assign.union-field-safe` — Writing a union field is safe
 
-Writing to a union field is safe (no `unsafe` required for the write): the place-write LHS suppresses the union unsafe gate that otherwise applies when reading a union field.
+Writing to a union field is safe (no `unsafe` required for the write): the place-write LHS sets `in_place_write_lhs_`, suppressing the union unsafe gate that otherwise applies when reading a union field.
 
 **Divergence.** Rust-conformant (items.union.fields.write-safety)
 
-_Source: `src/compiler/sema_stmt.cpp#L7325-L7331`_
+_Source: `src/compiler/sema_stmt.cpp#L7467-L7473`_
 
 
 ## Compound assignment
 
 ### `expr.compound-assign.base-op-strip` — Compound-assign base operator
 
-A compound-assign token `op=` denotes the binary operator `op` obtained by stripping the trailing `=`; the place is the receiver and the right side is the value operand.
+A compound-assign token `op=` denotes the binary operator `op` obtained by stripping the trailing `=`; the place is the receiver and the right side is the value operand. A bare `VAR_REF` place takes the simple-variable path; any other place (field/index/tuple-field/chain/`(*p).f`) routes through the general place-compound path.
 
-_Source: `src/compiler/sema_stmt.cpp#L2277-L2294`_
+_Source: `src/compiler/sema_stmt.cpp#L2286-L2301`_
 
 
 ### `expr.compound-assign.index-mut-dispatch` — Compound-assign through IndexMut on a struct
 
-`a[i] op= v` where `a` has struct type with an `IndexMut` impl lowers to `*index_mut(&mut a, i) = (*index(&a, i)) op v`, using the `Index` read accessor for the current value when present (else `index_mut`); `a` must be `mut`, and the rhs must be compatible with the indexed output type.
+`a[i] op= v` where `a` has struct type with an `IndexMut` impl lowers to `*index_mut(&mut a, i) = (*index(&a, i)) op v`, using the `Index` read accessor for the current value when present (else `index_mut`); the index expression is widened to the accessor's index-parameter integer type, and the rhs must be compatible with the indexed output type.
 
-_Source: `src/compiler/sema_stmt.cpp#L2400-L2467`_
+_Source: `src/compiler/sema_stmt.cpp#L2413-L2480`_
+
+
+### `expr.compound-assign.int-widen` — Implicit integer widening in the compound-assign fallback
+
+In the general (non-`*Assign`-impl) place-compound-assign path, the rhs is implicitly widened to the place's integer type before combining with the base operator.
+
+**Divergence.** Rust has no implicit integer widening on assignment.
+
+_Source: `src/compiler/sema_stmt.cpp#L2528`_
 
 
 ### `expr.compound-assign.op-trait-mapping` — Compound-assign operator → *Assign trait/method
 
 Each compound-assign operator `op=` maps to a trait + method: `+=`→AddAssign::add_assign, `-=`→SubAssign::sub_assign, `*=`→MulAssign::mul_assign, `/=`→DivAssign::div_assign, `%=`→RemAssign::rem_assign, `&=`→BitAndAssign::bitand_assign, `|=`→BitOrAssign::bitor_assign, `^=`→BitXorAssign::bitxor_assign, `<<=`→ShlAssign::shl_assign, `>>=`→ShrAssign::shr_assign. Operators outside this set have no *Assign trait.
 
-_Source: `src/compiler/sema_stmt.cpp#L2260-L2274`_
+_Source: `src/compiler/sema_stmt.cpp#L2269-L2283`_
 
 
 ### `expr.compound-assign.opassign-dispatch` — Compound-assign dispatches via *Assign impl when present
@@ -806,14 +891,14 @@ For a place of struct type S, if an impl of the operator's *Assign trait exists 
 
 **Divergence.** Rust-conformant operator-overload semantics; Logos struct-name-keyed impl lookup.
 
-_Source: `src/compiler/sema_stmt.cpp#L2315-L2351`, `src/compiler/sema_stmt.cpp#L2484-L2509`_
+_Source: `src/compiler/sema_stmt.cpp#L2318-L2360`, `src/compiler/sema_stmt.cpp#L2493-L2518`_
 
 
 ### `expr.compound-assign.opassign-fallback-binop` — Compound-assign without *Assign impl desugars to read-modify-write
 
 Absent a matching *Assign impl, `place op= rhs` desugars to `place = (place) op rhs` (read-twice / double-eval of the place), dispatching `op` through the corresponding binary-operator trait (Add/Sub/…), which constructs a fresh Self.
 
-_Source: `src/compiler/sema_stmt.cpp#L2304-L2305`, `src/compiler/sema_stmt.cpp#L2361-L2363`, `src/compiler/sema_stmt.cpp#L2511-L2525`_
+_Source: `src/compiler/sema_stmt.cpp#L2313-L2314`, `src/compiler/sema_stmt.cpp#L2370-L2373`, `src/compiler/sema_stmt.cpp#L2520-L2534`_
 
 
 ### `expr.compound-assign.place-too-nested` — Compound-assign target nesting limit
@@ -822,28 +907,28 @@ A compound-assign target too deeply nested to write in place is rejected with gu
 
 **Uncertainty.** Implementation-capability limit rather than a designed language restriction.
 
-_Source: `src/compiler/sema_stmt.cpp#L2472-L2477`_
+_Source: `src/compiler/sema_stmt.cpp#L2481-L2486`_
 
 
 ### `expr.compound-assign.type-mismatch` — Compound-assign RHS type-compatibility
 
 In the read-modify-write path, the rhs type must be compatible with the place type; otherwise "compound assignment: type mismatch — expected T, got U".
 
-_Source: `src/compiler/sema_stmt.cpp#L2353-L2360`, `src/compiler/sema_stmt.cpp#L2512-L2518`_
+_Source: `src/compiler/sema_stmt.cpp#L2362-L2369`, `src/compiler/sema_stmt.cpp#L2521-L2527`_
 
 
 ### `expr.compound-assign.var-immutable` — Compound-assign requires a mutable place
 
-`x op= e` requires `x` to be declared `mut`; an immutable target is rejected: "compound assignment to immutable variable".
+`x op= e` requires `x` to be declared `mut`; an immutable target is rejected: "compound assignment to immutable variable". The struct-array `IndexMut` compound path likewise requires the array/struct variable to be `mut`: "index compound assign to immutable struct".
 
-_Source: `src/compiler/sema_stmt.cpp#L2301-L2302`, `src/compiler/sema_stmt.cpp#L2416-L2417`_
+_Source: `src/compiler/sema_stmt.cpp#L2310-L2311`, `src/compiler/sema_stmt.cpp#L2425-L2426`_
 
 
 ### `expr.compound-assign.var-undefined` — Compound-assign to undefined variable is an error
 
 `x op= e` where `x` is not a bound variable is rejected: "compound assignment to undefined variable".
 
-_Source: `src/compiler/sema_stmt.cpp#L2295-L2300`_
+_Source: `src/compiler/sema_stmt.cpp#L2303-L2309`_
 
 
 ## Field-write assignment
@@ -873,6 +958,13 @@ _Source: `src/compiler/mlir_gen_stmt.cpp#L1225-L1234`_
 
 ## Field access
 
+### `expr.field.autoderef` — Field read auto-derefs through Deref
+
+`b.v` where b has struct/zoned-struct type lacking a field named `v` but whose type implements `Deref` is resolved by repeatedly applying one Deref step (bounded, <=16 iterations) until a type with field `v` is reached: `b.v` ≡ `(*b).v`, uniformly for Box/Rc/Arc or any user Deref impl.
+
+_Source: `src/compiler/sema_expr.cpp#L9454-L9469`_
+
+
 ### `expr.field.autoderef-via-deref` — Field access auto-derefs through Deref
 
 For receiver `r` of struct type S that has no field `f` but `S: Deref<Target=U>`, `r.f` is equivalent to `(*r).f`; the deref step repeats (bounded, up to 16 levels) until a type bearing field `f` is reached. Generalizes Box/Rc/Arc and any user Deref uniformly.
@@ -898,6 +990,15 @@ Named field access is `receiver.field`.
 _Source: `src/compiler/sema_render.cpp#L282-L295`_
 
 
+### `expr.field.dst-prefix-offset` — DST non-tail field addressed positionally
+
+A non-tail (prefix) field of a custom-DST struct accessed through a DstRef fat pointer is addressed positionally: its byte offset is the sum of the ABI sizes (each padded to its natural alignment, capped at 8) of all preceding declared fields, with the DstRef's carried type-arguments substituted into generic field types; the field is read by dereferencing `data+offset` typed as the field's (substituted) type.
+
+**Divergence.** B2
+
+_Source: `src/compiler/sema_expr.cpp#L9682-L9717`_
+
+
 ### `expr.field.dst-prefix-positional` — Prefix (non-tail) field access on a DstRef is positional
 
 For a fat-pointer receiver to a custom-DST struct, a non-tail prefix field is addressed positionally: its byte offset is computed by walking the sized prefix fields (with the DstRef's type-args substituted), and the field is read by dereferencing `data_ptr + offset` typed as the field type. This works uniformly for generic and non-generic DST instances, including those with no registered monomorphized layout.
@@ -907,24 +1008,24 @@ For a fat-pointer receiver to a custom-DST struct, a non-tail prefix field is ad
 _Source: `src/compiler/sema_expr.cpp#L9394-L9429`_
 
 
-### `expr.field.dst-ref-unsafe` — Field read through a non-self-describing &DstStruct requires unsafe
+### `expr.field.dst-ref-unsafe` — Field read through a custom-DST fat-pointer reference requires unsafe unless self-describing
 
-Field access on a fat-pointer (DstRef) receiver `&DstStruct` requires an `unsafe` context, EXCEPT when the struct is `#[self_describing]` (its tail length is recovered in-band, so the borrow is a complete safe reference).
+Reading any field through a fat-pointer (DstRef) receiver `&CustomDstStruct` requires an enclosing `unsafe` context, UNLESS the struct is declared `#[self_describing]` — its tail length is recovered in-band, making the borrow a complete, safe reference. Otherwise the program is rejected with: "field read through `&DstStruct` requires unsafe context (custom-DST field access is raw-pointer-shaped)".
 
-**Divergence.** Custom-DST raw-pointer-shaped field access — see DIVERGENCES B2.
+**Divergence.** B2 — custom-DST raw-pointer-shaped field access (see DIVERGENCES.md).
 
-_Source: `src/compiler/sema_expr.cpp#L9275-L9281`_
+_Source: `src/compiler/sema_expr.cpp#L9275-L9281`, `src/compiler/sema_expr.cpp#L9564-L9569`_
 
 
-### `expr.field.dst-tail-dyn` — dyn-tail projection on a DstRef shares the carried vtable
+### `expr.field.dst-tail-dyn` — DST dyn-tail field projection shares the DstRef's carried vtable
 
-For a fat-pointer receiver to a custom-DST struct whose last field has unsized-dyn type `dyn Tr`, `r.tail` yields a `&dyn Tr` fat pair `{ data = base + prefix_byte_size, vtable = the receiver's OWN carried vtable }`. The tail's metadata is the wide pointer's metadata (no static vtable lookup). The dyn prefix offset is aligned to pointer width (8) since the concrete payload alignment is not known statically.
+For a custom-DST struct whose tail field's (generic-substituted) type is `dyn Trait`, projecting the tail field from a `&Struct` DstRef fat pointer `{data, vtable}` yields a `&dyn Trait` fat pair `{ data = base + prefix_byte_size, vtable = the receiver's OWN carried vtable }`, reusing the wide pointer's metadata verbatim — no static/independent vtable lookup for the tail. The dyn-tail prefix offset is aligned to pointer width (8 bytes) since the concrete payload alignment is not known statically.
 
 **Divergence.** Custom-DST dyn-tail model — see DIVERGENCES B2/B3.
 
 **Uncertainty.** Conservative 8-byte alignment for dyn tails noted as over-aligning vs Rust.
 
-_Source: `src/compiler/sema_expr.cpp#L9330-L9335`, `src/compiler/sema_expr.cpp#L9346-L9368`_
+_Source: `src/compiler/sema_expr.cpp#L9330-L9335`, `src/compiler/sema_expr.cpp#L9346-L9368`, `src/compiler/sema_expr.cpp#L9634-L9656`_
 
 
 ### `expr.field.dst-tail-slice` — Slice-tail projection on a DstRef
@@ -933,7 +1034,7 @@ For a fat-pointer receiver to a custom-DST struct whose last field `tail` has un
 
 **Divergence.** Custom-DST model — see DIVERGENCES B2.
 
-_Source: `src/compiler/sema_expr.cpp#L9296-L9345`, `src/compiler/sema_expr.cpp#L9369-L9393`_
+_Source: `src/compiler/sema_expr.cpp#L9296-L9345`, `src/compiler/sema_expr.cpp#L9369-L9393`, `src/compiler/sema_expr.cpp#L9657-L9681`_
 
 
 ### `expr.field.hoist-droppable-rvalue-temp` — Droppable fresh-rvalue field base is hoisted to a statement temp
@@ -943,11 +1044,11 @@ When a field is read off a fresh owned rvalue base of a move (droppable) type (`
 _Source: `src/compiler/sema_expr.cpp#L9151-L9164`_
 
 
-### `expr.field.inline-vs-pointer-field-descent` — Field access descends in place for inline fields, loads for pointer fields
+### `expr.field.inline-vs-pointer-field-descent` — Chained field access descends by address for inline fields, by load for pointer fields
 
-Accessing field `f` of a struct: if `f` is an inline-embedded aggregate or a scalar-represented named type, the field lives in place and its address is the access target (so a `&mut self` method mutates the original storage). Only a genuine pointer-typed field denotes a separate object and is loaded to descend into it.
+Descending into a struct field for chained access (`a.b.c`): a field embedded in-place (an inline aggregate, or a scalar-represented named type such as AnyVal or RelPtr) yields its own field-slot address directly, so further chained access — and mutation through `&mut self` methods — operates on the original storage; a field that is a genuine pointer is loaded first, and the loaded value becomes the address used for further descent.
 
-_Source: `src/compiler/mlir_gen.cpp#L789-L805`, `src/compiler/mlir_gen.cpp#L813-L829`_
+_Source: `src/compiler/mlir_gen.cpp#L790-L830`_
 
 
 ### `expr.field.name-from-field-or-name-slot` — Field name resolved from FIELD then NAME slot
@@ -959,11 +1060,25 @@ The accessed field name is taken from the FIELD slot; if empty (e.g. a substitut
 _Source: `src/compiler/sema_expr.cpp#L9147-L9150`_
 
 
+### `expr.field.non-struct-receiver-error` — Diagnostic: field read on a non-struct/class receiver
+
+Reading a field on a receiver whose (dereferenced) type is not a struct or class is a compile error: "field read: receiver is not a struct or class (got `<T>)";` the error is suppressed (result silently propagated as `<error>`) when metaprog discovery mode is active and the receiver's type is already `<error>` (a not-yet-derived struct in a chain).
+
+_Source: `src/compiler/sema_expr.cpp#L9793-L9810`_
+
+
 ### `expr.field.not-a-struct-error` — Field read receiver must be a struct/class
 
 A field read whose receiver does not resolve to a struct or class type is an error ('receiver is not a struct or class'), except during metaprog discovery when the receiver (or its pointee) is already of error type, in which case the error type is propagated silently.
 
 _Source: `src/compiler/sema_expr.cpp#L9460-L9478`_
+
+
+### `expr.field.privacy` — Private field access restricted to defining package
+
+A struct or spec field is subject to pub-visibility: a non-`pub` field is only readable from code in the package that defines the struct/spec; access elsewhere is a compile error.
+
+_Source: `src/compiler/sema_expr.cpp#L9819-L9862`_
 
 
 ### `expr.field.pub-access` — Private field access restricted to defining package
@@ -977,9 +1092,9 @@ _Source: `src/compiler/sema_expr.cpp#L9486-L9528`_
 
 ### `expr.field.raw-ptr-unsafe` — Field read through raw pointer requires unsafe
 
-Reading a field through a raw pointer receiver (type `*const T`/`*mut T`) is only permitted inside an `unsafe` context; otherwise it is an error.
+Reading a field through a raw-pointer receiver (`p.f` where `p: *const T`/`*mut T`) requires an enclosing `unsafe` context; otherwise it is a compile error: "field read through raw pointer requires unsafe context".
 
-_Source: `src/compiler/sema_expr.cpp#L9182-L9184`, `src/compiler/sema_expr.cpp#L9251`_
+_Source: `src/compiler/sema_expr.cpp#L9182-L9184`, `src/compiler/sema_expr.cpp#L9251`, `src/compiler/sema_expr.cpp#L9470-L9472`_
 
 
 ### `expr.field.ref-peel` — Field access peels reference layers
@@ -989,6 +1104,20 @@ For receiver of reference-like type, `r.f` peels extra reference layers via expl
 **Related.** `expr.field.autoderef-via-deref`
 
 _Source: `src/compiler/sema_expr.cpp#L9252-L9264`_
+
+
+### `expr.field.ref-ref-autoderef` — Depth-N reference autoderef for field read
+
+For a receiver with N>1 stacked reference layers (e.g. `&&S`), field read `r.f` peels every extra reference layer via explicit deref down to a single reference before the one-level field projection: `r.f` ≡ `(*r).f` for `r: &&S`.
+
+_Source: `src/compiler/sema_expr.cpp#L9540-L9552`_
+
+
+### `expr.field.self-describing-dst-tail` — Self-describing DST tail access through a thin raw pointer
+
+For a `#[self_describing]` struct whose last declared field has unsized-slice type `[T]`, accessing the tail field `p.tail` through a THIN `*const Self`/`*mut Self` pointer recovers the runtime element count by calling the struct's generated `<Struct>__dst_len(ptr)` function, and yields a `[T]` slice located at the field's statically-computed prefix-aligned byte offset from `p`.
+
+_Source: `src/compiler/sema_expr.cpp#L9473-L9538`_
 
 
 ### `expr.field.self-describing-thin-tail` — Self-describing DST tail through a thin raw pointer
@@ -1016,20 +1145,36 @@ Reading a field of a union requires an enclosing `unsafe` block (only one field 
 _Source: `src/compiler/sema_expr.cpp#L9495-L9509`_
 
 
-### `expr.field.unknown-field-error` — Unknown field is an error
+### `expr.field.union-unsafe` — Union field read requires unsafe; write does not
 
-Reading a field name not declared on the resolved struct type is an error ('struct S has no field f').
+Reading a field of a struct declared `union` requires an enclosing `unsafe` block: "field read of `<S>.<f>` requires `unsafe` block (`<S>` is a union - only one field is active at a time)". Writing a union field is exempt from this check (unions permit overwriting any field without an activeness precondition).
 
-_Source: `src/compiler/sema_expr.cpp#L9481-L9485`_
+_Source: `src/compiler/sema_expr.cpp#L9829-L9842`_
+
+
+### `expr.field.unknown-field-error` — Unknown field on a known struct is a compile error
+
+Reading a field name not declared on the receiver's (resolved) struct type is a compile error: "field read: struct `'&lt;S&gt;'` has no field `'&lt;f&gt;'`".
+
+_Source: `src/compiler/sema_expr.cpp#L9481-L9485`, `src/compiler/sema_expr.cpp#L9814-L9818`_
+
+
+### `expr.field.variadic-match` — Variadic field name matching
+
+A struct field declared variadic with base name `f` additionally matches any accessed field name of the shape `f_<suffix>` (an underscore-joined suffix), resolving `x.f_<suffix>` against the single variadic field's declaration for pub-check purposes.
+
+**Uncertainty.** This slice only shows the name-matching used for the pub-access check; the underlying variadic-field mechanism (declaration, storage, and full read/write semantics) is defined elsewhere.
+
+_Source: `src/compiler/sema_expr.cpp#L9843-L9848`, `src/compiler/sema_expr.cpp#L9854-L9856`_
 
 
 ## Tuple indexing
 
 ### `expr.tuple-index.access` — Tuple/tuple-struct .N indexing with auto-deref
 
-`recv.N` indexes a tuple (auto-deref through `&`/`&mut`) returning the Nth element type, or reads field N of a tuple-struct (auto-deref through `&Foo`/`&mut Foo`) with the struct's type-params substituted by the receiver's type-args. An out-of-range index is an error.
+`recv.N` indexes a tuple (auto-deref through `&`/`&mut`) returning the Nth element type, or reads field N of a tuple-struct (auto-deref through `&Foo`/`&mut Foo`) with the struct's type-params substituted by the receiver's concrete type-args. An out-of-range index, or a receiver that is neither, is an error.
 
-_Source: `src/compiler/sema_expr.cpp#L1636-L1697`_
+_Source: `src/compiler/sema_expr.cpp#L1653-L1714`_
 
 
 ### `expr.tuple-index.aggregate-element-by-address` — Tuple-index of inline-aggregate element yields its address
@@ -1137,7 +1282,7 @@ _Source: `tools/peg_gen/grammars/logos.peg#L2690-L2691`, `tools/peg_gen/grammars
 
 **Related.** `layout.place.element-slot-by-repr`
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1288-L1392`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1298-L1402`_
 
 
 ### `expr.index.receiver-kind` — Built-in index receiver must be array, slice, or pointer/reference
@@ -1165,7 +1310,7 @@ _Source: `src/compiler/sema_expr.cpp#L10311-L10326`_
 
 When an index expression has an unsigned integer type narrower than 64 bits, it is zero-extended to 64 bits before being used as a GEP index.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1305-L1315`, `src/compiler/mlir_gen_expr.cpp#L1383-L1389`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1315-L1325`, `src/compiler/mlir_gen_expr.cpp#L1393-L1399`_
 
 
 ### `expr.index.unsigned-index-zero-extends` — Unsigned index operand zero-extends to 64-bit
@@ -1193,59 +1338,75 @@ _Source: `src/compiler/sema_expr.cpp#L10396-L10453`_
 
 ## Slice indexing
 
-### `expr.slice-index.element-projection` — Slice indexing strides by element footprint
+### `expr.slice-index.element-projection` — Slice indexing element access/return convention
 
-Indexing a slice `s[i]` loads the data pointer from field 0 and GEPs by index. Struct/ZonedStruct elements lay out inline (stride = sizeof(element)) and the element address is returned (caller copies aggregates by value); fat-reference elements (16B pairs stored inline) stride by the pair footprint and the slot address is returned; thin scalar/reference elements are loaded by value. An unsigned index narrower than 64 bits is zero-extended for the GEP.
+`s[i]` GEPs into the slice's data pointer by `i` (zero-extended to i64 if `i`'s type is unsigned) using the element's place-slot type, the same slot type the lvalue path (`&s[i]`, `s[i] = v`) strides by, so reads and writes address the identical element. If the element's slot type is an aggregate (LLVM struct — inline struct/tuple/tagged-enum value-repr/fat {data,meta} pair), the expression yields the element's ADDRESS; otherwise it loads and yields the element VALUE.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L5175-L5238`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L5236-L5279`_
 
 
 ## Slice expressions
 
-### `expr.slice.len-and-ptr-projection` — Slice .len() and .ptr() project metadata and data halves
+### `expr.slice.len-and-ptr-projection` — Slice length/pointer projection
 
-For a fat slice receiver, `.len()` yields the metadata half (field 1, i64) and `.ptr()`/data yields the data half (field 0). For a thin #[self_describing] DstRef receiver, `.len()` is recovered in-band via dst_len(header_ptr) since it carries no out-of-band metadata.
+A slice's length is the metadata half of its reference representation (repr_meta), UNLESS the slice's static type is a thin `#[self_describing]` DstRef, in which case the length is recovered in-band via `dst_len(header_ptr)` instead. A slice's data pointer is always the data half of its reference representation (repr_data).
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L5263-L5284`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L5303-L5324`_
 
 
-### `expr.slice.len-as-ptr-builtin` — Built-in slice/str length and pointer methods
+### `expr.slice.len-as-ptr-builtin` — Built-in Slice.len() / .as_ptr()
 
-On a slice receiver, `recv.len()` yields the element count as `i64`, and `recv.as_ptr()` yields the data pointer as `*const u8`. These are intrinsic (not user-resolved).
+On a receiver of kind `Slice`, `.len()` lowers to a slice-length read of type `i64`; `.as_ptr()` lowers to a slice-data-pointer read of type `*const u8`. These are checked before any user-defined slice method.
 
-_Source: `src/compiler/sema_expr.cpp#L6463-L6471`_
+_Source: `src/compiler/sema_expr.cpp#L6496-L6504`_
 
 
 ## Dereference
 
 ### `expr.deref.aggregate-pointer-identity` — *p on aggregate-typed pointee is a no-op reinterpret
 
-`*p` whose result type is a struct, tuple, array, slice, or trait-object yields the same pointer value (no load), since those types are pointer-represented; subsequent field/index access or by-value copy handles the byte-level move.
+`*p` whose result type is a struct, zoned-struct, tuple, array, or trait-object (dyn handle) yields the same pointer value (no load), since those types are pointer-represented; subsequent field/index access or by-value copy handles the byte-level move.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1762-L1802`_
-
-
-### `expr.deref.box-move-out` — Dereferencing a move-typed Box moves the value out and frees the box
-
-`*b` where `b` is a bare variable of type `Box<T>` and `T` is a move (non-Copy) type consumes `b`, moves the boxed value out, and frees the box without dropping the content (Rust's built-in `*b` move; desugars to `box_take::<T>(b)` with `T` inferred). This is the canonical `let s = *b` form. For a Copy element `T`, `*b` copies the value out and leaves `b` live (normal deref path); non-Box derefs also use the normal copy/deref path.
-
-_Source: `src/compiler/sema_expr.cpp#L2688-L2725`, `src/compiler/sema_stmt.cpp#L1915-L1922`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1794-L1812`_
 
 
-### `expr.deref.generic-autoderef-via-method-call` — Generic Deref/DerefMut autoderef lowers as a method call
+### `expr.deref.box-move-out` — `*b` for `b: Box<T>` (T non-Copy) moves T out and frees the box
 
-Autoderef of a receiver whose type implements Deref/DerefMut — including a generic impl (Box/Rc/Arc) whose `deref` is not a concrete symbol at sema time — is emitted as a `deref()`/`deref_mut()` method call (monomorphized later), and the resulting Target place type is obtained by substituting the Deref impl's target pattern against the receiver type.
+`*b` where `b` is a bare-VarRef binding of type `Box<T>` and `T` is a move-type (not Copy) lowers to a call to the generic free function `box_take::<T>(b)` (the matching candidate is chosen by 1 param / 1 type-param; the type-arg is inferred from the arg via `infer_type_args` and the call emitted via `finish_generic_call`, exactly as a real `box_take::<T>(b)` call site would be, so it mangles/monomorphizes correctly) — this consumes `b`, moves the T value out of the heap block, and frees the block. A Copy element type, or any operand more complex than a bare variable, is left to the ordinary (copying) deref path instead — the caller re-lowers the whole deref on a null return.
 
-_Source: `src/compiler/sema_impl.hpp#L4242-L4251`_
+_Source: `src/compiler/sema_expr.cpp#L2721-L2758`_
 
 
-### `expr.deref.non-pointer-identity` — Dereference of a non-pointer value is identity
+### `expr.deref.box-move-out-non-copy` — Dereferencing a bare move-typed Box local moves its contents out
 
-`*x` where `x` is neither a raw pointer nor a reference (and has no Deref impl) yields `x` unchanged rather than an error.
+`*box_var` where `box_var` is a bare local of type `Box<T>` with non-Copy `T` lowers to a move-out (`box_take`) rather than a borrowing deref. When the operand is not a bare Box-typed variable, or its element type is Copy, this special case does not apply and the caller falls through to normal deref lowering.
 
-**Divergence.** Rust rejects `*x` on a non-pointer; Logos relaxes it to identity to accept faithful Rust loop imports (B3-bg-07), since `for i in &v` already yields T not &T.
+_Source: `src/compiler/sema_impl.hpp#L3836-L3839`_
 
-_Source: `src/compiler/sema_expr.cpp#L2669-L2680`_
+
+### `expr.deref.fatslice-pointer-identity` — *p on a fat-slice pointee (str / &[T]) is a no-op reinterpret
+
+`*p` where p's reference-representation kind is FatSlice (a `str`/`&[T]` pointee) yields the same pointer (no load): the slice value convention is pointer-to-{data,len}-pair storage, so the pair's address IS the dereferenced value. Restricted to FatSlice among fat kinds: a Closure value is a distinct 8-byte pointer-to-{fn,env} handle and still loads; TraitObject has its own identity rule; other fat kinds (RelOffset, FatCustomDst, FatZoneMut) remain on the load branch as unexercised.
+
+_Source: `src/compiler/mlir_gen_expr.cpp#L1827-L1845`_
+
+
+### `expr.deref.generic-autoderef-via-method-call` — Generic-impl auto-deref lowers to a real deref() method call
+
+Auto-deref of a receiver whose type implements Deref/DerefMut — including a generic impl (Box/Rc/Arc) whose `deref` has no concrete symbol at sema time — lowers to an actual `.deref()`/`.deref_mut()` method_call, monomorphized identically to an explicit call, and yields a place of the Deref impl's Target type (computed by substituting the impl's target pattern against the receiver's concrete type). Produces nothing when the receiver's type implements no Deref.
+
+_Source: `src/compiler/sema_impl.hpp#L4288-L4297`_
+
+
+### `expr.deref.non-pointer-identity` — `*x` on a non-pointer, non-Deref type is the identity
+
+`*x` where x's type is none of Ptr/Ref/MutRef and has no generic Deref impl returns x unchanged (identity) rather than a diagnostic error.
+
+**Divergence.** Not in docs/DIVERGENCES.md as a blessed item; Rust rejects unary `*` on a type without Deref/a pointer kind. This is a permissive relaxation admitting faithfully-ported Rust source that spells an already-loaded read as `*i` (e.g. `for i in &v` sites); soundness is preserved since it only relaxes the diagnostic, never changes which value is produced.
+
+**Uncertainty.** The call sites that feed an already-non-pointer value into this deref (and whether other units reject it earlier) are outside this slice.
+
+_Source: `src/compiler/sema_expr.cpp#L2702-L2713`_
 
 
 ### `expr.deref.prefix-star` — Dereference operator
@@ -1255,161 +1416,182 @@ Dereference is written with prefix `*`: `*expr`.
 _Source: `src/compiler/sema_render.cpp#L314-L316`_
 
 
-### `expr.deref.raw-ptr-unsafe` — Raw pointer dereference requires unsafe
+### `expr.deref.raw-ptr-unsafe` — Raw-pointer deref requires `unsafe`
 
-`*p` where `p` is a raw pointer `*T` is only permitted inside an unsafe context; otherwise it is an error. The result type is the pointee type.
+`*p` where `p: *T` (raw pointer) requires an enclosing unsafe context; outside unsafe it is a diagnostic error, though lowering still proceeds and returns the pointee-typed deref node.
 
-_Source: `src/compiler/sema_expr.cpp#L2681-L2685`_
+_Source: `src/compiler/sema_expr.cpp#L2714-L2716`_
 
 
-### `expr.deref.scalar-load` — *p on scalar-typed pointee loads the value
+### `expr.deref.scalar-load` — *p default case loads the pointee's representation type
 
-`*p` whose result type is a scalar (integer, float, bool, char) or a C-like enum loads the value of the pointee type from the pointer.
+`*p` for any pointee type not matched by a pointer-identity or materialize special case loads exactly one value of the pointee's representation type from the address p.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1811-L1819`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1846-L1848`_
 
 
 ### `expr.deref.tagged-enum-identity` — *p on a tagged enum yields the storage pointer
 
-A tagged enum is pointer-to-inline-storage, so `*p` over a `&Enum`/`*Enum` to a tagged enum yields the same pointer (no load); only C-like enums load.
+A tagged (payload-carrying) enum is pointer-to-inline-storage, so `*p` over a `&Enum`/`*Enum` to a tagged enum yields the same pointer (no load); a C-like (fieldless) enum instead follows the generic scalar-load rule.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1811-L1816`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1821-L1826`_
 
 
-### `expr.deref.user-deref-impl` — Dereference routes through a Deref impl
+### `expr.deref.user-deref-impl` — `*x` for a Deref-implementing struct calls `.deref()`
 
-`*x` for any type implementing Deref (Box/Rc/Arc/user, including generic impls) lowers to `*(x.deref())` via the generic-aware method machinery.
+`*x` for a struct `x` implementing (possibly generic) `Deref` lowers through the generic-aware method-call machinery as `x.deref()` (`emit_generic_deref_step` in lower_deref; mirrored by `emit_generic_deref_call` in the `&*` reborrow path) — this dispatches through generic impls too, not only concrete symbols.
 
-_Source: `src/compiler/sema_expr.cpp#L2658-L2668`_
+_Source: `src/compiler/sema_expr.cpp#L2696-L2701`, `src/compiler/sema_expr.cpp#L2582-L2584`_
+
+
+### `expr.deref.zoned-enum-materialize` — *p over an at-rest zoned niche-enum slot materializes the value
+
+`*p` where the operand's static type is a zoned pointer to a niche-optimizable enum materializes the by-pointer enum value from its at-rest self-relative encoding (the Ref arm is anchored to the slot address p). Both an at-rest zoned slot and a plain value-form local share the surface type `*Enum`; the operand's zoned-pointer marker is what disambiguates, and a non-zoned `*Enum` falls through to the ordinary tagged-enum/scalar rules.
+
+_Source: `src/compiler/mlir_gen_expr.cpp#L1813-L1820`_
 
 
 ## Address-of (addr-of)
 
-### `expr.addr-of.index-place` — &f[i] over user Index is a place reference
+### `expr.addr-of.index-place` — `&container[i]` over a user Index type is the index place directly
 
-`&f[i]` over a value implementing the Index trait yields the place reference returned by `index()` directly (no intermediate deref or temporary).
+`&container[i]` where the indexed child is INDEX_READ over a type with a user-defined Index impl lowers to that index method's place reference directly (`lower_index_place`), bypassing the generic deref/temp-materialize path.
 
-_Source: `src/compiler/sema_expr.cpp#L2554-L2558`_
+_Source: `src/compiler/sema_expr.cpp#L2587-L2591`_
 
 
 ### `expr.addr-of.mut-array-whole` — &mut arr references the whole array
 
-`&mut arr` for `arr: [T; N]` produces `&mut [T; N]` (a reference to the whole array); coercion to a `&mut [T]` slice parameter occurs separately at the call site.
+`&mut arr` for `arr: [T; N]` produces `&mut [T; N]` (a reference to the whole array, sharing the array's base address); coercion to a `&mut [T]` slice parameter occurs separately at the call site.
 
-_Source: `src/compiler/sema_expr.cpp#L1107-L1116`_
+_Source: `src/compiler/sema_expr.cpp#L1124-L1133`_
 
 
 ### `expr.addr-of.mut-deref-reborrow` — &mut *p reborrows through a pointer/reference
 
 `&mut *p` where p is a Ptr/MutRef/Ref preserves an explicit AddrOfTemp(Deref(p)) shape so it is treated as a reborrow (distinct from a rebind), yielding `&mut Pointee`; for a struct with a DerefMut impl it lowers to `p.deref_mut()`.
 
-_Source: `src/compiler/sema_expr.cpp#L1118-L1139`_
+_Source: `src/compiler/sema_expr.cpp#L1135-L1157`_
 
 
-### `expr.addr-of.range-index-identity` — &a[range] is the slice value itself
+### `expr.addr-of.range-index-identity` — `&a[range]` is the identity, not an extra `&[T]` wrapper
 
-`&e` where `e` is a range-index `a[i..j]` that already has slice kind `&[T]` yields that slice value unchanged (no additional reference wrapper), since the slice kind is already the borrowed fat form.
+`&a[range]` (indexing by a Range) yields the Slice-typed inner expression itself, unchanged — Logos's Slice kind already IS the borrowed `&[T]` form, so applying `&` to a range-index is identity rather than producing `&&[T]`.
 
-_Source: `src/compiler/sema_expr.cpp#L2562-L2569`_
+_Source: `src/compiler/sema_expr.cpp#L2595-L2602`_
 
 
-### `expr.addr-of.static` — Address-of a module static is the global's stable address
+### `expr.addr-of.static` — `&STATIC` is the global's stable address
 
-`&S` where S is an unshadowed module static of non-array type yields the global's own address (a `'static` reference), preserving address identity; the reference is `&mut` iff S is a `mut` static. (No fresh stack copy is materialized.)
+`&STATIC_NAME` for a module-level static (not locally shadowed) with non-Array type yields the STABLE address of the global itself ('static lifetime) — lowered as a distinguished `__static_addr:<sym>` VarRef of ref type `&T` (mut ref if the static is declared mut). This routes before the general addr-of-local path, which would otherwise materialize a fresh stack copy and break address identity. Array statics instead build a slice over that address (see coerce.unsize.array-to-slice); scalars/structs return `&T`.
 
-_Source: `src/compiler/sema_expr.cpp#L2498-L2509`_
+_Source: `src/compiler/sema_expr.cpp#L2515-L2526`_
 
 
 ### `expr.addr-of.static-mut` — &mut on a module static yields the global address
 
 `&mut STATIC` for an unshadowed module static (that is not an array) produces a `&mut T` to the global's address rather than materializing a temporary.
 
-_Source: `src/compiler/sema_expr.cpp#L1100-L1106`_
+_Source: `src/compiler/sema_expr.cpp#L1117-L1123`_
 
 
-### `expr.addr-of.temp-materialize` — &<rvalue> spills to a stack temporary
+### `expr.addr-of.temp-materialize` — `&<rvalue>` spills a temporary to the stack
 
-`&e` for a non-place expression `e` materializes `e` into a stack temporary and yields `&typeof(e)`. If `typeof(e)` is an error type the expression is an error.
+`&e` for any other rvalue `e` spills `e` to a fresh stack slot (AddrOfTemp) and returns its address, typed `&T` where T = typeof(e). If e's type is an array literal `[T; N]`, the array is spilled and the result is instead a slice literal `{addr, len=N}` typed `&[T]` (see coerce.unsize.array-to-slice) rather than `&[T; N]`.
 
-_Source: `src/compiler/sema_expr.cpp#L2559-L2588`_
+_Source: `src/compiler/sema_expr.cpp#L2592-L2594`, `src/compiler/sema_expr.cpp#L2619-L2621`_
 
 
 ## Address-of (addrof)
 
+### `expr.addrof.enum-autoref-slot` — autoref of a slot-backed tagged-enum local returns the real slot
+
+Autoref `(&mut o).method()` of a tagged-enum local that is bound to a genuine storage slot returns that slot's address directly, not a spilled copy of the pointer held in scope, so the callee's `*self = …` rebind (e.g. `Option::take`) is observed through the caller's binding.
+
+_Source: `src/compiler/mlir_gen_expr.cpp#L1664-L1682`_
+
+
 ### `expr.addrof.enum-single-level` — & over an enum is one level of indirection
 
-A tagged enum is represented as a pointer to its inline {discriminant,payload} storage; `&enum` therefore yields that storage address directly (one indirection level, like `&struct`), not a pointer-to-pointer. A C-like (scalar-discriminant) enum is spilled to a slot whose address is the reference.
+A tagged (payload-carrying) enum is represented as a pointer to its inline {discriminant,payload} storage; `&enum` therefore yields that storage address directly (one indirection level, like `&struct`), never a pointer-to-pointer. A local already bound to its storage address returns it directly; a freshly constructed enum temp returns its own storage alloca; a by-value enum (e.g. a call return) is spilled once into a slot shaped like the enum's layout. A C-like (scalar-discriminant) enum is spilled to a slot whose address is the reference.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1442-L1447`, `src/compiler/mlir_gen_expr.cpp#L1724-L1741`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1452-L1456`, `src/compiler/mlir_gen_expr.cpp#L1734-L1751`_
 
 
 ### `expr.addrof.module-const-temp` — &CONST materializes a temporary slot
 
-Taking the address of a module-level const that has no local storage materializes a fresh stack slot, stores the const value, and yields that slot's address as the reference.
+Taking the address of a module-level const that has no local storage evaluates the const's initializer, materializes a fresh stack slot, stores the value, and yields that slot's address as the reference.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1403-L1415`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1412-L1425`_
 
 
 ### `expr.addrof.mut-place-element-address` — &mut over an index/field/tuple place yields the real element address
 
-`&[mut] <place>` over a place expression (`a[i]`, `(*p).0`, `s.f`, nested mixes) yields the actual element/field address computed with the correct per-element stride — never the address of a by-value copy — so writes through the resulting reference reach the original aggregate.
+`&[mut] <place>` over a place expression (`a[i]`, `(*p).0`, `s.f`, nested/chained mixes such as `a[i][j]`, `(*p).0`, `arr[i].field`) yields the actual element/field address computed with the correct per-element stride and layout — never the address of a by-value copy — so writes through the resulting reference reach the original aggregate. The immutable `&x.N` tuple-index path is deliberately left on the value-copy behavior (relied on elsewhere for spilled-copy semantics).
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1456-L1477`, `src/compiler/mlir_gen_expr.cpp#L1512-L1559`, `src/compiler/mlir_gen_expr.cpp#L1560-L1653`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1466-L1487`, `src/compiler/mlir_gen_expr.cpp#L1522-L1539`, `src/compiler/mlir_gen_expr.cpp#L1540-L1569`, `src/compiler/mlir_gen_expr.cpp#L1570-L1663`_
 
 
 ### `expr.addrof.reborrow-pointer-identity` — &[mut] *r is identity on r
 
-Reborrowing `&[mut] *r` where r holds a reference or raw pointer (`&T`/`&mut T`/`*T`) is equivalent to the pointer value r itself (no extra indirection). A fat `&mut T` reborrowed to a thin reference (`&T`) is peeled to its data half; reborrowed to another fat `&mut T` it keeps the full pair.
+Reborrowing `&[mut] *r` where r holds a reference or raw pointer (`&T`/`&mut T`/`*T`) is equivalent to the pointer value r itself (no extra indirection): r is loaded and returned unchanged. A fat zone-mut `&mut T` reborrowed to a thin result type is peeled to its data half; reborrowed to another fat `&mut T` it keeps the full pair; reborrowing a thin pointer to a `#[self_describing]` DST yields the thin header pointer.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1479-L1510`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1494-L1520`_
 
 
 ### `expr.addrof.ref-param-rebind` — &p on a reference parameter rebinds to a single shared slot
 
-When `&p` (or `&mut p`) is taken on a parameter of reference type, the parameter's value is spilled once to a slot and the binding is rebound to that slot, so subsequent reads and further `&p` operations share one storage location (write-through for `&mut` chains).
+When `&p` (or `&mut p`) is taken on a parameter whose SSA arg is a value (not already `ptr`-typed) or a pointer-family parameter, the parameter's value is spilled once to a fresh entry-block alloca whose address is the reference. If `p` is a `Ref`/`MutRef` parameter, the scope binding is REBOUND to that alloca, so subsequent reads and further `&p` share one storage location (write-through for `&&mut T` chains); other by-value parameters get address-of-a-copy with the binding left untouched.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1428-L1441`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1429-L1450`_
+
+
+### `expr.addrof.scalar-autoref-slot` — autoref of a slot-backed scalar local returns the local's own slot
+
+Autoref `(&mut b).method()` of a scalar-primitive `let`-bound local (integer/float/bool/char/usize/isize width) that is backed by a real alloca returns the variable's own storage slot address (not a spilled copy), so a callee's mutation through `*self` reaches the caller's binding; scalar function PARAMETERS (SSA-value args, not slot-backed) keep the copy-and-spill behavior instead.
+
+_Source: `src/compiler/mlir_gen_expr.cpp#L1683-L1713`_
 
 
 ### `expr.addrof.temp-aggregate-spill` — & over a by-value aggregate temporary extends its lifetime via a slot
 
-`&<temp>` where the operand is a by-value aggregate (struct, tuple, array, slice, trait-object, enum produced by a call) spills the temporary once to a stack slot, and that slot is the reference (temporary lifetime extension). Aggregates already held by pointer are returned unchanged.
+`&<temp>` where the operand is a by-value aggregate (struct, tuple, array, slice, trait-object) spills the temporary once to a stack slot only if it is not already pointer-represented (e.g. a by-value aggregate returned from a call), and that slot is the reference (temporary lifetime extension to the enclosing statement). Aggregates already held by pointer are returned unchanged.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1704-L1746`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1714-L1733`_
 
 
 ### `expr.addrof.var-place-identity` — &x yields the address of x's own storage
 
 `&x` / `&mut x` over a local or parameter denotes the address of that binding's storage slot. A by-value binding (scalar, by-value-fat, or pointer-family) is first spilled to its own stack slot whose address is the reference; a slot-backed binding (aggregate, address-holding) hands back its existing slot address directly.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1398-L1447`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1408-L1457`_
 
 
 ## Raw-pointer expressions
 
-### `expr.raw-ptr.arith-unsafe` — Raw-pointer arithmetic methods require unsafe
+### `expr.raw-ptr.arith-unsafe` — Raw-pointer arithmetic methods require unsafe context
 
-On a raw-pointer (`Ptr`) receiver, the offset methods {add, sub, byte_add, byte_sub} and the distance methods {offset_from, byte_offset_from} are built-in, each require an `unsafe` context, take exactly one argument, and have result type: offset → the receiver pointer type (argument coerced to `i64`); distance → `i64` (argument must be a pointer).
+On a raw-pointer (`Ptr`) receiver, the methods `byte_add, byte_sub, add, sub` (single `i64` argument, offset by byte/element) and `byte_offset_from, offset_from` (single pointer argument, yielding `i64` distance) each require the call site to be inside `unsafe`; outside unsafe, a diagnostic is raised. `byte_add/byte_sub/add/sub` require exactly 1 argument of (or widenable to) type `i64`; `byte_offset_from/offset_from` require exactly 1 argument whose type is `Ptr`.
 
-_Source: `src/compiler/sema_expr.cpp#L6615-L6660`_
+_Source: `src/compiler/sema_expr.cpp#L6652-L6693`_
 
 
-### `expr.raw-ptr.is-null-safe` — Raw-pointer is_null is safe; user impl wins
+### `expr.raw-ptr.is-null-safe` — Pointer .is_null() is safe unless shadowed by a user-defined inherent method
 
-On a raw-pointer receiver, `p.is_null()` is safe (no dereference), takes zero arguments, and lowers to `(p as i64) == 0 : bool` — UNLESS the pointee type declares an inherent `is_null` method, in which case that user-defined method is dispatched instead.
+On a `Ptr` receiver, `.is_null()` does not require unsafe context: it lowers to `(recv as i64) == 0` and takes 0 arguments. If the pointee is a `Struct`/`ZonedStruct`/`Enum` that declares an inherent `<Pointee>__is_null` function, that user-defined method is dispatched instead (resolution falls through, `nullopt`) rather than the built-in null check.
 
-**Divergence.** Logos lets an inherent fn on the pointee shadow the built-in pointer is_null.
+**Divergence.** Logos lets a user-defined inherent is_null on the pointee shadow the built-in raw-pointer null check.
 
-_Source: `src/compiler/sema_expr.cpp#L6661-L6692`_
+_Source: `src/compiler/sema_expr.cpp#L6694-L6726`_
 
 
 ## Method receivers
 
-### `expr.receiver.ref-autoderef-to-struct` — Reference/pointer receiver auto-derefs to the struct
+### `expr.receiver.ref-autoderef-to-struct` — Pointer/reference receivers auto-deref to the pointee struct
 
-A method/field receiver of type `&S`, `&mut S`, `*const S`, or `*mut S` (pointee a struct or zoned-struct) resolves to the address of the pointed-to struct: one level of reference/pointer is stripped to obtain the struct object for field/method access.
+Resolving a method/field-access receiver whose static type is `&T`, `&mut T`, `*const T`, or `*mut T` with `T` a struct or zoned-struct auto-derefs: the pointer/reference value (loaded from its storage slot first if it is a let-bound mutable-pointer local) is used directly as the struct's address, with no explicit deref required in source syntax.
 
-_Source: `src/compiler/mlir_gen.cpp#L716-L772`, `src/compiler/mlir_gen.cpp#L844-L859`, `src/compiler/mlir_gen.cpp#L869-L879`_
+_Source: `src/compiler/mlir_gen.cpp#L699-L773`, `src/compiler/mlir_gen.cpp#L850-L861`, `src/compiler/mlir_gen.cpp#L870-L881`_
 
 
 ## Function calls
@@ -1467,25 +1649,25 @@ For a vararg function, the argument count must be >= the number of declared (fix
 _Source: `src/compiler/sema_expr.cpp#L3219-L3241`, `src/compiler/sema_expr.cpp#L3475-L3498`_
 
 
-### `expr.call.callable-arg-move` — By-value move-type arguments to a callable are moved
+### `expr.call.callable-arg-move` — By-value move-type args to a closure/fn-ptr call are marked moved
 
-In a closure/fn-ptr call `f(args)`, a by-value concrete move-type argument transfers ownership into the callee (source marked moved). By-reference parameters and TypeVar-typed arguments are excluded.
+In a closure/fn-pointer call `f(args)`, each by-value argument whose static type is a concrete move-type (excluding a bare TypeVar arg, whose move-ness is unknown at the generic call site, and excluding args bound to a Ref/MutRef parameter) is marked moved at its source place after lowering (`mark_moved_expr`) — ownership transfers into the callee, suppressing the caller's scope-exit drop for that source (otherwise a moved `String` would be dropped by both callee and caller).
 
-_Source: `src/compiler/sema_expr.cpp#L2979-L2997`_
-
-
-### `expr.call.callable-arity-and-args` — Closure/fn-ptr call arity and argument typing
-
-A closure/fn-ptr call requires argument count to equal the callable's parameter count; each argument is coerced to its parameter type and must be type-compatible; the result type is the callable's return type, or `()` (void) if absent.
-
-_Source: `src/compiler/sema_expr.cpp#L2928-L2978`, `src/compiler/sema_expr.cpp#L2998-L3000`_
+_Source: `src/compiler/sema_expr.cpp#L3012-L3030`_
 
 
-### `expr.call.callable-autoderef-ref` — Call auto-derefs a reference to a callable
+### `expr.call.callable-arity-and-args` — Closure/fn-ptr call arity and per-argument checks
 
-`x(args)` where `x: &fn(..)` / `&mut fn(..)` / `&F` (reference to a callable or Fn-bounded param) auto-dereferences the reference to load the inner fn-pointer/closure before calling.
+A closure/fn-pointer call's argument count must equal the callable type's parameter count (diagnostic error otherwise, naming the call kind: "closure call" / "fn-ptr call"); when the count matches, each argument is coerced to its parameter type (`coerce_arg_to_param`, CFLAG_MINIMAL) then compat/variance-checked (`types_compatible`, `check_variance`), each producing its own diagnostic on mismatch independent of the arity check.
 
-_Source: `src/compiler/sema_expr.cpp#L2864-L2880`, `src/compiler/sema_expr.cpp#L2892-L2904`_
+_Source: `src/compiler/sema_expr.cpp#L2961-L2988`_
+
+
+### `expr.call.callable-autoderef-ref` — Calling through a reference to a callable auto-derefs one layer
+
+A callee of type `&fn(…)->R` / `&mut fn(…)` / a reference to a Closure (or `&F`/`&mut F` for an Fn-bounded type-param F) auto-derefs through exactly one reference layer to expose the callable before invoking it: the emitted call wraps the var_ref in a Deref (loading the fn-ptr/closure value out of the reference slot) ahead of the FnPtrCall/ClosureCall.
+
+_Source: `src/compiler/sema_expr.cpp#L2897-L2913`, `src/compiler/sema_expr.cpp#L2925-L2937`, `src/compiler/sema_expr.cpp#L3003-L3010`_
 
 
 ### `expr.call.callable-field` — Call of a callable struct field
@@ -1497,13 +1679,11 @@ If `s.m(args)` finds no method `m` but struct `s` has a field named `m` whose ty
 _Source: `src/compiler/sema_expr.cpp#L8701-L8728`_
 
 
-### `expr.call.callable-resolution` — Callee resolution to closure or fn-pointer
+### `expr.call.callable-resolution` — Which local-name calls are closure/fn-ptr calls (not named-fn calls)
 
-A call `x(args)` treats `x` as callable when its type is a Closure or fn-value kind; `Box<dyn Fn*>` (`Box<Closure>`) is unwrapped to its inner Closure, and an Fn-bounded generic type-param `F` is treated as a closure with the bound's `fn_params`/`fn_ret` signature.
+`callee(args)` where `callee` names a local binding is treated as a closure/fn-pointer call (not a resolved named-function call) when the binding's type is: Closure; any fn-value kind; `Box<Closure>` (unwrapped to the inner Closure, flagged callee_is_box_closure — the box's value is the heap pointer to the {fn_ptr,env_ptr} pair); a `Ref`/`MutRef` to a callable (unwrapped, flagged callee_is_ref_fn); or a type-parameter bounded by an Fn/FnMut/FnOnce-family bound (synthesizes a Closure type from the bound's fn_params/fn_ret, flagged is_fn_bound), including through exactly one layer of `&`/`&mut` to that bounded type-param.
 
-**Divergence.** A10: dyn Fn* collapses to the bare Closure type.
-
-_Source: `src/compiler/sema_expr.cpp#L2845-L2926`_
+_Source: `src/compiler/sema_expr.cpp#L2878-L2960`_
 
 
 ### `expr.call.closure-hint-from-fn-bound` — Closure param/return types inferred from callee Fn-family bound
@@ -1520,11 +1700,11 @@ A call/macro-call node is divergent if its callee is `panic` or if any resolved 
 _Source: `src/compiler/sema.cpp#L1702-L1722`_
 
 
-### `expr.call.divergent-never-returning` — Calls to `-> !` functions diverge
+### `expr.call.divergent-never-returning` — Direct call to a `-> !` function is a diverging expression
 
-A direct or macro call to a Never-returning function (`fn foo() -> !`, including panic/abort/exit) is a divergent syntactic position; this generalises away special-casing of `panic` once the Never type exists.
+A direct call or macro-call whose resolved callee has return type `!` (Never) — including the builtins `panic`/`abort`/`exit` and any user-declared `fn foo() -> !` — is treated as diverging at that syntactic position, generalizing the historical special-cased callee-name checks.
 
-_Source: `src/compiler/sema_impl.hpp#L3791-L3796`_
+_Source: `src/compiler/sema_impl.hpp#L3817-L3822`_
 
 
 ### `expr.call.intlit-fit-aggregate` — Integer-literal elements of array/tuple args must fit narrowed element types
@@ -1589,16 +1769,16 @@ _Source: `src/compiler/sema_expr.cpp#L3216`, `src/compiler/sema_expr.cpp#L3406-L
 
 In an associated/static call, turbofish type arguments attach to the receiver type and precede the `::method` segment: `Recv::<T>::method(args)`.
 
-**Divergence.** Rust places the turbofish after the method for trait/inherent fns (e.g. T::method::<U>); Logos surface form puts it before the method name on the type path.
+**Divergence.** Rust places the turbofish after the method for trait/inherent fns (e.g. `T::method::<U>);` Logos surface form puts it before the method name on the type path.
 
 _Source: `src/compiler/sema_render.cpp#L203-L241`_
 
 
-### `expr.call.tuple-struct-ctor` — Tuple-struct constructor call
+### `expr.call.tuple-struct-ctor` — Tuple-struct name called as a function builds positional-field literal
 
-`Foo(a0, .., a_{n-1})` where Foo is a tuple struct constructs a struct literal with positional fields named "0".."n-1"; argument count must equal the field count; for a generic tuple struct the struct type-args are inferred by unifying each argument type against the declared field type.
+Calling a tuple-struct's name as a function, `Foo(a, b, …)`, constructs Foo as a struct literal with positional fields named "0","1",…. Arg count must equal declared field count (diagnostic otherwise). Each arg is widened (`widen_int_expr`) and compat/variance-checked (`types_compatible`, `check_variance`) against the (possibly type-substituted) declared field type. For a generic tuple struct, the struct's type-args are inferred by unifying each field's declared type against the corresponding arg's expression type (`unify_types`); a type-param left unresolved defaults to a fresh TypeVar in the literal's type.
 
-_Source: `src/compiler/sema_expr.cpp#L2783-L2842`_
+_Source: `src/compiler/sema_expr.cpp#L2816-L2876`_
 
 
 ### `expr.call.turbofish-free-fn` — Free-function turbofish placement
@@ -1633,7 +1813,7 @@ _Source: `src/compiler/sema_expr.cpp#L3217-L3218`, `src/compiler/sema_expr.cpp#L
 
 ### `expr.static-call.arg-count-and-type-check` — Static call arity and per-argument type checking
 
-A non-generic static call checks argument count against the parameter list (error on mismatch) and coerces then type-checks each argument against its parameter (error on incompatibility). By-value move-typed args (and owning `Box<dyn>`) are marked moved so scope-end drops do not fire on transferred locals.
+A non-generic static call checks argument count against the parameter list (error on mismatch) and coerces then type-checks each argument against its parameter (error on incompatibility). By-value move-typed args (and owning `Box<dyn>)` are marked moved so scope-end drops do not fire on transferred locals.
 
 _Source: `src/compiler/sema_expr.cpp#L13621-L13643`_
 
@@ -1730,13 +1910,13 @@ A method call must supply exactly `param_count - 1` explicit arguments (excludin
 _Source: `src/compiler/sema_expr.cpp#L7492-L7497`, `src/compiler/sema_expr.cpp#L8867-L8871`_
 
 
-### `expr.method.array-len-builtin` — len() on a fixed array is a compile-time constant
+### `expr.method.array-len-builtin` — Fixed-array `.len()` is a compile-time built-in
 
-`a.len()` where `a` has fixed-array type `[T; N]` evaluates to the compile-time size `N` as an `i64` literal; no runtime call is emitted.
+`a.len()` where `a` has raw fixed-size array type `[T; N]` is a built-in: it lowers directly to the compile-time constant `N` as an `i64` literal; no runtime call is emitted.
 
-**Divergence.** Result type is i64 (Logos stdlib uses i64 for lengths), not usize as in Rust.
+**Divergence.** Return type is `i64` (Logos stdlib uses i64 for lengths throughout), not `usize` as in Rust's `[T; N]::len() -> usize`.
 
-_Source: `src/compiler/sema_expr.cpp#L7280-L7284`_
+_Source: `src/compiler/sema_expr.cpp#L7280-L7284`, `src/compiler/sema_expr.cpp#L7323-L7331`_
 
 
 ### `expr.method.auto-ref-receiver` — Primitive/value receiver is auto-referenced for &self
@@ -1753,6 +1933,13 @@ If the resolved method's first formal parameter is `&Self`/`&mut Self` (or `*con
 **Related.** `expr.method.autoref-ladder`
 
 _Source: `src/compiler/sema_expr.cpp#L8283-L8294`, `src/compiler/sema_expr.cpp#L8303-L8324`, `src/compiler/sema_expr.cpp#L8581-L8589`_
+
+
+### `expr.method.autoderef-doubleref-peel` — Depth-N `&&T` receiver autoderef before method resolution
+
+Before method resolution, a receiver whose type is reference-like with a reference-like pointee (e.g. `&&T`) has its extra outer reference layers peeled via explicit deref, one layer per iteration, until a single reference (or non-reference) type remains: `r.m()` for `r: &&T` is equivalent to `(*r).m()`. Raw pointers are excluded from this peeling (no binding-mode role).
+
+_Source: `src/compiler/sema_expr.cpp#L7162-L7173`_
 
 
 ### `expr.method.autoderef-lowest-priority` — By-value-self via auto-deref is lowest dispatch priority
@@ -1789,11 +1976,32 @@ If the receiver is a struct with no direct method named `m` (no candidate keyed 
 _Source: `src/compiler/sema_expr.cpp#L7203-L7238`_
 
 
+### `expr.method.deref-chain-autoderef` — Method resolution autoderef through user Deref impl
+
+Method resolution on a struct receiver with no direct method (`<ConcreteName>__<method>` nor `<BaseName>__<method>`) falls back to the receiver type's `Deref` impl: the receiver is stepped through one Deref application and the direct-method probe retried, bounded to at most 16 iterations. A method defined directly on the outer type always wins over a Deref-target method.
+
+_Source: `src/compiler/sema_expr.cpp#L7205-L7211`, `src/compiler/sema_expr.cpp#L7246-L7281`_
+
+
 ### `expr.method.deref-step-prefers-mut` — Per-step DerefMut chosen when target method needs &mut self
 
 At each autoderef step, if the Deref target has a candidate method `m` whose first parameter is `&mut Self` and the receiver type implements DerefMut, the mutable DerefMut step is taken so the resulting receiver is a mutable place (`&mut Target`) rather than the shared `&Target` an immutable Deref would yield. Falls back to Deref when no DerefMut impl exists.
 
 _Source: `src/compiler/sema_expr.cpp#L7170-L7202`, `src/compiler/sema_expr.cpp#L7234-L7237`_
+
+
+### `expr.method.derefmut-step-selection` — DerefMut-aware step selection during deref-chain method resolution
+
+During deref-chain method resolution, before committing a step the resolver peeks the Deref target type: if it exposes a candidate method of the wanted name whose first formal parameter is `&mut Self`, the step is taken via `DerefMut` (not plain `Deref`) so the resulting receiver is a mutable place, preventing a mutation-through-shared-borrow unsoundness; if the receiver type has no `DerefMut` impl the step transparently falls back to `Deref`.
+
+_Source: `src/compiler/sema_expr.cpp#L7213-L7245`, `src/compiler/sema_expr.cpp#L7277-L7280`_
+
+
+### `expr.method.dispatch-order` — Method-call resolution stage order
+
+After receiver autoderef and turbofish parsing, `recv.method(args)` resolution is attempted, in order, against: (1) schema construct/bind methods, (2) user tuple-impl methods, (3) slice built-ins, (4) fixed-array `.len()` built-in, (5) DstRef-typed impl methods, (6) raw-pointer arithmetic built-ins, (7) `*mut`/`*const dyn Trait` (peeled to `&dyn Trait` dispatch), (8) `&dyn Trait` vtable dispatch, (9) tagged-union tier-1 dispatch, (10) bounded-TypeVar / AssocType-projection trait-bound dispatch. The first matching stage wins.
+
+_Source: `src/compiler/sema_expr.cpp#L7310-L7414`_
 
 
 ### `expr.method.dyn-vtable-dispatch` — Method call on a trait-object receiver dispatches via vtable
@@ -1836,6 +2044,13 @@ _Source: `src/compiler/sema_expr.cpp#L8729-L8730`_
 If no method resolves for a primitive/non-struct receiver, it is a compile error 'receiver is not a struct'. Exception: in metaprog mode, an `<error>`-typed receiver (or `&`/`*` to an `<error>` pointee) silently propagates `<error>` without diagnostic.
 
 _Source: `src/compiler/sema_expr.cpp#L8336-L8349`_
+
+
+### `expr.method.ptr-to-dyn-deref-dispatch` — Method call through raw pointer to trait object
+
+A method call through a raw pointer to a trait object (`*mut dyn Trait` / `*const dyn Trait`) requires an enclosing `unsafe` context; the pointer is retyped to its pointee `TraitObject` and dispatched through the same vtable-call path used for `&dyn Trait`.
+
+_Source: `src/compiler/sema_expr.cpp#L7348-L7361`_
 
 
 ### `expr.method.pub-access-check` — Method visibility enforced at call site
@@ -1902,9 +2117,30 @@ _Source: `src/compiler/mlir_gen_expr.cpp#L2683-L2702`_
 
 When a receiver's type renders as `&[u8]` (the representation of `str`) and no method is found under that name, methods registered under `str__<method>` are tried as a fallback.
 
-**Uncertainty.** str is modeled as `Slice<u8>`/&[u8]; alias is a representation detail surfaced as a resolution rule.
+**Uncertainty.** str is modeled as `Slice<u8>/&[u8];` alias is a representation detail surfaced as a resolution rule.
 
 _Source: `src/compiler/sema_expr.cpp#L8186-L8195`_
+
+
+### `expr.method.tuple-generic-fallback` — Generic tuple method fallback + type-param substitution
+
+If no concrete overload is registered under a tuple-method sentinel key, a generic function registered under the same key is used, substituting the generic method's type-params 1..n with the tuple's element types in order (any type-param beyond the tuple's arity substitutes to the error type).
+
+_Source: `src/compiler/sema_expr.cpp#L7112-L7114`, `src/compiler/sema_expr.cpp#L7138-L7150`_
+
+
+### `expr.method.tuple-receiver-shape-match` — Tuple method receiver shape trial (Self / &Self / &mut Self)
+
+For each tuple-method sentinel key, resolution tries the receiver in three shapes in order — by-value `Self`, `&Self`, `&mut Self` — matching the first whose full parameter signature (receiver shape + argument types) is registered; the receiver expression is then coerced (materialize-ref or deref, as needed) to the matched formal receiver shape.
+
+_Source: `src/compiler/sema_expr.cpp#L7100-L7133`_
+
+
+### `expr.method.tuple-sentinel-dispatch` — Tuple receiver method dispatch via sentinel key
+
+A method call `recv.method(args)` whose receiver type is a tuple `(T1,...,Tn)` (or `&`/`&mut` thereof) resolves the callee by probing a synthesized sentinel function name, in order: (1) the concrete-element key `$tuple$<n>$<T1>$<T2>...__<method>` and (2) the arity-only blanket key `$tuple$<n>__<method>`. This enables `impl Trait for (A,B,...)` (concrete) and blanket tuple-trait impls to provide methods on tuple values.
+
+_Source: `src/compiler/sema_expr.cpp#L7082-L7095`_
 
 
 ### `expr.method.turbofish-bypasses-inference` — Method-level turbofish supplies explicit type args
@@ -1919,6 +2155,13 @@ _Source: `src/compiler/sema_expr.cpp#L7241-L7265`, `src/compiler/sema_expr.cpp#L
 For a generic method `r.m::<A,..>(args)`, the explicit turbofish type arguments are used verbatim (positionally); missing trailing args are errors/placeholders. With no turbofish, method-level type args are inferred from arguments with seed `Self = typeof(recv)`; failure to infer is a compile error.
 
 _Source: `src/compiler/sema_expr.cpp#L8265-L8282`_
+
+
+### `expr.method.turbofish-type-args` — Explicit method-level turbofish type arguments
+
+A method call may supply explicit type arguments via turbofish: `recv.method::<T1,T2,...>(args)`. When present (`user_type_args` non-empty), these are used as the method's type-param substitution and downstream type-param inference from argument types is bypassed for that call.
+
+_Source: `src/compiler/sema_expr.cpp#L7284-L7308`_
 
 
 ### `expr.method.unsafe-context` — Calling an unsafe method requires an unsafe context
@@ -1949,13 +2192,152 @@ _Source: `src/compiler/sema_expr.cpp#L8735-L8736`_
 _Source: `src/compiler/sema_expr.cpp#L7139-L7160`_
 
 
+### `expr.method.vec-get-move-reject` — Vec::get rejects by-value read of a move element
+
+`v.get(i)` on `Vec<T>` (or `&Vec<T>` / `&mut Vec<T>`) is rejected when `T` is a move (non-Copy) type: returning the element by value out of a shared `&self` read would alias the Vec's still-owned storage, so both the returned binding's drop and the Vec's element drop would free the same buffer (double-free). Copy element types are unaffected. Diagnostic suggests `.borrow(i)` or `.remove(..)`/`.pop()`.
+
+_Source: `src/compiler/sema_expr.cpp#L7175-L7203`_
+
+
 ## Method calls (method-call)
+
+### `expr.method-call.arg-count-check` — Explicit method-call argument count must match the method's declared arity
+
+The number of explicit call arguments must equal `fi.param_types.size() - 1` (excluding the implicit `self` slot); a mismatch is an error `method call '{}': expected {} args, got {}` and the per-argument checks below are skipped.
+
+_Source: `src/compiler/sema_expr.cpp#L8914-L8919`_
+
+
+### `expr.method-call.autoref-ptr-self-param` — Method call auto-addresses the receiver when the resolved method expects `*const Self`/`*mut Self`
+
+If the resolved method's formal parameter 0 is a raw pointer type (`*const Self`/`*mut Self`) and the receiver's type is neither ref-like nor already a pointer, the receiver is implicitly wrapped in the matching raw-pointer form.
+
+_Source: `src/compiler/sema_expr.cpp#L8362-L8370`_
+
+
+### `expr.method-call.autoref-receiver` — Implicit receiver auto-ref for by-reference self parameters
+
+If the resolved method's self (first) formal parameter type is Ref or MutRef, and the receiver expression's own type is not already reference-like and not Ptr, the receiver is implicitly wrapped in an address-of expression of matching mutability before the call is constructed.
+
+_Source: `src/compiler/sema_expr.cpp#L7743-L7758`, `src/compiler/sema_expr.cpp#L8108-L8117`_
+
+
+### `expr.method-call.autoref-receiver-ptr` — Implicit receiver auto-ref to raw pointer for pointer self parameters
+
+If the resolved method's self (first) formal parameter type is Ptr, and the receiver expression's own type is neither reference-like nor already Ptr, the receiver is implicitly wrapped into a pointer (of matching mutability) before the call is constructed.
+
+**Uncertainty.** Only observed on the generic-enum method-dispatch path within this slice; scope of self-by-raw-pointer methods (declaration site) is not shown here.
+
+_Source: `src/compiler/sema_expr.cpp#L8118-L8126`_
+
+
+### `expr.method-call.autoref-self-param` — Method call auto-refs the receiver when the resolved method expects `&Self`/`&mut Self`
+
+If the resolved method's formal parameter 0 is `&Self`/`&mut Self` and the receiver expression's type is not already ref-like or a raw pointer, the receiver is implicitly wrapped in `&`/`&mut` (materialized as an address-of-temp) to match, matching the formal's mutability.
+
+_Source: `src/compiler/sema_expr.cpp#L8330-L8342`, `src/compiler/sema_expr.cpp#L8350-L8361`, `src/compiler/sema_expr.cpp#L8628-L8636`_
+
+
+### `expr.method-call.autoref-value-receiver` — By-value receiver auto-referenced when the method expects &Self/&mut Self
+
+If the resolved method's (substituted) first formal type is ref-like and the actual receiver expression's static type is a by-value, non-ref, non-`Ptr` type, the receiver is auto-referenced (mutability taken from the formal) before the call is built — covering method-chain temporaries such as `iter_over_slice(&v).find(p)`. On the plain (non-`finish_generic_call`) path this auto-ref is applied only when the method has a genuine method-level type param, so struct-only-generic methods with a separate downstream auto-ref path (e.g. `Arc::deref_mut`) are left alone, avoiding a caller-package mono re-emit that would expose the callee's private fields.
+
+_Source: `src/compiler/sema_expr.cpp#L9068-L9084`, `src/compiler/sema_expr.cpp#L9164-L9178`_
+
+
+### `expr.method-call.closure-arg-hint` — Contextual closure-argument typing from resolved method formal
+
+When lowering a method call argument at a position whose resolved (receiver-substituted) formal parameter type is a function/closure kind, that formal type is used as a contextual hint for an untyped closure argument literal at that position; if the formal is instead an unresolved type-variable carrying an Fn-family trait bound, a closure-shape hint is synthesized from the bound's function signature so the closure's parameter types can be inferred.
+
+_Source: `src/compiler/sema_expr.cpp#L7985-L7996`, `src/compiler/sema_expr.cpp#L8000-L8026`_
+
+
+### `expr.method-call.lowering-static-dispatch` — Non-generic-route method calls lower to a statically-dispatched EMethodCall
+
+On the plain (non-`finish_generic_call`) path, a resolved method call lowers to an `EMethodCall` node carrying the receiver, method name, `resolved_symbol` (the method's `symbol_name` if set, else the mangled name), inferred `type_args`, coerced args, and the (struct/enum + lifetime substituted) return type; `vtable_index` is set to `-1`, marking it as a statically resolved (non-virtual) call.
+
+_Source: `src/compiler/sema_expr.cpp#L9179-L9190`_
+
+
+### `expr.method-call.non-struct-receiver-diagnostic` — Method call on a non-struct receiver with no resolvable method is a diagnostic
+
+If a method-call receiver is a primitive/ref/pointer type and no method-info is found through any lookup path (direct, ref-mangled, generic, deref, blanket), sema reports "method call: receiver is not a struct (got `<type>)"` — suppressed only when in metaprog-discovery mode and the receiver (or, for ref/ptr receivers, its pointee) is already the error type, to avoid cascading diagnostics.
+
+_Source: `src/compiler/sema_expr.cpp#L8383-L8396`_
+
+
+### `expr.method-call.pub-access-check` — Resolved method visibility is checked at the call site
+
+Once a method `fi` is resolved, its `pub`/package/module-only visibility is enforced against the calling context via `check_pub_access`, regardless of which resolution path (direct, base-name fallback, blanket impl) produced `fi`.
+
+_Source: `src/compiler/sema_expr.cpp#L8780-L8781`_
+
+
+### `expr.method-call.raw-ptr-requires-unsafe` — Method call through a raw-pointer receiver requires unsafe
+
+If the receiver's static type is `Ptr`, calling any method through it requires an enclosing `unsafe` context (`method call through raw pointer requires unsafe context`); the pointee type is then used in place of the pointer type for further struct/type-arg resolution.
+
+_Source: `src/compiler/sema_expr.cpp#L8789-L8796`_
+
 
 ### `expr.method-call.turbofish-after-name` — Method-call turbofish placement
 
 A method call is `receiver.method(args)`; explicit type arguments are turbofish placed after the method name: `receiver.method::<T>(args)`.
 
 _Source: `src/compiler/sema_render.cpp#L243-L280`_
+
+
+### `expr.method-call.unsafe-method-requires-unsafe` — Calling an unsafe method requires an unsafe context
+
+If the resolved method is `unsafe` and the call site is not inside an `unsafe` block/fn, it is an error: `call to unsafe method '{}' requires unsafe context`.
+
+_Source: `src/compiler/sema_expr.cpp#L8782-L8783`_
+
+
+### `expr.method-call.unsafe-requires-context` — Calling an unsafe method requires an unsafe context
+
+A method-call resolved to a function-info marked `is_unsafe` is rejected unless the call site is lexically inside an `unsafe` block/context.
+
+_Source: `src/compiler/sema_expr.cpp#L8306-L8308`_
+
+
+### `expr.method-call.unsafe-requires-unsafe-context` — Unsafe generic-enum method call requires unsafe context
+
+Calling a method resolved against a generic enum receiver (e.g. `Option<T>`) that is declared unsafe is a compile error ("call to unsafe method '{name}' requires unsafe context") unless the call site is within an unsafe context.
+
+_Source: `src/compiler/sema_expr.cpp#L8072-L8075`_
+
+
+## Method dispatch
+
+### `expr.method-dispatch.callable-field-call` — Call syntax on a callable struct field with no matching method
+
+If `recv.method_name(args)` matches no method (including blanket impls) but the receiver's struct type has a field named `method_name` whose type is a fn-pointer-kind or `Closure`, the call is lowered as a field-read of that field followed by an `fn_ptr_call` (fn-pointer field) or `closure_call` (closure field) with the field's closure return type, rather than reporting a missing-method error.
+
+**Divergence.** Rust method-call syntax `recv.f(args)` never falls back to a callable field of the same name (E0599 even when a field `f: fn(..)`/`impl Fn` exists; caller must write `(recv.f)(args)`). Logos accepts the field-call form directly.
+
+_Source: `src/compiler/sema_expr.cpp#L8748-L8775`_
+
+
+### `expr.method-dispatch.generic-base-name-fallback` — Generic-struct method lookup falls back to base type name
+
+If method resolution on a struct instantiation name `Sname` (e.g. `Foo$G1$i32`) finds no candidate mangled `Sname__method`, and `Sname` contains `$`, the base name `Base` (`Foo`) is derived and `Base__method` candidates are searched: receiver (arg0) compatibility is checked (identical type, or reachable via one auto-ref/auto-ptr-deref step, or matching pointee types for pointer receivers), remaining args checked via `arg_compatible_for_dispatch`; if no exact candidate matches, `find_generic_func_for_args`/`find_generic_func` are tried on `Base__method`.
+
+_Source: `src/compiler/sema_expr.cpp#L8639-L8710`_
+
+
+### `expr.method-dispatch.no-method-diagnostic` — No-method error when method/blanket-impl/callable-field all fail
+
+If direct lookup, generic base-name fallback, blanket-impl dispatch, and the callable-field fallback all fail to resolve `recv.method_name(args)`, sema reports `method call: '{}' has no method '{}'` and synthesizes an error-typed `method_call` node so downstream passes see a well-formed (error) expression.
+
+_Source: `src/compiler/sema_expr.cpp#L8776-L8777`_
+
+
+### `expr.method-dispatch.receiver-autoref-adapt` — Base-name-fallback receiver adapted by auto-ref/auto-ptr
+
+In the base-name fallback match, a receiver whose formal is `&T`/`&mut T` and whose actual is `T` by value is accepted by auto-referencing the receiver (mutability taken from the formal); a `T` actual against a `*T`/`*mut T` formal is likewise accepted by auto-referencing; a `*T`/`*mut T` actual against a `*T`/`*mut T` formal is accepted directly whenever the pointees are equal, without an added conversion. When a match is selected this way, the receiver expression is materialized into a real reference before the call is built.
+
+_Source: `src/compiler/sema_expr.cpp#L8654-L8682`, `src/compiler/sema_expr.cpp#L8713-L8721`_
 
 
 ## Invocation
@@ -1992,15 +2374,38 @@ _Source: `tools/peg_gen/grammars/logos.peg#L2756-L2760`_
 
 ## Struct literals
 
-### `expr.struct-lit.anyval-raw-constructor` — AnyVal struct-literal constructor
+### `expr.struct-lit.alias-resolution` — struct-literal name resolves through non-generic type alias
 
-`AnyVal { raw: e }` is a valid constructor expression that yields the scalar value of `e`. The literal must contain exactly one field named `raw`; any other field set is rejected.
+If a struct-literal's name does not directly name a struct/datatype, it is looked up as a type alias with no type-params and no lifetime-params (`type Alias = Struct;`) in the current package, then in each wildcard-imported package; a generic alias is not resolved this way.
 
-**Divergence.** Logos built-in; struct-literal syntax over a scalar type
+_Source: `src/compiler/sema_expr.cpp#L9894-L9918`_
+
+
+### `expr.struct-lit.anyval-raw-constructor` — `AnyVal { raw: expr }` literal is a scalar constructor
+
+A struct-literal expression naming `AnyVal` is not a normal struct literal but a constructor for the scalar AnyVal value: it must supply exactly one field named `raw`; its value is evaluated and numerically coerced to i32. Any other field count, or a field name other than `raw`, is rejected.
+
+```logos
+AnyVal { raw: 42 }
+```
 
 **Related.** `layout.anyval.scalar-i32`
 
-_Source: `src/compiler/mlir_gen.cpp#L885-L903`_
+_Source: `src/compiler/mlir_gen.cpp#L888-L905`_
+
+
+### `expr.struct-lit.array-field-value-copy` — Array-typed struct field is copied by value from a non-literal source
+
+An array-typed struct field (`[T; N]`) is stored in-place as an inline aggregate. When such a field is initialized from a source expression that is not itself an array literal (e.g. a local array-typed variable), the source array's element data is copied byte-for-byte into the field's slot rather than storing a reference to the source.
+
+_Source: `src/compiler/mlir_gen.cpp#L1047-L1060`_
+
+
+### `expr.struct-lit.closure-field-hint-from-fn-bound` — Fn-bound field type infers closure param types
+
+When a struct field's declared type is a type-param bounded by an `Fn`-like trait, an untyped closure-literal value supplied for that field infers its parameter types from the bound during lowering of the field's initializer.
+
+_Source: `src/compiler/sema_expr.cpp#L9993-L10001`_
 
 
 ### `expr.struct-lit.duplicate-field-error` — Struct-lit may not initialize a field twice
@@ -2010,11 +2415,25 @@ Initializing the same field more than once in a struct literal is a 'duplicate f
 _Source: `src/compiler/sema_expr.cpp#L9900-L9905`, `src/compiler/sema_expr.cpp#L10077-L10082`_
 
 
+### `expr.struct-lit.dyn-auto-bound-field-coercion` — dyn-trait field coercion checks auto-trait bounds
+
+Coercing a field-init value into a declared `&dyn Trait + AutoBound` field type checks that the value satisfies the required auto-trait bound (check_dyn_auto_bounds_at_coercion) at the coercion site.
+
+_Source: `src/compiler/sema_expr.cpp#L10433-L10434`_
+
+
 ### `expr.struct-lit.dyn-auto-bounds-at-field-init` — Auto-trait bounds checked at dyn field-init coercion
 
 When a field value is coerced to a field type that is a dyn-trait with auto-trait bounds (e.g. `&dyn Trait + Send`), the value's type must satisfy those auto-trait bounds.
 
 _Source: `src/compiler/sema_expr.cpp#L10098-L10101`_
+
+
+### `expr.struct-lit.enum-field-hint-pins-typeargs` — concrete-enum field type hints payload-less enum literal value
+
+When a struct field's declared type is a concrete (type-args resolved) generic Enum, that type is set as the expected-type hint while lowering the field's initializer, and after lowering, a bare/payload-less enum-literal value for that field is retyped against the field's declared enum type (so it takes the heap-allocated representation matching the field's slot instead of an inline-discriminant representation).
+
+_Source: `src/compiler/sema_expr.cpp#L9968-L9979`, `src/compiler/sema_expr.cpp#L9990-L10005`_
 
 
 ### `expr.struct-lit.explicit-type-args-seed-inference` — Explicit type args seed struct-lit inference
@@ -2038,11 +2457,18 @@ A struct literal is `Name { f: v, ... }`; fields are either `name: value` (FIELD
 _Source: `src/compiler/sema_render.cpp#L346-L385`_
 
 
+### `expr.struct-lit.field-shorthand` — field-init shorthand
+
+`Struct { x }` (a FIELD_SHORTHAND field-init) is equivalent to `Struct { x: x }`: it looks up `x` as an in-scope variable; an undefined `x` is a compile error.
+
+_Source: `src/compiler/sema_expr.cpp#L9981-L9989`_
+
+
 ### `expr.struct-lit.field-type-mismatch-error` — Struct-lit field value must be compatible with declared field type
 
-Each initialized field's value type must be compatible with the field's declared type (after substituting struct type-params into the declared type), else a 'expected X, got Y' error; comparison is deferred to mono when the substituted field type still contains a TypeVar/ConstVar/CfgSlotType/AssocType. A closure value coercible to the declared fn-ptr type is accepted.
+Each struct-literal field-init value's type must be compatible (`types_compatible`) with the field's declared type after substituting the struct's type-params into it; otherwise it is a compile error reporting expected vs. got types. A closure value coercible to a declared fn-ptr field type is accepted. When the substituted field type still contains a TypeVar/ConstVar/CfgSlotType/AssocType, the comparison is deferred to mono-time substitution rather than reported at sema.
 
-_Source: `src/compiler/sema_expr.cpp#L9906-L9953`, `src/compiler/sema_expr.cpp#L9916-L9921`, `src/compiler/sema_expr.cpp#L9926-L9944`_
+_Source: `src/compiler/sema_expr.cpp#L9906-L9953`, `src/compiler/sema_expr.cpp#L9916-L9921`, `src/compiler/sema_expr.cpp#L9926-L9944`, `src/compiler/sema_expr.cpp#L10278-L10286`, `src/compiler/sema_expr.cpp#L10417-L10424`_
 
 
 ### `expr.struct-lit.field-value-moved` — Move-typed field values are consumed by the literal
@@ -2052,11 +2478,11 @@ When constructing a struct literal, each field value whose type is a move type i
 _Source: `src/compiler/sema_expr.cpp#L10023-L10033`, `src/compiler/sema_expr.cpp#L10223-L10227`_
 
 
-### `expr.struct-lit.field-variance-check` — Variance check at struct-lit field initialization
+### `expr.struct-lit.field-variance-check` — Struct-literal field-init coercion is variance-checked, permissively
 
-Each field initialization is variance-checked between the value type and the declared field type in permissive mode (the struct's lifetime args are bound at the construction site, so elided source regions are filled by the caller's region inference); the check is skipped when the field type still contains a type-param.
+Each field-init's value type is checked against the declared field type under variance rules (check_variance) in permissive mode: the struct's lifetime-args are bound at the construction (struct-literal) site rather than at function scope, so the caller's region inference fills elided source regions. The check is skipped when the declared field type still contains an unresolved type-param (unification handles those).
 
-_Source: `src/compiler/sema_expr.cpp#L9954-L9961`, `src/compiler/sema_expr.cpp#L10092-L10097`_
+_Source: `src/compiler/sema_expr.cpp#L9954-L9961`, `src/compiler/sema_expr.cpp#L10092-L10097`, `src/compiler/sema_expr.cpp#L10291-L10294`, `src/compiler/sema_expr.cpp#L10427-L10430`_
 
 
 ### `expr.struct-lit.forms` — Struct literal forms
@@ -2078,6 +2504,29 @@ _Source: `src/compiler/sema_expr.cpp#L9715-L9719`, `src/compiler/sema_expr.cpp#L
 A struct literal may end with a functional-update base `S { ..., ..base }`. The `base` expression must have struct type S (same struct name); every field not explicitly initialized is read from base via field-read, with the struct's type-params substituted into each carried field's declared type (generic path). A base of differing struct type is an error.
 
 _Source: `src/compiler/sema_expr.cpp#L9970-L10013`, `src/compiler/sema_expr.cpp#L10171-L10213`, `src/compiler/sema_render.cpp#L386-L391`_
+
+
+### `expr.struct-lit.functional-update-base-type-check` — `..base` must have the literal's own struct type
+
+`..base` in a struct-literal requires `base`'s type be the same struct (Struct or ZonedStruct kind, matching struct_name) as the struct being constructed; a mismatch is a compile error naming both the expected and actual type.
+
+_Source: `src/compiler/sema_expr.cpp#L10308-L10322`, `src/compiler/sema_expr.cpp#L10513-L10523`_
+
+
+### `expr.struct-lit.functional-update-generic` — `..base` on a generic struct-literal fills unset fields from base
+
+For a generic struct-literal, `Struct { .., ..base }` fills every field not explicitly field-init'd by a field_read off `base`, with the carried field's declared type substituted using the literal's resolved struct type-args.
+
+_Source: `src/compiler/sema_expr.cpp#L10308-L10346`_
+
+
+### `expr.struct-lit.functional-update-nongeneric` — `..base` on a non-generic struct-literal fills unset fields
+
+For a non-generic struct-literal, `..base` fills every field not explicitly initialized by a field_read off `base`, reusing `base`'s VarRef when it is a simple variable reference, otherwise re-lowering the base expression for each remaining field (which may evaluate a non-trivial `base` expression more than once).
+
+**Uncertainty.** Re-lowering a complex (non-VarRef) base expression once per remaining field means a side-effecting base expression executes multiple times; comment at L10539 flags this as accepted/rare rather than fixed.
+
+_Source: `src/compiler/sema_expr.cpp#L10524-L10546`_
 
 
 ### `expr.struct-lit.infer-nested-typevar` — Recursive inference of nested struct type-params
@@ -2108,6 +2557,13 @@ For a field declared as a pointer/reference to type-param T (`*T`, `&T`, `&mut T
 _Source: `src/compiler/sema_expr.cpp#L9806-L9818`_
 
 
+### `expr.struct-lit.intlit-field-fits` — integer-literal field value must fit declared field width
+
+An integer-literal field-init value (directly, or as an element of an array/tuple field value, recursively through nested arrays/tuples) must fit within the declared field's integer type; a value that does not fit is a compile error naming the field/element path and the offending type.
+
+_Source: `src/compiler/sema_expr.cpp#L10295-L10300`, `src/compiler/sema_expr.cpp#L10441-L10501`_
+
+
 ### `expr.struct-lit.intlit-fits-field` — IntLit field value must fit the declared field type
 
 An integer-literal field value must fit within the declared field type's range; otherwise a 'value V does not fit in T' error. The same fit-check applies element-wise to array-literal, tuple-literal, and nested array/tuple-literal field values against the corresponding narrow element types.
@@ -2115,11 +2571,18 @@ An integer-literal field value must fit within the declared field type's range; 
 _Source: `src/compiler/sema_expr.cpp#L9962-L9967`, `src/compiler/sema_expr.cpp#L10102-L10168`_
 
 
-### `expr.struct-lit.missing-field-error` — All non-union struct fields must be initialized
+### `expr.struct-lit.missing-field-error` — Non-union struct literal must initialize every field
 
-Every field of a non-union struct must be initialized (directly, via variadic expansion, or via `..base`); an uninitialized field is a 'field not initialized' error.
+Unless the struct-literal targets a union (union literals initialize exactly one field), every declared field must be initialized — by an explicit field initializer, by variadic-field expansion (`name_i` entries filling a variadic field `name`), or from `..base` — otherwise it is a compile error: "struct literal `'&lt;struct&gt;'`: field `'&lt;name&gt;'` not initialized".
 
-_Source: `src/compiler/sema_expr.cpp#L10015-L10021`, `src/compiler/sema_expr.cpp#L10215-L10221`_
+_Source: `src/compiler/sema_expr.cpp#L10015-L10021`, `src/compiler/sema_expr.cpp#L10215-L10221`, `src/compiler/sema_expr.cpp#L10350-L10354`, `src/compiler/sema_expr.cpp#L10548-L10554`_
+
+
+### `expr.struct-lit.name-lookup-struct-or-datatype` — struct-literal name resolves to struct or zoned datatype
+
+A struct-literal's name is looked up first as a plain struct (find_struct_by_name), then, if not found, as a zoned datatype (find_datatype_by_name); resolution via the latter marks the literal as a zoned-datatype literal for the rest of lowering.
+
+_Source: `src/compiler/sema_expr.cpp#L9885-L9891`_
 
 
 ### `expr.struct-lit.outlives-check` — Struct `where 'a: 'b` outlives constraints enforced at literal
@@ -2129,11 +2592,39 @@ A struct literal must satisfy the struct's declared lifetime outlives constraint
 _Source: `src/compiler/sema_expr.cpp#L10035-L10041`, `src/compiler/sema_expr.cpp#L10232-L10238`_
 
 
+### `expr.struct-lit.private-field-cross-package-forbidden` — cross-package construction requires all fields pub
+
+Constructing a struct literal from a package other than the struct's declaring package is a compile error if the struct has any non-pub field.
+
+_Source: `src/compiler/sema_expr.cpp#L9948-L9956`_
+
+
+### `expr.struct-lit.result-type-package-qualified` — non-generic struct-literal result type carries resolving package
+
+The result type of a non-generic struct-literal carries the package name that resolved the struct (resolve_struct_pkg_) alongside the struct name.
+
+_Source: `src/compiler/sema_expr.cpp#L10576`_
+
+
+### `expr.struct-lit.self-resolves-to-impl-target` — `Self { .. }` resolves to impl target struct
+
+A struct-literal named `Self` resolves to the struct/zoned-datatype bound to the literal key "Self" in the enclosing impl's type-param scope (current_type_params_), provided that binding's kind is Struct or ZonedStruct; the resolved name replaces "Self" for the remainder of lowering.
+
+_Source: `src/compiler/sema_expr.cpp#L9874-L9882`_
+
+
 ### `expr.struct-lit.uninferred-typevar-fallback-hint` — Fallback type-param resolution from hint then error
 
 Any struct type-param not inferred from fields is resolved from the expected-type hint if available; a param still unresolved after the hint becomes an error type (poisoning the instantiation). The hint struct type also supplies type-args positionally and variadic params consume the hint's trailing type-args.
 
 _Source: `src/compiler/sema_expr.cpp#L9825-L9856`_
+
+
+### `expr.struct-lit.union-single-active-field` — union literal initializes exactly one field
+
+A union-typed literal (`U { .. }`) must supply exactly one field-init (FIELD_INIT or FIELD_SHORTHAND); zero or more-than-one inits is a compile error naming the observed count.
+
+_Source: `src/compiler/sema_expr.cpp#L9931-L9945`_
 
 
 ### `expr.struct-lit.union-single-field` — Union literals initialize exactly one field; missing-field check skipped
@@ -2152,6 +2643,20 @@ A field name in a struct literal that is neither a field of the effective struct
 _Source: `src/compiler/sema_expr.cpp#L9878-L9899`, `src/compiler/sema_expr.cpp#L10049-L10076`_
 
 
+### `expr.struct-lit.unknown-or-duplicate-field-error` — unknown/duplicate field-init is an error
+
+A struct-literal field-init key that matches no declared field (and no variadic-prefix match) is an "unknown field" compile error; a field-init key that repeats an already-initialized field is a "duplicate field" compile error.
+
+_Source: `src/compiler/sema_expr.cpp#L10211-L10238`, `src/compiler/sema_expr.cpp#L10382-L10415`_
+
+
+### `expr.struct-lit.unknown-struct-error` — unresolved struct-literal name is an error
+
+A struct-literal whose name resolves to neither a struct/datatype nor a non-generic alias is a compile error ("unknown struct `'<name>'").`
+
+_Source: `src/compiler/sema_expr.cpp#L9921-L9924`_
+
+
 ### `expr.struct-lit.variadic-field-expansion` — Variadic struct field accepts expansion names `name_*`
 
 A variadic struct field named `name` accepts literal field names of the form `name_<suffix>`; each such expansion value is type-checked against the variadic field's type and the variadic field is marked initialized.
@@ -2159,6 +2664,15 @@ A variadic struct field named `name` accepts literal field names of the form `na
 **Divergence.** A6
 
 _Source: `src/compiler/sema_expr.cpp#L9882-L9897`, `src/compiler/sema_expr.cpp#L10052-L10074`_
+
+
+### `expr.struct-lit.variadic-field-name-convention` — variadic field accepts `name_suffix` field-init keys
+
+A declared variadic struct field named `f` matches struct-literal field-init keys of the form `f_<suffix>` (any key that starts with `f_` and is longer than `f_`); each matching field-init is type-checked against the variadic field's declared element type.
+
+**Divergence.** A6
+
+_Source: `src/compiler/sema_expr.cpp#L10104-L10106`, `src/compiler/sema_expr.cpp#L10216-L10230`, `src/compiler/sema_expr.cpp#L10388-L10407`_
 
 
 ## Constructors
@@ -2309,11 +2823,25 @@ _Source: `src/compiler/sema_expr.cpp#L12524-L12527`, `src/compiler/sema_expr.cpp
 
 ## If expressions
 
+### `expr.if.both-diverge-no-merge` — An `if`/`else` whose branches both diverge has no fall-through point
+
+If both the `then` and `else` blocks of an `if` terminate control flow (each ends in a diverging op, e.g. `return`), the `if` as a whole does not produce a merge/continuation point — no code after it in the same block is reachable through it.
+
+_Source: `src/compiler/mlir_gen_stmt.cpp#L2335-L2348`_
+
+
 ### `expr.if.branch-result-coercion` — If-expression coerces both branch values to the result type
 
 An if-expression of type T evaluates the condition then both branches; each non-diverging branch value is numerically coerced to T and stored into a shared result slot, whose value is the if-expression's result. Aggregate branch values are spilled to a stack slot so both branches store a pointer when T is pointer-represented.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L3710-L3780`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L3788-L3833`_
+
+
+### `expr.if.branch-scope-isolation` — Each `if`/`else` branch is an independent lexical scope
+
+Bindings (and their variable-classification state, e.g. dyn/tuple/struct/enum tagging) introduced inside one arm of an `if`/`else` are not visible in the sibling arm or in code after the `if`: the classification state is snapshotted before entering the branches and restored after each branch, isolating `let`s local to a branch.
+
+_Source: `src/compiler/mlir_gen_stmt.cpp#L2328-L2343`_
 
 
 ### `expr.if.branch-type-compatible` — if-expr branches must have compatible types
@@ -2334,7 +2862,7 @@ _Source: `src/compiler/sema_expr.cpp#L13901-L13906`_
 
 If a branch body diverges (e.g. `break`/`return` that already terminates the block), the if-expression omits that branch's result-store and merge branch; the merge point's predecessors simply exclude the diverging edge.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L3742-L3759`, `src/compiler/mlir_gen_expr.cpp#L3763-L3773`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L3807-L3820`, `src/compiler/mlir_gen_expr.cpp#L3824-L3834`_
 
 
 ### `expr.if.let-chain` — if let-chain
@@ -2392,7 +2920,7 @@ _Source: `tools/peg_gen/grammars/logos.peg#L2357-L2364`_
 
 An if-expression of unit type `()` still emits and evaluates both branch bodies (for their side effects such as panics/writes) and yields a synthetic unit value; the branches are not dropped despite producing no value.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L3715-L3724`, `src/compiler/mlir_gen_expr.cpp#L3775-L3779`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L3776-L3785`, `src/compiler/mlir_gen_expr.cpp#L3837-L3840`_
 
 
 ## If-let chains
@@ -2591,32 +3119,66 @@ _Source: `src/compiler/sema_stmt.cpp#L8961-L9003`_
 
 ### `expr.loop.as-expr-type` — loop expression type: ! if no break-value, () if value-less break
 
-A `loop {...}` used as an expression has type `!` (never) when no `break v` is reachable and the loop diverges, type `()` when a value-less `break` is reached, and the common break-value type when `break v` is reached.
+A `loop {...}` used as an expression has type `!` (never) when no `break v` is reachable and the loop diverges, type `()` when a value-less `break` is reached, and the common break-value type (read back via a synthesized break slot) when `break v` is reached.
 
-_Source: `src/compiler/sema_expr.cpp#L1504-L1547`_
+_Source: `src/compiler/sema_expr.cpp#L1521-L1564`_
 
 
-### `expr.loop.empty-loop-diverges` — `loop {}` with no break is divergent (`!`)
+### `expr.loop.break-value-slot` — `loop { ... break v; ... }` evaluates to the broken-out value
 
-A `loop { .. }` containing no `break` reaching its frame is a diverging expression of type `!` (Never), not `()`. Only `loop` (not `for`/`while`) reads its break frame to become a value-yielding expression; its value type is the unified type of `break <expr>` values targeting its frame.
+A `loop` expression used to produce a value allocates a result slot before entering the loop body; `break v;` targeting that loop stores `v` into the slot before branching to the loop's exit, and the slot is the loop expression's value at the exit block.
 
-_Source: `src/compiler/sema_impl.hpp#L3655-L3673`_
+_Source: `src/compiler/mlir_gen_stmt.cpp#L2516-L2526`, `src/compiler/mlir_gen_stmt.cpp#L2561-L2566`_
+
+
+### `expr.loop.empty-loop-diverges` — `loop {}` with no reachable break is a diverging (`!`) expression
+
+A `loop { ... }` expression that contains no `break` reachable to its own frame is diverging: as an expression its type is `!`, not `()`. The per-lowering "no break reached" flag is reset on every `lower_loop` call so one loop's divergence does not leak into a sibling loop's typing.
+
+_Source: `src/compiler/sema_impl.hpp#L3694-L3699`_
+
+
+## For-each expressions
+
+### `expr.for-each.array-elem-binding` — Iterating a fixed-size array by value: scalar elements are copied, struct/tuple elements bind the in-place address
+
+`for x in <array expr> {}` (non-slice, fixed-size array): for a scalar element type, `x` is bound to a fresh stack slot holding a COPY of the element (mutating `x` does not affect the source array); for a struct- or tuple-typed element, `x` is bound directly to the element's address inside the array's own backing storage.
+
+**Uncertainty.** Whether struct/tuple loop-variable mutation is intended to alias the source array (vs. Rust's uniform move/copy-by-value for `for x in array`) is not resolved within this slice alone; may reflect Logos's general pointer-based struct value representation elsewhere rather than an aliasing divergence.
+
+_Source: `src/compiler/mlir_gen_stmt.cpp#L2745-L2780`_
+
+
+### `expr.for-each.slice-elem-by-ref` — Iterating a slice binds the loop variable as a reference into the original buffer
+
+`for x in <slice expr> {}` binds `x` to the ADDRESS of each element within the slice's backing storage (a reference `&T` into the original data), not a copy — mutations to `*x` (or through auto-deref) are visible in the original buffer, mirroring Rust's `for x in &[T]` (`IntoIterator for &[T]` yielding `&T`).
+
+_Source: `src/compiler/mlir_gen_stmt.cpp#L2664-L2684`_
 
 
 ## Break expressions
 
-### `expr.break.label-must-be-in-scope` — `break`/`continue 'label` require the label in scope
+### `expr.break.label-must-be-in-scope` — `break`/`continue` with a label must reference an enclosing labelled loop
 
-`break 'label` / `continue 'label` are valid only when `'label` names a currently-active labelled loop; an out-of-scope label is rejected. A labelled `break 'label v` attributes its value type to the frame matching the label; an unlabelled break targets the innermost loop frame.
+`break 'label` / `continue 'label` is valid only when `'label` names a currently-active enclosing loop; the active-label stack contains only labelled loops (unlabelled loops push nothing), so referencing an out-of-scope or nonexistent label is a diagnostic.
 
-_Source: `src/compiler/sema_impl.hpp#L3634-L3638`, `src/compiler/sema_impl.hpp#L3655-L3666`_
+_Source: `src/compiler/sema_impl.hpp#L3660-L3664`_
+
+
+### `expr.break.value-attributed-to-labeled-frame` — `break 'label v` attributes its value to the matching labeled loop frame, not an inner loop
+
+Each active loop (for/while/loop), regardless of kind, pushes a break-frame {label, value_type, without_value}. A `break 'label v` attributes v's type to the frame whose label matches; an unlabeled `break v` targets the innermost frame. Only a `loop { ... }` expression reads its OWN frame's value_type to become value-yielding — so a value breaking to an outer labeled loop is not incorrectly captured as the type of an intervening inner `loop`.
+
+**Related.** `expr.break.label-must-be-in-scope`, `expr.loop.empty-loop-diverges`
+
+_Source: `src/compiler/sema_impl.hpp#L3679-L3692`_
 
 
 ### `expr.break.value-loop-typing` — break value selects the loop's value type
 
-A `break value` (optionally labeled) attributes its value type to the target loop frame; the frame's value type is the unification (numeric) of all break values, making the loop a value-yielding expression.
+A `break value` (optionally labeled) attributes its value type to the target loop frame; the frame's value type is the (numeric) unification of all break values reaching it, making the loop a value-yielding expression.
 
-_Source: `src/compiler/sema_expr.cpp#L1438-L1458`_
+_Source: `src/compiler/sema_expr.cpp#L1455-L1476`_
 
 
 ## Return expressions
@@ -2632,9 +3194,9 @@ _Source: `tools/peg_gen/grammars/logos.peg#L291`_
 
 ### `expr.try.heterogeneous-error-from` — ? converts inner error via From when error types differ
 
-For `e?` with `e: Result<T,E_inner>` in a function returning `Result<U,E_outer>` where E_inner != E_outer, the Err path returns `Err(E_outer::from(err))`, requiring `impl From<E_inner> for E_outer`; absence of that impl is an error.
+For `e?` with `e: Result<T,E_inner>` in a function returning `Result<U,E_outer>` where E_inner != E_outer, the Err path returns `Err(E_outer::from(err))`, requiring a resolvable `From<E_inner> for E_outer` (matched as an `<E_outer>__from` candidate with a matching sole parameter type); absence of that impl is an error suggesting `.map_err(...)?`.
 
-_Source: `src/compiler/sema_expr.cpp#L1220-L1306`_
+_Source: `src/compiler/sema_expr.cpp#L1237-L1323`_
 
 
 ### `expr.try.ok-unwrap-err-propagate` — `expr?` unwraps Ok or early-returns Err
@@ -2653,18 +3215,16 @@ _Source: `tools/peg_gen/grammars/logos.peg#L2692-L2693`_
 
 ### `expr.try.result-option-extract` — ? on Result/Option extracts or early-returns
 
-`e?` where `e: Result<T,E>` extracts Ok(v) and early-returns Err(e); where `e: Option<T>` extracts Some(v) and early-returns None. It is valid only inside a function whose return type is the same enum (Result resp. Option); otherwise an error.
+`e?` where `e: Result<T,E>` extracts Ok(v) and early-returns Err(e); where `e: Option<T>` extracts Some(v) and early-returns None. It is valid only inside a function whose declared return type is the same enum (Result resp. Option); otherwise an error.
 
-_Source: `src/compiler/sema_expr.cpp#L1153-L1217`, `src/compiler/sema_expr.cpp#L1307`_
+_Source: `src/compiler/sema_expr.cpp#L1170-L1236`, `src/compiler/sema_expr.cpp#L1324`_
 
 
 ### `expr.try.trait-dispatch-from-residual` — ? on non-Result/Option dispatches via Try/FromResidual
 
-`e?` where e is neither stdlib Result nor Option desugars through the Try/FromResidual surface: `match e.branch() { Continue(c) => c, Break(r) => return RetType::from_residual(r) }`. The receiver RetType is taken from the enclosing function's declared return type (Logos does not infer trait Self from context); an undeterminable return type is an error.
+`e?` where e is neither stdlib Result nor Option desugars through the Try/FromResidual surface: `match (e).branch() { ControlFlow::Continue(c) => c, ControlFlow::Break(r) => return RetType::from_residual(r) }`. RetType is rendered from the enclosing function's declared return type; an undeterminable return type is an error.
 
-**Divergence.** Receiver for from_residual is explicit from fn ret type (no contextual Self inference)
-
-_Source: `src/compiler/sema_expr.cpp#L1167-L1195`_
+_Source: `src/compiler/sema_expr.cpp#L1184-L1212`_
 
 
 ## Control flow (control)
@@ -2687,18 +3247,18 @@ _Source: `tools/peg_gen/grammars/logos.peg#L2716-L2728`_
 
 ### `expr.control-flow.diverging-is-never` — break/continue/return in expression position have type !
 
-`break`, `continue`, and `return` used in expression position have type `!` (never), which coerces to/unifies with any surrounding expected type. `continue`/`break` outside any loop are errors. `return e` in expression position checks e against the function's return type.
+`break`, `continue`, and `return` used in expression position have type `!` (never), which unifies with any surrounding expected type. `continue`/`break` outside any loop are errors. `return e` in expression position checks e against the function's return type.
 
-_Source: `src/compiler/sema_expr.cpp#L1393-L1462`_
+_Source: `src/compiler/sema_expr.cpp#L1410-L1479`_
 
 
 ## Tail expressions
 
-### `expr.tail.implicit-return-in-fn-body` — Tail expression is an implicit return only in fn-body context
+### `expr.tail.implicit-return-in-fn-body` — A function body's tail expression is an implicit return
 
-A block's trailing tail-expression acts as an implicit return when lowering a fn body, but not inside block-as-expression contexts (match-arm body, unsafe-block-as-expr, if-as-expr) where the tail is the block's value rather than a function return.
+Inside a function body (governed by a per-lowering flag), a `TAIL_EXPR` statement (the block's final expression with no trailing semicolon) acts as an implicit `return`. The flag is cleared while lowering nested block-as-expression contexts (match-arm body, unsafe-block-as-expr, if-as-expr), where the tail expression is instead the block's VALUE, not a function return.
 
-_Source: `src/compiler/sema_impl.hpp#L3675-L3678`_
+_Source: `src/compiler/sema_impl.hpp#L3700-L3704`_
 
 
 ## Block expressions
@@ -2880,11 +3440,27 @@ let b: Box<dyn Fn(i32) -> i32> = box_new(|x| x + 1);
 _Source: `src/compiler/sema_expr.cpp#L14082-L14099`, `src/compiler/sema_expr.cpp#L14138-L14148`_
 
 
+### `expr.closure.infer-param-types-from-call-site` — Untyped closure parameters infer their types from the call-site's expected formal
+
+A closure literal with untyped parameters (`|x| body`, no `: T` annotation) has its parameter types inferred from the corresponding call-site formal parameter's `fn(T,...) -> R` / Closure type, when the call-site path (`lower_call` / `lower_method_call`) supplies such a hint for that argument position.
+
+_Source: `src/compiler/sema_impl.hpp#L3720-L3724`_
+
+
 ### `expr.closure.infer-params-from-fn-bound` — Untyped closure literal infers parameter types from an Fn-family bound
 
-An untyped closure literal (`|x| ..`) appearing where an Fn-family-bounded type-param is expected infers its parameter types from the bound's signature, after the active substitution is applied; peeling through Ref/MutRef/Ptr and single-type-arg wrappers (`Box<dyn Fn(..)>`) to expose the inner callable type.
+An untyped closure literal (`|x| ..`) appearing where an Fn-family-bounded type-parameter is expected (a method formal `F: FnMut(..)`, or a generic struct field `f: F`) has its parameter and return types synthesized as a Closure type from that bound's signature, with the ambient substitution (SemaSubst) applied to the bound's param/return types. No inference occurs (null) if the declared TypeVar is not Fn-bounded.
 
-_Source: `src/compiler/sema_impl.hpp#L3944-L3959`_
+_Source: `src/compiler/sema_impl.hpp#L3990-L3999`_
+
+
+### `expr.closure.infer-through-wrapped-callable` — Closure-literal Fn-bound inference peels through Ref/MutRef and single-arg generic wrappers
+
+When the expected type for an untyped closure literal is not itself a bare Fn-bounded TypeVar but a Ref/MutRef or a single-type-arg generic wrapper around a callable (e.g. `Box<dyn Fn(..)>`), the compiler first peels the reference and the wrapper to expose the inner Closure/FnPtr signature, then applies Fn-bound parameter inference (rule expr.closure.infer-params-from-fn-bound) against that inner signature — e.g. inferring closure param types for `box_new(|x| ..)` where the enclosing fn's return type is `Box<dyn Fn(..)>`.
+
+**Related.** `expr.closure.infer-params-from-fn-bound`
+
+_Source: `src/compiler/sema_impl.hpp#L4000-L4005`_
 
 
 ### `expr.closure.move-marks-moved` — move closure consumes its move-type captures at the capture site
@@ -3139,18 +3715,18 @@ _Source: `src/compiler/sema_fmt.cpp#L259-L265`_
 
 ## Formatting (format)
 
-### `expr.format.arg-widen-to-i64` — format() widens each argument to i64 by signedness
+### `expr.format.arg-widen-to-i64` — format() arguments are widened to i64 with a type tag
 
-The format() built-in passes a parallel [i32 tags] and [i64 data] array: each argument is widened to i64 — pointers via ptrtoint, unsigned integers narrower than 64 bits via zero-extension, all other integers via sign-extending coercion. The type tag is computed per argument type (e.g. i32→0, i64→1, ptr/slice→2, bool→3, u8→4, u32/u16→5, u64/u24/u56/u128→6, i8→7; i16→i32, i24/i56/i128→i64).
+The `format()` built-in packs each variadic argument into parallel stack arrays: an i32 type-tag array and an i64 data array. Each argument is widened to i64: pointer-typed values via ptrtoint; unsigned integer types narrower than 64 bits via zero-extension; other integer types via the general (sign-preserving) int coercion. The type tag records enough of the original type's class (i32/i64/ptr-or-slice/bool/u8/u32/u64/i8) for runtime formatting dispatch — narrower integer kinds (i16/u16/i24/i56/u24/u56/i128/u128/IntLit) each map onto the tag of their same-signedness ≥32-bit dispatch class.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L5290-L5373`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L5330-L5353`, `src/compiler/mlir_gen_expr.cpp#L5373-L5413`_
 
 
-### `expr.format.requires-text-import` — format() requires std.lang.text import
+### `expr.format.requires-text-import` — format() requires std.lang.text to be imported
 
-Using the format() built-in requires the __format_impl runtime function to be available, provided by importing std.lang.text; absence is a compile error.
+The `format()` built-in lowers to a call to the runtime symbol `__format_impl`; if that symbol is not present in the module (i.e. `use std.lang.text;` was not imported), codegen fails for the expression (diagnostic to stderr, null result).
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L5375-L5386`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L5416-L5426`_
 
 
 ## Drop semantics
@@ -3164,9 +3740,9 @@ _Source: `src/compiler/mlir_gen_stmt.cpp#L868-L869`, `src/compiler/mlir_gen_stmt
 
 ### `expr.drop.dynamic-flag` — Dynamic drop flag for conditionally-initialized variables
 
-A `let mut x: T;` declared without an initializer whose initialization is not statically determinable (an assignment nested inside a conditional/loop deeper than its declaration) gets a hidden runtime i8 drop flag (0 = empty, 1 = live). Each assignment drops the old value only if the flag is set then sets it; scope-exit/return drops only if the flag is set. Variables whose every assignment is straight-line (statically dominates) are flag-free with statically-placed drops.
+A `let mut x: T;` declared without an initializer whose initialization is not statically determinable (an assignment nested inside a conditional/loop deeper than its declaration) gets a hidden runtime i8 drop flag (0 = empty, 1 = live). Each assignment drops the old value only if the flag is set then sets it; scope-exit/return drops only if the flag is set. Variables whose every assignment is straight-line (statically dominates its uses, determined by a pre-scan of the fn body) are flag-free: drops are placed statically instead, matching Rust's MIR drop elaboration for the common case.
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L314-L333`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L332-L353`_
 
 
 ### `expr.drop.enum-user-drop-then-variant` — Enum drop: user Drop runs first, else variant-switched payload recursion
@@ -3185,16 +3761,16 @@ A variable that may be uninitialized at a drop point runs its destructor only if
 _Source: `src/compiler/mlir_gen_stmt.cpp#L1184-L1214`_
 
 
-### `expr.drop.owning-box-dst` — Drop of an owning custom-DST box (`Box<Foo>` with [T] tail)
+### `expr.drop.owning-box-dst` — Drop of an owning custom-DST box `(Box<Foo> with [T] tail)`
 
-Dropping an owning custom-DST handle (`Box<Foo>` where Foo = {prefix fields..., [T] tail}) over a non-null data pointer: (1) drop each droppable prefix field (in declaration order, skipping ref/ptr fields and fields that don't need drop), (2) drop the tail's elements over the runtime length len at element stride layout_of(T).size, then (3) free the whole heap block. A null data pointer (a moved-from handle) drops nothing and frees nothing.
+Dropping an owning custom-DST handle `(Box<Foo> where Foo = {prefix fields..., [T] tail})` over a non-null data pointer: (1) drop each droppable prefix field (in declaration order, skipping ref/ptr fields and fields that don't need drop), (2) drop the tail's elements over the runtime length len at element stride layout_of(T).size, then (3) free the whole heap block. A null data pointer (a moved-from handle) drops nothing and frees nothing.
 
 _Source: `src/compiler/mlir_gen_stmt.cpp#L658-L753`, `src/compiler/mlir_gen_stmt.cpp#L680-L689`, `src/compiler/mlir_gen_stmt.cpp#L704-L743`, `src/compiler/mlir_gen_stmt.cpp#L750`_
 
 
 ### `expr.drop.owning-box-dyn` — Drop of an owning `Box<dyn Trait>` fat handle is uniform across storage sites
 
-An owning trait-object handle (inline {data,vtable} fat pair, e.g. `Box<dyn>`/`Rc<dyn>`/`Arc<dyn>`) drops by running vtable[0] (drop_in_place) on data followed by the kind-specific release (Box: free data; Rc/Arc: decrement strong count, free at last reference). This drop is uniform across every storage site — local, struct field, return temp, Vec/tuple/array element — reached via ordinary aggregate field recursion, not only a top-level local.
+An owning trait-object handle (inline {data,vtable} fat pair, e.g. `Box<dyn>/Rc<dyn>/Arc<dyn>)` drops by running vtable[0] (drop_in_place) on data followed by the kind-specific release (Box: free data; Rc/Arc: decrement strong count, free at last reference). This drop is uniform across every storage site — local, struct field, return temp, Vec/tuple/array element — reached via ordinary aggregate field recursion, not only a top-level local.
 
 _Source: `src/compiler/mlir_gen_stmt.cpp#L846-L855`, `src/compiler/mlir_gen_stmt.cpp#L1049-L1052`_
 
@@ -3263,18 +3839,18 @@ _Source: `src/compiler/sema_render.cpp#L538-L542`_
 
 ### `expr.unsafe-block.tail-value` — unsafe block in expression position yields its tail value
 
-An `unsafe { ... }` in expression position evaluates its statements with unsafe permitted and yields the trailing expression's value (not a return); with no trailing expression it has type `()`.
+An `unsafe { ... }` in expression position evaluates its statements with unsafe permitted and yields the trailing expression's value (not an implicit early return); with no trailing expression it has type `()`.
 
-_Source: `src/compiler/sema_expr.cpp#L1549-L1582`_
+_Source: `src/compiler/sema_expr.cpp#L1566-L1600`_
 
 
 ## sizeof-pack expressions
 
 ### `expr.sizeof-pack.spelling` — sizeof...(T) on a type-parameter pack
 
-The pack-size operator must be spelled `sizeof...(T)` where T is an in-scope type parameter; it yields a u64. A different operator name or an unknown type parameter is an error.
+The pack-size operator must be spelled `sizeof...(T)` where T is an in-scope type parameter; it lowers to the intrinsic `__sizeof_pack__` call and yields a u64. A different operator name or an unknown type parameter is an error.
 
-_Source: `src/compiler/sema_expr.cpp#L1053-L1069`_
+_Source: `src/compiler/sema_expr.cpp#L1070-L1086`_
 
 
 ## Writ values
@@ -3308,9 +3884,9 @@ _Source: `src/compiler/sema_expr.cpp#L15325-L15350`_
 
 ### `expr.writ.capture-not-standalone` — $-capture is not a standalone expression
 
-A `$`-capture node (WRIT_CAP_IDENT / WRIT_CAP_EXPR) is only valid inside a writ value literal; appearing as a standalone expression is an error.
+A `$`-capture node (WRIT_CAP_IDENT / WRIT_CAP_EXPR) is only valid nested inside a writ value literal; appearing as a standalone expression is an error.
 
-_Source: `src/compiler/sema_expr.cpp#L1489-L1494`_
+_Source: `src/compiler/sema_expr.cpp#L1506-L1511`_
 
 
 ### `expr.writ.capture-outside-context` — $-capture only inside capturable @-literal
@@ -3331,7 +3907,7 @@ A slot of a WritStatic-typed const-generic is referenced as `<type:CFG.slot.path
 _Source: `src/compiler/sema_render.cpp#L517-L531`_
 
 
-### `expr.writ.cfg-slot-type-literal` — <type:CFG.path> at writ-value position
+### `expr.writ.cfg-slot-type-literal` — `<type:CFG.path>` at writ-value position
 
 `<type:CFG.path>` resolves the config path eagerly and must denote a concrete top-level alias; if it resolves to a const-generic config-slot parameter (kind CfgSlotType) it is rejected with a compile error (parametric Writ literals are not supported).
 
@@ -3432,16 +4008,16 @@ A Writ string literal has surrounding double-quotes stripped and recognizes esca
 _Source: `src/compiler/sema_expr.cpp#L15062-L15086`_
 
 
-### `expr.writ.type-literal` — Writ type-literal <type:T>
+### `expr.writ.type-literal` — Writ type-literal `<type:T>`
 
-A Writ value `<type:T>` embeds a Logos type T as a first-class value. T is resolved as a type (primitives, structs, in-scope type-params, and generic instantiations like `Vec<u8>` all permitted). The value carries (kind, type-uid, canonical-name) where the name is the canonical printed form (e.g. "`Vec<u8>`") and serves as the value's identity label.
+A Writ value `<type:T>` embeds a Logos type T as a first-class value. T is resolved as a type (primitives, structs, in-scope type-params, and generic instantiations like `Vec<u8>` all permitted). The value carries (kind, type-uid, canonical-name) where the name is the canonical printed form (e.g. `"Vec<u8>")` and serves as the value's identity label.
 
 **Divergence.** Logos addition: Writ first-class type values have no Rust equivalent.
 
 _Source: `src/compiler/sema_expr.cpp#L14937-L14979`_
 
 
-### `expr.writ.type-literal-unknown-bare` — Bare type-name in <type:T> must be a known type or in-scope type-param
+### `expr.writ.type-literal-unknown-bare` — Bare type-name in `<type:T>` must be a known type or in-scope type-param
 
 When `<type:T>` names a bare type identifier that is neither a resolvable known type nor an in-scope type-param, it is a compile error; the diagnostic directs the user to declare T as a type-param of the enclosing const (`pub const X<T>: WritStatic = ...`) or use a concrete type.
 
@@ -3459,7 +4035,7 @@ A typed Writ array `@<E>[...]` requires E to be one of I8, U8, I16, U16, I32, U3
 _Source: `src/compiler/sema_expr.cpp#L15145-L15168`_
 
 
-### `expr.writ.typed-array-i32-bounds` — @<I32> array element range check
+### `expr.writ.typed-array-i32-bounds` — `@<I32>` array element range check
 
 Each integer element of an `@<I32>[...]` typed array is bounds-checked at compile time to the i32 range [-2147483648, 2147483647]; out-of-range values are a compile error.
 
@@ -3513,7 +4089,7 @@ _Source: `src/compiler/mlir_gen_expr.cpp#L5831-L5836`_
 
 ### `expr.writ-lit.result-type` — @-literal result type depends on presence of captures
 
-An @-literal with no captures has type `WritStatic`; an @-literal with one or more `$`-captures has the return type of `writ_build_from_template` (an `Rc<Writ>`), which requires `use logos.lang.writ.tmpl;` to be in scope.
+An @-literal with no captures has type `WritStatic`; an @-literal with one or more `$`-captures has the return type of `writ_build_from_template` (an `Rc<Writ>),` which requires `use logos.lang.writ.tmpl;` to be in scope.
 
 _Source: `src/compiler/sema_expr.cpp#L15422-L15444`_
 
@@ -3581,7 +4157,7 @@ _Source: `src/compiler/sema_expr.cpp#L11158-L11172`, `src/compiler/sema_expr.cpp
 
 ### `expr.writ-list-comp.desugar` — Writ list comprehension desugars to a Writ array builder loop
 
-A writ list comprehension `@[value for x in iter (if guard)?]` desugars to a block that binds `let mut c = writ_list_comp_new(cap_hint)` (yielding the builder's return type, e.g. `Rc<Writ>`), iterates `x` over `iter`, coerces `value` to AnyVal, (optionally gated by `guard`) calls `writ_list_comp_push(&c, value)`, and evaluates to `c`. cap_hint = arr_size*8+128 for arrays of known size, else 128.
+A writ list comprehension `@[value for x in iter (if guard)?]` desugars to a block that binds `let mut c = writ_list_comp_new(cap_hint)` (yielding the builder's return type, e.g. `Rc<Writ>),` iterates `x` over `iter`, coerces `value` to AnyVal, (optionally gated by `guard`) calls `writ_list_comp_push(&c, value)`, and evaluates to `c`. cap_hint = arr_size*8+128 for arrays of known size, else 128.
 
 **Divergence.** Logos-specific Writ data-substrate sugar; no Rust equivalent.
 
@@ -3640,7 +4216,7 @@ _Source: `src/compiler/sema_expr.cpp#L11258-L11268`_
 _Source: `src/compiler/sema_expr.cpp#L5703-L5716`_
 
 
-### `intrinsic.sizeof.unified-layout-size` — sizeof::<T>() yields the padded layout size
+### `intrinsic.sizeof.unified-layout-size` — `sizeof::<T>()` yields the padded layout size
 
 `sizeof::<T>()` evaluates to a 64-bit compile-time constant equal to the type's full size including inter-field and trailing alignment padding (e.g. `{i32,i64}` => 16, not 12), drawn from the single unified layout used by all other size queries.
 
@@ -3662,7 +4238,7 @@ _Source: `tools/peg_gen/grammars/logos.peg#L271`_
 
 ## alignof
 
-### `intrinsic.alignof.unified-layout-align` — alignof::<T>() yields layout alignment, min 1
+### `intrinsic.alignof.unified-layout-align` — `alignof::<T>()` yields layout alignment, min 1
 
 `alignof::<T>()` evaluates to a 64-bit compile-time constant equal to the type's alignment from the unified layout; if the layout reports alignment 0 the result is 1.
 
@@ -3730,16 +4306,16 @@ _Source: `src/compiler/sema_expr.cpp#L17657-L17681`_
 
 ### `intrinsic.bits.count-ops-return-u32` — Bit-count intrinsics return u32
 
-`popcount_u64`, `leading_zeros_u64`, `trailing_zeros_u64` take a u64 and return u32 (the count is truncated to 32 bits). `bswap_u64` and `bitreverse_u64` take and return u64.
+`popcount_u64`, `leading_zeros_u64`, `trailing_zeros_u64` take a u64 operand and return u32 (the i64 count result is truncated to 32 bits). `bswap_u64` and `bitreverse_u64` take and return u64 (no truncation).
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L2235-L2265`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L2264-L2293`_
 
 
 ### `intrinsic.bits.ctlz-cttz-zero-defined` — Leading/trailing-zero count is defined at zero
 
-`leading_zeros_u64`/`trailing_zeros_u64` are defined for a zero input (no poison): a zero operand yields the bit width.
+`leading_zeros_u64` and `trailing_zeros_u64` are defined for a zero operand (not poison): a zero input yields the operand's bit width (64, before truncation to u32).
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L2248-L2253`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L2277-L2282`_
 
 
 ### `intrinsic.bits.u64-bit-ops` — u64 bitwise intrinsics
@@ -3773,48 +4349,48 @@ _Source: `src/compiler/mlir_gen_expr.cpp#L5456-L5486`_
 
 ### `intrinsic.wrapping.silent-twos-complement` — wrapping_add/sub/mul opt out of overflow trapping
 
-`wrapping_add`, `wrapping_sub`, `wrapping_mul` perform two's-complement add/sub/mul that wraps silently and explicitly opts out of the runtime overflow trap applied to `+`/`-`/`*`. Operands of differing integer width are zero-extended to the wider width before the operation.
+`wrapping_add(a,b)` / `wrapping_sub(a,b)` / `wrapping_mul(a,b)` perform two's-complement add/sub/mul that wraps silently, explicitly opting out of the runtime overflow trap applied to `+`/`-`/`*`. Operands of differing integer width are zero-extended to the wider width before the operation.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1839-L1881`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1869-L1910`_
 
 
 ## Atomics
 
-### `intrinsic.atomic.default-ordering-seqcst` — Non-ordered atomics are sequentially consistent
+### `intrinsic.atomic.default-ordering-seqcst` — Non-`_ord` atomics are sequentially consistent
 
-An atomic operation invoked through the non-`_ord` form has sequentially-consistent ordering. CAS/cas_weak use seq-cst for both success and failure orderings.
+An atomic operation invoked through the bare (non-`_ord`) form always has sequentially-consistent ordering; cas/cas_weak use seq-cst for both the success and the failure ordering.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L2001-L2004`, `src/compiler/mlir_gen_expr.cpp#L2088-L2102`, `src/compiler/mlir_gen_expr.cpp#L2118-L2133`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L2030-L2146`, `src/compiler/mlir_gen_expr.cpp#L2147-L2162`, `src/compiler/mlir_gen_expr.cpp#L2195-L2218`_
 
 
-### `intrinsic.atomic.nonliteral-ordering-fallback` — Non-literal ordering observably over-synchronizes
+### `intrinsic.atomic.nonliteral-ordering-fallback` — Non-literal ordering argument is conservatively over-synchronized
 
-When the `Ordering` argument of an `_ord` atomic is not a compile-time `Ordering` enum literal, the operation behaves at least as strongly as the requested ordering (a stronger ordering is always sound). Observable behavior is never weaker than the dynamic argument requests.
+When the `Ordering` argument of an `_ord` atomic is not a compile-time `Ordering` enum literal (e.g. a runtime value threaded through a wrapper call), the operation's observable ordering is never weaker than what the dynamic value requests for every possible `Ordering` value — correctness is preserved by choosing an ordering that is sound (>=) for all cases, even though this may over-synchronize relative to a weaker requested ordering (e.g. Relaxed/Acquire).
 
-**Uncertainty.** Strength-monotone soundness is the stated semantic; exact runtime ordering for a non-literal arg is a target-dependent implementation choice (release/seq_cst) and not language-normative.
+**Uncertainty.** The precise runtime-selected ordering for a non-literal argument (e.g. release-vs-seqcst branch for stores, unconditional seq_cst for load/RMW/CAS) is an implementation choice; the language-normative guarantee is soundness (never weaker than requested), not the exact chosen ordering.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L2025-L2077`, `src/compiler/mlir_gen_expr.cpp#L1969-L1976`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L2012-L2028`, `src/compiler/mlir_gen_expr.cpp#L2054-L2106`_
 
 
 ### `intrinsic.atomic.ordering-enum-layout` — Ordering enum discriminant layout
 
-The `Ordering` enum has fixed discriminants: Relaxed=0, Acquire=1, Release=2, AcqRel=3, SeqCst=4. The `_ord` atomic variants take an `Ordering` value as the trailing argument(s) which selects the memory ordering of the operation; for cas/cas_weak the two trailing args are (success, failure) orderings.
+The `Ordering` enum has fixed discriminants: Relaxed=0, Acquire=1, Release=2, AcqRel=3, SeqCst=4. `_ord` atomic variants take one trailing `Ordering` argument (two, for cas/cas_weak: success then failure ordering) that selects the operation's memory ordering.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1983-L2000`, `src/compiler/mlir_gen_expr.cpp#L2135-L2154`, `src/compiler/mlir_gen_expr.cpp#L2149-L2154`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L2006-L2029`, `src/compiler/mlir_gen_expr.cpp#L2164-L2183`, `src/compiler/mlir_gen_expr.cpp#L2219-L2243`_
 
 
-### `intrinsic.atomic.primitive-set` — Atomic intrinsic family
+### `intrinsic.atomic.primitive-set` — Atomic intrinsic family over 32/64-bit cells
 
-The language exposes atomic primitives over 32- and 64-bit integer cells, each in a default and an `_ord` form: load{32,64}, store{32,64}, fetch_add{32,64}, cas{32,64} and cas_weak{32,64}, swap{32,64} (xchg), fetch_{or,and,xor,sub}{32,64}. load/store/fetch_add/cas/cas_weak/swap/fetch_* on width W operate on iW values at a pointer; the result type matches the cell width (load, RMW return the cell value; store returns 0:i32; cas returns the success bit).
+The language exposes atomic primitives over 32- and 64-bit integer cells, each in a bare and an `_ord` form: load{32,64}, store{32,64}, fetch_add{32,64}, cas{32,64}, cas_weak{32,64}, swap{32,64} (exchange), fetch_{or,and,xor,sub}{32,64}. load and every fetch_*/swap RMW op return the cell's value from BEFORE the operation, at the cell's width (i32 or i64); store returns unit (represented as constant 0:i32); cas/cas_weak return a bool success flag (not the observed value).
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L2118-L2189`, `src/compiler/mlir_gen_expr.cpp#L2001-L2117`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L2030-L2146`, `src/compiler/mlir_gen_expr.cpp#L2147-L2243`_
 
 
 ## type-of
 
 ### `intrinsic.type-of.type-struct` — type_of constructs a Type reflection struct
 
-`type_of::<T>()` requires exactly one type argument and yields a `Type` struct literal with fields {kind: u32 (from __type_kind_of__), name: &[u8] (from __type_name_of__), size: i64 (size_of T), align: i64 (align_of T), uid: u64 (type_uid of T)}. Each component is concretized at mono.
+`type_of::<T>()` requires exactly one type argument and yields a `Type` struct literal with fields {kind: u32 (from `__type_kind_of__),` name: &[u8] (from `__type_name_of__),` size: i64 (size_of T), align: i64 (align_of T), uid: u64 (type_uid of T)}. Each component is concretized at mono.
 
 **Divergence.** Logos addition (type reflection).
 
@@ -3885,7 +4461,7 @@ _Source: `src/compiler/sema_expr.cpp#L5103-L5115`_
 
 ### `intrinsic.type-hash.structural-u64` — type_hash is layout-structural
 
-`type_hash::<T>()` requires one type argument and yields `u64`: a structural FNV-1a-64 hash of T's layout — primitives map to fixed codes; struct/tuple/array/ptr hash a tag plus the recursive hashes of constituents, with NO struct/field names. Two structurally identical layouts hash equal; generic instances hash through their substituted args (`Foo<i32>` != `Foo<u32>`).
+`type_hash::<T>()` requires one type argument and yields `u64`: a structural FNV-1a-64 hash of T's layout — primitives map to fixed codes; struct/tuple/array/ptr hash a tag plus the recursive hashes of constituents, with NO struct/field names. Two structurally identical layouts hash equal; generic instances hash through their substituted args `(Foo<i32> != Foo<u32>).`
 
 **Divergence.** Logos addition.
 
@@ -3953,20 +4529,20 @@ _Source: `src/compiler/sema_expr.cpp#L5739-L5779`_
 
 ### `intrinsic.reflect.apply-generic` — apply_generic(g: Type, args) instantiates a generic constructor
 
-`apply_generic(g, args)` (callee __apply_generic__) instantiates the generic constructor described by Type value `g` (produced by generic_of) with `args`, routing through the same struct allocation as type_apply. The template name is recovered from g's `Type` struct-literal `name` field (a string literal); both operands are chased through VarRef let-bindings (max 8 hops).
+`__apply_generic__(g, args)` instantiates the generic constructor described by Type value `g` (produced by `generic_of`) applying `args`, routed through the same struct-allocation path as intrinsic.reflect.type-apply. The template name is recovered from g's `Type` struct-literal `name` field, which must be a (possibly-quoted) string literal; both `g` and `args` are first chased through VarRef let-bindings (mono.reflect.varref-let-chase). `g` not resolving to such a StructLit, or `args` not being an ArrLit, is a fatal compile-time error.
 
-**Divergence.** A6 (Logos-only type-level composition intrinsic)
+**Divergence.** A6
 
-**Uncertainty.** Slice ends mid-statement at L2119; only name recovery from g is visible in-unit, the remaining instantiation logic continues past the unit boundary.
+**Uncertainty.** Unit ends at L2151 mid-function (inside the args-element `recover` lambda); the element-recovery/instantiation tail is only partially visible in this slice and continues in the following unit.
 
 **Related.** `intrinsic.reflect.type-apply`
 
-_Source: `src/compiler/mono_clone.cpp#L2085-L2119`_
+_Source: `src/compiler/mono_clone.cpp#L2090-L2151`_
 
 
-### `intrinsic.reflect.args-of` — args_of::<T>() yields T's generic type arguments
+### `intrinsic.reflect.args-of` — `args_of::<T>()` yields T's generic type arguments
 
-args_of::<T>() produces a [Type; N] descriptor array of the generic type-arguments of T (in order); for a non-generic T the array is empty.
+`args_of::<T>()` produces a [Type; N] descriptor array of the generic type-arguments of T (in order); for a non-generic T the array is empty.
 
 **Related.** `intrinsic.reflect.type-descriptor-array`
 
@@ -3989,59 +4565,59 @@ Type-trait/type-introspection intrinsics taking type-args are not evaluated at s
 _Source: `src/compiler/sema_expr.cpp#L5014-L5017`, `src/compiler/sema_expr.cpp#L5079-L5087`, `src/compiler/sema_expr.cpp#L5142-L5146`_
 
 
-### `intrinsic.reflect.field-count-of` — field_count_of::<T>() yields struct field count
+### `intrinsic.reflect.field-count-of` — `field_count_of::<T>()` yields struct field count
 
-field_count_of::<T>() evaluates at compile time to an i64 literal equal to the number of declared fields of T when T is a struct (or zoned struct) type; for any non-struct or unresolvable T it is 0. The struct template is matched by name, preferring a package-qualified match (T.pkg) and falling back to name-only.
+`field_count_of::<T>()` evaluates at compile time to an i64 literal equal to the number of declared fields of T when T is a struct (or zoned struct) type; for any non-struct or unresolvable T it is 0. The struct template is matched by name, preferring a package-qualified match (T.pkg) and falling back to name-only.
 
 _Source: `src/compiler/mono_clone.cpp#L2703-L2730`_
 
 
-### `intrinsic.reflect.field-names-of` — field_names_of::<T>() yields array of field-name strings
+### `intrinsic.reflect.field-names-of` — `field_names_of::<T>()` yields array of field-name strings
 
-field_names_of::<T>() evaluates at compile time to an array [&str; N] whose elements are the declared field names of struct T in declaration order; for non-struct or unresolvable T it is the empty array. Struct lookup prefers a package-qualified match and falls back to name-only.
+`field_names_of::<T>()` evaluates at compile time to an array [&str; N] whose elements are the declared field names of struct T in declaration order; for non-struct or unresolvable T it is the empty array. Struct lookup prefers a package-qualified match and falls back to name-only.
 
 _Source: `src/compiler/mono_clone.cpp#L2733-L2768`_
 
 
-### `intrinsic.reflect.field-types-of` — field_types_of::<T>() yields substituted struct field types
+### `intrinsic.reflect.field-types-of` — `field_types_of::<T>()` yields substituted struct field types
 
-field_types_of::<T>() produces a [Type; N] descriptor array of the field types of struct (or zoned struct) T in declaration order, with the struct template's type parameters substituted by T's actual type arguments (positional binding of template params to T.type_args); empty for non-struct or unresolvable T.
+`field_types_of::<T>()` produces a [Type; N] descriptor array of the field types of struct (or zoned struct) T in declaration order, with the struct template's type parameters substituted by T's actual type arguments (positional binding of template params to T.type_args); empty for non-struct or unresolvable T.
 
 **Related.** `intrinsic.reflect.type-descriptor-array`
 
 _Source: `src/compiler/mono_clone.cpp#L2797-L2827`_
 
 
-### `intrinsic.reflect.has-trait-of` — has_trait_of::<Trait>(t: Type) -> bool folds at monomorphization
+### `intrinsic.reflect.has-trait-of` — `has_trait_of::<Trait>(t: Type)` -> bool folds at monomorphization
 
-`has_trait_of::<Trait>(t)` (callee __has_trait_of__) folds to a `bool` literal during monomorphization. The concrete type T is recovered from t's `Type` struct-literal `uid` field, which must be a `__type_uid_of__::<T>()` call (after chasing VarRef through let-bindings, max 8 hops); T is substituted with the active type substitution. The result is `true` iff T (named by its concrete struct name, enum name, or type_str, truncated at any `$G` generic-suffix) has an impl of Trait, computed recursively over concrete and blanket impls.
+`has_trait_of::<Trait>(t)` (callee `__has_trait_of__)` folds to a `bool` literal during monomorphization. The concrete type T is recovered from t's `Type` struct-literal `uid` field, which must be a `__type_uid_of__::<T>()` call; T is substituted with the active type substitution. The result is `true` iff T (named by its concrete struct name, enum name, or type_str, truncated at any `$G` generic-instantiation suffix) has an impl of Trait, computed recursively over concrete and blanket impls (mono_has_impl_recursive); absent T or an empty trait name yields `false`.
 
-**Divergence.** A6 (Logos-only metaprog/reflection intrinsic; no Rust equivalent)
+**Divergence.** A6
 
-_Source: `src/compiler/mono_clone.cpp#L1588-L1652`_
+_Source: `src/compiler/mono_clone.cpp#L1617-L1652`_
 
 
 ### `intrinsic.reflect.reify-type` — reify_type(t: Type) -> Type recovers a source TypeRef and re-emits Type
 
-`reify_type(t)` (callee __reify_type__) recovers a concrete TypeRef from a direct Type-producer argument and re-emits a fresh `Type` struct literal. Supported argument shapes (after chasing VarRef through let-bindings, max 8 hops): (1) a `Type` struct literal whose `uid` field is `__type_uid_of__::<T>()` → T substituted; (2) a `__typelist_head__`/`__typelist_nth__` call → the indexed pack element. A missing argument is fatal; any other (unsupported) shape is a fatal compile-time error.
+`reify_type(t)` (callee `__reify_type__)` recovers a concrete TypeRef from a direct Type-producer argument and re-emits a fresh `Type` struct literal for it. Supported argument shapes, after chasing a VarRef argument through recorded let-initializers (mono.reflect.varref-let-chase): (1) a `Call` to `__typelist_head__`/`__typelist_nth__` — the indexed pack element becomes T (same index rules as intrinsic.reflect.typelist-head-nth); (2) a `StructLit` whose `uid` field is a call to `__type_uid_of__::<T>()` — T is substituted directly. A missing argument, or any other (unsupported) shape, is a fatal compile-time error naming the accepted producer forms.
 
-**Divergence.** A6 (Logos-only reflection intrinsic)
+**Divergence.** A6
 
 **Related.** `intrinsic.reflect.type-struct-shape`
 
-_Source: `src/compiler/mono_clone.cpp#L1741-L1834`_
+_Source: `src/compiler/mono_clone.cpp#L1741-L1835`_
 
 
-### `intrinsic.reflect.tuple-count-of` — tuple_count_of::<T>() yields tuple arity
+### `intrinsic.reflect.tuple-count-of` — `tuple_count_of::<T>()` yields tuple arity
 
-tuple_count_of::<T>() evaluates at compile time to an i64 literal equal to the number of element types of T when T is a tuple type, and to 0 for any non-tuple T.
+`tuple_count_of::<T>()` evaluates at compile time to an i64 literal equal to the number of element types of T when T is a tuple type, and to 0 for any non-tuple T.
 
-_Source: `src/compiler/mono_clone.cpp#L2685-L2698`_
+_Source: `src/compiler/mono_clone.cpp#L2686-L2698`_
 
 
-### `intrinsic.reflect.tuple-elems-of` — tuple_elems_of::<T>() yields tuple element types
+### `intrinsic.reflect.tuple-elems-of` — `tuple_elems_of::<T>()` yields tuple element types
 
-tuple_elems_of::<T>() produces a [Type; N] descriptor array of the element types of T when T is a tuple; empty otherwise.
+`tuple_elems_of::<T>()` produces a [Type; N] descriptor array of the element types of T when T is a tuple; empty otherwise.
 
 **Related.** `intrinsic.reflect.type-descriptor-array`
 
@@ -4050,42 +4626,42 @@ _Source: `src/compiler/mono_clone.cpp#L2790-L2796`_
 
 ### `intrinsic.reflect.type-apply` — type_apply(name, args: [Type;N]) -> Type instantiates a struct template
 
-`type_apply(name, args)` (callee __type_apply__) instantiates the struct template named `name` (a string literal; surrounding quote chars stripped) with the TypeRefs recovered from `args` and folds to a `Type` value for the instantiation. `name` must be a string literal (else fatal). The instantiated type's `pkg_name` is taken from the matching template in the program's struct table. Each element TypeRef is recovered from the same producer shapes reify_type accepts (Type struct-lit uid call, or typelist head/nth); a non-recognized producer element is a fatal compile-time error.
+`type_apply(name, args)` (callee `__type_apply__)` instantiates the struct template named `name` (must be a string literal; a surrounding `"..."` quoting is stripped) applying the TypeRefs recovered from `args` as its type-argument pack, and folds to a `Type` value describing the instantiation. `args` is chased through let-bindings; absent the pack-splice fast path (intrinsic.reflect.type-apply-pack-splice) it must be an ArrLit whose elements each resolve via the same direct-producer shapes intrinsic.reflect.reify-type accepts. The instantiated Struct TypeRef's `pkg_name` is copied from the first existing struct definition matching `name`, so the instance shares registry/UID identity with ordinarily-declared instantiations. A non-literal `name`, a non-ArrLit `args`, or any unrecognized `args` element is a fatal compile-time error.
 
-**Divergence.** A6 (Logos-only type-level composition intrinsic)
+**Divergence.** A6
 
 **Related.** `intrinsic.reflect.type-struct-shape`, `intrinsic.reflect.reify-type`
 
-_Source: `src/compiler/mono_clone.cpp#L1841-L2083`_
+_Source: `src/compiler/mono_clone.cpp#L1841-L1877`, `src/compiler/mono_clone.cpp#L1968-L2083`_
 
 
 ### `intrinsic.reflect.type-apply-pack-splice` — type_apply pack-splice fast path over Type-array intrinsics
 
-When the `args` operand of type_apply is itself a Type-array producer intrinsic, its element TypeRefs are spliced directly into the template instantiation instead of requiring an array-literal shape: `type_refs_of` contributes its (substituted) type-args as the pack; `args_of::<T>` contributes T's type-args; `typelist_tail::<T>` contributes T's pack minus its first element; `tuple_elems_of::<T>` contributes T's tuple element types (only when T is a Tuple). Otherwise `args` must be an array literal (else fatal).
+When type_apply's `args` operand is (after let-chase) itself a call to a Type-array-producing intrinsic, its element TypeRefs are spliced directly into the template instantiation instead of requiring an ArrLit shape: `__type_refs_of__` contributes its full (substituted) type-argument list, one per struct member; `__args_of__::<T>()` contributes T's own type_args; `__typelist_tail__::<T>()` contributes T's pack excluding index 0; `__tuple_elems_of__::<T>()` contributes T's tuple element types when T is a Tuple (otherwise contributes none). This splice runs before, and independent of, the mono ArrLit-folding pass.
 
-**Divergence.** A6 (Logos-only variadic type-pack splice)
+**Divergence.** A6
 
 **Related.** `intrinsic.reflect.type-apply`
 
-_Source: `src/compiler/mono_clone.cpp#L1878-L1972`_
+_Source: `src/compiler/mono_clone.cpp#L1878-L1967`_
 
 
 ### `intrinsic.reflect.type-descriptor-array` — type-reflection intrinsics produce [Type; N] descriptors
 
-args_of::<T>(), type_refs_of, tuple_elems_of, typelist_tail, and field_types_of each evaluate at compile time to an array [Type; N] of struct literals. Each Type element has fields {kind: u32 = the type's kind tag, name: &str = the type's printed name, size: i64 = size_of, align: i64 = align_of, uid: u64 = a canonical 64-bit type hash}. N and the per-element source types are determined per-intrinsic (see related rules).
+`args_of::<T>(),` type_refs_of, tuple_elems_of, typelist_tail, and field_types_of each evaluate at compile time to an array [Type; N] of struct literals. Each Type element has fields {kind: u32 = the type's kind tag, name: &str = the type's printed name, size: i64 = size_of, align: i64 = align_of, uid: u64 = a canonical 64-bit type hash recorded into a uid->type map}. N and the per-element source types are determined per-intrinsic (see related rules); type_refs_of uses its call-site type_args verbatim.
 
-_Source: `src/compiler/mono_clone.cpp#L2774-L2869`_
+_Source: `src/compiler/mono_clone.cpp#L2828-L2869`_
 
 
 ### `intrinsic.reflect.type-struct-shape` — Reflected Type value layout {kind,name,size,align,uid}
 
-A reflected `Type` value materialized by a folding reflection intrinsic is the struct `Type` with fields `kind: u32` = the type's Kind tag, `name: &[u8]` = type_str(T), `size: i64` = size_of(T), `align: i64` = align_of(T), and `uid: u64` = a canonical 64-bit type hash (type_hash_64bit ∘ type_hash_23 ∘ type_id_canon). The compiler records uid→T so the value can be reified back to T.
+A reflected `Type` value materialized by a folding reflection intrinsic is the struct literal `Type { kind: u32, name: &[u8], size: i64, align: i64, uid: u64 }`: `kind` = the TypeRef's `LogosType::Kind` discriminant, `name` = its canonical type string, `size`/`align` = its target layout (`size_of`/`align_of`), and `uid` = `type_hash_64bit(type_hash_23(type_id_canon(T)))`. Producing `uid` also registers `uid -> T` in a mono-wide table so a later `__type_uid_of__`-keyed lookup can recover T from the uid.
 
-**Divergence.** A6 (Logos-only reflection value)
+**Divergence.** A6
 
 **Related.** `intrinsic.reflect.typelist-head-nth`, `intrinsic.reflect.reify-type`, `intrinsic.reflect.type-apply`
 
-_Source: `src/compiler/mono_clone.cpp#L1716-L1730`, `src/compiler/mono_clone.cpp#L1810-L1833`, `src/compiler/mono_clone.cpp#L2074-L2082`_
+_Source: `src/compiler/mono_clone.cpp#L1716-L1730`, `src/compiler/mono_clone.cpp#L1810-L1833`, `src/compiler/mono_clone.cpp#L2074-L2083`_
 
 
 ### `intrinsic.reflect.typeinfo-rodata` — reflect requests TypeInfo rodata
@@ -4097,27 +4673,29 @@ _Source: `src/compiler/mono_clone.cpp#L1716-L1730`, `src/compiler/mono_clone.cpp
 _Source: `src/compiler/sema_expr.cpp#L5781-L5784`_
 
 
-### `intrinsic.reflect.typelist-head-nth` — typelist_head/nth::<L>(i) -> Type folds to a Type struct literal
+### `intrinsic.reflect.typelist-head-nth` — `typelist_head/nth::<L>(i)` -> Type folds to a Type struct literal
 
-`typelist_head::<L>()` and `typelist_nth::<L>(i)` (callees __typelist_head__/__typelist_nth__) fold to a single `Type { kind, name, size, align, uid }` struct literal describing element idx of L's type-arg pack: head uses idx=0; nth requires `i` to be a literal int. A missing type argument, a non-literal nth index, or an index outside [0, pack.size()) is a fatal compile-time error.
+`typelist_head::<L>()` and `typelist_nth::<L>(i)` (callees `__typelist_head__/__typelist_nth__)` fold to a single `Type { kind, name, size, align, uid }` struct literal (intrinsic.reflect.type-struct-shape) describing element idx of L's type-arg pack: head uses idx=0; nth requires its argument to be a literal int. A missing type argument, a non-literal nth index, or an index outside `[0, pack.size())` is a fatal compile-time error (abort with diagnostic).
 
-**Divergence.** A6 (Logos-only type-level pack intrinsic)
+**Divergence.** A6
+
+**Related.** `intrinsic.reflect.type-struct-shape`
 
 _Source: `src/compiler/mono_clone.cpp#L1672-L1731`_
 
 
-### `intrinsic.reflect.typelist-len` — typelist_len::<L>() -> i64 folds to the pack arity
+### `intrinsic.reflect.typelist-len` — `typelist_len::<L>()` -> i64 folds to the pack arity
 
-`typelist_len::<L>()` (callee __typelist_len__) folds to an `i64` literal equal to the number of type arguments in L's type-argument pack (0 when L is absent). O(1) compile-time probe; the canonical L is `TypeList<T...>`.
+`typelist_len::<L>()` (callee `__typelist_len__)` folds to an `i64` literal equal to the number of type arguments in L's type-argument pack (0 when L carries no type-argument list). O(1) compile-time probe; the canonical L is `TypeList<T...>`.
 
-**Divergence.** A6 (Logos-only type-level pack intrinsic)
+**Divergence.** A6
 
 _Source: `src/compiler/mono_clone.cpp#L1657-L1668`_
 
 
-### `intrinsic.reflect.typelist-tail` — typelist_tail::<T>() drops the first type argument
+### `intrinsic.reflect.typelist-tail` — `typelist_tail::<T>()` drops the first type argument
 
-typelist_tail::<T>() produces a [Type; N] descriptor array of T's generic type-arguments excluding the first (i.e. the tail beginning at index 1); empty when T has fewer than two type arguments.
+`typelist_tail::<T>()` produces a [Type; N] descriptor array of T's generic type-arguments excluding the first (i.e. the tail beginning at index 1); empty when T has fewer than two type arguments.
 
 **Related.** `intrinsic.reflect.type-descriptor-array`
 
@@ -4409,11 +4987,20 @@ _Source: `src/compiler/sema_expr.cpp#L4942-L5010`_
 
 ## dyn intrinsics
 
+### `intrinsic.dyn.deref-raw-dyn-ptr-is-identity` — Dereferencing a raw *const/*mut dyn is a no-op unless it points into storage holding the handle
+
+For a `*const dyn`/`*mut dyn` operand, the default convention is that the pointer VALUE already IS the trait-object fat handle, so `*p` is the identity (no load). Only when the pointer is a genuine pointer-into-storage that itself holds a stored dyn handle (e.g. a container-accessor return such as `HashMap::get -> *const Box<dyn>`) does `*p` load the fat {data,vtable} pair from that storage.
+
+**Related.** `layout.dyn.fat-pair-16-byte`
+
+_Source: `src/compiler/mlir_gen_impl.hpp#L1267-L1271`_
+
+
 ### `intrinsic.dyn.from-parts` — dyn_from_parts assembles a fat dyn pointer
 
-`dyn_from_parts::<Trait>(data, vtable)` assembles a fat trait-object pointer as the 16-byte {data, vtable} pair from the two raw half pointers, yielding `*mut dyn Trait`; the trait argument is irrelevant to layout (uniform).
+`dyn_from_parts::<Trait>(data: *mut u8, vtable: *const u8) -> *mut dyn Trait` assembles a fat trait-object handle as the 16-byte {data, vtable} pair from the two raw half pointers, storing them into a freshly allocated slot and returning that slot's address; the trait argument is unused at codegen (layout is uniform across traits).
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1922-L1941`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L1954-L1970`_
 
 
 ### `intrinsic.dyn.tagged-dispatch-tier-split` — tagged-trait dispatch splits at type_code 223 into table vs lookup
@@ -4425,22 +5012,29 @@ Dispatch through a `&tagged<TS> Trait` reads the object's type_code (i64) at its
 _Source: `src/compiler/mlir_gen_dyn.cpp#L1273-L1283`_
 
 
-### `intrinsic.dyn.vtable-of` — vtable_of::<Trait, T> yields the static vtable address
+### `intrinsic.dyn.vtable-drop-slot` — Every trait-object vtable's slot 0 is a drop_in_place glue function
 
-`vtable_of::<Trait, T>()` returns `*const u8`, the address of the static vtable for `impl Trait for T`, with Trait given as a string argument and T as the first type argument.
+Every vtable synthesized for a concrete type has slot 0 populated with a `__drop_in_place__<type>` function that runs that concrete type's full (Rust-faithful) drop; the glue is emitted once per concrete type (deduplicated by vtable type-name key), and slot 0 is always non-empty — a non-droppable type gets a glue function with an empty (no-op) body rather than an omitted slot.
 
-_Source: `src/compiler/mlir_gen_expr.cpp#L1906-L1921`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L485-L492`_
+
+
+### `intrinsic.dyn.vtable-of` — `vtable_of::<Trait, T>` yields the static vtable address
+
+`vtable_of::<Trait, T>() -> *const u8` returns the address of the compiler-materialized static vtable for `impl Trait for T`, with Trait given as a string-literal value argument (arg 0) and T as the sole type argument.
+
+_Source: `src/compiler/mlir_gen_expr.cpp#L1935-L1950`_
 
 
 ### `intrinsic.dyn.vtable-slot0-is-drop` — Trait-object vtable slot 0 is drop_in_place; supertrait vtables nested
 
-A trait object's vtable carries the concrete type's drop_in_place at slot 0 (called for dynamic destruction) and includes super-vtable pointer slots for each supertrait, each pointing at the supertrait's vtable global.
+A trait object's vtable carries the concrete type's drop_in_place at slot 0 (called for dynamic destruction) and includes super-vtable pointer slots for each supertrait, each pointing at the supertrait's own vtable global (recursively built).
 
 **Uncertainty.** Slot-0 = drop is stated by the drop-sequence comments; exact remaining vtable slot ordering is not specified in this unit.
 
 **Related.** `intrinsic.drop.owning-dyn-handle`
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L966-L975`, `src/compiler/mlir_gen_impl.hpp#L1101-L1104`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L1058-L1067`, `src/compiler/mlir_gen_impl.hpp#L1196-L1201`_
 
 
 ## dyn-from-parts
@@ -4500,11 +5094,11 @@ _Source: `src/compiler/sema_expr.cpp#L5032-L5057`_
 
 ## Drop intrinsics
 
-### `intrinsic.drop.box-dyn-frees-data` — Dropping `Box<dyn Trait>` runs drop_in_place then frees the single heap block
+### `intrinsic.drop.box-dyn-frees-data` — Dropping `Box<dyn Trait>` runs the destructor then frees
 
-Dropping an owning `Box<dyn Trait>` calls drop_in_place(data) via the vtable, then frees the data pointer (the single heap block holding the concrete value).
+Dropping an owning `Box<dyn Trait>` fat handle {data, vtable} runs `drop_in_place(data)` via vtable slot 0, then frees the single heap block at `data`. A null `data` skips both the destructor call and the free.
 
-_Source: `src/compiler/mlir_gen_stmt.cpp#L547-L605`_
+_Source: `src/compiler/mlir_gen_stmt.cpp#L550-L608`_
 
 
 ### `intrinsic.drop.closure-env-drop-glue` — closure drop glue drops captures then frees heap env
@@ -4527,14 +5121,14 @@ Dropping the concrete payload behind a `&dyn` fat pair in place (the move-out dr
 
 **Related.** `intrinsic.drop.owning-dyn-handle`
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L1112-L1118`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L1209-L1215`_
 
 
-### `intrinsic.drop.dyn-virtual-dispatch` — Dropping a `dyn` value calls the destructor via vtable slot 0 with null guard
+### `intrinsic.drop.dyn-virtual-dispatch` — Dropping a borrowed `dyn Trait` handle dispatches virtually
 
-Dropping a trait-object value loads its data and vtable pointers; if data is non-null it calls vtable slot 0 (drop_in_place) on the data pointer. A null (moved-from/zeroed) data pointer skips the call.
+Dropping a non-owning `dyn Trait` fat handle {data, vtable} in place invokes the destructor through the vtable's slot 0 (dynamic dispatch on the runtime concrete type), passing `data` as the sole argument. A null `data` (a moved-from/zeroed handle) skips the call.
 
-_Source: `src/compiler/mlir_gen_stmt.cpp#L514-L545`, `src/compiler/mlir_gen_stmt.cpp#L591-L597`_
+_Source: `src/compiler/mlir_gen_stmt.cpp#L517-L548`_
 
 
 ### `intrinsic.drop.owner-drops-fields-after-user-drop` — Owner drop runs user Drop then drops fields; nested by-value self stops at user Drop
@@ -4543,7 +5137,7 @@ At the top level (owner semantics), after a value's user `impl Drop` runs, its f
 
 **Related.** `intrinsic.drop.recursive-by-type`
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L1089-L1096`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L1186-L1193`_
 
 
 ### `intrinsic.drop.owning-custom-dst` — Drop of owning `Box<Foo>` custom-DST drops prefix + tail then frees
@@ -4552,7 +5146,7 @@ Dropping an owning custom-DST `Box<Foo>` drops the droppable prefix fields plus 
 
 **Related.** `layout.dst.slice-tail-ref-is-fat`
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L1108-L1111`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L1205-L1208`_
 
 
 ### `intrinsic.drop.owning-dyn-handle` — Drop of owning `Box<dyn>` calls vtable[0], frees data, frees handle
@@ -4561,23 +5155,23 @@ Dropping an owning `Box<dyn Trait>` whose binding storage is the 8-byte heap han
 
 **Related.** `layout.dyn.box-dyn-collapses-to-trait-object`, `intrinsic.drop.dyn-in-place`
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L1099-L1104`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L1196-L1201`_
 
 
 ### `intrinsic.drop.owning-slice` — Drop of owning `Box<[T]>` drops each element then frees the buffer
 
 Dropping an owning `Box<[T]>` fat slice (value {data, len}) drops each element via a runtime loop over `len` (only when T is droppable) and then frees the heap buffer.
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L1105-L1107`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L1202-L1204`_
 
 
-### `intrinsic.drop.rc-arc-dyn-refcount` — Dropping `Rc<dyn>`/`Arc<dyn>` decrements strong and frees the RcInner at zero
+### `intrinsic.drop.rc-arc-dyn-refcount` — Dropping `Rc<dyn>`/`Arc<dyn>` decrements strong count, frees at zero
 
-Dropping an owning `Rc<dyn>`/`Arc<dyn>` recovers the RcInner block start as data − round_up(8, align(T)) (align read from vtable slot 2), decrements the strong count (Arc: seq-cst atomic; Rc: plain load/store) at offset 0, and only when it reaches zero calls drop_in_place(data) and frees the whole RcInner block.
+Dropping an owning `Rc<dyn Trait>`/`Arc<dyn Trait>` fat handle decrements the strong-reference counter in the value's header (`Arc`: atomic RMW subtract, seq_cst ordering; `Rc`: plain load-decrement-store). Only when the decremented count reaches zero does it run `drop_in_place` on the value (vtable slot 0) and free the whole backing block. A null `data` (moved-from handle) skips the entire sequence.
 
-**Uncertainty.** RcInner layout {strong i32, weak i32, T val} with val at round_up(8, align) and vtable layout {drop, size, align} are codegen ABI conventions inferred from comments; the dyn path frees on strong==0 without weak bookkeeping.
+**Uncertainty.** This codegen path performs no weak-count bookkeeping for the dyn case (per the in-source note); docs/DIVERGENCES.md §B (~line 93) records `Rc<dyn Tr>`/`Arc<dyn Tr>` as migrated (2026-06-02) to the real `Rc`/`Arc` struct repr with a custom-DST tail — it is unclear from this slice alone whether this fat-pair drop path is the current primary path or a residual/legacy one for a narrower case.
 
-_Source: `src/compiler/mlir_gen_stmt.cpp#L606-L656`_
+_Source: `src/compiler/mlir_gen_stmt.cpp#L610-L659`_
 
 
 ### `intrinsic.drop.recursive-by-type` — Drop recurses structurally by type shape
@@ -4586,7 +5180,7 @@ Dropping a value recurses by type: a struct runs its user `impl Drop` then drops
 
 **Related.** `intrinsic.drop.owner-drops-fields-after-user-drop`
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L1085-L1098`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L1182-L1195`_
 
 
 ### `intrinsic.drop.skip-moved-out-paths` — Moved-out sub-values are skipped during drop
@@ -4595,7 +5189,7 @@ Drop of a value suppresses sub-values that were moved out: a dotted path (relati
 
 **Related.** `intrinsic.drop.recursive-by-type`
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L1093-L1098`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L1190-L1195`_
 
 
 ## vec
@@ -4611,11 +5205,9 @@ _Source: `src/compiler/sema_expr.cpp#L18134-L18213`_
 
 ### `intrinsic.str.from-raw-fatptr` — str_from_raw builds a str fat pointer
 
-`str_from_raw(ptr: *const u8, len: i64) -> str` constructs a string slice as a two-field fat pointer {data: ptr, len: i64}; the length argument is coerced to i64.
+`str_from_raw(ptr: *const u8, len: i64) -> str` constructs a string slice as a two-field fat pointer `{data: ptr, len: i64}` in fresh storage; the `len` argument is coerced to i64 before being stored.
 
-**Related.** `layout.dst.slice-fatptr`
-
-_Source: `src/compiler/mlir_gen_expr.cpp#L2216-L2233`_
+_Source: `src/compiler/mlir_gen_expr.cpp#L2245-L2261`_
 
 
 ### `intrinsic.str.str-from-raw` — str_from_raw constructs a str fat pointer
@@ -4631,9 +5223,9 @@ _Source: `src/compiler/sema_expr.cpp#L3117-L3127`_
 
 ### `intrinsic.closure.drop-glue` — Owned closures drop their owned captures then free an escaping env
 
-Dropping an owned closure value runs per-closure drop glue that drops each owned droppable capture (the narrow captured field when RFC-2229 phase-2 narrowing applies, else the whole captured root) and, if the env is heap-allocated (escaping closure), frees the env.
+Dropping an owned closure value runs per-closure-id drop glue, `__closure_drop__<id>(env_ptr)` (deduplicated per closure-id), that drops each owned droppable capture (the narrow captured FIELD when a per-capture narrow field type is set — RFC-2229-style disjoint capture — else the whole captured root), then, if the env is heap-allocated (an escaping closure), frees the env. Its symbol is stored at closure-env field 0.
 
-_Source: `src/compiler/mlir_gen_impl.hpp#L438-L454`_
+_Source: `src/compiler/mlir_gen_impl.hpp#L494-L510`_
 
 
 ## zone
@@ -4672,15 +5264,6 @@ _Source: `src/compiler/sema_expr.cpp#L4844-L4847`_
 `matches!(expr, pattern [if guard])` evaluates to `true` iff `expr` matches the pattern (with optional guard), else `false`; lowered to `match (expr) { pattern => true, _ => false }`. The first top-level comma splits expr from the pattern.
 
 _Source: `src/compiler/sema_expr.cpp#L18411-L18434`_
-
-
-## fmt
-
-### `intrinsic.fmt.tuple-debug-synth` — Debug formatting of tuples is synthesized element-wise
-
-Debug formatting of a tuple T=(t0,..,t_{n-1}) emits an open delimiter, then for each element the element's Debug rendering separated by separators, then a close delimiter (a distinct close form for n==1). Each non-tuple element is formatted by a recursive `fmt` method-call dispatched on the element's Debug impl; a nested tuple element recurses through the same builder. A &[u8] slice element is formatted as `str`.
-
-_Source: `src/compiler/mono_clone.cpp#L2646-L2682`, `src/compiler/mono_clone.cpp#L2663-L2671`_
 
 
 ## dbg!
@@ -4738,7 +5321,7 @@ _Source: `src/compiler/sema_expr.cpp#L18238-L18244`, `src/compiler/sema_expr.cpp
 
 `include_str!("path")` and `include_bytes!("path")` read the file at compile time (path relative to the including file) and yield its contents as a `&str` (`Slice<u8>`) literal; both forms collapse to the same representation since `str` is `Slice<u8>`. Unreadable files are a compile error.
 
-**Divergence.** Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are `Slice<u8>`.
+**Divergence.** Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are `Slice<u8>.`
 
 _Source: `src/compiler/sema_expr.cpp#L18252-L18282`_
 
@@ -4749,7 +5332,7 @@ _Source: `src/compiler/sema_expr.cpp#L18252-L18282`_
 
 `env!("VAR")` yields the value of environment variable VAR as a `&str` literal and is a compile error if unset; `option_env!("VAR")` yields the value or an empty `&str` if unset.
 
-**Divergence.** option_env! returns an empty &str tombstone rather than `Option<&str>`.
+**Divergence.** option_env! returns an empty &str tombstone rather than `Option<&str>.`
 
 _Source: `src/compiler/sema_expr.cpp#L18289-L18316`_
 
@@ -4839,5 +5422,3 @@ _Source: `src/compiler/sema_expr.cpp#L18348-L18390`_
 A callee not matching any recognized type-intrinsic name yields no lowering here (the dispatcher returns nothing), leaving the call to ordinary resolution.
 
 _Source: `src/compiler/sema_expr.cpp#L5828`_
-
-

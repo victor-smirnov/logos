@@ -288,25 +288,25 @@ A `WritStatic` blob is read with `WView2` (`static_view`): `wview2_from_ptr(hs.p
 
 *Evidence:* `stdlib/lang/writ/container.logos#L1-L48`
 
-### `writ.container.tom` — WMap<Wu6,WAny>: the bitmap-indexed TinyObjectMap
+### `writ.container.tom` — `WMap<Wu6,WAny>`: the bitmap-indexed TinyObjectMap
 
 `WMap<Wu6,WAny>` (alias `WTinyValMap`, the legacy TinyObjectMap, code `W_TINYMAP=98`) is a compact FIXED-capacity map of up to 52 small keys (`0..51`) → `WAny`. Its header packs `bitmap[0:51] | cap[52:57] | size[58:63]`, plus a separate `schema_code: u64` and a self-relative `data: *zoned mut WAny` value buffer kept in key order. Lookup is O(1): a key's value-array position is `popcount(bitmap & keys-below)`. `get(key)` returns null `WAny` for an absent/out-of-range key; `set(key, val)` is a thin `&mut` (fixed cap → never allocates), a no-op for `key ≥ 52` or a full map with a new key. `Wu6` is a pure type-level label for the 6-bit key. This is the DEFAULT schema backing.
 
 *Evidence:* `stdlib/lang/writ/wmap.logos#L294-L379`
 
-### `writ.container.object-map` — WMap<WString,WAny>: the string-keyed object map
+### `writ.container.object-map` — `WMap<WString,WAny>`: the string-keyed object map
 
 `WMap<WString,WAny>` (alias `WValMap`, code `W_MAP=101`) is the JSON-object string-keyed hash map over the arena: open-addressing + linear probing + FNV-1a, interned `WString` keys, `WAny` values. It GROWS like a Rust `HashMap` — at load factor >0.75 it appends a fresh 2× entry buffer and rehashes every live entry, re-anchoring each self-relative slot through its absolute value (the old buffer stays dead until the container drops). `#[zone_mut]` makes a `&mut` a fat ref carrying the arena; a read `&` stays thin. Overloaded `set(key, v)` accepts i64/f64/bool/`&WString`/`&WArray`/`&WMap`/`str` (interning as needed).
 
 *Evidence:* `stdlib/lang/writ/wmap.logos#L1-L66`, `stdlib/lang/writ/wmap.logos#L104-L120`, `stdlib/lang/writ/wmap.logos#L256-L273`
 
-### `writ.container.dense-int-map` — WMap<K,WAny>: the dense integer-keyed map
+### `writ.container.dense-int-map` — `WMap<K,WAny>`: the dense integer-keyed map
 
 `WMap<K,WAny>` where `K: WIntKeyTag` (i32/u32/i64/u64; wire codes MapI32AnyVal=3101 .. MapU64AnyVal=3104) is a dense FIXED-capacity int-keyed map: parallel `K[]` keys + `*zoned WAny[]` values with O(n) linear lookup (the map is small), a thin `&mut` (fixed cap → no allocation). The type-var-first spec overlaps the string/bitmap first-arg specs; struct-layout selection picks the more-specific spec, and the dense methods sit behind the `K: WIntKeyTag` bound (which `WString`/`Wu6` do not satisfy) so they never collide.
 
 *Evidence:* `stdlib/lang/writ/wmap.logos#L471-L513`
 
-### `writ.container.warray` — WArray<WAny> / WArray<T>: the heterogeneous vs typed array
+### `writ.container.warray` — `WArray<WAny>` / `WArray<T>`: the heterogeneous vs typed array
 
 `WArray` has two partial specialisations by element kind. `WArray<WAny>` (code `W_ARRAY=100`) is the heterogeneous JSON array: AT-REST `WAny` elements in a `*zoned mut WAny` buffer (each `*(buf.add(i))` materialises the slot's Ref-delta → absolute). `WArray<T>` (T: `WArrTag`, codes 2101-2110) is a TYPED homogeneous packed array of a primitive (plain position-independent `*mut T` elements). Both share a `#[zone_mut] #[pinned] #[zoned]` shape: a fat `&mut` carrying the allocator, a pinned header, a self-relative `data` delta. Growth appends a fresh 2× buffer and re-points `data`; the copy re-anchors each self-relative slot through its absolute intermediate (not a memcpy).
 

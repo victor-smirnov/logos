@@ -1,0 +1,151 @@
+{
+  "unit": "sema/sema_expr/try_method_on_tuple.part3",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L8131-L8636",
+  "source_hash": "e8b888ee530a8421",
+  "rules": [
+    {
+      "id": "trait.dispatch.primitive-receiver-ref-ptr-ladder",
+      "domain": "trait",
+      "title": "Method lookup on a primitive receiver tries value, &T, &mut T, *const T, *mut T in order",
+      "statement": "For a method call `recv.method(args)` where `recv`'s type is a primitive (mangled key `<type>__<method>`), resolution tries param[0] = `T` (value), then `&T`, then `&mut T`, then `*const T`, then `*mut T`, accepting the first exact-signature match. This exposes `impl Trait for T` methods declared with `self: &Self`/`&mut Self`/`self: *const Self`/`self: *mut Self` to dot-call on a bare-value receiver.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8138-L8169"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dispatch.ref-mangling-nonstruct-pointee",
+      "domain": "trait",
+      "title": "`impl Trait for &T` / `&mut T` (T non-struct) registers under `$ref_`/`$mut_ref_` mangled keys",
+      "statement": "When `recv`'s type is `&T`/`&mut T` and no bare-`T` impl matched, method lookup additionally tries the mangled key `$ref_<T>__<method>` (or `$mut_ref_` for `&mut T`), first with `recv`'s type as param[0] as-is, then with an added `&`/`&mut` level (for `self: &Self` methods whose Self is already `&T`). On match, `recv` is auto-ref'd to the matching level via `materialize_recv_ref`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8170-L8202"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dispatch.ref-blanket-generic-impl",
+      "domain": "trait",
+      "title": "Generic blanket impl `impl<T> Trait for &T` dispatches via sentinel key with T bound to the pointee",
+      "statement": "When `recv`'s type is `&T`/`&mut T` and no concrete `$ref_`-mangled impl matched, lookup tries the generic sentinel key `$ref_$T__<method>` / `$mut_ref_$T__<method>`. On match, the impl's type parameter named `T` is bound to `recv`'s pointee type, other type params bind to an error placeholder, `recv` is auto-ref'd (`&recv`), and the call routes through `finish_generic_call` for monomorphization.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8203-L8225"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dispatch.autoderef-to-pointee-method",
+      "domain": "trait",
+      "title": "`&T`/`&mut T` receiver auto-derefs to T's method when no ref-targeted impl is found",
+      "statement": "For a primitive-or-ref receiver of type `&T`/`&mut T`, if no `T`-value, `&T`-impl, or generic `&T`-blanket impl matched, resolution derefs to the pointee type `T` and retries lookup under `<T>__<method>` with param[0] = `T`; if that also fails, it retries with param[0] left as the original ref type (covers a `self: &Self` method reached only via this path). The receiver expression is rebuilt via an explicit deref only in the pointee-param[0] case.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8244-L8277"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dispatch.mut-ref-demoted-for-ref-self",
+      "domain": "trait",
+      "title": "A `&mut T` receiver may satisfy a `&self` method on T by demoting to `&T`",
+      "statement": "If auto-deref lookup for a `&mut T` receiver fails to find a `T`-value method, resolution retries once more with param[0] coerced to `&T` (demoted mutability, same pointee) before falling back to a generic-function lookup under the same mangled key.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8278-L8301"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method-call.unsafe-requires-context",
+      "domain": "expr",
+      "title": "Calling an unsafe method requires an unsafe context",
+      "statement": "A method-call resolved to a function-info marked `is_unsafe` is rejected unless the call site is lexically inside an `unsafe` block/context.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8306-L8308"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "generic.subst.method-turbofish-args-verbatim",
+      "domain": "generic",
+      "title": "Method-call turbofish type args are used verbatim, padded with an error type if short",
+      "statement": "For a generic method call with explicit turbofish (`x.foo::<A,B>()`), the supplied type arguments are bound positionally to the method's type parameters without inference; any type parameter beyond the supplied count binds to the error type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8312-L8321"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "generic.subst.method-type-arg-inference-self-seed",
+      "domain": "generic",
+      "title": "Generic-method type-argument inference seeds `Self` from the receiver's type",
+      "statement": "When a generic method call has no turbofish, type-argument inference runs over the argument expressions with the substitution seeded `Self := (receiver's type)`, starting from parameter index 1 (the receiver itself is excluded from the inferred-from set). Failure to infer all type parameters is a diagnostic.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8322-L8329"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.method-call.autoref-self-param",
+      "domain": "expr",
+      "title": "Method call auto-refs the receiver when the resolved method expects `&Self`/`&mut Self`",
+      "statement": "If the resolved method's formal parameter 0 is `&Self`/`&mut Self` and the receiver expression's type is not already ref-like or a raw pointer, the receiver is implicitly wrapped in `&`/`&mut` (materialized as an address-of-temp) to match, matching the formal's mutability.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8330-L8342", "src/compiler/sema_expr.cpp#L8350-L8361", "src/compiler/sema_expr.cpp#L8628-L8636"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method-call.autoref-ptr-self-param",
+      "domain": "expr",
+      "title": "Method call auto-addresses the receiver when the resolved method expects `*const Self`/`*mut Self`",
+      "statement": "If the resolved method's formal parameter 0 is a raw pointer type (`*const Self`/`*mut Self`) and the receiver's type is neither ref-like nor already a pointer, the receiver is implicitly wrapped in the matching raw-pointer form.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8362-L8370"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dispatch.value-blanket-fallback-primitive",
+      "domain": "trait",
+      "title": "Value blanket impl (`impl<T> Trait for T`) is tried as a last resort for primitive receivers",
+      "statement": "If no method-info was resolved for a primitive receiver through any of the concrete/ref/generic lookup paths, dispatch falls back to the generic value-blanket-impl mechanism before reporting an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8377-L8382"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method-call.non-struct-receiver-diagnostic",
+      "domain": "expr",
+      "title": "Method call on a non-struct receiver with no resolvable method is a diagnostic",
+      "statement": "If a method-call receiver is a primitive/ref/pointer type and no method-info is found through any lookup path (direct, ref-mangled, generic, deref, blanket), sema reports \"method call: receiver is not a struct (got <type>)\" — suppressed only when in metaprog-discovery mode and the receiver (or, for ref/ptr receivers, its pointee) is already the error type, to avoid cascading diagnostics.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8383-L8396"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "coerce.str.slice-method-alias",
+      "domain": "coerce",
+      "title": "`str` receivers fall back to `Slice<u8>`-typed method lookup under the `str__` mangling",
+      "statement": "`str` is represented as `&[u8]` (`type_str` yields `&[u8]`), but impls written `impl Trait for str` register methods mangled as `str__<method>`. When receiver type-string is `&[u8]` and lookup under the literal `&[u8]__<method>` key fails, resolution retries under `str__<method>` (concrete, then generic).",
+      "evidence": ["src/compiler/sema_expr.cpp#L8233-L8242"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dispatch.ref-impl-mangling-preferred",
+      "domain": "trait",
+      "title": "Struct-receiver ref-typed impls (`$ref_`/`$mut_ref_`) are tried before auto-deref'd bare-type impls",
+      "statement": "When a struct-typed receiver's expression type is `&T`/`&mut T`, method lookup first tries mangled keys `$ref_<T>__<method>` (and, if T is a generic struct instantiation, also its base-name form) or `$mut_ref_<T>__<method>`, against the receiver's type as-is, then `&recv`, then `&mut recv` as param[0] (in that order), before falling through to the bare-`T` auto-deref path below. This lets `impl Trait for &T` win over an auto-deref'd `impl Trait for T`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8399-L8467"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "generic.subst.ref-impl-type-params-from-pointee",
+      "domain": "generic",
+      "title": "A generic ref-impl's type parameters bind from the pointee struct's own type-argument list",
+      "statement": "For a matched `$ref_`/`$mut_ref_`-mangled method belonging to a generic impl, the impl's type parameters are bound positionally to the receiver pointee struct's type-argument list (looked up by struct/datatype name), and the call routes through `finish_generic_call`; for a non-generic matched method, the same substitution is applied to compute the concrete return type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8468-L8501"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dispatch.candidate-signature-match",
+      "domain": "trait",
+      "title": "Struct-method candidate selection matches receiver/args against each candidate's formal signature with one autoref/autoderef step",
+      "statement": "Among same-name non-generic candidates with matching arity, a candidate matches if: (a) receiver type equals formal param[0] exactly, OR (b) formal param[0] is `&T`/`&mut T`/`*T` and actual receiver's type equals its pointee (autoref/auto-addr the receiver to match), OR (c) both are raw pointers with equal pointee (const/mut pointer receivers are mutually compatible), OR (d) actual receiver is `&T`/`&mut T`/`*T` and formal param[0] is the bare pointee type (auto-deref candidate, by-value self) — otherwise the general `types_compatible` check applies; AND every remaining argument is `arg_compatible_for_dispatch` against its formal (with struct type-param substitution applied to formals when the receiver is a generic struct instantiation).",
+      "evidence": ["src/compiler/sema_expr.cpp#L8538-L8598"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dispatch.byvalue-self-lowest-priority",
+      "domain": "trait",
+      "title": "An auto-deref'd by-value-`self` candidate is chosen only when no non-deref candidate matches",
+      "statement": "A candidate reachable only by auto-dereffing the receiver to satisfy a by-value `self` parameter is recorded but not immediately selected; the first non-deref-matching candidate in scan order still wins. The deref-only candidate is used as a fallback only if the whole candidate scan finds no non-deref match. This mirrors Rust's autoderef order: exact/autoref matches at the current deref level are preferred over stepping to a further deref level.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8531-L8613"]
+    },
+    {
+      "id": "trait.dispatch.autoderef-applied-for-byvalue-self",
+      "domain": "trait",
+      "title": "Once a by-value-self deref-fallback candidate is chosen, the receiver is materialized via an explicit deref",
+      "statement": "When the selected method candidate is the deref-fallback (by-value `self`, receiver was `&T`/`&mut T`/`*T`), the receiver expression is replaced with an explicit deref of the pointee before building the call. Soundness of the resulting move/copy is enforced by borrow-checking downstream, not by this dispatch step.",
+      "evidence": ["src/compiler/sema_expr.cpp#L8620-L8627"],
+      "testability": "behavioral"
+    }
+  ]
+}

@@ -1,29 +1,24 @@
 {
   "unit": "mono/mono_clone/logos.part5",
   "layer": "mono",
-  "source": "src/compiler/mono_clone.cpp#L2120-L2645",
-  "source_hash": "a35edb8df7344f42",
+  "source": "src/compiler/mono_clone.cpp#L2152-L2685",
+  "source_hash": "18043e612e04ef70",
   "rules": [
     {
       "id": "metaprog.type-intrinsic.apply-generic",
       "domain": "metaprog",
-      "title": "__apply_generic__(g, args) instantiates a struct template",
-      "statement": "During monomorphization, __apply_generic__(g, [a0..aN]) requires g to resolve to a generic_of value carrying a non-empty template name and args to be an array literal; it constructs the Struct type tmpl_name<recover(a0)..recover(aN)>, threading the template definition's pkg, and yields a `Type` reflection value {kind, name=type_str(t), size=size_of(t), align=align_of(t), uid}. A missing template name or non-array args is a compile-time abort.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2130-L2140",
-        "src/compiler/mono_clone.cpp#L2191-L2239"
-      ],
-      "divergence": "A6 (metaprog / variadics — Logos addition, no Rust equivalent)"
+      "title": "__apply_generic__ instantiates a template struct type",
+      "statement": "For __apply_generic__(tmpl_name, arg0..argN), each arg expr is resolved to a compile-time TypeRef via the type-producer-recover protocol (unresolvable arg aborts compilation with a diagnostic); the intrinsic builds LogosType::Struct{name=tmpl_name, type_args=[recovered...]} (pkg inherited from the matching struct def in out_.structs), interns the type, and replaces the call with that type's `Type` reflection value.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2191-L2239"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.type-intrinsic.type-producer-recover",
       "domain": "metaprog",
-      "title": "Type-producer recovery for type-apply intrinsics",
-      "statement": "An argument to a type-apply intrinsic denotes a type via one of: a __typelist_nth__(L,i)/__typelist_head__(L) call (resolving to element i (default 0) of the substituted type-list L's type_args, out-of-range yields no type), or a `Type` struct literal whose `uid` field is __type_uid_of__::<T>() (resolving to subst(T)). VarRef arguments are chased through type-let bindings (≤8 hops) before recovery. An argument that yields no type is a compile-time abort.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2141-L2190",
-        "src/compiler/mono_clone.cpp#L2255-L2315"
-      ],
+      "title": "Type-producer recovery protocol for type-apply intrinsics",
+      "statement": "To resolve a LIR sub-expr to a compile-time TypeRef (shared by __apply_generic__/__tuple_type_apply__/__array_type_apply__): (1) chase through VarRef by looking up type_let_inits_, up to 8 hops; (2) if the result is a Call to __typelist_nth__ or __typelist_head__, substitute its type-arg[0] (a type-list) through the current subst map and index into its type_args pack at the literal-int index given as __typelist_nth__'s value arg (__typelist_head__ implicitly index 0); out-of-range index yields no type; (3) if the result is a StructLit with a field named \"uid\" whose initializer is a Call to __type_uid_of__, recover that call's type-arg[0] substituted through the subst map; (4) otherwise recovery fails (empty TypeRef).",
+      "evidence": ["src/compiler/mono_clone.cpp#L2152-L2189", "src/compiler/mono_clone.cpp#L2255-L2315"],
       "divergence": "A6",
       "testability": "transitive"
     },
@@ -31,98 +26,83 @@
       "id": "metaprog.type-intrinsic.tuple-type-apply",
       "domain": "metaprog",
       "title": "__tuple_type_apply__([Type;N]) builds a tuple type",
-      "statement": "__tuple_type_apply__(arr) requires arr (after var-chase) to be an array literal of type producers; it constructs the Tuple type (recover(e0),..,recover(eN-1)) and yields its `Type` reflection value. Non-array argument is a compile-time abort.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2244-L2247",
-        "src/compiler/mono_clone.cpp#L2317-L2341"
-      ],
-      "divergence": "A6"
+      "statement": "__tuple_type_apply__(arr) requires arg0 to chase to an ArrLit (a non-ArrLit is a compile-time abort); each element is resolved via type-producer-recover (unresolvable element aborts); the intrinsic yields LogosType::Tuple{tuple_elems=[recovered...]}'s `Type` reflection value.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2244-L2246", "src/compiler/mono_clone.cpp#L2316-L2341"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.type-intrinsic.array-type-apply",
       "domain": "metaprog",
       "title": "__array_type_apply__(Type, N) builds an array type",
-      "statement": "__array_type_apply__(elem, n) requires elem to recover to a type producer and n (after var-chase) to be an integer literal; it constructs the Array type [recover(elem); n] and yields its `Type` reflection value. A non-producer elem or non-literal size is a compile-time abort.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2244-L2247",
-        "src/compiler/mono_clone.cpp#L2342-L2362"
-      ],
-      "divergence": "A6"
+      "statement": "__array_type_apply__(elem, size) requires elem to resolve via type-producer-recover (unresolvable is a compile-time abort) and size (after chase) to be a LitInt literal (a non-literal is a compile-time abort); the intrinsic yields LogosType::Array{elem=recovered, arr_size=size}'s `Type` reflection value.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2244-L2246", "src/compiler/mono_clone.cpp#L2342-L2361"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.type-intrinsic.type-reflection-value",
       "domain": "metaprog",
       "title": "Type reflection value shape and uid",
-      "statement": "A reflected `Type` value is a struct literal with fields kind:u32 = t.kind, name:&[u8] = type_str(t), size:i64 = size_of(t), align:i64 = align_of(t), uid:u64 = type_hash_64bit(type_hash_23(type_id_canon(t))); the uid→type mapping is registered for the constructed type.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2214-L2238",
-        "src/compiler/mono_clone.cpp#L2363-L2387"
-      ],
-      "divergence": "A6"
+      "statement": "A reflected `Type` value (yielded by __apply_generic__/__tuple_type_apply__/__array_type_apply__) is the struct literal `Type{kind:u32=T.kind(), name:&[u8]=type_str(T), size:i64=size_of(T), align:i64=align_of(T), uid:u64}` where `uid = type_hash_64bit(type_hash_23(type_id_canon(T)))`; T is registered into out_.type_pool and uid_to_type_[uid]=T so a later __type_uid_of__ lookup on that uid recovers T.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2213-L2238", "src/compiler/mono_clone.cpp#L2364-L2387"],
+      "divergence": "A6",
+      "testability": "transitive"
     },
     {
       "id": "metaprog.enum-intrinsic.variant-count-of",
       "domain": "metaprog",
       "title": "__variant_count_of__::<E>() yields variant count",
-      "statement": "__variant_count_of__::<E>() evaluates to an i64: the number of variants of E when E is an enum with a known definition, else 0.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2395-L2418"
-      ],
-      "divergence": "A6"
+      "statement": "__variant_count_of__ with type-arg E evaluates to a literal i64 equal to the variant count of E's enum definition when E resolves to a known LogosType::Enum with a matching def in in_.enums, else 0.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2395-L2417"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.enum-intrinsic.variant-names-of",
       "domain": "metaprog",
       "title": "__variant_names_of__::<E>() yields variant names",
-      "statement": "__variant_names_of__::<E>() evaluates to an array of the variant names (string literals) of E in declaration order; empty if E is not a known enum.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2395-L2399",
-        "src/compiler/mono_clone.cpp#L2421-L2425",
-        "src/compiler/mono_clone.cpp#L2470-L2477"
-      ],
-      "divergence": "A6"
+      "statement": "__variant_names_of__ with type-arg E evaluates to a fixed-size array literal of each variant's name (string literal), in declaration order; empty array if E does not resolve to a known enum def.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2395-L2407", "src/compiler/mono_clone.cpp#L2421-L2425", "src/compiler/mono_clone.cpp#L2470-L2477"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.enum-intrinsic.variant-payload-counts-of",
       "domain": "metaprog",
       "title": "__variant_payload_counts_of__::<E>() yields per-variant payload arities",
-      "statement": "__variant_payload_counts_of__::<E>() evaluates to an i64 array giving, per variant in declaration order, the number of payload types it carries; empty if E is not a known enum.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2426-L2431",
-        "src/compiler/mono_clone.cpp#L2470-L2477"
-      ],
-      "divergence": "A6"
+      "statement": "__variant_payload_counts_of__ with type-arg E evaluates to a fixed-size array literal of i64, one per variant in declaration order, each equal to that variant's payload-field count; empty array if E does not resolve to a known enum def.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2426-L2431", "src/compiler/mono_clone.cpp#L2470-L2477"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.enum-intrinsic.variant-payload-types-flat-of",
       "domain": "metaprog",
       "title": "__variant_payload_types_flat_of__::<E>() yields flattened payload-type reflections",
-      "statement": "__variant_payload_types_flat_of__::<E>() evaluates to an array of `Type` reflection values: every payload type of every variant of E, in declaration order, flattened across variants and substituted to concrete types; empty if E is not a known enum.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2432-L2477"
-      ],
-      "divergence": "A6"
+      "statement": "__variant_payload_types_flat_of__ with type-arg E evaluates to a flat fixed-size array literal of `Type` reflection values (per metaprog.type-intrinsic.type-reflection-value), one per payload type across all variants in declaration order (variant-major, field-minor), each payload type substituted through the current instantiation's subst map; empty array if E does not resolve to a known enum def.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2432-L2469"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.variadic.tuple-all-eq",
       "domain": "metaprog",
       "title": "__tuple_all_eq__::<T>(a, b) expands to an &&-chain of elementwise eq",
-      "statement": "__tuple_all_eq__::<T>(a, b) with T = (t0,..,tn) expands to the left-associated && of per-element comparisons a.i.eq(&b.i): nested-tuple elements inline a recursive chain; slice elements (str renders as element name \"str\") are called by-value as a 2-arg free function; other elements use a method call resolving the symbol whose name contains \"<elem>__eq__f__\" at a `.`-boundary or start. When T is not a tuple or fewer than 2 args, it evaluates to bool literal `true`. An empty tuple yields `true`.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2488-L2585"
-      ],
+      "statement": "__tuple_all_eq__ with type-arg T substituted to a concrete Tuple and exactly 2 args (a, b) expands to the left-associated `&&`-chain of per-element equality a.i.eq(&b.i): a Tuple-kind element inlines a recursive chain over the nested field refs (never re-emits __tuple_all_eq__, since mono does not re-process synthesized intrinsics); a Slice-kind element (canonicalized to element name \"str\" when it is Slice<u8>) is compared via a direct 2-arg by-value free-function call; any other element resolves a callee symbol by scanning out_.functions then in_.functions for a name containing `<elem-type-str>__eq__f__` at a `.`-delimited-or-leading boundary (falling back to `<elem-type-str>__eq`) and calls it as `a.eq(&b)` via method_call. When T is missing/non-Tuple or fewer than 2 args are present, the intrinsic degenerates to the boolean literal `true` (also the result for an empty tuple).",
+      "evidence": ["src/compiler/mono_clone.cpp#L2488-L2584"],
       "divergence": "A6",
-      "uncertainty": "symbol-resolution-by-substring is an implementation detail; the observable language rule is the &&-chain elementwise Eq semantics."
+      "testability": "behavioral",
+      "uncertainty": "Symbol resolution by substring scan is an implementation detail; the observable language rule is the &&-chain elementwise-Eq semantics."
     },
     {
       "id": "metaprog.variadic.tuple-each-field-debug",
       "domain": "metaprog",
       "title": "__tuple_each_field_debug__::<T>(self, f) expands variadic tuple Debug",
-      "statement": "__tuple_each_field_debug__::<T>(self, f) with T = (t0,..,tn) expands the variadic tuple Debug impl into a fmt_seq-combined Result chain interleaving fmt_tuple_open/sep/close helpers with each field's Debug::fmt, resolving each element formatter to \"<elem>__Debug__fmt\" (trait-qualified) or \"<elem>__fmt\"; the reused `&mut Formatter` is reborrowed per call. When T is not a tuple or fewer than 2 args, it evaluates to fmt_tuple_close(f).",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2591-L2634"
-      ],
-      "divergence": "A6"
+      "statement": "__tuple_each_field_debug__ with type-arg T substituted to a concrete Tuple and exactly 2 args (self, f: &mut Formatter) expands to a `fmt_seq`-chained Result: fmt_tuple_open(f), then per element i in order: fmt_tuple_sep(f) folded in when i>0, then either (Tuple-kind element) an inline recursive build over the nested field ref, or (otherwise) a Debug-fmt call resolved as a symbol containing `<elem-type-str>__Debug__fmt__f__` else `<elem-type-str>__fmt__f__` at a `.`-delimited-or-leading boundary, else literally `<elem-type-str>__fmt` (elem-type-str = type_str(elem), with Slice<u8> canonicalized to \"str\"), invoked as `field.fmt(f)`; finally fmt_tuple_close1(f) if the tuple arity is 1, else fmt_tuple_close(f); each step is folded into the running chain via fmt_seq. Every reuse of the shared `f` argument after its first use goes through a reborrow wrapper (AddrOfTemp(Deref(f))), since `&mut Formatter` is a move-type under borrow-check and a bare reuse would consume it on the first call. When T is missing/non-Tuple or fewer than 2 args are present, the intrinsic degenerates to a single close-call.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2591-L2683"],
+      "divergence": "A6",
+      "testability": "behavioral"
     }
   ]
 }

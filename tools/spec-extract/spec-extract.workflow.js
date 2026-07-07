@@ -16,6 +16,8 @@ export const meta = {
 // Always required: rules_dir, spec_dir, sections, id_domains, schema_path.
 // Flags: P.assemble_only (skip extract), P.no_assemble (skip prose),
 //        P.assemble_all (rebuild every section regardless of changed domains).
+// Models: P.extract_model / P.assemble_model override the per-phase agent model
+//         (default: inherit session). Wide extract fan-out wants 'sonnet'.
 const P = (typeof args === 'string') ? JSON.parse(args) : args
 if (!P || typeof P !== 'object') {
   throw new Error('spec-extract: pass the `chunk.py plan` JSON as args')
@@ -151,7 +153,7 @@ if (workUnits.length) {
   log(`extracting ${workUnits.length} unit(s)${byPath ? ' (metadata via plan file)' : ''}`)
   summaries = (await parallel(workUnits.map(u => () =>
     agent(byPath ? extractPromptByPath(u) : extractPromptInline(u),
-      { label: u.unit, phase: 'Extract', schema: EXTRACT_RET })
+      { label: u.unit, phase: 'Extract', schema: EXTRACT_RET, ...(P.extract_model ? { model: P.extract_model } : {}) })
   ))).filter(Boolean)
 } else {
   log(P.assemble_only ? 'assemble-only: skipping extraction' : 'no units to extract')
@@ -174,7 +176,7 @@ if (!P.no_assemble) {
   if (sectionsToBuild.length) {
     log(`assembling ${sectionsToBuild.length} section(s): ${sectionsToBuild.map(s => s[0]).join(', ')}`)
     assembled = (await parallel(sectionsToBuild.map(([sec, doms]) => () =>
-      agent(assemblePrompt(sec, doms), { label: sec, phase: 'Assemble', schema: ASSEMBLE_RET })
+      agent(assemblePrompt(sec, doms), { label: sec, phase: 'Assemble', schema: ASSEMBLE_RET, ...(P.assemble_model ? { model: P.assemble_model } : {}) })
     ))).filter(Boolean)
   } else {
     log('no spec sections affected this run')

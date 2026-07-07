@@ -1,20 +1,20 @@
 {
   "unit": "sema/sema_stmt/emit_for_pattern_destructure",
   "layer": "sema",
-  "source": "src/compiler/sema_stmt.cpp#L8127-L8867",
-  "source_hash": "098658928d5c0d18",
+  "source": "src/compiler/sema_stmt.cpp#L8269-L9169",
+  "source_hash": "44491007364baac9",
   "rules": [
     {
       "id": "pat.for-loop.tuple-only",
       "domain": "pat",
       "title": "for-loop pattern restricted to tuple of names/nested-tuples",
-      "statement": "A `for <pat> in <iter>` loop pattern that is destructured in place must be a tuple pattern `(p0, ..., pn)` over a tuple-typed element; each element pattern must be a name, `_`, or a nested tuple pattern. Any other element sub-pattern (literal, struct, variant, range, etc.) is rejected; a non-tuple top-level pattern over a non-tuple element is rejected (`bind a name and destructure in the body`).",
+      "statement": "A `for <pat> in <iter>` loop pattern that is destructured in place must be a tuple pattern `(p0, ..., pn)` over a tuple-typed element; each element pattern must be a name, `_`, or a nested tuple pattern (recursed). Any other element sub-pattern (literal, struct, variant, range, etc.) is rejected; a non-tuple top-level pattern over a non-tuple element is rejected (`bind a name and destructure in the body`).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8150-L8155",
-        "src/compiler/sema_stmt.cpp#L8184-L8188"
+        "src/compiler/sema_stmt.cpp#L8292-L8297",
+        "src/compiler/sema_stmt.cpp#L8311-L8330"
       ],
-      "divergence": "Subset of Rust for-loop pattern support (richer sub-patterns are a follow-up).",
-      "uncertainty": "Restriction is implementation-current, not a designed language limit."
+      "divergence": "B4",
+      "uncertainty": "Restriction is implementation-current, not a designed permanent language limit."
     },
     {
       "id": "pat.for-loop.ref-element-deref",
@@ -22,10 +22,10 @@
       "title": "by-ref for-loop element is dereferenced before destructure",
       "statement": "When the iterated element type is `&T`/`&mut T`, the loop binding is dereferenced to a value temporary of type `T` and the tuple pattern destructures that value (by-ref default binding modes are not applied).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8135-L8149"
+        "src/compiler/sema_stmt.cpp#L8277-L8291"
       ],
-      "divergence": "A: no default-binding-mode by-ref propagation for refs in for-loop patterns.",
-      "uncertainty": "Inferred limitation per code comment."
+      "divergence": "B4",
+      "uncertainty": "Inferred limitation per code comment (\"default-binding-mode by-ref is a follow-up\")."
     },
     {
       "id": "pat.for-loop.discard-underscore",
@@ -33,7 +33,7 @@
       "title": "underscore element binds nothing",
       "statement": "A `_` element in a for-loop tuple pattern introduces no binding (the tuple element is discarded).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8177-L8179"
+        "src/compiler/sema_stmt.cpp#L8319-L8321"
       ]
     },
     {
@@ -42,8 +42,9 @@
       "title": "match guard must be bool",
       "statement": "A match-arm guard expression `pat if <e> =>` must have type `bool`.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8655-L8660"
-      ]
+        "src/compiler/sema_stmt.cpp#L8956-L8963"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "pat.match.arm-after-catchall-unreachable",
@@ -51,150 +52,251 @@
       "title": "arm after unguarded catch-all is unreachable",
       "statement": "Any match arm appearing after a prior unguarded catch-all (`_`) arm is an error: unreachable arm.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8270-L8284"
-      ]
+        "src/compiler/sema_stmt.cpp#L8572-L8586"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "pat.or.semantics-distribution",
       "domain": "pat",
       "title": "or-patterns match if any alternative matches",
-      "statement": "An or-pattern `P | Q` matches a scrutinee iff at least one alternative matches; binding-introducing or non-scalar alternatives are evaluated independently (each with its own payload extraction and refutable guard), while pure scalar-literal alternatives (`int`/`bool`/`char`) that bind nothing share a single merged discriminant test. A variant payload or-pattern `Some(P|Q)` is equivalent to `Some(P) | Some(Q)`.",
+      "statement": "An or-pattern `P | Q` matches a scrutinee iff at least one alternative matches; binding-introducing or non-scalar alternatives are fanned out into independent effective arms (each with its own payload extraction and refutable guard), while pure scalar-literal alternatives (`int`/`bool`/`char`) that bind nothing share a single merged discriminant test. A variant payload or-pattern `Some(P|Q)` (single payload arg) is equivalent to `Some(P) | Some(Q)` and is likewise fanned out when any alternative is non-scalar.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8463-L8507",
-        "src/compiler/sema_stmt.cpp#L8521-L8531"
+        "src/compiler/sema_stmt.cpp#L8765-L8809",
+        "src/compiler/sema_stmt.cpp#L8810-L8842"
       ]
     },
     {
       "id": "pat.match.guard-backtracks-alternatives",
       "domain": "pat",
       "title": "failing guard backtracks to remaining or-alternatives",
-      "statement": "When a fanned-out or-alternative's guard fails, matching continues with the next alternative (Rust backtracking under a failing guard).",
+      "statement": "Each fanned-out or-alternative is compiled as its own match arm with its own guard; when one alternative's guard fails, matching falls through to try the next alternative/arm (Rust backtracking under a failing guard).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8475-L8482"
+        "src/compiler/sema_stmt.cpp#L8777-L8784",
+        "src/compiler/sema_stmt.cpp#L8823-L8827"
       ]
     },
     {
       "id": "pat.match.string-literal-pattern",
       "domain": "pat",
       "title": "string-literal pattern is content equality",
-      "statement": "A top-level string-literal arm `\"foo\" =>` matches by content equality on the scrutinee (`str_eq(scrut, \"foo\")`); the scrutinee is evaluated exactly once (hoisted into a temporary shared by all such arms).",
+      "statement": "A top-level string-literal arm `\"foo\" =>` (directly or as an or-pattern alternative) matches by content equality on the scrutinee (`str_eq(scrut, \"foo\")`), compiled as a wildcard pattern guarded by that equality test; the scrutinee is evaluated exactly once (hoisted into a temporary shared by all such arms).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8383-L8417",
-        "src/compiler/sema_stmt.cpp#L8613-L8618",
-        "src/compiler/sema_stmt.cpp#L8856-L8864"
+        "src/compiler/sema_stmt.cpp#L8685-L8719",
+        "src/compiler/sema_stmt.cpp#L8900-L8920"
       ]
     },
     {
       "id": "pat.match.guard-runs-only-on-match",
       "domain": "pat",
       "title": "guard runs only after the pattern matches",
-      "statement": "An arm's guard (synthesized structural/literal guard, string-eq guard, and user `if` guard) is conjoined with `&&` so it short-circuits and the user guard executes only when the pattern has matched.",
+      "statement": "An arm's effective guard is built by conjoining, with `&&` (synthesized guard first so it short-circuits before a user guard runs on a type/shape mismatch): any synthesized string-literal-equality guard, any synthesized Writ structural/scalar guard, the user's `if` guard, and any refutable-inner-pattern literal guards. The user guard therefore only executes once the pattern (and any synthesized structural test) has matched.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8662-L8696"
+        "src/compiler/sema_stmt.cpp#L8964-L8998"
       ]
     },
     {
       "id": "pat.match.scrutinee-eval-once",
       "domain": "pat",
       "title": "match scrutinee evaluated exactly once",
-      "statement": "The match scrutinee is evaluated exactly once; for Writ-pattern, string-pattern, or droppable-temporary scrutinees it is hoisted into a synthetic local that all arms/guards reference.",
+      "statement": "The match scrutinee is evaluated exactly once; for Writ-pattern, string-pattern, or droppable-temporary scrutinees it is hoisted into a synthetic local that all arms/guards reference instead of re-evaluating the scrutinee expression.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8212-L8243",
-        "src/compiler/sema_stmt.cpp#L8320-L8381",
-        "src/compiler/sema_stmt.cpp#L8407-L8417"
+        "src/compiler/sema_stmt.cpp#L8622-L8683",
+        "src/compiler/sema_stmt.cpp#L8705-L8719",
+        "src/compiler/sema_stmt.cpp#L8514-L8545"
       ]
     },
     {
       "id": "pat.match.temp-scrutinee-dropped",
       "domain": "pat",
       "title": "temporary match scrutinee is dropped at match end",
-      "statement": "A move-typed match scrutinee that is a temporary (rvalue: call result, constructor, `?`; not a place such as a var/field/tuple-index/deref/index) is owned by the match and dropped on every exit path; if an arm moves the payload the drop is suppressed (no double-free). A place scrutinee is owned by its existing binding and not dropped by the match.",
+      "statement": "A move-typed match scrutinee that is a temporary (rvalue: call result, constructor, `?`; not a place such as a var/field/tuple-index/deref/index) is hoisted into a synthetic owned local and dropped on every exit path (fall-through and diverging arm exits); if an arm moves the payload the drop is suppressed (no double-free). A place scrutinee is owned by its existing binding and is left alone (not hoisted, not dropped by the match).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8202-L8243",
-        "src/compiler/sema_stmt.cpp#L8244-L8257"
+        "src/compiler/sema_stmt.cpp#L8514-L8545",
+        "src/compiler/sema_stmt.cpp#L8546-L8559"
       ]
     },
     {
       "id": "pat.match.whole-value-binding-moves",
       "domain": "pat",
       "title": "whole-value binding arm moves the scrutinee",
-      "statement": "An unguarded whole-value binding arm `x => ...` over an owned move-type scrutinee moves the scrutinee into `x` (equivalent to `let x = v;`); the moved scrutinee is not dropped a second time. Guarded binding arms do not unconditionally move (scrutinee stays live for later arms).",
+      "statement": "An unguarded whole-value binding arm `x => ...` (an unguarded `PAT_WILD` carrying a real name) over an owned move-type scrutinee moves the scrutinee into `x` (equivalent to `let x = v; ...`), matching Rust's by-value match move; the scrutinee var is marked moved so it is not dropped a second time after the match. Guarded binding arms do not unconditionally move (the scrutinee stays conditionally live for later arms).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8259-L8268"
+        "src/compiler/sema_stmt.cpp#L8561-L8570"
       ]
     },
     {
       "id": "borrow.match.per-arm-move-reset",
       "domain": "borrow",
       "title": "move state resets per arm; post-match is union over non-diverging arms",
-      "statement": "Each match arm is checked from the move state before the match; a variable's post-match moved status is the union of moves from arms that fall through (do not return/break/continue). Diverging arms contribute no post-match moves.",
+      "statement": "Each match arm is checked from the move state as it stood before the match (reset at every arm boundary); a variable's post-match moved status is the union of moves contributed by arms that fall through (do not return/break/continue). Diverging arms contribute no post-match moves; if every arm diverges, the pre-match move state is kept.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8424-L8444",
-        "src/compiler/sema_stmt.cpp#L8546-L8550",
-        "src/compiler/sema_stmt.cpp#L8804-L8827"
+        "src/compiler/sema_stmt.cpp#L8726-L8738",
+        "src/compiler/sema_stmt.cpp#L8848-L8852",
+        "src/compiler/sema_stmt.cpp#L9106-L9131"
       ]
     },
     {
       "id": "borrow.match.definite-assignment-merge",
       "domain": "borrow",
       "title": "definite-assignment merges across match arms like if/else",
-      "statement": "Definite-assignment state is reset to the pre-match state for each arm and merged after the match as the union of still-uninitialized variables over non-diverging arms (a variable is uninitialized post-match iff uninitialized on any falling-through arm). Diverging arms contribute nothing.",
+      "statement": "Definite-assignment state is reset to the pre-match state for each arm and merged after the match as the union of still-uninitialized variables over non-diverging arms (a variable is uninitialized post-match iff uninitialized on any falling-through arm). Diverging arms contribute nothing; if every arm diverges, the pre-match uninit state is kept.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8438-L8444",
-        "src/compiler/sema_stmt.cpp#L8818-L8829"
+        "src/compiler/sema_stmt.cpp#L8740-L8746",
+        "src/compiler/sema_stmt.cpp#L8852",
+        "src/compiler/sema_stmt.cpp#L9117-L9131"
       ]
     },
     {
       "id": "pat.match.arm-bindings-drop",
       "domain": "pat",
       "title": "match-arm pattern bindings drop at arm end",
-      "statement": "Pattern bindings introduced by a match arm are dropped before the arm exits via fall-through, unless the body's tail moves the binding out (then its drop is suppressed) or the body ends in `return` (handled by full-frame drop collection).",
+      "statement": "Pattern bindings introduced by a match arm are dropped before the arm exits via fall-through, unless the body's tail expression moves the binding out (marked moved first so the drop is skipped) or the body already ends in `return` (handled by the frame's full-drop collection instead).",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8762-L8801"
+        "src/compiler/sema_stmt.cpp#L9064-L9103"
       ]
     },
     {
       "id": "pat.match.tail-vs-stmt-position",
       "domain": "pat",
       "title": "expression arms in tail vs statement position",
-      "statement": "An expression-form arm `pat => <e>` in a tail-position match produces the function's return value (`return <e>`); in statement position it is evaluated for side effects only.",
+      "statement": "An expression-form arm `pat => <e>` in a tail-position match produces the enclosing function's return value (lowers to `return <e>`); in statement position it is lowered as an expression-statement, evaluated for side effects only.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8727-L8738"
+        "src/compiler/sema_stmt.cpp#L9029-L9040"
       ]
     },
     {
       "id": "pat.match.exhaustiveness",
       "domain": "pat",
       "title": "match must be exhaustive",
-      "statement": "A match over an enum/bool scrutinee must cover all cases; exhaustiveness is proved at the AST level over unguarded arms (user-guarded arms do not count toward exhaustiveness coverage).",
+      "statement": "A match must cover all cases of its scrutinee type; exhaustiveness is proved at the AST level over the arms' unguarded top-level patterns only — a user-guarded arm (`pat if e =>`) does not count toward exhaustiveness coverage, since it is not guaranteed to match.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8831-L8846"
+        "src/compiler/sema_stmt.cpp#L9136-L9148"
       ]
     },
     {
       "id": "pat.match.writ-pattern-view-scrutinee",
       "domain": "pat",
       "title": "Writ patterns require a view scrutinee",
-      "statement": "A match using Writ scalar/structural patterns (null/bool/int/str/map/arr/typed-arr/typed-map) requires the scrutinee to be a Writ view (`Writ`, `WritView`, `WritStatic`, or a borrow thereof) and requires `use logos.lang.writ.pat;`; otherwise it is an error.",
+      "statement": "A match using Writ scalar/structural patterns (null/bool/int/str/map/arr/typed-arr/typed-map) requires the scrutinee to be a Writ view (`Writ`, `WritView`, `WritStatic`, or a borrow thereof) and requires `use logos.lang.writ.pat;` (the `writ_pat_root`/`writ_pat_root_rc` helper resolvable); otherwise it is an error. The scrutinee is hoisted into a view local plus a derived root `AnyVal` local used by all synthesized structural guards.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L8286-L8358"
+        "src/compiler/sema_stmt.cpp#L8609-L8683"
       ]
     },
     {
       "id": "pat.or.single-alt-transparent",
       "domain": "pat",
       "title": "Single-alternative or-pattern is transparent",
-      "statement": "A PAT_OR node with exactly one alternative (no `|`) is semantically equivalent to that single inner pattern. The grammar wraps every arm/element pattern in a single-alt or-wrapper, which is unwrapped to the inner pattern before matching/destructuring.",
+      "statement": "A PAT_OR node with exactly one alternative (no `|`) is semantically equivalent to that single inner pattern. The grammar wraps every arm/element pattern in a single-alt or-wrapper, which is unwrapped to the inner pattern before matching/destructuring/binding.",
       "evidence": [
-        "src/compiler/sema_stmt.cpp#L4068-L4070",
-        "src/compiler/sema_stmt.cpp#L8130-L8134",
-        "src/compiler/sema_stmt.cpp#L8162-L8165",
-        "src/compiler/sema_stmt.cpp#L8486-L8489",
-        "src/compiler/sema_stmt.cpp#L8602-L8610"
+        "src/compiler/sema_stmt.cpp#L8272-L8276",
+        "src/compiler/sema_stmt.cpp#L8304-L8307",
+        "src/compiler/sema_stmt.cpp#L8384-L8388",
+        "src/compiler/sema_stmt.cpp#L8788-L8791",
+        "src/compiler/sema_stmt.cpp#L8837-L8841",
+        "src/compiler/sema_stmt.cpp#L8904-L8912"
       ],
       "related": [
         "pat.or.alt-binding-consistency"
       ]
+    },
+    {
+      "id": "writ.schema-enum.match-desugar",
+      "domain": "writ",
+      "title": "match over a schema enum desugars to a schema_type_code if-chain",
+      "statement": "A `match` whose scrutinee's base type is a schema enum (a struct flagged `is_schema_enum`) desugars, ahead of the ordinary enum-match path, to: `let __sm = <scrut>.m; let __code = (&*__sm).schema_type_code();`, followed by an if/else-if chain comparing `__code` against each present variant's per-instance schema code; a matching arm binds its payload name to a struct-literal view `{ m: __sm }` typed as the concrete variant struct (a trusted view — no further runtime validation is performed beyond the code comparison). The variant discriminant is never a stored field; it is derived from the matched node itself via `schema_type_code()` at match time.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8335-L8339",
+        "src/compiler/sema_stmt.cpp#L8493-L8501",
+        "src/compiler/sema_stmt.cpp#L8359-L8372",
+        "src/compiler/sema_stmt.cpp#L8452-L8478",
+        "src/compiler/sema_stmt.cpp#L8456-L8464"
+      ],
+      "divergence": "A6",
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema-enum.generic-variant-substitution",
+      "domain": "writ",
+      "title": "generic schema-enum variant type instantiated by scrutinee type-args",
+      "statement": "For a generic schema enum `E<T...>`, an arm's variant type is instantiated by substituting the enum's type parameters with the scrutinee's concrete type-args (`E<i64>::A(Wrap<T>)` binds the payload as `Wrap<i64>`) before that variant's per-instance schema code is computed and before the arm binding is typed.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8416-L8434"
+      ],
+      "divergence": "A6",
+      "testability": "behavioral",
+      "uncertainty": "Substitution triggers only when both the enum's type_params and the scrutinee's type_args are non-empty; behavior for a partial/mismatched arity is not observed in this slice."
+    },
+    {
+      "id": "writ.schema-enum.arm-shape",
+      "domain": "writ",
+      "title": "schema-enum match arm restricted to `E::Variant(b)` or `_`",
+      "statement": "In a match over a schema-enum scrutinee, each non-wildcard arm's top-level pattern must be a variant pattern (`E::Variant(b)` or bare `E::Variant`); any other pattern shape is rejected (`arm pattern must be 'E::Variant(b)' or '_'`). An or-pattern arm (`A | B =>`) over a schema enum is rejected as unsupported.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8384-L8397"
+      ],
+      "divergence": "A6",
+      "testability": "diagnostic"
+    },
+    {
+      "id": "writ.schema-enum.unknown-variant-error",
+      "domain": "writ",
+      "title": "schema-enum arm naming a nonexistent variant is an error",
+      "statement": "A schema-enum match arm naming a variant absent from the enum's variant list is rejected: `schema enum '<E>' has no variant '<name>'`.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8416-L8441"
+      ],
+      "divergence": "A6",
+      "testability": "diagnostic"
+    },
+    {
+      "id": "writ.schema-enum.no-exhaustiveness-check",
+      "domain": "writ",
+      "title": "schema-enum match bypasses the ordinary exhaustiveness check",
+      "statement": "A match dispatched to the schema-enum desugar path returns directly (before the ordinary AST-level exhaustiveness check applied to all other matches); the generated if-chain has no final `else` branch when no wildcard arm is supplied among the match's arms.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8493-L8501",
+        "src/compiler/sema_stmt.cpp#L9136-L9148"
+      ],
+      "testability": "behavioral",
+      "uncertainty": "This slice shows no completeness check specific to schema-enum variants; whether an unmatched-variant safety net exists elsewhere is not observable here."
+    },
+    {
+      "id": "pat.match.nested-payload-destructure-scope",
+      "domain": "pat",
+      "title": "nested variant-payload bindings are visible to both guard and body",
+      "statement": "A nested sub-pattern inside a variant payload (tuple/struct destructuring within `E::V(pat)`) is realized as unconditional field/element `let` statements. These are prepended to the arm body so the bound names are live in the body; when the arm also carries a user guard, an independent parallel copy of the same destructuring is prepended (as a block-expression) ahead of the guard condition, so the guard can read the nested-payload names before the pattern-matched body runs.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8939-L8952",
+        "src/compiler/sema_stmt.cpp#L8999-L9019",
+        "src/compiler/sema_stmt.cpp#L9041-L9049"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "pat.match.refutable-payload-guard",
+      "domain": "pat",
+      "title": "refutable variant-payload literal sub-patterns compile to conjoined guards",
+      "statement": "A refutable literal sub-pattern nested inside a variant payload (e.g. `E::V { f: 1 }`, `Option::Some(1)`) is compiled as an unconditional binding plus an extra guard predicate testing the literal; all such predicates are conjoined with `&&` into the arm's effective guard alongside any synthesized/user guards, in any order (they read only fresh pattern-bound names and never have side effects).",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8892-L8899",
+        "src/compiler/sema_stmt.cpp#L8986-L8998"
+      ],
+      "testability": "behavioral",
+      "uncertainty": "The predicates themselves are constructed by build_pattern outside this slice; only the AND-merge into the effective guard is directly observed here."
+    },
+    {
+      "id": "pat.match.writ-pattern-at-binding",
+      "domain": "pat",
+      "title": "Writ @-pattern bindings synthesized twice (guard pass, body pass)",
+      "statement": "For an arm containing Writ scalar/structural patterns, the structural test and any Writ pattern bindings are synthesized twice from the same source pattern via the same helper: once producing the guard predicate, and — only when bindings exist — a second, independent pass regenerating parallel statements/bindings for the body scope under fresh temporary names, so the guard's and the body's synthesized locals never alias. Body bindings are then declared in the arm's pattern scope and their prologue `let`s prepended to the arm body.",
+      "evidence": [
+        "src/compiler/sema_stmt.cpp#L8858-L8880",
+        "src/compiler/sema_stmt.cpp#L8935-L8938",
+        "src/compiler/sema_stmt.cpp#L9050-L9063"
+      ],
+      "testability": "behavioral",
+      "uncertainty": "build_writ_pat_guard's internal semantics live outside this slice; only the two-pass guard/body generation and the prepend mechanics are directly observed here."
     }
   ]
 }

@@ -1,181 +1,202 @@
 {
   "unit": "codegen/mlir_gen_stmt/logos",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen_stmt.cpp#L8-L657",
-  "source_hash": "8e4dc43a43f5c53c",
+  "source": "src/compiler/mlir_gen_stmt.cpp#L8-L660",
+  "source_hash": "4372580be39b003a",
   "rules": [
     {
       "id": "pat.ref-binding.added-indirection-depth",
       "domain": "pat",
-      "title": "`ref`/`ref mut` binding adds N levels of indirection over the payload",
-      "statement": "A `ref`/`ref mut` pattern binding over a payload of type P binds a reference whose indirection depth = (number of Ref/MutRef layers sema wrapped on the binding type) − (number of thin-ref layers P already contributes). The binding's value is the address of the payload slot, with depth−1 intermediate slots materialized when match ergonomics flow through nested references (`&&Option<T>`). A fat-ref payload (Ref/MutRef whose repr is not a thin pointer) is excluded from this path.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L19-L49",
-        "src/compiler/mlir_gen_stmt.cpp#L109-L160"
-      ],
-      "uncertainty": "Depth>1 path is driven by match-ergonomics through nested references; exact user-visible deref count inferred from comments.",
+      "title": "`ref`/`ref mut` binding added-indirection depth",
+      "statement": "In a `ref`/`ref mut` pattern binding over an enum-variant payload field, sema wraps the binding's declared type in one extra `&`/`&mut` layer per match-ergonomics indirection. The ADDED depth = (ref-layers of the binding type) − (thin-ref layers already present on the payload type, which fold INTO the binding type and are not new indirection). A fat-ref (dyn/slice) payload contributes 0 thin layers and is excluded (`added_depth` reported as non-positive), deferring to dedicated fat-payload binding paths.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L19-L49"],
       "testability": "transitive"
     },
     {
       "id": "pat.payload.ref-to-struct-binds-place",
       "domain": "pat",
-      "title": "`ref l` of a struct-typed payload binds a place reference, not a wrapped pointer",
-      "statement": "When `ref`/`ref mut` binds a payload field whose type is a (zoned) struct, the binding `l` denotes a reference whose value is the field's address and carries struct shape, so `l.field` projects through it directly (no extra pointer-of-pointer indirection).",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L116-L142"
-      ]
+      "title": "`ref` binding of a struct-typed payload binds a place",
+      "statement": "A `ref l` / `ref mut l` binding over a Struct/ZonedStruct-typed enum-variant payload field, at added-indirection depth exactly 1, binds `l` to the payload field's ADDRESS (a place) and records struct shape on it — equivalent to a `let l: &Struct` binding — so `l.field` resolves by GEP through `l`.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L117-L142"],
+      "testability": "behavioral"
     },
     {
       "id": "pat.payload.thin-ref-struct-loads-pointer",
       "domain": "pat",
-      "title": "Thin `&Struct`/`&mut Struct` payload binds the loaded pointer with struct shape",
-      "statement": "A by-value pattern binding over a payload of type `&Struct`/`&mut Struct` (thin pointer to a (zoned) struct) binds the pointer loaded from the payload slot, carrying struct shape, so member access `q.x` projects through the referent — identical to `let r: &Struct`.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L162-L183"
-      ],
-      "testability": "transitive"
+      "title": "Thin-`&Struct` payload field loads the stored pointer",
+      "statement": "An enum-variant payload field declared `&Struct`/`&mut Struct`/`&ZonedStruct` (e.g. `E::S(&P)`, `Option<&P>`) holds a pointer inline; binding it LOADS that pointer value and tags it with struct shape, so field access on the bound name GEPs through the loaded pointer (not through the payload slot's own address).",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L163-L184"],
+      "testability": "behavioral"
     },
     {
       "id": "pat.payload.inline-aggregate-binds-address",
       "domain": "pat",
-      "title": "Inline-aggregate payload binding uses the slot address as the value",
-      "statement": "A by-value pattern binding over an inline-aggregate payload (struct, zoned-struct, tuple, slice, closure, nested tagged enum, bare trait object) binds the payload slot's ADDRESS (no load) and carries the corresponding aggregate shape, so subsequent field/index/tuple projections work directly.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L184-L271"
-      ]
+      "title": "Inline aggregate/bare-trait payload binds its address",
+      "statement": "An enum-variant payload field of Tuple/Slice/Closure type, or a bare `dyn Trait` value payload, held inline in the payload area binds the payload slot's ADDRESS as the bound value (no load) — the address IS the value for these inline-aggregate shapes; loading would read only the first machine word as the value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L212-L221", "src/compiler/mlir_gen_stmt.cpp#L262-L272"],
+      "testability": "behavioral"
     },
     {
       "id": "pat.payload.move-type-binds-by-copy",
       "domain": "pat",
-      "title": "By-value binding of a drop-bearing inline payload copies to a fresh slot",
-      "statement": "When an inline struct/tuple payload bound by value has a type that needs drop, the bytes are copied to a fresh local before binding; the scrutinee place's drop is suppressed (binding moves out), so later mutation of the scrutinee within the arm cannot clobber the binding.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L187-L238"
-      ],
-      "testability": "transitive"
+      "title": "Move-type payload bound by value is copied to a fresh slot",
+      "statement": "Binding a move-type (needs-drop) inline Struct or Tuple enum-variant payload field BY VALUE copies the payload bytes to a freshly allocated slot rather than aliasing the scrutinee's own storage; the source's drop is suppressed for the matched scrutinee (the value logically moves out of it), so a later mutation of the scrutinee place inside the match arm must not retroactively alter the already-bound value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L188-L211", "src/compiler/mlir_gen_stmt.cpp#L222-L238"],
+      "testability": "behavioral"
     },
     {
       "id": "pat.payload.scalar-binds-loaded-value",
       "domain": "pat",
-      "title": "Scalar payload binding loads the field value into a fresh slot",
-      "statement": "A by-value pattern binding over a scalar (non-aggregate, non-trait, non-thin-ref-struct) payload field loads the field value from the payload slot and binds a fresh local holding that value.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L269-L293"
-      ]
+      "title": "Plain scalar payload field binds a loaded value",
+      "statement": "An enum-variant payload field that is none of {ref-binding, thin-ref-to-struct, inline struct, inline tuple, inline tagged-enum, dyn-trait} binds by LOADING its value out of the payload slot into a fresh (or shared) stack slot.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L270-L276", "src/compiler/mlir_gen_stmt.cpp#L286-L294"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "pat.payload.wildcard-skips-binding",
+      "domain": "pat",
+      "title": "`_` payload position introduces no binding",
+      "statement": "In an enum-variant tuple-payload pattern, a field-binding position named `_` introduces no variable — no storage, no shape tracking is created for it; it purely consumes a payload position.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L95-L96"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "pat.payload.dyn-trait-binds-handle",
+      "domain": "pat",
+      "title": "`dyn Trait` payload field binds a trait-object handle",
+      "statement": "An enum-variant payload field of `dyn Trait` type — whether held inline as a bare trait-object value, or reached through a reference/raw-pointer (`&dyn Trait`/`&mut Trait`/`*dyn Trait`) — binds to a value tracked as a trait-object handle named by the trait, enabling dynamic dispatch through the bound name. The inline (bare) form binds the payload slot's address; the through-reference form binds the loaded handle value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L252-L284"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "pat.ref-binding.nested-depth-chain",
+      "domain": "pat",
+      "title": "Multi-layer `ref` binding chains intermediate reference slots",
+      "statement": "When a `ref`/`ref mut` binding's added-indirection depth N is greater than 1 (match ergonomics threading a `ref` bind through nested references, e.g. matching through `&&Option<T>`), N−1 intermediate one-word stack slots are materialized, each holding the address of the previous layer; the final binding slot holds the depth-N reference value. Reading the bound name therefore requires N dereferences to reach the underlying value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L144-L161"],
+      "uncertainty": "Depth>1 chaining path is documented in adjacent comments and implemented generically, but no concrete depth>1 example appears in this slice to confirm end-to-end.",
+      "testability": "transitive"
     },
     {
       "id": "stmt.block.shadow-restore-on-exit",
       "domain": "stmt",
-      "title": "A `{ }` block restores outer bindings shadowed inside on exit",
-      "statement": "A lexical `{ }` block scopes its bindings: names that existed before the block and were shadowed inside revert to their outer binding when the block exits; names newly introduced inside the block do not leak.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L446-L467"
-      ]
+      "title": "`{ }` block restores shadowed bindings on exit",
+      "statement": "A `{ }` block statement executes unconditionally. On exit, all name→storage bindings that existed BEFORE the block (scope map, struct/tuple/tagged-enum/dyn-trait/raw-dyn shape tags, local-pointer aliases) are restored to their pre-block values, so a name shadowed by a `let` inside the block reverts to its outer binding after the block. Names newly introduced inside the block are left in place (harmlessly inert, never referenced afterward).",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L447-L470"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let.destructure-bindings-leak",
       "domain": "stmt",
-      "title": "Destructuring-`let` field bindings leak into the enclosing scope",
-      "statement": "A destructuring `let` (`let Pair{a,b} = e`, `let (a,b) = e`) introduces its field bindings into the enclosing scope, including shadowing a pre-existing same-named binding; the synthetic destructure temporary does not restore scope on exit.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L423-L445"
-      ]
+      "title": "Destructuring `let` bindings leak into the enclosing scope",
+      "statement": "A destructuring `let` (`let Pair{a,b} = e`, `let (a,b) = e`) lowers to a synthetic transparent block whose first statement is a compiler temp named with the `__dst`/`__destruct` prefix. Such a block is EXEMPTED from the normal end-of-block shadow-restore, so its field bindings — including ones that shadow a same-named binding from an enclosing scope — leak into (persist in) the enclosing scope after the destructuring `let`.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L424-L446"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.let.uninit-drop-flag-when-conditional-init",
       "domain": "stmt",
-      "title": "Uninitialized `let mut` needs a runtime drop flag only if assigned conditionally",
-      "statement": "A `let mut x: T;` declared without initializer requires a runtime drop flag iff it is later assigned at a control-flow nesting depth strictly greater than its declaration depth (inside a conditional/loop/match/let-else arm). A plain `{ }` block does not increase nesting depth; variables assigned only at declaration depth use static drop placement.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L309-L352"
-      ],
-      "divergence": "Implementation strategy of Rust drop-flag elaboration; observable equivalence to Rust drop semantics."
+      "title": "Uninitialized `let` needs a runtime drop flag iff conditionally assigned",
+      "statement": "A `let mut x: T;` declared WITHOUT an initializer requires a runtime drop flag iff `x` is later assigned at a conditional/loop nesting depth STRICTLY DEEPER than its declaration depth (the initialized/uninitialized state is then not statically known at scope exit). A bare `{ }` block does not increase nesting depth (it runs unconditionally); each of `if`/`while`/`loop`/`for`/`for-each` body, each `match` arm body, and a `let-else` else-block adds one level of depth. A var assigned only at its declaration depth is drop-flag-free (its init state is static).",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L310-L353"],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.continue.labeled-target",
       "domain": "stmt",
-      "title": "Labeled `continue` branches to the matching enclosing loop's continue point",
-      "statement": "`continue 'label` transfers control to the continue point of the nearest enclosing loop whose label matches; unlabeled `continue` targets the innermost loop. Outside any loop, `continue` is a no-op.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L402-L413"
-      ]
+      "title": "Labeled `continue` targets the matching enclosing loop",
+      "statement": "A labeled `continue 'label` transfers control to the continuation block of the nearest enclosing loop (searching the loop stack from innermost to outermost) whose label equals `'label`. An unlabeled `continue`, or a label matching no enclosing loop on the stack, falls back to the innermost loop's continuation block.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L403-L414"],
+      "testability": "behavioral"
     },
     {
       "id": "type.drop.references-never-drop",
       "domain": "type",
-      "title": "References and raw pointers are never droppable",
-      "statement": "A value of type `&T`, `&mut T`, or `*T` (raw pointer) does not require drop.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L469-L473"
-      ]
+      "title": "References and raw pointers never need drop",
+      "statement": "`&T`, `&mut T`, and raw pointer types never require a drop — a reference or raw pointer never owns its pointee.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L476"],
+      "testability": "behavioral"
     },
     {
       "id": "type.drop.owning-dst-droppable",
       "domain": "type",
-      "title": "Drop-need of dyn/slice/DST is decided by the owning bit",
-      "statement": "An unsized handle is droppable iff it owns its heap data: `Box<dyn Trait>` (owning trait object), `Box<[T]>` (owning slice), and owning custom-DST `Box<Foo>` require drop; their borrowed counterparts `&dyn Trait`, `&[T]`, `&Foo` do not.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L474-L481"
-      ]
+      "title": "DST-backed value needs drop iff it is the owning form",
+      "statement": "A DST-backed value — `dyn Trait`, a slice, or a custom unsized struct (`DstRef`) — requires drop iff it is the OWNING form (`Box<dyn Trait>`/owning trait object, `Box<[T]>`/owning slice, `Box<CustomDst>`/owning DST), as tracked by the type's owning bit. The corresponding borrowed forms (`&dyn Trait`, `&[T]`, `&CustomDst`) never require drop.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L479-L484"],
+      "testability": "behavioral"
     },
     {
       "id": "type.drop.aggregate-recursive",
       "domain": "type",
-      "title": "Struct/enum/tuple/array droppability is recursive plus explicit Drop",
-      "statement": "A (zoned) struct or enum needs drop iff it has a user `drop` method or any field/variant-payload type needs drop. A tuple needs drop iff any element needs drop. An array `[T; N]` needs drop iff `T` needs drop.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L482-L502"
-      ]
+      "title": "Aggregate types need drop transitively",
+      "statement": "A Struct/ZonedStruct, Tuple, Enum, or Array type requires drop iff it declares an explicit `drop` method OR any of its constituent parts (struct fields, tuple elements, enum-variant payload fields, array element type) recursively requires drop.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L485-L505"],
+      "testability": "behavioral"
     },
     {
       "id": "type.drop.closure-value-not-auto-dropped",
       "domain": "type",
-      "title": "A closure value is not auto-reported as needs-drop",
-      "statement": "A closure value (e.g. stored in a struct field or iterator adapter, held by pointer) is not classified as needs-drop by recursive aggregate scanning; closure drop is driven narrowly only via the owning `Box<Closure>` path.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L503-L511"
-      ],
-      "divergence": "Narrows automatic Drop coverage relative to Rust for indirectly-stored closures; intentional to avoid misreading a pointer slot as a {fn,env} pair.",
-      "testability": "transitive"
+      "title": "Closure value type is excluded from the generic recursive drop check",
+      "statement": "A `Closure` value type is never reported as needing drop by the generic recursive `value_needs_drop` check. A closure held as a struct field or iterator-adapter field is stored through one level of indirection (a pointer to the {fn, env} pair); treating it as an inline aggregate value in a generic recursive drop would misread the pointer bytes as the pair itself. Closure environment release is instead driven narrowly by the owning `Box<Closure>` release path.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L506-L514"],
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.drop.dyn-virtual-dispatch",
       "domain": "intrinsic",
-      "title": "Dropping a `dyn` value calls the destructor via vtable slot 0 with null guard",
-      "statement": "Dropping a trait-object value loads its data and vtable pointers; if data is non-null it calls vtable slot 0 (drop_in_place) on the data pointer. A null (moved-from/zeroed) data pointer skips the call.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L514-L545",
-        "src/compiler/mlir_gen_stmt.cpp#L591-L597"
-      ]
+      "title": "Dropping a borrowed `dyn Trait` handle dispatches virtually",
+      "statement": "Dropping a non-owning `dyn Trait` fat handle {data, vtable} in place invokes the destructor through the vtable's slot 0 (dynamic dispatch on the runtime concrete type), passing `data` as the sole argument. A null `data` (a moved-from/zeroed handle) skips the call.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L517-L548"],
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.drop.box-dyn-frees-data",
       "domain": "intrinsic",
-      "title": "Dropping `Box<dyn Trait>` runs drop_in_place then frees the single heap block",
-      "statement": "Dropping an owning `Box<dyn Trait>` calls drop_in_place(data) via the vtable, then frees the data pointer (the single heap block holding the concrete value).",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L547-L605"
-      ]
+      "title": "Dropping `Box<dyn Trait>` runs the destructor then frees",
+      "statement": "Dropping an owning `Box<dyn Trait>` fat handle {data, vtable} runs `drop_in_place(data)` via vtable slot 0, then frees the single heap block at `data`. A null `data` skips both the destructor call and the free.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L550-L608"],
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.drop.rc-arc-dyn-refcount",
       "domain": "intrinsic",
-      "title": "Dropping `Rc<dyn>`/`Arc<dyn>` decrements strong and frees the RcInner at zero",
-      "statement": "Dropping an owning `Rc<dyn>`/`Arc<dyn>` recovers the RcInner block start as data − round_up(8, align(T)) (align read from vtable slot 2), decrements the strong count (Arc: seq-cst atomic; Rc: plain load/store) at offset 0, and only when it reaches zero calls drop_in_place(data) and frees the whole RcInner block.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L606-L656"
-      ],
-      "uncertainty": "RcInner layout {strong i32, weak i32, T val} with val at round_up(8, align) and vtable layout {drop, size, align} are codegen ABI conventions inferred from comments; the dyn path frees on strong==0 without weak bookkeeping."
+      "title": "Dropping `Rc<dyn>`/`Arc<dyn>` decrements strong count, frees at zero",
+      "statement": "Dropping an owning `Rc<dyn Trait>`/`Arc<dyn Trait>` fat handle decrements the strong-reference counter in the value's header (`Arc`: atomic RMW subtract, seq_cst ordering; `Rc`: plain load-decrement-store). Only when the decremented count reaches zero does it run `drop_in_place` on the value (vtable slot 0) and free the whole backing block. A null `data` (moved-from handle) skips the entire sequence.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L610-L659"],
+      "uncertainty": "This codegen path performs no weak-count bookkeeping for the dyn case (per the in-source note); docs/DIVERGENCES.md §B (~line 93) records `Rc<dyn Tr>`/`Arc<dyn Tr>` as migrated (2026-06-02) to the real `Rc`/`Arc` struct repr with a custom-DST tail — it is unclear from this slice alone whether this fat-pair drop path is the current primary path or a residual/legacy one for a narrower case.",
+      "testability": "behavioral"
     },
     {
       "id": "layout.dyn.fat-pair-data-vtable",
       "domain": "layout",
-      "title": "A trait-object handle is a {data, vtable} fat pair",
-      "statement": "A trait-object value is a two-pointer fat pair: field 0 is the data pointer, field 1 is the vtable pointer; an owning smart-pointer `dyn` stores this pair inline.",
-      "evidence": [
-        "src/compiler/mlir_gen_stmt.cpp#L520-L524",
-        "src/compiler/mlir_gen_stmt.cpp#L555-L573"
-      ]
+      "title": "`dyn Trait` handle layout: {data, vtable}",
+      "statement": "A `dyn Trait` fat handle is laid out as a 2-field struct `{data: ptr, vtable: ptr}` — field 0 is the concrete data pointer, field 1 is the vtable pointer.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L524-L527", "src/compiler/mlir_gen_stmt.cpp#L573-L576"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.enum.nested-payload-representation",
+      "domain": "layout",
+      "title": "Nested enum payload: inline for tagged, scalar for C-like",
+      "statement": "An enum-variant payload field whose declared type is itself an enum is represented INLINE within the payload area (the payload GEP address is the nested enum's own storage) when the nested enum is a tagged (data-carrying) enum; a fieldless (C-like) nested enum is instead represented as a scalar integer, loaded by value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L240-L251"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.rc.inner-struct-layout",
+      "domain": "layout",
+      "title": "`RcInner` heap-block layout for owning `Rc`/`Arc`",
+      "statement": "The heap block backing an owning `Rc<T>`/`Arc<T>` (including the `dyn Trait` case) is laid out as `RcInner = { strong: i32 (or atomic i32), weak: i32 (or atomic i32), val: T }`, with `val` at byte offset `round_up(8, align(T)) = (align(T) + 7) & ~(align(T) − 1)` from the block start (the two i32 counters occupy the first 8 bytes). The data pointer handed to consumers points at `val`; the block start is recovered by subtracting this offset from the data pointer.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L610-L629"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.dyn.owning-vtable-slots",
+      "domain": "layout",
+      "title": "Owning-dyn vtable slot order: drop, size, align",
+      "statement": "The vtable referenced by an OWNING `dyn Trait` fat handle (`Box`/`Rc`/`Arc<dyn Trait>`) exposes at least 3 pointer-sized slots in fixed order: slot 0 = `drop_in_place(T)` function pointer, slot 1 = `size_of::<T>()` encoded as a pointer-width integer, slot 2 = `align_of::<T>()` encoded as a pointer-width integer — used by the generic release path to run the destructor and to recover the `RcInner` header offset.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L590-L619"],
+      "testability": "transitive"
     }
   ]
 }

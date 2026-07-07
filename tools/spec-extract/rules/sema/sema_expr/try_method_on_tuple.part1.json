@@ -1,0 +1,235 @@
+{
+  "unit": "sema/sema_expr/try_method_on_tuple.part1",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L7068-L7599",
+  "source_hash": "ea058ab5ae3943a9",
+  "rules": [
+    {
+      "id": "expr.method.tuple-sentinel-dispatch",
+      "domain": "expr",
+      "title": "Tuple receiver method dispatch via sentinel key",
+      "statement": "A method call `recv.method(args)` whose receiver type is a tuple `(T1,...,Tn)` (or `&`/`&mut` thereof) resolves the callee by probing a synthesized sentinel function name, in order: (1) the concrete-element key `$tuple$<n>$<T1>$<T2>...__<method>` and (2) the arity-only blanket key `$tuple$<n>__<method>`. This enables `impl Trait for (A,B,...)` (concrete) and blanket tuple-trait impls to provide methods on tuple values.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7082-L7095"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method.tuple-receiver-shape-match",
+      "domain": "expr",
+      "title": "Tuple method receiver shape trial (Self / &Self / &mut Self)",
+      "statement": "For each tuple-method sentinel key, resolution tries the receiver in three shapes in order — by-value `Self`, `&Self`, `&mut Self` — matching the first whose full parameter signature (receiver shape + argument types) is registered; the receiver expression is then coerced (materialize-ref or deref, as needed) to the matched formal receiver shape.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7100-L7133"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method.tuple-generic-fallback",
+      "domain": "expr",
+      "title": "Generic tuple method fallback + type-param substitution",
+      "statement": "If no concrete overload is registered under a tuple-method sentinel key, a generic function registered under the same key is used, substituting the generic method's type-params 1..n with the tuple's element types in order (any type-param beyond the tuple's arity substitutes to the error type).",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7112-L7114",
+        "src/compiler/sema_expr.cpp#L7138-L7150"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method.autoderef-doubleref-peel",
+      "domain": "expr",
+      "title": "Depth-N `&&T` receiver autoderef before method resolution",
+      "statement": "Before method resolution, a receiver whose type is reference-like with a reference-like pointee (e.g. `&&T`) has its extra outer reference layers peeled via explicit deref, one layer per iteration, until a single reference (or non-reference) type remains: `r.m()` for `r: &&T` is equivalent to `(*r).m()`. Raw pointers are excluded from this peeling (no binding-mode role).",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7162-L7173"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method.vec-get-move-reject",
+      "domain": "expr",
+      "title": "Vec::get rejects by-value read of a move element",
+      "statement": "`v.get(i)` on `Vec<T>` (or `&Vec<T>` / `&mut Vec<T>`) is rejected when `T` is a move (non-Copy) type: returning the element by value out of a shared `&self` read would alias the Vec's still-owned storage, so both the returned binding's drop and the Vec's element drop would free the same buffer (double-free). Copy element types are unaffected. Diagnostic suggests `.borrow(i)` or `.remove(..)`/`.pop()`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7175-L7203"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.method.deref-chain-autoderef",
+      "domain": "expr",
+      "title": "Method resolution autoderef through user Deref impl",
+      "statement": "Method resolution on a struct receiver with no direct method (`<ConcreteName>__<method>` nor `<BaseName>__<method>`) falls back to the receiver type's `Deref` impl: the receiver is stepped through one Deref application and the direct-method probe retried, bounded to at most 16 iterations. A method defined directly on the outer type always wins over a Deref-target method.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7205-L7211",
+        "src/compiler/sema_expr.cpp#L7246-L7281"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method.derefmut-step-selection",
+      "domain": "expr",
+      "title": "DerefMut-aware step selection during deref-chain method resolution",
+      "statement": "During deref-chain method resolution, before committing a step the resolver peeks the Deref target type: if it exposes a candidate method of the wanted name whose first formal parameter is `&mut Self`, the step is taken via `DerefMut` (not plain `Deref`) so the resulting receiver is a mutable place, preventing a mutation-through-shared-borrow unsoundness; if the receiver type has no `DerefMut` impl the step transparently falls back to `Deref`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7213-L7245",
+        "src/compiler/sema_expr.cpp#L7277-L7280"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method.turbofish-type-args",
+      "domain": "expr",
+      "title": "Explicit method-level turbofish type arguments",
+      "statement": "A method call may supply explicit type arguments via turbofish: `recv.method::<T1,T2,...>(args)`. When present (`user_type_args` non-empty), these are used as the method's type-param substitution and downstream type-param inference from argument types is bypassed for that call.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7284-L7308"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method.dispatch-order",
+      "domain": "expr",
+      "title": "Method-call resolution stage order",
+      "statement": "After receiver autoderef and turbofish parsing, `recv.method(args)` resolution is attempted, in order, against: (1) schema construct/bind methods, (2) user tuple-impl methods, (3) slice built-ins, (4) fixed-array `.len()` built-in, (5) DstRef-typed impl methods, (6) raw-pointer arithmetic built-ins, (7) `*mut`/`*const dyn Trait` (peeled to `&dyn Trait` dispatch), (8) `&dyn Trait` vtable dispatch, (9) tagged-union tier-1 dispatch, (10) bounded-TypeVar / AssocType-projection trait-bound dispatch. The first matching stage wins.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7310-L7414"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "expr.method.ptr-to-dyn-deref-dispatch",
+      "domain": "expr",
+      "title": "Method call through raw pointer to trait object",
+      "statement": "A method call through a raw pointer to a trait object (`*mut dyn Trait` / `*const dyn Trait`) requires an enclosing `unsafe` context; the pointer is retyped to its pointee `TraitObject` and dispatched through the same vtable-call path used for `&dyn Trait`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7348-L7361"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "trait.method.bounded-typevar-dispatch",
+      "domain": "trait",
+      "title": "Method dispatch on a bounded generic type-param",
+      "statement": "A method call on a receiver whose type is a bounded generic type-param `T` (or a raw/ref/mut-ref thereof) resolves the callee's signature against a trait method declared by one of `T`'s bounds (searched depth-first over the bound trait and its supertraits); the concrete impl is resolved later, at monomorphization.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7367-L7414",
+        "src/compiler/sema_expr.cpp#L7452-L7490"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.method.assoc-type-projection-dispatch",
+      "domain": "trait",
+      "title": "Associated-type projection method dispatch (Gap-3)",
+      "statement": "A method call on an associated-type projection receiver `G::R` dispatches via `R`'s declared bounds (`type R: HasId` on the owning trait) exactly like a bounded TypeVar, but only when at least one bound supplies a non-default method of that name; if the only provider is a default method (typically reached via a blanket `impl<T> Tr for T`), dispatch defers to the pre-existing blanket-impl path instead.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7378-L7413",
+        "src/compiler/sema_expr.cpp#L7495-L7505"
+      ],
+      "uncertainty": "The non-default-only gating is a targeted fix for a prior mono crash on blanket-supplied defaults; exact boundary conditions are inferred from the accompanying comment, not independently derived.",
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.method.ambiguous-bound-method",
+      "domain": "trait",
+      "title": "Ambiguous method across sibling trait bounds",
+      "statement": "If a bounded receiver's set of bounds (including supertraits, searched without early-exit on first match) yields a method of the sought name from two different traits, the call is rejected: \"method '<name>' is ambiguous for type parameter '<T>' (matches traits '<A>' and '<B>')\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7458-L7467"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "trait.method.supertrait-dag-search",
+      "domain": "trait",
+      "title": "Supertrait DAG search for bounded-receiver method lookup",
+      "statement": "Method lookup on a bounded receiver searches the directly-named bound trait's own methods first; if not found, it recurses into all of that trait's supertraits (a cycle-guarded DAG walk via a visited-set), composing a substitution that maps `Self` and each supertrait's formal type-params to concrete types resolved through the enclosing bound's substitution.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7447-L7484"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.method.blanket-extension-bound",
+      "domain": "trait",
+      "title": "Blanket-impl-derived transitive bound for method dispatch",
+      "statement": "For a bounded generic `T: B` (directly, or via a supertrait of one of T's bounds), a blanket impl `impl<U: B> Ext for U {}` is treated as establishing `T: Ext` transitively for method-dispatch purposes, making Ext's methods resolvable on `T` — including calls inside the blanket impl's own default-method bodies, where Self is the blanket type-var.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7507-L7532"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.method.unsafe-requires-unsafe-context",
+      "domain": "trait",
+      "title": "Unsafe trait method requires unsafe context",
+      "statement": "Calling a trait method marked `unsafe` through bounded-generic dispatch requires an enclosing `unsafe` context; otherwise: \"call to unsafe method '<name>' requires unsafe context\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7535-L7537"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "trait.method.arg-count-mismatch",
+      "domain": "trait",
+      "title": "Bounded-generic method call arg-count check",
+      "statement": "A bounded-generic trait-method call's explicit argument count must equal the chosen trait method's declared parameter count minus one (for `self`); otherwise: \"method call '<name>': expected <n> args, got <m>\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7539-L7544"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "trait.method.turbofish-overrides-inference",
+      "domain": "trait",
+      "title": "Turbofish overrides inference for bounded-generic method type-params",
+      "statement": "For a bounded-generic-dispatched trait method with its own method-level type-params, explicit turbofish type args supplied at the call site bind directly to those type-params, taking priority over inference (which otherwise unifies argument-expression types against the method's substituted parameter types).",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7551-L7571"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "coerce.arg.canonical-flag-order",
+      "domain": "coerce",
+      "title": "Canonical coercion flag order for trait-method arguments",
+      "statement": "Argument-to-parameter coercion for a resolved bounded-generic trait-method call applies, via a single coercion call, the canonical pipeline in flag order: dyn-widening (arg-to-dyn), implicit reborrow, then integer widening.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7572-L7577"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.method.arg-type-mismatch",
+      "domain": "trait",
+      "title": "Post-coercion argument type mismatch diagnostic",
+      "statement": "After coercion, if an argument's type still does not match the method's substituted parameter type (and neither side is `Error`/`TypeVar`/`AssocType`, which defer to monomorphization), the call is rejected: \"method '<name>' arg <i>: expected <expected>, got <got>\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7578-L7587"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "const.intlit.fits-trait-method-param",
+      "domain": "const",
+      "title": "Integer-literal argument must fit target parameter width",
+      "statement": "An untyped integer-literal argument passed to a bounded-generic trait method must fit within the concrete integer parameter type it is coerced to (once that type is concrete, i.e. not `Error`/`TypeVar`/`AssocType`); a value outside the type's range is rejected: \"method '<name>' arg <i>: value <v> does not fit in <type>\".",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7588-L7596"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.method.array-len-builtin",
+      "domain": "expr",
+      "title": "Fixed-array `.len()` is a compile-time built-in",
+      "statement": "`a.len()` where `a` has raw fixed-size array type `[T; N]` is a built-in: it lowers directly to the compile-time constant `N` as an `i64` literal; no runtime call is emitted.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L7323-L7331",
+        "src/compiler/sema_expr.cpp#L7280-L7284"
+      ],
+      "divergence": "Return type is `i64` (Logos stdlib uses i64 for lengths throughout), not `usize` as in Rust's `[T; N]::len() -> usize`."
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 {
   "unit": "sema/sema_impl_hpp/logos.part2",
   "layer": "sema",
-  "source": "src/compiler/sema_impl.hpp#L593-L1141",
-  "source_hash": "b78f07f5d4fc2a80",
+  "source": "src/compiler/sema_impl.hpp#L600-L1158",
+  "source_hash": "293437baf8738a0f",
   "rules": [
     {
       "id": "coerce.enum.incomplete-typeargs-retype",
@@ -10,7 +10,7 @@
       "title": "Incomplete enum-literal type-args inferred from expected enum type",
       "statement": "An enum literal whose value type has empty or unresolved type-args is retyped to the expected enum type when both are the same enum (`at.enum_name() == pt.enum_name()`), the expected type-args are all resolved, and each already-resolved arg of the literal is compatible with the corresponding expected arg; retyping recurses into nested payload enum-literals.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L593-L618"
+        "src/compiler/sema_impl.hpp#L600-L619"
       ],
       "uncertainty": "Compatibility predicate `types_compatible` defined elsewhere; here only the gating conditions are observable.",
       "testability": "transitive"
@@ -118,9 +118,10 @@
       "id": "const.cfg.predicate-evaluation",
       "domain": "const",
       "title": "cfg!() and #[cfg(...)] compile-time predicate evaluation",
-      "statement": "`cfg!(...)` and `#[cfg(...)]` are evaluated at compile time over the active target metadata and feature set: combinators `all(...)`/`any(...)`/`not(...)` are recursive; built-in keys (target_pointer_width, target_arch, target_os, target_endian, target_family) resolve against compile-target metadata; `feature = \"name\"` resolves against features supplied via `--cfg`/manifest; a multi-arg attribute list is a conjunction. An item whose cfg predicate is false is dropped.",
+      "statement": "`cfg!(...)` and `#[cfg(...)]` are evaluated at compile time over the active target metadata and feature set: combinators `all(...)`/`any(...)`/`not(...)` are recursive; built-in keys (target_pointer_width, target_arch, target_os, target_endian, target_family) resolve against compile-target metadata; `feature = \"name\"` resolves against a feature set populated from `--cfg feature=foo` CLI args / lforge manifest; a multi-arg attribute list is a conjunction. An item whose cfg predicate is false is dropped.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L710-L738"
+        "src/compiler/sema_impl.hpp#L710-L738",
+        "src/compiler/sema_impl.hpp#L773-L782"
       ],
       "uncertainty": "Attribute-form combinators (all/any/not) noted as MVP-limited in some helpers; cfg_attr activation precedes cfg evaluation."
     },
@@ -148,7 +149,7 @@
       "title": "Cannot move a move-typed value out of a borrowed place (E0507)",
       "statement": "Moving a move-typed value by value out of a non-owning place is rejected (E0507): deref of a `&`/`&mut` reference variable (`*r`); index `v[i]`/slice-index `s[i]` of a non-raw container (including user `Index`, lowered to `*v.index(i)`); deref of a user `Deref` (`*x.deref()`) including `Box` (`*b`, since DerefMove is unimplemented); and reading a move-typed field out of a `&`/`&mut` receiver (`r.field`). Exempt: any place whose access chain passes through a raw-pointer (`*const`/`*mut`) hop, and partial moves out of owned receivers.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L877-L968"
+        "src/compiler/sema_impl.hpp#L876-L968"
       ],
       "divergence": "Box move-out (`let s = *b`) is rejected because Logos does not implement Rust's built-in Box DerefMove; in Rust it is allowed."
     },
@@ -178,7 +179,7 @@
       "title": "`use Type::{V1, V2}` brings enum variants into bare scope",
       "statement": "A `use pkg.Path.Type::{V1, V2, ...};` import brings the named enum variants into bare scope, so a bare `V1` resolves as `Type::V1`; on name collision, last write wins.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L1112-L1115"
+        "src/compiler/sema_impl.hpp#L1111-L1115"
       ]
     },
     {

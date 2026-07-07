@@ -1,0 +1,181 @@
+{
+  "unit": "codegen/mlir_gen_types/ref_repr_of",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_types.cpp#L622-L1035",
+  "source_hash": "1c2884dd8b3e3670",
+  "rules": [
+    {
+      "id": "layout.refrepr.classification",
+      "domain": "layout",
+      "title": "Reference-representation classes by type kind",
+      "statement": "Every type classifies into exactly one reference-representation kind, by its OUTER kind: `Ptr`/`Ref`/`FnPtr`/`FnItem` -> ThinPtr; `Slice` -> FatSlice; `TraitObject` -> FatDyn; `Closure` -> FatClosure; `DstRef` -> ThinPtr if the pointee is `#[self_describing]`, else FatCustomDst; `MutRef` -> FatZoneMut if the pointee is a `Struct`/`ZonedStruct` flagged `zone_mut`, else ThinPtr; `Struct`/`ZonedStruct` -> RelOffset if flagged `rel_ptr`, else NotARef; all other kinds -> NotARef. A raw/safe pointer is always thin even when its pointee is unsized at the type level (e.g. `*const dyn` collapses to a thin ptr) -- classification is by the outer kind, not by pointee unsizedness.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L622-L667"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.refrepr.mut-ref-zone-fat",
+      "domain": "layout",
+      "title": "`&mut T` to a zone-mut type is a fat {data,zone} pair",
+      "statement": "`&mut T` where `T` is a struct/zoned-struct flagged `zone_mut` is a FAT reference carrying {data, zone=*mut Allocator} -- the mutable reference rides its Writ allocator so grow-methods can reach it from `&mut self`. Shared `&T`, `*T`, and `&mut T` to non-`zone_mut` types stay thin (a read path never grows the allocation).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L631-L641"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.refrepr.dst-self-describing-thin",
+      "domain": "layout",
+      "title": "`#[self_describing]` custom-DST reference is a thin 8-byte pointer",
+      "statement": "A `DstRef` to a `#[self_describing]` pointee is physically THIN: an 8-byte pointer straight to the header, with the tail length carried in-band (`dst_len`) rather than as a separate {data,len} metadata word. This is what allows a `&Foo` to such a type to be returned by value safely -- there is no stack-local metadata pair that could dangle. A `DstRef` to a non-self-describing pointee is FatCustomDst: a {data,meta} fat pair.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L648-L654"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.refrepr.rel-ptr-struct",
+      "domain": "layout",
+      "title": "`#[rel_ptr]` struct is a self-relative offset, not a reference",
+      "statement": "A struct/zoned-struct flagged `rel_ptr` classifies as RelOffset: it is stored as an 8-byte `i64` self-relative offset (absolute address computed on access), not as a thin/fat pointer. A struct/zoned-struct without the flag is NotARef (an ordinary by-value aggregate).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L655-L662"],
+      "divergence": "A6",
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.refrepr.zoned2-field-self-relative",
+      "domain": "layout",
+      "title": "Thin-pointer field of a `#[zoned2]` struct is stored self-relative",
+      "statement": "When computing a FIELD's reference representation (as opposed to a bare type's), a field whose representation would otherwise be ThinPtr is instead stored as RelOffset if the owning struct is flagged `zoned2`. Other representation kinds are unaffected by the owner's `zoned2` flag at this step.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L669-L678"],
+      "divergence": "A6",
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.refrepr.unsized-pointee-not-ref",
+      "domain": "layout",
+      "title": "Unsized pointee kinds (bare `[T]`, bare `dyn`) are not references",
+      "statement": "The unsized-pointee kinds (an unsized slice `[T]` or unsized `dyn` used directly, not behind a pointer) classify as NotARef: they describe an unsized POINTEE, not a reference, and have no by-value footprint of their own.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L663-L665"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.refrepr.value-type-thin",
+      "domain": "layout",
+      "title": "Every reference VALUE (in a register) is a thin pointer",
+      "statement": "Regardless of representation kind, the by-value (register/operand) form of any reference is a single thin pointer to its storage; a fat {data,meta} pair, where one exists, lives in the referent's STORAGE slot, never directly in a value/register.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L680-L686"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.refrepr.storage-layout-sizes",
+      "domain": "layout",
+      "title": "Storage {size,align} per reference-representation kind",
+      "statement": "The in-field/in-element storage layout by representation kind is: ThinPtr = {8,8}; FatSlice/FatDyn/FatClosure/FatCustomDst/FatZoneMut = {16,8} (a fat pair); RelOffset = {8,8} (one `i64` offset); NotARef = {0,1} (no reference footprint).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L688-L716"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.refrepr.return-by-value-abi",
+      "domain": "layout",
+      "title": "By-value return ABI differs between fat-materialized and pointer-only kinds",
+      "statement": "On return-by-value: FatDyn, FatSlice, and FatZoneMut are materialized as their full 16-byte storage pair in the caller's frame; FatClosure, FatCustomDst, ThinPtr, and RelOffset are returned as an 8-byte pointer/offset value (their storage, where fat, is not return-materialized).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L718-L735"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.enum.payload-fat-ref-inline",
+      "domain": "layout",
+      "title": "A fat-reference-typed enum payload field is stored inline as its full fat pair",
+      "statement": "An enum variant payload field whose type has a fat reference representation (`&dyn`/`dyn`, slice, closure, or a fat custom-DST ref) is stored INLINE in the variant payload as its full 16-byte fat storage pair, not collapsed to an 8-byte pointer -- so the payload carries no heap handle and requires no separate free/leak-avoidance. Thin reference kinds (ptr/ref/fn) keep their ordinary by-value pointer representation in the payload.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L737-L775", "src/compiler/mlir_gen_types.cpp#L755-L763"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.enum.payload-inline-struct-tuple-enum",
+      "domain": "layout",
+      "title": "Struct/tuple/nested-enum-typed enum payload fields embed their full ABI footprint",
+      "statement": "An enum variant payload field of Struct/ZonedStruct, Tuple, or (nested) Enum kind embeds that type's full identified/aggregate LLVM type in the payload slot, rather than the collapsed single-pointer form that a generic type lowering would otherwise produce -- the payload occupies the referent's real by-value size.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L743-L770"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.enum.variant-payload-aggregate-layout",
+      "domain": "layout",
+      "title": "Variant payload {size,align} is computed as a padded aggregate, not a naive field-size sum",
+      "statement": "A variant's payload {size,align} is derived by accumulating each payload field's by-value layout as if laying out a struct/tuple of those fields (inter-field alignment padding included), matching the actual LLVM aggregate the payload is lowered to. Enum payload fields store multi-field/fat-typed members BY VALUE (their full inline representation), unlike an ordinary struct/tuple FIELD which may collapse such members to a pointer -- so payload layout is computed with the by-value accumulator, not the aggregate-member accumulator used for struct/tuple fields.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L777-L800"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.enum.null-pointer-niche",
+      "domain": "layout",
+      "title": "Two-variant enum with one fieldless + one single-non-null-pointer variant is pointer-sized",
+      "statement": "An enum with exactly two variants, one fieldless (the niche/`none` arm) and one carrying a single payload field of reference kind `&T`/`&mut T` (guaranteed non-null), is laid out with NO separate discriminant word: the discriminant is encoded as null (none arm) vs non-null (some arm) in that single pointer field at offset 0, so the whole enum is pointer-sized (e.g. `size_of::<Option<&T>>() == size_of::<&T>()`).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L830-L868"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.enum.null-pointer-niche-nonnull-wrapper",
+      "domain": "layout",
+      "title": "A `#[non_null]` single-8-byte-pointer wrapper struct also qualifies for the null-pointer niche",
+      "statement": "In the two-variant fieldless+single-field niche shape, the single payload field also qualifies for the null-pointer niche when its type is a struct/zoned-struct flagged `non_null` whose total ABI byte size is exactly 8 (a Box/Rc/Arc-style single-pointer wrapper) -- its type invariant guarantees the pointer at offset 0 is never zero, so the same null-vs-non-null discriminant encoding applies.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L844-L868"],
+      "divergence": "A6",
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.enum.low-bit-niche",
+      "domain": "layout",
+      "title": "Pointer-plus-small-integer two-arm enum packs into one word via a low-bit discriminant",
+      "statement": "A two-variant enum where every variant has exactly one payload field, one variant's field is a reference (`&T`/`&mut T`) whose pointee has alignment >= 2 (guaranteeing its low bit is always 0), and the other variant's field is an integer of <= 56 bits, packs into a SINGLE machine word: the pointer arm is stored raw; the integer arm is stored shifted as `(v << 1) | 1`. The discriminant is the value's low bit (0 = pointer arm, 1 = integer arm) -- no separate discriminant word.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L869-L925", "src/compiler/mlir_gen_types.cpp#L872-L890"],
+      "divergence": "A6",
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.enum.low-bit-niche-zoned2-raw-arms",
+      "domain": "layout",
+      "title": "`#[zoned2]` enums admit a raw untagged pointer arm and a raw 64-bit integer arm in the low-bit niche",
+      "statement": "For an enum flagged `zoned2`, the low-bit-niche pointer arm additionally accepts any raw `*T`/`&T`/`&mut T` regardless of the pointee's declared alignment (the zoned2 allocator's invariant that all Writ zone objects are >= 2-aligned is trusted directly), and the integer arm additionally accepts a full 64-bit `i64`/`u64` stored RAW (no `<<1` shift) -- because the producer of such a `zoned2` value has already baked a low-bit-1 tag into the raw word itself.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L899-L924"],
+      "divergence": "A6",
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.enum.identified-llvm-type-body-deferred",
+      "domain": "layout",
+      "title": "An enum's LLVM body size is finalized once, after a whole-program fixpoint",
+      "statement": "An enum's identified aggregate type is created immediately but its body (the payload byte-array size) is left unset at first registration -- a nested enum payload may still be a zero-byte stub at that point, under-sizing the outer enum. The body is set exactly once, after a fixpoint recomputes every enum's final payload size; an identified LLVM struct's body cannot be reset once set.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L928-L937"],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.tuple.inline-aggregate-elements",
+      "domain": "layout",
+      "title": "Tuple elements of struct/enum/slice/closure/dyn/tuple kind are embedded inline at full layout",
+      "statement": "A tuple element is stored INLINE at its full by-value layout, matching the struct-field convention, for these element kinds: Struct/ZonedStruct (registered inline struct type), Enum (full {disc,payload} footprint), Slice (16-byte {ptr,len} fat pair, including `str` = Slice<u8>), Closure (16-byte {fn,env} pair), TraitObject/bare `&dyn` (16-byte {data,vtable} pair), and nested Tuple (its own aggregate, recursively). A `*mut dyn` (Ptr-to-TraitObject) is excluded from the dyn case and stays an 8-byte thin handle. `&(T,U)`/`&mut (T,U)`/`*(T,U)` typed as a tuple resolve through the pointee to the inner tuple's layout.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L961-L1015"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.slice.repr",
+      "domain": "layout",
+      "title": "Slice runtime representation is a 16-byte {ptr, i64 len} pair",
+      "statement": "A slice's fat-pair storage representation is `{ptr, i64}` -- a data pointer and an 8-byte length, 16 bytes total.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L1017-L1020"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.dyn.repr",
+      "domain": "layout",
+      "title": "Trait-object runtime representation is a 16-byte {data,vtable} pair",
+      "statement": "A trait object's fat-pair storage representation is `{data_ptr, vtable_ptr}`, 16 bytes, stored inline wherever a `dyn`/`&dyn` value is held (field, element, payload); a `&dyn` reference value is a pointer to this 16-byte storage, mirroring the slice representation.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L1022-L1028"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.closure.repr",
+      "domain": "layout",
+      "title": "Closure runtime representation is a 16-byte {fn,env} pair",
+      "statement": "A closure's fat-pair storage representation is `{fn_ptr, env_ptr}`, 16 bytes total.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L1030-L1033"],
+      "testability": "behavioral"
+    }
+  ]
+}

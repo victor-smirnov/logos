@@ -1,0 +1,185 @@
+{
+  "unit": "codegen/mlir_gen_stmt/gen_assign",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen_stmt.cpp#L1999-L2818",
+  "source_hash": "e692453a8a4ccef3",
+  "rules": [
+    {
+      "id": "stmt.assign.eval-rhs-before-drop-old",
+      "domain": "stmt",
+      "title": "Assignment order: eval RHS, drop old, then store",
+      "statement": "For `x = e` where `x` is a live (definitely-initialized) place of a droppable type: `e` is evaluated first, then the OLD value of `x` is dropped (running its full destructor: user `Drop` impl + owned children), then the new value is stored. This makes `x = f(x)` read the pre-assignment `x` safely.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2000-L2003", "src/compiler/mlir_gen_stmt.cpp#L2049-L2051", "src/compiler/mlir_gen_stmt.cpp#L2153"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "stmt.assign.conditional-drop-flag",
+      "domain": "stmt",
+      "title": "Reassignment of a conditionally-initialized place drops via a runtime flag",
+      "statement": "If a place's liveness depends on control flow reaching it along some paths but not others (e.g. `if c { x = a; } x = b;`), the compiler maintains a per-place runtime 1-byte init flag; on `x = b` the old value is dropped only if the flag is nonzero at runtime, and the flag is then set to mark the place live for the new value.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2015-L2039"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "stmt.assign.first-write-skips-drop",
+      "domain": "stmt",
+      "title": "First (dominating) assignment to a statically-uninitialized place skips the drop",
+      "statement": "For a place whose initialization state is known statically (not flag-tracked), the first assignment reached on the dominating path is known to overwrite indeterminate storage and does not run a drop; every subsequent assignment to that place unconditionally drops the prior (live) value first.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2040-L2048"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.enum.assign-full-repr-copy",
+      "domain": "layout",
+      "title": "Enum-valued assignment copies the whole {disc,payload} representation",
+      "statement": "An enum value is represented inline as `{disc, payload}` in its storage slot. Assigning a new enum value to an enum-typed place copies the FULL footprint (via memcpy) into the slot, not merely the discriminant word. If only a bare discriminant is available at the assignment site (e.g. a payload-less variant with no inferred type args), only the discriminant word of the slot is written, leaving the rest of the slot unspecified.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2052-L2072"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.struct.assign-value-copy",
+      "domain": "layout",
+      "title": "Struct-valued assignment copies the full struct payload",
+      "statement": "Assigning a struct (or zoned-struct) value to a struct-typed place (`acc = src;`) copies the entire struct footprint (memcpy of `sizeof(struct)`) into the destination storage — a plain pointer store would only overwrite the first machine word.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2073-L2088"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "coerce.unsize.dyn-place-assign",
+      "domain": "coerce",
+      "title": "Assignment to a `&dyn Trait`-typed place performs unsize coercion",
+      "statement": "Assigning a concrete-typed (or already-dyn) source to a place typed `&dyn Trait` coerces the source into the `{data,vtable}` fat-pointer representation (same coercion `let`/`return` apply) and copies the resulting 16-byte pair into the target slot. A raw `*const dyn T` / `*mut dyn T` place is exempt: it keeps plain pointer-store (aliasing) semantics.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2089-L2119"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.fatptr.assign-pair-copy",
+      "domain": "layout",
+      "title": "Slice/Closure/TraitObject-valued assignment copies the full 16-byte fat pair",
+      "statement": "Slice (`&[T]`), Closure, and TraitObject values are represented as a 16-byte `{data, len|vtable}` pair. Assigning such a value to a place of that type copies both words (memcpy of 16 bytes); a plain pointer store would leave the second word (len/vtable) stale.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2120-L2135"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.array.assign-whole-copy",
+      "domain": "layout",
+      "title": "Whole-array assignment copies all elements",
+      "statement": "Arrays are represented by a pointer to their storage. Assigning one array value to another (`t = [a,b];` / `t = other_arr;`) copies the entire array's backing storage (memcpy of the array's full size), not just the source pointer.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2136-L2149"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.never-return.void-operand",
+      "domain": "type",
+      "title": "`return <e>` in a `!`-returning function emits an operand-less return",
+      "statement": "A function whose declared return type is the never type `!` has a zero-result signature. A `return <e>;` inside such a function still evaluates `<e>` (for its side effects — `<e>` may itself diverge and terminate the block), but if control survives, the emitted return carries no operand.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2169-L2179"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "coerce.unsize.dyn-return-value",
+      "domain": "coerce",
+      "title": "Returning a concrete value where `Box<dyn Trait>`/`&dyn Trait` is expected performs unsize coercion",
+      "statement": "When a function's return type is a TraitObject and the returned expression's type is a concrete (non-TraitObject) type, the concrete value is coerced to the `{data,vtable}` fat pair (vtable keyed on the underlying concrete type name, stripping one level of `&`/`&mut`/`*const`/`*mut` indirection) and returned BY VALUE as that 16-byte struct.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2182-L2218"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.fatptr.return-by-value",
+      "domain": "layout",
+      "title": "Already-fat-typed return values are returned by value as the 16-byte aggregate",
+      "statement": "Returning a value whose static type is already a TraitObject, or whose declared return type is Slice, loads the 16-byte `{data,len|vtable}` pair from its storage pointer (if not already a loaded aggregate) and returns it by value — the function's MLIR-level return type is the 16-byte struct, not a pointer.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2219-L2256"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.aggregate.return-by-value",
+      "domain": "layout",
+      "title": "Struct/array/enum return values are returned by value as the full aggregate",
+      "statement": "A function returning a Struct, fixed-size array, or Enum type returns the aggregate BY VALUE: if the computed value is a pointer to storage, the full aggregate is loaded from it; if only a scalar (e.g. a bare enum discriminant) is available, it is first written into a fresh stack slot of the aggregate's layout, then that slot is loaded and returned.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2257-L2291"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "coerce.numeric.return-value",
+      "domain": "coerce",
+      "title": "Scalar return values are numerically coerced to the declared return type",
+      "statement": "For a scalar (non-aggregate, non-fat-pointer) return value whose type does not already match the function's return representation, the value is coerced (widened/narrowed/signed-adjusted) to the declared return type before the return is emitted.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2292-L2293"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.if.branch-scope-isolation",
+      "domain": "expr",
+      "title": "Each `if`/`else` branch is an independent lexical scope",
+      "statement": "Bindings (and their variable-classification state, e.g. dyn/tuple/struct/enum tagging) introduced inside one arm of an `if`/`else` are not visible in the sibling arm or in code after the `if`: the classification state is snapshotted before entering the branches and restored after each branch, isolating `let`s local to a branch.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2328-L2343"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.if.both-diverge-no-merge",
+      "domain": "expr",
+      "title": "An `if`/`else` whose branches both diverge has no fall-through point",
+      "statement": "If both the `then` and `else` blocks of an `if` terminate control flow (each ends in a diverging op, e.g. `return`), the `if` as a whole does not produce a merge/continuation point — no code after it in the same block is reachable through it.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2335-L2348"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.range.for-induction-widen",
+      "domain": "expr",
+      "title": "Range-`for` induction variable is typed as the wider of the range endpoints",
+      "statement": "For `for i in lo..hi` / `for i in lo..=hi`, the induction variable `i` takes the wider of `lo`'s and `hi`'s integer types (so a narrower bound is not truncated relative to a wider one), and the loop-exit comparison uses an unsigned comparison when the corresponding bound's type is one of `u8/u16/u24/u32/u56/u64/u128`, signed otherwise.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2405-L2469"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.range.inclusive-exclusive-bound",
+      "domain": "expr",
+      "title": "Inclusive vs exclusive range bound in `for`",
+      "statement": "`for i in lo..hi {}` excludes `hi` (loop condition `i < hi`); `for i in lo..=hi {}` includes `hi` (loop condition `i <= hi`), with signedness of the comparison selected per `expr.range.for-induction-widen`.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2459-L2469"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.loop.break-value-slot",
+      "domain": "expr",
+      "title": "`loop { ... break v; ... }` evaluates to the broken-out value",
+      "statement": "A `loop` expression used to produce a value allocates a result slot before entering the loop body; `break v;` targeting that loop stores `v` into the slot before branching to the loop's exit, and the slot is the loop expression's value at the exit block.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2516-L2526", "src/compiler/mlir_gen_stmt.cpp#L2561-L2566"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "stmt.break.label-resolution",
+      "domain": "stmt",
+      "title": "Labeled break targets the matching enclosing loop; unlabeled break targets the innermost",
+      "statement": "`break;`/`break v;` with no label transfers control to the innermost enclosing loop. `break 'label;`/`break 'label v;` searches the enclosing loop stack from innermost outward for a loop whose label equals `'label` and targets that loop.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2549-L2567"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "layout.array.elem-inline-storage",
+      "domain": "layout",
+      "title": "Struct/tuple/fat-typed elements are stored inline in array/slice/Vec buffers",
+      "statement": "Struct- and tuple-typed elements of an array, slice, or Vec buffer are stored INLINE (the full aggregate embedded contiguously in the buffer), not as pointers to separately-allocated storage; TraitObject/Closure/Slice-typed elements are likewise stored inline as their 16-byte fat pair. Element iteration strides by the element's full in-buffer footprint accordingly (`sizeof` the struct/tuple/fat-pair), not by a collapsed pointer width.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2594-L2622", "src/compiler/mlir_gen_stmt.cpp#L2745-L2769"],
+      "testability": "transitive"
+    },
+    {
+      "id": "expr.for-each.slice-elem-by-ref",
+      "domain": "expr",
+      "title": "Iterating a slice binds the loop variable as a reference into the original buffer",
+      "statement": "`for x in <slice expr> {}` binds `x` to the ADDRESS of each element within the slice's backing storage (a reference `&T` into the original data), not a copy — mutations to `*x` (or through auto-deref) are visible in the original buffer, mirroring Rust's `for x in &[T]` (`IntoIterator for &[T]` yielding `&T`).",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2664-L2684"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.for-each.array-elem-binding",
+      "domain": "expr",
+      "title": "Iterating a fixed-size array by value: scalar elements are copied, struct/tuple elements bind the in-place address",
+      "statement": "`for x in <array expr> {}` (non-slice, fixed-size array): for a scalar element type, `x` is bound to a fresh stack slot holding a COPY of the element (mutating `x` does not affect the source array); for a struct- or tuple-typed element, `x` is bound directly to the element's address inside the array's own backing storage.",
+      "evidence": ["src/compiler/mlir_gen_stmt.cpp#L2745-L2780"],
+      "uncertainty": "Whether struct/tuple loop-variable mutation is intended to alias the source array (vs. Rust's uniform move/copy-by-value for `for x in array`) is not resolved within this slice alone; may reflect Logos's general pointer-based struct value representation elsewhere rather than an aliasing divergence.",
+      "testability": "behavioral"
+    }
+  ]
+}

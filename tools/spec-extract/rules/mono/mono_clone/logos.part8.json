@@ -1,28 +1,16 @@
 {
   "unit": "mono/mono_clone/logos.part8",
   "layer": "mono",
-  "source": "src/compiler/mono_clone.cpp#L3700-L4226",
-  "source_hash": "67349c977318ca51",
+  "source": "src/compiler/mono_clone.cpp#L3756-L4290",
+  "source_hash": "e6282716f0f85e92",
   "rules": [
     {
       "id": "mono.dispatch.trait-qualified-mangling",
       "domain": "mono",
       "title": "Ambiguous-by-name dispatch resolves to trait-qualified symbol",
       "statement": "When a method call on a type-variable receiver is dispatch-ambiguous by name and a trait was selected (trait T), monomorphization resolves the callee base to `<recv-type>__<T>__<method>` if such a symbol exists; otherwise it falls back to the plain `<recv-type>__<method>`.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L3716-L3737"
-      ],
+      "evidence": ["src/compiler/mono_clone.cpp#L3758-L3774"],
       "divergence": "Logos-specific name-mangling scheme; see G156-1 baghunt for two-impl collision",
-      "testability": "transitive"
-    },
-    {
-      "id": "mono.dispatch.ref-receiver-fallback",
-      "domain": "mono",
-      "title": "Reference-receiver method falls back to ref-mangled symbol",
-      "statement": "If a method `<recv>__<method>` does not exist but a reference-typed variant `$ref_<recv>__<method>` (or `$mut_ref_<recv>__<method>` for a mut-ref receiver) does, the call resolves to the reference-typed symbol.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L3700-L3715"
-      ],
       "testability": "transitive"
     },
     {
@@ -30,27 +18,21 @@
       "domain": "mono",
       "title": "Generic-trait-for-enum method instantiates per-enum spec",
       "statement": "For a method call whose receiver is an enum (or pointer/ref/mut-ref to an enum) dispatched through a generic `impl Trait for Enum<T>`, monomorphization synthesizes the concrete spec key by inserting the receiver enum's concrete type-args between the enum base name and the method suffix, mirroring eager enum-template instantiation, so the call binds to the cloned spec rather than the bare base template.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L3761-L3803"
-      ]
+      "evidence": ["src/compiler/mono_clone.cpp#L3798-L3840"]
     },
     {
       "id": "mono.subst.lazy-blanket-method-instantiation",
       "domain": "mono",
       "title": "Lazy blanket-impl method instantiation for generic receiver",
       "statement": "A method call on a generic struct/enum receiver (after stripping ptr/ref/mut-ref) dispatched through a blanket `impl<T: Bound> Trait for T` is instantiated lazily: the blanket method template is cloned with {T -> receiver type} and enqueued, provided the receiver concrete type satisfies the blanket's bound trait and all extra bounds; the resulting spec is `<recv>__<method>`.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L3804-L3878"
-      ]
+      "evidence": ["src/compiler/mono_clone.cpp#L3841-L3915"]
     },
     {
       "id": "mono.subst.blanket-bound-check",
       "domain": "mono",
       "title": "Blanket-impl instantiation gated by bound satisfaction",
       "statement": "A blanket `impl<T: Bound + Extra...> Trait for T` is instantiated for a concrete receiver type only if that type satisfies the bound trait and every extra bound; otherwise the blanket impl does not apply.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L3854-L3864"
-      ]
+      "evidence": ["src/compiler/mono_clone.cpp#L3891-L3901"]
     },
     {
       "id": "mono.subst.typevar-pack-expansion",
@@ -58,17 +40,18 @@
       "title": "Type-argument variable bound to a pack expands in place",
       "statement": "When substituting a method call's type-arguments, a type-argument that is a type-variable currently bound to a type pack is replaced by the full sequence of the pack's element types (variadic expansion); other type-arguments are substituted individually.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L3884-L3893",
-        "src/compiler/mono_clone.cpp#L3995-L4004"
+        "src/compiler/mono_clone.cpp#L3921-L3930",
+        "src/compiler/mono_clone.cpp#L4059-L4068"
       ]
     },
     {
       "id": "mono.subst.tuple-receiver-elem-args",
       "domain": "mono",
       "title": "Tuple receiver supplies its element types as impl type-args",
-      "statement": "For a method call whose receiver is a tuple type, the call's impl-level type-arguments are set to the tuple's element types, enabling specialization of `impl<A,B,...> Trait for (A,B,...)`; for nested tuple recursion the inner receiver's own element types override stale outer-spec args.",
+      "statement": "For a method call whose receiver is a tuple type, the call's impl-level type-arguments are set to the tuple's element types, enabling specialization of `impl<A,B,...> Trait for (A,B,...)`; for nested tuple recursion the inner receiver's own element types override stale outer-spec args, and any method-level (non-impl) type-args stashed at the tail of the original list are preserved after the tuple elements.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L3894-L3912"
+        "src/compiler/mono_clone.cpp#L3952-L3953",
+        "src/compiler/mono_clone.cpp#L4010-L4024"
       ],
       "divergence": "A6: Logos-only variadic tuple-type impls — `impl Trait for (A,B,...)` specialized by tuple element types."
     },
@@ -78,7 +61,8 @@
       "title": "Type-args dropped/truncated to template type-param count",
       "statement": "A method call's type-arguments are kept only up to the resolved template's declared type-parameter count: if the template has zero type-params (concrete impl) all type-args are cleared; otherwise they are truncated to the param count, EXCEPT a variadic template type-param consumes all trailing type-args (no truncation).",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L3913-L3963"
+        "src/compiler/mono_clone.cpp#L3962-L4001",
+        "src/compiler/mono_clone.cpp#L4025-L4027"
       ],
       "divergence": "Logos-specific (T9-tr-02) plus variadic-pack handling",
       "testability": "untestable"
@@ -89,38 +73,43 @@
       "title": "Method-generic call is mangled then enqueued for cloning",
       "statement": "When a method call retains nonzero type-arguments after truncation, its callee is mangled with those type-args and the resulting specialization is explicitly enqueued onto the monomorphization worklist so its body is cloned (otherwise the call would name a spec that is never emitted).",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L3964-L3974",
-        "src/compiler/mono_clone.cpp#L4064-L4080",
-        "src/compiler/mono_clone.cpp#L4126-L4138"
+        "src/compiler/mono_clone.cpp#L4028-L4038",
+        "src/compiler/mono_clone.cpp#L4129-L4144",
+        "src/compiler/mono_clone.cpp#L4191-L4201"
       ]
+    },
+    {
+      "id": "mono.dispatch.method-call-preserved-fallback",
+      "domain": "mono",
+      "title": "Unresolvable receiver-typed call stays a method call",
+      "statement": "When a receiver-typed method call cannot be statically resolved (the receiver's concrete type name is unavailable for a trait-qualified dispatch, or no matching template/spec/self-generic-template is found for a struct/enum/tuple receiver), monomorphization preserves it as a method-call node (carrying resolved_symbol, vtable_index, tag_system, tag_trait) rather than rewriting it to a direct call, deferring dispatch (e.g. via vtable) to a later stage.",
+      "evidence": [
+        "src/compiler/mono_clone.cpp#L4043-L4052",
+        "src/compiler/mono_clone.cpp#L4204-L4225"
+      ],
+      "uncertainty": "The cname-empty branch (L4043-L4052) is reachable only if type_str(rt) yields an empty string for some receiver type; this slice does not show when that occurs.",
+      "testability": "transitive"
     },
     {
       "id": "mono.dispatch.spec-lookup-best-match",
       "domain": "mono",
       "title": "Concrete struct/enum method resolves to best matching spec",
       "statement": "For a method call on a concrete struct/enum receiver (after stripping ptr/ref/mut-ref), the candidate template key is `<base>__<method>` (base = resolved type name, else enum/struct name), preferring sema's resolved_symbol when it names an existing template/spec; the call resolves to the best-matching specialization keyed by the receiver's type-args combined with the method's type-args.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L4008-L4080"
-      ]
+      "evidence": ["src/compiler/mono_clone.cpp#L4072-L4144"]
     },
     {
       "id": "mono.dispatch.combined-type-args",
       "domain": "mono",
       "title": "Specialization key combines receiver and method type-args",
       "statement": "Specialization selection for a concrete-receiver method combines the receiver type's type-arguments followed by the method-level type-arguments into a single ordered argument list used for spec lookup and mangling.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L4021-L4022",
-        "src/compiler/mono_clone.cpp#L4053-L4065"
-      ]
+      "evidence": ["src/compiler/mono_clone.cpp#L4085-L4095"]
     },
     {
       "id": "mono.dispatch.self-generic-template-mangle",
       "domain": "mono",
       "title": "Self-typed method-generic call mangles resolved template directly",
       "statement": "A trait-default body call to another method-generic method on a `Self`-typed generic-struct receiver, where the resolved symbol is a method-generic template (contains `__g__`) with method-level type-params and all call type-args are concrete, is resolved by mangling the resolved template with the call's type-args and enqueuing it; impl-only-generic methods (no method-level type-params) are excluded from this path.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L4083-L4139"
-      ],
+      "evidence": ["src/compiler/mono_clone.cpp#L4147-L4203"],
       "divergence": "Logos-specific monomorphization fixup",
       "testability": "transitive"
     },
@@ -129,9 +118,7 @@
       "domain": "mono",
       "title": "Const-argument specialization includes the method receiver",
       "statement": "For a concrete method call kept as a method call, const-argument specialization treats the receiver as parameter index 0 (a combined [receiver, args...] view) so a const-wanting parameter at any position, including the receiver, is mapped and the callee specialized.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L4144-L4156"
-      ],
+      "evidence": ["src/compiler/mono_clone.cpp#L4208-L4220"],
       "testability": "untestable"
     },
     {
@@ -139,9 +126,7 @@
       "domain": "mono",
       "title": "Closure substitution rewrites param/return/capture types",
       "statement": "Substituting a closure applies the type substitution to each parameter type, the return type, and each capture type, while preserving the closure id, move-ness, fn-pointer-ness, escape (heap-env) flag, capture names, per-capture mutability flags, per-capture field paths (RFC-2229), and per-capture narrow field types (also substituted).",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L4164-L4208"
-      ],
+      "evidence": ["src/compiler/mono_clone.cpp#L4236-L4269"],
       "divergence": "RFC-2229 disjoint-closure-capture metadata preserved through mono"
     }
   ]

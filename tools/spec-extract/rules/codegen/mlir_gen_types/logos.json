@@ -1,191 +1,173 @@
 {
   "unit": "codegen/mlir_gen_types/logos",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen_types.cpp#L8-L612",
-  "source_hash": "8c7eddf793ded6d7",
+  "source": "src/compiler/mlir_gen_types.cpp#L8-L621",
+  "source_hash": "9a90bc8c2256c153",
   "rules": [
     {
       "id": "layout.int.fixed-widths",
       "domain": "layout",
-      "title": "Primitive integer/float sizes and alignments",
-      "statement": "Scalar layout {size,align} in bytes: bool/i8/u8 = {1,1}; i16/u16 = {2,2}; i24/u24 = {3,1}; i32/u32/f32/char/{integer literal} = {4,4}; i56/u56 = {7,1}; i64/u64/f64/{float literal} = {8,8}; i128/u128 = {16,16}. usize/isize and all pointers are target-pointer-width-sized (8 on a 64-bit target).",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L453-L464",
-        "src/compiler/mlir_gen_types.cpp#L61-L62"
-      ],
-      "divergence": "A: Logos adds non-power-of-two integer widths i24/u24 (align 1) and i56/u56 (align 1) not present in Rust.",
-      "uncertainty": "Odd-width align=1 inferred from the literal {3,1}/{7,1} entries."
+      "title": "Fixed-width scalar sizes/alignments",
+      "statement": "Scalar type layout is fixed and self-aligned: bool/i8/u8={1,1}; i16/u16={2,2}; i24/u24={3,1}; i32/u32/f32/char={4,4}; i56/u56={7,1}; i64/u64/f64={8,8}; i128/u128={16,16}; usize/isize={ptr-width,ptr-width}. The odd widths i24/u24/i56/u56 have byte size = ceil(bits/8) but align 1 (packed, not natively aligned).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L44-L63", "src/compiler/mlir_gen_types.cpp#L456-L466"],
+      "divergence": "A11",
+      "testability": "behavioral"
     },
     {
       "id": "layout.zero-size.void-never",
       "domain": "layout",
-      "title": "Unit and never are zero-sized",
-      "statement": "The unit type () (Void) and the never type ! (Never) have layout {size=0, align=1}. As a struct/enum field each occupies a zero-size slot ([i8;0]) so sibling field offsets are unaffected; in value/result position they yield no SSA value.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L453",
-        "src/compiler/mlir_gen_types.cpp#L320-L340",
-        "src/compiler/mlir_gen_types.cpp#L40-L43"
-      ]
+      "title": "Void/Never/unit-field are zero-sized, no SSA value",
+      "statement": "`Void` (absence of a return value) and `Never` (`!`, an uninhabited/diverging type) both have layout {0,1} and lower to no SSA value at all (a diverging expression emits its own terminator instead of a value). When either occurs as a concrete struct FIELD's type (e.g. a `!`-typed Err payload, or a unit `()` field), it is materialized as a genuine zero-size `[i8; 0]` storage slot so the aggregate's other field offsets stay correct, even though it is never read.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L40-L43", "src/compiler/mlir_gen_types.cpp#L322-L343", "src/compiler/mlir_gen_types.cpp#L455"],
+      "divergence": "A12",
+      "testability": "behavioral"
     },
     {
       "id": "layout.fat-ptr.sixteen-byte",
       "domain": "layout",
-      "title": "Fat pointers are 16 bytes, pointer-aligned",
-      "statement": "Slice (&[T], str), closure value, trait object (dyn), and custom-DST reference each have layout {size=16, align=8}: a two-word fat pair (data + metadata). The metadata word is length for slices/custom-DST and a vtable pointer for trait objects; closures pair {fn, env}.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L465-L467",
-        "src/compiler/mlir_gen_types.cpp#L294-L319"
-      ]
+      "title": "Fat-pointer kinds are 16 bytes, 8-byte aligned",
+      "statement": "Slice (incl. `str`), Closure, TraitObject (`dyn Trait`), and DstRef (custom-DST fat pointer) each have storage layout {16,8} — a two-word {data,meta} pair. Thin pointer-like kinds (Ptr/Ref/MutRef/FnPtr/TaggedPtr/Usize/Isize) are {8,8}.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L462-L469", "src/compiler/mlir_gen_types.cpp#L296-L321"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.unsized.no-by-value",
       "domain": "layout",
       "title": "Unsized pointees have no by-value footprint",
-      "statement": "Unsized types — the slice pointee [T] (UnsizedSlice) and the dyn pointee (UnsizedDyn) — have layout {size=0, align=1}; they have no by-value representation and may only appear behind a pointer/reference.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L468-L469",
-        "src/compiler/mlir_gen_types.cpp#L588-L590"
-      ],
+      "statement": "UnsizedSlice (`[T]`) and UnsizedDyn (bare `dyn Trait` pointee, not a reference to it) have layout {0,1} — they carry no by-value footprint; only reference/pointer/box forms of them exist as values (enforced upstream by sema/borrow-check).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L470-L471", "src/compiler/mlir_gen_types.cpp#L663-L665"],
       "testability": "transitive"
     },
     {
       "id": "layout.array.element-stride",
       "domain": "layout",
-      "title": "Array layout = N x element",
-      "statement": "An array [T; N] has size = N * size_of(T) and align = align_of(T), where T's element representation is its full inline by-value footprint (struct/enum/slice/closure/dyn/tuple elements are embedded inline, not collapsed to a pointer).",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L470-L474",
-        "src/compiler/mlir_gen_types.cpp#L74-L119",
-        "src/compiler/mlir_gen_types.cpp#L430-L438"
-      ]
+      "title": "Array element stride matches the element's full by-value layout",
+      "statement": "`[T; N]`'s element stride equals T's full by-value footprint, never a collapsed pointer — for T = Struct/ZonedStruct/tagged-Enum/Tuple/Slice/Closure/TraitObject the element is embedded INLINE at its real size (matching `layout_of`), so `arr[i]` indexing and `memcpy`-based array copies use the correct stride; a collapsed 8-byte handle would corrupt indexing/overflow the copy.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L74-L121", "src/compiler/mlir_gen_types.cpp#L472-L476"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.aggregate.field-order-padding",
       "domain": "layout",
-      "title": "Struct/tuple layout = ordered fields with natural padding",
-      "statement": "A struct or tuple lays out fields in declaration order: each field starts at the next offset rounded up to its alignment, the aggregate's align = max(field aligns), and total size = accumulated offset rounded up to the aggregate align. All aggregate members are embedded inline by value.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L416-L427",
-        "src/compiler/mlir_gen_types.cpp#L475-L479",
-        "src/compiler/mlir_gen_types.cpp#L507-L511",
-        "src/compiler/mlir_gen_types.cpp#L430-L438"
-      ]
+      "title": "Struct/tuple layout: declaration order + natural-alignment padding",
+      "statement": "A struct or tuple's fields/elements are laid out in declaration order; each field is placed at the next offset rounded up to its own alignment (inserting padding as needed), the aggregate's alignment is the max of its members' alignments, and the total size is rounded up to that alignment (matches non-packed C/LLVM layout).",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L419-L429", "src/compiler/mlir_gen_types.cpp#L477-L481", "src/compiler/mlir_gen_types.cpp#L513-L517"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.repr-transparent.inherits-field",
       "domain": "layout",
-      "title": "#[repr(transparent)] inherits the single field's layout",
-      "statement": "A #[repr(transparent)] struct with exactly one field has layout identical to that field's layout (no added aggregate padding/alignment). Multi-field #[repr(transparent)] is rejected earlier (collect time), so the single-field invariant holds.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L490-L495"
-      ]
+      "title": "`#[repr(transparent)]` inherits its single field's layout exactly",
+      "statement": "A single-field struct annotated `#[repr(transparent)]` has EXACTLY its field's {size,align} — no aggregate wrapper or padding is added. (The single-field invariant is enforced elsewhere at collect time, so this code trusts it.)",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L494-L501"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.union.common-storage",
       "domain": "layout",
-      "title": "Union layout = max size / max align",
-      "statement": "A union's size = round_up(max(field sizes), align) and align = max(field aligns); all fields overlap at offset 0 (share field index 0). The physical body is {<largest-aligned field type>, [pad x i8]} so the aggregate's own align = max-align and raw size = max-size.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L351-L382",
-        "src/compiler/mlir_gen_types.cpp#L496-L506"
-      ]
+      "title": "Union layout: overlapping common storage",
+      "statement": "A `union`'s size is max(field sizes) rounded up to max(field aligns); its alignment is max(field aligns). All fields occupy the SAME storage starting at offset 0 (they overlap); the field with the maximum alignment supplies the concrete LLVM field type at that offset, with trailing padding bytes appended to reach the union's full size.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L353-L388", "src/compiler/mlir_gen_types.cpp#L502-L512"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.enum.tagged-disc-payload",
       "domain": "layout",
-      "title": "Tagged enum layout = {i32 disc, aligned payload}",
-      "statement": "A tagged (data-carrying) enum has layout = aggregate of a 4-byte/4-align discriminant followed by the payload blob {payload_bytes, payload_align}: the payload starts at round_up(4, payload_align) and total size rounds up to the enum align. The payload is sized from the concrete instantiation so nested generics (e.g. Option<Option<i64>>) carry their full inline footprint.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L406-L409",
-        "src/compiler/mlir_gen_types.cpp#L516-L529"
-      ]
+      "title": "Tagged-enum value layout: {i32 disc, aligned payload}",
+      "statement": "A tagged enum's by-value layout is `{ i32 discriminant, <payload> }`, where the payload sub-object is placed at the offset rounded up to the payload's own alignment (natural aggregate padding after the 4-byte disc word), and the whole is rounded to the max of (4, payload_align). The concrete instantiation is resolved so nested generic payloads (e.g. `Option<Option<i64>>`) size their full inline footprint. The SSA/value form of a tagged enum is a pointer to this storage.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L522-L534", "src/compiler/mlir_gen_types.cpp#L66-L69", "src/compiler/mlir_gen_types.cpp#L409-L411"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.enum.clike-disc-sized",
       "domain": "layout",
-      "title": "C-like enum is a backing-type-sized discriminant",
-      "statement": "A fieldless (C-like) enum has no payload; its layout is a single discriminant whose size = ceil(disc_bits/8) bytes (min 1) with equal alignment, where disc_bits is the enum's backing integer width.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L530-L533",
-        "src/compiler/mlir_gen_types.cpp#L66-L69"
-      ]
+      "title": "C-like (payload-less) enum: discriminant-sized integer",
+      "statement": "An enum with no tagged-enum info (a plain C-like enum, no variant carries data) lowers as a bare integer whose width is `ceil(disc_bits/8)` bytes (minimum 1 byte), sized to the enum's variant count / declared backing type — not a fixed i32.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L536-L538", "src/compiler/mlir_gen_types.cpp#L66-L70"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.aggregate.inline-by-value-members",
       "domain": "layout",
-      "title": "Aggregate fields are embedded by value, references inline as fat pairs",
-      "statement": "A struct field whose type is a struct, tuple, tagged enum, slice, closure, custom-DST ref, or bare dyn trait object is embedded inline by value (the struct/enum's aggregate type, or its 16-byte fat pair, occupies the field). A field that is a pointer/reference to such a type (e.g. *Struct, &Struct, *const dyn) stores an 8-byte thin pointer instead.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L196-L319",
-        "src/compiler/mlir_gen_types.cpp#L244-L283"
-      ]
-    },
-    {
-      "id": "type.anyval.lowered-as-i32",
-      "domain": "type",
-      "title": "AnyVal is a 4-byte i32 everywhere",
-      "statement": "The AnyVal type is uniformly represented as a scalar i32 (size/align {4,4}) in every position — value, argument, and struct field — never as a wrapped aggregate.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L32",
-        "src/compiler/mlir_gen_types.cpp#L445",
-        "src/compiler/mlir_gen_types.cpp#L199-L210"
-      ],
-      "testability": "untestable"
-    },
-    {
-      "id": "type.char.is-u32",
-      "domain": "type",
-      "title": "char is a 32-bit value",
-      "statement": "char is a 32-bit (4-byte, 4-align) value, representing a Unicode scalar.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L63",
-        "src/compiler/mlir_gen_types.cpp#L457-L458"
-      ]
-    },
-    {
-      "id": "type.ref-repr.thin-vs-fat-classification",
-      "domain": "type",
-      "title": "Reference representation classified by outer kind",
-      "statement": "A reference's thin/fat representation is determined by its outermost kind, not its pointee: raw/safe pointers (*T, &T, *mut T to sized), fn pointers, and fn items are thin (8-byte); slice/dyn/closure values are fat (16-byte); a pointer wrapping an unsized pointee (e.g. *const dyn) stays thin while a bare dyn value is the fat pair. A self-describing custom-DST ref is physically thin (8-byte) since its tail length is in-band.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L543-L592",
-        "src/compiler/mlir_gen_types.cpp#L574-L577"
-      ]
-    },
-    {
-      "id": "type.ref-repr.zone-mut-fat",
-      "domain": "type",
-      "title": "&mut to a #[zone_mut] type is a fat zone-carrying ref",
-      "statement": "A &mut T where T is a #[zone_mut] struct is a fat reference {data, zone} carrying its allocator/zone pointer, so growth methods reach the allocator through &mut self. A shared &T or *T to the same type stays thin (reads never grow).",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L552-L565"
-      ],
-      "divergence": "Logos addition: zone-carrying mutable references (Writ/zone model), no Rust equivalent."
-    },
-    {
-      "id": "type.ref-repr.rel-ptr-self-relative",
-      "domain": "type",
-      "title": "#[rel_ptr] and #[zoned2] pointers are stored self-relative",
-      "statement": "A #[rel_ptr] struct is represented as a self-relative pointer: 8-byte i64 offset storage, resolved to an absolute thin pointer on access. Additionally, a thin-pointer field of a #[zoned2] struct is stored self-relative (offset) rather than absolute.",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L579-L586",
-        "src/compiler/mlir_gen_types.cpp#L594-L603"
-      ],
-      "divergence": "Logos addition: self-relative pointer storage (persistent/Writ model), no Rust equivalent."
+      "title": "All aggregate members stored inline by value",
+      "statement": "Every aggregate member position — struct field, array element, tuple element, or enum payload slot — stores its member INLINE by value (Rust layout): nested struct, tagged enum, tuple, slice, closure, dyn, and custom-DST members all occupy their full by-value footprint in the parent's storage, never a collapsed pointer to separately-allocated storage. A value of one of these kinds used OUTSIDE an aggregate slot (a plain local/SSA value) is instead a pointer to storage holding this layout.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L436-L439", "src/compiler/mlir_gen_types.cpp#L197-L352"],
+      "testability": "behavioral"
     },
     {
       "id": "layout.enum.niche-packed-no-disc",
       "domain": "layout",
-      "title": "Niche-packed enum carries no discriminant word",
-      "statement": "A niche-optimized (niche-packed) enum has no separate discriminant word: its representation is the niche-bearing payload alone, with layout {payload_bytes, payload_align} (pointer-sized when the niche field is a pointer). The active variant is distinguished by an in-payload niche value rather than a stored tag. A non-niche tagged enum instead carries an explicit discriminant word ({i32 disc, aligned payload}).",
-      "evidence": [
-        "src/compiler/mlir_gen_types.cpp#L522-L524",
-        "src/compiler/mlir_gen.cpp#L157-L162"
-      ],
-      "divergence": "Rust-conformant in intent (niche optimization); see ref_enum_niche.",
-      "related": [
-        "layout.enum.tagged-disc-plus-payload"
-      ]
+      "title": "Niche-packed tagged enum has no discriminant word",
+      "statement": "A niche-packed tagged enum (one whose variants' presence can be encoded entirely inside its payload's bit pattern) has layout EXACTLY `{payload_bytes, payload_align}` — the separate `i32` discriminant word is elided; the tag is recovered from the payload bits alone.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L528-L530"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.anyval.lowered-as-i32",
+      "domain": "type",
+      "title": "AnyVal always lowers to a scalar i32",
+      "statement": "The `AnyVal` type lowers UNIFORMLY to a scalar i32 — as a standalone value ({4,4} layout) and as a struct field — never wrapped in an aggregate (e.g. never `!llvm.struct<\"AnyVal\",(i32)>`), so that field loads/stores and argument-passing treat it as a plain i32 tag word rather than a 1-field struct value.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L32", "src/compiler/mlir_gen_types.cpp#L201-L212", "src/compiler/mlir_gen_types.cpp#L447"],
+      "divergence": "A5",
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.char.is-u32",
+      "domain": "type",
+      "title": "`char` is a 4-byte scalar",
+      "statement": "`char` lowers to a 32-bit integer SSA type and has layout {4,4} (size 4, align 4) — grouped with i32/u32/f32, not with the 1-byte types.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L63", "src/compiler/mlir_gen_types.cpp#L459-L460"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.ref-repr.thin-vs-fat-classification",
+      "domain": "type",
+      "title": "Reference SSA value is always thin; fat pair lives only in storage",
+      "statement": "For every reference-like kind, the SSA/register VALUE type is uniformly a thin pointer — the fat {data,meta} pair (for Slice/Closure/TraitObject/DstRef) exists only in memory storage (a struct field, array element, or local slot), never as a register value; a plain reference value is a pointer TO that storage.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L33-L38", "src/compiler/mlir_gen_types.cpp#L448-L453"],
+      "testability": "transitive"
+    },
+    {
+      "id": "type.literal.int-default-i32",
+      "domain": "type",
+      "title": "Unresolved integer literal defaults to i32",
+      "statement": "An integer literal (`IntLit`) whose concrete type was not pinned down lowers/layouts identically to `i32` (value type i32, layout {4,4}) — the default integer type.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L64", "src/compiler/mlir_gen_types.cpp#L459-L460"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.literal.float-default-f64",
+      "domain": "type",
+      "title": "Unresolved float literal defaults to f64",
+      "statement": "A float literal (`FloatLit`) whose concrete type was not pinned down lowers/layouts identically to `f64` (value type f64, layout {8,8}) — the default floating-point type.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L65", "src/compiler/mlir_gen_types.cpp#L462-L465"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.freeze.reachable-unsafecell",
+      "domain": "trait",
+      "title": "Freeze (no-interior-mutability) predicate",
+      "statement": "A type is Freeze (no interior mutability reachable by value) unless its own inline byte layout reaches `logos.lang.cell::UnsafeCell` through struct fields, tagged-enum payload variants, or tuple/array elements. A reference/pointer/slice/closure/dyn/custom-DST indirection always STOPS the recursion and counts as Freeze (interior mutability behind an indirection does not infect the container — e.g. `Rc<Cell<T>>`/`&Cell<T>` stay Freeze). Recognition of `UnsafeCell` is by qualified package+name, not bare name, so a user type also named `UnsafeCell` elsewhere does not trigger it. Any unresolved/unknown shape conservatively returns non-Freeze.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L544-L615"],
+      "uncertainty": "Mirrors rustc's internal (unstable) Freeze auto-trait for noalias/readonly optimization eligibility; this slice shows only the codegen-side predicate, not a user-facing `T: Freeze` bound.",
+      "testability": "transitive"
+    },
+    {
+      "id": "module.struct.pkg-qualified-nominal-identity",
+      "domain": "module",
+      "title": "Struct identity is package-qualified, not by bare name",
+      "statement": "Struct type identity for layout, field-embedding, and freeze analysis is keyed by (package, name), not by the bare name alone — two same-named structs declared in different packages are distinct types with independent layouts; a bare-name lookup would incorrectly alias an imported same-named struct's layout onto the wrong definition.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L79-L93", "src/compiler/mlir_gen_types.cpp#L483-L488", "src/compiler/mlir_gen_types.cpp#L588-L589"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.closure.fat-fn-env-repr",
+      "domain": "type",
+      "title": "Closures represent uniformly as a 16-byte {fn,env} fat pair",
+      "statement": "Every closure value (the `Closure` kind, which also covers `dyn Fn`/`FnMut`/`FnOnce`) has a FIXED 16-byte {fn-ptr, env-ptr} storage representation — not a per-closure anonymous capture struct sized by its captures. Stored inline in aggregates/arrays exactly like a Slice; a plain closure value elsewhere is a pointer to this 16-byte storage.",
+      "evidence": ["src/compiler/mlir_gen_types.cpp#L111-L112", "src/compiler/mlir_gen_types.cpp#L130", "src/compiler/mlir_gen_types.cpp#L314-L321", "src/compiler/mlir_gen_types.cpp#L468-L469"],
+      "divergence": "A10",
+      "testability": "behavioral"
     }
   ]
 }

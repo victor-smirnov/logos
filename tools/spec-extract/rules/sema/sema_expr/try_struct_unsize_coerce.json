@@ -1,35 +1,25 @@
 {
   "unit": "sema/sema_expr/try_struct_unsize_coerce",
   "layer": "sema",
-  "source": "src/compiler/sema_expr.cpp#L648-L1703",
-  "source_hash": "3abc12313c0e46f1",
+  "source": "src/compiler/sema_expr.cpp#L648-L1720",
+  "source_hash": "00497b61526291d0",
   "rules": [
     {
       "id": "coerce.unsize.struct-coerce-unsized",
       "domain": "coerce",
       "title": "CoerceUnsized for single-field smart-pointer structs",
       "statement": "A value of struct type S<..A> coerces to S<..B> (same struct, equal type-arg arity) when S has exactly one field whose substituted type changes from sized/thin to fat-unsized: target field kind is DstRef, or (TraitObject while source isn't), or (Slice while source isn't). The coercion reads the single field, casts it to the target field type, and repacks into the target struct.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L651-L699"
-      ],
-      "examples": [
-        "let r: Rc<dyn Tr> = rc_a as Rc<dyn Tr>;"
-      ],
-      "related": [
-        "coerce.unsize.box-consumes-source"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L648-L699"],
+      "examples": ["let r: Rc<dyn Tr> = rc_a as Rc<dyn Tr>;"],
+      "related": ["coerce.unsize.box-consumes-source"]
     },
     {
       "id": "coerce.unsize.lifetime-diff-not-unsize",
       "domain": "coerce",
       "title": "Type-arg differences that are not unsizes fall through to variance",
       "statement": "A struct type-arg difference that is not a sized→fat unsize (e.g. lifetime-only variance `Foo<&'a>` vs `Foo<&'b>`, or multi-field structs) is NOT handled as CoerceUnsized; it must be resolved by the variance/compat machinery. CoerceUnsized requires exactly one field and that field's type to genuinely become fat.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L669-L688"
-      ],
-      "related": [
-        "coerce.unsize.struct-coerce-unsized"
-      ],
+      "evidence": ["src/compiler/sema_expr.cpp#L669-L688"],
+      "related": ["coerce.unsize.struct-coerce-unsized"],
       "testability": "transitive"
     },
     {
@@ -37,237 +27,195 @@
       "domain": "coerce",
       "title": "&[T] as <T>[] builds a typed Writ array",
       "statement": "`src as <T>[]` (target struct WritArr) requires `src: &[T]` (a Slice) whose element kind equals the target element kind; element T must be one of i8/u8/i16/u16/i32/u32/i64/u64/f32/f64. It lowers to a stdlib writ_build_array_<T> call returning the builder's Rc<Writ> type; missing builder (no `use logos.lang.writ.typed_arr`) or non-slice source or element mismatch or unsupported element is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L716-L772"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L716-L773"],
+      "divergence": "A6"
     },
     {
       "id": "coerce.writ.mapslice-to-typed-map",
       "domain": "coerce",
       "title": "MapSlice as <K,AnyVal>{} builds a typed Writ map",
       "statement": "`src as <K,V>{}` (target struct WritMap) is permitted only for V = AnyVal and K in {I32,U32,I64,U64}, with source the matching MapSlice<K> struct; it lowers to a stdlib writ_build_map_<k>_anyval call returning Rc<Writ>. Any other key/value combination, a mismatched source, or a missing builder is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L775-L838"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L774-L838"],
+      "divergence": "A6"
     },
     {
       "id": "coerce.cast.ref-to-scalar-autoderef",
       "domain": "coerce",
       "title": "&T as scalar auto-derefs the reference",
       "statement": "When casting a value of type `&T`/`&mut T` (with scalar pointee T) to a scalar target (any integer/usize/isize/f32/f64/char/bool), the operand is auto-dereferenced before the cast, so the pointee value is converted, not the pointer bits. Pointer→pointer casts and `&T as *T`/`as usize` reinterpretations are unaffected.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L841-L875"
-      ],
-      "examples": [
-        "let n: &f64 = &1.0; let x = n as i64;"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L841-L875"],
+      "examples": ["let n: &f64 = &1.0; let x = n as i64;"]
     },
     {
       "id": "coerce.cast.aggregate-scalar-forbidden",
       "domain": "coerce",
       "title": "as-cast forbidden between aggregates and scalars",
       "statement": "An `as`-cast where the source is an aggregate (struct/array/tuple/enum) and the target is a scalar is rejected, EXCEPT a payload-free (C-style) enum cast to integer/bool (discriminant cast). Symmetrically, casting a scalar/pointer to an aggregate target (struct/zoned-struct/array/tuple/enum) is rejected as a non-primitive cast target.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L881-L956"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L877-L956"]
     },
     {
       "id": "coerce.cast.as-bool-forbidden",
       "domain": "coerce",
       "title": "as bool is not a permitted cast",
       "statement": "Casting any non-bool value (integer, float, C-style enum, etc.) to `bool` via `as` is rejected; only the reverse `bool as <int>` (true→1, false→0) is valid. Use `x != 0` / `x != 0.0` instead.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L923-L941"
-      ],
-      "examples": [
-        "let b: bool = (i as bool);  // error"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L923-L941"],
+      "examples": ["let b: bool = (i as bool);  // error"]
     },
     {
       "id": "coerce.cast.str-to-mut-ptr-forbidden",
       "domain": "coerce",
       "title": "str as *mut u8 is forbidden",
       "statement": "Casting a `str` (Slice<u8>) to `*mut u8` is rejected because str data is read-only (rodata); `*const u8` must be used instead.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L957-L967"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L957-L967"]
+    },
+    {
+      "id": "coerce.cast.float-ptr-forbidden",
+      "domain": "coerce",
+      "title": "Float <-> pointer as-cast is forbidden",
+      "statement": "An `as`-cast between a float type (f32/f64) and a `Ptr` type, in either direction, is rejected — there is no meaningful direct numeric/address conversion; cast through an integer type instead (e.g. `x as usize as *const T`).",
+      "evidence": ["src/compiler/sema_expr.cpp#L968-L984"]
     },
     {
       "id": "coerce.unsize.box-consumes-source",
       "domain": "coerce",
       "title": "Unsize to owning trait object moves the source",
       "statement": "An unsize cast to an owning trait object (e.g. `box_val as Box<dyn Trait>`) consumes/moves the operand; ownership of the heap data transfers to the result so the source's own drop does not also run (avoiding double-free).",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L969-L974"
-      ],
-      "related": [
-        "coerce.unsize.struct-coerce-unsized"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L986-L991"],
+      "related": ["coerce.unsize.struct-coerce-unsized"]
     },
     {
       "id": "expr.literal.float-format-and-suffix",
       "domain": "expr",
       "title": "Float literal format, underscores, and suffix typing",
       "statement": "A float literal must be well-formed; underscores are stripped from the digits; a recognized 3-char float suffix sets the literal's concrete type (e.g. f32/f64) while a suffix-less float literal has the inference type FloatLit.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L999-L1013"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L1016-L1031"]
     },
     {
       "id": "expr.cmp.chained-comparison-forbidden",
       "domain": "expr",
       "title": "Chained comparisons are not supported",
-      "statement": "A chained comparison such as `a < b < c` is rejected; it must be written `a < b && b < c`.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1079-L1086"
-      ]
+      "statement": "A chained comparison such as `a < b < c` (captured as a distinct grammar node) is rejected; it must be written `a < b && b < c`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1096-L1103"]
     },
     {
       "id": "expr.sizeof-pack.spelling",
       "domain": "expr",
       "title": "sizeof...(T) on a type-parameter pack",
-      "statement": "The pack-size operator must be spelled `sizeof...(T)` where T is an in-scope type parameter; it yields a u64. A different operator name or an unknown type parameter is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1053-L1069"
-      ]
+      "statement": "The pack-size operator must be spelled `sizeof...(T)` where T is an in-scope type parameter; it lowers to the intrinsic `__sizeof_pack__` call and yields a u64. A different operator name or an unknown type parameter is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1070-L1086"]
+    },
+    {
+      "id": "generic.pack.expand-value-source",
+      "domain": "generic",
+      "title": "name... pack-expand resolves a type-pack or const-pack variable",
+      "statement": "`name...` (pack-expand) resolves `name` first as an ordinary scope variable (a type-pack TypeVar); if absent, it is looked up among the current type parameters and, if bound with kind ConstVar, treated as a const-pack (`<const N: i64...>`). An unresolved name is an error. Per-element expansion happens later, at monomorphization.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1047-L1068"],
+      "uncertainty": "Full pack-expansion semantics complete at monomorphization, outside this unit; this rule covers only the sema-time name-resolution step."
     },
     {
       "id": "expr.addr-of.static-mut",
       "domain": "expr",
       "title": "&mut on a module static yields the global address",
       "statement": "`&mut STATIC` for an unshadowed module static (that is not an array) produces a `&mut T` to the global's address rather than materializing a temporary.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1100-L1106"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L1117-L1123"]
     },
     {
       "id": "expr.addr-of.mut-array-whole",
       "domain": "expr",
       "title": "&mut arr references the whole array",
-      "statement": "`&mut arr` for `arr: [T; N]` produces `&mut [T; N]` (a reference to the whole array); coercion to a `&mut [T]` slice parameter occurs separately at the call site.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1107-L1116"
-      ]
+      "statement": "`&mut arr` for `arr: [T; N]` produces `&mut [T; N]` (a reference to the whole array, sharing the array's base address); coercion to a `&mut [T]` slice parameter occurs separately at the call site.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1124-L1133"]
     },
     {
       "id": "expr.addr-of.mut-deref-reborrow",
       "domain": "expr",
       "title": "&mut *p reborrows through a pointer/reference",
       "statement": "`&mut *p` where p is a Ptr/MutRef/Ref preserves an explicit AddrOfTemp(Deref(p)) shape so it is treated as a reborrow (distinct from a rebind), yielding `&mut Pointee`; for a struct with a DerefMut impl it lowers to `p.deref_mut()`.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1118-L1139"
-      ]
+      "evidence": ["src/compiler/sema_expr.cpp#L1135-L1157"]
     },
     {
       "id": "expr.try.result-option-extract",
       "domain": "expr",
       "title": "? on Result/Option extracts or early-returns",
-      "statement": "`e?` where `e: Result<T,E>` extracts Ok(v) and early-returns Err(e); where `e: Option<T>` extracts Some(v) and early-returns None. It is valid only inside a function whose return type is the same enum (Result resp. Option); otherwise an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1153-L1217",
-        "src/compiler/sema_expr.cpp#L1307"
-      ]
+      "statement": "`e?` where `e: Result<T,E>` extracts Ok(v) and early-returns Err(e); where `e: Option<T>` extracts Some(v) and early-returns None. It is valid only inside a function whose declared return type is the same enum (Result resp. Option); otherwise an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1170-L1236", "src/compiler/sema_expr.cpp#L1324"]
     },
     {
       "id": "expr.try.heterogeneous-error-from",
       "domain": "expr",
       "title": "? converts inner error via From when error types differ",
-      "statement": "For `e?` with `e: Result<T,E_inner>` in a function returning `Result<U,E_outer>` where E_inner != E_outer, the Err path returns `Err(E_outer::from(err))`, requiring `impl From<E_inner> for E_outer`; absence of that impl is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1220-L1306"
-      ]
+      "statement": "For `e?` with `e: Result<T,E_inner>` in a function returning `Result<U,E_outer>` where E_inner != E_outer, the Err path returns `Err(E_outer::from(err))`, requiring a resolvable `From<E_inner> for E_outer` (matched as an `<E_outer>__from` candidate with a matching sole parameter type); absence of that impl is an error suggesting `.map_err(...)?`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1237-L1323"]
     },
     {
       "id": "expr.try.trait-dispatch-from-residual",
       "domain": "expr",
       "title": "? on non-Result/Option dispatches via Try/FromResidual",
-      "statement": "`e?` where e is neither stdlib Result nor Option desugars through the Try/FromResidual surface: `match e.branch() { Continue(c) => c, Break(r) => return RetType::from_residual(r) }`. The receiver RetType is taken from the enclosing function's declared return type (Logos does not infer trait Self from context); an undeterminable return type is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1167-L1195"
-      ],
-      "divergence": "Receiver for from_residual is explicit from fn ret type (no contextual Self inference)"
+      "statement": "`e?` where e is neither stdlib Result nor Option desugars through the Try/FromResidual surface: `match (e).branch() { ControlFlow::Continue(c) => c, ControlFlow::Break(r) => return RetType::from_residual(r) }`. RetType is rendered from the enclosing function's declared return type; an undeterminable return type is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1184-L1212"]
     },
     {
       "id": "expr.range.desugar-range-struct",
       "domain": "expr",
       "title": "lo..hi / lo..=hi desugar to stdlib Range constructors",
-      "statement": "A range expression requires integer bounds. Exclusive `lo..hi` lowers to `range_i32`/`range_i64`; inclusive `lo..=hi` lowers to the generic `range_incl_of` (RangeOfIncl<T>). The bound width is i64 if either bound is wider than 32 bits or an integer literal overflows i32, else i32; both bounds are widened to that bound type. Missing stdlib constructors are an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1310-L1387"
-      ],
-      "divergence": "Ranges are nominal stdlib structs (RangeI32/RangeI64/RangeOfIncl), not language built-ins"
+      "statement": "A range expression requires integer bounds. Exclusive `lo..hi` lowers to `range_i32`/`range_i64`; inclusive `lo..=hi` lowers to the generic `range_incl_of` (RangeOfIncl<T>), which stores the real end plus a `done` flag (avoiding an overflow-prone `hi+1` encoding at the bound type's maximum value). The bound width is i64 if either bound is wider than 32 bits or an integer literal overflows i32, else i32; both bounds are widened to that bound type. Missing stdlib constructors are an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1327-L1404"]
     },
     {
       "id": "expr.control-flow.diverging-is-never",
       "domain": "expr",
       "title": "break/continue/return in expression position have type !",
-      "statement": "`break`, `continue`, and `return` used in expression position have type `!` (never), which coerces to/unifies with any surrounding expected type. `continue`/`break` outside any loop are errors. `return e` in expression position checks e against the function's return type.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1393-L1462"
-      ]
+      "statement": "`break`, `continue`, and `return` used in expression position have type `!` (never), which unifies with any surrounding expected type. `continue`/`break` outside any loop are errors. `return e` in expression position checks e against the function's return type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1410-L1479"]
     },
     {
       "id": "expr.break.value-loop-typing",
       "domain": "expr",
       "title": "break value selects the loop's value type",
-      "statement": "A `break value` (optionally labeled) attributes its value type to the target loop frame; the frame's value type is the unification (numeric) of all break values, making the loop a value-yielding expression.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1438-L1458"
-      ]
+      "statement": "A `break value` (optionally labeled) attributes its value type to the target loop frame; the frame's value type is the (numeric) unification of all break values reaching it, making the loop a value-yielding expression.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1455-L1476"]
     },
     {
       "id": "expr.loop.as-expr-type",
       "domain": "expr",
       "title": "loop expression type: ! if no break-value, () if value-less break",
-      "statement": "A `loop {...}` used as an expression has type `!` (never) when no `break v` is reachable and the loop diverges, type `()` when a value-less `break` is reached, and the common break-value type when `break v` is reached.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1504-L1547"
-      ]
+      "statement": "A `loop {...}` used as an expression has type `!` (never) when no `break v` is reachable and the loop diverges, type `()` when a value-less `break` is reached, and the common break-value type (read back via a synthesized break slot) when `break v` is reached.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1521-L1564"]
     },
     {
       "id": "expr.unsafe-block.tail-value",
       "domain": "expr",
       "title": "unsafe block in expression position yields its tail value",
-      "statement": "An `unsafe { ... }` in expression position evaluates its statements with unsafe permitted and yields the trailing expression's value (not a return); with no trailing expression it has type `()`.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1549-L1582"
-      ]
+      "statement": "An `unsafe { ... }` in expression position evaluates its statements with unsafe permitted and yields the trailing expression's value (not an implicit early return); with no trailing expression it has type `()`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1566-L1600"]
     },
     {
       "id": "expr.tuple.unit-and-element-typing",
       "domain": "expr",
       "title": "Tuple literal: unit, expected-type widening, overflow upgrade",
-      "statement": "`()` is the unit value of type `()`. Each tuple element is widened to its expected element type from a tuple type hint; an int-literal element that overflows i32 is upgraded to i64; the tuple type is the tuple of element types.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1585-L1633"
-      ]
+      "statement": "`()` is the unit value of type `()`. Each tuple element widens toward its expected positional element type from an enclosing tuple-type hint (propagated into nested-tuple elements only); an int-literal element that overflows i32 is upgraded to i64; the literal's type is the tuple of the (possibly widened) element types.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1602-L1651"]
     },
     {
       "id": "borrow.move.tuple-element-moved",
       "domain": "borrow",
       "title": "Concrete move-type tuple elements are moved into the tuple",
-      "statement": "A concrete (non-TypeVar) move-type value placed into a tuple element is moved into the tuple (its source binding is marked consumed); TypeVar elements are exempt (their drop is routed through the mono mechanism).",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1621-L1630"
-      ]
+      "statement": "A concrete (non-TypeVar) move-type value placed into a tuple element is moved into the tuple (its source binding is marked consumed, so it is not independently dropped at its own scope exit); TypeVar elements are exempt (their drop is routed through the mono mechanism, since a generic may resolve Copy).",
+      "evidence": ["src/compiler/sema_expr.cpp#L1638-L1646"]
     },
     {
       "id": "expr.tuple-index.access",
       "domain": "expr",
       "title": "Tuple/tuple-struct .N indexing with auto-deref",
-      "statement": "`recv.N` indexes a tuple (auto-deref through `&`/`&mut`) returning the Nth element type, or reads field N of a tuple-struct (auto-deref through `&Foo`/`&mut Foo`) with the struct's type-params substituted by the receiver's type-args. An out-of-range index is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1636-L1697"
-      ]
+      "statement": "`recv.N` indexes a tuple (auto-deref through `&`/`&mut`) returning the Nth element type, or reads field N of a tuple-struct (auto-deref through `&Foo`/`&mut Foo`) with the struct's type-params substituted by the receiver's concrete type-args. An out-of-range index, or a receiver that is neither, is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1653-L1714"]
     },
     {
       "id": "expr.writ.capture-not-standalone",
       "domain": "expr",
       "title": "$-capture is not a standalone expression",
-      "statement": "A `$`-capture node (WRIT_CAP_IDENT / WRIT_CAP_EXPR) is only valid inside a writ value literal; appearing as a standalone expression is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L1489-L1494"
-      ],
+      "statement": "A `$`-capture node (WRIT_CAP_IDENT / WRIT_CAP_EXPR) is only valid nested inside a writ value literal; appearing as a standalone expression is an error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L1506-L1511"],
       "testability": "untestable"
     }
   ]

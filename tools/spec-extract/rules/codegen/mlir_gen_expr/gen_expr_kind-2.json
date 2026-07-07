@@ -1,8 +1,8 @@
 {
   "unit": "codegen/mlir_gen_expr/gen_expr_kind-2",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen_expr.cpp#L3167-L3782",
-  "source_hash": "ab978941e574ed84",
+  "source": "src/compiler/mlir_gen_expr.cpp#L3228-L3843",
+  "source_hash": "c17acac9b45de367",
   "rules": [
     {
       "id": "coerce.cast.int-null-to-trait-object",
@@ -10,7 +10,7 @@
       "title": "Integer (null) cast to trait object yields zeroed fat pair",
       "statement": "`E as T` where T is a trait object (`*mut dyn`/`&dyn`) and E has an integer type (IntLit/i32/u32/i64/u64/isize/usize) produces a 16-byte {data,vtable} fat pair with both halves null. This makes null-handle sentinels (`0 as *mut dyn`) and `… as *mut u64 == 0` null checks behave under the uniform-fat dyn model.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3170-L3193"
+        "src/compiler/mlir_gen_expr.cpp#L3236-L3253"
       ],
       "divergence": "Logos uniform-fat model: `*mut dyn`/`&dyn` are both 16-byte {data,vtable}; integer-to-dyn null cast is a Logos extension for null sentinels (no Rust analog)."
     },
@@ -20,7 +20,7 @@
       "title": "Supertrait upcast preserves data, swaps to super vtable",
       "statement": "`&dyn Sub`/`dyn Sub` cast to `&dyn Super` (Sub ≠ Super, Super a supertrait of Sub) keeps the SAME data pointer and replaces the vtable with Super's vtable, recovered from a stored super-vtable-pointer slot in Sub's vtable at index `3 + |methods(Sub)| + idx(Super)`. Identity dyn casts (Sub == Super) fall through to the no-op reinterpret.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3254-L3303"
+        "src/compiler/mlir_gen_expr.cpp#L3321-L3364"
       ],
       "divergence": "Rust-conformant (trait upcasting); vtable layout {drop,size,align, methods…, super-vtables…} is Logos-specific."
     },
@@ -30,7 +30,7 @@
       "title": "Box<[T;N]> unsizes to owning Box<[T]>",
       "statement": "`Box<[T;N]>` cast to an owning `Box<[T]>` (Slice with owning_slice) builds a {data,len} fat pair: data = the box's heap pointer (field 0 of the Box struct), len = N (the array's compile-time size). This is CoerceUnsized for `Box::new([..]) as Box<[T]>`.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3305-L3337"
+        "src/compiler/mlir_gen_expr.cpp#L3366-L3398"
       ],
       "related": [
         "coerce.unsize.thin-array-ptr-to-slice"
@@ -42,7 +42,7 @@
       "title": "&[u8]/str to *const u8 extracts data field",
       "statement": "`E as *const u8`/`*mut u8` where E has type Slice<u8> (str is Slice<u8>) extracts field 0 (the data pointer) of the {ptr,len} fat pair. Evaluated before the identity short-circuit because both the fat-struct alloca and `*const u8` are the same MLIR pointer type.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3339-L3351"
+        "src/compiler/mlir_gen_expr.cpp#L3400-L3412"
       ]
     },
     {
@@ -51,7 +51,7 @@
       "title": "Pointer to struct with concrete tail unsizes to DstRef with dyn tail",
       "statement": "`*mut/*const/& ConcreteStruct<…, Sized>` cast to a DstRef whose tail type-arg is a trait object (`*mut Inner<dyn Tr>`) builds a {data,vtable} fat pair: data = the source thin pointer to the whole struct; vtable = the concrete tail type's vtable for the tail trait (the tail binding is the source instance's last type-arg). This is CoerceUnsized for a struct with an unsized (`dyn`) tail field.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3356-L3394"
+        "src/compiler/mlir_gen_expr.cpp#L3417-L3455"
       ]
     },
     {
@@ -60,7 +60,7 @@
       "title": "Reference/pointer to concrete unsizes to bare trait object",
       "statement": "`&T`/`&mut T`/`*const T`/`*mut T` (T a concrete struct or primitive) cast to a bare trait object synthesizes a {data,vtable} fat pair; the vtable keys on T's concrete struct name (or the primitive's bare type name for a blanket-impl `&i64 as &dyn`). Only fires when the source pointee is concrete; a `&dyn`→`dyn` reinterpret (pointee already a trait object) is a no-op.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3406-L3432"
+        "src/compiler/mlir_gen_expr.cpp#L3470-L3493"
       ],
       "divergence": "Uniform-fat model: `&dyn` and `*mut dyn` are both 16-byte fat pairs (Logos), unlike Rust where only references unsize."
     },
@@ -70,7 +70,7 @@
       "title": "Box/Rc/Arc<T> unsizes to owning dyn fat pair",
       "statement": "`Box<T>`/`Rc<T>`/`Arc<T>` (T concrete) cast to a dyn smart pointer builds a value fat pair {data,vtable}: for Box, data = field 0 (the heap pointer); for Rc/Arc, data = field0 + round_up(8, align(T)) (skipping the 2×i32 RcInner strong/weak header). vtable[0..2] = drop/size/align; drop is kind-specific (Box→free; Rc/Arc→dec strong + free RcInner). A dyn-payload smart pointer is already a handle and is not re-wrapped.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3434-L3491"
+        "src/compiler/mlir_gen_expr.cpp#L3502-L3552"
       ]
     },
     {
@@ -79,7 +79,7 @@
       "title": "Fat pointer to thin/void pointer extracts data half",
       "statement": "A fat value cast to a thin pointer extracts field 0 (the data half): (a) `*mut/*const dyn` (Ptr<TraitObject>) → `*mut/*const ()` (void only); (b) any bare dyn/closure VALUE or `&dyn`/`&mut dyn` → void or any non-fat thin pointer; (c) `*const/*mut [T]` (Slice) → any non-fat thin pointer; (d) a non-self-describing DstRef → thin pointer; (e) a fat zone-mut `&mut T` → `*mut/*const T`. Runs before the identity check since both sides are MLIR pointer type.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3493-L3591"
+        "src/compiler/mlir_gen_expr.cpp#L3554-L3652"
       ]
     },
     {
@@ -88,7 +88,7 @@
       "title": "Thin array pointer to slice pointer synthesizes len=N",
       "statement": "`*const [T;N]`/`*mut [T;N]` (Ptr<Array>) cast to `*const [T]`/`*mut [T]` (Slice) synthesizes a {ptr, len=N} fat pair on the stack, where N is the array's compile-time size; without this the cast would be a no-op leaving array contents misread as the data field.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3592-L3616"
+        "src/compiler/mlir_gen_expr.cpp#L3653-L3677"
       ],
       "related": [
         "coerce.unsize.box-array-to-box-slice"
@@ -100,7 +100,7 @@
       "title": "Same-representation cast is identity",
       "statement": "If the source value's representation equals the target representation, `E as T` is the identity (the value is returned unchanged).",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3617"
+        "src/compiler/mlir_gen_expr.cpp#L3678"
       ]
     },
     {
@@ -109,7 +109,7 @@
       "title": "Integer widening sign- or zero-extends per source signedness",
       "statement": "`E as T` where both are integers and width(T) > width(E): zero-extend if the source is unsigned (u8/u16/u24/u32/u56/u64/u128, or i1) else sign-extend.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3619-L3635"
+        "src/compiler/mlir_gen_expr.cpp#L3682-L3696"
       ]
     },
     {
@@ -118,7 +118,7 @@
       "title": "Integer narrowing truncates",
       "statement": "`E as T` where both are integers and width(T) < width(E) truncates to the low width(T) bits; equal widths are the identity.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3636-L3638"
+        "src/compiler/mlir_gen_expr.cpp#L3697-L3699"
       ]
     },
     {
@@ -127,7 +127,7 @@
       "title": "Integer to float conversion respects source signedness",
       "statement": "`E as F` (E integer, F float) uses unsigned-to-float if the source is unsigned (u8/u16/u24/u32/u56/u64/u128) or i1 (bool), else signed-to-float. Bool must be treated as unsigned: signed conversion of i1(1) gives -1.0.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3640-L3656"
+        "src/compiler/mlir_gen_expr.cpp#L3701-L3717"
       ],
       "testability": "untestable"
     },
@@ -137,7 +137,7 @@
       "title": "Float to float truncates or extends by width",
       "statement": "`E as F` (both float): truncate if width(F) < width(E), else extend.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3657-L3665"
+        "src/compiler/mlir_gen_expr.cpp#L3719-L3726"
       ],
       "testability": "untestable"
     },
@@ -147,7 +147,7 @@
       "title": "Float to integer conversion respects target signedness",
       "statement": "`E as T` (E float, T integer) uses float-to-unsigned-int if T is unsigned (u8/u16/u24/u32/u56/u64/u128) else float-to-signed-int.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3666-L3679"
+        "src/compiler/mlir_gen_expr.cpp#L3727-L3740"
       ]
     },
     {
@@ -156,7 +156,7 @@
       "title": "Integer to pointer widens to 64-bit then reinterprets",
       "statement": "`E as *T` (E integer) first widens E to 64-bit (zero-extend if the source is unsigned, else sign/value-coerce) then reinterprets the integer as an address.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3681-L3697"
+        "src/compiler/mlir_gen_expr.cpp#L3743-L3758"
       ]
     },
     {
@@ -165,7 +165,7 @@
       "title": "Pointer to integer reinterprets address",
       "statement": "`E as T` (E pointer, T integer) reinterprets the address as an integer of T's width.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3698-L3700"
+        "src/compiler/mlir_gen_expr.cpp#L3760-L3761"
       ]
     },
     {
@@ -174,7 +174,7 @@
       "title": "If-expression coerces both branch values to the result type",
       "statement": "An if-expression of type T evaluates the condition then both branches; each non-diverging branch value is numerically coerced to T and stored into a shared result slot, whose value is the if-expression's result. Aggregate branch values are spilled to a stack slot so both branches store a pointer when T is pointer-represented.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3710-L3780"
+        "src/compiler/mlir_gen_expr.cpp#L3788-L3833"
       ]
     },
     {
@@ -183,8 +183,8 @@
       "title": "Diverging if-branch omits its merge edge",
       "statement": "If a branch body diverges (e.g. `break`/`return` that already terminates the block), the if-expression omits that branch's result-store and merge branch; the merge point's predecessors simply exclude the diverging edge.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3742-L3759",
-        "src/compiler/mlir_gen_expr.cpp#L3763-L3773"
+        "src/compiler/mlir_gen_expr.cpp#L3807-L3820",
+        "src/compiler/mlir_gen_expr.cpp#L3824-L3834"
       ]
     },
     {
@@ -193,8 +193,8 @@
       "title": "Void if-expression still evaluates both branches",
       "statement": "An if-expression of unit type `()` still emits and evaluates both branch bodies (for their side effects such as panics/writes) and yields a synthetic unit value; the branches are not dropped despite producing no value.",
       "evidence": [
-        "src/compiler/mlir_gen_expr.cpp#L3715-L3724",
-        "src/compiler/mlir_gen_expr.cpp#L3775-L3779"
+        "src/compiler/mlir_gen_expr.cpp#L3776-L3785",
+        "src/compiler/mlir_gen_expr.cpp#L3837-L3840"
       ]
     }
   ]

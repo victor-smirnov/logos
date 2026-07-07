@@ -1,0 +1,233 @@
+{
+  "unit": "sema/sema_expr/try_method_on_tuple.part4",
+  "layer": "sema",
+  "source": "src/compiler/sema_expr.cpp#L8637-L9193",
+  "source_hash": "96956bb6d61d925c",
+  "rules": [
+    {
+      "id": "expr.method-dispatch.generic-base-name-fallback",
+      "domain": "expr",
+      "title": "Generic-struct method lookup falls back to base type name",
+      "statement": "If method resolution on a struct instantiation name `Sname` (e.g. `Foo$G1$i32`) finds no candidate mangled `Sname__method`, and `Sname` contains `$`, the base name `Base` (`Foo`) is derived and `Base__method` candidates are searched: receiver (arg0) compatibility is checked (identical type, or reachable via one auto-ref/auto-ptr-deref step, or matching pointee types for pointer receivers), remaining args checked via `arg_compatible_for_dispatch`; if no exact candidate matches, `find_generic_func_for_args`/`find_generic_func` are tried on `Base__method`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8639-L8710"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method-dispatch.receiver-autoref-adapt",
+      "domain": "expr",
+      "title": "Base-name-fallback receiver adapted by auto-ref/auto-ptr",
+      "statement": "In the base-name fallback match, a receiver whose formal is `&T`/`&mut T` and whose actual is `T` by value is accepted by auto-referencing the receiver (mutability taken from the formal); a `T` actual against a `*T`/`*mut T` formal is likewise accepted by auto-referencing; a `*T`/`*mut T` actual against a `*T`/`*mut T` formal is accepted directly whenever the pointees are equal, without an added conversion. When a match is selected this way, the receiver expression is materialized into a real reference before the call is built.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8654-L8682",
+        "src/compiler/sema_expr.cpp#L8713-L8721"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.method-dispatch.blanket-impl-fallback",
+      "domain": "trait",
+      "title": "Blanket trait-impl methods considered after direct/base-name lookup fails",
+      "statement": "If no inherent/registered method is found (directly or via the generic base-name fallback), method resolution tries a blanket impl (`impl<T: Bound> Trait for T { fn method … }`) via `try_blanket_method_dispatch`, shared with the primitive-receiver dispatch path.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8723-L8729"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.method-dispatch.ambiguous-trait-methods",
+      "domain": "trait",
+      "title": "Method name colliding across multiple traits on a type is a hard error",
+      "statement": "When a method name is provided by more than one trait implemented for the receiver's type, the plain unqualified mangled symbol is absent from the registry and the trait-qualified registry entry (`Sname__method`) has >1 owning trait; this is reported as an error (`method '{}' on '{}' is provided by multiple traits (...)`) requiring disambiguation via a trait-bounded generic fn or an explicit trait-qualified call, rather than silently picking one trait.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8730-L8747"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.method-dispatch.callable-field-call",
+      "domain": "expr",
+      "title": "Call syntax on a callable struct field with no matching method",
+      "statement": "If `recv.method_name(args)` matches no method (including blanket impls) but the receiver's struct type has a field named `method_name` whose type is a fn-pointer-kind or `Closure`, the call is lowered as a field-read of that field followed by an `fn_ptr_call` (fn-pointer field) or `closure_call` (closure field) with the field's closure return type, rather than reporting a missing-method error.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8748-L8775"
+      ],
+      "divergence": "Rust method-call syntax `recv.f(args)` never falls back to a callable field of the same name (E0599 even when a field `f: fn(..)`/`impl Fn` exists; caller must write `(recv.f)(args)`). Logos accepts the field-call form directly.",
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method-dispatch.no-method-diagnostic",
+      "domain": "expr",
+      "title": "No-method error when method/blanket-impl/callable-field all fail",
+      "statement": "If direct lookup, generic base-name fallback, blanket-impl dispatch, and the callable-field fallback all fail to resolve `recv.method_name(args)`, sema reports `method call: '{}' has no method '{}'` and synthesizes an error-typed `method_call` node so downstream passes see a well-formed (error) expression.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8776-L8777"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.method-call.pub-access-check",
+      "domain": "expr",
+      "title": "Resolved method visibility is checked at the call site",
+      "statement": "Once a method `fi` is resolved, its `pub`/package/module-only visibility is enforced against the calling context via `check_pub_access`, regardless of which resolution path (direct, base-name fallback, blanket impl) produced `fi`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8780-L8781"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.method-call.unsafe-method-requires-unsafe",
+      "domain": "expr",
+      "title": "Calling an unsafe method requires an unsafe context",
+      "statement": "If the resolved method is `unsafe` and the call site is not inside an `unsafe` block/fn, it is an error: `call to unsafe method '{}' requires unsafe context`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8782-L8783"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "expr.method-call.raw-ptr-requires-unsafe",
+      "domain": "expr",
+      "title": "Method call through a raw-pointer receiver requires unsafe",
+      "statement": "If the receiver's static type is `Ptr`, calling any method through it requires an enclosing `unsafe` context (`method call through raw pointer requires unsafe context`); the pointee type is then used in place of the pointer type for further struct/type-arg resolution.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8789-L8796"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "generic.method-subst.struct-receiver-typeargs",
+      "domain": "generic",
+      "title": "Struct receiver's type-arguments seed the method's substitution context",
+      "statement": "For a `Struct`/`ZonedStruct` receiver type with non-empty `type_args`, a substitution map is built pairing the struct's declared `type_params` positionally with the receiver's `type_args` (after stripping one level of `Ptr`/ref indirection); this substitution is applied to the method's param types and return type so, e.g., `Vec<i32>::push(val: T)` type-checks with `T` resolved to `i32`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8789-L8806"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "generic.method-subst.enum-receiver-typeargs",
+      "domain": "generic",
+      "title": "Enum receiver's type-arguments seed the method's substitution context",
+      "statement": "For an `Enum` receiver type (e.g. `Option<T>`, `Result<T,E>`) with non-empty `type_args`, the same positional type-param → type-arg substitution as for structs is built from the enum's declared `type_params`, so method-level generic inference (e.g. `Option<T>::and<U>`) sees the enum's own type params pre-resolved instead of leaving them as free `TypeVar`s.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8807-L8823"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "generic.method-turbofish.tail-binding",
+      "domain": "generic",
+      "title": "Method turbofish binds only the method's own trailing type params",
+      "statement": "Explicit method turbofish (`recv.method::<T1,T2>(args)`) type args win over inference. When `fi.type_params` carries the receiver struct's/enum's own type params as a prefix (a struct-method-template clone of a trait default method, e.g. `impl<I,T,R> Iterator<R> for MapIter<I,T,R> { fn fold<Acc> }`), the turbofish args are assigned starting at the first `fi.type_params` entry whose name is NOT one of the receiver struct's/enum's own type-param names, not at index 0 — so `mi.fold::<i32>()` binds `Acc=i32`, never clobbering a struct-level param already bound from the receiver.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8831-L8884"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "generic.method-infer.receiver-formal-unify",
+      "domain": "generic",
+      "title": "Impl-level type params visible only in the receiver formal are unified from the actual receiver",
+      "statement": "Before general argument-based inference, if the method's first (self) formal type and the actual receiver type differ only in ref-vs-value shape (formal is ref-like and actual is not, or vice versa, with matching pointees), the formal and actual are unwrapped to matching shape and unified; any bindings produced (e.g. `impl<T> Pin<&T> { fn get_ref(&self) -> &T }`, binding `T` from the receiver) seed the substitution context ahead of `infer_type_args`, since such params never appear in `arg_exprs` (which starts after `self`).",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8885-L8912"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method-call.arg-count-check",
+      "domain": "expr",
+      "title": "Explicit method-call argument count must match the method's declared arity",
+      "statement": "The number of explicit call arguments must equal `fi.param_types.size() - 1` (excluding the implicit `self` slot); a mismatch is an error `method call '{}': expected {} args, got {}` and the per-argument checks below are skipped.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8914-L8919"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "type.method-arg.compat-diagnostic",
+      "domain": "type",
+      "title": "Method argument type must be compatible with the (substituted) param type",
+      "statement": "After coercion, each argument's static type must satisfy `types_compatible` against the method's declared (struct/enum-substituted) param type, unless either side is already `Error`-kinded; otherwise it is an error `method '{}' arg {}: expected {}, got {}`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8935-L8943"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "const.method-arg.intlit-fits",
+      "domain": "const",
+      "title": "Untyped integer-literal method args must fit the target integer width",
+      "statement": "An `IntLit`-kinded argument to a non-`Error` param type must have a value that fits the target integer kind's range (`intlit_fits`), checked for: a bare literal arg, an `IntLit` element of an array-literal arg against a narrowed `Array` param elem type, and (recursively) an `IntLit` element of a tuple-literal arg — including nested array-in-tuple and tuple-in-tuple element positions — against the corresponding tuple-elem param type; any violation is an error naming the exact nested position and the value.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L8944-L9009"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "generic.method-typeargs.must-bind-and-check-bounds",
+      "domain": "generic",
+      "title": "Generic method type args must be fully inferred/bound and satisfy declared bounds",
+      "statement": "After inference/turbofish, a generic method call requires every entry of `m_type_args` to be present (one per `fi.type_params`); if any slot is unbound, it is an error `could not infer type arguments for generic method '{}'`. Regardless, `check_type_bounds` validates the (possibly partial) `m_type_args` against `fi.type_params`'s declared bounds.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9014-L9020"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "mono.method-dispatch.generic-route",
+      "domain": "mono",
+      "title": "Method calls with a genuine method-level type param route through finish_generic_call",
+      "statement": "A resolved generic method is routed through `finish_generic_call` (which emits a concrete monomorphized specialization) instead of the plain `EMethodCall`/existing-mono path, but only when it has a genuine method-level type parameter: some entry of `fi.type_params` is NOT already one of the receiver struct's/enum's own declared type params, AND after inference every `m_type_args` entry is bound to a concrete (non-`TypeVar`, non-`Error`) type. A method whose type params are entirely struct/enum-level (e.g. `Zone<M>::release`) stays on the existing `EMethodCall` path even though `fi.type_params` is non-empty.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9022-L9068",
+        "src/compiler/sema_expr.cpp#L9095-L9098"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "expr.method-call.autoref-value-receiver",
+      "domain": "expr",
+      "title": "By-value receiver auto-referenced when the method expects &Self/&mut Self",
+      "statement": "If the resolved method's (substituted) first formal type is ref-like and the actual receiver expression's static type is a by-value, non-ref, non-`Ptr` type, the receiver is auto-referenced (mutability taken from the formal) before the call is built — covering method-chain temporaries such as `iter_over_slice(&v).find(p)`. On the plain (non-`finish_generic_call`) path this auto-ref is applied only when the method has a genuine method-level type param, so struct-only-generic methods with a separate downstream auto-ref path (e.g. `Arc::deref_mut`) are left alone, avoiding a caller-package mono re-emit that would expose the callee's private fields.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9068-L9084",
+        "src/compiler/sema_expr.cpp#L9164-L9178"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "borrow.method-call.args-moved",
+      "domain": "borrow",
+      "title": "Method-call arguments are tracked as moved at the call site",
+      "statement": "Once a method call is fully resolved (either the `finish_generic_call` route or the plain `EMethodCall` route), its explicit arguments are recorded as moved via `track_args_moved` before the call node is built, so a subsequent use of a moved-by-value argument is caught by move-checking.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9085",
+        "src/compiler/sema_expr.cpp#L9179"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "region.method-call.lifetime-subst",
+      "domain": "region",
+      "title": "Method-call lifetime substitution propagates caller lifetimes into the return type",
+      "statement": "A lifetime substitution is built by structurally walking the method's formal param types (self, then each arg) against the actual receiver/arg types: matching `Ref`/`MutRef` pairs record a `method-lifetime → caller-lifetime` binding (first writer wins) and recurse into pointees; matching `Struct`/`ZonedStruct`/`Enum` pairs record their `lifetime_args` positionally and recurse into `type_args`; matching `Tuple` pairs recurse into elements. This substitution (plus the type substitution) is applied to `fi.ret_type`, so e.g. `fn get<'a>(self: &'a T) -> Self::Item<'a>` called with `t: &'b T` yields return type `Self::Item<'b>`, not a literal `'a` that would collide with the caller's own `'a`.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9101-L9152"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.method-call.lowering-static-dispatch",
+      "domain": "expr",
+      "title": "Non-generic-route method calls lower to a statically-dispatched EMethodCall",
+      "statement": "On the plain (non-`finish_generic_call`) path, a resolved method call lowers to an `EMethodCall` node carrying the receiver, method name, `resolved_symbol` (the method's `symbol_name` if set, else the mangled name), inferred `type_args`, coerced args, and the (struct/enum + lifetime substituted) return type; `vtable_index` is set to `-1`, marking it as a statically resolved (non-virtual) call.",
+      "evidence": [
+        "src/compiler/sema_expr.cpp#L9179-L9190"
+      ],
+      "testability": "transitive"
+    }
+  ]
+}

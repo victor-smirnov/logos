@@ -70,17 +70,6 @@
       ]
     },
     {
-      "id": "expr.struct-lit.field-type-mismatch-error",
-      "domain": "expr",
-      "title": "Struct-lit field value must be compatible with declared field type",
-      "statement": "Each initialized field's value type must be compatible with the field's declared type (after substituting struct type-params into the declared type), else a 'expected X, got Y' error; comparison is deferred to mono when the substituted field type still contains a TypeVar/ConstVar/CfgSlotType/AssocType. A closure value coercible to the declared fn-ptr type is accepted.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L9906-L9953",
-        "src/compiler/sema_expr.cpp#L9916-L9921",
-        "src/compiler/sema_expr.cpp#L9926-L9944"
-      ]
-    },
-    {
       "id": "expr.struct-lit.unknown-field-error",
       "domain": "expr",
       "title": "Struct-lit may not name a field absent from the definition",
@@ -124,16 +113,6 @@
       "divergence": "A6"
     },
     {
-      "id": "expr.struct-lit.missing-field-error",
-      "domain": "expr",
-      "title": "All non-union struct fields must be initialized",
-      "statement": "Every field of a non-union struct must be initialized (directly, via variadic expansion, or via `..base`); an uninitialized field is a 'field not initialized' error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L10015-L10021",
-        "src/compiler/sema_expr.cpp#L10215-L10221"
-      ]
-    },
-    {
       "id": "expr.struct-lit.union-single-field",
       "domain": "expr",
       "title": "Union literals initialize exactly one field; missing-field check skipped",
@@ -152,16 +131,6 @@
       "evidence": [
         "src/compiler/sema_expr.cpp#L10023-L10033",
         "src/compiler/sema_expr.cpp#L10223-L10227"
-      ]
-    },
-    {
-      "id": "expr.struct-lit.field-variance-check",
-      "domain": "expr",
-      "title": "Variance check at struct-lit field initialization",
-      "statement": "Each field initialization is variance-checked between the value type and the declared field type in permissive mode (the struct's lifetime args are bound at the construction site, so elided source regions are filled by the caller's region inference); the check is skipped when the field type still contains a type-param.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L9954-L9961",
-        "src/compiler/sema_expr.cpp#L10092-L10097"
       ]
     },
     {

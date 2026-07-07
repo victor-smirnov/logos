@@ -1,8 +1,8 @@
 {
   "unit": "codegen/mlir_gen_impl_hpp/logos.part3",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen_impl.hpp#L863-L1264",
-  "source_hash": "7035bffb11c7ee0b",
+  "source": "src/compiler/mlir_gen_impl.hpp#L940-L1374",
+  "source_hash": "1730630314f7dc08",
   "rules": [
     {
       "id": "layout.dst.slice-tail-ref-is-fat",
@@ -10,7 +10,7 @@
       "title": "Custom-DST ref with [T] slice tail is a 16-byte {data,len} fat pointer",
       "statement": "A reference to a custom-DST struct whose last field is a literal slice tail `[T]` (or unsized slice) is represented as a 16-byte fat pointer {data: ptr, len: i64}, the element count carried inline. The length is part of the reference value, not stored in the pointee.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L875-L882"
+        "src/compiler/mlir_gen_impl.hpp#L967-L974"
       ],
       "related": [
         "layout.dst.dyn-tail-ref-is-thin",
@@ -23,7 +23,7 @@
       "title": "Ref to a struct with a dyn tail is a thin 8-byte pointer",
       "statement": "A reference whose pointee struct has a `dyn`-tail (e.g. `&RcInner<dyn>`) is physically thin (single 8-byte pointer); the vtable lives in the heap object rather than in the reference, distinguishing it from the 16-byte {data,len} custom-DST fat reference.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L876-L882"
+        "src/compiler/mlir_gen_impl.hpp#L968-L973"
       ],
       "related": [
         "layout.dst.slice-tail-ref-is-fat"
@@ -35,7 +35,7 @@
       "title": "Ref to a #[self_describing] DST is a thin 8-byte pointer",
       "statement": "A reference to a `#[self_describing]` DST is physically thin (8-byte pointer straight to the header); the tail length is recovered in-band from the pointee header rather than carried alongside the pointer.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L884-L888"
+        "src/compiler/mlir_gen_impl.hpp#L976-L980"
       ],
       "divergence": "Logos custom-DST extension (#[self_describing]); no Rust equivalent.",
       "related": [
@@ -48,8 +48,8 @@
       "title": "Trait object is a 16-byte {data, vtable} fat pair",
       "statement": "A trait object (`dyn Trait`) has value representation as a 16-byte fat pair {data_ptr, vtable_ptr}. `&dyn`/`&mut dyn` are this value-fat-pair on the stack; an owning trait object (Box<dyn>, *const/*mut dyn) is held via an 8-byte heap handle to such a 16-byte pair.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L954-L955",
-        "src/compiler/mlir_gen_impl.hpp#L976-L985"
+        "src/compiler/mlir_gen_impl.hpp#L1046-L1047",
+        "src/compiler/mlir_gen_impl.hpp#L1068-L1077"
       ],
       "related": [
         "layout.dyn.box-dyn-collapses-to-trait-object"
@@ -61,7 +61,7 @@
       "title": "Box<dyn Trait> has the same repr as &dyn, differing only by ownership",
       "statement": "`Box<dyn Trait>` is not a Box<TraitObject> struct; it is an owning bare trait object with the identical 16-byte {data, vtable} fat-pair representation as `&dyn Trait`. The two differ only in ownership: dropping an owning trait object calls vtable[0] (drop_in_place) then deallocates `data`.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L1022-L1027"
+        "src/compiler/mlir_gen_impl.hpp#L1114-L1119"
       ],
       "related": [
         "layout.dyn.fat-pair-16-byte",
@@ -74,7 +74,7 @@
       "title": "Drop recurses structurally by type shape",
       "statement": "Dropping a value recurses by type: a struct runs its user `impl Drop` then drops each field; a tuple drops each element; an enum drops the payload of the active variant; an array drops each element; a reference/pointer/scalar drops nothing. Nesting (array-of-struct, struct-with-array-field) is handled recursively.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L1085-L1098"
+        "src/compiler/mlir_gen_impl.hpp#L1182-L1195"
       ],
       "related": [
         "intrinsic.drop.owner-drops-fields-after-user-drop"
@@ -86,7 +86,7 @@
       "title": "Owner drop runs user Drop then drops fields; nested by-value self stops at user Drop",
       "statement": "At the top level (owner semantics), after a value's user `impl Drop` runs, its fields/payload are ALSO dropped by the owner. A nested (non-top-level) drop calls only the user `impl Drop` and stops, because the by-value `self` consumes its own fields at the drop body's scope end.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L1089-L1096"
+        "src/compiler/mlir_gen_impl.hpp#L1186-L1193"
       ],
       "related": [
         "intrinsic.drop.recursive-by-type"
@@ -98,7 +98,7 @@
       "title": "Moved-out sub-values are skipped during drop",
       "statement": "Drop of a value suppresses sub-values that were moved out: a dotted path (relative to the value) whose segment exactly matches a child skips that child's drop entirely; a deeper path recurses into the child with the remainder so only the moved leaf is suppressed while its siblings still drop.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L1093-L1098"
+        "src/compiler/mlir_gen_impl.hpp#L1190-L1195"
       ],
       "related": [
         "intrinsic.drop.recursive-by-type"
@@ -110,7 +110,7 @@
       "title": "Drop of owning Box<dyn> calls vtable[0], frees data, frees handle",
       "statement": "Dropping an owning `Box<dyn Trait>` whose binding storage is the 8-byte heap handle to a 16-byte {data, vtable} fat pair runs (null-guarded): load data and vtable; call vtable[0](data) (drop_in_place: concrete destructor + owned fields); free(data); free(handle).",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L1099-L1104"
+        "src/compiler/mlir_gen_impl.hpp#L1196-L1201"
       ],
       "related": [
         "layout.dyn.box-dyn-collapses-to-trait-object",
@@ -123,7 +123,7 @@
       "title": "Drop of owning Box<[T]> drops each element then frees the buffer",
       "statement": "Dropping an owning `Box<[T]>` fat slice (value {data, len}) drops each element via a runtime loop over `len` (only when T is droppable) and then frees the heap buffer.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L1105-L1107"
+        "src/compiler/mlir_gen_impl.hpp#L1202-L1204"
       ]
     },
     {
@@ -132,7 +132,7 @@
       "title": "Drop of owning Box<Foo> custom-DST drops prefix + tail then frees",
       "statement": "Dropping an owning custom-DST `Box<Foo>` drops the droppable prefix fields plus the tail elements (runtime loop over the fat-pointer length carried in the {data, len} pair) and then frees the block.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L1108-L1111"
+        "src/compiler/mlir_gen_impl.hpp#L1205-L1208"
       ],
       "related": [
         "layout.dst.slice-tail-ref-is-fat"
@@ -145,7 +145,7 @@
       "title": "Move-out drop of an unsized dyn tail runs vtable[0] only",
       "statement": "Dropping the concrete payload behind a `&dyn` fat pair in place (the move-out drop of an unsized `dyn` tail) runs only vtable[0](data) (the concrete Drop) with NO free and NO refcount change; the underlying block is freed separately by the owner.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L1112-L1118"
+        "src/compiler/mlir_gen_impl.hpp#L1209-L1215"
       ],
       "related": [
         "intrinsic.drop.owning-dyn-handle"
@@ -158,7 +158,7 @@
       "title": "Concrete value unsized to a fat dyn handle when the destination slot is a trait object",
       "statement": "When a destination slot has trait-object type (`dyn`/`Box<dyn>`/`&dyn`) but the supplied value is still concrete (`Box<Concrete>`, `&Concrete`, struct value), the value is unsize-coerced into a fat {data, vtable} handle (e.g. an enum-variant payload typed `Box<dyn>` constructed from `Box<Concrete>`). It is a no-op if the value already is a trait object.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L986-L992"
+        "src/compiler/mlir_gen_impl.hpp#L1078-L1084"
       ],
       "related": [
         "layout.dyn.fat-pair-16-byte"
@@ -169,15 +169,53 @@
       "id": "intrinsic.dyn.vtable-slot0-is-drop",
       "domain": "intrinsic",
       "title": "Trait-object vtable slot 0 is drop_in_place; supertrait vtables nested",
-      "statement": "A trait object's vtable carries the concrete type's drop_in_place at slot 0 (called for dynamic destruction) and includes super-vtable pointer slots for each supertrait, each pointing at the supertrait's vtable global.",
+      "statement": "A trait object's vtable carries the concrete type's drop_in_place at slot 0 (called for dynamic destruction) and includes super-vtable pointer slots for each supertrait, each pointing at the supertrait's own vtable global (recursively built).",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L966-L975",
-        "src/compiler/mlir_gen_impl.hpp#L1101-L1104"
+        "src/compiler/mlir_gen_impl.hpp#L1058-L1067",
+        "src/compiler/mlir_gen_impl.hpp#L1196-L1201"
       ],
       "uncertainty": "Slot-0 = drop is stated by the drop-sequence comments; exact remaining vtable slot ordering is not specified in this unit.",
       "related": [
         "intrinsic.drop.owning-dyn-handle"
       ],
+      "testability": "transitive"
+    },
+    {
+      "id": "coerce.unsize.dyn-storage-stack-vs-heap",
+      "domain": "coerce",
+      "title": "Coercing to a dyn fat pair allocates on the stack for a borrow, on the heap for an owning handle",
+      "statement": "Building a `{data, vtable}` fat pair for a trait-object coercion places the pair on the stack (alloca) when the destination is a BORROWING handle (`&dyn`/`&mut dyn` — value-fat-pair model; the consumer copies the 16 bytes if it escapes a struct field / array / by-value return), and on the heap (malloc(16)) when the destination is an OWNING handle (`Box<dyn>`, raw `*const/*mut dyn`) whose single 8-byte handle is itself stored/escapes and is freed by that handle's drop.",
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L1068-L1077"
+      ],
+      "related": [
+        "layout.dyn.fat-pair-16-byte",
+        "intrinsic.drop.owning-dyn-handle"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "intrinsic.dyn.deref-raw-dyn-ptr-is-identity",
+      "domain": "intrinsic",
+      "title": "Dereferencing a raw *const/*mut dyn is a no-op unless it points into storage holding the handle",
+      "statement": "For a `*const dyn`/`*mut dyn` operand, the default convention is that the pointer VALUE already IS the trait-object fat handle, so `*p` is the identity (no load). Only when the pointer is a genuine pointer-into-storage that itself holds a stored dyn handle (e.g. a container-accessor return such as `HashMap::get -> *const Box<dyn>`) does `*p` load the fat {data,vtable} pair from that storage.",
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L1267-L1271"
+      ],
+      "related": [
+        "layout.dyn.fat-pair-16-byte"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.enum.variant-payload-inline-aggregate",
+      "domain": "layout",
+      "title": "A struct/tuple-typed enum-variant payload field occupies its full inline ABI size, not the collapsed pointer size",
+      "statement": "In a tagged-enum variant's payload struct, a struct- or tuple-typed field is laid out at its full inline ABI byte size (as the constructor's memcpy writes it), not the single-pointer collapsed representation otherwise used for such types elsewhere; a payload field following an aggregate field is offset according to that full inline size.",
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L1022-L1030"
+      ],
+      "uncertainty": "Stated only via an anti-bug rationale comment (misaligned field after an aggregate payload member); the general variant-payload shape itself is covered elsewhere (layout.enum.tagged-repr).",
       "testability": "transitive"
     }
   ]

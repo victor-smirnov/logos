@@ -77,30 +77,6 @@
       "testability": "untestable"
     },
     {
-      "id": "metaprog.metacall.item-position",
-      "domain": "metaprog",
-      "title": "Item-position metacall",
-      "statement": "`metacall <call-expr> ;` at module top level invokes a metafunction that returns an item-blob; the produced items are spliced into the program at that position.",
-      "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L581-L582"
-      ],
-      "examples": [
-        "metacall gen_items::<Foo>();"
-      ]
-    },
-    {
-      "id": "metaprog.fn-macro.item-position",
-      "domain": "metaprog",
-      "title": "Item-position fn-macro invocation",
-      "statement": "`IDENT ! { ... }` at item position invokes a function-like macro whose body is captured as raw text; the macro must use brace delimiters at item position (parens/brackets are reserved for expression position). The callee returns a list of items.",
-      "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L573-L574"
-      ],
-      "examples": [
-        "my_macro! { struct A; }"
-      ]
-    },
-    {
       "id": "mono.instantiate.decl",
       "domain": "mono",
       "title": "Explicit instantiation root-pin",
@@ -387,6 +363,21 @@
       ],
       "divergence": "`use ... from <module>` clause has no Rust analog.",
       "testability": "untestable"
+    },
+    {
+      "id": "metaprog.fn-macro.item-position",
+      "domain": "metaprog",
+      "title": "Item-position fn-macro invocation",
+      "statement": "`IDENT ! { ... }` at item position invokes a function-like macro whose body is captured as raw text; the macro must use brace delimiters at item position (parens/brackets are reserved for expression position). The callee returns a list of items.",
+      "evidence": [
+        "tools/peg_gen/grammars/logos.peg#L573-L574"
+      ],
+      "examples": [
+        "my_macro! { struct A; }"
+      ],
+      "related": [
+        "metaprog.fn-macro.item-callee-resolution"
+      ]
     }
   ]
 }

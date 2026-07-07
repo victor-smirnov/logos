@@ -1,8 +1,8 @@
 {
   "unit": "sema/sema_impl_hpp/logos.part3",
   "layer": "sema",
-  "source": "src/compiler/sema_impl.hpp#L1142-L1685",
-  "source_hash": "8cf1a27835e8e8aa",
+  "source": "src/compiler/sema_impl.hpp#L1159-L1685",
+  "source_hash": "502760a6d950bc1c",
   "rules": [
     {
       "id": "item.names.duplicate-in-container",
@@ -178,6 +178,31 @@
       "related": [
         "generic.bound.relaxed-only-sized"
       ]
+    },
+    {
+      "id": "type.identity.stdlib-intrinsic-bare-name-match",
+      "domain": "type",
+      "title": "Stdlib intrinsic type predicates match by bare struct name",
+      "statement": "Compiler special-casing for the stdlib intrinsic structs AnyVal, WritStatic, Writ, StringView, Ident, ExprBlob, DataRef, QuoteItemBlob, ItemList is keyed on bare struct name alone (Struct or ZonedStruct kind), independent of declaring package: any struct sharing one of these names is treated as the intrinsic.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L1249-L1255",
+        "src/compiler/sema_impl.hpp#L1273-L1281"
+      ],
+      "uncertainty": "Inferred from an internal helper/comment (\"intentional, pkg-blind\"); no diagnostic fires on a user name collision, so this is a silent-shadowing risk rather than a checked rule.",
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.identity.stdlib-box-pkg-qualified",
+      "domain": "type",
+      "title": "Stdlib `Box` identity is package-qualified (not bare-name)",
+      "statement": "Unlike other stdlib intrinsics, the owning-box type is recognised as struct name `Box` AND (package empty OR package == `logos.mem.boxed`). A user struct literally named `Box` in any other package is NOT recognised as the stdlib box and receives none of the box special-casing (unsize, owning-drop, deref).",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L1261-L1272"
+      ],
+      "examples": [
+        "struct Box<T> { v: T } // user's own package: not the stdlib Box, no owning-drop/unsize special-casing"
+      ],
+      "testability": "behavioral"
     }
   ]
 }

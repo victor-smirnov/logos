@@ -1,52 +1,60 @@
 {
   "unit": "sema/sema_collect/collect_struct_spec",
   "layer": "sema",
-  "source": "src/compiler/sema_collect.cpp#L3794-L4403",
-  "source_hash": "410af5e40c12869c",
+  "source": "src/compiler/sema_collect.cpp#L3833-L4433",
+  "source_hash": "0169cef9d42f6e27",
   "rules": [
     {
       "id": "generic.spec.struct-pattern-classification",
       "domain": "generic",
-      "title": "Struct specialization detection",
-      "statement": "A `struct Name<...>` decl is a specialization (not a fresh generic base) iff (a) some type-param slot is a structured pattern (`*T`, `[T;N]`), OR (b) some slot is a concrete/known type name (primitive, alias, struct, datatype, or enum). A bare type-param name is treated as a concrete user-type spec only when a base of the same name is already registered in the current package AND the name is in the pre-scanned decl-name set; otherwise the decl is registered as a generic base. Specializations are not added to `structs_`; they are lowered directly.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L3974-L3976",
-        "src/compiler/sema_collect.cpp#L4258-L4304"
-      ],
+      "title": "Struct-spec pattern node classification",
+      "statement": "In a struct specialization item `struct Name<pat, …> {…}`, each type-param-list entry is classified by node kind: PTR_TYPE/ARR_TYPE nodes are concrete spec patterns (embedded typevars extracted, then the node resolved to a TypeRef); TYPE_PARAM (bare-name) nodes first try to resolve as an already-known concrete type — if resolvable, that concrete type is the pattern, else the name is a partial-spec parameter and is bound as a fresh TypeVar for the duration of collection.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3846-L3864"],
       "divergence": "A6: Logos supports user struct specialization (`struct Map<Bitmap, V> {...}`), which Rust lacks for structs.",
-      "uncertainty": "Order-independence relies on pass0_decl_names_; classification of a name colliding across modules is gated on a same-name base existing.",
-      "testability": "transitive"
+      "testability": "diagnostic"
     },
     {
       "id": "generic.spec.partial-pattern-typevars",
       "domain": "generic",
-      "title": "Partial specialization keeps unbound params as type variables",
-      "statement": "In a struct specialization's pattern list, each slot that does not resolve to a known type stays a free type variable (e.g. `Map<Bitmap, V>` keeps `V`). The concrete spec name derives from `concrete_struct_name(make_generic_struct(name, patterns))`, so both full and partial specs are registered and later matched by best-fit at lookup. Pattern type variables are scoped only during collection and removed afterward.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L3810-L3833",
-        "src/compiler/sema_collect.cpp#L3858-L3860"
-      ],
+      "title": "Partial specialization keeps unbound params as scope-local type variables",
+      "statement": "A struct-spec pattern parameter that cannot resolve to a known concrete type (partial specialization, e.g. `Map<Bitmap, V>` keeps `V` free) is registered as a TypeVar in current_type_params_ only for the duration of that spec item's field collection; the concrete spec name derives from concrete_struct_name(make_generic_struct(name, patterns)), so both full and partial specs register under a name usable for later best-fit matching. All pattern typevars are erased from scope immediately after the spec's fields are recorded.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3857-L3862", "src/compiler/sema_collect.cpp#L3869-L3878", "src/compiler/sema_collect.cpp#L3897-L3899"],
       "divergence": "A6: partial specialization of user structs is a Logos addition.",
+      "testability": "transitive"
+    },
+    {
+      "id": "generic.spec.spec-registry-keyed-lookup",
+      "domain": "generic",
+      "title": "Struct specs register concrete-name-keyed; excluded from plain struct registry",
+      "statement": "A struct specialization registers into struct_specs_sema_ keyed by the concrete name derived from its spec pattern, independent of whether the pattern is fully concrete or partial; partial specs are matched against a call site's actual type arguments later via find_best_sema_struct_spec. A struct recognized as a specialization is excluded from the plain struct registry (structs_) — it is registered only through this specialization path, not through collect_struct.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3871-L3895", "src/compiler/sema_collect.cpp#L4178-L4179"],
+      "testability": "behavioral",
+      "related": ["generic.spec.struct-pattern-classification"]
+    },
+    {
+      "id": "generic.spec.pattern-typevar-extraction",
+      "domain": "generic",
+      "title": "Typevar extraction walks pointer/ref/array type nodes",
+      "statement": "Extracting typevars from a spec-pattern type node recurses through PTR_TYPE/REF_TYPE/MUT_REF_TYPE into the pointee and through ARR_TYPE into the element type; a TYPE_REF leaf whose name is neither a known type name nor already a bound type param is registered as a fresh TypeVar in the current scope.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4411-L4429"],
+      "uncertainty": "The known-type check here delegates to is_known_type_name, whose builtin primitive list is shorter than try_resolve_as_known_type's (see module.lookup.unqualified-name-scope) — spellings like usize/isize/char/i24/u24 are known here only via the struct/datatype/enum/alias lookups, not the primitive fast path.",
       "testability": "transitive"
     },
     {
       "id": "type.datatype.pod-field-restriction",
       "domain": "type",
       "title": "Writ datatype fields must be POD-compatible",
-      "statement": "A field of a `datatype` (Writ fabric type) must be one of: a primitive scalar (i8..i128/u8..u128 incl. packed i24/u24/i56/u56, f32/f64, bool, integer/float literal types), an array whose element is datatype-safe, another datatype (ZonedStruct), a plain struct that is a `#[rel_ptr]` self-relative pointer, or an unresolved type variable (checked later by mono). Any other field type is rejected. Annotation types (compile-time only) are exempt and may hold non-POD fields such as `str`.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L3892-L3933"
-      ],
-      "divergence": "A6/A11: Writ datatype fabric is a Logos-only feature; uses extra packed int widths."
+      "statement": "A non-annotation `datatype` field type must be one of: an integer/float/bool/int-or-float-literal primitive kind (incl. packed i24/u24/i56/u56); an Array whose element type is itself datatype-safe (recursively); a ZonedStruct (nested datatype, always OK); a Struct only if it is a `#[rel_ptr]` self-relative pointer type (RelAny/RelPtr<T>, an 8-byte offset — plain structs that may carry heap/absolute pointers are rejected); or a TypeVar (deferred, resolved later by monomorphization). Any other field type raises a diagnostic error. Annotation types (is_annotation_type) are exempt (compile-time only, may hold e.g. str fields).",
+      "evidence": ["src/compiler/sema_collect.cpp#L3931-L3973"],
+      "divergence": "A6/A11: Writ datatype fabric is a Logos-only feature; uses extra packed int widths.",
+      "testability": "diagnostic"
     },
     {
       "id": "type.datatype.data-plain-inference",
       "domain": "type",
-      "title": "DataPlain vs DataNode inference for datatypes",
-      "statement": "A datatype is DataPlain unless it (transitively, through array element types) embeds a datatype field that is not itself DataPlain, or a generic/unknown datatype field; such fields demote the enclosing datatype to DataNode. A by-value concrete DataPlain nested datatype does NOT demote the outer type; generic datatype fields (non-empty type args, e.g. `RelPtr<Node>`) and forward-/cross-package-referenced datatypes are treated conservatively as DataNode.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L3945-L3964"
-      ],
+      "title": "DataPlain flag propagates through nested datatype fields",
+      "statement": "A datatype is DataPlain (info.is_data_plain) unless disproved by a field: for a (possibly array-wrapped) ZonedStruct field, if its type is generic (non-empty type_args) or its base name is not yet found in datatypes_ (forward reference / cross-package), the outer type is conservatively marked non-DataPlain (DataNode); if the nested type IS found and itself is_data_plain, embedding it by value does not clear the outer type's DataPlain flag. Array wrapping is stripped before the check, so a DataNode array element also demotes the owner.",
+      "evidence": ["src/compiler/sema_collect.cpp#L3974-L4003"],
       "divergence": "A6: Writ datatype DataPlain/DataNode classification is Logos-only.",
       "testability": "untestable"
     },
@@ -54,71 +62,129 @@
       "id": "item.struct.tuple-struct-fields",
       "domain": "item",
       "title": "Tuple-struct field shape and synthetic names",
-      "statement": "A struct whose first field definition carries no NAME is a tuple struct. Its positional fields are assigned synthetic decimal names \"0\", \"1\", … in declaration order, so member access (`foo.0`) and patterns (`Foo(a, b)`) reuse named-field machinery.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4007-L4015",
-        "src/compiler/sema_collect.cpp#L4035-L4048"
-      ]
+      "statement": "A struct is classified as a tuple-struct (`struct W<T>(T);`) when its first FIELD_DEF field carries no NAME slot. Each such unnamed field is given a synthesized decimal name (\"0\", \"1\", …) by field position, so ordinary named-field machinery uniformly serves both member access (`foo.0`) and destructuring pattern shape (`Foo(a, b)`).",
+      "evidence": ["src/compiler/sema_collect.cpp#L4210-L4219", "src/compiler/sema_collect.cpp#L4239-L4251"],
+      "testability": "behavioral"
     },
     {
       "id": "type.struct.dst-tail-slice-last-field",
       "domain": "type",
       "title": "Custom-DST slice tail only at last field",
-      "statement": "A struct field may have an unsized slice type `[T]` only at the last field position; such a struct is marked dynamically-sized (DST). Unsized field types are otherwise rejected.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4023-L4029",
-        "src/compiler/sema_collect.cpp#L4055-L4069"
-      ],
+      "statement": "An unsized slice type (`[T]`, UNSIZED_SLICE_TYPE node) is permitted as a struct field's type only when that field is the last FIELD_DEF in the struct; the unsized-allowed flag is set only for resolving that one field's type node and restored immediately after. When used there, the struct is marked is_dst.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4226-L4272"],
       "divergence": "B2: custom-DST tail-slice (DONE) — Logos supports `struct Foo { hdr: H, tail: [T] }`.",
-      "related": [
-        "item.struct.tuple-struct-fields"
-      ]
+      "related": ["item.struct.tuple-struct-fields"],
+      "testability": "diagnostic"
     },
     {
       "id": "type.field.placeholder-type-rejected",
       "domain": "type",
       "title": "Field types may not be inferred",
-      "statement": "Struct/datatype field types are item signatures: the inference placeholder `_` is rejected at field-type resolution (E0121).",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4062-L4067"
-      ]
+      "statement": "A struct field's type is resolved under ItemSignatureGuard (in_item_signature_ = true): the `_` placeholder type is rejected in this position rather than deferred, since a struct field is part of the item's signature, not an inferable local context (E0121).",
+      "evidence": ["src/compiler/sema_collect.cpp#L4264-L4269"],
+      "testability": "diagnostic"
     },
     {
       "id": "item.struct.inline-methods-self-binding",
       "domain": "item",
       "title": "Inline struct-body methods get Self + struct type-params in scope",
-      "statement": "Methods declared inline in a struct body are collected with `Self` bound to the struct's (possibly generic) self-type and the struct's type parameters installed as impl type-params, identically to `impl`-block methods. For a generic struct, `Self = Name<TVs...>` and generic methods are routed so static calls (`Pair::<i32,i32>::make()`) substitute the struct's params; for a non-generic struct `Self = Name`.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4084-L4128"
-      ]
+      "statement": "Methods declared inline in a struct body (`method_def_or_doc*`) are collected exactly like impl-block methods: `Self` is bound in current_type_params_ to the struct's own type before its methods are collected — a generic self_type built from fresh TypeVars over the struct's type params when it has any (also setting impl_type_params_ to the struct's type params so a generic method's params combine with them, routing it through generic_funcs_ for static-call substitution such as `Pair::<i32,i32>::make()`), or the plain concrete struct type otherwise. Any prior Self/impl_type_params_ binding is saved and restored afterward.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4292-L4331"],
+      "testability": "behavioral"
     },
     {
       "id": "type.name.resolution-order",
       "domain": "type",
       "title": "Type-name resolution precedence",
-      "statement": "A bare type name resolves in order: (1) an in-scope type parameter wins over all global lookups; (2) built-in primitive (i8..i128/u8..u128, i24/u24/i56/u56, usize/isize, f32/f64, bool, char, void); (3) a non-generic type alias (generic aliases are deferred to use-site); (4) a struct, then datatype, then enum of that name. Unresolved names yield no type.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4132-L4178"
-      ]
+      "statement": "A bare type name resolves in order: (1) a scope-local binding in current_type_params_ (generic-const instantiation / generic fn / generic method scope wins over any global); (2) a fixed builtin primitive name table (i32,i64,f64,f32,bool,u8,i8,i16,u16,u32,u64,i24,u24,i56,u56,i128,u128,usize,isize,char,void); (3) a non-generic type alias (empty type_params — generic aliases are resolved at use sites elsewhere); (4) a struct found by name; (5) a datatype found by name; (6) an enum found by name. Failing all, the name does not resolve.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4335-L4381"],
+      "testability": "behavioral"
     },
     {
       "id": "module.lookup.unqualified-name-scope",
       "domain": "module",
-      "title": "Unqualified type name lookup scope",
-      "statement": "An unqualified type name is known if it matches a primitive, an in-scope type param, or — for structs/datatypes/enums/aliases — a binding keyed unqualified, or in the current package, or in any wildcard-imported package.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4181-L4204"
-      ]
+      "title": "Known-type-name check: scope, package, then wildcard imports",
+      "statement": "A name is considered a known type name iff: bound in current_type_params_; OR is one of a fixed builtin primitive spellings {i32,i64,f64,f32,bool,u8,i8,u32,u64,void,i16,u16,i56,u56,i128,u128}; OR appears in structs_/datatypes_/enums_/type_aliases_ under the bare name, OR under the current-package-qualified key, OR under a key qualified by any package the current file wildcard-imports.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4384-L4406"],
+      "uncertainty": "This builtin list (used by is_known_type_name, which gates typevar extraction) omits usize/isize/char/i24/u24 that try_resolve_as_known_type accepts — those spellings are known-type here only via the struct/datatype/enum/alias lookups, not the primitive fast path.",
+      "testability": "behavioral"
     },
     {
       "id": "module.vis.struct-pub-and-module-only",
       "domain": "module",
-      "title": "Struct/datatype visibility flags",
-      "statement": "A struct, datatype, or struct field is public iff marked `pub`; a struct/datatype may additionally be `pub(module)` (module-only visibility). Field publicness is read per-field from the IS_PUB flag.",
+      "title": "Struct/datatype/schema items record pub and pub(module) independently",
+      "statement": "Every struct, datatype, schema, and schema-enum item independently records an is_pub flag (parsed from an IS_PUB value node, default false) and an is_module_only flag (`pub(module)`, via read_module_vis) — the two visibility axes are orthogonal per item.",
       "evidence": [
-        "src/compiler/sema_collect.cpp#L3849-L3851",
-        "src/compiler/sema_collect.cpp#L3990-L3994"
-      ]
+        "src/compiler/sema_collect.cpp#L3913-L3917",
+        "src/compiler/sema_collect.cpp#L4027-L4031",
+        "src/compiler/sema_collect.cpp#L4123-L4127",
+        "src/compiler/sema_collect.cpp#L4193-L4197"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.struct-view-shape",
+      "domain": "writ",
+      "title": "`schema` item registers as a Struct-shaped typed view",
+      "statement": "A `schema S : code(expr)? { name: type = key, … }` item registers into structs_ as a SemaStructInfo with is_schema=true, whose only REAL fields are the synthetic `m: *const WMap<Wu6, WAny>` (TOM map view) and `z: *mut u8` (arena allocator for boxing wide values on write; null for read-only views bound from an erased WAny). The user's declared fields are recorded separately as sugar in schema_fields (parallel schema_keys), not as struct layout fields, surfaced later via desugared get/set accessors.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4013-L4066", "src/compiler/sema_collect.cpp#L4099-L4100", "src/compiler/sema_collect.cpp#L4106"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.code-clause-contextual-keyword",
+      "domain": "writ",
+      "title": "`schema` clause keyword `code` is contextual",
+      "statement": "A schema's optional `code(expr)` clause is recognized by a bare-ident keyword check equal to literally \"code\"; any other keyword there is a diagnostic error (\"unknown clause '…(...)' (expected 'code')\"). `code` is not reserved elsewhere — it stays usable as an ordinary identifier. The clause's expr argument is const-evaluated (ctfe_eval_const) into schema_type_code; evaluation failure is a diagnostic error.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4041-L4053"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "writ.schema.key-range",
+      "domain": "writ",
+      "title": "Schema field keys must lie in 0..51 (TOM range)",
+      "statement": "A schema field's resolved key (explicit `= key` or positional default) must satisfy 0 <= key <= 51; a key outside this range is a diagnostic error (\"key {} out of TOM range 0..51\") and the recorded key is clamped into [0,51] for recovery.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4082-L4092"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "writ.schema.key-duplicate-check",
+      "domain": "writ",
+      "title": "Schema field keys must be unique",
+      "statement": "Two schema fields resolving to the same TOM key (after clamping) is a diagnostic error (\"duplicate key\").",
+      "evidence": ["src/compiler/sema_collect.cpp#L4093-L4096"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "writ.schema.key-positional-default",
+      "domain": "writ",
+      "title": "Schema field key defaults to a running positional counter",
+      "statement": "A schema field's key defaults to a `positional` running counter (initially 0) when no explicit `= key` value is given; whenever an explicit key IS given (const-evaluated), the positional counter advances to key+1 for the next field, so explicit and implicit keys interleave in declaration order.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4071-L4088", "src/compiler/sema_collect.cpp#L4101"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema-enum.category-clause",
+      "domain": "writ",
+      "title": "`schema enum` clause keyword `category` is contextual",
+      "statement": "A `schema enum`'s optional `category(expr)` clause is recognized by a bare-ident keyword check equal to literally \"category\"; any other keyword there is a diagnostic error (\"unknown clause '…(...)' (expected 'category')\"). The expr argument is const-evaluated into schema_type_code; evaluation failure is a diagnostic error.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4134-L4147"],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "writ.schema-enum.variant-shape",
+      "domain": "writ",
+      "title": "`schema enum` registers as a Struct-shaped union view",
+      "statement": "A `schema enum E : category(expr)? { V(S), … }` item registers into structs_ with is_schema=true AND is_schema_enum=true, with the same {m: *const WMap<Wu6,WAny>, z: *mut u8} real-field layout as a plain schema. Each VARIANT_DEF { NAME, TYPE } contributes a (name, resolved concrete schema type) pair to schema_variants; the variant's TYPE is resolved under ItemSignatureGuard.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4112-L4174"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "generic.spec.schema-type-params-scope",
+      "domain": "generic",
+      "title": "Schema/schema-enum bind own type params during collection",
+      "statement": "A `schema`/`schema enum` item's declared type params (`schema Box<T: WritField>`) are pushed into scope (push_type_params) before resolving its code/category clause and its field/variant types — so a field type `val: T` resolves to a TypeVar rather than failing as an unknown type name — and popped again after the item's fields/variants are fully collected, mirroring collect_struct/collect_impl.",
+      "evidence": ["src/compiler/sema_collect.cpp#L4033-L4037", "src/compiler/sema_collect.cpp#L4105", "src/compiler/sema_collect.cpp#L4129-L4131", "src/compiler/sema_collect.cpp#L4173"],
+      "testability": "behavioral"
     }
   ]
 }

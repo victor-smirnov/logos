@@ -1,0 +1,48 @@
+{
+  "unit": "codegen/mlir_gen/gen_arr_lit",
+  "layer": "codegen",
+  "source": "src/compiler/mlir_gen.cpp#L1242-L1375",
+  "source_hash": "13e780b3564c4974",
+  "rules": [
+    {
+      "id": "expr.array-lit.dyn-elem-unsize",
+      "domain": "expr",
+      "title": "Array literal elements coerce &Concrete to &dyn Trait",
+      "statement": "In an array literal typed `[&dyn Trait; N]`, an element expression of type `&Concrete` (or `&mut Concrete`/`*Concrete`) is unsize-coerced to the trait object representation before being stored: the concrete struct behind the source reference is resolved and a `{data, vtable}` fat pointer is synthesized for that (struct, trait) pair — the same coercion `gen_struct_lit` applies to a `&dyn` struct field.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L1250-L1254", "src/compiler/mlir_gen.cpp#L1255-L1262", "src/compiler/mlir_gen.cpp#L1270-L1292"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.array-lit.dyn-elem-fat-repr",
+      "domain": "expr",
+      "title": "&dyn Trait array elements are stored as inline fat pointer pairs",
+      "statement": "Each element slot of a `[&dyn Trait; N]` array is an inline `{data-ptr, vtable-ptr}` pair (uniform fat-pointer model, matching the type's own layout as two pointer-sized words); the coerced fat value is written as a single unit into the slot, never split into an 8-byte partial store, so both the data and vtable halves are always initialized together.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L1293-L1300"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.array-lit.struct-elem-by-value",
+      "domain": "expr",
+      "title": "Struct-typed array literal elements copy by value",
+      "statement": "When an array literal's element type is an aggregate (struct) type, each element expression is evaluated and its full byte representation is copied into the array slot by value (a full-size copy, not a pointer/reference store) — regardless of whether the element expression yields a pointer to the aggregate (e.g. a nested struct literal or local) or the aggregate value directly (e.g. a function-call return). This gives `[Struct; N]` value semantics: each slot holds an independent copy.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L1303-L1322"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.array-lit.nested-array-elem-by-value",
+      "domain": "expr",
+      "title": "Nested-array-typed elements copy element-wise by value",
+      "statement": "When an array literal's element type is itself an array type (`[[T; M]; N]`), each outer element is materialized by copying every inner element individually (load from source, store to destination slot) rather than aliasing or bulk-memcpy-ing the source, giving the nested array value copy semantics.",
+      "evidence": ["src/compiler/mlir_gen.cpp#L1324-L1337"],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.array-lit.scalar-elem-numeric-coerce",
+      "domain": "expr",
+      "title": "Scalar array literal elements undergo numeric coercion to the element type",
+      "statement": "When an array literal's element type is a plain scalar (not a trait object, struct, or nested array), each element expression's value is numerically coerced to the array's element type before being stored into the slot (e.g. an untyped/differently-typed integer literal is widened/converted to match).",
+      "evidence": ["src/compiler/mlir_gen.cpp#L1338-L1343"],
+      "testability": "behavioral"
+    }
+  ]
+}

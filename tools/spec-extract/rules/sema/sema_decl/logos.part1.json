@@ -1,8 +1,8 @@
 {
   "unit": "sema/sema_decl/logos.part1",
   "layer": "sema",
-  "source": "src/compiler/sema_decl.cpp#L12-L569",
-  "source_hash": "fb44128388e67a9f",
+  "source": "src/compiler/sema_decl.cpp#L12-L595",
+  "source_hash": "b4d014716a7e8c7c",
   "rules": [
     {
       "id": "item.fn.name-underscore-reserved",
@@ -14,7 +14,8 @@
       ],
       "examples": [
         "fn _() {}  // error: '_' is reserved for ignored bindings"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "region.outlives.implied-from-references",
@@ -43,7 +44,8 @@
       "statement": "Every lifetime name used in a function's outlives clause, or in a type-parameter's `T: 'lt` bound, must be a lifetime parameter declared on that function (or `'static`); use of an undeclared lifetime name is ill-formed.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L113-L134"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "region.outlives.where-type-outlives",
@@ -52,7 +54,8 @@
       "statement": "A where-clause entry `T: 'lt` adds the lifetime bound `'lt` to the matching type parameter `T`; where-clause lifetime-outlives entries are merged into the function's outlives set.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L83-L111"
-      ]
+      ],
+      "testability": "untestable"
     },
     {
       "id": "type.param.unit-type-forbidden",
@@ -63,7 +66,7 @@
         "src/compiler/sema_decl.cpp#L303-L308"
       ],
       "divergence": "Logos restriction: Rust permits `()`-typed parameters.",
-      "testability": "untestable"
+      "testability": "diagnostic"
     },
     {
       "id": "type.impl-trait.param-position-forbidden",
@@ -74,7 +77,7 @@
         "src/compiler/sema_decl.cpp#L309-L318"
       ],
       "divergence": "Logos restriction: Rust supports argument-position impl Trait (APIT).",
-      "testability": "untestable"
+      "testability": "diagnostic"
     },
     {
       "id": "type.return.datanode-by-value-forbidden",
@@ -83,7 +86,8 @@
       "statement": "A non-plain zoned-struct DataNode type (`#[data]` node) cannot be a by-value return type; the function must return `DataRef<T>` instead. The check looks through array nesting to the innermost element.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L479-L500"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "type.return.non-movable-by-value-forbidden",
@@ -94,7 +98,7 @@
         "src/compiler/sema_decl.cpp#L501-L513"
       ],
       "divergence": "A8",
-      "testability": "untestable"
+      "testability": "diagnostic"
     },
     {
       "id": "generic.fn.lifetime-param-unique",
@@ -103,7 +107,8 @@
       "statement": "A function's lifetime parameter names must be pairwise distinct; a duplicate lifetime parameter is ill-formed.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L463-L467"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "generic.fn.type-param-unique",
@@ -112,7 +117,8 @@
       "statement": "A function's type parameter names must be pairwise distinct; a duplicate type parameter is ill-formed.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L521-L524"
-      ]
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "type.self.impl-binding-precedence",
@@ -122,7 +128,8 @@
       "evidence": [
         "src/compiler/sema_decl.cpp#L207-L242"
       ],
-      "uncertainty": "Precedence/staleness handling inferred from impl-context heuristics; observable effect is Self resolution."
+      "uncertainty": "Precedence/staleness handling inferred from impl-context heuristics; observable effect is Self resolution.",
+      "testability": "behavioral"
     },
     {
       "id": "type.self.implicit-self-param-ref",
@@ -131,7 +138,18 @@
       "statement": "A method parameter written as `self` (no explicit type) has type `&Self` by default, or `&mut Self` when marked mutable.",
       "evidence": [
         "src/compiler/sema_decl.cpp#L321-L328"
-      ]
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.param.never-type-forbidden",
+      "domain": "type",
+      "title": "Never type `!` forbidden as a parameter type",
+      "statement": "A function parameter may not have the never type `!`: `!` is uninhabited (has no values), so a `!`-typed parameter makes the function uncallable and has no codegen representation. `!` remains valid in return position, denoting a diverging function.",
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L584-L595"
+      ],
+      "testability": "diagnostic"
     }
   ]
 }

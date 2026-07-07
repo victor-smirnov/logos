@@ -1,0 +1,110 @@
+{
+  "unit": "sema/sema_collect/trait_vtable_layout",
+  "layer": "sema",
+  "source": "src/compiler/sema_collect.cpp#L5115-L5235",
+  "source_hash": "bc1a55143a20daa1",
+  "rules": [
+    {
+      "id": "layout.vtable.supertrait-postorder",
+      "domain": "layout",
+      "title": "dyn-Trait vtable slot order = post-order DFS over supertrait graph",
+      "statement": "For trait T's dyn-T vtable, the method-slot order is a post-order DFS over T's transitive supertrait graph, deduplicated: for each supertrait (deepest ancestors first), that trait's OWN methods are appended before continuing; T's own methods are appended last. A method's index in this order is its vtable slot (codegen adds a fixed +3-slot header on top).",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5105-L5114",
+        "src/compiler/sema_collect.cpp#L5119-L5137"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "layout.vtable.upcast-super-slots",
+      "domain": "layout",
+      "title": "upcast &dyn Sub -> &dyn Super indexes a stored per-supertrait vtable-pointer slot",
+      "statement": "After a trait's method slots, one stored super-vtable-pointer slot is emitted per transitive supertrait (every trait visited during the vtable walk except the root), in the same deepest-first DFS order as the method walk. Upcasting &dyn Sub to &dyn Super indexes this slot array by the supertrait's position in that order.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5110-L5114",
+        "src/compiler/sema_collect.cpp#L5132"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "trait.supertrait.copy-marker-no-vtable",
+      "domain": "trait",
+      "title": "Copy as a supertrait contributes no vtable slot",
+      "statement": "`Copy` is a marker supertrait: it is skipped both when building a trait's dyn-vtable layout (no method/upcast slot) and when checking supertrait-impl completeness.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5129",
+        "src/compiler/sema_collect.cpp#L5146",
+        "src/compiler/sema_collect.cpp#L5184"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "trait.resolve.scope-aware-supertrait-name",
+      "domain": "trait",
+      "title": "Supertrait/trait bare-name resolution is scope-aware, not first-match",
+      "statement": "Resolving a trait name (root or supertrait) during vtable-layout construction prefers a same-named trait declared in the current package over a same-named prelude/imported trait, so a user trait `Sub: Add` shadowing a built-in `Add` walks the user trait's own methods rather than the incumbent's. Non-colliding names resolve to the single bare-name trait as usual.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5122-L5127"
+      ],
+      "uncertainty": "Exact shadowing precedence rules (package-qualified vs bare) are implemented in find_trait_iter_scoped, outside this slice; only the intent/consumer here is visible.",
+      "testability": "transitive"
+    },
+    {
+      "id": "trait.supertrait.unknown-name-error",
+      "domain": "trait",
+      "title": "A trait's supertrait list must name only declared traits",
+      "statement": "For every declared trait T with a supertrait list, each supertrait name (other than `Copy`) must refer to a trait that exists in the program; otherwise it is a compile error \"trait {T}: unknown supertrait '{name}'\". This check runs over all declared traits, including ones never implemented.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5144-L5152"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "trait.impl.canonical-trait-disambiguation",
+      "domain": "trait",
+      "title": "Supertrait-completeness check uses the impl's own canonically-resolved trait",
+      "statement": "When checking an impl's supertrait obligations, the trait definition consulted is the one captured canonically at impl-collection time (`impl.canonical_trait`) when set, not whatever trait currently holds the bare name slot — so `impl Container for Foo` (a user trait) is checked against the user `Container`'s supertraits, not an unrelated same-named stdlib trait's.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5175-L5181"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "trait.supertrait.blanket-satisfies",
+      "domain": "trait",
+      "title": "Blanket impl of a supertrait discharges the supertrait-impl obligation transitively",
+      "statement": "The requirement `impl Super for Type` is satisfied if a blanket impl `impl<T: Bound> Super for T` (optionally with extra where-bounds) exists and `Type` implements `Bound` (directly or transitively via another blanket impl) and every extra bound on the blanket impl.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5189-L5207"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.supertrait.self-bound-satisfies",
+      "domain": "trait",
+      "title": "A blanket impl's own where-bound can discharge its Self type's supertrait obligation",
+      "statement": "For a blanket impl `impl<T: Super> Child for T {}`, the supertrait requirement `T: Super` is discharged directly by the impl's own where-clause bound on `T` when `Type` is itself that impl's bounded type parameter and one of its declared bounds equals `Super`, or transitively reaches `Super` through that bound trait's own supertrait chain.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5155-L5168",
+        "src/compiler/sema_collect.cpp#L5208-L5228"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.supertrait.impl-completeness",
+      "domain": "trait",
+      "title": "Implementing a trait requires implementing its supertraits",
+      "statement": "For every `impl Trait for Type`, and for every known supertrait `Super` of `Trait` (transitively, `Copy` exempt as a marker), an `impl Super for Type` must exist — directly, via a satisfying blanket impl (`impl<T: Bound> Super for T` where Type implements Bound directly or through another blanket), or via a self-bound on Type as a blanket impl's type parameter — otherwise it is a compile error \"impl {Trait} for {Type}: missing impl {Super} for {Type} (required by supertrait)\". The check is deferred until after collection, so definition order within or across files does not matter; the supertrait chain is resolved from the impl's own canonically-captured trait, not a same-named shadowing trait.",
+      "evidence": [
+        "src/compiler/sema_collect.cpp#L5170-L5188",
+        "src/compiler/sema_collect.cpp#L5175-L5182",
+        "src/compiler/sema_collect.cpp#L5194-L5217",
+        "src/compiler/sema_collect.cpp#L5229-L5230"
+      ],
+      "related": [
+        "trait.supertrait.blanket-satisfies",
+        "trait.supertrait.self-bound-satisfies"
+      ]
+    }
+  ]
+}

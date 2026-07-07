@@ -15,16 +15,6 @@
       "uncertainty": "Logos has a specialization mechanism with no direct stable-Rust analogue (Rust specialization is unstable)."
     },
     {
-      "id": "generic.spec.lifetime-param-skip",
-      "domain": "generic",
-      "title": "Lifetime params ignored in spec patterns",
-      "statement": "Lifetime parameters in a specialization fn's type-param list contribute no spec pattern (deferred to the borrow checker).",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4431"
-      ],
-      "testability": "transitive"
-    },
-    {
       "id": "generic.spec.bare-ident-resolution",
       "domain": "generic",
       "title": "Bare-ident spec param: known type is concrete, else fresh TypeVar",
@@ -44,16 +34,6 @@
       "testability": "untestable"
     },
     {
-      "id": "item.fn.self-ref-param-type",
-      "domain": "item",
-      "title": "self-receiver parameter type",
-      "statement": "A `&self` / `&mut self` receiver parameter takes the type `&Self` / `&mut Self`, where `Self` is the in-scope Self type; mutability follows the `mut` marker.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4498-L4502",
-        "src/compiler/sema_collect.cpp#L4643-L4647"
-      ]
-    },
-    {
       "id": "item.fn.tail-expr-is-return",
       "domain": "item",
       "title": "Tail expression is implicit return",
@@ -71,17 +51,6 @@
         "src/compiler/sema_collect.cpp#L4477-L4479",
         "src/compiler/sema_collect.cpp#L4669-L4671"
       ]
-    },
-    {
-      "id": "generic.spec.method-shadows-impl-param-warn",
-      "domain": "generic",
-      "title": "Method type-param shadowing impl param is a silent specialization",
-      "statement": "When a method's bare-IDENT type-param has the same name as an enclosing impl-block type-param, the method is silently treated as a specialization on the impl's param; the compiler emits a warning advising a rename.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4551-L4586"
-      ],
-      "divergence": "Rust treats the method param as a fresh shadowing generic; Logos reinterprets it as a specialization leg (warned).",
-      "testability": "untestable"
     },
     {
       "id": "generic.shadow.type-param-shadows-type-warn",
@@ -115,16 +84,6 @@
       "testability": "transitive"
     },
     {
-      "id": "item.extern-fn.implicit-pub-unsafe",
-      "domain": "item",
-      "title": "extern fn is implicitly pub + unsafe",
-      "statement": "An `extern fn` declaration is implicitly public, unsafe, and extern.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4684-L4688"
-      ],
-      "testability": "transitive"
-    },
-    {
       "id": "item.extern-fn.no-mangle-abi-symbol",
       "domain": "item",
       "title": "extern fn keeps its bare ABI symbol",
@@ -145,36 +104,6 @@
         "src/compiler/sema_collect.cpp#L4837-L4881"
       ],
       "divergence": "Rust does not permit free-function overloading by signature."
-    },
-    {
-      "id": "trait.method.disambiguating-mangle",
-      "domain": "trait",
-      "title": "Same-name same-sig trait methods coexist via trait-qualified mangling",
-      "statement": "When two distinct traits define a method with identical name and signature on the same target type, both coexist: the colliding methods are re-keyed under a trait-qualified base `<target>__<trait>__<method>`; non-colliding methods keep the plain base.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4731-L4835"
-      ]
-    },
-    {
-      "id": "trait.method.trait-typearg-distinct",
-      "domain": "trait",
-      "title": "Distinct trait type-args mangle distinctly",
-      "statement": "Two impls of the same trait with different concrete type-arguments (e.g. `impl Trait<u64> for X` vs `impl Trait<u8> for X`) for a same-name+signature method are treated as distinct and mangled with the trait type-arg suffix (`X__Trait$u64__m` vs `X__Trait$u8__m`).",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4742-L4749",
-        "src/compiler/sema_collect.cpp#L4778-L4782",
-        "src/compiler/sema_collect.cpp#L4808-L4821"
-      ]
-    },
-    {
-      "id": "trait.method.inherent-preferred",
-      "domain": "trait",
-      "title": "Inherent method preferred over same-name trait method",
-      "statement": "When an inherent method and a trait method share name and signature on a type, the inherent method keeps the plain base (found by concrete-receiver dispatch) and only the trait method is trait-qualified; a `T: Trait`-bounded dispatch resolves to the qualified trait method.",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4776-L4777",
-        "src/compiler/sema_collect.cpp#L4787-L4801"
-      ]
     },
     {
       "id": "item.fn.runtime-abi-no-mangle",
@@ -213,16 +142,6 @@
       "evidence": [
         "src/compiler/sema_collect.cpp#L4928-L4937",
         "src/compiler/sema_collect.cpp#L4930"
-      ]
-    },
-    {
-      "id": "trait.supertrait.impl-completeness",
-      "domain": "trait",
-      "title": "Implementing a trait requires implementing its supertraits",
-      "statement": "For an `impl Trait for T`, an impl of each of Trait's supertraits for T must also exist (transitively); missing supertrait impls are an error. Order of definitions across files does not matter (deferred check). The impl's own canonically-captured trait is used (not a same-named trait).",
-      "evidence": [
-        "src/compiler/sema_collect.cpp#L4954-L4972",
-        "src/compiler/sema_collect.cpp#L5013-L5014"
       ]
     },
     {

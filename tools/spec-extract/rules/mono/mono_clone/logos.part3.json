@@ -1,32 +1,32 @@
 {
   "unit": "mono/mono_clone/logos.part3",
   "layer": "mono",
-  "source": "src/compiler/mono_clone.cpp#L1066-L1592",
-  "source_hash": "ef6d9b9be3ebb5b9",
+  "source": "src/compiler/mono_clone.cpp#L1082-L1616",
+  "source_hash": "35161e8feb0893c1",
   "rules": [
     {
       "id": "mono.subst.generic-enum-lit-mangle",
       "domain": "mono",
       "title": "Generic enum literal takes mangled concrete enum name",
-      "statement": "When an EnumLit/EnumLitData is monomorphized and its result type is an Enum with non-empty type-args, the emitted enum name is `enum_name` followed by `__<mangle(arg)>` for each type-arg; the concrete enum is recorded as needed. Otherwise the original enum name is kept.",
+      "statement": "When an EnumLitData is monomorphized and its result type is an Enum with non-empty type-args, the emitted enum name is `enum_name` followed by `__<mangle(arg)>` for each type-arg (in order); the concrete enum instantiation is recorded as needed (record_needed_enum). Otherwise the literal's original enum name is kept.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1068-L1099"
+        "src/compiler/mono_clone.cpp#L1085-L1106"
       ]
     },
     {
       "id": "mono.subst.generic-struct-lit-name",
       "domain": "mono",
       "title": "Generic struct literal takes concrete (mangled) struct name",
-      "statement": "When a StructLit is monomorphized and its result type is a Struct/ZonedStruct with non-empty type-args, the emitted struct name is the concrete (monomorphized) struct name; otherwise the original literal name is used. The concrete struct is recorded as needed.",
+      "statement": "When a StructLit is monomorphized and its result type is a Struct/ZonedStruct with non-empty type-args, the emitted struct name is the concrete (monomorphized) struct name via concrete_struct_name(rt); otherwise the literal's original name is used. The (possibly generic) struct instantiation is always recorded as needed (record_needed_struct).",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1108-L1124"
+        "src/compiler/mono_clone.cpp#L1108-L1125"
       ]
     },
     {
       "id": "mono.subst.match-arm-pattern-types",
       "domain": "mono",
       "title": "Match-arm patterns are type-substituted during monomorphization",
-      "statement": "Cloning a MatchExpr substitutes types within each arm's pattern (via the current SubstMap) and recursively substitutes scrutinee, guard, and arm-value expressions.",
+      "statement": "Cloning a MatchExpr substitutes the scrutinee first, then for each arm walks the pattern and substitutes its embedded types through the current SubstMap, and recursively substitutes the arm's guard (if present) and value expressions.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1127-L1144"
       ]
@@ -35,28 +35,29 @@
       "id": "mono.intrinsic.type-code-of",
       "domain": "mono",
       "title": "type-code-of resolves concrete struct type code else hashes",
-      "statement": "TypeCodeOf(T): if substituted T still contains a TypeVar (or is null), it stays a runtime type-code-of node. For a concrete Struct/ZonedStruct, the type code is the registered struct's type_code (or matching inst-annotation's). If no registered code, the code is a 56-bit hash of `type_str(T)` biased into [128, ...] (raw<128 → raw+128).",
+      "statement": "TypeCodeOf(T): if the substituted T still contains a TypeVar, or is null, mono re-emits a runtime type-code-of node rather than folding. For a concrete Struct/ZonedStruct, the code is the registered struct's nonzero type_code (looked up in out_.structs by mangled name, else in out_.inst_annotations). If no registered code is found (any kind), the code falls back to a 56-bit hash of `type_str(T)` (type_hash_56bit(type_hash_23(...))), remapped into [128, ...) by adding 128 when the raw value is < 128 (codes 0..127 are reserved). The result is a lit_int constant.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1146-L1183"
+        "src/compiler/mono_clone.cpp#L1146-L1184"
       ],
-      "uncertainty": "Exact hash construction (type_hash_23 → type_hash_56bit) is delegated to helpers outside this unit."
+      "uncertainty": "Exact hash construction (type_hash_23 / type_hash_56bit) is delegated to helpers outside this unit."
     },
     {
       "id": "mono.intrinsic.writ-lit-clone",
       "domain": "mono",
       "title": "Writ literal value tree is deep-cloned with substituted captures",
-      "statement": "A WritLit is deep-cloned over its Writ value tree (Null/Bool/Int/Float/Str/Capture/Type/Map/Array), preserving map key-type and int-vs-string keying and array elem-type; capture expressions are recursively substituted and capture types are type-substituted. The static_blob is copied before emit (the emit reuses the moved type-pool arena).",
+      "statement": "A WritLit is deep-cloned over its Writ value tree (Null/Bool/Int/Float/Str/Capture/Type/Map/Array), preserving map key-type and int-vs-string keying and array elem-type; Capture-referenced expressions are recursively substituted (subst_child_expr) and captured types are substituted (subst_type). The literal's static_blob (and any WVStrView/key/elem-type strings) is copied into an owned string before emission, because emission allocates into the same arena the source view reads from and may relocate it.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1186-L1281"
+        "src/compiler/mono_clone.cpp#L1186-L1281",
+        "src/compiler/mono_clone.cpp#L1272-L1276"
       ]
     },
     {
       "id": "mono.subst.splicepack-producer-fold",
       "domain": "mono",
-      "title": "$fs... splice-pack folds reflected [Type] producers into call type-args",
-      "statement": "A call type-arg encoded as TypeVar named `__splicepack$<v>` is resolved by chasing `v` (≤8 VarRef hops) to a producer call and folding its element types into the callee's type-args: `__type_refs_of__` → all (substituted) type-args; `__args_of__` → type-args of the first type-arg T; `__typelist_tail__` → T.type_args[1..]; `__tuple_elems_of__` → T's tuple elements (T must be Tuple); `__field_types_of__` → the (substituted) field types of struct T. An unrecognized producer is a hard error.",
+      "title": "`$fs...` splice-pack folds reflected [Type] producers into call type-args",
+      "statement": "A call type-arg encoded as a marker TypeVar named `__splicepack$<v>` is resolved by chasing `v` (up to 8 VarRef alias hops via type_let_inits_) to a producer Call, then folding that producer's element types directly into the enclosing call's type_args in place of the marker: `__type_refs_of__` -> all its (substituted) type-args as-is; `__args_of__` -> the type-args of its first type-arg's type; `__typelist_tail__` -> that type's type-args minus the first; `__tuple_elems_of__` -> that type's tuple elements (type must be Tuple); `__field_types_of__` -> the field types of that (struct) type, substituted through a SubstMap built from the struct template's type-params against the concrete type's type-args. An unrecognized producer callee aborts compilation.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1287-L1392"
+        "src/compiler/mono_clone.cpp#L1287-L1393"
       ],
       "divergence": "Logos reflection/metaprogramming extension; no Rust equivalent."
     },
@@ -64,7 +65,7 @@
       "id": "mono.intrinsic.field-types-of-nonstruct-empty",
       "domain": "mono",
       "title": "field-types-of on a non-struct yields an empty type pack",
-      "statement": "`__field_types_of__` applied to a substituted T that is not a Struct/ZonedStruct yields an empty pack (the [Type;0] result), which resolves variadic instantiation to the 0-arg base overload rather than aborting. Field types of a generic struct are computed by substituting the struct template's type-params with T's type-args.",
+      "statement": "`__field_types_of__` applied to a substituted T that is not Struct/ZonedStruct yields an empty pack (matching the declared [Type;0] result for non-struct T) rather than aborting, so that mono monomorphizing both arms of a runtime `is_struct()`-guarded branch still succeeds on the non-struct arm (an empty pack resolves variadic instantiation to the 0-arg base overload). For a struct T, fields are located by name (preferring a pkg-matching struct template, else any struct of that name) and their types substituted via the template's type-params mapped onto T's type-args.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1342-L1380"
       ],
@@ -74,7 +75,7 @@
       "id": "mono.subst.pack-key-expansion",
       "domain": "mono",
       "title": "Type/const pack-key in call type-args expands to the bound pack",
-      "statement": "A call type-arg that is a TypeVar or ConstVar whose name is a key in the active pack map expands to that pack's entries (each localized into the current arena). Otherwise the type-arg is type-substituted normally.",
+      "statement": "A call type-arg that is a TypeVar or ConstVar whose type_var_name is a key present in cur_packs_ (the active instantiation's pack table) is replaced by splicing in that pack's entry types in order, each localized via localize_type (pack entries may reference a foreign caller-side SubstMap). Otherwise the type-arg is substituted normally via subst_type.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1394-L1409"
       ]
@@ -83,16 +84,16 @@
       "id": "mono.intrinsic.sizeof-pack",
       "domain": "mono",
       "title": "sizeof...(T) evaluates to the post-expansion pack length",
-      "statement": "`__sizeof_pack__` is replaced by an integer literal equal to the number of concrete type-args after pack expansion.",
+      "statement": "`__sizeof_pack__` (the pack TypeVar carried as type_args[0]) is replaced by lit_int(N), where N is the number of concrete type-args present after pack expansion.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1411-L1418"
+        "src/compiler/mono_clone.cpp#L1414-L1418"
       ]
     },
     {
       "id": "mono.intrinsic.type-kind-of",
       "domain": "mono",
       "title": "type-kind-of yields the kind discriminant of substituted T",
-      "statement": "`__type_kind_of__` is replaced by an integer literal equal to the LogosType kind discriminant of the concrete substituted first type-arg (0 if none).",
+      "statement": "`__type_kind_of__` is replaced by lit_int equal to the LogosType::Kind discriminant of the concrete substituted first type-arg (0 if type_args is empty).",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1419-L1427"
       ],
@@ -102,18 +103,18 @@
       "id": "mono.intrinsic.wstatic-hash-of",
       "domain": "mono",
       "title": "wstatic-hash-of yields the byte-hash of CFG",
-      "statement": "`__wstatic_hash_of__` is replaced by an integer literal equal to the const-value (u64 byte-hash) carried by the substituted first type-arg (a WStaticLit kind); 0 if absent.",
+      "statement": "`__wstatic_hash_of__` is replaced by lit_int equal to the const_val (u64 byte-hash) carried by the substituted first type-arg (a WStaticLit kind); 0 if type_args is empty or const_val is absent.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1428-L1437"
       ],
       "divergence": "Logos compile-time-static (Writ) extension.",
-      "testability": "transitive"
+      "testability": "behavioral"
     },
     {
       "id": "mono.intrinsic.type-hash-of",
       "domain": "mono",
       "title": "type-hash-of yields a structural layout-stable hash",
-      "statement": "`__type_hash_of__` is replaced by an integer literal equal to a structural FNV-1a-64 hash of the substituted T (no struct/field names; recurses into field types), i.e. layout-stable identity.",
+      "statement": "`__type_hash_of__` is replaced by lit_int equal to compute_type_hash(T), a structural FNV-1a-64 hash of the substituted T that bears no struct/field names and recurses into field types (layout-stable identity).",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1438-L1449"
       ],
@@ -123,7 +124,7 @@
       "id": "mono.intrinsic.type-name-of",
       "domain": "mono",
       "title": "type-name-of yields the canonical type string of T",
-      "statement": "`__type_name_of__` is replaced by a string literal equal to the canonical `type_str(T)` of the concrete substituted T (empty if none).",
+      "statement": "`__type_name_of__` is replaced by lit_str equal to the canonical `type_str(T)` of the concrete substituted first type-arg (empty string if type_args is empty).",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1450-L1457"
       ],
@@ -132,8 +133,8 @@
     {
       "id": "mono.intrinsic.type-uid-of",
       "domain": "mono",
-      "title": "type-uid-of yields the low 64 bits of the nominal type UID",
-      "statement": "`__type_uid_of__` is replaced by an integer literal equal to the low 64 bits of the nominal UID (derived from a hash of the canonical type id of substituted T); the mapping uid→type is recorded for later reification. `__type_uid_hi_of__` yields the high 64 bits over the same canonical input, so the halves agree.",
+      "title": "type-uid-of yields the two 64-bit halves of the nominal type UID",
+      "statement": "`__type_uid_of__` is replaced by lit_int equal to the low 64 bits of the nominal TypeUID = type_hash_64bit(type_hash_23(type_id_canon(T))) for concrete substituted T (0 if type_args is empty or T is null); the uid -> T mapping is recorded (uid_to_type_) for later reification (e.g. quote_ty!). `__type_uid_hi_of__` yields the high 64 bits, type_hash_hi64(type_hash_23(type_id_canon(T))), computed from the same canonical-name hash input so the two halves agree.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1458-L1481"
       ],
@@ -143,7 +144,7 @@
       "id": "mono.intrinsic.is-same",
       "domain": "mono",
       "title": "is-same compares two substituted types for equality",
-      "statement": "`__is_same__` yields a bool literal true iff exactly two type-args are given and they are equal after substitution.",
+      "statement": "`__is_same__` yields lit_bool(true) iff exactly two type-args are given and they are equal (TypeRef ==) after substitution; otherwise false.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1490-L1494"
       ],
@@ -153,9 +154,9 @@
       "id": "mono.intrinsic.type-kind-predicates",
       "domain": "mono",
       "title": "Type-trait predicates evaluate on the substituted type's kind",
-      "statement": "Each predicate yields a bool literal computed from the kind of the concrete substituted first type-arg: __is_ptr__/ref/mut_ref/struct/zoned/enum/tuple/slice/array/bool test the exact kind; __is_integer__ is true for I8..I128/U8..U128; __is_float__ for F32/F64; __is_signed__ for I8..I128; __is_unsigned__ for U8..U128; __is_primitive__ for bool|float|integer.",
+      "statement": "Each predicate yields lit_bool computed from the Kind of the concrete substituted first type-arg (Kind::Error if type_args is empty): __is_ptr__/__is_ref__/__is_mut_ref__/__is_struct__/__is_zoned__/__is_enum__/__is_tuple__/__is_slice__/__is_array__/__is_bool__ test an exact Kind match; __is_integer__ is true for {I8,I16,I24,I32,I56,I64,I128,U8,U16,U24,U32,U56,U64,U128}; __is_float__ for {F32,F64}; __is_signed__ for the I* subset; __is_unsigned__ for the U* subset; __is_primitive__ for Bool | floating | integer.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1495-L1528"
+        "src/compiler/mono_clone.cpp#L1482-L1529"
       ],
       "divergence": "Logos reflection extension."
     },
@@ -163,7 +164,7 @@
       "id": "mono.intrinsic.args-count-of",
       "domain": "mono",
       "title": "args-count-of yields the number of generic type arguments of T",
-      "statement": "`__args_count_of__` yields an i64 literal equal to the count of T's generic type-args (0 for non-generic/primitive T).",
+      "statement": "`__args_count_of__` yields an i64 lit_int equal to the count of the concrete substituted first type-arg's own type_args (0 for a non-generic/primitive T, or when type_args is empty).",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1530-L1543"
       ],
@@ -173,7 +174,7 @@
       "id": "mono.intrinsic.has-trait",
       "domain": "mono",
       "title": "has-trait resolves a trait implementation at monomorphization time",
-      "statement": "`__has_trait__` yields a bool literal: it reads the trait name from the call's first string-literal argument and the concrete type from type_args[0], reduces T to a concrete name (concrete_struct_name for Struct/ZonedStruct, enum_name for Enum, else type_str, with any `$G...` generic suffix stripped), and recursively tests trait satisfaction against concrete + blanket impl tables.",
+      "statement": "`__has_trait__` yields lit_bool: it reads the trait name from the call's original lit_str argument and the concrete type from type_args[0], reduces T to a concrete name (concrete_struct_name for Struct/ZonedStruct, enum_name for Enum, else type_str(T), with any trailing `$G...` instantiation-marker suffix stripped), and recursively tests trait satisfaction against concrete_impls_ + blanket_impls_ (mono_has_impl_recursive), which the trait engine populates lazily.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1544-L1584"
       ],
@@ -183,10 +184,11 @@
       "id": "mono.intrinsic.has-trait-of",
       "domain": "mono",
       "title": "has-trait-of recovers T from a reflected Type value then resolves the trait",
-      "statement": "`__has_trait_of__(trait, t: Type)` recovers the concrete T from t's StructLit `uid` field (a `__type_uid_of__` call, chasing ≤8 VarRef hops) and then performs the same impl-table recursion as __has_trait__ to yield a bool literal.",
+      "statement": "`__has_trait_of__(trait, t: Type)` recovers the concrete T from t's StructLit `uid` field (itself produced by a `__type_uid_of__` call), chasing VarRef aliases up to 8 hops via type_let_inits_ to locate the StructLit, and then performs the same impl-table recursion as __has_trait__ to yield lit_bool.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1585-L1592"
+        "src/compiler/mono_clone.cpp#L1585-L1616"
       ],
+      "uncertainty": "The uid-field extraction and final impl-table call are truncated at the unit boundary (L1616); behavior inferred from the comment and the mirrored __has_trait__ logic rather than fully observed in this slice.",
       "divergence": "Logos reflection extension (Type-method form).",
       "related": [
         "mono.intrinsic.has-trait",

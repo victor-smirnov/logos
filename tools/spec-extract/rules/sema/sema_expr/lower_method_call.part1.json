@@ -53,16 +53,6 @@
       ]
     },
     {
-      "id": "expr.method.array-len-builtin",
-      "domain": "expr",
-      "title": "len() on a fixed array is a compile-time constant",
-      "statement": "`a.len()` where `a` has fixed-array type `[T; N]` evaluates to the compile-time size `N` as an `i64` literal; no runtime call is emitted.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L7280-L7284"
-      ],
-      "divergence": "Result type is i64 (Logos stdlib uses i64 for lengths), not usize as in Rust."
-    },
-    {
       "id": "expr.method.raw-ptr-call-requires-unsafe",
       "domain": "expr",
       "title": "Method call through a raw pointer requires unsafe",

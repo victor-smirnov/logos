@@ -1,8 +1,8 @@
 {
   "unit": "codegen/mlir_gen_impl_hpp/logos.part1",
   "layer": "codegen",
-  "source": "src/compiler/mlir_gen_impl.hpp#L37-L436",
-  "source_hash": "4a1c9f5e253378c6",
+  "source": "src/compiler/mlir_gen_impl.hpp#L37-L483",
+  "source_hash": "2dea2f4e3843a56e",
   "rules": [
     {
       "id": "layout.enum.tagged-repr",
@@ -22,7 +22,7 @@
       "title": "Tagged enum alignment",
       "statement": "alignof(tagged enum) = max(4, payload_align), i.e. at least the 4-byte discriminant alignment and at least the widest variant payload's alignment.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L65-L67",
+        "src/compiler/mlir_gen_impl.hpp#L64-L67",
         "src/compiler/mlir_gen_impl.hpp#L72"
       ],
       "related": [
@@ -89,7 +89,7 @@
       "title": "Slice reference is a fat { ptr, len } descriptor",
       "statement": "A slice-typed value (&[T] / &mut [T]) is represented as a fat descriptor { data-ptr, len }. Indexed access first reads field 0 (the data pointer) then strides by sizeof(element).",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L346-L350"
+        "src/compiler/mlir_gen_impl.hpp#L364-L368"
       ]
     },
     {
@@ -108,7 +108,7 @@
       "title": "dyn-Trait vtables are static, one per (Trait, concrete type)",
       "statement": "Each &dyn Trait coercion of a given concrete type uses a single static vtable global ([N x ptr] of method addresses) shared across all coercions; coercion takes the address of that static vtable rather than allocating/filling a fresh vtable per coercion.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L401-L414"
+        "src/compiler/mlir_gen_impl.hpp#L457-L470"
       ]
     },
     {
@@ -117,7 +117,7 @@
       "title": "vtable slot 0 is drop_in_place glue",
       "statement": "Every dyn-Trait vtable's slot 0 is a drop_in_place glue function that runs the concrete type's full Drop; for a non-droppable type it is a no-op.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L429-L436"
+        "src/compiler/mlir_gen_impl.hpp#L464-L470"
       ],
       "related": [
         "trait.dyn.drop-full-concrete"
@@ -130,7 +130,7 @@
       "title": "drop_in_place runs the full concrete drop",
       "statement": "drop_in_place for a dynamically-dispatched value runs the FULL drop of the concrete type (recursive field drops), matching the static drop of that type.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L429-L432"
+        "src/compiler/mlir_gen_impl.hpp#L464-L467"
       ],
       "related": [
         "trait.dyn.vtable-drop-slot0"
@@ -142,7 +142,7 @@
       "title": "Supertrait pointer slots and upcast layout",
       "statement": "A dyn Trait vtable carries, after its method slots, a pointer slot per transitive supertrait; an upcast &dyn Sub -> &dyn Super selects the corresponding super-vtable pointer. A trait with no supertraits has no extra slots (unchanged vtable layout).",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L422-L427"
+        "src/compiler/mlir_gen_impl.hpp#L478-L483"
       ],
       "testability": "transitive"
     },
@@ -152,16 +152,16 @@
       "title": "Blanket-impl concrete vtable synthesis",
       "statement": "When a concrete type reaches &dyn Trait only via a blanket impl (impl<T> Trait for T), a concrete <Type>__<method> vtable is synthesized on demand from the trait's slot-ordered method names.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L415-L421"
+        "src/compiler/mlir_gen_impl.hpp#L471-L477"
       ]
     },
     {
       "id": "expr.drop.dynamic-flag",
       "domain": "expr",
       "title": "Dynamic drop flag for conditionally-initialized variables",
-      "statement": "A `let mut x: T;` declared without an initializer whose initialization is not statically determinable (an assignment nested inside a conditional/loop deeper than its declaration) gets a hidden runtime i8 drop flag (0 = empty, 1 = live). Each assignment drops the old value only if the flag is set then sets it; scope-exit/return drops only if the flag is set. Variables whose every assignment is straight-line (statically dominates) are flag-free with statically-placed drops.",
+      "statement": "A `let mut x: T;` declared without an initializer whose initialization is not statically determinable (an assignment nested inside a conditional/loop deeper than its declaration) gets a hidden runtime i8 drop flag (0 = empty, 1 = live). Each assignment drops the old value only if the flag is set then sets it; scope-exit/return drops only if the flag is set. Variables whose every assignment is straight-line (statically dominates its uses, determined by a pre-scan of the fn body) are flag-free: drops are placed statically instead, matching Rust's MIR drop elaboration for the common case.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L314-L333"
+        "src/compiler/mlir_gen_impl.hpp#L332-L353"
       ]
     },
     {
@@ -170,9 +170,33 @@
       "title": "Method symbol resolution under overload mangling",
       "statement": "A method reference <struct>__<method> resolves to the actual mangled symbol, which may be package-qualified ([pkg.]Base__method) and may carry an overload-mangling suffix __f__<sig> or __g__<sig>; the bare convention name is the fallback when no mangled match exists.",
       "evidence": [
-        "src/compiler/mlir_gen_impl.hpp#L228-L274"
+        "src/compiler/mlir_gen_impl.hpp#L238-L281"
       ],
       "testability": "transitive"
+    },
+    {
+      "id": "expr.arith.overflow-checks-default",
+      "domain": "expr",
+      "title": "Integer +/-/* trap on overflow by default; `-C overflow-checks=off` switches to wrapping",
+      "statement": "Runtime overflow checks (trap) on integer +, -, * are ON by default. With overflow-checks explicitly turned off, +/-/* lower to plain wrapping arithmetic instead (vectorizable, branchless, matching release-mode wrapping semantics). The mode is a whole-codegen-pass setting (fixed before code generation begins), not per-expression.",
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L136-L141",
+        "src/compiler/mlir_gen_impl.hpp#L156"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.arith.wrapping-intrinsics-unchecked",
+      "domain": "expr",
+      "title": "Explicit wrapping_add/sub/mul are always unchecked",
+      "statement": "The explicit wrapping_add / wrapping_sub / wrapping_mul intrinsic methods are always unchecked (wrapping) regardless of the overflow-checks setting that governs the plain +/-/* operators.",
+      "evidence": [
+        "src/compiler/mlir_gen_impl.hpp#L136-L140"
+      ],
+      "related": [
+        "expr.arith.overflow-checks-default"
+      ],
+      "testability": "behavioral"
     }
   ]
 }

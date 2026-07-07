@@ -1,247 +1,213 @@
 {
   "unit": "sema/sema_expr/lower_unary.part1",
   "layer": "sema",
-  "source": "src/compiler/sema_expr.cpp#L2473-L3005",
-  "source_hash": "a036be1ddc1b02d5",
+  "source": "src/compiler/sema_expr.cpp#L2490-L3038",
+  "source_hash": "f1584064e63db5d6",
   "rules": [
     {
       "id": "expr.unary.double-ref",
       "domain": "expr",
-      "title": "Double address-of",
-      "statement": "`&&v` (lexed as a single AND token) is the double address-of of `v`: it lowers to `&(&v)` with type `& & typeof(v)`. If `typeof(v)` is an error type the whole expression is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2476-L2486"
-      ],
-      "testability": "untestable"
+      "title": "`&&e` desugars to `&(&e)`",
+      "statement": "Unary `&&e` (lexed as a single AND token) desugars to `&(&e)`: lower e, build ADDR_OF(ADDR_OF(e)) — inner ref type `&T`, outer `&&T`. If e's type is Error, propagate Error (return error-expr) instead.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2495-L2503"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addr-of.static",
       "domain": "expr",
-      "title": "Address-of a module static is the global's stable address",
-      "statement": "`&S` where S is an unshadowed module static of non-array type yields the global's own address (a `'static` reference), preserving address identity; the reference is `&mut` iff S is a `mut` static. (No fresh stack copy is materialized.)",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2498-L2509"
-      ]
+      "title": "`&STATIC` is the global's stable address",
+      "statement": "`&STATIC_NAME` for a module-level static (not locally shadowed) with non-Array type yields the STABLE address of the global itself ('static lifetime) — lowered as a distinguished `__static_addr:<sym>` VarRef of ref type `&T` (mut ref if the static is declared mut). This routes before the general addr-of-local path, which would otherwise materialize a fresh stack copy and break address identity. Array statics instead build a slice over that address (see coerce.unsize.array-to-slice); scalars/structs return `&T`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2515-L2526"],
+      "testability": "behavioral"
     },
     {
       "id": "coerce.unsize.array-to-slice",
       "domain": "coerce",
-      "title": "&array → slice",
-      "statement": "`&a` where `a: [T; N]` yields a slice value `&[T]` with len = N (an unsized coercion at the point of borrow), not `&[T; N]`. This applies to array variables, array statics, and bare array literals `&[e0, .., e_{N-1}]`.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2510-L2514",
-        "src/compiler/sema_expr.cpp#L2570-L2585"
-      ]
+      "title": "`&array` unsizes to `&[T]`",
+      "statement": "`&arr` where `arr: [T; N]` (a named array local, static or otherwise) coerces to `&[T]`: produced as a slice literal `{ addr_of(arr) as &T, len = N }` typed `&[T]`, never `&[T; N]` (Ref<Array>). The same coercion applies to a bare array literal `&[e0, e1, …]`: the array rvalue is spilled to a stack slot first, then wrapped as `{addr, len}` typed `&[T]`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2527-L2531", "src/compiler/sema_expr.cpp#L2603-L2618"],
+      "testability": "behavioral"
     },
     {
       "id": "coerce.deref.box-slice-borrow",
       "domain": "coerce",
-      "title": "&Box<[T]> deref-coerces to &[T]",
-      "statement": "`&b` where `b` is an owning slice (`Box<[T]>`) yields a borrowed `&[T]` view over the same {data,len} storage with no copy or move; mutability is inherited from the owning slice.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2516-L2521"
-      ]
+      "title": "`&Box<[T]>` borrows as `&[T]`",
+      "statement": "`&b` where `b: Box<[T]>` (an owning slice) is a Deref-coercion borrow: yields `&[T]` sharing the box's `{data,len}` representation — the same storage pointer re-typed as a borrowed slice, no copy, no move.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2533-L2538"],
+      "testability": "behavioral"
     },
     {
       "id": "coerce.deref.box-struct-borrow",
       "domain": "coerce",
-      "title": "&Box<Foo> deref-coerces to &Foo",
-      "statement": "`&b` where `b` is an owning DST reference (`Box<Foo>`) yields a borrowed `&Foo` with the same reference value re-typed non-owning; mutability is inherited.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2522-L2532"
-      ],
+      "title": "`&Box<S>` / `&Box<dyn Trait>` borrows as `&S` / `&dyn Trait`",
+      "statement": "`&b` where `b: Box<S>` for a custom-DST struct `S` (owning DstRef) or `b: Box<dyn Trait>` (owning trait object) is a Deref-coercion borrow: the box's VALUE is already the `{data,len}` DstRef pair or the `{data,vtable}` fat pair, so borrowing it reads the var's value (var_ref load) and re-types it non-owning — it never re-addresses the local slot, which would produce the wrong indirection (e.g. a thin `&&dyn Trait` where the callee expects the 16-byte fat pair by value).",
+      "evidence": ["src/compiler/sema_expr.cpp#L2539-L2565"],
       "testability": "behavioral"
     },
     {
       "id": "borrow.reborrow.ref-deref",
       "domain": "borrow",
-      "title": "&*ptr reborrow",
-      "statement": "`&*p` where `p` has pointer kind (raw `*T`, `&T`, or `&mut T`) is a reborrow yielding `&(pointee(p))` preserving the reborrow shape; for a struct with a Deref impl `&*x` is `&(x.deref())`.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2535-L2552"
-      ]
+      "title": "`&*p` is a reborrow, preserved in shape for borrow-check",
+      "statement": "`&*p` where `p: *T` / `&mut T` / `&T` lowers preserving the `AddrOfTemp(Deref(p))` node shape (not collapsed to `p` itself), so borrow-check can see the reborrow of p's referent; mlir-gen peepholes the shape back to a plain copy at codegen. When `p` is instead a struct with a user `Deref` impl (no built-in pointer kind), `&*p` dispatches to `p.deref()` via the generic-deref-call path.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2568-L2585"],
+      "testability": "behavioral",
+      "related": ["expr.deref.user-deref-impl"]
     },
     {
       "id": "expr.addr-of.index-place",
       "domain": "expr",
-      "title": "&f[i] over user Index is a place reference",
-      "statement": "`&f[i]` over a value implementing the Index trait yields the place reference returned by `index()` directly (no intermediate deref or temporary).",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2554-L2558"
-      ],
-      "testability": "transitive"
+      "title": "`&container[i]` over a user Index type is the index place directly",
+      "statement": "`&container[i]` where the indexed child is INDEX_READ over a type with a user-defined Index impl lowers to that index method's place reference directly (`lower_index_place`), bypassing the generic deref/temp-materialize path.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2587-L2591"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addr-of.range-index-identity",
       "domain": "expr",
-      "title": "&a[range] is the slice value itself",
-      "statement": "`&e` where `e` is a range-index `a[i..j]` that already has slice kind `&[T]` yields that slice value unchanged (no additional reference wrapper), since the slice kind is already the borrowed fat form.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2562-L2569"
-      ],
-      "testability": "transitive"
+      "title": "`&a[range]` is the identity, not an extra `&[T]` wrapper",
+      "statement": "`&a[range]` (indexing by a Range) yields the Slice-typed inner expression itself, unchanged — Logos's Slice kind already IS the borrowed `&[T]` form, so applying `&` to a range-index is identity rather than producing `&&[T]`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2595-L2602"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.addr-of.temp-materialize",
       "domain": "expr",
-      "title": "&<rvalue> spills to a stack temporary",
-      "statement": "`&e` for a non-place expression `e` materializes `e` into a stack temporary and yields `&typeof(e)`. If `typeof(e)` is an error type the expression is an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2559-L2588"
-      ],
-      "testability": "untestable"
+      "title": "`&<rvalue>` spills a temporary to the stack",
+      "statement": "`&e` for any other rvalue `e` spills `e` to a fresh stack slot (AddrOfTemp) and returns its address, typed `&T` where T = typeof(e). If e's type is an array literal `[T; N]`, the array is spilled and the result is instead a slice literal `{addr, len=N}` typed `&[T]` (see coerce.unsize.array-to-slice) rather than `&[T; N]`.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2592-L2594", "src/compiler/sema_expr.cpp#L2619-L2621"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.unary.neg-literal-fold",
       "domain": "expr",
-      "title": "Negated integer literal folds the sign",
-      "statement": "`-L` where L is an integer literal is parsed as the single negative literal `-L`, so the minimum suffixed value (e.g. `-128i8`) is accepted even though the bare positive literal would be out of range for its type.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2591-L2598"
-      ]
+      "title": "`-LIT_INT` folds the sign before range-checking",
+      "statement": "`-LIT_INT` folds the negative sign into the integer-literal lowering (negate=true) rather than lowering the bare literal and negating the result, so a suffix-edge value like `-128i8` (the i8 minimum) is accepted — lowering the bare `128i8` first would reject it as out-of-range for i8.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2627-L2631"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.unary.operator-overload",
       "domain": "expr",
-      "title": "Unary operators dispatch to Neg/Not impls on struct operands",
-      "statement": "For a struct operand, `-x` resolves to the `Neg::neg(self)->Self` method and `!x` to the `Not::not(self)->Self` method via mangled `<Type>__neg`/`<Type>__not` signature lookup; when found, the unary expression becomes that method call.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2605-L2622"
-      ]
+      "title": "Unary `-`/`!` on a struct dispatch to Neg/Not",
+      "statement": "Unary `-x` / `!x` where x has Struct kind dispatch to the operator-overload trait method: `-x` resolves `<Type>__neg` (trait Neg, method `neg`), `!x` resolves `<Type>__not` (trait Not, method `not`), looked up via `find_func_by_base_and_signature` against the concrete struct name and invoked as a static call with `x` as sole argument. If no matching impl exists, lowering falls through to the built-in numeric/bool unary rules (which then reject the struct operand).",
+      "evidence": ["src/compiler/sema_expr.cpp#L2639-L2655"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.unary.neg-numeric",
       "domain": "expr",
-      "title": "Unary minus requires a numeric operand",
-      "statement": "`-x` on a non-struct operand requires `x` to be of numeric type (else a type error); the result type equals the operand type.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2625-L2640"
-      ]
+      "title": "Unary `-` requires a numeric operand",
+      "statement": "Unary `-x` requires `x` numeric (`is_numeric`); the result type equals the operand's type exactly (no widening/promotion). Non-numeric operands are a diagnostic error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2658-L2660", "src/compiler/sema_expr.cpp#L2673"],
+      "testability": "diagnostic"
     },
     {
       "id": "expr.unary.neg-unsigned-rejected",
       "domain": "expr",
-      "title": "Unary minus on an unsigned type is rejected",
-      "statement": "`-x` where `x` has any unsigned integer type (u8/u16/u24/u32/u56/u64/u128) is a compile error; an explicit cast to a signed type is required (e.g. `-(x as i64)`).",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2628-L2639"
-      ],
-      "divergence": "Extra unsigned widths u24/u56 are Logos-only (A11); the unary-minus-on-unsigned rejection itself matches Rust (no `Neg` impl for unsigned)."
+      "title": "Unary `-` on an unsigned integer type is rejected",
+      "statement": "Unary `-x` is rejected for every unsigned integer kind (u8/u16/u24/u32/u56/u64/u128) with a diagnostic instructing the user to cast to a signed type first (e.g. `-(x as i64)`); negation on an unsigned operand would otherwise wrap silently.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2661-L2672"],
+      "testability": "diagnostic"
     },
     {
       "id": "expr.unary.not-bool-or-integer",
       "domain": "expr",
-      "title": "Unary ! is logical-not on bool and bitwise-not on integers",
-      "statement": "`!x` requires `x` to be `bool` (result `bool`) or an integer type (result = operand type; an untyped integer literal becomes `i32`); any other operand type is a type error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2641-L2650"
-      ]
+      "title": "Unary `!` is bool-not or bitwise-not",
+      "statement": "Unary `!x`: for `x: bool` yields bool (logical NOT). For x of any integer kind or the untyped IntLit, yields bitwise NOT with result type = operand's type, except an untyped IntLit operand defaults its result type to i32. Any other operand type is a diagnostic error (result type defaults to bool so lowering continues).",
+      "evidence": ["src/compiler/sema_expr.cpp#L2674-L2683"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.deref.user-deref-impl",
       "domain": "expr",
-      "title": "Dereference routes through a Deref impl",
-      "statement": "`*x` for any type implementing Deref (Box/Rc/Arc/user, including generic impls) lowers to `*(x.deref())` via the generic-aware method machinery.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2658-L2668"
-      ]
+      "title": "`*x` for a Deref-implementing struct calls `.deref()`",
+      "statement": "`*x` for a struct `x` implementing (possibly generic) `Deref` lowers through the generic-aware method-call machinery as `x.deref()` (`emit_generic_deref_step` in lower_deref; mirrored by `emit_generic_deref_call` in the `&*` reborrow path) — this dispatches through generic impls too, not only concrete symbols.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2696-L2701", "src/compiler/sema_expr.cpp#L2582-L2584"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.deref.non-pointer-identity",
       "domain": "expr",
-      "title": "Dereference of a non-pointer value is identity",
-      "statement": "`*x` where `x` is neither a raw pointer nor a reference (and has no Deref impl) yields `x` unchanged rather than an error.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2669-L2680"
-      ],
-      "divergence": "Rust rejects `*x` on a non-pointer; Logos relaxes it to identity to accept faithful Rust loop imports (B3-bg-07), since `for i in &v` already yields T not &T."
+      "title": "`*x` on a non-pointer, non-Deref type is the identity",
+      "statement": "`*x` where x's type is none of Ptr/Ref/MutRef and has no generic Deref impl returns x unchanged (identity) rather than a diagnostic error.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2702-L2713"],
+      "divergence": "Not in docs/DIVERGENCES.md as a blessed item; Rust rejects unary `*` on a type without Deref/a pointer kind. This is a permissive relaxation admitting faithfully-ported Rust source that spells an already-loaded read as `*i` (e.g. `for i in &v` sites); soundness is preserved since it only relaxes the diagnostic, never changes which value is produced.",
+      "uncertainty": "The call sites that feed an already-non-pointer value into this deref (and whether other units reject it earlier) are outside this slice.",
+      "testability": "behavioral"
     },
     {
       "id": "expr.deref.raw-ptr-unsafe",
       "domain": "expr",
-      "title": "Raw pointer dereference requires unsafe",
-      "statement": "`*p` where `p` is a raw pointer `*T` is only permitted inside an unsafe context; otherwise it is an error. The result type is the pointee type.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2681-L2685"
-      ]
+      "title": "Raw-pointer deref requires `unsafe`",
+      "statement": "`*p` where `p: *T` (raw pointer) requires an enclosing unsafe context; outside unsafe it is a diagnostic error, though lowering still proceeds and returns the pointee-typed deref node.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2714-L2716"],
+      "testability": "diagnostic"
     },
     {
       "id": "module.path.qualified-call",
       "domain": "module",
-      "title": "Package-qualified call constrains free-fn resolution to that package",
-      "statement": "A call `pkg.path::fn(args)` carries a dotted package qualifier (RECEIVER + QUAL_PARTS joined by `.`); free-function resolution for that call is restricted to the named package.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2727-L2757"
-      ],
-      "divergence": "A9: packages are `.`-separated, items reached via `::`."
+      "title": "Package-qualified call scopes free-fn resolution to that package",
+      "statement": "A package-qualified call `pkg.path::fn(args)` carries RECEIVER + QUAL_PARTS (the dotted package segments); for the duration of lowering this call, free-function-name resolution is constrained to that package via `call_pkg_qualifier_` (RAII-restored to the prior value on return, supporting nesting). The qualified form's ARGS may be wrapped in a `call_arg_list` node (`{ITEMS:[...]}`) instead of a raw array; both shapes are accepted, gated on QUAL_PARTS so the (overwhelmingly common) unqualified raw-array shape is never reinterpreted as a map.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2760-L2803"],
+      "divergence": "A9",
+      "testability": "behavioral"
     },
     {
       "id": "module.path.qualified-member-fallback",
       "domain": "module",
-      "title": "Qualified call with no matching free fn is a type-member call",
-      "statement": "If a qualified `pkg.path.Member(args)` has no free function of that name in the package, the last dotted segment is interpreted as a type and the call is resolved as a static/associated method call `pkg.path.Type::method(...)`. A matching free function takes precedence.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2772-L2781"
-      ],
-      "testability": "transitive"
+      "title": "Qualified call with no matching free fn falls back to a type-member static call",
+      "statement": "A qualified call `pkg.path::name(args)` whose package has no matching free function and no matching generic free function is instead treated as a type-member static call `pkg.path.Type::method(...)` (the trailing dotted segment names the type) and delegated to `lower_static_call`, which re-derives the class from QUAL_PARTS. A free function of that name in the qualified package always takes precedence over this fallback.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2805-L2814"],
+      "divergence": "A9",
+      "testability": "behavioral"
     },
     {
       "id": "expr.call.tuple-struct-ctor",
       "domain": "expr",
-      "title": "Tuple-struct constructor call",
-      "statement": "`Foo(a0, .., a_{n-1})` where Foo is a tuple struct constructs a struct literal with positional fields named \"0\"..\"n-1\"; argument count must equal the field count; for a generic tuple struct the struct type-args are inferred by unifying each argument type against the declared field type.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2783-L2842"
-      ]
+      "title": "Tuple-struct name called as a function builds positional-field literal",
+      "statement": "Calling a tuple-struct's name as a function, `Foo(a, b, …)`, constructs Foo as a struct literal with positional fields named \"0\",\"1\",…. Arg count must equal declared field count (diagnostic otherwise). Each arg is widened (`widen_int_expr`) and compat/variance-checked (`types_compatible`, `check_variance`) against the (possibly type-substituted) declared field type. For a generic tuple struct, the struct's type-args are inferred by unifying each field's declared type against the corresponding arg's expression type (`unify_types`); a type-param left unresolved defaults to a fresh TypeVar in the literal's type.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2816-L2876"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.call.callable-resolution",
       "domain": "expr",
-      "title": "Callee resolution to closure or fn-pointer",
-      "statement": "A call `x(args)` treats `x` as callable when its type is a Closure or fn-value kind; `Box<dyn Fn*>` (Box<Closure>) is unwrapped to its inner Closure, and an Fn-bounded generic type-param `F` is treated as a closure with the bound's `fn_params`/`fn_ret` signature.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2845-L2926"
-      ],
-      "divergence": "A10: dyn Fn* collapses to the bare Closure type."
+      "title": "Which local-name calls are closure/fn-ptr calls (not named-fn calls)",
+      "statement": "`callee(args)` where `callee` names a local binding is treated as a closure/fn-pointer call (not a resolved named-function call) when the binding's type is: Closure; any fn-value kind; `Box<Closure>` (unwrapped to the inner Closure, flagged callee_is_box_closure — the box's value is the heap pointer to the {fn_ptr,env_ptr} pair); a `Ref`/`MutRef` to a callable (unwrapped, flagged callee_is_ref_fn); or a type-parameter bounded by an Fn/FnMut/FnOnce-family bound (synthesizes a Closure type from the bound's fn_params/fn_ret, flagged is_fn_bound), including through exactly one layer of `&`/`&mut` to that bounded type-param.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2878-L2960"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.call.callable-autoderef-ref",
       "domain": "expr",
-      "title": "Call auto-derefs a reference to a callable",
-      "statement": "`x(args)` where `x: &fn(..)` / `&mut fn(..)` / `&F` (reference to a callable or Fn-bounded param) auto-dereferences the reference to load the inner fn-pointer/closure before calling.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2864-L2880",
-        "src/compiler/sema_expr.cpp#L2892-L2904"
-      ]
+      "title": "Calling through a reference to a callable auto-derefs one layer",
+      "statement": "A callee of type `&fn(…)->R` / `&mut fn(…)` / a reference to a Closure (or `&F`/`&mut F` for an Fn-bounded type-param F) auto-derefs through exactly one reference layer to expose the callable before invoking it: the emitted call wraps the var_ref in a Deref (loading the fn-ptr/closure value out of the reference slot) ahead of the FnPtrCall/ClosureCall.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2897-L2913", "src/compiler/sema_expr.cpp#L2925-L2937", "src/compiler/sema_expr.cpp#L3003-L3010"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.call.callable-arity-and-args",
       "domain": "expr",
-      "title": "Closure/fn-ptr call arity and argument typing",
-      "statement": "A closure/fn-ptr call requires argument count to equal the callable's parameter count; each argument is coerced to its parameter type and must be type-compatible; the result type is the callable's return type, or `()` (void) if absent.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2928-L2978",
-        "src/compiler/sema_expr.cpp#L2998-L3000"
-      ]
+      "title": "Closure/fn-ptr call arity and per-argument checks",
+      "statement": "A closure/fn-pointer call's argument count must equal the callable type's parameter count (diagnostic error otherwise, naming the call kind: \"closure call\" / \"fn-ptr call\"); when the count matches, each argument is coerced to its parameter type (`coerce_arg_to_param`, CFLAG_MINIMAL) then compat/variance-checked (`types_compatible`, `check_variance`), each producing its own diagnostic on mismatch independent of the arity check.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2961-L2988"],
+      "testability": "diagnostic"
     },
     {
       "id": "expr.call.callable-arg-move",
       "domain": "expr",
-      "title": "By-value move-type arguments to a callable are moved",
-      "statement": "In a closure/fn-ptr call `f(args)`, a by-value concrete move-type argument transfers ownership into the callee (source marked moved). By-reference parameters and TypeVar-typed arguments are excluded.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2979-L2997"
-      ]
+      "title": "By-value move-type args to a closure/fn-ptr call are marked moved",
+      "statement": "In a closure/fn-pointer call `f(args)`, each by-value argument whose static type is a concrete move-type (excluding a bare TypeVar arg, whose move-ness is unknown at the generic call site, and excluding args bound to a Ref/MutRef parameter) is marked moved at its source place after lowering (`mark_moved_expr`) — ownership transfers into the callee, suppressing the caller's scope-exit drop for that source (otherwise a moved `String` would be dropped by both callee and caller).",
+      "evidence": ["src/compiler/sema_expr.cpp#L3012-L3030"],
+      "testability": "behavioral"
     },
     {
       "id": "expr.deref.box-move-out",
       "domain": "expr",
-      "title": "Dereferencing a move-typed Box moves the value out and frees the box",
-      "statement": "`*b` where `b` is a bare variable of type `Box<T>` and `T` is a move (non-Copy) type consumes `b`, moves the boxed value out, and frees the box without dropping the content (Rust's built-in `*b` move; desugars to `box_take::<T>(b)` with `T` inferred). This is the canonical `let s = *b` form. For a Copy element `T`, `*b` copies the value out and leaves `b` live (normal deref path); non-Box derefs also use the normal copy/deref path.",
-      "evidence": [
-        "src/compiler/sema_expr.cpp#L2688-L2725",
-        "src/compiler/sema_stmt.cpp#L1915-L1922"
-      ]
+      "title": "`*b` for `b: Box<T>` (T non-Copy) moves T out and frees the box",
+      "statement": "`*b` where `b` is a bare-VarRef binding of type `Box<T>` and `T` is a move-type (not Copy) lowers to a call to the generic free function `box_take::<T>(b)` (the matching candidate is chosen by 1 param / 1 type-param; the type-arg is inferred from the arg via `infer_type_args` and the call emitted via `finish_generic_call`, exactly as a real `box_take::<T>(b)` call site would be, so it mangles/monomorphizes correctly) — this consumes `b`, moves the T value out of the heap block, and frees the block. A Copy element type, or any operand more complex than a bare variable, is left to the ordinary (copying) deref path instead — the caller re-lowers the whole deref on a null return.",
+      "evidence": ["src/compiler/sema_expr.cpp#L2721-L2758"],
+      "testability": "behavioral"
     }
   ]
 }

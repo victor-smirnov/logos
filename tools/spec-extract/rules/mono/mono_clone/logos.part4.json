@@ -1,51 +1,48 @@
 {
   "unit": "mono/mono_clone/logos.part4",
   "layer": "mono",
-  "source": "src/compiler/mono_clone.cpp#L1593-L2119",
-  "source_hash": "ef1f1dbb2488031d",
+  "source": "src/compiler/mono_clone.cpp#L1617-L2151",
+  "source_hash": "957c8fd24bd6e199",
   "rules": [
     {
       "id": "intrinsic.reflect.has-trait-of",
       "domain": "intrinsic",
       "title": "has_trait_of::<Trait>(t: Type) -> bool folds at monomorphization",
-      "statement": "`has_trait_of::<Trait>(t)` (callee __has_trait_of__) folds to a `bool` literal during monomorphization. The concrete type T is recovered from t's `Type` struct-literal `uid` field, which must be a `__type_uid_of__::<T>()` call (after chasing VarRef through let-bindings, max 8 hops); T is substituted with the active type substitution. The result is `true` iff T (named by its concrete struct name, enum name, or type_str, truncated at any `$G` generic-suffix) has an impl of Trait, computed recursively over concrete and blanket impls.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L1588-L1652"
-      ],
-      "divergence": "A6 (Logos-only metaprog/reflection intrinsic; no Rust equivalent)",
-      "testability": "untestable"
+      "statement": "`has_trait_of::<Trait>(t)` (callee __has_trait_of__) folds to a `bool` literal during monomorphization. The concrete type T is recovered from t's `Type` struct-literal `uid` field, which must be a `__type_uid_of__::<T>()` call; T is substituted with the active type substitution. The result is `true` iff T (named by its concrete struct name, enum name, or type_str, truncated at any `$G` generic-instantiation suffix) has an impl of Trait, computed recursively over concrete and blanket impls (mono_has_impl_recursive); absent T or an empty trait name yields `false`.",
+      "evidence": ["src/compiler/mono_clone.cpp#L1617-L1652"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.reflect.typelist-len",
       "domain": "intrinsic",
       "title": "typelist_len::<L>() -> i64 folds to the pack arity",
-      "statement": "`typelist_len::<L>()` (callee __typelist_len__) folds to an `i64` literal equal to the number of type arguments in L's type-argument pack (0 when L is absent). O(1) compile-time probe; the canonical L is `TypeList<T...>`.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L1657-L1668"
-      ],
-      "divergence": "A6 (Logos-only type-level pack intrinsic)"
+      "statement": "`typelist_len::<L>()` (callee __typelist_len__) folds to an `i64` literal equal to the number of type arguments in L's type-argument pack (0 when L carries no type-argument list). O(1) compile-time probe; the canonical L is `TypeList<T...>`.",
+      "evidence": ["src/compiler/mono_clone.cpp#L1657-L1668"],
+      "divergence": "A6",
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.reflect.typelist-head-nth",
       "domain": "intrinsic",
       "title": "typelist_head/nth::<L>(i) -> Type folds to a Type struct literal",
-      "statement": "`typelist_head::<L>()` and `typelist_nth::<L>(i)` (callees __typelist_head__/__typelist_nth__) fold to a single `Type { kind, name, size, align, uid }` struct literal describing element idx of L's type-arg pack: head uses idx=0; nth requires `i` to be a literal int. A missing type argument, a non-literal nth index, or an index outside [0, pack.size()) is a fatal compile-time error.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L1672-L1731"
-      ],
-      "divergence": "A6 (Logos-only type-level pack intrinsic)"
+      "statement": "`typelist_head::<L>()` and `typelist_nth::<L>(i)` (callees __typelist_head__/__typelist_nth__) fold to a single `Type { kind, name, size, align, uid }` struct literal (intrinsic.reflect.type-struct-shape) describing element idx of L's type-arg pack: head uses idx=0; nth requires its argument to be a literal int. A missing type argument, a non-literal nth index, or an index outside `[0, pack.size())` is a fatal compile-time error (abort with diagnostic).",
+      "evidence": ["src/compiler/mono_clone.cpp#L1672-L1731"],
+      "divergence": "A6",
+      "testability": "diagnostic",
+      "related": ["intrinsic.reflect.type-struct-shape"]
     },
     {
       "id": "intrinsic.reflect.type-struct-shape",
       "domain": "intrinsic",
       "title": "Reflected Type value layout {kind,name,size,align,uid}",
-      "statement": "A reflected `Type` value materialized by a folding reflection intrinsic is the struct `Type` with fields `kind: u32` = the type's Kind tag, `name: &[u8]` = type_str(T), `size: i64` = size_of(T), `align: i64` = align_of(T), and `uid: u64` = a canonical 64-bit type hash (type_hash_64bit ∘ type_hash_23 ∘ type_id_canon). The compiler records uid→T so the value can be reified back to T.",
+      "statement": "A reflected `Type` value materialized by a folding reflection intrinsic is the struct literal `Type { kind: u32, name: &[u8], size: i64, align: i64, uid: u64 }`: `kind` = the TypeRef's `LogosType::Kind` discriminant, `name` = its canonical type string, `size`/`align` = its target layout (`size_of`/`align_of`), and `uid` = `type_hash_64bit(type_hash_23(type_id_canon(T)))`. Producing `uid` also registers `uid -> T` in a mono-wide table so a later `__type_uid_of__`-keyed lookup can recover T from the uid.",
       "evidence": [
         "src/compiler/mono_clone.cpp#L1716-L1730",
         "src/compiler/mono_clone.cpp#L1810-L1833",
-        "src/compiler/mono_clone.cpp#L2074-L2082"
+        "src/compiler/mono_clone.cpp#L2074-L2083"
       ],
-      "divergence": "A6 (Logos-only reflection value)",
+      "divergence": "A6",
       "related": [
         "intrinsic.reflect.typelist-head-nth",
         "intrinsic.reflect.reify-type",
@@ -56,24 +53,23 @@
       "id": "intrinsic.reflect.reify-type",
       "domain": "intrinsic",
       "title": "reify_type(t: Type) -> Type recovers a source TypeRef and re-emits Type",
-      "statement": "`reify_type(t)` (callee __reify_type__) recovers a concrete TypeRef from a direct Type-producer argument and re-emits a fresh `Type` struct literal. Supported argument shapes (after chasing VarRef through let-bindings, max 8 hops): (1) a `Type` struct literal whose `uid` field is `__type_uid_of__::<T>()` → T substituted; (2) a `__typelist_head__`/`__typelist_nth__` call → the indexed pack element. A missing argument is fatal; any other (unsupported) shape is a fatal compile-time error.",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L1741-L1834"
-      ],
-      "divergence": "A6 (Logos-only reflection intrinsic)",
-      "related": [
-        "intrinsic.reflect.type-struct-shape"
-      ]
+      "statement": "`reify_type(t)` (callee __reify_type__) recovers a concrete TypeRef from a direct Type-producer argument and re-emits a fresh `Type` struct literal for it. Supported argument shapes, after chasing a VarRef argument through recorded let-initializers (mono.reflect.varref-let-chase): (1) a `Call` to `__typelist_head__`/`__typelist_nth__` — the indexed pack element becomes T (same index rules as intrinsic.reflect.typelist-head-nth); (2) a `StructLit` whose `uid` field is a call to `__type_uid_of__::<T>()` — T is substituted directly. A missing argument, or any other (unsupported) shape, is a fatal compile-time error naming the accepted producer forms.",
+      "evidence": ["src/compiler/mono_clone.cpp#L1741-L1835"],
+      "divergence": "A6",
+      "testability": "diagnostic",
+      "related": ["intrinsic.reflect.type-struct-shape"]
     },
     {
       "id": "intrinsic.reflect.type-apply",
       "domain": "intrinsic",
       "title": "type_apply(name, args: [Type;N]) -> Type instantiates a struct template",
-      "statement": "`type_apply(name, args)` (callee __type_apply__) instantiates the struct template named `name` (a string literal; surrounding quote chars stripped) with the TypeRefs recovered from `args` and folds to a `Type` value for the instantiation. `name` must be a string literal (else fatal). The instantiated type's `pkg_name` is taken from the matching template in the program's struct table. Each element TypeRef is recovered from the same producer shapes reify_type accepts (Type struct-lit uid call, or typelist head/nth); a non-recognized producer element is a fatal compile-time error.",
+      "statement": "`type_apply(name, args)` (callee __type_apply__) instantiates the struct template named `name` (must be a string literal; a surrounding `\"...\"` quoting is stripped) applying the TypeRefs recovered from `args` as its type-argument pack, and folds to a `Type` value describing the instantiation. `args` is chased through let-bindings; absent the pack-splice fast path (intrinsic.reflect.type-apply-pack-splice) it must be an ArrLit whose elements each resolve via the same direct-producer shapes intrinsic.reflect.reify-type accepts. The instantiated Struct TypeRef's `pkg_name` is copied from the first existing struct definition matching `name`, so the instance shares registry/UID identity with ordinarily-declared instantiations. A non-literal `name`, a non-ArrLit `args`, or any unrecognized `args` element is a fatal compile-time error.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1841-L2083"
+        "src/compiler/mono_clone.cpp#L1841-L1877",
+        "src/compiler/mono_clone.cpp#L1968-L2083"
       ],
-      "divergence": "A6 (Logos-only type-level composition intrinsic)",
+      "divergence": "A6",
+      "testability": "diagnostic",
       "related": [
         "intrinsic.reflect.type-struct-shape",
         "intrinsic.reflect.reify-type"
@@ -83,41 +79,35 @@
       "id": "intrinsic.reflect.type-apply-pack-splice",
       "domain": "intrinsic",
       "title": "type_apply pack-splice fast path over Type-array intrinsics",
-      "statement": "When the `args` operand of type_apply is itself a Type-array producer intrinsic, its element TypeRefs are spliced directly into the template instantiation instead of requiring an array-literal shape: `type_refs_of` contributes its (substituted) type-args as the pack; `args_of::<T>` contributes T's type-args; `typelist_tail::<T>` contributes T's pack minus its first element; `tuple_elems_of::<T>` contributes T's tuple element types (only when T is a Tuple). Otherwise `args` must be an array literal (else fatal).",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L1878-L1972"
-      ],
-      "divergence": "A6 (Logos-only variadic type-pack splice)",
-      "related": [
-        "intrinsic.reflect.type-apply"
-      ]
+      "statement": "When type_apply's `args` operand is (after let-chase) itself a call to a Type-array-producing intrinsic, its element TypeRefs are spliced directly into the template instantiation instead of requiring an ArrLit shape: `__type_refs_of__` contributes its full (substituted) type-argument list, one per struct member; `__args_of__::<T>()` contributes T's own type_args; `__typelist_tail__::<T>()` contributes T's pack excluding index 0; `__tuple_elems_of__::<T>()` contributes T's tuple element types when T is a Tuple (otherwise contributes none). This splice runs before, and independent of, the mono ArrLit-folding pass.",
+      "evidence": ["src/compiler/mono_clone.cpp#L1878-L1967"],
+      "divergence": "A6",
+      "testability": "behavioral",
+      "related": ["intrinsic.reflect.type-apply"]
     },
     {
       "id": "intrinsic.reflect.apply-generic",
       "domain": "intrinsic",
       "title": "apply_generic(g: Type, args) instantiates a generic constructor",
-      "statement": "`apply_generic(g, args)` (callee __apply_generic__) instantiates the generic constructor described by Type value `g` (produced by generic_of) with `args`, routing through the same struct allocation as type_apply. The template name is recovered from g's `Type` struct-literal `name` field (a string literal); both operands are chased through VarRef let-bindings (max 8 hops).",
-      "evidence": [
-        "src/compiler/mono_clone.cpp#L2085-L2119"
-      ],
-      "divergence": "A6 (Logos-only type-level composition intrinsic)",
-      "uncertainty": "Slice ends mid-statement at L2119; only name recovery from g is visible in-unit, the remaining instantiation logic continues past the unit boundary.",
-      "related": [
-        "intrinsic.reflect.type-apply"
-      ]
+      "statement": "`__apply_generic__(g, args)` instantiates the generic constructor described by Type value `g` (produced by `generic_of`) applying `args`, routed through the same struct-allocation path as intrinsic.reflect.type-apply. The template name is recovered from g's `Type` struct-literal `name` field, which must be a (possibly-quoted) string literal; both `g` and `args` are first chased through VarRef let-bindings (mono.reflect.varref-let-chase). `g` not resolving to such a StructLit, or `args` not being an ArrLit, is a fatal compile-time error.",
+      "evidence": ["src/compiler/mono_clone.cpp#L2090-L2151"],
+      "divergence": "A6",
+      "uncertainty": "Unit ends at L2151 mid-function (inside the args-element `recover` lambda); the element-recovery/instantiation tail is only partially visible in this slice and continues in the following unit.",
+      "testability": "diagnostic",
+      "related": ["intrinsic.reflect.type-apply"]
     },
     {
       "id": "mono.reflect.varref-let-chase",
       "domain": "mono",
       "title": "Reflection-intrinsic operands chase VarRef through let-inits, bounded 8 hops",
-      "statement": "When folding a reflection intrinsic, an operand that is a VarRef is resolved by following the variable's recorded let-initializer expression, repeated up to 8 times, to reach the underlying producer expression; this enables `let x = <producer>; intrinsic(x)` to fold identically to `intrinsic(<producer>)`. The hop cap guards against self-referential bindings.",
+      "statement": "When folding a reflection intrinsic, an operand that is a `VarRef` is resolved by repeatedly replacing it with the variable's recorded `let`-initializer expression (a per-function name -> init-expr map populated by let-statement substitution), for up to 8 hops, stopping early once a name has no recorded initializer or the chased expression is no longer a VarRef. This lets call sites like `let x = <producer>; intrinsic(x)` fold identically to `intrinsic(<producer>)`; the hop cap guards against pathological self-referencing bindings.",
       "evidence": [
-        "src/compiler/mono_clone.cpp#L1599-L1610",
         "src/compiler/mono_clone.cpp#L1755-L1762",
-        "src/compiler/mono_clone.cpp#L1870-L1877",
-        "src/compiler/mono_clone.cpp#L2099-L2110"
+        "src/compiler/mono_clone.cpp#L1868-L1877",
+        "src/compiler/mono_clone.cpp#L1979-L1986",
+        "src/compiler/mono_clone.cpp#L2099-L2109"
       ],
-      "divergence": "A6 (mechanism specific to Logos compile-time reflection)"
+      "testability": "transitive"
     }
   ]
 }

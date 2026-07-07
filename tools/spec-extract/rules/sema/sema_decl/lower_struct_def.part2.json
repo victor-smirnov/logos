@@ -1,27 +1,29 @@
 {
   "unit": "sema/sema_decl/lower_struct_def.part2",
   "layer": "sema",
-  "source": "src/compiler/sema_decl.cpp#L1647-L2172",
-  "source_hash": "426cd8998b2dd530",
+  "source": "src/compiler/sema_decl.cpp#L1691-L2208",
+  "source_hash": "e0fb077fc2ced12e",
   "rules": [
     {
       "id": "item.impl.type-params-source",
       "domain": "item",
       "title": "Impl type parameters come from IMPL_TYPE_PARAMS or (inherent only) TYPE_PARAMS",
-      "statement": "An impl block's own generic parameters are taken from the generic-trait-impl form `impl<T> Trait for U<T>` (its dedicated parameter list). For an inherent impl `impl<T> U<T>` (no trait), the parameters are taken from the type-parameter list instead. These parameters are in scope throughout the impl's target type, trait args, and method signatures/bodies, and are recorded on each lowered method.",
+      "statement": "An impl block's own generic parameters are taken from the generic-trait-impl form `impl<T> Trait for U<T>` (its dedicated IMPL_TYPE_PARAMS list) when present. For an inherent impl `impl<T> U<T>` (no trait name), the parameters are taken from the plain type-parameter list instead. The chosen list is pushed into scope for resolving the target type, trait args, and method signatures/bodies, and is recorded on the impl so lowered methods carry it as their own type_params.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1674-L1683",
-        "src/compiler/sema_decl.cpp#L1866-L1869"
-      ]
+        "src/compiler/sema_decl.cpp#L1716-L1727"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.impl.target-mangling",
       "domain": "item",
       "title": "Impl self-type is mangled to a canonical target key by type shape",
-      "statement": "The impl target type is reduced to a canonical string key by shape: pointer/named struct → struct name (concrete generic instantiations use the monomorphized concrete name, generic/typevar instantiations keep the base name); `[T]` and `&[T]`/`&mut [T]` → `$slice$T` (typevar elem) or `$slice$<elem>` (concrete); `dyn Tr` → `$dyn$<Trait>`; `&U`/`&mut U` → `$ref_<U>`/`$mut_ref_<U>` (typevar pointee → `$ref$T`/`$mut_ref$T`); tuple `(...)` → `$tuple$N` (typevar elems) / `$tuple$N$<t1>$<t2>...` (concrete) / `$tuple$variadic` (variadic param); fn-pointer → `$fnptr$<arity>`; unit `()` → `void`. Collection and lowering use the same mangling so they agree.",
+      "statement": "The impl target type is reduced to a canonical string key by shape: pointer/named struct/datatype → struct name (concrete generic instantiations use the monomorphized concrete name; instantiations with unbound TypeVars keep the base name); `[T]` and `&[T]`/`&mut [T]` → `$slice$T` (TypeVar elem) or `$slice$<elem>` (concrete elem), with reference-to-slice targets rebound to the UnsizedSlice form under the same key as bare `[T]`; `dyn Tr` → `$dyn$<Trait>`; `&U`/`&mut U` → `$ref_<U>`/`$mut_ref_<U>` (unbound-TypeVar pointee → `$ref$T`/`$mut_ref$T` sentinel); a generic instantiation `Foo<Args>` mangles to the base name, remangled to the concrete struct name only when the impl itself has no type params and every arg is concrete — otherwise the unsubstituted resolved pattern is captured so mono can pattern-unify a concrete receiver against the impl's own TypeVars rather than binding positionally; tuple `(...)` → `void` (unit), `$tuple$variadic` (single variadic-param element bound as `impl<A...> Trait for (A...)`), else `$tuple$N` (any TypeVar elem) or `$tuple$N$<t1>$<t2>...` (all concrete); fn-pointer → `$fnptr$<arity>` (type-erased by parameter count); any other simple/primitive type → its bare name. Collection-time and lowering-time mangling must agree.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1688-L1820",
-        "src/compiler/sema_decl.cpp#L1782-L1814"
+        "src/compiler/sema_decl.cpp#L1730-L1793",
+        "src/compiler/sema_decl.cpp#L1794-L1818",
+        "src/compiler/sema_decl.cpp#L1819-L1858",
+        "src/compiler/sema_decl.cpp#L1859-L1864"
       ],
       "testability": "transitive"
     },
@@ -29,83 +31,116 @@
       "id": "type.alias.impl-target-unfold",
       "domain": "type",
       "title": "Non-generic type aliases unfold at an impl target position",
-      "statement": "When the impl target names a non-generic type alias `type A = B;`, the impl is treated as an impl on the aliased struct/datatype B (the alias is transparent): `impl Tr for A` ≡ `impl Tr for B`, including concrete-generic mangling of B.",
+      "statement": "When the impl target names a non-generic type alias `type A = B;`, the impl is treated as an impl on the aliased Struct/ZonedStruct B (the alias is transparent): `impl Tr for A` ≡ `impl Tr for B`, including concrete-generic mangling of B when B carries type args.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1823-L1837"
-      ]
+        "src/compiler/sema_decl.cpp#L1865-L1882"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "region.impl.outlives-undeclared",
       "domain": "region",
       "title": "Impl outlives clause may only name declared lifetimes or 'static",
-      "statement": "Each lifetime name appearing in an impl-level outlives clause `'a: 'b` must be either a declared impl lifetime parameter or `'static`; otherwise it is an error (\"use of undeclared lifetime name '...' in outlives clause\").",
+      "statement": "Each lifetime name appearing in an impl-level outlives clause `'a: 'b` must be either a declared impl lifetime parameter or `'static`/`static`; otherwise it is a compile error: \"impl {Trait} for {Target}: use of undeclared lifetime name '{name}' in outlives clause\".",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1891-L1905"
-      ]
+        "src/compiler/sema_decl.cpp#L1934-L1949"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "trait.impl.type-code-inherit",
       "domain": "trait",
       "title": "Implementing a type-coded trait propagates its type_code to the target struct",
-      "statement": "If a trait carries `#[type_code=N]` and a type implements it (`impl Trait for S`), the target struct S inherits type_code N unless S already has one. The trait-declared code overrides a hash-derived default. For a generic-instantiation target (no concrete struct found, mangled name contains `$G`), the code is recorded as an instantiation annotation so monomorphization applies it to the cloned concrete struct, and the canonical and mangled names are registered for sema-time `type_code_of` queries.",
+      "statement": "If a trait carries a nonzero `#[type_code=N]` and a type implements it (`impl Trait for S`), the target struct S inherits type_code N (overriding S's hash-derived default), unless S is not yet a concrete registered struct (a generic instantiation, mangled name containing \"$G\"). In that case the code is recorded as an InstAnnot decl (mangled name, type_code, struct type, canonical name) for monomorphization to apply once the concrete struct is cloned, and both the canonical (`pkg::Base<Args>`) and mangled (`pkg::Base$G..`) names are registered in the explicit-type-code table for later `type_code_of` queries to hit. An explicit `#[type_code]` already present directly on S is not additionally combined with the trait-derived one on this path.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L1912-L1967"
-      ]
+        "src/compiler/sema_decl.cpp#L1952-L2011"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "trait.impl.type-code-from-genos-spec",
       "domain": "trait",
-      "title": "type_code from a genos-specialization decl propagates through a trait impl with matching args",
-      "statement": "If a genos specialization `#[type_code=N] genos Trait<Args>;` exists and a type implements `Trait<Args>` (same resolved trait type-args), the implementing struct inherits type_code N, provided the trait itself did not already supply one.",
+      "title": "type_code from a genos-specialization decl propagates through a matching trait impl",
+      "statement": "If a genos specialization `#[type_code=N] pub genos Trait<Args>;` exists and a type implements `Trait<Args>` with the same resolved trait type-args, the implementing struct inherits type_code N (looked up via canonical key `pkg::Trait<Args>`), provided the direct trait itself did not already supply a type_code.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L2044-L2069"
-      ]
+        "src/compiler/sema_decl.cpp#L2088-L2113"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "trait.impl.blanket-method-target",
       "domain": "trait",
-      "title": "Blanket-impl methods are lowered under a synthetic target name",
-      "statement": "Methods of a blanket impl are lowered under a synthetic target key `$blanket$<Trait>$<BoundTrait>$<target>` so they do not collide with `T::method` for unrelated generic `T` in the program.",
+      "title": "Blanket impl detection, bound-trait capture, and synthetic method target",
+      "statement": "An impl whose target names one of the impl's own type parameters (`impl<T: Bound> Trait for T`) is a blanket impl: IS_BLANKET is set and BOUND_TRAIT records that type param's first trait bound (with its associated-type equalities as PRIMARY_ASSOC_EQS); additional bounds on the same param are recorded as EXTRA_BOUNDS with per-bound associated-type equalities. Blanket-impl methods are lowered under the synthetic target key `$blanket$<Trait>$<BoundTrait>$<target>` rather than the bare type-param name, so they cannot collide with `T::method` attached for any unrelated generic `T` elsewhere in the program.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L2121-L2126"
-      ]
+        "src/compiler/sema_decl.cpp#L2012-L2050",
+        "src/compiler/sema_decl.cpp#L2165-L2170"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "trait.impl.trait-arg-resolution",
       "domain": "trait",
       "title": "Impl trait type-args bind the trait's type parameters by position",
-      "statement": "For `impl Trait<A1,A2,...> for U`, the trait arguments are resolved positionally and each binds the corresponding declared trait type parameter (Self-substitution scope), skipping lifetime arguments. The impl's own resolved trait args (not a coherence-map last-wins entry) determine the `Trait$G..$Args` keying of associated-type impls in monomorphization.",
+      "statement": "For `impl SomeTrait<A1,A2,...> for U`, each resolved trait type argument binds the corresponding declared trait type-parameter name (by position) into the current type-param scope used while lowering the impl's methods (Self-substitution scope for the trait's own generics).",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L2009-L2043"
-      ]
+        "src/compiler/sema_decl.cpp#L2052-L2075"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "region.impl.trait-arg-lifetime-erased",
       "domain": "region",
       "title": "Lifetime arguments at trait-argument position are not tracked for trait dispatch",
-      "statement": "Lifetime parameters appearing among impl trait type-arguments are skipped: regions are not tracked structurally for trait selection/dispatch.",
+      "statement": "A LIFETIME_PARAM occurring among an impl's trait type-arguments (`impl SomeTrait<'a, T> for X`) is skipped when positionally resolving trait type arguments: regions are not tracked structurally for trait selection/dispatch.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L2020-L2022"
+        "src/compiler/sema_decl.cpp#L2064-L2066"
       ],
-      "divergence": "Logos does not use regions in trait selection; Rust late-bound/early-bound lifetimes participate in coherence."
+      "divergence": "Logos does not use regions in trait selection/coherence; Rust's HRTB/lifetime args participate in trait-ref identity even though they are erased at codegen.",
+      "testability": "transitive"
     },
     {
       "id": "trait.impl.method-template-attach",
       "domain": "trait",
       "title": "Generic-impl methods attach to a matching spec or struct template, not free functions",
-      "statement": "For an impl carrying its own type parameters, methods are attached to a template the monomorphizer clones: a partial/full struct specialization is preferred when the impl target's type-args pattern-match the spec's patterns (typevar↔typevar positions agree, concrete positions equal); otherwise the base struct template (preferring one in the impl's own package over a same-named struct from another package) is used.",
+      "statement": "For an impl carrying its own impl-level type parameters, methods attach to a template mono clones (with the impl's type params substituted) rather than being added as free functions: a partial/full struct specialization is preferred when the impl target's generic-instantiation type-arg pattern matches the spec's spec_patterns (equal arity; TypeVar-vs-TypeVar positions agree; concrete positions must be type-equal); otherwise the base struct template of matching name is used, preferring one in the impl's own package over a same-named struct from another package.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L2076-L2120"
-      ]
+        "src/compiler/sema_decl.cpp#L2114-L2164"
+      ],
+      "testability": "transitive"
     },
     {
       "id": "trait.impl.self-seeding",
       "domain": "trait",
       "title": "Self is seeded to the impl target for shapes lower_fn's name lookup cannot resolve",
-      "statement": "Within an impl's methods, `Self` denotes the impl target type. The compiler explicitly binds `Self` (over any stale prior binding) for targets whose mangled name is not resolvable by ordinary name lookup: `str` and other unsized self-types → `UnsizedSlice<u8>`/the resolved unsized type; tuple, fn-pointer, and reference targets → that exact type; a concrete-type-arg target with no impl parameters; and blanket impls on a type variable. Sized plain struct/datatype/primitive targets fall through to name lookup.",
+      "statement": "Within an impl's methods, `Self` denotes the impl's target type. The compiler explicitly binds `Self` (overriding any stale binding left by a previously-lowered impl) whenever the target's mangled form is not resolvable by lower_fn's ordinary bare-name lookup: unsized-slice/unsized-dyn self-types bind Self to that resolved unsized type; `impl ... for str` binds Self to `UnsizedSlice<u8>`; tuple, fn-pointer, reference, concrete-type-arg (no impl param), and blanket-impl-on-type-variable targets bind Self to the resolved target type. Sized plain struct/datatype/primitive targets fall through to ordinary name lookup instead.",
       "evidence": [
-        "src/compiler/sema_decl.cpp#L2127-L2171"
-      ]
+        "src/compiler/sema_decl.cpp#L2176-L2181",
+        "src/compiler/sema_decl.cpp#L2182-L2190",
+        "src/compiler/sema_decl.cpp#L2191-L2208"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.impl.assoc-type-self-scope",
+      "domain": "trait",
+      "title": "Impl-scoped resolution of Self::AssocType<...> (GAT projection)",
+      "statement": "Within an impl block's method signatures and bodies, a `Self::AssocType<X>` projection resolves through the enclosing impl's own trait (its declared associated types), with `Self` already substituted to the impl's concrete target type — the impl's trait name is pushed/popped as scope around the whole impl body specifically to make this per-impl GAT-projection resolution possible.",
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L1697-L1706"
+      ],
+      "uncertainty": "The projection-resolution logic consuming current_impl_trait_name_ lives outside this slice; only the scope push/pop is directly evidenced here.",
+      "testability": "transitive"
+    },
+    {
+      "id": "trait.impl.multi-generic-coherence",
+      "domain": "trait",
+      "title": "Per-impl trait-arg override for multiple same-target trait instantiations",
+      "statement": "When multiple `impl Trait<T> for X` blocks exist for the same (Trait, X) pair with different trait type-argument instantiations, each impl's own resolved trait type-args (not the collect-phase coherence map's last-inserted entry, which holds only the last-registered impl's args) are (re-)written into that impl's TRAIT_TYPE_ARGS, so mono keys each instantiation's associated-type impls / method mangling (`Trait$G..$<Args>`) distinctly instead of every impl collapsing onto the last-registered instantiation's args.",
+      "evidence": [
+        "src/compiler/sema_decl.cpp#L2076-L2087"
+      ],
+      "testability": "behavioral"
     }
   ]
 }

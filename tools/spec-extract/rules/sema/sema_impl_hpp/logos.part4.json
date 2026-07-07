@@ -1,14 +1,14 @@
 {
   "unit": "sema/sema_impl_hpp/logos.part4",
   "layer": "sema",
-  "source": "src/compiler/sema_impl.hpp#L1686-L2250",
-  "source_hash": "fbdf48557efab649",
+  "source": "src/compiler/sema_impl.hpp#L1686-L2264",
+  "source_hash": "d3af1e7232c5d917",
   "rules": [
     {
       "id": "type.recursion.struct-finite-size",
       "domain": "type",
       "title": "Struct may not contain itself by value",
-      "statement": "A struct type is ill-formed if its by-value field graph (transitively through struct/enum/tuple/array fields, but not through pointers or references) contains itself: cycle detection (white/gray/black) over field types rejects an infinite-size type. The fix is to indirect via a pointer or reference (`&T`).",
+      "statement": "A struct type is ill-formed if its inline (by-value) field graph — transitively through Struct/ZonedStruct, Enum, and Tuple field types — contains itself: white/gray/black cycle detection over field types rejects an infinite-size type. Fix: indirect via a pointer or reference (`&T`).",
       "evidence": [
         "src/compiler/sema_impl.hpp#L1690-L1707",
         "src/compiler/sema_impl.hpp#L1708-L1728",
@@ -19,7 +19,7 @@
       "id": "type.recursion.enum-finite-size",
       "domain": "type",
       "title": "Enum variant payload may not contain itself by value",
-      "statement": "An enum type is ill-formed if any variant payload type transitively contains the enum itself by value (through struct/enum/tuple/array, not through indirection). Such recursion must be broken by boxing the payload behind a pointer (`*const T`).",
+      "statement": "An enum type is ill-formed if any variant payload type transitively contains the enum itself by value (through Struct/ZonedStruct/Enum/Tuple, not through indirection). Such recursion must be broken by boxing the payload behind a pointer (`*const T`).",
       "evidence": [
         "src/compiler/sema_impl.hpp#L1729-L1749",
         "src/compiler/sema_impl.hpp#L1742-L1746"
@@ -28,10 +28,10 @@
     {
       "id": "type.recursion.indirection-breaks-cycle",
       "domain": "type",
-      "title": "Pointers/references break size-cycle detection",
-      "statement": "Size-cycle traversal descends only through inline by-value containers (Struct, ZonedStruct, Enum, Tuple, Array element types); it does not descend through pointer or reference fields, so indirected self-reference is finite-size and legal.",
+      "title": "Pointers/references (and arrays) break size-cycle detection",
+      "statement": "The size-cycle traversal (`walk`) descends only through inline Struct/ZonedStruct, Enum, and Tuple field/element types; it does not descend into Array element types, pointer fields, or reference fields, so self-reference occurring only through those forms is treated as finite by this check.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L1693-L1706"
+        "src/compiler/sema_impl.hpp#L1690-L1706"
       ]
     },
     {
@@ -87,7 +87,7 @@
       "title": "`_` placeholder type forbidden in item signatures",
       "statement": "The inferred-type placeholder `_` is not permitted within types in item signature positions (function parameter types, return type, const item type), including nested occurrences (`Vec<_>`, `&_`, `[_; N]`); such occurrences are an error rather than an inference hole.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L1957-L1968"
+        "src/compiler/sema_impl.hpp#L1965-L1976"
       ]
     },
     {
@@ -96,8 +96,18 @@
       "title": "Use of possibly-uninitialised binding is an error",
       "statement": "A variable declared without an initializer (`let mut x: T;`) is tracked as currently-uninitialised; reading it before assignment is a hard error. First assignment marks it initialised. At a CFG merge the post-state is uninit if uninit on any non-diverging incoming path; diverging branches (tail return/break/continue/panic) contribute nothing; loops are conservative (body-only assignments do not initialise the outer scope). Closures get their own saved/restored tracker.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L1887-L1906"
+        "src/compiler/sema_impl.hpp#L1897-L1906"
       ]
+    },
+    {
+      "id": "stmt.let.no-drop-before-replace-uninit",
+      "domain": "stmt",
+      "title": "Reassigning a declared-but-uninitialized binding never drops the old value",
+      "statement": "A variable declared without an initializer (`let mut x: T;`) is not definitely-initialized at a later reassignment (a conditional path may have left it uninitialized), so reassignment must NOT drop the prior value first (that would drop garbage). A variable declared WITH an initializer is definitely-initialized at every subsequent reassignment (branches don't de-initialize) and is safe to drop-before-replace.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L1887-L1896"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.move.shadowing-new-slot",
@@ -114,8 +124,52 @@
       "title": "Popping a scope clears its variables' moved state",
       "statement": "On scope exit, all variables declared in that scope are removed from the moved set (their names go out of scope, so their move state no longer constrains outer code).",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2037-L2044"
+        "src/compiler/sema_impl.hpp#L2045-L2052"
       ]
+    },
+    {
+      "id": "borrow.move.closure-return-drop-boundary",
+      "domain": "borrow",
+      "title": "A closure body's frame is a drop boundary for `return`",
+      "statement": "A closure body's own frame(s) are marked a drop boundary: a `return` inside the closure drops only frames belonging to the closure itself and never the enclosing function's frames — which remain on the scope stack (unpopped) so the closure body can still resolve captured names for type lookup.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L1853-L1858",
+        "src/compiler/sema_impl.hpp#L2044"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "borrow.move.loop-exit-drop-boundary",
+      "domain": "borrow",
+      "title": "`break`/`continue` drops every frame down to the loop-body frame",
+      "statement": "The scope frame that IS a loop's body is tagged a loop boundary; a `break`/`continue` nested inside the body (even through an inner `if`) exits via the loop edge, bypassing the body block's normal end-of-scope drop path, and must instead drop every frame from the statement's own frame down to AND INCLUDING the loop-body frame.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L1859-L1865",
+        "src/compiler/sema_impl.hpp#L1875-L1878"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "borrow.move.conditional-move-epilogue-no-double-drop",
+      "domain": "borrow",
+      "title": "Conditional move on one branch suppresses epilogue drop on merge",
+      "statement": "A parameter/local moved on at least one branch of a diverging conditional (e.g. `if b { return f(x); }`) is recorded as EVER-moved for the whole function body (monotonic, not reverted by per-branch save/restore); function-epilogue drops consult the ever-moved set — not just the post-merge moved set — so a drop is not re-emitted on the branch-merged control-flow block for a variable already moved on some branch, avoiding a double-free when branches are lowered into one merged block.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L2063-L2075",
+        "src/compiler/sema_impl.hpp#L1881-L1886"
+      ],
+      "uncertainty": "Source comment flags the proper fix as full drop-flag elaboration extended to params, 'tracked' as still-pending — the ever-moved fallback may over-suppress a drop on a merged path where the variable was NOT actually moved.",
+      "testability": "behavioral"
+    },
+    {
+      "id": "borrow.move.move-closure-capture-drop-once",
+      "domain": "borrow",
+      "title": "Move-closure captures drop once, in capture order, with the closure",
+      "statement": "A variable captured BY MOVE into a `move` closure is marked moved (use-after-move enforced at the source), but the closure environment stores only a pointer to the source's storage (no per-capture drop-glue); the source is additionally recorded closure-owned so its destructor still runs exactly once, timed to when the owning closure binding itself drops (in capture order) rather than at the source's own original slot — unless the closure is created in a different frame than the captured source (e.g. a conditional inner block), in which case the capture falls back to its own-slot drop.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L1907-L1922"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "borrow.move.write-into-cell-is-move",
@@ -123,7 +177,7 @@
       "title": "Writing a move-type value into a memory cell moves it",
       "statement": "Writing a move-type RHS into a memory cell (deref, indexed, field) is a move of the source: the source's scope-exit auto-drop is suppressed and Drop responsibility transfers to the destination.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2069-L2077"
+        "src/compiler/sema_impl.hpp#L2077-L2085"
       ]
     },
     {
@@ -132,7 +186,7 @@
       "title": "Move of a place tracks the full l-value path",
       "statement": "Moving a move-type place marks a precise l-value path: a bare variable marks the variable; a field chain `outer.a.b` rooted at a variable marks `outer.a.b`; a tuple element `t.N` marks `<name>.<index>`. The marked sub-path is then excluded from the aggregate's scope-end drop so that element is not dropped twice.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2169-L2208"
+        "src/compiler/sema_impl.hpp#L2177-L2216"
       ]
     },
     {
@@ -141,7 +195,7 @@
       "title": "Cannot move a Drop-bearing element out of a fixed-size array by index",
       "statement": "Moving by value out of a fixed-size array element via index (`let s = arr[i]`) is rejected when the element type is concrete and needs Drop, because a single array slot cannot be marked moved (the array would still drop it → double free). Generic element types (TypeVar/AssocType/ImplTrait) are exempted, as are borrows/autoref which do not move.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2209-L2248"
+        "src/compiler/sema_impl.hpp#L2217-L2257"
       ]
     },
     {
@@ -150,7 +204,7 @@
       "title": "Cannot move a location-anchored value by value",
       "statement": "A by-value move of a place whose type is non-movable (location-anchored) is an error; the value must instead be used in place through `&`, `&mut`, or `*mut`.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2148-L2168"
+        "src/compiler/sema_impl.hpp#L2159-L2176"
       ]
     },
     {
@@ -159,8 +213,7 @@
       "title": "Non-movable (location-anchored) type classification",
       "statement": "A type is non-movable iff: it is a `#[pinned]` struct; or a `#[zoned2]` struct (self-relative pointer fields anchored to their own slot); or it inlines (transitively through struct/tuple/array by-value fields, not through pointers/references) a `#[rel_ptr]` or `#[pinned]` field. A `#[rel_ptr]` type itself is movable (its value-form is the resolved absolute pointer); it counts as non-movable only when embedded as an inline field.",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2096-L2146",
-        "src/compiler/sema_impl.hpp#L2126-L2142"
+        "src/compiler/sema_impl.hpp#L2104-L2154"
       ],
       "divergence": "Logos addition (zones/pin): `#[pinned]`/`#[zoned2]`/`#[rel_ptr]` anchoring has no Rust analog.",
       "testability": "untestable"
@@ -171,8 +224,8 @@
       "title": "Auto-Copy for all-Copy fieldless-Drop structs",
       "statement": "A struct is automatically Copy (never move-only) iff every field type is Copy and it has no `impl Drop`. Manual `impl Copy` entries take precedence (computed after supertrait-impl checking).",
       "evidence": [
-        "src/compiler/sema_impl.hpp#L2051-L2054",
-        "src/compiler/sema_impl.hpp#L1930-L1930"
+        "src/compiler/sema_impl.hpp#L2059-L2062",
+        "src/compiler/sema_impl.hpp#L1930"
       ]
     },
     {
@@ -193,6 +246,17 @@
         "src/compiler/sema_impl.hpp#L1931-L1933"
       ],
       "testability": "untestable"
+    },
+    {
+      "id": "type.drop.needs-drop-composition",
+      "domain": "type",
+      "title": "needs_drop is custom-drop-fn OR any droppable field",
+      "statement": "A type needs Drop iff it has a custom drop function, or it has fields that (transitively) need Drop: `needs_drop(T) = has_custom_drop(T) OR has_droppable_fields(T)`.",
+      "evidence": [
+        "src/compiler/sema_impl.hpp#L2260-L2264"
+      ],
+      "related": ["borrow.move.no-move-out-of-array-index", "trait.copy.auto-derive-conditions"],
+      "testability": "behavioral"
     }
   ]
 }
