@@ -1,7 +1,7 @@
 {
   "unit": "grammar/logos/meta",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/logos.peg#L10-L15",
+  "source": "tools/peg_gen_cpp/grammars/logos.peg#L10-L15",
   "source_hash": "e8141f326556dc50",
   "rules": []
 }

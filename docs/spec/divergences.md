@@ -2,7 +2,7 @@
 
 Cross-cutting view over the extracted rule corpus (`tools/spec-extract/rules/**`): every spec rule whose `divergence` field is non-empty, grouped by divergence tag/kind. This register is *derived from compiler evidence*; the policy source of truth is [`docs/DIVERGENCES.md`](../DIVERGENCES.md) — a tag here that matches a §A/§B row there is registered; anything without a matching row is flagged **unregistered — needs triage** per the "no silent divergence" rule.
 
-**491 divergence-carrying rules** — §A blessed: 158 · §B catch-up refs: 18 · baghunt G156-1: 3 · Logos-specific additions: 202 · unregistered (triage): 71 · conformance notes: 39.
+**497 divergence-carrying rules** — §A blessed: 165 · §B catch-up refs: 18 · baghunt G156-1: 3 · Logos-specific additions: 203 · unregistered (triage): 71 · conformance notes: 37.
 
 ---
 
@@ -11,7 +11,7 @@ Cross-cutting view over the extracted rule corpus (`tools/spec-extract/rules/**`
 Registered: `docs/DIVERGENCES.md` §A row **A1** (replaced). 15 rule(s).
 
 ### `expr.arr-fill.size-metacall` — Array fill length via metacall splice
-- **Divergence**: Logos explicit-metacall model replaces Rust const-expression array lengths. *(untagged; matches A1/A2 explicit-metacall model)*
+- **Divergence**: Logos explicit-metacall model replaces Rust const-expression array lengths.
 - **Rule**: `[v; metacall { <expr> }]` evaluates the block's tail expression by compile-time evaluation (CTFE), and the integer result becomes the array length. The metacall block must contain an integer tail expression. This is Logos's replacement for Rust const-eval at the array-length position.
 - **Source**: `src/compiler/sema_expr.cpp#L11486-L11516`
 
@@ -38,7 +38,7 @@ Registered: `docs/DIVERGENCES.md` §A row **A1** (replaced). 15 rule(s).
 ### `metaprog.metacall.forms` — metacall expression forms
 - **Divergence**: A1/A6 — Logos addition: metacall is the explicit compile-time evaluation operator, the Logos replacement for const-eval (no implicit const-eval).
 - **Rule**: `metacall` accepts exactly three operand shapes — a block (`metacall { … }`), a parenthesized expression (`metacall (e)`), or a call expression (`metacall f(…)`, including generic `f::<T>(…)` and static `Type::m(…)`) — and evaluates its argument at compile time.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2731-L2736`, `src/compiler/sema_expr.cpp#L17084-L17088`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2599-L2604`, `tools/peg_gen_cpp/grammars/logos.peg#L2791-L2796`, `tools/peg_gen_cpp/grammars/logos.peg#L2731-L2736`, `src/compiler/sema_expr.cpp#L17084-L17088`
 
 ### `metaprog.metacall.no-nested-metacall` — metacall may not be nested inside another metacall's operand
 - **Divergence**: A1/A6: metacall replaces Rust const-eval; rule has no Rust analogue.
@@ -61,7 +61,7 @@ Registered: `docs/DIVERGENCES.md` §A row **A1** (replaced). 15 rule(s).
 - **Source**: `src/compiler/sema_expr.cpp#L17606-L17610`
 
 ### `mono.const.const-arg-specialization` — Compile-time-constant call arguments specialize the callee
-- **Divergence**: Logos const-generic-like specialization driven by const-eval reachability; see explicit-metacall comptime model. *(untagged; matches A1/A2 explicit-metacall model)*
+- **Divergence**: Logos const-generic-like specialization driven by const-eval reachability; see explicit-metacall comptime model.
 - **Rule**: When a call-site argument forwarding (directly or transitively) to a const-evaluating intrinsic position (e.g. an atomic `Ordering`) is a compile-time literal, the callee is specialized with that constant baked in: each use of the parameter is replaced by the literal (an IntLit for integers, or an EnumLit `(enum_name, variant, discriminant)` for enums).
 - **Source**: `src/compiler/mono_impl.hpp#L368-L401`
 
@@ -76,14 +76,14 @@ Registered: `docs/DIVERGENCES.md` §A row **A1** (replaced). 15 rule(s).
 - **Source**: `src/compiler/sema_expr.cpp#L8683-L8700`
 
 ### `type.array.length-forms` — Array type length forms
-- **Divergence**: Array length via `metacall {..}` replaces Rust const-eval at this position (MP-mc-01). *(untagged; matches A1/A2 explicit-metacall model)*
+- **Divergence**: Array length via `metacall {..}` replaces Rust const-eval at this position (MP-mc-01).
 - **Rule**: `[T; N]` length is determined by: a `metacall { expr }` block whose tail integer is CTFE-evaluated; `sizeof...(P)` over an in-scope type-param pack (symbolic `__sizeof_pack:P`); a literal integer; or a symbolic const parameter name. A missing/empty metacall tail or an unknown pack/op is a hard error.
 - **Source**: `src/compiler/sema.cpp#L6140-L6226`
 
-### `type.array.size-from-metacall` — Array size from metacall
-- **Divergence**: Logos: comptime sizing via explicit metacall (see explicit-metacall design). *(untagged; matches A1/A2 explicit-metacall model)*
-- **Rule**: `[T; metacall { ... }]` permits a compile-time metacall block as the array size expression.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1769-L1770`
+### `type.array.size-from-metacall` — Array size from metacall block
+- **Divergence**: A1
+- **Rule**: `[T; metacall { ... }]` computes the array size from a metacall block evaluated at compile time (const array-length is expressed via explicit `metacall`, not implicit const-eval).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1769-L1770`, `tools/peg_gen_cpp/grammars/logos.peg#L1829-L1830`
 
 ## A2 — `const fn` → plain `fn` + `metacall` at const call sites
 
@@ -96,12 +96,17 @@ Registered: `docs/DIVERGENCES.md` §A row **A2** (replaced). 1 rule(s).
 
 ## A3 — `macro_rules!`/proc-macros/`#[derive]` → `metaprog` handlers + `quote_*!`
 
-Registered: `docs/DIVERGENCES.md` §A row **A3** (replaced). 13 rule(s).
+Registered: `docs/DIVERGENCES.md` §A row **A3** (replaced). 16 rule(s).
 
 ### `metaprog.derive.no-rust-derive-syntax` — `#[derive(...)]` is rejected; use per-trait triggers
-- **Divergence**: Logos replaces Rust `#[derive(...)]` with `#[derive_<trait>]` + `#[metaprog_handler]`. *(untagged; matches A3 (derive via metaprog))*
+- **Divergence**: Logos replaces Rust `#[derive(...)]` with `#[derive_<trait>]` + `#[metaprog_handler]`.
 - **Rule**: The Rust-style `#[derive(Trait, ...)]` attribute (a `derive` annotation carrying args) is not Logos surface syntax and is an error. Logos uses one trigger annotation per derive, `#[derive_<trait>]`, paired with an in-scope `#[metaprog_handler("derive_<trait>")]` function.
 - **Source**: `src/compiler/sema_impl.hpp#L1762-L1774`
+
+### `metaprog.macro.raw-text-brace-escape` — Raw-text macro-call capture honours backslash and backtick escapes
+- **Divergence**: A3
+- **Rule**: RAW_TEXT captured from a balanced brace-delimited group on a fn-macro call (RAW_GROUP_*) honours two escapes so literal braces don't break brace balancing: (a) a backslash immediately preceding `{`, `}`, backtick, or `\` passes that character through without counting it toward the balance (the backslash itself survives into the captured text, for the handler to de-escape); (b) a backtick-delimited region is skipped as a whole, with no brace counting performed inside it. Both are additive: a well-formed body without these constructs is captured byte-identically.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L80`
 
 ### `metaprog.metacall.exprblob-deferred-typing` — ExprBlob-returning metacall defers result typing to the post-splice pass
 - **Divergence**: A3/A6: ExprBlob is the Logos metaprog AST-fragment return.
@@ -153,6 +158,16 @@ Registered: `docs/DIVERGENCES.md` §A row **A3** (replaced). 13 rule(s).
 - **Rule**: `quote_expr!` containing N&gt;0 antiquots lowers to a block that binds the static template blob and one `IdentSpan { ptr, count, kind }` per placeholder, then calls `logos_quote_expr_subst(template_ptr, size, &spans[0], N) -> *const u8` and wraps the result as `ExprBlob { ptr }`. Span kind is 0 for Ident slots, 1 for ExprBlob slots, 2 for Vec&lt;ExprBlob&gt; cursors.
 - **Source**: `src/compiler/sema_expr.cpp#L16815-L16981`, `src/compiler/sema_expr.cpp#L16866-L16943`
 
+### `metaprog.quote.antiquote-placeholder` — `#ident` antiquotation placeholder inside `quote_*!` bodies
+- **Divergence**: A3
+- **Rule**: Inside the body of a `quote_*!` macro, `#ident` is an antiquotation placeholder splicing an external value; its AST node carries a NAME_VAR field holding the placeholder's identifier text. NAME_VAR exists only inside quote_*! bodies (where a where-clause never co-occurs).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L78`
+
+### `metaprog.stmt.repeat-group` — Statement repeat-group `#(stmt)*`
+- **Divergence**: A3
+- **Rule**: `#(stmt)*` at statement position is a metaprogram repeat-group over a statement, expanding to a compile-time-repeated sequence of statements (mirrors the analogous repeat-group forms in type-argument and pattern-group positions).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1900-L1901`
+
 ### `type.identity.dstref` — Custom-DST reference identity = (package, name, mutability, owning kind, type-args)
 - **Divergence**: A3 (custom-DST)
 - **Rule**: A custom-DST reference type's identity = (package, struct name, mutability, owning kind {Borrow/Box}, type-args); an owning `Box<Foo>` custom-DST is distinct from a borrowed `&Foo`.
@@ -174,7 +189,7 @@ Registered: `docs/DIVERGENCES.md` §A row **A5** (replaced/N-A). 1 rule(s).
 
 ## A6 — Logos-only additions (variadics, Writ fabric, metaprog/metacall, fibres)
 
-Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 83 rule(s).
+Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 85 rule(s).
 
 ### `coerce.writ.mapslice-to-typed-map` — MapSlice as &lt;K,AnyVal&gt;{} builds a typed Writ map
 - **Divergence**: A6
@@ -200,6 +215,11 @@ Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 83 rule(s).
 - **Divergence**: A6 — Writ-specific.
 - **Rule**: A `@type(T)` (`WRIT_TYPE_LIT`) child resolves its TYPE node with the in-scope type parameters and contributes its canonical `type_str` to the literal's content identity; thus the same syntactic literal under different type-param bindings produces distinct WStaticLit types. A legacy NAME-only shape substitutes the bound type param when present, else uses the bare name.
 - **Source**: `src/compiler/sema.cpp#L6462-L6482`
+
+### `expr.comprehension.list` — List comprehension
+- **Divergence**: A6 — Logos addition: Python-style comprehension syntax, not present in Rust.
+- **Rule**: `[expr for x in iter if pred]` and `[expr for x in iter]` (guard optional) produce a list by iterating `iter`, binding `x`, and — if present — filtering by `pred`.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2936-L2939`
 
 ### `expr.struct-lit.union-single-field` — Union literals initialize exactly one field; missing-field check skipped
 - **Divergence**: A6
@@ -294,12 +314,12 @@ Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 83 rule(s).
 ### `item.datatype.def` — Writ datatype definition
 - **Divergence**: A6
 - **Rule**: A datatype item is `[pub[(vis)]] eidos NAME [<type-params>] { field_def_or_doc* }`. It declares a Writ-fabric datatype with named/repeat-group fields; the optional generic parameter list and visibility marker are accepted.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1096-L1100`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1096-L1100`
 
 ### `item.datatype.explicit-inst` — Explicit datatype instantiation declaration
 - **Divergence**: A6
 - **Rule**: `[pub[(vis)]] eidos TYPE_REF ;` (no body) is an explicit-instantiation declaration that binds metadata annotations (e.g. `#[type_code=N]`) to a concrete generic instantiation, e.g. `#[type_code=42] datatype Array<i32>;`.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1102-L1109`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1102-L1109`
 
 ### `item.datatype.type-code-register` — #[type_code=N] registers explicit type code
 - **Divergence**: A6: Writ datatype-family mechanism, Logos-only.
@@ -319,22 +339,22 @@ Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 83 rule(s).
 ### `item.field.repeat-group` — Repeat-group field (quote)
 - **Divergence**: A6
 - **Rule**: `#( field_def ),*` and `#( field_def )*` denote a repeat-group of field definitions (REPEAT_GROUP, OP=1 comma-separated / OP=0 plain), for use in quoted item bodies.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1183-L1186`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1183-L1186`
 
 ### `item.field.variadic` — Variadic field
 - **Divergence**: A6
 - **Rule**: A field of form `IDENT ... : TYPE_REF` marks a variadic field (IS_VARIADIC).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1203-L1204`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1203-L1204`
 
 ### `item.fn.antiquot-name` — Function with antiquoted name
 - **Divergence**: A6
 - **Rule**: `[pub] [unsafe] fn #(expr) [<type-params>] ( [params] ) [-> T] block` carries an expr-TOM name (NAME_VAR), valid only inside a quote body; these alts omit the where-clause because NAME_VAR and WHERE share a slot.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1286-L1293`, `tools/peg_gen/grammars/logos.peg#L1312-L1319`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1286-L1293`, `tools/peg_gen_cpp/grammars/logos.peg#L1312-L1319`
 
 ### `item.fn.param-variadic` — Variadic parameter
 - **Divergence**: A6
 - **Rule**: `IDENT : T ...` marks a variadic parameter (IS_VARIADIC); plain `IDENT : T` is the ordinary typed parameter.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1379-L1382`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1379-L1382`
 
 ### `item.struct.attr-flags` — structural struct attribute flags
 - **Divergence**: A6: these are Logos-only zone/memory-model struct attributes with no Rust counterpart.
@@ -344,12 +364,12 @@ Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 83 rule(s).
 ### `item.struct.explicit-inst` — Explicit struct instantiation declaration
 - **Divergence**: A6: see B-item-92 — bare `struct Foo;` is the unit struct, generic form kept for the unbound-typevar diagnostic
 - **Rule**: `[pub[(vis)]] struct TYPE_REF ;` where TYPE_REF carries type arguments (e.g. `struct Foo<i64>;`) is an explicit-instantiation declaration binding annotations to a generic struct instantiation. The dedicated `instantiate Foo<T>;` form is preferred.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1133-L1138`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1133-L1138`
 
 ### `item.trait.explicit-inst` — Explicit genos/trait specialization declaration
 - **Divergence**: A6
 - **Rule**: `[pub[(vis)]] <trait-kw> TYPE_REF ;` (no body) binds annotations to a logical-family (genos) specialization of a concrete trait instantiation; implementing eidos inherit the metadata via impl.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1111-L1118`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1111-L1118`
 
 ### `layout.enum.low-bit-niche` — Pointer-plus-small-integer two-arm enum packs into one word via a low-bit discriminant
 - **Divergence**: A6
@@ -504,7 +524,7 @@ Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 83 rule(s).
 ### `type.antiquot.quote-ty-only` — Type antiquotation
 - **Divergence**: A6
 - **Rule**: `$ident` in type position is a type antiquotation valid only inside `quote_ty! { ... }`; resolving it elsewhere is an error.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1456-L1459`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1456-L1459`
 
 ### `type.cfg-slot.const-generic-defer` — Deferred cfg-slot when base is a const type-param
 - **Divergence**: A6
@@ -529,12 +549,12 @@ Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 83 rule(s).
 ### `type.cfg-slot.projection` — Type-level cfg-slot projection
 - **Divergence**: A6
 - **Rule**: `<type:CFG.path>` projects, at mono-time, the type stored at a path within a WritStatic-typed type-level binding. Path steps are `.IDENT` (string key), `.INTEGER` (int key) and `.[INTEGER]` (array index). At least one path step is required. `<type:CFG.SLOT>::Assoc` projects an associated type on the slot base.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1428-L1449`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1428-L1449`
 
 ### `type.closure.type` — Closure type
 - **Divergence**: A6: Rust spells closures via Fn-family bounds; Logos has a dedicated `|..|->R` closure type syntax.
 - **Rule**: `|T1, T2| -> R` is a closure type used in parameter annotations; the zero-arg form `|| -> R` is accepted (the `||` token is split).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1657-L1664`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1657-L1664`
 
 ### `type.datatype.data-plain-inference` — DataPlain flag propagates through nested datatype fields
 - **Divergence**: A6: Writ datatype DataPlain/DataNode classification is Logos-only.
@@ -556,20 +576,25 @@ Registered: `docs/DIVERGENCES.md` §A row **A6** (addition). 83 rule(s).
 - **Rule**: When instantiating a generic `schema` struct, an unsized type-argument (`UnsizedSlice<T>`, e.g. produced for `Wrap<str>` under `?Sized`/turbofish) is canonicalized to its sized fat-slice form `Slice<T>`, matching the schema's WAny-handle field storage and `impl WritField for str` (= `Slice<u8>`). Non-schema generics (e.g. `Box<str>`) are unaffected.
 - **Source**: `src/compiler/sema.cpp#L5588-L5601`
 
+### `type.generic.type-arg-kinds` — Generic type-argument kinds
+- **Divergence**: A6
+- **Rule**: A generic type argument is one of: a repeat-group `#(arg),*` (metaprogram repetition over type args), a lifetime `'a` (stored as LIFETIME_PARAM, skipped during concrete-type resolution), a pack expansion `Ident...`, an antiquote `$Ident` or `$Ident...`, an integer literal (optionally negated), a writ literal, or a plain type.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1836-L1855`
+
 ### `type.tagged.thin-pointer` — tagged thin pointer type
 - **Divergence**: A6
 - **Rule**: `&tagged<T> Name` is a thin tag-dispatched pointer: a type_code tag is stored in memory before the object, and call sites read the tag, look up the dispatch table, and call indirectly.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1490-L1494`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1490-L1494`
 
 ### `type.typeof.expr` — typeof type
 - **Divergence**: A6
 - **Rule**: `typeof(expr)` is the compile-time type of expr; the expression is not evaluated.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1461-L1463`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1461-L1463`
 
 ### `type.writ.lit-and-array-map` — Writ literal / typed array / typed map types
 - **Divergence**: A6
 - **Rule**: `@{...}` at type position is a WritStatic value literal type (LIT_WSTATIC). `<Elem>[]` is a Writ typed-array type and `<K[,V]>{}` is a Writ typed-map type (used in `as` casts).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1451-L1473`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1451-L1473`
 
 ### `writ.schema-enum.arm-shape` — schema-enum match arm restricted to `E::Variant(b)` or `_`
 - **Divergence**: A6
@@ -626,27 +651,32 @@ Registered: `docs/DIVERGENCES.md` §A row **A8** (design model). 3 rule(s).
 
 ## A9 — `.`-separated package path + `::` into the item
 
-Registered: `docs/DIVERGENCES.md` §A row **A9** (design model). 11 rule(s).
+Registered: `docs/DIVERGENCES.md` §A row **A9** (design model). 13 rule(s).
+
+### `expr.call.qualified-path-segments` — Qualified CALL/GENERIC_CALL carries package-path segments
+- **Divergence**: A9
+- **Rule**: A qualified CALL or GENERIC_CALL node may carry QUAL_PARTS: package-path segments following RECEIVER, supporting fully-qualified dotted-package call syntax (e.g. `pkg.sub::func(...)`); call nodes never populate a plain module USES field simultaneously, so QUAL_PARTS reuses that slot.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L37-L38`
 
 ### `expr.ctor.variant-alias-shorthand` — Bare enum-variant constructor via use-alias
-- **Divergence**: Logos `use Type.{V}` variant-import surface (pkg `.` / item `::` path model) *(untagged; matches the A9 path model)*
+- **Divergence**: Logos `use Type.{V}` variant-import surface (pkg `.` / item `::` path model)
 - **Rule**: A `use Enum.{V, …};` import registers variant aliases; a bare call `V(payload)` whose name is an imported variant alias constructs that enum's variant `V` (typed via enum-literal lowering with payload typing), when no function of that name resolved.
 - **Source**: `src/compiler/sema_expr.cpp#L5943-L5953`
 
 ### `grammar.expr.call-package-qualified` — Package-qualified free-function call
-- **Divergence**: Logos path model: '.'-separated package path + '::'-item (vs Rust all-'::'). *(untagged; matches the A9 path model)*
+- **Divergence**: Logos path model: '.'-separated package path + '::'-item (vs Rust all-'::').
 - **Rule**: A call 'IDENT path_dot_ident+ '::' IDENT ('::' '&lt;' type_arg_list '&gt;')? '(' call_arg_list? ')'' resolves a free fn by its dotted package path (RECEIVER = first segment, QUAL_PARTS = rest); this disambiguates same-named free fns across packages (e.g. logos.lang.mem::replace vs logos.lang.ptr::replace).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L3191-L3203`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3191-L3203`
 
 ### `item.use.path-form` — use declaration path form
-- **Divergence**: Logos paths use `.` for package/module segments rather than Rust's `::`. *(untagged; matches the A9 path model)*
+- **Divergence**: Logos paths use `.` for package/module segments rather than Rust's `::`.
 - **Rule**: A use declaration is `[pub] use NAME(.part)* ;`, where path segments after the head are dot-separated.
 - **Source**: `src/compiler/sema_render.cpp#L1036-L1050`, `src/compiler/sema_render.cpp#L1182-L1190`
 
 ### `module.package.decl` — Package declaration header
-- **Divergence**: Rust uses no `package` header; module name is path-derived. Logos requires an explicit `package` line with a dotted package path. *(untagged; matches the A9 path model)*
-- **Rule**: A compilation unit begins with `package NAME ('.' IDENT)* ';'`, optionally preceded by inner doc-comments (`//!`, `/*! */`) and inner attributes (`#![...]`). The dotted path gives the package's full name to arbitrary depth (first component = NAME, remaining components = PATH_PARTS). After the package line come zero-or-more use-declarations, then zero-or-more items.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L489-L490`
+- **Divergence**: Rust has no `package` header; module identity comes from the file path plus `mod` items. Logos requires an explicit `package a.b.c;` line naming the full dotted package path.
+- **Rule**: A compilation unit begins with zero or more inner doc-comments (`//!`, `/*! */`) and inner attributes (`#![...]`), then `package NAME ('.' IDENT)* ';'`. The dotted path names the package to arbitrary depth (first component = NAME, remaining = PATH_PARTS). After the package line come zero-or-more use-declarations, then zero-or-more items.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L495-L496`
 
 ### `module.path.package-name` — Package name is dot-joined module path
 - **Divergence**: A9
@@ -664,14 +694,19 @@ Registered: `docs/DIVERGENCES.md` §A row **A9** (design model). 11 rule(s).
 - **Source**: `src/compiler/sema_expr.cpp#L2805-L2814`
 
 ### `module.use.brace-group-desugar` — `use pkg.{a, b, c}` with a lowercase head desugars to N wildcard imports
-- **Divergence**: note — Logos path model uses `.` for packages, `::` for items. *(untagged; matches the A9 path model)*
+- **Divergence**: note — Logos path model uses `.` for packages, `::` for items.
 - **Rule**: A grouped use whose head segment begins with a lowercase letter is treated as a package path: `use pkg.{a, b, c}` desugars to wildcard imports `pkg.a.*`, `pkg.b.*`, `pkg.c.*`. A head segment beginning uppercase is instead the enum-variant import form.
 - **Source**: `src/compiler/sema.cpp#L6835-L6861`
 
+### `module.use.path` — Plain use declaration
+- **Divergence**: A9
+- **Rule**: `[pub] use pkg ('.' IDENT)* ';'` brings a dotted package path into scope; `pub use` re-exports it. Path components after the head use a leading-dot separator (`path_dot_ident <- '.' IDENT`, with a negative lookahead against a following `.{` so the last component before a variant-shorthand brace-list is left for that alternative).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L504-L522`, `tools/peg_gen_cpp/grammars/logos.peg#L529-L533`
+
 ### `module.use.variant-shorthand` — Enum-variant bare-name import
-- **Divergence**: Uses `.`-separated path with `.{}` variant group; Rust spells this `use core::Option::{Some, None};` (A: `::`-item / `.`-pkg path model). *(untagged; matches the A9 path model)*
-- **Rule**: `use pkg.Path.Type.{V1, V2, ...} ;` brings the named variants of enum `Type` into bare (unqualified) scope. The last dotted component before `.{...}` is the enum type name; the brace-list (trailing comma allowed) names the variants.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L506-L511`, `tools/peg_gen/grammars/logos.peg#L523-L527`
+- **Divergence**: A9
+- **Rule**: `use pkg.Path.Type.{V1, V2, ...};` brings the named variants of enum `Type` into bare (unqualified) scope; trailing comma allowed. The last dotted component before `.{...}` is the enum type name.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L509-L513`, `tools/peg_gen_cpp/grammars/logos.peg#L529-L533`
 
 ### `mono.uid.module-fingerprint-tags` — Runtime type UID includes per-module fingerprint tags
 - **Divergence**: A9 — Logos coexistence of same-named types across modules; no Rust crate-disjointness analog.
@@ -679,9 +714,9 @@ Registered: `docs/DIVERGENCES.md` §A row **A9** (design model). 11 rule(s).
 - **Source**: `src/compiler/mono_impl.hpp#L772-L808`
 
 ### `type.ref.dotted-path` — Fully-qualified non-generic type path
-- **Divergence**: Logos path model: `.` for package/module path, `::` for items. *(untagged; matches the A9 path model)*
-- **Rule**: A fully-qualified non-generic type in type position is written `pkg.path.Type` (dotted); the last path segment is the type. Matched before bare-IDENT alternatives so the whole dotted form is claimed. The generic dotted form `pkg.path.Type<A>` is not supported (use a `use` import + short name).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1805-L1813`
+- **Divergence**: A9
+- **Rule**: A fully-qualified non-generic type in type position is written `pkg.path.Type` (dotted); the last path segment is the type name (QUAL_PARTS holds the prefix). Matched before bare-IDENT alternatives so the whole dotted form is claimed as one type reference. The generic dotted form `pkg.path.Type<A>` is not accepted here (use a `use` import + short name instead).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1805-L1813`, `tools/peg_gen_cpp/grammars/logos.peg#L1865-L1873`
 
 ## A10 — `dyn Fn*` collapses to the bare Closure pair
 
@@ -707,17 +742,17 @@ Registered: `docs/DIVERGENCES.md` §A row **A10** (replaced). 3 rule(s).
 Registered: `docs/DIVERGENCES.md` §A row **A11** (addition). 10 rule(s).
 
 ### `const.literal.integer-suffix-by-kind` — integer constant suffix by type kind
-- **Divergence**: Logos has additional integer widths I24/U24/I56/U56 beyond Rust's fixed set. *(untagged; matches A11)*
+- **Divergence**: Logos has additional integer widths I24/U24/I56/U56 beyond Rust's fixed set.
 - **Rule**: An integer constant carries a type suffix matching its kind (i8/i16/i32/i64/u8/u16/u32/u64); IntLit and the non-power-of-two-byte kinds I24/U24/I56/U56 are emitted unsuffixed. Signedness is determined by the kind (signed: i8/i16/i24/i32/i56/i64/i128/IntLit).
 - **Source**: `src/compiler/sema_render.cpp#L992-L1016`
 
 ### `expr.litint.width-by-type` — Integer literal bit-width from its inferred type
-- **Divergence**: A: i24/u24/i56/u56 are Logos-only integer widths (no Rust equivalent). *(untagged; matches A11)*
+- **Divergence**: A: i24/u24/i56/u56 are Logos-only integer widths (no Rust equivalent).
 - **Rule**: An integer literal is encoded at the bit-width of its inferred type: i8/u8=8, i16/u16=16, i24/u24=24, i32/u32=32, i56/u56=56, i64/u64=64, i128/u128=128, bool=1. usize/isize use the target pointer bit-width. An untyped integer literal (IntLit) defaults to 32 bits, widening to 64 bits when its value falls outside [INT32_MIN, INT32_MAX].
 - **Source**: `src/compiler/mlir_gen_expr.cpp#L253-L298`
 
 ### `expr.writ.int-suffix-and-radix` — Writ integer literal: suffix stripping and radix
-- **Divergence**: Logos addition (Writ literals); note i24/i56/u24/u56 width suffixes. *(untagged; matches A11)*
+- **Divergence**: Logos addition (Writ literals); note i24/i56/u24/u56 width suffixes.
 - **Rule**: A Writ integer literal accepts an optional numeric-type suffix (i8/i16/i24/i32/i56/i64/i128, u8/u16/u24/u32/u56/u64/u128, usize, isize) which is stripped before parsing, an optional leading '-', and a radix prefix: `0x` = hexadecimal, `0b` = binary, otherwise decimal. The resulting magnitude is negated if the sign was present.
 - **Source**: `src/compiler/sema_expr.cpp#L15027-L15050`
 
@@ -732,27 +767,27 @@ Registered: `docs/DIVERGENCES.md` §A row **A11** (addition). 10 rule(s).
 - **Source**: `src/compiler/mlir_gen_types.cpp#L44-L63`, `src/compiler/mlir_gen_types.cpp#L456-L466`
 
 ### `lex.literal.int-suffix` — Integer literal type suffix
-- **Divergence**: Includes Logos-specific suffixes i24/u24/i56/u56 absent in Rust. *(untagged; matches A11)*
+- **Divergence**: Includes Logos-specific suffixes i24/u24/i56/u56 absent in Rust.
 - **Rule**: An integer literal may carry an explicit type suffix selecting its kind: i8/i16/i24/i32/i56/i64/i128, u8/u16/u24/u32/u56/u64/u128, usize, isize; the suffix follows the (optionally radix-prefixed) digit body. Absence of a recognised suffix yields the unsuffixed literal type.
 - **Source**: `src/compiler/sema_impl.hpp#L4812-L4841`
 
 ### `lex.literal.integer` — Integer literal syntax and width suffixes
 - **Divergence**: A11: width set includes Writ-fabric widths i24/u24/i56/u56 beyond Rust's {8,16,32,64,128}+size. Also: a leading `-` is part of the integer token itself (Rust treats `-` as a separate unary operator).
 - **Rule**: An integer literal matches an optional leading `-`, then a decimal (`[0-9][0-9_]*`), hex (`0x[0-9a-fA-F_]+`), binary (`0b[01_]+`), or octal (`0o[0-7_]+`) magnitude, with `_` digit separators, optionally suffixed by a width tag drawn from {i8,i16,i24,i32,i56,i64,i128,u8,u16,u24,u32,u56,u64,u128,usize,isize}.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L457`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L463`
 
 ### `pat.writ.int-i24-range` — Writ integer pattern fits i24
-- **Divergence**: Logos addition; i24 bound is Writ-specific. *(untagged; matches A11)*
+- **Divergence**: Logos addition; i24 bound is Writ-specific.
 - **Rule**: A Writ integer pattern `@<int>` value v must satisfy -2^23 &lt;= v &lt; 2^23 (i24 range); otherwise it is a compile error. The literal may carry a negation flag that negates the parsed magnitude.
 - **Source**: `src/compiler/sema_stmt.cpp#L5312-L5327`
 
 ### `type.integer.kind-set` — Integer-class type kinds
-- **Divergence**: Logos adds non-power-of-two integer widths i24/u24/i56/u56 (not in Rust); also classifies Enum as an integer kind. *(untagged; matches A11)*
+- **Divergence**: Logos adds non-power-of-two integer widths i24/u24/i56/u56 (not in Rust); also classifies Enum as an integer kind.
 - **Rule**: The integer type class comprises the fixed-width signed/unsigned kinds {i8,u8,i16,u16,i24,u24,i32,u32,i56,u56,i64,u64,i128,u128}, the pointer-sized {usize,isize}, the unsuffixed-literal type IntLit, and Enum. An enum type is treated as an integer kind for these classifications.
 - **Source**: `src/compiler/sema_impl.hpp#L4439-L4449`
 
 ### `type.primitive.set` — Built-in primitive scalar types
-- **Divergence**: A: extra fixed-width widths i24/u24/i56/u56 and 128-bit i128/u128 beyond Rust's standard set. *(untagged; matches A11)*
+- **Divergence**: A: extra fixed-width widths i24/u24/i56/u56 and 128-bit i128/u128 beyond Rust's standard set.
 - **Rule**: The language has primitive scalar types: void, bool, char, the floats f32/f64, and the integers i8/u8, i16/u16, i24/u24, i32/u32, i56/u56, i64/u64, i128/u128, isize/usize. Each is a distinct type identified by its keyword name.
 - **Source**: `src/compiler/sema.cpp#L2077-L2097`, `src/compiler/sema.cpp#L2530-L2551`
 
@@ -983,7 +1018,7 @@ Registered: `docs/DIVERGENCES.md` §B row **B-assoc** and `docs/baghunt/README.m
 
 ## Logos-specific additions
 
-Untagged divergence notes whose text marks a Logos-only capability (Writ fabric, zones, metaprog/reflection, tag-dispatch, variadics, self-relative pointers, …). Registered *by kind* under the blanket **A6** addition row of `docs/DIVERGENCES.md` (kind (c): "Logos has it, Rust doesn't"); no per-item row exists or is required. 202 rule(s).
+Untagged divergence notes whose text marks a Logos-only capability (Writ fabric, zones, metaprog/reflection, tag-dispatch, variadics, self-relative pointers, …). Registered *by kind* under the blanket **A6** addition row of `docs/DIVERGENCES.md` (kind (c): "Logos has it, Rust doesn't"); no per-item row exists or is required. 203 rule(s).
 
 ### `borrow.conflict.tpb-reservation-shared-read` — A mut reservation passed as a call argument tolerates concurrent shared reads of the same target
 - **Divergence**: Logos-specific carve-out with no Rust equivalent: Rust's borrow checker rejects a mutable borrow of a place that overlaps a concurrent shared borrow of the same place (E0502-style); Logos permits this specific pattern for TPB call-argument reservations.
@@ -1017,8 +1052,8 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 
 ### `const.enum.discriminant` — Enum discriminant value forms
 - **Divergence**: Cross-enum discriminant reference `OtherEnum::Variant` as a discriminant value has no Rust analog.
-- **Rule**: A variant discriminant `Name = D` may be: a bare (optionally negated) integer literal that is the complete value (no trailing binary operator); `metacall <block>`; a cross-enum reference `OtherEnum::Variant` (with optional `as T` cast whose type is dropped, width governed by the enclosing enum's backing/repr); or a general constant expression evaluated via CTFE. A bare literal alt only matches when no binary operator follows; otherwise the value falls through to the const-expr alternative.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L788-L812`, `tools/peg_gen/grammars/logos.peg#L760-L763`
+- **Rule**: A variant discriminant `Name = D` may be: a bare (optionally negated) integer literal that is the complete value — matched only when NOT followed by a binary-operator token, else the value falls through to the general const-expr alternative; `metacall <block>`; a cross-enum reference `OtherEnum::Variant` with optional `as T` cast (the cast type is dropped — the discriminant's width is governed by the enclosing enum's own backing type/repr, not `T`); or a general constant expression evaluated via CTFE (the same `ctfe::eval_expr` channel metacall discriminants use).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L788-L791`, `tools/peg_gen_cpp/grammars/logos.peg#L815-L840`
 
 ### `expr.arr-fill.size-sizeof-pack` — Array fill length via sizeof...(P)
 - **Divergence**: Logos variadic-pack feature.
@@ -1038,7 +1073,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 ### `expr.comprehension.list-and-map` — List and map comprehensions
 - **Divergence**: Logos addition: Python-style comprehensions; not present in Rust.
 - **Rule**: List comprehension `[expr for x in iter (if pred)?]` and map comprehension `{kexpr: vexpr for x in iter (if pred)?}` produce a collection by iterating `iter`, binding `x`, optionally filtering by `pred`.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2875-L2885`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2875-L2885`
 
 ### `expr.list-comp.desugar-vec` — List comprehension desugars to Vec build loop
 - **Divergence**: Logos-specific surface syntax (Python-style comprehension); not present in Rust.
@@ -1168,7 +1203,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 ### `expr.writ.sdn-literal` — Writ SDN literals
 - **Divergence**: Logos addition: Writ self-describing data-notation literals.
 - **Rule**: Writ structured-data literals use the `@` sigil: `@{k:v,…}` map, `@[v,…]` array, `@"s"` string, `@42`/`@-1` int, `@<float>` float, `@true`/`@false` bool, `@null`. Typed forms `@<Elem>[…]` (dense array) and `@<K,V>{…}` / `@<K>{…}` (typed map). Comprehension forms `@[expr for x in iter (if p)?]` and `@{k:v for …}`. Only the outermost literal needs the `@` sigil; inner values are plain.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2887-L2923`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2887-L2923`
 
 ### `expr.writ.string-escapes` — Writ string literal: quote stripping and escapes
 - **Divergence**: Logos addition (Writ literals); escape set is a fixed subset.
@@ -1233,57 +1268,57 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 ### `grammar.expr.call-metavar` — Metavariable call
 - **Divergence**: No Rust analogue; metaprogramming callee splice.
 - **Rule**: '#IDENT(args)' and '#(expr)(args)' invoke a callee named by a metavariable (NAME_VAR) or by an evaluated expression, used in metaprogramming-expanded call sites.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L3230-L3237`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3230-L3237`
 
 ### `grammar.generic.type-param-forms` — Type parameter forms
 - **Divergence**: Logos additions: variadic type/const params ('...'), metavar params ('#'), repeat-group expansion (no Rust equivalent).
 - **Rule**: type_param admits: lifetime_param; 'IDENT: lifetime_param (+ lifetime_param)*' (type-outlives); ptr/arr specialisation patterns; const params 'const IDENT: T', 'const IDENT...: T' (variadic), 'const #IDENT: T'; variadic type param 'IDENT... (: bounds)?'; metavar '#IDENT (: bounds)?'; 'IDENT: bounds (= default)?'; 'IDENT = default'; or bare 'IDENT'. A repeat-group '#(type_param), *' expands variadically.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L3147-L3181`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3147-L3181`
 
 ### `grammar.metaprog.quote-expr` — quote_expr! macro
 - **Divergence**: No Rust analogue.
 - **Rule**: quote_expr_expr ::= 'quote_expr' '!' '{' expr '}' ; body is a single expression producing a typed AST (expr-blob) literal.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L3060-L3061`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3060-L3061`
 
 ### `grammar.metaprog.quote-item` — quote_item! macro
 - **Divergence**: No Rust analogue (Rust uses macro_rules!/proc-macro quote).
 - **Rule**: quote_item_expr ::= 'quote_item' '!' '{' item* '}' ; body is zero or more item declarations producing a typed AST (item-blob) literal.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L3051-L3052`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3051-L3052`
 
 ### `grammar.metaprog.quote-ty` — quote_ty! macro
 - **Divergence**: No Rust analogue.
 - **Rule**: quote_ty_expr ::= 'quote_ty' '!' '{' type_ref '}' ; body is a single type expression producing a first-class Type literal (same Type{kind,name,size} shape as type_of::&lt;T&gt;()).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L3068-L3069`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3068-L3069`
 
 ### `grammar.writ.capture-placeholders` — Writ runtime capture placeholders
 - **Divergence**: No Rust analogue; Writ interpolation.
 - **Rule**: Inside a Writ literal, '${' expr '}' captures an arbitrary expression (WRIT_CAP_EXPR) and '$' IDENT captures a named binding (WRIT_CAP_IDENT) as a runtime value.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2949-L2950`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2949-L2950`
 
 ### `grammar.writ.entry-key-kinds` — Writ entry keys
 - **Divergence**: No Rust analogue; Writ data-literal grammar.
 - **Rule**: writ_entry ::= (STRING | '-' INTEGER | INTEGER) ':' writ_val ; a map key is a quoted string, a negative integer, or a non-negative integer. A '-' INTEGER key carries LO_NEG.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2931-L2936`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2931-L2936`
 
 ### `grammar.writ.nested-at-optional` — Optional @ on nested Writ aggregates
 - **Divergence**: No Rust analogue; Writ literal nesting.
 - **Rule**: A nested writ_map / writ_array inside a writ_val may optionally be prefixed by '@'; '@'-prefixed and bare forms are equivalent.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2951-L2955`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2951-L2955`
 
 ### `grammar.writ.scalar-values` — Writ scalar values
 - **Divergence**: No Rust analogue; Writ scalar literals.
 - **Rule**: writ_val scalars: RAW_STRING/STRING -&gt; WRIT_STR; FLOAT -&gt; WRIT_FLOAT; '-' INTEGER -&gt; WRIT_NEG_INT; INTEGER -&gt; WRIT_INT; 'true'/'false' -&gt; WRIT_BOOL; 'null' -&gt; WRIT_NULL.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2956-L2963`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2956-L2963`
 
 ### `grammar.writ.type-literal` — Writ embedded type literal `<type: T>`
 - **Divergence**: No Rust analogue; type-as-value embedding.
 - **Rule**: A Writ value may embed a Logos Type as a first-class value via `'<' 'type' ':' simple_type '>'`, producing a WRIT_TYPE_LIT node carrying the rendered type T. Any simple_type is accepted, including generic instantiations (e.g. Vec&lt;u8&gt;, Result&lt;T,E&gt;); it renders back as `<type: T>`.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2941-L2948`, `src/compiler/sema_render.cpp#L1526-L1531`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2941-L2948`, `src/compiler/sema_render.cpp#L1526-L1531`
 
 ### `grammar.writ.type-slot-path` — Writ CFG type-slot
 - **Divergence**: No Rust analogue; Writ embedded-type slot.
 - **Rule**: writ_val may be '&lt;' 'type' ':' IDENT path_step+ '&gt;' producing a CFG_SLOT_TYPE (slot extraction keeping an IDENT-only head followed by path steps).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2945-L2946`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2945-L2946`
 
 ### `intrinsic.args-count-of.arg-count` — args_count_of yields generic-arg count
 - **Divergence**: Logos addition.
@@ -1521,9 +1556,9 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 - **Source**: `src/compiler/sema_impl.hpp#L1430-L1460`
 
 ### `item.const.def` — Module-level constant definition
-- **Divergence**: `let` accepted as a const keyword at module level; generic `const NAME<...>` factory has no direct Rust analog.
-- **Rule**: A module constant is `[pub] (const|let) NAME [<params>] : T = expr ;`. The `const` keyword admits an optional type-parameter list, making the RHS a generic compile-time factory substituted at each use site; `let` stays non-generic. Both forms require an explicit type annotation and an initializer.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L688-L699`
+- **Divergence**: `let` accepted as a const keyword at module level; the generic `const NAME<...>` compile-time factory has no direct Rust analog.
+- **Rule**: A module constant is `[pub] let NAME: T = expr;` (non-generic, legacy form) or `[pub] const NAME [<T1,...>]: T = expr;`. `const` admits an optional type-parameter list absent from `let`: with type params, the RHS is a generic compile-time factory whose expression is templated and re-materialized (substituted) at each concrete use site. Both forms require an explicit type annotation and initializer and lower to the same CONST_DEF node.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L716-L727`
 
 ### `item.const.generic-and-typed` — const item with optional generics and type
 - **Divergence**: Generic const items (const with type parameters) are a Logos extension.
@@ -1536,9 +1571,9 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 - **Source**: `src/compiler/sema_collect.cpp#L25-L76`, `src/compiler/sema_collect.cpp#L267-L282`, `src/compiler/sema_collect.cpp#L374-L467`
 
 ### `item.enum.variant-shapes` — Enum variant shapes
-- **Divergence**: Variadic-tuple variant `Name(...T)` has no Rust analog.
-- **Rule**: A variant is one of: unit `Name`; tuple `Name(T, ...)`; variadic-tuple `Name(...T)`; struct-shape `Name { f: T, ... }` (fields may be `pub`); empty struct-shape `Name {}`; or a discriminant-bearing `Name = <disc>`. Variant lists allow leading doc-comments per variant and a trailing comma.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L753-L786`, `tools/peg_gen/grammars/logos.peg#L757-L775`
+- **Divergence**: A6
+- **Rule**: A variant is one of: unit `Name`; tuple `Name(T, ...)`; variadic-tuple `Name(...T)` (a single variadic-typed payload field); struct-shape `Name { [pub] f: T, ... }` (fields optionally `pub`); empty struct-shape `Name {}`; or a discriminant-bearing `Name = <disc>`. `variant_list` allows leading doc-comments per variant and a trailing comma.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L781-L843`
 
 ### `item.fn-param.datanode-by-value` — DataNode eidos cannot be passed by value
 - **Divergence**: Logos addition (zoned/DataNode model); no Rust analog
@@ -1591,14 +1626,14 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 - **Source**: `src/compiler/mlir_gen.cpp#L668-L681`
 
 ### `lex.keyword.reserved-set` — Reserved keyword set
-- **Divergence**: Adds Logos-specific keywords absent in Rust: quote_item/quote_expr/quote_ty/template/package/instantiate/eidos/genos/auto/metacall/tagged/new/typeof/offset_of/null; lacks Rust keywords (mod, pub(crate), crate, self, Self, fn-async forms, etc.) handled elsewhere.
-- **Rule**: The following are reserved keywords matched as distinct tokens and unavailable as ordinary identifiers: continue, quote_item, quote_expr, quote_ty, template, package, instantiate, eidos, genos, auto, metacall, static, return, extern, struct, union, match, while, break, false, trait, const, type, impl, enum, loop, else, true, for, use, mut, let, dyn, tagged, pub, new, fn, if, in, as, where, unsafe, move, typeof, offset_of, ref, null, async, await.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L328-L380`
+- **Divergence**: Adds Logos-specific keywords absent in Rust: quote_item/quote_expr/quote_ty/template/package/instantiate/eidos/genos/auto/metacall/resource/schema/tagged/new/typeof/offset_of/null; lacks Rust keywords (mod, pub(crate), crate, self, Self, fn-async forms, etc.) handled elsewhere.
+- **Rule**: The following are reserved keywords matched as distinct tokens and unavailable as ordinary identifiers: continue, quote_item, quote_expr, quote_ty, template, package, instantiate, eidos, genos, auto, metacall, resource, static, return, extern, struct, schema, union, match, while, break, false, trait, const, type, impl, enum, loop, else, true, for, use, mut, let, dyn, tagged, pub, new, fn, if, in, as, where, unsafe, move, typeof, offset_of, ref, null, async, await.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L333-L381`
 
 ### `lex.writ.integer-literal` — Writ integer literal with radix and suffix
 - **Divergence**: Data-language lexer (Writ), not Logos source; C-style suffixes ull/ul/ll/u and '_s32'-style signed suffix differ from Rust integer-literal suffixes.
 - **Rule**: A Writ INTEGER is an optional leading '-' followed by a hex (0x/0X), binary (0b/0B), octal (0o/0O), or decimal magnitude, with an optional suffix: '_(u|s)(8|16|32|64)' (sized) or C-style 'ull'|'ul'|'ll'|'u'. Regex: /[-]?(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|[0-9]+)(_(u|s)(8|16|32|64)|ull|ul|ll|u)?/.
-- **Source**: `tools/peg_gen/grammars/writ.peg#L66`
+- **Source**: `tools/peg_gen_cpp/grammars/writ.peg#L66`
 
 ### `metaprog.antiquot.capture-forms` — Writ antiquotation capture syntax
 - **Divergence**: Logos metaprogramming antiquotation; no Rust equivalent.
@@ -1645,10 +1680,15 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 - **Rule**: `quote_item! { item* }` constructs a synthetic AST module whose root is MODULE with NAME="main", empty PATH_PARTS, ITEMS = the deep-cloned quoted items, and SRC_LINE=1. The result is emitted as a serialized WritStatic blob carried by a `QuoteItemBlob` value.
 - **Source**: `src/compiler/sema_expr.cpp#L15859-L15894`, `src/compiler/sema_expr.cpp#L15805-L15819`
 
+### `metaprog.resource.named-item-decl` — Named resource item declaration
+- **Divergence**: no Rust equivalent (ADR 0012 §6 named resource-macro item).
+- **Rule**: `resource NAME = CALLEE!{ body };` desugars to the same FN_MACRO_CALL_ITEM node as an item-position fn-macro, but the left-hand NAME rides in the (otherwise-unused) NAME slot: sema passes it to the `#[token_macro]` callee as a second `str` arg so the emitted item is named by NAME, not by a `fn <name>` header inside body. A parameterized form `resource NAME = CALLEE!(PARAMS){ body };` additionally captures the parenthesized list as balanced raw source text (PARAMS), passed as a third arg; the callee re-emits it verbatim as the generated fn's real parameter list, so PARAMS is parsed and type-checked when that fn is compiled. The parameterized alternative is tried first (ordered choice; the extra paren group makes it strictly more specific, so plain `resource N = h!{ ... }` is unaffected).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L582-L602`
+
 ### `metaprog.template.decl` — Template declaration
 - **Divergence**: No Rust equivalent.
-- **Rule**: `template <item>` wraps a struct/enum/datatype/trait/impl/fn declaration as inert data (an AST blob) rather than a real binding; the inner names are never registered, so referencing the template as a type yields an unknown-type diagnostic. Templates are consumed by metafunctions via apply/metacall.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L604-L612`
+- **Rule**: `template <item>` wraps a struct/enum/datatype/trait/impl/fn declaration as inert data (an AST blob) rather than a real binding; the inner names are never registered by sema, so referencing the template as a type yields the ordinary unknown-type diagnostic. Templates are consumed later by metafunctions via apply/metacall.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L625-L640`
 
 ### `module.abi.one-directional-minor-compat` — Binary archive ABI compatibility is one-directional within a major version
 - **Divergence**: Logos addition: semantic-version ABI gate on binary modules (Rust has no stable cross-version library ABI).
@@ -1681,9 +1721,9 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 - **Source**: `src/compiler/module_loader.cpp#L115-L133`, `src/compiler/module_loader.cpp#L206-L207`
 
 ### `module.use.from-module` — use with explicit source module
-- **Divergence**: `use ... from <module>` clause has no Rust analog.
-- **Rule**: `[pub] use pkg('.'IDENT)* IDENT use_module ';'` imports `pkg.path` from a named module; the trailing bare IDENT is the contextual `from` keyword and `use_module` is the source (a bare name or a quoted string for hyphenated ids, with quotes stripped). The from-bearing alternative is tried before the plain form.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L498-L521`
+- **Divergence**: no Rust analog; disambiguates when more than one module could supply the same dotted path.
+- **Rule**: `[pub] use pkg ('.' IDENT)* IDENT use_module ';'` imports `pkg.path` from a named module; the from-bearing alternative is tried first (PEG ordered choice) and is unambiguous because a bare IDENT can only appear there as the contextual `from` keyword (`path_dot_ident` requires a leading `.`, so it never consumes it). `use_module` is a bare IDENT or a quoted STRING (for hyphenated module ids; sema strips the quotes).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L500-L505`, `tools/peg_gen_cpp/grammars/logos.peg#L519-L527`
 
 ### `module.use.from-module-disambiguation` — `use pkg from <module>` restricts candidate visibility to the named module's id
 - **Divergence**: Logos-specific: type/package coexistence across modules sharing a package name (no Rust analog).
@@ -1707,8 +1747,8 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 
 ### `mono.instantiate.decl` — Explicit instantiation root-pin
 - **Divergence**: No Rust equivalent; analog of C++ `template class Foo<int>;`.
-- **Rule**: `[pub] instantiate <type_ref> ;` materializes the named generic instance as a monomorphization root: all its inherent and trait methods become roots, transitively pulling everything they call. `pub instantiate` additionally marks the instance as part of the package's public API surface.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L591-L595`
+- **Rule**: `[pub] instantiate <type_ref> ;` materializes the named generic instance as a monomorphization root: all its inherent and trait methods become roots, transitively pulling everything they call. `pub instantiate` additionally marks the instance as part of the package's public API surface (lib-site re-export).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L612-L623`
 
 ### `mono.intrinsic.args-count-of` — args-count-of yields the number of generic type arguments of T
 - **Divergence**: Logos reflection extension.
@@ -1808,7 +1848,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 ### `pat.writ.container` — Writ map/array patterns
 - **Divergence**: Logos addition: Writ container patterns.
 - **Rule**: `@{ key: pat, ... }` / `@{}` match writ maps; `@[ elem, ... ]` / `@[]` match writ arrays. Array elements admit a trailing `..` to match length ≥ n; map keys are string literals.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2028-L2041`, `tools/peg_gen/grammars/logos.peg#L2113-L2120`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2028-L2041`, `tools/peg_gen_cpp/grammars/logos.peg#L2113-L2120`, `tools/peg_gen_cpp/grammars/logos.peg#L2088-L2101`, `tools/peg_gen_cpp/grammars/logos.peg#L2173-L2180`
 
 ### `pat.writ.map-shape` — Writ map pattern
 - **Divergence**: Logos addition.
@@ -1828,7 +1868,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 ### `pat.writ.scalar` — Writ scalar patterns
 - **Divergence**: Logos addition: Writ data-substrate patterns.
 - **Rule**: `@null`, `@true`/`@false`, `@N`/`@-N`, and `@"str"` are writ scalar patterns matching writ null, bool, integer, and string values respectively.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2092-L2106`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2092-L2106`, `tools/peg_gen_cpp/grammars/logos.peg#L2152-L2166`
 
 ### `pat.writ.scalar-leaves` — Writ scalar leaf patterns
 - **Divergence**: Writ pattern matching is a Logos addition (no Rust equivalent).
@@ -1843,7 +1883,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 ### `pat.writ.typed-container` — Writ typed map/array patterns
 - **Divergence**: Logos addition: Writ typed-container patterns.
 - **Rule**: `@<T>{..}`, `@<T,R>{..}`, and `@<T>[..]` are typed writ map and array patterns annotating the matched container's element type(s).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2107-L2112`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2107-L2112`, `tools/peg_gen_cpp/grammars/logos.peg#L2167-L2172`
 
 ### `pat.writ.typed-map-key-value-types` — Typed Writ map pattern key/value types
 - **Divergence**: Logos addition.
@@ -1921,9 +1961,9 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 - **Source**: `src/compiler/mlir_gen_dyn.cpp#L1308-L1356`, `src/compiler/mlir_gen_dyn.cpp#L1360-L1364`, `src/compiler/mlir_gen_dyn.cpp#L1444-L1474`
 
 ### `type.array.size-from-pack` — Array size from variadic pack length
-- **Divergence**: Logos addition: pack-length array sizing.
-- **Rule**: `[T; P...(P)]` sizes the array from a variadic pack length; lowered to symbolic array-size-var `__sizeof_pack:P` and resolved at monomorphization.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1762-L1768`
+- **Divergence**: A6
+- **Rule**: `[T; P...(P)]` sizes the array from a variadic pack's length; lowered to a symbolic array-size-var `__sizeof_pack:P`, resolved at monomorphization.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1762-L1768`, `tools/peg_gen_cpp/grammars/logos.peg#L1827-L1828`
 
 ### `type.identity.cfg-slot` — Config-slot type identity = (cfg-typevar name, slot key)
 - **Divergence**: Logos addition (zone/config slots)
@@ -1951,9 +1991,9 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 - **Source**: `src/compiler/sema.cpp#L5685-L5699`, `src/compiler/sema.cpp#L5741`
 
 ### `type.ptr.zoned` — Zoned raw pointer `*zoned [mut] T`
-- **Divergence**: Logos addition (F3 ref-repr design): zoned pointers, no Rust equivalent.
-- **Rule**: `*zoned T` / `*zoned mut T` is a zoned raw pointer (Ref-arm self-relative at rest; deref/assign runs the storage↔compute bridge). `zoned` is a contextual keyword recognized only in pointer position (a bare IDENT after `*`), validated as NAME=="zoned" by sema; it is not globally reserved.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1750-L1759`
+- **Divergence**: A6 (addition — zone-relative raw pointer; no Rust equivalent; ref-repr-design §6/§8)
+- **Rule**: `*zoned T` / `*zoned mut T` is a zoned raw pointer (Ref-arm self-relative at rest; deref/assign runs the storage&lt;-&gt;compute bridge). `zoned` is a contextual keyword recognized only in pointer position (bare IDENT after `*`, since only `mut`/`const` keyword tokens are otherwise valid there); sema validates NAME=="zoned". Not reserved globally (`#[zoned]` attributes still parse as IDENT).
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1750-L1759`, `tools/peg_gen_cpp/grammars/logos.peg#L1810-L1819`
 
 ### `type.ptr.zoned-pointer-distinct` — *zoned T is a distinct pointer type
 - **Divergence**: Logos addition (F3 ref-repr/zoned types); no Rust equivalent.
@@ -1961,9 +2001,9 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 - **Source**: `src/compiler/sema_impl.hpp#L222-L231`
 
 ### `type.ref.metavar` — Metavariable type reference
-- **Divergence**: Logos metaprogramming addition.
-- **Rule**: `#Ident` and `#(expr)` are type references whose name is supplied by a metaprogram variable/expression rather than a literal identifier.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1801-L1804`
+- **Divergence**: A6
+- **Rule**: `#Ident` and `#(expr)` are (non-generic) type references whose name is supplied by a metaprogram variable/expression rather than a literal identifier.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1801-L1804`, `tools/peg_gen_cpp/grammars/logos.peg#L1861-L1864`
 
 ### `type.tagged.thin-ptr-dispatch` — &tagged&lt;TS&gt; Trait
 - **Divergence**: Logos-only tagged-dispatch pointer.
@@ -1973,7 +2013,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 ### `type.tuple.variadic-arity` — Variadic-arity tuple target `(A...)`
 - **Divergence**: Logos addition: variadic tuple impls (no direct Rust equivalent).
 - **Rule**: `(A...)` is a variadic-arity tuple type naming pack-typevar A; used as an impl target `impl<A...> Trait for (A...)`. Resolves to a Tuple type with one variadic element naming A.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1726-L1731`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1726-L1731`, `tools/peg_gen_cpp/grammars/logos.peg#L1786-L1791`
 
 ### `type.typeof.expr-type-no-eval` — typeof(expr) yields the sema type without evaluation
 - **Divergence**: Logos addition: Rust has no `typeof` operator.
@@ -2054,6 +2094,11 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: In an associated/static call, turbofish type arguments attach to the receiver type and precede the `::method` segment: `Recv::<T>::method(args)`.
 - **Source**: `src/compiler/sema_render.cpp#L203-L241`
 
+### `expr.call.ufcs-qualified-path` — UFCS qualified-path call resolves by concrete type only
+- **Divergence**: In Rust, the `<Type as Trait>::method` qualifier disambiguates among multiple trait impls providing a same-named method; here it is grammar-accepted but discarded, relying solely on type-based method resolution (see also the already-blessed trait-qualified-UFCS entry in docs/DIVERGENCES.md "Trait::method(recv, ...)" dispatch-on-first-arg).
+- **Rule**: `<Type as Trait>::method(args)` is accepted as a STATIC_CALL keyed on RECEIVER=Type and NAME=method; the `as Trait` qualifier is parsed but consumed/dropped, so dispatch resolves purely from the concrete type — the trait qualifier does not participate in overload disambiguation.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3274-L3279`
+
 ### `expr.compound-assign.int-widen` — Implicit integer widening in the compound-assign fallback
 - **Divergence**: Rust has no implicit integer widening on assignment.
 - **Rule**: In the general (non-`*Assign`-impl) place-compound-assign path, the rhs is implicitly widened to the place's integer type before combining with the base operator.
@@ -2112,12 +2157,12 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 ### `grammar.expr.call-ufcs-qualified` — UFCS qualified-path call
 - **Divergence**: Trait qualifier in &lt;T as Tr&gt;::m is dropped (Rust uses it for disambiguation).
 - **Rule**: '&lt;Type as Trait&gt;::method(args)' dispatches on the concrete Type; the trait qualifier is consumed and dropped because the type-dispatch already resolves the method.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L3214-L3219`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3214-L3219`
 
 ### `grammar.generic.hrtb-binder` — HRTB for&lt;...&gt; binder parsed then dropped
 - **Divergence**: Lifetimes not structurally tracked: HRTB binder is accepted but discarded (Rust enforces it).
 - **Rule**: hrtb_binder ::= 'for' '&lt;' LIFETIME (',' LIFETIME)* ','? '&gt;' may prefix any trait_bound. Lifetimes are not tracked structurally, so for&lt;'a&gt; Trait&lt;...&gt; is semantically equivalent to Trait&lt;...&gt; (binder parsed into a disposable head).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L3077-L3108`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3077-L3108`
 
 ### `intrinsic.align-of.alignment` — align_of yields alignment
 - **Divergence**: Result is i64 (Rust mem::align_of -&gt; usize).
@@ -2169,11 +2214,6 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: `#[repr(...)]` is recognised only on structs (`transparent`) and enums (integer-discriminant width). Other repr modes are parsed and then rejected (no silent acceptance).
 - **Source**: `src/compiler/sema_impl.hpp#L1501-L1505`
 
-### `item.static-fn.def` — Static (associated) function definition
-- **Divergence**: `static fn` spelling for associated (no-self) functions; Rust uses an `fn` without a `self` parameter inside an impl.
-- **Rule**: `[pub] static [unsafe] fn NAME [<params>] (params) [-> T] { ... }` defines an associated/free function with no `self` receiver; its own optional type-parameter list follows the name, matching instance/free fn generics. The name may be the `new` keyword.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1067-L1093`
-
 ### `item.static.runtime-initialized-storage` — static items get zero-init storage filled at program startup
 - **Divergence**: Rust requires `static` initializers to be const-evaluable; Logos evaluates them at runtime startup instead.
 - **Rule**: A non-extern `static` has global storage that is zero-initialized at link time and assigned its declared initializer value at program startup (before `main`), via a synthesized startup initializer running every static's init expression in declaration order. A `static`'s initializer is thus an ordinary runtime-evaluated expression, not a compile-time constant.
@@ -2187,7 +2227,7 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 ### `item.visibility.pub-module` — Visibility marker pub / pub(module)
 - **Divergence**: Logos uses `pub(module)` for module-linkage; Rust uses `pub(crate)`/path-restricted visibilities.
 - **Rule**: Item visibility is `pub` (fully exported) or `pub(IDENT)` where IDENT is a contextual keyword validated == "module" in sema, meaning module-linkage: visible to other packages of the SAME module but not exported to consumers.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L1273-L1284`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L1273-L1284`
 
 ### `layout.dstref.fat-only-with-slice-tail` — Custom-DST reference is a 16-byte fat slot only with a literal slice tail
 - **Divergence**: Logos custom-DST representation split (slice-tail fat vs dyn-tail/self-describing thin).
@@ -2207,7 +2247,7 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 ### `lex.literal.float` — Float literal syntax
 - **Divergence**: A leading `-` is part of the float token (Rust parses `-` as separate unary minus). A fractional part is mandatory (no `1.` form); float-width suffix set is {f32,f64}.
 - **Rule**: A float literal matches an optional leading `-`, an integer part, a mandatory `.` with a fractional part (both `[0-9][0-9_]*`), an optional exponent `([eE][+-]?[0-9][0-9_]*)`, and an optional suffix `f32` or `f64`. `_` digit separators are permitted.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L456`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L462`
 
 ### `lex.literal.int-overflow-i64` — Unsuffixed integer literal must fit i64/u64 (64-bit) magnitude
 - **Divergence**: Rust default integer literal type is i32; here the raw overflow bound is 64-bit (i64/u64), with per-suffix bounds layered at the call site.
@@ -2222,17 +2262,17 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 ### `lex.token.ident` — Identifier token
 - **Divergence**: Identifiers are ASCII-only; Rust permits Unicode (XID) identifiers and raw identifiers `r#name`.
 - **Rule**: IDENT = `[a-zA-Z_][a-zA-Z0-9_]*` — ASCII letter/underscore followed by ASCII alphanumerics/underscores.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L467`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L473`
 
 ### `lex.token.lifetime` — Lifetime token
 - **Divergence**: Lifetime names must start with a lowercase letter or `_`; uppercase-initial lifetimes (allowed in Rust) are not recognized.
 - **Rule**: LIFETIME = `'[a-z_][a-z0-9_]*` — an apostrophe followed by a lowercase-initiated identifier (no closing apostrophe).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L466`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L472`
 
 ### `lex.writ.float-literal` — Writ float literal
 - **Divergence**: Requires a fractional digit after '.'; bare-integer floats and leading-dot are governed by this regex (no trailing-dot form); 'f'/'d' suffixes.
 - **Rule**: A Writ FLOAT is an optional '-', optional integer part, a mandatory '.' with a fractional part, optional exponent ([eE][+-]?digits), and an optional 'f'|'d' type suffix. Regex: /[-]?[0-9]*\.[0-9]+([eE][+-]?[0-9]+)?[fd]?/. The fractional part is required (a '.' must be followed by &gt;=1 digit).
-- **Source**: `tools/peg_gen/grammars/writ.peg#L67`
+- **Source**: `tools/peg_gen_cpp/grammars/writ.peg#L67`
 
 ### `module.prelude.implicit-auto-import` — Implicit prelude auto-imported per file
 - **Divergence**: Logos uses a named prelude *package*; the model parallels Rust's std prelude but is package-granular.
@@ -2259,15 +2299,10 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: A float-literal pattern is parsed but rejected as unsupported (IEEE-equality pattern semantics undecided).
 - **Source**: `src/compiler/sema_stmt.cpp#L4286-L4294`
 
-### `pat.float.rejected-at-sema` — Float-literal patterns rejected
-- **Divergence**: Rust also forbids float patterns (deprecated/removed).
-- **Rule**: A float-literal pattern parses but is rejected at sema (not a valid match pattern).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L283`
-
 ### `pat.lit.float-rejected` — Float-literal pattern rejected
 - **Divergence**: Rust deprecated float patterns; Logos rejects them outright.
 - **Rule**: A float-literal pattern parses but is rejected by sema with a diagnostic: float equality matching in patterns is deliberately not supported (IEEE equality semantics undefined).
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2195-L2199`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2195-L2199`, `tools/peg_gen_cpp/grammars/logos.peg#L2255-L2259`
 
 ### `pat.range.scrutinee-integer` — Range pattern requires integer scrutinee
 - **Divergence**: Logos char ranges are handled separately (PAT_CHAR_RANGE); PAT_RANGE is integer-only.
@@ -2293,6 +2328,11 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Divergence**: Rust has no implicit integer widening on assignment.
 - **Rule**: On assignment to an integer variable, a non-literal non-enum integer RHS of a narrower integer kind that can widen safely to the LHS kind is implicitly widened.
 - **Source**: `src/compiler/sema_stmt.cpp#L2647-L2653`
+
+### `trait.bound.hrtb-erased` — HRTB binder is parsed and semantically discarded
+- **Divergence**: Rust's HRTB binder affects variance/soundness checking; Logos parses the syntax for source compatibility but erases it semantically (no lifetime-parametric trait-bound checking) — no existing DIVERGENCES.md tag covers this; noted here as a one-line divergence.
+- **Rule**: `for<'a, 'b, ...> Trait<...>` (HRTB) is accepted as a bound prefix on every trait_bound alternative, but Logos does not track lifetimes structurally: the binder is parsed into a disposable head and dropped, so `for<'a> Fn(&'a T)` is semantically identical to `Fn(&T)`.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3137-L3150`, `tools/peg_gen_cpp/grammars/logos.peg#L3157-L3168`
 
 ### `trait.bounds.partialeq-via-eq` — PartialEq/PartialOrd satisfied by Eq/Ord impls
 - **Divergence**: Logos Eq/Ord carry the methods Rust puts on PartialEq/PartialOrd; full split pending.
@@ -2356,7 +2396,7 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 
 ## Conformance notes (no divergence)
 
-Rules whose `divergence` field carries a Rust-conformance or spec-citation note ("Rust-conformant", RFC/`logos-core` references, resolved §B rows) rather than an actual divergence. Listed for audit completeness; nothing to register. 39 rule(s).
+Rules whose `divergence` field carries a Rust-conformance or spec-citation note ("Rust-conformant", RFC/`logos-core` references, resolved §B rows) rather than an actual divergence. Listed for audit completeness; nothing to register. 37 rule(s).
 
 ### `borrow.assign.static-mut-unsafe` — static mut write requires unsafe; immutable static not writable
 - **Divergence**: Rust-conformant (items.static.mut.safety)
@@ -2408,15 +2448,10 @@ Rules whose `divergence` field carries a Rust-conformance or spec-citation note 
 - **Rule**: Two Struct types with equal struct_name and pkg_name and equal type-arg arity are compatible iff every type-arg pair is compatible (allowing inference holes like Vec&lt;_&gt; vs Vec&lt;i32&gt;).
 - **Source**: `src/compiler/sema.cpp#L1846-L1857`
 
-### `divergence.heap.no-class-new-delete` — No C++-style class/new/delete
-- **Divergence**: Logos addition/removal vs C++; Rust-conformant (Rust also has no class/new/delete).
-- **Rule**: The language has no `class` declaration, `new` expression, or `delete` statement. Heap allocation is expressed via `Box` (and other library owning types), not a built-in `new`/`delete` pair.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L165-L166`
-
 ### `expr.assign.deref-write` — Dereference write statement
 - **Divergence**: Logos addition: distinct DEREF_WRITE/DEREF_COMPOUND statement forms; semantics match Rust place-expression assignment.
 - **Rule**: `* p = v ;` writes value `v` through dereferenced place `p` (a `unary_expr`). `* p OP v ;` performs compound assignment through a bare dereference and is defined to lower to `*p = *p OP v`.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2335-L2340`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2335-L2340`
 
 ### `expr.assign.drop-before-replace` — Field assignment drops old value first
 - **Divergence**: Rust-conformant (expr.assign.drop-target / B8)
@@ -2444,9 +2479,9 @@ Rules whose `divergence` field carries a Rust-conformance or spec-citation note 
 - **Source**: `src/compiler/sema_expr.cpp#L14395-L14420`
 
 ### `expr.cmp.non-chainable` — Comparison operators are non-chainable
-- **Divergence**: Rust-conformant outcome (chained comparison is an error); Logos detects it grammatically for a better diagnostic.
-- **Rule**: Comparison operators are non-chainable: at most one comparison per level is well-formed. A chain of 2+ comparators (e.g. `a < b < c`) is parsed as a distinct CHAINED_CMP node so sema can reject it with a dedicated diagnostic rather than a generic syntax error.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2589-L2600`, `tools/peg_gen/grammars/logos.peg#L2424-L2431`
+- **Divergence**: Rust-conformant outcome (chained comparison is rejected); Logos additionally detects it grammatically to produce a dedicated diagnostic rather than a generic parse error.
+- **Rule**: Comparison operators are non-chainable: at most one comparison per level is well-formed. A chain of 2+ comparators (e.g. `a < b < c`) is grammatically distinguished as a `CHAINED_CMP` node (tried before the single-comparison alt) so sema can reject it with a dedicated diagnostic instead of a generic syntax error.
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2484-L2491`, `tools/peg_gen_cpp/grammars/logos.peg#L2653-L2660`, `tools/peg_gen_cpp/grammars/logos.peg#L2589-L2600`, `tools/peg_gen_cpp/grammars/logos.peg#L2424-L2431`
 
 ### `expr.compound-assign.opassign-dispatch` — Compound-assign dispatches via *Assign impl when present
 - **Divergence**: Rust-conformant operator-overload semantics; Logos struct-name-keyed impl lookup.
@@ -2476,7 +2511,7 @@ Rules whose `divergence` field carries a Rust-conformance or spec-citation note 
 ### `grammar.expr.closure-param-untyped` — Closure parameter type may be omitted
 - **Divergence**: Conformant with Rust closure type-inference.
 - **Rule**: closure_param allows the type annotation to be omitted: '|x|' is accepted as well as '|x: T|'. Forms: '&mut IDENT', '&IDENT', 'ref IDENT: T', 'mut IDENT: T', 'mut IDENT', '(pat_binding_list): T', 'IDENT: T', 'IDENT'. The omitted type is inferred from the surrounding fn(T)-&gt;R formal at the call site.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L2979-L3000`
+- **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L2979-L3000`
 
 ### `metaprog.cfg.attr-multi-arg-implicit-and` — cfg attribute multi-arg implicit AND
 - **Divergence**: Multi-arg implicit AND matches Rust (noted inline).
@@ -2523,11 +2558,6 @@ Rules whose `divergence` field carries a Rust-conformance or spec-citation note 
 - **Rule**: A borrowing trait object (&dyn Trait, non-owning Kind::TraitObject) is treated as a reference kind for dangling-return detection: returning &dyn Trait to a local is rejected; an owning Box&lt;dyn Trait&gt; does not qualify.
 - **Source**: `src/compiler/borrow_check.cpp#L488-L501`
 
-### `stmt.assign.destructuring-into-places` — Destructuring assignment into existing places
-- **Divergence**: RFC 2909 (Rust-conformant).
-- **Rule**: Destructuring assignment `(a,b)=e` / `[a,b]=e` / `S{a,b}=e` writes into EXISTING places (not new bindings), desugared to `let tmp = rhs;` followed by per-place assignments.
-- **Source**: `tools/peg_gen/grammars/logos.peg#L311`
-
 ### `trait.binop.partial-ord-derive` — Relational ops derive from partial_cmp when direct method absent
 - **Divergence**: Mirrors Rust's default PartialOrd lt/le/gt/ge bodies.
 - **Rule**: For a struct LHS with relational op {&lt;,&lt;=,&gt;,&gt;=}, if the direct lt/le/gt/ge method is not implemented but partial_cmp is, the comparison derives as a.partial_cmp(&b) followed by is_lt/is_le/is_gt/is_ge; when partial_cmp returns Option&lt;Ordering&gt; it routes through cmp_opt_is_&lt;op&gt; (None =&gt; false), and when it returns Ordering directly it calls Ordering::is_&lt;op&gt;.
@@ -2552,4 +2582,3 @@ Rules whose `divergence` field carries a Rust-conformance or spec-citation note 
 - **Divergence**: Rust-2024 `!`-fallback semantics (logos-core 1.1).
 - **Rule**: If a callee's body always diverges (panic-tail or `loop {}`-tail) and a type-parameter is otherwise unbound at the call site, the inference variable falls back to `!` (Never). A non-diverging body leaves an unbound type-param as an ambiguity error: `fn f<T>()->T{panic();}` infers T=! while `fn f<T>()->T{return 0;}` is ambiguous.
 - **Source**: `src/compiler/sema_impl.hpp#L2574-L2584`
-

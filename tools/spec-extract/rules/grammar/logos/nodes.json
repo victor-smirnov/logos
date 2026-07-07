@@ -1,258 +1,520 @@
 {
   "unit": "grammar/logos/nodes",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/logos.peg#L109-L324",
-  "source_hash": "505d0d15f0bd9e5f",
+  "source": "tools/peg_gen_cpp/grammars/logos.peg#L110-L328",
+  "source_hash": "075ed363c951785b",
   "rules": [
     {
       "id": "divergence.heap.no-class-new-delete",
       "domain": "divergence",
-      "title": "No C++-style class/new/delete",
-      "statement": "The language has no `class` declaration, `new` expression, or `delete` statement. Heap allocation is expressed via `Box` (and other library owning types), not a built-in `new`/`delete` pair.",
+      "title": "No class/new/delete; heap = Box",
+      "statement": "Node codes 93-95 (CLASS decl / NEW_EXPR / DELETE_STMT) are retired and no longer produced by the grammar. The language has no `class` item, `new` expression, or `delete` statement; heap allocation goes exclusively through `Box<T>`.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L165-L166"
+        "tools/peg_gen_cpp/grammars/logos.peg#L166-L167"
       ],
-      "divergence": "Logos addition/removal vs C++; Rust-conformant (Rust also has no class/new/delete)."
+      "testability": "diagnostic"
     },
     {
       "id": "expr.cmp.no-chained-comparisons",
       "domain": "expr",
       "title": "Chained comparisons rejected",
-      "statement": "A comparison chain with 2+ comparators in a row (`a < b < c`) is rejected at sema with the diagnostic \"chained comparisons not supported; use `a < b && b < c`\". It parses (CHAINED_CMP) but is not a valid program.",
+      "statement": "A run of 2+ comparison operators in one expression (`a < b < c`) parses as CHAINED_CMP; sema rejects it with a diagnostic suggesting `a < b && b < c`.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L289"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L290"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "type.paren.unwrap-to-inner",
       "domain": "type",
-      "title": "Parenthesized type is structurally its inner type",
-      "statement": "A parenthesized type `(T)` is unwrapped to its inner type `T`; `(T)` and `T` are structurally identical.",
+      "title": "Paren-wrapped type unwraps to inner",
+      "statement": "A parenthesized type expression `(T)` (PAREN_TYPE) is structurally equivalent to `T`; sema unwraps it to the inner type.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L290"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L291"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "type.ref.double-ref-nesting",
       "domain": "type",
-      "title": "Double reference types desugar to nested references",
-      "statement": "`&&T` resolves to a nested reference `&(&T)`; `&&mut T` resolves to `&(&mut T)`.",
+      "title": "&&T / &&mut T resolve to nested single refs",
+      "statement": "`&&T` (DOUBLE_REF_TYPE) resolves as a REF_TYPE wrapping a REF_TYPE; `&&mut T` (DOUBLE_REF_MUT_TYPE) resolves as a REF_TYPE wrapping a MUT_REF_TYPE. Both are sema-level rewrites of a single lexed double-`&` token, not a distinct type former.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L286-L287"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L287-L288"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "type.slice.unsized-only-behind-pointer",
       "domain": "type",
-      "title": "Unsized slice [T] cannot appear by value",
-      "statement": "The bare unsized slice type `[T]` (Kind::UnsizedSlice) may not appear by value; it is only legal behind `&`/`*const`/`*mut` (canonicalised to a sized Slice) or as a `T: ?Sized` substitution.",
+      "title": "Bare [T] is unsized; legal only behind a pointer or as ?Sized subst",
+      "statement": "A bare `[T]` type expression (UNSIZED_SLICE_TYPE) produces Kind::UnsizedSlice and cannot appear by value; it is only legal behind `&`, `*const`, or `*mut` (where resolve canonicalises it back to SLICE_TYPE / Kind::Slice) or as the concrete type substituted for a `T: ?Sized` parameter.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L304"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L305"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "expr.return.implicit-tail",
       "domain": "expr",
-      "title": "Tail expression is implicit return",
-      "statement": "A trailing expression with no terminating `;` at statement position synthesizes an implicit `return expr` for a non-void function.",
+      "title": "Tail expression synthesizes implicit return",
+      "statement": "An expression with no trailing `;` at statement position (TAIL_EXPR) is sugar: sema synthesizes an implicit `return expr` for functions with non-void return type.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L291"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L292"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.cast.byte-string-to-array",
       "domain": "expr",
-      "title": "Byte-string literal is [u8; N]",
-      "statement": "A byte-string literal `b\"...\"` at expression position lowers to an array literal of type `[u8; N]` (escapes decoded).",
+      "title": "Byte-string literal lowers to [u8; N] array literal",
+      "statement": "A byte-string literal `b\"...\"` (LIT_BYTES) carries the raw token text including the `b\"…\"` envelope; sema decodes escapes and lowers the literal to an `[u8; N]` array literal of the decoded byte length N.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L302"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L303"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.lit.char-is-unicode-scalar",
       "domain": "expr",
-      "title": "Char literal is a Unicode scalar",
-      "statement": "A char literal `'X'` denotes a single Unicode scalar value, decoded to a `u32` scalar.",
+      "title": "Char literal denotes a Unicode scalar value",
+      "statement": "`'X'` (LIT_CHAR) carries the original char-literal text including quotes; sema decodes it to a Unicode scalar value (not a raw byte).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L292",
-        "tools/peg_gen/grammars/logos.peg#L296"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L293"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.invoke.expression-callee",
       "domain": "expr",
-      "title": "Expression-as-callee invocation",
-      "statement": "`(expr)(args)` invokes the value produced by `expr` as a callee, routed through closure-call or fn-ptr-call.",
+      "title": "IIFE / expression-as-callee call",
+      "statement": "`(expr)(args)` (INVOKE_EXPR) allows an arbitrary expression, not just a name, in callee position; RECEIVER is the callee expression, ARGS the argument list. Sema routes the call through closure-call or fn-pointer-call resolution depending on RECEIVER's type.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L298"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L299"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "expr.control.break-continue-return-in-value-position",
       "domain": "expr",
-      "title": "break/continue/return usable in expression position",
-      "statement": "`break`, `continue`, and `return` may appear in expression position (Never-typed); the bare `return` form carries no value. They type-check as `!`/Never so surrounding expressions accept them.",
+      "title": "break/continue/return are value-position expressions",
+      "statement": "`break`, `continue`, and bare `return` may appear in expression position (BREAK_EXPR, CONTINUE_EXPR, RETURN_EXPR), each carrying Rust's `!`/Never type; sema lowers each to its statement form (SBreak/SContinue/SReturn) plus an Error-typed sentinel expression so the surrounding type-check accepts the position. RETURN_EXPR in this form takes no value.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L299-L301"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L300-L302"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "stmt.fn.nested-lifts-to-toplevel",
       "domain": "stmt",
-      "title": "Nested function lifted to a free function",
-      "statement": "A `fn name(params) [-> T] { body }` at statement position is lifted to a top-level free function (gensym name); the local name is bound as a fn-ptr `let`. A nested fn does not capture enclosing locals.",
+      "title": "Nested fn lifts to a top-level free function",
+      "statement": "`fn name(params) [-> T] { body }` at statement position (NESTED_FN) is sema-lifted: the body becomes a top-level free function under a gensym'd name, and the local name is bound as a fn-pointer `let`.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L303"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L304"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.union.layout-and-unsafe-access",
       "domain": "item",
-      "title": "Union layout and unsafe field access",
-      "statement": "A `union NAME { f: T, ... }` is a struct-shaped type whose size is max-of-fields aligned to max field alignment; reading or writing a union field requires an `unsafe` block.",
+      "title": "union: struct-shaped, max-of-fields layout, unsafe field access",
+      "statement": "`union NAME { f1: T1, f2: T2, … }` (UNION_DEF) is sema-treated as a Struct-shaped type with `is_union=true`; layout is the max size across fields, aligned to the max field alignment; every field-access expression on a union requires an enclosing `unsafe` block.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L321"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L322"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "item.static.global-storage-and-mut-safety",
       "domain": "item",
-      "title": "static items have global storage; mut access is unsafe",
-      "statement": "`static [mut] NAME: T = expr;` is a true global with a stable address and `&STATIC` identity. Reads and writes of a `static mut` require `unsafe`. A static with no initializer is an extern (external-linkage) declaration.",
+      "title": "static: one true global per item; mut requires unsafe",
+      "statement": "`static [mut] NAME: T = expr;` (STATIC_DEF) emits one `llvm.mlir.global` per item with a stable address (`&STATIC` has stable identity). The `mut` form additionally requires `unsafe` at every read and write. Omitting `= expr` declares an extern-linkage global (extern-block declaration).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L322"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L323"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "intrinsic.offset-of.compile-time-byte-offset",
       "domain": "intrinsic",
-      "title": "offset_of! yields compile-time field offset",
-      "statement": "`offset_of!(Type, field)` evaluates at compile time to the byte offset of `field` within `Type`'s ABI layout, as an i64 constant.",
+      "title": "offset_of! yields a compile-time i64 byte offset",
+      "statement": "`offset_of!(Type, field)` (OFFSET_OF) resolves Type, walks its ABI layout to `field`, and emits an `i64` constant equal to the field's byte offset within Type.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L323"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L324"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "intrinsic.sizeof-pack.length-of-type-pack",
       "domain": "intrinsic",
-      "title": "sizeof...(T) yields pack length",
-      "statement": "`sizeof...(T)` is a value-position expression yielding the length of the type pack `T` as a `u64`.",
+      "title": "sizeof...(T) yields pack length as u64",
+      "statement": "`sizeof...(T)` (SIZEOF_PACK) is a value-position expression whose evaluation yields the length of type-parameter pack `T` as a `u64`.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L271"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L272"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "pat.float.rejected-at-sema",
       "domain": "pat",
-      "title": "Float-literal patterns rejected",
-      "statement": "A float-literal pattern parses but is rejected at sema (not a valid match pattern).",
+      "title": "Float-literal pattern parses but is rejected at sema",
+      "statement": "A float literal in match-arm pattern position (PAT_FLOAT) is grammatically accepted but rejected by sema (float equality patterns are not permitted).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L283"
+        "tools/peg_gen_cpp/grammars/logos.peg#L284"
       ],
-      "divergence": "Rust also forbids float patterns (deprecated/removed)."
+      "uncertainty": "Rejection logic itself lives outside this slice; only the grammar-level comment attests it.",
+      "testability": "diagnostic"
     },
     {
       "id": "pat.str.lowers-to-eq-guard",
       "domain": "pat",
-      "title": "String-literal pattern lowers to equality guard",
-      "statement": "A string-literal pattern `match s { \"foo\" => ... }` is matched by lowering to a `str_eq` guard.",
+      "title": "String-literal pattern lowers to an str_eq guard",
+      "statement": "A string literal in match-arm pattern position (PAT_STR) is sema-lowered to a `str_eq` guard against the scrutinee rather than a structural pattern match.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L312"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L313"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "pat.let.refutability-checked",
       "domain": "pat",
-      "title": "let with complex pattern checked for refutability",
-      "statement": "`let <pattern> = expr;` for a pattern beyond a simple ident/tuple is an irrefutable destructure: sema checks the pattern is irrefutable and lowers it via `match`.",
+      "title": "let-pattern destructuring is refutability-checked",
+      "statement": "`let <pattern> = expr;` beyond a simple identifier/tuple binding (LET_PAT) requires sema to check the pattern is irrefutable; sema lowers the binding via an internal match.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L285"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L286"
+      ],
+      "testability": "diagnostic"
     },
     {
       "id": "stmt.assign.destructuring-into-places",
       "domain": "stmt",
       "title": "Destructuring assignment into existing places",
-      "statement": "Destructuring assignment `(a,b)=e` / `[a,b]=e` / `S{a,b}=e` writes into EXISTING places (not new bindings), desugared to `let tmp = rhs;` followed by per-place assignments.",
+      "statement": "`(a,b)=e`, `[a,b]=e`, and `S{a,b}=e` (DESTRUCTURE_ASSIGN) destructure into pre-existing places (not new bindings); sema desugars to a synthetic `let __da = rhs;` followed by one assignment per named place. A general postfix-chain lvalue not covered by the specialised write productions (`a[i][j]`, `(*p).0`, `m.f[i].g`, PLACE_ASSIGN) instead lowers directly to `deref_write(&mut <place>, rhs)`.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L311"
+        "tools/peg_gen_cpp/grammars/logos.peg#L312",
+        "tools/peg_gen_cpp/grammars/logos.peg#L314"
       ],
-      "divergence": "RFC 2909 (Rust-conformant)."
+      "testability": "behavioral"
     },
     {
       "id": "expr.if-let-chain.fall-to-else-on-failure",
       "domain": "expr",
-      "title": "if-let chain falls to else on any segment failure",
-      "statement": "`if let P1 = e1 && let P2 = e2 && cond { THEN } else { ELSE }` evaluates a flat sequence of refutable binds and boolean conditions left-to-right; any failed bind or false condition takes the ELSE branch.",
+      "title": "if-let chains desugar to sequential refutable binds",
+      "statement": "`if let P1 = e1 && let P2 = e2 && cond { THEN } else { ELSE }` (IF_LET_CHAIN, segments LET_CHAIN_LET/LET_CHAIN_COND) desugars to a flat sequence of refutable pattern binds and boolean-condition checks; the chain falls through to ELSE as soon as any segment fails (bind mismatch or false condition), short-circuiting the rest.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L318-L320"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L319-L321"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.extern-block.abi-default-to-children",
       "domain": "item",
-      "title": "extern block applies its ABI as a default",
-      "statement": "`extern \"ABI\" { extern_fn* }` splices its function items into the module item stream; the block ABI applies as a default to children that do not specify their own ABI. An omitted block ABI is the default Logos-internal ABI.",
+      "title": "extern block ABI defaults to children without an override",
+      "statement": "`extern \"ABI\" { extern_fn_def* }` (EXTERN_BLOCK) applies its ABI string as the default for every contained EXTERN_FN that doesn't specify its own ABI override; omitting the block's ABI string literal means the default Logos-internal ABI. sema_collect splices the block's items into the module-level item stream with this default applied.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L317"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L318"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "module.use.variant-shorthand-vs-subpackage",
       "domain": "module",
-      "title": "use {..} disambiguated by first-character case",
-      "statement": "In `use pkg.Path.X.{V1, V2, ...};` the last dotted segment `X` disambiguates by its first character's case: uppercase ⇒ enum-variant bare-name shorthand import; lowercase ⇒ grouped sub-package import.",
+      "title": "use {..} last-segment case disambiguates variant vs sub-package",
+      "statement": "`use pkg.Path.X.{V1, V2, …};` (USE_VARIANTS) disambiguates the grouped braces by the case of the last dotted segment (TYPE_NAME): an uppercase first character means enum-variant bare-name shorthand (X is an enum, V1/V2 its variants); a lowercase first character means a grouped sub-package import (X is a package, the braces list sub-names).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L309"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L310"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "module.attr.inner-vs-item-attribute",
       "domain": "module",
-      "title": "Inner attribute applies at file/module level",
-      "statement": "`#![name]` / `#![name(args)]` / `#![name=val]` is a file/module-level inner attribute, distinct from per-item `#[...]` attributes.",
+      "title": "#![attr] is a distinct module/file-level inner attribute",
+      "statement": "`#![name]` / `#![name(args)]` / `#![name=val]` (INNER_ANNOTATION) is file/module-scoped, structurally identical in payload to a per-item ANNOTATION but tagged with a distinct CODE so sema can separate module-level attributes (e.g. `#![no_implicit_prelude]`) from item-level ones.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L310"
+        "tools/peg_gen_cpp/grammars/logos.peg#L311"
       ],
-      "testability": "untestable"
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.metacall.explicit-comptime-call",
       "domain": "metaprog",
-      "title": "metacall executes a call at compile time",
-      "statement": "`metacall <call_expr>` executes the wrapped call at compile time; at module-item position the JIT'd callee returns an item blob whose emitted items are spliced into the module.",
+      "title": "metacall runs a compile-time callee and splices its result",
+      "statement": "`metacall <call_expr>` (METACALL, expression position) is an explicit compile-time invocation. At item position, `metacall <call_expr>;` (METACALL_ITEM) is JIT-executed by the driver; the callee must return a QuoteItemBlob, which is spliced into the surrounding item stream via `logos_emit_item_blob_subst`. After splicing, the node is rewritten to METACALL_ITEM_DONE, which sema's item-dispatch silently skips (and which is never produced by parsing).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L266",
-        "tools/peg_gen/grammars/logos.peg#L277"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L267",
+        "tools/peg_gen_cpp/grammars/logos.peg#L278-L279"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.quote.typed-ast-literals",
       "domain": "metaprog",
-      "title": "quote_* produce typed AST/Type literals",
-      "statement": "`quote_item! { item* }`, `quote_expr! { expr }`, and `quote_ty! { type }` are typed literals yielding item-list, expression, and Type AST values respectively. Antiquotation `$ident` (a Type-valued binding) and `$ident...` (an Array<Type> binding) are legal only inside `quote_ty!`.",
+      "title": "quote_item!/quote_expr!/quote_ty! are typed AST literals",
+      "statement": "`quote_item! { item* }` (QUOTE_ITEM), `quote_expr! { expr }` (QUOTE_EXPR), and `quote_ty! { type }` (QUOTE_TY) are typed AST-literal forms yielding, respectively, an item list, a single expression AST (root carries a schema_type_code), and a Type AST. Inside a quote body, `#(body)sep*` (REPEAT_GROUP) repeats `body` with separator `sep` in {none, comma, `&&`}. `$ident` in type position (ANTIQUOT_TYPE) is legal only inside `quote_ty!` and refers to a Type-valued binding; `$ident...` in a type-argument list (ANTIQUOT_PACK) is legal only inside `quote_ty!` and refers to an `Array<Type>`-valued binding.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L268-L274"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L269-L275"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "metaprog.fn-macro.expr-and-item-forms",
       "domain": "metaprog",
-      "title": "Function-style macros resolve to #[fn_macro] fns",
-      "statement": "`name!(args)` / `name![args]` resolves CALLEE against `#[fn_macro]` functions with argument ASTs passed as expression blobs; `name!{...}` at item position routes through item-splice (callee returns an item list).",
+      "title": "Function-style macros exist in expression and item forms",
+      "statement": "`name!(args)` / `name![args]` (FN_MACRO_CALL, expression position) resolves CALLEE against `#[fn_macro]`-annotated functions, passing each argument AST as an ExprBlob. `name!{...}` at module-item position (FN_MACRO_CALL_ITEM) has the same callee/args shape but routes through the metacall_item-style splice path (callee returns an ItemList / QuoteItemBlob); after splicing the node becomes FN_MACRO_CALL_ITEM_DONE, which sema skips.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L293-L294"
-      ]
+        "tools/peg_gen_cpp/grammars/logos.peg#L294-L296"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "item.doc.comment-attached-to-next-item",
       "domain": "item",
-      "title": "Doc comments attach as documentation",
-      "statement": "Outer doc comments (`///`, `/** */`) accumulate and attach to the next item; inner doc comments (`//!`, `/*! */`) accumulate into the module-level inner documentation. The comment markers are stripped.",
+      "title": "Doc comments accumulate and attach to the following item",
+      "statement": "Outer doc-comment lines `/// text` (DOC_LINE_LIT) and outer block comments `/** ... */` (DOC_BLOCK_LIT, envelope + per-line leading `*` stripped) accumulate across consecutive occurrences and attach as one joined string to the next real item's DOC slot. Inner forms `//! text` (INNER_DOC_LIT) and `/*! ... */` (INNER_DOC_BLOCK_LIT) instead accumulate into the enclosing module's summary (`module_inner_doc`), not into any item.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L305-L308"
+        "tools/peg_gen_cpp/grammars/logos.peg#L306-L309"
       ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "type.tagged.thin-pointer-dispatch",
+      "domain": "type",
+      "title": "&tagged<TS> Trait: tag-dispatched thin pointer",
+      "statement": "`&tagged<TS> Trait` (TAGGED_TYPE) denotes a thin (single-word) pointer to a trait object whose concrete implementation is selected by a tag drawn from the type-set `TS`, as opposed to a fat (vtable-carrying) `&dyn Trait` pointer.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L220"
+      ],
+      "uncertainty": "Only the node-code comment is in this slice; dispatch mechanics (how TS maps tag→impl) are implemented elsewhere.",
+      "testability": "transitive"
+    },
+    {
+      "id": "mono.instantiate.root-pin",
+      "domain": "mono",
+      "title": "instantiate Foo<T>; pins a monomorphization root",
+      "statement": "`instantiate Foo<T>;` (INSTANTIATE_DECL) pins TYPE=`Foo<T>` as a pre-instantiation monomorphization root; an optional IS_PUB marks it as a library-site re-export so downstream crates get the instantiation without repeating the declaration.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L277"
+      ],
+      "related": [
+        "mono.instantiate.decl"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "metaprog.writ-type.embed-as-first-class",
+      "domain": "metaprog",
+      "title": "<type:T> embeds a Type as a first-class Writ value",
+      "statement": "`<type:T>` inside a Writ `@`-literal (WRIT_TYPE_LIT, NAME = bare type identifier) is sema-embedded as a first-class Writ Type value, i.e. a type usable as ordinary literal data rather than only in type position.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L280"
+      ],
+      "uncertainty": "Comment marks this \"slice 1: IDENT only\" — the grammar accepted here may not cover the full type-expression surface for this position.",
+      "testability": "behavioral"
+    },
+    {
+      "id": "const.witstatic.byte-hash-identity",
+      "domain": "const",
+      "title": "WritStatic type-arg literal has byte-hash const identity",
+      "statement": "A nested Writ literal at type-argument position, `Foo::<@{...}>` (LIT_WSTATIC), is sema-lowered to `ConstVar(WritStatic, hash)`: two occurrences with byte-identical literal content share identity via that hash, i.e. const-generic identity for WritStatic args is structural/byte-hash-based, not by-reference.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L281"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "mono.cfg-slot.type-extraction",
+      "domain": "mono",
+      "title": "<type:CFG.SLOT> extracts a type from a WritStatic slot",
+      "statement": "A type-position expression `<type:CFG.SLOT>` (CFG_SLOT_TYPE, NAME=CFG ident, KEY=slot ident) extracts the type stored at top-level slot SLOT of WritStatic const-generic parameter or type alias CFG. Monomorphization resolves this to the slot's `<type:T>` value once CFG becomes a concrete WritStatic.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L282"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "expr.generic-ref.turbofish-callee",
+      "domain": "expr",
+      "title": "IDENT::<TARGS> at expression position",
+      "statement": "`IDENT::<TARGS>` at expression position (GENERIC_REF, CALLEE=ident, TYPE_PARAMS=type_arg_list) names an explicitly-instantiated generic item (function or associated item) as a first-class expression-position reference, independent of any surrounding call.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L283"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "pat.bytes.reserved-lexer-pending",
+      "domain": "pat",
+      "title": "Byte-string pattern reserved but not lexer-wired",
+      "statement": "A byte-string literal in match-arm pattern position (PAT_BYTES) is a reserved node code; per the source comment, lexer support for producing it is still pending.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L285"
+      ],
+      "uncertainty": "Marked \"reserved, lexer support pending\" in-source — feature may not be reachable from surface syntax yet.",
       "testability": "untestable"
+    },
+    {
+      "id": "pat.char.literal-and-range",
+      "domain": "pat",
+      "title": "Char-literal and char-range patterns decode to u32 scalar",
+      "statement": "A char literal in match-arm position, `'A'` (PAT_CHAR, VALUE=original token text), and a char range, `'a' ..= 'z'` (PAT_CHAR_RANGE, LHS/RHS=original endpoint token text), are both sema-decoded to `u32` Unicode scalar values for matching.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L297-L298"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.dyn.auto-trait-and-lifetime-bounds",
+      "domain": "trait",
+      "title": "dyn Trait + Send/Sync + 'a auxiliary bounds",
+      "statement": "A trait-object type may carry auxiliary bounds after the principal trait: `+ Send`/`+ Sync`-style auto-trait bounds (AUTO_TRAIT_BOUND, NAME=bound ident) and `+ 'a` lifetime bounds (AUTO_LIFE_BOUND, NAME=lifetime label). Both collect into the dyn_type's ITEMS array alongside type-args; `resolve_type` buckets bounds vs args by CODE. Auto-trait bounds are folded into the TraitObject TypeRef's const_val bits and enforced at unsize-coercion sites; lifetime bounds are currently only logged, not enforced, pending region-inference wiring.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L315-L316"
+      ],
+      "uncertainty": "Lifetime-bound enforcement explicitly stated as not yet implemented (\"sema currently logs but does not enforce\").",
+      "testability": "diagnostic"
+    },
+    {
+      "id": "item.annotation.nested-combinator",
+      "domain": "item",
+      "title": "Nested combinator inside annotation argument list",
+      "statement": "An annotation argument list may nest a combinator call, e.g. `#[cfg(all(unix, target_arch = \"x86_64\"))]` (ANNOT_CALL, NAME=head ident such as `all`/`any`/`not`, ARGS=nested annot_args list of further ANNOT_CALL / ANNOT_KV / bare-NAME entries), i.e. annotation argument syntax is recursive, not flat.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L317"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "item.schema.typed-view-over-map",
+      "domain": "item",
+      "title": "schema: typed view over a WMap-backed Writ object",
+      "statement": "`schema S : code(expr)? { name: type = key, … }` (SCHEMA_DEF, FIELDS=SCHEMA_FIELD_DEF array, optional CODE_EXPR) is sema-registered as a Struct with exactly one synthetic backing field `m: *const WMap<Wu6,WAny>` and `is_schema=true`; the declared fields exist only in a key/type side-table, not as real struct fields. Each SCHEMA_FIELD_DEF (NAME, TYPE, optional VALUE=key const-expr) defaults to positional index when VALUE is absent.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L325-L326"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "item.schema.closed-union-enum",
+      "domain": "item",
+      "title": "schema enum: closed union over schemas by schema_type_code",
+      "statement": "`schema enum E : category(expr)? { V(S), … }` (SCHEMA_ENUM_DEF, FIELDS=VARIANT_DEF array each NAME=variant/TYPE=concrete schema, optional CODE_EXPR) is a closed union over `schema` types, discriminated at runtime by the pointee object's schema_type_code.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L327"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "type.typeof.compile-time-type-of-expr",
+      "domain": "type",
+      "title": "typeof(expr) as a type-position expression",
+      "statement": "`typeof(expr)` (TYPEOF_TYPE, VALUE=expr AST) is usable in type position and denotes the compile-time-resolved type of `expr`, without evaluating `expr` at runtime.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L260"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "item.annotation.arg-value-shapes",
+      "domain": "item",
+      "title": "Annotation arguments: key=value, positional, and array-literal forms",
+      "statement": "An annotation's argument list admits three leaf shapes: `NAME = literal` key-value (ANNOT_KV), a bare positional literal (ANNOT_POS), and an array literal `[literal, …]` (ANNOT_ARR, ITEMS=literals).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L261-L263"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.lit.scalar-and-container-forms",
+      "domain": "writ",
+      "title": "Writ literal scalar and container node shapes",
+      "statement": "Writ `@{...}`/inner `{...}` map literals (WRIT_MAP), `@[...]`/inner `[...]` array literals (WRIT_ARRAY), and scalar leaves for string (WRIT_STR), integer (WRIT_INT), float (WRIT_FLOAT), bool (WRIT_BOOL), and null (WRIT_NULL) values are distinct AST node kinds; each map entry is a WRIT_ENTRY key:val pair.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L232-L239"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.lit.typed-and-negative-forms",
+      "domain": "writ",
+      "title": "Typed dense array/map literals and negative-int literal",
+      "statement": "`@<ElemType>[v,...]` (WRIT_TYPED_ARRAY, TYPE=elem name) and `@<K,V>{...}` (WRIT_TYPED_MAP) are typed variants of the array/map literal forms, distinct from the untyped WRIT_ARRAY/WRIT_MAP; `@-42` or an inner `-42` inside an array/map (WRIT_NEG_INT) is a distinct node from WRIT_INT for the negated-literal case.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L240-L242"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.capture.dollar-ident-and-expr",
+      "domain": "writ",
+      "title": "$x and ${expr} capture forms in Writ literals",
+      "statement": "`$x` (WRIT_CAP_IDENT, NAME=var name) captures a variable by name inside a Writ literal; `${expr}` (WRIT_CAP_EXPR, VALUE=expr) captures the value of an arbitrary host-language expression at the same position.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L243-L244"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.type-expr.arr-and-map-syntax",
+      "domain": "writ",
+      "title": "<ElemType>[] and <K,V>{} Writ type expressions",
+      "statement": "`<ElemType>[]` (WRIT_ARR_TYPE, TYPE=elem name) and `<K,V>{}` (WRIT_MAP_TYPE, TYPE=key/RET_TYPE=val) are type-expression syntax describing, respectively, a typed Writ array's element type and a typed Writ map's key/value types.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L245-L246"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.comprehension.list-and-map-forms",
+      "domain": "writ",
+      "title": "Writ-literal list and map comprehensions",
+      "statement": "`@[elem for x in iter (if guard)?]` (WRIT_LIST_COMP) and `@{k:v for x in iter (if guard)?}` (WRIT_MAP_COMP) mirror the general LIST_COMP/MAP_COMP comprehension shapes but produce Writ array/map literal values instead of host list/map types.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L249-L250"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "pat.writ.literal-pattern-forms",
+      "domain": "pat",
+      "title": "Writ-literal pattern forms in match arms",
+      "statement": "Writ literals participate in pattern position with dedicated node kinds mirroring the literal forms: `@null` (PAT_WRIT_NULL), `@true`/`@false` (PAT_WRIT_BOOL), `@<int>`/`@-<int>` (PAT_WRIT_INT, IS_NEG flag), `@\"...\"` (PAT_WRIT_STR), `@{k: pat, ...}` (PAT_WRIT_MAP, ITEMS=PAT_WRIT_MAP_ENTRY list each with KEY/VALUE), `@[pat, ...]` (PAT_WRIT_ARR, ITEMS=sub-patterns), `@<T>[..]` (PAT_WRIT_TYPED_ARR, TYPE) and `@<K,V>{..}` (PAT_WRIT_TYPED_MAP, TYPE/RET_TYPE?) match on the typed-array/typed-map's declared type rather than on element contents.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L251-L259"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.genos.declaration",
+      "domain": "trait",
+      "title": "genos declaration is a trait with is_genos=true",
+      "statement": "A `genos` declaration (GENOS_DEF) is sema-represented as an ordinary trait definition with the flag `is_genos=true` set, i.e. it shares the trait-definition data shape rather than introducing a separate item kind.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L265"
+      ],
+      "uncertainty": "Only the node-code comment is present in this slice; genos-specific semantics beyond the flag are implemented elsewhere.",
+      "testability": "transitive"
+    },
+    {
+      "id": "stmt.block.bare-scoping",
+      "domain": "stmt",
+      "title": "Bare { } block is a scoping statement",
+      "statement": "A bare `{ stmts... }` block appearing at statement position (BLOCK_STMT, BODY=block) introduces a nested scope without being an `if`/`loop`/`fn` body or any other control-flow construct.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L266"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "expr.comprehension.list-and-map",
+      "domain": "expr",
+      "title": "List and map comprehension expressions",
+      "statement": "`[elem for x in iter (if guard)?]` (LIST_COMP: VALUE=elem, NAME=x, ITER=iter, GUARD?=guard) and `{k: v for x in iter (if guard)?}` (MAP_COMP: adds KEY=k, VALUE=v) are expression-position comprehensions that iterate `iter`, bind `x` per element, optionally filter by `guard`, and produce a new list or map respectively from the (filtered) elements.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L247-L248",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2875-L2885"
+      ],
+      "divergence": "Logos addition: Python-style comprehensions; not present in Rust."
     }
   ]
 }

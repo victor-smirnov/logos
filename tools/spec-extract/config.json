@@ -13,9 +13,9 @@
     "grammar": {
       "chunker": "peg",
       "sources": [
-        "tools/peg_gen/grammars/logos.peg",
-        "tools/peg_gen/grammars/writ.peg",
-        "tools/peg_gen/grammars/hrpc.peg"
+        "tools/peg_gen_cpp/grammars/logos.peg",
+        "tools/peg_gen_cpp/grammars/writ.peg",
+        "tools/peg_gen_cpp/grammars/hrpc.peg"
       ]
     },
     "sema": {

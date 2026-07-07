@@ -145,7 +145,15 @@ pub instantiate Foo<T>;
 
 > **Divergence:** No Rust equivalent; analog of C++ `template class Foo<int>;`.
 
-Source: `tools/peg_gen/grammars/logos.peg#L591-L595`
+Source: `tools/peg_gen_cpp/grammars/logos.peg#L591-L595`
+
+### `mono.instantiate.root-pin` — `instantiate Foo<T>;` pins a monomorphization root
+
+`instantiate Foo<T>;` (INSTANTIATE_DECL) pins TYPE=`Foo<T>` as a pre-instantiation monomorphization root; an optional IS_PUB marks it as a library-site re-export so downstream crates get the instantiation without repeating the declaration.
+
+Related: `mono.instantiate.decl`
+
+Source: `tools/peg_gen_cpp/grammars/logos.peg#L277`
 
 ## Incremental monomorphization (`mono.incremental`)
 
@@ -799,6 +807,20 @@ When a type has multiple impls of one parameterized trait at distinct type-args 
 
 Source: `src/compiler/mono.cpp#L251-L277`
 
+## Writ-config type slots (`mono.cfg-slot`)
+
+### `mono.cfg-slot.type-extraction` — `<type:CFG.SLOT>` extracts a type from a WritStatic slot
+
+A type-position expression `<type:CFG.SLOT>` (CFG_SLOT_TYPE, NAME=CFG ident, KEY=slot ident) extracts the type stored at top-level slot SLOT of WritStatic const-generic parameter or type alias CFG. Monomorphization resolves this to the slot's `<type:T>` value once CFG becomes a concrete WritStatic.
+
+Source: `tools/peg_gen_cpp/grammars/logos.peg#L282`
+
+### `mono.cfg-slot.type-projection` — CFG-slot type projection
+
+`<type:IDENT PathStep+>` (e.g. `<type:CFG.field.[0]>`) is a mono-time projection extracting the type value stored at the given path within a WritStatic-typed type-level binding named IDENT. Each PathStep is `.IDENT` (string-keyed map field), `.INTEGER` (integer-keyed map field), or `.[INTEGER]` (array index — the brackets disambiguate an array index from an integer-keyed map field). At least one path step is required.
+
+Source: `tools/peg_gen_cpp/grammars/logos.peg#L1488-L1504`
+
 ## Variadic packs (`mono.pack`)
 
 ### `mono.pack.const-pack-expansion-args` — Const-pack expansion in call arguments
@@ -1434,7 +1456,7 @@ X = Other::Y as u8
 
 > **Divergence:** Cross-enum discriminant reference `OtherEnum::Variant` as a discriminant value has no Rust analog.
 
-Source: `tools/peg_gen/grammars/logos.peg#L788-L812` · `tools/peg_gen/grammars/logos.peg#L760-L763`
+Source: `tools/peg_gen_cpp/grammars/logos.peg#L788-L812` · `tools/peg_gen_cpp/grammars/logos.peg#L760-L763`
 
 ## Literals in const context (`const.lit`)
 
@@ -1665,6 +1687,16 @@ A `@type(T)` (`WRIT_TYPE_LIT`) child resolves its TYPE node with the in-scope ty
 Related: `const.wstatic.content-identity`
 
 Source: `src/compiler/sema.cpp#L6462-L6482`
+
+## Writ-static type-arg identity (`const.witstatic`)
+
+### `const.witstatic.byte-hash-identity` — WritStatic type-arg literal has byte-hash const identity
+
+A nested Writ literal at type-argument position, `Foo::<@{...}>` (LIT_WSTATIC), is sema-lowered to `ConstVar(WritStatic, hash)`: two occurrences with byte-identical literal content share identity via that hash, i.e. const-generic identity for WritStatic args is structural/byte-hash-based, not by-reference.
+
+> **Divergence:** A6 — Writ is a Logos-only feature; no Rust analogue.
+
+Source: `tools/peg_gen_cpp/grammars/logos.peg#L281`
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "unit": "grammar/logos/rule-writ_map",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/logos.peg#L2924-L3244",
+  "source": "tools/peg_gen_cpp/grammars/logos.peg#L2924-L3244",
   "source_hash": "2f7d300f5ea60a8e",
   "rules": [
     {
@@ -10,7 +10,7 @@
       "title": "Writ entry keys",
       "statement": "writ_entry ::= (STRING | '-' INTEGER | INTEGER) ':' writ_val ; a map key is a quoted string, a negative integer, or a non-negative integer. A '-' INTEGER key carries LO_NEG.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2931-L2936"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2931-L2936"
       ],
       "divergence": "No Rust analogue; Writ data-literal grammar."
     },
@@ -20,7 +20,7 @@
       "title": "Writ CFG type-slot",
       "statement": "writ_val may be '<' 'type' ':' IDENT path_step+ '>' producing a CFG_SLOT_TYPE (slot extraction keeping an IDENT-only head followed by path steps).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2945-L2946"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2945-L2946"
       ],
       "divergence": "No Rust analogue; Writ embedded-type slot.",
       "testability": "untestable"
@@ -31,7 +31,7 @@
       "title": "Writ runtime capture placeholders",
       "statement": "Inside a Writ literal, '${' expr '}' captures an arbitrary expression (WRIT_CAP_EXPR) and '$' IDENT captures a named binding (WRIT_CAP_IDENT) as a runtime value.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2949-L2950"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2949-L2950"
       ],
       "divergence": "No Rust analogue; Writ interpolation."
     },
@@ -41,7 +41,7 @@
       "title": "Optional @ on nested Writ aggregates",
       "statement": "A nested writ_map / writ_array inside a writ_val may optionally be prefixed by '@'; '@'-prefixed and bare forms are equivalent.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2951-L2955"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2951-L2955"
       ],
       "divergence": "No Rust analogue; Writ literal nesting."
     },
@@ -51,7 +51,7 @@
       "title": "Writ scalar values",
       "statement": "writ_val scalars: RAW_STRING/STRING -> WRIT_STR; FLOAT -> WRIT_FLOAT; '-' INTEGER -> WRIT_NEG_INT; INTEGER -> WRIT_INT; 'true'/'false' -> WRIT_BOOL; 'null' -> WRIT_NULL.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2956-L2963"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2956-L2963"
       ],
       "divergence": "No Rust analogue; Writ scalar literals."
     },
@@ -61,7 +61,7 @@
       "title": "Array literal",
       "statement": "arr_lit ::= '[' (expr (',' expr)* ','?)? ']' ; a bracket-delimited comma-separated list of expressions with optional trailing comma.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2966-L2967"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2966-L2967"
       ]
     },
     {
@@ -70,7 +70,7 @@
       "title": "Tuple literal arity",
       "statement": "tuple_lit ::= '(' expr ',' expr (',' expr)* ')' | '(' expr ',' ')' ; a tuple literal requires either a single element with a trailing comma, or two or more comma-separated elements. '(expr)' alone is not a tuple.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2970-L2973"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2970-L2973"
       ]
     },
     {
@@ -79,7 +79,7 @@
       "title": "Closure parameter type may be omitted",
       "statement": "closure_param allows the type annotation to be omitted: '|x|' is accepted as well as '|x: T|'. Forms: '&mut IDENT', '&IDENT', 'ref IDENT: T', 'mut IDENT: T', 'mut IDENT', '(pat_binding_list): T', 'IDENT: T', 'IDENT'. The omitted type is inferred from the surrounding fn(T)->R formal at the call site.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2979-L3000"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2979-L3000"
       ],
       "divergence": "Conformant with Rust closure type-inference."
     },
@@ -89,7 +89,7 @@
       "title": "Closure expression forms",
       "statement": "closure_expr is '|' closure_param_list? '|' or '||' (OR token), optionally preceded by 'move' and optionally followed by '-> type', with a body that is either a block or (tried after block forms) a single expression. '|x| expr' / '|| expr' are brace-less expression-body closures; the body expr stops at the enclosing ',' / ')'.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3004-L3039"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3004-L3039"
       ]
     },
     {
@@ -98,7 +98,7 @@
       "title": "quote_item! macro",
       "statement": "quote_item_expr ::= 'quote_item' '!' '{' item* '}' ; body is zero or more item declarations producing a typed AST (item-blob) literal.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3051-L3052"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3051-L3052"
       ],
       "divergence": "No Rust analogue (Rust uses macro_rules!/proc-macro quote)."
     },
@@ -108,7 +108,7 @@
       "title": "quote_expr! macro",
       "statement": "quote_expr_expr ::= 'quote_expr' '!' '{' expr '}' ; body is a single expression producing a typed AST (expr-blob) literal.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3060-L3061"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3060-L3061"
       ],
       "divergence": "No Rust analogue."
     },
@@ -118,7 +118,7 @@
       "title": "quote_ty! macro",
       "statement": "quote_ty_expr ::= 'quote_ty' '!' '{' type_ref '}' ; body is a single type expression producing a first-class Type literal (same Type{kind,name,size} shape as type_of::<T>()).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3068-L3069"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3068-L3069"
       ],
       "divergence": "No Rust analogue."
     },
@@ -128,7 +128,7 @@
       "title": "Parenthesised expression",
       "statement": "paren_expr ::= '(' expr ')' ; a single parenthesised expression (not a tuple).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3042-L3043"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3042-L3043"
       ]
     },
     {
@@ -137,7 +137,7 @@
       "title": "Type parameter list",
       "statement": "type_param_list ::= '<' type_param (',' type_param)* ','? '>' ; also reused for specialisation patterns (<i32>, <*T>, <[T;4]>). Distinguishing type-var vs concrete is deferred to sema, not grammar.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3073-L3075"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3073-L3075"
       ]
     },
     {
@@ -146,7 +146,7 @@
       "title": "HRTB for<...> binder parsed then dropped",
       "statement": "hrtb_binder ::= 'for' '<' LIFETIME (',' LIFETIME)* ','? '>' may prefix any trait_bound. Lifetimes are not tracked structurally, so for<'a> Trait<...> is semantically equivalent to Trait<...> (binder parsed into a disposable head).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3077-L3108"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3077-L3108"
       ],
       "divergence": "Lifetimes not structurally tracked: HRTB binder is accepted but discarded (Rust enforces it)."
     },
@@ -156,7 +156,7 @@
       "title": "Relaxed bound ?Trait",
       "statement": "trait_bound may be '?' IDENT (RELAXED). Grammatically any '?Ident' is accepted; sema rejects anything other than '?Sized' (which opts a type parameter out of the implicit Sized bound).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3092-L3096"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3092-L3096"
       ]
     },
     {
@@ -165,7 +165,7 @@
       "title": "Trait bound forms",
       "statement": "A trait_bound is an IDENT optionally with generic args 'Name<bound_arg_list>' or Fn-family parenthesized form 'Name(closure_type_args?) ('-> type)?', each optionally HRTB-prefixed.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3095-L3124"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3095-L3124"
       ]
     },
     {
@@ -174,7 +174,7 @@
       "title": "Associated-type equality in bound args",
       "statement": "bound_arg_list mixes positional type/lifetime args and associated-type equality clauses; bound_arg ::= IDENT '=' type_ref (ASSOC_EQ_BIND) | type_or_lt_arg.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3126-L3133"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3126-L3133"
       ]
     },
     {
@@ -183,7 +183,7 @@
       "title": "Lifetime parameter with outlives bound",
       "statement": "lifetime_param ::= LIFETIME (':' LIFETIME ('+' LIFETIME)*)? ; a lifetime parameter optionally carries one or more outlives bounds.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3141-L3145"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3141-L3145"
       ]
     },
     {
@@ -192,7 +192,7 @@
       "title": "Type parameter forms",
       "statement": "type_param admits: lifetime_param; 'IDENT: lifetime_param (+ lifetime_param)*' (type-outlives); ptr/arr specialisation patterns; const params 'const IDENT: T', 'const IDENT...: T' (variadic), 'const #IDENT: T'; variadic type param 'IDENT... (: bounds)?'; metavar '#IDENT (: bounds)?'; 'IDENT: bounds (= default)?'; 'IDENT = default'; or bare 'IDENT'. A repeat-group '#(type_param), *' expands variadically.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3147-L3181"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3147-L3181"
       ],
       "divergence": "Logos additions: variadic type/const params ('...'), metavar params ('#'), repeat-group expansion (no Rust equivalent)."
     },
@@ -202,7 +202,7 @@
       "title": "Type parameter default",
       "statement": "A type parameter may carry a default via 'IDENT (: bounds)? = type_ref'; the default type applies when the argument is omitted at instantiation.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3174-L3177"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3174-L3177"
       ]
     },
     {
@@ -211,7 +211,7 @@
       "title": "Type argument list",
       "statement": "type_arg_list ::= type_or_lt_arg (',' type_or_lt_arg)* ','? ; generic instantiation argument list (e.g. Vec<i32>).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3183-L3185"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3183-L3185"
       ]
     },
     {
@@ -220,7 +220,7 @@
       "title": "Call argument list",
       "statement": "call_arg_list ::= expr (',' expr)* ','? ; a call site's value-argument list with optional trailing comma.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3187-L3189"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3187-L3189"
       ]
     },
     {
@@ -229,7 +229,7 @@
       "title": "Package-qualified free-function call",
       "statement": "A call 'IDENT path_dot_ident+ '::' IDENT ('::' '<' type_arg_list '>')? '(' call_arg_list? ')'' resolves a free fn by its dotted package path (RECEIVER = first segment, QUAL_PARTS = rest); this disambiguates same-named free fns across packages (e.g. logos.lang.mem::replace vs logos.lang.ptr::replace).",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3191-L3203"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3191-L3203"
       ],
       "divergence": "Logos path model: '.'-separated package path + '::'-item (vs Rust all-'::')."
     },
@@ -239,7 +239,7 @@
       "title": "Turbofish on the type",
       "statement": "'Type::<T>::method(args)' is a STATIC_CALL applying type args <T> to the type before selecting an associated fn/method/new; 'Type::<T>(args)' / 'new::<T>(args)' / 'null::<T>(args)' are GENERIC_CALL with the type args on the callee.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3204-L3213"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3204-L3213"
       ]
     },
     {
@@ -248,7 +248,7 @@
       "title": "UFCS qualified-path call",
       "statement": "'<Type as Trait>::method(args)' dispatches on the concrete Type; the trait qualifier is consumed and dropped because the type-dispatch already resolves the method.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3214-L3219"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3214-L3219"
       ],
       "divergence": "Trait qualifier in <T as Tr>::m is dropped (Rust uses it for disambiguation)."
     },
@@ -258,7 +258,7 @@
       "title": "Turbofish on the method",
       "statement": "'Type::method::<T>(args)' applies type args <T> to the associated method's own generics (distinct from Type::<T>::method); must be matched before plain 'Type::method(args)'.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3220-L3225"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3220-L3225"
       ]
     },
     {
@@ -267,7 +267,7 @@
       "title": "Static / associated call",
       "statement": "'Type::IDENT(args)' and 'Type::new(args)' are STATIC_CALLs invoking an associated function (including the 'new' constructor) of the receiver type.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3226-L3229"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3226-L3229"
       ]
     },
     {
@@ -276,7 +276,7 @@
       "title": "Metavariable call",
       "statement": "'#IDENT(args)' and '#(expr)(args)' invoke a callee named by a metavariable (NAME_VAR) or by an evaluated expression, used in metaprogramming-expanded call sites.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3230-L3237"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3230-L3237"
       ],
       "divergence": "No Rust analogue; metaprogramming callee splice.",
       "testability": "transitive"
@@ -287,7 +287,7 @@
       "title": "Free function call",
       "statement": "'IDENT(args)', 'new(args)', and 'null(args)' are plain free-function CALLs by name.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L3238-L3243"
+        "tools/peg_gen_cpp/grammars/logos.peg#L3238-L3243"
       ]
     },
     {
@@ -296,8 +296,8 @@
       "title": "Writ map literal",
       "statement": "writ_map ::= '{' (writ_entry (',' writ_entry)* ','?)? '}' ; a brace-delimited, comma-separated list of key:value entries (writ_entry), producing {CODE:MAP, ITEMS:[...]}. The entry list may be empty and a single trailing comma after the last entry is permitted.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2924-L2925",
-        "tools/peg_gen/grammars/writ.peg#L94-L95"
+        "tools/peg_gen_cpp/grammars/logos.peg#L2924-L2925",
+        "tools/peg_gen_cpp/grammars/writ.peg#L94-L95"
       ]
     },
     {
@@ -306,7 +306,7 @@
       "title": "Writ embedded type literal `<type: T>`",
       "statement": "A Writ value may embed a Logos Type as a first-class value via `'<' 'type' ':' simple_type '>'`, producing a WRIT_TYPE_LIT node carrying the rendered type T. Any simple_type is accepted, including generic instantiations (e.g. Vec<u8>, Result<T,E>); it renders back as `<type: T>`.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L2941-L2948",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2941-L2948",
         "src/compiler/sema_render.cpp#L1526-L1531"
       ],
       "divergence": "No Rust analogue; type-as-value embedding."

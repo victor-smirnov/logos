@@ -81,15 +81,6 @@
       "testability": "untestable"
     },
     {
-      "id": "type.ref.double-ref",
-      "domain": "type",
-      "title": "Double-reference types",
-      "statement": "`&&T` resolves to `&(&T)` and `&&mut T` to `&(&mut T)` (lexer collapses `&&`).",
-      "evidence": [
-        "src/compiler/sema.cpp#L5849-L5861"
-      ]
-    },
-    {
       "id": "type.slice.sized-vs-unsized",
       "domain": "type",
       "title": "Sized slice vs bare unsized slice",
@@ -310,6 +301,16 @@
       ],
       "divergence": "Logos-only WritStatic value-as-type-arg.",
       "testability": "untestable"
+    },
+    {
+      "id": "type.ref.double-ref",
+      "domain": "type",
+      "title": "Double-reference types",
+      "statement": "Because the lexer greedily tokenizes `&&` as a single logical-AND token, `&&T` and `&&mut T` (written with no intervening whitespace) are recognized as a special case and desugared by sema to `&(&T)` and `&(&mut T)` respectively. Writing the two tokens with whitespace between them (`& &T`, `& &mut T`) requires no special-casing: it is handled directly by ref_type's ordinary recursive nesting over ref_pointee, which supports arbitrary-depth `& & ... T` reference stacks.",
+      "evidence": [
+        "src/compiler/sema.cpp#L5849-L5861",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1691-L1706"
+      ]
     }
   ]
 }

@@ -1,26 +1,142 @@
 {
   "unit": "grammar/logos/fields",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/logos.peg#L20-L106",
-  "source_hash": "1431a3b4e4f2e4d9",
+  "source": "tools/peg_gen_cpp/grammars/logos.peg#L20-L107",
+  "source_hash": "1648971793fd98c4",
   "rules": [
     {
       "id": "grammar.module.from-contextual-keyword",
       "domain": "grammar",
-      "title": "`from` in `use pkg from <module>` is a contextual keyword",
-      "statement": "In `use pkg from <module>;` the token `from` is a contextual keyword: it is lexed as a bare identifier and recognized as the import-source separator only by position, not reserved globally. Hence `from` remains usable as an ordinary identifier elsewhere (e.g. the `From::from` method).",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L91-L96"],
-      "examples": ["use net from \"std/net\";", "let x = From::from(y);"],
-      "uncertainty": "Production and the sema-side check `ident == \"from\"` live in grammar/logos/rule-module; this unit only documents the contextual-keyword status."
+      "title": "`from` is a contextual keyword in `use … from <module>;`",
+      "statement": "In `use pkg from <module-expr>;`, `from` is lexed as a plain IDENT token (not a reserved keyword) and validated to equal the text \"from\" during semantic analysis; a global reserved keyword `from` would clash with the `From::from` trait method name.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L91-L97"
+      ],
+      "testability": "behavioral"
     },
     {
       "id": "grammar.trait.relaxed-bound-sized-only",
       "domain": "grammar",
-      "title": "Relaxed bound `?Trait` accepts only `?Sized`",
-      "statement": "A relaxed trait bound `?Trait` on a trait-bound (the RELAXED marker) is valid only for `?Sized`; no other relaxed bounds are accepted.",
-      "evidence": ["tools/peg_gen/grammars/logos.peg#L75"],
-      "examples": ["fn f<T: ?Sized>(x: &T) {}"],
-      "uncertainty": "Documented as 'Phase 1' restriction; enforcement occurs outside this slot-table unit."
+      "title": "`?Trait` relaxed bound accepts only `?Sized`",
+      "statement": "A TRAIT_BOUND may carry a RELAXED marker for the `?Trait` relaxed-bound syntax; in the current phase the only accepted relaxed bound is `?Sized`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L76"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "metaprog.macro.raw-text-brace-escape",
+      "domain": "metaprog",
+      "title": "Raw-text macro-call capture honours backslash and backtick escapes",
+      "statement": "RAW_TEXT captured from a balanced brace-delimited group on a fn-macro call (RAW_GROUP_*) honours two escapes so literal braces don't break brace balancing: (a) a backslash immediately preceding `{`, `}`, backtick, or `\\` passes that character through without counting it toward the balance (the backslash itself survives into the captured text, for the handler to de-escape); (b) a backtick-delimited region is skipped as a whole, with no brace counting performed inside it. Both are additive: a well-formed body without these constructs is captured byte-identically.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L80"
+      ],
+      "divergence": "A3",
+      "testability": "behavioral"
+    },
+    {
+      "id": "module.item.pub-module-linkage-visibility",
+      "domain": "module",
+      "title": "`pub(module)` vs plain `pub` visibility",
+      "statement": "An item declaration's visibility is carried by a VIS sub-node: NAME=\"module\" denotes `pub(module)` (module-linkage visibility); an absent NAME denotes plain `pub`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L84"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "item.decl.meta-attribute-block",
+      "domain": "item",
+      "title": "`@{...}` meta block on struct/datatype/trait declarations",
+      "statement": "struct, datatype, and trait declarations may carry a `@{...}` META sub-node attached at the item level.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L79"
+      ],
+      "uncertainty": "This slice only shows the field-slot assignment and its purpose comment; the internal grammar of the `@{...}` block body is not shown here.",
+      "testability": "behavioral"
+    },
+    {
+      "id": "writ.schema.code-clause",
+      "domain": "writ",
+      "title": "`code(expr)` clause on schema declarations",
+      "statement": "SCHEMA_DEF and SCHEMA_ENUM_DEF declarations accept a `code(expr)` clause, represented as a sub-node with NAME=\"code\", VALUE=expr.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L73"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "module.use.variants-braced-list",
+      "domain": "module",
+      "title": "`use pkg.Path.Type.{V1, V2, …};` imports selected enum variants",
+      "statement": "A USE_VARIANTS import form `use pkg.Path.Type.{V1, V2, …};` binds the listed variant names of enum Type into scope; its AST carries TYPE_NAME (the enum type reference) and VARIANTS (an array of variant-name sub-nodes).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L82-L83"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "metaprog.quote.antiquote-placeholder",
+      "domain": "metaprog",
+      "title": "`#ident` antiquotation placeholder inside `quote_*!` bodies",
+      "statement": "Inside the body of a `quote_*!` macro, `#ident` is an antiquotation placeholder splicing an external value; its AST node carries a NAME_VAR field holding the placeholder's identifier text. NAME_VAR exists only inside quote_*! bodies (where a where-clause never co-occurs).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L78"
+      ],
+      "divergence": "A3",
+      "testability": "behavioral"
+    },
+    {
+      "id": "trait.impl.negative-impl-syntax",
+      "domain": "trait",
+      "title": "`impl !Trait for Type {}` negative implementation",
+      "statement": "`impl !Trait for Type {}` is parsed as an IMPL_BLOCK carrying an IS_NEGATIVE marker, denoting a negative trait implementation (an explicit opt-out of Trait for Type).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L74"
+      ],
+      "testability": "diagnostic"
+    },
+    {
+      "id": "trait.bound.hrtb-for-binder",
+      "domain": "trait",
+      "title": "`for<'a, 'b>` higher-ranked binder on a trait bound",
+      "statement": "A TRAIT_BOUND may carry a `for<'a, 'b, …>` higher-ranked lifetime binder list, represented as an HRTB_BINDERS sub-node whose ITEMS are LIFETIME_PARAM entries.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L75"
+      ],
+      "testability": "behavioral"
+    },
+    {
+      "id": "stmt.assign.chain-field-write-path",
+      "domain": "stmt",
+      "title": "N-deep field-chain write path",
+      "statement": "An assignment through an N-deep chain of field accesses (e.g. `a.b.c = expr;`) is represented with a PATH sub-node carrying ITEMS=[str, ...] naming the successive field components of the chain.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L77"
+      ],
+      "uncertainty": "This slice shows only the field-slot comment for the chain-write PATH sub-node, not the statement's full grammar production.",
+      "testability": "transitive"
+    },
+    {
+      "id": "expr.call.qualified-path-segments",
+      "domain": "expr",
+      "title": "Qualified CALL/GENERIC_CALL carries package-path segments",
+      "statement": "A qualified CALL or GENERIC_CALL node may carry QUAL_PARTS: package-path segments following RECEIVER, supporting fully-qualified dotted-package call syntax (e.g. `pkg.sub::func(...)`); call nodes never populate a plain module USES field simultaneously, so QUAL_PARTS reuses that slot.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L37-L38"
+      ],
+      "divergence": "A9",
+      "testability": "behavioral"
+    },
+    {
+      "id": "item.enum.struct-shape-variant",
+      "domain": "item",
+      "title": "Struct-shaped enum variant marker",
+      "statement": "An enum VARIANT_DEF (and correspondingly ENUM_LIT_DATA / PAT_VARIANT_DATA) may carry an IS_STRUCT_SHAPE marker distinguishing a struct-shaped variant (braced named fields) from a tuple-shaped variant.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L104-L106"
+      ]
     }
   ]
 }

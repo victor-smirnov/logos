@@ -1,7 +1,7 @@
 {
   "unit": "grammar/writ/nodes",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/writ.peg#L31-L43",
+  "source": "tools/peg_gen_cpp/grammars/writ.peg#L31-L43",
   "source_hash": "c4204268b5c1ca3c",
   "rules": [
     {
@@ -10,7 +10,7 @@
       "title": "Writ AST node kinds",
       "statement": "A Writ value parses to exactly one node kind from the closed set { MAP, ARRAY, STRING, INTEGER, FLOAT, BOOLEAN, NULL_VAL, TYPED_VALUE, DATATYPE, MAP_ENTRY, PARAM_VAL }. Each node carries a CODE field equal to its kind code.",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L31-L43"
+        "tools/peg_gen_cpp/grammars/writ.peg#L31-L43"
       ],
       "testability": "untestable"
     },
@@ -20,7 +20,7 @@
       "title": "TYPED_VALUE node",
       "statement": "A TYPED_VALUE node represents a typename-applied-to-value construction of the form Typename(value), e.g. Date(\"2026-01-01\").",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L39"
+        "tools/peg_gen_cpp/grammars/writ.peg#L39"
       ],
       "testability": "untestable"
     },
@@ -30,7 +30,7 @@
       "title": "DATATYPE node",
       "statement": "A DATATYPE node represents a type name with optional generic parameters of the form Typename<Param, ...>.",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L40"
+        "tools/peg_gen_cpp/grammars/writ.peg#L40"
       ],
       "testability": "untestable"
     }

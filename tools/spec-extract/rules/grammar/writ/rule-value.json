@@ -1,7 +1,7 @@
 {
   "unit": "grammar/writ/rule-value",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/writ.peg#L79-L134",
+  "source": "tools/peg_gen_cpp/grammars/writ.peg#L79-L134",
   "source_hash": "f47434addf2d52da",
   "rules": [
     {
@@ -10,7 +10,7 @@
       "title": "Writ value grammar",
       "statement": "value <- param_val / typed_value / typed_collection / map / array / STRING / FLOAT / INTEGER / TRUE / FALSE / NULL. The ordered alternation is the embeddable entry point for a Writ value; PEG ordering means earlier alternatives win (param_val, typed_value, and typed_collection are attempted before bare map/array/scalars).",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L81-L91"
+        "tools/peg_gen_cpp/grammars/writ.peg#L81-L91"
       ],
       "testability": "untestable"
     },
@@ -20,7 +20,7 @@
       "title": "Scalar literal node codes",
       "statement": "A bare STRING yields {CODE:STRING}, FLOAT yields {CODE:FLOAT}, INTEGER yields {CODE:INTEGER}, TRUE/FALSE yield {CODE:BOOLEAN, VALUE:true|false}, and NULL yields {CODE:NULL_VAL}. Boolean keywords carry the literal value; NULL carries no value.",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L86-L91"
+        "tools/peg_gen_cpp/grammars/writ.peg#L86-L91"
       ]
     },
     {
@@ -29,7 +29,7 @@
       "title": "Map entry key/value",
       "statement": "map_entry <- (STRING / IDENT) ':' value producing {CODE:MAP_ENTRY, KEY, VALUE}. A key may be either a quoted STRING or a bare IDENT; the value is any Writ value.",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L97-L98"
+        "tools/peg_gen_cpp/grammars/writ.peg#L97-L98"
       ],
       "testability": "untestable"
     },
@@ -39,7 +39,7 @@
       "title": "Typed value constructor",
       "statement": "typed_value <- datatype '(' value ')' producing {CODE:TYPED_VALUE, NAME:datatype, VALUE:value}. Exactly one inner value is wrapped by the named type constructor (e.g. Date(\"2026-01-01\")).",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L104-L106"
+        "tools/peg_gen_cpp/grammars/writ.peg#L104-L106"
       ],
       "testability": "untestable"
     },
@@ -49,7 +49,7 @@
       "title": "Typed array/map syntax hints",
       "statement": "typed_collection <- typed_array / typed_map; typed_array <- '<' datatype '>' array; typed_map <- '<' datatype '>' map | '<' datatype ',' datatype '>' map. Type parameters preceding the collection are parse-time hints only: the parser still yields plain ARRAY/MAP nodes. A typed map may declare just the key type (value type defaults to AnyVal) or both key and value types.",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L114-L119"
+        "tools/peg_gen_cpp/grammars/writ.peg#L114-L119"
       ],
       "testability": "untestable"
     },
@@ -59,7 +59,7 @@
       "title": "Datatype reference with generic args",
       "statement": "datatype <- IDENT ('<' type_arg (',' type_arg)* '>')? producing {CODE:DATATYPE, NAME:IDENT, PARAMS:[...]}. The generic argument list, when '<...>' is present, must be non-empty.",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L121-L125"
+        "tools/peg_gen_cpp/grammars/writ.peg#L121-L125"
       ]
     },
     {
@@ -68,7 +68,7 @@
       "title": "Generic type argument",
       "statement": "type_arg <- datatype / INTEGER. A generic argument is either a nested datatype or a non-type integer literal (C++-style const generic argument).",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L127-L128"
+        "tools/peg_gen_cpp/grammars/writ.peg#L127-L128"
       ],
       "testability": "untestable"
     },
@@ -78,8 +78,8 @@
       "title": "Writ array literal",
       "statement": "array <- '[' (value (',' value)*)? ','? ']' producing {CODE:ARRAY, ITEMS:[...]}: a bracket-delimited, comma-separated list of Writ values. The element list may be empty and a single trailing comma is permitted. The same production is used both standalone and as the embedded `writ_array` form in Logos source.",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L101-L102",
-        "tools/peg_gen/grammars/logos.peg#L2927-L2928"
+        "tools/peg_gen_cpp/grammars/writ.peg#L101-L102",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2927-L2928"
       ]
     },
     {
@@ -88,8 +88,8 @@
       "title": "Positional parameter placeholder",
       "statement": "param_val <- '$' INTEGER producing a PARAM_VAL node {CODE:PARAM_VAL, VALUE:INTEGER}. '$N' is a positional template parameter placeholder where N is a non-negative decimal integer; the node is assigned the reserved runtime type_hash 127 (tag 0xFF).",
       "evidence": [
-        "tools/peg_gen/grammars/writ.peg#L130-L133",
-        "tools/peg_gen/grammars/writ.peg#L42"
+        "tools/peg_gen_cpp/grammars/writ.peg#L130-L133",
+        "tools/peg_gen_cpp/grammars/writ.peg#L42"
       ],
       "testability": "untestable"
     }

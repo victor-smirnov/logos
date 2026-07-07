@@ -270,7 +270,7 @@
       "title": "Item-position metacall",
       "statement": "`metacall <call-expr> ;` is legal at module item position (top level). The named metafunction is invoked at compile time and must return an item blob; the items it produces are spliced into the program at the metacall's position, replacing the `metacall` item itself.",
       "evidence": [
-        "tools/peg_gen/grammars/logos.peg#L581-L582",
+        "tools/peg_gen_cpp/grammars/logos.peg#L581-L582",
         "src/compiler/sema_impl.hpp#L4044-L4049"
       ],
       "examples": [

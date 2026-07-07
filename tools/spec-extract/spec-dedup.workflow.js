@@ -79,7 +79,7 @@ Return the structured decision (its "id" must be "${c.id}"). Terse; no prose to 
 phase('Dedup')
 log(`resolving ${work.length} colliding id(s)`)
 const decisions = (await parallel(work.map(c => () =>
-  agent(prompt(c), { label: c.id, phase: 'Dedup', schema: DECISION })
+  agent(prompt(c), { label: c.id, phase: 'Dedup', schema: DECISION, ...(P.dedup_model ? { model: P.dedup_model } : {}) })
 ))).filter(Boolean)
 
 return { decisions, resolved: decisions.length, of: work.length }

@@ -147,15 +147,6 @@
       ]
     },
     {
-      "id": "generic.where.ref-subject",
-      "domain": "generic",
-      "title": "where-clause with reference subject",
-      "statement": "A `where &T: Trait` / `where &mut T: Trait` clause records its bounds on the underlying type-param T, flagged as applying only to a matching (shared/mut) reference receiver.",
-      "evidence": [
-        "src/compiler/sema.cpp#L4210-L4259"
-      ]
-    },
-    {
       "id": "generic.where.projection-subject-skipped",
       "domain": "generic",
       "title": "where-clause projection subject is parsed but not enforced",
@@ -322,6 +313,16 @@
       "statement": "Compile-time const evaluation resolves a bare-identifier const path (e.g. inside `metacall { N }`) to its registered right-hand-side value.",
       "evidence": [
         "src/compiler/sema.cpp#L4320-L4341"
+      ]
+    },
+    {
+      "id": "generic.where.ref-subject",
+      "domain": "generic",
+      "title": "Reference-typed where-clause subject",
+      "statement": "A where-clause predicate's subject may be a reference type: `&T: Bound (+ Bound)*`, `&mut T: Bound (+ Bound)*`, or `for<'a> &'a T: Bound (+ Bound)*` (an associated-type subject `T::Item: Bound` is likewise accepted syntactically). Such a predicate is parsed as a TYPE_PARAM node carrying a TYPE field (the `&T`/`&mut T`/assoc-type node) instead of a NAME field, distinguishing it from the plain `T: Bound` form which falls through to the ordinary type_param rule. Sema's where-clause walker resolves the TYPE node; for a `&T`/`&mut T` subject over a type-param T, it records the listed bound(s) on the underlying type-param T, flagging each as `on_ref_subject` (with `is_ref_mut` set for `&mut`), so the method resolver applies these bounds only to a receiver of the matching (shared vs. mutable) reference kind. An associated-type projection subject is accepted and parsed but only parse-and-skipped semantically (not yet enforced); full projection-bound checking is a separate, unimplemented feature.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1321-L1330",
+        "src/compiler/sema.cpp#L4210-L4259"
       ]
     }
   ]

@@ -1,7 +1,7 @@
 {
   "unit": "grammar/writ/fields",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/writ.peg#L20-L28",
+  "source": "tools/peg_gen_cpp/grammars/writ.peg#L20-L28",
   "source_hash": "79ddb3913af08822",
   "rules": []
 }

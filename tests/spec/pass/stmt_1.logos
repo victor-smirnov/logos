@@ -113,7 +113,7 @@ fn main() -> i64 {
     }                                    // final value dropped at scope exit
 
     // ── assign: first (dominating) assign performs no drop ────────────────────
-    // @rule stmt.assign.first-assign-no-drop
+    // @rule stmt.assign.first-write-skips-drop
     // For a statically-tracked binding, the first dominating assignment writes
     // uninitialized storage and drops nothing; the next assignment drops the
     // live value.

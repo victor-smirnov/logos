@@ -1,0 +1,558 @@
+{
+  "unit": "grammar/logos/rule-ref_pointee",
+  "layer": "grammar",
+  "source": "tools/peg_gen_cpp/grammars/logos.peg#L1715-L2339",
+  "source_hash": "af5eb8490dfac234",
+  "rules": [
+    {
+      "id": "type.pointee.forms",
+      "domain": "type",
+      "title": "Pointee-type alternation",
+      "statement": "A pointee type (target of `&`/`*`/etc.) is one of: ref-type, array type, tuple type, unit type, qualified associated type, associated-type reference, fn-pointer type, or a simple type reference.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1715"
+      ],
+      "testability": "transitive"
+    },
+    {
+      "id": "type.closure.syntax",
+      "domain": "type",
+      "title": "Closure type `|T,...| -> R`",
+      "statement": "`|T1, T2, ...| -> R` is a closure type (parameter-type annotation position). `|| -> R` (zero-arg) is a distinct alternative because the lexer fuses `||` into one token.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1717-L1724"
+      ]
+    },
+    {
+      "id": "type.fn-ptr.bare",
+      "domain": "type",
+      "title": "Bare fn-pointer type `fn(...) -> R`",
+      "statement": "`fn(T1, T2, ...) -> R` / `fn(T1, T2, ...)` / `fn() -> R` / `fn()` is a bare function-pointer type; omitted return defaults to no declared return type.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1726-L1728",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1765-L1774"
+      ]
+    },
+    {
+      "id": "type.fn-ptr.extern-abi",
+      "domain": "type",
+      "title": "extern-ABI fn-pointer type",
+      "statement": "`extern \"ABI\" fn(...) -> R` is a fn-pointer type carrying an ABI string; sema tags the FnPtr type with it and threads it to the MLIR calling convention (mirrors the extern-fn declaration convention).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1737-L1740",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1741-L1748"
+      ]
+    },
+    {
+      "id": "type.fn-ptr.unsafe",
+      "domain": "type",
+      "title": "unsafe fn-pointer type",
+      "statement": "`unsafe fn(...) -> R` is a fn-pointer type with IS_UNSAFE set; otherwise structurally identical to the safe fn-pointer type. Must be tried before the bare (non-`unsafe`) alternatives so `unsafe` is consumed here.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1733-L1736",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1749-L1756"
+      ]
+    },
+    {
+      "id": "type.fn-ptr.hrtb",
+      "domain": "type",
+      "title": "HRTB-quantified fn-pointer type",
+      "statement": "`for<'a> fn(&'a T) -> R` is a HRTB-quantified fn-pointer type; the `for<>` binders are parsed and captured (HRTB_BINDERS) but sema does not yet skolemize per-type binders — captured for future region inference.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1729-L1732",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1757-L1764"
+      ],
+      "testability": "transitive",
+      "uncertainty": "Binders are parsed/captured but not yet semantically enforced (per source comment); observable effect is limited to successful parsing today."
+    },
+    {
+      "id": "metaprog.stmt.repeat-group",
+      "domain": "metaprog",
+      "title": "Statement repeat-group `#(stmt)*`",
+      "statement": "`#(stmt)*` at statement position is a metaprogram repeat-group over a statement, expanding to a compile-time-repeated sequence of statements (mirrors the analogous repeat-group forms in type-argument and pattern-group positions).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1900-L1901"
+      ],
+      "divergence": "A3",
+      "testability": "transitive"
+    },
+    {
+      "id": "expr.unsafe.block",
+      "domain": "expr",
+      "title": "Unsafe block",
+      "statement": "`unsafe { ... }` is an unsafe block whose body is an ordinary block.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1886-L1887"
+      ]
+    },
+    {
+      "id": "grammar.block.brace",
+      "domain": "grammar",
+      "title": "Block",
+      "statement": "A block is `{ stmt* }`: a brace-delimited sequence of zero or more statements.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1882-L1883"
+      ]
+    },
+    {
+      "id": "item.fn.nested",
+      "domain": "item",
+      "title": "Nested function statement",
+      "statement": "A `fn name(params) [-> T] { ... }` at statement position is a nested function: its body is lifted to a top-level free function under a gensym'd name, and the local name binds a fn-pointer value. A nested fn captures nothing; reads of enclosing locals are rejected by sema (use a closure instead).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1829-L1837",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1889-L1897"
+      ]
+    },
+    {
+      "id": "pat.at.binding",
+      "domain": "pat",
+      "title": "At-binding pattern",
+      "statement": "`name @ subpat` binds `name` to the value matched by `subpat`. `ref name @ subpat` binds `name` by reference to the value matched by `subpat`; this alternative is ordered before the bare `ref name` alternative so the trailing `@ subpat` is not left unparsed.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2043-L2052",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2106-L2112"
+      ]
+    },
+    {
+      "id": "pat.group.paren",
+      "domain": "pat",
+      "title": "Parenthesised / grouped pattern",
+      "statement": "`(P)` is exactly P. `(P | Q | ...)` is a grouped or-pattern, inlined into the same PAT_OR shape as a bare or-pattern at that position (composes with `@`-bindings, e.g. `n @ (1 | 2 | 3)`). `(..)` matches any tuple irrefutably, binding nothing (lowered as a bare wildcard).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2272-L2287"
+      ]
+    },
+    {
+      "id": "pat.lit.bytes-rejected",
+      "domain": "pat",
+      "title": "Byte-string pattern rejected",
+      "statement": "A byte-string-literal pattern parses (PAT_BYTES) but sema currently rejects it, pending &[u8]-equality-matching codegen.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2260-L2263",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2200-L2203"
+      ],
+      "uncertainty": "Rejection is stated as provisional (\"until codegen ... lands\"); reflects current compiler behavior, not necessarily a permanent restriction."
+    },
+    {
+      "id": "pat.lit.float-rejected",
+      "domain": "pat",
+      "title": "Float-literal pattern rejected",
+      "statement": "A float-literal pattern (PAT_FLOAT) parses successfully but is rejected by sema with a diagnostic: float-equality matching in patterns is deliberately not supported because IEEE float-equality semantics as a pattern are not committed to.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2195-L2199",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2255-L2259"
+      ],
+      "divergence": "Rust historically deprecated float patterns (accept-with-lint); Logos rejects them outright with a hard diagnostic."
+    },
+    {
+      "id": "pat.lit.integer",
+      "domain": "pat",
+      "title": "Integer literal patterns",
+      "statement": "In a pattern position, `N` matches a scrutinee equal to the integer literal `N` (PAT_INT); `-N` matches equal to the negative integer literal `-N` (PAT_NEG_INT).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2246-L2249"
+      ],
+      "related": [
+        "pat.lit.integer-range"
+      ]
+    },
+    {
+      "id": "pat.lit.string",
+      "domain": "pat",
+      "title": "String-literal pattern",
+      "statement": "A string-literal pattern `\"foo\"` matches by string equality; sema lowers it to a refutable `str_eq(scrutinee, \"foo\")` guard over a wildcard binding.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2204-L2207",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2264-L2267"
+      ]
+    },
+    {
+      "id": "pat.or.alternatives",
+      "domain": "pat",
+      "title": "Or-pattern",
+      "statement": "A top-level pattern is one or more `pat_single` alternatives separated by `|` (optional leading `|`), combined into a single or-pattern (PAT_OR). A variant-payload argument may itself be an or-pattern `Some(A | B)` — PAT_OR is emitted there only when a `|` is actually present; a single alternative unwraps/passes through transparently.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1962-L1978",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2022-L2038"
+      ]
+    },
+    {
+      "id": "pat.range.char",
+      "domain": "pat",
+      "title": "Char patterns",
+      "statement": "A char literal pattern `'a'` matches a char value; `'a'..='z'` matches an inclusive char range over char values.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2190-L2194",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2250-L2254"
+      ]
+    },
+    {
+      "id": "pat.range.integer",
+      "domain": "pat",
+      "title": "Integer range patterns",
+      "statement": "Integer range patterns: closed inclusive `lo..=hi`, closed exclusive `lo..hi`, and half-open forms `a..` (RangeFrom, clamped to [a, TYPE_MAX]), `..=b` (RangeToInclusive, clamped to [TYPE_MIN, b]), `..b` (RangeToExclusive, clamped to [TYPE_MIN, b-1]). Either endpoint may independently carry a unary `-` (negative literal). Open bounds are clamped to the scrutinee type's MIN/MAX when the pattern is built.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2208-L2245"
+      ]
+    },
+    {
+      "id": "pat.ref.binding-mode",
+      "domain": "pat",
+      "title": "ref / ref mut / mut bindings",
+      "statement": "`ref x` binds the matched place by shared reference; `ref mut x` by mutable reference; `mut x` introduces a fresh re-bindable mutable local from the scrutinee (by value).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2113-L2123",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2053-L2063"
+      ]
+    },
+    {
+      "id": "pat.ref.reference-pattern",
+      "domain": "pat",
+      "title": "Reference patterns",
+      "statement": "`&pat` and `&mut pat` match a reference, peeling one scrutinee reference layer (built as PAT_REF). Because the lexer fuses `&&` into a single AND token, `&&pat` / `&&mut pat` cannot reach the `AMP …` alternatives directly; instead the grammar matches AND followed by an inner reference and wraps it once more, peeling two layers and producing PAT_REF(PAT_REF(pat)) — each PAT_REF still peels exactly one scrutinee reference layer.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2064-L2085",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2124-L2145"
+      ]
+    },
+    {
+      "id": "pat.slice.shape",
+      "domain": "pat",
+      "title": "Slice pattern",
+      "statement": "`[elems]` / `[]` match a slice/array by element sub-patterns.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2143-L2147",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2203-L2207"
+      ]
+    },
+    {
+      "id": "pat.struct.field",
+      "domain": "pat",
+      "title": "Struct-pattern field",
+      "statement": "A struct-pattern field is one of: `..` (rest), `N: subpat` (tuple-struct field by positional integer index N, resolved positionally by sema's struct-pattern binder), `name: subpat`, `ref name` / `ref mut name` (bind the field by reference, `&T` / `&mut T`), or a bare `name` shorthand binding the field to a same-named local.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1980-L1999",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2040-L2062"
+      ]
+    },
+    {
+      "id": "pat.struct.shape",
+      "domain": "pat",
+      "title": "Struct pattern",
+      "statement": "`Name { field_list }` and `Name {}` destructure a struct by named fields: `Name { field_list }` binds/matches the listed fields (via pat_field_list); `Name {}` matches a struct with no field bindings.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2198-L2202"
+      ],
+      "examples": [
+        "let Point { x, y } = p;"
+      ]
+    },
+    {
+      "id": "pat.tuple-bind.let",
+      "domain": "pat",
+      "title": "Let-binding tuple pattern",
+      "statement": "A let-binding tuple pattern (`pat_binding`) admits `()` (unit), a `..` rest (expanded at lowering to the right number of `_` skips so the remaining names land on the correct tuple slots), nested tuples `(a, (b, c))` (the sub-list is stored under NAMES, the same shape as LET_DESTRUCT, so the sema let-destructure lowering recurses into it), and plain identifier bindings.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1943-L1960",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2003-L2020"
+      ]
+    },
+    {
+      "id": "pat.tuple.elem-rest",
+      "domain": "pat",
+      "title": "Tuple-pattern rest element",
+      "statement": "A tuple-pattern element (`pat_tuple_elem`) is either `..` (rest — later lowered to a `_` wildcard skip, preserving the tuple's fixed arity) or an or-pattern of one or more sub-patterns (`pat_single (PIPE pat_single)*`, emitted as `PAT_OR`).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2075-L2086"
+      ],
+      "related": []
+    },
+    {
+      "id": "pat.variant.struct-shape",
+      "domain": "pat",
+      "title": "Enum struct-variant pattern",
+      "statement": "`E::V { x, y: pat, .. }` / `E::V {}` match a struct-shaped enum variant; field names resolve to variant payload indices via payload_field_names.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2123-L2129",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2183-L2189"
+      ]
+    },
+    {
+      "id": "pat.variant.tuple",
+      "domain": "pat",
+      "title": "Enum tuple-variant / tuple-struct pattern",
+      "statement": "`E::V(args)` matches an enum tuple-variant payload; `args` are full nested patterns, possibly including `..` rest and or-patterns (CODE: PAT_VARIANT_DATA, NAME, FIELD, ARGS). A bare `Foo(a, b)` (no `::` separator) also parses as CODE: PAT_VARIANT_DATA with an empty FIELD; sema then dispatches to tuple-struct destructure vs. enum-variant destructure based on how `Foo` resolves.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2181-L2182",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2192-L2197"
+      ]
+    },
+    {
+      "id": "pat.wild.ident",
+      "domain": "pat",
+      "title": "Identifier / wildcard pattern",
+      "statement": "A bare identifier is an irrefutable binding pattern: the matched value is bound to the name. `_` is lexed as an ordinary identifier and treated by sema as the anonymous wildcard (binds nothing).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2297-L2298"
+      ]
+    },
+    {
+      "id": "pat.writ.container",
+      "domain": "pat",
+      "title": "Writ map/array patterns",
+      "statement": "`@{ \"key\": pat, ... }` / `@{}` match writ maps (keys are string literals); `@[elem, ...]` / `@[]` match writ arrays. Array elements admit a trailing `..` to match length >= n.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2088-L2101",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2173-L2180"
+      ],
+      "divergence": "A6"
+    },
+    {
+      "id": "pat.writ.scalar",
+      "domain": "pat",
+      "title": "Writ scalar patterns",
+      "statement": "`@null`, `@true`/`@false`, `@N`/`@-N`, and `@\"str\"` are writ scalar patterns matching writ null, bool, integer, and string values respectively.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2092-L2106",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2152-L2166"
+      ],
+      "divergence": "A6"
+    },
+    {
+      "id": "pat.writ.typed-container",
+      "domain": "pat",
+      "title": "Writ typed map/array patterns",
+      "statement": "`@<T>{..}`, `@<K,V>{..}`, and `@<T>[..]` are typed writ map/array patterns annotating the matched container's element type(s).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2167-L2172"
+      ],
+      "divergence": "A6"
+    },
+    {
+      "id": "stmt.break.forms",
+      "domain": "stmt",
+      "title": "break",
+      "statement": "`break;`, `break expr;`, `break 'label;`, and `break 'label expr;` are all valid; a value and/or a target label are each optional. A bare `break` (no label, no value) may be terminated by either `;` or `,`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1964-L1971"
+      ]
+    },
+    {
+      "id": "stmt.continue.forms",
+      "domain": "stmt",
+      "title": "continue",
+      "statement": "`continue;` and `continue 'label;` are valid; the target label is optional. A bare (unlabeled) `continue` may be terminated by either `;` or `,`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1973-L1976"
+      ]
+    },
+    {
+      "id": "stmt.for.each",
+      "domain": "stmt",
+      "title": "For-each loop",
+      "statement": "`for x in iter { }` iterates over an iterable, binding the loop variable per element. If the loop variable is a bare identifier, the fast-path alternative binds it directly (tried first). If it is not a bare identifier (a tuple/struct/etc. pattern, e.g. `for (a, b) in v { }`), the parser falls through to the pattern alternative, and sema binds the full destructuring pattern against each element.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1938-L1946"
+      ],
+      "examples": [
+        "for x in v { }",
+        "for (a, b) in pairs { }"
+      ]
+    },
+    {
+      "id": "stmt.for.range",
+      "domain": "stmt",
+      "title": "For-range loop",
+      "statement": "`for i in lo..hi { }` iterates the exclusive integer range `[lo, hi)`; `for i in lo..=hi { }` iterates the inclusive range `[lo, hi]`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1868-L1877",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1934-L1937"
+      ]
+    },
+    {
+      "id": "stmt.kinds.dispatch",
+      "domain": "stmt",
+      "title": "Statement forms",
+      "statement": "A statement is one of: repeat-group (`#(stmt)*`), nested-fn, labeled-loop, let-else, let, for, while, loop, return, break, continue, deref-write, if-expr, match, destructure-assign, assign, compound-assign, place-assign, unsafe-block, block, `expr ;` (expression statement), or a trailing `expr` (block-tail value, becomes the block's value with no `;`).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1839-L1866",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1899-L1926"
+      ]
+    },
+    {
+      "id": "stmt.let-else.form",
+      "domain": "stmt",
+      "title": "let-else statement",
+      "statement": "`let PAT = expr else { block };` binds a refutable pattern; on match failure the else block runs (must diverge — the pattern's bindings are otherwise unavailable after the statement).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2242-L2244",
+        "tools/peg_gen_cpp/grammars/logos.peg#L2303-L2304"
+      ]
+    },
+    {
+      "id": "stmt.let.forms",
+      "domain": "stmt",
+      "title": "let bindings",
+      "statement": "`let` supports: tuple destructure `let (a,b) [: T] = e;`; `let ref x [: T] = e;` (sugar for `let x = &e;` — detected via IS_REF, sema wraps the lowered RHS in an addr-of); `let mut x [: T] [= e];` (mutable; `let mut x: T;` with no initializer declares an uninitialized typed mutable binding); `let x [: T] [= e];` (immutable; `let x: T;` likewise declares an uninitialized typed binding); and `let PAT = e;` (arbitrary irrefutable full pattern — struct/enum-variant/tuple-with-non-ident-subs — for forms not covered by the simpler IDENT-prefixed alternatives above; refutability is checked at sema time).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L2306-L2335"
+      ]
+    },
+    {
+      "id": "stmt.loop.infinite",
+      "domain": "stmt",
+      "title": "loop block",
+      "statement": "`loop { ... }` is an unconditional loop.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1888-L1894",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1948-L1954"
+      ]
+    },
+    {
+      "id": "stmt.loop.labeled",
+      "domain": "stmt",
+      "title": "Labeled loop",
+      "statement": "`'label: for/while/loop { ... }` attaches a lifetime-syntax label to a loop (in statement or expression position), targetable by `break 'label` / `continue 'label` to disambiguate nested loops.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1891-L1902",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1951-L1952",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1957-L1962"
+      ]
+    },
+    {
+      "id": "stmt.match.arm",
+      "domain": "stmt",
+      "title": "Match arm with optional guard",
+      "statement": "A match arm is `PAT [if GUARD] => BODY [,]`, where BODY is a block, an expression, or a statement, with an optional trailing comma. The optional `if GUARD` is a boolean guard expression gating the arm.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1930-L1941",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1990-L2001"
+      ]
+    },
+    {
+      "id": "stmt.match.scrutinee-form",
+      "domain": "stmt",
+      "title": "Match statement",
+      "statement": "`match SCRUT { ARM* }` matches a scrutinee against arms. A bare-identifier scrutinee is parsed specially (as a var-ref) so `match e { ... }` does not mis-parse `e {` as a struct literal; complex scrutinee expressions fall through to the general expr form.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1978-L1988"
+      ]
+    },
+    {
+      "id": "type.array.size-from-metacall",
+      "domain": "type",
+      "title": "Array size from metacall block",
+      "statement": "`[T; metacall { ... }]` computes the array size from a metacall block evaluated at compile time (const array-length is expressed via explicit `metacall`, not implicit const-eval).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1769-L1770",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1829-L1830"
+      ],
+      "divergence": "A1"
+    },
+    {
+      "id": "type.array.size-from-pack",
+      "domain": "type",
+      "title": "Array size from variadic pack length",
+      "statement": "`[T; P...(P)]` sizes the array from a variadic pack's length; lowered to a symbolic array-size-var `__sizeof_pack:P`, resolved at monomorphization.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1762-L1768",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1827-L1828"
+      ],
+      "divergence": "A6"
+    },
+    {
+      "id": "type.array.sized",
+      "domain": "type",
+      "title": "Fixed-size array type `[T; N]`",
+      "statement": "`[T; N]` is a fixed-size array type. N may be an integer literal, an identifier (const generic), a variadic-pack-length form `sizeof...(P)` (lowered to a symbolic arr_size_var resolved at mono), or a `metacall { ... }` block computing the size. All size-bearing alternatives are tried before the unsized-slice fallback `[T]`; PEG alternation is ordered left-to-right so size-bearing forms always match first when a size is present.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1821-L1826",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1827-L1828",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1829-L1830",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1831-L1832"
+      ]
+    },
+    {
+      "id": "type.generic.instantiation",
+      "domain": "type",
+      "title": "Generic type instantiation `T<...>`",
+      "statement": "`Name<arg, ...>` (optional trailing comma) instantiates a generic type. The type name may also be a metavariable: `#Ident<...>` or `#(expr)<...>`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1797-L1815",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1857-L1860",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1874-L1875"
+      ]
+    },
+    {
+      "id": "type.generic.type-arg-kinds",
+      "domain": "type",
+      "title": "Generic type-argument kinds",
+      "statement": "A generic type argument is one of: a repeat-group `#(arg),*` (metaprogram repetition over type args), a lifetime `'a` (stored as LIFETIME_PARAM, skipped during concrete-type resolution), a pack expansion `Ident...`, an antiquote `$Ident` or `$Ident...`, an integer literal (optionally negated), a writ literal, or a plain type.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1836-L1855"
+      ],
+      "divergence": "A6"
+    },
+    {
+      "id": "type.ptr.raw",
+      "domain": "type",
+      "title": "Raw pointer type",
+      "statement": "`*const T` is an immutable raw pointer to `T`; `*mut T` is a mutable raw pointer to `T`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1806-L1809"
+      ]
+    },
+    {
+      "id": "type.ptr.raw-slice",
+      "domain": "type",
+      "title": "Raw fat-pointer to slice",
+      "statement": "`*const [T]` and `*mut [T]` are raw fat pointers to a slice, sharing the `{*const T, usize}` ABI of `&[T]` but without borrow-check guarantees. These alternatives must precede the plain pointer/array forms in `ptr_type` so that a bare `[T]` still parses as the unsized-slice type rather than falling through to `arr_type` (which requires `[T; N]` with an explicit size).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1797-L1805"
+      ]
+    },
+    {
+      "id": "type.ptr.zoned",
+      "domain": "type",
+      "title": "Zoned raw pointer `*zoned [mut] T`",
+      "statement": "`*zoned T` / `*zoned mut T` is a zoned raw pointer (Ref-arm self-relative at rest; deref/assign runs the storage↔compute bridge). `zoned` is a contextual keyword recognized only in pointer position: after `*`, the only words otherwise valid there are the `mut`/`const` keyword tokens, so a bare IDENT there can only be `zoned` (sema validates NAME==\"zoned\"). It is not reserved globally — `#[zoned]` attributes still parse as IDENT.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1810-L1819"
+      ],
+      "divergence": "A6 (addition — zone-relative raw pointer; no Rust equivalent; ref-repr-design §6/§8)"
+    },
+    {
+      "id": "type.ref.dotted-path",
+      "domain": "type",
+      "title": "Fully-qualified non-generic type path",
+      "statement": "A fully-qualified non-generic type in type position is written `pkg.path.Type` (dotted); the last path segment is the type name (QUAL_PARTS holds the prefix). Matched before bare-IDENT alternatives so the whole dotted form is claimed as one type reference. The generic dotted form `pkg.path.Type<A>` is not accepted here (use a `use` import + short name instead).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1865-L1873"
+      ],
+      "divergence": "A9"
+    },
+    {
+      "id": "type.ref.metavar",
+      "domain": "type",
+      "title": "Metavariable type reference",
+      "statement": "`#Ident` and `#(expr)` are (non-generic) type references whose name is supplied by a metaprogram variable/expression rather than a literal identifier.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1861-L1864"
+      ],
+      "divergence": "A6"
+    },
+    {
+      "id": "type.tuple.unit",
+      "domain": "type",
+      "title": "Unit type `()`",
+      "statement": "`()` denotes the unit type, the empty tuple type; both the dedicated unit-type production and the simple-type `LPAREN RPAREN` fallback yield the same TUPLE_TYPE (no items).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1782-L1783",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1876-L1877",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1722-L1723",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1816-L1817"
+      ]
+    }
+  ]
+}

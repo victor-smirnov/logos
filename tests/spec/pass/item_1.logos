@@ -173,7 +173,7 @@ fn main() -> i64 {
     // Associated const and associated method defined inside an impl resolve.
     if W::BASE != 4i64 { return 20; }
 
-    // @rule item.static-fn.def
+    // @rule item.fn.static-def
     // A static fn (no self receiver) is callable as an associated function.
     {
         let m: W = W::make(21i64);

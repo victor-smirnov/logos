@@ -1,7 +1,7 @@
 {
   "unit": "grammar/hrpc/export",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/hrpc.peg#L13-L13",
+  "source": "tools/peg_gen_cpp/grammars/hrpc.peg#L13-L13",
   "source_hash": "c983708c5a2fded1",
   "rules": []
 }

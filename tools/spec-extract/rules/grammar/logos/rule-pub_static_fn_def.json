@@ -1,0 +1,347 @@
+{
+  "unit": "grammar/logos/rule-pub_static_fn_def",
+  "layer": "grammar",
+  "source": "tools/peg_gen_cpp/grammars/logos.peg#L1095-L1714",
+  "source_hash": "241b29726e42609e",
+  "rules": [
+    {
+      "id": "item.fn.static-def",
+      "domain": "item",
+      "title": "Static method definition",
+      "statement": "A `static [unsafe] fn NAME[<TypeParams>](params) [-> RetType] { body }` item defines a static (no-self) associated function inside an item body; `pub` is an orthogonal prefix. NAME may be a plain identifier or the contextual constructor name `new`; unsafe and return-type are each independently optional.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1095-L1121"
+      ],
+      "examples": [
+        "static fn new(x: i64) -> Self { Self { x } }",
+        "static unsafe fn raw() { }"
+      ]
+    },
+    {
+      "id": "item.datatype.eidos-decl",
+      "domain": "item",
+      "title": "`eidos` POD datatype declaration",
+      "statement": "`[pub] eidos NAME[<TypeParams>] { fields }` declares a Writ datatype: a C-POD layout aggregate (no heap types), field list only, no methods.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1123-L1128"
+      ]
+    },
+    {
+      "id": "item.datatype.explicit-instantiation",
+      "domain": "item",
+      "title": "Explicit datatype instantiation declaration",
+      "statement": "`[pub] eidos TypeRef;` (no body) declares an explicit instantiation of a generic datatype, binding attribute metadata (e.g. `#[type_code=N]`) to that specialization rather than defining new fields.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1130-L1137"
+      ],
+      "examples": [
+        "#[type_code=42] datatype Array<i32>;"
+      ]
+    },
+    {
+      "id": "trait.decl.explicit-instantiation",
+      "domain": "trait",
+      "title": "Explicit trait (genos) specialization declaration",
+      "statement": "`[pub] genos TypeRef;` (trait_kw type_ref SEMI, no body) binds attribute metadata to a logical-family (trait) specialization; implementing eidos inherit the specialization via `impl`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1139-L1146"
+      ],
+      "examples": [
+        "#[type_code=N] pub genos Array<i32>;"
+      ]
+    },
+    {
+      "id": "item.struct.explicit-instantiation",
+      "domain": "item",
+      "title": "Explicit struct instantiation declaration",
+      "statement": "`[pub] struct TypeRef;` where TypeRef is a generic instance (e.g. `Foo<T>`) declares an explicit instantiation, binding attribute metadata to that specialization without a field list; `instantiate Foo<T>;` is the preferred dedicated spelling for this.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1161-L1166"
+      ]
+    },
+    {
+      "id": "item.struct.def-forms",
+      "domain": "item",
+      "title": "Struct definition forms",
+      "statement": "A struct definition takes one of: (a) antiquote name via `struct #(expr) { fields items }` (NAME_VAR, valid only inside quote_item! bodies); (b) antiquote name via `struct #IDENT { fields items }`; (c) `struct NAME[<TypeParams>] [where ...] { fields items }`; (d) tuple-struct `struct NAME[<TypeParams>](field, field, ...);`. A where-clause is accepted only on form (c) — NAME_VAR and WHERE share a grammar slot, so the antiquote forms cannot carry a where-clause.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1168-L1189"
+      ],
+      "uncertainty": "Slot-sharing rationale (WHERE/NAME_VAR) taken from the accompanying comment, not independently re-derived from the action bindings."
+    },
+    {
+      "id": "writ.schema.field-decl",
+      "domain": "writ",
+      "title": "Writ schema definition",
+      "statement": "`[pub] schema NAME[<TypeParams>] [: code(expr)] { field* }` defines a typed view over a map-like Writ object. Each field is `[pub] IDENT : TypeRef [= expr]`; the optional `= expr` is the field's key (absent ⇒ positional/index key). `code` is a contextual keyword (bare IDENT, validated == \"code\" in sema, to avoid reserving the common identifier `code`).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1202-L1222"
+      ],
+      "examples": [
+        "schema S : code(1) { pub x: i64 = 0, y: i64 = 1 }"
+      ]
+    },
+    {
+      "id": "writ.schema.enum-decl",
+      "domain": "writ",
+      "title": "Writ schema-enum definition",
+      "statement": "`[pub] schema enum NAME[<TypeParams>] [: category(expr)] { Variant(TypeRef), ... }` defines a closed union over concrete schemas; `category` is a contextual keyword clause with the same shape as `code(...)`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1224-L1232"
+      ]
+    },
+    {
+      "id": "item.struct.tuple-field",
+      "domain": "item",
+      "title": "Tuple-struct fields are unnamed",
+      "statement": "In a tuple-struct's field list, each field is `[pub] TypeRef` — type only, no name. Sema synthesizes positional field names \"0\", \"1\", ... so `.0`/`.1` access and `Foo(a, b)` patterns work uniformly with named-field structs.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1234-L1240"
+      ]
+    },
+    {
+      "id": "item.struct.field-forms",
+      "domain": "item",
+      "title": "Named-field definition forms",
+      "statement": "A struct/union field_def is one of: a repeat-group `#(field_def)*` / `#(field_def),*` (macro-repetition marker); an antiquote field `[pub] #IDENT : TypeRef`; a named field `[pub] IDENT : TypeRef`, where IDENT may additionally be the keywords `new` or `null` used as a field name; or a variadic field `IDENT... : TypeRef`. A trailing comma is optional after each.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1243-L1264"
+      ]
+    },
+    {
+      "id": "item.fn.method-passthrough",
+      "domain": "item",
+      "title": "Method item alternatives inside a struct/union body",
+      "statement": "An item inside a struct/union body's method list is one of: pub static fn, static fn, pub fn, or plain fn — no other item kinds are accepted at that position.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1266-L1267"
+      ]
+    },
+    {
+      "id": "module.extern.block-form",
+      "domain": "module",
+      "title": "`extern` block groups same-ABI FFI items",
+      "statement": "`[unsafe] extern [\"ABI\"] { extern_block_item* }` groups multiple extern items under one shared ABI (the block form defaults to Logos-internal ABI when the string is omitted). The `unsafe` marker on the block is accepted syntactically but carries no additional semantics in this slice (item-level `safe fn`/`safe static` refinements are a stated follow-up).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1269-L1287"
+      ]
+    },
+    {
+      "id": "module.extern.item-form",
+      "domain": "module",
+      "title": "Items inside an `extern` block use bare syntax",
+      "statement": "Inside `extern [\"ABI\"] { ... }`, function items use bare `fn NAME(params[, ...]) [-> Ret];` (no redundant `extern` keyword; ABI is inherited from the enclosing block at splice time), and static items use `static [mut] NAME: TypeRef;` with no initializer, marking it an external (imported) global.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1288-L1303"
+      ]
+    },
+    {
+      "id": "module.extern.fn-decl",
+      "domain": "module",
+      "title": "Standalone `extern` function declaration",
+      "statement": "`extern [\"ABI\"] fn NAME(params[, ...]) [-> Ret];` declares an FFI function with a per-declaration ABI string; a trailing `, ...` after the parameter list marks it variadic; the return type is optional. Validation of the ABI string against the supported set (\"C\", \"C-unwind\", \"system\", \"Rust\") happens in sema, not in the grammar.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1269-L1276",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1304-L1315"
+      ]
+    },
+    {
+      "id": "generic.where.clause",
+      "domain": "generic",
+      "title": "`where` clause syntax",
+      "statement": "An item-level generic bound list is written `where Pred (, Pred)*` where each Pred is a where_pred.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1317-L1319"
+      ]
+    },
+    {
+      "id": "module.vis.pub-module",
+      "domain": "module",
+      "title": "`pub(module)` module-linkage visibility",
+      "statement": "Item visibility is `pub(module)` or plain `pub`. `pub(module)` grants module-linkage: visible to other packages within the same module but not exported to external consumers; plain `pub` is fully exported. `module` is a contextual keyword (matched as a bare IDENT, validated == \"module\" in sema).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1336-L1344"
+      ]
+    },
+    {
+      "id": "item.fn.def-forms",
+      "domain": "item",
+      "title": "Function definition forms",
+      "statement": "A [pub] function definition takes one of: an antiquote-name form `fn #(expr)(...)` / `fn #IDENT(...)` (NAME_VAR, no where-clause slot, valid only inside quote_item!-style contexts); or `[unsafe] fn NAME[<TypeParams>](params) [-> RetType] [where ...] { body }` where NAME may be a plain identifier or the contextual names `new`/`null`. unsafe, return-type, and where-clause are each independently optional.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1333-L1395"
+      ]
+    },
+    {
+      "id": "item.fn.param-forms",
+      "domain": "item",
+      "title": "Function parameter forms",
+      "statement": "A fn/closure parameter is one of: `&mut IDENT` / `&IDENT` (implicitly-typed reference shorthand); `ref IDENT: TypeRef`; `mut IDENT: TypeRef` (a by-value parameter whose local binding is mutable — invisible to callers, just enables reassignment/`&mut` of the param inside the body); a tuple-destructure `(a, b, ...): (T1, T2, ...)` (desugars to a synthesized `__tup_param_<N>` parameter plus a body-prologue `let name_k = __tup_param_<N>.k;` per binding); an arbitrary irrefutable pattern `PAT: TypeRef` (struct shape `Name { fields }` or slice shape `[elems]`; refutable patterns are rejected in sema with the same diagnostic used for `let`); a variadic `IDENT: TypeRef...`; or a plain `IDENT: TypeRef`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1401-L1442"
+      ]
+    },
+    {
+      "id": "pat.param.struct-slice-shape",
+      "domain": "pat",
+      "title": "Struct/slice pattern shapes at fn-parameter position",
+      "statement": "At fn-parameter position (as PAT in the pattern-typed param form), a pattern may be a struct shape `IDENT { fields }` / `IDENT {}`, or a slice shape `[elems]` / `[]`; refutability of the overall pattern is checked in sema, not the grammar.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1444-L1453"
+      ]
+    },
+    {
+      "id": "type.ref.form-priority",
+      "domain": "type",
+      "title": "type_ref alternative ordering",
+      "statement": "A type reference is parsed, in PEG-ordered-choice priority: antiquote-type, typeof(...), CFG-slot associated-type, CFG-slot type, Writ array type, Writ map type, pointer, array, slice, tagged, dyn, safe-reference, impl-Trait, unit, never, closure, fn-pointer, tuple, paren, fully-qualified assoc-type, plain assoc-type (`T::Item`), then simple named type. Assoc-type forms are tried before simple_type so that `T::Item` matches before falling back to a bare `T`.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1481",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1456-L1462"
+      ]
+    },
+    {
+      "id": "type.paren.grouping",
+      "domain": "type",
+      "title": "Parenthesized type",
+      "statement": "`(T)` is a parenthesis-grouped type, distinct from unit `()`, the 1-tuple `(T,)`, and the n-tuple `(T1, T2, ...)`. Sema unwraps a PAREN_TYPE to its inner TYPE.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1483-L1486"
+      ]
+    },
+    {
+      "id": "type.impl-trait.param-position",
+      "domain": "type",
+      "title": "`impl Trait` in parameter/type position",
+      "statement": "`impl IDENT[<Args>]` / `impl IDENT(Args) -> Ret` (mirroring trait_bound's forms, including the Fn-family paren+arrow shape) in a type position desugars to a synthetic generic parameter bounded by that trait; Fn-family arg types land in PARAMS/RET_TYPE, generic-trait arguments in TYPE_PARAMS.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1456-L1474"
+      ],
+      "examples": [
+        "f: impl Fn(i64) -> i64",
+        "x: impl Display",
+        "it: impl Iterator<Item = i64>"
+      ]
+    },
+    {
+      "id": "mono.cfg-slot.type-projection",
+      "domain": "mono",
+      "title": "CFG-slot type projection",
+      "statement": "`<type:IDENT PathStep+>` (e.g. `<type:CFG.field.[0]>`) is a mono-time projection extracting the type value stored at the given path within a WritStatic-typed type-level binding named IDENT. Each PathStep is `.IDENT` (string-keyed map field), `.INTEGER` (integer-keyed map field), or `.[INTEGER]` (array index — the brackets disambiguate an array index from an integer-keyed map field). At least one path step is required.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1488-L1504"
+      ]
+    },
+    {
+      "id": "type.cfg-slot.assoc-projection",
+      "domain": "type",
+      "title": "Associated-type projection off a CFG-slot type",
+      "statement": "`<type:CFG.SLOT>::IDENT` is an associated-type reference (ASSOC_TYPE_REF) whose RECEIVER is the CfgSlotType projection; tried before the bare cfg_slot_type alternative so the `::Field` tail is consumed.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1506-L1509"
+      ]
+    },
+    {
+      "id": "type.writstatic.const-decl",
+      "domain": "type",
+      "title": "WritStatic literal at type position",
+      "statement": "A bare `@{...}` (WritStatic literal) is accepted directly at type position (e.g. `type Cfg = @{...};`), lowered via the same LIT_WSTATIC code used for the type-argument form. For naming a top-level WritStatic type-level value the dedicated spelling is `pub const X: WritStatic = @{...};`; the legacy `pub type X = @{...};` spelling no longer parses for this purpose.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1476-L1480",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1511-L1514"
+      ],
+      "uncertainty": "The claim that the legacy `pub type X = @{...}` form 'no longer parses' is asserted by the source comment itself (not independently verified by finding the rejecting production in this slice)."
+    },
+    {
+      "id": "type.antiquot.quote-ty",
+      "domain": "type",
+      "title": "Type-position antiquotation",
+      "statement": "`$IDENT` at a type position is an antiquotation node (ANTIQUOT_TYPE), consumed by sema's quote_ty! lowering; used outside a `quote_ty! { ... }` body it is rejected by resolve_type (per sema, outside this slice).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1516-L1519"
+      ]
+    },
+    {
+      "id": "writ.type.arr-map",
+      "domain": "writ",
+      "title": "Writ typed array/map type expressions",
+      "statement": "`<ElemType>[]` denotes a Writ typed-array type expression, and `<K,V>{}` / `<K>{}` denotes a Writ typed-map type expression; both occur at type position, e.g. as the target type of an `as` cast (`val as <I32>[]`, `m as <I32, AnyVal>{}`).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1525-L1533"
+      ]
+    },
+    {
+      "id": "type.assoc.qualified",
+      "domain": "type",
+      "title": "Fully-qualified associated-type projection",
+      "statement": "`<TypeRef as SimpleType>::IDENT` is a fully-qualified associated-type reference: RECEIVER=TypeRef, FIELD=IDENT, with the disambiguating trait recorded in NAME; sema resolves it the same as the unqualified `T::Item` sugar but uses the recorded trait when multiple traits provide the same associated-name.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1535-L1540"
+      ]
+    },
+    {
+      "id": "type.assoc.path",
+      "domain": "type",
+      "title": "Associated-type path reference",
+      "statement": "`T::Item` and `T::Item<A, B>` (GAT form) are associated-type references (ASSOC_TYPE_REF); the `::IDENT[<Args>]` suffix may repeat one-or-more times, chaining projections off a simple_type base.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1542-L1548"
+      ]
+    },
+    {
+      "id": "type.tagged.thin-dispatch",
+      "domain": "type",
+      "title": "Tag-dispatched thin pointer type",
+      "statement": "`&tagged<SimpleType> IDENT` denotes a thin tag-dispatched pointer to a trait (IDENT names the trait): the type_code tag is stored immediately preceding the pointee object in memory; call sites read the tag, look up a dispatch table, and call indirectly.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1550-L1554"
+      ]
+    },
+    {
+      "id": "type.dyn.auto-bound",
+      "domain": "type",
+      "title": "Trailing auto-trait/lifetime bound on a dyn type",
+      "statement": "A `dyn Trait` type may carry zero or more trailing bounds `+ IDENT` (auto-trait marker, e.g. Send/Sync) or `+ 'lifetime` (outlives bound), each producing its own AUTO_TRAIT_BOUND / AUTO_LIFE_BOUND node collected alongside the trait's type-args; auto-trait bounds are folded into the trait-object's representation and enforced at unsize-coercion time, while lifetime bounds are recorded but not yet enforced (pending region-inference wiring).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1570-L1583"
+      ],
+      "uncertainty": "Enforcement status ('not yet enforced') is as stated by the accompanying comment for this slice; not independently verified against the region-inference code."
+    },
+    {
+      "id": "type.slice.ref-form",
+      "domain": "type",
+      "title": "Slice reference type",
+      "statement": "`&[T]` and `&mut [T]` are slice types (fat pointer: data pointer + length); each accepts an optional explicit lifetime prefix, `&'a [T]` / `&'a mut [T]`, which sema does not currently enforce distinctly from the unannotated form.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1678-L1689"
+      ]
+    },
+    {
+      "id": "item.struct.unit-decl",
+      "domain": "item",
+      "title": "Unit struct declaration",
+      "statement": "`[pub] struct NAME;` declares a zero-field (unit) struct, collected like `struct NAME {}`. It is distinguished from an explicit generic instantiation `struct NAME<T>;` by lookahead: a bare IDENT directly followed by `;` is a unit struct, while IDENT followed by `<` falls through to the explicit-instantiation form (struct_inst). This unit-struct alternative MUST be tried before struct_inst in the item ordering.",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1148-L1159"
+      ],
+      "examples": [
+        "struct Foo;",
+        "pub struct Foo;"
+      ]
+    },
+    {
+      "id": "type.dyn.trait-object",
+      "domain": "type",
+      "title": "`dyn Trait` trait-object type",
+      "statement": "`&[mut] dyn Trait[<Args>]`, `dyn Trait(Args) -> Ret` / `dyn Trait(Args)` (Fn-family paren form, args in PARAMS, return in RET_TYPE), and bare `dyn Trait[<Args>]` are trait-object types — a fat pointer of (data, vtable) when reference-prefixed. Type args (for traits with type/const-generic params) use the LT_TYPE/GT_TYPE pair like other type-position generic instances. Each form optionally carries a leading explicit lifetime on the outer `&` (`&'a dyn Trait`, `&'a mut dyn Trait` — recorded in LIFETIME, informational only since the language's lifetime model is elision-based) and/or a leading HRTB binder (`dyn for<'a> Trait<...>`, recorded in HRTB_BINDERS). Trailing `+ Ident` (auto-trait bound, e.g. Send/Sync) and `+ 'lt` (lifetime outlives bound) are accepted after the trait/args; auto-trait bounds are enforced at unsize coercion (logos-core §2.4(c)), lifetime bounds are recorded but not yet enforced (depends on §2.1 region_infer wiring).",
+      "evidence": [
+        "tools/peg_gen_cpp/grammars/logos.peg#L1496-L1616",
+        "tools/peg_gen_cpp/grammars/logos.peg#L1556-L1676"
+      ],
+      "examples": [
+        "&dyn Display + Send",
+        "Box<dyn for<'a> Fn(&'a i32) -> i32>"
+      ]
+    }
+  ]
+}

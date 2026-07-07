@@ -1,7 +1,7 @@
 {
   "unit": "grammar/hrpc/nodes",
   "layer": "grammar",
-  "source": "tools/peg_gen/grammars/hrpc.peg#L35-L52",
+  "source": "tools/peg_gen_cpp/grammars/hrpc.peg#L35-L52",
   "source_hash": "e86f325d7d26441f",
   "rules": []
 }
