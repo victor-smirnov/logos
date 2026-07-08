@@ -42,7 +42,9 @@
 
 ## 2. S1 — Trace reification
 
-Point the existing FactStore change-capture machinery (ADR 0013) at the engine itself. New system relations (EDB, append-only, per query id `qid`):
+**Status: LANDED (first cut, IncrRec).** `IncrRec` records append-only sensor facts about its own evaluation: per-step `TraceStep(epoch, kind, step, delta_card, total_rows, ns)` (kind: 0 recompute · 1 ΔEDB seed · 2 fixpoint round · 3 DRed) and per-epoch `TraceEpoch(epoch, d_ins, d_del, rounds, ns)`. Accessors `trace_len/trace_at/epochs_len/epoch_at/cur_epoch` (the Explain/WitStep by-value idiom); `set_trace(bool)` is the I3 toggle (off ⇒ zero clock calls). Gated by `query_incr_trace_e2e`: consistency oracle (Σ delta_card == final maintained cardinality, through build/insert/DRed), golden trace structure (deterministic part only; `ns` asserted ≥ 0, never golden), I3 no-op, and the dogfood loop — the trace materialized into schema'd nodes, bound via `bind_source`, and `taking_long` derived from it.
+
+Original shape (kept as the target for the general engine):
 
 ```
 step_stats(qid, epoch, stratum, step, rel, delta_card, ms, mem_bytes)
@@ -51,6 +53,8 @@ query_meta(qid, epoch, started_at, budget_kind, budget_val)
 ```
 
 Bound like any source via `QEnv::bind_source` (ADR 0014 §1.2 idiom). Zero semantic risk: no rule can affect these facts within its own run (I1). This alone enables `taking_long(qid) :- step_stats(...), expected_cost(...), …` — the "чёт я долго думаю" predicate; `expected_cost` starts as a static table, later a learned model over accumulated traces.
+
+First-cut deviations (deliberate): `qid`/`stratum`/`rel` collapse (single-rel engine — trace lives per engine instance); `ms` → `ns` (monotonic, finer); `mem_bytes` not sampled — no RSS intrinsic, and the deterministic proxy (`total_rows·ncols`) is *derivable from the trace*, i.e. a deemed fact, not a sensor; `rule_stats` deferred until multi-rule strata exist incrementally. Recompute (build / agg-retraction fallback) is one batch step — inner rounds invisible by design. `IncrJoin`/`Query::run` instrumentation follows when S2 needs it.
 
 ---
 
@@ -158,7 +162,7 @@ Top layer (S5/S5b) has **no external oracle yet** — accepted. Surrogates until
 
 | slice | content | gate |
 |---|---|---|
-| S1 | trace reification (`step_stats` et al.) | golden trace + consistency oracle |
+| S1 | trace reification (`step_stats` et al.) — **LANDED** (IncrRec first cut, §2) | golden trace + consistency oracle (`query_incr_trace_e2e`) |
 | S2 | `budget()` + `truncated_tail` descriptor | soundness/bound/NAF oracles |
 | S3 | epochs + control atoms + journal | replay oracle over epoch sequences |
 | S4 | GLR fork/merge over `persistent` EDB, `select_one` | merge-law oracles |
