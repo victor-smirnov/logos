@@ -1,0 +1,1386 @@
+// logos.std.deem — INCREMENTAL LINEAR-RECURSIVE REL (ADR 0013 slices 5-9 + ADR 0015 S1-S3): IncrRec (semi-naive maintenance, DRed, semilattice aggregation, R4 provenance/explain), trace reification, budgeted fixpoint + truncated_tail, control atoms + journal, Query::incremental_rec.
+// One package across several files (see deem.logos for the module-level doc);
+// private items are package-visible, so the split is layout-only.
+package logos.std.deem;
+
+
+use logos.lang.writ.container;    // Writ / writ_new
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.wmap;         // WMap<Wu6, WAny> — TOM reads (schema field gets)
+use logos.lang.writ.array;        // WArray — edge-field iteration
+use logos.lang.writ.wstring;      // WString / as_wstr — string payloads + interning
+use logos.lang.writ.wstatic;      // WritStatic — the rodata metadata-blob handle
+use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
+use logos.lang.result;            // Result — the error-as-value carrier
+use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
+use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
+use logos.mem.string;             // String
+use logos.lang.mem;               // replace — FactStore::take_delta move-out
+use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
+use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
+use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
+use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
+use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / agg rule table
+use logos.std.wql.optimize;       // simplify_sexpr / simplify_rexpr_ref + TermList analysis
+use logos.std.wql.trama;          // TStmt family + chain_array / next_of_stmt / ttext_str
+use logos.std.wql.trama_parser;   // parse_tpl — the reused generated template parser
+use logos.std.wql.plan;           // RQuery / RQProgram — the surface query plan views
+use logos.std.wql.wql_surface_parser;  // parse_program — the reused generated query parser
+use logos.std.wql.lower;          // lower_rquery_to_rexpr — the reused PLAN→ALGEBRA lowering
+use logos.std.wql.params;         // RelDeps / RelScc / compute_rel_scc — the SHARED
+                                  // (metaprog-free) rel dependency-graph half (I3)
+use logos.mem.collections.vec;    // Vec — row pipelines (unbounded)
+use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct sets
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INCREMENTAL LINEAR-RECURSIVE REL — slice-5 (ADR 0013 §4, R1)
+//
+// Maintains a single LINEAR self-recursive rel (canonical: transitive closure
+// over an edge relation) under ±ΔEDB, differential-tested vs the queue-2 batch
+// least-fixpoint oracle (Query::run). This slice ships INSERTIONS solid.
+//
+// DESIGN — maximal reuse of the batch semi-naïve kernel (derive-from-foundation):
+// the maintained relation is the SAME append-only RelCtx storage + shadow-set
+// the batch materializer uses, PERSISTED across epochs. An insert epoch:
+//   (1) admit ΔEDB, update the edge multiset, collect NEWLY-PRESENT edges (NE);
+//   (2) SEED round-0 from ΔEDB — the base body over NE (new direct edges) PLUS
+//       the recursive body with the EXISTING relation as its delta and NE as
+//       the joined edge (existing-path ⋈ new-edge). Both push through the SAME
+//       qrel_push_out shadow-set (per-round DISTINCT on MEMBERSHIP, §3 / U4);
+//   (3) run the batch inner fixpoint (round-delta ⋈ FULL-edges) to quiescence.
+// The shadow-set membership-crossing (a tuple appends at most once) is exactly
+// the batch termination mechanism — cycles enlarge a FINITE closure, the round
+// empties, NO round cap (§4.4). Correctness: closure(E∪NE) = closure(E) plus
+// every path using ≥1 new edge; such a path splits at its FIRST new edge into
+// (all-old prefix ∈ existing-relation) ⋈ (new edge) ⋈ (any-edge suffix) — the
+// prefix+new-edge is a round-0 seed, the suffix is inner-loop propagation. So
+// the incremental result equals the batch recompute by construction (same code
+// path, same dedup), which the differential harness confirms.
+//
+// RETRACTION (− edge Δ) is NOT maintained here (honest partial): a single scalar
+// weight cannot carry retraction on cyclic graphs (spurious circular support —
+// R-spurious counterexample edges {a→b,b→c,c→b}, delete a→b: (a,b)/(a,c) prop
+// each other up via the surviving b⇄c cycle), so LINEAR recursion does NOT let
+// weight-cancellation subsume DRed. Correct retraction needs mark-based DRed
+// (over-delete → re-derive); left for the next pass. This engine tracks the
+// edge SET for both signs but only GROWS the closure — a − delta leaves stale
+// tuples (the differential harness for − deltas is red by construction, the
+// honest status). See docs/adr/0013 §4.2 and the slice-5 self-critique.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Peel RProj/RFilter to the underlying RScan and return its source name ("" if
+// the shape is not a scan-rooted pipeline). Used to resolve a base body's edge
+// source (a base body scans ONLY the edge source — no in-rel occurrence).
+fn ir_scan_src(e: RExpr) -> str {
+    let mut cur: RExpr = e;
+    loop {
+        match cur {
+            RExpr::Proj(p)   => { cur = p.input_expr(); }
+            RExpr::Filter(f) => { cur = f.input_expr(); }
+            RExpr::Distinct(d) => { cur = d.input_expr(); }
+            RExpr::Scan(s)   => { return s.src_name; }
+            _ => { return ""; }
+        }
+    }
+}
+
+// Populate `qp` by strict-checking every non-empty rel body + the entry against
+// `env` (mirrors Query::run's check loop — the plan words the executor reads).
+fn ir_check(q: &Query, env: &QEnv, qp: &mut QPlan, chk: &mut Chk) {
+    let mut bi: i64 = 0i64;
+    while bi < q.bodies.n && !chk.failed {
+        if q.bodies.empty.get(bi) == 0i64 {
+            let mut lbb: CBinds = cbinds_new();
+            let broot: RExpr = WAny::ref_to(q.bodies.root.get(bi) as *const u8).view::<RExpr>();
+            check_rexpr(broot, &q.cat, env, true, &mut lbb, chk, qp, &q.reg);
+        }
+        bi = bi + 1i64;
+    }
+    if !chk.failed {
+        let root: RExpr = WAny::ref_to(q.root as *const u8).view::<RExpr>();
+        let mut lb: CBinds = cbinds_new();
+        check_rexpr(root, &q.cat, env, true, &mut lb, chk, qp, &q.reg);
+    }
+}
+
+// The maintained incremental linear-recursive relation. Owns the persistent
+// rel storage (append-only rows + shadow dedup, batch parity) and the edge
+// multiset; holds a raw pointer to the Query (must outlive the engine, like
+// IncrJoin::envp). `env` binds ONLY the edge source (rebuilt per phase).
+// ── S1 TRACE REIFICATION (ADR 0015 §2, invariant I1). Runtime samples of the
+// engine's OWN evaluation — sensor facts about the completed past, recorded
+// append-only per engine. A sample can never affect the run that produced it
+// (it is pushed AFTER the instrumented phase completes), so the stratified-lfp
+// guarantees are untouched; replay over the same ΔEDB sequence reproduces the
+// STRUCTURE (epoch/kind/step/delta/total) bit-identically, while `ns` is an
+// honest wall-clock sensor (nondeterministic — assert ≥ 0, never golden it).
+// The ADR's step_stats/query_meta relations materialize from these via the
+// accessors (the test/app builds schema'd nodes and bind_source's them — the
+// same dogfood loop as `taking_long`). `mem_bytes` is NOT sampled: the engine
+// has no RSS intrinsic, and the honest deterministic proxy (total_rows·ncols)
+// is DERIVABLE from the trace itself — a deemed fact, not a sensor.
+//   kind: 0 recompute (build seed / agg-retraction fallback) · 1 ΔEDB seed
+//         (round-0: base⋈NE + existing⋈NE) · 2 inner fixpoint round ·
+//         3 DRed retraction (over-delete + compact + re-derive, one step)
+/// One step of the engine's own evaluation (S1 trace, ADR 0015 §2): what the
+/// step admitted (`delta_card` rows), where the relation stood after it
+/// (`total_rows`), and how long it took (`ns`, monotonic sensor).
+pub struct TraceStep {
+    pub epoch:      i64,   // 0 = build; ≥1 = the epoch() call it belongs to
+    pub kind:       i32,   // 0 recompute · 1 seed · 2 round · 3 dred
+    pub step:       i64,   // 0-based step index within the epoch
+    pub delta_card: i64,   // rows admitted (kind 3 / agg recompute: net, may be <0)
+    pub total_rows: i64,   // maintained-rel row count after the step
+    pub ns:         i64,   // wall-clock nanoseconds (0 when tracing is off)
+}
+
+/// Per-epoch summary (S1 trace — the ADR's query_meta shape): the admitted
+/// ΔEDB split (`d_ins`/`d_del` = edges newly present/absent), the number of
+/// inner fixpoint rounds, and the epoch's wall-clock cost.
+pub struct TraceEpoch {
+    pub epoch:  i64,
+    pub d_ins:  i64,   // edges that became present this epoch
+    pub d_del:  i64,   // edges that became absent this epoch
+    pub rounds: i64,   // productive steps (seed + fixpoint rounds); 0 for
+                       // no-op / retraction epochs (their work is in TraceStep)
+    pub ns:     i64,
+}
+
+// Monotonic sensor read, gated on the trace toggle (I3: bookkeeping is
+// toggleable configuration — off ⇒ zero clock calls, zero cost).
+fn tr_now(on: bool) -> i64 {
+    if !on { return 0i64; }
+    unsafe { return instant_now().nanos_since_epoch(); }
+}
+
+// ── S2 BUDGETED FIXPOINT (ADR 0015 §3): anytime semantics. The inner fixpoint
+// may be CUT between rounds (before the promote, so the un-promoted region
+// [watermark, len) survives as the pending frontier). The result is then a
+// SOUND UNDERAPPROXIMATION (positive rel: every derived row is true, some are
+// missing; semilattice agg: champions are certified one-sided bounds — min ⇒
+// upper, max ⇒ lower). Truncation may omit; it never lies. The engine
+// remembers the watermark and RESUMES on the next epoch() call — an empty
+// ΔEDB epoch is the explicit "keep thinking" move. A retraction epoch
+// re-converges by construction (DRed re-derive / agg recompute both run to
+// quiescence), which discharges the ADR §3 caveat (a retraction landing on a
+// truncated stratum invalidates its certificate). v0 scope: the budget
+// applies to the INSERT-path inner fixpoint only (build recompute and
+// retraction epochs run to quiescence; the general multi-stratum/NAF
+// contract lives in the one-shot engine when budget reaches it).
+//   bound_dir: 0 exact · 1 lower (set-subset / max-agg) · 2 upper (min-agg)
+//              · 3 unknown (math-error exit)
+//   cut_reason: 0 none · 1 steps · 2 ns
+/// The residual descriptor (ADR 0015 §3): what the engine KNOWS it has not
+/// yet derived. `pending_delta_card` > 0 with `converged == false` is the
+/// HOCP fact — the registered truncated tail (the Observer's Encounter).
+pub struct TruncatedTail {
+    pub epoch:              i64,   // epoch the assessment belongs to
+    pub converged:          bool,
+    pub pending_delta_card: i64,   // frontier rows awaiting propagation
+    pub bound_dir:          i32,   // 0 exact · 1 lower · 2 upper · 3 unknown
+    pub cut_reason:         i32,   // 0 none · 1 steps · 2 ns
+}
+
+// ── S3 CONTROL ATOMS + JOURNAL (ADR 0015 §4, invariant I2). Feedback crosses
+// epochs ONLY: meta-rules (Deem queries over trace/tail EDB, run by the
+// harness between epochs) enqueue control atoms; the queue is drained and
+// APPLIED at the next epoch() entry — never within a run (Dedalus-style
+// @next; temporal stratification). Every applied atom and every admitted
+// ΔEDB batch is JOURNALED: a fresh engine over the same initial source,
+// replaying the journal (enqueue entry's controls, then epoch(entry's
+// batch)), reproduces the run — snapshot, trace STRUCTURE, and tail are
+// equal. Replay determinism holds for steps-budgets; an ns-budget's cut
+// point is operational wall-clock (recorded, not reproducible) — the
+// steps-budget is the lawful path for replayable runs, and so are the
+// control_* methods vs the direct un-journaled S2 setters.
+//   kind: 1 raise_budget(val: steps added; sets a steps-budget if none)
+//         2 set_budget_steps(val) · 3 clear_budget · 4 abort (latch: later
+//         epochs are journaled no-ops) · 5 escalate(val: opaque payload —
+//         the channel UPWARD to the agent/LLM layer; no engine effect)
+/// One control atom (ADR 0015 §4): an action derived from the engine's own
+/// past, effective at the NEXT epoch. `epoch` = the epoch it was applied at
+/// (−1 while still pending in the queue).
+pub struct ControlAtom {
+    pub epoch: i64,
+    pub kind:  i32,   // 1 raise_budget · 2 set_budget_steps · 3 clear_budget
+                      // · 4 abort · 5 escalate
+    pub val:   i64,
+}
+
+pub struct IncrRec {
+    qptr:     i64,                     // *const Query (must outlive)
+    env:      QEnv,                    // owns the edge-source binding
+    edoc:     Writ,                    // arena for the per-phase edge arrays
+    enode:    Vec<WAny>,               // edge nodes (slot-stable)
+    ewt:      Vec<i64>,                // edge weight per slot (identity-coalesced)
+    eid:      HashMap<u64, i64>,       // edge raw handle -> slot
+    rows:     Vec<RtVal>,              // path storage (cell-flat, stride ncols)
+    rhm:      HashMap<u64, Vec<i64>>,  // shared shadow-set (SET dedup)
+    ptot:     i64,                     // path ROW count (the maintained total)
+    edge_src: str,
+    ncols:    i64,                     // rel column count
+    rec_body: i64,                     // the single linear recursive body index
+    rec_ovr:  i64,                     // its in-rel scan node word (delta reader)
+    nbase:    i64,
+    base_b:   [i64; 8],                // base body indices (occ_n == 0)
+    // RECURSIVE SEMILATTICE AGGREGATION (slice-7). `agg` — this rel is a
+    // recursive min/max aggregate (its body absorbs against `best`). `agg_dir` —
+    // 3 = min, 4 = max. `best` — the per-key champion map (node → current least/
+    // greatest folded value); `rows` becomes the append-only IMPROVEMENT LOG, and
+    // the maintained view (snapshot) is projected from `best`, not the raw log.
+    agg:      bool,
+    agg_dir:  i32,
+    best:     HashMap<i64, i64>,
+    // Error-returning EL policy: latched on a math error (overflow / div-by-zero)
+    // in a recursive-body projection/aggregate cell. Read via had_error().
+    math_err: bool,
+    // ── S1 trace reification (ADR 0015 §2, I1: append-only sensor facts). ──
+    epn:      i64,               // epoch counter (0 = build; epoch() increments)
+    trace:    Vec<TraceStep>,    // per-step samples, append-only
+    teps:     Vec<TraceEpoch>,   // per-epoch summaries, append-only
+    trace_on: bool,              // I3 toggle (default ON; off ⇒ zero cost)
+    // ── S2 budgeted fixpoint (ADR 0015 §3): anytime state. ──
+    bd_kind:  i32,               // 0 off · 1 steps (rounds/epoch) · 2 ns (wall)
+    bd_val:   i64,
+    conv:     bool,              // false ⇒ rows[fx_tot..) is the pending frontier
+    fx_tot:   i64,               // promote watermark at cut (−1 when converged)
+    cut_rs:   i32,               // last cut_reason (0 none · 1 steps · 2 ns)
+    // ── S3 control atoms + journal (ADR 0015 §4, I2). ──
+    ctlq:     Vec<ControlAtom>,  // pending queue — applied at next epoch() entry
+    aborted:  bool,              // abort latch: epochs become journaled no-ops
+    jn_ep:    Vec<i64>,          // journal: epoch id per entry (one per epoch())
+    jn_skip:  Vec<bool>,         // entry was an aborted no-op
+    jn_bn:    Vec<WAny>,         // flat ΔEDB node pool
+    jn_bw:    Vec<i64>,          // flat ΔEDB weight pool (parallel to jn_bn)
+    jn_boff:  Vec<i64>,          // per-entry batch offset into the pools
+    jn_bcnt:  Vec<i64>,          // per-entry batch length
+    jn_ctl:   Vec<ControlAtom>,  // flat applied-controls pool (epoch stamped)
+    jn_coff:  Vec<i64>,          // per-entry controls offset
+    jn_ccnt:  Vec<i64>,          // per-entry controls count
+}
+
+// Build a WArray<WAny> in `edoc` from `nodes` and bind it as the edge source.
+// Takes fields (not whole self) so it stays disjoint from a self.qptr borrow.
+fn ir_bind_edges(edoc: &mut Writ, env: &mut QEnv, edge_src: str, nodes: &Vec<WAny>) {
+    let n: i64 = nodes.len();
+    // Keep the FAT `&mut` (it carries the arena zone; casting to a thin raw
+    // pointer drops the allocator and `push`/`zone_of` then faults).
+    let arr: &mut WArray<WAny> = edoc.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n { arr.push(nodes.get(i)); i = i + 1i64; }
+    let av: WAny = WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+    env.bind_source(edge_src, av);
+}
+
+// Node list of every currently-present edge (weight > 0).
+fn ir_full_nodes(enode: &Vec<WAny>, ewt: &Vec<i64>) -> Vec<WAny> {
+    let mut out: Vec<WAny> = vec_new::<WAny>();
+    let n: i64 = enode.len();
+    let mut i: i64 = 0i64;
+    while i < n { if ewt.get(i) > 0i64 { out.push(enode.get(i)); } i = i + 1i64; }
+    return out;
+}
+
+// Slice-6 DRed COMPACT probe: is row `r` of `src` (stride nc, rel index 0)
+// present in the over-delete set (od_rows keyed by od_rhm)? Same hash + cellwise
+// verify as qrel_push_out, so the mark set is content-addressed identically.
+fn dred_in_od(od_rows: &Vec<RtVal>, od_rhm_i: i64, nc: i64,
+              src: &Vec<RtVal>, r: i64) -> bool {
+    let mut h: u64 = 14695981039346656037u64;
+    h = h_step(h, 0u64);   // ri = 0
+    let mut c: i64 = 0i64;
+    while c < nc { h = h_step(h, rt_key_hash(src.get(r * nc + c))); c = c + 1i64; }
+    let hm: *mut HashMap<u64, Vec<i64>> = od_rhm_i as *mut HashMap<u64, Vec<i64>>;
+    let sp: *const Vec<i64> = unsafe { hm.get(&h) };
+    if (sp as i64) == 0i64 { return false; }
+    let bv: &Vec<i64> = unsafe { &*sp };
+    let nb: i64 = bv.len();
+    let mut t: i64 = 0i64;
+    while t < nb {
+        let enc: i64 = bv.get(t);
+        if (enc & 7i64) == 0i64 {
+            let idx: i64 = enc >> 3;
+            let mut same: bool = true;
+            let mut c2: i64 = 0i64;
+            while c2 < nc {
+                if !rt_eq(od_rows.get(idx * nc + c2), src.get(r * nc + c2)) { same = false; break; }
+                c2 = c2 + 1i64;
+            }
+            if same { return true; }
+        }
+        t = t + 1i64;
+    }
+    return false;
+}
+
+// ── SLICE-9 (R4 provenance, BOUNDED to the linear-recursive transitive closure).
+// One immediate derivation step in a witness chain; a fact (a,c) derived over a
+// path a→v1→…→c is explained as a sequence of these, base-first. `is_base` marks
+// the head edge (a→v1, a direct edge, terminal). For a recursive step (a,v_{i+1})
+// ⟸ (a,v_i) + edge(v_i,v_{i+1}): `supp_fid` = the row index of the supporting
+// path fact (a,v_i) in the maintained rel, `edge_id` = the edge slot of
+// (v_i,v_{i+1}). `src`/`dst` = the concrete edge endpoints; `a`/`c` = the fact
+// this step produces. All handles are valid ONLY for the state at explain() time.
+pub struct WitStep {
+    pub is_base:  bool,
+    pub supp_fid: i64,   // row index of supporting (a,src) in rows; -1 iff is_base
+    pub edge_id:  i64,   // edge slot of (src,dst); always ≥ 0
+    pub src:      i64,
+    pub dst:      i64,
+    pub a:        i64,
+    pub c:        i64,
+}
+
+// explain() result. `present` == false ⇒ the fact is absent (retracted / never
+// derived) and `steps` is empty — an honest "gone". Otherwise `steps` is the
+// base-first witness chain; steps is empty iff !present (except the documented
+// reflexive a==c corner, out of the bounded first cut).
+pub struct Explain {
+    pub present: bool,
+    pub steps:   Vec<WitStep>,
+}
+
+impl Explain {
+    pub fn is_present(self: &Explain) -> bool { return self.present; }
+    pub fn nsteps(self: &Explain) -> i64 { return self.steps.len(); }
+    pub fn step(self: &Explain, i: i64) -> WitStep { return self.steps.get(i); }
+}
+
+// The (a,b) pair a supporting-fact row-index resolves to. `a == -1 && b == -1`
+// is the out-of-range sentinel — see IncrRec::fact_ab.
+pub struct FactAB {
+    pub a: i64,
+    pub b: i64,
+}
+
+// Row index of the 2-column path fact (a,c) in the maintained rel (ri = 0),
+// content-addressed identically to qrel_push_out / dred_in_od. Returns the row
+// index or -1 if absent. Scope: ncols == 2 (TC (a,b) shape).
+fn ir_probe_ac(rows: &Vec<RtVal>, rhm_i: i64, a: i64, c: i64) -> i64 {
+    let mut h: u64 = 14695981039346656037u64;
+    h = h_step(h, 0u64);   // ri = 0
+    h = h_step(h, rt_key_hash(RtVal::I(a)));
+    h = h_step(h, rt_key_hash(RtVal::I(c)));
+    let hm: *mut HashMap<u64, Vec<i64>> = rhm_i as *mut HashMap<u64, Vec<i64>>;
+    let sp: *const Vec<i64> = unsafe { hm.get(&h) };
+    if (sp as i64) == 0i64 { return -1i64; }
+    let bv: &Vec<i64> = unsafe { &*sp };
+    let nb: i64 = bv.len();
+    let mut t: i64 = 0i64;
+    while t < nb {
+        let enc: i64 = bv.get(t);
+        if (enc & 7i64) == 0i64 {
+            let idx: i64 = enc >> 3;
+            if rt_eq(rows.get(idx * 2i64 + 0i64), RtVal::I(a))
+            && rt_eq(rows.get(idx * 2i64 + 1i64), RtVal::I(c)) {
+                return idx;
+            }
+        }
+        t = t + 1i64;
+    }
+    return -1i64;
+}
+
+// Edge slot of a present (weight > 0) direct edge (s→t), or -1. Endpoints read
+// via the schema fields "src"/"dst" (the TC edge convention). Linear scan (E is
+// small for the diagnostic path this serves).
+fn ir_find_edge(enode: &Vec<WAny>, ewt: &Vec<i64>, cat: &SchemaCatalog, s: i64, t: i64) -> i64 {
+    let n: i64 = enode.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if ewt.get(i) > 0i64 {
+            let node: WAny = enode.get(i);
+            if rt_i(field_read(cat, node, "src")) == s
+            && rt_i(field_read(cat, node, "dst")) == t {
+                return i;
+            }
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+impl IncrRec {
+    // Recompute the closure from scratch over the CURRENT edge set (batch
+    // semi-naïve). Used at build to seed the initial state.
+    fn recompute(self: &mut IncrRec) {
+        let tr_t0: i64 = tr_now(self.trace_on);
+        let tr_pt0: i64 = self.ptot;
+        self.rows = vec_new::<RtVal>();
+        self.rhm  = hashmap_new::<u64, Vec<i64>>();
+        self.best = hashmap_new::<i64, i64>();   // slice-7: reset the champion map
+        self.ptot = 0i64;
+        let qp_raw: i64 = self.qptr;
+        let q: &Query = unsafe { &*(qp_raw as *const Query) };
+        let fulln: Vec<WAny> = ir_full_nodes(&self.enode, &self.ewt);
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &fulln);
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        ir_check(q, &self.env, &mut qp, &mut chk);
+        if chk.failed {
+            if self.trace_on {
+                self.trace.push(TraceStep { epoch: self.epn, kind: 0i32, step: 0i64,
+                    delta_card: 0i64 - tr_pt0, total_rows: 0i64,
+                    ns: tr_now(self.trace_on) - tr_t0 });
+            }
+            return;
+        }
+        let scratch: Writ = writ_new(2048i64);
+        let hmp_i:  i64 = (&mut self.rhm  as *mut HashMap<u64, Vec<i64>>) as i64;
+        let rows_i: i64 = (&mut self.rows as *mut Vec<RtVal>) as i64;
+        let best_i: i64 = (&mut self.best as *mut HashMap<i64, i64>) as i64;
+        let mut ctx: RelCtx = relctx_new();
+        ctx.n = q.reg.n;
+        ctx.regp = (&q.reg as *const QRelReg) as i64;
+        ctx.hmp = hmp_i;
+        ctx.rowsp[0] = rows_i;
+        if self.agg { rctx_set_best(&mut ctx, 0i64, best_i); }   // slice-7 absorb
+        let cp: *mut Chk = &mut chk;
+        qrel_materialize(q, &self.env, &qp, &scratch, &mut ctx, cp);
+        if chk.failed { self.math_err = true; }
+        self.ptot = self.rows.len() / self.ncols;
+        // S2: a recompute runs to quiescence — the state is exact again.
+        self.conv = true;
+        self.fx_tot = 0i64 - 1i64;
+        self.cut_rs = 0i32;
+        // S1: one recompute = one trace step (batch — inner rounds not visible).
+        // delta_card is NET (recompute replaces the state), negative on an
+        // agg-retraction fallback that shrank the relation.
+        if self.trace_on {
+            self.trace.push(TraceStep { epoch: self.epn, kind: 0i32, step: 0i64,
+                delta_card: self.ptot - tr_pt0, total_rows: self.ptot,
+                ns: tr_now(self.trace_on) - tr_t0 });
+        }
+    }
+
+    // One epoch: admit ΔEDB `dedges` (±weighted edge handles) and maintain the
+    // closure incrementally. INSERTIONS seed round-0 from ΔEDB + inner
+    // semi-naïve fixpoint (slice-5). RETRACTIONS (and mixed ±) route through
+    // mark-based DELETE-REDERIVE (slice-6, ADR §4.2): over-delete every path
+    // fact whose derivation could use a deleted edge, compact the survivors,
+    // then re-derive over the surviving edge set. Both directions terminate by
+    // quiescence (monotone fixpoints, NO cap). Correct on cyclic graphs (the
+    // scalar-weight-cancellation-unsound case).
+    pub fn epoch(self: &mut IncrRec, dedges: &ZBatch) {
+        self.epn = self.epn + 1i64;                    // S1: this run's epoch id
+        let tr_e0: i64 = tr_now(self.trace_on);
+        // ── S3: open the journal entry — record the submitted ΔEDB verbatim
+        // (handles stay valid: the caller's arena outlives the engine, the
+        // bind_source contract), then drain + apply + journal the pending
+        // control atoms (I2: they take effect HERE, at the epoch boundary,
+        // never inside the run that derived them). ──
+        self.jn_ep.push(self.epn);
+        self.jn_boff.push(self.jn_bn.len());
+        self.jn_bcnt.push(dedges.node.len());
+        let mut ji: i64 = 0i64;
+        while ji < dedges.node.len() {
+            self.jn_bn.push(dedges.node.get(ji));
+            self.jn_bw.push(dedges.wt.get(ji));
+            ji = ji + 1i64;
+        }
+        self.jn_coff.push(self.jn_ctl.len());
+        let ncq: i64 = self.ctlq.len();
+        self.jn_ccnt.push(ncq);
+        let mut ci: i64 = 0i64;
+        while ci < ncq {
+            let a: ControlAtom = self.ctlq.get(ci);
+            if a.kind == 1i32 {          // raise_budget: add steps (start one if off)
+                if self.bd_kind == 1i32 { self.bd_val = self.bd_val + a.val; }
+                else                    { self.bd_kind = 1i32; self.bd_val = a.val; }
+            } else if a.kind == 2i32 {   // set_budget_steps
+                self.bd_kind = 1i32; self.bd_val = a.val;
+            } else if a.kind == 3i32 {   // clear_budget
+                self.bd_kind = 0i32; self.bd_val = 0i64;
+            } else if a.kind == 4i32 {   // abort — latch
+                self.aborted = true;
+            }                            // 5 escalate: journal-only signal
+            self.jn_ctl.push(ControlAtom { epoch: self.epn, kind: a.kind, val: a.val });
+            ci = ci + 1i64;
+        }
+        self.ctlq = vec_new::<ControlAtom>();
+        self.jn_skip.push(self.aborted);
+        if self.aborted {
+            // aborted engine: the epoch is a journaled no-op (state untouched;
+            // replay reproduces the same skip).
+            if self.trace_on {
+                self.teps.push(TraceEpoch { epoch: self.epn,
+                    d_ins: 0i64, d_del: 0i64, rounds: 0i64,
+                    ns: tr_now(self.trace_on) - tr_e0 });
+            }
+            return;
+        }
+        let qp_raw: i64 = self.qptr;
+        let q: &Query = unsafe { &*(qp_raw as *const Query) };
+        // ── admit ΔEDB: coalesce by identity; collect newly-PRESENT edges (NE,
+        // old≤0→now>0) AND newly-ABSENT edges (DE, old>0→now≤0). ──
+        let mut ne_slots: Vec<i64> = vec_new::<i64>();
+        let mut de_slots: Vec<i64> = vec_new::<i64>();
+        let nd: i64 = dedges.node.len();
+        let mut di: i64 = 0i64;
+        while di < nd {
+            let w: i64 = dedges.wt.get(di);
+            if w != 0i64 {
+                let node: WAny = dedges.node.get(di);
+                let rawu: u64 = node.raw() as u64;
+                let idp: *mut HashMap<u64, i64> = &mut self.eid;
+                let sp: *const i64 = unsafe { idp.get(&rawu) };
+                if (sp as i64) != 0i64 {
+                    let slot: i64 = unsafe { *sp };
+                    let old: i64 = self.ewt.get(slot);
+                    let neww: i64 = old + w;
+                    self.ewt.set(slot, neww);
+                    if old <= 0i64 && neww > 0i64 { ne_slots.push(slot); }
+                    if old > 0i64 && neww <= 0i64 { de_slots.push(slot); }
+                } else {
+                    let slot: i64 = self.enode.len();
+                    self.enode.push(node);
+                    self.ewt.push(w);
+                    unsafe { let _q: *mut i64 = idp.get_or_insert(rawu, slot); }
+                    if w > 0i64 { ne_slots.push(slot); }
+                }
+            }
+            di = di + 1i64;
+        }
+        // ── RETRACTION (or mixed ±) →
+        //   • PLAIN closure rel: mark-based DRed (slice-6) — over-delete every
+        //     path fact whose derivation could use a deleted edge, then re-derive
+        //     over the survivors (finite node×node universe ⇒ terminating).
+        //   • RECURSIVE MIN/MAX AGGREGATE (slice-7): DRed-for-lattices CANNOT
+        //     reuse the plain over-delete — the improvement log over ADDITIVE
+        //     weights is INFINITE on a cycle (each loop grows d unboundedly), so
+        //     a SET-semantics over-delete propagation does not terminate, and an
+        //     absorb-bounded over-delete under-deletes superseded tainted rows
+        //     (a stale champion then survives → wrong; the incremental re-min-in-
+        //     fixpoint is the deferred R2-followup, see ADR §4.3). The CORRECT +
+        //     TERMINATING retraction is a full recompute over the surviving edge
+        //     set (the absorb fixpoint converges on cycles by monotone descent;
+        //     "degrading toward recompute" is the design-blessed fallback,
+        //     correctness > minimality). Differential-green vs the Bellman-Ford
+        //     oracle; NOT incrementally minimal (honest partial).
+        if de_slots.len() != 0i64 {
+            let tr_pt0: i64 = self.ptot;
+            let tr_t0: i64 = tr_now(self.trace_on);
+            if self.agg { self.recompute(); }          // pushes its own kind-0 step
+            else        { self.dred(q, &de_slots); }
+            // S2: both retraction paths run to quiescence (DRed's re-derive
+            // phase is a full base⋈PRES + fixpoint; agg falls back to
+            // recompute) — the state is exact again even if a prior epoch was
+            // budget-truncated. This discharges the ADR §3 retraction caveat.
+            self.conv = true;
+            self.fx_tot = 0i64 - 1i64;
+            self.cut_rs = 0i32;
+            if self.trace_on {
+                if !self.agg {
+                    // one DRed pass = one trace step (over-delete + compact +
+                    // re-derive; net delta, may be < 0)
+                    self.trace.push(TraceStep { epoch: self.epn, kind: 3i32, step: 0i64,
+                        delta_card: self.ptot - tr_pt0, total_rows: self.ptot,
+                        ns: tr_now(self.trace_on) - tr_t0 });
+                }
+                self.teps.push(TraceEpoch { epoch: self.epn,
+                    d_ins: ne_slots.len(), d_del: de_slots.len(), rounds: 0i64,
+                    ns: tr_now(self.trace_on) - tr_e0 });
+            }
+            return;
+        }
+        // No newly-present edge and no retraction ⇒ no-op epoch (closure only
+        // grows on insert; a pure no-op changes nothing) — UNLESS a prior epoch
+        // was budget-truncated: then an empty ΔEDB epoch is the explicit
+        // RESUME move (S2) and falls through to the fixpoint below, which
+        // re-enters at the saved watermark.
+        if ne_slots.len() == 0i64 && self.conv {
+            if self.trace_on {
+                self.teps.push(TraceEpoch { epoch: self.epn,
+                    d_ins: 0i64, d_del: 0i64, rounds: 0i64,
+                    ns: tr_now(self.trace_on) - tr_e0 });
+            }
+            return;
+        }
+
+        // NE node list (newly present, still present).
+        let mut nen: Vec<WAny> = vec_new::<WAny>();
+        let mut ni: i64 = 0i64;
+        while ni < ne_slots.len() {
+            let s: i64 = ne_slots.get(ni);
+            if self.ewt.get(s) > 0i64 { nen.push(self.enode.get(s)); }
+            ni = ni + 1i64;
+        }
+        let fulln: Vec<WAny> = ir_full_nodes(&self.enode, &self.ewt);
+
+        // qp against the FULL edge set (type/plan words are array-independent).
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &fulln);
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        ir_check(q, &self.env, &mut qp, &mut chk);
+        if chk.failed { return; }
+        let scratch: Writ = writ_new(2048i64);
+        let cp: *mut Chk = &mut chk;
+
+        // persistent RelCtx over the maintained storage (tot = current total).
+        let hmp_i:  i64 = (&mut self.rhm  as *mut HashMap<u64, Vec<i64>>) as i64;
+        let rows_i: i64 = (&mut self.rows as *mut Vec<RtVal>) as i64;
+        let best_i: i64 = (&mut self.best as *mut HashMap<i64, i64>) as i64;
+        let is_agg: bool = self.agg;
+        let ncols: i64 = self.ncols;
+        let ptot0: i64 = self.ptot;
+        let rec_body: i64 = self.rec_body;
+        let rec_ovr: i64 = self.rec_ovr;
+        let mut ctx: RelCtx = relctx_new();
+        ctx.n = q.reg.n;
+        ctx.regp = (&q.reg as *const QRelReg) as i64;
+        ctx.hmp = hmp_i;
+        ctx.rowsp[0] = rows_i;
+        // S2: on a truncated state re-enter at the saved watermark — the first
+        // promote then takes [fx_tot, len) = old pending frontier ∪ new seed
+        // output as one delta (append-only rows + rhm dedup ⇒ sound, complete).
+        ctx.tot[0] = if self.conv { ptot0 } else { self.fx_tot };
+        // slice-7: for an aggregate rel the absorb consults+updates `best` (which
+        // ALREADY holds the maintained champions — INSERTION only IMPROVES it,
+        // monotone). A new/shorter edge seeds candidates that beat the champion.
+        if is_agg { rctx_set_best(&mut ctx, 0i64, best_i); }
+        let ctxp: *mut RelCtx = &mut ctx;
+
+        // ── SEED round-0 from ΔEDB, edges bound to NE ──
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &nen);
+        // base bodies over NE (new direct edges).
+        let nb: i64 = self.nbase;
+        let mut bi: i64 = 0i64;
+        while bi < nb && !chk_bad(cp) {
+            qrel_run_body(q, self.base_b[bi], &self.env, &qp, &scratch, ctxp, cp);
+            bi = bi + 1i64;
+        }
+        // recursive body with the EXISTING relation [0,ptot) as its delta and
+        // NE as the joined edge (existing-path ⋈ new-edge). For an aggregate rel
+        // the existing rows are the improvement LOG (best-gated downstream, so
+        // superseded rows produce dominated candidates that the absorb rejects).
+        if ptot0 > 0i64 && !chk_bad(cp) {
+            rctx_set_ovr(ctxp, rec_ovr);
+            rctx_set_delta(ctxp, 0i64, 0i64, ptot0);
+            qrel_run_body(q, rec_body, &self.env, &qp, &scratch, ctxp, cp);
+            rctx_set_ovr(ctxp, 0i64);
+        }
+
+        // ── INNER FIXPOINT: round-delta ⋈ FULL-edges to quiescence (batch
+        // semi-naïve loop; per-round DISTINCT via the shadow-set / best-gate) ──
+        // Convergence GUARD for the aggregate path: an integer min/max fixpoint
+        // over a finite reachable key set converges in ≤ |keys| improvement waves;
+        // a negative-weight cycle (min) / positive-weight cycle (max) has no least
+        // fixpoint and would improve forever — ABORT with a diagnostic rather than
+        // hang (termination is sacred; NOT a silent cap — fires only on genuinely
+        // non-well-founded input).
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &fulln);
+        let mut rounds: i64 = 0i64;
+        // S1: per-step trace. The first loop-top length measures the SEED output
+        // (base⋈NE + existing⋈NE ran above — kind 1); each later loop-top
+        // measures the previous round's body output (kind 2). The final
+        // quiescence probe has an empty delta and records nothing.
+        // tr_prev starts at ptot0 even on a resume: the pending frontier rows
+        // were already traced by the epoch that appended them (the trace push
+        // sits BEFORE the budget check) — Σδ must count each row exactly once.
+        let mut tr_prev: i64 = ptot0;
+        let mut tr_step: i64 = 0i64;
+        let mut tr_t: i64 = tr_now(self.trace_on);
+        // S2 budget bookkeeping: rounds are counted per epoch() call; the ns
+        // clock starts here (seed included). The cut happens BEFORE a promote,
+        // so the un-promoted frontier [tot, len) survives into fx_tot.
+        let bd_kind: i32 = self.bd_kind;
+        let bd_val: i64 = self.bd_val;
+        let bd_t0: i64 = tr_now(bd_kind == 2i32);
+        let mut fx_rounds: i64 = 0i64;
+        let mut did_cut: bool = false;
+        let mut fx_conv: bool = false;
+        loop {
+            if chk_bad(cp) { break; }
+            let len: i64 = qrel_len(ctxp as *const RelCtx, 0i64, ncols);
+            if self.trace_on && len > tr_prev {
+                let tr_t1: i64 = tr_now(self.trace_on);
+                self.trace.push(TraceStep { epoch: self.epn,
+                    kind: if tr_step == 0i64 { 1i32 } else { 2i32 }, step: tr_step,
+                    delta_card: len - tr_prev, total_rows: len, ns: tr_t1 - tr_t });
+                tr_step = tr_step + 1i64;
+                tr_prev = len;
+                tr_t = tr_t1;
+            }
+            // S2: budget check. Only a productive frontier can be cut — with an
+            // empty frontier the promote below exits as a normal least fixpoint.
+            if bd_kind != 0i32 && (len - ctx.tot[0]) > 0i64 {
+                let mut cutr: i32 = 0i32;
+                if bd_kind == 1i32 && fx_rounds >= bd_val { cutr = 1i32; }
+                if bd_kind == 2i32 && (tr_now(true) - bd_t0) >= bd_val { cutr = 2i32; }
+                if cutr != 0i32 {
+                    self.conv = false;
+                    self.fx_tot = ctx.tot[0];
+                    self.cut_rs = cutr;
+                    did_cut = true;
+                    break;
+                }
+            }
+            rctx_promote(ctxp, 0i64, len);
+            if ctx.dlo[0] >= len { fx_conv = true; break; }   // least fixpoint
+            if is_agg {
+                rounds = rounds + 1i64;
+                if rounds > (self.best.len() * 4i64 + 16i64) {
+                    panic("deem: recursive aggregate did not converge — a negative-weight cycle (min) / positive-weight cycle (max) has no least fixpoint");
+                }
+            }
+            rctx_set_ovr(ctxp, rec_ovr);
+            qrel_run_body(q, rec_body, &self.env, &qp, &scratch, ctxp, cp);
+            rctx_set_ovr(ctxp, 0i64);
+            fx_rounds = fx_rounds + 1i64;
+        }
+        // Error-returning EL policy: a math fault in a recursive-body cell latched
+        // the Chk (via eval_sx); surface it on the engine for had_error().
+        if chk.failed { self.math_err = true; }
+        // S2 exit classification: converged (exact) / budget cut (recorded
+        // above) / error (honest unknown — never claim convergence on a fault).
+        if fx_conv {
+            self.conv = true;
+            self.fx_tot = 0i64 - 1i64;
+            self.cut_rs = 0i32;
+        } else if !did_cut {
+            self.conv = false;
+            self.fx_tot = ctx.tot[0];
+            self.cut_rs = 0i32;
+        }
+        self.ptot = self.rows.len() / self.ncols;
+        if self.trace_on {
+            self.teps.push(TraceEpoch { epoch: self.epn,
+                d_ins: ne_slots.len(), d_del: 0i64, rounds: tr_step,
+                ns: tr_now(self.trace_on) - tr_e0 });
+        }
+    }
+
+    // ── SLICE-6: mark-based DELETE-REDERIVE retraction (ADR §4.2). `den` =
+    // nodes of the edges just removed; `presn` = the surviving present edge
+    // set (post-batch, includes any NE). Three phases:
+    //   (1) OVER-DELETE — into scratch od_rows/od_rhm: seed = base⋈DE ∪
+    //       (existing-rel[0,ptot)⋈DE via the recursive rule), then propagate
+    //       od-delta ⋈ PRES to a fixpoint. OD ⊇ every path fact with any
+    //       derivation using a deleted edge (last-deleted-edge argument).
+    //   (2) COMPACT — rebuild self.rows/self.rhm = old ∖ OD (append-only shadow
+    //       keys absolute indices, so in-place delete is impossible — one
+    //       O(rel) rebuild). Survivors S ⊆ closure(PRES).
+    //   (3) RE-DERIVE — warm-started semi-naïve over PRES into the compacted
+    //       rel: base⋈PRES + fixpoint from delta S; re-adds any over-deleted
+    //       fact (and NE-derived fact) with an alternative all-survivor
+    //       derivation. Final = closure(PRES) exactly (== the batch oracle).
+    // Both fixpoints are monotone with per-round DISTINCT via the shadow set —
+    // quiescence-only exit, NO cap (termination parity with insert).
+    fn dred(self: &mut IncrRec, q: &Query, de_slots: &Vec<i64>) {
+        let ncols: i64 = self.ncols;
+        let ptot0: i64 = self.ptot;
+        let rec_body: i64 = self.rec_body;
+        let rec_ovr: i64 = self.rec_ovr;
+        let nb: i64 = self.nbase;
+
+        // DE node list (edges just removed) and PRES (surviving present set,
+        // includes any NE). Owned Vecs — the enode/ewt borrows end here.
+        let mut den: Vec<WAny> = vec_new::<WAny>();
+        let mut dj: i64 = 0i64;
+        while dj < de_slots.len() {
+            den.push(self.enode.get(de_slots.get(dj)));
+            dj = dj + 1i64;
+        }
+        let presn: Vec<WAny> = ir_full_nodes(&self.enode, &self.ewt);
+
+        // qp against the FULL/surviving edge set (plan words are array-indep).
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &presn);
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        ir_check(q, &self.env, &mut qp, &mut chk);
+        if chk.failed { return; }
+        let scratch: Writ = writ_new(2048i64);
+        let cp: *mut Chk = &mut chk;
+
+        // scratch over-delete storage (epoch-local).
+        let mut od_rows: Vec<RtVal> = vec_new::<RtVal>();
+        let mut od_rhm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
+        let od_rows_i: i64 = (&mut od_rows as *mut Vec<RtVal>) as i64;
+        let od_rhm_i:  i64 = (&mut od_rhm as *mut HashMap<u64, Vec<i64>>) as i64;
+        let self_rows_i: i64 = (&mut self.rows as *mut Vec<RtVal>) as i64;
+        let self_rhm_i:  i64 = (&mut self.rhm as *mut HashMap<u64, Vec<i64>>) as i64;
+
+        // ── PHASE 1a: OD SEED — READ the real relation, WRITE-REDIRECT to od ──
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &den);
+        let mut sctx: RelCtx = relctx_new();
+        sctx.n = q.reg.n;
+        sctx.regp = (&q.reg as *const QRelReg) as i64;
+        sctx.hmp = self_rhm_i;
+        sctx.rowsp[0] = self_rows_i;
+        sctx.tot[0] = ptot0;
+        let sctxp: *mut RelCtx = &mut sctx;
+        rctx_set_wr(sctxp, 0i64, od_rows_i, od_rhm_i);
+        // base bodies ⋈ DE (direct deleted edges).
+        let mut bi: i64 = 0i64;
+        while bi < nb && !chk_bad(cp) {
+            qrel_run_body(q, self.base_b[bi], &self.env, &qp, &scratch, sctxp, cp);
+            bi = bi + 1i64;
+        }
+        // recursive rule: existing rel [0,ptot) ⋈ DE (last-step extensions of a
+        // deleted edge — the term that prevents under-deletion of mid/last facts).
+        if ptot0 > 0i64 && !chk_bad(cp) {
+            rctx_set_ovr(sctxp, rec_ovr);
+            rctx_set_delta(sctxp, 0i64, 0i64, ptot0);
+            qrel_run_body(q, rec_body, &self.env, &qp, &scratch, sctxp, cp);
+            rctx_set_ovr(sctxp, 0i64);
+        }
+        rctx_set_wr(sctxp, 0i64, 0i64, 0i64);   // clear redirect
+
+        // ── PHASE 1b: OD PROPAGATE — od-delta ⋈ PRES to fixpoint (read==write
+        // ==od; propagating along survivor edges is conservative-safe). ──
+        ir_bind_edges(&mut self.edoc, &mut self.env, self.edge_src, &presn);
+        let mut pctx: RelCtx = relctx_new();
+        pctx.n = q.reg.n;
+        pctx.regp = (&q.reg as *const QRelReg) as i64;
+        pctx.hmp = od_rhm_i;
+        pctx.rowsp[0] = od_rows_i;
+        pctx.tot[0] = 0i64;
+        let pctxp: *mut RelCtx = &mut pctx;
+        loop {
+            if chk_bad(cp) { break; }
+            let len: i64 = qrel_len(pctxp as *const RelCtx, 0i64, ncols);
+            rctx_promote(pctxp, 0i64, len);
+            if pctx.dlo[0] >= len { break; }   // OD fixpoint (empty round-delta)
+            rctx_set_ovr(pctxp, rec_ovr);
+            qrel_run_body(q, rec_body, &self.env, &qp, &scratch, pctxp, cp);
+            rctx_set_ovr(pctxp, 0i64);
+        }
+        if chk_bad(cp) { self.math_err = true; return; }
+
+        // ── PHASE 2: COMPACT — self.rows/self.rhm ← old[0,ptot) ∖ OD ──
+        let mut new_rows: Vec<RtVal> = vec_new::<RtVal>();
+        let mut new_rhm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
+        let new_rhm_p: *mut HashMap<u64, Vec<i64>> = &mut new_rhm;
+        let mut r: i64 = 0i64;
+        while r < ptot0 {
+            if !dred_in_od(&od_rows, od_rhm_i, ncols, &self.rows, r) {
+                let ni: i64 = new_rows.len() / ncols;
+                let mut h: u64 = 14695981039346656037u64;
+                h = h_step(h, 0u64);   // ri = 0
+                let mut c: i64 = 0i64;
+                while c < ncols {
+                    h = h_step(h, rt_key_hash(self.rows.get(r * ncols + c)));
+                    c = c + 1i64;
+                }
+                unsafe {
+                    let vp: *mut Vec<i64> = new_rhm_p.get_or_insert(h, vec_new::<i64>());
+                    (&mut *vp).push((ni << 3) | 0i64);
+                }
+                let mut c2: i64 = 0i64;
+                while c2 < ncols {
+                    new_rows.push(self.rows.get(r * ncols + c2));
+                    c2 = c2 + 1i64;
+                }
+            }
+            r = r + 1i64;
+        }
+        self.rows = new_rows;
+        self.rhm = new_rhm;
+        self.ptot = self.rows.len() / ncols;
+
+        // ── PHASE 3: RE-DERIVE — warm-started semi-naïve over PRES into the
+        // compacted rel. tot=0 so the FIRST promote takes S ∪ new-base as the
+        // initial delta; dedup against self.rhm (populated with S) re-adds only
+        // facts with an alternative survivor derivation. ──
+        let rd_rows_i: i64 = (&mut self.rows as *mut Vec<RtVal>) as i64;
+        let rd_rhm_i:  i64 = (&mut self.rhm as *mut HashMap<u64, Vec<i64>>) as i64;
+        let mut rctx: RelCtx = relctx_new();
+        rctx.n = q.reg.n;
+        rctx.regp = (&q.reg as *const QRelReg) as i64;
+        rctx.hmp = rd_rhm_i;
+        rctx.rowsp[0] = rd_rows_i;
+        rctx.tot[0] = 0i64;
+        let rctxp: *mut RelCtx = &mut rctx;
+        let mut bi2: i64 = 0i64;
+        while bi2 < nb && !chk_bad(cp) {
+            qrel_run_body(q, self.base_b[bi2], &self.env, &qp, &scratch, rctxp, cp);
+            bi2 = bi2 + 1i64;
+        }
+        loop {
+            if chk_bad(cp) { break; }
+            let len: i64 = qrel_len(rctxp as *const RelCtx, 0i64, ncols);
+            rctx_promote(rctxp, 0i64, len);
+            if rctx.dlo[0] >= len { break; }   // re-derive fixpoint
+            rctx_set_ovr(rctxp, rec_ovr);
+            qrel_run_body(q, rec_body, &self.env, &qp, &scratch, rctxp, cp);
+            rctx_set_ovr(rctxp, 0i64);
+        }
+        if chk.failed { self.math_err = true; }
+        self.ptot = self.rows.len() / ncols;
+    }
+
+    // Error-returning EL policy: true iff any epoch hit a math error (overflow /
+    // division-by-zero) in a recursive-body cell. The harness checks this after
+    // epochs; the engine never traps the host. Latches.
+    pub fn had_error(self: &IncrRec) -> bool {
+        return self.math_err;
+    }
+
+    // ── S1 trace accessors (Explain/WitStep idiom: by-value scalar records).
+    // The trace is append-only EDB about the engine's own past (ADR 0015 I1) —
+    // materialize it into schema'd nodes and bind_source it to reason over it.
+    /// Toggle trace capture (I3). Off ⇒ zero clock calls, nothing recorded.
+    pub fn set_trace(self: &mut IncrRec, on: bool) { self.trace_on = on; }
+    /// The current epoch id (0 = build; incremented by each epoch() call).
+    pub fn cur_epoch(self: &IncrRec) -> i64 { return self.epn; }
+    /// Number of recorded trace steps.
+    pub fn trace_len(self: &IncrRec) -> i64 { return self.trace.len(); }
+    /// The i-th trace step (append order = chronological order).
+    pub fn trace_at(self: &IncrRec, i: i64) -> TraceStep { return self.trace.get(i); }
+    /// Number of recorded per-epoch summaries (one per epoch() call).
+    pub fn epochs_len(self: &IncrRec) -> i64 { return self.teps.len(); }
+    /// The i-th per-epoch summary.
+    pub fn epoch_at(self: &IncrRec, i: i64) -> TraceEpoch { return self.teps.get(i); }
+
+    // ── S2 budget API (ADR 0015 §3). The budget is persistent configuration
+    // (applies to every subsequent epoch() until changed); it never applies to
+    // build/retraction paths (those run to quiescence — v0 contract).
+    /// Budget in fixpoint ROUNDS per epoch (0 = cut right after the seed).
+    pub fn set_budget_steps(self: &mut IncrRec, n: i64) {
+        self.bd_kind = 1i32; self.bd_val = n;
+    }
+    /// Budget in wall-clock NANOSECONDS per epoch (0 = cut at first check).
+    pub fn set_budget_ns(self: &mut IncrRec, t: i64) {
+        self.bd_kind = 2i32; self.bd_val = t;
+    }
+    /// Remove the budget — subsequent epochs run to convergence again.
+    pub fn clear_budget(self: &mut IncrRec) {
+        self.bd_kind = 0i32; self.bd_val = 0i64;
+    }
+    /// True iff the maintained state is the exact least fixpoint.
+    pub fn is_converged(self: &IncrRec) -> bool { return self.conv; }
+    /// The residual descriptor (ADR 0015 §3) — the engine's own registered
+    /// truncated tail. EDB for the next epoch (I1+I2): materialize + bind it
+    /// like any source. pending_delta_card > 0 ⇒ the HOCP Encounter fact.
+    pub fn tail(self: &IncrRec) -> TruncatedTail {
+        if self.conv {
+            return TruncatedTail { epoch: self.epn, converged: true,
+                pending_delta_card: 0i64, bound_dir: 0i32, cut_reason: 0i32 };
+        }
+        let bd: i32 = if self.math_err { 3i32 }
+                      else if self.agg && self.agg_dir == 3i32 { 2i32 }   // min ⇒ upper
+                      else { 1i32 };                       // subset / max ⇒ lower
+        return TruncatedTail { epoch: self.epn, converged: false,
+            pending_delta_card: self.ptot - self.fx_tot, bound_dir: bd,
+            cut_reason: self.cut_rs };
+    }
+
+    // ── S3 control API (ADR 0015 §4, I2). Atoms enqueue here and take effect
+    // at the NEXT epoch() entry, where they are applied and journaled. These
+    // are the LAWFUL (replayable) way to steer the engine — unlike the direct
+    // S2 setters, which are un-journaled setup configuration.
+    /// Enqueue: add `k` steps to the budget (start a steps-budget if none).
+    pub fn control_raise_budget(self: &mut IncrRec, k: i64) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 1i32, val: k });
+    }
+    /// Enqueue: set the steps-budget to `n`.
+    pub fn control_set_budget_steps(self: &mut IncrRec, n: i64) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 2i32, val: n });
+    }
+    /// Enqueue: remove the budget.
+    pub fn control_clear_budget(self: &mut IncrRec) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 3i32, val: 0i64 });
+    }
+    /// Enqueue: abort — from the next epoch on, epochs are journaled no-ops.
+    pub fn control_abort(self: &mut IncrRec) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 4i32, val: 0i64 });
+    }
+    /// Enqueue: escalate — an opaque payload journaled as the channel UPWARD
+    /// (to the agent/LLM layer); no engine effect.
+    pub fn control_escalate(self: &mut IncrRec, payload: i64) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 5i32, val: payload });
+    }
+    /// True iff an applied abort atom latched the engine.
+    pub fn is_aborted(self: &IncrRec) -> bool { return self.aborted; }
+
+    // ── S3 journal accessors: one entry per epoch() call. Replay = fresh
+    // engine over the same initial source, then per entry: enqueue the
+    // entry's controls, epoch(the entry's batch).
+    /// Number of journal entries (== number of epoch() calls).
+    pub fn journal_len(self: &IncrRec) -> i64 { return self.jn_ep.len(); }
+    /// The epoch id of entry `i`.
+    pub fn journal_epoch_at(self: &IncrRec, i: i64) -> i64 { return self.jn_ep.get(i); }
+    /// Whether entry `i` was an aborted no-op.
+    pub fn journal_skipped_at(self: &IncrRec, i: i64) -> bool { return self.jn_skip.get(i); }
+    /// Rebuild entry `i`'s admitted ΔEDB batch (a copy).
+    pub fn journal_batch_at(self: &IncrRec, i: i64) -> ZBatch {
+        let mut b: ZBatch = ZBatch::new();
+        let off: i64 = self.jn_boff.get(i);
+        let n: i64 = self.jn_bcnt.get(i);
+        let mut k: i64 = 0i64;
+        while k < n { b.push(self.jn_bn.get(off + k), self.jn_bw.get(off + k)); k = k + 1i64; }
+        return b;
+    }
+    /// Number of control atoms applied at entry `i`.
+    pub fn journal_controls_at(self: &IncrRec, i: i64) -> i64 { return self.jn_ccnt.get(i); }
+    /// The j-th control atom applied at entry `i` (epoch-stamped).
+    pub fn journal_control_at(self: &IncrRec, i: i64, j: i64) -> ControlAtom {
+        return self.jn_ctl.get(self.jn_coff.get(i) + j);
+    }
+    /// Number of journaled escalations (applied kind-5 atoms).
+    pub fn escalations_len(self: &IncrRec) -> i64 {
+        let mut n: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < self.jn_ctl.len() {
+            if self.jn_ctl.get(i).kind == 5i32 { n = n + 1i64; }
+            i = i + 1i64;
+        }
+        return n;
+    }
+    /// The i-th journaled escalation (epoch-stamped, payload in `val`).
+    pub fn escalation_at(self: &IncrRec, i: i64) -> ControlAtom {
+        let mut seen: i64 = 0i64;
+        let mut k: i64 = 0i64;
+        while k < self.jn_ctl.len() {
+            let a: ControlAtom = self.jn_ctl.get(k);
+            if a.kind == 5i32 {
+                if seen == i { return a; }
+                seen = seen + 1i64;
+            }
+            k = k + 1i64;
+        }
+        return ControlAtom { epoch: 0i64 - 1i64, kind: 0i32, val: 0i64 };
+    }
+
+    // Read the maintained closure as a self-contained QRows via the ENTRY
+    // projection over the persistent relation (exact oracle parity).
+    pub fn snapshot(self: &IncrRec) -> QRows {
+        let qp_raw: i64 = self.qptr;
+        let q: &Query = unsafe { &*(qp_raw as *const Query) };
+        let root: RExpr = WAny::ref_to(q.root as *const u8).view::<RExpr>();
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        let mut lb: CBinds = cbinds_new();
+        check_rexpr(root, &q.cat, &self.env, true, &mut lb, &mut chk, &mut qp, &q.reg);
+        let mut rows: QRows = QRows {
+            arena: writ_new(1024i64),
+            ncols: qp.ncols,
+            kinds: qp.ckind,
+            cells: vec_new::<RtVal>(),
+            nrows: 0i64,
+        };
+        if chk.failed { return rows; }
+        let scratch: Writ = writ_new(2048i64);
+        // slice-7: an AGGREGATE rel's `rows` is the append-only IMPROVEMENT LOG
+        // (superseded rows remain, inert). The maintained view is the CHAMPION
+        // per key — project the entry over champion rows rebuilt from `best`
+        // (node → least/greatest d), NOT the raw log (oracle parity = least
+        // distances). key = col 0, value = last col; ncols == 2 (slice-7 scope).
+        let mut champ: Vec<RtVal> = vec_new::<RtVal>();
+        if self.agg {
+            let ncc: i64 = self.ncols;
+            let bp: *const HashMap<i64, i64> = &self.best;
+            let mut kit: HashMapKeys<i64, i64> = unsafe { bp.keys() };
+            loop {
+                match kit.next() {
+                    Option::Some(kp) => {
+                        let node: i64 = *kp;
+                        let dv: i64 = unsafe { *((&self.best as *const HashMap<i64, i64>).get(&node)) };
+                        champ.push(RtVal::I(node));
+                        let mut cpad: i64 = 1i64;
+                        while cpad < ncc - 1i64 { champ.push(RtVal::I(0i64)); cpad = cpad + 1i64; }
+                        champ.push(RtVal::I(dv));
+                    }
+                    Option::None => { break; }
+                }
+            }
+        }
+        let rows_i: i64 = if self.agg { (&champ as *const Vec<RtVal>) as i64 }
+                          else        { (&self.rows as *const Vec<RtVal>) as i64 };
+        let hmp_i:  i64 = (&self.rhm  as *const HashMap<u64, Vec<i64>>) as i64;
+        let mut ctx: RelCtx = relctx_new();
+        ctx.n = q.reg.n;
+        ctx.regp = (&q.reg as *const QRelReg) as i64;
+        ctx.hmp = hmp_i;
+        ctx.rowsp[0] = rows_i;
+        ctx.tot[0] = if self.agg { champ.len() / self.ncols } else { self.ptot };
+        let cp: *mut Chk = &mut chk;
+        let out: OutTab = exec_root(root, &q.cat, &self.env, &qp, &scratch, cp,
+                                    &ctx as *const RelCtx);
+        if chk_bad(cp) { return rows; }
+        let mut nkeep: i64 = out.nrows;
+        if (q.sel_mode == QM_FIRST || q.sel_mode == QM_FIND) && nkeep > 1i64 { nkeep = 1i64; }
+        let mut r: i64 = 0i64;
+        while r < nkeep {
+            let mut c: i64 = 0i64;
+            while c < out.ncols {
+                let v: RtVal = out.cells.get(r * out.ncols + c);
+                match v {
+                    RtVal::S(s) => { rows.cells.push(RtVal::S(intern_str(&rows.arena, s))); }
+                    _ => { rows.cells.push(v); }
+                }
+                c = c + 1i64;
+            }
+            r = r + 1i64;
+        }
+        rows.nrows = nkeep;
+        return rows;
+    }
+
+    // ── SLICE-9 (R4 provenance, BOUNDED to the linear-recursive transitive
+    // closure). Reconstruct the WITNESS / derivation tree for a path fact (a,c):
+    // the immediate-derivation chain back to base edges (why-provenance). Design
+    // A — ON-DEMAND reconstruction, NO stored witness: a BFS over the CURRENT
+    // concrete edge set from `a`, restricted to path-fact frontier nodes, reads
+    // off a canonical SIMPLE path a→v1→…→c (visited-set ⇒ terminates on DAGs,
+    // diamonds AND cycles); each prefix (a,v_{i+1}) becomes a WitStep (is_base for
+    // the head edge a→v1, else supporting-fact-id + edge-id). explain() is a pure
+    // function of current state, so DRed-validity is FREE: a retracted fact fails
+    // the present-check → present:false; a re-derived fact yields a fresh chain;
+    // nothing dangles across a COMPACT row-reassignment (no index-keyed witness
+    // is persisted). SCOPE: TC only (self.agg == false, ncols == 2); ONE canonical
+    // witness per fact (set semantics — alternative derivations not enumerated).
+    // Handles/ids are valid only for the state at the call instant — do NOT cache
+    // a WitStep across an epoch (mirrors the snapshot node-handle contract).
+    pub fn explain(self: &IncrRec, a: i64, c: i64) -> Explain {
+        let mut steps: Vec<WitStep> = vec_new::<WitStep>();
+        if self.agg || self.ncols != 2i64 {
+            return Explain { present: false, steps: steps };   // out of bounded scope
+        }
+        let q: &Query = unsafe { &*(self.qptr as *const Query) };
+        let rhm_i: i64 = (&self.rhm as *const HashMap<u64, Vec<i64>>) as i64;
+        // present-check — absent ⇒ honest "gone", zero dangling risk.
+        if ir_probe_ac(&self.rows, rhm_i, a, c) < 0i64 {
+            return Explain { present: false, steps: steps };
+        }
+        // Reflexive / cyclic self-fact (a==c): present, but self-witness cycle
+        // reconstruction is out of the bounded first cut → honest empty chain.
+        if a == c {
+            return Explain { present: true, steps: steps };
+        }
+        // BFS from `a` over present concrete edges, restricted to path-fact nodes.
+        // `parent` doubles as the visited set (presence == visited); parent[a]=a.
+        let mut parent: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let pmp: *mut HashMap<i64, i64> = &mut parent;
+        unsafe { let _z0: *mut i64 = pmp.get_or_insert(a, a); }
+        let mut queue: Vec<i64> = vec_new::<i64>();
+        queue.push(a);
+        let mut qh: i64 = 0i64;
+        let ne: i64 = self.enode.len();
+        let mut found: bool = false;
+        while qh < queue.len() && !found {
+            let x: i64 = queue.get(qh);
+            qh = qh + 1i64;
+            let mut i: i64 = 0i64;
+            while i < ne && !found {
+                if self.ewt.get(i) > 0i64 {
+                    let node: WAny = self.enode.get(i);
+                    if rt_i(field_read(&q.cat, node, "src")) == x {
+                        let ed: i64 = rt_i(field_read(&q.cat, node, "dst"));
+                        let pp: *const i64 = unsafe { pmp.get(&ed) };
+                        if (pp as i64) == 0i64 {
+                            // restrict to the path-fact frontier: (a,ed) ∈ rhm —
+                            // always true for a real a→…→ed path (guards strays).
+                            if ir_probe_ac(&self.rows, rhm_i, a, ed) >= 0i64 {
+                                unsafe { let _z1: *mut i64 = pmp.get_or_insert(ed, x); }
+                                if ed == c { found = true; } else { queue.push(ed); }
+                            }
+                        }
+                    }
+                }
+                i = i + 1i64;
+            }
+        }
+        if !found {
+            // present in rhm but no simple edge path — should not happen for a
+            // valid TC fact; honest: present, empty chain.
+            return Explain { present: true, steps: steps };
+        }
+        // Walk parent map c → a; collect the reversed node path.
+        let mut rev: Vec<i64> = vec_new::<i64>();
+        let mut cur: i64 = c;
+        loop {
+            rev.push(cur);
+            if cur == a { break; }
+            let pp: *const i64 = unsafe { pmp.get(&cur) };
+            cur = unsafe { *pp };
+        }
+        // Forward path a=v0→v1→…→vk=c.
+        let mut path: Vec<i64> = vec_new::<i64>();
+        let mut ri: i64 = rev.len() - 1i64;
+        while ri >= 0i64 { path.push(rev.get(ri)); ri = ri - 1i64; }
+        // Emit base-first steps for each prefix (a,v_{i+1}).
+        let np: i64 = path.len();
+        let mut si: i64 = 0i64;
+        while si < np - 1i64 {
+            let vfrom: i64 = path.get(si);
+            let vto:   i64 = path.get(si + 1i64);
+            let eslot: i64 = ir_find_edge(&self.enode, &self.ewt, &q.cat, vfrom, vto);
+            let is_b:  bool = si == 0i64;
+            let supp:  i64 = if is_b { -1i64 } else { ir_probe_ac(&self.rows, rhm_i, a, vfrom) };
+            steps.push(WitStep {
+                is_base: is_b, supp_fid: supp, edge_id: eslot,
+                src: vfrom, dst: vto, a: a, c: vto,
+            });
+            si = si + 1i64;
+        }
+        return Explain { present: true, steps: steps };
+    }
+
+    // R4 provenance accessor: resolve a WitStep's `supp_fid` (a supporting-fact
+    // row-index) back to the (a,b) pair stored at that row, so a caller can VERIFY
+    // a recursive witness genuinely indexes the fact (a,src) it claims to support.
+    // Bounds-checked: an out-of-range fid yields the sentinel (-1,-1) rather than
+    // faulting. Row indices are valid ONLY for the rel state at the call (they
+    // shift across epochs), matching the WitStep handle contract.
+    pub fn fact_ab(self: &IncrRec, fid: i64) -> FactAB {
+        if fid < 0i64 { return FactAB { a: -1i64, b: -1i64 }; }
+        let base: i64 = fid * self.ncols;
+        if base + 1i64 >= self.rows.len() { return FactAB { a: -1i64, b: -1i64 }; }
+        return FactAB { a: rt_i(self.rows.get(base + 0i64)), b: rt_i(self.rows.get(base + 1i64)) };
+    }
+}
+
+impl Query {
+    // Build an incremental maintainer for a single LINEAR self-recursive rel
+    // (slice-5, transitive-closure shape). The fragment guard ACCEPTS iff:
+    //   • exactly one rel (reg.n == 1) and it is recursive (its SCC);
+    //   • all rel columns are i64;
+    //   • exactly ONE recursive body with occ_n == 1 (LINEAR — one in-rel
+    //     occurrence) plus ≥1 base body (occ_n == 0);
+    // and REJECTS mutual-recursion SCCs, non-linear (occ_n > 1) doubling rules,
+    // recursive aggregates, and non-i64 columns with precise messages. `env`
+    // must bind the edge source (non-empty) and outlive the engine.
+    pub fn incremental_rec(self: &Query, env: &QEnv) -> Result<IncrRec, QError> {
+        if self.empty {
+            return Result::Err(qerr("Query::incremental_rec: empty query plan — nothing to maintain"));
+        }
+        if self.reg.n == 0i64 {
+            return Result::Err(qerr("Query::incremental_rec: query has no `rel` block — use Query::incremental for the join/anti/aggregate fragment"));
+        }
+        if self.reg.n != 1i64 {
+            return Result::Err(qerr("Query::incremental_rec: multiple rels (mutual-recursion SCC) — out of slice-5 (single linear-recursive rel only)"));
+        }
+        let c: i64 = self.reg.comp[0];
+        if !self.reg.rec[c] {
+            return Result::Err(qerr("Query::incremental_rec: the rel is not recursive — nothing to maintain incrementally (use Query::run)"));
+        }
+        // all columns i64
+        let off: i64 = self.reg.coff[0];
+        let ncols: i64 = self.reg.ncols[0];
+        let mut ci: i64 = 0i64;
+        while ci < ncols {
+            if self.reg.ctys.get(off + ci) != (CT_INT as i64) {
+                return Result::Err(qerr("Query::incremental_rec: a rel column is not i64 — out of slice-5 (i64 columns only)"));
+            }
+            ci = ci + 1i64;
+        }
+        // classify bodies: base (occ_n==0) vs the single linear recursive body
+        let mut nbase: i64 = 0i64;
+        let mut base_b: [i64; 8] = [0i64; 8];
+        let mut nrec: i64 = 0i64;
+        let mut rec_body: i64 = -1i64;
+        let mut b: i64 = 0i64;
+        while b < self.bodies.n {
+            if self.bodies.owner.get(b) == 0i64 && self.bodies.empty.get(b) == 0i64 {
+                let on: i64 = self.bodies.occ_n.get(b);
+                if on == 0i64 {
+                    if nbase < 8i64 { base_b[nbase] = b; nbase = nbase + 1i64; }
+                } else if on == 1i64 {
+                    nrec = nrec + 1i64;
+                    rec_body = b;
+                } else {
+                    return Result::Err(qerr("Query::incremental_rec: a recursive body has >1 in-rel occurrence (non-linear / doubling recursion) — out of slice-5 (linear only)"));
+                }
+            }
+            b = b + 1i64;
+        }
+        if nrec != 1i64 {
+            return Result::Err(qerr("Query::incremental_rec: slice-5 needs exactly one linear recursive body (self-recursion)"));
+        }
+        if nbase < 1i64 {
+            return Result::Err(qerr("Query::incremental_rec: the recursive rel has no base body"));
+        }
+        let rec_off: i64 = self.bodies.occ_off.get(rec_body);
+        let rec_ovr: i64 = self.bodies.ow.get(rec_off);
+        // edge source = the base body's scanned source
+        let base_root: RExpr = WAny::ref_to(self.bodies.root.get(base_b[0]) as *const u8).view::<RExpr>();
+        let edge_src: str = ir_scan_src(base_root);
+        if edge_src.len() == 0i64 {
+            return Result::Err(qerr("Query::incremental_rec: could not resolve the base edge source (base body is not a scan pipeline)"));
+        }
+        let ei: i64 = env.find(edge_src);
+        if ei < 0i64 {
+            return Result::Err(qerr("Query::incremental_rec: the edge source is not bound on the env"));
+        }
+        let srcv: WAny = WAny::ref_to(env.words[ei] as *const u8);
+        if !srcv.is_array() {
+            return Result::Err(qerr("Query::incremental_rec: the edge source is not a Writ array"));
+        }
+        let sarr: &WArray<WAny> = srcv.as_array();
+        if sarr.len() == 0i64 {
+            return Result::Err(qerr("Query::incremental_rec: the edge source is empty — bind a non-empty base relation"));
+        }
+
+        // slice-7: is this the admitted recursive SEMILATTICE aggregate? (its
+        // single rel carries rel_agg = 3 min / 4 max). The lowered agg body is a
+        // plain join+proj at the RExpr level, so the recursive-aggregate flag is
+        // read off the registry, not the body shape. GROUP-in-recursion never
+        // reaches here (Query::compile already rejected it with a named error).
+        let rel_dir: i32 = self.reg.rel_agg[0];
+
+        let mut eng: IncrRec = IncrRec {
+            qptr: (self as *const Query) as i64,
+            env: QEnv::new(),
+            edoc: writ_new(65536i64),
+            enode: vec_new::<WAny>(),
+            ewt: vec_new::<i64>(),
+            eid: hashmap_new::<u64, i64>(),
+            rows: vec_new::<RtVal>(),
+            rhm: hashmap_new::<u64, Vec<i64>>(),
+            ptot: 0i64,
+            edge_src: edge_src,
+            ncols: ncols,
+            rec_body: rec_body,
+            rec_ovr: rec_ovr,
+            nbase: nbase,
+            base_b: base_b,
+            agg: rel_dir != 0i32,
+            agg_dir: rel_dir,
+            best: hashmap_new::<i64, i64>(),
+            math_err: false,
+            epn: 0i64,
+            trace: vec_new::<TraceStep>(),
+            teps: vec_new::<TraceEpoch>(),
+            trace_on: true,
+            bd_kind: 0i32,
+            bd_val: 0i64,
+            conv: true,
+            fx_tot: 0i64 - 1i64,
+            cut_rs: 0i32,
+            ctlq: vec_new::<ControlAtom>(),
+            aborted: false,
+            jn_ep: vec_new::<i64>(),
+            jn_skip: vec_new::<bool>(),
+            jn_bn: vec_new::<WAny>(),
+            jn_bw: vec_new::<i64>(),
+            jn_boff: vec_new::<i64>(),
+            jn_bcnt: vec_new::<i64>(),
+            jn_ctl: vec_new::<ControlAtom>(),
+            jn_coff: vec_new::<i64>(),
+            jn_ccnt: vec_new::<i64>(),
+        };
+        // seed the edge multiset from the bound base relation (+1/identity)
+        let sn: i64 = sarr.len();
+        let mut si: i64 = 0i64;
+        while si < sn {
+            let node: WAny = sarr.get(si);
+            let rawu: u64 = node.raw() as u64;
+            let idp: *mut HashMap<u64, i64> = &mut eng.eid;
+            let sp: *const i64 = unsafe { idp.get(&rawu) };
+            if (sp as i64) != 0i64 {
+                let slot: i64 = unsafe { *sp };
+                eng.ewt.set(slot, eng.ewt.get(slot) + 1i64);
+            } else {
+                let slot: i64 = eng.enode.len();
+                eng.enode.push(node);
+                eng.ewt.push(1i64);
+                unsafe { let _z: *mut i64 = idp.get_or_insert(rawu, slot); }
+            }
+            si = si + 1i64;
+        }
+        eng.recompute();
+        return Result::Ok(eng);
+    }
+}

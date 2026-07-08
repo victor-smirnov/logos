@@ -1,0 +1,875 @@
+// logos.std.deem — THE QUERY API: QRows (self-contained results), QBodyTab, Query::compile/run and the surface→algebra lowering.
+// One package across several files (see deem.logos for the module-level doc);
+// private items are package-visible, so the split is layout-only.
+package logos.std.deem;
+
+
+use logos.lang.writ.container;    // Writ / writ_new
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.wmap;         // WMap<Wu6, WAny> — TOM reads (schema field gets)
+use logos.lang.writ.array;        // WArray — edge-field iteration
+use logos.lang.writ.wstring;      // WString / as_wstr — string payloads + interning
+use logos.lang.writ.wstatic;      // WritStatic — the rodata metadata-blob handle
+use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
+use logos.lang.result;            // Result — the error-as-value carrier
+use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
+use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
+use logos.mem.string;             // String
+use logos.lang.mem;               // replace — FactStore::take_delta move-out
+use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
+use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
+use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
+use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
+use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / agg rule table
+use logos.std.wql.optimize;       // simplify_sexpr / simplify_rexpr_ref + TermList analysis
+use logos.std.wql.trama;          // TStmt family + chain_array / next_of_stmt / ttext_str
+use logos.std.wql.trama_parser;   // parse_tpl — the reused generated template parser
+use logos.std.wql.plan;           // RQuery / RQProgram — the surface query plan views
+use logos.std.wql.wql_surface_parser;  // parse_program — the reused generated query parser
+use logos.std.wql.lower;          // lower_rquery_to_rexpr — the reused PLAN→ALGEBRA lowering
+use logos.std.wql.params;         // RelDeps / RelScc / compute_rel_scc — the SHARED
+                                  // (metaprog-free) rel dependency-graph half (I3)
+use logos.mem.collections.vec;    // Vec — row pipelines (unbounded)
+use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct sets
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QRows — the materialized result (ADR §3). SELF-CONTAINED: every string cell
+// is interned into the QRows-OWNED Writ arena at materialization, so rows
+// outlive the run's scratch AND the Query itself. Node cells (identity/find
+// projections) are handles into the CALLER's data doc — the caller keeps it
+// alive while reading them (the bind_source contract).
+// ═══════════════════════════════════════════════════════════════════════════
+/// Materialized query result. Self-contained: string cells are interned into a `QRows`-owned
+/// arena and outlive both the run and the `Query`; node cells are handles into the caller's
+/// data doc, which must stay alive while they are read (the `bind_source` contract).
+pub struct QRows {
+    arena: Writ,
+    ncols: i64,
+    kinds: [i32; 8],   // CT_* per column (checker-stamped)
+    cells: Vec<RtVal>,
+    nrows: i64,
+}
+
+impl QRows {
+    /// Returns the number of result rows.
+    pub fn row_count(self: &QRows) -> i64 { return self.nrows; }
+    /// Returns the number of result columns.
+    pub fn col_count(self: &QRows) -> i64 { return self.ncols; }
+    /// Returns whether any row matched — the Option-shaped probe for `select first` / `find`.
+    pub fn is_some(self: &QRows) -> bool { return self.nrows > 0i64; }
+
+    fn cell(self: &QRows, r: i64, c: i64) -> RtVal {
+        if r < 0i64 || r >= self.nrows || c < 0i64 || c >= self.ncols { return RtVal::Null; }
+        return self.cells.get(r * self.ncols + c);
+    }
+
+    /// Returns cell (`r`,`c`) as `i64`; float/bool cells coerce, anything else reads as 0.
+    pub fn get_i64(self: &QRows, r: i64, c: i64) -> i64 { return rt_i(self.cell(r, c)); }
+    /// Returns cell (`r`,`c`) as `f64`; integer cells coerce, anything else reads as 0.0.
+    pub fn get_f64(self: &QRows, r: i64, c: i64) -> f64 { return rt_f(self.cell(r, c)); }
+    /// Returns cell (`r`,`c`) as `bool`; non-bool and out-of-range cells read as `false`.
+    pub fn get_bool(self: &QRows, r: i64, c: i64) -> bool { return rt_b(self.cell(r, c)); }
+    /// Returns cell (`r`,`c`) as a `str` view owned by this `QRows` (interned) — valid while
+    /// it lives. Non-string and out-of-range cells read as `""`.
+    pub fn get_str(self: &QRows, r: i64, c: i64) -> str { return rt_s(self.cell(r, c)); }
+    /// Returns cell (`r`,`c`) as a row-object handle (identity / `find` projections) into the
+    /// caller's data doc.
+    pub fn get_node(self: &QRows, r: i64, c: i64) -> WAny { return rt_node(self.cell(r, c)); }
+    /// Returns whether cell (`r`,`c`) is Null. Lenient projections may carry Null (the typed
+    /// getters read zero-values for it) — this is the distinguishing probe. Out-of-range
+    /// reads also report `true`.
+    pub fn is_null(self: &QRows, r: i64, c: i64) -> bool {
+        return rt_kind(self.cell(r, c)) == 0i32;
+    }
+
+    /// Returns column `c`'s checked type name — `"i64"`/`"str"`/`"bool"`/`"f64"`/`"node"`/
+    /// `"dyn"` (lenient, runtime-typed) — or `""` out of range.
+    pub fn col_ty(self: &QRows, c: i64) -> str {
+        if c < 0i64 || c >= self.ncols { return ""; }
+        let t: i32 = self.kinds[c];
+        if t == CT_INT  { return "i64"; }
+        if t == CT_STR  { return "str"; }
+        if t == CT_BOOL { return "bool"; }
+        if t == CT_FLT  { return "f64"; }
+        if t == CT_NODE { return "node"; }
+        if t == CT_DYN  { return "dyn"; }   // lenient column (runtime-typed)
+        return "";
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QBodyTab — the compiled rel BODIES (I3): per body the owning rel, the
+// simplified RExpr root, the queue-1 empty signal, and the body's in-SCC
+// occurrence window into the flat (ow, orel) arrays — the semi-naïve delta
+// variants (scan-node words; VARIANT = which one reads the delta).
+// ═══════════════════════════════════════════════════════════════════════════
+const QBODY_MAX: i64 = 64i64;   // 8 rels × 8 bodies (grammar caps)
+const QOCC_MAX:  i64 = 96i64;
+
+pub struct QBodyTab {
+    n:       i64,
+    owner:   Vec<i64>,
+    root:    Vec<i64>,
+    empty:   Vec<i64>,    // 0/1 (Vec-backed for the same small-Query reason)
+    occ_off: Vec<i64>,
+    occ_n:   Vec<i64>,
+    ow:      Vec<i64>,
+    orel:    Vec<i64>,
+    on:      i64,
+}
+
+fn qbodytab_new() -> QBodyTab {
+    return QBodyTab {
+        n: 0i64, owner: vec_new::<i64>(), root: vec_new::<i64>(),
+        empty: vec_new::<i64>(),
+        occ_off: vec_new::<i64>(), occ_n: vec_new::<i64>(),
+        ow: vec_new::<i64>(), orel: vec_new::<i64>(), on: 0i64,
+    };
+}
+
+// Total ROW count of rel `ri` (the storage Vec is cell-flat at stride nc).
+fn qrel_len(rctx: *const RelCtx, ri: i64, nc: i64) -> i64 {
+    if nc <= 0i64 { return 0i64; }
+    return rctx_rows(rctx, ri).len() / nc;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Query — compile-once / run-many dynamic query (ADR §3).
+// ═══════════════════════════════════════════════════════════════════════════
+// slice-7: lower a RECURSIVE-AGGREGATE rel body (`from rel x join edges e … group
+// by key aggregate d = min/max(arg) select …`) to its underlying relational
+// pipeline  RProj( RFilter?( RJoin(Scan, edges…) ), (key, arg) ).  The surface
+// `select (key, aggout)` is structural only — the emitted projection is the group
+// KEY and the aggregate's ARG expression (the two lattice operands); the fold
+// itself is the push-time semilattice absorb (qrel_push_agg). Mirrors the static
+// emit_rel_body_agg / lower_join shapes so occ-detection + semi-naïve are reused.
+fn lower_agg_body_recursive(g: RQAggr, h: &Writ) -> WRef<RExpr> {
+    let scan: WRef<RExpr> = make_scan(h, g.a_name, g.a_ty, g.x_var);
+    let mut input: WRef<RExpr> = scan;
+    if g.has_steps() { input = fold_join_steps(input, g.steps_arr(), h); }
+    if g.has_where  { input = make_filter(h, input, g.where_pred); }
+    let a0: RQAgg = g.aggs_arr().agg_at(0i64);
+    let mut items: SExprArr = h.make::<SExprArr>();
+    items.set_len(2i64);
+    items.set_arg(0i64, g.key.any());      // component 0 = the group key
+    items.set_arg(1i64, a0.arg.any());     // component 1 = the aggregate arg
+    let tup: STuple = h.make::<STuple>();
+    tup.items = WRef::<SExprArr>::from_any(items.as_ref());
+    let sel: WRef<SExpr> = WRef::<SExpr>::from_any(tup.as_ref());
+    return make_proj(h, input, sel);
+}
+
+// Lower one rel body: an admitted recursive-aggregate body via the semilattice
+// pipeline above, any other via the shared plan→algebra lowering.
+fn lower_rel_body(q: RQuery, is_agg: bool, h: &Writ) -> WRef<RExpr> {
+    if is_agg {
+        match q {
+            RQuery::Aggr(g) => { return lower_agg_body_recursive(g, h); }
+            _ => { }
+        }
+    }
+    return lower_rquery_to_rexpr(q, h);
+}
+
+/// Compiled relational query — compile once with `Query::compile`, run many with `run`.
+/// Owns the lowered algebra, a catalog snapshot, and the compiled `rel` blocks.
+pub struct Query {
+    doc:      Writ,            // owns the parsed plan + lowered algebra
+    root:     i64,             // simplified ENTRY RExpr root word (into `doc`)
+    empty:    bool,            // queue-1 empty signal → zero-row fast path
+    sel_mode: i32,             // QM_ALL / QM_FIRST / QM_FIND
+    cat:      SchemaCatalog,   // catalog snapshot (Vec-backed, small)
+    reg:      QRelReg,         // rel registry + SCC condensation (I3)
+    bodies:   QBodyTab,        // compiled rel bodies + delta-variant occs (I3)
+}
+
+// One rel body's SELECT WIDTH vs the declared column count (compile-time; the
+// TYPES check runs in the strict phase where env sources resolve).
+fn qrel_body_width(root: RExpr, reg: &QRelReg, ri: i64, chk: &mut Chk) {
+    let nc: i64 = reg.ncols[ri];
+    match root {
+        RExpr::Proj(p) => {
+            let sel: SExpr = p.sel_expr();
+            match sel {
+                SExpr::Tuple(tp) => {
+                    if nc == 1i64 {
+                        chk_fail(chk, "rel '", reg.names[ri],
+                                 "' declares 1 column — the body select must be a single expression",
+                                 "", "");
+                        return;
+                    }
+                    if tp.items_arr().len() != nc {
+                        chk_fail(chk, "rel '", reg.names[ri],
+                                 "': the select tuple width does not match the declared column count",
+                                 "", "");
+                    }
+                }
+                _ => {
+                    if nc >= 2i64 {
+                        chk_fail(chk, "rel '", reg.names[ri],
+                                 "' declares multiple columns — the body select must be a tuple of exactly that many components",
+                                 "", "");
+                    }
+                }
+            }
+        }
+        _ => { }   // collapsed/empty body shapes carry no projection to check
+    }
+}
+
+// Execute ONE rel body (its own RExpr pipeline through the SHARED executor —
+// rel-sourced scans/joins included) and dedup-push the projected rows.
+fn qrel_run_body(q: &Query, b: i64, env: &QEnv, qp: &QPlan, scratch: &Writ,
+                 rctx: *mut RelCtx, chk: *mut Chk) {
+    let broot: RExpr = WAny::ref_to(q.bodies.root.get(b) as *const u8).view::<RExpr>();
+    let out: OutTab = exec_root(broot, &q.cat, env, qp, scratch, chk, rctx as *const RelCtx);
+    if chk_bad(chk) { return; }
+    qrel_push_out(rctx, q.bodies.owner.get(b), &q.reg, &out);
+}
+
+// ── The REL MATERIALIZER (I3) — the semi-naïve fixpoint AS AN INTERPRETER
+// LOOP, re-hosting the static emitter's algorithm (rexpr_walk::emit_scc_fn):
+// SCCs materialize in condensation-TOPO order; a non-recursive rel runs its
+// bodies once; a RECURSIVE SCC seeds (bodies with no in-SCC source), then
+// loops PROMOTE → EXIT → VARIANTS until every member delta is empty (least
+// fixpoint — set semantics over the shared dedup buckets). A body with k
+// in-SCC source occurrences runs k delta variants per round: the VARIANT IS A
+// LOOP VARIABLE (rctx.ovr_w — which scan node reads the delta); no IR is
+// rewritten. TERMINATION is the standard Datalog contract: guaranteed for
+// non-generative programs (every round either adds a new tuple from a finite
+// universe or the deltas empty out); recursive heads that MINT values
+// (arithmetic) can diverge — deliberately NOT capped (a silent iteration cap
+// would change semantics; static parity).
+fn qrel_materialize(q: &Query, env: &QEnv, qp: &QPlan, scratch: &Writ,
+                    rctx: *mut RelCtx, chk: *mut Chk) {
+    let reg: &QRelReg = &q.reg;
+    let mut p: i64 = 0i64;
+    while p < reg.nscc && !chk_bad(chk) {
+        let c: i64 = reg.order[p];
+        if !reg.rec[c] {
+            // ── one-shot stratum: materialize each member once ──
+            let mut r: i64 = 0i64;
+            while r < reg.n && !chk_bad(chk) {
+                if reg.comp[r] == c {
+                    let mut b: i64 = 0i64;
+                    while b < q.bodies.n && !chk_bad(chk) {
+                        if q.bodies.owner.get(b) == r && q.bodies.empty.get(b) == 0i64 {
+                            qrel_run_body(q, b, env, qp, scratch, rctx, chk);
+                        }
+                        b = b + 1i64;
+                    }
+                    rctx_set_tot(rctx, r, qrel_len(rctx as *const RelCtx, r, reg.ncols[r]));
+                }
+                r = r + 1i64;
+            }
+        } else {
+            // ── SEED: bodies with NO in-SCC occurrence run once (their rows
+            // land past tot=0 — the first round's delta). ──
+            let mut m: i64 = 0i64;
+            while m < reg.n && !chk_bad(chk) {
+                if reg.comp[m] == c {
+                    let mut b1: i64 = 0i64;
+                    while b1 < q.bodies.n && !chk_bad(chk) {
+                        if q.bodies.owner.get(b1) == m && q.bodies.occ_n.get(b1) == 0i64
+                           && q.bodies.empty.get(b1) == 0i64 {
+                            qrel_run_body(q, b1, env, qp, scratch, rctx, chk);
+                        }
+                        b1 = b1 + 1i64;
+                    }
+                }
+                m = m + 1i64;
+            }
+            // slice-7: is this SCC a recursive SEMILATTICE aggregate? Its additive
+            // fixpoint converges by monotone descent (positive-weight min / bounded
+            // max) but a negative-weight cycle (min) has no least fixpoint — guard
+            // the loop so recompute ABORTS with a diagnostic rather than hanging
+            // (termination is sacred). A plain closure stays uncapped (finite
+            // node-universe Datalog contract; static parity).
+            let mut agg_scc: bool = false;
+            let mut ma: i64 = 0i64;
+            while ma < reg.n { if reg.comp[ma] == c && reg.rel_agg[ma] != 0i32 { agg_scc = true; } ma = ma + 1i64; }
+            let mut rounds: i64 = 0i64;
+            loop {
+                if chk_bad(chk) { break; }
+                // PROMOTE: delta ← next-delta; total ∪= delta (watermarks
+                // over the single append-only storage — total is always a
+                // prefix). EXIT when every member delta is empty.
+                let mut any: bool = false;
+                let mut m2: i64 = 0i64;
+                let mut tot_rows: i64 = 0i64;
+                while m2 < reg.n {
+                    if reg.comp[m2] == c {
+                        let len2: i64 = qrel_len(rctx as *const RelCtx, m2, reg.ncols[m2]);
+                        tot_rows = tot_rows + len2;
+                        rctx_promote(rctx, m2, len2);
+                        if unsafe { (&*rctx).dlo[m2] } < len2 { any = true; }
+                    }
+                    m2 = m2 + 1i64;
+                }
+                if !any { break; }   // least fixpoint reached
+                if agg_scc {
+                    rounds = rounds + 1i64;
+                    if rounds > tot_rows * 4i64 + 64i64 {
+                        panic("deem: recursive aggregate did not converge — a negative-weight cycle (min) / positive-weight cycle (max) has no least fixpoint");
+                    }
+                }
+                // VARIANTS: recursive bodies × their in-SCC occurrences.
+                let mut m3: i64 = 0i64;
+                while m3 < reg.n && !chk_bad(chk) {
+                    if reg.comp[m3] == c {
+                        let mut b2: i64 = 0i64;
+                        while b2 < q.bodies.n && !chk_bad(chk) {
+                            if q.bodies.owner.get(b2) == m3 && q.bodies.occ_n.get(b2) > 0i64
+                               && q.bodies.empty.get(b2) == 0i64 {
+                                let off: i64 = q.bodies.occ_off.get(b2);
+                                let k: i64 = q.bodies.occ_n.get(b2);
+                                let mut v: i64 = 0i64;
+                                while v < k && !chk_bad(chk) {
+                                    rctx_set_ovr(rctx, q.bodies.ow.get(off + v));
+                                    qrel_run_body(q, b2, env, qp, scratch, rctx, chk);
+                                    v = v + 1i64;
+                                }
+                                rctx_set_ovr(rctx, 0i64);
+                            }
+                            b2 = b2 + 1i64;
+                        }
+                    }
+                    m3 = m3 + 1i64;
+                }
+            }
+        }
+        p = p + 1i64;
+    }
+}
+
+impl Query {
+    // parse → rel registration/validation/SCC/stratification (I3) → envelope
+    // validation → lower (REUSED) → simplify (REUSED) → rel-field rewrite →
+    // env-independent checks. Errors are VALUES.
+    /// Compiles query text against the catalog into a reusable `Query`.
+    /// Parses, registers/stratifies `rel` blocks, lowers and simplifies the algebra, and runs
+    /// the env-independent checks. Errors are values (`Result`), never compile diagnostics.
+    pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Query, QError> {
+        let doc: Writ = writ_new(8192i64);
+        let prog_any: WAny = parse_program(text, &doc);
+        if prog_any.is_null() {
+            return Result::Err(qerr("Query::compile: parse error — expected `[rel NAME(col: ty, …){ body; … }]* from <src> <var> [ [anti] join … on … ]* [where …] [group by … aggregate …] select …` (or `from <src> <var> find <pred>`)"));
+        }
+        let prog: RQProgram = prog_any.view::<RQProgram>();
+        let mut reg: QRelReg = qrelreg_new();
+        let mut bodies: QBodyTab = qbodytab_new();
+        let mut chk: Chk = chk_new();
+        chk.defer_unknown_fn = true;
+        let mut qp: QPlan = qplan_new();
+        let e0: QEnv = QEnv::new();
+
+        if prog.has_rels() {
+            let rels: RQRelArr = prog.rels_arr();
+            let nr: i64 = rels.len();
+            if nr > QREL_MAX {
+                return Result::Err(qerr("Query::compile: too many rel blocks (max 8)"));
+            }
+            // ── pass 1: register names + typed columns ──────────────────────
+            let mut flat: i64 = 0i64;
+            let mut i: i64 = 0i64;
+            while i < nr {
+                let rel: RQRel = rels.rel_at(i);
+                if qreg_find(&reg, rel.name) >= 0i64 {
+                    return Result::Err(qfail("duplicate rel name '", rel.name, "'", "", ""));
+                }
+                let cols: RQRelColArr = rel.cols_arr();
+                let nc: i64 = cols.len();
+                if nc < 1i64 {
+                    return Result::Err(qfail("rel '", rel.name, "' needs at least one column", "", ""));
+                }
+                if flat + nc > QRELC_MAX {
+                    return Result::Err(qerr("Query::compile: too many rel columns"));
+                }
+                reg.names[i] = rel.name;
+                reg.ncols[i] = 0i64;   // grows as columns validate (qreg_col
+                                       // scans the validated window)
+                reg.coff[i]  = flat;
+                reg.n = i + 1i64;
+                let mut k: i64 = 0i64;
+                while k < nc {
+                    let col: RQRelCol = cols.col_at(k);
+                    let tn: str = col.ty_name;
+                    let mut ctt: i32 = -1i32;
+                    if str_eq(tn, "i64")       { ctt = CT_INT; }
+                    else if str_eq(tn, "str")  { ctt = CT_STR; }
+                    else if str_eq(tn, "bool") { ctt = CT_BOOL; }
+                    if ctt < 0i32 {
+                        if str_eq(tn, "f64") || str_eq(tn, "f32") {
+                            return Result::Err(qfail("rel column '", col.name,
+                                     "': f64 columns are not allowed (set semantics require Eq)",
+                                     "", ""));
+                        }
+                        return Result::Err(qfail("rel '", rel.name, "' column '", col.name,
+                                 "': unsupported column type — rel columns are i64 / str / bool"));
+                    }
+                    // per-rel column-name uniqueness
+                    if qreg_col(&reg, i, col.name) >= 0i64 {
+                        return Result::Err(qfail("rel '", rel.name, "': duplicate column name '",
+                                 col.name, "'"));
+                    }
+                    reg.cnames.push(col.name);
+                    reg.ctys.push(ctt as i64);
+                    // grow the visible window as we validate (qreg_col scans it)
+                    reg.ncols[i] = k + 1i64;
+                    k = k + 1i64;
+                }
+                reg.ncols[i] = nc;
+                flat = flat + nc;
+                i = i + 1i64;
+            }
+            // ── pass 2: body shape gates + dependency edges (plan level) ────
+            let mut deps: RelDeps = rel_deps_new();
+            let mut i2: i64 = 0i64;
+            while i2 < nr {
+                let rel2: RQRel = rels.rel_at(i2);
+                let barr: RQBodyArr = rel2.bodies_arr();
+                let nb: i64 = barr.len();
+                if nb < 1i64 {
+                    return Result::Err(qfail("rel '", rel2.name, "' needs at least one body", "", ""));
+                }
+                let mut b: i64 = 0i64;
+                while b < nb {
+                    let q2: RQuery = barr.body_any(b).view::<RQuery>();
+                    match q2 {
+                        RQuery::Simple(s) => {
+                            if s.sel_first || s.distinct || s.has_order || s.has_limit
+                               || s.has_result_ty {
+                                return Result::Err(qfail("rel '", rel2.name,
+                                         "': select-tail modifiers (first/distinct/order/limit/`: Ty`) are not allowed in a rel body — bodies produce relations",
+                                         "", ""));
+                            }
+                            let ri: i64 = qreg_find(&reg, s.src_name);
+                            if ri >= 0i64 { deps.add(i2, ri); }
+                        }
+                        RQuery::Join(j) => {
+                            if j.sel_first || j.distinct || j.has_order || j.has_limit
+                               || j.has_result_ty {
+                                return Result::Err(qfail("rel '", rel2.name,
+                                         "': select-tail modifiers (first/distinct/order/limit/`: Ty`) are not allowed in a rel body — bodies produce relations",
+                                         "", ""));
+                            }
+                            let ri2: i64 = qreg_find(&reg, j.a_name);
+                            if ri2 >= 0i64 { deps.add(i2, ri2); }
+                            let steps: RQJoinStepArr = j.steps_arr();
+                            let ns: i64 = steps.len();
+                            let mut si: i64 = 0i64;
+                            while si < ns {
+                                let st: RQJoinStep = steps.step_at(si);
+                                if !st.is_edge {
+                                    let ri3: i64 = qreg_find(&reg, st.src_name);
+                                    if ri3 >= 0i64 {
+                                        deps.add(i2, ri3);
+                                        if st.is_anti { deps.add_anti(i2, ri3); }
+                                    }
+                                }
+                                si = si + 1i64;
+                            }
+                        }
+                        RQuery::Aggr(g) => {
+                            // slice-7: an aggregate body MAY be an admissible
+                            // recursive SEMILATTICE head (min/max) — the
+                            // stratification check (POST-SCC) decides using the
+                            // recorded head_agg_dir; record edges + the aggregate
+                            // id here. A recursive GROUP (sum/count/avg) head
+                            // stays the named non-stratifiable error there.
+                            let ri4: i64 = qreg_find(&reg, g.a_name);
+                            if ri4 >= 0i64 { deps.add(i2, ri4); deps.add_agg(i2, ri4); }
+                            if g.has_steps() {
+                                let gsteps: RQJoinStepArr = g.steps_arr();
+                                let gn: i64 = gsteps.len();
+                                let mut gi: i64 = 0i64;
+                                while gi < gn {
+                                    let gst: RQJoinStep = gsteps.step_at(gi);
+                                    if !gst.is_edge {
+                                        let ri5: i64 = qreg_find(&reg, gst.src_name);
+                                        if ri5 >= 0i64 { deps.add(i2, ri5); deps.add_agg(i2, ri5); }
+                                    }
+                                    gi = gi + 1i64;
+                                }
+                            }
+                            // classify the aggregate (first column spec) — min/max
+                            // = semilattice (nonzero), else GROUP (0).
+                            let gaggs: RQAggArr = g.aggs_arr();
+                            if gaggs.len() > 0i64 {
+                                deps.set_head_agg_dir(i2, deem_agg_dir(gaggs.agg_at(0i64).fn_name));
+                            }
+                            if deps.agg_head < 0i64 { deps.agg_head = i2; }
+                        }
+                        RQuery::Find(_f2) => {
+                            return Result::Err(qfail("rel '", rel2.name,
+                                     "': `find` is not allowed in a rel body — bodies produce relations (from/join/where/select only)",
+                                     "", ""));
+                        }
+                    }
+                    b = b + 1i64;
+                }
+                i2 = i2 + 1i64;
+            }
+            // ── condense + STRATIFY (the SHARED graph half) ─────────────────
+            let scc: RelScc = compute_rel_scc(&deps, nr);
+            reg.nscc = scc.nscc;
+            let mut ci: i64 = 0i64;
+            while ci < nr {
+                reg.comp[ci]  = scc.comp[ci];
+                reg.order[ci] = scc.order[ci];
+                reg.rec[ci]   = scc.rec[ci];
+                ci = ci + 1i64;
+            }
+            // ── AGGREGATE edges: min/max (semilattice) MAY recurse; group may
+            //    not (slice-7, mirrors plan_walker::check_stratified). An in-SCC
+            //    aggregate edge is admissible iff its head is a SEMILATTICE
+            //    (min/max) AND its recursive component is the SINGLE aggregate rel
+            //    (self-recursion; mutual plain↔agg recursion is non-monotone). ──
+            let mut sk: i64 = 0i64;
+            while sk < deps.gn {
+                let gf: i64 = deps.gfrom[sk];
+                let gt: i64 = deps.gto[sk];
+                if scc.comp[gf] == scc.comp[gt] {
+                    let dir: i32 = deps.head_agg_dir[gf];
+                    if dir != 0i32 {
+                        // count the members of gf's component (slice-7 = 1)
+                        let mut nmem: i64 = 0i64;
+                        let mut r0: i64 = 0i64;
+                        while r0 < nr {
+                            if scc.comp[r0] == scc.comp[gf] { nmem = nmem + 1i64; }
+                            r0 = r0 + 1i64;
+                        }
+                        if nmem > 1i64 {
+                            let mut mm: String = String::new();
+                            mm.push_str("rel '");
+                            mm.push_str(reg.names[gf]);
+                            mm.push_str("': a recursive min/max aggregate must be its OWN recursive component ");
+                            qreg_push_scc_members(&mut mm, &reg, scc.comp[gf]);
+                            mm.push_str(" has multiple rels; mutual recursion through an aggregate is not supported (slice-7)");
+                            return Result::Err(QError { msg: mm });
+                        }
+                        reg.rel_agg[gf] = dir;   // admit as a recursive semilattice head
+                    } else {
+                        // GROUP (sum/count/avg) recursive head — non-stratifiable.
+                        let mut m1: String = String::new();
+                        m1.push_str("non-stratifiable aggregation — rel '");
+                        m1.push_str(reg.names[gf]);
+                        m1.push_str("' aggregates over rel '");
+                        m1.push_str(reg.names[gt]);
+                        m1.push_str("' of the same recursive component ");
+                        qreg_push_scc_members(&mut m1, &reg, scc.comp[gf]);
+                        m1.push_str(" — sum/count/avg is an abelian-group aggregate and cannot recurse; only min/max (idempotent semilattice) may");
+                        return Result::Err(QError { msg: m1 });
+                    }
+                }
+                sk = sk + 1i64;
+            }
+            let mut sk2: i64 = 0i64;
+            while sk2 < deps.an {
+                if scc.comp[deps.afrom[sk2]] == scc.comp[deps.ato[sk2]] {
+                    let mut m2: String = String::new();
+                    m2.push_str("non-stratifiable negation — rel '");
+                    m2.push_str(reg.names[deps.afrom[sk2]]);
+                    m2.push_str("' anti joins rel '");
+                    m2.push_str(reg.names[deps.ato[sk2]]);
+                    m2.push_str("' of the same recursive component ");
+                    qreg_push_scc_members(&mut m2, &reg, scc.comp[deps.afrom[sk2]]);
+                    m2.push_str(" — anti join only rels from an earlier stratum");
+                    return Result::Err(QError { msg: m2 });
+                }
+                sk2 = sk2 + 1i64;
+            }
+            // A rel with an aggregate body that did NOT finalize as an admitted
+            // recursive semilattice head is out of slice-7 (non-recursive
+            // aggregate rels / group aggregate over an earlier stratum are not
+            // yet supported here — aggregate in the entry query instead).
+            let mut ah: i64 = 0i64;
+            while ah < nr {
+                if deps.head_agg_dir[ah] != 0i32 && reg.rel_agg[ah] == 0i32 {
+                    return Result::Err(qfail("rel '", reg.names[ah],
+                             "': a min/max aggregate rel body is only supported as a RECURSIVE semilattice head (a self-cycle) — a non-recursive aggregate rel is not yet supported (slice-7); aggregate in the entry query or over an earlier stratum",
+                             "", ""));
+                }
+                ah = ah + 1i64;
+            }
+            // A non-semilattice aggregate body outside any cycle keeps the plain
+            // "aggregate bodies are relation producers" reject (agg_head set but
+            // head_agg_dir 0 = count/sum/avg body, never admitted).
+            if deps.agg_head >= 0i64 && reg.rel_agg[deps.agg_head] == 0i32
+               && deps.head_agg_dir[deps.agg_head] == 0i32 {
+                return Result::Err(qfail("rel '", reg.names[deps.agg_head],
+                         "': aggregate bodies are not allowed — a rel body is a relation producer (from/join/where/select only)",
+                         "", ""));
+            }
+            // ── lower + simplify + REWRITE each body; collect delta occs ────
+            // (Failures LATCH in chk and break the loops — the Chk moves out
+            // exactly once, after them.)
+            let mut i3: i64 = 0i64;
+            while i3 < nr && !chk.failed {
+                let rel3: RQRel = rels.rel_at(i3);
+                let barr3: RQBodyArr = rel3.bodies_arr();
+                let nb3: i64 = barr3.len();
+                let occ_c: i64 = if reg.rec[reg.comp[i3]] { reg.comp[i3] } else { -1i64 };
+                let mut b3: i64 = 0i64;
+                while b3 < nb3 && !chk.failed {
+                    if bodies.n >= QBODY_MAX {
+                        return Result::Err(qerr("Query::compile: too many rel bodies"));
+                    }
+                    let q3: RQuery = barr3.body_any(b3).view::<RQuery>();
+                    // slice-7: a recursive-aggregate body of an admitted
+                    // semilattice rel lowers to its underlying JOIN+PROJ pipeline
+                    // projecting `(key, aggarg)` — NOT an RExpr::Aggr group-by.
+                    // The `min`/`max` becomes the push-time semilattice absorb
+                    // (qrel_push_agg); everything downstream (occ detection,
+                    // semi-naïve) treats it as a plain linear-recursive body.
+                    let root0: WRef<RExpr> = lower_rel_body(q3, reg.rel_agg[i3] != 0i32, &doc);
+                    let sig: RSimplified = simplify_rexpr_ref(root0, root0.any().view::<RExpr>(), &doc);
+                    let bn: i64 = bodies.n;
+                    bodies.owner.push(i3);
+                    bodies.root.push(sig.root.any().raw());
+                    bodies.empty.push(if sig.empty { 1i64 } else { 0i64 });
+                    bodies.occ_off.push(bodies.on);
+                    bodies.occ_n.push(0i64);
+                    if !sig.empty {
+                        let mut sc: RwScope = rwscope_new();
+                        let mut ow: [i64; 9] = [0i64; 9];
+                        let mut orel: [i64; 9] = [0i64; 9];
+                        let mut on_: i64 = 0i64;
+                        rw_walk(sig.root, &mut sc, &reg, &doc, &mut chk, occ_c,
+                                &mut ow, &mut orel, &mut on_);
+                        if !chk.failed {
+                            if bodies.on + on_ > QOCC_MAX {
+                                return Result::Err(qerr("Query::compile: too many recursive source references"));
+                            }
+                            let mut oi: i64 = 0i64;
+                            while oi < on_ {
+                                bodies.ow.push(ow[oi]);
+                                bodies.orel.push(orel[oi]);
+                                bodies.on = bodies.on + 1i64;
+                                oi = oi + 1i64;
+                            }
+                            bodies.occ_n.set(bn, on_);
+                            // compile-phase width gate + env-independent checks
+                            qrel_body_width(sig.root.any().view::<RExpr>(), &reg, i3, &mut chk);
+                        }
+                        if !chk.failed {
+                            let mut lbb: CBinds = cbinds_new();
+                            check_rexpr(sig.root.any().view::<RExpr>(), cat, &e0, false,
+                                        &mut lbb, &mut chk, &mut qp, &reg);
+                        }
+                    }
+                    bodies.n = bn + 1i64;
+                    b3 = b3 + 1i64;
+                }
+                i3 = i3 + 1i64;
+            }
+            if chk.failed { return Result::Err(chk_err(chk)); }
+        }
+
+        let entry: RQuery = prog.entry_any().view::<RQuery>();
+        // result-envelope mode + `first` exclusions (the static walker's rule)
+        let mut sel_mode: i32 = QM_ALL;
+        let mut first_bad: bool = false;
+        match entry {
+            RQuery::Simple(s) => {
+                if s.sel_first { sel_mode = QM_FIRST; if s.distinct || s.has_limit { first_bad = true; } }
+            }
+            RQuery::Join(j) => {
+                if j.sel_first { sel_mode = QM_FIRST; if j.distinct || j.has_limit { first_bad = true; } }
+            }
+            RQuery::Aggr(g) => {
+                if g.sel_first { sel_mode = QM_FIRST; if g.distinct || g.has_limit { first_bad = true; } }
+            }
+            RQuery::Find(f) => {
+                sel_mode = QM_FIND;
+                // `find` returns a row HANDLE; a rel row is an RtVal column
+                // group — nothing to hand out (static parity: rels are locals).
+                if qreg_find(&reg, f.src_name) >= 0i64 {
+                    chk_fail(&mut chk, "`find` over rel '", f.src_name,
+                             "' is not supported — use `select first (…columns…)` instead",
+                             "", "");
+                    return Result::Err(chk_err(chk));
+                }
+            }
+        }
+        if first_bad {
+            return Result::Err(qerr("Query::compile: `select first` excludes distinct/limit"));
+        }
+        // REUSED queue-1 passes: lowering + the relational peephole.
+        let root0: WRef<RExpr> = lower_rquery_to_rexpr(entry, &doc);
+        let sig: RSimplified = simplify_rexpr_ref(root0, root0.any().view::<RExpr>(), &doc);
+        // Rel-field rewrite over the ENTRY (rel scans read totals — no occs).
+        if !sig.empty && reg.n > 0i64 {
+            let mut esc: RwScope = rwscope_new();
+            let mut eow: [i64; 9] = [0i64; 9];
+            let mut eorel: [i64; 9] = [0i64; 9];
+            let mut eon: i64 = 0i64;
+            rw_walk(sig.root, &mut esc, &reg, &doc, &mut chk, -1i64,
+                    &mut eow, &mut eorel, &mut eon);
+            if chk.failed { return Result::Err(chk_err(chk)); }
+        }
+        // env-INDEPENDENT checks (sources/params/UDFs live on the env → run).
+        let mut lb: CBinds = cbinds_new();
+        check_rexpr(sig.root.any().view::<RExpr>(), cat, &e0, false, &mut lb, &mut chk, &mut qp, &reg);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        return Result::Ok(Query {
+            doc: doc,
+            root: sig.root.any().raw(),
+            empty: sig.empty,
+            sel_mode: sel_mode,
+            cat: catalog_clone(cat),
+            reg: reg,
+            bodies: bodies,
+        });
+    }
+
+    // STRICT check against (catalog + this env) — bodies first (their select
+    // component types validate against the DECLARED rel columns), the ENTRY
+    // last (its projection kinds are what QRows carries) — then materialize
+    // the rels (topo order, semi-naïve where recursive) and execute the
+    // entry. Re-entrant over different envs (compile-once/run-many; the check
+    // + cascade are per-env because sources, params and the UDF/UDA registry
+    // live there).
+    /// Executes the query against `env` and materializes the result as a self-contained `QRows`.
+    /// Runs the full strict check against this env first, then materializes the `rel`s (topo
+    /// order, semi-naive where recursive) and executes the entry pipeline. Re-entrant over
+    /// different envs (sources, params and the UDF/UDA registry live on the env).
+    pub fn run(self: &Query, env: &QEnv) -> Result<QRows, QError> {
+        let root: RExpr = WAny::ref_to(self.root as *const u8).view::<RExpr>();
+        let mut chk: Chk = chk_new();
+        let mut qp: QPlan = qplan_new();
+        let mut bi: i64 = 0i64;
+        while bi < self.bodies.n && !chk.failed {
+            if self.bodies.empty.get(bi) == 0i64 {
+                let mut lbb: CBinds = cbinds_new();
+                let broot: RExpr = WAny::ref_to(self.bodies.root.get(bi) as *const u8).view::<RExpr>();
+                check_rexpr(broot, &self.cat, env, true, &mut lbb, &mut chk, &mut qp, &self.reg);
+                if !chk.failed {
+                    // component types vs the DECLARED columns (UNKNOWN =
+                    // empty-source bodies contribute zero rows — fine)
+                    let ri: i64 = self.bodies.owner.get(bi);
+                    let off: i64 = self.reg.coff[ri];
+                    let mut cc: i64 = 0i64;
+                    while cc < qp.ncols && cc < self.reg.ncols[ri] && !chk.failed {
+                        let got: i32 = qp.ckind[cc];
+                        if got != CT_UNKNOWN && got != (self.reg.ctys.get(off + cc) as i32) {
+                            if got == CT_DYN {
+                                chk_fail(&mut chk, "rel '", self.reg.names[ri], "' column '",
+                                         self.reg.cnames.get(off + cc),
+                                         "': a lenient (erased) value cannot feed a typed rel column");
+                            } else {
+                                chk_fail(&mut chk, "rel '", self.reg.names[ri], "' column '",
+                                         self.reg.cnames.get(off + cc),
+                                         "': the select component type does not match the declared column type");
+                            }
+                        }
+                        cc = cc + 1i64;
+                    }
+                }
+            }
+            bi = bi + 1i64;
+        }
+        if !chk.failed {
+            let mut lb: CBinds = cbinds_new();
+            check_rexpr(root, &self.cat, env, true, &mut lb, &mut chk, &mut qp, &self.reg);
+        }
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        let mut rows: QRows = QRows {
+            arena: writ_new(1024i64),
+            ncols: qp.ncols,
+            kinds: qp.ckind,
+            cells: vec_new::<RtVal>(),
+            nrows: 0i64,
+        };
+        if self.empty { return Result::Ok(rows); }   // queue-1 empty signal
+        let scratch: Writ = writ_new(2048i64);
+        let cp: *mut Chk = &mut chk;
+        // ── rel materialization state (per run; locals own the storage) ────
+        let mut rr0: Vec<RtVal> = vec_new::<RtVal>();
+        let mut rr1: Vec<RtVal> = vec_new::<RtVal>();
+        let mut rr2: Vec<RtVal> = vec_new::<RtVal>();
+        let mut rr3: Vec<RtVal> = vec_new::<RtVal>();
+        let mut rr4: Vec<RtVal> = vec_new::<RtVal>();
+        let mut rr5: Vec<RtVal> = vec_new::<RtVal>();
+        let mut rr6: Vec<RtVal> = vec_new::<RtVal>();
+        let mut rr7: Vec<RtVal> = vec_new::<RtVal>();
+        // Per-rel semilattice champion maps (min/max recursive aggregate). The
+        // incremental engine allocates one (rctx_set_best, slice-7); the batch
+        // executor must too, else qrel_push_agg early-returns on best_i==0 and a
+        // recursive-aggregate rel (SSSP/widest-path) materializes NOTHING.
+        let mut rb0: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb1: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb2: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb3: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb4: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb5: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb6: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rb7: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+        let mut rhm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
+        let mut ctx: RelCtx = relctx_new();
+        ctx.n = self.reg.n;
+        ctx.regp = (&self.reg as *const QRelReg) as i64;
+        ctx.hmp = (&mut rhm as *mut HashMap<u64, Vec<i64>>) as i64;
+        ctx.rowsp[0] = (&mut rr0 as *mut Vec<RtVal>) as i64;
+        ctx.rowsp[1] = (&mut rr1 as *mut Vec<RtVal>) as i64;
+        ctx.rowsp[2] = (&mut rr2 as *mut Vec<RtVal>) as i64;
+        ctx.rowsp[3] = (&mut rr3 as *mut Vec<RtVal>) as i64;
+        ctx.rowsp[4] = (&mut rr4 as *mut Vec<RtVal>) as i64;
+        ctx.rowsp[5] = (&mut rr5 as *mut Vec<RtVal>) as i64;
+        ctx.rowsp[6] = (&mut rr6 as *mut Vec<RtVal>) as i64;
+        ctx.rowsp[7] = (&mut rr7 as *mut Vec<RtVal>) as i64;
+        let ctxp: *mut RelCtx = &mut ctx;
+        // Wire a champion map per AGGREGATE rel (rel_agg[ri] != 0 ⇒ min/max
+        // semilattice head) so qrel_push_agg has somewhere to absorb; plain rels
+        // route through qrel_push_out and never read bestp.
+        if self.reg.n > 0i64 && self.reg.rel_agg[0] != 0i32 { rctx_set_best(ctxp, 0i64, (&mut rb0 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 1i64 && self.reg.rel_agg[1] != 0i32 { rctx_set_best(ctxp, 1i64, (&mut rb1 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 2i64 && self.reg.rel_agg[2] != 0i32 { rctx_set_best(ctxp, 2i64, (&mut rb2 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 3i64 && self.reg.rel_agg[3] != 0i32 { rctx_set_best(ctxp, 3i64, (&mut rb3 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 4i64 && self.reg.rel_agg[4] != 0i32 { rctx_set_best(ctxp, 4i64, (&mut rb4 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 5i64 && self.reg.rel_agg[5] != 0i32 { rctx_set_best(ctxp, 5i64, (&mut rb5 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 6i64 && self.reg.rel_agg[6] != 0i32 { rctx_set_best(ctxp, 6i64, (&mut rb6 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 7i64 && self.reg.rel_agg[7] != 0i32 { rctx_set_best(ctxp, 7i64, (&mut rb7 as *mut HashMap<i64, i64>) as i64); }
+        if self.reg.n > 0i64 {
+            qrel_materialize(self, env, &qp, &scratch, ctxp, cp);
+            if chk_bad(cp) { return Result::Err(chk_err(chk)); }
+        }
+        // Project each recursive-aggregate rel's CHAMPIONS (least/greatest per
+        // key from its best-map) over its raw improvement log before the entry
+        // scan reads it — else superseded relaxations leak into the result.
+        if self.reg.n > 0i64 && self.reg.rel_agg[0] != 0i32 { rctx_set_tot(ctxp, 0i64, rebuild_champ(&mut rr0, &rb0, self.reg.ncols[0])); }
+        if self.reg.n > 1i64 && self.reg.rel_agg[1] != 0i32 { rctx_set_tot(ctxp, 1i64, rebuild_champ(&mut rr1, &rb1, self.reg.ncols[1])); }
+        if self.reg.n > 2i64 && self.reg.rel_agg[2] != 0i32 { rctx_set_tot(ctxp, 2i64, rebuild_champ(&mut rr2, &rb2, self.reg.ncols[2])); }
+        if self.reg.n > 3i64 && self.reg.rel_agg[3] != 0i32 { rctx_set_tot(ctxp, 3i64, rebuild_champ(&mut rr3, &rb3, self.reg.ncols[3])); }
+        if self.reg.n > 4i64 && self.reg.rel_agg[4] != 0i32 { rctx_set_tot(ctxp, 4i64, rebuild_champ(&mut rr4, &rb4, self.reg.ncols[4])); }
+        if self.reg.n > 5i64 && self.reg.rel_agg[5] != 0i32 { rctx_set_tot(ctxp, 5i64, rebuild_champ(&mut rr5, &rb5, self.reg.ncols[5])); }
+        if self.reg.n > 6i64 && self.reg.rel_agg[6] != 0i32 { rctx_set_tot(ctxp, 6i64, rebuild_champ(&mut rr6, &rb6, self.reg.ncols[6])); }
+        if self.reg.n > 7i64 && self.reg.rel_agg[7] != 0i32 { rctx_set_tot(ctxp, 7i64, rebuild_champ(&mut rr7, &rb7, self.reg.ncols[7])); }
+        let out: OutTab = exec_root(root, &self.cat, env, &qp, &scratch, cp,
+                                    ctxp as *const RelCtx);
+        if chk_bad(cp) { return Result::Err(chk_err(chk)); }
+        // materialize: first/find keep at most one row; string views are
+        // interned into the QRows arena (self-contained result).
+        let mut nkeep: i64 = out.nrows;
+        if (self.sel_mode == QM_FIRST || self.sel_mode == QM_FIND) && nkeep > 1i64 {
+            nkeep = 1i64;
+        }
+        let mut r: i64 = 0i64;
+        while r < nkeep {
+            let mut c: i64 = 0i64;
+            while c < out.ncols {
+                let v: RtVal = out.cells.get(r * out.ncols + c);
+                match v {
+                    RtVal::S(s) => { rows.cells.push(RtVal::S(intern_str(&rows.arena, s))); }
+                    _ => { rows.cells.push(v); }
+                }
+                c = c + 1i64;
+            }
+            r = r + 1i64;
+        }
+        rows.nrows = nkeep;
+        return Result::Ok(rows);
+    }
+}
+

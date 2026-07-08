@@ -1,0 +1,488 @@
+// logos.std.deem — EL EVALUATION + TEMPLATES: RBinds, eval_root/field_read/eval_sexpr (the tree-walk evaluator), the render walk, and the Tpl compile-once/render-many API.
+// One package across several files (see deem.logos for the module-level doc);
+// private items are package-visible, so the split is layout-only.
+package logos.std.deem;
+
+
+use logos.lang.writ.container;    // Writ / writ_new
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.wmap;         // WMap<Wu6, WAny> — TOM reads (schema field gets)
+use logos.lang.writ.array;        // WArray — edge-field iteration
+use logos.lang.writ.wstring;      // WString / as_wstr — string payloads + interning
+use logos.lang.writ.wstatic;      // WritStatic — the rodata metadata-blob handle
+use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
+use logos.lang.result;            // Result — the error-as-value carrier
+use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
+use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
+use logos.mem.string;             // String
+use logos.lang.mem;               // replace — FactStore::take_delta move-out
+use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
+use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
+use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
+use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
+use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / agg rule table
+use logos.std.wql.optimize;       // simplify_sexpr / simplify_rexpr_ref + TermList analysis
+use logos.std.wql.trama;          // TStmt family + chain_array / next_of_stmt / ttext_str
+use logos.std.wql.trama_parser;   // parse_tpl — the reused generated template parser
+use logos.std.wql.plan;           // RQuery / RQProgram — the surface query plan views
+use logos.std.wql.wql_surface_parser;  // parse_program — the reused generated query parser
+use logos.std.wql.lower;          // lower_rquery_to_rexpr — the reused PLAN→ALGEBRA lowering
+use logos.std.wql.params;         // RelDeps / RelScc / compute_rel_scc — the SHARED
+                                  // (metaprog-free) rel dependency-graph half (I3)
+use logos.mem.collections.vec;    // Vec — row pipelines (unbounded)
+use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct sets
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// eval_sexpr — the tree-walk evaluator (ADR §7). Runs on CHECKED IR; data-
+// shape surprises (unset fields, null edges) take the WritField-default path.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Render-time LOCAL bindings (loop vars / set vars) — newest-first lookup,
+// mark/rollback scoping (the CBinds shape, but carrying VALUES).
+struct RBinds {
+    names: [str; 40],
+    kinds: [i32; 40],   // QB_* (QB_NODE stores the ref word)
+    ivals: [i64; 40],
+    fvals: [f64; 40],
+    bvals: [bool; 40],
+    svals: [str; 40],
+    words: [i64; 40],
+    n:     i64,
+}
+fn rbinds_new() -> RBinds {
+    return RBinds {
+        names: [""; 40], kinds: [0i32; 40], ivals: [0i64; 40], fvals: [0.0f64; 40],
+        bvals: [false; 40], svals: [""; 40], words: [0i64; 40], n: 0i64,
+    };
+}
+impl RBinds {
+    fn find(self: &RBinds, name: str) -> i64 {
+        let mut i: i64 = self.n - 1i64;
+        while i >= 0i64 {
+            if str_eq(self.names[i], name) { return i; }
+            i = i - 1i64;
+        }
+        return -1i64;
+    }
+    fn val(self: &RBinds, i: i64) -> RtVal {
+        let k: i32 = self.kinds[i];
+        if k == QB_I64  { return RtVal::I(self.ivals[i]); }
+        if k == QB_F64  { return RtVal::F(self.fvals[i]); }
+        if k == QB_BOOL { return RtVal::B(self.bvals[i]); }
+        if k == QB_STR  { return RtVal::S(self.svals[i]); }
+        if k == QB_NODE { return RtVal::Node(WAny::ref_to(self.words[i] as *const u8)); }
+        return RtVal::Null;
+    }
+    // Push a binding holding `v` (scoping is the caller's mark/rollback).
+    fn bind_val(self: &mut RBinds, name: str, v: RtVal) {
+        if self.n >= 40i64 { return; }
+        self.names[self.n] = name;
+        self.set_val(self.n, v);
+        self.n = self.n + 1i64;
+    }
+    // Overwrite slot `i`'s value (per-iteration loop-var rebind).
+    fn set_val(self: &mut RBinds, i: i64, v: RtVal) {
+        match v {
+            RtVal::I(x) => { self.kinds[i] = QB_I64;  self.ivals[i] = x; }
+            RtVal::F(x) => { self.kinds[i] = QB_F64;  self.fvals[i] = x; }
+            RtVal::B(x) => { self.kinds[i] = QB_BOOL; self.bvals[i] = x; }
+            RtVal::S(x) => { self.kinds[i] = QB_STR;  self.svals[i] = x; }
+            RtVal::Node(w) => { self.kinds[i] = QB_NODE; self.words[i] = w.raw(); }
+            RtVal::Null => { self.kinds[i] = 0i32; }
+            RtVal::Error => { self.kinds[i] = 0i32; }   // math error binds as null-ish; boundary aborts
+        }
+    }
+}
+
+// A QEnv binding as an RtVal.
+fn env_val(env: &QEnv, i: i64) -> RtVal {
+    let k: i32 = env.kinds[i];
+    if k == QB_I64   { return RtVal::I(env.ivals[i]); }
+    if k == QB_F64   { return RtVal::F(env.fvals[i]); }
+    if k == QB_BOOL  { return RtVal::B(env.bvals[i]); }
+    if k == QB_STR   { return RtVal::S(env.svals[i]); }
+    if k == QB_NODE  { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    if k == QB_SRC   { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    if k == QB_ENODE { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    if k == QB_ESRC  { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    return RtVal::Null;
+}
+
+// Root-name value: locals shadow the env. `lb` is a RAW pointer (provenance
+// laundering): the returned RtVal's payloads are COPIES of word-sized views
+// into arenas/rodata, never references into the RBinds storage itself, so the
+// caller's &mut RBinds must not be pinned by the shared read here.
+fn eval_root(name: str, env: &QEnv, lb: *const RBinds) -> RtVal {
+    let lbv: &RBinds = unsafe { &*lb };
+    let li: i64 = lbv.find(name);
+    if li >= 0i64 { return lbv.val(li); }
+    let ei: i64 = env.find(name);
+    if ei >= 0i64 { return env_val(env, ei); }
+    return RtVal::Null;
+}
+
+// One field read — the ONE dynamic read both tiers share (ADR §4):
+//   • a STRING-KEYED Writ map (`is_map`, the lenient row shape) resolves the
+//     field by NAME directly — no catalog; a missing key reads Null and the
+//     value converts by VALUE SHAPE (wany_to_rt — "type surprise" keeps the
+//     runtime shape, CEL-style);
+//   • a schema-stamped TOM whose schema is in the catalog reads by the
+//     cataloged key code — the SAME read the static schema accessors compile
+//     to, WritField defaults included (schema'd data behaves schema'd even
+//     under a lenient binding). FK_ANY (WAny-typed) fields convert by value
+//     shape — unset reads Null (I3: I1 rejected these at check time);
+//   • anything else (unknown schema, unknown field, non-object) reads Null.
+// STRICT bindings never reach the Null arms (the checker resolved every
+// field), so strict semantics are unchanged.
+fn field_read(cat: &SchemaCatalog, w: WAny, fname: str) -> RtVal {
+    if w.is_map() {
+        let sm: &WMap<WString, WAny> = w.as_map();
+        let sv: WAny = sm.get(fname);
+        if sv.is_null() { return RtVal::Null; }
+        return wany_to_rt(sv);
+    }
+    let code: u64 = node_schema_code(w);
+    let si: i64 = cat.sidx_of_code(code);
+    if si < 0i64 { return RtVal::Null; }
+    let fi: i64 = cat.fidx(si, fname);
+    if fi < 0i64 { return RtVal::Null; }
+    let m: &WMap<Wu6, WAny> = tom_at(w);
+    let v: WAny = m.get(cat.f_keys.get(fi) as u8);
+    if cat.f_kinds.get(fi) == (FK_EDGE as i64) || cat.f_kinds.get(fi) == (FK_EARR as i64) {
+        if v.is_null() { return RtVal::Null; }
+        return RtVal::Node(v);
+    }
+    if cat.f_kinds.get(fi) == (FK_ANY as i64) { return wany_to_rt(v); }
+    let t: i32 = cat.f_tys.get(fi) as i32;
+    if t == EL_TY_STR()  { return RtVal::S(wany_str(v)); }
+    if t == EL_TY_BOOL() { return RtVal::B(v.as_bool()); }
+    if t == EL_TY_FLT()  { return RtVal::F(v.as_f64()); }
+    return RtVal::I(v.as_i64());
+}
+
+fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
+              scratch: &Writ) -> RtVal {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_string() { return RtVal::S(wany_str(v)); }
+            if v.is_bool()   { return RtVal::B(v.as_bool()); }
+            if v.is_float()  { return RtVal::F(v.as_f64()); }
+            if v.is_null()   { return RtVal::Null; }
+            return RtVal::I(v.as_i64());
+        }
+        SExpr::Param(p) => { return eval_root(p.name, env, lb); }
+        SExpr::Var(vv)  => { return eval_root(vv.name, env, lb); }
+        SExpr::Field(f) => {
+            let base_ref: WRef<SExpr> = f.base;
+            if base_ref.any().is_null() { return eval_root(f.name, env, lb); }
+            let base: RtVal = eval_sexpr(f.base_expr(), cat, env, lb, scratch);
+            match base {
+                RtVal::Node(w) => { return field_read(cat, w, f.name); }
+                _ => { return RtVal::Null; }
+            }
+        }
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            // Short-circuit boolean tier.
+            if op == OP_AND() {
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(lv) { return RtVal::Error; }
+                if !rt_truthy(lv) { return RtVal::B(false); }
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(rv) { return RtVal::Error; }
+                return RtVal::B(rt_truthy(rv));
+            }
+            if op == OP_OR() {
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(lv) { return RtVal::Error; }
+                if rt_truthy(lv) { return RtVal::B(true); }
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(rv) { return RtVal::Error; }
+                return RtVal::B(rt_truthy(rv));
+            }
+            let l: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+            let r: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+            // A math error in either operand propagates (like Null) — the eval
+            // boundary (eval_sx) turns it into a QError.
+            if rt_is_err(l) || rt_is_err(r) { return RtVal::Error; }
+            if op == OP_EQ() { return RtVal::B(rt_eq(l, r)); }
+            if op == OP_NE() { return RtVal::B(!rt_eq(l, r)); }
+            if op == OP_LT() || op == OP_LE() || op == OP_GT() || op == OP_GE() {
+                // Null never orders (CEL-style, ADR §4): any Null operand
+                // compares FALSE. Strict mode never produces Null operands.
+                if rt_kind(l) == 0i32 || rt_kind(r) == 0i32 { return RtVal::B(false); }
+                // Ordered compare: str via str_cmp; ints exactly; else f64.
+                let mut c: i64 = 0i64;
+                if rt_kind(l) == 4i32 && rt_kind(r) == 4i32 {
+                    c = str_cmp(rt_s(l), rt_s(r)) as i64;
+                } else if rt_kind(l) == 1i32 && rt_kind(r) == 1i32 {
+                    let li2: i64 = rt_i(l);
+                    let ri2: i64 = rt_i(r);
+                    if li2 < ri2 { c = -1i64; } else if li2 > ri2 { c = 1i64; }
+                } else {
+                    let lf: f64 = rt_f(l);
+                    let rf: f64 = rt_f(r);
+                    if lf < rf { c = -1i64; } else if lf > rf { c = 1i64; }
+                }
+                if op == OP_LT() { return RtVal::B(c < 0i64); }
+                if op == OP_LE() { return RtVal::B(c <= 0i64); }
+                if op == OP_GT() { return RtVal::B(c > 0i64); }
+                return RtVal::B(c >= 0i64);
+            }
+            // Arithmetic tier: Null PROPAGATES (any Null operand → Null).
+            if rt_kind(l) == 0i32 || rt_kind(r) == 0i32 { return RtVal::Null; }
+            if op == OP_ADD() {
+                if rt_kind(l) == 4i32 || rt_kind(r) == 4i32 {
+                    // string concatenation — interned into the render scratch
+                    let mut t: String = String::new();
+                    t.push_str(rt_s(l));
+                    t.push_str(rt_s(r));
+                    return RtVal::S(intern(scratch, &t));
+                }
+                if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 {
+                    return RtVal::F(rt_f(l) + rt_f(r));   // IEEE f64: no trap
+                }
+                // Integer tier: error-returning (checked) arithmetic — overflow
+                // yields RtVal::Error instead of trapping (EL-script policy).
+                match rt_i(l).checked_add(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+            }
+            if op == OP_SUB() {
+                if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) - rt_f(r)); }
+                match rt_i(l).checked_sub(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+            }
+            if op == OP_MUL() {
+                if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) * rt_f(r)); }
+                match rt_i(l).checked_mul(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+            }
+            if op == OP_DIV() {
+                if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) / rt_f(r)); }
+                // checked_div → None on divide-by-zero AND on i64::MIN / -1.
+                match rt_i(l).checked_div(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+            }
+            // OP_MOD — integer tier only (checker-enforced). checked_rem → None
+            // on rem-by-zero and i64::MIN % -1.
+            match rt_i(l).checked_rem(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+        }
+        SExpr::Un(u) => {
+            let a: RtVal = eval_sexpr(u.arg_expr(), cat, env, lb, scratch);
+            if rt_is_err(a) { return RtVal::Error; }
+            if u.op == OP_NOT() { return RtVal::B(!rt_truthy(a)); }
+            match a {
+                RtVal::F(x) => { return RtVal::F(0.0f64 - x); }
+                RtVal::Null => { return RtVal::Null; }   // -Null → Null (ADR §4)
+                // integer negation is checked (i64::MIN negation overflows)
+                _ => { match rt_i(a).checked_neg() { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
+            }
+        }
+        SExpr::Cond(c) => {
+            let cv: RtVal = eval_sexpr(c.cond_expr(), cat, env, lb, scratch);
+            if rt_is_err(cv) { return RtVal::Error; }
+            if rt_truthy(cv) {
+                return eval_sexpr(c.then_expr(), cat, env, lb, scratch);
+            }
+            return eval_sexpr(c.else_expr(), cat, env, lb, scratch);
+        }
+        SExpr::Call(c) => {
+            let bfn: i32 = builtin_of_name(c.fn_name);
+            let args: SExprArr = c.args_arr();
+            if bfn != BFN_UNKNOWN() {
+                // Builtins are STRING functions: any non-string argument —
+                // Null from a lenient miss, or a runtime type surprise —
+                // yields Null (ADR §4; strict mode guarantees string args).
+                let a0: RtVal = eval_sexpr(args.arg_at(0i64), cat, env, lb, scratch);
+                if rt_kind(a0) != 4i32 { return RtVal::Null; }
+                let mut a1: RtVal = RtVal::S("");
+                if builtin_arity(bfn) > 1i64 {
+                    a1 = eval_sexpr(args.arg_at(1i64), cat, env, lb, scratch);
+                    if rt_kind(a1) != 4i32 { return RtVal::Null; }
+                }
+                if bfn == BFN_LEN() { return RtVal::I(rt_s(a0).len()); }
+                if bfn == BFN_UPPER() {
+                    let u2: String = wql_upper(rt_s(a0));
+                    return RtVal::S(intern(scratch, &u2));
+                }
+                if bfn == BFN_LOWER() {
+                    let l2: String = wql_lower(rt_s(a0));
+                    return RtVal::S(intern(scratch, &l2));
+                }
+                if bfn == BFN_CONTAINS() {
+                    return RtVal::B(str_contains(rt_s(a0), rt_s(a1)));
+                }
+                // BFN_STARTS_WITH
+                return RtVal::B(str_starts_with(rt_s(a0), rt_s(a1)));
+            }
+            // Registered UDF (builtin-first precedence; arity/types checked).
+            let ui: i64 = env.find_fn(c.fn_name);
+            if ui >= 0i64 {
+                let mut argv: [RtVal; 8] = [RtVal::Null; 8];
+                let na: i64 = args.len();
+                let mut k: i64 = 0i64;
+                while k < na && k < 8i64 {
+                    argv[k] = eval_sexpr(args.arg_at(k), cat, env, lb, scratch);
+                    k = k + 1i64;
+                }
+                let f: QFn = env.f_ptrs[ui];
+                return f(&argv[0i64..na]);
+            }
+            return RtVal::Null;
+        }
+        _ => { return RtVal::Null; }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The RENDER walk — TStmt chain → String (ADR §7 Trama tier).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Append a TText run, decoding the template backslash escapes (`\{` `\}`
+// `` \` `` `\\`) to their bare characters (the emit_escaped de-escape rules,
+// applied directly to the output instead of to generated source).
+fn push_deescaped(out: &mut String, s: str) {
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c == 92u8 && i + 1i64 < n {
+            let e: u8 = str_byte_at(s, i + 1i64);
+            if e == 123u8 || e == 125u8 || e == 96u8 || e == 92u8 {
+                out.push_u8(e);
+                i = i + 2i64;
+                continue;
+            }
+        }
+        out.push_u8(c);
+        i = i + 1i64;
+    }
+}
+
+// `lb` is a RAW pointer through the whole walk (the eval reborrow-laundering
+// contract of eval_root — RtVal payloads never point into RBinds storage).
+fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
+                scratch: &Writ, out: &mut String, chk: *mut Chk) {
+    let mut cur: i64 = head;
+    while cur != 0i64 {
+        if chk_bad(chk) { return; }   // a math error in a prior {{…}} aborts the render
+        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        match e {
+            TStmt::Text(t) => { push_deescaped(out, ttext_str(&t)); }
+            TStmt::Var(v) => {
+                let val: RtVal = eval_sx(v.expr_expr(), cat, env, lb, scratch, chk);
+                rt_push(out, val);
+            }
+            TStmt::If(i) => {
+                let cv: RtVal = eval_sx(i.expr_expr(), cat, env, lb, scratch, chk);
+                let mark: i64 = unsafe { (&*lb).n };
+                if rt_truthy(cv) {
+                    render_stmts(body_word(&i.body), cat, env, lb, scratch, out, chk);
+                } else {
+                    let altw: i64 = alt_word(&i.alt);
+                    if altw != 0i64 {
+                        render_stmts(altw, cat, env, lb, scratch, out, chk);
+                    }
+                }
+                let lbm: &mut RBinds = unsafe { &mut *lb };
+                lbm.n = mark;
+            }
+            TStmt::For(f) => {
+                let it: RtVal = eval_sx(f.expr_expr(), cat, env, lb, scratch, chk);
+                match it {
+                    RtVal::Node(w) => {
+                        if w.is_array() {
+                            let arr: &WArray<WAny> = w.as_array();
+                            let mark2: i64 = unsafe { (&*lb).n };
+                            unsafe { (&mut *lb).bind_val(f.var, RtVal::Null); }
+                            let slot: i64 = unsafe { (&*lb).n } - 1i64;
+                            let n: i64 = arr.len();
+                            let mut i2: i64 = 0i64;
+                            while i2 < n {
+                                // shape-driven element conversion: schema'd
+                                // nodes stay Node, scalar elements (FK_EARR
+                                // arrays) become their scalar RtVal.
+                                unsafe { (&mut *lb).set_val(slot, wany_to_rt(arr.get(i2))); }
+                                render_stmts(body_word(&f.body), cat, env, lb, scratch, out, chk);
+                                i2 = i2 + 1i64;
+                            }
+                            let lbm2: &mut RBinds = unsafe { &mut *lb };
+                            lbm2.n = mark2;
+                        }
+                        // a single (non-array) edge value: nothing to iterate
+                    }
+                    _ => { }   // null edge → empty loop
+                }
+            }
+            TStmt::Set(s) => {
+                let sv: RtVal = eval_sx(s.expr_expr(), cat, env, lb, scratch, chk);
+                unsafe { (&mut *lb).bind_val(s.var, sv); }
+            }
+        }
+        cur = next_of_stmt(cur);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tpl — compile-once / render-many dynamic template (ADR §3).
+// Owns the parsed IR doc (never-move arena) + a catalog snapshot.
+// ═══════════════════════════════════════════════════════════════════════════
+/// Compiled dynamic template — compile once with `Tpl::compile`, render many with `render`.
+/// Owns the parsed IR and a catalog snapshot; independent of any `QEnv` until render time.
+pub struct Tpl {
+    doc:  Writ,            // owns the Trama AST + embedded SExpr IR
+    head: i64,             // TStmt chain head word (into `doc`'s arena)
+    cat:  SchemaCatalog,   // catalog snapshot (Vec-backed — must stay SMALL,
+                           // see the SchemaCatalog layout note)
+}
+
+impl Tpl {
+    // Parse template TEXT → Trama IR; stitch the statement chain; run the
+    // shared IR optimizer over every embedded expression; run the env-
+    // independent checks. Errors are VALUES. Unknown fn names DEFER to the
+    // render-time strict check (I3 registry unification: templates resolve
+    // UDFs against the SAME env registry queries do — builtin-first, ADR §6;
+    // I1/I2 rejected them eagerly, which made template UDFs impossible).
+    /// Compiles template text against the catalog into a reusable `Tpl`.
+    /// Runs parse, the shared IR optimizer, and the env-independent checks; unknown function
+    /// names defer to the render-time strict check (they may be env-registered UDFs).
+    /// Errors are values (`Result`), never compile diagnostics.
+    pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Tpl, QError> {
+        let doc: Writ = writ_new(4096i64);
+        let tpl_any: WAny = parse_tpl(text, &doc);
+        if tpl_any.is_null() || !tpl_any.is_array() {
+            return Result::Err(qerr("Tpl::compile: template parse error — unbalanced tag or malformed embedded expression"));
+        }
+        let arr: &WArray<WAny> = tpl_any.as_array();
+        let head: i64 = chain_array(arr);
+        simplify_all(head, &doc);
+        let e0: QEnv = QEnv::new();
+        let reg0: QRelReg = qrelreg_new();
+        let mut lb: CBinds = cbinds_new();
+        let mut chk: Chk = chk_new();
+        chk.defer_unknown_fn = true;
+        check_stmts(head, cat, &e0, false, &mut lb, &mut chk, &reg0);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        return Result::Ok(Tpl { doc: doc, head: head, cat: catalog_clone(cat) });
+    }
+
+    /// Renders the template against `env`, returning the output string.
+    /// Runs the full strict check (var→schema resolution, field types) against this env first;
+    /// a math error in an embedded expression aborts the render as a `QError`.
+    /// Re-entrant over different envs (the check is per-env by design).
+    pub fn render(self: &Tpl, env: &QEnv) -> Result<String, QError> {
+        let reg0: QRelReg = qrelreg_new();
+        let mut lb: CBinds = cbinds_new();
+        let mut chk: Chk = chk_new();
+        check_stmts(self.head, &self.cat, env, true, &mut lb, &mut chk, &reg0);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        let scratch: Writ = writ_new(1024i64);
+        let mut rb: RBinds = rbinds_new();
+        let rbp: *mut RBinds = &mut rb;
+        let mut out: String = String::new();
+        // reuse the (passed) chk sink: a math error in a {{ … }} expression
+        // (eval_sx → chk_fail) aborts the render as a QError.
+        render_stmts(self.head, &self.cat, env, rbp, &scratch, &mut out, &mut chk);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        return Result::Ok(out);
+    }
+}
+

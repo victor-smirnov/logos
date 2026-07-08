@@ -1,0 +1,1056 @@
+// logos.std.deem — THE EXECUTOR: RelCtx + the rel-storage watermark/redirect helpers (rctx_*/qrel_push_*), RowSet, exec_rexpr/exec_edge/exec_aggr, OutTab, exec_root.
+// One package across several files (see deem.logos for the module-level doc);
+// private items are package-visible, so the split is layout-only.
+package logos.std.deem;
+
+
+use logos.lang.writ.container;    // Writ / writ_new
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.wmap;         // WMap<Wu6, WAny> — TOM reads (schema field gets)
+use logos.lang.writ.array;        // WArray — edge-field iteration
+use logos.lang.writ.wstring;      // WString / as_wstr — string payloads + interning
+use logos.lang.writ.wstatic;      // WritStatic — the rodata metadata-blob handle
+use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
+use logos.lang.result;            // Result — the error-as-value carrier
+use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
+use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
+use logos.mem.string;             // String
+use logos.lang.mem;               // replace — FactStore::take_delta move-out
+use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
+use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
+use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
+use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
+use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / agg rule table
+use logos.std.wql.optimize;       // simplify_sexpr / simplify_rexpr_ref + TermList analysis
+use logos.std.wql.trama;          // TStmt family + chain_array / next_of_stmt / ttext_str
+use logos.std.wql.trama_parser;   // parse_tpl — the reused generated template parser
+use logos.std.wql.plan;           // RQuery / RQProgram — the surface query plan views
+use logos.std.wql.wql_surface_parser;  // parse_program — the reused generated query parser
+use logos.std.wql.lower;          // lower_rquery_to_rexpr — the reused PLAN→ALGEBRA lowering
+use logos.std.wql.params;         // RelDeps / RelScc / compute_rel_scc — the SHARED
+                                  // (metaprog-free) rel dependency-graph half (I3)
+use logos.mem.collections.vec;    // Vec — row pipelines (unbounded)
+use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct sets
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The EXECUTOR — materialized Vec<row> pipelines over the RExpr tree (§7).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const RS_VARS: i64 = 12i64;
+
+// ── RelCtx — the RUNTIME rel materialization state (I3) ─────────────────────
+// One per `run`: per-rel row storage (flat Vec<RtVal>, stride = the rel's
+// column count) + the semi-naïve WATERMARKS. The single storage Vec holds
+// every distinct row ever derived, in first-derivation order; the regions are
+//   total = rows[0 .. tot)         (includes the current delta — the
+//                                   post-promote binding, static parity)
+//   delta = rows[dlo .. dhi)
+//   next  = rows[dhi .. len)       (this round's new rows)
+// `ovr_w` — the ONE scan-node word reading the DELTA in the current variant
+// (the delta-variant loop variable; every other in-SCC occurrence reads the
+// total). `hmp` — the SHARED dedup buckets (hash mixes the rel index; bucket
+// entries encode (row_idx << 3) | rel).
+struct RelCtx {
+    n:       i64,
+    regp:    i64,           // *const QRelReg
+    rowsp:   [i64; 8],      // *mut Vec<RtVal> per rel (READ storage — scans)
+    tot:     [i64; 8],
+    dlo:     [i64; 8],
+    dhi:     [i64; 8],
+    ovr_w:   i64,
+    hmp:     i64,           // *mut HashMap<u64, Vec<i64>> (READ dedup map)
+    // WRITE-REDIRECT (slice-6 DRed over-delete seed): when set, qrel_push_out
+    // appends + dedups into THESE instead of rowsp/hmp, while scans still READ
+    // rowsp/hmp. This lets the OD seed read the real relation but write the
+    // over-delete scratch. Both must be set-or-both-clear (0 = inactive).
+    wr_rowsp: [i64; 8],     // *mut Vec<RtVal> per rel (WRITE storage) or 0
+    wr_hmp:   i64,          // *mut HashMap<u64, Vec<i64>> (WRITE map) or 0
+    // RECURSIVE SEMILATTICE AGGREGATION (slice-7): per rel, a raw *mut
+    // HashMap<i64, i64> — the per-key best-map (node → champion value) the
+    // semilattice absorb (qrel_push_agg) consults + updates. 0 for a plain rel.
+    // `wr_bestp` is the DRed over-delete/re-derive WRITE-REDIRECT best-map (moves
+    // with wr_rowsp/wr_hmp — set-or-both-clear); the absorb writes wr_bestp when
+    // the row redirect is active, self-bestp otherwise.
+    bestp:    [i64; 8],     // *mut HashMap<i64, i64> per rel (READ best) or 0
+    wr_bestp: [i64; 8],     // *mut HashMap<i64, i64> per rel (WRITE best) or 0
+}
+
+fn relctx_new() -> RelCtx {
+    return RelCtx {
+        n: 0i64, regp: 0i64, rowsp: [0i64; 8],
+        tot: [0i64; 8], dlo: [0i64; 8], dhi: [0i64; 8],
+        ovr_w: 0i64, hmp: 0i64,
+        wr_rowsp: [0i64; 8], wr_hmp: 0i64,
+        bestp: [0i64; 8], wr_bestp: [0i64; 8],
+    };
+}
+
+fn rctx_reg<'a>(rctx: *const RelCtx) -> &'a QRelReg {
+    return unsafe { &*((&*rctx).regp as *const QRelReg) };
+}
+fn rctx_rows<'a>(rctx: *const RelCtx, ri: i64) -> &'a Vec<RtVal> {
+    return unsafe { &*((&*rctx).rowsp[ri] as *const Vec<RtVal>) };
+}
+// Watermark/override setters (the raw-pointer indirection keeps the borrow
+// regions off the executor's shared reads; array-field writes go through a
+// bound &mut).
+fn rctx_set_tot(rctx: *mut RelCtx, ri: i64, v: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.tot[ri] = v;
+}
+fn rctx_promote(rctx: *mut RelCtx, ri: i64, len: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.dlo[ri] = cm.tot[ri];
+    cm.dhi[ri] = len;
+    cm.tot[ri] = len;
+}
+fn rctx_set_ovr(rctx: *mut RelCtx, w: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.ovr_w = w;
+}
+// Force a rel's DELTA region directly (slice-5 IncrRec seed: a manual round-0
+// where the delta is the whole existing total [0, hi), not a promote-derived
+// watermark). Total is left untouched — the caller manages tot separately.
+fn rctx_set_delta(rctx: *mut RelCtx, ri: i64, lo: i64, hi: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.dlo[ri] = lo;
+    cm.dhi[ri] = hi;
+}
+// Slice-6 DRed: point rel `ri`'s WRITE target (append + dedup) at separate
+// storage/map (raw ptrs as i64) while READs still hit rowsp/hmp. Pass 0/0 to
+// clear. Both fields move together (set-or-both-clear invariant).
+fn rctx_set_wr(rctx: *mut RelCtx, ri: i64, rows_i: i64, hmp_i: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.wr_rowsp[ri] = rows_i;
+    cm.wr_hmp = hmp_i;
+}
+// slice-7: point rel `ri`'s READ best-map (the semilattice absorb consults +
+// updates it when no write-redirect is active). 0 = plain rel (no absorb).
+fn rctx_set_best(rctx: *mut RelCtx, ri: i64, best_i: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.bestp[ri] = best_i;
+}
+// slice-7 DRed: the WRITE-REDIRECT best-map for rel `ri` (moves with
+// rctx_set_wr's rows/hmp redirect). Pass 0 to clear.
+fn rctx_set_wr_best(rctx: *mut RelCtx, ri: i64, best_i: i64) {
+    let cm: &mut RelCtx = unsafe { &mut *rctx };
+    cm.wr_bestp[ri] = best_i;
+}
+
+// Dedup-push every row of a body's OutTab into rel `ri` (SET semantics: the
+// shared bucket map probes by row hash, verifies cell-wise with rt_eq). New
+// rows append at the storage tail — the next-delta region.
+fn qrel_push_out(rctx: *mut RelCtx, ri: i64, reg: &QRelReg, out: &OutTab) {
+    let nc: i64 = reg.ncols[ri];
+    if nc <= 0i64 { return; }
+    // slice-7: an AGGREGATE rel absorbs candidates against a per-key best-map
+    // (the ⊓/⊔ meet IS the dedup) instead of set-dedup — dispatch on rel_agg.
+    if reg.rel_agg[ri] != 0i32 { qrel_push_agg(rctx, ri, reg, out); return; }
+    // WRITE-REDIRECT (slice-6): dedup + append target. When wr_hmp is set the
+    // OD seed writes scratch (od_rows/od_rhm) while scans still read rowsp/hmp;
+    // the encoded (nrow<<3)|ri indices then key the WRITE storage consistently.
+    let wr:  i64 = unsafe { (&*rctx).wr_rowsp[ri] };
+    let whm: i64 = unsafe { (&*rctx).wr_hmp };
+    let rows_i: i64 = if whm != 0i64 { wr } else { unsafe { (&*rctx).rowsp[ri] } };
+    let hm_i:   i64 = if whm != 0i64 { whm } else { unsafe { (&*rctx).hmp } };
+    let rows: *mut Vec<RtVal> = rows_i as *mut Vec<RtVal>;
+    let hm: *mut HashMap<u64, Vec<i64>> = hm_i as *mut HashMap<u64, Vec<i64>>;
+    let mut r: i64 = 0i64;
+    while r < out.nrows {
+        let mut h: u64 = 14695981039346656037u64;
+        h = h_step(h, ri as u64);
+        let mut c: i64 = 0i64;
+        while c < nc {
+            h = h_step(h, rt_key_hash(out.cells.get(r * nc + c)));
+            c = c + 1i64;
+        }
+        let mut dup: bool = false;
+        unsafe {
+            let vp: *mut Vec<i64> = hm.get_or_insert(h, vec_new::<i64>());
+            let bv: &Vec<i64> = &*vp;
+            let nb: i64 = bv.len();
+            let mut t: i64 = 0i64;
+            while t < nb && !dup {
+                let enc: i64 = bv.get(t);
+                if (enc & 7i64) == ri {
+                    let idx: i64 = enc >> 3;
+                    let rv: &Vec<RtVal> = &*rows;
+                    let mut same: bool = true;
+                    let mut c2: i64 = 0i64;
+                    while c2 < nc {
+                        if !rt_eq(rv.get(idx * nc + c2), out.cells.get(r * nc + c2)) {
+                            same = false;
+                            break;
+                        }
+                        c2 = c2 + 1i64;
+                    }
+                    if same { dup = true; }
+                }
+                t = t + 1i64;
+            }
+            if !dup {
+                let nrow: i64 = (&*rows).len() / nc;
+                vp.push((nrow << 3) | ri);
+                let mut c3: i64 = 0i64;
+                while c3 < nc {
+                    rows.push(out.cells.get(r * nc + c3));
+                    c3 = c3 + 1i64;
+                }
+            }
+        }
+        r = r + 1i64;
+    }
+}
+
+// slice-7: the SEMILATTICE-ABSORB push (recursive min/max aggregation) — the
+// runtime twin of the static emit_rel_push_agg. SCOPE: key = column 0 (i64),
+// value = the folded last column (i64); key_nc == 1 (design §1). A candidate
+// row `(key, v)` is absorbed against the per-key best-map: kept iff it STRICTLY
+// improves the running champion (`<` for min / `>` for max) or the key is new.
+// The improvement gate IS the ⊓/⊔ meet — this is exactly why min/max
+// incrementalize in a fixpoint and sum/count/avg do not. Each improvement is
+// APPENDED to the write-target rows (the improvement log = the batch `__out`),
+// landing in the next-delta window so the semi-naïve driver re-propagates it.
+// Superseded rows stay inert (a worse d yields d+w ≥ champion downstream → the
+// gate rejects it). NO shadow-set dedup: the best-gate subsumes per-round
+// DISTINCT (an equal value re-appends only on strict improvement). Honors the
+// DRed write-redirect (wr_rowsp/wr_hmp/wr_bestp) so over-delete writes scratch.
+// slice-7: the AGG_* id of an aggregate function NAME (min = 3 / max = 4;
+// 0 = a non-semilattice / unrecognized aggregate — NOT admissible in recursion).
+// Mirrors rexpr_walk::agg_of_name for the semilattice subset (the only ids the
+// recursive-aggregation fixpoint accepts); count/sum/avg return 0 here so the
+// stratification check rejects them as GROUP heads.
+fn deem_agg_dir(name: str) -> i32 {
+    if str_eq(name, "min") { return 3i32; }
+    if str_eq(name, "max") { return 4i32; }
+    return 0i32;
+}
+
+fn qrel_push_agg(rctx: *mut RelCtx, ri: i64, reg: &QRelReg, out: &OutTab) {
+    let nc: i64 = reg.ncols[ri];
+    if nc <= 0i64 { return; }
+    let dir: i32 = reg.rel_agg[ri];   // 3 = min, 4 = max
+    // WRITE targets: redirect to scratch (od) when a DRed redirect is active.
+    let whm: i64 = unsafe { (&*rctx).wr_hmp };
+    let redir: bool = whm != 0i64;
+    let rows_i: i64 = if redir { unsafe { (&*rctx).wr_rowsp[ri] } } else { unsafe { (&*rctx).rowsp[ri] } };
+    let best_i: i64 = if redir { unsafe { (&*rctx).wr_bestp[ri] } } else { unsafe { (&*rctx).bestp[ri] } };
+    if rows_i == 0i64 || best_i == 0i64 { return; }
+    let rows: *mut Vec<RtVal> = rows_i as *mut Vec<RtVal>;
+    let best: *mut HashMap<i64, i64> = best_i as *mut HashMap<i64, i64>;
+    let mut r: i64 = 0i64;
+    while r < out.nrows {
+        let key: i64 = rt_i(out.cells.get(r * nc + 0i64));
+        let v:   i64 = rt_i(out.cells.get(r * nc + (nc - 1i64)));
+        let mut imp: bool = false;
+        unsafe {
+            let cp: *const i64 = best.get(&key);
+            if (cp as i64) == 0i64 { imp = true; }
+            else {
+                let champ: i64 = *cp;
+                if dir == 4i32 { if v > champ { imp = true; } }
+                else           { if v < champ { imp = true; } }
+            }
+            if imp {
+                let _z: *mut i64 = best.get_or_insert(key, v);
+                *(_z) = v;
+                let mut c: i64 = 0i64;
+                while c < nc { (&mut *rows).push(out.cells.get(r * nc + c)); c = c + 1i64; }
+            }
+        }
+        r = r + 1i64;
+    }
+}
+
+// Project an aggregate rel's CHAMPION rows from its best-map (key → least/
+// greatest value) into `rows`, REPLACING the append-only improvement log (which
+// keeps every superseded relaxation). key = col 0, value = last col, middle cols
+// padded 0 — mirrors IncrRec::snapshot's champion projection. Returns the
+// champion row count. The batch run() calls this before the entry scan so a
+// recursive semilattice-aggregate rel (SSSP/widest-path) projects the maintained
+// least/greatest-per-key view, not every intermediate improvement.
+fn rebuild_champ(rows: &mut Vec<RtVal>, best: &HashMap<i64, i64>, ncols: i64) -> i64 {
+    rows.clear();
+    let bp: *const HashMap<i64, i64> = best as *const HashMap<i64, i64>;
+    let mut kit: HashMapKeys<i64, i64> = unsafe { bp.keys() };
+    loop {
+        match kit.next() {
+            Option::Some(kp) => {
+                let node: i64 = *kp;
+                let dv: i64 = unsafe { *(bp.get(&node)) };
+                rows.push(RtVal::I(node));
+                let mut c: i64 = 1i64;
+                while c < ncols - 1i64 { rows.push(RtVal::I(0i64)); c = c + 1i64; }
+                rows.push(RtVal::I(dv));
+            }
+            Option::None => { break; }
+        }
+    }
+    return best.len();
+}
+
+// A row set: named columns (row vars) × rows, cells flattened at stride nvars.
+struct RowSet {
+    vars:  [str; 12],
+    nvars: i64,
+    cells: Vec<RtVal>,
+    nrows: i64,
+}
+
+fn rs_new() -> RowSet {
+    return RowSet { vars: [""; 12], nvars: 0i64, cells: vec_new::<RtVal>(), nrows: 0i64 };
+}
+
+fn rs_vidx(rs: &RowSet, name: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < rs.nvars {
+        if str_eq(rs.vars[i], name) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn rs_cell(rs: &RowSet, r: i64, c: i64) -> RtVal {
+    return rs.cells.get(r * rs.nvars + c);
+}
+
+// Fresh eval binds with ONE slot per row var (slot index == var index).
+fn rs_binds(rs: &RowSet) -> RBinds {
+    let mut b: RBinds = rbinds_new();
+    let mut i: i64 = 0i64;
+    while i < rs.nvars {
+        b.bind_val(rs.vars[i], RtVal::Null);
+        i = i + 1i64;
+    }
+    return b;
+}
+
+// Load row `r`'s cells into the binds (slots 0..nvars).
+fn rs_load(rs: &RowSet, r: i64, lb: *mut RBinds) {
+    let mut c: i64 = 0i64;
+    while c < rs.nvars {
+        unsafe { (&mut *lb).set_val(c, rs_cell(rs, r, c)); }
+        c = c + 1i64;
+    }
+}
+
+// Load row `r`'s cells into the binds at slots base..base+nvars (the join
+// right-side region — rel-scan rights carry MULTIPLE columns, I3).
+fn rs_load_at(rs: &RowSet, r: i64, lb: *mut RBinds, base: i64) {
+    let mut c: i64 = 0i64;
+    while c < rs.nvars {
+        unsafe { (&mut *lb).set_val(base + c, rs_cell(rs, r, c)); }
+        c = c + 1i64;
+    }
+}
+
+// Append row `r` of `src` to `dst` (same column prefix), plus an optional
+// extra cell (has_extra) — the join/traversal row extension.
+fn rs_push_ext(dst: &mut RowSet, src: &RowSet, r: i64, has_extra: bool, extra: RtVal) {
+    let mut c: i64 = 0i64;
+    while c < src.nvars {
+        dst.cells.push(rs_cell(src, r, c));
+        c = c + 1i64;
+    }
+    if has_extra { dst.cells.push(extra); }
+    dst.nrows = dst.nrows + 1i64;
+}
+
+// Append left row `r` + right row `j` (ALL right columns — the generalized
+// join row extension; env-sourced rights have exactly one column).
+fn rs_push_row(dst: &mut RowSet, l: &RowSet, r: i64, rt: &RowSet, j: i64) {
+    let mut c: i64 = 0i64;
+    while c < l.nvars {
+        dst.cells.push(rs_cell(l, r, c));
+        c = c + 1i64;
+    }
+    let mut c2: i64 = 0i64;
+    while c2 < rt.nvars {
+        dst.cells.push(rs_cell(rt, j, c2));
+        c2 = c2 + 1i64;
+    }
+    dst.nrows = dst.nrows + 1i64;
+}
+
+// ── RtVal ordering (sort keys) + hashing (join/distinct keys) ────────────────
+// Compare mirrors the eval `<`-family: str via str_cmp, int exactly, else f64.
+fn rt_cmp(l: RtVal, r: RtVal) -> i64 {
+    if rt_kind(l) == 4i32 && rt_kind(r) == 4i32 { return str_cmp(rt_s(l), rt_s(r)) as i64; }
+    if rt_kind(l) == 1i32 && rt_kind(r) == 1i32 {
+        let a: i64 = rt_i(l);
+        let b: i64 = rt_i(r);
+        if a < b { return -1i64; }
+        if a > b { return 1i64; }
+        return 0i64;
+    }
+    let lf: f64 = rt_f(l);
+    let rf: f64 = rt_f(r);
+    if lf < rf { return -1i64; }
+    if lf > rf { return 1i64; }
+    return 0i64;
+}
+
+// FNV-1a over a NORMALIZED (tag, payload) form — RtVal itself needs no Hash
+// impl; buckets verify with rt_eq (hash collisions are benign). Only the
+// hashable tier (I/S/B) ever reaches this (cascade + distinct rules).
+// wrapping_mul: FNV intentionally wraps (bare `*` overflow-traps, Rust parity).
+fn h_step(h: u64, b: u64) -> u64 { return wrapping_mul(h ^ b, 1099511628211u64); }
+
+fn rt_key_hash(v: RtVal) -> u64 {
+    let mut h: u64 = 14695981039346656037u64;
+    match v {
+        RtVal::I(x) => { h = h_step(h, 1u64); h = h_step(h, x as u64); }
+        RtVal::B(b) => { h = h_step(h, 3u64); h = h_step(h, if b { 1u64 } else { 0u64 }); }
+        RtVal::S(s) => {
+            h = h_step(h, 2u64);
+            let n: i64 = s.len();
+            let mut i: i64 = 0i64;
+            while i < n { h = h_step(h, str_byte_at(s, i) as u64); i = i + 1i64; }
+        }
+        _ => { h = h_step(h, 0u64); }
+    }
+    return h;
+}
+
+// Residual check: every conjunction term EXCEPT the consumed equi-term must
+// hold (the equi/residual split — the probe already established the key).
+fn eval_on_residual(on_w: i64, equi_w: i64, cat: &SchemaCatalog, env: &QEnv,
+                    lb: *const RBinds, scratch: &Writ) -> bool {
+    let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(on_w as *const u8));
+    let mut tl: TermList = term_list_new();
+    split_and_terms(onr, &mut tl);
+    let mut i: i64 = 0i64;
+    while i < tl.n {
+        if tl.w[i] != equi_w {
+            if !rt_truthy(eval_sexpr(sx_of(tl.w[i]), cat, env, lb, scratch)) { return false; }
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// ── exec_rexpr — the pipeline walk (everything BELOW the projection) ─────────
+// `rctx` — the rel materialization context (always valid; n = 0 without rels).
+fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+              scratch: &Writ, chk: *mut Chk, rctx: *const RelCtx) -> RowSet {
+    if chk_bad(chk) { return rs_new(); }
+    match e {
+        RExpr::Scan(sc) => {
+            // Rel-sourced scan (I3): columns bind as DOTTED RowSet vars
+            // ("p.a" — the rel-field rewrite's spelling); the row region is
+            // the rel's TOTAL, or its DELTA when this node is the current
+            // semi-naïve variant's delta reader.
+            let creg: &QRelReg = rctx_reg(rctx);
+            let ri: i64 = qreg_find(creg, sc.src_name);
+            if ri >= 0i64 {
+                let nc: i64 = creg.ncols[ri];
+                let mut out: RowSet = rs_new();
+                let mut c: i64 = 0i64;
+                while c < nc && c < RS_VARS {
+                    let mut nm: String = String::new();
+                    nm.push_str(sc.var_name);
+                    nm.push_str(".");
+                    nm.push_str(creg.cnames.get(creg.coff[ri] + c));
+                    out.vars[c] = intern_str(scratch, sstr(&nm));
+                    c = c + 1i64;
+                }
+                out.nvars = nc;
+                let ctxv: &RelCtx = unsafe { &*rctx };
+                let mut lo: i64 = 0i64;
+                let mut hi: i64 = ctxv.tot[ri];
+                if ctxv.ovr_w != 0i64 && ctxv.ovr_w == sc.as_ref().raw() {
+                    lo = ctxv.dlo[ri];
+                    hi = ctxv.dhi[ri];
+                }
+                let rows: &Vec<RtVal> = rctx_rows(rctx, ri);
+                let mut r: i64 = lo;
+                while r < hi {
+                    let mut c2: i64 = 0i64;
+                    while c2 < nc {
+                        out.cells.push(rows.get(r * nc + c2));
+                        c2 = c2 + 1i64;
+                    }
+                    out.nrows = out.nrows + 1i64;
+                    r = r + 1i64;
+                }
+                return out;
+            }
+            let mut out: RowSet = rs_new();
+            out.vars[0] = sc.var_name;
+            out.nvars = 1i64;
+            let ei: i64 = env.find(sc.src_name);
+            if ei < 0i64 { return out; }   // checker guarantees; defensive
+            let av: WAny = WAny::ref_to(env.words[ei] as *const u8);
+            if !av.is_array() { return out; }
+            let arr: &WArray<WAny> = av.as_array();
+            let n: i64 = arr.len();
+            let mut i: i64 = 0i64;
+            while i < n {
+                out.cells.push(wany_to_rt(arr.get(i)));
+                out.nrows = out.nrows + 1i64;
+                i = i + 1i64;
+            }
+            return out;
+        }
+        RExpr::Filter(f) => {
+            let input: RowSet = exec_rexpr(f.input_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return rs_new(); }
+            let mut out: RowSet = rs_new();
+            out.vars = input.vars;
+            out.nvars = input.nvars;
+            let mut b: RBinds = rs_binds(&input);
+            let bp: *mut RBinds = &mut b;
+            let mut r: i64 = 0i64;
+            while r < input.nrows {
+                rs_load(&input, r, bp);
+                if rt_truthy(eval_sx(f.pred_expr(), cat, env, bp, scratch, chk)) {
+                    rs_push_ext(&mut out, &input, r, false, RtVal::Null);
+                }
+                r = r + 1i64;
+            }
+            return out;
+        }
+        RExpr::Sort(s) => {
+            let input: RowSet = exec_rexpr(s.input_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return rs_new(); }
+            // per-row keys, then a STABLE O(n²) insertion sort over indices
+            // (the static emitter's MVP discipline, re-hosted).
+            let mut b: RBinds = rs_binds(&input);
+            let bp: *mut RBinds = &mut b;
+            let mut keys: Vec<RtVal> = vec_new::<RtVal>();
+            let mut r: i64 = 0i64;
+            while r < input.nrows {
+                rs_load(&input, r, bp);
+                keys.push(eval_sx(s.key_expr(), cat, env, bp, scratch, chk));
+                r = r + 1i64;
+            }
+            let mut order: Vec<i64> = vec_new::<i64>();
+            let mut i: i64 = 0i64;
+            while i < input.nrows {
+                order.push(i);
+                let mut j: i64 = order.len() - 1i64;
+                while j > 0i64 {
+                    let c: i64 = rt_cmp(keys.get(order.get(j)), keys.get(order.get(j - 1i64)));
+                    let swap: bool = if s.desc { c > 0i64 } else { c < 0i64 };
+                    if !swap { break; }
+                    order.swap(j, j - 1i64);
+                    j = j - 1i64;
+                }
+                i = i + 1i64;
+            }
+            let mut out: RowSet = rs_new();
+            out.vars = input.vars;
+            out.nvars = input.nvars;
+            let mut k: i64 = 0i64;
+            while k < order.len() {
+                rs_push_ext(&mut out, &input, order.get(k), false, RtVal::Null);
+                k = k + 1i64;
+            }
+            return out;
+        }
+        RExpr::Edge(ed) => {
+            return exec_edge(ed, cat, env, qp, scratch, chk, rctx);
+        }
+        RExpr::Join(jn) => {
+            let left: RowSet = exec_rexpr(jn.left_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return rs_new(); }
+            let right: RowSet = exec_rexpr(jn.right_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return rs_new(); }
+            return exec_join(left, right, jn.on.any().raw(), jn.as_ref().raw(), false,
+                             cat, env, qp, scratch, chk);
+        }
+        RExpr::Anti(an) => {
+            let left: RowSet = exec_rexpr(an.left_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return rs_new(); }
+            let right: RowSet = exec_rexpr(an.right_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return rs_new(); }
+            return exec_join(left, right, an.on.any().raw(), an.as_ref().raw(), true,
+                             cat, env, qp, scratch, chk);
+        }
+        RExpr::Aggr(g) => {
+            return exec_aggr(g, cat, env, qp, scratch, chk, rctx);
+        }
+        _ => {
+            chk_fail_p(chk, "internal: unexpected relational node below the projection root",
+                     "", "", "", "");
+            return rs_new();
+        }
+    }
+}
+
+// REdge traversal: range the new var over `base_var`'s `path` collection —
+// nested-loop by construction (the source depends on the outer row). Runtime
+// SHAPE dispatch (the I2 single-node extension): a Writ ARRAY iterates its
+// elements; a SINGLE node iterates once; null/absent iterates zero times.
+// `is_anti` keeps the outer row iff NO element passes `on` (no `on` ⇒ iff the
+// collection is empty).
+fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+             scratch: &Writ, chk: *mut Chk, rctx: *const RelCtx) -> RowSet {
+    let input: RowSet = exec_rexpr(ed.input_expr(), cat, env, qp, scratch, chk, rctx);
+    if chk_bad(chk) { return rs_new(); }
+    let mut out: RowSet = rs_new();
+    out.vars = input.vars;
+    out.nvars = input.nvars;
+    if !ed.is_anti {
+        if out.nvars >= RS_VARS {
+            chk_fail_p(chk, "too many row variables in the join chain", "", "", "", "");
+            return rs_new();
+        }
+        out.vars[out.nvars] = ed.var_name;
+        out.nvars = out.nvars + 1i64;
+    }
+    let bi: i64 = rs_vidx(&input, ed.base_var);
+    if bi < 0i64 { return out; }   // checker guarantees; defensive
+    let ps: PathSegs = split_path(ed.path);
+    // binds carry input vars + the element var (slot input.nvars)
+    let mut b: RBinds = rs_binds(&input);
+    b.bind_val(ed.var_name, RtVal::Null);
+    let bp: *mut RBinds = &mut b;
+    let eslot: i64 = input.nvars;
+    let mut r: i64 = 0i64;
+    while r < input.nrows && !chk_bad(chk) {
+        rs_load(&input, r, bp);
+        // walk the path off this row's base node
+        let mut cur: RtVal = rs_cell(&input, r, bi);
+        let mut i: i64 = 0i64;
+        while i < ps.n - 1i64 {
+            match cur {
+                RtVal::Node(w) => {
+                    if w.is_array() {
+                        chk_fail_p(chk, "traversal path '", ed.path,
+                                 "' crosses a collection before its final segment — intermediate steps must be single-node edges",
+                                 "", "");
+                        return rs_new();
+                    }
+                    cur = field_read(cat, w, ps.segs[i]);
+                }
+                _ => { cur = RtVal::Null; }
+            }
+            i = i + 1i64;
+        }
+        let mut fin: RtVal = RtVal::Null;
+        match cur {
+            RtVal::Node(w2) => {
+                if !w2.is_array() && ps.n > 0i64 { fin = field_read(cat, w2, ps.segs[ps.n - 1i64]); }
+            }
+            _ => { }
+        }
+        // iterate the final value's elements (array / single / none)
+        let mut matched: bool = false;
+        match fin {
+            RtVal::Node(w3) => {
+                if w3.is_array() {
+                    let arr: &WArray<WAny> = w3.as_array();
+                    let n: i64 = arr.len();
+                    let mut j: i64 = 0i64;
+                    while j < n {
+                        let ev: RtVal = wany_to_rt(arr.get(j));
+                        unsafe { (&mut *bp).set_val(eslot, ev); }
+                        let mut pass: bool = true;
+                        if ed.has_on {
+                            pass = rt_truthy(eval_sx(ed.on_expr(), cat, env, bp, scratch, chk));
+                        }
+                        if pass {
+                            matched = true;
+                            if !ed.is_anti { rs_push_ext(&mut out, &input, r, true, ev); }
+                        }
+                        j = j + 1i64;
+                    }
+                } else {
+                    // SINGLE-NODE edge: iterate exactly this one element
+                    let ev1: RtVal = RtVal::Node(w3);
+                    unsafe { (&mut *bp).set_val(eslot, ev1); }
+                    let mut pass1: bool = true;
+                    if ed.has_on {
+                        pass1 = rt_truthy(eval_sx(ed.on_expr(), cat, env, bp, scratch, chk));
+                    }
+                    if pass1 {
+                        matched = true;
+                        if !ed.is_anti { rs_push_ext(&mut out, &input, r, true, ev1); }
+                    }
+                }
+            }
+            _ => { }   // null / absent: zero elements
+        }
+        if ed.is_anti && !matched {
+            rs_push_ext(&mut out, &input, r, false, RtVal::Null);
+        }
+        r = r + 1i64;
+    }
+    return out;
+}
+
+// One keyed/loop join step over materialized sides. The tier was decided at
+// check time from CHECKED types (qp); hash buckets key on the FNV of the
+// NORMALIZED RtVal and verify with rt_eq (collision-safe). The right side
+// carries ONE column for env-sourced scans and ncols columns for rel-sourced
+// scans (I3) — the extension is column-count generic.
+fn exec_join(left: RowSet, right: RowSet, on_w: i64, node_w: i64, anti: bool,
+             cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+             scratch: &Writ, chk: *mut Chk) -> RowSet {
+    let mut out: RowSet = rs_new();
+    out.vars = left.vars;
+    out.nvars = left.nvars;
+    if !anti {
+        if left.nvars + right.nvars > RS_VARS {
+            chk_fail_p(chk, "too many row variables in the join chain", "", "", "", "");
+            return rs_new();
+        }
+        let mut vc: i64 = 0i64;
+        while vc < right.nvars {
+            out.vars[left.nvars + vc] = right.vars[vc];
+            vc = vc + 1i64;
+        }
+        out.nvars = left.nvars + right.nvars;
+    }
+    let ji: i64 = qp_jfind(qp, node_w);
+    let tier: i32 = if ji >= 0i64 { qp.jtier[ji] } else { QT_LOOP };
+
+    // combined binds: left vars at slots 0.., right vars from slot left.nvars
+    if left.nvars + right.nvars > RS_VARS {
+        chk_fail_p(chk, "too many row variables in the join chain", "", "", "", "");
+        return rs_new();
+    }
+    let mut cb: RBinds = rs_binds(&left);
+    let mut vb: i64 = 0i64;
+    while vb < right.nvars {
+        cb.bind_val(right.vars[vb], RtVal::Null);
+        vb = vb + 1i64;
+    }
+    let cbp: *mut RBinds = &mut cb;
+    let rslot: i64 = left.nvars;
+
+    if tier == QT_HASH {
+        // ── build once over the NEW side ──
+        let mut rkeys: Vec<RtVal> = vec_new::<RtVal>();
+        let mut hm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
+        let mp: *mut HashMap<u64, Vec<i64>> = &mut hm;
+        {
+            let mut rb: RBinds = rs_binds(&right);
+            let rbp: *mut RBinds = &mut rb;
+            let mut j: i64 = 0i64;
+            while j < right.nrows {
+                rs_load(&right, j, rbp);
+                let bk: RtVal = eval_sx(sx_of(qp.jbuild[ji]), cat, env, rbp, scratch, chk);
+                rkeys.push(bk);
+                unsafe {
+                    let vp: *mut Vec<i64> = mp.get_or_insert(rt_key_hash(bk), vec_new::<i64>());
+                    vp.push(j);
+                }
+                j = j + 1i64;
+            }
+        }
+        // ── probe per bound row ──
+        let mut r: i64 = 0i64;
+        while r < left.nrows {
+            rs_load(&left, r, cbp);
+            let pk: RtVal = eval_sx(sx_of(qp.jprobe[ji]), cat, env, cbp, scratch, chk);
+            let hp: u64 = rt_key_hash(pk);
+            let bp2: *const Vec<i64> = unsafe { mp.get(&hp) };
+            let mut matched: bool = false;
+            if (bp2 as i64) != 0i64 {
+                let bucket: &Vec<i64> = unsafe { &*bp2 };
+                let nb: i64 = bucket.len();
+                let mut t: i64 = 0i64;
+                while t < nb {
+                    let j2: i64 = bucket.get(t);
+                    if rt_eq(pk, rkeys.get(j2)) {
+                        rs_load_at(&right, j2, cbp, rslot);
+                        if eval_on_residual(on_w, qp.jequi[ji], cat, env, cbp, scratch) {
+                            matched = true;
+                            if !anti {
+                                rs_push_row(&mut out, &left, r, &right, j2);
+                            }
+                        }
+                    }
+                    t = t + 1i64;
+                }
+            }
+            if anti && !matched {
+                rs_push_ext(&mut out, &left, r, false, RtVal::Null);
+            }
+            r = r + 1i64;
+        }
+        return out;
+    }
+
+    // ── nested-loop tier: the FULL predicate per pair ──
+    let on_e: SExpr = sx_of(on_w);
+    let mut r2: i64 = 0i64;
+    while r2 < left.nrows {
+        rs_load(&left, r2, cbp);
+        let mut matched2: bool = false;
+        let mut j3: i64 = 0i64;
+        while j3 < right.nrows {
+            rs_load_at(&right, j3, cbp, rslot);
+            if rt_truthy(eval_sx(on_e, cat, env, cbp, scratch, chk)) {
+                matched2 = true;
+                if !anti {
+                    rs_push_row(&mut out, &left, r2, &right, j3);
+                }
+            }
+            j3 = j3 + 1i64;
+        }
+        if anti && !matched2 {
+            rs_push_ext(&mut out, &left, r2, false, RtVal::Null);
+        }
+        r2 = r2 + 1i64;
+    }
+    return out;
+}
+
+// γ — single-pass grouping in FIRST-OCCURRENCE order (the static two-pass
+// discipline's observable order), accumulators per the SHARED rule table:
+// count→INT, sum/min/max→arg type, avg→f64 always (exact mean), UDA→the
+// registered init/step/fin triple over RtVal accumulators.
+fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+             scratch: &Writ, chk: *mut Chk, rctx: *const RelCtx) -> RowSet {
+    let input: RowSet = exec_rexpr(g.input_expr(), cat, env, qp, scratch, chk, rctx);
+    if chk_bad(chk) { return rs_new(); }
+    let aggs: RAggArr = g.aggs_arr();
+    let an: i64 = qp.agg_n;
+    let mut b: RBinds = rs_binds(&input);
+    let bp: *mut RBinds = &mut b;
+    let mut gkeys: Vec<RtVal> = vec_new::<RtVal>();
+    let mut gacc:  Vec<RtVal> = vec_new::<RtVal>();   // stride an
+    let mut gcnt:  Vec<i64>   = vec_new::<i64>();
+    let mut r: i64 = 0i64;
+    while r < input.nrows {
+        rs_load(&input, r, bp);
+        let k: RtVal = eval_sx(g.key_expr(), cat, env, bp, scratch, chk);
+        // group lookup by VALUE equality (rt_eq — group counts are small; a
+        // keyed index is a later optimization, mirrors the static O(n²) MVP)
+        let mut gi: i64 = -1i64;
+        let mut x: i64 = 0i64;
+        while x < gkeys.len() {
+            if rt_eq(gkeys.get(x), k) { gi = x; break; }
+            x = x + 1i64;
+        }
+        if gi < 0i64 {
+            gi = gkeys.len();
+            gkeys.push(k);
+            gcnt.push(0i64);
+            let mut c0: i64 = 0i64;
+            while c0 < an {
+                let fnid: i32 = qp.agg_fnid[c0];
+                let isf: bool = qp.agg_ret[c0] == CT_FLT;
+                if fnid == 1i32      { gacc.push(RtVal::I(0i64)); }
+                else if fnid == 2i32 { if isf { gacc.push(RtVal::F(0.0f64)); } else { gacc.push(RtVal::I(0i64)); } }
+                else if fnid == 3i32 { if isf { gacc.push(RtVal::F(1.7976931348623157e308f64)); } else { gacc.push(RtVal::I(9223372036854775807i64)); } }
+                else if fnid == 4i32 { if isf { gacc.push(RtVal::F(-1.7976931348623157e308f64)); } else { gacc.push(RtVal::I(-9223372036854775807i64 - 1i64)); } }
+                else if fnid == 5i32 { gacc.push(RtVal::F(0.0f64)); }
+                else {
+                    let init: QAggInit = env.a_init[qp.agg_uda[c0]];
+                    gacc.push(init());
+                }
+                c0 = c0 + 1i64;
+            }
+        }
+        gcnt.set(gi, gcnt.get(gi) + 1i64);
+        let mut c: i64 = 0i64;
+        while c < an {
+            let a: RAgg = aggs.agg_at(c);
+            let fnid2: i32 = qp.agg_fnid[c];
+            let isf2: bool = qp.agg_ret[c] == CT_FLT;
+            let cur: RtVal = gacc.get(gi * an + c);
+            let mut nv: RtVal = cur;
+            if fnid2 == 1i32 {
+                nv = RtVal::I(rt_i(cur) + 1i64);
+            } else {
+                let av: RtVal = eval_sx(a.arg_expr(), cat, env, bp, scratch, chk);
+                if fnid2 == 2i32 {
+                    if isf2 { nv = RtVal::F(rt_f(cur) + rt_f(av)); }
+                    // sum ACCUMULATOR is error-returning too: a running-total
+                    // i64 overflow yields a QError, not a trap (mirrors EL scalar
+                    // arithmetic — the accumulator is the sibling site).
+                    else    { match rt_i(cur).checked_add(rt_i(av)) {
+                        Option::Some(v) => { nv = RtVal::I(v); }
+                        Option::None    => { chk_fail_p(chk, "arithmetic overflow in an aggregate `sum` accumulator", "", "", "", ""); nv = cur; }
+                    } }
+                } else if fnid2 == 3i32 {
+                    if isf2 { if rt_f(av) < rt_f(cur) { nv = RtVal::F(rt_f(av)); } }
+                    else    { if rt_i(av) < rt_i(cur) { nv = RtVal::I(rt_i(av)); } }
+                } else if fnid2 == 4i32 {
+                    if isf2 { if rt_f(av) > rt_f(cur) { nv = RtVal::F(rt_f(av)); } }
+                    else    { if rt_i(av) > rt_i(cur) { nv = RtVal::I(rt_i(av)); } }
+                } else if fnid2 == 5i32 {
+                    nv = RtVal::F(rt_f(cur) + rt_f(av));
+                } else {
+                    let step: QAggStep = env.a_step[qp.agg_uda[c]];
+                    nv = step(cur, av);
+                }
+            }
+            gacc.set(gi * an + c, nv);
+            c = c + 1i64;
+        }
+        r = r + 1i64;
+    }
+    // materialize group rows: vars = key + output names
+    let mut out: RowSet = rs_new();
+    out.vars[0] = "key";
+    let mut cn: i64 = 0i64;
+    while cn < an {
+        let a2: RAgg = aggs.agg_at(cn);
+        out.vars[1i64 + cn] = a2.out;
+        cn = cn + 1i64;
+    }
+    out.nvars = 1i64 + an;
+    let mut gi2: i64 = 0i64;
+    while gi2 < gkeys.len() {
+        out.cells.push(gkeys.get(gi2));
+        let mut c2: i64 = 0i64;
+        while c2 < an {
+            let acc: RtVal = gacc.get(gi2 * an + c2);
+            let fnid3: i32 = qp.agg_fnid[c2];
+            if fnid3 == 5i32 {
+                // avg — ALWAYS FLT via the rule table (Quot(INT)=Quot(FLT)=FLT)
+                out.cells.push(RtVal::F(rt_f(acc) / (gcnt.get(gi2) as f64)));
+            } else if fnid3 == 0i32 {
+                let fin: QAggFin = env.a_fin[qp.agg_uda[c2]];
+                out.cells.push(fin(acc));
+            } else {
+                out.cells.push(acc);
+            }
+            c2 = c2 + 1i64;
+        }
+        out.nrows = out.nrows + 1i64;
+        gi2 = gi2 + 1i64;
+    }
+    return out;
+}
+
+// ── The OUTPUT table (projected values) + the wrapper walk ──────────────────
+struct OutTab { ncols: i64, cells: Vec<RtVal>, nrows: i64 }
+
+fn ot_new(nc: i64) -> OutTab {
+    return OutTab { ncols: nc, cells: vec_new::<RtVal>(), nrows: 0i64 };
+}
+
+// exec_root — RLimit?( RDistinct?( RProj( pipeline ) ) ).
+// Evaluate an EL expression at a query BOUNDARY (filter predicate, projection
+// cell, join/group key, aggregate arg). If the evaluation produced a math error
+// (RtVal::Error from checked arithmetic), record it on the Chk sink so run() /
+// render() surface it as a QError, and return Null in its place (the row is
+// then irrelevant — the whole query aborts). Internal (recursive) eval stays on
+// eval_sexpr; only the boundaries convert Error → error.
+fn eval_sx(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
+           scratch: &Writ, chk: *mut Chk) -> RtVal {
+    let v: RtVal = eval_sexpr(e, cat, env, lb, scratch);
+    if rt_is_err(v) {
+        chk_fail_p(chk, "arithmetic error (integer overflow or division by zero) in a query expression", "", "", "", "");
+        return RtVal::Null;
+    }
+    return v;
+}
+
+fn exec_root(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
+             scratch: &Writ, chk: *mut Chk, rctx: *const RelCtx) -> OutTab {
+    if chk_bad(chk) { return ot_new(0i64); }
+    match e {
+        RExpr::Limit(l) => {
+            let inner: OutTab = exec_root(l.input_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return ot_new(0i64); }
+            let mut n: i64 = l.n;
+            if l.is_param {
+                let ei: i64 = env.find(l.param);
+                n = if ei >= 0i64 { env.ivals[ei] } else { 0i64 };
+            }
+            if n < 0i64 { n = 0i64; }
+            if n >= inner.nrows { return inner; }
+            let mut out: OutTab = ot_new(inner.ncols);
+            let mut i: i64 = 0i64;
+            while i < n * inner.ncols {
+                out.cells.push(inner.cells.get(i));
+                i = i + 1i64;
+            }
+            out.nrows = n;
+            return out;
+        }
+        RExpr::Distinct(d) => {
+            let inner: OutTab = exec_root(d.input_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return ot_new(0i64); }
+            // set semantics: row-hash buckets + full rt_eq verification
+            let mut out: OutTab = ot_new(inner.ncols);
+            let mut hm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
+            let mp: *mut HashMap<u64, Vec<i64>> = &mut hm;
+            let mut r: i64 = 0i64;
+            while r < inner.nrows {
+                let mut h: u64 = 1469598103934665603u64;
+                let mut c: i64 = 0i64;
+                while c < inner.ncols {
+                    h = h_step(h, rt_key_hash(inner.cells.get(r * inner.ncols + c)));
+                    c = c + 1i64;
+                }
+                let mut dup: bool = false;
+                unsafe {
+                    let vp: *mut Vec<i64> = mp.get_or_insert(h, vec_new::<i64>());
+                    let bv: &Vec<i64> = &*vp;
+                    let nb: i64 = bv.len();
+                    let mut t: i64 = 0i64;
+                    while t < nb && !dup {
+                        let o: i64 = bv.get(t);
+                        let mut same: bool = true;
+                        let mut c2: i64 = 0i64;
+                        while c2 < inner.ncols {
+                            if !rt_eq(out.cells.get(o * inner.ncols + c2),
+                                      inner.cells.get(r * inner.ncols + c2)) {
+                                same = false;
+                                break;
+                            }
+                            c2 = c2 + 1i64;
+                        }
+                        if same { dup = true; }
+                        t = t + 1i64;
+                    }
+                    if !dup {
+                        vp.push(out.nrows);
+                    }
+                }
+                if !dup {
+                    let mut c3: i64 = 0i64;
+                    while c3 < inner.ncols {
+                        out.cells.push(inner.cells.get(r * inner.ncols + c3));
+                        c3 = c3 + 1i64;
+                    }
+                    out.nrows = out.nrows + 1i64;
+                }
+                r = r + 1i64;
+            }
+            return out;
+        }
+        RExpr::Proj(p) => {
+            let rs: RowSet = exec_rexpr(p.input_expr(), cat, env, qp, scratch, chk, rctx);
+            if chk_bad(chk) { return ot_new(0i64); }
+            let mut b: RBinds = rs_binds(&rs);
+            let bp: *mut RBinds = &mut b;
+            let sel: SExpr = p.sel_expr();
+            let mut out: OutTab = ot_new(qp.ncols);
+            let mut r: i64 = 0i64;
+            while r < rs.nrows {
+                rs_load(&rs, r, bp);
+                match sel {
+                    SExpr::Tuple(tp) => {
+                        let items: SExprArr = tp.items_arr();
+                        let nn: i64 = items.len();
+                        let mut c: i64 = 0i64;
+                        while c < nn {
+                            out.cells.push(eval_sx(items.arg_at(c), cat, env, bp, scratch, chk));
+                            c = c + 1i64;
+                        }
+                    }
+                    _ => {
+                        out.cells.push(eval_sx(sel, cat, env, bp, scratch, chk));
+                    }
+                }
+                out.nrows = out.nrows + 1i64;
+                r = r + 1i64;
+            }
+            return out;
+        }
+        _ => {
+            chk_fail_p(chk, "internal: unexpected plan root", "", "", "", "");
+            return ot_new(0i64);
+        }
+    }
+}

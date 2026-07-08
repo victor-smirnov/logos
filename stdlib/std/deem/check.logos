@@ -1,0 +1,1388 @@
+// logos.std.deem — STATIC CHECKERS: the EL/template checker (Chk/CBinds/check_root/check_expr/check_stmts, simplify pass) and the relational checker (QPlan, resolve_source, check_rexpr, the rel-field rewrite).
+// One package across several files (see deem.logos for the module-level doc);
+// private items are package-visible, so the split is layout-only.
+package logos.std.deem;
+
+
+use logos.lang.writ.container;    // Writ / writ_new
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.wmap;         // WMap<Wu6, WAny> — TOM reads (schema field gets)
+use logos.lang.writ.array;        // WArray — edge-field iteration
+use logos.lang.writ.wstring;      // WString / as_wstr — string payloads + interning
+use logos.lang.writ.wstatic;      // WritStatic — the rodata metadata-blob handle
+use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
+use logos.lang.result;            // Result — the error-as-value carrier
+use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
+use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
+use logos.mem.string;             // String
+use logos.lang.mem;               // replace — FactStore::take_delta move-out
+use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
+use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
+use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
+use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
+use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / agg rule table
+use logos.std.wql.optimize;       // simplify_sexpr / simplify_rexpr_ref + TermList analysis
+use logos.std.wql.trama;          // TStmt family + chain_array / next_of_stmt / ttext_str
+use logos.std.wql.trama_parser;   // parse_tpl — the reused generated template parser
+use logos.std.wql.plan;           // RQuery / RQProgram — the surface query plan views
+use logos.std.wql.wql_surface_parser;  // parse_program — the reused generated query parser
+use logos.std.wql.lower;          // lower_rquery_to_rexpr — the reused PLAN→ALGEBRA lowering
+use logos.std.wql.params;         // RelDeps / RelScc / compute_rel_scc — the SHARED
+                                  // (metaprog-free) rel dependency-graph half (I3)
+use logos.mem.collections.vec;    // Vec — row pipelines (unbounded)
+use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct sets
+
+// Error latch — the first failure wins; the message is the QError payload.
+// `defer_unknown_fn`: BOTH compile phases set this (I3 registry unification)
+// — an unknown call name may be a UDF registered on the env, which only
+// exists at `run`/`render` (the strict phase then resolves builtin-first,
+// registry-second — ONE resolution path for queries and templates).
+struct Chk { failed: bool, msg: String, defer_unknown_fn: bool }
+fn chk_new() -> Chk { return Chk { failed: false, msg: String::new(), defer_unknown_fn: false }; }
+fn chk_err(c: Chk) -> QError { return QError { msg: c.msg }; }
+fn chk_fail(c: &mut Chk, a: str, b: str, d: str, e: str, f: str) {
+    if c.failed { return; }
+    c.failed = true;
+    c.msg.push_str(a);
+    c.msg.push_str(b);
+    c.msg.push_str(d);
+    c.msg.push_str(e);
+    c.msg.push_str(f);
+}
+
+// The human name of an SBin/SUn operator (diagnostics).
+fn bin_op_name(op: i32) -> str {
+    if op == OP_OR()  { return "||"; }
+    if op == OP_AND() { return "&&"; }
+    if op == OP_EQ()  { return "=="; }
+    if op == OP_NE()  { return "!="; }
+    if op == OP_LT()  { return "<"; }
+    if op == OP_LE()  { return "<="; }
+    if op == OP_GT()  { return ">"; }
+    if op == OP_GE()  { return ">="; }
+    if op == OP_ADD() { return "+"; }
+    if op == OP_SUB() { return "-"; }
+    if op == OP_MUL() { return "*"; }
+    if op == OP_DIV() { return "/"; }
+    return "%";
+}
+
+// Template-local CHECK bindings ({% for %} loop vars, {% set %} vars) —
+// scoped: callers mark/rollback around bodies; lookups scan newest-first.
+const CB_CAP: i64 = 40i64;
+struct CBinds {
+    names: [str; 40],
+    tags:  [i32; 40],
+    codes: [u64; 40],
+    n:     i64,
+}
+fn cbinds_new() -> CBinds {
+    return CBinds { names: [""; 40], tags: [0i32; 40], codes: [0u64; 40], n: 0i64 };
+}
+impl CBinds {
+    fn bind(self: &mut CBinds, name: str, tag: i32, code: u64) {
+        if self.n >= CB_CAP { return; }
+        self.names[self.n] = name;
+        self.tags[self.n]  = tag;
+        self.codes[self.n] = code;
+        self.n = self.n + 1i64;
+    }
+    fn find(self: &CBinds, name: str) -> i64 {
+        let mut i: i64 = self.n - 1i64;
+        while i >= 0i64 {
+            if str_eq(self.names[i], name) { return i; }
+            i = i - 1i64;
+        }
+        return -1i64;
+    }
+}
+
+// The COLLECTION type of a bound source (QB_SRC word): CT_ARR{schema code}
+// for schema'd rows, CT_SARR{elem tag} for scalar elements, CT_UNKNOWN for an
+// EMPTY array (nothing to type — and nothing will be evaluated over it).
+fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy {
+    let av: WAny = WAny::ref_to(word as *const u8);
+    if !av.is_array() {
+        chk_fail(chk, "source '", name, "' is not bound to a Writ array", "", "");
+        return ct(CT_UNKNOWN);
+    }
+    let arr: &WArray<WAny> = av.as_array();
+    if arr.len() == 0i64 { return ct(CT_UNKNOWN); }   // empty source: zero rows
+    let e0: WAny = arr.get(0i64);
+    let code: u64 = node_schema_code(e0);
+    if code != 0u64 {
+        if cat.sidx_of_code(code) < 0i64 {
+            chk_fail(chk, "source '", name,
+                     "' has an element schema that is not in the catalog — add it to schema_catalog!",
+                     "", "");
+            return ct(CT_UNKNOWN);
+        }
+        return CTy { t: CT_ARR, code: code };
+    }
+    // Scalar elements: type off the first element's value shape.
+    let ev: RtVal = wany_to_rt(e0);
+    match ev {
+        RtVal::S(_s) => { return CTy { t: CT_SARR, code: CT_STR as u64 }; }
+        RtVal::B(_b) => { return CTy { t: CT_SARR, code: CT_BOOL as u64 }; }
+        RtVal::F(_f) => { return CTy { t: CT_SARR, code: CT_FLT as u64 }; }
+        RtVal::I(_i) => { return CTy { t: CT_SARR, code: CT_INT as u64 }; }
+        _ => {
+            chk_fail(chk, "source '", name,
+                     "' elements are not schema'd Writ objects", "", "");
+            return ct(CT_UNKNOWN);
+        }
+    }
+}
+
+// Resolve a ROOT name (bare ident / $param / loop var) to a checked type.
+// DOTTED rel-column idents ("p.b" — the rel-field rewrite's output) resolve
+// through the CT_RELROW binding of their root var against the rel registry.
+fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+              lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
+    let li: i64 = lb.find(name);
+    if li >= 0i64 { return CTy { t: lb.tags[li], code: lb.codes[li] }; }
+    let dot: i64 = dotted_at(name);
+    if dot > 0i64 {
+        let root: str = str_prefix(name, dot);
+        let li2: i64 = lb.find(root);
+        if li2 >= 0i64 && lb.tags[li2] == CT_RELROW {
+            let ri: i64 = lb.codes[li2] as i64;
+            let ci: i64 = qreg_col(reg, ri, str_suffix(name, dot + 1i64));
+            if ci < 0i64 {
+                // Unreachable post-rewrite (the rewrite validated columns);
+                // defensive for hand-built IR.
+                chk_fail(chk, "unknown column '", str_suffix(name, dot + 1i64),
+                         "' on rel '", reg.names[ri], "'");
+                return ct(CT_UNKNOWN);
+            }
+            return ct(reg.ctys.get(reg.coff[ri] + ci) as i32);
+        }
+        return ct(CT_UNKNOWN);
+    }
+    let ei: i64 = env.find(name);
+    if ei >= 0i64 {
+        let k: i32 = env.kinds[ei];
+        if k == QB_I64  { return ct(CT_INT); }
+        if k == QB_F64  { return ct(CT_FLT); }
+        if k == QB_BOOL { return ct(CT_BOOL); }
+        if k == QB_STR  { return ct(CT_STR); }
+        if k == QB_NODE {
+            if env.codes[ei] == 0u64 {
+                chk_fail(chk, "variable '", name,
+                         "' is not bound to a schema'd Writ object", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if cat.sidx_of_code(env.codes[ei]) < 0i64 {
+                chk_fail(chk, "variable '", name,
+                         "' has a schema that is not in the catalog — add it to schema_catalog!",
+                         "", "");
+                return ct(CT_UNKNOWN);
+            }
+            return CTy { t: CT_NODE, code: env.codes[ei] };
+        }
+        if k == QB_SRC   { return src_elem_ty(name, env.words[ei], cat, chk); }
+        if k == QB_ENODE { return ct(CT_DYN); }      // lenient root (ADR §4)
+        if k == QB_ESRC  { return ct(CT_DYNSRC); }   // lenient collection
+    }
+    if strict {
+        chk_fail(chk, "unknown variable '", name,
+                 "' — bind it on the QEnv before render", "", "");
+    }
+    return ct(CT_UNKNOWN);
+}
+
+fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+              lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_string() { return ct(CT_STR); }
+            if v.is_bool()   { return ct(CT_BOOL); }
+            if v.is_float()  { return ct(CT_FLT); }
+            // Out-of-range integer literal: the tokenizer poisoned it to i64::MIN
+            // (unrepresentable by a valid non-negative decimal token) — surface a
+            // compile error so Query::compile / Tpl::compile return Err.
+            if v.as_i64() == el_lit_poison() {
+                chk_fail(chk, "integer literal out of range — exceeds i64::MAX (9223372036854775807)", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            return ct(CT_INT);
+        }
+        SExpr::Param(p) => { return check_root(p.name, cat, env, strict, lb, chk, reg); }
+        SExpr::Var(v)   => { return check_root(v.name, cat, env, strict, lb, chk, reg); }
+        SExpr::Field(f) => {
+            let base_ref: WRef<SExpr> = f.base;
+            if base_ref.any().is_null() {
+                return check_root(f.name, cat, env, strict, lb, chk, reg);
+            }
+            let bt: CTy = check_expr(f.base_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            if bt.t == CT_NODE {
+                let si: i64 = cat.sidx_of_code(bt.code);
+                if si < 0i64 {
+                    chk_fail(chk, "field '", f.name,
+                             "': the object's schema is not in the catalog", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                let fi: i64 = cat.fidx(si, f.name);
+                if fi < 0i64 {
+                    chk_fail(chk, "unknown field '", f.name, "' on schema '",
+                             cat.s_names.get(si), "'");
+                    return ct(CT_UNKNOWN);
+                }
+                if cat.f_kinds.get(fi) == (FK_EDGE as i64) {
+                    if cat.f_targets.get(fi) == 0u64 {
+                        chk_fail(chk, "edge field '", f.name,
+                                 "' targets a schema missing from the catalog", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    return CTy { t: CT_ARR, code: cat.f_targets.get(fi) };
+                }
+                if cat.f_kinds.get(fi) == (FK_EARR as i64) {
+                    // scalar-element array edge — CT tags equal EL tags on the
+                    // scalar tier, so the catalog EL type maps across directly.
+                    return CTy { t: CT_SARR, code: cat.f_tys.get(fi) as u64 };
+                }
+                if cat.f_kinds.get(fi) == (FK_ANY as i64) {
+                    // WAny-typed field on a STRICT schema: resolves LENIENTLY
+                    // (ADR §4) — value shape decided at runtime, may be Null.
+                    return ct(CT_DYN);
+                }
+                return ct(cat.f_tys.get(fi) as i32);
+            }
+            if bt.t == CT_DYN {
+                // Lenient base: the field resolves at RUNTIME by name
+                // (field_read's map/TOM arms); a miss reads Null.
+                return ct(CT_DYN);
+            }
+            if bt.t == CT_ARR || bt.t == CT_SARR || bt.t == CT_DYNSRC {
+                chk_fail(chk, "field '", f.name,
+                         "' is read through a collection edge — loop over it with {% for %} first",
+                         "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if bt.t == CT_RELROW {
+                // Unreachable post-rewrite (rel fields become dotted idents);
+                // defensive for hand-built IR.
+                chk_fail(chk, "field '", f.name,
+                         "' is read off a rel row outside the rel rewrite", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if bt.t == CT_UNKNOWN {
+                // Compile phase: the base is unresolved. With LENIENT bindings
+                // in the language the field may legitimately resolve at run
+                // even when no catalog schema declares it — the strict phase
+                // (which sees the env's binding kinds) owns the rejection.
+                return ct(CT_UNKNOWN);
+            }
+            chk_fail(chk, "field access '.", f.name, "' on a scalar value", "", "");
+            return ct(CT_UNKNOWN);
+        }
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            let lt: CTy = check_expr(b.lhs_expr(), cat, env, strict, lb, chk, reg);
+            let rt: CTy = check_expr(b.rhs_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            if ct_is_obj(lt.t) || ct_is_obj(rt.t) {
+                chk_fail(chk, "operator '", bin_op_name(op),
+                         "' cannot be applied to an object", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            // A DYN operand (lenient) types at RUNTIME: comparisons stay BOOL
+            // (Null compares false), arithmetic goes DYN (Null propagates) —
+            // the ADR §4 table.
+            let open: bool = ct_is_open(lt.t) || ct_is_open(rt.t);
+            let dyn_op: bool = lt.t == CT_DYN || rt.t == CT_DYN;
+            if op == OP_AND() || op == OP_OR() {
+                if (lt.t != CT_BOOL && !ct_is_open(lt.t))
+                   || (rt.t != CT_BOOL && !ct_is_open(rt.t)) {
+                    chk_fail(chk, "'", bin_op_name(op), "' needs bool operands", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                return ct(CT_BOOL);
+            }
+            if op == OP_EQ() || op == OP_NE() {
+                if !open {
+                    let ok: bool = (ct_is_num(lt.t) && ct_is_num(rt.t))
+                                 || (lt.t == CT_STR && rt.t == CT_STR)
+                                 || (lt.t == CT_BOOL && rt.t == CT_BOOL);
+                    if !ok {
+                        chk_fail(chk, "'", bin_op_name(op),
+                                 "' compares values of different types", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                }
+                return ct(CT_BOOL);
+            }
+            if op == OP_LT() || op == OP_LE() || op == OP_GT() || op == OP_GE() {
+                if !open {
+                    let ok2: bool = (ct_is_num(lt.t) && ct_is_num(rt.t))
+                                  || (lt.t == CT_STR && rt.t == CT_STR);
+                    if !ok2 {
+                        chk_fail(chk, "'", bin_op_name(op),
+                                 "' needs two numbers or two strings", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                }
+                return ct(CT_BOOL);
+            }
+            if op == OP_ADD() {
+                if lt.t == CT_STR || rt.t == CT_STR {
+                    let other: i32 = if lt.t == CT_STR { rt.t } else { lt.t };
+                    if other != CT_STR && !ct_is_open(other) {
+                        chk_fail(chk, "'+' cannot mix a string with a number", "", "", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    return ct(CT_STR);
+                }
+                // numeric add
+                if (lt.t == CT_BOOL) || (rt.t == CT_BOOL) {
+                    chk_fail(chk, "'+' needs numeric operands", "", "", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                if dyn_op { return ct(CT_DYN); }
+                if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
+                if lt.t == CT_FLT || rt.t == CT_FLT { return ct(CT_FLT); }
+                return ct(CT_INT);
+            }
+            // SUB / MUL / DIV / MOD — numeric-only tier.
+            if (!ct_is_open(lt.t) && !ct_is_num(lt.t))
+               || (!ct_is_open(rt.t) && !ct_is_num(rt.t)) {
+                chk_fail(chk, "'", bin_op_name(op), "' needs numeric operands", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if op == OP_MOD() {
+                if lt.t == CT_FLT || rt.t == CT_FLT {
+                    chk_fail(chk, "'%' needs integer operands", "", "", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                if dyn_op { return ct(CT_DYN); }
+                if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
+                return ct(CT_INT);
+            }
+            if dyn_op { return ct(CT_DYN); }
+            if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
+            if lt.t == CT_FLT || rt.t == CT_FLT { return ct(CT_FLT); }
+            return ct(CT_INT);
+        }
+        SExpr::Un(u) => {
+            let at: CTy = check_expr(u.arg_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            if u.op == OP_NOT() {
+                if at.t != CT_BOOL && !ct_is_open(at.t) {
+                    chk_fail(chk, "'!' needs a bool operand", "", "", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                return ct(CT_BOOL);
+            }
+            // unary minus
+            if !ct_is_open(at.t) && !ct_is_num(at.t) {
+                chk_fail(chk, "unary '-' needs a numeric operand", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            return CTy { t: at.t, code: 0u64 };
+        }
+        SExpr::Cond(c) => {
+            let cc: CTy = check_expr(c.cond_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            // The condition must be a bool (mirrors a where/having predicate and
+            // the static codegen) — not C-style truthiness over an int/str/obj.
+            // ct_is_open admits the compile-phase-open / lenient DYN cases.
+            if cc.t != CT_BOOL && !ct_is_open(cc.t) {
+                chk_fail(chk, "a ternary condition must be a bool", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            let tt: CTy = check_expr(c.then_expr(), cat, env, strict, lb, chk, reg);
+            let et: CTy = check_expr(c.else_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            if ct_is_obj(tt.t) || ct_is_obj(et.t) {
+                chk_fail(chk, "a ternary branch cannot yield an object", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if tt.t == CT_DYN || et.t == CT_DYN { return ct(CT_DYN); }
+            if tt.t == CT_UNKNOWN { return et; }
+            if et.t == CT_UNKNOWN { return tt; }
+            if tt.t == et.t { return tt; }
+            if ct_is_num(tt.t) && ct_is_num(et.t) { return ct(CT_FLT); }
+            chk_fail(chk, "ternary branches have different types", "", "", "", "");
+            return ct(CT_UNKNOWN);
+        }
+        SExpr::Call(c) => {
+            let bfn: i32 = builtin_of_name(c.fn_name);
+            if bfn != BFN_UNKNOWN() {
+                let args: SExprArr = c.args_arr();
+                if args.len() != builtin_arity(bfn) {
+                    chk_fail(chk, "wrong number of arguments for '", c.fn_name, "'", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                let mut i: i64 = 0i64;
+                while i < args.len() {
+                    let at2: CTy = check_expr(args.arg_at(i), cat, env, strict, lb, chk, reg);
+                    if chk.failed { return ct(CT_UNKNOWN); }
+                    // DYN args pass — at runtime any non-string argument
+                    // (Null included) makes the builtin yield Null (ADR §4).
+                    if at2.t != CT_STR && !ct_is_open(at2.t) {
+                        chk_fail(chk, "'", c.fn_name, "' needs string arguments", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    i = i + 1i64;
+                }
+                return ct(builtin_ret_ty(bfn));   // EL_TY_* == CT_* on the scalar tier
+            }
+            // Not a builtin: the UDF registry (builtin-first precedence, ADR §6).
+            let ui: i64 = env.find_fn(c.fn_name);
+            if ui >= 0i64 {
+                let uargs: SExprArr = c.args_arr();
+                if uargs.len() != env.f_arity[ui] {
+                    chk_fail(chk, "wrong number of arguments for '", c.fn_name,
+                             "' — the registered signature differs", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                let mut ai: i64 = 0i64;
+                while ai < uargs.len() {
+                    let uat: CTy = check_expr(uargs.arg_at(ai), cat, env, strict, lb, chk, reg);
+                    if chk.failed { return ct(CT_UNKNOWN); }
+                    // EXACT match (no implicit numeric promotion): the UDF
+                    // body pattern-matches the RtVal variant it declared.
+                    // DYN (lenient) args pass UNCHECKED — the RtVal reaches
+                    // the UDF as-is (its match owns the surprise).
+                    let want: i32 = env.f_args[ui * QENV_FN_ARGS + ai];
+                    if !ct_is_open(uat.t) && uat.t != want {
+                        chk_fail(chk, "argument type mismatch for '", c.fn_name,
+                                 "' — the registered signature differs", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    ai = ai + 1i64;
+                }
+                return ct(env.f_ret[ui]);
+            }
+            // Unknown: EVERY compile phase defers (query AND template — I3
+            // registry unification: the registry lives on the env, which only
+            // exists at run/render); the STRICT phase rejects.
+            if !strict && chk.defer_unknown_fn { return ct(CT_UNKNOWN); }
+            chk_fail(chk, "unknown function '", c.fn_name,
+                     "' — not a builtin (len/upper/lower/contains/starts_with) and not registered on the QEnv (register_fn)",
+                     "", "");
+            return ct(CT_UNKNOWN);
+        }
+        SExpr::Comp(_cp) => {
+            chk_fail(chk, "comprehension expressions are not supported in the dynamic surface — use a rel block", "", "", "", "");
+            return ct(CT_UNKNOWN);
+        }
+        SExpr::Tuple(_tp) => {
+            chk_fail(chk, "tuple expressions are not supported in templates", "", "", "", "");
+            return ct(CT_UNKNOWN);
+        }
+        _ => { return ct(CT_UNKNOWN); }
+    }
+}
+
+// Statement-level check walk (scoped bodies via CBinds mark/rollback).
+fn check_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+               lb: &mut CBinds, chk: &mut Chk, reg: &QRelReg) {
+    let mut cur: i64 = head;
+    while cur != 0i64 && !chk.failed {
+        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        match e {
+            TStmt::Text(_t) => { }
+            TStmt::Var(v) => {
+                let t: CTy = check_expr(v.expr_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed && ct_is_obj(t.t) {
+                    chk_fail(chk, "cannot interpolate an object — render its scalar fields instead",
+                             "", "", "", "");
+                }
+            }
+            TStmt::If(i) => {
+                let c: CTy = check_expr(i.expr_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed && ct_is_obj(c.t) {
+                    chk_fail(chk, "an object is not a condition", "", "", "", "");
+                }
+                let mark: i64 = lb.n;
+                check_stmts(body_word(&i.body), cat, env, strict, lb, chk, reg);
+                lb.n = mark;
+                let altw: i64 = alt_word(&i.alt);
+                if altw != 0i64 {
+                    check_stmts(altw, cat, env, strict, lb, chk, reg);
+                    lb.n = mark;
+                }
+            }
+            TStmt::For(f) => {
+                let it: CTy = check_expr(f.expr_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed {
+                    let mark2: i64 = lb.n;
+                    if it.t == CT_ARR {
+                        lb.bind(f.var, CT_NODE, it.code);
+                    } else if it.t == CT_SARR {
+                        // scalar-element array: the loop var binds the SCALAR
+                        lb.bind(f.var, it.code as i32, 0u64);
+                    } else if it.t == CT_DYNSRC || it.t == CT_DYN {
+                        // lenient collection: elements type at runtime; a
+                        // non-array value iterates as an EMPTY loop (ADR §4)
+                        lb.bind(f.var, CT_DYN, 0u64);
+                    } else if it.t == CT_UNKNOWN {
+                        lb.bind(f.var, CT_UNKNOWN, 0u64);
+                    } else {
+                        chk_fail(chk, "'{% for %}' needs a collection-valued edge field (a WRef<S> field holding a Writ array)",
+                                 "", "", "", "");
+                    }
+                    if !chk.failed {
+                        check_stmts(body_word(&f.body), cat, env, strict, lb, chk, reg);
+                    }
+                    lb.n = mark2;
+                }
+            }
+            TStmt::Set(s) => {
+                let t2: CTy = check_expr(s.expr_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed {
+                    if ct_is_obj(t2.t) {
+                        chk_fail(chk, "'{% set %}' of an object is not supported", "", "", "", "");
+                    } else {
+                        lb.bind(s.var, t2.t, t2.code);
+                    }
+                }
+            }
+        }
+        cur = next_of_stmt(cur);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OPTIMIZER REUSE — after parse, run the queue-1 `simplify_sexpr` IR→IR pass
+// on every embedded expression, REBINDING each statement's expr edge to the
+// simplified tree (render then walks the folded IR — `{{ 1 + 2 }}` renders
+// from a single SLit).
+// ═══════════════════════════════════════════════════════════════════════════
+fn simplify_all(head: i64, h: &Writ) {
+    let mut cur: i64 = head;
+    while cur != 0i64 {
+        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        match e {
+            TStmt::Text(_t) => { }
+            TStmt::Var(v) => { v.expr = simplify_sexpr(v.expr_expr(), h); }
+            TStmt::Set(s) => { s.expr = simplify_sexpr(s.expr_expr(), h); }
+            TStmt::If(i) => {
+                i.expr = simplify_sexpr(i.expr_expr(), h);
+                simplify_all(body_word(&i.body), h);
+                let altw: i64 = alt_word(&i.alt);
+                if altw != 0i64 { simplify_all(altw, h); }
+            }
+            TStmt::For(f) => {
+                f.expr = simplify_sexpr(f.expr_expr(), h);
+                simplify_all(body_word(&f.body), h);
+            }
+        }
+        cur = next_of_stmt(cur);
+    }
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══ QUERY — the relational executor (ADR 0012-queue2 §7, slice I2) ═══
+//
+// `Query::compile(text, &cat)` parses via the REUSED generated surface parser
+// (`wql_surface_parser::parse_program`), rejects rel blocks (I3), lowers via
+// the REUSED `lower_rquery_to_rexpr` and runs the REUSED `simplify_rexpr_ref`
+// relational peephole (queue-1 optimizer verbatim — the empty signal becomes
+// a zero-row fast path). The env-INDEPENDENT half of the checker runs at
+// compile; the FULL strict check + the join-strategy cascade decision run at
+// the top of every `run(&env)` (the I1 compile/render precedent: sources,
+// params and the UDF/UDA registry live on the env). `run` then tree-walks the
+// RExpr algebra over materialized Vec<row> pipelines (ADR §7) and returns a
+// self-contained QRows.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// Raw-pointer latch access for the EXECUTOR tier: exec fns return non-Copy
+// row sets, and the conservative borrow regions would pin a `&mut Chk` for
+// the result's lifetime — the RBinds provenance-laundering idiom applies.
+fn chk_bad(chk: *mut Chk) -> bool { return unsafe { (&*chk).failed }; }
+fn chk_fail_p(chk: *mut Chk, a: str, b: str, d: str, e: str, f: str) {
+    unsafe { chk_fail(&mut *chk, a, b, d, e, f); }
+}
+
+// Result-envelope modes (mirror rexpr_walk's SELM_* — first/find are not
+// algebra nodes; they shape the result).
+const QM_ALL:   i32 = 0i32;
+const QM_FIRST: i32 = 1i32;
+const QM_FIND:  i32 = 2i32;
+
+// Join-strategy tiers (runtime edition of the static cascade; the TREE tier
+// is unreachable over the scalar lattice — hash-able ⇔ ord-able here).
+const QT_HASH: i32 = 1i32;
+const QT_LOOP: i32 = 3i32;
+
+// Builtin aggregate ids (local mirror; the TYPE rules live in the SHARED
+// `el::agg_result_ty` table — one rule source for static + dynamic tiers).
+fn qagg_id(name: str) -> i32 {
+    if str_eq(name, "count") { return 1i32; }
+    if str_eq(name, "sum")   { return 2i32; }
+    if str_eq(name, "min")   { return 3i32; }
+    if str_eq(name, "max")   { return 4i32; }
+    if str_eq(name, "avg")   { return 5i32; }
+    return 0i32;
+}
+
+// An SExpr view from a raw arena word (the provenance-laundering idiom).
+fn sx_of(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
+
+// The RScan under a relational edge (join right sides are always scans).
+fn rscan_of(e: RExpr) -> RScan {
+    match e {
+        RExpr::Scan(sc) => { return sc; }
+        _ => {
+            // Unreachable by construction (lowering invariant); a defensive
+            // null-backed view would fault loudly on read.
+            return WAny::ref_to(0i64 as *const u8).view::<RScan>();
+        }
+    }
+}
+
+// ── QPlan — the per-run node decisions, filled by the STRICT check walk ─────
+// The cascade is decided ONCE per run from CHECKED types (never per row); the
+// executor looks decisions up by node word. Capacities are metadata-sized:
+// ≤ 24 join steps ACROSS the entry + every rel body (I3 — each ≤ 8 by the
+// grammar cap), ONE aggregate node (entry-only), ≤ 8 output columns.
+// `ncols`/`ckind` are per-Proj scratch: each body's check reads them right
+// after its walk; the ENTRY is checked LAST, so the surviving values are the
+// entry's (what QRows carries).
+struct QPlan {
+    // RJoin/RAnti step plans, keyed by node word
+    jw:     [i64; 24],
+    jtier:  [i32; 24],
+    jequi:  [i64; 24],   // the selected equi-TERM word (0 = none)
+    jbuild: [i64; 24],   // new-side key expr word
+    jprobe: [i64; 24],   // bound-side key expr word
+    jn:     i64,
+    // the single RAggr plan
+    agg_n:    i64,
+    agg_fnid: [i32; 8],  // 1..5 builtin, 0 = UDA
+    agg_uda:  [i64; 8],  // UDA registry index (fnid 0)
+    agg_ret:  [i32; 8],  // column result tag (CT_* scalar tier)
+    // projection
+    ncols: i64,
+    ckind: [i32; 8],
+}
+
+fn qplan_new() -> QPlan {
+    return QPlan {
+        jw: [0i64; 24], jtier: [0i32; 24], jequi: [0i64; 24],
+        jbuild: [0i64; 24], jprobe: [0i64; 24], jn: 0i64,
+        agg_n: 0i64, agg_fnid: [0i32; 8], agg_uda: [0i64; 8], agg_ret: [0i32; 8],
+        ncols: 0i64, ckind: [0i32; 8],
+    };
+}
+
+fn qp_jfind(qp: &QPlan, w: i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < qp.jn {
+        if qp.jw[i] == w { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+// ── Path splitting (REdge `path` — "a.b.c" → segments) ──────────────────────
+struct PathSegs { segs: [str; 8], n: i64 }
+
+fn split_path(p: str) -> PathSegs {
+    let mut out: PathSegs = PathSegs { segs: [""; 8], n: 0i64 };
+    let n: i64 = p.len();
+    let mut start: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i <= n {
+        let dot: bool = if i < n { str_byte_at(p, i) == 46u8 } else { true };
+        if dot {
+            if i > start && out.n < 8i64 {
+                out.segs[out.n] = unsafe {
+                    str_from_raw((p.as_ptr() as i64 + start) as *const u8, i - start)
+                };
+                out.n = out.n + 1i64;
+            }
+            start = i + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// ── Source resolution (query scans) ─────────────────────────────────────────
+// A scan source must be a QB_SRC env binding; the element type resolves LIVE
+// (empty array ⇒ UNKNOWN ⇒ zero rows, every dependent check defers — nothing
+// is ever evaluated over it).
+fn resolve_source(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+                  chk: &mut Chk) -> CTy {
+    let ei: i64 = env.find(name);
+    if ei < 0i64 {
+        if strict {
+            chk_fail(chk, "unknown source '", name,
+                     "' — bind it on the QEnv with bind_source before run", "", "");
+        }
+        return ct(CT_UNKNOWN);
+    }
+    if env.kinds[ei] == QB_ESRC { return ct(CT_DYNSRC); }   // lenient source
+    if env.kinds[ei] != QB_SRC {
+        chk_fail(chk, "source '", name,
+                 "' is not bound as a source — use bind_source", "", "");
+        return ct(CT_UNKNOWN);
+    }
+    return src_elem_ty(name, env.words[ei], cat, chk);
+}
+
+// Bind a scan/traversal row var from its collection type.
+fn bind_row_var(lb: &mut CBinds, var: str, coll: CTy) {
+    if coll.t == CT_ARR         { lb.bind(var, CT_NODE, coll.code); }
+    else if coll.t == CT_SARR   { lb.bind(var, coll.code as i32, 0u64); }
+    else if coll.t == CT_DYNSRC { lb.bind(var, CT_DYN, 0u64); }   // lenient row
+    else                        { lb.bind(var, CT_UNKNOWN, 0u64); }
+}
+
+// ── The QUERY check walk (SExpr checks reuse check_expr verbatim) ───────────
+// Walks the SIMPLIFIED RExpr tree binding row vars in scope order, checking
+// every embedded scalar clause against (catalog + env + binds + rel
+// registry), and — in the STRICT phase — deciding the join cascade +
+// aggregate plan + projection column kinds into `qp`.
+fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+               lb: &mut CBinds, chk: &mut Chk, qp: &mut QPlan, reg: &QRelReg) {
+    if chk.failed { return; }
+    match e {
+        RExpr::Scan(sc) => {
+            // Rel names resolve FIRST (compile-known typed columns; a rel
+            // shadows a same-named env binding — I3).
+            let ri: i64 = qreg_find(reg, sc.src_name);
+            if ri >= 0i64 {
+                lb.bind(sc.var_name, CT_RELROW, ri as u64);
+                return;
+            }
+            let st: CTy = resolve_source(sc.src_name, cat, env, strict, chk);
+            if chk.failed { return; }
+            bind_row_var(lb, sc.var_name, st);
+        }
+        RExpr::Filter(f) => {
+            check_rexpr(f.input_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            let pt: CTy = check_expr(f.pred_expr(), cat, env, strict, lb, chk, reg);
+            if !chk.failed && pt.t != CT_BOOL && !ct_is_open(pt.t) {
+                chk_fail(chk, "a where/having predicate must be a bool", "", "", "", "");
+            }
+        }
+        RExpr::Sort(s) => {
+            check_rexpr(s.input_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            let kt: CTy = check_expr(s.key_expr(), cat, env, strict, lb, chk, reg);
+            if !chk.failed && ct_is_obj(kt.t) {
+                chk_fail(chk, "an `order by` key must be a scalar", "", "", "", "");
+            }
+        }
+        RExpr::Edge(ed) => {
+            check_rexpr(ed.input_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            // base var → path walk over the catalog
+            let bi: i64 = lb.find(ed.base_var);
+            let mut cur: CTy = ct(CT_UNKNOWN);
+            if bi >= 0i64 { cur = CTy { t: lb.tags[bi], code: lb.codes[bi] }; }
+            else if strict {
+                chk_fail(chk, "unknown traversal base '", ed.base_var,
+                         "' — it must be a row variable bound earlier in the chain", "", "");
+                return;
+            }
+            if cur.t == CT_RELROW {
+                chk_fail(chk, "traversal base '", ed.base_var,
+                         "' binds a rel row — rel rows are scalar tuples and have no edges to traverse",
+                         "", "");
+                return;
+            }
+            if cur.t == CT_DYN {
+                chk_fail(chk, "traversal base '", ed.base_var,
+                         "' binds a lenient (erased) row — traversal needs a cataloged schema",
+                         "", "");
+                return;
+            }
+            let ps: PathSegs = split_path(ed.path);
+            let mut vt: CTy = ct(CT_UNKNOWN);   // the new var's ELEMENT type
+            let mut i: i64 = 0i64;
+            while i < ps.n && !chk.failed {
+                if cur.t == CT_UNKNOWN { vt = ct(CT_UNKNOWN); break; }
+                if cur.t != CT_NODE {
+                    chk_fail(chk, "traversal segment '", ps.segs[i],
+                             "' is read off a non-object value", "", "");
+                    break;
+                }
+                let si: i64 = cat.sidx_of_code(cur.code);
+                if si < 0i64 {
+                    chk_fail(chk, "traversal segment '", ps.segs[i],
+                             "': the base schema is not in the catalog", "", "");
+                    break;
+                }
+                let fi: i64 = cat.fidx(si, ps.segs[i]);
+                if fi < 0i64 {
+                    chk_fail(chk, "unknown field '", ps.segs[i], "' on schema '",
+                             cat.s_names.get(si), "' in a traversal path");
+                    break;
+                }
+                let last: bool = i == ps.n - 1i64;
+                if !last {
+                    // intermediate hop: a SINGLE-NODE edge at runtime
+                    if cat.f_kinds.get(fi) != (FK_EDGE as i64) || cat.f_targets.get(fi) == 0u64 {
+                        chk_fail(chk, "intermediate traversal segment '", ps.segs[i],
+                                 "' must be an edge field", "", "");
+                        break;
+                    }
+                    cur = CTy { t: CT_NODE, code: cat.f_targets.get(fi) };
+                } else {
+                    if cat.f_kinds.get(fi) == (FK_EDGE as i64) {
+                        if cat.f_targets.get(fi) == 0u64 {
+                            chk_fail(chk, "edge field '", ps.segs[i],
+                                     "' targets a schema missing from the catalog", "", "");
+                            break;
+                        }
+                        vt = CTy { t: CT_NODE, code: cat.f_targets.get(fi) };
+                    } else if cat.f_kinds.get(fi) == (FK_EARR as i64) {
+                        vt = CTy { t: cat.f_tys.get(fi) as i32, code: 0u64 };
+                    } else {
+                        chk_fail(chk, "traversal path must end at an edge field '",
+                                 ps.segs[i], "' (a collection or single-node edge)", "", "");
+                        break;
+                    }
+                }
+                i = i + 1i64;
+            }
+            if chk.failed { return; }
+            let mark: i64 = lb.n;
+            lb.bind(ed.var_name, vt.t, vt.code);
+            if ed.has_on {
+                let ot: CTy = check_expr(ed.on_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed && ot.t != CT_BOOL && !ct_is_open(ot.t) {
+                    chk_fail(chk, "a join `on` predicate must be a bool", "", "", "", "");
+                }
+            }
+            // an anti step's var binds ONLY inside its own `on`
+            if ed.is_anti { lb.n = mark; }
+        }
+        RExpr::Join(jn) => {
+            check_rexpr(jn.left_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            let rs: RScan = rscan_of(jn.right_expr());
+            let ri: i64 = qreg_find(reg, rs.src_name);
+            if ri >= 0i64 {
+                lb.bind(rs.var_name, CT_RELROW, ri as u64);
+            } else {
+                let st: CTy = resolve_source(rs.src_name, cat, env, strict, chk);
+                if chk.failed { return; }
+                bind_row_var(lb, rs.var_name, st);
+            }
+            let ot: CTy = check_expr(jn.on_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return; }
+            if ot.t != CT_BOOL && !ct_is_open(ot.t) {
+                chk_fail(chk, "a join `on` predicate must be a bool", "", "", "", "");
+                return;
+            }
+            if strict {
+                analyze_join_step(jn.on.any().raw(), rs.var_name,
+                                  jn.as_ref().raw(), cat, env, lb, qp, reg);
+            }
+        }
+        RExpr::Anti(an) => {
+            check_rexpr(an.left_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            let rs: RScan = rscan_of(an.right_expr());
+            let mark: i64 = lb.n;
+            let ri: i64 = qreg_find(reg, rs.src_name);
+            if ri >= 0i64 {
+                lb.bind(rs.var_name, CT_RELROW, ri as u64);
+            } else {
+                let st: CTy = resolve_source(rs.src_name, cat, env, strict, chk);
+                if chk.failed { return; }
+                bind_row_var(lb, rs.var_name, st);
+            }
+            let ot: CTy = check_expr(an.on_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return; }
+            if ot.t != CT_BOOL && !ct_is_open(ot.t) {
+                chk_fail(chk, "a join `on` predicate must be a bool", "", "", "", "");
+                return;
+            }
+            if strict {
+                analyze_join_step(an.on.any().raw(), rs.var_name,
+                                  an.as_ref().raw(), cat, env, lb, qp, reg);
+            }
+            lb.n = mark;   // anti var invisible downstream
+        }
+        RExpr::Aggr(g) => {
+            let mark: i64 = lb.n;
+            check_rexpr(g.input_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            let kt: CTy = check_expr(g.key_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return; }
+            if ct_is_obj(kt.t) {
+                chk_fail(chk, "a `group by` key must be a scalar", "", "", "", "");
+                return;
+            }
+            // f64 keys have no total order / stable hash (rt_key_hash has no F
+            // arm) — the static codegen and `distinct` reject them; the dynamic
+            // group-by must too, else it silently mis-buckets f64 keys.
+            if kt.t == CT_FLT {
+                chk_fail(chk, "a `group by` key cannot be f64", "", "", "", "");
+                return;
+            }
+            let aggs: RAggArr = g.aggs_arr();
+            let an2: i64 = aggs.len();
+            let mut rets: [i32; 8] = [0i32; 8];
+            let mut ci: i64 = 0i64;
+            while ci < an2 && ci < 8i64 {
+                let a: RAgg = aggs.agg_at(ci);
+                let fnid: i32 = qagg_id(a.fn_name);
+                let mut rett: i32 = CT_UNKNOWN;
+                let mut uidx: i64 = -1i64;
+                if fnid == 1i32 {
+                    if a.has_arg {
+                        chk_fail(chk, "count() takes no argument", "", "", "", "");
+                        return;
+                    }
+                    rett = CT_INT;
+                } else if fnid != 0i32 {
+                    if !a.has_arg {
+                        chk_fail(chk, "aggregate '", a.fn_name, "' needs an argument", "", "");
+                        return;
+                    }
+                    let at: CTy = check_expr(a.arg_expr(), cat, env, strict, lb, chk, reg);
+                    if chk.failed { return; }
+                    if at.t == CT_DYN {
+                        // The accumulator layout is chosen from the CHECKED
+                        // type — a runtime-typed lenient value has none.
+                        chk_fail(chk, "aggregate '", a.fn_name,
+                                 "' cannot range over a lenient (erased) value — bind the source strictly",
+                                 "", "");
+                        return;
+                    }
+                    if at.t == CT_UNKNOWN {
+                        rett = CT_UNKNOWN;
+                    } else {
+                        // the SHARED rule table (avg: T→Quot(T), Quot=FLT)
+                        let r: i32 = agg_result_ty(a.fn_name, at.t);
+                        if r < 0i32 {
+                            chk_fail(chk, "aggregate '", a.fn_name,
+                                     "' needs a numeric argument", "", "");
+                            return;
+                        }
+                        rett = r;
+                    }
+                } else {
+                    // UDA via the env registry (builtin names shadow UDAs)
+                    uidx = env.find_agg(a.fn_name);
+                    if uidx >= 0i64 {
+                        if !a.has_arg {
+                            chk_fail(chk, "aggregate '", a.fn_name, "' needs an argument", "", "");
+                            return;
+                        }
+                        let at2: CTy = check_expr(a.arg_expr(), cat, env, strict, lb, chk, reg);
+                        if chk.failed { return; }
+                        if !ct_is_open(at2.t) && at2.t != env.a_argty[uidx] {
+                            chk_fail(chk, "argument type mismatch for aggregate '",
+                                     a.fn_name, "' — the registered signature differs", "", "");
+                            return;
+                        }
+                        rett = env.a_ret[uidx];
+                    } else if strict {
+                        chk_fail(chk, "unknown aggregate '", a.fn_name,
+                                 "' — builtins are count/sum/min/max/avg; register a UDA on the QEnv (register_agg)",
+                                 "", "");
+                        return;
+                    }
+                }
+                rets[ci] = rett;
+                qp.agg_fnid[ci] = fnid;
+                qp.agg_uda[ci]  = uidx;
+                qp.agg_ret[ci]  = rett;
+                ci = ci + 1i64;
+            }
+            qp.agg_n = ci;
+            // Above the aggregate only (key + outputs) are visible.
+            lb.n = mark;
+            lb.bind("key", kt.t, kt.code);
+            let mut co: i64 = 0i64;
+            while co < ci {
+                let a2: RAgg = aggs.agg_at(co);
+                lb.bind(a2.out, rets[co], 0u64);
+                co = co + 1i64;
+            }
+        }
+        RExpr::Proj(p) => {
+            check_rexpr(p.input_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            let sel: SExpr = p.sel_expr();
+            match sel {
+                SExpr::Tuple(tp) => {
+                    let items: SExprArr = tp.items_arr();
+                    let nn: i64 = items.len();
+                    let mut i2: i64 = 0i64;
+                    while i2 < nn && i2 < 8i64 {
+                        let it: CTy = check_expr(items.arg_at(i2), cat, env, strict, lb, chk, reg);
+                        if chk.failed { return; }
+                        if ct_is_obj(it.t) {
+                            chk_fail(chk, "a tuple projection component must be a scalar", "", "", "", "");
+                            return;
+                        }
+                        qp.ckind[i2] = it.t;
+                        i2 = i2 + 1i64;
+                    }
+                    qp.ncols = i2;
+                }
+                _ => {
+                    let st2: CTy = check_expr(sel, cat, env, strict, lb, chk, reg);
+                    if chk.failed { return; }
+                    if st2.t == CT_ARR || st2.t == CT_SARR || st2.t == CT_DYNSRC {
+                        chk_fail(chk, "cannot select a collection edge — traverse it with a join step first",
+                                 "", "", "", "");
+                        return;
+                    }
+                    if st2.t == CT_RELROW {
+                        // static parity: a rel row is a fn-local tuple — no
+                        // whole-row projection (select explicit columns).
+                        chk_fail(chk, "cannot select a whole rel row — select explicit columns", "", "", "", "");
+                        return;
+                    }
+                    qp.ckind[0] = st2.t;   // CT_NODE allowed (identity / find)
+                    qp.ncols = 1i64;
+                }
+            }
+        }
+        RExpr::Distinct(d) => {
+            check_rexpr(d.input_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            let mut i3: i64 = 0i64;
+            while i3 < qp.ncols {
+                if qp.ckind[i3] == CT_FLT {
+                    chk_fail(chk, "`distinct` over an f64 projection is not supported (set semantics require Eq)",
+                             "", "", "", "");
+                    return;
+                }
+                if qp.ckind[i3] == CT_NODE {
+                    chk_fail(chk, "`distinct` over an object projection is not supported", "", "", "", "");
+                    return;
+                }
+                i3 = i3 + 1i64;
+            }
+        }
+        RExpr::Limit(l) => {
+            check_rexpr(l.input_expr(), cat, env, strict, lb, chk, qp, reg);
+            if chk.failed { return; }
+            if l.is_param && strict {
+                let ei: i64 = env.find(l.param);
+                if ei < 0i64 || env.kinds[ei] != QB_I64 {
+                    chk_fail(chk, "limit parameter '", l.param,
+                             "' must be bound as i64 on the QEnv", "", "");
+                }
+            }
+        }
+        RExpr::Fix(_fx) => {
+            // The lowering never produces RFix (rel recursion is realized by
+            // the semi-naïve materializer, not an algebra node) — defensive.
+            chk_fail(chk, "internal: unexpected fixpoint node in the plan", "", "", "", "");
+        }
+    }
+}
+
+// ── The equi/residual split + cascade decision (runtime edition) ────────────
+// The IR-level decomposition (split_and_terms / refs_mask) is REUSED from the
+// shared optimizer module — identical to the static analyzer's. The TYPE
+// source differs by design: the static queue reads ElTypes; here the runtime
+// checker (check_expr over catalog + env + binds) types each side. First
+// same-typed equi-term wins; Hash+Eq keys (INT/STR/BOOL) go hash tier, an f64
+// key (PartialEq only — NaN kills Hash and total Ord) or no equi-term at all
+// goes nested-loop over the FULL predicate.
+fn analyze_join_step(on_w: i64, new_var: str, node_w: i64,
+                     cat: &SchemaCatalog, env: &QEnv, lb: &CBinds, qp: &mut QPlan,
+                     reg: &QRelReg) {
+    let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(on_w as *const u8));
+    let mut tl: TermList = term_list_new();
+    split_and_terms(onr, &mut tl);
+
+    let mut tier: i32 = QT_LOOP;
+    let mut equi_w: i64 = 0i64;
+    let mut build_w: i64 = 0i64;
+    let mut probe_w: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < tl.n {
+        if equi_w == 0i64 {
+            let te: SExpr = sx_of(tl.w[i]);
+            match te {
+                SExpr::Bin(b) => {
+                    if b.op == OP_EQ() {
+                        let lm: i32 = refs_mask(b.lhs_expr(), new_var);
+                        let rm: i32 = refs_mask(b.rhs_expr(), new_var);
+                        let mut cw: i64 = 0i64;   // new-side (build)
+                        let mut cp: i64 = 0i64;   // bound-side (probe)
+                        if lm == 1i32 && (rm & 1i32) == 0i32 { cw = b.lhs.any().raw(); cp = b.rhs.any().raw(); }
+                        if rm == 1i32 && (lm & 1i32) == 0i32 { cw = b.rhs.any().raw(); cp = b.lhs.any().raw(); }
+                        if cw != 0i64 {
+                            // Usable key ⇔ both sides check to the SAME scalar
+                            // type (no cross-type hashing via promotion — a
+                            // mixed-type == stays residual, static parity).
+                            // A CT_DYN (lenient) side never qualifies: the key
+                            // type is unknown at check time — loop tier.
+                            let mut c2: Chk = chk_new();
+                            let kb: CTy = check_expr(sx_of(cw), cat, env, true, lb, &mut c2, reg);
+                            let kp: CTy = check_expr(sx_of(cp), cat, env, true, lb, &mut c2, reg);
+                            if !c2.failed && kb.t == kp.t {
+                                if kb.t == CT_INT || kb.t == CT_STR || kb.t == CT_BOOL {
+                                    tier = QT_HASH;
+                                    equi_w = tl.w[i];
+                                    build_w = cw;
+                                    probe_w = cp;
+                                } else if kb.t == CT_FLT {
+                                    // equi-term exists but the key is f64 —
+                                    // loop tier over the full predicate.
+                                    tier = QT_LOOP;
+                                    equi_w = tl.w[i];
+                                    build_w = 0i64;
+                                    probe_w = 0i64;
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => { }
+            }
+        }
+        i = i + 1i64;
+    }
+    if qp.jn >= 24i64 { return; }
+    qp.jw[qp.jn]     = node_w;
+    qp.jtier[qp.jn]  = if build_w != 0i64 { tier } else { QT_LOOP };
+    qp.jequi[qp.jn]  = if build_w != 0i64 { equi_w } else { 0i64 };
+    qp.jbuild[qp.jn] = build_w;
+    qp.jprobe[qp.jn] = probe_w;
+    qp.jn = qp.jn + 1i64;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The REL-FIELD REWRITE (I3, compile-time, ONCE per Query) — `p.b` where `p`
+// binds a rel row becomes ONE ident named "p.b" (rel rows are RtVal column
+// groups, not Writ nodes — there is no object to field_read). The checker
+// decodes the dotted name against the registry (check_root); the executor
+// binds the dotted names as RowSet columns; refs_mask treats "p.b" as a
+// reference to "p" (the shared-optimizer extension), so the join cascade
+// works unchanged. The pass also collects each body's IN-SCC source
+// OCCURRENCES (the semi-naïve delta variants) and gates the borrow-outward
+// forms (whole-row select, traversal off a rel var) — static parity.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Rel vars in scope during the rewrite walk (var name → rel registry idx).
+struct RwScope { vars: [str; 12], rel: [i64; 12], n: i64 }
+fn rwscope_new() -> RwScope { return RwScope { vars: [""; 12], rel: [0i64; 12], n: 0i64 }; }
+fn rw_find(sc: &RwScope, name: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < sc.n {
+        if str_eq(sc.vars[i], name) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+// The name of a BARE ident node ("" otherwise). The EL parser spells bare
+// idents as SField with a NULL base; SVar covers hand-built IR.
+fn sident_name(e: SExpr) -> str {
+    match e {
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            if bref.any().is_null() { return f.name; }
+            return "";
+        }
+        SExpr::Var(v) => { return v.name; }
+        _ => { return ""; }
+    }
+}
+
+// Rewrite rel-column reads inside one scalar expression (in place; child
+// edges are rebound — the simplify_all discipline). Returns the (possibly
+// replaced) edge for the caller to rebind.
+fn rw_expr(eref: WRef<SExpr>, sc: &RwScope, reg: &QRelReg, h: &Writ,
+           chk: &mut Chk) -> WRef<SExpr> {
+    if eref.any().is_null() || chk.failed { return eref; }
+    let e: SExpr = eref.any().view::<SExpr>();
+    match e {
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            if bref.any().is_null() { return eref; }   // bare ident — no rewrite
+            // `<relvar>.<col>` — the direct hit.
+            let bn: str = sident_name(f.base_expr());
+            if bn.len() > 0i64 {
+                let vi: i64 = rw_find(sc, bn);
+                if vi >= 0i64 {
+                    let ri: i64 = sc.rel[vi];
+                    let ci: i64 = qreg_col(reg, ri, f.name);
+                    if ci < 0i64 {
+                        chk_fail(chk, "unknown column '", f.name, "' on rel '",
+                                 reg.names[ri], "'");
+                        return eref;
+                    }
+                    let mut nm: String = String::new();
+                    nm.push_str(bn);
+                    nm.push_str(".");
+                    nm.push_str(f.name);
+                    // make_ident_sel boxes the name into the Query's doc.
+                    return make_ident_sel(h, sstr(&nm));
+                }
+            }
+            f.base = rw_expr(f.base, sc, reg, h, chk);
+            if chk.failed { return eref; }
+            // A rewritten base is a DOTTED ident ⇒ `p.col.x` — rel columns
+            // are scalars, nothing deeper exists.
+            let nb: str = sident_name(f.base_expr());
+            if nb.len() > 0i64 && dotted_at(nb) > 0i64 {
+                chk_fail(chk, "field '.", f.name,
+                         "' is read off a rel column — rel columns are scalars", "", "");
+            }
+            return eref;
+        }
+        SExpr::Bin(b) => {
+            b.lhs = rw_expr(b.lhs, sc, reg, h, chk);
+            b.rhs = rw_expr(b.rhs, sc, reg, h, chk);
+            return eref;
+        }
+        SExpr::Un(u) => {
+            u.arg = rw_expr(u.arg, sc, reg, h, chk);
+            return eref;
+        }
+        SExpr::Cond(c) => {
+            c.c = rw_expr(c.c, sc, reg, h, chk);
+            c.t = rw_expr(c.t, sc, reg, h, chk);
+            c.e = rw_expr(c.e, sc, reg, h, chk);
+            return eref;
+        }
+        SExpr::Call(cl) => {
+            let mut args: SExprArr = cl.args_arr();
+            let na: i64 = args.len();
+            let mut i: i64 = 0i64;
+            while i < na {
+                let ar: WRef<SExpr> = WRef::<SExpr>::from_any(args.arg_any(i));
+                let nr: WRef<SExpr> = rw_expr(ar, sc, reg, h, chk);
+                if nr.any().raw() != ar.any().raw() { args.set_arg(i, nr.any()); }
+                i = i + 1i64;
+            }
+            return eref;
+        }
+        SExpr::Tuple(tp) => {
+            let mut items: SExprArr = tp.items_arr();
+            let ni: i64 = items.len();
+            let mut k: i64 = 0i64;
+            while k < ni {
+                let ir: WRef<SExpr> = WRef::<SExpr>::from_any(items.arg_any(k));
+                let nr2: WRef<SExpr> = rw_expr(ir, sc, reg, h, chk);
+                if nr2.any().raw() != ir.any().raw() { items.set_arg(k, nr2.any()); }
+                k = k + 1i64;
+            }
+            return eref;
+        }
+        _ => { return eref; }
+    }
+}
+
+// Whole-row projection gate: a bare rel var at the select root / as a tuple
+// component has no sound projection (static parity — rel rows are column
+// groups; select explicit columns).
+fn rw_gate_comp(e: SExpr, sc: &RwScope, reg: &QRelReg, chk: &mut Chk) {
+    let n: str = sident_name(e);
+    if n.len() > 0i64 {
+        let vi: i64 = rw_find(sc, n);
+        if vi >= 0i64 {
+            chk_fail(chk, "`select ", n, "` projects the whole rel row '",
+                     reg.names[sc.rel[vi]], "' — select explicit columns instead");
+        }
+    }
+}
+fn rw_sel_gate(sel: SExpr, sc: &RwScope, reg: &QRelReg, chk: &mut Chk) {
+    match sel {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() && !chk.failed {
+                rw_gate_comp(items.arg_at(i), sc, reg, chk);
+                i = i + 1i64;
+            }
+        }
+        _ => { rw_gate_comp(sel, sc, reg, chk); }
+    }
+}
+
+// The RExpr rewrite walk: binds rel scan vars into the scope, rewrites every
+// embedded scalar clause, gates the borrow-outward forms, and — when
+// `occ_c >= 0` (a body of a RECURSIVE SCC) — collects the body's in-SCC scan
+// occurrences (node word + rel idx): the semi-naïve delta variants.
+fn rw_walk(rref: WRef<RExpr>, sc: &mut RwScope, reg: &QRelReg, h: &Writ,
+           chk: &mut Chk, occ_c: i64,
+           ow: &mut [i64; 9], orel: &mut [i64; 9], on_: &mut i64) {
+    if rref.any().is_null() || chk.failed { return; }
+    let e: RExpr = rref.any().view::<RExpr>();
+    match e {
+        RExpr::Scan(s) => {
+            let ri: i64 = qreg_find(reg, s.src_name);
+            if ri >= 0i64 {
+                if sc.n < 12i64 {
+                    sc.vars[sc.n] = s.var_name;
+                    sc.rel[sc.n]  = ri;
+                    sc.n = sc.n + 1i64;
+                }
+                if occ_c >= 0i64 && reg.comp[ri] == occ_c {
+                    if *on_ >= 9i64 {
+                        chk_fail(chk, "too many recursive source references in one rel body", "", "", "", "");
+                    } else {
+                        ow[*on_]   = s.as_ref().raw();
+                        orel[*on_] = ri;
+                        *on_ = *on_ + 1i64;
+                    }
+                }
+            }
+        }
+        RExpr::Filter(f) => {
+            rw_walk(f.input, sc, reg, h, chk, occ_c, ow, orel, on_);
+            f.pred = rw_expr(f.pred, sc, reg, h, chk);
+        }
+        RExpr::Sort(s2) => {
+            rw_walk(s2.input, sc, reg, h, chk, occ_c, ow, orel, on_);
+            s2.key = rw_expr(s2.key, sc, reg, h, chk);
+        }
+        RExpr::Edge(ed) => {
+            rw_walk(ed.input, sc, reg, h, chk, occ_c, ow, orel, on_);
+            if chk.failed { return; }
+            if rw_find(sc, ed.base_var) >= 0i64 {
+                chk_fail(chk, "traversal base '", ed.base_var,
+                         "' binds a rel row — rel rows are scalar tuples and have no edges to traverse",
+                         "", "");
+                return;
+            }
+            if ed.has_on { ed.on = rw_expr(ed.on, sc, reg, h, chk); }
+        }
+        RExpr::Join(j) => {
+            rw_walk(j.left, sc, reg, h, chk, occ_c, ow, orel, on_);
+            rw_walk(j.right, sc, reg, h, chk, occ_c, ow, orel, on_);
+            j.on = rw_expr(j.on, sc, reg, h, chk);
+        }
+        RExpr::Anti(a) => {
+            rw_walk(a.left, sc, reg, h, chk, occ_c, ow, orel, on_);
+            let mark: i64 = sc.n;
+            rw_walk(a.right, sc, reg, h, chk, occ_c, ow, orel, on_);
+            a.on = rw_expr(a.on, sc, reg, h, chk);
+            sc.n = mark;   // an anti var binds only inside its own `on`
+        }
+        RExpr::Aggr(g) => {
+            rw_walk(g.input, sc, reg, h, chk, occ_c, ow, orel, on_);
+            g.key = rw_expr(g.key, sc, reg, h, chk);
+            let aggs: RAggArr = g.aggs_arr();
+            let na: i64 = aggs.len();
+            let mut i: i64 = 0i64;
+            while i < na && !chk.failed {
+                let a2: RAgg = aggs.agg_at(i);
+                if a2.has_arg { a2.arg = rw_expr(a2.arg, sc, reg, h, chk); }
+                i = i + 1i64;
+            }
+        }
+        RExpr::Proj(p) => {
+            rw_walk(p.input, sc, reg, h, chk, occ_c, ow, orel, on_);
+            if chk.failed { return; }
+            rw_sel_gate(p.sel_expr(), sc, reg, chk);
+            if chk.failed { return; }
+            p.sel = rw_expr(p.sel, sc, reg, h, chk);
+        }
+        RExpr::Distinct(d) => { rw_walk(d.input, sc, reg, h, chk, occ_c, ow, orel, on_); }
+        RExpr::Limit(l)    => { rw_walk(l.input, sc, reg, h, chk, occ_c, ow, orel, on_); }
+        RExpr::Fix(_fx)    => { }
+    }
+}
