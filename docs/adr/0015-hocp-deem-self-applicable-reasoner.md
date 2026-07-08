@@ -81,6 +81,8 @@ The descriptor is itself EDB for the next epoch (I1+I2) — the HOCP fact. Cavea
 
 ## 4. S3 — Epochs and control atoms
 
+**Status: LANDED (first cut, IncrRec).** `ControlAtom{epoch, kind, val}`, kinds: `raise_budget` / `set_budget_steps` / `clear_budget` / `abort` (latch: later epochs are journaled no-ops) / `escalate` (opaque payload, journal-only — the channel upward). Enqueued via `control_*` methods between epochs, drained + applied + journaled at the next `epoch()` entry (I2: never inside the run that derived them; the `control_*` path is the lawful/replayable way to steer, vs the direct un-journaled S2 setters as setup config). Journal = one entry per `epoch()` call: the admitted ΔEDB batch verbatim + the applied atoms, all epoch-stamped; accessors `journal_len/epoch_at/skipped_at/batch_at/controls_at/control_at`, `escalations_len/escalation_at`, `is_aborted`. **Replay** = fresh engine over the same initial source, per entry: enqueue the entry's controls, `epoch(entry's batch)`. Gated by `query_incr_ctl_journal_e2e` (I2 boundary; journal structure; escalate; abort; replay oracle — snapshot set-equality + trace-STRUCTURE equality + tail equality + abort-state equality) and `query_observer_l1` — the **full L1 Observer**: Encounter (budget cut) → Conclusion (Deem meta-rule over residual EDB derives `(epoch, pending)`) → Action (the raise-budget atom's value IS the derived fact — data-causal, auditable in the journal), plus both halves of the §6 honesty pair. Deviations: replay determinism is guaranteed for steps-budgets only (an ns cut point is operational wall-clock — recorded, not reproducible; a future cut-replay could journal the actual cut round); `switch_strategy`/`fork`/`collapse` are S4.
+
 An **epoch** = one budgeted run over a fixed EDB snapshot. Between epochs the operational layer applies control atoms derived by meta-rules during the previous epoch:
 
 ```
@@ -166,7 +168,7 @@ Top layer (S5/S5b) has **no external oracle yet** — accepted. Surrogates until
 |---|---|---|
 | S1 | trace reification (`step_stats` et al.) — **LANDED** (IncrRec first cut, §2) | golden trace + consistency oracle (`query_incr_trace_e2e`) |
 | S2 | `budget()` + `truncated_tail` descriptor — **LANDED** (IncrRec first cut, §3) | soundness/bound/resume-equivalence oracles (`query_incr_budget_e2e`); NAF oracle deferred to the general engine |
-| S3 | epochs + control atoms + journal | replay oracle over epoch sequences |
+| S3 | epochs + control atoms + journal — **LANDED** (IncrRec first cut, §4) | replay oracle (`query_incr_ctl_journal_e2e`) + L1 Observer causal chain (`query_observer_l1`) |
 | S4 | GLR fork/merge over `persistent` EDB, `select_one` | merge-law oracles |
 | S5 | self-ontology + free-will demonstration pair | protocol §6 as ctest |
 | S5b | decision journal + `core(D)` queries | theory-invariant tests |

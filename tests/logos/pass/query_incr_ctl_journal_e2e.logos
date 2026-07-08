@@ -1,0 +1,206 @@
+// query_incr_ctl_journal_e2e — S3 CONTROL ATOMS + JOURNAL + REPLAY (ADR 0015
+// §4, invariant I2). Control atoms enqueue between epochs and take effect at
+// the NEXT epoch() entry (never inside the run that derived them); every
+// applied atom and every admitted ΔEDB batch is journaled. Asserts:
+//   (a) I2 boundary — an enqueued atom has NO effect until the next epoch()
+//       (a budget set by control does not cut the current state);
+//   (b) journal structure — one entry per epoch() call, batches and applied
+//       atoms recorded verbatim, epoch-stamped;
+//   (c) escalate — journal-only signal, readable via escalations_len/at,
+//       zero engine effect;
+//   (d) abort — latches; later epochs are journaled no-ops (state unchanged);
+//   (e) REPLAY ORACLE — a fresh engine over the same initial source, driven
+//       only by the journal (enqueue entry's controls, epoch(entry's batch)),
+//       reproduces the run: snapshot set-equality, trace STRUCTURE equality
+//       (epoch/kind/step/delta/total — ns is a sensor, ignored), tail
+//       equality, abort-state equality. Steps-budgets only (an ns cut point
+//       is operational wall-clock — documented non-replayable).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema Edge : code(0x0E07_0000_0000_000F) {
+    src: i64 = 0,
+    dst: i64 = 1,
+}
+resource cat = schema_catalog!{ Edge };
+
+fn mk_edge(d: &Writ, s: i64, t: i64) -> WAny {
+    let e: Edge = d.make::<Edge>();
+    e.src = s; e.dst = t;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+
+fn build_src(d: &Writ, hs: &Vec<WAny>) -> WAny {
+    let arr: &mut WArray<WAny> = d.array(64i64);
+    let n: i64 = hs.len();
+    let mut i: i64 = 0i64;
+    while i < n { arr.push(hs.get(i)); i = i + 1i64; }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+
+fn has_row(q: &QRows, a: i64, b: i64) -> bool {
+    let n: i64 = q.row_count();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if q.get_i64(i, 0i64) == a && q.get_i64(i, 1i64) == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn snap_count(e: &IncrRec) -> i64 {
+    let s: QRows = e.snapshot();
+    return s.row_count();
+}
+
+fn snap_eq(a: &IncrRec, b: &IncrRec) -> bool {
+    let sa: QRows = a.snapshot();
+    let sb: QRows = b.snapshot();
+    if sa.row_count() != sb.row_count() { return false; }
+    let mut i: i64 = 0i64;
+    while i < sa.row_count() {
+        if !has_row(&sb, sa.get_i64(i, 0i64), sa.get_i64(i, 1i64)) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// Trace STRUCTURE equality — the deterministic columns only (ns is a sensor).
+fn trace_struct_eq(a: &IncrRec, b: &IncrRec) -> bool {
+    if a.trace_len() != b.trace_len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < a.trace_len() {
+        let x: TraceStep = a.trace_at(i);
+        let y: TraceStep = b.trace_at(i);
+        if x.epoch != y.epoch || x.kind != y.kind || x.step != y.step
+        || x.delta_card != y.delta_card || x.total_rows != y.total_rows { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn tail_eq(a: &IncrRec, b: &IncrRec) -> bool {
+    let ta: TruncatedTail = a.tail();
+    let tb: TruncatedTail = b.tail();
+    return ta.converged == tb.converged
+        && ta.pending_delta_card == tb.pending_delta_card
+        && ta.bound_dir == tb.bound_dir
+        && ta.cut_reason == tb.cut_reason;
+}
+
+fn mk_engine(q: &Query, doc: &Writ, seed: &Vec<WAny>) -> Result<IncrRec, QError> {
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("edges", build_src(doc, seed));
+    return q.incremental_rec(&env);
+}
+
+fn main() -> i32 {
+    let doc: Writ = writ_new(262144i64);
+    let c: SchemaCatalog = cat();
+    let q: Query = match Query::compile(
+        r#"rel path(a: i64, b: i64) {
+             from edges e select (e.src, e.dst);
+             from path p join edges e on p.b == e.src select (p.a, e.dst);
+           }
+           from path p select (p.a, p.b)"#,
+        &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 90i32; } };
+
+    let mut all: Vec<WAny> = vec_new::<WAny>();
+    let mut k: i64 = 0i64;
+    while k < 10i64 { all.push(mk_edge(&doc, k, k + 1i64)); k = k + 1i64; }
+    let mut seed: Vec<WAny> = vec_new::<WAny>();
+    seed.push(all.get(0i64));
+
+    // ── drive engine A through a controlled run ──
+    let mut a: IncrRec = match mk_engine(&q, &doc, &seed)
+    { Result::Ok(e) => { e } Result::Err(_e2) => { return 1i32; } };
+
+    // (a) I2 boundary: control enqueued ⇒ nothing happens NOW.
+    a.control_set_budget_steps(1i64);
+    if !a.is_converged() { return 2i32; }
+    if a.journal_len() != 0i64 { return 3i32; }
+
+    // epoch 1: 9 edges under the (control-applied) 1-step budget ⇒ cut.
+    let mut d1: ZBatch = ZBatch::new();
+    let mut k2: i64 = 1i64;
+    while k2 < 10i64 { d1.push(all.get(k2), 1i64); k2 = k2 + 1i64; }
+    a.epoch(&d1);
+    if a.is_converged() { return 4i32; }
+    // (b) journal entry 0: batch of 9, one applied control, epoch-stamped.
+    if a.journal_len() != 1i64 { return 5i32; }
+    if a.journal_epoch_at(0i64) != 1i64 { return 6i32; }
+    if a.journal_skipped_at(0i64) { return 7i32; }
+    if a.journal_batch_at(0i64).len() != 9i64 { return 8i32; }
+    if a.journal_controls_at(0i64) != 1i64 { return 9i32; }
+    let c0: ControlAtom = a.journal_control_at(0i64, 0i64);
+    if c0.kind != 2i32 || c0.val != 1i64 || c0.epoch != 1i64 { return 10i32; }
+
+    // (c) escalate + raise: meta-decision after seeing the residual.
+    if a.tail().pending_delta_card <= 0i64 { return 11i32; }
+    a.control_raise_budget(100i64);
+    a.control_escalate(42i64);
+    let d2: ZBatch = ZBatch::new();
+    a.epoch(&d2);                            // resume under the raised budget
+    if !a.is_converged() { return 12i32; }
+    if a.journal_controls_at(1i64) != 2i64 { return 13i32; }
+    if a.escalations_len() != 1i64 { return 14i32; }
+    let es: ControlAtom = a.escalation_at(0i64);
+    if es.val != 42i64 || es.epoch != 2i64 { return 15i32; }
+
+    // epoch 3: retraction (no controls).
+    let mut d3: ZBatch = ZBatch::new();
+    d3.push(all.get(5i64), 0i64 - 1i64);
+    a.epoch(&d3);
+    if !a.is_converged() { return 16i32; }
+
+    // (d) abort: epoch 4 is a journaled no-op.
+    let pre_rows: i64 = snap_count(&a);
+    a.control_abort();
+    let mut d4: ZBatch = ZBatch::new();
+    d4.push(all.get(5i64), 1i64);            // would re-insert — must be skipped
+    a.epoch(&d4);
+    if !a.is_aborted() { return 17i32; }
+    if !a.journal_skipped_at(3i64) { return 18i32; }
+    if snap_count(&a) != pre_rows { return 19i32; }
+    if a.journal_len() != 4i64 { return 20i32; }
+
+    // ── (e) REPLAY: fresh engine B, driven only by A's journal ──
+    let mut b: IncrRec = match mk_engine(&q, &doc, &seed)
+    { Result::Ok(e) => { e } Result::Err(_e3) => { return 21i32; } };
+    let mut i: i64 = 0i64;
+    while i < a.journal_len() {
+        let nc: i64 = a.journal_controls_at(i);
+        let mut j: i64 = 0i64;
+        while j < nc {
+            let ca: ControlAtom = a.journal_control_at(i, j);
+            if ca.kind == 1i32 { b.control_raise_budget(ca.val); }
+            else if ca.kind == 2i32 { b.control_set_budget_steps(ca.val); }
+            else if ca.kind == 3i32 { b.control_clear_budget(); }
+            else if ca.kind == 4i32 { b.control_abort(); }
+            else if ca.kind == 5i32 { b.control_escalate(ca.val); }
+            j = j + 1i64;
+        }
+        let bt: ZBatch = a.journal_batch_at(i);
+        b.epoch(&bt);
+        i = i + 1i64;
+    }
+    if !snap_eq(&a, &b) { return 22i32; }
+    if !trace_struct_eq(&a, &b) { return 23i32; }
+    if !tail_eq(&a, &b) { return 24i32; }
+    if a.is_aborted() != b.is_aborted() { return 25i32; }
+    if a.had_error() || b.had_error() { return 26i32; }
+
+    return 0i32;
+}

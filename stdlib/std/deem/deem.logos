@@ -6308,6 +6308,32 @@ pub struct TruncatedTail {
     pub cut_reason:         i32,   // 0 none · 1 steps · 2 ns
 }
 
+// ── S3 CONTROL ATOMS + JOURNAL (ADR 0015 §4, invariant I2). Feedback crosses
+// epochs ONLY: meta-rules (Deem queries over trace/tail EDB, run by the
+// harness between epochs) enqueue control atoms; the queue is drained and
+// APPLIED at the next epoch() entry — never within a run (Dedalus-style
+// @next; temporal stratification). Every applied atom and every admitted
+// ΔEDB batch is JOURNALED: a fresh engine over the same initial source,
+// replaying the journal (enqueue entry's controls, then epoch(entry's
+// batch)), reproduces the run — snapshot, trace STRUCTURE, and tail are
+// equal. Replay determinism holds for steps-budgets; an ns-budget's cut
+// point is operational wall-clock (recorded, not reproducible) — the
+// steps-budget is the lawful path for replayable runs, and so are the
+// control_* methods vs the direct un-journaled S2 setters.
+//   kind: 1 raise_budget(val: steps added; sets a steps-budget if none)
+//         2 set_budget_steps(val) · 3 clear_budget · 4 abort (latch: later
+//         epochs are journaled no-ops) · 5 escalate(val: opaque payload —
+//         the channel UPWARD to the agent/LLM layer; no engine effect)
+/// One control atom (ADR 0015 §4): an action derived from the engine's own
+/// past, effective at the NEXT epoch. `epoch` = the epoch it was applied at
+/// (−1 while still pending in the queue).
+pub struct ControlAtom {
+    pub epoch: i64,
+    pub kind:  i32,   // 1 raise_budget · 2 set_budget_steps · 3 clear_budget
+                      // · 4 abort · 5 escalate
+    pub val:   i64,
+}
+
 pub struct IncrRec {
     qptr:     i64,                     // *const Query (must outlive)
     env:      QEnv,                    // owns the edge-source binding
@@ -6346,6 +6372,18 @@ pub struct IncrRec {
     conv:     bool,              // false ⇒ rows[fx_tot..) is the pending frontier
     fx_tot:   i64,               // promote watermark at cut (−1 when converged)
     cut_rs:   i32,               // last cut_reason (0 none · 1 steps · 2 ns)
+    // ── S3 control atoms + journal (ADR 0015 §4, I2). ──
+    ctlq:     Vec<ControlAtom>,  // pending queue — applied at next epoch() entry
+    aborted:  bool,              // abort latch: epochs become journaled no-ops
+    jn_ep:    Vec<i64>,          // journal: epoch id per entry (one per epoch())
+    jn_skip:  Vec<bool>,         // entry was an aborted no-op
+    jn_bn:    Vec<WAny>,         // flat ΔEDB node pool
+    jn_bw:    Vec<i64>,          // flat ΔEDB weight pool (parallel to jn_bn)
+    jn_boff:  Vec<i64>,          // per-entry batch offset into the pools
+    jn_bcnt:  Vec<i64>,          // per-entry batch length
+    jn_ctl:   Vec<ControlAtom>,  // flat applied-controls pool (epoch stamped)
+    jn_coff:  Vec<i64>,          // per-entry controls offset
+    jn_ccnt:  Vec<i64>,          // per-entry controls count
 }
 
 // Build a WArray<WAny> in `edoc` from `nodes` and bind it as the edge source.
@@ -6553,6 +6591,51 @@ impl IncrRec {
     pub fn epoch(self: &mut IncrRec, dedges: &ZBatch) {
         self.epn = self.epn + 1i64;                    // S1: this run's epoch id
         let tr_e0: i64 = tr_now(self.trace_on);
+        // ── S3: open the journal entry — record the submitted ΔEDB verbatim
+        // (handles stay valid: the caller's arena outlives the engine, the
+        // bind_source contract), then drain + apply + journal the pending
+        // control atoms (I2: they take effect HERE, at the epoch boundary,
+        // never inside the run that derived them). ──
+        self.jn_ep.push(self.epn);
+        self.jn_boff.push(self.jn_bn.len());
+        self.jn_bcnt.push(dedges.node.len());
+        let mut ji: i64 = 0i64;
+        while ji < dedges.node.len() {
+            self.jn_bn.push(dedges.node.get(ji));
+            self.jn_bw.push(dedges.wt.get(ji));
+            ji = ji + 1i64;
+        }
+        self.jn_coff.push(self.jn_ctl.len());
+        let ncq: i64 = self.ctlq.len();
+        self.jn_ccnt.push(ncq);
+        let mut ci: i64 = 0i64;
+        while ci < ncq {
+            let a: ControlAtom = self.ctlq.get(ci);
+            if a.kind == 1i32 {          // raise_budget: add steps (start one if off)
+                if self.bd_kind == 1i32 { self.bd_val = self.bd_val + a.val; }
+                else                    { self.bd_kind = 1i32; self.bd_val = a.val; }
+            } else if a.kind == 2i32 {   // set_budget_steps
+                self.bd_kind = 1i32; self.bd_val = a.val;
+            } else if a.kind == 3i32 {   // clear_budget
+                self.bd_kind = 0i32; self.bd_val = 0i64;
+            } else if a.kind == 4i32 {   // abort — latch
+                self.aborted = true;
+            }                            // 5 escalate: journal-only signal
+            self.jn_ctl.push(ControlAtom { epoch: self.epn, kind: a.kind, val: a.val });
+            ci = ci + 1i64;
+        }
+        self.ctlq = vec_new::<ControlAtom>();
+        self.jn_skip.push(self.aborted);
+        if self.aborted {
+            // aborted engine: the epoch is a journaled no-op (state untouched;
+            // replay reproduces the same skip).
+            if self.trace_on {
+                self.teps.push(TraceEpoch { epoch: self.epn,
+                    d_ins: 0i64, d_del: 0i64, rounds: 0i64,
+                    ns: tr_now(self.trace_on) - tr_e0 });
+            }
+            return;
+        }
         let qp_raw: i64 = self.qptr;
         let q: &Query = unsafe { &*(qp_raw as *const Query) };
         // ── admit ΔEDB: coalesce by identity; collect newly-PRESENT edges (NE,
@@ -7009,6 +7092,83 @@ impl IncrRec {
             cut_reason: self.cut_rs };
     }
 
+    // ── S3 control API (ADR 0015 §4, I2). Atoms enqueue here and take effect
+    // at the NEXT epoch() entry, where they are applied and journaled. These
+    // are the LAWFUL (replayable) way to steer the engine — unlike the direct
+    // S2 setters, which are un-journaled setup configuration.
+    /// Enqueue: add `k` steps to the budget (start a steps-budget if none).
+    pub fn control_raise_budget(self: &mut IncrRec, k: i64) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 1i32, val: k });
+    }
+    /// Enqueue: set the steps-budget to `n`.
+    pub fn control_set_budget_steps(self: &mut IncrRec, n: i64) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 2i32, val: n });
+    }
+    /// Enqueue: remove the budget.
+    pub fn control_clear_budget(self: &mut IncrRec) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 3i32, val: 0i64 });
+    }
+    /// Enqueue: abort — from the next epoch on, epochs are journaled no-ops.
+    pub fn control_abort(self: &mut IncrRec) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 4i32, val: 0i64 });
+    }
+    /// Enqueue: escalate — an opaque payload journaled as the channel UPWARD
+    /// (to the agent/LLM layer); no engine effect.
+    pub fn control_escalate(self: &mut IncrRec, payload: i64) {
+        self.ctlq.push(ControlAtom { epoch: 0i64 - 1i64, kind: 5i32, val: payload });
+    }
+    /// True iff an applied abort atom latched the engine.
+    pub fn is_aborted(self: &IncrRec) -> bool { return self.aborted; }
+
+    // ── S3 journal accessors: one entry per epoch() call. Replay = fresh
+    // engine over the same initial source, then per entry: enqueue the
+    // entry's controls, epoch(the entry's batch).
+    /// Number of journal entries (== number of epoch() calls).
+    pub fn journal_len(self: &IncrRec) -> i64 { return self.jn_ep.len(); }
+    /// The epoch id of entry `i`.
+    pub fn journal_epoch_at(self: &IncrRec, i: i64) -> i64 { return self.jn_ep.get(i); }
+    /// Whether entry `i` was an aborted no-op.
+    pub fn journal_skipped_at(self: &IncrRec, i: i64) -> bool { return self.jn_skip.get(i); }
+    /// Rebuild entry `i`'s admitted ΔEDB batch (a copy).
+    pub fn journal_batch_at(self: &IncrRec, i: i64) -> ZBatch {
+        let mut b: ZBatch = ZBatch::new();
+        let off: i64 = self.jn_boff.get(i);
+        let n: i64 = self.jn_bcnt.get(i);
+        let mut k: i64 = 0i64;
+        while k < n { b.push(self.jn_bn.get(off + k), self.jn_bw.get(off + k)); k = k + 1i64; }
+        return b;
+    }
+    /// Number of control atoms applied at entry `i`.
+    pub fn journal_controls_at(self: &IncrRec, i: i64) -> i64 { return self.jn_ccnt.get(i); }
+    /// The j-th control atom applied at entry `i` (epoch-stamped).
+    pub fn journal_control_at(self: &IncrRec, i: i64, j: i64) -> ControlAtom {
+        return self.jn_ctl.get(self.jn_coff.get(i) + j);
+    }
+    /// Number of journaled escalations (applied kind-5 atoms).
+    pub fn escalations_len(self: &IncrRec) -> i64 {
+        let mut n: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < self.jn_ctl.len() {
+            if self.jn_ctl.get(i).kind == 5i32 { n = n + 1i64; }
+            i = i + 1i64;
+        }
+        return n;
+    }
+    /// The i-th journaled escalation (epoch-stamped, payload in `val`).
+    pub fn escalation_at(self: &IncrRec, i: i64) -> ControlAtom {
+        let mut seen: i64 = 0i64;
+        let mut k: i64 = 0i64;
+        while k < self.jn_ctl.len() {
+            let a: ControlAtom = self.jn_ctl.get(k);
+            if a.kind == 5i32 {
+                if seen == i { return a; }
+                seen = seen + 1i64;
+            }
+            k = k + 1i64;
+        }
+        return ControlAtom { epoch: 0i64 - 1i64, kind: 0i32, val: 0i64 };
+    }
+
     // Read the maintained closure as a self-contained QRows via the ENTRY
     // projection over the persistent relation (exact oracle parity).
     pub fn snapshot(self: &IncrRec) -> QRows {
@@ -7315,6 +7475,17 @@ impl Query {
             conv: true,
             fx_tot: 0i64 - 1i64,
             cut_rs: 0i32,
+            ctlq: vec_new::<ControlAtom>(),
+            aborted: false,
+            jn_ep: vec_new::<i64>(),
+            jn_skip: vec_new::<bool>(),
+            jn_bn: vec_new::<WAny>(),
+            jn_bw: vec_new::<i64>(),
+            jn_boff: vec_new::<i64>(),
+            jn_bcnt: vec_new::<i64>(),
+            jn_ctl: vec_new::<ControlAtom>(),
+            jn_coff: vec_new::<i64>(),
+            jn_ccnt: vec_new::<i64>(),
         };
         // seed the edge multiset from the bound base relation (+1/identity)
         let sn: i64 = sarr.len();
