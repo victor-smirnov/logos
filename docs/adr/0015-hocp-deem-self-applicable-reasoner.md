@@ -60,7 +60,9 @@ First-cut deviations (deliberate): `qid`/`stratum`/`rel` collapse (single-rel en
 
 ## 3. S2 — Budgeted fixpoint (anytime semantics)
 
-Query API gains `budget(steps = N | ms = T)`. Cuts happen between iteration steps; the semantics contract is per stratum kind:
+**Status: LANDED (first cut, IncrRec).** `set_budget_steps(n)` / `set_budget_ns(t)` / `clear_budget()` — persistent per-engine configuration; the inner fixpoint cuts BETWEEN rounds, *before* the promote, so the un-promoted region `[watermark, len)` survives as the pending frontier. `tail()` returns the `TruncatedTail` residual descriptor (`converged`, `pending_delta_card`, `bound_dir`: exact/lower/upper/unknown, `cut_reason`: none/steps/ns). **Resume = `epoch(empty ΔEDB)`** — a no-op epoch on a truncated state re-enters at the saved watermark (semi-naïve soundness/completeness preserved: append-only rows + set-dedup ⇒ each frontier row promoted exactly once). A retraction epoch re-converges **by construction** (DRed re-derive and the agg recompute both run to quiescence) — this discharges the caveat below constructively. A math-error exit never claims convergence (`bound_dir = unknown`). v0 scope: budget applies to the insert-path inner fixpoint only (build recompute and retraction paths run to quiescence); IncrRec has no NAF structurally, so contract 3 activates when budget reaches the general engine. Gated by `query_incr_budget_e2e`: soundness (truncated ⊆ full, differential vs an unbudgeted twin), resume equivalence (budgeted-then-resumed == never-budgeted), semilattice bound (truncated SSSP champions ≥ true min, `bound_dir = upper`), retraction-restores-convergence, deterministic ns-cut (`ns = 0`), and the S1 Σδ oracle holding through cuts (a cut is an assessment, not an admission — no trace row is emitted for it).
+
+Original contract (kept as the target for the general engine). Query API gains `budget(steps = N | ms = T)`. Cuts happen between iteration steps; the semantics contract is per stratum kind:
 
 1. **Positive strata**: any semi-naive prefix is a **sound underapproximation** of the lfp. Everything derived is true; some things are missing.
 2. **Semilattice/semiring strata** (min/max/tropical): the value at cut is a **certified one-sided bound**, direction known, monotone toward the answer (Bellman-Ford k-hop discipline).
@@ -163,7 +165,7 @@ Top layer (S5/S5b) has **no external oracle yet** — accepted. Surrogates until
 | slice | content | gate |
 |---|---|---|
 | S1 | trace reification (`step_stats` et al.) — **LANDED** (IncrRec first cut, §2) | golden trace + consistency oracle (`query_incr_trace_e2e`) |
-| S2 | `budget()` + `truncated_tail` descriptor | soundness/bound/NAF oracles |
+| S2 | `budget()` + `truncated_tail` descriptor — **LANDED** (IncrRec first cut, §3) | soundness/bound/resume-equivalence oracles (`query_incr_budget_e2e`); NAF oracle deferred to the general engine |
 | S3 | epochs + control atoms + journal | replay oracle over epoch sequences |
 | S4 | GLR fork/merge over `persistent` EDB, `select_one` | merge-law oracles |
 | S5 | self-ontology + free-will demonstration pair | protocol §6 as ctest |

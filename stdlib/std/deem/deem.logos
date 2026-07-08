@@ -6280,6 +6280,34 @@ fn tr_now(on: bool) -> i64 {
     unsafe { return instant_now().nanos_since_epoch(); }
 }
 
+// ── S2 BUDGETED FIXPOINT (ADR 0015 §3): anytime semantics. The inner fixpoint
+// may be CUT between rounds (before the promote, so the un-promoted region
+// [watermark, len) survives as the pending frontier). The result is then a
+// SOUND UNDERAPPROXIMATION (positive rel: every derived row is true, some are
+// missing; semilattice agg: champions are certified one-sided bounds — min ⇒
+// upper, max ⇒ lower). Truncation may omit; it never lies. The engine
+// remembers the watermark and RESUMES on the next epoch() call — an empty
+// ΔEDB epoch is the explicit "keep thinking" move. A retraction epoch
+// re-converges by construction (DRed re-derive / agg recompute both run to
+// quiescence), which discharges the ADR §3 caveat (a retraction landing on a
+// truncated stratum invalidates its certificate). v0 scope: the budget
+// applies to the INSERT-path inner fixpoint only (build recompute and
+// retraction epochs run to quiescence; the general multi-stratum/NAF
+// contract lives in the one-shot engine when budget reaches it).
+//   bound_dir: 0 exact · 1 lower (set-subset / max-agg) · 2 upper (min-agg)
+//              · 3 unknown (math-error exit)
+//   cut_reason: 0 none · 1 steps · 2 ns
+/// The residual descriptor (ADR 0015 §3): what the engine KNOWS it has not
+/// yet derived. `pending_delta_card` > 0 with `converged == false` is the
+/// HOCP fact — the registered truncated tail (the Observer's Encounter).
+pub struct TruncatedTail {
+    pub epoch:              i64,   // epoch the assessment belongs to
+    pub converged:          bool,
+    pub pending_delta_card: i64,   // frontier rows awaiting propagation
+    pub bound_dir:          i32,   // 0 exact · 1 lower · 2 upper · 3 unknown
+    pub cut_reason:         i32,   // 0 none · 1 steps · 2 ns
+}
+
 pub struct IncrRec {
     qptr:     i64,                     // *const Query (must outlive)
     env:      QEnv,                    // owns the edge-source binding
@@ -6312,6 +6340,12 @@ pub struct IncrRec {
     trace:    Vec<TraceStep>,    // per-step samples, append-only
     teps:     Vec<TraceEpoch>,   // per-epoch summaries, append-only
     trace_on: bool,              // I3 toggle (default ON; off ⇒ zero cost)
+    // ── S2 budgeted fixpoint (ADR 0015 §3): anytime state. ──
+    bd_kind:  i32,               // 0 off · 1 steps (rounds/epoch) · 2 ns (wall)
+    bd_val:   i64,
+    conv:     bool,              // false ⇒ rows[fx_tot..) is the pending frontier
+    fx_tot:   i64,               // promote watermark at cut (−1 when converged)
+    cut_rs:   i32,               // last cut_reason (0 none · 1 steps · 2 ns)
 }
 
 // Build a WArray<WAny> in `edoc` from `nodes` and bind it as the edge source.
@@ -6494,6 +6528,10 @@ impl IncrRec {
         qrel_materialize(q, &self.env, &qp, &scratch, &mut ctx, cp);
         if chk.failed { self.math_err = true; }
         self.ptot = self.rows.len() / self.ncols;
+        // S2: a recompute runs to quiescence — the state is exact again.
+        self.conv = true;
+        self.fx_tot = 0i64 - 1i64;
+        self.cut_rs = 0i32;
         // S1: one recompute = one trace step (batch — inner rounds not visible).
         // delta_card is NET (recompute replaces the state), negative on an
         // agg-retraction fallback that shrank the relation.
@@ -6568,6 +6606,13 @@ impl IncrRec {
             let tr_t0: i64 = tr_now(self.trace_on);
             if self.agg { self.recompute(); }          // pushes its own kind-0 step
             else        { self.dred(q, &de_slots); }
+            // S2: both retraction paths run to quiescence (DRed's re-derive
+            // phase is a full base⋈PRES + fixpoint; agg falls back to
+            // recompute) — the state is exact again even if a prior epoch was
+            // budget-truncated. This discharges the ADR §3 retraction caveat.
+            self.conv = true;
+            self.fx_tot = 0i64 - 1i64;
+            self.cut_rs = 0i32;
             if self.trace_on {
                 if !self.agg {
                     // one DRed pass = one trace step (over-delete + compact +
@@ -6583,8 +6628,11 @@ impl IncrRec {
             return;
         }
         // No newly-present edge and no retraction ⇒ no-op epoch (closure only
-        // grows on insert; a pure no-op changes nothing).
-        if ne_slots.len() == 0i64 {
+        // grows on insert; a pure no-op changes nothing) — UNLESS a prior epoch
+        // was budget-truncated: then an empty ΔEDB epoch is the explicit
+        // RESUME move (S2) and falls through to the fixpoint below, which
+        // re-enters at the saved watermark.
+        if ne_slots.len() == 0i64 && self.conv {
             if self.trace_on {
                 self.teps.push(TraceEpoch { epoch: self.epn,
                     d_ins: 0i64, d_del: 0i64, rounds: 0i64,
@@ -6626,7 +6674,10 @@ impl IncrRec {
         ctx.regp = (&q.reg as *const QRelReg) as i64;
         ctx.hmp = hmp_i;
         ctx.rowsp[0] = rows_i;
-        ctx.tot[0] = ptot0;
+        // S2: on a truncated state re-enter at the saved watermark — the first
+        // promote then takes [fx_tot, len) = old pending frontier ∪ new seed
+        // output as one delta (append-only rows + rhm dedup ⇒ sound, complete).
+        ctx.tot[0] = if self.conv { ptot0 } else { self.fx_tot };
         // slice-7: for an aggregate rel the absorb consults+updates `best` (which
         // ALREADY holds the maintained champions — INSERTION only IMPROVES it,
         // monotone). A new/shorter edge seeds candidates that beat the champion.
@@ -6667,9 +6718,21 @@ impl IncrRec {
         // (base⋈NE + existing⋈NE ran above — kind 1); each later loop-top
         // measures the previous round's body output (kind 2). The final
         // quiescence probe has an empty delta and records nothing.
+        // tr_prev starts at ptot0 even on a resume: the pending frontier rows
+        // were already traced by the epoch that appended them (the trace push
+        // sits BEFORE the budget check) — Σδ must count each row exactly once.
         let mut tr_prev: i64 = ptot0;
         let mut tr_step: i64 = 0i64;
         let mut tr_t: i64 = tr_now(self.trace_on);
+        // S2 budget bookkeeping: rounds are counted per epoch() call; the ns
+        // clock starts here (seed included). The cut happens BEFORE a promote,
+        // so the un-promoted frontier [tot, len) survives into fx_tot.
+        let bd_kind: i32 = self.bd_kind;
+        let bd_val: i64 = self.bd_val;
+        let bd_t0: i64 = tr_now(bd_kind == 2i32);
+        let mut fx_rounds: i64 = 0i64;
+        let mut did_cut: bool = false;
+        let mut fx_conv: bool = false;
         loop {
             if chk_bad(cp) { break; }
             let len: i64 = qrel_len(ctxp as *const RelCtx, 0i64, ncols);
@@ -6682,8 +6745,22 @@ impl IncrRec {
                 tr_prev = len;
                 tr_t = tr_t1;
             }
+            // S2: budget check. Only a productive frontier can be cut — with an
+            // empty frontier the promote below exits as a normal least fixpoint.
+            if bd_kind != 0i32 && (len - ctx.tot[0]) > 0i64 {
+                let mut cutr: i32 = 0i32;
+                if bd_kind == 1i32 && fx_rounds >= bd_val { cutr = 1i32; }
+                if bd_kind == 2i32 && (tr_now(true) - bd_t0) >= bd_val { cutr = 2i32; }
+                if cutr != 0i32 {
+                    self.conv = false;
+                    self.fx_tot = ctx.tot[0];
+                    self.cut_rs = cutr;
+                    did_cut = true;
+                    break;
+                }
+            }
             rctx_promote(ctxp, 0i64, len);
-            if ctx.dlo[0] >= len { break; }   // least fixpoint (empty round-delta)
+            if ctx.dlo[0] >= len { fx_conv = true; break; }   // least fixpoint
             if is_agg {
                 rounds = rounds + 1i64;
                 if rounds > (self.best.len() * 4i64 + 16i64) {
@@ -6693,10 +6770,22 @@ impl IncrRec {
             rctx_set_ovr(ctxp, rec_ovr);
             qrel_run_body(q, rec_body, &self.env, &qp, &scratch, ctxp, cp);
             rctx_set_ovr(ctxp, 0i64);
+            fx_rounds = fx_rounds + 1i64;
         }
         // Error-returning EL policy: a math fault in a recursive-body cell latched
         // the Chk (via eval_sx); surface it on the engine for had_error().
         if chk.failed { self.math_err = true; }
+        // S2 exit classification: converged (exact) / budget cut (recorded
+        // above) / error (honest unknown — never claim convergence on a fault).
+        if fx_conv {
+            self.conv = true;
+            self.fx_tot = 0i64 - 1i64;
+            self.cut_rs = 0i32;
+        } else if !did_cut {
+            self.conv = false;
+            self.fx_tot = ctx.tot[0];
+            self.cut_rs = 0i32;
+        }
         self.ptot = self.rows.len() / self.ncols;
         if self.trace_on {
             self.teps.push(TraceEpoch { epoch: self.epn,
@@ -6886,6 +6975,39 @@ impl IncrRec {
     pub fn epochs_len(self: &IncrRec) -> i64 { return self.teps.len(); }
     /// The i-th per-epoch summary.
     pub fn epoch_at(self: &IncrRec, i: i64) -> TraceEpoch { return self.teps.get(i); }
+
+    // ── S2 budget API (ADR 0015 §3). The budget is persistent configuration
+    // (applies to every subsequent epoch() until changed); it never applies to
+    // build/retraction paths (those run to quiescence — v0 contract).
+    /// Budget in fixpoint ROUNDS per epoch (0 = cut right after the seed).
+    pub fn set_budget_steps(self: &mut IncrRec, n: i64) {
+        self.bd_kind = 1i32; self.bd_val = n;
+    }
+    /// Budget in wall-clock NANOSECONDS per epoch (0 = cut at first check).
+    pub fn set_budget_ns(self: &mut IncrRec, t: i64) {
+        self.bd_kind = 2i32; self.bd_val = t;
+    }
+    /// Remove the budget — subsequent epochs run to convergence again.
+    pub fn clear_budget(self: &mut IncrRec) {
+        self.bd_kind = 0i32; self.bd_val = 0i64;
+    }
+    /// True iff the maintained state is the exact least fixpoint.
+    pub fn is_converged(self: &IncrRec) -> bool { return self.conv; }
+    /// The residual descriptor (ADR 0015 §3) — the engine's own registered
+    /// truncated tail. EDB for the next epoch (I1+I2): materialize + bind it
+    /// like any source. pending_delta_card > 0 ⇒ the HOCP Encounter fact.
+    pub fn tail(self: &IncrRec) -> TruncatedTail {
+        if self.conv {
+            return TruncatedTail { epoch: self.epn, converged: true,
+                pending_delta_card: 0i64, bound_dir: 0i32, cut_reason: 0i32 };
+        }
+        let bd: i32 = if self.math_err { 3i32 }
+                      else if self.agg && self.agg_dir == 3i32 { 2i32 }   // min ⇒ upper
+                      else { 1i32 };                       // subset / max ⇒ lower
+        return TruncatedTail { epoch: self.epn, converged: false,
+            pending_delta_card: self.ptot - self.fx_tot, bound_dir: bd,
+            cut_reason: self.cut_rs };
+    }
 
     // Read the maintained closure as a self-contained QRows via the ENTRY
     // projection over the persistent relation (exact oracle parity).
@@ -7188,6 +7310,11 @@ impl Query {
             trace: vec_new::<TraceStep>(),
             teps: vec_new::<TraceEpoch>(),
             trace_on: true,
+            bd_kind: 0i32,
+            bd_val: 0i64,
+            conv: true,
+            fx_tot: 0i64 - 1i64,
+            cut_rs: 0i32,
         };
         // seed the edge multiset from the bound base relation (+1/identity)
         let sn: i64 = sarr.len();
