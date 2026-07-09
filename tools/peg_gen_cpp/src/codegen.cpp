@@ -862,13 +862,22 @@ private:
         w.line("public:");
         w.indent();
 
-        w.fmt("explicit {}(std::string_view source);", parser_class_);
+        // `arena: external` — the caller owns the Writ and the parser borrows it,
+        // so an imported grammar's sub-parse composes straight into the outer
+        // document. Otherwise the parser allocates and hands out its own.
+        if (g_.arena_ext)
+            w.fmt("{}(std::string_view source, logos::writ::WritCtr& doc);", parser_class_);
+        else
+            w.fmt("explicit {}(std::string_view source);", parser_class_);
         w.line();
 
         if (!g_.exports.empty()) {
             w.line("// Entry points for exported rules.");
             for (const auto& e : g_.exports)
-                w.fmt("logos::writ::Writ parse_{}();", e);
+                if (g_.arena_ext)
+                    w.fmt("logos::writ::AnyVal parse_{}();", e);
+                else
+                    w.fmt("logos::writ::Writ parse_{}();", e);
             w.line();
         }
 
@@ -993,7 +1002,8 @@ private:
         }
 
         w.line();
-        w.line("logos::writ::Writ doc_;");
+        if (g_.arena_ext) w.line("logos::writ::WritCtr& doc_;   // borrowed (arena: external)");
+        else              w.line("logos::writ::Writ doc_;");
         w.line("std::string_view         source_;");
         w.line("size_t                   pos_ = 0;");
         w.line("uint32_t                 line_ = 1;  // current source line (1-based)");
@@ -1070,7 +1080,11 @@ private:
         // next / peek / try / expect
         // Size the packrat memo vectors once: keys are byte offsets in
         // 0..source.size(), so one slot per offset covers every possible start.
-        w.fmt("{0}::{0}(std::string_view source) : source_(source) {{", parser_class_);
+        if (g_.arena_ext)
+            w.fmt("{0}::{0}(std::string_view source, logos::writ::WritCtr& doc)"
+                  " : doc_(doc), source_(source) {{", parser_class_);
+        else
+            w.fmt("{0}::{0}(std::string_view source) : source_(source) {{", parser_class_);
         w.indent();
         for (const auto& r : g_.rules) {
             if (!is_memoized(r.name)) continue;
@@ -1328,24 +1342,26 @@ private:
         w.line("while (pos_ < source_.size()) {");
         w.indent();
         w.line("char c = source_[pos_];");
-        // Common whitespace
-        bool has_ws_skip = false;
+        // Whitespace skip. This USED to be an exact string compare against
+        // `/[ \t\n\r]+/`, so a grammar that spelled the same class in another
+        // order (el.peg writes `[ \t\r\n]+`) silently got a parser that could
+        // not skip whitespace at all. Parse the class instead.
+        std::string ws;
         for (const auto& t : g_.tokens) {
-            if (t.kind == skip_code && (t.pattern == R"(/[ \t\n\r]+/)" ||
-                t.pattern == "/[ \t\n\r]+/")) {
-                has_ws_skip = true; break;
+            if (t.kind != skip_code) continue;
+            ws = skip_char_class(regex_inner(t.pattern));
+            if (!ws.empty()) break;
+        }
+        if (!ws.empty()) {
+            std::string cond;
+            for (char ch : ws) {
+                if (!cond.empty()) cond += " || ";
+                cond += std::format("c == '{}'", char_lit(ch));
             }
+            const bool counts_lines = ws.find('\n') != std::string::npos;
+            w.fmt("if ({}) {{ {}++pos_; continue; }}", cond,
+                  counts_lines ? "if (c == '\\n') ++line_; " : "");
         }
-        if (has_ws_skip) {
-            w.line(R"(if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { if (c == '\n') ++line_; ++pos_; continue; })");
-        }
-        // Helper: strip outer /.../ delimiters to get the raw regex content.
-        auto regex_inner = [](const std::string& p) -> std::string_view {
-            std::string_view sv = p;
-            if (sv.size() >= 2 && sv.front() == '/' && sv.back() == '/')
-                sv = sv.substr(1, sv.size() - 2);
-            return sv;
-        };
         // Line comment skip: pattern inner starts with // or \/\/ (escaped-slash pair).
         // If the grammar also defines a DOC_LINE regex token (matching `///[^\n]*`),
         // restrict the skip so `///` and `//!` are passed through to the token matcher
@@ -1999,6 +2015,20 @@ private:
         w.line("// ── Public entry points ───────────────────────────────────────────────────");
         w.line();
         for (const auto& e : g_.exports) {
+            // `arena: external`: the doc is the caller's, so the entry hands back
+            // the root edge and never touches set_root — the caller wires it in
+            // (or, for an embedded sub-parse, splices it into the outer node).
+            if (g_.arena_ext) {
+                w.fmt("logos::writ::AnyVal {}::parse_{}() {{", parser_class_, e);
+                w.indent();
+                w.fmt("AnyVal root = rule_{}();", e);
+                w.line("if (root.is_null() || !at_eof()) return AnyVal{};");
+                w.line("return root;");
+                w.dedent();
+                w.line("}");
+                w.line();
+                continue;
+            }
             w.fmt("logos::writ::Writ {}::parse_{}() {{", parser_class_, e);
             w.indent();
             // MultiChunk (never-move: the parser holds node ptrs/views across
@@ -2663,6 +2693,61 @@ private:
                 "INTEGER/FLOAT token — no defined encoding", sd.name, sf.name));
         else
             put(key, std::format("AnyVal::from_value({}(0))", cast));
+    }
+
+    // Strip the outer /.../ delimiters of a %tokens regex.
+    static std::string_view regex_inner(const std::string& p) {
+        std::string_view sv = p;
+        if (sv.size() >= 2 && sv.front() == '/' && sv.back() == '/')
+            sv = sv.substr(1, sv.size() - 2);
+        return sv;
+    }
+
+    // A `[...]+` skip pattern → the literal characters it matches, in the order
+    // written. Empty for anything richer (ranges, negation, other regex), which
+    // the lexer emitter does not model. Order-independent BY CONSTRUCTION: the
+    // caller tests membership, so `[ \t\n\r]+` and `[ \t\r\n]+` behave alike.
+    static std::string skip_char_class(std::string_view inner) {
+        if (inner.size() < 3 || inner.front() != '[') return {};
+        size_t close = inner.rfind(']');
+        if (close == std::string_view::npos || inner.substr(close + 1) != "+") return {};
+        std::string out;
+        for (size_t i = 1; i < close; ++i) {
+            char c = inner[i];
+            if (c == '\\' && i + 1 < close) {
+                switch (inner[++i]) {
+                    case 't':  out += '\t'; break;
+                    case 'n':  out += '\n'; break;
+                    case 'r':  out += '\r'; break;
+                    case 'f':  out += '\f'; break;
+                    case 'v':  out += '\v'; break;
+                    case '\\': out += '\\'; break;
+                    default:   return {};   // not a plain literal set
+                }
+            } else if (c == '-' || c == '^') {
+                return {};                   // ranges / negation not modelled
+            } else {
+                out += c;
+            }
+        }
+        return out;
+    }
+
+    // A literal char as it must appear inside a C++ '...' literal.
+    // (Distinct from the older `escape_char`, an identity stub used by the
+    // single-char-token fast path — left alone here to keep that path's output
+    // byte-identical; it is itself unsound for `'` and `\`.)
+    static std::string char_lit(char c) {
+        switch (c) {
+            case '\t': return "\\t";
+            case '\n': return "\\n";
+            case '\r': return "\\r";
+            case '\f': return "\\f";
+            case '\v': return "\\v";
+            case '\\': return "\\\\";
+            case '\'': return "\\'";
+            default:   return std::string(1, c);
+        }
     }
 
     // Declared width → the C++ integer the AnyVal Pod is narrowed to.
