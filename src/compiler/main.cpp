@@ -4332,7 +4332,8 @@ int main(int argc, char** argv) {
                             // MAPPING_DEF (ADR 0016) rides the same token-macro
                             // item seam — consumed sites get the same marker.
                             if (cur == logos::compiler::ast::FN_MACRO_CALL_ITEM.code
-                                || cur == logos::compiler::ast::MAPPING_DEF.code)
+                                || cur == logos::compiler::ast::MAPPING_DEF.code
+                                || cur == logos::compiler::ast::DEEM_DEF.code)
                                 done_code = logos::compiler::ast::FN_MACRO_CALL_ITEM_DONE.code;
                         }
                     }

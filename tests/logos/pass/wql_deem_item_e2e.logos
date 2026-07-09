@@ -1,0 +1,92 @@
+// wql_deem_item_e2e — the deem QUERY as a LANGUAGE ITEM (ADR 0016): the item
+// form of `resource q = deem!(params){ body }`, same handler, same zero-copy
+// seam. What the item adds over the resource form:
+//   (a) real visibility — `deem q(…)` emits a NON-pub fn, `pub deem` a pub one
+//       (the resource form is always pub);
+//   (b) doc comments and item-position ergonomics;
+//   (c) every deem! capability rides along unchanged: rels + recursion,
+//       mapping fusion (`w: Net`), GENERIC mapping instantiation
+//       (`w: Reach<Chain>`), graph params, slice params.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.lang.writ.container;
+use logos.mem.writ.parser;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Emp { pub dept: i64, pub pay: i64 }
+
+/// Total pay per department — a documented, non-pub deem item.
+deem dept_pay(es: &[Emp]) {
+    from es e group by e.dept aggregate total = sum(e.pay) select (key, total)
+}
+
+// (c) rels + recursion in the item body.
+struct Edge { pub s: i64, pub d: i64 }
+pub deem evens_reach(xs: &[Edge]) {
+    rel r(a: i64, b: i64) {
+        from xs x select (x.s, x.d);
+        from r p join xs x on x.s == p.b select (p.a, x.d);
+    }
+    from r t where t.a == 1 select t.b
+}
+
+// (c) graph param through the item form.
+pub deem engines(g: &Writ) {
+    from g ** .engine e select e.vs
+}
+
+// (c) mapping fusion through the item form — incl. a GENERIC instance.
+pub trait EdgeSource {
+    rel link(a: i64, b: i64);
+}
+struct Chain { pub n: i64 }
+fn chain_edges(c: &Chain) -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 1i64;
+    while i < c.n { v.push((i, i + 1i64)); i = i + 1i64; }
+    return v;
+}
+impl EdgeSource for Chain {
+    rel link = chain_edges;
+}
+pub mapping Reach<S: EdgeSource>(g: &S) {
+    pub rel r(x: i64, y: i64) {
+        from g e select (e.a, e.b);
+        from r p join g e on e.a == p.y select (p.x, e.b);
+    }
+}
+pub deem chain_reach(w: Reach<Chain>) {
+    from r t where t.x == 1 select t.y
+}
+
+fn main() -> i32 {
+    let es: [Emp; 3] = [ Emp { dept: 1i64, pay: 100i64 },
+                         Emp { dept: 1i64, pay: 50i64 },
+                         Emp { dept: 2i64, pay: 70i64 } ];
+    let dp: Vec<(i64, i64)> = match dept_pay(&es[..])
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if dp.len() != 2i64 { return 2i32; }
+
+    let edges: [Edge; 3] = [ Edge { s: 1i64, d: 2i64 },
+                             Edge { s: 2i64, d: 3i64 },
+                             Edge { s: 7i64, d: 8i64 } ];
+    let er: Vec<i64> = match evens_reach(&edges[..])
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if er.len() != 2i64 { return 4i32; }   // 2, 3
+
+    let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
+    let en: Vec<str> = match engines(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if en.len() != 2i64 { return 6i32; }
+
+    let c: Chain = Chain { n: 4i64 };
+    let cr: Vec<i64> = match chain_reach(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if cr.len() != 3i64 { return 8i32; }
+
+    return 0i32;
+}

@@ -303,6 +303,7 @@ inline constexpr Code REL_DEF{"REL_DEF", 260};  // ADR 0016: one rel member of a
 inline constexpr Code WRIT_BLOB{"WRIT_BLOB", 261};  // pre-serialised Writ static blob (driver splice from a metacall WritStatic return); VALUE = raw blob bytes (Varchar)
 inline constexpr Code REL_SIG{"REL_SIG", 262};  // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
 inline constexpr Code REL_BIND{"REL_BIND", 263};  // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
+inline constexpr Code DEEM_DEF{"DEEM_DEF", 264};  // ADR 0016: `pub? deem q(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.
 
 namespace mod {
     inline constexpr Key PATH_PARTS{"PATH_PARTS", 16};  // array of sub-nodes (one per component after NAME)

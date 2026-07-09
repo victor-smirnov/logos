@@ -7564,6 +7564,13 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             pending_annots.clear();
             continue;
         }
+        if (c == la::DEEM_DEF) {
+            // ADR 0016: `pub? deem q(params) { <query> }` — the item form of
+            // `resource q = deem!(params){…}`; same handler, same seam.
+            lower_deem_def(item, prog);
+            pending_annots.clear();
+            continue;
+        }
         if (c == la::MAPPING_DEF) {
             // ADR 0016: `mapping M(…) { rel … }` — validate the item +
             // rel signatures, then route the canonicalised text through

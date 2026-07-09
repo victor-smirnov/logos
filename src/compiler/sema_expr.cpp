@@ -19689,7 +19689,11 @@ void SemaChecker::emit_token_macro_item_site(
 // cross-module decl-export lands; the walker's hardcoded dispatch is already
 // gone — these entries are DATA, in the same registry user impls fill).
 void SemaChecker::seed_builtin_source_impls() {
-    if (!source_impls_.empty()) return;
+    // Guarded by a FLAG, not by registry emptiness: user impls are collected
+    // BEFORE lowering, so a module with any `impl SourceTrait for T` would
+    // otherwise suppress the Writ/IncrRec seeds entirely.
+    if (builtin_sources_seeded_) return;
+    builtin_sources_seeded_ = true;
     auto mk = [](const char* tr, const char* rel, const char* fn,
                  const char* mod, std::vector<TraitRelCol> cols) {
         SourceRelBind b;
@@ -20081,6 +20085,272 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
 }
 
 
+// ADR 0016 — `pub? deem q(g: &Writ, …) { <query> }`: the deem QUERY as a
+// language item. Pure surface over the deem! seam: Sema owns the name, the
+// param list (real PARAM nodes, canonicalised syntactically) and visibility;
+// the body rides RAW_TEXT into the same parse → fusion → natspec → handler
+// pipeline as `resource q = deem!(…){…}`. Unlike the resource form (always
+// pub), the item's visibility is real: non-pub emits a non-pub fn via the
+// `-` name-marker convention (vis_strip at the emit sites).
+void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
+    std::string lead(str_of(node.get(la::REL_KW.code)));
+    std::string qname(str_of(node.get(la::NAME.code)));
+    if (lead != "deem") {
+        error(std::format(
+            "unknown item `{} {}(…)` — did you mean `deem {}(…) {{ … }}`?",
+            lead, qname, qname));
+        return;
+    }
+    if (qname.empty()) {
+        error("deem item: missing query name (grammar regression?)");
+        return;
+    }
+
+    // Params: simple `name: Type` bindings, canonical syntactic text (the
+    // resolved form would fail the pipeline's surface checks) — the same
+    // discipline as mapping headers.
+    std::string params_text;
+    size_t nparams = 0;
+    if (node.has_key(la::PARAMS)) {
+        auto pl = map_of(node.get(la::PARAMS.code));
+        if (!pl.is_null() && pl.has_key(la::ITEMS.code)) {
+            auto parr = arr_of(pl.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < parr.size(); ++i) {
+                auto pv = map_of(parr.get(i));
+                if (pv.is_null() || code_of(pv) != la::PARAM) continue;
+                if (!pv.has_key(la::NAME.code) || !pv.has_key(la::TYPE.code)
+                        || pv.has_key(la::PAT.code)
+                        || pv.has_key(la::NAMES.code)) {
+                    error(std::format(
+                        "deem '{}': parameters must be simple `name: Type` "
+                        "bindings", qname));
+                    return;
+                }
+                std::string pn(str_of(pv.get(la::NAME.code)));
+                std::string tsrc =
+                    render_type_src_syntactic_(map_of(pv.get(la::TYPE.code)));
+                if (tsrc.empty()) {
+                    error(std::format(
+                        "deem '{}': cannot render the type of parameter '{}'",
+                        qname, pn));
+                    return;
+                }
+                if (nparams) params_text += ", ";
+                params_text += pn;
+                params_text += ": ";
+                params_text += tsrc;
+                ++nparams;
+            }
+        }
+    }
+    if (nparams == 0) {
+        error(std::format(
+            "deem '{}': needs at least one parameter — a query source "
+            "(`{}(xs: &[Row])`, a graph `g: &Writ`, or a mapping instance)",
+            qname, qname));
+        return;
+    }
+    if (!node.has_key(la::RAW_TEXT)) {
+        error(std::format("deem '{}': missing body (grammar regression?)", qname));
+        return;
+    }
+    std::string raw_text(str_of(node.get(la::RAW_TEXT.code)));
+
+    // The handler is the SAME `deem` token-macro the resource form uses.
+    auto ovit = func_overloads_.find("deem");
+    const SemaFuncInfo* macro_info = nullptr;
+    if (ovit != func_overloads_.end()) {
+        for (const auto& sym : ovit->second) {
+            auto fit = funcs_.find(sym);
+            if (fit == funcs_.end()) continue;
+            if (fit->second.is_token_macro) {
+                macro_info = &fit->second;
+                break;
+            }
+        }
+    }
+    auto is_str_type = [](TypeRef t) -> bool {
+        return TypeRef(t).kind() == LogosType::Kind::Slice
+            && TypeRef(t).elem()
+            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
+    };
+    auto is_const_u8_ptr = [](TypeRef t) -> bool {
+        return TypeRef(t).kind() == LogosType::Kind::Ptr
+            && TypeRef(t).pointee()
+            && TypeRef(t).pointee().kind() == LogosType::Kind::U8;
+    };
+    if (!macro_info) {
+        error(std::format(
+            "deem '{}': the deem handler is not in scope — add "
+            "`use logos.std.wql.wql;` to this module", qname));
+        return;
+    }
+    bool rt_is_il = is_item_list(macro_info->ret_type);
+    if ((!rt_is_il && !is_quote_item_blob(macro_info->ret_type))
+            || macro_info->param_types.size() != 5
+            || !is_str_type(macro_info->param_types[0])
+            || !is_str_type(macro_info->param_types[1])
+            || !is_str_type(macro_info->param_types[2])
+            || !is_str_type(macro_info->param_types[3])
+            || !is_const_u8_ptr(macro_info->param_types[4])) {
+        error("deem item: the 'deem' handler must be a #[token_macro] "
+              "`(name: str, params: str, enrich: str, natspec: str, "
+              "ir: *const u8) -> ItemList` (stdlib/compiler version skew?)");
+        return;
+    }
+    if (!holder_ || !cur_prog_) return;
+
+    std::string enrich, natspec;
+    if (!enrich_deem_params("deem", params_text,
+                            raw_text, enrich, natspec))
+        return;
+
+    bool is_pub = false;
+    if (node.has_key(la::IS_PUB)) {
+        auto av = node.get(la::IS_PUB.code);
+        is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+    }
+    std::string marked = is_pub ? qname : ("-" + qname);
+    emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 3,
+                               marked, params_text, raw_text,
+                               IrEntry::Program, enrich, natspec);
+}
+
+bool SemaChecker::enrich_deem_params(const std::string& callee_label,
+                                     std::string& params_text,
+                                     std::string& raw_text,
+                                     std::string& enrich,
+                                     std::string& natspec) {
+    if (!params_text.empty()) {
+            // Split the raw param text on top-level commas into `name: Type`
+            // pairs; depth-track ()/[]/<> (`&[(i64, str)]` carries commas).
+            auto trim = [](std::string_view v) -> std::string_view {
+                size_t a = v.find_first_not_of(" \t\n\r");
+                if (a == std::string_view::npos) return {};
+                size_t b = v.find_last_not_of(" \t\n\r");
+                return v.substr(a, b - a + 1);
+            };
+            std::vector<std::pair<std::string, std::string>> pairs;
+            {
+                std::string_view t = params_text;
+                int depth = 0; size_t seg = 0;
+                auto flush = [&](size_t endpos) {
+                    std::string_view piece = trim(t.substr(seg, endpos - seg));
+                    if (piece.empty()) return;
+                    size_t c = piece.find(':');
+                    if (c == std::string_view::npos) {
+                        pairs.emplace_back(std::string(piece), std::string());
+                        return;
+                    }
+                    pairs.emplace_back(std::string(trim(piece.substr(0, c))),
+                                       std::string(trim(piece.substr(c + 1))));
+                };
+                for (size_t i = 0; i < t.size(); ++i) {
+                    char ch = t[i];
+                    if (ch == '(' || ch == '[' || ch == '<') ++depth;
+                    else if (ch == ')' || ch == ']' || ch == '>') --depth;
+                    else if (ch == ',' && depth == 0) { flush(i); seg = i + 1; }
+                }
+                flush(t.size());
+            }
+            std::string prefix_body;
+            size_t next_rel = 0;
+            bool any = false;
+            for (auto& [pn, pt] : pairs) {
+                if (mappings_.empty()) break;
+                // `w: M` (concrete mapping) or `w: M<Concrete>` (generic —
+                // the argument names the source type, which must implement
+                // the mapping's bound).
+                std::string mbase = pt, marg;
+                if (auto lt = pt.find('<');
+                        lt != std::string::npos && pt.back() == '>') {
+                    mbase = pt.substr(0, lt);
+                    marg  = pt.substr(lt + 1, pt.size() - lt - 2);
+                }
+                auto mit = mappings_.find(mbase);
+                if (mit == mappings_.end()) continue;
+                const MappingInfo& mi = mit->second;
+                if (mi.type_param.empty() != marg.empty()) {
+                    error(mi.type_param.empty()
+                        ? std::format("'{}!': mapping '{}' is not generic — "
+                                      "write `{}: {}`", callee_label, mbase, pn, mbase)
+                        : std::format("'{}!': mapping '{}' is generic over "
+                                      "<{}: {}> — write `{}: {}<SourceType>`",
+                                      callee_label, mbase, mi.type_param,
+                                      mi.bound, pn, mbase));
+                    return false;
+                }
+                if (!marg.empty()) {
+                    // Bound check: the concrete source must bind every rel the
+                    // bound trait declares (per-trait, not by name accident).
+                    auto trit = trait_rels_.find(mi.bound);
+                    if (trit == trait_rels_.end()) {
+                        error(std::format(
+                            "'{}!': mapping '{}' is bounded by '{}', which "
+                            "declares no rels (is the trait in scope?)",
+                            callee_label, mbase, mi.bound));
+                        return false;
+                    }
+                    auto sit = source_impls_.find(marg);
+                    for (const auto& need : trit->second) {
+                        bool have = false;
+                        if (sit != source_impls_.end())
+                            for (const auto& b : sit->second)
+                                if (b.trait_name == mi.bound && b.rel == need.rel)
+                                    { have = true; break; }
+                        if (!have) {
+                            error(std::format(
+                                "'{}!': `{}: {}<{}>` — '{}' does not implement "
+                                "'{}' (missing `rel {} = …` binding)",
+                                callee_label, pn, mbase, marg, marg,
+                                mi.bound, need.rel));
+                            return false;
+                        }
+                    }
+                }
+                if (!mi.enrichable) {
+                    error(std::format(
+                        "'{}!': parameter '{}' binds mapping '{}', which has "
+                        "more than one parameter — only single-source mappings "
+                        "can enrich a deem! today (scalar mapping params are a "
+                        "later slice)", callee_label, pn, pt));
+                    return false;
+                }
+                enrich += std::format("{}={}@{}-{};", mi.src_param_name, pn,
+                                      next_rel, next_rel + mi.nrels);
+                prefix_body += mi.body_text;
+                next_rel += mi.nrels;
+                // Services → &Writ; Reach<G1> → &G1 — the emitted fn takes the
+                // real source, and the natspec loop below (post-substitution)
+                // registers its native rels like any hand-written param.
+                pt = marg.empty() ? mi.src_param_type : ("&" + marg);
+                any = true;
+            }
+            if (any) {
+                raw_text = prefix_body + raw_text;
+                params_text.clear();
+                for (size_t i = 0; i < pairs.size(); ++i) {
+                    if (i) params_text += ", ";
+                    params_text += pairs[i].first;
+                    if (!pairs[i].second.empty()) {
+                        params_text += ": ";
+                        params_text += pairs[i].second;
+                    }
+                }
+            }
+            // ── native sources (ADR 0016 §6): AFTER fusion substitution, so a
+            // mapping-typed param (now carrying the mapping's source type)
+            // registers its native rels like any hand-written one.
+            for (const auto& [pn, pt] : pairs) {
+                std::string_view tv = pt;
+                while (!tv.empty() && (tv.front() == '&' || tv.front() == ' '))
+                    tv.remove_prefix(1);
+                natspec += native_source_spec(pn, std::string(tv));
+            }
+    }
+    return true;
+}
+
 void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
                                             lir::LProgram& prog) {
     using logos::writ::AnyVal;
@@ -20276,133 +20546,10 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         // cross-references all work — fusion, not materialization.
         std::string enrich;
         std::string natspec;
-        if (sig_ir5 && !params_text.empty()) {
-            // Split the raw param text on top-level commas into `name: Type`
-            // pairs; depth-track ()/[]/<> (`&[(i64, str)]` carries commas).
-            auto trim = [](std::string_view v) -> std::string_view {
-                size_t a = v.find_first_not_of(" \t\n\r");
-                if (a == std::string_view::npos) return {};
-                size_t b = v.find_last_not_of(" \t\n\r");
-                return v.substr(a, b - a + 1);
-            };
-            std::vector<std::pair<std::string, std::string>> pairs;
-            {
-                std::string_view t = params_text;
-                int depth = 0; size_t seg = 0;
-                auto flush = [&](size_t endpos) {
-                    std::string_view piece = trim(t.substr(seg, endpos - seg));
-                    if (piece.empty()) return;
-                    size_t c = piece.find(':');
-                    if (c == std::string_view::npos) {
-                        pairs.emplace_back(std::string(piece), std::string());
-                        return;
-                    }
-                    pairs.emplace_back(std::string(trim(piece.substr(0, c))),
-                                       std::string(trim(piece.substr(c + 1))));
-                };
-                for (size_t i = 0; i < t.size(); ++i) {
-                    char ch = t[i];
-                    if (ch == '(' || ch == '[' || ch == '<') ++depth;
-                    else if (ch == ')' || ch == ']' || ch == '>') --depth;
-                    else if (ch == ',' && depth == 0) { flush(i); seg = i + 1; }
-                }
-                flush(t.size());
-            }
-            std::string prefix_body;
-            size_t next_rel = 0;
-            bool any = false;
-            for (auto& [pn, pt] : pairs) {
-                if (mappings_.empty()) break;
-                // `w: M` (concrete mapping) or `w: M<Concrete>` (generic —
-                // the argument names the source type, which must implement
-                // the mapping's bound).
-                std::string mbase = pt, marg;
-                if (auto lt = pt.find('<');
-                        lt != std::string::npos && pt.back() == '>') {
-                    mbase = pt.substr(0, lt);
-                    marg  = pt.substr(lt + 1, pt.size() - lt - 2);
-                }
-                auto mit = mappings_.find(mbase);
-                if (mit == mappings_.end()) continue;
-                const MappingInfo& mi = mit->second;
-                if (mi.type_param.empty() != marg.empty()) {
-                    error(mi.type_param.empty()
-                        ? std::format("'{}!': mapping '{}' is not generic — "
-                                      "write `{}: {}`", callee_name, mbase, pn, mbase)
-                        : std::format("'{}!': mapping '{}' is generic over "
-                                      "<{}: {}> — write `{}: {}<SourceType>`",
-                                      callee_name, mbase, mi.type_param,
-                                      mi.bound, pn, mbase));
-                    return;
-                }
-                if (!marg.empty()) {
-                    // Bound check: the concrete source must bind every rel the
-                    // bound trait declares (per-trait, not by name accident).
-                    auto trit = trait_rels_.find(mi.bound);
-                    if (trit == trait_rels_.end()) {
-                        error(std::format(
-                            "'{}!': mapping '{}' is bounded by '{}', which "
-                            "declares no rels (is the trait in scope?)",
-                            callee_name, mbase, mi.bound));
-                        return;
-                    }
-                    auto sit = source_impls_.find(marg);
-                    for (const auto& need : trit->second) {
-                        bool have = false;
-                        if (sit != source_impls_.end())
-                            for (const auto& b : sit->second)
-                                if (b.trait_name == mi.bound && b.rel == need.rel)
-                                    { have = true; break; }
-                        if (!have) {
-                            error(std::format(
-                                "'{}!': `{}: {}<{}>` — '{}' does not implement "
-                                "'{}' (missing `rel {} = …` binding)",
-                                callee_name, pn, mbase, marg, marg,
-                                mi.bound, need.rel));
-                            return;
-                        }
-                    }
-                }
-                if (!mi.enrichable) {
-                    error(std::format(
-                        "'{}!': parameter '{}' binds mapping '{}', which has "
-                        "more than one parameter — only single-source mappings "
-                        "can enrich a deem! today (scalar mapping params are a "
-                        "later slice)", callee_name, pn, pt));
-                    return;
-                }
-                enrich += std::format("{}={}@{}-{};", mi.src_param_name, pn,
-                                      next_rel, next_rel + mi.nrels);
-                prefix_body += mi.body_text;
-                next_rel += mi.nrels;
-                // Services → &Writ; Reach<G1> → &G1 — the emitted fn takes the
-                // real source, and the natspec loop below (post-substitution)
-                // registers its native rels like any hand-written param.
-                pt = marg.empty() ? mi.src_param_type : ("&" + marg);
-                any = true;
-            }
-            if (any) {
-                raw_text = prefix_body + raw_text;
-                params_text.clear();
-                for (size_t i = 0; i < pairs.size(); ++i) {
-                    if (i) params_text += ", ";
-                    params_text += pairs[i].first;
-                    if (!pairs[i].second.empty()) {
-                        params_text += ": ";
-                        params_text += pairs[i].second;
-                    }
-                }
-            }
-            // ── native sources (ADR 0016 §6): AFTER fusion substitution, so a
-            // mapping-typed param (now carrying the mapping's source type)
-            // registers its native rels like any hand-written one.
-            for (const auto& [pn, pt] : pairs) {
-                std::string_view tv = pt;
-                while (!tv.empty() && (tv.front() == '&' || tv.front() == ' '))
-                    tv.remove_prefix(1);
-                natspec += native_source_spec(pn, std::string(tv));
-            }
-        }
+        if (sig_ir5
+                && !enrich_deem_params(callee_name, params_text, raw_text,
+                                       enrich, natspec))
+            return;
         emit_token_macro_item_site(node, prog, macro_info, rt_is_il,
                                    sig_str3 ? 3 : (sig_str2 ? 2 : 1),
                                    resource_name, params_text, raw_text,

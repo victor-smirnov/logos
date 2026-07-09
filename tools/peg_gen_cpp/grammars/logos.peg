@@ -338,6 +338,7 @@
     WRIT_BLOB                   = 261   // pre-serialised Writ static blob (driver splice from a metacall WritStatic return); VALUE = raw blob bytes (Varchar)
     REL_SIG                     = 262   // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
     REL_BIND                    = 263   // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
+    DEEM_DEF                    = 264   // ADR 0016: `pub? deem q(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -546,7 +547,7 @@
     path_dot_ident <- DOT IDENT !(DOT LBRACE)
                    => { NAME: $2 }
 
-    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / resource_item_decl / fn_macro_item_decl / pub_schema_enum_def / schema_enum_def / pub_schema_def / schema_def / pub_mapping_def / mapping_def / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / resource_item_decl / fn_macro_item_decl / pub_deem_def / deem_def / pub_schema_enum_def / schema_enum_def / pub_schema_def / schema_def / pub_mapping_def / mapping_def / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -1268,6 +1269,15 @@
     // vocabulary; an IMPL binds each rel to its native materializer fn. Same
     // contextual-`rel` convention as rel_def (bare IDENT in REL_KW, sema
     // validates the text — a global `rel` keyword would break ~400 uses).
+    // ADR 0016 — the deem QUERY as an item: `pub? deem q(g: &Writ) { from … }`.
+    // Contextual lead ident (same convention as rel/mapping's members): `deem`
+    // as a keyword would break the `logos.std.deem` package path. The lead
+    // rides the REL_KW slot; sema validates the text.
+    pub_deem_def <- pub_vis IDENT IDENT LPAREN param_list? RPAREN RAW_GROUP_BRACE
+                 => { CODE: DEEM_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, PARAMS: $5, RAW_TEXT: $7 }
+    deem_def     <- IDENT IDENT LPAREN param_list? RPAREN RAW_GROUP_BRACE
+                 => { CODE: DEEM_DEF, REL_KW: $1, NAME: $2, PARAMS: $4, RAW_TEXT: $6 }
+
     rel_sig  <- IDENT IDENT LPAREN param_list? RPAREN SEMI
              => { CODE: REL_SIG, REL_KW: $1, NAME: $2, PARAMS: $4 }
     rel_bind <- IDENT IDENT ASSIGN IDENT SEMI

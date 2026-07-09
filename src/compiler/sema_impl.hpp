@@ -4127,6 +4127,7 @@ private:
         std::vector<TraitRelCol> cols;
     };
     std::unordered_map<std::string, std::vector<SourceRelBind>> source_impls_;
+    bool          builtin_sources_seeded_ = false;
     void          seed_builtin_source_impls();
     // Build the native-source spec for one deem!/mapping param, or "" when its
     // type implements no source trait. Entry grammar (consumed by
@@ -4137,6 +4138,16 @@ private:
     // consuming package.
     std::string   native_source_spec(const std::string& pname,
                                      const std::string& ptype_stripped);
+    // Shared by the deem! macro path and the `deem` ITEM (ADR 0016): mapping
+    // fusion + native-source spec over a deem parameter list. Mutates
+    // params_text (mapping-type substitution) and raw_text (rule-list
+    // prepend); fills enrich + natspec. False = error already reported.
+    bool          enrich_deem_params(const std::string& callee_label,
+                                     std::string& params_text,
+                                     std::string& raw_text,
+                                     std::string& enrich,
+                                     std::string& natspec);
+    void          lower_deem_def(writ::TinyMapView node, lir::LProgram& prog);
 
     // Shared tail of the #[token_macro] ITEM path (pack arg blobs, synth the
     // JIT thunk, register the MetacallSiteStage); factored from

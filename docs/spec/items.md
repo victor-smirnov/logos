@@ -917,6 +917,20 @@ Each rel declares 1–8 `name: type` columns; column types are restricted to i64
 
 Sema validates the item, reconstructs canonical `(name, params, body)` text from the checked AST, and dispatches it to the `#[token_macro]` handler `__mapping_item` (logos.std.wql.mapping_item — must be in scope via `use`; the error otherwise names the missing import). The consumed MAPPING_DEF node is marked FN_MACRO_CALL_ITEM_DONE exactly like an item-position fn-macro. The mapping introduces no nominal type in this slice (arrives with the mapping-as-value/functor slice).
 
+### `item.deem.query-item` — deem: a query as a language item
+
+`[pub] deem q(param: Type, …) { <query> }` (DEEM_DEF: PARAMS = PARAM array, RAW_TEXT = the query body) declares a deem query as an item — the item form of `resource q = deem!(params){ body }`, lowered through the SAME handler and zero-copy rule-IR seam. Header params follow the mapping discipline (simple `name: Type`, ≥ 1, syntactic re-render); every deem! capability rides along unchanged: rels + recursion, graph params, mapping fusion (`w: Net`), generic-mapping instantiation (`w: Reach<Chain>`).
+
+Evidence: `tools/peg_gen_cpp/grammars/logos.peg` (pub_deem_def/deem_def), `src/compiler/sema_expr.cpp` (lower_deem_def), `tests/logos/pass/wql_deem_item_e2e.logos`
+
+### `item.deem.contextual-keyword` — `deem` is contextual at item position
+
+The item's lead token is a bare IDENT validated == "deem" during lowering — a global `deem` keyword would break the `logos.std.deem` package path. Any other two-ident item head (`foo bar(…) { … }`) is an error suggesting the `deem` spelling.
+
+### `item.deem.visibility` — item visibility is real; the resource form stays pub
+
+`deem q(…)` emits a NON-pub fn; `pub deem q(…)` a pub one (the `-` fn-name marker convention consumed at the emit sites). The `resource q = deem!(…){…}` macro form keeps emitting a pub fn, unchanged.
+
 ## Type aliases
 
 ### `item.type-alias.def` — Type alias definition
