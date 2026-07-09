@@ -224,6 +224,16 @@ extern "C" void logos_holder_release(void* h) {
 extern "C" void logos_metaprog_error(const char* msg) {
     if (!g_metaprog_diags || !msg) return;
     std::string out;
+    // A metacall/token-macro thunk is running: the driver computed the site's
+    // file + SRC_LINE into g_current_emit_ctx before invoking it. Prefixing
+    // here gives EVERY handler/walker `error()` a real location — the deem
+    // pipeline's ~50 diagnostics acquire spans without touching one of them.
+    if (g_current_emit_ctx_valid && !g_current_emit_ctx.src_file.empty()) {
+        out.append(g_current_emit_ctx.src_file);
+        out.append(":");
+        out.append(std::to_string(g_current_emit_ctx.src_line));
+        out.append(": ");
+    }
     if (g_current_hook_name) {
         out.append("metaprog hook '");
         out.append(g_current_hook_name);
@@ -2758,7 +2768,27 @@ int run_metaprog_dispatch(
             // a null OView inside the hook and crashes reflection.
             auto saved_root = g_user_root_idx;
             g_user_root_idx = site.ast_idx;
+            // Site provenance for the thunk run: handler/walker `error()`
+            // calls (the whole deem diagnostic surface) prefix `<file>:<line>`
+            // from this — the item's own SRC_LINE, not whatever fn sema last
+            // visited.
+            {
+                int line = 0;
+                auto* ph = asts[site.ast_idx].holder();
+                auto ptom = logos::writ::TinyMapView(
+                    logos::writ::arena_offset_t(site.expr_offset), ph);
+                auto av = ptom.get(logos::compiler::ast::SRC_LINE.code);
+                if (!av.is_null() && av.is_value())
+                    line = static_cast<int>(av.as_value<uint32_t>());
+                g_current_emit_ctx = EmitProvenance{
+                    site.ast_idx < filenames.size() ? filenames[site.ast_idx]
+                                                    : std::string{},
+                    line, site.callee_name, std::string{}, std::string{}, iter,
+                };
+                g_current_emit_ctx_valid = true;
+            }
             reinterpret_cast<void (*)()>(sym)();
+            g_current_emit_ctx_valid = false;
             g_user_root_idx = saved_root;
             auto& doc = asts[site.ast_idx];
             auto* h    = doc.holder();

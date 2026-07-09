@@ -19525,6 +19525,12 @@ void SemaChecker::emit_token_macro_item_site(
                                      ? wp.parse_rel_list()
                                      : wp.parse_program();
             if (root.is_null()) {
+                // Deliberately the ITEM's line, not a body-relative one: after
+                // a failed PEG parse the parser's position is REWOUND by
+                // backtracking, so next_line() names wherever the final
+                // alternative gave up — misleading precision. A
+                // furthest-failure tracker in both generated parsers is the
+                // honest fix, and a separate slice.
                 error(ir_entry == IrEntry::RelList
                       ? std::format("mapping '{}': malformed rel body — each body is a "
                                     "full query (`from … select …`)", resource_name)
@@ -19999,6 +20005,7 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
 
 void SemaChecker::lower_mapping_def(writ::TinyMapView node,
                                     lir::LProgram& prog) {
+    node_line_ = get_line(node);   // errors point at THIS item, not at stale state
     MappingParts parts;
     if (!reconstruct_mapping_def(node, parts)) {
         error(parts.err);
@@ -20093,8 +20100,10 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
 // pub), the item's visibility is real: non-pub emits a non-pub fn via the
 // `-` name-marker convention (vis_strip at the emit sites).
 void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
+    node_line_ = get_line(node);   // errors point at THIS item, not at stale state
     std::string lead(str_of(node.get(la::REL_KW.code)));
     std::string qname(str_of(node.get(la::NAME.code)));
+    ctx_ = std::format("deem {}", qname);
     if (lead != "deem") {
         error(std::format(
             "unknown item `{} {}(…)` — did you mean `deem {}(…) {{ … }}`?",
@@ -20353,6 +20362,7 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
 
 void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
                                             lir::LProgram& prog) {
+    node_line_ = get_line(node);   // errors point at THIS item, not at stale state
     using logos::writ::AnyVal;
     using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;
