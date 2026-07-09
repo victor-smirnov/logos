@@ -1,16 +1,12 @@
 //
-// Deem showcase — the runtime query engine, from flat queries to the
-// incremental reasoner. THE COMPLEXITY LADDER SEED: this example grows act by
-// act toward the Nous workloads (ontologies, budgeted self-observation) —
-// each act is the smallest honest demo of one engine tier.
+// Deem showcase — the MINIMAL STATIC example. The seed of a complexity
+// ladder: this file grows step by step toward real ontology workloads.
 //
-//   Act 1 — a world as facts: schema'd Writ rows, filter + project.
-//   Act 2 — shaping: join, group by, aggregates.
-//   Act 3 — Trama: the same engine renders text reports.
-//   Act 4 — Datalog: a recursive `rel` block (reachability over mentorship).
-//   Act 5 — the incremental engine: facts CHANGE; the closure is maintained,
-//           not recomputed — plus the first Nous step: a budgeted epoch that
-//           REGISTERS what it did not finish (truncated_tail), then resumes.
+// Static mode: the query lives IN the program. `deem!` is a compile-time
+// macro — it parses the query at BUILD time and emits an ordinary Logos
+// function (here: `adults(&[Person]) -> Result<Vec<str>, …>`). No engine at
+// runtime, no query text, no schema catalog — just the generated loop over
+// your data.
 //
 // Build: cmake --build build --target example_deem_showcase
 // Run:   ./build/examples/deem_showcase
@@ -18,198 +14,39 @@
 
 package deem_showcase;
 
-use logos.lang.writ.container;    // Writ / writ_new
-use logos.lang.writ.anyval;       // WAny
-use logos.lang.writ.array;        // WArray
-use logos.lang.result;
-use logos.lang.str;
-use logos.mem.string;
+use logos.std.wql.wql;            // the deem! macro
 use logos.mem.collections.vec;
-use logos.std.wql.ir;
-use logos.std.wql.catalog_macro;  // schema_catalog!
-use logos.std.deem;
+use logos.lang.str;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
 
-// ── the world: a tiny engineering org ──────────────────────────────────────
-pub schema Emp : code(0x0E10_0000_0000_0001) {
-    name:   str = 0,
-    dept:   str = 1,
-    salary: i64 = 2,
-}
-// mentorship edges by employee id (the graph for Acts 4-5)
-pub schema Mentors : code(0x0E10_0000_0000_0002) {
-    a: i64 = 0,
-    b: i64 = 1,
-}
-resource cat = schema_catalog!{ Emp, Mentors };
-
-fn hdr(label: str) {
-    unsafe { printf("\n=== %.*s ===\n" as *const u8, label.len() as i32, label.as_ptr()); }
+// plain data — no schemas, no arenas, just a struct
+struct Person {
+    pub name: str,
+    pub age:  i64,
 }
 
-fn mk_emp(d: &Writ, name: str, dept: str, salary: i64) -> WAny {
-    let e: Emp = d.make::<Emp>();
-    e.name = name; e.dept = dept; e.salary = salary;
-    return WAny::ref_to((e.m as i64) as *const u8);
-}
-
-fn mk_edge(d: &Writ, a: i64, b: i64) -> WAny {
-    let m: Mentors = d.make::<Mentors>();
-    m.a = a; m.b = b;
-    return WAny::ref_to((m.m as i64) as *const u8);
-}
-
-fn build_arr(d: &Writ, hs: &Vec<WAny>) -> WAny {
-    let arr: &mut WArray<WAny> = d.array(64i64);
-    let mut i: i64 = 0i64;
-    while i < hs.len() { arr.push(hs.get(i)); i = i + 1i64; }
-    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
-}
-
-// print a QRows table: str and i64 columns, one row per line
-fn dump(rows: &QRows) {
-    let mut r: i64 = 0i64;
-    while r < rows.row_count() {
-        unsafe { printf("  " as *const u8); }
-        let mut c: i64 = 0i64;
-        while c < rows.col_count() {
-            if str_eq(rows.col_ty(c), "str") {
-                let s: str = rows.get_str(r, c);
-                unsafe { printf("%-10.*s " as *const u8, s.len() as i32, s.as_ptr()); }
-            } else {
-                unsafe { printf("%-6ld " as *const u8, rows.get_i64(r, c)); }
-            }
-            c = c + 1i64;
-        }
-        unsafe { printf("\n" as *const u8); }
-        r = r + 1i64;
-    }
-}
+// the query, compiled with the program:
+//   "the names of everyone 18 or older"
+resource adults = deem!(people: &[Person]) {
+    from people p where p.age >= 18 select p.name : str
+};
 
 fn main() -> i32 {
-    let doc: Writ = writ_new(65536i64);
-    let c: SchemaCatalog = cat();
+    let people: [Person; 4] = [
+        Person { name: "ann",  age: 34i64 },
+        Person { name: "bob",  age: 15i64 },
+        Person { name: "cid",  age: 62i64 },
+        Person { name: "dana", age: 9i64  },
+    ];
 
-    // the fact base: employees (id = position in the array) + mentorship edges
-    let mut emps: Vec<WAny> = vec_new::<WAny>();
-    emps.push(mk_emp(&doc, "ann",  "core",    140i64));   // 0
-    emps.push(mk_emp(&doc, "bob",  "core",    115i64));   // 1
-    emps.push(mk_emp(&doc, "cid",  "tools",    95i64));   // 2
-    emps.push(mk_emp(&doc, "dana", "tools",   120i64));   // 3
-    emps.push(mk_emp(&doc, "eve",  "qa",       90i64));   // 4
-    let mut ment: Vec<WAny> = vec_new::<WAny>();
-    ment.push(mk_edge(&doc, 0i64, 1i64));   // ann mentors bob
-    ment.push(mk_edge(&doc, 1i64, 2i64));   // bob mentors cid
-    ment.push(mk_edge(&doc, 3i64, 4i64));   // dana mentors eve
+    let names: Vec<str> = adults(&people[..]).unwrap();
 
-    let mut env: QEnv = QEnv::new();
-    env.bind_source("emps", build_arr(&doc, &emps));
-    env.bind_source("mentors", build_arr(&doc, &ment));
-    env.bind_i64("min_salary", 100i64);
-
-    // ── Act 1: filter + project — who earns at least `min_salary`? ──────────
-    hdr("Act 1: select");
-    let q1: Query = match Query::compile(
-        "from emps e where e.salary >= min_salary select (e.name, e.salary)", &c)
-    { Result::Ok(v) => { v } Result::Err(er) => { fail(&er); return 1i32; } };
-    match q1.run(&env) {
-        Result::Ok(rows) => { dump(&rows); }
-        Result::Err(er)  => { fail(&er); return 1i32; }
+    let mut i: i64 = 0i64;
+    while i < names.len() {
+        let n: str = names.get(i);
+        unsafe { printf("%.*s\n" as *const u8, n.len() as i32, n.as_ptr()); }
+        i = i + 1i64;
     }
-
-    // ── Act 2: group by + aggregates — department shape ─────────────────────
-    hdr("Act 2: group by");
-    let q2: Query = match Query::compile(
-        r#"from emps e group by e.dept
-           aggregate n = count(), top = max(e.salary)
-           select (key, n, top) order by key"#, &c)
-    { Result::Ok(v) => { v } Result::Err(er) => { fail(&er); return 2i32; } };
-    match q2.run(&env) {
-        Result::Ok(rows) => { dump(&rows); }
-        Result::Err(er)  => { fail(&er); return 2i32; }
-    }
-
-    // ── Act 3: the same engine renders text (Trama templates) ───────────────
-    hdr("Act 3: template");
-    let t: Tpl = match Tpl::compile(
-        "budget note: {% set band = min_salary + 25 %}senior band starts at {{ band }}", &c)
-    { Result::Ok(v) => { v } Result::Err(er) => { fail(&er); return 3i32; } };
-    match t.render(&env) {
-        Result::Ok(s) => {
-            let sv: str = s.as_str();
-            unsafe { printf("  %.*s\n" as *const u8, sv.len() as i32, sv.as_ptr()); }
-        }
-        Result::Err(er) => { fail(&er); return 3i32; }
-    }
-
-    // ── Act 4: Datalog — reachability over the mentorship graph ─────────────
-    // A recursive `rel` block: base = direct edges, step = extend by one edge.
-    hdr("Act 4: recursive rel");
-    let q4: Query = match Query::compile(
-        r#"rel reach(a: i64, b: i64) {
-             from mentors m select (m.a, m.b);
-             from reach r join mentors m on r.b == m.a select (r.a, m.b);
-           }
-           from reach r select (r.a, r.b)"#, &c)
-    { Result::Ok(v) => { v } Result::Err(er) => { fail(&er); return 4i32; } };
-    match q4.run(&env) {
-        Result::Ok(rows) => { dump(&rows); }   // note ann→cid: derived, 2 hops
-        Result::Err(er)  => { fail(&er); return 4i32; }
-    }
-
-    // ── Act 5: the INCREMENTAL engine — facts change, the closure follows ───
-    // Same query, maintained under ±edge deltas instead of recomputed.
-    hdr("Act 5: incremental + budget");
-    let mut eng: IncrRec = match q4.incremental_rec(&env)
-    { Result::Ok(e) => { e } Result::Err(er) => { fail(&er); return 5i32; } };
-    show_count("initial closure", &eng);
-
-    // new fact: cid mentors dana — bridges the two chains
-    let e_cd: WAny = mk_edge(&doc, 2i64, 3i64);
-    let mut d1: ZBatch = ZBatch::new();
-    d1.push(e_cd, 1i64);
-    eng.epoch(&d1);
-    show_count("after insert cid->dana", &eng);
-
-    // retract it — DRed maintenance, not recompute-by-hand
-    let mut d2: ZBatch = ZBatch::new();
-    d2.push(e_cd, 0i64 - 1i64);
-    eng.epoch(&d2);
-    show_count("after retract", &eng);
-
-    // the first Nous step: a BUDGETED epoch. One fixpoint round only — the
-    // engine cuts, and REGISTERS what it did not finish (the truncated tail).
-    eng.set_budget_steps(1i64);
-    let mut d3: ZBatch = ZBatch::new();
-    d3.push(e_cd, 1i64);
-    eng.epoch(&d3);
-    let tl: TruncatedTail = eng.tail();
-    if tl.converged {
-        unsafe { printf("  budgeted epoch: converged (graph too small to cut)\n" as *const u8); }
-    } else {
-        unsafe { printf("  budgeted epoch: CUT — %ld rows pending, registered by the engine itself\n" as *const u8,
-                        tl.pending_delta_card); }
-    }
-    // resume: an empty epoch continues from the watermark to convergence
-    eng.clear_budget();
-    let d4: ZBatch = ZBatch::new();
-    eng.epoch(&d4);
-    show_count("after resume", &eng);
-    unsafe { printf("  epochs run: %ld, trace steps recorded: %ld\n" as *const u8,
-                    eng.cur_epoch(), eng.trace_len()); }
-
-    unsafe { printf("\ndone.\n" as *const u8); }
     return 0i32;
-}
-
-fn show_count(label: str, eng: &IncrRec) {
-    let s: QRows = eng.snapshot();
-    unsafe { printf("  %-24.*s %ld facts\n" as *const u8,
-                    label.len() as i32, label.as_ptr(), s.row_count()); }
-}
-
-fn fail(er: &QError) {
-    let m: str = er.message();
-    unsafe { printf("deem error: %.*s\n" as *const u8, m.len() as i32, m.as_ptr()); }
 }
