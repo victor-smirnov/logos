@@ -19484,7 +19484,9 @@ void SemaChecker::emit_token_macro_item_site(
     writ::TinyMapView node, lir::LProgram& prog,
     const SemaFuncInfo* macro_info, bool rt_is_il, int nargs,
     const std::string& resource_name, const std::string& params_text,
-    const std::string& raw_text, bool ir_mode) {
+    const std::string& raw_text, IrEntry ir_entry,
+    const std::string& pub_mask) {
+        const bool ir_mode = (ir_entry != IrEntry::None);
         // Slot layout mirrors the ABI decision in the diagnostic above:
         //   1-arg (sig_str):  slot 0 = raw block body
         //   2-arg (nargs == 2): slot 0 = LHS binding <name>, slot 1 = raw body
@@ -19508,14 +19510,19 @@ void SemaChecker::emit_token_macro_item_site(
             // from. The handler never sees the text.
             blobs.push_back(pack_blob(resource_name));
             blobs.push_back(pack_blob(params_text));
+            if (ir_entry == IrEntry::RelList) blobs.push_back(pack_blob(pub_mask));
 
             auto doc = logos::writ::make_doc(1u << 20).get();   // MultiChunk: never moves
             logos::wql::surface::WqlParser wp(raw_text, doc);
-            logos::writ::AnyVal root = wp.parse_program();
+            logos::writ::AnyVal root = (ir_entry == IrEntry::RelList)
+                                     ? wp.parse_rel_list()
+                                     : wp.parse_program();
             if (root.is_null()) {
-                error(std::format(
-                    "'{}!': malformed query — expected `[rel …]* from … select …`",
-                    macro_info->base_name));
+                error(ir_entry == IrEntry::RelList
+                      ? std::format("mapping '{}': malformed rel body — each body is a "
+                                    "full query (`from … select …`)", resource_name)
+                      : std::format("'{}!': malformed query — expected "
+                                    "`[rel …]* from … select …`", macro_info->base_name));
                 return;
             }
             logos::compiler::rule_ir::put(site_id, std::move(doc), root);
@@ -19536,7 +19543,26 @@ void SemaChecker::emit_token_macro_item_site(
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         // The callee invocation, producing an ItemList or QuoteItemBlob.
         std::string call_text;
-        if (ir_mode) {
+        if (ir_entry == IrEntry::RelList) {
+            // (name, params, pub_mask, ir) — the mapping ABI. The mask is one
+            // '0'/'1' per rel in declaration order; rel NAMES and COLUMNS come
+            // from the IR, so the handler scans no text at all.
+            call_text = std::format(
+                "{{\n"
+                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
+                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
+                "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
+                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pm: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
+                "    let __mk: str = unsafe {{ str_from_raw(__pm, {3}i64) }};\n"
+                "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
+                "    {4}(__n, __pr, __mk, __ir)\n"
+                "}}",
+                site_id, static_cast<int64_t>(resource_name.size()),
+                static_cast<int64_t>(params_text.size()),
+                static_cast<int64_t>(pub_mask.size()),
+                macro_info->base_name);
+        } else if (ir_mode) {
             // Third arg is a POINTER into the compiler's Writ arena — the root
             // of the RQProgram parsed above. The handler does `WAny::ref_to(ir)`.
             call_text = std::format(
@@ -19718,7 +19744,11 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
     }
 
     // ── rel members: validate signatures, reconstruct canonical text ──
+    // The text is a bare `rel …+` list — the wql.peg `rel_list` entry. No `pub`:
+    // visibility is an item-layer concept the query grammar knows nothing of, so
+    // it travels beside the IR as a '0'/'1' mask in declaration order.
     std::string body_text;
+    std::string pub_mask;
     std::vector<std::string> rel_names;
     if (node.has_key(la::FIELDS)) {
         auto rarr = arr_of(node.get(la::FIELDS.code));
@@ -19803,7 +19833,7 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
                 return;
             }
             std::string rbody(str_of(r.get(la::RAW_TEXT.code)));
-            if (r.has_key(la::IS_PUB.code)) body_text += "pub ";
+            pub_mask += r.has_key(la::IS_PUB.code) ? '1' : '0';
             body_text += "rel ";
             body_text += rn;
             body_text += "(";
@@ -19850,20 +19880,27 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
             && TypeRef(t).elem()
             && TypeRef(t).elem().kind() == LogosType::Kind::U8;
     };
+    auto is_const_u8_ptr = [](TypeRef t) -> bool {
+        return TypeRef(t).kind() == LogosType::Kind::Ptr
+            && TypeRef(t).pointee()
+            && TypeRef(t).pointee().kind() == LogosType::Kind::U8;
+    };
     bool rt_is_il = is_item_list(macro_info->ret_type);
     if ((!rt_is_il && !is_quote_item_blob(macro_info->ret_type))
-            || macro_info->param_types.size() != 3
+            || macro_info->param_types.size() != 4
             || !is_str_type(macro_info->param_types[0])
             || !is_str_type(macro_info->param_types[1])
-            || !is_str_type(macro_info->param_types[2])) {
+            || !is_str_type(macro_info->param_types[2])
+            || !is_const_u8_ptr(macro_info->param_types[3])) {
         error("mapping item: '__mapping_item' must be a #[token_macro] "
-              "`(name: str, params: str, body: str) -> ItemList` "
+              "`(name: str, params: str, pubs: str, ir: *const u8) -> ItemList` "
               "(stdlib/compiler version skew?)");
         return;
     }
     if (!holder_ || !cur_prog_) return;
     emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 3,
-                               mname, params_text, body_text);
+                               mname, params_text, body_text,
+                               IrEntry::RelList, pub_mask);
 }
 
 
@@ -20050,7 +20087,8 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     if (sig_str || sig_str2 || sig_str3 || sig_ir3) {
         emit_token_macro_item_site(node, prog, macro_info, rt_is_il,
                                    sig_str3 ? 3 : (sig_str2 ? 2 : 1),
-                                   resource_name, params_text, raw_text, sig_ir3);
+                                   resource_name, params_text, raw_text,
+                                   sig_ir3 ? IrEntry::Program : IrEntry::None);
         return;
     }
 

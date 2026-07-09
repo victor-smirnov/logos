@@ -18,20 +18,28 @@
 //     concatenates `Services__engine` and finds the generated fn; `pub` is
 //     enforced by the ordinary cross-package fn visibility check.
 //
-// SEAM: the compiler owns the grammar + Sema validation of the item and the
-// rel SIGNATURES (sema_expr.cpp lower_mapping_def). It reconstructs CANONICAL
-// `(name, params, body)` text from the CHECKED AST — `body` is a sequence of
-// `pub? rel <name>(<col>: <ty>, …) {<rules>}` decls — and routes it through
-// the token-macro item seam to this handler. The scan below therefore reads
-// MACHINE-GENERATED text (it stays a scanner only until the checked rule IR
-// crosses the seam as data — the planned structured-payload slice).
+// SEAM: the compiler owns the grammar, the Sema validation of the item and the
+// rel SIGNATURES (sema_expr.cpp lower_mapping_def), AND the parse. It hands this
+// handler `(name, params, pubs, ir)`, where `ir` points at the RQRelArr it
+// parsed — with the C++ parser generated from the same wql.peg the Logos runtime
+// parser comes from — living in the compiler's never-move arena. The handler
+// scans no text: rel names and columns are read out of the IR, and `pubs` is one
+// '0'/'1' per rel in declaration order (visibility is an item-layer concept the
+// query grammar knows nothing of).
 //
-// MECHANICS: pure reuse. Per declared rel R(c1, …, cn) the handler compiles
-// the FULL mapping body (so rels may reference each other) plus a synthesized
-// entry `from R x select (x.c1, …, x.cn)` through the SAME pipeline as deem!
-// (parse_program → graph-path desugar → walk_program_params), stamped with
-// the fn name `<Mapping>__<R>` (a leading `-` marks a non-pub rel — consumed
-// by emit_fn_head / vis_strip, params.logos).
+// MECHANICS: pure reuse. The mapping body is parsed ONCE. Per declared rel
+// R(c1, …, cn) the handler synthesizes the tiny entry `from R __mx select
+// (__mx.c1, …)` and grafts the SHARED rel array onto it, so rels still see each
+// other, then runs the SAME pipeline as deem! (graph-path desugar →
+// walk_program_params) stamped with the fn name `<Mapping>__<R>` (a leading `-`
+// marks a non-pub rel — consumed by emit_fn_head / vis_strip, params.logos).
+//
+// Sharing the rel array across walks rests on two properties, both load-bearing:
+//   * walk_program_params REWRITES a rel reference's `src_name` to the emitted
+//     `__rel_<r>_sl`, so `resolve_source` accepts that name as an alias for the
+//     rel (params.logos rel_find_src) — the walk is idempotent.
+//   * the desugar rewrites rel bodies in place and dedups its injected
+//     `__reach_*` rels by name, so it runs ONCE, before the loop.
 //
 // Cost note (v1): each generated fn materializes its dependency rels per
 // call. The `deem!(g: Services)` consumption form (mapping rels as native
@@ -43,7 +51,8 @@ use logos.std.compiler.metaprog;         // ItemList, item_list_new, error
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.std.wql.params;                // MacroParams / parse_macro_params
-use logos.std.wql.wql_surface_parser;    // parse_program
+use logos.std.wql.wql_surface_parser;    // parse_program (the synthesized entry)
+use logos.std.wql.plan;                  // RQProgram / RQRelArr views, rq_fat_program
 use logos.std.wql.plan_walker;           // walk_program_params
 use logos.std.wql.lower;                 // desugar_program_gpaths
 use logos.lang.str;
@@ -53,122 +62,12 @@ fn ms(s: &String) -> str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 
-fn is_sp(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
-fn is_al(c: u8) -> bool {
-    return (c >= 97u8 && c <= 122u8) || (c >= 65u8 && c <= 90u8) || c == 95u8;
-}
-fn is_an(c: u8) -> bool { return is_al(c) || (c >= 48u8 && c <= 57u8); }
-
-// One declared rel: name, column names (for the entry projection), pub flag.
-struct MRel { pub name: str, pub cols: [str; 8], pub ncols: i64, pub is_pub: bool }
-
-// Match the identifier `word` at position i (word-boundary on both sides).
-fn at_word(body: str, i: i64, word: str) -> bool {
-    let n: i64 = body.len();
-    let w: i64 = word.len();
-    if i + w > n { return false; }
-    let mut k: i64 = 0i64;
-    while k < w {
-        if str_byte_at(body, i + k) != str_byte_at(word, k) { return false; }
-        k = k + 1i64;
-    }
-    if i > 0i64 && is_an(str_byte_at(body, i - 1i64)) { return false; }
-    if i + w < n && is_an(str_byte_at(body, i + w)) { return false; }
-    return true;
-}
-
-// Scan the canonical body for `pub? rel NAME ( col : ty , … )` heads (top
-// level). The input is compiler-generated from the CHECKED mapping item, so
-// this only recovers names + column names for the entry-query synthesis —
-// all validation already happened in Sema (lower_mapping_def).
-fn scan_rels(body: str, out: &mut [MRel; 8]) -> i64 {
-    let n: i64 = body.len();
-    let mut nr: i64 = 0i64;
-    let mut i: i64 = 0i64;
-    let mut depth: i64 = 0i64;
-    let mut pub_pending: bool = false;
-    while i < n {
-        let c: u8 = str_byte_at(body, i);
-        if c == 123u8 { depth = depth + 1i64; i = i + 1i64; continue; }   // {
-        if c == 125u8 { depth = depth - 1i64; i = i + 1i64; continue; }   // }
-        // top-level `pub` marker (canonical text: `pub rel …`)
-        if depth == 0i64 && c == 112u8 && at_word(body, i, "pub") {
-            pub_pending = true;
-            i = i + 3i64;
-            continue;
-        }
-        // top-level `rel` keyword
-        if depth == 0i64 && c == 114u8 && at_word(body, i, "rel") {
-            let mut p: i64 = i + 3i64;
-            while p < n && is_sp(str_byte_at(body, p)) { p = p + 1i64; }
-            let ns: i64 = p;
-            while p < n && is_an(str_byte_at(body, p)) { p = p + 1i64; }
-            if p > ns && nr < 8i64 {
-                out[nr].name = unsafe { str_from_raw(((body.as_ptr() as i64) + ns) as *const u8, p - ns) };
-                out[nr].is_pub = pub_pending;
-                // columns: `( col : ty , col : ty … )`
-                while p < n && is_sp(str_byte_at(body, p)) { p = p + 1i64; }
-                let mut nc: i64 = 0i64;
-                if p < n && str_byte_at(body, p) == 40u8 {                // (
-                    p = p + 1i64;
-                    loop {
-                        while p < n && is_sp(str_byte_at(body, p)) { p = p + 1i64; }
-                        let cs: i64 = p;
-                        while p < n && is_an(str_byte_at(body, p)) { p = p + 1i64; }
-                        if p > cs && nc < 8i64 {
-                            out[nr].cols[nc] = unsafe { str_from_raw(((body.as_ptr() as i64) + cs) as *const u8, p - cs) };
-                            nc = nc + 1i64;
-                        }
-                        // skip `: ty` to the next `,` or `)`
-                        while p < n && str_byte_at(body, p) != 44u8
-                              && str_byte_at(body, p) != 41u8 { p = p + 1i64; }
-                        if p >= n || str_byte_at(body, p) == 41u8 { break; }
-                        p = p + 1i64;   // ','
-                    }
-                }
-                out[nr].ncols = nc;
-                nr = nr + 1i64;
-            }
-            pub_pending = false;
-            i = p;
-            continue;
-        }
-        i = i + 1i64;
-    }
-    return nr;
-}
-
-// Copy `body` with every top-level `pub` marker removed. The WQL program
-// grammar (wql.peg) parses `rel NAME(cols){…}` — visibility is a mapping-ITEM
-// concept consumed HERE (scan_rels → fname marker), not a query-language one,
-// so the pipeline never sees it.
-fn strip_pub(body: str, out: &mut String) {
-    let n: i64 = body.len();
-    let mut i: i64 = 0i64;
-    let mut seg: i64 = 0i64;
-    let mut depth: i64 = 0i64;
-    while i < n {
-        let c: u8 = str_byte_at(body, i);
-        if c == 123u8 { depth = depth + 1i64; }                           // {
-        if c == 125u8 { depth = depth - 1i64; }                           // }
-        if depth == 0i64 && c == 112u8 && at_word(body, i, "pub") {
-            out.push_str(unsafe { str_from_raw(((body.as_ptr() as i64) + seg) as *const u8, i - seg) });
-            i = i + 3i64;
-            while i < n && is_sp(str_byte_at(body, i)) { i = i + 1i64; }
-            seg = i;
-            continue;
-        }
-        i = i + 1i64;
-    }
-    out.push_str(unsafe { str_from_raw(((body.as_ptr() as i64) + seg) as *const u8, n - seg) });
-}
-
 /// Lowering handler behind the `mapping` ITEM (ADR 0016). Invoked by the
-/// COMPILER (sema lower_mapping_def) through the token-macro item seam with
-/// CANONICAL (name, params, body) text reconstructed from the checked AST —
-/// not meant to be called as a user-facing macro.
+/// COMPILER (sema lower_mapping_def) through the token-macro item seam: `ir`
+/// points at the RQRelArr the compiler already parsed, `pubs` carries the
+/// per-rel visibility the query grammar cannot express. Not a user-facing macro.
 #[token_macro]
-pub fn __mapping_item(name: str, params: str, body: str) -> ItemList {
+pub fn __mapping_item(name: str, params: str, pubs: str, ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("mapping item: empty mapping name (compiler seam regression?)");
@@ -180,64 +79,71 @@ pub fn __mapping_item(name: str, params: str, body: str) -> ItemList {
         error("mapping item: needs at least one parameter — the source shape (e.g. `g: &Writ`)");
         return out;
     }
-    let mut rels: [MRel; 8] = [
-        MRel { name: "", cols: ["", "", "", "", "", "", "", ""], ncols: 0i64, is_pub: false },
-        MRel { name: "", cols: ["", "", "", "", "", "", "", ""], ncols: 0i64, is_pub: false },
-        MRel { name: "", cols: ["", "", "", "", "", "", "", ""], ncols: 0i64, is_pub: false },
-        MRel { name: "", cols: ["", "", "", "", "", "", "", ""], ncols: 0i64, is_pub: false },
-        MRel { name: "", cols: ["", "", "", "", "", "", "", ""], ncols: 0i64, is_pub: false },
-        MRel { name: "", cols: ["", "", "", "", "", "", "", ""], ncols: 0i64, is_pub: false },
-        MRel { name: "", cols: ["", "", "", "", "", "", "", ""], ncols: 0i64, is_pub: false },
-        MRel { name: "", cols: ["", "", "", "", "", "", "", ""], ncols: 0i64, is_pub: false },
-    ];
-    let nr: i64 = scan_rels(body, &mut rels);
+    let rels_any: WAny = WAny::ref_to(ir);
+    let rels: RQRelArr = rels_any.view::<RQRelArr>();
+    let nr: i64 = rels.len();
     if nr == 0i64 {
         error("mapping item: no `rel` declarations found — a mapping is a set of rels (`rel name(col: ty, …){ body; }`)");
         return out;
     }
-    // The pipeline body: canonical text with the item-level `pub` markers
-    // stripped (the WQL program grammar has no visibility concept).
-    let mut clean: String = String::new();
-    strip_pub(body, &mut clean);
-    // Per rel: full body + synthesized entry, through the deem! pipeline,
-    // stamped `<Name>__<rel>` (leading `-` = non-pub rel, see module doc).
+    if pubs.len() != nr {
+        error("mapping item: visibility mask does not match the rel count (compiler seam regression?)");
+        return out;
+    }
+
+    // ONE arena for the whole item. The desugar hangs its injected `__reach_*`
+    // rels off the SHARED rel array, and the walker interns the names it stamps
+    // into the plan through this allocator — an arena scoped to a single loop
+    // iteration would leave the next one reading freed memory.
+    let h: Writ = writ_new(65536i64);
+
     let mut r: i64 = 0i64;
     while r < nr {
-        let mut prog: String = String::new();
-        prog.push_str(ms(&clean));
-        prog.push_str("\nfrom ");
-        prog.push_str(rels[r].name);
-        prog.push_str(" __mx select ");
-        if rels[r].ncols == 1i64 {
-            prog.push_str("__mx.");
-            prog.push_str(rels[r].cols[0]);
+        let rel: RQRel = rels.rel_at(r);
+        let cols: RQRelColArr = rel.cols_arr();
+        let nc: i64 = cols.len();
+
+        let mut entry: String = String::new();
+        entry.push_str("from ");
+        entry.push_str(rel.name);
+        entry.push_str(" __mx select ");
+        if nc == 1i64 {
+            entry.push_str("__mx.");
+            entry.push_str(cols.col_at(0i64).name);
         } else {
-            prog.push_str("(");
+            entry.push_str("(");
             let mut c: i64 = 0i64;
-            while c < rels[r].ncols {
-                if c > 0i64 { prog.push_str(", "); }
-                prog.push_str("__mx.");
-                prog.push_str(rels[r].cols[c]);
+            while c < nc {
+                if c > 0i64 { entry.push_str(", "); }
+                entry.push_str("__mx.");
+                entry.push_str(cols.col_at(c).name);
                 c = c + 1i64;
             }
-            prog.push_str(")");
+            entry.push_str(")");
         }
+
         let mut fname: String = String::new();
-        if !rels[r].is_pub { fname.push_str("-"); }
+        if str_byte_at(pubs, r) != 49u8 { fname.push_str("-"); }   // '1' = pub
         fname.push_str(name);
         fname.push_str("__");
-        fname.push_str(rels[r].name);
+        fname.push_str(rel.name);
 
-        let h: Writ = writ_new(8192i64);
-        let root: WAny = parse_program(ms(&prog), &h);
+        // A rel-less program (its `rels` edge parses NULL) — then graft the
+        // shared array on. `has_rels()` is just `rels != null`.
+        let root: WAny = parse_program(ms(&entry), &h);
         if root.is_null() {
-            error("mapping item: malformed rel body (each body is a full deem! query: `from … select …`)");
+            error("mapping item: cannot synthesize the entry query for a rel (compiler seam regression?)");
             return out;
         }
-        let mut gperr: String = String::new();
-        if !desugar_program_gpaths(root, &h, &mut gperr) {
-            error(ms(&gperr));
-            return out;
+        let mut prog: RQProgram = rq_fat_program(root, &h);
+        prog.rels = WRef::<RQRelArr>::from_any(rels_any);
+
+        if r == 0i64 {
+            let mut gperr: String = String::new();
+            if !desugar_program_gpaths(root, &h, &mut gperr) {
+                error(ms(&gperr));
+                return out;
+            }
         }
         let mut prm: MacroParams = macro_params_new();
         parse_macro_params(params, &mut prm);

@@ -268,6 +268,19 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
         }
         return SrcRes { ok: true, is_rel: true, idx: ri, row_ty: prm.rel_rowty[ri] };
     }
+    // A rel reference the walker has ALREADY resolved names its rel by the
+    // emitted source name (`__rel_<r>_sl`) — the rewrite below is destructive.
+    // Accepting that name as an alias makes the walk IDEMPOTENT, so one parsed
+    // plan can be walked once per mapping rel instead of re-parsed each time.
+    // Registration is deterministic from the rel names, so the alias is stable
+    // across walks.
+    let si: i64 = prm.rel_find_src(src);
+    if si >= 0i64 {
+        if cur_rel >= 0i64 {
+            deps.add(cur_rel, si);
+        }
+        return SrcRes { ok: true, is_rel: true, idx: si, row_ty: prm.rel_rowty[si] };
+    }
     let mut msg: String = String::new();
     msg.push_str("wql!: unknown source `");
     msg.push_str(src);

@@ -97,7 +97,12 @@
 // blocks followed by ONE entry query — → an RQProgram root edge handle (the
 // program ENVELOPE; slice B static Datalog). A rel-less block still parses as
 // a program (rels edge NULL), so the handler consumes one shape.
-%export { program }
+//
+// `rel_list` is exported too. A `mapping` BODY is exactly a rel list with NO
+// entry query, so it does not parse as a `program`. The mapping lowering parses
+// the body ONCE through this entry and synthesizes a per-rel entry around the
+// shared RQRelArr, rather than re-parsing the whole body once per rel.
+%export { program rel_list }
 
 // ── CROSS-GRAMMAR EL EMBEDDING ─────────────────────────────────────────────
 %import "logos.std.wql.el_parser" as el

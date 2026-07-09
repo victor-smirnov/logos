@@ -4060,10 +4060,19 @@ private:
     // (logos.std.wql.mapping_item).
     void          lower_mapping_def(writ::TinyMapView node,
                                     lir::LProgram& prog);
+    // Which exported wql.peg entry the compiler parses `raw_text` with before
+    // handing the handler a pointer into its own arena. `None` = the legacy
+    // all-strings ABI (the handler parses the text itself).
+    //   Program — `[rel …]* from … select …`, a deem! body
+    //   RelList — `rel …+` with no entry query, a mapping body; carries one
+    //             extra string blob (the per-rel `pub` mask), since visibility
+    //             is an ITEM-layer concept the query grammar knows nothing of.
+    enum class IrEntry { None, Program, RelList };
+
     // Shared tail of the #[token_macro] ITEM path (pack arg blobs, synth the
     // JIT thunk, register the MetacallSiteStage); factored from
     // lower_fn_macro_call_item so lower_mapping_def rides the same seam.
-    // nargs selects the 1/2/3-str handler ABI.
+    // nargs selects the 1/2/3-str handler ABI when ir_entry == None.
     void          emit_token_macro_item_site(writ::TinyMapView node,
                                              lir::LProgram& prog,
                                              const SemaFuncInfo* macro_info,
@@ -4071,7 +4080,8 @@ private:
                                              const std::string& resource_name,
                                              const std::string& params_text,
                                              const std::string& raw_text,
-                                             bool ir_mode = false);
+                                             IrEntry ir_entry = IrEntry::None,
+                                             const std::string& pub_mask = {});
 
 public:
     // ── AST → Logos source pretty-printer (sema_render.cpp) ──────────
