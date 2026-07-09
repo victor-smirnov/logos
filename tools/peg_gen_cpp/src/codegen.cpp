@@ -691,6 +691,25 @@ public:
     // Structural validation of a %schema block, run BEFORE any output file is
     // opened. Everything checkable without an action context lives here so the
     // common authoring mistakes are reported together, not one per re-run.
+    // Every %skip pattern must map to a matcher we actually emit. Runs before
+    // any output file is opened.
+    static void validate_skips(const GrammarInfo& g, const std::string& path) {
+        std::string errs;
+        for (const auto& t : g.tokens) {
+            if (t.kind != int32_t(ast::TOKEN_SKIP)) continue;
+            if (skip_pattern_recognised(regex_inner(t.pattern))) continue;
+            errs += std::format("  {}\n", t.pattern);
+        }
+        if (errs.empty()) return;
+        std::fprintf(stderr,
+            "peg_gen: %s: unrecognised %%skip pattern(s):\n%s"
+            "There is no regex engine: a pattern selects one of three hand-written\n"
+            "matchers — a literal character class `[…]+`, a `//` line comment, or a\n"
+            "`/*…*/` block comment. Anything else would silently emit NO matcher.\n",
+            path.c_str(), errs.c_str());
+        std::exit(1);
+    }
+
     static void validate_schema(const GrammarInfo& g, const std::string& path) {
         std::string errs;
         for (const auto& s : g.schemas) {
@@ -3005,6 +3024,20 @@ private:
         return out;
     }
 
+    // Is this %skip pattern one of the three shapes the lexer emitter models?
+    //
+    // There is NO regex engine here — a %tokens pattern is a HINT for choosing a
+    // hand-written matcher — so an unrecognised one must be REFUSED. It used to
+    // fall through silently, emitting no matcher: `/[ \t\r\n]*/`, `/\s+/`,
+    // `/[\s]+/` and `/[ \t\x0b\r\n]+/` each yielded a parser that skipped no
+    // whitespace anywhere, with no diagnostic. That is the bug class that cost
+    // a day on el.peg; parsing the character class only narrowed it.
+    static bool skip_pattern_recognised(std::string_view inner) {
+        if (!skip_char_class(inner).empty()) return true;
+        return inner.starts_with("//")   || inner.starts_with("\\/\\/")
+            || inner.starts_with("/*")   || inner.starts_with("\\/\\*");
+    }
+
     // A literal char as it must appear inside a C++ '...' literal.
     // (Distinct from the older `escape_char`, an identity stub used by the
     // single-char-token fast path — left alone here to keep that path's output
@@ -3542,6 +3575,7 @@ void codegen(const std::vector<ResolvedModule>& modules, const CodegenOptions& o
         // Validate BEFORE emitting: report every structural mistake at once.
         // (Emission is atomic anyway — see CodeGen::AtomicFile — so a later
         // bail cannot leave a truncated artifact behind.)
+        CodeGen::validate_skips(g, mod.path);
         if (g.schema_mode()) CodeGen::validate_schema(g, mod.path);
 
         std::println("peg_gen: generating {}.hpp / .cpp  ({})",

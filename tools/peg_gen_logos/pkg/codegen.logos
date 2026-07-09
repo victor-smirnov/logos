@@ -1011,7 +1011,63 @@ fn read_name_decls(cg: &mut Codegen, root: &WMap<WString, WAny>, key: str, into_
 // Emitter — Codegen IR → Logos parser source (a String).
 // ═══════════════════════════════════════════════════════════════════════════
 
+// This backend does NOT read the %skip patterns: emit_lex_one hardcodes
+// space/tab/CR/LF plus `//` and `/*…*/`. So the declaration was decorative —
+// a grammar could ask for a different skip set and be silently ignored, and the
+// C++ backend (which DOES read the patterns) would then disagree with it.
+// Refuse anything the hardcoded matcher cannot honour, rather than lie.
+fn skip_is_ws_class(inner: str) -> bool {
+    let n: i64 = inner.len();
+    if n < 3i64 { return false; }
+    if str_byte_at(inner, 0i64) != 91u8 { return false; }              // [
+    if str_byte_at(inner, n - 2i64) != 93u8 { return false; }          // ]
+    if str_byte_at(inner, n - 1i64) != 43u8 { return false; }          // +
+    // Exactly the four bytes the emitter skips: ' ', \t, \r, \n.
+    let mut seen: i64 = 0i64;
+    let mut i: i64 = 1i64;
+    while i < n - 2i64 {
+        let c: u8 = str_byte_at(inner, i);
+        if c == 32u8 { seen = seen | 1i64; i = i + 1i64; continue; }
+        if c == 92u8 && i + 1i64 < n - 2i64 {
+            let e: u8 = str_byte_at(inner, i + 1i64);
+            if e == 116u8 { seen = seen | 2i64; i = i + 2i64; continue; }   // \t
+            if e == 114u8 { seen = seen | 4i64; i = i + 2i64; continue; }   // \r
+            if e == 110u8 { seen = seen | 8i64; i = i + 2i64; continue; }   // \n
+        }
+        return false;
+    }
+    return seen == 15i64;
+}
+
+fn validate_skips(cg: &Codegen) {
+    let mut i: i64 = 0i64;
+    while i < cg.tokens.len() {
+        let t: &TokenDecl = cg.tokens.borrow(i);
+        if t.kind == TOKEN_SKIP {
+            let inner: str = unquote_slash(t.pattern.as_str());
+            let n: i64 = inner.len();
+            // `//…` / `/*…` — either spelled bare or with the slashes escaped
+            // (`\/\/…`). A bare leading backslash is NOT enough: `\s+` starts
+            // with one too, and used to slip through.
+            let bare: bool = n >= 2i64 && str_byte_at(inner, 0i64) == 47u8
+                             && (str_byte_at(inner, 1i64) == 47u8 || str_byte_at(inner, 1i64) == 42u8);
+            let esc: bool  = n >= 4i64 && str_byte_at(inner, 0i64) == 92u8
+                             && str_byte_at(inner, 1i64) == 47u8
+                             && (str_byte_at(inner, 2i64) == 92u8 || str_byte_at(inner, 2i64) == 42u8);
+            if !skip_is_ws_class(inner) && !bare && !esc {
+                let mut m: String = String::new();
+                m.push_str("unrecognised %skip pattern /");
+                m.push_str(inner);
+                m.push_str("/ — this backend hardcodes ' ', \\t, \\r, \\n plus `//` and `/*…*/`");
+                panic(m.as_str());
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
 fn emit_all(cg: &mut Codegen) -> String {
+    validate_skips(cg);
     let mut w: CodeWriter = code_writer_new();
     emit_prologue(cg, &mut w);
     emit_token_consts(cg, &mut w);
