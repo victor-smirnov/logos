@@ -1,0 +1,27 @@
+// wql_mapping_cross_module_e2e — a mapping consumed ACROSS A MODULE BOUNDARY
+// (ADR 0016): `pub mapping Net` lives in libwql_map_lib.a (binary module —
+// the consumer never sees its source); this deem! fuses its rules from the
+// ARCHIVED AST (MAPPING_DEF_DONE nodes survive the emit's thunk flip with
+// their identity intact). Asserts fusion + `**` recursion work through the
+// archive exactly as in-module.
+package test;
+
+use maplib;
+use logos.lang.writ.container;
+use logos.mem.writ.parser;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+pub deem all_engines(w: Net) {
+    from engine e select (e.owner, e.name)
+}
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
+    let v: Vec<(i64, str)> = match all_engines(&doc)
+    { Result::Ok(x) => { x } Result::Err(_e) => { return 1i32; } };
+    if v.len() != 2i64 { return 2i32; }
+    return 0i32;
+}

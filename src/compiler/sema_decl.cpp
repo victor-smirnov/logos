@@ -926,6 +926,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     if (skel_skip_body) {
         skip_body = true;
         ++skel_skip_count_;
+    } else if (cur_from_binary_ && !is_extern && binary_symbols_
+               && ::getenv("LOGOS_TRACE_SKEL_MISS")) {
+        std::fprintf(stderr, "[skel-miss] '%s' not in binary_symbols\n",
+                     fn_name.c_str());
     }
 
     // Precompile-generics (Phase 5.B revival): a from_binary GENERIC template's

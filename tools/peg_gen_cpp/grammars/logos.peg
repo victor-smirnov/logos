@@ -336,6 +336,7 @@
     // TEMPLATE_DECL (both 199), a clash that only stayed harmless because one
     // is an item and the other an expression.
     WRIT_BLOB                   = 261   // pre-serialised Writ static blob (driver splice from a metacall WritStatic return); VALUE = raw blob bytes (Varchar)
+    MAPPING_DEF_DONE            = 265   // a CONSUMED mapping item (its thunk ran; per-rel fns emitted). Distinct from FN_MACRO_CALL_ITEM_DONE so a consumer compiling against the ARCHIVE can still recognize the node and register the mapping (name/params/rels/bodies all survive the flip — only CODE changes) for cross-module fusion.
     REL_SIG                     = 262   // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
     REL_BIND                    = 263   // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
     DEEM_DEF                    = 264   // ADR 0016: `pub? deem q(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.

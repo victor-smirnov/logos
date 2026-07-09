@@ -7312,7 +7312,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     // moments later with the full diagnostics.
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto item = map_of(items.get(i));
-        if (item.is_null() || code_of(item) != la::MAPPING_DEF) continue;
+        if (item.is_null()) continue;
+        int32_t mc = code_of(item);
+        // MAPPING_DEF_DONE = a consumed mapping from a BINARY module's AST —
+        // its fns are compiled in the archive, but its RULES register here so
+        // a consumer's deem!(w: M) can fuse them (ADR 0016 cross-module).
+        if (mc != la::MAPPING_DEF && mc != la::MAPPING_DEF_DONE) continue;
         MappingParts parts;
         if (!reconstruct_mapping_def(item, parts)) continue;
         MappingInfo mi;
@@ -7325,6 +7330,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             mi.scalars.push_back(parts.params[i]);
         mi.type_param     = parts.type_param;
         mi.bound          = parts.bound;
+        mi.is_pub         = parts.is_pub;
+        mi.package        = cur_package_;
         mappings_[parts.name] = std::move(mi);
     }
 
@@ -7570,6 +7577,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             // ADR 0016: `pub? deem q(params) { <query> }` — the item form of
             // `resource q = deem!(params){…}`; same handler, same seam.
             lower_deem_def(item, prog);
+            pending_annots.clear();
+            continue;
+        }
+        if (c == la::MAPPING_DEF_DONE) {
+            // Consumed in a prior compile (binary module) — already registered
+            // by the pre-scan; nothing to lower or emit.
             pending_annots.clear();
             continue;
         }

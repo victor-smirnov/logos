@@ -19784,6 +19784,10 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
     }
     out.name = std::string(str_of(node.get(la::NAME.code)));
     const std::string& mname = out.name;
+    if (node.has_key(la::IS_PUB)) {
+        auto pv = node.get(la::IS_PUB.code);
+        out.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
+    }
 
     // ── generic form `mapping M<S: Bound>(g: &S)` (§6 T3): one type param
     // with one source-trait bound. The mapping is then a PURE rule module —
@@ -20037,6 +20041,8 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
             mi.scalars.push_back(parts.params[i]);
         mi.type_param     = parts.type_param;
         mi.bound          = parts.bound;
+        mi.is_pub         = parts.is_pub;
+        mi.package        = cur_package_;
         mappings_[mname] = std::move(mi);
     }
     // A GENERIC mapping is a pure rule module: nothing to emit here — its
@@ -20291,6 +20297,14 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                 auto mit = mappings_.find(mbase);
                 if (mit == mappings_.end()) continue;
                 const MappingInfo& mi = mit->second;
+                if (!mi.is_pub && !mi.package.empty()
+                        && mi.package != cur_package_) {
+                    error(std::format(
+                        "'{}!': mapping '{}' is private to package '{}' — "
+                        "mark it `pub mapping` to consume it from '{}'",
+                        callee_label, mbase, mi.package, cur_package_));
+                    return false;
+                }
                 if (mi.type_param.empty() != marg.empty()) {
                     error(mi.type_param.empty()
                         ? std::format("'{}!': mapping '{}' is not generic — "

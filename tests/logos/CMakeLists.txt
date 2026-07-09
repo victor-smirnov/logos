@@ -90,6 +90,24 @@ add_custom_command(
 )
 add_custom_target(pub_lib_binary ALL DEPENDS ${PUB_LIB_BIN})
 
+# ADR 0016 cross-module mapping fixture: a `pub mapping` published from a
+# binary module; consumers fuse its rules from the archived AST (the
+# MAPPING_DEF_DONE nodes keep their identity through the emit's thunk flip).
+set(WQL_MAP_LIB ${CMAKE_CURRENT_SOURCE_DIR}/wql_map_lib)
+set(WQL_MAP_LIB_BIN ${CMAKE_CURRENT_BINARY_DIR}/libwql_map_lib.a)
+file(GLOB WQL_MAP_LIB_SOURCES ${WQL_MAP_LIB}/*.logos)
+add_custom_command(
+    OUTPUT  ${WQL_MAP_LIB_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${WQL_MAP_LIB}/maplib.module -L ${STDLIB_BIN_DIR}
+            -o ${WQL_MAP_LIB_BIN}
+    DEPENDS logosc ${WQL_MAP_LIB}/maplib.module ${WQL_MAP_LIB_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libwql_map_lib.a"
+)
+add_custom_target(wql_map_lib_binary ALL DEPENDS ${WQL_MAP_LIB_BIN})
+
 # Build libcoex.a from the cross-pkg-coexistence fixture (alpha + beta).
 # Used as `-l <archive>` for the cross_pkg_coexistence /
 # cross_pkg_ambiguous_call tests, replacing the earlier `-I .../coex`
@@ -430,6 +448,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_PUBLIB_USERS pub_module_internal_use pub_module_type_internal pub_cross_package pkg_multifile pub_reexport pub_enum_trait_cross_pkg pub_static_cross_module pub_dyn_cross_module wql_wref_field_pkg)
     # B-mv-01 fixture: two packages defining same-base+sig fns coexist.
     set(LOCAL_COEX_USERS cross_pkg_coexistence)
+    # ADR 0016: cross-module mapping fusion against libwql_map_lib.a
+    set(LOCAL_WQLMAP_USERS wql_mapping_cross_module_e2e)
     # Full same-pkg-same-name TYPE coexistence: each consumer `use widgets from
     # <module>` selects one of two modules that both declare `widgets::Widget`;
     # both archives link without collision (module-qualified type identity).
@@ -475,6 +495,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
         set(_extra -l ${PUB_LIB_BIN})
+    elseif (BASE IN_LIST LOCAL_WQLMAP_USERS)
+        set(_extra -l ${WQL_MAP_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_COEX_USERS)
         set(_extra -l ${COEX_BIN})
     elseif (BASE IN_LIST LOCAL_COEX2_USERS)
@@ -503,8 +525,11 @@ function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_PUBLIB_USERS pub_module_cross_module pub_module_type_cross_module pub_call_private pub_private_field_access enum_private_cross_pkg trait_private_cross_pkg)
     set(FAIL_METAPROG_USERS metacall_item_odr_conflict)
     set(FAIL_COEX_USERS cross_pkg_ambiguous_call)
+    set(FAIL_WQLMAP_USERS wql_mapping_cross_module_priv_fail)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
         set(_extra -l ${PUB_LIB_BIN})
+    elseif (BASE IN_LIST FAIL_WQLMAP_USERS)
+        set(_extra -l ${WQL_MAP_LIB_BIN})
     elseif (BASE IN_LIST FAIL_METAPROG_USERS)
         set(_extra "")  # post-C4: metaprog is in liblstdlib.a as AST-only
     elseif (BASE IN_LIST FAIL_COEX_USERS)

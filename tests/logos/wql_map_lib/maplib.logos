@@ -1,0 +1,23 @@
+// Fixture: a mapping PUBLISHED FROM A BINARY MODULE (ADR 0016 cross-module
+// fusion). The consumer (tests/logos/pass/wql_mapping_cross_module_e2e.logos)
+// compiles against libwql_map_lib.a — it never sees this source.
+package maplib;
+
+use logos.lang.writ.container;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+
+pub mapping Net(g: &Writ) {
+    pub rel engine(owner: i64, name: str) {
+        from g ** .engine e select (e.parent, e.vs);
+    }
+}
+
+// Private mapping: consuming it cross-package is a named error (probed by the
+// fail test, not linked here).
+mapping Hidden(g: &Writ) {
+    pub rel leaf(v: i64) {
+        from g ** x {i64} select x.vi;
+    }
+}

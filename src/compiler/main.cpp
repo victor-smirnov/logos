@@ -2793,10 +2793,25 @@ int run_metaprog_dispatch(
             auto& doc = asts[site.ast_idx];
             auto* h    = doc.holder();
             auto tom  = logos::writ::TinyMapView(logos::writ::arena_offset_t(site.expr_offset), h);
+            // Same DONE-marker selection as the compile-mode loop: a consumed
+            // MAPPING keeps its identity (MAPPING_DEF_DONE) so a consumer
+            // compiling against this archive can register its rules for
+            // cross-module fusion (ADR 0016).
+            int32_t done_code2 = ast::METACALL_ITEM_DONE.code;
+            {
+                auto cav = tom.get(ast::CODE.code);
+                if (!cav.is_null() && cav.is_value()) {
+                    int32_t cur = cav.as_value<int32_t>();
+                    if (cur == ast::FN_MACRO_CALL_ITEM.code
+                        || cur == ast::DEEM_DEF.code)
+                        done_code2 = ast::FN_MACRO_CALL_ITEM_DONE.code;
+                    if (cur == ast::MAPPING_DEF.code)
+                        done_code2 = ast::MAPPING_DEF_DONE.code;
+                }
+            }
             if (auto r = tom.put(
                     ast::CODE.code,
-                    writ::AnyVal::from_value<int32_t>(
-                        ast::METACALL_ITEM_DONE.code)
+                    writ::AnyVal::from_value<int32_t>(done_code2)
                     ); !r) {
                 std::fprintf(stderr,
                     "logosc: metacall item-splice (loop): CODE put failed\n");
@@ -4362,9 +4377,13 @@ int main(int argc, char** argv) {
                             // MAPPING_DEF (ADR 0016) rides the same token-macro
                             // item seam — consumed sites get the same marker.
                             if (cur == logos::compiler::ast::FN_MACRO_CALL_ITEM.code
-                                || cur == logos::compiler::ast::MAPPING_DEF.code
                                 || cur == logos::compiler::ast::DEEM_DEF.code)
                                 done_code = logos::compiler::ast::FN_MACRO_CALL_ITEM_DONE.code;
+                            // A consumed mapping keeps its identity: a consumer
+                            // compiling against the archive re-registers it for
+                            // cross-module fusion (ADR 0016).
+                            if (cur == logos::compiler::ast::MAPPING_DEF.code)
+                                done_code = logos::compiler::ast::MAPPING_DEF_DONE.code;
                         }
                     }
                     if (auto r = tom.put(

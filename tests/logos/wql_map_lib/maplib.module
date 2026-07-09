@@ -1,0 +1,6 @@
+module wql_map_lib
+version 0.1
+root tests/logos/wql_map_lib/
+depends logos-lang
+depends logos-mem
+depends logos-std

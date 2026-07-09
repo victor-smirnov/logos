@@ -4086,6 +4086,7 @@ private:
         // module — no standalone fns; consumed via `deem!(w: M<Concrete>)`.
         std::string type_param;           // "S", empty = concrete mapping
         std::string bound;                // the source-trait bound
+        bool        is_pub = false;
         std::string err;
     };
     bool          reconstruct_mapping_def(writ::TinyMapView node,
@@ -4105,6 +4106,8 @@ private:
         bool        enrichable = false;    // source-first param shape holds
         std::string type_param;            // "S" for `mapping M<S: Bound>`
         std::string bound;                 // the bound source trait
+        bool        is_pub = false;        // cross-package consumption needs pub
+        std::string package;               // defining package
         // Scalar params after the source (`floor: i64`, …). Bound at the
         // consumption site by NAME IDENTITY: the consumer must declare a
         // param with the same name and type — the spliced rule bodies then
