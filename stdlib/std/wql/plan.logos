@@ -138,6 +138,11 @@ pub schema RQSimple : code(0x0012_0000_0000_0000) {
     limit_is_param: bool          = 15,
     limit_param:    str           = 16,
     sel_first:      bool          = 17,
+    // graph-path head (ADR 0016 M2a): `from g <step>* v` — steps over a
+    // graph source; when present, var_name is the LAST step's binder
+    // (walker-stamped) and the steps desugar to a join chain in lower.
+    has_gpath:      bool          = 18,
+    gpath:          WRef<RQGStepArr> = 19,
 }
 
 // ── RQJoinStep — ONE join step of a chain, in TWO forms ───────────────────────
@@ -232,6 +237,78 @@ impl RQPathSegArr {
     pub fn as_ref(self: &RQPathSegArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
 }
 
+// ── RQGStep — one GRAPH-PATH step (ADR 0016 M2a) ──────────────────────────────
+// `from g <step>* v` over a graph source; exactly one is_* discriminator is
+// true. An optional BINDER names the step's edge row (the ident following the
+// step); the last step's binder is the query's row var.
+//   .key        is_key  (key = the map key)
+//   [*]         is_elem (any array element)
+//   [N]         is_at   (idx = N)
+//   *           is_any  (any single edge)
+//   **          is_desc (descendant-or-self descent)
+//   {kind}      is_kind (key = the kind tag)
+pub schema RQGStep : code(0x0012_0000_0000_001C) {
+    is_key:     bool = 0,
+    is_elem:    bool = 1,
+    is_at:      bool = 2,
+    is_any:     bool = 3,
+    is_desc:    bool = 4,
+    is_kind:    bool = 5,
+    key:        str  = 6,
+    idx:        i64  = 7,
+    binder:     str  = 8,
+    has_binder: bool = 9,
+}
+
+impl RQGStep {
+    pub fn as_ref(self: &RQGStep) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+// The materialized graph-step list (the RQPathSegArr pattern).
+pub schema RQGStepArr : code(0x0012_0000_0000_001D) {
+    count: i32          = 0,
+    g0: WRef<RQGStep> = 1,
+    g1: WRef<RQGStep> = 2,
+    g2: WRef<RQGStep> = 3,
+    g3: WRef<RQGStep> = 4,
+    g4: WRef<RQGStep> = 5,
+    g5: WRef<RQGStep> = 6,
+    g6: WRef<RQGStep> = 7,
+    g7: WRef<RQGStep> = 8,
+}
+
+pub fn RQGSTEP_MAX() -> i64 { return 8i64; }
+
+impl RQGStepArr {
+    pub fn len(self: &RQGStepArr) -> i64 { return self.count as i64; }
+
+    pub fn gstep_at(self: &RQGStepArr, i: i64) -> RQGStep {
+        if i == 0i64 { return self.g0.any().view::<RQGStep>(); }
+        if i == 1i64 { return self.g1.any().view::<RQGStep>(); }
+        if i == 2i64 { return self.g2.any().view::<RQGStep>(); }
+        if i == 3i64 { return self.g3.any().view::<RQGStep>(); }
+        if i == 4i64 { return self.g4.any().view::<RQGStep>(); }
+        if i == 5i64 { return self.g5.any().view::<RQGStep>(); }
+        if i == 6i64 { return self.g6.any().view::<RQGStep>(); }
+        return self.g7.any().view::<RQGStep>();
+    }
+
+    pub fn set_gstep(self: &mut RQGStepArr, i: i64, h: WAny) {
+        let r: WRef<RQGStep> = WRef::<RQGStep>::from_any(h);
+        if i == 0i64 { self.g0 = r; return; }
+        if i == 1i64 { self.g1 = r; return; }
+        if i == 2i64 { self.g2 = r; return; }
+        if i == 3i64 { self.g3 = r; return; }
+        if i == 4i64 { self.g4 = r; return; }
+        if i == 5i64 { self.g5 = r; return; }
+        if i == 6i64 { self.g6 = r; return; }
+        self.g7 = r;
+    }
+
+    pub fn set_len(self: &mut RQGStepArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQGStepArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
 // The materialized join-step list — a fan-out of up to `RQJSTEP_MAX` RQJoinStep
 // edges at fixed slots (the RQAggArr pattern). `count` = the chain length.
 pub schema RQJoinStepArr : code(0x0012_0000_0000_0013) {
@@ -313,6 +390,8 @@ pub schema RQJoin : code(0x0012_0000_0000_0001) {
     limit_is_param: bool        = 16,
     limit_param:    str         = 17,
     sel_first:      bool        = 18,
+    has_gpath:      bool        = 19,   // graph-path head (ADR 0016 M2a)
+    gpath:          WRef<RQGStepArr> = 20,
 }
 
 // ── RQAggr — group-by + aggregate ─────────────────────────────────────────────
@@ -349,6 +428,8 @@ pub schema RQAggr : code(0x0012_0000_0000_0002) {
     having_pred:    WRef<SExpr> = 20,
     sel_first:      bool        = 21,
     steps:          WRef<RQJoinStepArr> = 22,
+    has_gpath:      bool        = 23,   // graph-path head (ADR 0016 M2a)
+    gpath:          WRef<RQGStepArr> = 24,
 }
 
 // ── RQFind — single-row borrow: `from src var find P` ─────────────────────────
@@ -595,6 +676,14 @@ pub fn rq_fat_step(node: WAny, h: &Writ) -> RQJoinStep {
     let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
     return unsafe { *(&hh as *const WSchemaH as *const RQJoinStep) };
 }
+pub fn rq_fat_program(node: WAny, h: &Writ) -> RQProgram {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQProgram) };
+}
+pub fn rq_fat_bodies(node: WAny, h: &Writ) -> RQBodyArr {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQBodyArr) };
+}
 
 // ── Edge handles (same provenance-laundering rationale as ir.logos) ───────────
 impl RQSimple { pub fn as_ref(self: &RQSimple) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
@@ -604,11 +693,13 @@ impl RQFind   { pub fn as_ref(self: &RQFind)   -> WAny { return WAny::ref_to((se
 
 // ── Typed edge RESOLVERS (the walker's convenience API) ───────────────────────
 impl RQSimple {
+    pub fn gpath_arr(self: &RQSimple)   -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
     pub fn where_expr(self: &RQSimple)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
     pub fn select_expr(self: &RQSimple) -> SExpr { return self.select.any().view::<SExpr>(); }
     pub fn order_expr(self: &RQSimple)  -> SExpr { return self.order_key.any().view::<SExpr>(); }
 }
 impl RQJoin {
+    pub fn gpath_arr(self: &RQJoin) -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
     pub fn steps_arr(self: &RQJoin)   -> RQJoinStepArr { return self.steps.any().view::<RQJoinStepArr>(); }
     pub fn where_expr(self: &RQJoin)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
     pub fn select_expr(self: &RQJoin) -> SExpr { return self.select.any().view::<SExpr>(); }
@@ -618,6 +709,7 @@ impl RQFind {
     pub fn pred_expr(self: &RQFind) -> SExpr { return self.pred.any().view::<SExpr>(); }
 }
 impl RQAggr {
+    pub fn gpath_arr(self: &RQAggr) -> RQGStepArr { return self.gpath.any().view::<RQGStepArr>(); }
     pub fn where_expr(self: &RQAggr)  -> SExpr { return self.where_pred.any().view::<SExpr>(); }
     pub fn key_expr(self: &RQAggr)    -> SExpr { return self.key.any().view::<SExpr>(); }
     pub fn aggs_arr(self: &RQAggr)    -> RQAggArr { return self.aggs.any().view::<RQAggArr>(); }

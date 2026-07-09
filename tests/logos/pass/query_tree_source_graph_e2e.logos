@@ -75,12 +75,12 @@ fn main() -> i32 {
     env.bind_source_tree("g", rootv);
     env.bind_i64("root", rootv.raw() as i64);
 
-    // total edges: root{left,right,meta}=3, left{seven,s}=2,
-    // right{seven,s,back}=3, shared{x}=1 (EXPANDED ONCE), meta{alpha,beta}=2
-    // = 11 — termination + DAG-once in one number.
+    // total edges: VIRTUAL ROOT EDGE (0→root) = 1, root{left,right,meta}=3,
+    // left{seven,s}=2, right{seven,s,back}=3, shared{x}=1 (EXPANDED ONCE),
+    // meta{alpha,beta}=2 = 12 — termination + DAG-once in one number.
     let q_all: Query = match Query::compile("from g e select e.child", &c)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    if run_count(&q_all, &env) != 11i64 { return 2i32; }
+    if run_count(&q_all, &env) != 12i64 { return 2i32; }
 
     // ── (a) DAG: `s` edges exist from BOTH parents; shared child = ONE id ───
     let q_s: Query = match Query::compile(
@@ -170,9 +170,9 @@ fn main() -> i32 {
         Result::Ok(rows) => {
             if rows.row_count() != 1i64 { return 28i32; }   // ONE code for all maps
             map_tag = rows.get_i64(0i64, 0i64);
-            // map-kind EDGES: root→left, root→right, left→s, right→s,
-            // right→back = 5 (edges, not distinct nodes)
-            if rows.get_i64(0i64, 1i64) != 5i64 { return 29i32; }
+            // map-kind EDGES: virtual 0→root, root→left, root→right, left→s,
+            // right→s, right→back = 6 (edges, not distinct nodes)
+            if rows.get_i64(0i64, 1i64) != 6i64 { return 29i32; }
         }
         Result::Err(_ee) => { return 30i32; }
     }

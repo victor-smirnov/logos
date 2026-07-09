@@ -1,0 +1,120 @@
+// wql_gpath_e2e — GRAPH-PATH sugar on the STATIC engine (ADR 0016 M2a).
+// `from g <step>* v` over a graph param desugars (the SHARED plan→plan pass)
+// into a classic join chain over the edge relation, anchored at the virtual
+// root edge. Covers, compiled statically by deem!:
+//   (a) exact key path            from g .db .pool .min m
+//   (b) array elements / by index [*] and [N]
+//   (c) any-step + kind filter    from g * s {map}
+//   (d) MID-PATH binding          from g .db d * e … (d and e both visible)
+//   (e) gpath in a REL BODY       (the desugar covers bodies, not just entries)
+//   (f) gpath head + AGGREGATE    (RQAggr head desugar)
+//   (g) gpath head + CLASSIC join step appended after the path
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;        // parse_writ
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.wql;
+
+struct Label { pub key: str, pub title: str }
+
+// (a) exact path
+resource pool_min = deem!(g: &Writ) {
+    from g .db .pool .min m select m.vi
+};
+// (b) array elements + by index
+resource all_ports = deem!(g: &Writ) {
+    from g .ports [*] p select p.vi order by p.vi
+};
+resource second_port = deem!(g: &Writ) {
+    from g .ports [1] p select p.vi
+};
+// (c) any + kind filter — top-level sections that are maps
+resource sections = deem!(g: &Writ) {
+    from g * s {map} select s.key : str
+};
+// (d) mid-path binding: both step rows project
+resource db_engine = deem!(g: &Writ) {
+    from g .db d * e where e.key == "engine" select (d.child, e.vs)
+};
+// (e) gpath inside a rel body
+resource port_rel = deem!(g: &Writ) {
+    rel pv(v: i64) {
+        from g .ports [*] p select p.vi;
+    }
+    from pv r where r.v >= 8443 select r.v
+};
+// (f) aggregate over a path scan
+resource kind_hist = deem!(g: &Writ) {
+    from g .db d * e group by e.kind aggregate n = count()
+    select (key, n) order by key
+};
+// (g) path + classic join step (`*` — pool is a MAP: its entries carry
+// idx = −1, so `[*]` (array elements, idx ≥ 0) would be empty by design)
+resource titled = deem!(g: &Writ, labels: &[Label]) {
+    from g .db .pool * m join labels l on l.key == m.key
+    select (l.title, m.vi)
+};
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(
+        r#"{
+            db:    { engine: "pg", pool: { min: 2, max: 16 } },
+            ports: [8080, 8443],
+            cache: { engine: "redis" }
+        }"#);
+    if doc.root().is_null() { return 90i32; }
+
+    // (a)
+    let a: Vec<i64> = match pool_min(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 1i64 || a.get(0i64) != 2i64 { return 2i32; }
+
+    // (b)
+    let b: Vec<i64> = match all_ports(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e2) => { return 3i32; } };
+    if b.len() != 2i64 || b.get(0i64) != 8080i64 || b.get(1i64) != 8443i64 { return 4i32; }
+    let b2: Vec<i64> = match second_port(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e3) => { return 5i32; } };
+    if b2.len() != 1i64 || b2.get(0i64) != 8443i64 { return 6i32; }
+
+    // (c) db + cache (ports is an arr)
+    let c: Vec<str> = match sections(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e4) => { return 7i32; } };
+    if c.len() != 2i64 { return 8i32; }
+
+    // (d)
+    let d: Vec<(i64, str)> = match db_engine(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e5) => { return 9i32; } };
+    if d.len() != 1i64 { return 10i32; }
+    let d0: (i64, str) = d.get(0i64);
+    if !str_eq(d0.1, "pg") { return 11i32; }
+    if d0.0 == 0i64 { return 12i32; }         // d.child = the db node handle
+
+    // (e)
+    let e: Vec<i64> = match port_rel(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e6) => { return 13i32; } };
+    if e.len() != 1i64 || e.get(0i64) != 8443i64 { return 14i32; }
+
+    // (f) kinds under db: engine=str, pool=map → two groups of 1
+    let f: Vec<(str, i64)> = match kind_hist(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e7) => { return 15i32; } };
+    if f.len() != 2i64 { return 16i32; }
+    let f0: (str, i64) = f.get(0i64);
+    let f1: (str, i64) = f.get(1i64);
+    if !str_eq(f0.0, "map") || f0.1 != 1i64 { return 17i32; }
+    if !str_eq(f1.0, "str") || f1.1 != 1i64 { return 18i32; }
+
+    // (g)
+    let labels: [Label; 1] = [ Label { key: "max", title: "pool ceiling" } ];
+    let g: Vec<(str, i64)> = match titled(&doc, &labels[..])
+    { Result::Ok(v) => { v } Result::Err(_e8) => { return 19i32; } };
+    if g.len() != 1i64 { return 20i32; }
+    let g0: (str, i64) = g.get(0i64);
+    if !str_eq(g0.0, "pool ceiling") || g0.1 != 16i64 { return 21i32; }
+
+    return 0i32;
+}

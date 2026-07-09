@@ -101,8 +101,9 @@ fn main() -> i32 {
     // ── (e) oracle: map-edge count agrees with the hand walk ───────────────
     let maps: Vec<i64> = match nmaps(&doc)
     { Result::Ok(v) => { v } Result::Err(_e2) => { return 5i32; } };
-    if maps.len() != count_maps(doc.root()) { return 6i32; }
-    if maps.len() != 3i64 { return 7i32; }          // db, pool, cache
+    // +1: the VIRTUAL ROOT EDGE (the root itself is a map)
+    if maps.len() != count_maps(doc.root()) + 1i64 { return 6i32; }
+    if maps.len() != 4i64 { return 7i32; }          // ROOT(virtual), db, pool, cache
 
     // ── (b) recursion over the graph param ─────────────────────────────────
     let vals: Vec<i64> = match ints_under_db(&doc)

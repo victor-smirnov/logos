@@ -19,6 +19,9 @@ use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.std.wql.ir;
 use logos.std.wql.plan;
+use logos.std.wql.el;         // OP_* ids — graph-path predicate synthesis
+use logos.std.wql.optimize;   // make_int_lit — graph-path residuals
+use logos.lang.writ.wstring;  // h.wstring — string-literal synthesis
 use logos.mem.string;
 
 // &String → borrowed str view (local copy of the codegen string_as_str shape —
@@ -262,6 +265,270 @@ fn lower_find(f: RQFind, h: &Writ) -> WRef<RExpr> {
 }
 
 // The lowering entry: surface PLAN → real RExpr algebra tree.
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADR 0016 M2a — GRAPH-PATH DESUGAR (plan → plan, SHARED by the static macro
+// and the runtime compiler).
+//
+// `from g <step>* v …` over a graph source rewrites into the CLASSIC join
+// chain over the generic edge relation BEFORE validation/lowering, so both
+// hosts consume ordinary plans (one implementation, two binding times):
+//
+//   base    scan g __ga            anchored at the VIRTUAL ROOT EDGE
+//                                  (__ga.parent == 0 — see writ_graph)
+//   step i  join g v_i on v_i.parent == prev.child
+//
+// Step residuals AND into the WHERE predicate:
+//   .key  → v.key == "key"      [*] → v.idx >= 0      [N] → v.idx == N
+//   {k}   → v.kind == "k"       *   → (none)
+// A step's BINDER names its edge row (unnamed steps get __g<i>); the LAST
+// step must carry one — it is the query's row variable. `**` (descent via
+// the native reach relation) is the next slice — a named error for now.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Generated step-var names (unnamed steps; the anchor scan is __ga).
+fn gp_var(i: i64) -> str {
+    if i == 0i64 { return "__g0"; }
+    if i == 1i64 { return "__g1"; }
+    if i == 2i64 { return "__g2"; }
+    if i == 3i64 { return "__g3"; }
+    if i == 4i64 { return "__g4"; }
+    if i == 5i64 { return "__g5"; }
+    if i == 6i64 { return "__g6"; }
+    return "__g7";
+}
+
+// root.fld as SField(SField(null, root), fld) — the surface spelling's IR.
+fn gp_field(h: &Writ, root: str, fld: str) -> WRef<SExpr> {
+    let b: SField = h.make::<SField>();
+    b.base = null_sref();
+    b.name = root;
+    let f: SField = h.make::<SField>();
+    f.base = WRef::<SExpr>::from_any(b.as_ref());
+    f.name = fld;
+    return WRef::<SExpr>::from_any(f.as_ref());
+}
+
+fn gp_str_lit(h: &Writ, sv: str) -> WRef<SExpr> {
+    let n: SLit = h.make::<SLit>();
+    n.val = WAny::from(h.wstring(sv));
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+
+fn gp_bin(h: &Writ, op: i32, l: WRef<SExpr>, r: WRef<SExpr>) -> WRef<SExpr> {
+    let n: SBin = h.make::<SBin>();
+    n.op = op;
+    n.lhs = l;
+    n.rhs = r;
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+
+// AND-fold with an absent accumulator.
+fn gp_and(h: &Writ, acc: WRef<SExpr>, p: WRef<SExpr>) -> WRef<SExpr> {
+    if acc.any().is_null() { return p; }
+    return gp_bin(h, OP_AND(), acc, p);
+}
+
+// gp_build result: the chain is in `starr`; `extra` is the ANDed residual
+// predicate (anchor included, never null on ok); `last` = the row var.
+struct GpRes { pub ok: bool, pub extra: WRef<SExpr>, pub last: str, pub err: str }
+
+fn gp_fail(msg: str) -> GpRes {
+    return GpRes { ok: false, extra: null_sref(), last: "", err: msg };
+}
+
+// Build the classic join-step chain for one gpath (into `starr`, which must
+// be a FRESH fat RQJoinStepArr) + the residual predicate.
+fn gp_build(src: str, gp: RQGStepArr, h: &Writ, starr: &mut RQJoinStepArr) -> GpRes {
+    let n: i64 = gp.len();
+    if n < 1i64 { return gp_fail("wql!: a graph path needs at least one step"); }
+    // anchor: the virtual root edge
+    let mut extra: WRef<SExpr> = gp_bin(h, OP_EQ(),
+        gp_field(h, "__ga", "parent"), make_int_lit(h, 0i64));
+    let mut prev: str = "__ga";
+    let mut last_user: bool = false;   // the current row var is user-named
+    let mut si: i64 = 0i64;            // emitted join steps (kind filters emit none)
+    let mut i: i64 = 0i64;
+    while i < n {
+        let st: RQGStep = gp.gstep_at(i);
+        if st.is_desc {
+            return gp_fail("wql!: `**` descent is not lowered yet (M2a-2) — spell the recursion with a rel over the edge relation for now");
+        }
+        // {kind} is a FILTER on the CURRENT step's edge — no movement, no join.
+        // (First position filters the anchor: the root edge's own kind.)
+        if st.is_kind {
+            if st.has_binder {
+                return gp_fail("wql!: a {kind} filter cannot carry a binder — name the step it filters instead (`from g * s {map} select …`)");
+            }
+            extra = gp_and(h, extra, gp_bin(h, OP_EQ(), gp_field(h, prev, "kind"), gp_str_lit(h, st.key)));
+            i = i + 1i64;
+            continue;
+        }
+        let v: str = if st.has_binder { st.binder } else { gp_var(i) };
+        let js: RQJoinStep = h.make::<RQJoinStep>();
+        js.is_anti = false;
+        js.is_edge = false;
+        js.has_on = true;
+        js.src_name = src;
+        js.var_name = v;
+        js.on = gp_bin(h, OP_EQ(), gp_field(h, v, "parent"), gp_field(h, prev, "child"));
+        starr.set_step(si, js.as_ref());
+        si = si + 1i64;
+        if st.is_key {
+            extra = gp_and(h, extra, gp_bin(h, OP_EQ(), gp_field(h, v, "key"), gp_str_lit(h, st.key)));
+        } else if st.is_at {
+            extra = gp_and(h, extra, gp_bin(h, OP_EQ(), gp_field(h, v, "idx"), make_int_lit(h, st.idx)));
+        } else if st.is_elem {
+            extra = gp_and(h, extra, gp_bin(h, OP_GE(), gp_field(h, v, "idx"), make_int_lit(h, 0i64)));
+        }
+        prev = v;
+        last_user = st.has_binder;
+        i = i + 1i64;
+    }
+    if si < 1i64 {
+        return gp_fail("wql!: a graph path needs at least one movement step ({kind} alone only filters)");
+    }
+    if !last_user {
+        return gp_fail("wql!: the last graph-path step must bind the row variable — `from g .a .b v select …`");
+    }
+    starr.set_len(si);
+    return GpRes { ok: true, extra: extra, last: prev, err: "" };
+}
+
+// Desugar ONE query node. Returns the REPLACEMENT node's raw handle word
+// (0 = unchanged / rewritten in place), and sets `err` on failure. The i64
+// return launders arena provenance (no borrow ties to the params).
+fn gp_desugar_query(qany: WAny, h: &Writ, err: &mut String) -> i64 {
+    let none: i64 = 0i64;
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s0) => {
+            if !s0.has_gpath { return none; }
+            let s: RQSimple = rq_fat_simple(qany, h);
+            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+            let res: GpRes = gp_build(s.src_name, s.gpath_arr(), h, &mut sa);
+            if !res.ok { err.push_str(res.err); return none; }
+            let j: RQJoin = h.make::<RQJoin>();
+            j.fn_name = s.fn_name;
+            j.a_name = s.src_name;
+            j.x_var = "__ga";
+            j.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+            let mut w: WRef<SExpr> = res.extra;
+            if s.has_where { w = gp_and(h, w, s.where_pred); }
+            j.has_where = true;
+            j.where_pred = w;
+            j.select = s.select;
+            j.sel_first = s.sel_first;
+            j.distinct = s.distinct;
+            j.has_order = s.has_order;
+            j.order_key = s.order_key;
+            j.order_desc = s.order_desc;
+            j.has_limit = s.has_limit;
+            j.limit_n = s.limit_n;
+            j.limit_is_param = s.limit_is_param;
+            j.limit_param = s.limit_param;
+            j.has_result_ty = s.has_result_ty;
+            j.result_ty = s.result_ty;
+            return j.as_ref().raw();
+        }
+        RQuery::Join(j0) => {
+            if !j0.has_gpath { return none; }
+            let jo: RQJoin = rq_fat_join(qany, h);
+            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+            let res: GpRes = gp_build(jo.a_name, jo.gpath_arr(), h, &mut sa);
+            if !res.ok { err.push_str(res.err); return none; }
+            // append the ORIGINAL classic steps after the gpath chain
+            let orig: RQJoinStepArr = jo.steps_arr();
+            let gn: i64 = sa.len();
+            let on_: i64 = orig.len();
+            if gn + on_ > RQJSTEP_MAX() {
+                err.push_str("wql!: too many join steps (graph path + joins exceed the chain cap)");
+                return none;
+            }
+            let mut k: i64 = 0i64;
+            while k < on_ {
+                sa.set_step(gn + k, orig.step_any(k));
+                k = k + 1i64;
+            }
+            sa.set_len(gn + on_);
+            jo.x_var = "__ga";
+            jo.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+            let mut w2: WRef<SExpr> = res.extra;
+            if jo.has_where { w2 = gp_and(h, w2, jo.where_pred); }
+            jo.has_where = true;
+            jo.where_pred = w2;
+            jo.has_gpath = false;
+            return none;   // rewritten IN PLACE (same node kind)
+        }
+        RQuery::Aggr(g0) => {
+            if !g0.has_gpath { return none; }
+            let ga: RQAggr = rq_fat_aggr(qany, h);
+            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+            let res: GpRes = gp_build(ga.a_name, ga.gpath_arr(), h, &mut sa);
+            if !res.ok { err.push_str(res.err); return none; }
+            let gn2: i64 = sa.len();
+            if !ga.steps.any().is_null() {
+                let orig2: RQJoinStepArr = ga.steps_arr();
+                let on2: i64 = orig2.len();
+                if gn2 + on2 > RQJSTEP_MAX() {
+                    err.push_str("wql!: too many join steps (graph path + joins exceed the chain cap)");
+                    return none;
+                }
+                let mut k2: i64 = 0i64;
+                while k2 < on2 {
+                    sa.set_step(gn2 + k2, orig2.step_any(k2));
+                    k2 = k2 + 1i64;
+                }
+                sa.set_len(gn2 + on2);
+            }
+            ga.x_var = "__ga";
+            ga.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+            let mut w3: WRef<SExpr> = res.extra;
+            if ga.has_where { w3 = gp_and(h, w3, ga.where_pred); }
+            ga.has_where = true;
+            ga.where_pred = w3;
+            ga.has_gpath = false;
+            return none;   // rewritten IN PLACE
+        }
+        RQuery::Find(_f) => { return none; }   // no gpath in the find grammar
+    }
+}
+
+/// Desugar every graph path in the program (rel bodies + the entry query).
+/// Returns false with `err` filled on a malformed path; the plan is otherwise
+/// rewritten in place (entry replacement via the program's entry edge).
+pub fn desugar_program_gpaths(root: WAny, h: &Writ, err: &mut String) -> bool {
+    let prog: RQProgram = root.view::<RQProgram>();
+    if prog.has_rels() {
+        let rels: RQRelArr = prog.rels_arr();
+        let nr: i64 = rels.len();
+        let mut i: i64 = 0i64;
+        while i < nr {
+            let rel: RQRel = rels.rel_at(i);
+            let bodies: RQBodyArr = rel.bodies_arr();
+            let nb: i64 = bodies.len();
+            let mut b: i64 = 0i64;
+            while b < nb {
+                let nq: i64 = gp_desugar_query(bodies.body_any(b), h, err);
+                if err.len() > 0i64 { return false; }
+                if nq != 0i64 {
+                    let mut fb: RQBodyArr = rq_fat_bodies(rel.bodies.any(), h);
+                    fb.set_body(b, WAny::ref_to(nq as *const u8));
+                }
+                b = b + 1i64;
+            }
+            i = i + 1i64;
+        }
+    }
+    let ne: i64 = gp_desugar_query(prog.entry_any(), h, err);
+    if err.len() > 0i64 { return false; }
+    if ne != 0i64 {
+        let mut fp: RQProgram = rq_fat_program(root, h);
+        fp.entry = WRef::<RQuery>::from_any(WAny::ref_to(ne as *const u8));
+    }
+    return true;
+}
+
 pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
     match plan {
         RQuery::Simple(s) => { return lower_simple(s, h); }

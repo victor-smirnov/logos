@@ -593,6 +593,28 @@ fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
     }
     out.nvars = TS_NCOLS;
     let root: WAny = WAny::ref_to(root_w as *const u8);
+    // The VIRTUAL ROOT EDGE (parent = 0 → the root node): makes the root
+    // itself queryable (it has no real incoming edge) and anchors graph
+    // paths (`parent == 0`) with no root-handle plumbing. 0 is reserved: no
+    // real node handle is 0. Same contract as writ_graph_edges (static twin).
+    out.cells.push(RtVal::I(0i64));
+    out.cells.push(RtVal::S(""));
+    out.cells.push(RtVal::I(0i64 - 1i64));
+    out.cells.push(RtVal::I(if ts_is_container(root) { root.raw() as i64 } else { 1i64 }));
+    out.cells.push(RtVal::S(ts_kind(root)));
+    out.cells.push(RtVal::I(root.type_code() as i64));
+    let rv0: RtVal = wany_to_rt(root);
+    match rv0 {
+        RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
+        RtVal::F(x)  => { out.cells.push(RtVal::F(x)); }
+        RtVal::B(x)  => { out.cells.push(RtVal::B(x)); }
+        _            => { out.cells.push(RtVal::Null); }
+    }
+    match rv0 {
+        RtVal::S(s3) => { out.cells.push(RtVal::S(s3)); }
+        _            => { out.cells.push(RtVal::Null); }
+    }
+    out.nrows = out.nrows + 1i64;
     let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();
     let sp: *mut HashMap<u64, i64> = &mut seen;
     unsafe { let _r: *mut i64 = sp.get_or_insert(root.raw() as u64, 1i64); }

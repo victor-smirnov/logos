@@ -140,6 +140,15 @@ pub fn writ_graph_edges(root: &Writ) -> Vec<WritEdgeRow> {
     let mut out: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
     let rv: WAny = root.root();
     if rv.is_null() { return out; }
+    // The VIRTUAL ROOT EDGE (parent = 0 → the root node): makes the root
+    // itself queryable (it has no real incoming edge) and gives graph paths
+    // their anchor (`parent == 0`) without threading root handles through
+    // params. 0 is reserved: no real node handle is 0.
+    let rid: i64 = if wg_is_container(rv) { rv.raw() as i64 } else { wg_fnv2(0i64, 0i64) };
+    let mut vi0: i64 = 0i64;
+    if rv.is_int()       { vi0 = rv.as_i64(); }
+    else if rv.is_bool() { vi0 = if rv.as_bool() { 1i64 } else { 0i64 }; }
+    out.push((0i64, "", 0i64 - 1i64, rid, wg_kind(rv), rv.type_code() as i64, vi0, rv.as_wstr()));
     let mut seen: Vec<u64> = vec_new::<u64>();
     seen.push(rv.raw() as u64);
     wg_walk(rv, &mut out, &mut seen);

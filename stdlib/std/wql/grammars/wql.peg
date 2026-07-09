@@ -132,6 +132,7 @@
     ref_wrap: "WRef"
 
     RQSimple { src_name: "str", var_name: "str",
+               has_gpath: "bool", gpath: "ref RQGStepArr",
                has_where: "bool", where_pred: "ref SExpr",
                sel_first: "bool", distinct: "bool", select: "ref SExpr",
                has_order: "bool", order_key: "ref SExpr", order_desc: "bool",
@@ -140,6 +141,7 @@
                has_result_ty: "bool", result_ty: "str" }
 
     RQJoin   { a_name: "str", x_var: "str",
+               has_gpath: "bool", gpath: "ref RQGStepArr",
                steps: "ref RQJoinStepArr",
                has_where: "bool", where_pred: "ref SExpr",
                sel_first: "bool", distinct: "bool", select: "ref SExpr",
@@ -149,6 +151,7 @@
                has_result_ty: "bool", result_ty: "str" }
 
     RQAggr   { a_name: "str", x_var: "str",
+               has_gpath: "bool", gpath: "ref RQGStepArr",
                steps: "ref RQJoinStepArr",
                has_where: "bool", where_pred: "ref SExpr", key: "ref SExpr",
                aggs: "ref RQAggArr",
@@ -169,6 +172,12 @@
                     is_edge: "bool", has_on: "bool", base_var: "str",
                     path: "ref RQPathSegArr" }
     RQJoinStepArr { steps: "fan set_step RQJSTEP_MAX" }
+
+    // ── graph-path steps (ADR 0016 M2a) ───────────────────────────────────
+    RQGStep    { is_key: "bool", is_elem: "bool", is_at: "bool", is_any: "bool",
+                 is_desc: "bool", is_kind: "bool", key: "str", idx: "i64",
+                 binder: "str", has_binder: "bool" }
+    RQGStepArr { steps: "fan set_gstep RQGSTEP_MAX" }
 
     // ── traversal-step field path (slice D — collection-field joins) ──────
     RQPathSeg    { name: "str" }
@@ -216,6 +225,10 @@
     RBRACE   = "}"
     SEMI     = ";"
     DOT      = "."
+    STAR2    = "**"
+    STAR     = "*"
+    LBRACK   = "["
+    RBRACK   = "]"
 
     INTEGER = /[0-9]+/
     IDENT = /[a-zA-Z_][a-zA-Z0-9_]*/
@@ -285,7 +298,24 @@
     //   $4=where_opt? $5=KW_SELECT $6=KW_FIRST? $7=KW_DISTINCT? $8=sel_body
     //   $9=order_clause? $10=KW_DESC? $11=KW_LIMIT? $12=IDENT(limit-param)? $13=INTEGER?
     //   $14=result_opt?
-    simple_query <- KW_FROM IDENT IDENT
+    //   graph-path form ordered FIRST (≥1 gstep; the classic form can never
+    //   shadow it — a bare `from src var` fails gsteps at the missing step).
+    //   var_name is walker-stamped from the last step's binder.
+    simple_query <- KW_FROM IDENT gsteps
+                    where_clause?
+                    KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
+                    order_clause? KW_DESC?
+                    KW_LIMIT? IDENT? INTEGER?
+                    result_clause?
+                    => { CODE: "RQSimple", src_name: $2,
+                         has_gpath: true, gpath: $3,
+                         has_where: $4, where_pred: $4,
+                         sel_first: $6, distinct: $7, select: $8,
+                         has_order: $9, order_key: $9, order_desc: $10,
+                         has_limit: $11, limit_is_param: $12, limit_param: $12,
+                         limit_n: $13,
+                         has_result_ty: $14, result_ty: $14 }
+                  / KW_FROM IDENT IDENT
                     where_clause?
                     KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
                     order_clause? KW_DESC?
@@ -318,7 +348,22 @@
     //   $5=where_opt? $6=KW_SELECT $7=KW_FIRST? $8=KW_DISTINCT? $9=sel_body
     //   $10=order_clause? $11=KW_DESC? $12=KW_LIMIT? $13=IDENT(limit-param)? $14=INTEGER?
     //   $15=result_opt?
-    join_query <- KW_FROM IDENT IDENT
+    join_query <- KW_FROM IDENT gsteps
+                  join_steps
+                  where_clause?
+                  KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
+                  order_clause? KW_DESC?
+                  KW_LIMIT? IDENT? INTEGER?
+                  result_clause?
+                  => { CODE: "RQJoin", a_name: $2,
+                       has_gpath: true, gpath: $3,
+                       steps: $4, has_where: $5, where_pred: $5,
+                       sel_first: $7, distinct: $8, select: $9,
+                       has_order: $10, order_key: $10, order_desc: $11,
+                       has_limit: $12, limit_is_param: $13, limit_param: $13,
+                       limit_n: $14,
+                       has_result_ty: $15, result_ty: $15 }
+                / KW_FROM IDENT IDENT
                   join_steps
                   where_clause?
                   KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
@@ -346,7 +391,28 @@
     //   $12=KW_SELECT $13=KW_FIRST? $14=KW_DISTINCT? $15=sel_body
     //   $16=order_clause? $17=KW_DESC? $18=KW_LIMIT? $19=IDENT(limit-param)? $20=INTEGER?
     //   $21=result_opt?
-    aggr_query <- KW_FROM IDENT IDENT
+    aggr_query <- KW_FROM IDENT gsteps
+                  join_steps?
+                  where_clause?
+                  KW_GROUP KW_BY key_body
+                  KW_AGGREGATE agg_list
+                  having_clause?
+                  KW_SELECT KW_FIRST? KW_DISTINCT? sel_body
+                  order_clause? KW_DESC?
+                  KW_LIMIT? IDENT? INTEGER?
+                  result_clause?
+                  => { CODE: "RQAggr", a_name: $2,
+                       has_gpath: true, gpath: $3,
+                       steps: $4,
+                       has_where: $5, where_pred: $5,
+                       key: $8, aggs: $10,
+                       has_having: $11, having_pred: $11,
+                       sel_first: $13, distinct: $14, select: $15,
+                       has_order: $16, order_key: $16, order_desc: $17,
+                       has_limit: $18, limit_is_param: $19, limit_param: $19,
+                       limit_n: $20,
+                       has_result_ty: $21, result_ty: $21 }
+                / KW_FROM IDENT IDENT
                   join_steps?
                   where_clause?
                   KW_GROUP KW_BY key_body
@@ -366,6 +432,28 @@
                        has_limit: $18, limit_is_param: $19, limit_param: $19,
                        limit_n: $20,
                        has_result_ty: $21, result_ty: $21 }
+
+    // ── Graph-path steps (ADR 0016 M2a) ───────────────────────────────────
+    // `from g <step>* v`: steps over a GRAPH source (`g: &Writ`). A step may
+    // be followed by a BINDER ident naming its edge row; the LAST step's
+    // binder is the query row var (the walker stamps var_name from it and
+    // REJECTS a bind-less last step). Steps never start with IDENT, so the
+    // optional binder is unambiguous without lookahead. Lowered to a join
+    // chain over the native edge relation in lower.logos.
+    gstep <- DOT IDENT IDENT?
+             => { CODE: "RQGStep", is_key: true, key: $2, binder: $3, has_binder: $3 }
+           / LBRACK STAR RBRACK IDENT?
+             => { CODE: "RQGStep", is_elem: true, binder: $4, has_binder: $4 }
+           / LBRACK INTEGER RBRACK IDENT?
+             => { CODE: "RQGStep", is_at: true, idx: $2, binder: $4, has_binder: $4 }
+           / STAR2 IDENT?
+             => { CODE: "RQGStep", is_desc: true, binder: $2, has_binder: $2 }
+           / STAR IDENT?
+             => { CODE: "RQGStep", is_any: true, binder: $2, has_binder: $2 }
+           / LBRACE IDENT RBRACE IDENT?
+             => { CODE: "RQGStep", is_kind: true, key: $2, binder: $4, has_binder: $4 }
+
+    gsteps <- gstep gstep* => { CODE: "RQGStepArr", steps: $... }
 
     // ── Join steps (shared by join_query / aggr_query) ────────────────────
     // TWO step forms → ONE RQJoinStep node, discriminated by `is_edge`.

@@ -356,6 +356,12 @@ impl Query {
         if prog_any.is_null() {
             return Result::Err(qerr("Query::compile: parse error — expected `[rel NAME(col: ty, …){ body; … }]* from <src> <var> [ [anti] join … on … ]* [where …] [group by … aggregate …] select …` (or `from <src> <var> find <pred>`)"));
         }
+        // ADR 0016 M2a: graph paths (`from g .a [*] ** v …`) desugar to the
+        // classic join-chain plan — SHARED pass with the static macro.
+        let mut gperr: String = String::new();
+        if !desugar_program_gpaths(prog_any, &doc, &mut gperr) {
+            return Result::Err(QError { msg: gperr });
+        }
         let prog: RQProgram = prog_any.view::<RQProgram>();
         let mut reg: QRelReg = qrelreg_new();
         let mut bodies: QBodyTab = qbodytab_new();
