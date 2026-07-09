@@ -89,6 +89,27 @@ public:
     bool at_end() { return peek().kind == TK::Eof; }
     std::string_view source_name() const { return name_; }
 
+    // The `// …` comment trailing `t` on the same line, without its `//` and
+    // surrounding spaces; empty if none. The lexer discards comments as
+    // whitespace, so a %fields/%nodes entry's documentation is only reachable
+    // from the raw source — and it has to be, or a generated constants header
+    // would drop the grammar's entire commentary.
+    std::string_view trailing_comment(const Token& t) const {
+        if (t.text.data() < src_.data()) return {};
+        size_t p = size_t(t.text.data() - src_.data()) + t.text.size();
+        size_t eol = src_.find('\n', p);
+        if (eol == std::string_view::npos) eol = src_.size();
+        std::string_view rest = src_.substr(p, eol - p);
+        size_t c = rest.find("//");
+        if (c == std::string_view::npos) return {};
+        rest.remove_prefix(c + 2);
+        while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t'))
+            rest.remove_prefix(1);
+        while (!rest.empty() && (rest.back() == ' ' || rest.back() == '\r'))
+            rest.remove_suffix(1);
+        return rest;
+    }
+
 private:
     std::string_view src_;
     std::string_view name_;
@@ -563,13 +584,19 @@ private:
             // `group X { NAME = N, ... }` — fields scoped to a named group.
             if (name.text == "group") {
                 Token gname = expect(TK::Ident, "group name");
+                // The group's doc trails its opening brace, not its name.
+                Token brace = lex_.peek();
                 auto fields_arr = doc_.make_array(8).get();
                 parse_name_decls(fields_arr);  // recursive — inner block
-                auto node = make_tm(4);
+                auto node = make_tm(5);
                 auto ns   = make_str(gname.text);
                 node.put(ast::CODE,   AnyVal::from_value(ast::GROUP_DECL)).get();
                 node.put(ast::NAME,   ns.to_anyval()).get();
                 node.put(ast::FIELDS, fields_arr.to_anyval()).get();
+                if (auto d = lex_.trailing_comment(brace); !d.empty()) {
+                    auto ds = make_str(d);
+                    node.put(ast::DOC, ds.to_anyval()).get();
+                }
                 out.push_back(node.to_anyval()).get();
                 try_eat(TK::Comma);
                 continue;
@@ -578,11 +605,15 @@ private:
             expect(TK::Equals, "=");
             Token num  = expect(TK::Integer, "integer code");
 
-            auto node = make_tm(4);
+            auto node = make_tm(5);
             auto ns   = make_str(name.text);
             node.put(ast::CODE,  AnyVal::from_value(ast::NAME_DECL)).get();
             node.put(ast::NAME,  ns.to_anyval()).get();
             node.put(ast::VALUE, AnyVal::from_value(parse_int(num.text))).get();
+            if (auto d = lex_.trailing_comment(num); !d.empty()) {
+                auto ds = make_str(d);
+                node.put(ast::DOC, ds.to_anyval()).get();
+            }
             out.push_back(node.to_anyval()).get();
 
             try_eat(TK::Comma);

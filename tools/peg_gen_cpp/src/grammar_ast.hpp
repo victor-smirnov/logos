@@ -109,6 +109,7 @@ inline constexpr Key PACKAGE   {"PACKAGE",   23};  // META_INFO: emitted `packag
 inline constexpr Key GPREFIX   {"GPREFIX",   24};  // META_INFO: prefix for module-GLOBAL emitted names — lets 2 generated parsers coexist in one module
 inline constexpr Key FKEY      {"FKEY",      25};  // SCHEMA_FIELD: explicit TOM key (`field: "ty" = N`). REQUIRED by the C++ backend: unlike the Logos backend (which emits `node.field = …` and lets logosc resolve field→key against the ADR-0011 `schema` item), C++ has no second pass and must bake the key in.
 inline constexpr Key TYPE_CODE {"TYPE_CODE", 26};  // SCHEMA_DECL: the ADR-0011 `code(0x…)` type code (`S : code(0x…) { … }`), stored as u64. Logos gets it from `doc.make::<S>()`; C++ must stamp set_schema_type_code() itself.
+inline constexpr Key DOC       {"DOC",       27};  // NAME_DECL / GROUP_DECL: the trailing `// …` comment of a %fields/%nodes entry, carried through so a generated constants header keeps the grammar's documentation.
 
 // ---------------------------------------------------------------------------
 // Node type discriminants  (stored as value of CODE field)

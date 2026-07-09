@@ -67,6 +67,32 @@ set_source_files_properties(${WRIT_PARSER_CPP} PROPERTIES
     COMPILE_OPTIONS "-Wno-unused-variable;-Wno-unused-but-set-variable"
 )
 
+# ── The AST constants header is GENERATED from logos.peg ──────────────────────
+# include/logos/compiler/ast.hpp used to restate the grammar's %fields/%nodes by
+# hand. Nothing checked the two agreed; a name mismatch is a compile error, but a
+# VALUE mismatch is a silent runtime bug — and one had already happened
+# (WRIT_BLOB and TEMPLATE_DECL both claimed node code 199). The grammar is now
+# the only declaration; the committed header is a generated artifact, and the
+# test below fails the build if it drifts.
+set(LOGOS_AST_HEADER ${CMAKE_SOURCE_DIR}/include/logos/compiler/ast.hpp)
+set(LOGOS_PEG        ${CMAKE_CURRENT_SOURCE_DIR}/grammars/logos.peg)
+
+add_custom_target(peg_ast_regen
+    COMMAND $<TARGET_FILE:peg_gen_cpp> ${LOGOS_PEG}
+            --out-dir ${CMAKE_CURRENT_BINARY_DIR}/ast_regen
+            --ast-header ${LOGOS_AST_HEADER}
+    DEPENDS peg_gen_cpp ${LOGOS_PEG}
+    COMMENT "Regenerating include/logos/compiler/ast.hpp from logos.peg")
+
+add_test(NAME peg_ast_header_fresh
+    COMMAND ${CMAKE_COMMAND}
+            -DPEG=$<TARGET_FILE:peg_gen_cpp>
+            -DGRAMMAR=${LOGOS_PEG}
+            -DHEADER=${LOGOS_AST_HEADER}
+            -DWORK=${CMAKE_CURRENT_BINARY_DIR}/ast_fresh_check
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/check_ast_header.cmake)
+set_tests_properties(peg_ast_header_fresh PROPERTIES LABELS "lint")
+
 # EL cross-BACKEND oracle — the check that makes "one dialect, two backends" a
 # fact rather than a hope: parse one EL corpus with the parser peg_gen_cpp
 # generates from el.peg AND with the parser peg_gen_logos generates from the SAME

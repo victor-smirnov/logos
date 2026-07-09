@@ -59,6 +59,13 @@ namespace logos::peg_gen {
 struct CodegenOptions {
     std::filesystem::path output_dir;  // where to write generated files
     bool                  overwrite = true;
+    // When set, the ROOT grammar's %fields/%nodes are ALSO emitted as a
+    // standalone C++ constants header at this path. That header used to be
+    // hand-maintained beside the grammar (include/logos/compiler/ast.hpp) —
+    // two declarations of the same integers with nothing checking them. A
+    // name/value mismatch there is a silent runtime bug, and one had already
+    // happened (WRIT_BLOB and TEMPLATE_DECL both claimed code 199).
+    std::filesystem::path ast_header;
 };
 
 // Generate C++ parser files for all resolved modules.
