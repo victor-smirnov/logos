@@ -1,0 +1,255 @@
+//
+// Deem × Writ showcase — querying a DYNAMIC document with a STATIC engine.
+//
+// The problem: a JSON-like document arrives at RUNTIME (types known only via
+// tag dispatch), but we want to ask it real questions with the compile-time
+// query engine. The pattern (the ADR 0014 doc-extraction shape in miniature):
+//
+//   SDN text ──parse()──▶ Writ tree          // dynamic: tags, not types
+//        │
+//        ▼  ONE recursive walk (tag dispatch — the only dynamic code)
+//   plain-struct FACTS                       // the boundary: dynamism dies here
+//        │
+//        ▼  static deem! over &[fact]        // compiled queries, no catalog,
+//   answers                                  // no engine at runtime
+//
+// The fact schema is the canonical tree encoding:
+//   NodeF (id, kind)            one row per tree node, preorder ids
+//   ChildF(parent, key, idx, child)   one row per edge (key for maps, idx for
+//                                     arrays — the other column is ""/−1)
+//   LeafI / LeafS (id, v)       typed leaf values (rel columns are i64/str/bool)
+//
+// Three variants on the same document:
+//   Act A — flat queries over the facts (histogram, join on key names);
+//   Act B — RECURSIVE rel over ChildF: subtree membership + node depth via a
+//           recursive min-aggregate (Datalog proper — this is what the
+//           flattening buys: XPath-descendant becomes a two-line rel);
+//   Act C — the CONTRAST: for flat, table-shaped JSON no flattening is needed
+//           at all — the runtime engine's LENIENT mode queries string-keyed
+//           map rows directly by name (missing field → Null, CEL-style).
+//
+// Build: cmake --build build --target example_deem_writ_showcase
+// Run:   ./build/examples/deem_writ_showcase
+//
+
+package deem_writ_showcase;
+
+use logos.lang.writ.container;    // Writ / writ_new
+use logos.lang.writ.anyval;       // WAny — tag dispatch
+use logos.lang.writ.array;        // WArray
+use logos.lang.writ.wmap;         // WMap<WString, WAny> — string-keyed maps
+use logos.lang.writ.wstring;      // WString
+use logos.mem.writ.parser;        // parse — SDN text → Writ values
+use logos.lang.rc;
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.wql;            // deem! — the static macro (Acts A/B)
+use logos.std.deem;               // Query/QEnv — the runtime engine (Act C)
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn hdr(label: str) {
+    unsafe { printf("\n=== %.*s ===\n" as *const u8, label.len() as i32, label.as_ptr()); }
+}
+
+fn pr_str(pre: str, s: str) {
+    unsafe { printf("  %.*s%.*s\n" as *const u8, pre.len() as i32, pre.as_ptr(),
+                    s.len() as i32, s.as_ptr()); }
+}
+
+// ── the FACTS: plain structs — after the walk everything is statically typed ──
+struct NodeF  { pub id: i64, pub kind: str }   // map / arr / str / i64 / bool / null
+struct ChildF { pub parent: i64, pub key: str, pub idx: i64, pub child: i64 }
+struct LeafI  { pub id: i64, pub v: i64 }
+struct LeafS  { pub id: i64, pub v: str }
+
+struct Facts {
+    pub nodes:  Vec<NodeF>,
+    pub childs: Vec<ChildF>,
+    pub ints:   Vec<LeafI>,
+    pub strs:   Vec<LeafS>,
+}
+
+// ── the WALK: the only tag-dispatched code in the program ────────────────────
+// Assigns preorder ids; returns this node's id. `str` leaf views point into
+// the parsed document's arena — keep the Writ alive while the facts live.
+unsafe fn flatten(v: WAny, f: &mut Facts) -> i64 {
+    let id: i64 = f.nodes.len();
+    if v.is_map() {
+        f.nodes.push(NodeF { id: id, kind: "map" });
+        let m: &WMap<WString, WAny> = v.as_map();
+        let ns: i64 = m.slots();
+        let mut s: i64 = 0i64;
+        while s < ns {                       // raw slot iteration; empty slots are null keys
+            let kv: WAny = m.key_at(s);
+            if !kv.is_null() {
+                let ks: &WString = &*(kv.resolve() as *const WString);
+                let cid: i64 = flatten(m.val_at(s), f);
+                f.childs.push(ChildF { parent: id, key: ks.as_str(), idx: 0i64 - 1i64, child: cid });
+            }
+            s = s + 1i64;
+        }
+    } else if v.is_array() {
+        f.nodes.push(NodeF { id: id, kind: "arr" });
+        let a: &WArray<WAny> = v.as_array();
+        let mut i: i64 = 0i64;
+        while i < a.len() {
+            let cid: i64 = flatten(a.get(i), f);
+            f.childs.push(ChildF { parent: id, key: "", idx: i, child: cid });
+            i = i + 1i64;
+        }
+    } else if v.is_string() {
+        f.nodes.push(NodeF { id: id, kind: "str" });
+        let ws: &WString = &*(v.resolve() as *const WString);
+        f.strs.push(LeafS { id: id, v: ws.as_str() });
+    } else if v.is_null() {
+        f.nodes.push(NodeF { id: id, kind: "null" });
+    } else if v.is_bool() {
+        f.nodes.push(NodeF { id: id, kind: "bool" });
+        f.ints.push(LeafI { id: id, v: if v.as_bool() { 1i64 } else { 0i64 } });
+    } else {
+        f.nodes.push(NodeF { id: id, kind: "i64" });
+        f.ints.push(LeafI { id: id, v: v.as_i64() });
+    }
+    return id;
+}
+
+// ── Act A: flat static queries over the facts ────────────────────────────────
+// node-kind histogram
+resource kind_hist = deem!(nodes: &[NodeF]) {
+    from nodes n group by n.kind aggregate c = count() select (key, c) order by key
+};
+// "every `engine` setting in the document, wherever it sits" — an edge⋈leaf join
+resource engines = deem!(childs: &[ChildF], strs: &[LeafS]) {
+    from childs c join strs l on l.id == c.child
+    where c.key == "engine" select l.v : str
+};
+
+// ── Act B: Datalog over the tree — the payoff of flattening ─────────────────
+// subtree membership: dsc(a, b) ⇔ b is a descendant of a
+// (two lines; compare with hand-writing a stack walk per question)
+resource under = deem!(childs: &[ChildF], root: i64) {
+    rel dsc(a: i64, b: i64) {
+        from childs c select (c.parent, c.child);
+        from dsc d join childs c on c.parent == d.b select (d.a, c.child);
+    }
+    from dsc d where d.a == root select d.b order by d.b
+};
+// every i64 leaf VALUE inside a given subtree: dsc ⋈ ints
+resource ints_under = deem!(childs: &[ChildF], ints: &[LeafI], root: i64) {
+    rel dsc(a: i64, b: i64) {
+        from childs c select (c.parent, c.child);
+        from dsc d join childs c on c.parent == d.b select (d.a, c.child);
+    }
+    from dsc d join ints l on l.id == d.b
+    where d.a == root select l.v order by l.v
+};
+// node depth — a RECURSIVE MIN-AGGREGATE (the semilattice tier: depth(n) =
+// min over parents of depth(parent)+1; exactly the SSSP shape on the tree)
+resource depths = deem!(childs: &[ChildF]) {
+    rel depth(n: i64, d: i64) {
+        from childs c where c.parent == 0 select (c.child, 1);
+        from depth x join childs c on c.parent == x.n
+            group by c.child aggregate d = min(x.d + 1) select (c.child, d);
+    }
+    from depth r group by r.d aggregate c = count() select (key, c) order by key
+};
+// the id of a named top-level section (to feed `root` params)
+resource section_id = deem!(childs: &[ChildF], name: str) {
+    from childs c where c.parent == 0 && c.key == name select c.child : i64
+};
+
+fn main() -> i32 {
+    // ── the document: arrives as TEXT, parsed at runtime ────────────────────
+    let rc: Rc<Writ> = unsafe { writ_rc(65536i64) };
+    let h: &Writ = rc.deref();
+    let doc: WAny = unsafe { parse(h,
+        r#"{
+            service: "api",
+            replicas: 3,
+            ports: [8080, 8443],
+            db:    { engine: "pg",    host: "db1", pool: { min: 2, max: 16 } },
+            cache: { engine: "redis", host: "c1" },
+            debug: false
+        }"#) };
+
+    // ── the walk: dynamic → static, once ─────────────────────────────────────
+    let mut f: Facts = Facts {
+        nodes:  vec_new::<NodeF>(),
+        childs: vec_new::<ChildF>(),
+        ints:   vec_new::<LeafI>(),
+        strs:   vec_new::<LeafS>(),
+    };
+    let _root: i64 = unsafe { flatten(doc, &mut f) };
+    unsafe { printf("flattened: %ld nodes, %ld edges\n" as *const u8,
+                    f.nodes.len(), f.childs.len()); }
+
+    // ── Act A ────────────────────────────────────────────────────────────────
+    hdr("Act A: flat queries");
+    let hist: Vec<(str, i64)> = kind_hist(f.nodes.as_slice()).unwrap();
+    let mut i: i64 = 0i64;
+    while i < hist.len() {
+        let row: (str, i64) = hist.get(i);
+        unsafe { printf("  %-5.*s %ld\n" as *const u8,
+                        row.0.len() as i32, row.0.as_ptr(), row.1); }
+        i = i + 1i64;
+    }
+    let eng: Vec<str> = engines(f.childs.as_slice(), f.strs.as_slice()).unwrap();
+    let mut j: i64 = 0i64;
+    while j < eng.len() { pr_str("engine: ", eng.get(j)); j = j + 1i64; }
+
+    // ── Act B ────────────────────────────────────────────────────────────────
+    hdr("Act B: Datalog over the tree");
+    let db_id: i64 = section_id(f.childs.as_slice(), "db").unwrap().get(0i64);
+    let sub: Vec<i64> = under(f.childs.as_slice(), db_id).unwrap();
+    unsafe { printf("  db subtree: %ld nodes\n" as *const u8, sub.len()); }
+    let vals: Vec<i64> = ints_under(f.childs.as_slice(), f.ints.as_slice(), db_id).unwrap();
+    let mut k: i64 = 0i64;
+    while k < vals.len() {
+        unsafe { printf("  i64 leaf under db: %ld\n" as *const u8, vals.get(k)); }
+        k = k + 1i64;
+    }
+    let dh: Vec<(i64, i64)> = depths(f.childs.as_slice()).unwrap();
+    let mut k2: i64 = 0i64;
+    while k2 < dh.len() {
+        let row2: (i64, i64) = dh.get(k2);
+        unsafe { printf("  depth %ld: %ld nodes\n" as *const u8, row2.0, row2.1); }
+        k2 = k2 + 1i64;
+    }
+
+    // ── Act C: the contrast — flat JSON needs NO flattening at all ──────────
+    // A table-shaped document (array of records): the runtime engine's LENIENT
+    // mode queries it directly by field NAME. Missing field → Null; Null
+    // propagates CEL-style (compare → false), so ragged JSON filters cleanly.
+    hdr("Act C: lenient (no flattening)");
+    let hosts: WAny = unsafe { parse(h,
+        r#"[ { name: "web1", cpu: 8 },
+             { name: "web2", cpu: 32 },
+             { name: "spare" } ]"#) };   // no cpu — ragged on purpose
+    let c: SchemaCatalog = SchemaCatalog::new();   // no schemas — fully erased
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_erased("hosts", hosts);
+    let q: Query = match Query::compile(
+        "from hosts hh where hh.cpu >= 16 select hh.name", &c)
+    { Result::Ok(v) => { v } Result::Err(er) => { fail(&er); return 1i32; } };
+    match q.run(&env) {
+        Result::Ok(rows) => {
+            let mut r: i64 = 0i64;
+            while r < rows.row_count() {
+                pr_str("big host: ", rows.get_str(r, 0i64));
+                r = r + 1i64;
+            }
+        }
+        Result::Err(er) => { fail(&er); return 2i32; }
+    }
+
+    unsafe { printf("\ndone.\n" as *const u8); }
+    return 0i32;
+}
+
+fn fail(er: &QError) {
+    let m: str = er.message();
+    unsafe { printf("deem error: %.*s\n" as *const u8, m.len() as i32, m.as_ptr()); }
+}
