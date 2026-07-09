@@ -1,0 +1,114 @@
+// wql_mapping_consume_e2e — mapping FUSION into a consumer deem! (ADR 0016
+// M2b-2 consumption): a deem! parameter TYPED by a mapping name splices that
+// mapping's rules into the consumer's program. The compiler prepends the
+// mapping's canonical rel list, rewrites the param's type to the mapping's own
+// source type (`g: Services` → `g: &Writ` in the emitted fn), and the handler
+// renames the mapping's source param to the consumer's inside just the spliced
+// rels — fusion, not materialization: the rules join the consumer's RelDeps/SCC
+// and evaluate in ONE program. Asserts:
+//   (a) a consumer whose param name DIFFERS from the mapping's (rename real);
+//   (b) the consumer's entry references a mapping rel AND the graph param
+//       directly in one query (the param is a plain &Writ after enrichment);
+//   (c) a mapping rel joined against the consumer's own slice param;
+//   (d) a consumer rel layered ON TOP of a mapping rel (dependency edge into
+//       spliced rules);
+//   (e) parity: the fused query ≡ the same program written by hand;
+//   (f) declaration order does not matter (this consumer precedes the mapping).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;        // parse_writ
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+
+// (f) consumers FIRST — the mapping pre-scan must make item order irrelevant.
+
+// (a) param named `w`, mapping's own param is `g`: the rename is exercised.
+resource all_engines = deem!(w: Net) { from engine e select (e.owner, e.name) };
+
+// (b) mapping rel + direct graph access through the SAME enriched param.
+resource pg_owner_kind = deem!(w: Net) {
+    from engine e join w d on d.child == e.owner
+    where e.name == "pg"
+    select d.kind
+};
+
+// (c) mapping rel ⋈ the consumer's own slice param.
+struct Svc { pub id: i64, pub label: str }
+resource port_labels = deem!(w: Net, svcs: &[Svc]) {
+    from port p join svcs s on s.id == p.p
+    select (p.p, s.label)
+};
+
+// (d) a consumer rel on top of a spliced rel.
+resource big_ports = deem!(w: Net) {
+    rel big(p: i64) { from port r where r.p >= 1000 select r.p; }
+    from big b select b.p
+};
+
+// (e) the hand-written twin of all_engines (no mapping involved).
+resource all_engines_hand = deem!(g: &Writ) {
+    rel engine(owner: i64, name: str) { from g ** .engine e select (e.parent, e.vs); }
+    from engine e select (e.owner, e.name)
+};
+
+pub mapping Net(g: &Writ) {
+    pub rel engine(owner: i64, name: str) {
+        from g ** .engine e select (e.parent, e.vs);
+    }
+    pub rel port(p: i64) {
+        from g .ports [*] q select q.vi;
+    }
+}
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(
+        r#"{ db: { engine: "pg", pool: { min: 2, max: 16 } },
+             ports: [80, 8443],
+             cache: { engine: "redis" } }"#);
+    if doc.root().is_null() { return 90i32; }
+
+    // (a) rename w→g works: both engines found through the fused rules.
+    let e: Vec<(i64, str)> = match all_engines(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if e.len() != 2i64 { return 2i32; }
+
+    // (e) parity with the hand-written program.
+    let hd: Vec<(i64, str)> = match all_engines_hand(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if hd.len() != e.len() { return 4i32; }
+    let mut i: i64 = 0i64;
+    while i < e.len() {
+        let a: (i64, str) = e.get(i);
+        let b: (i64, str) = hd.get(i);
+        if a.0 != b.0 { return 5i32; }
+        if !str_eq(a.1, b.1) { return 6i32; }
+        i = i + 1i64;
+    }
+
+    // (b) mapping rel joined with the graph param itself: the owner handle of
+    // the "pg" engine is the db map — kind "map".
+    let ks: Vec<str> = match pg_owner_kind(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if ks.len() != 1i64 { return 8i32; }
+    if !str_eq(ks.get(0i64), "map") { return 9i32; }
+
+    // (c) mapping rel ⋈ consumer slice.
+    let svcs: [Svc; 2] = [ Svc { id: 80i64, label: "http" },
+                           Svc { id: 8443i64, label: "https" } ];
+    let pl: Vec<(i64, str)> = match port_labels(&doc, &svcs[..])
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if pl.len() != 2i64 { return 11i32; }
+
+    // (d) consumer rel over a spliced rel.
+    let bp: Vec<i64> = match big_ports(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 12i32; } };
+    if bp.len() != 1i64 { return 13i32; }
+    if bp.get(0i64) != 8443i64 { return 14i32; }
+
+    return 0i32;
+}

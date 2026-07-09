@@ -19510,7 +19510,9 @@ void SemaChecker::emit_token_macro_item_site(
             // from. The handler never sees the text.
             blobs.push_back(pack_blob(resource_name));
             blobs.push_back(pack_blob(params_text));
-            if (ir_entry == IrEntry::RelList) blobs.push_back(pack_blob(pub_mask));
+            // Slot 2 = the item-layer side channel: the per-rel `pub` mask for
+            // a mapping, the fusion spec for an enriched deem! (often empty).
+            blobs.push_back(pack_blob(pub_mask));
 
             auto doc = logos::writ::make_doc(1u << 20).get();   // MultiChunk: never moves
             logos::wql::surface::WqlParser wp(raw_text, doc);
@@ -19543,10 +19545,11 @@ void SemaChecker::emit_token_macro_item_site(
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         // The callee invocation, producing an ItemList or QuoteItemBlob.
         std::string call_text;
-        if (ir_entry == IrEntry::RelList) {
-            // (name, params, pub_mask, ir) — the mapping ABI. The mask is one
-            // '0'/'1' per rel in declaration order; rel NAMES and COLUMNS come
-            // from the IR, so the handler scans no text at all.
+        if (ir_mode) {
+            // (name, params, extra, ir) — the unified rule-IR ABI. `extra` is
+            // the pub mask (mapping) or the fusion spec (deem!); `ir` is a
+            // POINTER into the compiler's Writ arena — the root parsed above.
+            // The handler does `WAny::ref_to(ir)` and reads the tree in place.
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
@@ -19561,21 +19564,6 @@ void SemaChecker::emit_token_macro_item_site(
                 site_id, static_cast<int64_t>(resource_name.size()),
                 static_cast<int64_t>(params_text.size()),
                 static_cast<int64_t>(pub_mask.size()),
-                macro_info->base_name);
-        } else if (ir_mode) {
-            // Third arg is a POINTER into the compiler's Writ arena — the root
-            // of the RQProgram parsed above. The handler does `WAny::ref_to(ir)`.
-            call_text = std::format(
-                "{{\n"
-                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
-                "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
-                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
-                "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
-                "    {3}(__n, __pr, __ir)\n"
-                "}}",
-                site_id, static_cast<int64_t>(resource_name.size()),
-                static_cast<int64_t>(params_text.size()),
                 macro_info->base_name);
         } else if (nargs == 3) {
             call_text = std::format(
@@ -19687,20 +19675,19 @@ void SemaChecker::emit_token_macro_item_site(
 // logos.std.wql.mapping_item. The handler mangles each rel to a generated fn
 // `<M>__<rel>` so `M::rel(args)` resolves through the ordinary static-call
 // path, and maps a non-pub rel to a non-pub generated fn.
-void SemaChecker::lower_mapping_def(writ::TinyMapView node,
-                                    lir::LProgram& prog) {
+bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
+                                          MappingParts& out) {
     if (!node.has_key(la::NAME)) {
-        error("mapping item: missing name (grammar regression?)");
-        return;
+        out.err = "mapping item: missing name (grammar regression?)";
+        return false;
     }
-    std::string mname(str_of(node.get(la::NAME.code)));
+    out.name = std::string(str_of(node.get(la::NAME.code)));
+    const std::string& mname = out.name;
 
     // ── header params `(g: &Writ, floor: i64)`: only simple `name: Type`
     // bindings are meaningful in a mapping header (the source shape +
     // scalars); ref/mut/pattern binders are rejected here rather than
     // surfacing as opaque pipeline errors later.
-    std::string params_text;
-    size_t nparams = 0;
     if (node.has_key(la::PARAMS)) {
         auto pl = map_of(node.get(la::PARAMS.code));
         if (!pl.is_null() && pl.has_key(la::ITEMS.code)) {
@@ -19711,10 +19698,10 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
                 if (!p.has_key(la::NAME.code) || !p.has_key(la::TYPE.code)
                         || p.has_key(la::PAT.code)
                         || p.has_key(la::NAMES.code)) {
-                    error(std::format(
+                    out.err = std::format(
                         "mapping '{}': parameters must be simple "
-                        "`name: Type` bindings", mname));
-                    return;
+                        "`name: Type` bindings", mname);
+                    return false;
                 }
                 std::string pn(str_of(p.get(la::NAME.code)));
                 // Syntactic render: the canonical text must say what the
@@ -19723,33 +19710,34 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
                 std::string tsrc =
                     render_type_src_syntactic_(map_of(p.get(la::TYPE.code)));
                 if (tsrc.empty()) {
-                    error(std::format(
+                    out.err = std::format(
                         "mapping '{}': cannot render the type of parameter "
-                        "'{}'", mname, pn));
-                    return;
+                        "'{}'", mname, pn);
+                    return false;
                 }
-                if (nparams) params_text += ", ";
-                params_text += pn;
-                params_text += ": ";
-                params_text += tsrc;
-                ++nparams;
+                if (out.nparams) out.params_text += ", ";
+                out.params_text += pn;
+                out.params_text += ": ";
+                out.params_text += tsrc;
+                if (out.nparams == 0) {
+                    out.first_param_name = pn;
+                    out.first_param_type = tsrc;
+                }
+                ++out.nparams;
             }
         }
     }
-    if (nparams == 0) {
-        error(std::format(
+    if (out.nparams == 0) {
+        out.err = std::format(
             "mapping '{}': needs at least one parameter — the source shape "
-            "(e.g. `g: &Writ`)", mname));
-        return;
+            "(e.g. `g: &Writ`)", mname);
+        return false;
     }
 
     // ── rel members: validate signatures, reconstruct canonical text ──
     // The text is a bare `rel …+` list — the wql.peg `rel_list` entry. No `pub`:
     // visibility is an item-layer concept the query grammar knows nothing of, so
     // it travels beside the IR as a '0'/'1' mask in declaration order.
-    std::string body_text;
-    std::string pub_mask;
-    std::vector<std::string> rel_names;
     if (node.has_key(la::FIELDS)) {
         auto rarr = arr_of(node.get(la::FIELDS.code));
         for (uint64_t i = 0; i < rarr.size(); ++i) {
@@ -19763,21 +19751,21 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
             // `rel` identifier); only the literal text `rel` is legal.
             std::string lead(str_of(r.get(la::REL_KW.code)));
             if (lead != "rel") {
-                error(std::format(
+                out.err = std::format(
                     "mapping '{}': expected `rel`, found '{}' — mapping "
                     "bodies contain only `rel name(col: ty, …) {{ … }}` "
-                    "members", mname, lead));
-                return;
+                    "members", mname, lead);
+                return false;
             }
             std::string rn(str_of(r.get(la::NAME.code)));
-            for (const auto& seen : rel_names) {
+            for (const auto& seen : out.rel_names) {
                 if (seen == rn) {
-                    error(std::format(
-                        "mapping '{}': duplicate rel '{}'", mname, rn));
-                    return;
+                    out.err = std::format(
+                        "mapping '{}': duplicate rel '{}'", mname, rn);
+                    return false;
                 }
             }
-            rel_names.push_back(rn);
+            out.rel_names.push_back(rn);
 
             std::string cols_text;
             size_t ncols = 0;
@@ -19790,21 +19778,21 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
                         if (cp.is_null() || code_of(cp) != la::PARAM) continue;
                         if (!cp.has_key(la::NAME.code)
                                 || !cp.has_key(la::TYPE.code)) {
-                            error(std::format(
+                            out.err = std::format(
                                 "mapping '{}': rel '{}' columns must be "
-                                "`name: type`", mname, rn));
-                            return;
+                                "`name: type`", mname, rn);
+                            return false;
                         }
                         std::string cn(str_of(cp.get(la::NAME.code)));
                         std::string ct = render_type_src_syntactic_(
                             map_of(cp.get(la::TYPE.code)));
                         if (ct != "i64" && ct != "str" && ct != "bool") {
-                            error(std::format(
+                            out.err = std::format(
                                 "mapping '{}': rel '{}' column '{}' has type "
                                 "`{}` — rel columns are i64/str/bool (rows "
                                 "are set-deduplicated; the column type must "
-                                "be joinable/Eq)", mname, rn, cn, ct));
-                            return;
+                                "be joinable/Eq)", mname, rn, cn, ct);
+                            return false;
                         }
                         if (ncols) cols_text += ", ";
                         cols_text += cn;
@@ -19815,45 +19803,69 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
                 }
             }
             if (ncols == 0) {
-                error(std::format(
+                out.err = std::format(
                     "mapping '{}': rel '{}' needs at least one typed column",
-                    mname, rn));
-                return;
+                    mname, rn);
+                return false;
             }
             if (ncols > 8) {
-                error(std::format(
+                out.err = std::format(
                     "mapping '{}': rel '{}' has {} columns — at most 8 "
-                    "(current engine limit)", mname, rn, ncols));
-                return;
+                    "(current engine limit)", mname, rn, ncols);
+                return false;
             }
             if (!r.has_key(la::RAW_TEXT.code)) {
-                error(std::format(
+                out.err = std::format(
                     "mapping '{}': rel '{}' missing body (grammar "
-                    "regression?)", mname, rn));
-                return;
+                    "regression?)", mname, rn);
+                return false;
             }
             std::string rbody(str_of(r.get(la::RAW_TEXT.code)));
-            pub_mask += r.has_key(la::IS_PUB.code) ? '1' : '0';
-            body_text += "rel ";
-            body_text += rn;
-            body_text += "(";
-            body_text += cols_text;
-            body_text += ") {";
-            body_text += rbody;
-            body_text += "}\n";
+            out.pub_mask += r.has_key(la::IS_PUB.code) ? '1' : '0';
+            out.body_text += "rel ";
+            out.body_text += rn;
+            out.body_text += "(";
+            out.body_text += cols_text;
+            out.body_text += ") {";
+            out.body_text += rbody;
+            out.body_text += "}\n";
         }
     }
-    if (rel_names.empty()) {
-        error(std::format(
+    if (out.rel_names.empty()) {
+        out.err = std::format(
             "mapping '{}': no `rel` declarations — a mapping is a set of "
-            "rels (`rel name(col: ty, …) {{ … }}`)", mname));
+            "rels (`rel name(col: ty, …) {{ … }}`)", mname);
+        return false;
+    }
+    if (out.rel_names.size() > 8) {
+        out.err = std::format(
+            "mapping '{}': {} rels — at most 8 per mapping (current engine "
+            "limit)", mname, out.rel_names.size());
+        return false;
+    }
+    return true;
+}
+
+void SemaChecker::lower_mapping_def(writ::TinyMapView node,
+                                    lir::LProgram& prog) {
+    MappingParts parts;
+    if (!reconstruct_mapping_def(node, parts)) {
+        error(parts.err);
         return;
     }
-    if (rel_names.size() > 8) {
-        error(std::format(
-            "mapping '{}': {} rels — at most 8 per mapping (current engine "
-            "limit)", mname, rel_names.size()));
-        return;
+    const std::string& mname = parts.name;
+
+    // Register (idempotent overwrite — the lower_module_items pre-scan already
+    // did this for source-level mappings; macro-GENERATED mappings only pass
+    // through here).
+    {
+        MappingInfo mi;
+        mi.src_param_name = parts.first_param_name;
+        mi.src_param_type = parts.first_param_type;
+        mi.body_text      = parts.body_text;
+        mi.nrels          = parts.rel_names.size();
+        mi.enrichable     = (parts.nparams == 1);
+        mappings_[mname] = std::move(mi);
     }
 
     // ── route through the token-macro item seam to the stdlib handler ──
@@ -19899,8 +19911,8 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
     }
     if (!holder_ || !cur_prog_) return;
     emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 3,
-                               mname, params_text, body_text,
-                               IrEntry::RelList, pub_mask);
+                               mname, parts.params_text, parts.body_text,
+                               IrEntry::RelList, parts.pub_mask);
 }
 
 
@@ -19988,37 +20000,39 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         && is_str_type(macro_info->param_types[1])
         && is_str_type(macro_info->param_types[2]);
     // ADR 0016 body lift: `#[token_macro] fn h(name: str, params: str,
-    // ir: *const u8) -> ItemList`. The COMPILER parses the rule body with the
-    // C++ parser generated from wql.peg and hands the root of the resulting
-    // RQProgram across as a raw pointer into its own never-move arena. The
-    // handler wraps it (`WAny::ref_to`) and walks it in place — no second parse,
-    // no serialisation, no copy. Text never crosses this seam.
+    // enrich: str, ir: *const u8) -> ItemList`. The COMPILER parses the rule
+    // body with the C++ parser generated from wql.peg and hands the root of
+    // the resulting RQProgram across as a raw pointer into its own never-move
+    // arena; `enrich` carries the mapping-fusion spec (M2b-2) — empty when no
+    // param is mapping-typed. The handler wraps the pointer (`WAny::ref_to`)
+    // and walks it in place — no second parse, no serialisation, no copy.
+    // Query text never crosses this seam.
     auto is_const_u8_ptr = [](TypeRef t) -> bool {
         return TypeRef(t).kind() == LogosType::Kind::Ptr
             && TypeRef(t).pointee()
             && TypeRef(t).pointee().kind() == LogosType::Kind::U8;
     };
-    bool sig_ir3 = macro_info->is_token_macro
-        && macro_info->param_types.size() == 3
+    bool sig_ir4 = macro_info->is_token_macro
+        && macro_info->param_types.size() == 4
         && is_str_type(macro_info->param_types[0])
         && is_str_type(macro_info->param_types[1])
-        && is_const_u8_ptr(macro_info->param_types[2]);
-    if (sig_ir3) sig_str3 = false;   // same arity, different third slot
+        && is_str_type(macro_info->param_types[2])
+        && is_const_u8_ptr(macro_info->param_types[3]);
 
-    bool sig_vec = !sig_str && !sig_str2 && !sig_str3 && !sig_ir3
+    bool sig_vec = !sig_str && !sig_str2 && !sig_str3 && !sig_ir4
         && macro_info->param_types.size() == 1
         && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
         && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
         && TypeRef(macro_info->param_types[0]).type_args().size() == 1
         && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
     bool sig_zero = macro_info->param_types.empty();
-    if (!sig_str && !sig_str2 && !sig_str3 && !sig_ir3 && !sig_vec && !sig_zero) {
+    if (!sig_str && !sig_str2 && !sig_str3 && !sig_ir4 && !sig_vec && !sig_zero) {
         // Preserve the canonical fn_macro wording (diagnostic rule
         // metaprog.fn-macro-item.param-signature); token_macro item callees
         // get their own message.
         const char* expected = macro_info->is_token_macro
             ? "`str`, `(name: str, body: str)`, `(name: str, params: str, body: str)`, "
-              "or `(name: str, params: str, ir: *const u8)`"
+              "or `(name: str, params: str, enrich: str, ir: *const u8)`"
             : "`Vec<ExprBlob>` or no args";
         error(std::format(
             "fn_macro item: '{}!' must take {}", callee_name, expected));
@@ -20041,7 +20055,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             callee_name, callee_name, callee_name));
         return;
     }
-    if ((sig_str3 || sig_ir3) && !has_name) {
+    if ((sig_str3 || sig_ir4) && !has_name) {
         error(std::format(
             "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
             "`resource <name> = {}!(<params>){{ … }}`",
@@ -20055,14 +20069,14 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     bool has_params = node.has_key(la::PARAMS);
     std::string params_text;
     if (has_params) params_text = std::string(str_of(node.get(la::PARAMS.code)));
-    if (has_params && !sig_str3 && !sig_ir3) {
+    if (has_params && !sig_str3 && !sig_ir4) {
         error(std::format(
             "'{}!(<params>){{ … }}' supplies a parameter list, but '{}!' is not a "
             "`(name: str, params: str, body: str)` #[token_macro]",
             callee_name, callee_name));
         return;
     }
-    if ((sig_str3 || sig_ir3) && !has_params) {
+    if ((sig_str3 || sig_ir4) && !has_params) {
         error(std::format(
             "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
             "`resource <name> = {}!(<params>){{ … }}`, not the bare-brace form",
@@ -20084,11 +20098,89 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // arg-blob slot 0 as `[u64 size][bytes]`; the thunk reconstructs a
     // `str` via str_from_raw and forwards it to the callee. This is the
     // opaque-block → handler → quote_item! emission seam for resources.
-    if (sig_str || sig_str2 || sig_str3 || sig_ir3) {
+    if (sig_str || sig_str2 || sig_str3 || sig_ir4) {
+        // ── mapping fusion (ADR 0016 M2b-2): `deem!(g: Services)` ─────
+        // A param TYPED by a registered mapping name splices that mapping's
+        // rules into this program: the mapping's canonical rel list is
+        // prepended to the body (parsed as ONE program), the param's type is
+        // rewritten to the mapping's own source type in the emitted
+        // signature, and the handler gets `old=new@lo-hi;` — rename the
+        // mapping's source param to the consumer's within rels [lo,hi). The
+        // spliced rels are then ordinary rels: SCC, recursion, `**`, and
+        // cross-references all work — fusion, not materialization.
+        std::string enrich;
+        if (sig_ir4 && !mappings_.empty() && !params_text.empty()) {
+            // Split the raw param text on top-level commas into `name: Type`
+            // pairs; depth-track ()/[]/<> (`&[(i64, str)]` carries commas).
+            auto trim = [](std::string_view v) -> std::string_view {
+                size_t a = v.find_first_not_of(" \t\n\r");
+                if (a == std::string_view::npos) return {};
+                size_t b = v.find_last_not_of(" \t\n\r");
+                return v.substr(a, b - a + 1);
+            };
+            std::vector<std::pair<std::string, std::string>> pairs;
+            {
+                std::string_view t = params_text;
+                int depth = 0; size_t seg = 0;
+                auto flush = [&](size_t endpos) {
+                    std::string_view piece = trim(t.substr(seg, endpos - seg));
+                    if (piece.empty()) return;
+                    size_t c = piece.find(':');
+                    if (c == std::string_view::npos) {
+                        pairs.emplace_back(std::string(piece), std::string());
+                        return;
+                    }
+                    pairs.emplace_back(std::string(trim(piece.substr(0, c))),
+                                       std::string(trim(piece.substr(c + 1))));
+                };
+                for (size_t i = 0; i < t.size(); ++i) {
+                    char ch = t[i];
+                    if (ch == '(' || ch == '[' || ch == '<') ++depth;
+                    else if (ch == ')' || ch == ']' || ch == '>') --depth;
+                    else if (ch == ',' && depth == 0) { flush(i); seg = i + 1; }
+                }
+                flush(t.size());
+            }
+            std::string prefix_body;
+            size_t next_rel = 0;
+            bool any = false;
+            for (auto& [pn, pt] : pairs) {
+                auto mit = mappings_.find(pt);
+                if (mit == mappings_.end()) continue;
+                const MappingInfo& mi = mit->second;
+                if (!mi.enrichable) {
+                    error(std::format(
+                        "'{}!': parameter '{}' binds mapping '{}', which has "
+                        "more than one parameter — only single-source mappings "
+                        "can enrich a deem! today (scalar mapping params are a "
+                        "later slice)", callee_name, pn, pt));
+                    return;
+                }
+                enrich += std::format("{}={}@{}-{};", mi.src_param_name, pn,
+                                      next_rel, next_rel + mi.nrels);
+                prefix_body += mi.body_text;
+                next_rel += mi.nrels;
+                pt = mi.src_param_type;   // Services → &Writ in the emitted fn
+                any = true;
+            }
+            if (any) {
+                raw_text = prefix_body + raw_text;
+                params_text.clear();
+                for (size_t i = 0; i < pairs.size(); ++i) {
+                    if (i) params_text += ", ";
+                    params_text += pairs[i].first;
+                    if (!pairs[i].second.empty()) {
+                        params_text += ": ";
+                        params_text += pairs[i].second;
+                    }
+                }
+            }
+        }
         emit_token_macro_item_site(node, prog, macro_info, rt_is_il,
                                    sig_str3 ? 3 : (sig_str2 ? 2 : 1),
                                    resource_name, params_text, raw_text,
-                                   sig_ir3 ? IrEntry::Program : IrEntry::None);
+                                   sig_ir4 ? IrEntry::Program : IrEntry::None,
+                                   enrich);
         return;
     }
 

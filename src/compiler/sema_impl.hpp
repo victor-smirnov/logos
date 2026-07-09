@@ -4069,6 +4069,38 @@ private:
     //             is an ITEM-layer concept the query grammar knows nothing of.
     enum class IrEntry { None, Program, RelList };
 
+    // The checked pieces of one `mapping M(params) { rel … }` item,
+    // reconstructed from the AST by reconstruct_mapping_def. `err` non-empty
+    // means the item is invalid and says why.
+    struct MappingParts {
+        std::string name;
+        std::string params_text;           // canonical "g: &Writ, floor: i64"
+        std::string body_text;             // canonical `rel …+` list, '\n'-joined
+        std::string pub_mask;              // one '0'/'1' per rel, decl order
+        std::vector<std::string> rel_names;
+        std::string first_param_name;      // the source param (first)
+        std::string first_param_type;      // its syntactic type, e.g. "&Writ"
+        size_t      nparams = 0;
+        std::string err;
+    };
+    bool          reconstruct_mapping_def(writ::TinyMapView node,
+                                          MappingParts& out);
+
+    // Module-level `mapping` registry (ADR 0016 M2b-2). Filled by a pre-scan in
+    // lower_module_items so declaration order never matters, and again by
+    // lower_mapping_def (idempotent overwrite) so macro-generated mappings in
+    // later metacall rounds register too. Consumed by lower_fn_macro_call_item:
+    // a deem! param typed by a mapping name splices that mapping's rules into
+    // the consumer's program (fusion, not materialization).
+    struct MappingInfo {
+        std::string src_param_name;        // the mapping's own source param name
+        std::string src_param_type;        // its syntactic type, e.g. "&Writ"
+        std::string body_text;             // canonical rel list
+        size_t      nrels = 0;
+        bool        enrichable = false;    // exactly one param (the source)
+    };
+    std::unordered_map<std::string, MappingInfo> mappings_;
+
     // Shared tail of the #[token_macro] ITEM path (pack arg blobs, synth the
     // JIT thunk, register the MetacallSiteStage); factored from
     // lower_fn_macro_call_item so lower_mapping_def rides the same seam.

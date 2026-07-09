@@ -7301,6 +7301,26 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
 
     cur_prog_ = &prog;
 
+    // ── mapping pre-scan (ADR 0016 M2b-2) ──────────────────────────────
+    // Register every `mapping` item's signature + canonical rule text BEFORE
+    // lowering anything, so a deem! consumer may precede the mapping it
+    // enriches from in the file — item order must not matter (think in Rust).
+    // Invalid mappings register nothing here; lower_mapping_def reports them
+    // moments later with the full diagnostics.
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto item = map_of(items.get(i));
+        if (item.is_null() || code_of(item) != la::MAPPING_DEF) continue;
+        MappingParts parts;
+        if (!reconstruct_mapping_def(item, parts)) continue;
+        MappingInfo mi;
+        mi.src_param_name = parts.first_param_name;
+        mi.src_param_type = parts.first_param_type;
+        mi.body_text      = parts.body_text;
+        mi.nrels          = parts.rel_names.size();
+        mi.enrichable     = (parts.nparams == 1);
+        mappings_[parts.name] = std::move(mi);
+    }
+
     // Annotations accumulate until the next non-annotation item, then are consumed.
     std::vector<TinyMapView> pending_annots;
 

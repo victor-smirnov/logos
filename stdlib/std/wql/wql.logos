@@ -111,7 +111,7 @@ fn gp_err_str(s: &String) -> str {
 // its slot's own address, so a foreign slot may point at a local node and vice
 // versa. Both arenas are never-move for the duration of the dispatch loop.
 #[token_macro]
-pub fn deem(name: str, params: str, ir: *const u8) -> ItemList {
+pub fn deem(name: str, params: str, enrich: str, ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("wql!: needs a binding name — write `resource <name> = deem!(<params>){ from … select … }`");
@@ -131,6 +131,40 @@ pub fn deem(name: str, params: str, ir: *const u8) -> ItemList {
     // this far, since the compiler's parse is what failed.
     let h: Writ = writ_new(4096i64);
     let root: WAny = WAny::ref_to(ir);
+    // ── mapping fusion (ADR 0016 M2b-2): `deem!(g: Services)` ────────────
+    // The compiler prepended the mapping's rels to this program and encoded
+    // `old=new@lo-hi;` per mapping param — rename each mapping's own source
+    // param to the consumer's inside JUST that mapping's rels. Must run
+    // BEFORE the gpath desugar, so `__reach_*` injection derives from the
+    // new name. After this the spliced rels are indistinguishable from
+    // hand-written ones: SCC, recursion and `**` all apply.
+    if enrich.len() > 0i64 {
+        let en: i64 = enrich.len();
+        let mut i: i64 = 0i64;
+        while i < en {
+            let s0: i64 = i;                                       // old name
+            while i < en && str_byte_at(enrich, i) != 61u8 { i = i + 1i64; }   // '='
+            let old_name: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + s0) as *const u8, i - s0) };
+            i = i + 1i64;
+            let s1: i64 = i;                                       // new name
+            while i < en && str_byte_at(enrich, i) != 64u8 { i = i + 1i64; }   // '@'
+            let new_name: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + s1) as *const u8, i - s1) };
+            i = i + 1i64;
+            let mut lo: i64 = 0i64;                                // lo
+            while i < en && str_byte_at(enrich, i) != 45u8 {       // '-'
+                lo = lo * 10i64 + ((str_byte_at(enrich, i) as i64) - 48i64);
+                i = i + 1i64;
+            }
+            i = i + 1i64;
+            let mut hi: i64 = 0i64;                                // hi
+            while i < en && str_byte_at(enrich, i) != 59u8 {       // ';'
+                hi = hi * 10i64 + ((str_byte_at(enrich, i) as i64) - 48i64);
+                i = i + 1i64;
+            }
+            i = i + 1i64;
+            rename_rel_sources(root, lo, hi, old_name, new_name, &h);
+        }
+    }
     // ADR 0016 M2a: graph paths desugar to classic join chains (the SHARED
     // plan→plan pass — one implementation for both binding times).
     let mut gperr: String = String::new();

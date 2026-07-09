@@ -722,3 +722,84 @@ pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
         RQuery::Find(f)   => { return lower_find(f, h); }
     }
 }
+
+// ── Mapping fusion (ADR 0016 M2b-2): source-param rename ──────────────────────
+// A mapping's rel bodies reference the mapping's OWN source param (`from w …`).
+// When those rels are spliced into a consumer program (`deem!(g: Services)`),
+// the source must become the CONSUMER's param. The compiler prepends the
+// mapping's rels and hands the handler `old=new@lo-hi;` — this pass rewrites
+// `src_name`/`a_name` == old → new across rels [lo, hi) ONLY (a consumer rel
+// or another mapping's rel may legitimately use the old name for its own
+// source). Runs BEFORE the gpath desugar, so injected `__reach_*` rels are
+// derived from the NEW name and need no renaming of their own. Writes go
+// through fat views, so the new name is interned into `h` — after this pass
+// the plan is byte-for-byte what the user would have written by hand.
+fn rn_step_arr(sa: WAny, old: str, new_name: str, h: &Writ) {
+    if sa.is_null() { return; }
+    let steps: RQJoinStepArr = sa.view::<RQJoinStepArr>();
+    let n: i64 = steps.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let st0: RQJoinStep = steps.step_at(i);
+        // Edge steps traverse a bound var's field path — no source name.
+        if !st0.is_edge && str_eq(st0.src_name, old) {
+            let st: RQJoinStep = rq_fat_step(steps.step_any(i), h);
+            st.src_name = new_name;
+        }
+        i = i + 1i64;
+    }
+}
+
+fn rn_query(qany: WAny, old: str, new_name: str, h: &Writ) {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s0) => {
+            if str_eq(s0.src_name, old) {
+                let s: RQSimple = rq_fat_simple(qany, h);
+                s.src_name = new_name;
+            }
+        }
+        RQuery::Join(j0) => {
+            if str_eq(j0.a_name, old) {
+                let j: RQJoin = rq_fat_join(qany, h);
+                j.a_name = new_name;
+            }
+            rn_step_arr(j0.steps.any(), old, new_name, h);
+        }
+        RQuery::Aggr(g0) => {
+            if str_eq(g0.a_name, old) {
+                let g: RQAggr = rq_fat_aggr(qany, h);
+                g.a_name = new_name;
+            }
+            if g0.has_steps() { rn_step_arr(g0.steps.any(), old, new_name, h); }
+        }
+        RQuery::Find(f0) => {
+            if str_eq(f0.src_name, old) {
+                let f: RQFind = rq_fat_find(qany, h);
+                f.src_name = new_name;
+            }
+        }
+    }
+}
+
+/// Rename source `old` → `new_name` inside the bodies of rels [lo, hi).
+pub fn rename_rel_sources(root: WAny, lo: i64, hi: i64,
+                          old: str, new_name: str, h: &Writ) {
+    if str_eq(old, new_name) { return; }
+    let prog: RQProgram = root.view::<RQProgram>();
+    if !prog.has_rels() { return; }
+    let rels: RQRelArr = prog.rels_arr();
+    let n: i64 = rels.len();
+    let mut i: i64 = lo;
+    while i < hi && i < n {
+        let rel: RQRel = rels.rel_at(i);
+        let bodies: RQBodyArr = rel.bodies_arr();
+        let nb: i64 = bodies.len();
+        let mut b: i64 = 0i64;
+        while b < nb {
+            rn_query(bodies.body_any(b), old, new_name, h);
+            b = b + 1i64;
+        }
+        i = i + 1i64;
+    }
+}

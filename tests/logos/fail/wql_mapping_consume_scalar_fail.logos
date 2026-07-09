@@ -1,0 +1,20 @@
+// deem! enrichment (ADR 0016 M2b-2) v1 accepts only SINGLE-source mappings: a
+// mapping with scalar params has no binding surface at the consumption site yet
+// (`deem!(g: Limits)` says nothing about `floor`). Named error, not a silent
+// mis-splice.
+package test;
+
+use logos.lang.writ.container;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+
+mapping Limits(g: &Writ, floor: i64) {
+    pub rel over(key: str, v: i64) {
+        from g ** x {i64} where x.vi >= floor select (x.key, x.vi);
+    }
+}
+
+resource bad = deem!(w: Limits) { from over o select o.v };
+
+fn main() -> i32 { return 0i32; }
