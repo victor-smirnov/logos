@@ -52,6 +52,14 @@ public:
     }
     static AnyVal pod_bool(bool b, uint8_t code) noexcept { return pod(b ? 1 : 0, code); }
 
+    // Does `v` fit the 56-bit signed inline-Pod niche? Wider integers must box.
+    // Mirrors stdlib/lang/writ/anyval.logos:fits_i56 — the two Writ producers
+    // must agree on the pod-vs-boxed boundary or their documents diverge.
+    static constexpr bool fits_i56(int64_t v) noexcept {
+        constexpr int64_t lim = int64_t(1) << 55;
+        return v >= -lim && v < lim;
+    }
+
     // ── discriminants ─────────────────────────────────────────────────────────
     bool is_null() const noexcept { return word_ == 0; }
     bool is_pod()  const noexcept { return (word_ & 1) == 1; }

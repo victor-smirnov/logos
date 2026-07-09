@@ -169,6 +169,20 @@ public:
         AnyVal a; a.set_ref(mem); return a;
     }
 
+    // Integer AnyVal: inline Pod when the value fits the 56-bit niche, boxed as
+    // W_I64 otherwise. Mirrors stdlib/lang/writ/container.logos:make_int, so a
+    // document built by the C++ producer and one built by the Logos producer
+    // encode the same integer identically.
+    [[nodiscard]] logos::expected<AnyVal> make_int(int64_t v) noexcept {
+        if (AnyVal::fits_i56(v)) return AnyVal::pod(v, uint8_t(tc::WA_I56));
+        return box<int64_t>(v);
+    }
+    // Float AnyVal: always boxed (an f64 never fits the inline Pod niche).
+    // Mirrors container.logos:box_f64.
+    [[nodiscard]] logos::expected<AnyVal> make_f64(double v) noexcept {
+        return box<double>(v);
+    }
+
     // The single-segment blob bytes (valid only when this doc is single-chunk, e.g.
     // a compactify() result): {head().data(), head().used}.
     const uint8_t* blob_data() const noexcept { return holder_->arena().head().data(); }
