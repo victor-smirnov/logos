@@ -140,6 +140,11 @@ struct SchemaDecl {
     std::string              name;
     uint64_t                 type_code = 0;   // ADR-0011 `code(0x…)`
     bool                     has_type_code = false;
+    // TOM slot capacity = the field count of the mirrored `schema` item, NOT of
+    // this block. The grammar declares only what it writes; a later pass writes
+    // more, and the map's capacity is fixed at construction.
+    int32_t                  cap = 0;
+    bool                     has_cap = false;
     std::vector<SchemaField> fields;
 
     const SchemaField* find(const std::string& n) const {
@@ -308,6 +313,11 @@ public:
             if (!tc.is_null() && tc.is_value()) {
                 sd.type_code = tc.as_value<uint64_t>();
                 sd.has_type_code = true;
+            }
+            AnyVal sc = node.get(uint8_t(ast::SCAP));
+            if (!sc.is_null() && sc.is_value()) {
+                sd.cap = sc.as_value<int32_t>();
+                sd.has_cap = true;
             }
 
             AnyVal fields_val = node.get(uint8_t(ast::FIELDS));
@@ -715,6 +725,9 @@ public:
         for (const auto& s : g.schemas) {
             if (!s.has_type_code)
                 errs += std::format("  {}: missing `code(0x…)` type code\n", s.name);
+            if (!s.has_cap || s.cap <= 0)
+                errs += std::format("  {}: missing `cap(N)` — the slot capacity of "
+                                    "the mirrored `schema` item\n", s.name);
             for (const auto& f : s.fields) {
                 if (!ftype_is_known(f))
                     errs += std::format("  {}.{}: unknown field type \"{}\"\n",
@@ -1104,8 +1117,22 @@ private:
                 // TEXT of the token that produced it, so the generated parser
                 // needs these three. Counterparts of the Logos backend's
                 // wstr_decode_i64 / wstr_decode_f64 / wstr_unquote.
+                // Mirrors wstr_decode_i64 EXACTLY, including its error policy: a
+                // literal above i64::MAX yields the poison sentinel i64::MIN, which
+                // a later check phase turns into "integer literal out of range".
+                // std::from_chars cannot serve — on overflow it leaves the output
+                // untouched, so `99999999999999999999` would decode to 0 and the
+                // query would compile with a silently wrong constant.
                 w.line("static inline int64_t peg_decode_i64(std::string_view s) {");
-                w.line("    int64_t v = 0; std::from_chars(s.data(), s.data() + s.size(), v); return v;");
+                w.line("    int64_t v = 0;");
+                w.line("    for (char c : s) {");
+                w.line("        if (c < '0' || c > '9') break;   // stops at a type suffix");
+                w.line("        int64_t d = c - '0';");
+                w.line("        if (v > 922337203685477580LL || (v == 922337203685477580LL && d > 7))");
+                w.line("            return INT64_MIN;            // el_lit_poison()");
+                w.line("        v = v * 10 + d;");
+                w.line("    }");
+                w.line("    return v;");
                 w.line("}");
                 w.line("static inline double peg_decode_f64(std::string_view s) {");
                 w.line("    double v = 0; std::from_chars(s.data(), s.data() + s.size(), v); return v;");
@@ -3093,9 +3120,7 @@ private:
             schema_error(std::format("schema node '{}' has no `code(0x…)` type code",
                                      sd->name));
 
-        // Slot budget: one per plain field, cap+1 for a fan (slots + count).
-        // No SRC_LINE — schema nodes declare no such field.
-        int slots = 0;
+        // Validate every written field exists and is addressable.
         for (const auto& f : action.fields) {
             if (f.name == "CODE") continue;
             const SchemaField* sf = sd->find(f.name);
@@ -3105,11 +3130,15 @@ private:
                                          sd->name, f.name));
             if (!sf->is_fan() && !sf->has_key)
                 schema_error(std::format("{}.{}: missing `= KEY`", sd->name, sf->name));
-            slots += sf->is_fan() ? sf->fan_cap() + 1 : 1;
         }
 
+        // Size the node by its DECLARED capacity, not by the fields this action
+        // happens to write. A TinyObjectMap's capacity is fixed at construction,
+        // and downstream passes (the WQL plan walker stamps fn_name/row_ty, the
+        // gpath desugar clears has_gpath) write fields the PARSER never touched.
+        // Logos sizes by the schema item's field count; C++ must agree.
         w.fmt("auto* node = logos::writ::WritAccess::raw_tiny_map(doc_, {}).get();",
-              slots > 0 ? slots : 1);
+              sd->cap > 0 ? sd->cap : 1);
         w.fmt("node->set_schema_type_code({}ull);", sd->type_code);
 
         for (const auto& f : action.fields) {
@@ -3519,6 +3548,9 @@ bool check_schema_mirror(const std::vector<ResolvedModule>& modules,
             if (sd.has_type_code && li.has_code && sd.type_code != li.code)
                 err += std::format("  {}: code(0x{:X}) in the grammar, 0x{:X} in the schema item\n",
                                    sd.name, sd.type_code, li.code);
+            if (sd.has_cap && size_t(sd.cap) != li.fields.size())
+                err += std::format("  {}: cap({}) in the grammar, the schema item has {} fields\n",
+                                   sd.name, sd.cap, li.fields.size());
 
             for (const auto& f : sd.fields) {
                 if (f.is_fan()) {

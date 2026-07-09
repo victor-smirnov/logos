@@ -39,6 +39,41 @@ add_custom_command(
 )
 
 # ---------------------------------------------------------------------------
+# The WQL surface + EL expression parsers, generated from the SAME grammars the
+# Logos backend generates the RUNTIME parsers from — one dialect, two backends.
+# The compiler needs them to parse deem!/mapping rule bodies itself instead of
+# handing raw text to a stdlib metaprogram.
+#
+# One invocation covers both: wql.peg `%import`s el.peg, and peg_gen_cpp emits a
+# file pair per resolved module into --out-dir (imports first). The generated
+# wql_surface_parser.hpp includes "el_parser.hpp" — same directory, already on
+# logosc's include path.
+#
+# These TUs are self-contained: they reference logos::writ and nothing else. In
+# particular they never call SEXPRARR_MAX()/RQAGG_MAX() — the fan caps are
+# grammar-time literals in the .peg, which is exactly why linking is free.
+set(WQL_GRAMMAR    ${CMAKE_SOURCE_DIR}/stdlib/std/wql/grammars/wql.peg)
+set(EL_GRAMMAR     ${CMAKE_SOURCE_DIR}/stdlib/std/wql/grammars/el.peg)
+set(WQL_PARSER_HPP ${CMAKE_CURRENT_BINARY_DIR}/wql_surface_parser.hpp)
+set(WQL_PARSER_CPP ${CMAKE_CURRENT_BINARY_DIR}/wql_surface_parser.cpp)
+set(EL_PARSER_HPP  ${CMAKE_CURRENT_BINARY_DIR}/el_parser.hpp)
+set(EL_PARSER_CPP  ${CMAKE_CURRENT_BINARY_DIR}/el_parser.cpp)
+
+add_custom_command(
+    OUTPUT  ${WQL_PARSER_HPP} ${WQL_PARSER_CPP} ${EL_PARSER_HPP} ${EL_PARSER_CPP}
+    COMMAND $<TARGET_FILE:peg_gen_cpp>
+            ${WQL_GRAMMAR}
+            --out-dir ${CMAKE_CURRENT_BINARY_DIR}
+    DEPENDS peg_gen_cpp ${WQL_GRAMMAR} ${EL_GRAMMAR}
+    COMMENT "Generating wql_surface_parser + el_parser from wql.peg (imports el.peg)"
+)
+
+# Generated parsers declare positional token captures that structural
+# punctuation never reads.
+set_source_files_properties(${WQL_PARSER_CPP} ${EL_PARSER_CPP} PROPERTIES
+    COMPILE_OPTIONS "-Wno-unused-variable;-Wno-unused-but-set-variable")
+
+# ---------------------------------------------------------------------------
 # logosc executable
 # ---------------------------------------------------------------------------
 add_executable(logosc
@@ -74,7 +109,10 @@ add_executable(logosc
     sema_decl.cpp
     trait_engine.cpp
     ctfe.cpp
+    rule_ir.cpp
     ${LOGOS_PARSER_CPP}
+    ${WQL_PARSER_CPP}
+    ${EL_PARSER_CPP}
 )
 
 # ---------------------------------------------------------------------------

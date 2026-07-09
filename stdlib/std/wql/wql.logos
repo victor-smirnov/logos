@@ -100,8 +100,18 @@ fn gp_err_str(s: &String) -> str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 
+// ADR 0016 body lift: the third argument is NOT the query text — it is a raw
+// pointer into the COMPILER's Writ arena, at the root of the RQProgram the
+// compiler already parsed, with the C++ parser generated from the same wql.peg
+// this module's runtime parser comes from. We walk that tree in place.
+//
+// Nothing is copied and nothing is deserialised: `WAny::Ref` resolves to an
+// absolute address and `.view::<S>()` is a compiler builtin that casts. Nodes
+// we synthesise go into our OWN `h: Writ`; a self-relative edge is computed from
+// its slot's own address, so a foreign slot may point at a local node and vice
+// versa. Both arenas are never-move for the duration of the dispatch loop.
 #[token_macro]
-pub fn deem(name: str, params: str, body: str) -> ItemList {
+pub fn deem(name: str, params: str, ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("wql!: needs a binding name — write `resource <name> = deem!(<params>){ from … select … }`");
@@ -116,11 +126,11 @@ pub fn deem(name: str, params: str, body: str) -> ItemList {
         error("wql!: needs at least one parameter — write `resource <name> = deem!(<src>: &[RowTy], …){ from <src> <var> … }`");
         return out;
     }
+    // Our OWN arena — only for nodes the desugar/walk passes synthesise. The
+    // program itself lives in the compiler's arena; malformed input never gets
+    // this far, since the compiler's parse is what failed.
     let h: Writ = writ_new(4096i64);
-    // The export is the PROGRAM envelope (slice B): zero or more `rel` blocks
-    // + one entry query. A rel-less block still parses as a program.
-    let root: WAny = parse_program(body, &h);
-    if root.is_null() { error("wql!: malformed query (expected `[rel N(cols){bodies}]* from <src> <var> … select …`)"); return out; }
+    let root: WAny = WAny::ref_to(ir);
     // ADR 0016 M2a: graph paths desugar to classic join chains (the SHARED
     // plan→plan pass — one implementation for both binding times).
     let mut gperr: String = String::new();

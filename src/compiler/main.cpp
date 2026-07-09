@@ -24,6 +24,7 @@
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_mirror.hpp>  // lir_mirror_macro_arg_get (metacall shim)
+#include <logos/compiler/rule_ir.hpp>    // logos_rule_ir (compiler-parsed rule IR handoff)
 #include <logos/compiler/mono.hpp>
 #include <logos/writ/compat.hpp>
 
@@ -1184,6 +1185,24 @@ extern "C" const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
             "logos_macro_arg: no arg at site %llu idx %llu\n",
             static_cast<unsigned long long>(site_id),
             static_cast<unsigned long long>(arg_idx));
+        std::abort();
+    }
+    return p;
+}
+
+// The RULE-IR handoff. Where `logos_macro_arg` returns a byte range that the
+// thunk turns into a `str`, this returns a pointer INTO the compiler's own Writ
+// arena — the root of an RQProgram the compiler already parsed. The handler
+// wraps it as `WAny::ref_to(ptr)` and walks it in place; nothing is copied and
+// nothing is deserialised. Same shape as `logos_get_module_ast_oview`.
+//
+// The doc is a never-move MultiChunk arena kept alive by rule_ir's table for the
+// whole dispatch loop, so the pointer cannot dangle under the handler.
+extern "C" const uint8_t* logos_rule_ir(uint64_t site_id) {
+    const uint8_t* p = logos::compiler::rule_ir::root_ptr(site_id);
+    if (!p) {
+        std::fprintf(stderr, "logos_rule_ir: no parsed rule IR at site %llu\n",
+                     static_cast<unsigned long long>(site_id));
         std::abort();
     }
     return p;
@@ -2627,6 +2646,7 @@ int run_metaprog_dispatch(
             // reconstruct its block bytes (g_macro_args is set around the
             // item-thunk loop below).
             if (!bind_sym("logos_macro_arg",                  reinterpret_cast<void*>(&logos_macro_arg))) return 1;
+            if (!bind_sym("logos_rule_ir",                    reinterpret_cast<void*>(&logos_rule_ir))) return 1;
         }
         if (!m6_meta_jit->add_module(std::move(meta_llvm), std::move(meta_llvm_ctx_ptr))) {
             std::fprintf(stderr, "logosc-metaprog: jit add_module: %s\n",
@@ -2722,7 +2742,9 @@ int run_metaprog_dispatch(
         // bytes via logos_macro_arg(site, 0). Cleared right after the loop.
         g_macro_args = &m6_saved_macro_args;
         struct M6MacroArgsGuard {
-            ~M6MacroArgsGuard() { g_macro_args = nullptr; }
+            // The rule-IR docs are handed to handlers as raw pointers; they die with
+            // the dispatch loop, exactly like the macro-arg blobs.
+            ~M6MacroArgsGuard() { g_macro_args = nullptr; logos::compiler::rule_ir::clear(); }
         } m6_macro_args_guard;
         for (const auto& site : meta_item_sites) {
             if (site.thunk_source.empty()) continue;

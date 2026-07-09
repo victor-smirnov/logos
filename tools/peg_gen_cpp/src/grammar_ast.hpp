@@ -110,6 +110,7 @@ inline constexpr Key GPREFIX   {"GPREFIX",   24};  // META_INFO: prefix for modu
 inline constexpr Key FKEY      {"FKEY",      25};  // SCHEMA_FIELD: explicit TOM key (`field: "ty" = N`). REQUIRED by the C++ backend: unlike the Logos backend (which emits `node.field = …` and lets logosc resolve field→key against the ADR-0011 `schema` item), C++ has no second pass and must bake the key in.
 inline constexpr Key TYPE_CODE {"TYPE_CODE", 26};  // SCHEMA_DECL: the ADR-0011 `code(0x…)` type code (`S : code(0x…) { … }`), stored as u64. Logos gets it from `doc.make::<S>()`; C++ must stamp set_schema_type_code() itself.
 inline constexpr Key DOC       {"DOC",       27};  // NAME_DECL / GROUP_DECL: the trailing `// …` comment of a %fields/%nodes entry, carried through so a generated constants header keeps the grammar's documentation.
+inline constexpr Key SCAP      {"SCAP",      28};  // SCHEMA_DECL: the node's TOM slot capacity (`S : code(…) cap(N)`) — the FIELD COUNT of the mirrored ADR-0011 `schema` item, not of the .peg block. The grammar declares only the fields it WRITES, but the node must be sized for every field a LATER pass may add. Logos's `doc.make::<S>()` sizes by the item's field count (sema_expr.cpp:9258); C++ must match or a downstream write overflows the fixed map.
 
 // ---------------------------------------------------------------------------
 // Node type discriminants  (stored as value of CODE field)

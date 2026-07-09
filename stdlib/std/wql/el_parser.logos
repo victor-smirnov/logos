@@ -124,6 +124,10 @@ impl Lexer {
     }
     // Consume a trailing numeric type suffix (i/u/s/f/d + digits), conservatively.
     fn scan_num_suffix(self: &mut Lexer) {
+        let s0: u8 = self.cur(0i64);
+        if (s0 == 117u8 || s0 == 105u8) && self.cur(1i64) == 115u8 && self.cur(2i64) == 105u8 && self.cur(3i64) == 122u8 && self.cur(4i64) == 101u8 {
+            self.pos = self.pos + 5i64; return;
+        }
         // Other suffixes: i/u/s/f/d/l + digits (i8…i128, u8…u128, f32/f64, ull/ul/ll/u, _u8…_s64).
         while self.pos < self.src.len() {
             let sc: u8 = self.cur(0i64);

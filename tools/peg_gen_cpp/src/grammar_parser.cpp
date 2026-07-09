@@ -533,6 +533,19 @@ private:
                 expect(TK::RParen, ")");
             }
 
+            // `cap(N)` — the node's TOM slot capacity. Optional at parse time so
+            // the Logos-only grammars keep parsing; required by the C++ emitter.
+            bool     has_cap = false;
+            int32_t  scap = 0;
+            if (lex_.peek().kind == TK::Ident && lex_.peek().text == "cap") {
+                lex_.next();
+                expect(TK::LParen, "(");
+                Token num = expect(TK::Integer, "slot capacity");
+                scap = int32_t(parse_int(num.text));
+                has_cap = true;
+                expect(TK::RParen, ")");
+            }
+
             expect(TK::LBrace, "{");
             auto fields_arr = doc_.make_array(8).get();
             while (lex_.peek().kind == TK::Ident) {
@@ -556,13 +569,15 @@ private:
             }
             expect(TK::RBrace, "}");
 
-            auto node = make_tm(4);
+            auto node = make_tm(5);
             auto ns   = make_str(head.text);
             node.put(ast::CODE,   AnyVal::from_value(ast::SCHEMA_DECL)).get();
             node.put(ast::NAME,   ns.to_anyval()).get();
             node.put(ast::FIELDS, fields_arr.to_anyval()).get();
             if (has_type_code)
                 node.put(ast::TYPE_CODE, AnyVal::from_value(type_code)).get();
+            if (has_cap)
+                node.put(ast::SCAP, AnyVal::from_value(scap)).get();
             out.push_back(node.to_anyval()).get();
             try_eat(TK::Comma);
         }

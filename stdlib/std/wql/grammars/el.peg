@@ -105,16 +105,16 @@
     // `doc.make::<S>()` stamps the type code); the C++ backend has no second pass
     // and must bake them in. Carrying them HERE is what makes this file the single
     // source of truth for both backends, instead of a hand-checked mirror.
-    SLit   : code(0x0010_0000_0000_0000) { val: "WAny" = 0 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
-    SParam : code(0x0010_0000_0000_0001) { name: "str" = 0 }    // $name — captured IDENT
-    SVar   : code(0x0010_0000_0000_0002) { name: "str" = 0 }    // loop var — captured IDENT
-    SField : code(0x0010_0000_0000_0003) { base: "ref SExpr" = 0, name: "str" = 1 }   // field NAME — captured IDENT
-    SBin   : code(0x0010_0000_0000_0004) { op: "i32" = 0, lhs: "ref SExpr" = 1, rhs: "ref SExpr" = 2 }
-    SUn    : code(0x0010_0000_0000_0005) { op: "i32" = 0, arg: "ref SExpr" = 1 }
-    SCall  : code(0x0010_0000_0000_0006) { fn_name: "str" = 0, args: "ref SExprArr" = 1 }   // call NAME — captured IDENT
-    SCond  : code(0x0010_0000_0000_0007) { c: "ref SExpr" = 0, t: "ref SExpr" = 1, e: "ref SExpr" = 2 }
-    SComp  : code(0x0010_0000_0000_0008) { plan: "ref RExpr" = 0, head: "ref SExpr" = 1, var: "str" = 2 }
-    STuple : code(0x0010_0000_0000_0009) { items: "ref SExprArr" = 0 }   // tuple projection `(a, b, …)`
+    SLit     : code(0x0010_0000_0000_0000) cap(1) { val: "WAny" = 0 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
+    SParam   : code(0x0010_0000_0000_0001) cap(1) { name: "str" = 0 }    // $name — captured IDENT
+    SVar     : code(0x0010_0000_0000_0002) cap(1) { name: "str" = 0 }    // loop var — captured IDENT
+    SField   : code(0x0010_0000_0000_0003) cap(2) { base: "ref SExpr" = 0, name: "str" = 1 }   // field NAME — captured IDENT
+    SBin     : code(0x0010_0000_0000_0004) cap(3) { op: "i32" = 0, lhs: "ref SExpr" = 1, rhs: "ref SExpr" = 2 }
+    SUn      : code(0x0010_0000_0000_0005) cap(2) { op: "i32" = 0, arg: "ref SExpr" = 1 }
+    SCall    : code(0x0010_0000_0000_0006) cap(2) { fn_name: "str" = 0, args: "ref SExprArr" = 1 }   // call NAME — captured IDENT
+    SCond    : code(0x0010_0000_0000_0007) cap(3) { c: "ref SExpr" = 0, t: "ref SExpr" = 1, e: "ref SExpr" = 2 }
+    SComp    : code(0x0010_0000_0000_0008) cap(3) { plan: "ref RExpr" = 0, head: "ref SExpr" = 1, var: "str" = 2 }
+    STuple   : code(0x0010_0000_0000_0009) cap(1) { items: "ref SExprArr" = 0 }   // tuple projection `(a, b, …)`
 
     // The materialized argument list. A fan-out field spreads an ARRAY_CAPTURE
     // ($...) of parsed arg edges into the node's fixed slots — multi-arg calls
@@ -128,7 +128,7 @@
     // (Both backends stop reading <maxfn> at the space, so <cap> is inert there.)
     // Layout mirrors ir.logos:69 — `count: i32 = 0, a0..a7 = 1..8` — a convention
     // every array schema in ir.logos/plan.logos follows.
-    SExprArr : code(0x0010_0000_0000_000A) {
+    SExprArr : code(0x0010_0000_0000_000A) cap(9) {
         count: "i32" = 0,
         args:  "fan set_arg SEXPRARR_MAX 8" = 1
     }
@@ -136,8 +136,8 @@
     // Relational tier — RExpr (ir.logos). The comprehension lowers to a scan
     // (+ optional filter) plan; the source is a captured IDENT name. Only the
     // fields this grammar WRITES are declared — RScan also has row_ty/var_name.
-    RScan   : code(0x0011_0000_0000_0000) { node_code: "i56" = 0, src_name: "str" = 1 }   // source NAME — captured IDENT
-    RFilter : code(0x0011_0000_0000_0002) { input: "ref RExpr" = 0, pred: "ref SExpr" = 1 }
+    RScan    : code(0x0011_0000_0000_0000) cap(4) { node_code: "i56" = 0, src_name: "str" = 1 }   // source NAME — captured IDENT
+    RFilter  : code(0x0011_0000_0000_0002) cap(2) { input: "ref RExpr" = 0, pred: "ref SExpr" = 1 }
 }
 
 // ── Tokens ─────────────────────────────────────────────────────────────────
@@ -182,8 +182,15 @@
     // Literals + identifier. FLOAT is ordered BEFORE INTEGER (PEG first-match;
     // the generated combined number matcher tags a digit run containing `.` as
     // FLOAT, so `2.5` never lexes as INTEGER `2` + junk).
-    FLOAT    = /[0-9]+\.[0-9]+/
-    INTEGER  = /[0-9]+/
+    // Both admit a Rust-style type suffix — EL sources really do write
+    // `1000000i64` and `0.0f64`. Spelling them here is NOT decoration: the C++
+    // backend derives its matcher from this pattern, so an under-declared token
+    // makes that parser reject input the Logos one accepts. (The Logos backend
+    // consumes a suffix unconditionally, which is how the omission survived.)
+    // No `_` digit separator: both decoders stop at the first non-digit, so
+    // `1_000` would silently decode as 1. Do not declare what nothing decodes.
+    FLOAT    = /[0-9]+\.[0-9]+(f32|f64)?/
+    INTEGER  = /[0-9]+(i8|i16|i32|i64|u8|u16|u32|u64|usize|isize)?/
     STRING   = /"([^"\\]|\\.)*"/
     IDENT    = /[a-zA-Z_][a-zA-Z0-9_]*/
 

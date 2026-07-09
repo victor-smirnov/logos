@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
 
     std::string line;
     while (std::getline(in, line)) {
-        if (line.empty()) continue;
+        if (line.empty() || line[0] == '#') continue;   // blank / comment
         auto doc = logos::writ::make_doc(1u << 16).get();
         logos::wql::el::ElParser p(line, doc);
         logos::writ::AnyVal root = p.parse_expr();

@@ -131,7 +131,7 @@
     arena:    external
     ref_wrap: "WRef"
 
-    RQSimple : code(0x0012_0000_0000_0000) { src_name: "str" = 1, var_name: "str" = 3,
+    RQSimple      : code(0x0012_0000_0000_0000) cap(20) { src_name: "str" = 1, var_name: "str" = 3,
                has_gpath: "bool" = 18, gpath: "ref RQGStepArr" = 19,
                has_where: "bool" = 4, where_pred: "ref SExpr" = 5,
                sel_first: "bool" = 17, distinct: "bool" = 9, select: "ref SExpr" = 6,
@@ -140,7 +140,7 @@
                limit_is_param: "bool" = 15, limit_param: "str" = 16,
                has_result_ty: "bool" = 7, result_ty: "str" = 8 }
 
-    RQJoin   : code(0x0012_0000_0000_0001) { a_name: "str" = 1, x_var: "str" = 3,
+    RQJoin        : code(0x0012_0000_0000_0001) cap(21) { a_name: "str" = 1, x_var: "str" = 3,
                has_gpath: "bool" = 19, gpath: "ref RQGStepArr" = 20,
                steps: "ref RQJoinStepArr" = 4,
                has_where: "bool" = 5, where_pred: "ref SExpr" = 6,
@@ -150,7 +150,7 @@
                limit_is_param: "bool" = 16, limit_param: "str" = 17,
                has_result_ty: "bool" = 8, result_ty: "str" = 9 }
 
-    RQAggr   : code(0x0012_0000_0000_0002) { a_name: "str" = 1, x_var: "str" = 3,
+    RQAggr        : code(0x0012_0000_0000_0002) cap(25) { a_name: "str" = 1, x_var: "str" = 3,
                has_gpath: "bool" = 23, gpath: "ref RQGStepArr" = 24,
                steps: "ref RQJoinStepArr" = 22,
                has_where: "bool" = 4, where_pred: "ref SExpr" = 5, key: "ref SExpr" = 6,
@@ -162,34 +162,34 @@
                limit_is_param: "bool" = 17, limit_param: "str" = 18,
                has_result_ty: "bool" = 9, result_ty: "str" = 10 }
 
-    RQFind   : code(0x0012_0000_0000_0003) { src_name: "str" = 1, var_name: "str" = 3,
+    RQFind        : code(0x0012_0000_0000_0003) cap(5) { src_name: "str" = 1, var_name: "str" = 3,
                pred: "ref SExpr" = 4 }
 
-    RQAgg      : code(0x0012_0000_0000_0010) { name: "str" = 0, fn_name: "str" = 1, arg: "ref SExpr" = 2, has_arg: "bool" = 3 }
-    RQAggArr   : code(0x0012_0000_0000_0011) { count: "i32" = 0, aggs: "fan set_agg RQAGG_MAX 8" = 1 }
+    RQAgg         : code(0x0012_0000_0000_0010) cap(4) { name: "str" = 0, fn_name: "str" = 1, arg: "ref SExpr" = 2, has_arg: "bool" = 3 }
+    RQAggArr      : code(0x0012_0000_0000_0011) cap(9) { count: "i32" = 0, aggs: "fan set_agg RQAGG_MAX 8" = 1 }
 
-    RQJoinStep    : code(0x0012_0000_0000_0012) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
+    RQJoinStep    : code(0x0012_0000_0000_0012) cap(9) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
                     is_edge: "bool" = 5, has_on: "bool" = 6, base_var: "str" = 7,
                     path: "ref RQPathSegArr" = 8 }
-    RQJoinStepArr : code(0x0012_0000_0000_0013) { count: "i32" = 0, steps: "fan set_step RQJSTEP_MAX 8" = 1 }
+    RQJoinStepArr : code(0x0012_0000_0000_0013) cap(9) { count: "i32" = 0, steps: "fan set_step RQJSTEP_MAX 8" = 1 }
 
     // ── graph-path steps (ADR 0016 M2a) ───────────────────────────────────
-    RQGStep    : code(0x0012_0000_0000_001C) { is_key: "bool" = 0, is_elem: "bool" = 1, is_at: "bool" = 2, is_any: "bool" = 3,
+    RQGStep       : code(0x0012_0000_0000_001C) cap(10) { is_key: "bool" = 0, is_elem: "bool" = 1, is_at: "bool" = 2, is_any: "bool" = 3,
                  is_desc: "bool" = 4, is_kind: "bool" = 5, key: "str" = 6, idx: "i64" = 7,
                  binder: "str" = 8, has_binder: "bool" = 9 }
-    RQGStepArr : code(0x0012_0000_0000_001D) { count: "i32" = 0, steps: "fan set_gstep RQGSTEP_MAX 8" = 1 }
+    RQGStepArr    : code(0x0012_0000_0000_001D) cap(9) { count: "i32" = 0, steps: "fan set_gstep RQGSTEP_MAX 8" = 1 }
 
     // ── traversal-step field path (slice D — collection-field joins) ──────
-    RQPathSeg    : code(0x0012_0000_0000_001A) { name: "str" = 0 }
-    RQPathSegArr : code(0x0012_0000_0000_001B) { count: "i32" = 0, segs: "fan set_seg RQPSEG_MAX 8" = 1 }
+    RQPathSeg     : code(0x0012_0000_0000_001A) cap(1) { name: "str" = 0 }
+    RQPathSegArr  : code(0x0012_0000_0000_001B) cap(9) { count: "i32" = 0, segs: "fan set_seg RQPSEG_MAX 8" = 1 }
 
     // ── rel blocks + the program envelope (slice B static Datalog) ────────
-    RQProgram   : code(0x0012_0000_0000_0019) { rels: "ref RQRelArr" = 0, entry: "ref RQuery" = 1 }
-    RQRel       : code(0x0012_0000_0000_0016) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2 }
-    RQRelCol    : code(0x0012_0000_0000_0014) { name: "str" = 0, ty_name: "str" = 1 }
-    RQRelColArr : code(0x0012_0000_0000_0015) { count: "i32" = 0, cols: "fan set_col RQRELCOL_MAX 8" = 1 }
-    RQRelArr    : code(0x0012_0000_0000_0017) { count: "i32" = 0, rels: "fan set_rel RQREL_MAX 8" = 1 }
-    RQBodyArr   : code(0x0012_0000_0000_0018) { count: "i32" = 0, bodies: "fan set_body RQBODY_MAX 8" = 1 }
+    RQProgram     : code(0x0012_0000_0000_0019) cap(2) { rels: "ref RQRelArr" = 0, entry: "ref RQuery" = 1 }
+    RQRel         : code(0x0012_0000_0000_0016) cap(3) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2 }
+    RQRelCol      : code(0x0012_0000_0000_0014) cap(2) { name: "str" = 0, ty_name: "str" = 1 }
+    RQRelColArr   : code(0x0012_0000_0000_0015) cap(9) { count: "i32" = 0, cols: "fan set_col RQRELCOL_MAX 8" = 1 }
+    RQRelArr      : code(0x0012_0000_0000_0017) cap(9) { count: "i32" = 0, rels: "fan set_rel RQREL_MAX 8" = 1 }
+    RQBodyArr     : code(0x0012_0000_0000_0018) cap(9) { count: "i32" = 0, bodies: "fan set_body RQBODY_MAX 8" = 1 }
 }
 
 // ── Tokens ─────────────────────────────────────────────────────────────────

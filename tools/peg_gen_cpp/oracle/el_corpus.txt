@@ -38,3 +38,17 @@ round(x.price, 2)
 [x for x in items]
 [x.price for x in items if x.qty > 0]
 [f(x) for x in rows if x.ok && x.n < 100]
+
+# Numeric-literal shapes. The suffixed forms are what real deem! bodies write;
+# they went unnoticed for four grammars because el.peg under-declared INTEGER
+# (`/[0-9]+/`) and only ONE backend read the pattern. The last two pin the
+# error-returning literal policy: > i64::MAX must decode to the i64::MIN poison
+# in BOTH backends, not to 0 (std::from_chars leaves its output untouched).
+1000000i64
+o.amt * 100i64
+x.n + 1u32
+0.0f64
+1.5 * qty
+key * 1000000i64 + n
+99999999999999999999
+9223372036854775807

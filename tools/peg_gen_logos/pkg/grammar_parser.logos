@@ -810,6 +810,16 @@ fn parse_schema(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>,
             expect(lex, TK_RPAREN, "expected ')' to close `code(...)`");
         }
 
+        // `cap(N)` — the node's TOM slot capacity. This backend does not need it
+        // (`doc.make::<S>()` sizes from the compiled schema item), but it must
+        // accept it: the C++ backend has no such second pass and reads it here.
+        if lex.peek(0i64).kind == TK_IDENT && str_eq(lex.peek(0i64).text(src), "cap") {
+            lex.next();
+            expect(lex, TK_LPAREN, "expected '(' after `cap`");
+            expect(lex, TK_INTEGER, "expected slot capacity");
+            expect(lex, TK_RPAREN, "expected ')' to close `cap(...)`");
+        }
+
         expect(lex, TK_LBRACE, "expected '{' after schema node name");
         let fields_arr: &mut WArray<WAny> = doc.array(8i64);
         while lex.peek(0i64).kind == TK_IDENT {

@@ -4070,7 +4070,8 @@ private:
                                              bool rt_is_il, int nargs,
                                              const std::string& resource_name,
                                              const std::string& params_text,
-                                             const std::string& raw_text);
+                                             const std::string& raw_text,
+                                             bool ir_mode = false);
 
 public:
     // ── AST → Logos source pretty-printer (sema_render.cpp) ──────────

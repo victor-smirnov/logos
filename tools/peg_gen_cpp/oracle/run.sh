@@ -62,7 +62,7 @@ extra_uring=""
     -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm \
     -o "$work/logos_el" 2>&1 | grep -iE 'undefined|error' && { echo "link failed"; exit 1; }
 
-echo "== comparing $(grep -cve '^$' "$corpus") expressions =="
+echo "== comparing $(grep -cve '^$' -e '^#' "$corpus") expressions =="
 "$work/cpp_el"   "$corpus" > "$work/cpp.out"   || { echo "C++ harness crashed";   exit 1; }
 "$work/logos_el" "$corpus" > "$work/logos.out" || { echo "Logos harness crashed"; exit 1; }
 
@@ -73,7 +73,7 @@ if ! grep -qve '<parse-error>' "$work/cpp.out"; then
 fi
 
 if diff -u "$work/logos.out" "$work/cpp.out" > "$work/diff.txt"; then
-    n="$(grep -cve '^$' "$corpus")"
+    n="$(grep -cve '^$' -e '^#' "$corpus")"
     echo "----------------------------------------"
     echo "✓ all $n expressions: peg_gen_logos AST == peg_gen_cpp AST"
     exit 0

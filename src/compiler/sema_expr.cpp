@@ -3,6 +3,8 @@
 #include "sema_impl.hpp"
 #include "ctfe.hpp"
 #include "logos_parser.hpp"  // re-parse RAW_TEXT for fn-macro args
+#include "wql_surface_parser.hpp"        // the compiler parses deem! rule bodies itself
+#include <logos/compiler/rule_ir.hpp>    // ...and hands the RQProgram over as memory
 #include "sema_fmt.hpp"      // format-string parser (slice 4.4)
 
 #include <logos/writ/compat.hpp>
@@ -19482,7 +19484,7 @@ void SemaChecker::emit_token_macro_item_site(
     writ::TinyMapView node, lir::LProgram& prog,
     const SemaFuncInfo* macro_info, bool rt_is_il, int nargs,
     const std::string& resource_name, const std::string& params_text,
-    const std::string& raw_text) {
+    const std::string& raw_text, bool ir_mode) {
         // Slot layout mirrors the ABI decision in the diagnostic above:
         //   1-arg (sig_str):  slot 0 = raw block body
         //   2-arg (nargs == 2): slot 0 = LHS binding <name>, slot 1 = raw body
@@ -19500,7 +19502,24 @@ void SemaChecker::emit_token_macro_item_site(
         uint64_t site_id = metacall_site_id(
             cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
         std::vector<std::vector<uint8_t>> blobs;
-        if (nargs == 3) {
+        if (ir_mode) {
+            // The compiler parses the rule body itself, with the C++ parser
+            // generated from the SAME wql.peg the Logos runtime parser comes
+            // from. The handler never sees the text.
+            blobs.push_back(pack_blob(resource_name));
+            blobs.push_back(pack_blob(params_text));
+
+            auto doc = logos::writ::make_doc(1u << 20).get();   // MultiChunk: never moves
+            logos::wql::surface::WqlParser wp(raw_text, doc);
+            logos::writ::AnyVal root = wp.parse_program();
+            if (root.is_null()) {
+                error(std::format(
+                    "'{}!': malformed query — expected `[rel …]* from … select …`",
+                    macro_info->base_name));
+                return;
+            }
+            logos::compiler::rule_ir::put(site_id, std::move(doc), root);
+        } else if (nargs == 3) {
             blobs.push_back(pack_blob(resource_name));
             blobs.push_back(pack_blob(params_text));
             blobs.push_back(pack_blob(raw_text));
@@ -19517,7 +19536,22 @@ void SemaChecker::emit_token_macro_item_site(
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         // The callee invocation, producing an ItemList or QuoteItemBlob.
         std::string call_text;
-        if (nargs == 3) {
+        if (ir_mode) {
+            // Third arg is a POINTER into the compiler's Writ arena — the root
+            // of the RQProgram parsed above. The handler does `WAny::ref_to(ir)`.
+            call_text = std::format(
+                "{{\n"
+                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
+                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
+                "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
+                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
+                "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
+                "    {3}(__n, __pr, __ir)\n"
+                "}}",
+                site_id, static_cast<int64_t>(resource_name.size()),
+                static_cast<int64_t>(params_text.size()),
+                macro_info->base_name);
+        } else if (nargs == 3) {
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
@@ -19563,6 +19597,7 @@ void SemaChecker::emit_token_macro_item_site(
                 "use logos.mem.writ.view;\n"
                 "use std.lang.text;\n"
                 "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_rule_ir(site: u64) -> *const u8;\n"
                 "extern fn logos_qib_free_idents(blob: *const u8);\n"
                 "extern fn logos_qib_free_blobs(blob: *const u8);\n"
                 "extern fn logos_qib_free_cursors(blob: *const u8);\n"
@@ -19591,6 +19626,7 @@ void SemaChecker::emit_token_macro_item_site(
                 "use logos.mem.writ.view;\n"
                 "use std.lang.text;\n"
                 "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_rule_ir(site: u64) -> *const u8;\n"
                 "extern fn logos_qib_free_idents(blob: *const u8);\n"
                 "extern fn logos_qib_free_blobs(blob: *const u8);\n"
                 "extern fn logos_qib_free_cursors(blob: *const u8);\n"
@@ -19914,19 +19950,38 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         && is_str_type(macro_info->param_types[0])
         && is_str_type(macro_info->param_types[1])
         && is_str_type(macro_info->param_types[2]);
-    bool sig_vec = !sig_str && !sig_str2 && !sig_str3
+    // ADR 0016 body lift: `#[token_macro] fn h(name: str, params: str,
+    // ir: *const u8) -> ItemList`. The COMPILER parses the rule body with the
+    // C++ parser generated from wql.peg and hands the root of the resulting
+    // RQProgram across as a raw pointer into its own never-move arena. The
+    // handler wraps it (`WAny::ref_to`) and walks it in place — no second parse,
+    // no serialisation, no copy. Text never crosses this seam.
+    auto is_const_u8_ptr = [](TypeRef t) -> bool {
+        return TypeRef(t).kind() == LogosType::Kind::Ptr
+            && TypeRef(t).pointee()
+            && TypeRef(t).pointee().kind() == LogosType::Kind::U8;
+    };
+    bool sig_ir3 = macro_info->is_token_macro
+        && macro_info->param_types.size() == 3
+        && is_str_type(macro_info->param_types[0])
+        && is_str_type(macro_info->param_types[1])
+        && is_const_u8_ptr(macro_info->param_types[2]);
+    if (sig_ir3) sig_str3 = false;   // same arity, different third slot
+
+    bool sig_vec = !sig_str && !sig_str2 && !sig_str3 && !sig_ir3
         && macro_info->param_types.size() == 1
         && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
         && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
         && TypeRef(macro_info->param_types[0]).type_args().size() == 1
         && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
     bool sig_zero = macro_info->param_types.empty();
-    if (!sig_str && !sig_str2 && !sig_str3 && !sig_vec && !sig_zero) {
+    if (!sig_str && !sig_str2 && !sig_str3 && !sig_ir3 && !sig_vec && !sig_zero) {
         // Preserve the canonical fn_macro wording (diagnostic rule
         // metaprog.fn-macro-item.param-signature); token_macro item callees
         // get their own message.
         const char* expected = macro_info->is_token_macro
-            ? "`str`, `(name: str, body: str)`, or `(name: str, params: str, body: str)`"
+            ? "`str`, `(name: str, body: str)`, `(name: str, params: str, body: str)`, "
+              "or `(name: str, params: str, ir: *const u8)`"
             : "`Vec<ExprBlob>` or no args";
         error(std::format(
             "fn_macro item: '{}!' must take {}", callee_name, expected));
@@ -19949,7 +20004,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             callee_name, callee_name, callee_name));
         return;
     }
-    if (sig_str3 && !has_name) {
+    if ((sig_str3 || sig_ir3) && !has_name) {
         error(std::format(
             "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
             "`resource <name> = {}!(<params>){{ … }}`",
@@ -19963,14 +20018,14 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     bool has_params = node.has_key(la::PARAMS);
     std::string params_text;
     if (has_params) params_text = std::string(str_of(node.get(la::PARAMS.code)));
-    if (has_params && !sig_str3) {
+    if (has_params && !sig_str3 && !sig_ir3) {
         error(std::format(
             "'{}!(<params>){{ … }}' supplies a parameter list, but '{}!' is not a "
             "`(name: str, params: str, body: str)` #[token_macro]",
             callee_name, callee_name));
         return;
     }
-    if (sig_str3 && !has_params) {
+    if ((sig_str3 || sig_ir3) && !has_params) {
         error(std::format(
             "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
             "`resource <name> = {}!(<params>){{ … }}`, not the bare-brace form",
@@ -19992,10 +20047,10 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // arg-blob slot 0 as `[u64 size][bytes]`; the thunk reconstructs a
     // `str` via str_from_raw and forwards it to the callee. This is the
     // opaque-block → handler → quote_item! emission seam for resources.
-    if (sig_str || sig_str2 || sig_str3) {
+    if (sig_str || sig_str2 || sig_str3 || sig_ir3) {
         emit_token_macro_item_site(node, prog, macro_info, rt_is_il,
                                    sig_str3 ? 3 : (sig_str2 ? 2 : 1),
-                                   resource_name, params_text, raw_text);
+                                   resource_name, params_text, raw_text, sig_ir3);
         return;
     }
 
@@ -20141,6 +20196,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             "use logos.mem.collections.vec;\n"
             "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_rule_ir(site: u64) -> *const u8;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
             "extern fn logos_qib_free_cursors(blob: *const u8);\n"
@@ -20168,6 +20224,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             "use logos.mem.collections.vec;\n"
             "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_rule_ir(site: u64) -> *const u8;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
             "extern fn logos_qib_free_cursors(blob: *const u8);\n"
@@ -20433,6 +20490,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
             "use logos.mem.collections.vec;\n"
             "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_rule_ir(site: u64) -> *const u8;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
             "extern fn logos_qib_free_cursors(blob: *const u8);\n"
@@ -20459,6 +20517,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_rule_ir(site: u64) -> *const u8;\n"
             "extern fn logos_qib_free_idents(blob: *const u8);\n"
             "extern fn logos_qib_free_blobs(blob: *const u8);\n"
             "extern fn logos_qib_free_cursors(blob: *const u8);\n"
