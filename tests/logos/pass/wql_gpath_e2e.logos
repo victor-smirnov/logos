@@ -9,6 +9,8 @@
 //   (e) gpath in a REL BODY       (the desugar covers bodies, not just entries)
 //   (f) gpath head + AGGREGATE    (RQAggr head desugar)
 //   (g) gpath head + CLASSIC join step appended after the path
+//   (h) `**` descent — the injected reach rel: anywhere-key, trailing bind,
+//       subtree harvest with a kind filter (descendant-or-self semantics)
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
@@ -57,6 +59,17 @@ resource kind_hist = deem!(g: &Writ) {
 resource titled = deem!(g: &Writ, labels: &[Label]) {
     from g .db .pool * m join labels l on l.key == m.key
     select (l.title, m.vi)
+};
+
+// (h) ** descent
+resource all_engines = deem!(g: &Writ) {
+    from g ** .engine e select e.vs : str
+};
+resource db_desc_edges = deem!(g: &Writ) {
+    from g .db ** v select v.key : str
+};
+resource db_i64_leaves = deem!(g: &Writ) {
+    from g .db ** v {i64} select v.vi order by v.vi
 };
 
 fn main() -> i32 {
@@ -115,6 +128,17 @@ fn main() -> i32 {
     if g.len() != 1i64 { return 20i32; }
     let g0: (str, i64) = g.get(0i64);
     if !str_eq(g0.0, "pool ceiling") || g0.1 != 16i64 { return 21i32; }
+
+    // (h) ** — anywhere / trailing bind / kind-filtered harvest
+    let h1: Vec<str> = match all_engines(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e9) => { return 22i32; } };
+    if h1.len() != 2i64 { return 23i32; }               // db.engine + cache.engine
+    let h2: Vec<str> = match db_desc_edges(&doc)
+    { Result::Ok(v) => { v } Result::Err(_ea) => { return 24i32; } };
+    if h2.len() != 4i64 { return 25i32; }               // engine, pool, min, max
+    let h3: Vec<i64> = match db_i64_leaves(&doc)
+    { Result::Ok(v) => { v } Result::Err(_eb) => { return 26i32; } };
+    if h3.len() != 2i64 || h3.get(0i64) != 2i64 || h3.get(1i64) != 16i64 { return 27i32; }
 
     return 0i32;
 }

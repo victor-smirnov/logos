@@ -3,9 +3,11 @@
 // serves Query::compile over a bind_source_tree source. Covers:
 //   (a) exact key path / array steps / kind filter / mid-path bindings —
 //       result parity with the equivalent hand-written classic queries;
-//   (b) named errors: `**` (not lowered yet), bind-less last step, a binder
-//       on a {kind} filter;
-//   (c) a gpath head + classic join step against a second tree source.
+//   (b) named errors: bind-less last step, a binder on a {kind} filter,
+//       `**` with no following step, consecutive `**`;
+//   (c) a gpath head + classic join step against a second tree source;
+//   (d) `**` descent (the injected reach rel) — anywhere-key, trailing bind,
+//       kind-filtered harvest — incl. parity with a hand-written rel.
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
@@ -65,9 +67,26 @@ fn main() -> i32 {
     if sugar != classic { return 7i32; }
 
     // ── (b) named errors ────────────────────────────────────────────────────
-    if !compile_err_contains("from g ** .engine e select e.vs", &c, "M2a-2") { return 8i32; }
-    if !compile_err_contains("from g .db .pool select 1", &c, "must bind the row variable") { return 9i32; }
-    if !compile_err_contains("from g * s {map} x select x.key", &c, "cannot carry a binder") { return 10i32; }
+    if !compile_err_contains("from g .db .pool select 1", &c, "must bind the row variable") { return 8i32; }
+    if !compile_err_contains("from g * s {map} x select x.key", &c, "cannot carry a binder") { return 9i32; }
+    if !compile_err_contains("from g .db ** select 1", &c, "must be followed by a step") { return 30i32; }
+    if !compile_err_contains("from g ** ** v select v.vi", &c, "consecutive") { return 31i32; }
+
+    // ── (d) ** descent ──────────────────────────────────────────────────────
+    if rows_of("from g ** .engine e select e.vs", &env, &c) != 2i64 { return 10i32; }
+    if rows_of("from g .db ** v select v.key", &env, &c) != 4i64 { return 32i32; }
+    if rows_of("from g .db ** v {i64} select v.vi", &env, &c) != 2i64 { return 33i32; }
+    // parity: ** ≡ the hand-written reach rel
+    let sugar2: i64 = rows_of("from g ** .engine e select e.vs", &env, &c);
+    let classic2: i64 = rows_of(
+        r#"rel rch(a: i64, b: i64) {
+             from g e select (e.parent, e.parent);
+             from g e select (e.child, e.child);
+             from rch r join g e on e.parent == r.b select (r.a, e.child);
+           }
+           from g a join rch r on r.a == a.child join g e on e.parent == r.b
+           where a.parent == 0 && e.key == "engine" select e.vs"#, &env, &c);
+    if sugar2 != classic2 { return 34i32; }
 
     // ── (c) gpath + classic join against a SECOND tree ──────────────────────
     let doc2: WAny = unsafe { parse(h, r#"{ svc: { engine: "mysql" } }"#) };

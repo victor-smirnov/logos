@@ -684,6 +684,10 @@ pub fn rq_fat_bodies(node: WAny, h: &Writ) -> RQBodyArr {
     let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
     return unsafe { *(&hh as *const WSchemaH as *const RQBodyArr) };
 }
+pub fn rq_fat_rels(node: WAny, h: &Writ) -> RQRelArr {
+    let hh: WSchemaH = WSchemaH { m: node.resolve() as *const WMap<Wu6, WAny>, z: h.allocator.get() as *mut u8 };
+    return unsafe { *(&hh as *const WSchemaH as *const RQRelArr) };
+}
 
 // ── Edge handles (same provenance-laundering rationale as ir.logos) ───────────
 impl RQSimple { pub fn as_ref(self: &RQSimple) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }

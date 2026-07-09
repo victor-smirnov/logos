@@ -77,8 +77,8 @@ ADR 0015's S1–S3 built by hand exactly what this case gives for free: `TraceSt
 
 | slice | content | gate |
 |---|---|---|
-| M1 | `mapping` item + case-1/2a lowering (subsume today's APIs; both binding times) | existing tests re-expressed via mappings, byte-identical results |
-| M2 | case-3 path-rule DSL → rel lowering (`.` / `[*]` / `**` / kind filters) | differential vs hand-written rels over the edge vocabulary |
+| M1 | `mapping` item + case-1/2a lowering (subsume today's APIs; both binding times) — **M1a LANDED** (`deem!(g: &Writ)` = the graph source as a native rel, `acf38a0f`; the `mapping` item proper arrives with M2b) | `wql_writ_graph_e2e` (recursion over the graph param, graph ⋈ slice, two docs, hand-walk oracle) |
+| M2 | case-3 path-rule DSL → rel lowering (`.` / `[*]` / `**` / kind filters) — **M2a LANDED** (`d0c82fff` + `**`): path steps as query-surface sugar (`from g .db .pool [*] {kind} ** v`), ONE shared plan→plan desugar for both binding times, anchored at the VIRTUAL ROOT EDGE (parent = 0 — both walkers emit it; root queryable, no root-handle plumbing); `**` = a reach hop through an INJECTED ordinary Datalog rel (`__reach_<src>`, descendant-or-self; both engines evaluate it with existing rel machinery — no new evaluator code); `{kind}` = filter, not movement; named errors for bind-less last step / binder-on-filter / dangling or consecutive `**`. NOTE: the sugar generalized beyond the mapping layer — it works in ANY deem body/entry, which is the language-level directive done right | `wql_gpath_e2e` (static: every step kind, mid-path bindings, gpath in rel bodies, aggregate heads, path+join) + `query_gpath_e2e` (runtime: sugar ≡ hand-written classic AND `**` ≡ hand-written reach rel — differential parity, exactly this row's gate) |
 | M3 | per-relation materialization annotation | plan inspection + perf smoke; semantics unchanged |
 | M4 | case 2b: static (reflection walk) + the per-tag traverse protocol shared with 2a | graph tests over native object graphs (incl. Rc cycles) |
 | M5 | case S: `EngineState` mapping replacing the hand-rolled S1–S3 accessors | ADR 0015 tests re-expressed via the mapping |

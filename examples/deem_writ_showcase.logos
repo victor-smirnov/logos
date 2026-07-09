@@ -32,36 +32,28 @@ fn hdr(label: str) {
     println!("\n=== {} ===", label);
 }
 
-// ── the queries: `g: &Writ` is the graph source — no structs, no walk ───────
-// every `engine` setting, wherever it sits
+// ── the queries: graph-path sugar (ADR 0016 M2a) — each one reads like the
+// question it asks. No structs, no walk, no root-handle plumbing.
+// every `engine` setting, wherever it sits (`**` = descend any depth)
 resource engines = deem!(g: &Writ) {
-    from g e where e.key == "engine" select e.vs : str
+    from g ** .engine e select e.vs : str
 };
-// numeric leaves over a threshold
+// numeric leaves over a threshold, anywhere in the document
 resource big_nums = deem!(g: &Writ, min: i64) {
-    from g e where e.kind == "i64" && e.vi >= min select (e.idx, e.vi)
+    from g ** v {i64} where v.vi >= min select (v.idx, v.vi)
 };
-// top-level map sections
-resource sections = deem!(g: &Writ, root: i64) {
-    from g e where e.parent == root && e.kind == "map" select e.key : str
+// top-level map sections (`*` = one step from the root; {map} filters kind)
+resource sections = deem!(g: &Writ) {
+    from g * s {map} select s.key : str
 };
-// i64 leaves inside the `db` subtree — Datalog straight on the document
+// i64 leaves inside the `db` subtree — the old 5-line rel is now the path
 resource db_ints = deem!(g: &Writ) {
-    rel dsc(a: i64, b: i64) {
-        from g s where s.key == "db" select (s.parent, s.child);
-        from dsc d join g e on e.parent == d.b select (d.a, e.child);
-    }
-    from dsc d join g e on e.child == d.b
-    where e.kind == "i64" select (e.key, e.vi)
+    from g .db ** v {i64} select (v.key, v.vi)
 };
-// per-section node counts (reachability + group by)
-resource section_sizes = deem!(g: &Writ, root: i64) {
-    rel dsc(a: i64, b: i64) {
-        from g s where s.parent == root select (s.child, s.child);
-        from dsc d join g e on e.parent == d.b select (d.a, e.child);
-    }
-    from dsc d join g t on t.child == d.a
-    group by t.key aggregate n = count() select (key, n) order by key
+// per-section edge counts (descend under each top-level map section)
+resource section_sizes = deem!(g: &Writ) {
+    from g * s {map} ** v
+    group by s.key aggregate n = count() select (key, n) order by key
 };
 
 fn main() -> i32 {
@@ -76,7 +68,6 @@ fn main() -> i32 {
             debug: false
         }"#);
     if doc.root().is_null() { return 90i32; }
-    let root_id: i64 = doc.root().raw() as i64;   // the root's handle IS its id
 
     hdr("every `engine` setting, wherever it sits");
     let eng: Vec<str> = engines(&doc).unwrap();
@@ -96,7 +87,7 @@ fn main() -> i32 {
     }
 
     hdr("top-level sections");
-    let secs: Vec<str> = sections(&doc, root_id).unwrap();
+    let secs: Vec<str> = sections(&doc).unwrap();
     let mut k: i64 = 0i64;
     while k < secs.len() {
         println!("  {}", secs.get(k));
@@ -112,8 +103,8 @@ fn main() -> i32 {
         k2 = k2 + 1i64;
     }
 
-    hdr("how many nodes in each top-level section");
-    let sz: Vec<(str, i64)> = section_sizes(&doc, root_id).unwrap();
+    hdr("how many edges under each top-level map section");
+    let sz: Vec<(str, i64)> = section_sizes(&doc).unwrap();
     let mut k3: i64 = 0i64;
     while k3 < sz.len() {
         let row3: (str, i64) = sz.get(k3);
