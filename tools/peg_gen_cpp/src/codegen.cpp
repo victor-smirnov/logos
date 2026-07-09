@@ -2968,11 +2968,18 @@ private:
             return;
         }
 
-        // ── str: the capture already IS an interned arena string.
+        // ── str: the capture already IS an interned arena string. But an OPT
+        // capture that did not match is NULL, and the schema item declares a
+        // `str`, not an `Option<str>` — a null in that slot is ill-typed. The
+        // Logos backend goes through `wstr_as_str`, which maps null to "" and
+        // interns it; mirror that or the two backends build different trees for
+        // every query with an absent optional (caught by the WQL oracle).
         if (sf.ftype == "str") {
             if (e.kind == int32_t(ast::STR_LIT))
                 put(key, std::format("doc_.make_string(\"{}\").get().to_anyval()", e.value));
-            else if (is_cap || is_fold) put(key, cv);
+            else if (is_cap || is_fold)
+                put(key, std::format(
+                    "({0}.is_null() ? doc_.make_string(\"\").get().to_anyval() : {0})", cv));
             else put(key, "doc_.make_string(\"\").get().to_anyval()");
             return;
         }

@@ -128,6 +128,23 @@ add_custom_target(peg_gen_cpp_el_oracle
     USES_TERMINAL
     COMMENT "peg_gen_cpp EL oracle (C++ vs Logos el_parser over the EL corpus)")
 
+# WQL cross-BACKEND oracle — the same check one level up, over deem!-body queries
+# rather than bare expressions. Not redundant with the EL oracle: the INTEGER
+# type-suffix divergence survived four grammars precisely because no EL corpus
+# line ever wrote `1000000i64`, while nearly every real deem! body does. Since the
+# zero-copy rule-IR seam, logosc parses rule bodies with the C++ parser while the
+# runtime `Query::compile` still uses the Logos one — they must agree, or a query
+# means different things at compile time and at run time.
+#
+#   cmake --build build --target peg_gen_cpp_wql_oracle
+add_custom_target(peg_gen_cpp_wql_oracle
+    COMMAND ${CMAKE_COMMAND} -E env bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/oracle/run_wql.sh
+            ${CMAKE_BINARY_DIR}
+    DEPENDS logosc peg_gen_cpp
+    USES_TERMINAL
+    COMMENT "peg_gen_cpp WQL oracle (C++ vs Logos wql_surface_parser over deem! bodies)")
+
 # Install bundled grammars under the project share dir (/usr/share/logos/peg_gen_cpp
 # with the package prefix). Reference/tooling data — the parser is generated
 # into logosc at build time, so nothing reads this at runtime.

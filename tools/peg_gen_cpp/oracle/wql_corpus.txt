@@ -1,0 +1,121 @@
+# WQL cross-backend oracle corpus — one query per line, '#' = comment.
+#
+# Harvested from the single-line deem! bodies in tests/ and examples/, i.e. the
+# surface the compiler ACTUALLY parses, plus the numeric-literal shapes that the
+# EL oracle's expression-only corpus could never reach. Lines both backends reject
+# are kept on purpose: agreeing on a rejection is agreement worth having (run.sh
+# fails if EVERY line is rejected, which would make the oracle vacuous).
+#
+# Add a line here whenever a backend divergence is found. That is what this file
+# is for; four divergences shipped before it existed.
+
+from ps p select ()
+from ps p where (p.a, p.b) select p.a
+from ms m select distinct (m.id, m.score)
+from people p select p.age + 99999999999999999999 : i64
+from xs x where nope(x.v) > 0 select x.v
+from xs x select dbl(x.v, 7)
+from ms m group by m.score aggregate n = count() select (key, n)
+from xs x select first distinct x.v
+from g .db .pool .min m select m.vi
+from g .ports [*] p select p.vi order by p.vi
+from g .ports [1] p select p.vi
+from g * s {map} select s.key : str
+from g .db d * e where e.key == "engine" select (d.child, e.vs)
+from g ** .engine e select e.vs : str
+from g .db ** v select v.key : str
+from g .db ** v {i64} select v.vi order by v.vi
+from a x select x.a0 * 1000 + x.a2 order by x.a0 : i64
+from a x select x.a0 * 1000 + x.a2 order by x.a0 desc : i64
+from a x select x.a1 * 1000 + x.a2 order by x.a1 : i64
+from a x select x.a0 * 1000 + x.a2 order by x.a0 limit n : i64
+from a x where x.a1 >= thr select x.a0 * 1000 + x.a2 order by x.a0 desc limit n : i64
+from a x group by x.a0 aggregate s = sum(x.a1) select key * 1000 + s order by key desc : i64
+from a x group by x.a0 aggregate c = count() having c >= 2 select key * 100 + c order by key : i64
+from a x select x.a0 * 1000 + x.a2 limit n : i64
+from people p select p.age order by p.age
+from people p select p.age order by p.age desc limit 2
+from people p select p.name order by p.name : str
+from people p select p.name order by p.weight limit 2 : str
+from people p where p.age >= 18 select p.name order by p.age desc limit 2 : str
+from people p where 2 + 3 > 4 select p.age + (10 - 4) : i64
+from people p find p.age == 41
+from people p find p.age > 100
+from people p find p.age == n
+…
+from xs r select r.big + r.big : i64
+from xs r select r.big / r.zero : i64
+from xs r select r.big + 1i64 : i64
+from people p where p.age >= 18 select first (p.name, p.age)
+from people p where p.age > 100 select first (p.name, p.age)
+from people p select first (p.name, p.age) order by p.age desc
+from people p where p.age >= 18 select p.age : i64
+from items p where p.price > 10.5 select p.price
+from items p select p.price * 2
+from people p where 1 < 2 select p.age : i64
+from people p where 1 > 2 select p.age : i64
+<query>
+from a x select x.a0 * 4000000000 : i64
+from a x select x.a0 / x.a1 : i64
+from a x select x.a0 + x.a1 : i64
+from g e where e.key == "engine" select e.vs : str
+from g e where e.kind == "map" select e.child
+from g e join labels l on l.key == e.key select (l.title, e.vi)
+from people p select p
+from depts d anti join d.emps e select d.did : i64
+from people p where p.dept == "eng" select p.name : str
+from a x group by x.g aggregate s = sum(x.v) select key * 100 + s : i64
+from emps e select (e.id, e.name)
+from emps e where e.score > 2.0 select (e.id, e.name, e.score)
+from emps e select ((2 + 3) * e.id, len(e.name))
+from emps e select (e.id)
+from people p where p.dept == "eng" select p.name
+from people p where p.age >= 30 select p.age
+from people p select p.age >= min
+from e_tail t where t.converged == 0 && t.pending > 0 select (t.epoch, t.pending)
+from e_trace t group by t.kind aggregate s = sum(t.delta) select (key, s)
+from e_controls c where c.kind == 1 select (c.epoch, c.val)
+from e_epochs x select x.epoch
+from people p where p.age >= 18 select p.age limit n
+from people p select p.age order by p.age desc limit n
+from people p where 1 == 2 select p.age order by p.age desc limit 3
+from people p select p.age limit 0
+from sales s select distinct s.region
+from sales s where s.amount >= 10 select distinct s.dept : str
+from sales s select distinct s.region order by s.region desc
+from people p where p.name == q && p.age >= minage select p.name : str
+from emps e where e.age >= 40 && e.dept == 1 select e.name
+from people p where p.age >= 18 select first p.name : str
+from people p where p.age > 100 select first p.age
+from people p select first p.name order by p.age desc : str
+from people p where p.age >= n select first p.name : str
+from people x join depts d on x.age == d.id select first d.label : str
+from a x where x.a0 >= thr select x.a1 * 100 + x.a2 : i64
+from a x join b y on x.a0 == y.b0 select x.a1 * 100 + y.b1 : i64
+from a x anti join b y on x.a0 == y.b0 select x.a1 : i64
+from a x group by x.a0 aggregate s = sum(x.a1) select key * 100 + s : i64
+from a x group by x.a0 aggregate lo = min(x.a1), hi = max(x.a1) select key * 10000 + lo * 100 + hi : i64
+from a x select distinct x.a1 : i64
+from xs x select half32(x.qty) + 100
+from xs x where x.qty > 3 select label(x.name)
+from a x select x.v
+from a x where x.v > 0.5 select x.v
+from a x join b y on x.v == y.v select x.g
+from a x group by x.g aggregate m = avg(x.v) select m
+from a x group by x.g aggregate s = sum(x.v) select s
+from a x group by x.g aggregate lo = min(x.v) select lo
+from a x group by x.g aggregate hi = max(x.v) select hi
+from people p where 1 == 2 select first p.age
+from people p find 1 == 2
+from people p find 1 == 1
+from people p select first p
+from emps e select distinct (e.dept, e.name)
+from g ** v {i64} where v.vi >= min select (v.idx, v.vi)
+from g .db ** v {i64} select (v.key, v.vi)
+
+# Numeric-literal shapes: the class that hid for four grammars.
+from o o select 1000000i64
+from o o select o.amt * 100i64
+from o o group by o.dept aggregate n = count() select key * 1000000i64 + n
+from o o select 0.0f64
+from o o where o.x > 9223372036854775807 select o.x
