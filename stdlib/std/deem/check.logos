@@ -257,16 +257,18 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 return ct(CT_DYN);
             }
             if bt.t == CT_TREEROW {
-                // A virtual tree-source edge row: the FIXED column table
-                // (bind_source_tree's contract). parent/child are node
-                // handles (stable ids); vi/vs are the child's scalar value
-                // when the kind matches, Null otherwise (lenient tier).
+                // A virtual graph-source edge row: the FIXED column table
+                // (bind_source_tree's contract). parent/child are ids
+                // (container = node handle, leaf = synthetic); `tag` is the
+                // RAW type_code (open vocabulary — user tags flow through);
+                // vi/vs are the child's scalar value when the kind matches,
+                // Null otherwise (lenient tier).
                 if str_eq(f.name, "parent") || str_eq(f.name, "child")
-                || str_eq(f.name, "idx") { return ct(CT_INT); }
+                || str_eq(f.name, "idx") || str_eq(f.name, "tag") { return ct(CT_INT); }
                 if str_eq(f.name, "key") || str_eq(f.name, "kind") { return ct(CT_STR); }
                 if str_eq(f.name, "vi") || str_eq(f.name, "vs") { return ct(CT_DYN); }
                 chk_fail(chk, "unknown tree-source column '", f.name,
-                         "' — a tree edge row has (parent, key, idx, child, kind, vi, vs)",
+                         "' — a graph edge row has (parent, key, idx, child, kind, tag, vi, vs)",
                          "", "");
                 return ct(CT_UNKNOWN);
             }

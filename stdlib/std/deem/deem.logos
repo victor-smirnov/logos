@@ -610,15 +610,21 @@ impl QEnv {
         self.codes[i] = 0u64;
     }
 
-    /// Binds `name` to a TREE source: a Writ value (map/array root) scanned
-    /// VIRTUALLY — the scan is a preorder walk of the tree, one row per EDGE,
-    /// nothing materialized (the document IS the fact base). Row columns are
-    /// fixed: `parent`/`child` (i64 node handles — stable ids, no numbering
-    /// pass), `idx` (array position, −1 under a map), `key` (map key, "" under
-    /// an array), `kind` (the child's tag: map/arr/str/i64/f64/bool/null),
-    /// `vi` (the child's scalar value when i64/f64/bool, else Null), `vs`
-    /// (the child's string value, else Null). Re-scan semantics: no deltas,
-    /// not incrementally maintainable (use FactStore for the live-fact path).
+    /// Binds `name` to a GRAPH source: a Writ value (container root) scanned
+    /// VIRTUALLY — the scan walks the object graph from the root, one row per
+    /// EDGE, nothing materialized (the document IS the fact base). Writ is a
+    /// generalized object graph (cycles legal): every edge emits; a node's
+    /// children EXPAND exactly once (visited set) — DAGs don't duplicate,
+    /// cycles terminate. Row columns are fixed: `parent`/`child` (i64 ids —
+    /// containers carry their Writ handle, scalar leaves a synthetic
+    /// FNV(parent, ordinal) id: a leaf's value word is not an identity),
+    /// `idx` (array position / TOM field key code, −1 under a map), `key`
+    /// (map key, "" otherwise), `kind` (friendly tag: map/arr/tom/str/i64/
+    /// f64/bool/null, "obj" for other ref tags — open world), `tag` (the RAW
+    /// type_code — user tags flow through), `vi` (the child's scalar value
+    /// when i64/f64/bool, else Null), `vs` (the child's string value, else
+    /// Null). Re-scan semantics: no deltas, not incrementally maintainable
+    /// (use FactStore for the live-fact path).
     pub fn bind_source_tree(self: &mut QEnv, name: str, root: WAny) {
         let i: i64 = self.slot(name);
         if i < 0i64 { return; }

@@ -1,0 +1,191 @@
+// query_tree_source_graph_e2e — the GRAPH semantics of virtual sources
+// (bind_source_tree over a general Writ object graph, not just a tree).
+// Asserts:
+//   (a) DAG — a SHARED container child: every incoming edge emits (the child
+//       appears once per edge), but its children EXPAND exactly once (no
+//       subtree duplication);
+//   (b) CYCLE — a map that (transitively) contains itself: the scan
+//       TERMINATES, the cyclic edge is present, and a recursive rel over the
+//       cyclic edge set converges (set semantics);
+//   (c) LEAF IDENTITY — equal scalar leaves in different places get DISTINCT
+//       child ids (a leaf's value word is not an identity: two 7s must not
+//       alias), while a shared CONTAINER keeps one id across its edges;
+//   (d) TOM — a schema'd row (tiny object map) EXPANDS: fields edge with
+//       idx = the field key code;
+//   (e) `tag` column — the raw type_code flows through and matches the
+//       friendly `kind` classification for builtins.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+// a schema'd row for the TOM arm (key codes 0 and 3 — deliberately sparse)
+pub schema Meta : code(0x0E11_0000_0000_0001) {
+    alpha: i64 = 0,
+    beta:  i64 = 3,
+}
+resource cat = schema_catalog!{ Meta };
+
+fn run_count(q: &Query, env: &QEnv) -> i64 {
+    match q.run(env) {
+        Result::Ok(rows) => { return rows.row_count(); }
+        Result::Err(_e)  => { return 0i64 - 1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(65536i64);
+    let c: SchemaCatalog = cat();
+
+    // ── build the GRAPH by hand (the parser only makes trees) ───────────────
+    //   root = { left: {...}, right: {...}, meta: <TOM> }
+    //   shared = { x: 7 }            — child of BOTH left and right (DAG)
+    //   left  = { seven: 7, s: shared }
+    //   right = { seven: 7, s: shared, back: root }   — `back` closes a CYCLE
+    let shared: &mut WMap<WString, WAny> = d.map(4i64);
+    shared.set("x", 7i64);
+    let left: &mut WMap<WString, WAny> = d.map(4i64);
+    left.set("seven", 7i64);
+    left.set("s", WAny::from(&*shared));
+    let right: &mut WMap<WString, WAny> = d.map(4i64);
+    right.set("seven", 7i64);
+    right.set("s", WAny::from(&*shared));
+    let meta: Meta = d.make::<Meta>();
+    meta.alpha = 100i64;
+    meta.beta = 200i64;
+    let root: &mut WMap<WString, WAny> = d.map(8i64);
+    root.set("left", WAny::from(&*left));
+    root.set("right", WAny::from(&*right));
+    root.set("meta", WAny::ref_to((meta.m as i64) as *const u8));
+    right.set("back", WAny::from(&*root));      // the cycle
+    let rootv: WAny = WAny::from(&*root);
+
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_tree("g", rootv);
+    env.bind_i64("root", rootv.raw() as i64);
+
+    // total edges: root{left,right,meta}=3, left{seven,s}=2,
+    // right{seven,s,back}=3, shared{x}=1 (EXPANDED ONCE), meta{alpha,beta}=2
+    // = 11 — termination + DAG-once in one number.
+    let q_all: Query = match Query::compile("from g e select e.child", &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if run_count(&q_all, &env) != 11i64 { return 2i32; }
+
+    // ── (a) DAG: `s` edges exist from BOTH parents; shared child = ONE id ───
+    let q_s: Query = match Query::compile(
+        r#"from g e where e.key == "s" select e.child : i64"#, &c)
+    { Result::Ok(v) => { v } Result::Err(_e2) => { return 3i32; } };
+    match q_s.run(&env) {
+        Result::Ok(rows) => {
+            if rows.row_count() != 2i64 { return 4i32; }
+            // (c-container) one shared identity across both edges
+            if rows.get_i64(0i64, 0i64) != rows.get_i64(1i64, 0i64) { return 5i32; }
+        }
+        Result::Err(_e3) => { return 6i32; }
+    }
+    // shared's OWN child ("x") appears exactly once (expansion-once)
+    let q_x: Query = match Query::compile(
+        r#"from g e where e.key == "x" select e.child"#, &c)
+    { Result::Ok(v) => { v } Result::Err(_e4) => { return 7i32; } };
+    if run_count(&q_x, &env) != 1i64 { return 8i32; }
+
+    // ── (b) cycle: the back edge exists and points AT the root's handle;
+    // a recursive closure over the cyclic edge set converges ──
+    let q_back: Query = match Query::compile(
+        r#"from g e where e.key == "back" && e.child == root select e.parent"#, &c)
+    { Result::Ok(v) => { v } Result::Err(_e5) => { return 9i32; } };
+    if run_count(&q_back, &env) != 1i64 { return 10i32; }
+    let q_tc: Query = match Query::compile(
+        r#"rel dsc(a: i64, b: i64) {
+             from g e select (e.parent, e.child);
+             from dsc x join g e on e.parent == x.b select (x.a, e.child);
+           }
+           from dsc x where x.a == root select x.b"#, &c)
+    { Result::Ok(v) => { v } Result::Err(_e6) => { return 11i32; } };
+    // reachable-from-root ids: left, right, meta, shared, root(via back),
+    // leaves: left.seven, right.seven, shared.x, meta.alpha, meta.beta = 10
+    if run_count(&q_tc, &env) != 10i64 { return 12i32; }
+
+    // ── (c) leaf identity: the two `seven` leaves are DISTINCT ids ──────────
+    let q_sev: Query = match Query::compile(
+        r#"from g e where e.key == "seven" select e.child : i64"#, &c)
+    { Result::Ok(v) => { v } Result::Err(_e7) => { return 13i32; } };
+    match q_sev.run(&env) {
+        Result::Ok(rows) => {
+            if rows.row_count() != 2i64 { return 14i32; }
+            if rows.get_i64(0i64, 0i64) == rows.get_i64(1i64, 0i64) { return 15i32; }
+        }
+        Result::Err(_e8) => { return 16i32; }
+    }
+
+    // ── (d) TOM expansion: field edges with idx = the key codes (0 and 3) ───
+    let q_tom: Query = match Query::compile(
+        r#"from g e where e.kind == "tom" select e.child : i64"#, &c)
+    { Result::Ok(v) => { v } Result::Err(_e9) => { return 17i32; } };
+    let mut tom_h: i64 = 0i64;
+    match q_tom.run(&env) {
+        Result::Ok(rows) => {
+            if rows.row_count() != 1i64 { return 18i32; }
+            tom_h = rows.get_i64(0i64, 0i64);
+        }
+        Result::Err(_ea) => { return 19i32; }
+    }
+    let q_tf: Query = match Query::compile(
+        "from g e where e.parent == tom select (e.idx, e.vi) order by e.idx", &c)
+    { Result::Ok(v) => { v } Result::Err(_eb) => { return 20i32; } };
+    let mut env2: QEnv = QEnv::new();
+    env2.bind_source_tree("g", rootv);
+    env2.bind_i64("tom", tom_h);
+    match q_tf.run(&env2) {
+        Result::Ok(rows) => {
+            if rows.row_count() != 2i64 { return 21i32; }
+            if rows.get_i64(0i64, 0i64) != 0i64 { return 22i32; }   // alpha @ key 0
+            if rows.get_i64(0i64, 1i64) != 100i64 { return 23i32; }
+            if rows.get_i64(1i64, 0i64) != 3i64 { return 24i32; }   // beta @ key 3
+            if rows.get_i64(1i64, 1i64) != 200i64 { return 25i32; }
+        }
+        Result::Err(_ec) => { return 26i32; }
+    }
+
+    // ── (e) tag column: raw type codes agree with the friendly kinds ────────
+    // every map-kind edge carries the same tag code, and it differs from the
+    // tom edge's tag code (open vocabulary, exact codes not hardcoded here).
+    let q_kt: Query = match Query::compile(
+        r#"from g e where e.kind == "map" group by e.tag aggregate n = count()
+           select (key, n)"#, &c)
+    { Result::Ok(v) => { v } Result::Err(_ed) => { return 27i32; } };
+    let mut map_tag: i64 = 0i64;
+    match q_kt.run(&env) {
+        Result::Ok(rows) => {
+            if rows.row_count() != 1i64 { return 28i32; }   // ONE code for all maps
+            map_tag = rows.get_i64(0i64, 0i64);
+            // map-kind EDGES: root→left, root→right, left→s, right→s,
+            // right→back = 5 (edges, not distinct nodes)
+            if rows.get_i64(0i64, 1i64) != 5i64 { return 29i32; }
+        }
+        Result::Err(_ee) => { return 30i32; }
+    }
+    let q_tt: Query = match Query::compile(
+        r#"from g e where e.kind == "tom" select e.tag : i64"#, &c)
+    { Result::Ok(v) => { v } Result::Err(_ef) => { return 31i32; } };
+    match q_tt.run(&env) {
+        Result::Ok(rows) => {
+            if rows.row_count() != 1i64 { return 32i32; }
+            if rows.get_i64(0i64, 0i64) == map_tag { return 33i32; }
+        }
+        Result::Err(_eg) => { return 34i32; }
+    }
+
+    return 0i32;
+}
