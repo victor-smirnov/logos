@@ -1,0 +1,22 @@
+// ADR 0016 §6 T3: instantiating a generic mapping with a type that does not
+// implement the bound is a NAMED error at the deem! site — the missing rel
+// binding is spelled out, not discovered as an opaque downstream failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+
+pub trait EdgeSource {
+    rel link(a: i64, b: i64);
+}
+
+struct NoImpl { pub n: i64 }
+
+pub mapping Reach<S: EdgeSource>(g: &S) {
+    pub rel r(x: i64, y: i64) { from g e select (e.a, e.b); }
+}
+
+resource bad = deem!(w: Reach<NoImpl>) { from r t select t.y };
+
+fn main() -> i32 { return 0i32; }

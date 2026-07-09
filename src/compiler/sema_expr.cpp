@@ -19690,29 +19690,30 @@ void SemaChecker::emit_token_macro_item_site(
 // gone — these entries are DATA, in the same registry user impls fill).
 void SemaChecker::seed_builtin_source_impls() {
     if (!source_impls_.empty()) return;
-    auto mk = [](const char* rel, const char* fn, const char* mod,
-                 std::vector<TraitRelCol> cols) {
+    auto mk = [](const char* tr, const char* rel, const char* fn,
+                 const char* mod, std::vector<TraitRelCol> cols) {
         SourceRelBind b;
+        b.trait_name = tr;
         b.rel = rel; b.mat_fn = fn; b.mat_module = mod;
         b.cols = std::move(cols);
         return b;
     };
     // trait GraphSource { rel edge(…) } — impl for Writ (M1a/64dd1286 vocabulary).
-    source_impls_["Writ"].push_back(mk("edge", "writ_graph_edges",
+    source_impls_["Writ"].push_back(mk("GraphSource", "edge", "writ_graph_edges",
         "logos.std.wql.writ_graph",
         {{"parent","i64"},{"key","str"},{"idx","i64"},{"child","i64"},
          {"kind","str"},{"tag","i64"},{"vi","i64"},{"vs","str"}}));
     // trait EngineState { rel trace/epochs/tail/controls } — impl for IncrRec (M5).
     auto& e = source_impls_["IncrRec"];
-    e.push_back(mk("trace", "deem_state_trace", "logos.std.deem",
+    e.push_back(mk("EngineState", "trace", "deem_state_trace", "logos.std.deem",
         {{"epoch","i64"},{"kind","i64"},{"step","i64"},{"delta","i64"},
          {"total","i64"},{"ns","i64"}}));
-    e.push_back(mk("epochs", "deem_state_epochs", "logos.std.deem",
+    e.push_back(mk("EngineState", "epochs", "deem_state_epochs", "logos.std.deem",
         {{"epoch","i64"},{"ins","i64"},{"del","i64"},{"rounds","i64"},{"ns","i64"}}));
-    e.push_back(mk("tail", "deem_state_tail", "logos.std.deem",
+    e.push_back(mk("EngineState", "tail", "deem_state_tail", "logos.std.deem",
         {{"epoch","i64"},{"converged","i64"},{"pending","i64"},{"bound","i64"},
          {"cutr","i64"}}));
-    e.push_back(mk("controls", "deem_state_controls", "logos.std.deem",
+    e.push_back(mk("EngineState", "controls", "deem_state_controls", "logos.std.deem",
         {{"epoch","i64"},{"kind","i64"},{"val","i64"}}));
 }
 
@@ -19770,6 +19771,49 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
     out.name = std::string(str_of(node.get(la::NAME.code)));
     const std::string& mname = out.name;
 
+    // ── generic form `mapping M<S: Bound>(g: &S)` (§6 T3): one type param
+    // with one source-trait bound. The mapping is then a PURE rule module —
+    // it emits no fns (the materializer is unknown until a consumption site
+    // supplies the concrete source) and is consumed via `deem!(w: M<T>)`.
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tpl = map_of(node.get(la::TYPE_PARAMS.code));
+        if (!tpl.is_null() && tpl.has_key(la::ITEMS.code)) {
+            auto tarr = arr_of(tpl.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < tarr.size(); ++i) {
+                auto tp = map_of(tarr.get(i));
+                if (tp.is_null() || code_of(tp) != la::TYPE_PARAM) continue;
+                if (!out.type_param.empty()) {
+                    out.err = std::format(
+                        "mapping '{}': at most one type parameter (v1)", mname);
+                    return false;
+                }
+                out.type_param = std::string(str_of(tp.get(la::NAME.code)));
+                if (tp.has_key(la::ITEMS.code)) {
+                    auto barr = arr_of(tp.get(la::ITEMS.code));
+                    for (uint64_t b = 0; b < barr.size(); ++b) {
+                        auto bn = map_of(barr.get(b));
+                        if (bn.is_null() || code_of(bn) != la::TRAIT_BOUND) continue;
+                        if (!out.bound.empty()) {
+                            out.err = std::format(
+                                "mapping '{}': type parameter '{}' takes one "
+                                "source-trait bound (v1)", mname, out.type_param);
+                            return false;
+                        }
+                        out.bound = std::string(str_of(bn.get(la::NAME.code)));
+                    }
+                }
+                if (out.bound.empty()) {
+                    out.err = std::format(
+                        "mapping '{}': type parameter '{}' needs a source-trait "
+                        "bound (`mapping {}<{}: GraphSource>(…)`) — the bound "
+                        "names the rel vocabulary the source carries",
+                        mname, out.type_param, mname, out.type_param);
+                    return false;
+                }
+            }
+        }
+    }
+
     // ── header params `(g: &Writ, floor: i64)`: only simple `name: Type`
     // bindings are meaningful in a mapping header (the source shape +
     // scalars); ref/mut/pattern binders are rejected here rather than
@@ -19819,6 +19863,22 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
             "mapping '{}': needs at least one parameter — the source shape "
             "(e.g. `g: &Writ`)", mname);
         return false;
+    }
+    if (!out.type_param.empty()) {
+        std::string want = "&" + out.type_param;
+        if (out.first_param_type != want) {
+            out.err = std::format(
+                "mapping '{}': the source parameter of a generic mapping must "
+                "be `{}: {}` — its type IS the type parameter",
+                mname, out.first_param_name, want);
+            return false;
+        }
+        if (out.nparams != 1) {
+            out.err = std::format(
+                "mapping '{}': a generic mapping takes only the source "
+                "parameter (scalar params are a later slice)", mname);
+            return false;
+        }
     }
 
     // ── rel members: validate signatures, reconstruct canonical text ──
@@ -19952,8 +20012,15 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
         mi.body_text      = parts.body_text;
         mi.nrels          = parts.rel_names.size();
         mi.enrichable     = (parts.nparams == 1);
+        mi.type_param     = parts.type_param;
+        mi.bound          = parts.bound;
         mappings_[mname] = std::move(mi);
     }
+    // A GENERIC mapping is a pure rule module: nothing to emit here — its
+    // rules splice into consumers at `deem!(w: M<Concrete>)` sites, where the
+    // concrete source supplies the materializers. (Consequence, named: its
+    // rule bodies are validated at first consumption, like templates.)
+    if (!parts.type_param.empty()) return;
 
     // ── route through the token-macro item seam to the stdlib handler ──
     auto ovit = func_overloads_.find("__mapping_item");
@@ -20246,9 +20313,56 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             bool any = false;
             for (auto& [pn, pt] : pairs) {
                 if (mappings_.empty()) break;
-                auto mit = mappings_.find(pt);
+                // `w: M` (concrete mapping) or `w: M<Concrete>` (generic —
+                // the argument names the source type, which must implement
+                // the mapping's bound).
+                std::string mbase = pt, marg;
+                if (auto lt = pt.find('<');
+                        lt != std::string::npos && pt.back() == '>') {
+                    mbase = pt.substr(0, lt);
+                    marg  = pt.substr(lt + 1, pt.size() - lt - 2);
+                }
+                auto mit = mappings_.find(mbase);
                 if (mit == mappings_.end()) continue;
                 const MappingInfo& mi = mit->second;
+                if (mi.type_param.empty() != marg.empty()) {
+                    error(mi.type_param.empty()
+                        ? std::format("'{}!': mapping '{}' is not generic — "
+                                      "write `{}: {}`", callee_name, mbase, pn, mbase)
+                        : std::format("'{}!': mapping '{}' is generic over "
+                                      "<{}: {}> — write `{}: {}<SourceType>`",
+                                      callee_name, mbase, mi.type_param,
+                                      mi.bound, pn, mbase));
+                    return;
+                }
+                if (!marg.empty()) {
+                    // Bound check: the concrete source must bind every rel the
+                    // bound trait declares (per-trait, not by name accident).
+                    auto trit = trait_rels_.find(mi.bound);
+                    if (trit == trait_rels_.end()) {
+                        error(std::format(
+                            "'{}!': mapping '{}' is bounded by '{}', which "
+                            "declares no rels (is the trait in scope?)",
+                            callee_name, mbase, mi.bound));
+                        return;
+                    }
+                    auto sit = source_impls_.find(marg);
+                    for (const auto& need : trit->second) {
+                        bool have = false;
+                        if (sit != source_impls_.end())
+                            for (const auto& b : sit->second)
+                                if (b.trait_name == mi.bound && b.rel == need.rel)
+                                    { have = true; break; }
+                        if (!have) {
+                            error(std::format(
+                                "'{}!': `{}: {}<{}>` — '{}' does not implement "
+                                "'{}' (missing `rel {} = …` binding)",
+                                callee_name, pn, mbase, marg, marg,
+                                mi.bound, need.rel));
+                            return;
+                        }
+                    }
+                }
                 if (!mi.enrichable) {
                     error(std::format(
                         "'{}!': parameter '{}' binds mapping '{}', which has "
@@ -20261,7 +20375,10 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
                                       next_rel, next_rel + mi.nrels);
                 prefix_body += mi.body_text;
                 next_rel += mi.nrels;
-                pt = mi.src_param_type;   // Services → &Writ in the emitted fn
+                // Services → &Writ; Reach<G1> → &G1 — the emitted fn takes the
+                // real source, and the natspec loop below (post-substitution)
+                // registers its native rels like any hand-written param.
+                pt = marg.empty() ? mi.src_param_type : ("&" + marg);
                 any = true;
             }
             if (any) {

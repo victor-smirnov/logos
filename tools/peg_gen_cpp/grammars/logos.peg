@@ -1273,9 +1273,17 @@
     rel_bind <- IDENT IDENT ASSIGN IDENT SEMI
              => { CODE: REL_BIND, REL_KW: $1, NAME: $2, VALUE: $4 }
 
-    pub_mapping_def <- pub_vis KW_MAPPING IDENT LPAREN param_list? RPAREN LBRACE rel_def_or_doc* RBRACE
+    // The generic form `mapping M<S: Bound>(g: &S) { … }` (ADR 0016 §6 T3) is a
+    // PURE rule module: it emits no standalone fns (the materializer is unknown
+    // until a consumption site supplies the concrete source type) and is
+    // consumed by fusion — `deem!(w: M<Concrete>)`.
+    pub_mapping_def <- pub_vis KW_MAPPING IDENT type_param_list LPAREN param_list? RPAREN LBRACE rel_def_or_doc* RBRACE
+                    => { CODE: MAPPING_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, FIELDS: $9 }
+                     / pub_vis KW_MAPPING IDENT LPAREN param_list? RPAREN LBRACE rel_def_or_doc* RBRACE
                     => { CODE: MAPPING_DEF, IS_PUB: 1, VIS: $1, NAME: $3, PARAMS: $5, FIELDS: $8 }
-    mapping_def     <- KW_MAPPING IDENT LPAREN param_list? RPAREN LBRACE rel_def_or_doc* RBRACE
+    mapping_def     <- KW_MAPPING IDENT type_param_list LPAREN param_list? RPAREN LBRACE rel_def_or_doc* RBRACE
+                    => { CODE: MAPPING_DEF, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, FIELDS: $8 }
+                     / KW_MAPPING IDENT LPAREN param_list? RPAREN LBRACE rel_def_or_doc* RBRACE
                     => { CODE: MAPPING_DEF, NAME: $2, PARAMS: $4, FIELDS: $7 }
 
     // B-ts-01: tuple-struct fields — types only, no field names.

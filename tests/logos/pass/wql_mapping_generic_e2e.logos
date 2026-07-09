@@ -1,0 +1,93 @@
+// wql_mapping_generic_e2e — generic mappings over source-trait bounds (ADR 0016
+// §6 T3): `mapping M<S: Bound>(g: &S)` is a PURE rule module — it emits no fns
+// (the materializer is unknown until instantiation) and its rules splice into a
+// consumer via `deem!(w: M<Concrete>)`, where the concrete type's impl supplies
+// the materializers. THE reusability payoff: ONE transitive-closure mapping,
+// TWO unrelated source types. Asserts:
+//   (a) the generic form parses and registers; no standalone fns are emitted;
+//   (b) `deem!(w: Reach<G1>)` — fusion + bound-checked instantiation;
+//   (c) the SAME mapping over a second source type with different data;
+//   (d) a consumer rel layered on the generic mapping's rel;
+//   (e) declaration order irrelevant (a consumer precedes the mapping).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+
+// ── the shared vocabulary ────────────────────────────────────────────────────
+pub trait EdgeSource {
+    rel link(a: i64, b: i64);
+}
+
+// ── source #1: a chain 1→2→3→4 ──────────────────────────────────────────────
+struct Chain { pub n: i64 }
+fn chain_edges(c: &Chain) -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 1i64;
+    while i < c.n { v.push((i, i + 1i64)); i = i + 1i64; }
+    return v;
+}
+impl EdgeSource for Chain {
+    rel link = chain_edges;
+}
+
+// ── source #2: a star 0→{1,2,3} ─────────────────────────────────────────────
+struct Star { pub arms: i64 }
+fn star_edges(s: &Star) -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 1i64;
+    while i <= s.arms { v.push((0i64, i)); i = i + 1i64; }
+    return v;
+}
+impl EdgeSource for Star {
+    rel link = star_edges;
+}
+
+// (e) a consumer BEFORE the mapping it instantiates.
+resource chain_reach = deem!(w: Reach<Chain>) {
+    from r t where t.x == 1 select t.y
+};
+
+// ── ONE mapping, any EdgeSource ─────────────────────────────────────────────
+pub mapping Reach<S: EdgeSource>(g: &S) {
+    pub rel r(x: i64, y: i64) {
+        from g e select (e.a, e.b);
+        from r p join g e on e.a == p.y select (p.x, e.b);
+    }
+}
+
+// (c) the same mapping over the star.
+resource star_reach = deem!(w: Reach<Star>) {
+    from r t where t.x == 0 select t.y
+};
+
+// (d) a consumer rel on top of the generic mapping's rel.
+resource endpoints = deem!(w: Reach<Chain>) {
+    rel ends(y: i64) { from r t where t.x == 1 select t.y; }
+    from ends e where e.y == 4 select e.y
+};
+
+fn main() -> i32 {
+    let c: Chain = Chain { n: 4i64 };
+    let s: Star = Star { arms: 3i64 };
+
+    // (b) reach from 1 over the chain: {2, 3, 4}.
+    let cr: Vec<i64> = match chain_reach(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if cr.len() != 3i64 { return 2i32; }
+
+    // (c) reach from 0 over the star: {1, 2, 3} — one hop, no transitivity.
+    let sr: Vec<i64> = match star_reach(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if sr.len() != 3i64 { return 4i32; }
+
+    // (d) the chain's far endpoint.
+    let ep: Vec<i64> = match endpoints(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if ep.len() != 1i64 { return 6i32; }
+    if ep.get(0i64) != 4i64 { return 7i32; }
+
+    return 0i32;
+}

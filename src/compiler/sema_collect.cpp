@@ -3283,6 +3283,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     continue;
                 }
                 SourceRelBind b;
+                b.trait_name = trait_name;
                 b.rel    = rn;
                 b.mat_fn = std::string(str_of(m.get(la::VALUE.code)));
                 b.mat_module = cur_package_;   // refined at spec time if needed

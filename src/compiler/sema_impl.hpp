@@ -4082,6 +4082,10 @@ private:
         std::string first_param_type;      // its syntactic type, e.g. "&Writ"
         std::vector<std::pair<std::string, std::string>> params;  // (name, type)
         size_t      nparams = 0;
+        // Generic form `mapping M<S: Bound>(g: &S)` (§6 T3): a pure rule
+        // module — no standalone fns; consumed via `deem!(w: M<Concrete>)`.
+        std::string type_param;           // "S", empty = concrete mapping
+        std::string bound;                // the source-trait bound
         std::string err;
     };
     bool          reconstruct_mapping_def(writ::TinyMapView node,
@@ -4099,6 +4103,8 @@ private:
         std::string body_text;             // canonical rel list
         size_t      nrels = 0;
         bool        enrichable = false;    // exactly one param (the source)
+        std::string type_param;            // "S" for `mapping M<S: Bound>`
+        std::string bound;                 // the bound source trait
     };
     std::unordered_map<std::string, MappingInfo> mappings_;
 
@@ -4114,6 +4120,7 @@ private:
     struct TraitRelSig { std::string rel; std::vector<TraitRelCol> cols; };
     std::unordered_map<std::string, std::vector<TraitRelSig>> trait_rels_;
     struct SourceRelBind {
+        std::string trait_name;           // which trait declared the rel
         std::string rel;                  // trait rel name
         std::string mat_fn;               // materializer: fn(&T) -> Vec<RowTuple>
         std::string mat_module;           // its package (empty = resolve at use)
