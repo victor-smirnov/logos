@@ -65,6 +65,25 @@ impl RBinds {
         }
         return -1i64;
     }
+
+    // Two-part DOTTED lookup ("root.fld") without composing a String — the
+    // runtime twin of the rel-field rewrite's spelling. Tree-source rows bind
+    // their columns as dotted names ("e.parent"); Field eval probes here
+    // before the generic base-eval path. Zero-alloc: length + prefix + '.' +
+    // suffix comparison.
+    fn find2(self: &RBinds, root: str, fld: str) -> i64 {
+        let want: i64 = root.len() + 1i64 + fld.len();
+        let mut i: i64 = self.n - 1i64;
+        while i >= 0i64 {
+            let nm: str = self.names[i];
+            if nm.len() == want
+            && str_starts_with(nm, root)
+            && str_byte_at(nm, root.len()) == 46u8   // '.'
+            && str_ends_with(nm, fld) { return i; }
+            i = i - 1i64;
+        }
+        return -1i64;
+    }
     fn val(self: &RBinds, i: i64) -> RtVal {
         let k: i32 = self.kinds[i];
         if k == QB_I64  { return RtVal::I(self.ivals[i]); }
@@ -177,6 +196,24 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
         SExpr::Field(f) => {
             let base_ref: WRef<SExpr> = f.base;
             if base_ref.any().is_null() { return eval_root(f.name, env, lb); }
+            // Tree-source rows have NO bare row-var bind — their columns bind
+            // as DOTTED names ("e.parent"). Probe the dotted spelling first
+            // (zero-alloc find2); miss ⇒ the generic base-eval path below.
+            // A bare root parses as Field{base: null, name} (check_root's
+            // shape), so extract the root name from EITHER spelling.
+            let mut tr_root: str = "";
+            match f.base_expr() {
+                SExpr::Var(bv) => { tr_root = bv.name; }
+                SExpr::Field(bf) => {
+                    let bb: WRef<SExpr> = bf.base;
+                    if bb.any().is_null() { tr_root = bf.name; }
+                }
+                _ => { }
+            }
+            if tr_root.len() > 0i64 {
+                let di: i64 = unsafe { (&*lb).find2(tr_root, f.name) };
+                if di >= 0i64 { return unsafe { (&*lb).val(di) }; }
+            }
             let base: RtVal = eval_sexpr(f.base_expr(), cat, env, lb, scratch);
             match base {
                 RtVal::Node(w) => { return field_read(cat, w, f.name); }

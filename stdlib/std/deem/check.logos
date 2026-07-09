@@ -183,6 +183,7 @@ fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
         if k == QB_SRC   { return src_elem_ty(name, env.words[ei], cat, chk); }
         if k == QB_ENODE { return ct(CT_DYN); }      // lenient root (ADR §4)
         if k == QB_ESRC  { return ct(CT_DYNSRC); }   // lenient collection
+        if k == QB_TSRC  { return ct(CT_TREESRC); }  // virtual tree source
     }
     if strict {
         chk_fail(chk, "unknown variable '", name,
@@ -255,7 +256,22 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 // (field_read's map/TOM arms); a miss reads Null.
                 return ct(CT_DYN);
             }
-            if bt.t == CT_ARR || bt.t == CT_SARR || bt.t == CT_DYNSRC {
+            if bt.t == CT_TREEROW {
+                // A virtual tree-source edge row: the FIXED column table
+                // (bind_source_tree's contract). parent/child are node
+                // handles (stable ids); vi/vs are the child's scalar value
+                // when the kind matches, Null otherwise (lenient tier).
+                if str_eq(f.name, "parent") || str_eq(f.name, "child")
+                || str_eq(f.name, "idx") { return ct(CT_INT); }
+                if str_eq(f.name, "key") || str_eq(f.name, "kind") { return ct(CT_STR); }
+                if str_eq(f.name, "vi") || str_eq(f.name, "vs") { return ct(CT_DYN); }
+                chk_fail(chk, "unknown tree-source column '", f.name,
+                         "' — a tree edge row has (parent, key, idx, child, kind, vi, vs)",
+                         "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if bt.t == CT_ARR || bt.t == CT_SARR || bt.t == CT_DYNSRC
+            || bt.t == CT_TREESRC {
                 chk_fail(chk, "field '", f.name,
                          "' is read through a collection edge — loop over it with {% for %} first",
                          "", "");
@@ -718,6 +734,7 @@ fn resolve_source(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
         return ct(CT_UNKNOWN);
     }
     if env.kinds[ei] == QB_ESRC { return ct(CT_DYNSRC); }   // lenient source
+    if env.kinds[ei] == QB_TSRC { return ct(CT_TREESRC); }  // virtual tree source
     if env.kinds[ei] != QB_SRC {
         chk_fail(chk, "source '", name,
                  "' is not bound as a source — use bind_source", "", "");
@@ -728,10 +745,11 @@ fn resolve_source(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
 
 // Bind a scan/traversal row var from its collection type.
 fn bind_row_var(lb: &mut CBinds, var: str, coll: CTy) {
-    if coll.t == CT_ARR         { lb.bind(var, CT_NODE, coll.code); }
-    else if coll.t == CT_SARR   { lb.bind(var, coll.code as i32, 0u64); }
-    else if coll.t == CT_DYNSRC { lb.bind(var, CT_DYN, 0u64); }   // lenient row
-    else                        { lb.bind(var, CT_UNKNOWN, 0u64); }
+    if coll.t == CT_ARR          { lb.bind(var, CT_NODE, coll.code); }
+    else if coll.t == CT_SARR    { lb.bind(var, coll.code as i32, 0u64); }
+    else if coll.t == CT_DYNSRC  { lb.bind(var, CT_DYN, 0u64); }     // lenient row
+    else if coll.t == CT_TREESRC { lb.bind(var, CT_TREEROW, 0u64); } // edge row
+    else                         { lb.bind(var, CT_UNKNOWN, 0u64); }
 }
 
 // ── The QUERY check walk (SExpr checks reuse check_expr verbatim) ───────────

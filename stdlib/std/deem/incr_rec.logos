@@ -1304,6 +1304,9 @@ impl Query {
         if ei < 0i64 {
             return Result::Err(qerr("Query::incremental_rec: the edge source is not bound on the env"));
         }
+        if env.kinds[ei] == QB_TSRC {
+            return Result::Err(qerr("Query::incremental_rec: a tree source (bind_source_tree) is virtual/re-scan — no delta capture; materialize facts via FactStore for the incremental path"));
+        }
         let srcv: WAny = WAny::ref_to(env.words[ei] as *const u8);
         if !srcv.is_array() {
             return Result::Err(qerr("Query::incremental_rec: the edge source is not a Writ array"));

@@ -455,6 +455,12 @@ const QB_SRC:   i32 = 6i32;   // a query SOURCE: a Writ ARRAY of schema'd rows
 const QB_ENODE: i32 = 7i32;   // an ERASED node (lenient, ADR §4): fields resolve
                               // at runtime by NAME; misses read as Null
 const QB_ESRC:  i32 = 8i32;   // an ERASED source: a Writ array of lenient rows
+const QB_TSRC:  i32 = 9i32;   // a TREE source (bind_source_tree): a Writ VALUE
+                              // (map/array root) scanned VIRTUALLY — one row
+                              // per EDGE of the tree, no materialization (the
+                              // no-gratuitous-materialization rule). Columns
+                              // are fixed: (parent, key, idx, child, kind,
+                              // vi, vs) — see the checker's CT_TREEROW table.
 
 const QENV_CAP: i64 = 24i64;
 // UDF/UDA registry capacities (metadata tables — rows are Vec-backed).
@@ -601,6 +607,23 @@ impl QEnv {
         if i < 0i64 { return; }
         self.kinds[i] = QB_ESRC;
         self.words[i] = arr.raw();
+        self.codes[i] = 0u64;
+    }
+
+    /// Binds `name` to a TREE source: a Writ value (map/array root) scanned
+    /// VIRTUALLY — the scan is a preorder walk of the tree, one row per EDGE,
+    /// nothing materialized (the document IS the fact base). Row columns are
+    /// fixed: `parent`/`child` (i64 node handles — stable ids, no numbering
+    /// pass), `idx` (array position, −1 under a map), `key` (map key, "" under
+    /// an array), `kind` (the child's tag: map/arr/str/i64/f64/bool/null),
+    /// `vi` (the child's scalar value when i64/f64/bool, else Null), `vs`
+    /// (the child's string value, else Null). Re-scan semantics: no deltas,
+    /// not incrementally maintainable (use FactStore for the live-fact path).
+    pub fn bind_source_tree(self: &mut QEnv, name: str, root: WAny) {
+        let i: i64 = self.slot(name);
+        if i < 0i64 { return; }
+        self.kinds[i] = QB_TSRC;
+        self.words[i] = root.raw();
         self.codes[i] = 0u64;
     }
 
@@ -895,6 +918,11 @@ const CT_RELROW:  i32 = 14i32;   // a rel row var (I3); code = rel registry idx.
 const CT_DYN:     i32 = 15i32;   // a LENIENT value (ADR §4): type unknown at
                                  // check time; runtime value may be Null.
 const CT_DYNSRC:  i32 = 16i32;   // an ERASED source/collection: rows bind DYN.
+const CT_TREESRC: i32 = 17i32;   // a TREE source (bind_source_tree): scanned
+                                 // virtually, one row per edge.
+const CT_TREEROW: i32 = 18i32;   // a tree-source row var: fixed columns
+                                 // (parent/child/idx: i64 · key/kind: str ·
+                                 // vi/vs: dyn) — typed by the checker table.
 
 struct CTy { t: i32, code: u64 }
 impl Copy for CTy {}

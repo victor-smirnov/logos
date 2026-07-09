@@ -37,7 +37,7 @@ use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct se
 // The EXECUTOR — materialized Vec<row> pipelines over the RExpr tree (§7).
 // ═══════════════════════════════════════════════════════════════════════════
 
-const RS_VARS: i64 = 12i64;
+const RS_VARS: i64 = 24i64;   // tree-source scans carry 7 dotted vars each — a 3-step tree join chain fits
 
 // ── RelCtx — the RUNTIME rel materialization state (I3) ─────────────────────
 // One per `run`: per-rel row storage (flat Vec<RtVal>, stride = the rel's
@@ -292,14 +292,14 @@ fn rebuild_champ(rows: &mut Vec<RtVal>, best: &HashMap<i64, i64>, ncols: i64) ->
 
 // A row set: named columns (row vars) × rows, cells flattened at stride nvars.
 struct RowSet {
-    vars:  [str; 12],
+    vars:  [str; 24],
     nvars: i64,
     cells: Vec<RtVal>,
     nrows: i64,
 }
 
 fn rs_new() -> RowSet {
-    return RowSet { vars: [""; 12], nvars: 0i64, cells: vec_new::<RtVal>(), nrows: 0i64 };
+    return RowSet { vars: [""; 24], nvars: 0i64, cells: vec_new::<RtVal>(), nrows: 0i64 };
 }
 
 fn rs_vidx(rs: &RowSet, name: str) -> i64 {
@@ -430,6 +430,101 @@ fn eval_on_residual(on_w: i64, equi_w: i64, cat: &SchemaCatalog, env: &QEnv,
     return true;
 }
 
+// ── VIRTUAL TREE SCAN (bind_source_tree, QB_TSRC) ────────────────────────────
+// The tree-source vocabulary: one row per EDGE of the Writ tree, preorder.
+// Columns (all bound as DOTTED vars "<var>.<col>" — the rel-row spelling, so
+// Field eval resolves them via RBinds::find2 with no bare row var):
+//   parent, child : i64 node HANDLES (raw words — stable ids, no numbering)
+//   idx           : array position (−1 under a map)
+//   key           : map key ("" under an array)
+//   kind          : the child's tag — map/arr/str/i64/f64/bool/null
+//   vi            : the child's scalar value (i64/f64/bool) or Null
+//   vs            : the child's string value or Null
+// Re-scan semantics: every scan re-walks the document (virtual EDB, no
+// deltas). Joins restart the walk; recursion reads it as an ordinary source.
+
+// The child's tag for the `kind` column.
+fn ts_kind(v: WAny) -> str {
+    if v.is_map()    { return "map"; }
+    if v.is_array()  { return "arr"; }
+    if v.is_string() { return "str"; }
+    if v.is_null()   { return "null"; }
+    if v.is_bool()   { return "bool"; }
+    if v.is_float()  { return "f64"; }
+    return "i64";
+}
+
+// Emit one edge row (7 cells, the fixed column order above).
+fn ts_row(out: &mut RowSet, parent: WAny, key: str, idx: i64, child: WAny) {
+    out.cells.push(RtVal::I(parent.raw() as i64));
+    out.cells.push(RtVal::S(key));
+    out.cells.push(RtVal::I(idx));
+    out.cells.push(RtVal::I(child.raw() as i64));
+    out.cells.push(RtVal::S(ts_kind(child)));
+    let cv: RtVal = wany_to_rt(child);
+    match cv {
+        RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
+        RtVal::F(x)  => { out.cells.push(RtVal::F(x)); }
+        RtVal::B(x)  => { out.cells.push(RtVal::B(x)); }
+        _            => { out.cells.push(RtVal::Null); }
+    }
+    match cv {
+        RtVal::S(s2) => { out.cells.push(RtVal::S(s2)); }
+        _            => { out.cells.push(RtVal::Null); }
+    }
+    out.nrows = out.nrows + 1i64;
+}
+
+// Preorder edge walk. Recursion depth = document depth (config/JSON scale).
+fn ts_walk(v: WAny, out: &mut RowSet) {
+    if v.is_map() {
+        let m: &WMap<WString, WAny> = v.as_map();
+        let ns: i64 = m.slots();
+        let mut s: i64 = 0i64;
+        while s < ns {                    // raw slots; empty slots key as null
+            let kv: WAny = m.key_at(s);
+            if !kv.is_null() {
+                let ks: &WString = unsafe { &*(kv.resolve() as *const WString) };
+                let cv: WAny = m.val_at(s);
+                ts_row(out, v, ks.as_str(), 0i64 - 1i64, cv);
+                ts_walk(cv, out);
+            }
+            s = s + 1i64;
+        }
+        return;
+    }
+    if v.is_array() {
+        let a: &WArray<WAny> = v.as_array();
+        let n: i64 = a.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let cv: WAny = a.get(i);
+            ts_row(out, v, "", i, cv);
+            ts_walk(cv, out);
+            i = i + 1i64;
+        }
+    }
+}
+
+// The scan entry: dotted column vars (interned into the per-run scratch) +
+// the walk from the bound root.
+fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
+    let mut out: RowSet = rs_new();
+    let cols: [str; 7] = ["parent", "key", "idx", "child", "kind", "vi", "vs"];
+    let mut c: i64 = 0i64;
+    while c < 7i64 {
+        let mut nm: String = String::new();
+        nm.push_str(var);
+        nm.push_str(".");
+        nm.push_str(cols[c]);
+        out.vars[c] = intern_str(scratch, sstr(&nm));
+        c = c + 1i64;
+    }
+    out.nvars = 7i64;
+    ts_walk(WAny::ref_to(root_w as *const u8), &mut out);
+    return out;
+}
+
 // ── exec_rexpr — the pipeline walk (everything BELOW the projection) ─────────
 // `rctx` — the rel materialization context (always valid; n = 0 without rels).
 fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
@@ -476,10 +571,18 @@ fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                 }
                 return out;
             }
+            let ei0: i64 = env.find(sc.src_name);
+            // VIRTUAL TREE SOURCE (bind_source_tree): the scan IS a preorder
+            // walk — one row per edge, dotted columns, nothing materialized
+            // beyond this transient per-operator RowSet (the no-gratuitous-
+            // materialization rule: the document is the fact base).
+            if ei0 >= 0i64 && env.kinds[ei0] == QB_TSRC {
+                return ts_scan(sc.var_name, env.words[ei0], scratch);
+            }
             let mut out: RowSet = rs_new();
             out.vars[0] = sc.var_name;
             out.nvars = 1i64;
-            let ei: i64 = env.find(sc.src_name);
+            let ei: i64 = ei0;
             if ei < 0i64 { return out; }   // checker guarantees; defensive
             let av: WAny = WAny::ref_to(env.words[ei] as *const u8);
             if !av.is_array() { return out; }
