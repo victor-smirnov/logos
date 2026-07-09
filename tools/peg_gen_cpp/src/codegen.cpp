@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <map>
 #include <format>
 #include <fstream>
 #include <print>
@@ -3343,6 +3344,189 @@ private:
 // ═══════════════════════════════════════════════════════════════════════════
 // Public API
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// %schema ↔ ADR-0011 `schema` item cross-check
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace {
+
+struct LogosField { std::string name, type; int32_t key = 0; bool has_key = false; };
+struct LogosItem  { uint64_t code = 0; bool has_code = false; std::vector<LogosField> fields; };
+
+std::string strip_line_comments(std::string s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '/' && i + 1 < s.size() && s[i + 1] == '/') {
+            while (i < s.size() && s[i] != '\n') ++i;
+            if (i < s.size()) out += '\n';
+        } else out += s[i];
+    }
+    return out;
+}
+
+uint64_t parse_num(std::string_view t) {
+    std::string b;
+    for (char c : t) if (c != '_') b += c;
+    int base = 10;
+    std::string_view v = b;
+    if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { base = 16; v.remove_prefix(2); }
+    uint64_t r = 0;
+    std::from_chars(v.data(), v.data() + v.size(), r, base);
+    return r;
+}
+
+bool ident_char(char c) { return std::isalnum(uint8_t(c)) || c == '_'; }
+
+// Scan `pub schema <Name> : code(<n>) { f: T = K, … }` items. `schema enum` is
+// skipped: it is a discriminated union, not a field-bearing node.
+std::map<std::string, LogosItem> read_logos_schemas(const std::vector<fs::path>& files,
+                                                    std::string& err) {
+    std::map<std::string, LogosItem> out;
+    for (const auto& f : files) {
+        std::ifstream in(f);
+        if (!in) { err += std::format("  cannot open {}\n", f.string()); continue; }
+        std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        src = strip_line_comments(src);
+
+        const std::string kw = "pub schema ";
+        for (size_t p = src.find(kw); p != std::string::npos; p = src.find(kw, p + 1)) {
+            size_t i = p + kw.size();
+            while (i < src.size() && std::isspace(uint8_t(src[i]))) ++i;
+            size_t ns = i;
+            while (i < src.size() && ident_char(src[i])) ++i;
+            std::string name = src.substr(ns, i - ns);
+            if (name == "enum") continue;
+
+            LogosItem item;
+            while (i < src.size() && std::isspace(uint8_t(src[i]))) ++i;
+            if (i < src.size() && src[i] == ':') {
+                size_t lp = src.find('(', i), rp = src.find(')', i);
+                if (lp != std::string::npos && rp != std::string::npos && rp > lp) {
+                    item.code = parse_num(std::string_view(src).substr(lp + 1, rp - lp - 1));
+                    item.has_code = true;
+                    i = rp + 1;
+                }
+            }
+            size_t lb = src.find('{', i);
+            if (lb == std::string::npos) continue;
+            int depth = 0; size_t rb = lb;
+            for (; rb < src.size(); ++rb) {
+                if (src[rb] == '{') ++depth;
+                else if (src[rb] == '}' && --depth == 0) break;
+            }
+            std::string body = src.substr(lb + 1, rb - lb - 1);
+
+            // Split on top-level commas (angle brackets nest: WRef<SExpr>).
+            std::vector<std::string> parts;
+            int ang = 0; std::string cur;
+            for (char c : body) {
+                if (c == '<') ++ang;
+                else if (c == '>') --ang;
+                if (c == ',' && ang == 0) { parts.push_back(cur); cur.clear(); }
+                else cur += c;
+            }
+            if (!cur.empty()) parts.push_back(cur);
+
+            for (auto& part : parts) {
+                size_t colon = part.find(':');
+                if (colon == std::string::npos) continue;
+                size_t eq = part.find('=', colon);
+                auto trim = [](std::string s) {
+                    size_t a = s.find_first_not_of(" \t\r\n");
+                    if (a == std::string::npos) return std::string{};
+                    size_t b = s.find_last_not_of(" \t\r\n");
+                    return s.substr(a, b - a + 1);
+                };
+                LogosField lf;
+                lf.name = trim(part.substr(0, colon));
+                if (eq == std::string::npos) {
+                    lf.type = trim(part.substr(colon + 1));
+                } else {
+                    lf.type = trim(part.substr(colon + 1, eq - colon - 1));
+                    lf.key = int32_t(parse_num(trim(part.substr(eq + 1))));
+                    lf.has_key = true;
+                }
+                if (!lf.name.empty()) item.fields.push_back(std::move(lf));
+            }
+            out[name] = std::move(item);
+        }
+    }
+    return out;
+}
+
+// The .logos spelling of a %schema ftype. `ref X` is `WRef<X>`; everything else
+// is written the same on both sides.
+std::string logos_type_of(const SchemaField& f) {
+    if (f.is_ref()) return "WRef<" + f.ref_target() + ">";
+    return f.ftype;
+}
+
+} // namespace
+
+bool check_schema_mirror(const std::vector<ResolvedModule>& modules,
+                         const std::vector<fs::path>& logos_files) {
+    std::string err;
+    auto items = read_logos_schemas(logos_files, err);
+    if (items.empty()) err += "  no `pub schema` items found\n";
+
+    for (const auto& mod : modules) {
+        GrammarInfo g = GrammarReader::read(mod.grammar, modules);
+        if (!g.schema_mode()) continue;
+
+        for (const auto& sd : g.schemas) {
+            auto it = items.find(sd.name);
+            if (it == items.end()) {
+                err += std::format("  {}: no `pub schema {}` in the .logos sources\n",
+                                   sd.name, sd.name);
+                continue;
+            }
+            const LogosItem& li = it->second;
+            if (sd.has_type_code && li.has_code && sd.type_code != li.code)
+                err += std::format("  {}: code(0x{:X}) in the grammar, 0x{:X} in the schema item\n",
+                                   sd.name, sd.type_code, li.code);
+
+            for (const auto& f : sd.fields) {
+                if (f.is_fan()) {
+                    // A fan owns no field of its own: it writes `count` (the
+                    // node's length) and the slots [key, key+cap).
+                    int cap = f.fan_cap();
+                    int found = 0;
+                    for (const auto& lf : li.fields)
+                        if (lf.has_key && lf.key >= f.key && lf.key < f.key + cap) ++found;
+                    if (found != cap)
+                        err += std::format("  {}.{}: fan declares {} slots from key {}, "
+                                           "the schema item has {}\n",
+                                           sd.name, f.name, cap, f.key, found);
+                    continue;
+                }
+                auto lf = std::find_if(li.fields.begin(), li.fields.end(),
+                                       [&](const LogosField& x) { return x.name == f.name; });
+                if (lf == li.fields.end()) {
+                    err += std::format("  {}.{}: declared in the grammar, absent from the schema item\n",
+                                       sd.name, f.name);
+                    continue;
+                }
+                if (f.has_key && lf->has_key && f.key != lf->key)
+                    err += std::format("  {}.{}: key {} in the grammar, {} in the schema item\n",
+                                       sd.name, f.name, f.key, lf->key);
+                std::string want = logos_type_of(f);
+                if (want != lf->type)
+                    err += std::format("  {}.{}: type \"{}\" in the grammar, `{}` in the schema item\n",
+                                       sd.name, f.name, want, lf->type);
+            }
+        }
+    }
+
+    if (err.empty()) return true;
+    std::fprintf(stderr,
+        "peg_gen: a %%schema block disagrees with the `schema` item it mirrors.\n"
+        "The grammar declares only the fields it writes, so it cannot GENERATE the\n"
+        "item — but every field it does declare must match, or the generated parser\n"
+        "writes the wrong TOM slot.\n%s", err.c_str());
+    return false;
+}
 
 void codegen(const std::vector<ResolvedModule>& modules, const CodegenOptions& opts) {
     fs::create_directories(opts.output_dir);

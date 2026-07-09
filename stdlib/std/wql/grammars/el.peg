@@ -78,8 +78,10 @@
 
 // ── SCHEMA-EMISSION binding ────────────────────────────────────────────────
 // Each `S { field: "type", ... }` names a grammar node (`=> { CODE: "S", ... }`)
-// built as the schema `S` (code = `S::CODE`) with typed field writes. Types MUST
-// match the field types in ir.logos exactly so the emitted write is correct:
+// built as the schema `S` (code = `S::CODE`) with typed field writes. Node code,
+// field types and field keys must match ir.logos exactly, or the emitted write
+// lands in the wrong TOM slot. That is no longer a request: `ctest -R
+// peg_schema_mirror` enforces it (peg_gen_cpp --check-schema).
 //   "ref T"  → WRef::<T>::from_any(hand_any(<capture>))   (graph edge)
 //   "WAny"   → verbatim dynamic value (literal or captured handle)
 //   "str"    → interned string field (captured IDENT / STR_LIT)

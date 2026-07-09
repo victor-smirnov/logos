@@ -72,4 +72,18 @@ struct CodegenOptions {
 // Each module gets its own .hpp/.cpp pair in output_dir.
 void codegen(const std::vector<ResolvedModule>& modules, const CodegenOptions& opts);
 
+// Cross-check every %schema block against the ADR-0011 `schema` items it
+// mirrors, in the given .logos files: same `code(0x…)`, and for every field the
+// grammar DECLARES, the same type and the same TOM key.
+//
+// The .peg cannot GENERATE those items — it is a partial view (it declares only
+// the fields the grammar writes, and the .logos files also carry schema enums,
+// helpers and the fan-cap fns). So the mirror is enforced rather than removed.
+// Until now `el.peg` merely ASKED, in a comment, that "types MUST match the
+// field types in ir.logos exactly"; nothing checked it.
+//
+// Returns false and prints every disagreement.
+bool check_schema_mirror(const std::vector<ResolvedModule>& modules,
+                         const std::vector<std::filesystem::path>& logos_files);
+
 } // namespace logos::peg_gen
