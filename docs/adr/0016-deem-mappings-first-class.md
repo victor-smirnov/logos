@@ -109,3 +109,38 @@ Ordering notes: M1/M2 unblock Gellish; M4 gates on the tag-system user-type feat
 - Incremental mappings (mapping + delta events) — arrives with the systemic incrementality step; the FactStore path remains the live-fact route until then.
 - Cross-mapping composition (mappings importing mappings' relations) — reasoning-in-large's module system proper.
 - Writ-core changes: none (additive throughout; the no-materialization rule stands).
+
+## 6. Sources as relational interfaces (design; user directive 2026-07-09 «не забудь про impl Trait потом»)
+
+**Problem.** Every native source flavor is a hardcoded triple in `register_native_rels` (plan_walker.logos): DETECTION is a string compare on the param's syntactic type (`str_eq(prm.tys[p], "Writ")` / `"IncrRec"`), the rel VOCABULARY (column names/types, row tuple) is inlined per flavor, and the MATERIALIZER is an `nkind` integer switched over five function names in the emitted prelude. Adding a source type (the user's motivating case: a `map` type in Writ, or any user type once the tag system opens) means editing the walker. That is a closed dispatch where the language already owns the open one: traits.
+
+**Decision.** A trait may declare `rel` members; an impl binds each rel to a materializer; a deem!/mapping param typed by an implementing type carries that trait's relations. One declaration surface replaces all three hardcoded heads:
+
+```logos
+pub trait GraphSource {
+    /// One row per edge of the object graph (the M1a/64dd1286 vocabulary).
+    rel edge(parent: i64, key: str, idx: i64, child: i64,
+             kind: str, tag: i64, vi: i64, vs: str);
+}
+impl GraphSource for Writ {
+    rel edge = writ_graph_edges;      // fn(&Writ) -> Vec<(i64, str, …)>
+}
+
+pub trait EngineState {
+    rel trace(epoch: i64, kind: i64, step: i64, delta: i64, total: i64, ns: i64);
+    rel epochs(epoch: i64, ins: i64, del: i64, rounds: i64, ns: i64);
+    rel tail(epoch: i64, converged: i64, pending: i64, bound: i64, cutr: i64);
+    rel controls(epoch: i64, kind: i64, val: i64);
+}
+impl EngineState for IncrRec {
+    rel trace = deem_state_trace;   rel epochs = deem_state_epochs;
+    rel tail  = deem_state_tail;    rel controls = deem_state_controls;
+}
+```
+
+- **Rel naming at the use site**: rel `r` of param `p` is addressable as `p_r`; when the trait declares exactly ONE rel, `p` alone aliases it. This preserves both existing surfaces verbatim: `from g ** .engine e` (GraphSource's single `edge`) and `from e_trace t` (EngineState's four).
+- **Impl member contract (v1 = native impls)**: `rel r = f;` where `f: fn(&T) -> Vec<RowTuple>` and RowTuple matches the declared columns positionally. Column types stay i64/str/bool — the same Hash+Eq rule as mapping rel columns (`val_f64` cannot be a rel; the honest boundary stands). RULES-backED impls (`impl GraphSource for MyMap { rel edge { from … } }`) are the M4/2b pairing — they need a primitive access trait beneath them (the per-tag traverse protocol) and arrive with it.
+- **Architecture cut — same as fusion (M2b-2)**: Sema owns detection and signatures; the walker consumes a SPEC. Sema keeps a `source_impls_` registry (type → [trait, rels, materializer fn names]), filled by a pre-scan like `mappings_`. At a deem! site, each param whose type has source impls contributes `p:rel=fn(cols…);…` to the `extra` slot beside the rule IR. `register_native_rels` reads the spec instead of comparing type strings; `emit_prelude_oneshot` prints the materializer NAME from the spec — `nkind` and both `str_eq` heads die. `deem!(g: &Writ)` / `deem!(e: &IncrRec)` keep working through blessed built-in impls of these two traits, declared in the stdlib where the materializers live (writ_graph.logos / deem's mapping_state.logos) — the built-ins become the FIRST registrations of the open mechanism, not a parallel path.
+- **Generic mappings**: `mapping M<S: GraphSource>(g: &S) { … }` — the bound names the rel vocabulary `g` carries inside the body; Sema checks body sources against it (possible now that rel signatures are Sema-owned); the consumption site (`deem!(w: M)` with `w`'s actual type) instantiates. This is what makes a mapping reusable across Writ and any future graph-shaped type without edits — the user's original ask.
+
+**Slicing**: (T1) grammar+Sema: `rel` members in trait/impl items, signature validation, `source_impls_` registry + pre-scan; (T2) spec through the seam, walker de-hardcoded, stdlib built-in impls, gates = existing wql suites stay green with the switch flipped; (T3) `mapping M<S: Bound>`; (T4, with M4) rules-backed impls. Follows the mapping-item playbook: C++ owns text/names/signatures, Logos stdlib owns Datalog semantics/emission.
