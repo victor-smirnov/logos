@@ -58,14 +58,14 @@ pub struct TrMemoCell { pub res: *const u8, pub endpos: i64, pub endline: i64 }
 pub struct TrTokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64, pub intag_after: bool }
 impl Copy for TrTokCell {}
 
-pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, TrMemoCell>, pub tbuf: Vec<TrTokCell> }
+pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, TrMemoCell>, pub tbuf: Vec<TrTokCell>, pub far: Token }
 
 pub fn lexer_new(src: str) -> Lexer {
     let mut tb: Vec<TrTokCell> = vec_new::<TrTokCell>();
     let sent: TrTokCell = TrTokCell { tk: 0i32, tstart: 0i64, tlen: 0i64, tline: 0i64, endpos: 0i64 - 1i64, endline: 0i64, intag_after: false };
     let mut i: i64 = 0i64;
     while i <= src.len() { tb.push(sent); i = i + 1i64; }
-    return Lexer { src: src, pos: 0i64, line: 1i64,
+    return Lexer { far: Token { kind: TrTK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,
         la: Token { kind: TrTK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false, in_tag: false,
         memo: hashmap_new::<i64, TrMemoCell>(), tbuf: tb };
 }
@@ -81,10 +81,16 @@ impl Lexer {
         if p < 0i64 || p >= self.src.len() { return 0u8; }
         return unsafe { self.src.as_ptr()[p] };
     }
-    // Consume and return the next token.
+    // Consume and return the next token, tracking the FURTHEST
+    // consumed one (max over backtracking) for error reporting —
+    // the mirror of the C++ backend's furthest_. After a failed
+    // parse, `far.line`/far.start/far.len name where it died.
     pub fn next(self: &mut Lexer) -> Token {
-        if self.have_la { self.have_la = false; return self.la; }
-        return self.lex_one();
+        let t: Token = if self.have_la { self.have_la = false; self.la } else { self.lex_one() };
+        if t.kind != TrTK_EOF && (t.line > self.far.line || (t.line == self.far.line && t.start >= self.far.start)) {
+            self.far = t;
+        }
+        return t;
     }
     // Look at the next token without consuming.
     pub fn peek(self: &mut Lexer) -> Token {
@@ -808,6 +814,13 @@ fn rule_expr(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 pub fn parse_tpl(src: str, doc: &Writ) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_tpl(&mut lex, doc);
+    if !lex.at_eof() { return WAny::ref_to(TrNULLP); }
+    return WAny::ref_to(root);
+}
+pub fn parse_tpl_far(src: str, doc: &Writ, far_line: &mut i64) -> WAny {
+    let mut lex: Lexer = lexer_new(src);
+    let root: *const u8 = rule_tpl(&mut lex, doc);
+    *far_line = lex.far.line;
     if !lex.at_eof() { return WAny::ref_to(TrNULLP); }
     return WAny::ref_to(root);
 }

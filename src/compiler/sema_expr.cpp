@@ -19525,17 +19525,21 @@ void SemaChecker::emit_token_macro_item_site(
                                      ? wp.parse_rel_list()
                                      : wp.parse_program();
             if (root.is_null()) {
-                // Deliberately the ITEM's line, not a body-relative one: after
-                // a failed PEG parse the parser's position is REWOUND by
-                // backtracking, so next_line() names wherever the final
-                // alternative gave up — misleading precision. A
-                // furthest-failure tracker in both generated parsers is the
-                // honest fix, and a separate slice.
+                // Body-relative precision via the parser's FURTHEST-token
+                // tracker (max over backtracking — next_line() alone lies
+                // after a PEG rewind). Body line 1 = the item's head line.
+                if (node_line_ > 0 && wp.furthest_line() > 0)
+                    node_line_ = node_line_ + wp.furthest_line() - 1;
+                std::string near(wp.furthest_text());
+                std::string near_sfx = near.empty()
+                    ? std::string{} : std::format(" (near `{}`)", near);
                 error(ir_entry == IrEntry::RelList
                       ? std::format("mapping '{}': malformed rel body — each body is a "
-                                    "full query (`from … select …`)", resource_name)
+                                    "full query (`from … select …`){}",
+                                    resource_name, near_sfx)
                       : std::format("'{}!': malformed query — expected "
-                                    "`[rel …]* from … select …`", macro_info->base_name));
+                                    "`[rel …]* from … select …`{}",
+                                    macro_info->base_name, near_sfx));
                 return;
             }
             logos::compiler::rule_ir::put(site_id, std::move(doc), root);

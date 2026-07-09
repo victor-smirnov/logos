@@ -352,9 +352,17 @@ impl Query {
     /// the env-independent checks. Errors are values (`Result`), never compile diagnostics.
     pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Query, QError> {
         let doc: Writ = writ_new(8192i64);
-        let prog_any: WAny = parse_program(text, &doc);
+        let mut far_line: i64 = 0i64;
+        let prog_any: WAny = parse_program_far(text, &doc, &mut far_line);
         if prog_any.is_null() {
-            return Result::Err(qerr("Query::compile: parse error — expected `[rel NAME(col: ty, …){ body; … }]* from <src> <var> [ [anti] join … on … ]* [where …] [group by … aggregate …] select …` (or `from <src> <var> find <pred>`)"));
+            // far_line = the FURTHEST line the parser consumed (max over
+            // backtracking) — where the parse actually died, 1-based within
+            // the query text.
+            let mut m: String = String::new();
+            m.push_str("Query::compile: parse error at query line ");
+            m.push_i64(far_line);
+            m.push_str(" — expected `[rel NAME(col: ty, …){ body; … }]* from <src> <var> [ [anti] join … on … ]* [where …] [group by … aggregate …] select …` (or `from <src> <var> find <pred>`)");
+            return Result::Err(QError { msg: m });
         }
         // ADR 0016 M2a: graph paths (`from g .a [*] ** v …`) desugar to the
         // classic join-chain plan — SHARED pass with the static macro.

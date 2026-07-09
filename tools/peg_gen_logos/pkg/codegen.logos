@@ -1226,9 +1226,9 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // [0, src.len()]), not a HashMap — no hash / slot-probe / key-compare per peek.
     // endpos < 0 is the "not yet lexed" sentinel.
     if cg.uses_raw_text {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell> }");
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token }");
     } else {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell> }");
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token }");
     }
     w.blank();
     w.line("pub fn lexer_new(src: str) -> Lexer {");
@@ -1241,11 +1241,11 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    let mut i: i64 = 0i64;");
     w.line("    while i <= src.len() { tb.push(sent); i = i + 1i64; }");
     if cg.uses_raw_text {
-        w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
+        w.line("    return Lexer { far: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,");
         w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false, in_tag: false,");
         w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
     } else {
-        w.line("    return Lexer { src: src, pos: 0i64, line: 1i64,");
+        w.line("    return Lexer { far: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,");
         w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
         w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
     }
@@ -1262,10 +1262,16 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("        if p < 0i64 || p >= self.src.len() { return 0u8; }");
     w.line("        return unsafe { self.src.as_ptr()[p] };");
     w.line("    }");
-    w.line("    // Consume and return the next token.");
+    w.line("    // Consume and return the next token, tracking the FURTHEST");
+    w.line("    // consumed one (max over backtracking) for error reporting —");
+    w.line("    // the mirror of the C++ backend's furthest_. After a failed");
+    w.line("    // parse, `far.line`/far.start/far.len name where it died.");
     w.line("    pub fn next(self: &mut Lexer) -> Token {");
-    w.line("        if self.have_la { self.have_la = false; return self.la; }");
-    w.line("        return self.lex_one();");
+    w.line("        let t: Token = if self.have_la { self.have_la = false; self.la } else { self.lex_one() };");
+    w.line("        if t.kind != TK_EOF && (t.line > self.far.line || (t.line == self.far.line && t.start >= self.far.start)) {");
+    w.line("            self.far = t;");
+    w.line("        }");
+    w.line("        return t;");
     w.line("    }");
     w.line("    // Look at the next token without consuming.");
     w.line("    pub fn peek(self: &mut Lexer) -> Token {");
@@ -4130,6 +4136,17 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             // A PEG rule can partial-match (e.g. `expr` matches `a` in `a +`,
             // leaving `+`); the hand parsers rejected trailing junk, so a
             // non-EOF remainder is a parse error → null root.
+            w.line("    if !lex.at_eof() { return WAny::ref_to(NULLP); }");
+            w.line("    return WAny::ref_to(root);");
+            w.line("}");
+            // The _far twin: identical parse, but reports the FURTHEST line the
+            // lexer consumed (max over backtracking) through the out-param —
+            // error paths turn "parse error" into "parse error at line N".
+            // Additive: existing callers keep the plain entry.
+            w.l3("pub fn parse_", e.as_str(), "_far(src: str, doc: &Writ, far_line: &mut i64) -> WAny {");
+            w.line("    let mut lex: Lexer = lexer_new(src);");
+            w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
+            w.line("    *far_line = lex.far.line;");
             w.line("    if !lex.at_eof() { return WAny::ref_to(NULLP); }");
             w.line("    return WAny::ref_to(root);");
             w.line("}");
