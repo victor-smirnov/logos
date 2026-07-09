@@ -1,0 +1,40 @@
+1
+0
+42
+1000000
+true
+false
+"hi"
+"a longer string"
+$p
+$count
+a
+a.b
+a.b.c.d
+-x
+!flag
+!!x
+a + b
+a - b
+a * b
+a / b
+a % b
+a + b * c
+(a + b) * c
+a < b
+a <= b && c >= d
+a == b || c != d
+a ? b : c
+a == b ? c + 1 : d - 2
+!a || b && c == d + e * f
+1 + 2 * 3
+a.b + 10
+f()
+g(x)
+contains(a, b)
+clamp(x, lo, hi)
+outer(inner(a, b), c)
+round(x.price, 2)
+[x for x in items]
+[x.price for x in items if x.qty > 0]
+[f(x) for x in rows if x.ok && x.n < 100]

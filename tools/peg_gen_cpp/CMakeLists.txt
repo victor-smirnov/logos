@@ -67,6 +67,21 @@ set_source_files_properties(${WRIT_PARSER_CPP} PROPERTIES
     COMPILE_OPTIONS "-Wno-unused-variable;-Wno-unused-but-set-variable"
 )
 
+# EL cross-BACKEND oracle — the check that makes "one dialect, two backends" a
+# fact rather than a hope: parse one EL corpus with the parser peg_gen_cpp
+# generates from el.peg AND with the parser peg_gen_logos generates from the SAME
+# el.peg, and require the stringified SExpr trees to be identical. Opt-in (it
+# regenerates a parser and links two harnesses), mirroring peg_gen_logos_oracle.
+#
+#   cmake --build build --target peg_gen_cpp_el_oracle
+add_custom_target(peg_gen_cpp_el_oracle
+    COMMAND ${CMAKE_COMMAND} -E env bash
+            ${CMAKE_CURRENT_SOURCE_DIR}/oracle/run.sh
+            ${CMAKE_BINARY_DIR}
+    DEPENDS logosc peg_gen_cpp
+    USES_TERMINAL
+    COMMENT "peg_gen_cpp EL oracle (C++ vs Logos el_parser over the EL corpus)")
+
 # Install bundled grammars under the project share dir (/usr/share/logos/peg_gen_cpp
 # with the package prefix). Reference/tooling data — the parser is generated
 # into logosc at build time, so nothing reads this at runtime.

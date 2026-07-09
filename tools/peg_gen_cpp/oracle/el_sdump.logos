@@ -1,0 +1,88 @@
+// Logos project — https://github.com/victor-smirnov/logos
+//
+// EL cross-BACKEND oracle, Logos side.
+//
+// Parses each line of a corpus with the peg_gen_logos-generated EL parser and
+// prints the structural stringification of the resulting SExpr. The C++ side
+// (el_stringify.cpp) does the same through the peg_gen_cpp-generated parser.
+// Identical output ⇒ one grammar, two backends, one Writ.
+//
+// The file is read with raw open/read syscalls on purpose, mirroring
+// tools/peg_gen_logos/oracle/sdump.logos — pulling in the fs stack would drag
+// the whole stdlib into a harness that only needs bytes.
+package el_sdump;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.stringify;
+
+use logos.std.wql.el_parser;   // parse_expr(src, &doc) -> WAny  (arena: external)
+
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+extern fn logos_argc() -> i32;
+extern fn logos_argv() -> *const *const u8;
+extern fn open(path: *const u8, flags: i32) -> i32;
+extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
+extern fn close(fd: i32) -> i32;
+extern fn malloc(n: i64) -> *mut u8;
+
+fn put(s: str) {
+    unsafe {
+        write(1 as i32, s.as_ptr(), s.len());
+        let nl: str = "\n";
+        write(1 as i32, nl.as_ptr(), nl.len());
+    }
+}
+
+unsafe fn read_file(path: str) -> str {
+    let mut pbuf: String = String::new();
+    pbuf.push_str(path);
+    pbuf.push_u8(0u8);
+    let fd: i32 = open(pbuf.as_ptr(), 0i32);
+    if fd < 0i32 { return ""; }
+    let cap: i64 = 1048576i64;
+    let buf: *mut u8 = malloc(cap);
+    let mut total: i64 = 0i64;
+    loop {
+        let r: i64 = read(fd, (buf as i64 + total) as *mut u8, cap - total);
+        if r <= 0i64 { break; }
+        total = total + r;
+        if total >= cap { break; }
+    }
+    close(fd);
+    return str_from_raw(buf, total);
+}
+
+fn main() -> i32 {
+    unsafe {
+        if logos_argc() < 2i32 { return 2i32; }
+        let argv: *const *const u8 = logos_argv();
+        let ptr_ptr: *const *const u8 = (argv as i64 + 1i64 * 8i64) as *const *const u8;
+        let path: str = str_from_cstr(ptr_ptr[0]);
+        let src: str = read_file(path);
+
+        // One expression per line; blank lines skipped.
+        let n: i64 = src.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let start: i64 = i;
+            while i < n && str_byte_at(src, i) != 10u8 { i = i + 1i64; }
+            let len: i64 = i - start;
+            i = i + 1i64;                       // step past '\n'
+            if len == 0i64 { continue; }
+            let line: str = str_from_raw((src.as_ptr() as i64 + start) as *const u8, len);
+
+            let doc: Writ = writ_new(65536i64);
+            let root: WAny = parse_expr(line, &doc);
+            if root.is_null() {
+                put("<parse-error>");
+            } else {
+                let out: String = stringify(root);
+                put(out.as_str());
+            }
+        }
+    }
+    return 0i32;
+}

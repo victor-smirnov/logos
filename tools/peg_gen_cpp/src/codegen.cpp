@@ -163,6 +163,29 @@ static bool capture_is_token_named(const std::vector<Item>& seq, size_t capidx,
     return it.kind == int32_t(ast::TOKEN_REF) && it.name == tok;
 }
 
+// The 1-based capture index of the last VALUE-carrying item in a no-action alt:
+// the last item that is a RULE_REF / OPT / REP / GROUP (a node handle). Skipped:
+// bare TOKEN_REF / LITERAL delimiters (captures are only interned strings) and
+// LOOKAHEAD / NEG_AHEAD (carry no value at all — and their cap is declared
+// inside a nested block, so it isn't even in scope at the passthrough). Returns
+// 0 when the alt has no value-carrying item.
+//
+// This is what makes the `( expr )` grouping alt return the inner expr rather
+// than the `)` token. Ported from peg_gen_logos's last_value_capture
+// (codegen.logos:2669-2678), which the C++ backend never had — it returned the
+// LAST capture unconditionally, and nothing noticed because logos.peg has no
+// no-action alt ending in a delimiter.
+static size_t last_value_capture(const std::vector<Item>& seq) {
+    for (size_t i = seq.size(); i-- > 0;) {
+        int32_t k = seq[i].kind;
+        if (k == int32_t(ast::TOKEN_REF) || k == int32_t(ast::LITERAL)
+            || k == int32_t(ast::LOOKAHEAD) || k == int32_t(ast::NEG_AHEAD))
+            continue;
+        return i + 1;
+    }
+    return 0;
+}
+
 // An `INTEGER?` capture is still token TEXT — just interned into the arena
 // instead of left in a `Token` local, and null when the option did not match.
 // So the value HAS a defined encoding, unlike a capture of a rule (an AST node).
@@ -2218,10 +2241,13 @@ private:
             w.fmt("return {};", captures[1]);
         } else {
             rcap_var_.clear();
-            // No action + multiple items → return the last capture.
-            // This covers fold-chain rules like `atom <- primary_expr postfix*`
-            // where the fold REP accumulates into its cap.
-            w.fmt("return {};", captures[alt.seq.size()]);
+            // No action + multiple items → return the last VALUE-carrying capture.
+            // Fold chains (`atom <- primary postfix*`) end in the REP; grouping
+            // wrappers (`( expr )`) end in a delimiter TOKEN whose capture is a
+            // mere interned string. A token-only alt has no value: keep the old
+            // behaviour (the last capture) rather than silently returning null.
+            size_t lvc = last_value_capture(alt.seq);
+            w.fmt("return {};", captures[lvc ? lvc : alt.seq.size()]);
         }
 
         w.dedent();
@@ -2499,6 +2525,10 @@ private:
                     emit_action(w, *sa.action, sa_caps, sa.seq, cap);
                 } else if (sa_caps.size() == 2) {
                     w.fmt("{} = {};", cap, sa_caps[1]);   // single-item passthrough
+                } else if (size_t lvc = last_value_capture(sa.seq)) {
+                    // Same rule as a no-action rule alt: pass through the last
+                    // value-carrying capture, not a delimiter token.
+                    w.fmt("{} = {};", cap, sa_caps[lvc]);
                 } else {
                     w.fmt("{} = AnyVal{{}};  // multi-item group alt (no action)", cap);
                 }
