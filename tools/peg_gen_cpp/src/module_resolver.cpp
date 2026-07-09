@@ -72,6 +72,39 @@ collect_imports(const logos::writ::WritView& grammar) {
     return result;
 }
 
+// The `%meta package:` of a grammar file, or "" if it declares none.
+static std::string package_of(const fs::path& p) {
+    auto g = parse_grammar(p.string());
+    if (!g) return {};
+    auto root = g->root_object();
+    if (root.is_null()) return {};
+    AnyVal meta = root.as_map().get("meta");
+    if (meta.is_null() || !meta.is_pointer()) return {};
+    TinyMapView m(meta, g->holder());
+    AnyVal pkg = m.get(uint8_t(ast::PACKAGE));
+    if (pkg.is_null()) return {};
+    return std::string(read_str(pkg, g->holder()));
+}
+
+// `%import "<spec>"` names EITHER a sibling file OR — as wql.peg does with
+// "logos.std.wql.el_parser" — the `%meta package:` of a grammar beside it.
+// peg_gen_logos never has to resolve this (it only re-emits the string as a
+// qualified call target and lets logosc's module system find it), so the two
+// generators had drifted: C++ joined the spec onto the directory verbatim and
+// looked for a file literally named `logos.std.wql.el_parser`.
+static fs::path resolve_import(const fs::path& dir, const std::string& spec) {
+    fs::path direct = dir / spec;
+    if (fs::exists(direct)) return direct;
+    if (fs::exists(direct.string() + ".peg")) return direct.string() + ".peg";
+
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+        if (ec || !e.is_regular_file() || e.path().extension() != ".peg") continue;
+        if (package_of(e.path()) == spec) return e.path();
+    }
+    return {};
+}
+
 // ── DFS topological resolver ──────────────────────────────────────────────
 
 class Resolver {
@@ -112,7 +145,14 @@ public:
         auto imports = collect_imports(*grammar);
         fs::path parent = path.parent_path();
         for (const auto& imp : imports) {
-            fs::path imp_path = parent / imp.path;
+            fs::path imp_path = resolve_import(parent, imp.path);
+            if (imp_path.empty()) {
+                std::println(stderr,
+                    "peg_gen: cannot resolve %import \"{}\" from '{}': neither a "
+                    "sibling file nor the `package:` of any .peg beside it",
+                    imp.path, path.string());
+                return false;
+            }
             if (!visit(imp_path, imp.alias)) return false;
         }
 

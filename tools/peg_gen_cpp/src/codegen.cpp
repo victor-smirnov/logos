@@ -34,7 +34,15 @@ namespace logos::peg_gen {
 // ═══════════════════════════════════════════════════════════════════════════
 
 struct NameDecl  { std::string name; int32_t code; std::string group; };
-struct ImportRef { std::string alias; std::string output; }; // output = base name
+// output = base name of the imported module's generated files. `ns`/`name` are
+// ITS OWN %meta namespace and name (→ its Parser class); both were missing, so
+// the emitter qualified the sub-parser with the IMPORTING grammar's namespace —
+// naming a class that does not exist there. `arena_ext` gates the embed: only a
+// borrowed-arena parser can build into the importer's document.
+struct ImportRef {
+    std::string alias, output, ns, name;
+    bool        arena_ext = false;
+};
 
 struct TokenDecl {
     std::string name;
@@ -153,6 +161,18 @@ static bool capture_is_token_named(const std::vector<Item>& seq, size_t capidx,
     if (capidx < 1 || capidx > seq.size()) return false;
     const Item& it = seq[capidx - 1];
     return it.kind == int32_t(ast::TOKEN_REF) && it.name == tok;
+}
+
+// An `INTEGER?` capture is still token TEXT — just interned into the arena
+// instead of left in a `Token` local, and null when the option did not match.
+// So the value HAS a defined encoding, unlike a capture of a rule (an AST node).
+// Distinguishing the two is what lets the scalar path decode the first and
+// reject the second, where the Logos backend silently decodes both.
+static bool capture_is_opt_token(const std::vector<Item>& seq, size_t capidx) {
+    if (capidx < 1 || capidx > seq.size()) return false;
+    const Item& it = seq[capidx - 1];
+    return it.kind == int32_t(ast::OPT) && !it.sub_items.empty()
+        && it.sub_items[0].kind == int32_t(ast::TOKEN_REF);
 }
 
 struct GrammarInfo {
@@ -482,28 +502,30 @@ private:
             TinyMapView node(elem, h);
             std::string alias = read_str(node.get(uint8_t(ast::ALIAS)), h);
             std::string path  = read_str(node.get(uint8_t(ast::PATH)),  h);
-            // Find the output name from the resolved module list.
-            std::string out_name;
+            // Pull the imported module's OWN meta: output base name, namespace,
+            // grammar name (→ Parser class) and whether it borrows its arena.
+            ImportRef ref;
+            ref.alias = alias;
             for (const auto& m : all_modules) {
-                if (m.alias == alias) {
-                    // Read output from that module's meta.
-                    if (!m.grammar.root().is_null()) {
-                        auto robj = m.grammar.root_object();
-                        if (!robj.is_null()) {
-                            auto rmap = robj.as_map();
-                            AnyVal meta_v = rmap.get("meta");
-                            if (!meta_v.is_null()) {
-                                TinyMapView meta(meta_v, m.grammar.holder());
-                                out_name = read_str(meta.get(uint8_t(ast::OUTPUT)),
-                                                    m.grammar.holder());
-                            }
-                        }
-                    }
-                    break;
+                if (m.alias != alias) continue;
+                if (m.grammar.root().is_null()) break;
+                auto robj = m.grammar.root_object();
+                if (robj.is_null()) break;
+                auto rmap = robj.as_map();
+                MemHolder* mh = m.grammar.holder();
+                AnyVal meta_v = rmap.get("meta");
+                if (!meta_v.is_null()) {
+                    TinyMapView meta(meta_v, mh);
+                    ref.output = read_str(meta.get(uint8_t(ast::OUTPUT)),    mh);
+                    ref.ns     = read_str(meta.get(uint8_t(ast::NAMESPACE)), mh);
+                    ref.name   = read_str(meta.get(uint8_t(ast::NAME)),      mh);
                 }
+                AnyVal ae = rmap.get("schema_arena_ext");
+                ref.arena_ext = !ae.is_null() && ae.is_value() && ae.as_value<bool>();
+                break;
             }
-            if (out_name.empty()) out_name = alias;
-            g.imports.push_back({alias, out_name});
+            if (ref.output.empty()) ref.output = alias;
+            g.imports.push_back(std::move(ref));
         }
     }
 };
@@ -973,6 +995,12 @@ private:
                 w.line("static inline double peg_decode_f64(std::string_view s) {");
                 w.line("    double v = 0; std::from_chars(s.data(), s.data() + s.size(), v); return v;");
                 w.line("}");
+                w.line("// An `INTEGER?` capture: interned token text, or null → 0.");
+                w.line("static inline int64_t peg_decode_i64_any(logos::writ::AnyVal v,");
+                w.line("                                         logos::writ::WritCtr& d) {");
+                w.line("    if (v.is_null()) return 0;");
+                w.line("    return peg_decode_i64(logos::writ::StringView(v, d.holder()).view());");
+                w.line("}");
                 w.line("// Strip one layer of surrounding quotes (the token text includes them).");
                 w.line("static inline std::string_view peg_unquote(std::string_view s) {");
                 w.line("    if (s.size() >= 2 && (s.front() == '\"' || s.front() == '\\'')");
@@ -1018,12 +1046,12 @@ private:
             w.line("std::vector<TokCell>     tbuf_;");
         }
 
-        // Sub-parser fields for imported grammars.
-        for (const auto& imp : g_.imports)
-            w.fmt("{0}::{1} {2}_;",
-                  g_.cxx_namespace, // TODO: use imported module's namespace
-                  to_pascal(imp.alias) + "Parser",
-                  imp.alias);
+        // NOTE: no sub-parser member fields. An embedded grammar is parsed by a
+        // STACK-LOCAL parser constructed over a raw sub-range of the source and
+        // sharing this parser's Writ — see emit_embed_call. The old member-field
+        // scheme assumed a nested parser over the SAME token stream, could not be
+        // initialised (the generated Parser has no default ctor), and qualified
+        // the class with the importing grammar's namespace.
 
         w.dedent();
         w.fmt("}}; // class {}", parser_class_);
@@ -1058,6 +1086,7 @@ private:
         w.line();
 
         emit_lexer(w);
+        emit_embed_runtime(w);
         emit_public_entries(w);
         emit_rules(w);
         if (!g_.prec.empty()) emit_pratt(w);
@@ -2252,11 +2281,15 @@ private:
         }
 
         case int32_t(ast::RULE_REF): {
-            std::string call;
-            if (item.grammar_alias.empty())
-                call = std::format("rule_{}()", item.name);
-            else
-                call = std::format("{0}_.rule_{1}()", item.grammar_alias, item.name);
+            // Cross-grammar ref → a keyword-delimited EMBED, not a nested call
+            // on the shared token stream. Scan the raw sub-range to the next
+            // structural stop, hand that substring to the imported grammar's
+            // own parser over OUR document, and resume at the stop.
+            if (!item.grammar_alias.empty()) {
+                emit_embed_call(w, item, cap, fail_label);
+                break;
+            }
+            std::string call = std::format("rule_{}()", item.name);
             w.fmt("[[maybe_unused]] AnyVal {} = {};", cap, call);
             w.fmt("if ({}.is_null()) goto {};", cap, fail_label);
             // Collect into rule-captures array if $... is used in this alt's
@@ -2551,6 +2584,125 @@ private:
     // out_cap: if empty → emit "return result_" (rule-level alt);
     //          if non-empty → emit "out_cap = result_" (GROUP sub-alt, caller emits goto).
 
+    // ── Cross-grammar EMBED ───────────────────────────────────────────────
+    //
+    // `where_body <- el::expr` does NOT mean "call el's rule on my token
+    // stream". It means: from here, scan the RAW SOURCE to the next structural
+    // stop of MY grammar, hand that substring to el's own parser built over MY
+    // Writ, and resume at the stop. Sharing the arena is what lets the returned
+    // SExpr compose straight into my plan tree. Mirrors peg_gen_logos's
+    // emit_embed_call / embed_find_close (codegen.logos:1433-1563).
+    bool uses_embed() const {
+        for (const auto& r : g_.rules)
+            for (const auto& a : r.alts)
+                for (const auto& it : a.seq)
+                    if (it.kind == int32_t(ast::RULE_REF) && !it.grammar_alias.empty())
+                        return true;
+        return false;
+    }
+
+    // Stop keywords are the IMPORTING grammar's own alpha token literals —
+    // `where`, `select`, `having`, … — never the imported grammar's.
+    std::vector<std::string> stop_keywords() const {
+        std::vector<std::string> out;
+        for (const auto& t : g_.tokens) {
+            if (t.kind != int32_t(ast::TOKEN_LITERAL)) continue;
+            std::string_view p = t.pattern;
+            if (p.size() >= 2 && p.front() == '"' && p.back() == '"')
+                p = p.substr(1, p.size() - 2);
+            if (p.empty()) continue;
+            char c0 = p.front();
+            if (!(std::isalpha(uint8_t(c0)) || c0 == '_')) continue;
+            bool all_word = true;
+            for (char c : p) if (!(std::isalnum(uint8_t(c)) || c == '_')) all_word = false;
+            if (all_word) out.emplace_back(p);
+        }
+        return out;
+    }
+
+    void emit_embed_runtime(CodeWriter& w) {
+        if (!uses_embed()) return;
+        auto kws = stop_keywords();
+        w.line("// ── Embedded-grammar sub-scan ─────────────────────────────────────────────");
+        w.line("// Whole-word match of any of this grammar's keywords at `p`.");
+        w.line("static bool embed_at_kw(std::string_view s, size_t p) {");
+        w.indent();
+        w.line("auto word = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };");
+        w.line("if (p > 0 && word(s[p - 1])) return false;");
+        for (const auto& k : kws)
+            w.fmt("if (s.compare(p, {0}, \"{1}\") == 0 && (p + {0} >= s.size() || "
+                  "!word(s[p + {0}]))) return true;", k.size(), k);
+        w.line("return false;");
+        w.dedent();
+        w.line("}");
+        w.line();
+        w.line("// First index at or after `pos` where the embedded clause ends.");
+        w.line("// `(`/`[` nest; a top-level `)`/`]`/`,`/`;`/`}` or keyword stops.");
+        w.line("// `?`/`:` are ternary-balanced so a result-type `:` still stops.");
+        w.line("// NOTE (inherited from the Logos backend): string literals and");
+        w.line("// comments are NOT skipped — a `,` inside a quoted EL string ends");
+        w.line("// the clause early.");
+        w.line("static size_t embed_find_close(std::string_view s, size_t pos) {");
+        w.indent();
+        w.line("size_t depth = 0, tern = 0;");
+        w.line("for (size_t p = pos; p < s.size(); ++p) {");
+        w.indent();
+        w.line("char c = s[p];");
+        w.line("if (c == '(' || c == '[') { ++depth; continue; }");
+        w.line("if (c == ')' || c == ']') { if (depth == 0) return p; --depth; continue; }");
+        w.line("if (depth) continue;");
+        w.line("if (c == '?') { ++tern; continue; }");
+        w.line("if (c == ':') { if (tern) { --tern; continue; } return p; }");
+        w.line("if (c == ',' || c == ';' || c == '}') return p;");
+        w.line("if (embed_at_kw(s, p)) return p;");
+        w.dedent();
+        w.line("}");
+        w.line("return s.size();");
+        w.dedent();
+        w.line("}");
+        w.line();
+    }
+
+    void emit_embed_call(CodeWriter& w, const Item& item, const std::string& cap,
+                         const std::string& fail_label) {
+        const ImportRef* imp = nullptr;
+        for (const auto& i : g_.imports)
+            if (i.alias == item.grammar_alias) imp = &i;
+        if (!imp)
+            schema_error(std::format("`{}::{}` refers to no %import alias",
+                                     item.grammar_alias, item.name));
+        if (!imp->arena_ext)
+            schema_error(std::format(
+                "imported grammar '{}' must declare `arena: external` to be "
+                "embedded (its parser has to build into the importer's Writ)",
+                imp->alias));
+        if (!g_.arena_ext)
+            schema_error(std::format(
+                "grammar '{}' embeds '{}' but does not itself declare "
+                "`arena: external`", g_.name, imp->alias));
+
+        const std::string cls = std::format("{}::{}Parser", imp->ns, to_pascal(imp->name));
+        w.fmt("[[maybe_unused]] AnyVal {} = AnyVal{{}};", cap);
+        w.line("{");
+        w.indent();
+        // The embed must start at the next TOKEN, not at pos_: peek_token()
+        // lexes one token ahead and leaves pos_ *past* it, so a raw pos_ would
+        // start the sub-parse inside the expression.
+        w.line("size_t est_ = pos_;");
+        w.line("if (have_la_ && la_.text.data()) est_ = size_t(la_.text.data() - source_.data());");
+        w.line("have_la_ = false;");
+        w.fmt("size_t eend_ = embed_find_close(source_, est_);");
+        w.fmt("std::string_view esub_ = source_.substr(est_, eend_ - est_);");
+        w.fmt("{} sub_(esub_, doc_);", cls);
+        w.fmt("{} = sub_.parse_{}();", cap, item.name);
+        // Re-anchor the outer lexer past the consumed sub-range. The token
+        // cache is keyed by byte offset, so a plain pos_ move is enough.
+        w.line("if (!" + cap + ".is_null()) pos_ = eend_;");
+        w.dedent();
+        w.line("}");
+        w.fmt("if ({}.is_null()) goto {};", cap, fail_label);
+    }
+
     // ── %schema node construction ─────────────────────────────────────────
     //
     // Mirrors peg_gen_logos's emit_schema_action/emit_schema_field
@@ -2683,14 +2835,18 @@ private:
             put(key, std::format("AnyVal::from_value({}(peg_decode_f64({})))", cast, tok_text(cv)));
         else if (tok_int)
             put(key, std::format("AnyVal::from_value({}(peg_decode_i64({})))", cast, tok_text(cv)));
+        else if (is_cap && capture_is_opt_token(seq, idx))
+            // `INTEGER?` — interned token text, or null when unmatched (→ 0).
+            put(key, std::format("AnyVal::from_value({}(peg_decode_i64_any({}, doc_)))",
+                                 cast, cv));
         else if (is_cap || is_fold)
             // The Logos backend silently decodes ANY capture's text here (a null
-            // capture yielding 0). That is the silent-fallthrough class we are
-            // fixing, so refuse instead: a scalar written from a non-token
-            // capture has no defined encoding.
+            // capture yielding 0), so a captured AST NODE would be decoded as if
+            // it were digits. That is the silent-fallthrough class we are fixing.
             schema_error(std::format(
-                "{}.{}: scalar field written from a capture that is not a literal "
-                "INTEGER/FLOAT token — no defined encoding", sd.name, sf.name));
+                "{}.{}: scalar field written from a capture that is neither a "
+                "literal INTEGER/FLOAT token nor an optional one — a captured "
+                "rule result has no scalar encoding", sd.name, sf.name));
         else
             put(key, std::format("AnyVal::from_value({}(0))", cast));
     }
