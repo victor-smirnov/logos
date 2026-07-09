@@ -7301,6 +7301,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
 
     cur_prog_ = &prog;
 
+    // ADR 0016 §6: built-in source impls (Writ/IncrRec) — seed once.
+    seed_builtin_source_impls();
+
     // ── mapping pre-scan (ADR 0016 M2b-2) ──────────────────────────────
     // Register every `mapping` item's signature + canonical rule text BEFORE
     // lowering anything, so a deem! consumer may precede the mapping it

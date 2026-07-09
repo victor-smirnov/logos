@@ -43,6 +43,6 @@ pub fn deem_walk(name: str, params: str, body: str) -> ItemList {
     let h: Writ = writ_new(4096i64);
     let root: WAny = parse_program(body, &h);
     if root.is_null() { error("wql_walk!: malformed query (expected `from <src> <var> … select …`)"); return out; }
-    let _ok: bool = walk_program_params(root, name, params, &mut prm, &h);
+    let _ok: bool = walk_program_params(root, name, params, "", &mut prm, &h);
     return out;
 }

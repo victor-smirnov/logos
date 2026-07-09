@@ -111,7 +111,7 @@ fn gp_err_str(s: &String) -> str {
 // its slot's own address, so a foreign slot may point at a local node and vice
 // versa. Both arenas are never-move for the duration of the dispatch loop.
 #[token_macro]
-pub fn deem(name: str, params: str, enrich: str, ir: *const u8) -> ItemList {
+pub fn deem(name: str, params: str, enrich: str, natspec: str, ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("wql!: needs a binding name — write `resource <name> = deem!(<params>){ from … select … }`");
@@ -172,6 +172,6 @@ pub fn deem(name: str, params: str, enrich: str, ir: *const u8) -> ItemList {
         error(gp_err_str(&gperr));
         return out;
     }
-    let _ok: bool = walk_program_params(root, name, params, &mut prm, &h);
+    let _ok: bool = walk_program_params(root, name, params, natspec, &mut prm, &h);
     return out;
 }

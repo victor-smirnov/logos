@@ -19485,7 +19485,7 @@ void SemaChecker::emit_token_macro_item_site(
     const SemaFuncInfo* macro_info, bool rt_is_il, int nargs,
     const std::string& resource_name, const std::string& params_text,
     const std::string& raw_text, IrEntry ir_entry,
-    const std::string& pub_mask) {
+    const std::string& pub_mask, const std::string& natspec) {
         const bool ir_mode = (ir_entry != IrEntry::None);
         // Slot layout mirrors the ABI decision in the diagnostic above:
         //   1-arg (sig_str):  slot 0 = raw block body
@@ -19513,6 +19513,11 @@ void SemaChecker::emit_token_macro_item_site(
             // Slot 2 = the item-layer side channel: the per-rel `pub` mask for
             // a mapping, the fusion spec for an enriched deem! (often empty).
             blobs.push_back(pack_blob(pub_mask));
+            // Slot 3 = the native-source spec (ADR 0016 §6): one entry per
+            // param whose type implements a source trait — rel names, columns,
+            // materializer fn + module. The walker registers native rels from
+            // THIS, not from hardcoded type-name compares.
+            blobs.push_back(pack_blob(natspec));
 
             auto doc = logos::writ::make_doc(1u << 20).get();   // MultiChunk: never moves
             logos::wql::surface::WqlParser wp(raw_text, doc);
@@ -19546,10 +19551,11 @@ void SemaChecker::emit_token_macro_item_site(
         // The callee invocation, producing an ItemList or QuoteItemBlob.
         std::string call_text;
         if (ir_mode) {
-            // (name, params, extra, ir) — the unified rule-IR ABI. `extra` is
-            // the pub mask (mapping) or the fusion spec (deem!); `ir` is a
-            // POINTER into the compiler's Writ arena — the root parsed above.
-            // The handler does `WAny::ref_to(ir)` and reads the tree in place.
+            // (name, params, extra, natspec, ir) — the unified rule-IR ABI.
+            // `extra` is the pub mask (mapping) or the fusion spec (deem!);
+            // `natspec` describes native-source params; `ir` is a POINTER into
+            // the compiler's Writ arena — the root parsed above. The handler
+            // does `WAny::ref_to(ir)` and reads the tree in place.
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
@@ -19558,12 +19564,15 @@ void SemaChecker::emit_token_macro_item_site(
                 "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
                 "    let __pm: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
                 "    let __mk: str = unsafe {{ str_from_raw(__pm, {3}i64) }};\n"
+                "    let __ps: *const u8 = unsafe {{ logos_macro_arg({0}u64, 3u64) }};\n"
+                "    let __ns: str = unsafe {{ str_from_raw(__ps, {4}i64) }};\n"
                 "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
-                "    {4}(__n, __pr, __mk, __ir)\n"
+                "    {5}(__n, __pr, __mk, __ns, __ir)\n"
                 "}}",
                 site_id, static_cast<int64_t>(resource_name.size()),
                 static_cast<int64_t>(params_text.size()),
                 static_cast<int64_t>(pub_mask.size()),
+                static_cast<int64_t>(natspec.size()),
                 macro_info->base_name);
         } else if (nargs == 3) {
             call_text = std::format(
@@ -19675,6 +19684,83 @@ void SemaChecker::emit_token_macro_item_site(
 // logos.std.wql.mapping_item. The handler mangles each rel to a generated fn
 // `<M>__<rel>` so `M::rel(args)` resolves through the ordinary static-call
 // path, and maps a non-pub rel to a non-pub generated fn.
+// ADR 0016 §6 — the built-in source impls, seeded as the FIRST registrations
+// of the open trait mechanism (they move to stdlib `impl` declarations when
+// cross-module decl-export lands; the walker's hardcoded dispatch is already
+// gone — these entries are DATA, in the same registry user impls fill).
+void SemaChecker::seed_builtin_source_impls() {
+    if (!source_impls_.empty()) return;
+    auto mk = [](const char* rel, const char* fn, const char* mod,
+                 std::vector<TraitRelCol> cols) {
+        SourceRelBind b;
+        b.rel = rel; b.mat_fn = fn; b.mat_module = mod;
+        b.cols = std::move(cols);
+        return b;
+    };
+    // trait GraphSource { rel edge(…) } — impl for Writ (M1a/64dd1286 vocabulary).
+    source_impls_["Writ"].push_back(mk("edge", "writ_graph_edges",
+        "logos.std.wql.writ_graph",
+        {{"parent","i64"},{"key","str"},{"idx","i64"},{"child","i64"},
+         {"kind","str"},{"tag","i64"},{"vi","i64"},{"vs","str"}}));
+    // trait EngineState { rel trace/epochs/tail/controls } — impl for IncrRec (M5).
+    auto& e = source_impls_["IncrRec"];
+    e.push_back(mk("trace", "deem_state_trace", "logos.std.deem",
+        {{"epoch","i64"},{"kind","i64"},{"step","i64"},{"delta","i64"},
+         {"total","i64"},{"ns","i64"}}));
+    e.push_back(mk("epochs", "deem_state_epochs", "logos.std.deem",
+        {{"epoch","i64"},{"ins","i64"},{"del","i64"},{"rounds","i64"},{"ns","i64"}}));
+    e.push_back(mk("tail", "deem_state_tail", "logos.std.deem",
+        {{"epoch","i64"},{"converged","i64"},{"pending","i64"},{"bound","i64"},
+         {"cutr","i64"}}));
+    e.push_back(mk("controls", "deem_state_controls", "logos.std.deem",
+        {{"epoch","i64"},{"kind","i64"},{"val","i64"}}));
+}
+
+std::string SemaChecker::native_source_spec(const std::string& pname,
+                                            const std::string& ptype_stripped) {
+    auto it = source_impls_.find(ptype_stripped);
+    if (it == source_impls_.end()) return {};
+    std::string spec;
+    const bool single = (it->second.size() == 1);
+    for (const auto& b : it->second) {
+        // Registered rel name: the param itself carries a single-rel
+        // vocabulary (`from g …`); a multi-rel one is param-prefixed
+        // (`from e_trace t`). Preserves both pre-trait surfaces verbatim.
+        spec += single ? pname : (pname + "_" + b.rel);
+        spec += "=";
+        spec += b.mat_fn;
+        // The emitted chunk imports the materializer's module — omitted when
+        // it already lives in the consuming package (importing your own
+        // package from a chunk is a cycle).
+        std::string mod = b.mat_module;
+        {
+            // Prefer the fn's REAL defining package when it is known — the
+            // impl may bind an imported fn.
+            auto ovit = func_overloads_.find(b.mat_fn);
+            if (ovit != func_overloads_.end() && !ovit->second.empty()) {
+                auto fit = funcs_.find(ovit->second.front());
+                if (fit != funcs_.end() && !fit->second.package.empty())
+                    mod = fit->second.package;
+            }
+        }
+        if (!mod.empty() && mod != cur_package_) {
+            spec += "@";
+            spec += mod;
+        }
+        spec += ":";
+        spec += pname;
+        spec += "(";
+        for (size_t i = 0; i < b.cols.size(); ++i) {
+            if (i) spec += ",";
+            spec += b.cols[i].name;
+            spec += " ";
+            spec += b.cols[i].ty;
+        }
+        spec += ");";
+    }
+    return spec;
+}
+
 bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
                                           MappingParts& out) {
     if (!node.has_key(la::NAME)) {
@@ -19723,6 +19809,7 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
                     out.first_param_name = pn;
                     out.first_param_type = tsrc;
                 }
+                out.params.emplace_back(pn, tsrc);
                 ++out.nparams;
             }
         }
@@ -19899,20 +19986,31 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
     };
     bool rt_is_il = is_item_list(macro_info->ret_type);
     if ((!rt_is_il && !is_quote_item_blob(macro_info->ret_type))
-            || macro_info->param_types.size() != 4
+            || macro_info->param_types.size() != 5
             || !is_str_type(macro_info->param_types[0])
             || !is_str_type(macro_info->param_types[1])
             || !is_str_type(macro_info->param_types[2])
-            || !is_const_u8_ptr(macro_info->param_types[3])) {
+            || !is_str_type(macro_info->param_types[3])
+            || !is_const_u8_ptr(macro_info->param_types[4])) {
         error("mapping item: '__mapping_item' must be a #[token_macro] "
-              "`(name: str, params: str, pubs: str, ir: *const u8) -> ItemList` "
-              "(stdlib/compiler version skew?)");
+              "`(name: str, params: str, pubs: str, natspec: str, "
+              "ir: *const u8) -> ItemList` (stdlib/compiler version skew?)");
         return;
     }
     if (!holder_ || !cur_prog_) return;
+    // Native sources among the mapping's own params (`g: &Writ` &c) — same
+    // spec the deem! site gets, so the walker registers them identically.
+    std::string natspec;
+    seed_builtin_source_impls();
+    for (const auto& [pn, pt] : parts.params) {
+        std::string_view tv = pt;
+        while (!tv.empty() && (tv.front() == '&' || tv.front() == ' '))
+            tv.remove_prefix(1);
+        natspec += native_source_spec(pn, std::string(tv));
+    }
     emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 3,
                                mname, parts.params_text, parts.body_text,
-                               IrEntry::RelList, parts.pub_mask);
+                               IrEntry::RelList, parts.pub_mask, natspec);
 }
 
 
@@ -20012,27 +20110,28 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             && TypeRef(t).pointee()
             && TypeRef(t).pointee().kind() == LogosType::Kind::U8;
     };
-    bool sig_ir4 = macro_info->is_token_macro
-        && macro_info->param_types.size() == 4
+    bool sig_ir5 = macro_info->is_token_macro
+        && macro_info->param_types.size() == 5
         && is_str_type(macro_info->param_types[0])
         && is_str_type(macro_info->param_types[1])
         && is_str_type(macro_info->param_types[2])
-        && is_const_u8_ptr(macro_info->param_types[3]);
+        && is_str_type(macro_info->param_types[3])
+        && is_const_u8_ptr(macro_info->param_types[4]);
 
-    bool sig_vec = !sig_str && !sig_str2 && !sig_str3 && !sig_ir4
+    bool sig_vec = !sig_str && !sig_str2 && !sig_str3 && !sig_ir5
         && macro_info->param_types.size() == 1
         && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
         && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
         && TypeRef(macro_info->param_types[0]).type_args().size() == 1
         && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
     bool sig_zero = macro_info->param_types.empty();
-    if (!sig_str && !sig_str2 && !sig_str3 && !sig_ir4 && !sig_vec && !sig_zero) {
+    if (!sig_str && !sig_str2 && !sig_str3 && !sig_ir5 && !sig_vec && !sig_zero) {
         // Preserve the canonical fn_macro wording (diagnostic rule
         // metaprog.fn-macro-item.param-signature); token_macro item callees
         // get their own message.
         const char* expected = macro_info->is_token_macro
             ? "`str`, `(name: str, body: str)`, `(name: str, params: str, body: str)`, "
-              "or `(name: str, params: str, enrich: str, ir: *const u8)`"
+              "or `(name: str, params: str, enrich: str, natspec: str, ir: *const u8)`"
             : "`Vec<ExprBlob>` or no args";
         error(std::format(
             "fn_macro item: '{}!' must take {}", callee_name, expected));
@@ -20055,7 +20154,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             callee_name, callee_name, callee_name));
         return;
     }
-    if ((sig_str3 || sig_ir4) && !has_name) {
+    if ((sig_str3 || sig_ir5) && !has_name) {
         error(std::format(
             "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
             "`resource <name> = {}!(<params>){{ … }}`",
@@ -20069,14 +20168,14 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     bool has_params = node.has_key(la::PARAMS);
     std::string params_text;
     if (has_params) params_text = std::string(str_of(node.get(la::PARAMS.code)));
-    if (has_params && !sig_str3 && !sig_ir4) {
+    if (has_params && !sig_str3 && !sig_ir5) {
         error(std::format(
             "'{}!(<params>){{ … }}' supplies a parameter list, but '{}!' is not a "
             "`(name: str, params: str, body: str)` #[token_macro]",
             callee_name, callee_name));
         return;
     }
-    if ((sig_str3 || sig_ir4) && !has_params) {
+    if ((sig_str3 || sig_ir5) && !has_params) {
         error(std::format(
             "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
             "`resource <name> = {}!(<params>){{ … }}`, not the bare-brace form",
@@ -20098,7 +20197,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // arg-blob slot 0 as `[u64 size][bytes]`; the thunk reconstructs a
     // `str` via str_from_raw and forwards it to the callee. This is the
     // opaque-block → handler → quote_item! emission seam for resources.
-    if (sig_str || sig_str2 || sig_str3 || sig_ir4) {
+    if (sig_str || sig_str2 || sig_str3 || sig_ir5) {
         // ── mapping fusion (ADR 0016 M2b-2): `deem!(g: Services)` ─────
         // A param TYPED by a registered mapping name splices that mapping's
         // rules into this program: the mapping's canonical rel list is
@@ -20109,7 +20208,8 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         // spliced rels are then ordinary rels: SCC, recursion, `**`, and
         // cross-references all work — fusion, not materialization.
         std::string enrich;
-        if (sig_ir4 && !mappings_.empty() && !params_text.empty()) {
+        std::string natspec;
+        if (sig_ir5 && !params_text.empty()) {
             // Split the raw param text on top-level commas into `name: Type`
             // pairs; depth-track ()/[]/<> (`&[(i64, str)]` carries commas).
             auto trim = [](std::string_view v) -> std::string_view {
@@ -20145,6 +20245,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             size_t next_rel = 0;
             bool any = false;
             for (auto& [pn, pt] : pairs) {
+                if (mappings_.empty()) break;
                 auto mit = mappings_.find(pt);
                 if (mit == mappings_.end()) continue;
                 const MappingInfo& mi = mit->second;
@@ -20175,12 +20276,21 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
                     }
                 }
             }
+            // ── native sources (ADR 0016 §6): AFTER fusion substitution, so a
+            // mapping-typed param (now carrying the mapping's source type)
+            // registers its native rels like any hand-written one.
+            for (const auto& [pn, pt] : pairs) {
+                std::string_view tv = pt;
+                while (!tv.empty() && (tv.front() == '&' || tv.front() == ' '))
+                    tv.remove_prefix(1);
+                natspec += native_source_spec(pn, std::string(tv));
+            }
         }
         emit_token_macro_item_site(node, prog, macro_info, rt_is_il,
                                    sig_str3 ? 3 : (sig_str2 ? 2 : 1),
                                    resource_name, params_text, raw_text,
-                                   sig_ir4 ? IrEntry::Program : IrEntry::None,
-                                   enrich);
+                                   sig_ir5 ? IrEntry::Program : IrEntry::None,
+                                   enrich, natspec);
         return;
     }
 

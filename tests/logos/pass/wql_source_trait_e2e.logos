@@ -1,0 +1,118 @@
+// wql_source_trait_e2e — sources as relational interfaces (ADR 0016 §6, T1+T2):
+// a USER type becomes a deem! source with ZERO compiler edits. A trait declares
+// the rel vocabulary, an impl binds it to a materializer fn, and a deem! param
+// typed by the implementing type carries the relations — the same open
+// mechanism the built-in Writ/IncrRec sources now ride. Asserts:
+//   (a) grammar: `rel` members parse in trait AND impl bodies;
+//   (b) a single-rel vocabulary is addressable as the param itself
+//       (`from g e …` — the rule that keeps `deem!(g: &Writ)` reading as before);
+//   (c) RECURSION over a user source (transitive closure of user edges —
+//       the actual Datalog payoff, not just a scan);
+//   (d) a user source joined against an ordinary slice param;
+//   (e) a multi-rel vocabulary is param-prefixed (`from s_stop t …`).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+// ── the user source type: a tiny edge list ──────────────────────────────────
+struct MyGraph { pub n: i64 }
+
+// Materializer: fn(&T) -> Vec<RowTuple>, rows match the rel's declared columns
+// positionally. A diamond 1→2, 1→3, 2→4, 3→4 plus a tail 4→5.
+fn my_edges(g: &MyGraph) -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    if g.n < 5i64 { return v; }
+    v.push((1i64, 2i64));
+    v.push((1i64, 3i64));
+    v.push((2i64, 4i64));
+    v.push((3i64, 4i64));
+    v.push((4i64, 5i64));
+    return v;
+}
+
+// (a) the source trait + its impl.
+pub trait EdgeSource {
+    rel link(a: i64, b: i64);
+}
+impl EdgeSource for MyGraph {
+    rel link = my_edges;
+}
+
+// ── (e) a multi-rel vocabulary on a second user type ────────────────────────
+struct Timetable { pub id: i64 }
+
+fn tt_stops(t: &Timetable) -> Vec<(i64, str)> {
+    let mut v: Vec<(i64, str)> = vec_new::<(i64, str)>();
+    v.push((10i64, "north"));
+    v.push((20i64, "south"));
+    return v;
+}
+fn tt_hops(t: &Timetable) -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    v.push((10i64, 20i64));
+    return v;
+}
+
+pub trait Transit {
+    rel stop(id: i64, name: str);
+    rel hop(src: i64, dst: i64);
+}
+impl Transit for Timetable {
+    rel stop = tt_stops;
+    rel hop  = tt_hops;
+}
+
+// (b)+(c): transitive closure over the user edges — `g` IS the rel.
+resource reach = deem!(g: &MyGraph) {
+    rel r(x: i64, y: i64) {
+        from g e select (e.a, e.b);
+        from r p join g e on e.a == p.y select (p.x, e.b);
+    }
+    from r t where t.x == 1 select t.y
+};
+
+// (d): user source ⋈ slice param.
+struct Label { pub id: i64, pub name: str }
+resource labeled = deem!(g: &MyGraph, ls: &[Label]) {
+    from g e join ls l on l.id == e.b select (e.a, l.name)
+};
+
+// (e): multi-rel vocabulary — param-prefixed rel names.
+resource south_of_north = deem!(s: &Timetable) {
+    from s_hop h join s_stop t on t.id == h.dst select t.name
+};
+
+fn main() -> i32 {
+    let g: MyGraph = MyGraph { n: 5i64 };
+
+    // (c) reach(1) = {2, 3, 4, 5} — 4 rows, set semantics dedup the two 1→4 paths.
+    let r: Vec<i64> = match reach(&g)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if r.len() != 4i64 { return 2i32; }
+    let mut seen5: bool = false;
+    let mut i: i64 = 0i64;
+    while i < r.len() {
+        if r.get(i) == 5i64 { seen5 = true; }
+        i = i + 1i64;
+    }
+    if !seen5 { return 3i32; }
+
+    // (d)
+    let ls: [Label; 2] = [ Label { id: 4i64, name: "gate" },
+                           Label { id: 5i64, name: "exit" } ];
+    let lb: Vec<(i64, str)> = match labeled(&g, &ls[..])
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if lb.len() != 3i64 { return 5i32; }   // 2→4, 3→4, 4→5
+
+    // (e)
+    let tt: Timetable = Timetable { id: 1i64 };
+    let sn: Vec<str> = match south_of_north(&tt)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if sn.len() != 1i64 { return 7i32; }
+    if !str_eq(sn.get(0i64), "south") { return 8i32; }
+
+    return 0i32;
+}

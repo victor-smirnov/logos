@@ -336,6 +336,8 @@
     // TEMPLATE_DECL (both 199), a clash that only stayed harmless because one
     // is an item and the other an expression.
     WRIT_BLOB                   = 261   // pre-serialised Writ static blob (driver splice from a metacall WritStatic return); VALUE = raw blob bytes (Varchar)
+    REL_SIG                     = 262   // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
+    REL_BIND                    = 263   // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -581,7 +583,7 @@
     // the methods iteration to keep "doc binds to the next member" intuitive.
     field_def_or_doc        <- doc_line_decl / doc_block_decl / field_def
     method_def_or_doc       <- doc_line_decl / doc_block_decl / method_def
-    trait_method_or_doc     <- doc_line_decl / doc_block_decl / trait_method
+    trait_method_or_doc     <- doc_line_decl / doc_block_decl / rel_sig / trait_method
     impl_item_or_doc        <- doc_line_decl / doc_block_decl / impl_item
 
     // Slice 6 of fn-macros — item-position macro invocation. Brace
@@ -1090,8 +1092,12 @@
                 / KW_IMPL simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, TYPE: $2, WHERE: $3, ITEMS: $... }
 
-    // impl_item: method, associated type, or associated constant definition
-    impl_item <- method_def
+    // impl_item: method, associated type, associated constant — or a source-rel
+    // binding (ADR 0016 §6). rel_bind is ordered FIRST because it is the only
+    // impl member led by a bare IDENT; every other alternative starts with a
+    // keyword, so the contextual `rel` costs nothing.
+    impl_item <- rel_bind
+               / method_def
                / KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
               => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
                / KW_TYPE IDENT ASSIGN type_ref SEMI
@@ -1257,6 +1263,15 @@
              / IDENT IDENT LPAREN param_list? RPAREN RAW_GROUP_BRACE
             => { CODE: REL_DEF, REL_KW: $1, NAME: $2, PARAMS: $4, RAW_TEXT: $6 }
     rel_def_or_doc <- doc_line_decl / doc_block_decl / rel_def
+
+    // ADR 0016 §6 — sources as relational interfaces. A TRAIT declares the rel
+    // vocabulary; an IMPL binds each rel to its native materializer fn. Same
+    // contextual-`rel` convention as rel_def (bare IDENT in REL_KW, sema
+    // validates the text — a global `rel` keyword would break ~400 uses).
+    rel_sig  <- IDENT IDENT LPAREN param_list? RPAREN SEMI
+             => { CODE: REL_SIG, REL_KW: $1, NAME: $2, PARAMS: $4 }
+    rel_bind <- IDENT IDENT ASSIGN IDENT SEMI
+             => { CODE: REL_BIND, REL_KW: $1, NAME: $2, VALUE: $4 }
 
     pub_mapping_def <- pub_vis KW_MAPPING IDENT LPAREN param_list? RPAREN LBRACE rel_def_or_doc* RBRACE
                     => { CODE: MAPPING_DEF, IS_PUB: 1, VIS: $1, NAME: $3, PARAMS: $5, FIELDS: $8 }

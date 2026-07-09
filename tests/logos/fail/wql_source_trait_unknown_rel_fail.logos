@@ -1,0 +1,17 @@
+// ADR 0016 §6: an impl may bind only rels its trait declares — a typo'd rel
+// name is a NAMED error at the impl, not a silent no-op registration.
+package test;
+
+use logos.mem.collections.vec;
+
+struct G { pub n: i64 }
+fn ge(g: &G) -> Vec<(i64, i64)> { return vec_new::<(i64, i64)>(); }
+
+pub trait Src {
+    rel link(a: i64, b: i64);
+}
+impl Src for G {
+    rel lnk = ge;
+}
+
+fn main() -> i32 { return 0i32; }

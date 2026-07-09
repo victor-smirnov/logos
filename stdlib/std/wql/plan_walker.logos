@@ -247,16 +247,18 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
         if prm.is_slice[i] {
             return SrcRes { ok: true, is_rel: false, idx: i, row_ty: prm.tys[i] };
         }
-        // A GRAPH param (`<p>: &Writ`, ADR 0016 M1a) is a source too — it
-        // resolves through its NATIVE rel (registered under the param's own
-        // name); fall through to the rel lookup below.
-        if !str_eq(prm.tys[i], "Writ") {
+        // A NATIVE-source param (ADR 0016 §6: any type implementing a source
+        // trait — Writ, IncrRec, user types) resolves through its native rel,
+        // registered under the param's own name before bodies resolve. Fall
+        // through to the rel lookup; a scalar param has no rel and reports
+        // the not-a-source diagnostic below.
+        if prm.rel_find_name(src) < 0i64 {
             let mut m1: String = String::new();
             m1.push_str("wql!: source `");
             m1.push_str(src);
             m1.push_str("` is not a slice — declare it as `");
             m1.push_str(src);
-            m1.push_str(": &[RowTy]` (or `: &Writ` for a graph source) in the deem!(…) parameter list");
+            m1.push_str(": &[RowTy]` (or a type implementing a source trait, e.g. `&Writ`) in the deem!(…) parameter list");
             error(string_as_str(&m1));
             return src_fail();
         }
@@ -1380,7 +1382,7 @@ fn ward_sel_idents_ok(sel: SExpr, vars: &[str; 9], nv: i64,
 // texts) and the prelude live in THIS frame — everything downstream is called
 // from here, so the borrowed `str` views stay valid for the whole walk.
 pub fn walk_program_params(root: WAny, name: str, params_text: str,
-                           prm: &mut MacroParams, h: &Writ) -> bool {
+                           natspec: str, prm: &mut MacroParams, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
     let prog: RQProgram = root.view::<RQProgram>();
     let mut deps: RelDeps = rel_deps_new();
@@ -1484,7 +1486,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // generic graph-edge relation AFTER the parse-side rels (registry
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
-        if !register_native_rels(prm, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
+        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
         // — recursion is legal, realized by the SCC fixpoint. Dep edges + the
@@ -1518,7 +1520,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // No parse-side rels — native params may still register (an entry
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
-        if !register_native_rels(prm, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
+        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
         }
@@ -1696,7 +1698,8 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
 // Register ONE native rel; returns its registry idx or −1 (cap/dup errors
 // surfaced by the caller). `disp` = the rel's DECLARED name text (backed by
 // the caller's frame Strings).
-fn reg_native(prm: &mut MacroParams, disp: str, rowty: str, nkind: i32,
+fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
+              mat: str, marg: str, module: str,
               srcb: &mut String, dsrcb: &mut String) -> i64 {
     srcb.push_str("__rel_");
     srcb.push_str(disp);
@@ -1707,101 +1710,98 @@ fn reg_native(prm: &mut MacroParams, disp: str, rowty: str, nkind: i32,
     let idx: i64 = prm.rel_add(disp, string_as_str(srcb), string_as_str(dsrcb), rowty);
     if idx >= 0i64 {
         prm.rel_native[idx] = true;
-        prm.rel_nkind[idx] = nkind;
+        prm.rel_mat[idx] = mat;
+        prm.rel_marg[idx] = marg;
+        prm.rel_mod[idx] = module;
     }
     return idx;
 }
 
-fn register_native_rels(prm: &mut MacroParams,
+// Register the NATIVE source rels described by the compiler's natspec
+// (ADR 0016 §6). The walker knows NO source type any more — which params carry
+// relations, their columns, and the materializer to call all arrive as data:
+//   <regname>=<matfn>[@<module>]:<param>(<col> <ty>,…);
+// The spec str outlives the walk (handler frame), so views into it are stable.
+// rowty is BUILT here ("(ty1, ty2, …)") into the caller's frame buffers — the
+// registry may borrow them for the walk's duration (plan writes intern, the
+// registry is rebuilt per walk).
+fn register_native_rels(prm: &mut MacroParams, natspec: str,
                         srcb: &mut [String; 8], dsrcb: &mut [String; 8],
-                        nameb: &mut [String; 8]) -> bool {
-    let mut p: i64 = 0i64;
+                        rowtyb: &mut [String; 8]) -> bool {
+    let n: i64 = natspec.len();
+    let mut i: i64 = 0i64;
     let mut k: i64 = 0i64;
-    while p < prm.n {
-        if !prm.is_slice[p] && str_eq(prm.tys[p], "Writ") {
-            let nm: str = prm.names[p];
-            if k >= 8i64 || prm.rel_n >= 8i64 {
-                error("wql!: too many rels (max 8, native source params included)");
-                return false;
-            }
-            let idx: i64 = reg_native(prm, nm, "(i64, str, i64, i64, str, i64, i64, str)",
-                                      1i32, &mut srcb[k], &mut dsrcb[k]);
-            if idx < 0i64 { error("wql!: too many rels (max 8, native source params included)"); return false; }
-            prm.rel_add_col("parent", "i64");
-            prm.rel_add_col("key", "str");
-            prm.rel_add_col("idx", "i64");
-            prm.rel_add_col("child", "i64");
-            prm.rel_add_col("kind", "str");
-            prm.rel_add_col("tag", "i64");
-            prm.rel_add_col("vi", "i64");
-            prm.rel_add_col("vs", "str");
-            k = k + 1i64;
+    while i < n {
+        if k >= 8i64 || prm.rel_n >= 8i64 {
+            error("wql!: too many rels (max 8, native source params included)");
+            return false;
         }
-        // ADR 0016 M5 (case S): an ENGINE param exposes the reasoner's own
-        // past as four relations — <p>_trace / <p>_epochs / <p>_tail /
-        // <p>_controls (see logos.std.deem mapping_state materializers).
-        if !prm.is_slice[p] && str_eq(prm.tys[p], "IncrRec") {
-            let nm2: str = prm.names[p];
-            if k + 4i64 > 8i64 || prm.rel_n + 4i64 > 8i64 {
-                error("wql!: too many rels (max 8, native source params included)");
-                return false;
-            }
-            // <p>_trace(epoch, kind, step, delta, total, ns)
-            nameb[k].push_str(nm2); nameb[k].push_str("_trace");
-            let i1: i64 = reg_native(prm, string_as_str(&nameb[k]),
-                                     "(i64, i64, i64, i64, i64, i64)", 2i32,
-                                     &mut srcb[k], &mut dsrcb[k]);
-            if i1 < 0i64 { error("wql!: too many rels"); return false; }
-            prm.rel_add_col("epoch", "i64");
-            prm.rel_add_col("kind", "i64");
-            prm.rel_add_col("step", "i64");
-            prm.rel_add_col("delta", "i64");
-            prm.rel_add_col("total", "i64");
-            prm.rel_add_col("ns", "i64");
-            k = k + 1i64;
-            // <p>_epochs(epoch, ins, del, rounds, ns)
-            nameb[k].push_str(nm2); nameb[k].push_str("_epochs");
-            let i2: i64 = reg_native(prm, string_as_str(&nameb[k]),
-                                     "(i64, i64, i64, i64, i64)", 3i32,
-                                     &mut srcb[k], &mut dsrcb[k]);
-            if i2 < 0i64 { error("wql!: too many rels"); return false; }
-            prm.rel_add_col("epoch", "i64");
-            prm.rel_add_col("ins", "i64");
-            prm.rel_add_col("del", "i64");
-            prm.rel_add_col("rounds", "i64");
-            prm.rel_add_col("ns", "i64");
-            k = k + 1i64;
-            // <p>_tail(epoch, converged, pending, bound, cutr) — ONE row
-            nameb[k].push_str(nm2); nameb[k].push_str("_tail");
-            let i3: i64 = reg_native(prm, string_as_str(&nameb[k]),
-                                     "(i64, i64, i64, i64, i64)", 4i32,
-                                     &mut srcb[k], &mut dsrcb[k]);
-            if i3 < 0i64 { error("wql!: too many rels"); return false; }
-            prm.rel_add_col("epoch", "i64");
-            prm.rel_add_col("converged", "i64");
-            prm.rel_add_col("pending", "i64");
-            prm.rel_add_col("bound", "i64");
-            prm.rel_add_col("cutr", "i64");
-            k = k + 1i64;
-            // <p>_controls(epoch, kind, val)
-            nameb[k].push_str(nm2); nameb[k].push_str("_controls");
-            let i4: i64 = reg_native(prm, string_as_str(&nameb[k]),
-                                     "(i64, i64, i64)", 5i32,
-                                     &mut srcb[k], &mut dsrcb[k]);
-            if i4 < 0i64 { error("wql!: too many rels"); return false; }
-            prm.rel_add_col("epoch", "i64");
-            prm.rel_add_col("kind", "i64");
-            prm.rel_add_col("val", "i64");
-            k = k + 1i64;
+        // <regname>=
+        let s0: i64 = i;
+        while i < n && str_byte_at(natspec, i) != 61u8 { i = i + 1i64; }     // '='
+        let regname: str = pw_slice(natspec, s0, i);
+        i = i + 1i64;
+        // <matfn>[@<module>]:
+        let s1: i64 = i;
+        while i < n && str_byte_at(natspec, i) != 64u8
+              && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }           // '@' | ':'
+        let mat: str = pw_slice(natspec, s1, i);
+        let mut module: str = "";
+        if i < n && str_byte_at(natspec, i) == 64u8 {
+            i = i + 1i64;
+            let s2: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; } // ':'
+            module = pw_slice(natspec, s2, i);
         }
-        p = p + 1i64;
+        i = i + 1i64;
+        // <param>(
+        let s3: i64 = i;
+        while i < n && str_byte_at(natspec, i) != 40u8 { i = i + 1i64; }     // '('
+        let marg: str = pw_slice(natspec, s3, i);
+        i = i + 1i64;
+        // columns into rowty text, remembering (name, ty) pairs for rel_add_col.
+        rowtyb[k].push_str("(");
+        let mut cnames: [str; 8] = ["", "", "", "", "", "", "", ""];
+        let mut ctys:   [str; 8] = ["", "", "", "", "", "", "", ""];
+        let mut nc: i64 = 0i64;
+        loop {
+            let c0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; } // ' '
+            let cn: str = pw_slice(natspec, c0, i);
+            i = i + 1i64;
+            let t0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 44u8
+                  && str_byte_at(natspec, i) != 41u8 { i = i + 1i64; }       // ',' | ')'
+            let ct: str = pw_slice(natspec, t0, i);
+            if nc > 0i64 { rowtyb[k].push_str(", "); }
+            rowtyb[k].push_str(ct);
+            if nc < 8i64 { cnames[nc] = cn; ctys[nc] = ct; nc = nc + 1i64; }
+            if i >= n || str_byte_at(natspec, i) == 41u8 { break; }
+            i = i + 1i64;                                                    // ','
+        }
+        i = i + 2i64;                                                        // ') ;'
+        rowtyb[k].push_str(")");
+        // Single-column rows are the bare type, not a 1-tuple.
+        let rowty: str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
+        let idx: i64 = reg_native(prm, regname, rowty, mat, marg, module,
+                                  &mut srcb[k], &mut dsrcb[k]);
+        if idx < 0i64 {
+            error("wql!: too many rels (max 8, native source params included)");
+            return false;
+        }
+        let mut c: i64 = 0i64;
+        while c < nc {
+            prm.rel_add_col(cnames[c], ctys[c]);
+            c = c + 1i64;
+        }
+        k = k + 1i64;
     }
     return true;
 }
 
-// Leading `n` bytes of `s` as a view (native-rel param-name recovery).
-fn pw_prefix(s: str, n: i64) -> str {
-    return unsafe { str_from_raw(s.as_ptr(), if n < 0i64 { 0i64 } else { n }) };
+// natspec sub-view [a, b).
+fn pw_slice(s: str, a: i64, b: i64) -> str {
+    return unsafe { str_from_raw(((s.as_ptr() as i64) + a) as *const u8, b - a) };
 }
 
 // One-shot rel `r` (singleton SCC, no self-edge — the slice-B path):
@@ -1818,22 +1818,11 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
         prelude.push_str(": Vec<");
         prelude.push_str(prm.rel_rowty[r]);
         prelude.push_str("> = ");
-        let nk: i32 = prm.rel_nkind[r];
-        if nk == 1i32      { prelude.push_str("writ_graph_edges("); }
-        else if nk == 2i32 { prelude.push_str("deem_state_trace("); }
-        else if nk == 3i32 { prelude.push_str("deem_state_epochs("); }
-        else if nk == 4i32 { prelude.push_str("deem_state_tail("); }
-        else               { prelude.push_str("deem_state_controls("); }
-        // the OWNING param: rel name for the graph flavor; for the engine
-        // flavors strip the `_suffix` back to the param name.
-        if nk == 1i32 {
-            prelude.push_str(prm.rel_names[r]);
-        } else {
-            let full: str = prm.rel_names[r];
-            let mut cut: i64 = full.len() - 1i64;
-            while cut > 0i64 && str_byte_at(full, cut) != 95u8 { cut = cut - 1i64; }
-            prelude.push_str(pw_prefix(full, cut));
-        }
+        // The materializer + its param arrive in the natspec — the emitter
+        // knows no source type (ADR 0016 §6).
+        prelude.push_str(prm.rel_mat[r]);
+        prelude.push_str("(");
+        prelude.push_str(prm.rel_marg[r]);
         prelude.push_str(");\n");
         prelude.push_str("    let ");
         prelude.push_str(prm.rel_srcs[r]);

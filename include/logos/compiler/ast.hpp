@@ -301,6 +301,8 @@ inline constexpr Code SCHEMA_ENUM_DEF{"SCHEMA_ENUM_DEF", 258};  // ADR 0011: `sc
 inline constexpr Code MAPPING_DEF{"MAPPING_DEF", 259};  // ADR 0016: `mapping M(g: &Writ, …) { pub? rel r(col: ty, …) { <rules> } … }` — named, typed rule-module over a source shape. NAME = mapping name; PARAMS = source/scalar param list (PARAM array, same shape as fn params); FIELDS = array of REL_DEF; IS_PUB/VIS as usual. Sema registers a zero-field marker struct (is_mapping=true) + per-rel signatures; rel bodies compile through the deem pipeline.
 inline constexpr Code REL_DEF{"REL_DEF", 260};  // ADR 0016: one rel member of a mapping item. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array); RAW_TEXT = rule body captured token-level (balanced braces); IS_PUB optional.
 inline constexpr Code WRIT_BLOB{"WRIT_BLOB", 261};  // pre-serialised Writ static blob (driver splice from a metacall WritStatic return); VALUE = raw blob bytes (Varchar)
+inline constexpr Code REL_SIG{"REL_SIG", 262};  // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
+inline constexpr Code REL_BIND{"REL_BIND", 263};  // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
 
 namespace mod {
     inline constexpr Key PATH_PARTS{"PATH_PARTS", 16};  // array of sub-nodes (one per component after NAME)

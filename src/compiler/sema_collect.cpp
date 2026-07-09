@@ -2580,6 +2580,60 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 info.assoc_consts.push_back(std::move(ac));
                 continue;
             }
+            if (code_of(m) == la::REL_SIG) {
+                // ADR 0016 §6: `rel edge(parent: i64, …);` — a source-trait
+                // vocabulary member. Contextual keyword: the grammar accepts
+                // any lead IDENT; only the literal `rel` is legal.
+                std::string lead(str_of(m.get(la::REL_KW.code)));
+                if (lead != "rel") {
+                    error(std::format(
+                        "trait '{}': unexpected member '{} {}' — trait bodies "
+                        "contain fn / type / const / rel members",
+                        tname, lead, std::string(str_of(m.get(la::NAME.code)))));
+                    continue;
+                }
+                TraitRelSig sig;
+                sig.rel = std::string(str_of(m.get(la::NAME.code)));
+                if (m.has_key(la::PARAMS)) {
+                    auto cl = map_of(m.get(la::PARAMS.code));
+                    if (!cl.is_null() && cl.has_key(la::ITEMS.code)) {
+                        auto carr = arr_of(cl.get(la::ITEMS.code));
+                        for (uint64_t j = 0; j < carr.size(); ++j) {
+                            auto cp = map_of(carr.get(j));
+                            if (cp.is_null() || code_of(cp) != la::PARAM) continue;
+                            std::string cn(str_of(cp.get(la::NAME.code)));
+                            std::string ct = render_type_src_syntactic_(
+                                map_of(cp.get(la::TYPE.code)));
+                            if (ct != "i64" && ct != "str" && ct != "bool") {
+                                error(std::format(
+                                    "trait '{}': rel '{}' column '{}' has type "
+                                    "`{}` — rel columns are i64/str/bool (rows "
+                                    "are set-deduplicated; the column type must "
+                                    "be joinable/Eq)", tname, sig.rel, cn, ct));
+                                ct = "i64";   // recover, keep collecting
+                            }
+                            sig.cols.push_back({cn, ct});
+                        }
+                    }
+                }
+                if (sig.cols.empty()) {
+                    error(std::format(
+                        "trait '{}': rel '{}' needs at least one typed column",
+                        tname, sig.rel));
+                    continue;
+                }
+                for (const auto& seen : trait_rels_[tname]) {
+                    if (seen.rel == sig.rel) {
+                        error(std::format("trait '{}': duplicate rel '{}'",
+                                          tname, sig.rel));
+                        sig.rel.clear();
+                        break;
+                    }
+                }
+                if (!sig.rel.empty()) trait_rels_[tname].push_back(std::move(sig));
+                trait_method_sweep_doc.clear();
+                continue;
+            }
             if (code_of(m) != la::FN) continue;
             SemaTraitMethodInfo mi;
             mi.name = std::string(str_of(m.get(la::NAME.code)));
@@ -3198,6 +3252,53 @@ void SemaChecker::collect_impl(TinyMapView node) {
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
             if (try_append_doc(pending_doc_, m)) continue;
+            if (code_of(m) == la::REL_BIND) {
+                // ADR 0016 §6: `rel edge = writ_graph_edges;` — bind one
+                // trait rel to its native materializer for this type.
+                std::string lead(str_of(m.get(la::REL_KW.code)));
+                std::string rn(str_of(m.get(la::NAME.code)));
+                if (lead != "rel") {
+                    error(std::format(
+                        "impl for '{}': unexpected member '{} {}'",
+                        target, lead, rn));
+                    continue;
+                }
+                if (trait_name.empty()) {
+                    error(std::format(
+                        "impl for '{}': `rel {} = …` outside a trait impl — "
+                        "rel bindings implement a source trait's vocabulary "
+                        "(`impl GraphSource for {} {{ … }}`)",
+                        target, rn, target));
+                    continue;
+                }
+                auto trit = trait_rels_.find(trait_name);
+                const TraitRelSig* sig = nullptr;
+                if (trit != trait_rels_.end())
+                    for (const auto& ts : trit->second)
+                        if (ts.rel == rn) { sig = &ts; break; }
+                if (!sig) {
+                    error(std::format(
+                        "impl {} for {}: trait '{}' declares no rel '{}'",
+                        trait_name, target, trait_name, rn));
+                    continue;
+                }
+                SourceRelBind b;
+                b.rel    = rn;
+                b.mat_fn = std::string(str_of(m.get(la::VALUE.code)));
+                b.mat_module = cur_package_;   // refined at spec time if needed
+                b.cols   = sig->cols;
+                bool dup = false;
+                for (const auto& e : source_impls_[target])
+                    if (e.rel == rn) { dup = true; break; }
+                if (dup) {
+                    error(std::format(
+                        "impl {} for {}: duplicate rel binding '{}'",
+                        trait_name, target, rn));
+                    continue;
+                }
+                source_impls_[target].push_back(std::move(b));
+                continue;
+            }
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 auto mname = std::string(str_of(m.get(la::NAME.code)));
                 // Blanket impls use a synthetic target name so the method

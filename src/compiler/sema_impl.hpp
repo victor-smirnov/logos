@@ -4080,6 +4080,7 @@ private:
         std::vector<std::string> rel_names;
         std::string first_param_name;      // the source param (first)
         std::string first_param_type;      // its syntactic type, e.g. "&Writ"
+        std::vector<std::pair<std::string, std::string>> params;  // (name, type)
         size_t      nparams = 0;
         std::string err;
     };
@@ -4101,6 +4102,35 @@ private:
     };
     std::unordered_map<std::string, MappingInfo> mappings_;
 
+    // ADR 0016 §6 — sources as relational interfaces. A trait's `rel` members
+    // declare a relational vocabulary; an impl binds each rel to its native
+    // materializer (`rel edge = writ_graph_edges;`). A deem!/mapping param
+    // typed by an implementing type carries the trait's relations, described
+    // to the stdlib walker by a SPEC beside the rule IR — the walker's
+    // hardcoded Writ/IncrRec dispatch dies. The Writ/IncrRec built-ins are
+    // seeded here as the FIRST registrations of the open mechanism; they move
+    // to stdlib declarations when cross-module decl-export lands.
+    struct TraitRelCol { std::string name, ty; };
+    struct TraitRelSig { std::string rel; std::vector<TraitRelCol> cols; };
+    std::unordered_map<std::string, std::vector<TraitRelSig>> trait_rels_;
+    struct SourceRelBind {
+        std::string rel;                  // trait rel name
+        std::string mat_fn;               // materializer: fn(&T) -> Vec<RowTuple>
+        std::string mat_module;           // its package (empty = resolve at use)
+        std::vector<TraitRelCol> cols;
+    };
+    std::unordered_map<std::string, std::vector<SourceRelBind>> source_impls_;
+    void          seed_builtin_source_impls();
+    // Build the native-source spec for one deem!/mapping param, or "" when its
+    // type implements no source trait. Entry grammar (consumed by
+    // plan_walker::register_native_rels):
+    //   <regname>=<matfn>[@<module>]:<param>(<col> <ty>,…);
+    // regname = the param name itself for a single-rel vocabulary, else
+    // <param>_<rel>; module omitted when the materializer lives in the
+    // consuming package.
+    std::string   native_source_spec(const std::string& pname,
+                                     const std::string& ptype_stripped);
+
     // Shared tail of the #[token_macro] ITEM path (pack arg blobs, synth the
     // JIT thunk, register the MetacallSiteStage); factored from
     // lower_fn_macro_call_item so lower_mapping_def rides the same seam.
@@ -4113,7 +4143,8 @@ private:
                                              const std::string& params_text,
                                              const std::string& raw_text,
                                              IrEntry ir_entry = IrEntry::None,
-                                             const std::string& pub_mask = {});
+                                             const std::string& pub_mask = {},
+                                             const std::string& natspec = {});
 
 public:
     // ── AST → Logos source pretty-printer (sema_render.cpp) ──────────

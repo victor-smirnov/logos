@@ -485,7 +485,9 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let result_elem: str = string_as_str(&elem_ty);
 
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, prm.has_engine_param());
+    let mut __uses: String = String::new();
+    prm.native_use_text(&mut __uses);
+    begin_chunk(&mut em, &view, string_as_str(&__uses));
     emit_fn_head(&mut em, fn_name, params_text);
     if first {
         // Single-row mode: constant None (no scan loop).
@@ -514,7 +516,7 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> bo
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     // find/first fast paths scan plain slices only — no engine params here.
-    begin_chunk(&mut em, &view, false);
+    begin_chunk(&mut em, &view, "");
     emit_fn_head(&mut em, fn_name, params_text);
     em.push_text(") -> Result<Option<&");
     em.push_text(sc.row_ty);
@@ -537,7 +539,7 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> boo
     let row_ty: str   = sc.row_ty;
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, false);
+    begin_chunk(&mut em, &view, "");
     emit_fn_head(&mut em, fn_name, params_text);
     em.push_text(") -> Result<Option<&");
     em.push_text(row_ty);
@@ -566,7 +568,7 @@ fn emit_identity(scan_e: RExpr,
 
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, false);
+    begin_chunk(&mut em, &view, "");
     emit_fn_head(&mut em, fn_name, params_text);
     em.push_text(") -> Result<&[");
     em.push_text(row_ty);
@@ -802,7 +804,9 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let lim_cond: String = limit_cond_text(&mods);
 
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, prm.has_engine_param());
+    let mut __uses: String = String::new();
+    prm.native_use_text(&mut __uses);
+    begin_chunk(&mut em, &view, string_as_str(&__uses));
     emit_fn_head(&mut em, fn_name, params_text);
     if first {
         em.push_text(") -> Result<Option<");
@@ -969,7 +973,9 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     }
 
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, prm.has_engine_param());
+    let mut __uses: String = String::new();
+    prm.native_use_text(&mut __uses);
+    begin_chunk(&mut em, &view, string_as_str(&__uses));
     emit_fn_head(&mut em, fn_name, params_text);
     em.push_text(") -> Result<Option<&");
     em.push_text(row_ty);
@@ -1932,7 +1938,9 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 
     // 6. Head + strategy trace + build phases.
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, prm.has_engine_param());
+    let mut __uses: String = String::new();
+    prm.native_use_text(&mut __uses);
+    begin_chunk(&mut em, &view, string_as_str(&__uses));
     emit_fn_head(&mut em, fn_name, params_text);
     if first {
         em.push_text(") -> Result<Option<");
@@ -2253,7 +2261,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     if !compute_agg_bodies(&aggs, acount, &ty, x_var, h, &uda, &mut agg_body) { return false; }
 
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, prm.has_engine_param());
+    let mut __uses: String = String::new();
+    prm.native_use_text(&mut __uses);
+    begin_chunk(&mut em, &view, string_as_str(&__uses));
     emit_fn_head(&mut em, fn_name, params_text);
     em.push_text(") -> Result<Vec<");
     em.push_text(result_ty);
@@ -2986,7 +2996,9 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     // Head + strategy trace + build phases + accumulator columns.
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, prm.has_engine_param());
+    let mut __uses: String = String::new();
+    prm.native_use_text(&mut __uses);
+    begin_chunk(&mut em, &view, string_as_str(&__uses));
     emit_fn_head(&mut em, fn_name, params_text);
     em.push_text(") -> Result<Vec<");
     em.push_text(result_ty);
@@ -4451,7 +4463,9 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                     prm: &MacroParams, scc: &RelScc, h: &Writ) -> bool {
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, prm.has_engine_param());
+    let mut __uses: String = String::new();
+    prm.native_use_text(&mut __uses);
+    begin_chunk(&mut em, &view, string_as_str(&__uses));
     let mut p: i64 = 0i64;
     while p < scc.nscc {
         let c: i64 = scc.order[p];

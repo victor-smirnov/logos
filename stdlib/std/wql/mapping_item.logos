@@ -67,7 +67,7 @@ fn ms(s: &String) -> str {
 /// points at the RQRelArr the compiler already parsed, `pubs` carries the
 /// per-rel visibility the query grammar cannot express. Not a user-facing macro.
 #[token_macro]
-pub fn __mapping_item(name: str, params: str, pubs: str, ir: *const u8) -> ItemList {
+pub fn __mapping_item(name: str, params: str, pubs: str, natspec: str, ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("mapping item: empty mapping name (compiler seam regression?)");
@@ -147,7 +147,7 @@ pub fn __mapping_item(name: str, params: str, pubs: str, ir: *const u8) -> ItemL
         }
         let mut prm: MacroParams = macro_params_new();
         parse_macro_params(params, &mut prm);
-        if !walk_program_params(root, ms(&fname), params, &mut prm, &h) {
+        if !walk_program_params(root, ms(&fname), params, natspec, &mut prm, &h) {
             return out;
         }
         r = r + 1i64;

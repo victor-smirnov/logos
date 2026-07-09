@@ -20,6 +20,7 @@
 package logos.std.wql.params;
 
 use logos.lang.str;
+use logos.mem.string;   // String — native_use_text builds the chunk's use-decl text
 
 fn mp_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
 fn mp_is_alpha(c: u8) -> bool {
@@ -93,9 +94,16 @@ pub struct MacroParams {
     // no parse-side RQRel (skipped by body passes + fn emission); its
     // prelude line calls the native helper directly.
     pub rel_native:  [bool; 8],
-    // native FLAVOR: 0 none · 1 writ graph edges · 2 engine trace · 3 engine
-    // epochs · 4 engine tail · 5 engine controls (ADR 0016 M5, case S).
-    pub rel_nkind:   [i32; 8],
+    // ADR 0016 §6 (sources as relational interfaces): a native rel's
+    // materializer fn name, the param it is applied to, and the module the
+    // materializer lives in ("" = the consuming package — no import needed).
+    // All three arrive in the compiler's natspec, backed by the natspec str
+    // for the duration of the walk. The prelude prints `<mat>(<marg>)`; the
+    // chunk imports each distinct non-empty rel_mod. This replaces the old
+    // rel_nkind flavor switch — the walker no longer knows ANY source type.
+    pub rel_mat:     [str; 8],
+    pub rel_marg:    [str; 8],
+    pub rel_mod:     [str; 8],
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -128,7 +136,9 @@ pub fn macro_params_new() -> MacroParams {
         rel_is_agg:  [false; 8],
         rel_agg_dir: [0i32; 8],
         rel_native:  [false; 8],
-        rel_nkind:   [0i32; 8],
+        rel_mat:     [""; 8],
+        rel_marg:    [""; 8],
+        rel_mod:     [""; 8],
     };
 }
 
@@ -159,13 +169,31 @@ impl MacroParams {
 
     // Any `IncrRec` engine-source param present? (drives the emitted chunk's
     // conditional `use logos.std.deem;` — ADR 0016 M5.)
-    pub fn has_engine_param(self: &MacroParams) -> bool {
+    /// The extra `use` decls a generated chunk needs for its native-source
+    /// materializers — one per DISTINCT non-empty rel_mod. Replaces the old
+    /// has_engine_param flag: which modules a chunk needs is now data carried
+    /// by the natspec, not a type the walker knows about.
+    pub fn native_use_text(self: &MacroParams, out: &mut String) {
         let mut i: i64 = 0i64;
-        while i < self.n {
-            if !self.is_slice[i] && str_eq(self.tys[i], "IncrRec") { return true; }
+        while i < self.rel_n {
+            if self.rel_native[i] && self.rel_mod[i].len() > 0i64 {
+                let mut seen: bool = false;
+                let mut j: i64 = 0i64;
+                while j < i {
+                    if self.rel_native[j] && str_eq(self.rel_mod[j], self.rel_mod[i]) {
+                        seen = true;
+                        break;
+                    }
+                    j = j + 1i64;
+                }
+                if !seen {
+                    out.push_str("use ");
+                    out.push_str(self.rel_mod[i]);
+                    out.push_str("; ");
+                }
+            }
             i = i + 1i64;
         }
-        return false;
     }
 
     // The CORE type name of the param named `name` ("" if absent).

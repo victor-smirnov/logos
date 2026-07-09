@@ -1,0 +1,10 @@
+// ADR 0016 §6: rel columns are i64/str/bool — rows are set-deduplicated, so a
+// column type must be joinable/Eq. f64 cannot be a rel column (the same honest
+// boundary as mapping rel columns; val_f64 is impossible as a rel).
+package test;
+
+pub trait Src {
+    rel sample(t: i64, v: f64);
+}
+
+fn main() -> i32 { return 0i32; }

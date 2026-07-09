@@ -43,7 +43,7 @@ use logos.std.wql.writ_graph;     // writ_graph_edges — the NATIVE graph-sourc
 // the same convention the metacall thunk chunks follow. Package = the
 // TRIGGER module's (emit_target_pkg), so the generated fn lands next to
 // its callsite and sees the trigger package's types (row schemas etc.).
-pub fn begin_chunk(em: &mut Emitter, view: &OView, with_deem: bool) {
+pub fn begin_chunk(em: &mut Emitter, view: &OView, extra_uses: str) {
     em.emit_target_pkg(view);
     // logos.lang.option covers the single-row query modes (`select first` /
     // `find` return Option<E> / Option<&Row>). hashmap/set/btree cover the
@@ -64,13 +64,17 @@ pub fn begin_chunk(em: &mut Emitter, view: &OView, with_deem: bool) {
     // (ADR 0016 M1a): a `<p>: &Writ` param's prelude calls writ_graph_edges.
     // logos.lang.writ.container — the Writ type the verbatim `&Writ` fn
     // signature references.
-    em.push_text("use logos.std.wql.writ_graph; use logos.lang.writ.container; ");
-    // logos.std.deem — ONLY when an engine-source param (`e: &IncrRec`) is in
-    // play (ADR 0016 M5): unconditional would demand the deem engine in every
-    // deem!-consumer's load closure (and wql itself must not import deem —
-    // module cycle). The user has it: an IncrRec value requires the import.
-    if with_deem {
-        em.push_text("use logos.std.deem; ");
+    em.push_text("use logos.lang.writ.container; ");
+    // Native-source materializer modules (ADR 0016 §6) — one `use` per
+    // DISTINCT module named by the natspec, built by MacroParams::
+    // native_use_text. Conditional BY CONSTRUCTION: a chunk imports
+    // logos.std.wql.writ_graph only when a graph param exists, logos.std.deem
+    // only when an engine param does (unconditional deem would demand the
+    // engine in every consumer's load closure — and wql itself must not
+    // import deem, module cycle), and a USER source's module only when that
+    // source is used. The emitter knows no source type.
+    if extra_uses.len() > 0i64 {
+        em.push_text(extra_uses);
     }
 }
 
