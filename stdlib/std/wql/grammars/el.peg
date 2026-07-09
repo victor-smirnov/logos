@@ -114,13 +114,22 @@
     SComp  : code(0x0010_0000_0000_0008) { plan: "ref RExpr" = 0, head: "ref SExpr" = 1, var: "str" = 2 }
     STuple : code(0x0010_0000_0000_0009) { items: "ref SExprArr" = 0 }   // tuple projection `(a, b, …)`
 
-    // The materialized argument list. `args: "argfan"` is a fan-out field type: an
-    // ARRAY_CAPTURE ($...) of the parsed arg edges is spread into the fixed slots
-    // a0..a7 via set_arg + set_len (ADR 0011 SExprArr write API) — multi-arg calls
-    // like contains(a,b) carry EVERY arg (was a 0-slot placeholder).
-    // A fan is not a TOM slot of its own, so it takes no `= KEY`: it writes the
-    // node's `count` (key 0) and slots a0..a7 (keys 1..8), per ir.logos.
-    SExprArr : code(0x0010_0000_0000_000A) { args: "argfan" }
+    // The materialized argument list. A fan-out field spreads an ARRAY_CAPTURE
+    // ($...) of parsed arg edges into the node's fixed slots — multi-arg calls
+    // like contains(a,b) carry EVERY arg.
+    //
+    // `fan <setter> <maxfn> <cap>`: the Logos backend uses <setter>/<maxfn> and
+    // emits `node.set_arg(i, …)` + `node.set_len(n)`, capped by `<maxfn>()`. The
+    // C++ backend has no such methods, so it writes TOM slots directly and needs
+    // the layout spelled out: the fan's `= KEY` is the FIRST SLOT key, `<cap>` is
+    // the slot count, and the node's length lives in its declared `count` field.
+    // (Both backends stop reading <maxfn> at the space, so <cap> is inert there.)
+    // Layout mirrors ir.logos:69 — `count: i32 = 0, a0..a7 = 1..8` — a convention
+    // every array schema in ir.logos/plan.logos follows.
+    SExprArr : code(0x0010_0000_0000_000A) {
+        count: "i32" = 0,
+        args:  "fan set_arg SEXPRARR_MAX 8" = 1
+    }
 
     // Relational tier — RExpr (ir.logos). The comprehension lowers to a scan
     // (+ optional filter) plan; the source is a captured IDENT name. Only the

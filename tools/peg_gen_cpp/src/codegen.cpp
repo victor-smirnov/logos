@@ -97,6 +97,35 @@ struct SchemaField {
         return ftype == "argfan" || ftype.rfind("fan ", 0) == 0;
     }
     bool is_ref() const { return ftype.rfind("ref ", 0) == 0; }
+
+    // "ref TARGET" → TARGET
+    std::string ref_target() const {
+        return is_ref() ? ftype.substr(4) : std::string{};
+    }
+    // "fan <setter> <maxfn> <cap>" → cap. The C++ backend writes TOM slots
+    // directly (it has no `set_arg`/`set_len` methods), so it needs the slot
+    // COUNT spelled out; both backends stop reading <maxfn> at the space, so
+    // the trailing <cap> is inert on the Logos side. -1 = not spelled.
+    int fan_cap() const {
+        if (!is_fan()) return -1;
+        // fields: "fan" <setter> <maxfn> <cap>
+        size_t i = 0, tok = 0;
+        while (i < ftype.size()) {
+            while (i < ftype.size() && ftype[i] == ' ') ++i;
+            size_t b = i;
+            while (i < ftype.size() && ftype[i] != ' ') ++i;
+            if (b == i) break;
+            if (++tok == 4) {
+                int v = 0;
+                for (size_t k = b; k < i; ++k) {
+                    if (ftype[k] < '0' || ftype[k] > '9') return -1;
+                    v = v * 10 + (ftype[k] - '0');
+                }
+                return v;
+            }
+        }
+        return -1;
+    }
 };
 struct SchemaDecl {
     std::string              name;
@@ -109,6 +138,22 @@ struct SchemaDecl {
         return nullptr;
     }
 };
+
+// Captures map 1:1 onto sequence position: `captures[i]` is produced by
+// `seq[i-1]`. So "was this capture a literal INTEGER/FLOAT/STRING token?" is
+// answerable at GENERATION time from the .peg alone — no runtime tagging.
+// Mirrors peg_gen_logos's capture_is_token_named (codegen.logos:367-374), and
+// it is exactly the condition under which the emitted `Token tok_<cap>_` local
+// is in scope: a bare TOKEN_REF at top level. Anything wrapped in OPT/REP/GROUP
+// yields a non-TOKEN_REF seq item here, so this returns false and the caller
+// falls back to the value-only path — the two facts stay in lockstep by
+// construction.
+static bool capture_is_token_named(const std::vector<Item>& seq, size_t capidx,
+                                   std::string_view tok) {
+    if (capidx < 1 || capidx > seq.size()) return false;
+    const Item& it = seq[capidx - 1];
+    return it.kind == int32_t(ast::TOKEN_REF) && it.name == tok;
+}
 
 struct GrammarInfo {
     // %meta
@@ -528,30 +573,38 @@ public:
     // Carrying them in the %schema block is what makes the .peg the single
     // source of truth for BOTH backends — and lets the generators emit the
     // C++ constants and the Logos `schema` items instead of hand-mirroring them.
-    [[noreturn]] static void check_schema_supported(const GrammarInfo& g,
-                                                    const std::string& path) {
-        std::fprintf(stderr,
-            "peg_gen: %s: %%schema codegen is not implemented in the C++ backend yet.\n",
-            path.c_str());
-        size_t missing_keys = 0, missing_codes = 0;
+    // Structural validation of a %schema block, run BEFORE any output file is
+    // opened. Everything checkable without an action context lives here so the
+    // common authoring mistakes are reported together, not one per re-run.
+    static void validate_schema(const GrammarInfo& g, const std::string& path) {
+        std::string errs;
         for (const auto& s : g.schemas) {
-            if (!s.has_type_code) ++missing_codes;
-            for (const auto& f : s.fields)
-                if (!f.has_key && !f.is_fan()) ++missing_keys;   // fans own no slot
+            if (!s.has_type_code)
+                errs += std::format("  {}: missing `code(0x…)` type code\n", s.name);
+            for (const auto& f : s.fields) {
+                if (f.is_fan()) {
+                    if (f.fan_cap() <= 0)
+                        errs += std::format("  {}.{}: fan needs a trailing slot "
+                                            "count: \"fan <setter> <maxfn> <cap>\"\n",
+                                            s.name, f.name);
+                    if (!f.has_key)
+                        errs += std::format("  {}.{}: fan needs `= <first slot key>`\n",
+                                            s.name, f.name);
+                    const SchemaField* len = s.find("count");
+                    if (!len || !len->has_key)
+                        errs += std::format("  {}.{}: fan node must declare "
+                                            "`count: \"i32\" = <key>`\n", s.name, f.name);
+                } else if (!f.has_key) {
+                    errs += std::format("  {}.{}: missing `= KEY`\n", s.name, f.name);
+                }
+            }
         }
-        if (missing_keys || missing_codes) {
-            std::fprintf(stderr,
-                "  missing: %zu field `= KEY` assignment(s), %zu node `code(...)` "
-                "type code(s).\n"
-                "  Spell them exactly as the mirrored `schema` item does, e.g.\n"
-                "    SBin : code(0x0010_0000_0000_0004) "
-                "{ op: \"i32\" = 0, lhs: \"ref SExpr\" = 1 }\n",
-                missing_keys, missing_codes);
-        }
+        if (errs.empty()) return;
         std::fprintf(stderr,
-            "  Schema nodes seen: %zu.  arena=%s  ref_wrap=%s\n",
-            g.schemas.size(), g.arena_ext ? "external" : "internal",
-            g.ref_wrap.empty() ? "WRef(default)" : g.ref_wrap.c_str());
+            "peg_gen: %s: the C++ backend needs the %%schema block to mirror its\n"
+            "ADR-0011 `schema` item exactly — `S : code(0x…) { f: \"ty\" = KEY }`.\n"
+            "Unlike the Logos backend there is no second pass to resolve them.\n%s",
+            path.c_str(), errs.c_str());
         std::exit(1);
     }
 
@@ -703,9 +756,24 @@ private:
 
     // ── Header ──────────────────────────────────────────────────────────────
 
+    // Emission is ATOMIC: build the whole file in memory, write it once at the
+    // end. The generator can bail mid-emission on a grammar error (see
+    // schema_error), and a truncated .hpp/.cpp left on disk would be picked up
+    // by a later build.
+    struct AtomicFile {
+        std::ostringstream buf;
+        fs::path           path;
+        explicit AtomicFile(fs::path p) : path(std::move(p)) {}
+        ~AtomicFile() {
+            if (std::uncaught_exceptions()) return;
+            std::ofstream f(path);
+            f << buf.str();
+        }
+    };
+
     void emit_header() {
-        std::ofstream f(out_dir_ / (g_.output + ".hpp"));
-        CodeWriter w(f);
+        AtomicFile out(out_dir_ / (g_.output + ".hpp"));
+        CodeWriter w(out.buf);
 
         w.line("// Generated by peg_gen — DO NOT EDIT.");
         w.line();
@@ -715,6 +783,7 @@ private:
         w.line("#include <unordered_map>");
         w.line("#include <vector>");
         w.line("#include <utility>");
+        if (g_.schema_mode()) w.line("#include <charconv>");   // %schema value decoders
         w.line("#include <logos/core/named_code.hpp>");
         w.line("#include <logos/writ/compat.hpp>");
         for (const auto& imp : g_.imports)
@@ -884,6 +953,24 @@ private:
         if (!g_.tokens.empty()) {
             w.fmt("using TK = TK_{};", to_upper(g_.name));
             w.line("struct Token { TK kind; std::string_view text; uint32_t line = 0; };");
+            if (g_.schema_mode()) {
+                // %schema value decoders. A `WAny`/scalar field encodes the RAW
+                // TEXT of the token that produced it, so the generated parser
+                // needs these three. Counterparts of the Logos backend's
+                // wstr_decode_i64 / wstr_decode_f64 / wstr_unquote.
+                w.line("static inline int64_t peg_decode_i64(std::string_view s) {");
+                w.line("    int64_t v = 0; std::from_chars(s.data(), s.data() + s.size(), v); return v;");
+                w.line("}");
+                w.line("static inline double peg_decode_f64(std::string_view s) {");
+                w.line("    double v = 0; std::from_chars(s.data(), s.data() + s.size(), v); return v;");
+                w.line("}");
+                w.line("// Strip one layer of surrounding quotes (the token text includes them).");
+                w.line("static inline std::string_view peg_unquote(std::string_view s) {");
+                w.line("    if (s.size() >= 2 && (s.front() == '\"' || s.front() == '\\'')");
+                w.line("        && s.back() == s.front()) return s.substr(1, s.size() - 2);");
+                w.line("    return s;");
+                w.line("}");
+            }
             // Pos-indexed token cache cell: the scanned token plus the (pos,line)
             // it ends at. Lexing is a pure function of (pos, source), so caching
             // by entry pos lets every backtracking re-visit skip the re-scan.
@@ -938,8 +1025,8 @@ private:
     // ── Source ───────────────────────────────────────────────────────────────
 
     void emit_source() {
-        std::ofstream f(out_dir_ / (g_.output + ".cpp"));
-        CodeWriter w(f);
+        AtomicFile out(out_dir_ / (g_.output + ".cpp"));
+        CodeWriter w(out.buf);
 
         w.line("// Generated by peg_gen — DO NOT EDIT.");
         w.line();
@@ -2061,7 +2148,7 @@ private:
 
         // Action: build AST node.  rcap_var_ is still set here for ARRAY_CAPTURE use.
         if (alt.action) {
-            emit_action(w, *alt.action, captures);
+            emit_action(w, *alt.action, captures, alt.seq);
             rcap_var_.clear();
         } else if (alt.seq.size() == 1) {
             rcap_var_.clear();
@@ -2343,7 +2430,7 @@ private:
                 }
                 if (sa.action) {
                     // Emit action: stores result in `cap`; caller emits goto done_lbl.
-                    emit_action(w, *sa.action, sa_caps, cap);
+                    emit_action(w, *sa.action, sa_caps, sa.seq, cap);
                 } else if (sa_caps.size() == 2) {
                     w.fmt("{} = {};", cap, sa_caps[1]);   // single-item passthrough
                 } else {
@@ -2434,16 +2521,221 @@ private:
     // out_cap: if empty → emit "return result_" (rule-level alt);
     //          if non-empty → emit "out_cap = result_" (GROUP sub-alt, caller emits goto).
 
+    // ── %schema node construction ─────────────────────────────────────────
+    //
+    // Mirrors peg_gen_logos's emit_schema_action/emit_schema_field
+    // (codegen.logos:3545-3795), lowered to raw TOM writes: the Logos backend
+    // builds a TYPED struct (`doc.make::<SBin>()`, `node.lhs = …`) and lets
+    // logosc map field→key; C++ has no such second pass, so every write is a
+    // `put(<explicit key>, …)` taken from the %schema block, and the ADR-0011
+    // type code is stamped by hand.
+    //
+    // Notably: schema nodes get NO SRC_LINE (the numeric dialect always adds
+    // one; a schema node has no such declared field).
+    [[noreturn]] void schema_error(const std::string& msg) {
+        std::fprintf(stderr, "peg_gen: %s: %s\n", g_.name.c_str(), msg.c_str());
+        std::exit(1);
+    }
+
+    // The C++ expression yielding the raw source text of a captured token —
+    // valid exactly when capture_is_token_named() holds for that index.
+    static std::string tok_text(const std::string& cap) {
+        return "tok_" + cap + "_.text";
+    }
+
+    void emit_schema_field(CodeWriter& w, const SchemaDecl& sd,
+                           const SchemaField& sf, const ActionField& field,
+                           const std::vector<std::string>& captures,
+                           const std::vector<Item>& seq) {
+        const auto& e = field.expr;
+        const std::string arena = "logos::writ::WritAccess::arena(doc_)";
+        auto put = [&](const std::string& key, const std::string& val) {
+            w.fmt("node->put({}, {}, {}).get();", key, val, arena);
+        };
+        size_t idx = size_t(e.index);
+        bool is_cap  = e.kind == int32_t(ast::CAPTURE) && idx < captures.size()
+                       && !captures[idx].empty();
+        bool is_fold = e.kind == int32_t(ast::FOLD_CAPTURE) && !cur_fold_var_.empty();
+        std::string cv = is_cap ? captures[idx] : (is_fold ? cur_fold_var_ : "");
+        bool tok_int = is_cap && capture_is_token_named(seq, idx, "INTEGER");
+        bool tok_flt = is_cap && capture_is_token_named(seq, idx, "FLOAT");
+        bool tok_str = is_cap && capture_is_token_named(seq, idx, "STRING");
+
+        // ── fan: spread an ARRAY_CAPTURE across the node's slot keys ──
+        if (sf.is_fan()) {
+            int cap_n = sf.fan_cap();
+            if (cap_n <= 0)
+                schema_error(std::format(
+                    "{}.{}: fan field needs a slot count — spell it "
+                    "`\"fan <setter> <maxfn> <cap>\"`", sd.name, sf.name));
+            if (!sf.has_key)
+                schema_error(std::format(
+                    "{}.{}: fan field needs `= <first slot key>`", sd.name, sf.name));
+            const SchemaField* len = sd.find("count");
+            if (!len || !len->has_key)
+                schema_error(std::format(
+                    "{}.{}: a fan node must declare its length field "
+                    "`count: \"i32\" = <key>`", sd.name, sf.name));
+            if (e.kind != int32_t(ast::ARRAY_CAPTURE) || rcap_var_.empty())
+                schema_error(std::format(
+                    "{}.{}: a fan field must be written from `$...`", sd.name, sf.name));
+            // Items past the cap are dropped — same as the Logos backend.
+            w.fmt("{{ uint64_t n_ = {0}.size(); if (n_ > {1}u) n_ = {1}u;", rcap_var_, cap_n);
+            w.indent();
+            w.fmt("for (uint64_t i_ = 0; i_ < n_; ++i_) "
+                  "node->put(uint8_t({} + i_), {}.get(i_), {}).get();",
+                  sf.key, rcap_var_, arena);
+            put(std::format("uint8_t({})", len->key),
+                std::format("AnyVal::from_value(int32_t(n_))"));
+            w.dedent();
+            w.line("}");
+            return;
+        }
+
+        const std::string key = std::format("uint8_t({})", sf.key);
+
+        // ── ref T: an edge to a child node. In Logos this wraps in WRef<T>;
+        //    WRef has no C++ runtime type, so a ref field is a plain ref AnyVal.
+        //    Any non-capture expr (incl. the `NULLBASE` sentinel) means "null".
+        if (sf.is_ref()) {
+            if (is_cap || is_fold) put(key, cv);
+            else                   put(key, "AnyVal{}");
+            return;
+        }
+
+        // ── WAny: a dynamically typed value. The captured token's KIND decides
+        //    the encoding, and it is known statically (see capture_is_token_named).
+        if (sf.ftype == "WAny") {
+            if (tok_int)
+                put(key, std::format("doc_.make_int(peg_decode_i64({})).get()", tok_text(cv)));
+            else if (tok_flt)
+                put(key, std::format("doc_.make_f64(peg_decode_f64({})).get()", tok_text(cv)));
+            else if (tok_str)
+                put(key, std::format(
+                    "doc_.make_string(peg_unquote({})).get().to_anyval()", tok_text(cv)));
+            else if (is_cap || is_fold) put(key, cv);
+            else if (e.kind == int32_t(ast::STR_LIT))
+                put(key, std::format("doc_.make_string(\"{}\").get().to_anyval()", e.value));
+            else if (e.kind == int32_t(ast::INT_LIT))
+                put(key, std::format("doc_.make_int({}).get()", e.int_val));
+            else if (e.kind == int32_t(ast::BOOL_LIT))
+                put(key, std::format("AnyVal::from_value(bool({}))", e.int_val ? 1 : 0));
+            else put(key, "doc_.make_int(0).get()");
+            return;
+        }
+
+        // ── str: the capture already IS an interned arena string.
+        if (sf.ftype == "str") {
+            if (e.kind == int32_t(ast::STR_LIT))
+                put(key, std::format("doc_.make_string(\"{}\").get().to_anyval()", e.value));
+            else if (is_cap || is_fold) put(key, cv);
+            else put(key, "doc_.make_string(\"\").get().to_anyval()");
+            return;
+        }
+
+        // ── bool: from a capture this is an OPT-PRESENCE test, not a decode.
+        if (sf.ftype == "bool") {
+            if (is_cap || is_fold)
+                put(key, std::format("AnyVal::from_value(!{}.is_null())", cv));
+            else if (e.kind == int32_t(ast::BOOL_LIT))
+                put(key, std::format("AnyVal::from_value(bool({}))", e.int_val ? 1 : 0));
+            else put(key, "AnyVal::from_value(false)");
+            return;
+        }
+
+        // ── scalar (i8..i64 / u8..u64 / i56 / isize / usize) ──
+        const std::string cast = scalar_cast(sf.ftype);
+        if (e.kind == int32_t(ast::INT_LIT))
+            put(key, std::format("AnyVal::from_value({}({}))", cast, e.int_val));
+        else if (e.kind == int32_t(ast::BOOL_LIT))
+            put(key, std::format("AnyVal::from_value(bool({}))", e.int_val ? 1 : 0));
+        else if (tok_flt)
+            put(key, std::format("AnyVal::from_value({}(peg_decode_f64({})))", cast, tok_text(cv)));
+        else if (tok_int)
+            put(key, std::format("AnyVal::from_value({}(peg_decode_i64({})))", cast, tok_text(cv)));
+        else if (is_cap || is_fold)
+            // The Logos backend silently decodes ANY capture's text here (a null
+            // capture yielding 0). That is the silent-fallthrough class we are
+            // fixing, so refuse instead: a scalar written from a non-token
+            // capture has no defined encoding.
+            schema_error(std::format(
+                "{}.{}: scalar field written from a capture that is not a literal "
+                "INTEGER/FLOAT token — no defined encoding", sd.name, sf.name));
+        else
+            put(key, std::format("AnyVal::from_value({}(0))", cast));
+    }
+
+    // Declared width → the C++ integer the AnyVal Pod is narrowed to.
+    static std::string scalar_cast(const std::string& ft) {
+        if (ft == "u8")  return "uint8_t";
+        if (ft == "i8")  return "int8_t";
+        if (ft == "u16") return "uint16_t";
+        if (ft == "i16") return "int16_t";
+        if (ft == "u32") return "uint32_t";
+        if (ft == "i32") return "int32_t";
+        return "int64_t";   // i56 / i64 / u64 / isize / usize
+    }
+
+    void emit_schema_action(CodeWriter& w, const Action& action,
+                            const std::vector<std::string>& captures,
+                            const std::vector<Item>& seq,
+                            const std::string& out_cap) {
+        const SchemaDecl* sd = nullptr;
+        for (const auto& f : action.fields)
+            if (f.name == "CODE" && f.expr.kind == int32_t(ast::STR_LIT))
+                sd = g_.find_schema(f.expr.value);
+        if (!sd)
+            schema_error("schema-mode alt has no `CODE: \"<SchemaType>\"` field "
+                         "naming a declared %schema node");
+        if (!sd->has_type_code)
+            schema_error(std::format("schema node '{}' has no `code(0x…)` type code",
+                                     sd->name));
+
+        // Slot budget: one per plain field, cap+1 for a fan (slots + count).
+        // No SRC_LINE — schema nodes declare no such field.
+        int slots = 0;
+        for (const auto& f : action.fields) {
+            if (f.name == "CODE") continue;
+            const SchemaField* sf = sd->find(f.name);
+            if (!sf)
+                schema_error(std::format("schema node '{}' has no field '{}' "
+                                         "(declare it in the %schema block)",
+                                         sd->name, f.name));
+            if (!sf->is_fan() && !sf->has_key)
+                schema_error(std::format("{}.{}: missing `= KEY`", sd->name, sf->name));
+            slots += sf->is_fan() ? sf->fan_cap() + 1 : 1;
+        }
+
+        w.fmt("auto* node = logos::writ::WritAccess::raw_tiny_map(doc_, {}).get();",
+              slots > 0 ? slots : 1);
+        w.fmt("node->set_schema_type_code({}ull);", sd->type_code);
+
+        for (const auto& f : action.fields) {
+            if (f.name == "CODE") continue;
+            emit_schema_field(w, *sd, *sd->find(f.name), f, captures, seq);
+        }
+
+        w.line("{");
+        w.indent();
+        w.line("AnyVal result_;");
+        w.line("result_.set_ref(node);");
+        if (out_cap.empty()) w.line("return result_;");
+        else                 w.fmt("{} = result_;", out_cap);
+        w.dedent();
+        w.line("}");
+    }
+
     void emit_action(CodeWriter& w, const Action& action,
                      const std::vector<std::string>& captures,
+                     const std::vector<Item>& seq,
                      const std::string& out_cap = "") {
         // Schema mode is a whole-grammar switch — a grammar builds either raw
         // numeric-key TOMs (%fields/%nodes) or typed schema nodes (%schema),
-        // never both. codegen() rejects schema mode up front; this is the
-        // belt-and-braces guard against ever falling into the numeric path,
-        // which would emit references to `<ns>::SBin` constants that no
-        // %nodes block declares.
-        if (g_.schema_mode()) check_schema_supported(g_, g_.name);
+        // never both.
+        if (g_.schema_mode()) {
+            emit_schema_action(w, action, captures, seq, out_cap);
+            return;
+        }
         int slot_count = int(action.fields.size()) + 2; // +1 for CODE, +1 for SRC_LINE
         w.fmt("auto* node = logos::writ::WritAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
@@ -2695,9 +2987,10 @@ void codegen(const std::vector<ResolvedModule>& modules, const CodegenOptions& o
             continue;
         }
 
-        // Validate BEFORE opening any output file: a mid-emission bail would
-        // leave a truncated .cpp on disk that a later build could pick up.
-        if (g.schema_mode()) CodeGen::check_schema_supported(g, mod.path);
+        // Validate BEFORE emitting: report every structural mistake at once.
+        // (Emission is atomic anyway — see CodeGen::AtomicFile — so a later
+        // bail cannot leave a truncated artifact behind.)
+        if (g.schema_mode()) CodeGen::validate_schema(g, mod.path);
 
         std::println("peg_gen: generating {}.hpp / .cpp  ({})",
             g.output, mod.path);
