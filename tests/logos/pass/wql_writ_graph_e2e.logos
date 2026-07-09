@@ -1,0 +1,145 @@
+// wql_writ_graph_e2e — the STATIC graph source (ADR 0016 M1a). A `<p>: &Writ`
+// deem! parameter registers as a NATIVE rel: the generic graph-edge relation
+// (parent, key, idx, child, kind, tag, vi, vs) materialized by
+// logos.std.wql.writ_graph::writ_graph_edges — the compile-time twin of the
+// runtime engine's bind_source_tree. Asserts:
+//   (a) flat scan + filters over the edge vocabulary (typed str/i64 columns);
+//   (b) a RECURSIVE rel over the graph param (dsc — subtree membership) +
+//       subtree harvest (dsc ⋈ graph);
+//   (c) graph param JOINED with an ordinary slice param in one query;
+//   (d) two graph params in one deem! (two documents side by side);
+//   (e) ORACLE — counts agree with an independent hand-walk of the same doc.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.mem.writ.parser;        // parse_writ
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.wql;
+
+// (c): an ordinary slice param joined against graph edges by key name
+struct Label { pub key: str, pub title: str }
+
+// ── the static queries ───────────────────────────────────────────────────────
+resource engines = deem!(g: &Writ) {
+    from g e where e.key == "engine" select e.vs : str
+};
+resource nmaps = deem!(g: &Writ) {
+    from g e where e.kind == "map" select e.child
+};
+resource ints_under_db = deem!(g: &Writ) {
+    rel dsc(a: i64, b: i64) {
+        from g s where s.key == "db" select (s.parent, s.child);
+        from dsc d join g e on e.parent == d.b select (d.a, e.child);
+    }
+    from dsc d join g e on e.child == d.b
+    where e.kind == "i64" select e.vi order by e.vi
+};
+resource titled = deem!(g: &Writ, labels: &[Label]) {
+    from g e join labels l on l.key == e.key select (l.title, e.vi)
+};
+resource both_engines = deem!(a: &Writ, b: &Writ) {
+    from a e1 join b e2 on e2.key == e1.key
+    where e1.key == "engine" select (e1.vs, e2.vs)
+};
+
+// ── independent oracle walk ──────────────────────────────────────────────────
+fn count_maps(v: WAny) -> i64 {
+    let mut n: i64 = 0i64;
+    if v.is_map() {
+        let m: &WMap<WString, WAny> = v.as_map();
+        let mut s: i64 = 0i64;
+        while s < m.slots() {
+            if !m.key_at(s).is_null() {
+                let cv: WAny = m.val_at(s);
+                if cv.is_map() { n = n + 1i64; }
+                n = n + count_maps(cv);
+            }
+            s = s + 1i64;
+        }
+        return n;
+    }
+    if v.is_array() {
+        let a: &WArray<WAny> = v.as_array();
+        let mut i: i64 = 0i64;
+        while i < a.len() {
+            let cv: WAny = a.get(i);
+            if cv.is_map() { n = n + 1i64; }
+            n = n + count_maps(cv);
+            i = i + 1i64;
+        }
+    }
+    return n;
+}
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(
+        r#"{
+            service: "api",
+            replicas: 3,
+            ports: [8080, 8443],
+            db:    { engine: "pg", host: "db1", pool: { min: 2, max: 16 } },
+            cache: { engine: "redis", host: "c1" },
+            debug: false
+        }"#);
+    if doc.root().is_null() { return 90i32; }
+
+    // ── (a) flat: engines anywhere ───────────────────────────────────────────
+    let eng: Vec<str> = match engines(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if eng.len() != 2i64 { return 2i32; }
+    // source order: db before cache
+    if !str_eq(eng.get(0i64), "pg") { return 3i32; }
+    if !str_eq(eng.get(1i64), "redis") { return 4i32; }
+
+    // ── (e) oracle: map-edge count agrees with the hand walk ───────────────
+    let maps: Vec<i64> = match nmaps(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e2) => { return 5i32; } };
+    if maps.len() != count_maps(doc.root()) { return 6i32; }
+    if maps.len() != 3i64 { return 7i32; }          // db, pool, cache
+
+    // ── (b) recursion over the graph param ─────────────────────────────────
+    let vals: Vec<i64> = match ints_under_db(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e3) => { return 8i32; } };
+    if vals.len() != 2i64 { return 9i32; }
+    if vals.get(0i64) != 2i64 { return 10i32; }     // pool.min
+    if vals.get(1i64) != 16i64 { return 11i32; }    // pool.max
+
+    // ── (c) graph ⋈ slice ───────────────────────────────────────────────────
+    let labels: [Label; 2] = [
+        Label { key: "replicas", title: "replica count" },
+        Label { key: "min",      title: "pool floor" },
+    ];
+    let tt: Vec<(str, i64)> = match titled(&doc, &labels[..])
+    { Result::Ok(v) => { v } Result::Err(_e4) => { return 12i32; } };
+    if tt.len() != 2i64 { return 13i32; }
+    // order-insensitive: both (title, value) pairs must be present
+    let mut saw_rep: bool = false;
+    let mut saw_min: bool = false;
+    let mut ti: i64 = 0i64;
+    while ti < tt.len() {
+        let r: (str, i64) = tt.get(ti);
+        if str_eq(r.0, "replica count") && r.1 == 3i64 { saw_rep = true; }
+        if str_eq(r.0, "pool floor") && r.1 == 2i64 { saw_min = true; }
+        ti = ti + 1i64;
+    }
+    if !saw_rep { return 14i32; }
+    if !saw_min { return 15i32; }
+
+    // ── (d) two graph params in one query ───────────────────────────────────
+    let doc2: Writ = parse_writ(r#"{ svc: { engine: "mysql" } }"#);
+    if doc2.root().is_null() { return 91i32; }
+    let be: Vec<(str, str)> = match both_engines(&doc, &doc2)
+    { Result::Ok(v) => { v } Result::Err(_e5) => { return 16i32; } };
+    if be.len() != 2i64 { return 17i32; }           // {pg,redis} × {mysql}
+    let b0: (str, str) = be.get(0i64);
+    if !str_eq(b0.1, "mysql") { return 18i32; }
+
+    return 0i32;
+}

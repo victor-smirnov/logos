@@ -69,6 +69,12 @@ pub struct MacroParams {
     // the lattice order (`<` for min, `>` for max) the absorb gate uses.
     pub rel_is_agg:  [bool; 8],
     pub rel_agg_dir: [i32; 8],
+    // ── NATIVE rels (ADR 0016 M1a): sources with an ENGINE-SUPPLIED
+    // materialization instead of query bodies. Today: `<p>: &Writ` params —
+    // the generic graph-edge relation (writ_graph_edges). A native rel has
+    // no parse-side RQRel (skipped by body passes + fn emission); its
+    // prelude line calls the native helper directly.
+    pub rel_native:  [bool; 8],
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -100,6 +106,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_n: 0i64,
         rel_is_agg:  [false; 8],
         rel_agg_dir: [0i32; 8],
+        rel_native:  [false; 8],
     };
 }
 

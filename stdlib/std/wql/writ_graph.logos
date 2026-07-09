@@ -1,0 +1,147 @@
+// logos.std.wql.writ_graph — the NATIVE materialization behind the `deem!`
+// graph-source parameter (`g: &Writ`, ADR 0016 M1a): the generic edge
+// relation of a Writ object graph, as one flat Vec of 8-tuples.
+//
+// The STATIC twin of the runtime engine's virtual scan (bind_source_tree,
+// std.deem exec): identical vocabulary and identical graph discipline —
+//   • one row per EDGE, preorder from the document root;
+//   • every edge emits (a shared child appears once per incoming edge);
+//   • a container's children EXPAND exactly once (visited set on handles) —
+//     DAGs don't duplicate subtrees, cycles terminate;
+//   • container child ids are the Writ node handles (stable, resolvable);
+//     scalar-leaf ids are synthetic FNV(parent handle, edge ordinal) — a
+//     leaf's VALUE word is not an identity (equal ints share a Pod word,
+//     equal strings may intern);
+//   • TOM rows (schema'd tiny object maps) expand with idx = the 6-bit field
+//     key code; other ref tags surface as kind "obj" (open world — visible
+//     and joinable, expanded once the per-tag traverse protocol lands).
+//
+// Row tuple, in column order (the deem! walker registers these names):
+//   (parent, key, idx, child, kind, tag, vi, vs)
+//    i64     str  i64  i64    str   i64  i64 str
+// `vi` carries an i64 leaf value (bool as 0/1), `vs` a string leaf value —
+// concrete types (the static engine has no dyn tier); `kind`/`tag`
+// discriminate. `str` cells are VIEWS into the source document: the Writ
+// must outlive the returned Vec (the generated fn's borrow does this).
+package logos.std.wql.writ_graph;
+
+use logos.lang.writ.container;    // Writ
+use logos.lang.writ.anyval;       // WAny — tag dispatch + type_code
+use logos.lang.writ.array;        // WArray
+use logos.lang.writ.wmap;         // WMap<WString, WAny> / WMap<Wu6, WAny>
+use logos.lang.writ.wstring;      // as_wstr — null-safe str view
+use logos.lang.str;
+use logos.lang.arith;             // wrapping_mul — FNV mixes wrap by design
+use logos.mem.collections.vec;
+
+// One graph edge row (the shared vocabulary; see the module doc).
+pub type WritEdgeRow = (i64, str, i64, i64, str, i64, i64, str);
+
+fn wg_fnv2(a: i64, b: i64) -> i64 {
+    let mut hh: u64 = 14695981039346656037u64;
+    hh = wrapping_mul(hh ^ (a as u64), 1099511628211u64);
+    hh = wrapping_mul(hh ^ (b as u64), 1099511628211u64);
+    return hh as i64;
+}
+
+fn wg_kind(v: WAny) -> str {
+    if v.is_map()     { return "map"; }
+    if v.is_array()   { return "arr"; }
+    if v.is_tinymap() { return "tom"; }
+    if v.is_string()  { return "str"; }
+    if v.is_null()    { return "null"; }
+    if v.is_bool()    { return "bool"; }
+    if v.is_float()   { return "f64"; }
+    if v.is_int()     { return "i64"; }
+    return "obj";
+}
+
+fn wg_is_container(v: WAny) -> bool {
+    return v.is_map() || v.is_array() || v.is_tinymap();
+}
+
+fn wg_seen_has(seen: &Vec<u64>, h: u64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < seen.len() {
+        if seen.get(i) == h { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: str, idx: i64,
+           child: WAny, ord: i64) {
+    let cid: i64 = if wg_is_container(child) { child.raw() as i64 }
+                   else { wg_fnv2(parent.raw() as i64, ord) };
+    let mut vi: i64 = 0i64;
+    if child.is_int()       { vi = child.as_i64(); }
+    else if child.is_bool() { vi = if child.as_bool() { 1i64 } else { 0i64 }; }
+    out.push((parent.raw() as i64, key, idx, cid, wg_kind(child),
+              child.type_code() as i64, vi, child.as_wstr()));
+}
+
+fn wg_descend(child: WAny, out: &mut Vec<WritEdgeRow>, seen: &mut Vec<u64>) {
+    if !wg_is_container(child) { return; }
+    let hw: u64 = child.raw() as u64;
+    if wg_seen_has(seen, hw) { return; }   // expanded already (DAG/cycle)
+    seen.push(hw);
+    wg_walk(child, out, seen);
+}
+
+fn wg_walk(v: WAny, out: &mut Vec<WritEdgeRow>, seen: &mut Vec<u64>) {
+    if v.is_map() {
+        let m: &WMap<WString, WAny> = v.as_map();
+        let mut ord: i64 = 0i64;
+        let mut s: i64 = 0i64;
+        while s < m.slots() {                 // raw slots; empty key as null
+            let kv: WAny = m.key_at(s);
+            if !kv.is_null() {
+                let cv: WAny = m.val_at(s);
+                wg_emit(out, v, kv.as_wstr(), 0i64 - 1i64, cv, ord);
+                wg_descend(cv, out, seen);
+                ord = ord + 1i64;
+            }
+            s = s + 1i64;
+        }
+        return;
+    }
+    if v.is_array() {
+        let a: &WArray<WAny> = v.as_array();
+        let mut i: i64 = 0i64;
+        while i < a.len() {
+            let cv: WAny = a.get(i);
+            wg_emit(out, v, "", i, cv, i);
+            wg_descend(cv, out, seen);
+            i = i + 1i64;
+        }
+        return;
+    }
+    if v.is_tinymap() {
+        // a TOM (schema'd row): fields edge with idx = the 6-bit key code
+        let t: &WMap<Wu6, WAny> = unsafe { &*(v.resolve() as *const WMap<Wu6, WAny>) };
+        let mut ord: i64 = 0i64;
+        let mut k: i64 = 0i64;
+        while k < 52i64 {
+            if t.contains(k as u8) {
+                let cv: WAny = t.get(k as u8);
+                wg_emit(out, v, "", k, cv, ord);
+                wg_descend(cv, out, seen);
+                ord = ord + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+}
+
+/// The generic edge relation of `root`'s object graph (see the module doc for
+/// the row vocabulary and the graph discipline). Row `str` cells are views
+/// into the document — keep `root` alive while the rows live.
+pub fn writ_graph_edges(root: &Writ) -> Vec<WritEdgeRow> {
+    let mut out: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
+    let rv: WAny = root.root();
+    if rv.is_null() { return out; }
+    let mut seen: Vec<u64> = vec_new::<u64>();
+    seen.push(rv.raw() as u64);
+    wg_walk(rv, &mut out, &mut seen);
+    return out;
+}

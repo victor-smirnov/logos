@@ -247,14 +247,19 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
         if prm.is_slice[i] {
             return SrcRes { ok: true, is_rel: false, idx: i, row_ty: prm.tys[i] };
         }
-        let mut m1: String = String::new();
-        m1.push_str("wql!: source `");
-        m1.push_str(src);
-        m1.push_str("` is not a slice — declare it as `");
-        m1.push_str(src);
-        m1.push_str(": &[RowTy]` in the deem!(…) parameter list");
-        error(string_as_str(&m1));
-        return src_fail();
+        // A GRAPH param (`<p>: &Writ`, ADR 0016 M1a) is a source too — it
+        // resolves through its NATIVE rel (registered under the param's own
+        // name); fall through to the rel lookup below.
+        if !str_eq(prm.tys[i], "Writ") {
+            let mut m1: String = String::new();
+            m1.push_str("wql!: source `");
+            m1.push_str(src);
+            m1.push_str("` is not a slice — declare it as `");
+            m1.push_str(src);
+            m1.push_str(": &[RowTy]` (or `: &Writ` for a graph source) in the deem!(…) parameter list");
+            error(string_as_str(&m1));
+            return src_fail();
+        }
     }
     let ri: i64 = prm.rel_find_name(src);
     if ri >= 0i64 {
@@ -1373,6 +1378,12 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                                       String::new(), String::new(), String::new(), String::new()];
     let mut row_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
+    // Frame-held name backing for NATIVE rels (ADR 0016 M1a) — same lifetime
+    // discipline as src_bufs/dsrc_bufs above.
+    let mut nat_src_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                         String::new(), String::new(), String::new(), String::new()];
+    let mut nat_dsrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new()];
 
     if prog.has_rels() {
         let rels: RQRelArr = prog.rels_arr();
@@ -1454,6 +1465,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             }
             i = i + 1i64;
         }
+        // ── NATIVE rels (ADR 0016 M1a): `<p>: &Writ` params register as the
+        // generic graph-edge relation AFTER the parse-side rels (registry
+        // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
+        // by registry idx), BEFORE the body pass (bodies may reference them).
+        if !register_native_rels(prm, &mut nat_src_bufs, &mut nat_dsrc_bufs) { return false; }
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
         // — recursion is legal, realized by the SCC fixpoint. Dep edges + the
@@ -1474,13 +1490,23 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             i2 = i2 + 1i64;
         }
         // ── Condense + stratify (slice C) ───────────────────────────────────
-        scc = compute_rel_scc(&deps, nr);
+        // (Over the FULL registry incl. native rels — they are body-less
+        // singleton leaves, topo-ordered before their dependents.)
+        scc = compute_rel_scc(&deps, prm.rel_n);
         if !check_stratified(prm, &deps, &scc) { return false; }
         // ── Track A: warded Datalog± existential-head verdict ───────────────
         // (Runs on the COMPLETE registry/deps/SCC, before any emission. Vanilla
         // Datalog — no `fresh(...)` marker — takes the fast path unchanged; an
         // existential program is classified and GRACEFULLY refuses lowering.)
         if !ward_verdict(rels, nr, prm, h) { return false; }
+    } else {
+        // No parse-side rels — native params may still register (an entry
+        // query scanning `g` directly); condense the body-less registry so
+        // the prelude loop below materializes them.
+        if !register_native_rels(prm, &mut nat_src_bufs, &mut nat_dsrc_bufs) { return false; }
+        if prm.rel_n > 0i64 {
+            scc = compute_rel_scc(&deps, prm.rel_n);
+        }
     }
 
     // ── The ENTRY query: stamp fn name + resolve/rewrite sources ────────────
@@ -1600,7 +1626,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     // recursive SCCs call the semi-naïve SCC fn (member Vecs as out-params).
     let mut prelude: String = String::new();
     if prm.rel_n > 0i64 {
-        if !emit_rel_fns(prog.rels_arr(), name, params_text, prm, &scc, h) { return false; }
+        // helper fns exist only for PARSE-SIDE rels (native rels materialize
+        // via their stdlib helper in the prelude — nothing to emit).
+        if prog.has_rels() {
+            if !emit_rel_fns(prog.rels_arr(), name, params_text, prm, &scc, h) { return false; }
+        }
         let mut p: i64 = 0i64;
         while p < scc.nscc {
             let c: i64 = scc.order[p];
@@ -1643,11 +1673,73 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
     }
 }
 
+// ── NATIVE rels (ADR 0016 M1a): register each `<p>: &Writ` param as the
+// generic graph-edge relation of the writ_graph vocabulary. Registered AFTER
+// the parse-side rels (registry idx 0..nr-1 stays parse-aligned) and BEFORE
+// the body pass (bodies may scan them). Column names/types mirror
+// logos.std.wql.writ_graph::WritEdgeRow.
+fn register_native_rels(prm: &mut MacroParams,
+                        srcb: &mut [String; 8], dsrcb: &mut [String; 8]) -> bool {
+    let mut p: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while p < prm.n {
+        if !prm.is_slice[p] && str_eq(prm.tys[p], "Writ") {
+            let nm: str = prm.names[p];
+            if k >= 8i64 || prm.rel_n >= 8i64 {
+                error("wql!: too many rels (max 8, graph params included)");
+                return false;
+            }
+            srcb[k].push_str("__rel_");
+            srcb[k].push_str(nm);
+            srcb[k].push_str("_sl");
+            dsrcb[k].push_str("__dl_");
+            dsrcb[k].push_str(nm);
+            dsrcb[k].push_str("_sl");
+            let idx: i64 = prm.rel_add(nm, string_as_str(&srcb[k]),
+                                       string_as_str(&dsrcb[k]),
+                                       "(i64, str, i64, i64, str, i64, i64, str)");
+            if idx < 0i64 { error("wql!: too many rels (max 8, graph params included)"); return false; }
+            prm.rel_native[idx] = true;
+            prm.rel_add_col("parent", "i64");
+            prm.rel_add_col("key", "str");
+            prm.rel_add_col("idx", "i64");
+            prm.rel_add_col("child", "i64");
+            prm.rel_add_col("kind", "str");
+            prm.rel_add_col("tag", "i64");
+            prm.rel_add_col("vi", "i64");
+            prm.rel_add_col("vs", "str");
+            k = k + 1i64;
+        }
+        p = p + 1i64;
+    }
+    return true;
+}
+
 // One-shot rel `r` (singleton SCC, no self-edge — the slice-B path):
 //   let __rel_<r>: Vec<Row> = __wql_<fn>_rel_<r>(<params>[, dep slices]);
 //   let __rel_<r>_sl: &[Row] = __rel_<r>.as_slice();
+// NATIVE rel (ADR 0016 M1a): the materialization is the writ_graph helper —
+//   let __rel_<p>: Vec<WritEdgeRow> = writ_graph_edges(<p>);
+// (no `?` — the native walk has no EL fault path).
 fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                         scc: &RelScc, r: i64) {
+    if prm.rel_native[r] {
+        prelude.push_str("    let __rel_");
+        prelude.push_str(prm.rel_names[r]);
+        prelude.push_str(": Vec<");
+        prelude.push_str(prm.rel_rowty[r]);
+        prelude.push_str("> = writ_graph_edges(");
+        prelude.push_str(prm.rel_names[r]);
+        prelude.push_str(");\n");
+        prelude.push_str("    let ");
+        prelude.push_str(prm.rel_srcs[r]);
+        prelude.push_str(": &[");
+        prelude.push_str(prm.rel_rowty[r]);
+        prelude.push_str("] = __rel_");
+        prelude.push_str(prm.rel_names[r]);
+        prelude.push_str(".as_slice();\n");
+        return;
+    }
     prelude.push_str("    let __rel_");
     prelude.push_str(prm.rel_names[r]);
     prelude.push_str(": Vec<");

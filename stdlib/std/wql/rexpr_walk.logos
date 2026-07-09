@@ -4453,7 +4453,10 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
         } else {
             let mut i: i64 = 0i64;
             while i < prm.rel_n {
-                if scc.comp[i] == c {
+                // NATIVE rels (ADR 0016 M1a) have no parse-side RQRel and no
+                // emitted helper fn — their prelude calls the stdlib walk.
+                // (Registry idx 0..nr-1 is parse-aligned; natives sit after.)
+                if scc.comp[i] == c && !prm.rel_native[i] {
                     if !emit_rel_fn_oneshot(&mut em, rels.rel_at(i), i, fn_name,
                                             params_text, prm, scc, h) { return false; }
                 }
