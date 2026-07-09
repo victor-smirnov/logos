@@ -783,7 +783,7 @@ fn alt_expr_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut eend_cap1: i64 = ecl_cap1;
     if eend_cap1 > est_cap1 && str_byte_at(lex.src, eend_cap1 - 1i64) == 45u8 { eend_cap1 = eend_cap1 - 1i64; }
     let esub_cap1: str = unsafe { str_from_raw((lex.src.as_ptr() as i64 + est_cap1) as *const u8, eend_cap1 - est_cap1) };
-    let eroot_cap1: WAny = logos.std.wql.el_parser::parse_expr(esub_cap1, doc);
+    let eroot_cap1: WAny = parse_expr(esub_cap1, doc);
     lex.reset(eend_cap1, lex.save_line());
     let cap1: *const u8 = if eroot_cap1.is_null() { TrNULLP } else { eroot_cap1.raw() as *const u8 };
     if cap1 == TrNULLP { lex.reset(sp, sln); return TrNULLP; }
@@ -817,11 +817,11 @@ pub fn parse_tpl(src: str, doc: &Writ) -> WAny {
     if !lex.at_eof() { return WAny::ref_to(TrNULLP); }
     return WAny::ref_to(root);
 }
-pub fn parse_tpl_far(src: str, doc: &Writ, far_line: &mut i64) -> WAny {
+pub fn parse_tpl_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_tpl(&mut lex, doc);
-    *far_line = lex.far.line;
-    if !lex.at_eof() { return WAny::ref_to(TrNULLP); }
-    return WAny::ref_to(root);
+    if !lex.at_eof() { *out_root = WAny::ref_to(TrNULLP); return lex.far.line; }
+    *out_root = WAny::ref_to(root);
+    return lex.far.line;
 }
 

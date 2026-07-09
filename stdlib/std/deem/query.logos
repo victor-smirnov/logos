@@ -352,8 +352,8 @@ impl Query {
     /// the env-independent checks. Errors are values (`Result`), never compile diagnostics.
     pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Query, QError> {
         let doc: Writ = writ_new(8192i64);
-        let mut far_line: i64 = 0i64;
-        let prog_any: WAny = parse_program_far(text, &doc, &mut far_line);
+        let mut prog_any: WAny = WAny::ref_to(0i64 as *const u8);
+        let far_line: i64 = parse_program_far(text, &doc, &mut prog_any);
         if prog_any.is_null() {
             // far_line = the FURTHEST line the parser consumed (max over
             // backtracking) — where the parse actually died, 1-based within

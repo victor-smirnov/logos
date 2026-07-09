@@ -1351,11 +1351,11 @@ pub fn parse_expr(src: str, doc: &Writ) -> WAny {
     if !lex.at_eof() { return WAny::ref_to(ElNULLP); }
     return WAny::ref_to(root);
 }
-pub fn parse_expr_far(src: str, doc: &Writ, far_line: &mut i64) -> WAny {
+pub fn parse_expr_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_expr(&mut lex, doc);
-    *far_line = lex.far.line;
-    if !lex.at_eof() { return WAny::ref_to(ElNULLP); }
-    return WAny::ref_to(root);
+    if !lex.at_eof() { *out_root = WAny::ref_to(ElNULLP); return lex.far.line; }
+    *out_root = WAny::ref_to(root);
+    return lex.far.line;
 }
 

@@ -1528,10 +1528,18 @@ fn emit_embed_call(cg: &mut Codegen, w: &mut CodeWriter, iname: str, gram: str, 
     esl.push_str(" - est_"); esl.push_str(sfx); esl.push_str(") };");
     w.line(esl.as_str());
     let mut ep: String = String::new();
+    // UNQUALIFIED call: the generated file `use`s the imported grammar's
+    // module, and plain imported-fn resolution is the one path proven against
+    // BINARY modules — the module-qualified `pkg::parse_x` form resolves only
+    // when both grammars compile in the same batch, so `--emit-module` builds
+    // whose closure meets this parser from an archive failed. (Collision rule:
+    // two %imports exporting the same rule name would be ambiguous here — the
+    // ordinary duplicate-import diagnostic covers it.)
     ep.push_str("let eroot_"); ep.push_str(sfx); ep.push_str(": WAny = ");
-    ep.push_str(path.as_str()); ep.push_str("::parse_"); ep.push_str(iname);
+    ep.push_str("parse_"); ep.push_str(iname);
     ep.push_str("(esub_"); ep.push_str(sfx); ep.push_str(", doc);");
     w.line(ep.as_str());
+    let _unused_path: String = path;
     // Advance the lexer PAST the consumed sub-range: reset at `eend_` — the byte
     // where the trimmed expr ends, i.e. AT any `-` whitespace-control marker (or at
     // the plain `}}`/`%}` when none). Resetting at `ecl_` (the `}}`/`%}` proper)
@@ -4143,12 +4151,16 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             // lexer consumed (max over backtracking) through the out-param —
             // error paths turn "parse error" into "parse error at line N".
             // Additive: existing callers keep the plain entry.
-            w.l3("pub fn parse_", e.as_str(), "_far(src: str, doc: &Writ, far_line: &mut i64) -> WAny {");
+            // Returns the furthest LINE; the root rides the out-param. The
+            // scalar return cannot borrow, so the caller's root local is not
+            // pinned to the out-borrow (elision would tie a returned WAny to
+            // every ref param and lock the caller out of `far`).
+            w.l3("pub fn parse_", e.as_str(), "_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
-            w.line("    *far_line = lex.far.line;");
-            w.line("    if !lex.at_eof() { return WAny::ref_to(NULLP); }");
-            w.line("    return WAny::ref_to(root);");
+            w.line("    if !lex.at_eof() { *out_root = WAny::ref_to(NULLP); return lex.far.line; }");
+            w.line("    *out_root = WAny::ref_to(root);");
+            w.line("    return lex.far.line;");
             w.line("}");
         } else {
             w.l3("pub fn parse_", e.as_str(), "(src: str) -> Writ {");
