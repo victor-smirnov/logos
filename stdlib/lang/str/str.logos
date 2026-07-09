@@ -69,17 +69,17 @@ pub fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
         unsafe { buf[off] = 48 as u8; }
         return 1;
     }
+    // n == i32::MIN (-2147483648) has no positive counterpart, so hardcode it.
+    // The test must precede the negation: `0 - i32::MIN` traps under the
+    // overflow checks, which made the old post-hoc `if m < 0` guard dead code.
+    if n == (-2147483647i32) - 1i32 {
+        let s: str = "-2147483648";
+        mem_copy(buf, off, s.as_ptr(), 11);
+        return 11;
+    }
     let neg: bool = n < 0;
     let mut m: i32 = n;
-    if neg {
-        m = 0 - n;
-        if m < 0 {
-            // n == i32::MIN (-2147483648): negation overflows, hardcode output.
-            let s: str = "-2147483648";
-            mem_copy(buf, off, s.as_ptr(), 11);
-            return 11;
-        }
-    }
+    if neg { m = 0 - n; }
     let mut tmp: [i32; 12] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let mut pos: i64 = 0;
     while m > 0 {
@@ -107,17 +107,16 @@ pub fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
         unsafe { buf[off] = 48 as u8; }
         return 1;
     }
+    // See write_i32: the i64::MIN test must precede the negation, because
+    // `0 - i64::MIN` traps before any post-hoc sign check can observe it.
+    if n == (-9223372036854775807i64) - 1i64 {
+        let s: str = "-9223372036854775808";
+        mem_copy(buf, off, s.as_ptr(), 20);
+        return 20;
+    }
     let neg: bool = n < 0;
     let mut m: i64 = n;
-    if neg {
-        m = 0 as i64 - n;
-        if m < 0 as i64 {
-            // n == i64::MIN (-9223372036854775808): negation overflows, hardcode output.
-            let s: str = "-9223372036854775808";
-            mem_copy(buf, off, s.as_ptr(), 20);
-            return 20;
-        }
-    }
+    if neg { m = 0 as i64 - n; }
     let mut tmp: [i32; 22] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let mut pos: i64 = 0;
     while m > 0 {

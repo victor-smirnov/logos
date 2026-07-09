@@ -1,0 +1,29 @@
+// i64::MIN / i32::MIN have no positive counterpart. write_i64 / write_i32 each
+// carried a hardcoded branch for them guarded by `if m < 0` AFTER `m = 0 - n` —
+// dead code, since the negation traps first under the overflow checks. Formatting
+// either MIN aborted with SIGILL. Found via the EL oracle: an out-of-range integer
+// literal decodes to the i64::MIN poison sentinel, and printing it killed the harness.
+package test;
+
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let imin: i64 = (-9223372036854775807i64) - 1i64;
+    let jmin: i32 = (-2147483647i32) - 1i32;
+
+    let a: String = imin.to_string();
+    if !str_eq(a.as_str(), "-9223372036854775808") { return 1i32; }
+
+    let b: String = jmin.to_string();
+    if !str_eq(b.as_str(), "-2147483648") { return 2i32; }
+
+    // Neighbours must still round-trip through the ordinary path.
+    let c: String = (imin + 1i64).to_string();
+    if !str_eq(c.as_str(), "-9223372036854775807") { return 3i32; }
+
+    let d: String = 9223372036854775807i64.to_string();
+    if !str_eq(d.as_str(), "9223372036854775807") { return 4i32; }
+
+    return 0i32;
+}
