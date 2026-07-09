@@ -19472,6 +19472,365 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
 // raw-capture pipeline. Callee must return ItemList or QuoteItemBlob;
 // the synthesised thunk drains those into the global AST list via
 // logos_emit_item_blob_subst.
+// Shared tail of the #[token_macro] ITEM path: pack the (name?, params?,
+// body) arg blobs, synthesise the JIT thunk that calls the handler and
+// drains its ItemList/QuoteItemBlob into logos_emit_item_blob_subst, and
+// register the MetacallSiteStage. Factored out of lower_fn_macro_call_item
+// so the `mapping` ITEM lowering (ADR 0016 — lower_mapping_def) routes its
+// CANONICAL (name, params, body) text through the SAME proven seam.
+void SemaChecker::emit_token_macro_item_site(
+    writ::TinyMapView node, lir::LProgram& prog,
+    const SemaFuncInfo* macro_info, bool rt_is_il, int nargs,
+    const std::string& resource_name, const std::string& params_text,
+    const std::string& raw_text) {
+        // Slot layout mirrors the ABI decision in the diagnostic above:
+        //   1-arg (sig_str):  slot 0 = raw block body
+        //   2-arg (nargs == 2): slot 0 = LHS binding <name>, slot 1 = raw body
+        //   3-arg (nargs == 3): slot 0 = <name>, slot 1 = params text, slot 2 = raw body
+        // Passing name in slot 0 keeps the raw-body slot index STABLE across
+        // both forms (always "the last slot") and matches the param order
+        // `fn h(name, body)` / `fn h(name, params, body)`.
+        auto pack_blob = [](const std::string& s) -> std::vector<uint8_t> {
+            std::vector<uint8_t> b(8 + s.size());
+            uint64_t sz = static_cast<uint64_t>(s.size());
+            std::memcpy(b.data(), &sz, 8);
+            if (!s.empty()) std::memcpy(b.data() + 8, s.data(), s.size());
+            return b;
+        };
+        uint64_t site_id = metacall_site_id(
+            cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
+        std::vector<std::vector<uint8_t>> blobs;
+        if (nargs == 3) {
+            blobs.push_back(pack_blob(resource_name));
+            blobs.push_back(pack_blob(params_text));
+            blobs.push_back(pack_blob(raw_text));
+        } else if (nargs == 2) {
+            blobs.push_back(pack_blob(resource_name));
+            blobs.push_back(pack_blob(raw_text));
+        } else {
+            blobs.push_back(pack_blob(raw_text));
+        }
+        lir_mirror_macro_arg_put(prog, prog.macro_arg_blobs, site_id, blobs);
+
+        std::string pkg = cur_package_.empty() ? "__metacall_thunks"
+                                               : cur_package_;
+        std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
+        // The callee invocation, producing an ItemList or QuoteItemBlob.
+        std::string call_text;
+        if (nargs == 3) {
+            call_text = std::format(
+                "{{\n"
+                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
+                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
+                "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
+                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pb: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
+                "    let __b: str = unsafe {{ str_from_raw(__pb, {3}i64) }};\n"
+                "    {4}(__n, __pr, __b)\n"
+                "}}",
+                site_id, static_cast<int64_t>(resource_name.size()),
+                static_cast<int64_t>(params_text.size()),
+                static_cast<int64_t>(raw_text.size()),
+                macro_info->base_name);
+        } else if (nargs == 2) {
+            call_text = std::format(
+                "{{\n"
+                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
+                "    let __n: str = unsafe {{ str_from_raw(__pn, {}i64) }};\n"
+                "    let __pb: *const u8 = unsafe {{ logos_macro_arg({}u64, 1u64) }};\n"
+                "    let __b: str = unsafe {{ str_from_raw(__pb, {}i64) }};\n"
+                "    {}(__n, __b)\n"
+                "}}",
+                site_id, static_cast<int64_t>(resource_name.size()),
+                site_id, static_cast<int64_t>(raw_text.size()),
+                macro_info->base_name);
+        } else {
+            call_text = std::format(
+                "{{\n"
+                "    let __p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
+                "    let __s: str = unsafe {{ str_from_raw(__p, {}i64) }};\n"
+                "    {}(__s)\n"
+                "}}",
+                site_id, static_cast<int64_t>(raw_text.size()),
+                macro_info->base_name);
+        }
+        std::string thunk_src;
+        if (rt_is_il) {
+            thunk_src = std::format(
+                "package {};\n"
+                "use logos.std.compiler.metaprog;\n"
+                "use logos.mem.collections.vec;\n"
+                "use logos.mem.writ.view;\n"
+                "use std.lang.text;\n"
+                "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_qib_free_idents(blob: *const u8);\n"
+                "extern fn logos_qib_free_blobs(blob: *const u8);\n"
+                "extern fn logos_qib_free_cursors(blob: *const u8);\n"
+                "unsafe fn {}() -> () {{\n"
+                "    let mut __il: ItemList = {};\n"
+                "    let n: i64 = (&__il.blobs).length();\n"
+                "    let mut i: i64 = 0i64;\n"
+                "    while i < n {{\n"
+                "        let p: *const QuoteItemBlob = unsafe {{\n"
+                "            (&__il.blobs as *const Vec<QuoteItemBlob>).at_const(i)\n"
+                "        }};\n"
+                "        unsafe {{ logos_emit_item_blob_subst(p); }}\n"
+                "        unsafe {{ logos_qib_free_idents((*p).idents_blob); }}\n"
+                "        unsafe {{ logos_qib_free_blobs((*p).blobs_blob); }}\n"
+                "        unsafe {{ logos_qib_free_cursors((*p).cursors_blob); }}\n"
+                "        i = i + 1i64;\n"
+                "    }}\n"
+                "    return;\n"
+                "}}\n",
+                pkg, thunk_name, call_text);
+        } else {
+            thunk_src = std::format(
+                "package {};\n"
+                "use logos.std.compiler.metaprog;\n"
+                "use logos.mem.collections.vec;\n"
+                "use logos.mem.writ.view;\n"
+                "use std.lang.text;\n"
+                "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
+                "extern fn logos_qib_free_idents(blob: *const u8);\n"
+                "extern fn logos_qib_free_blobs(blob: *const u8);\n"
+                "extern fn logos_qib_free_cursors(blob: *const u8);\n"
+                "unsafe fn {}() -> () {{\n"
+                "    let __b: QuoteItemBlob = {};\n"
+                "    unsafe {{ logos_emit_item_blob_subst(&__b); }}\n"
+                "    unsafe {{ logos_qib_free_idents(__b.idents_blob); }}\n"
+                "    unsafe {{ logos_qib_free_blobs(__b.blobs_blob); }}\n"
+                "    unsafe {{ logos_qib_free_cursors(__b.cursors_blob); }}\n"
+                "    return;\n"
+                "}}\n",
+                pkg, thunk_name, call_text);
+        }
+        MetacallSiteStage site;
+        site.ast_idx = cur_ast_idx_;
+        site.expr_offset = static_cast<uint32_t>(node.offset().value());
+        site.thunk_name = thunk_name;
+        site.thunk_source = std::move(thunk_src);
+        site.ret_tag = lir::MetacallRetTag::ItemBlob;
+        site.callee_name = macro_info->base_name;
+        push_metacall_site(prog, site);
+}
+
+// ADR 0016 (M2b-2): the `mapping` ITEM — `pub? mapping M(g: &Writ, …) {
+// pub? rel r(col: ty, …) { <rules> } … }`. The grammar owns the item and the
+// rel SIGNATURES (typed column lists, per-rel pub, doc slots); the rel BODIES
+// stay token-level and compile through the SAME stdlib pipeline as deem!
+// (parse_program → gpath desugar → walk_program_params). This lowering
+// validates the parsed item, reconstructs CANONICAL `(name, params, body)`
+// text from the CHECKED nodes, and routes it through the token-macro item
+// seam (emit_token_macro_item_site) to the `__mapping_item` handler in
+// logos.std.wql.mapping_item. The handler mangles each rel to a generated fn
+// `<M>__<rel>` so `M::rel(args)` resolves through the ordinary static-call
+// path, and maps a non-pub rel to a non-pub generated fn.
+void SemaChecker::lower_mapping_def(writ::TinyMapView node,
+                                    lir::LProgram& prog) {
+    if (!node.has_key(la::NAME)) {
+        error("mapping item: missing name (grammar regression?)");
+        return;
+    }
+    std::string mname(str_of(node.get(la::NAME.code)));
+
+    // ── header params `(g: &Writ, floor: i64)`: only simple `name: Type`
+    // bindings are meaningful in a mapping header (the source shape +
+    // scalars); ref/mut/pattern binders are rejected here rather than
+    // surfacing as opaque pipeline errors later.
+    std::string params_text;
+    size_t nparams = 0;
+    if (node.has_key(la::PARAMS)) {
+        auto pl = map_of(node.get(la::PARAMS.code));
+        if (!pl.is_null() && pl.has_key(la::ITEMS.code)) {
+            auto parr = arr_of(pl.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < parr.size(); ++i) {
+                auto p = map_of(parr.get(i));
+                if (p.is_null() || code_of(p) != la::PARAM) continue;
+                if (!p.has_key(la::NAME.code) || !p.has_key(la::TYPE.code)
+                        || p.has_key(la::PAT.code)
+                        || p.has_key(la::NAMES.code)) {
+                    error(std::format(
+                        "mapping '{}': parameters must be simple "
+                        "`name: Type` bindings", mname));
+                    return;
+                }
+                std::string pn(str_of(p.get(la::NAME.code)));
+                // Syntactic render: the canonical text must say what the
+                // user wrote (`str`, `&Writ`) — the resolved form
+                // (`&[u8]`) would fail the pipeline's surface checks.
+                std::string tsrc =
+                    render_type_src_syntactic_(map_of(p.get(la::TYPE.code)));
+                if (tsrc.empty()) {
+                    error(std::format(
+                        "mapping '{}': cannot render the type of parameter "
+                        "'{}'", mname, pn));
+                    return;
+                }
+                if (nparams) params_text += ", ";
+                params_text += pn;
+                params_text += ": ";
+                params_text += tsrc;
+                ++nparams;
+            }
+        }
+    }
+    if (nparams == 0) {
+        error(std::format(
+            "mapping '{}': needs at least one parameter — the source shape "
+            "(e.g. `g: &Writ`)", mname));
+        return;
+    }
+
+    // ── rel members: validate signatures, reconstruct canonical text ──
+    std::string body_text;
+    std::vector<std::string> rel_names;
+    if (node.has_key(la::FIELDS)) {
+        auto rarr = arr_of(node.get(la::FIELDS.code));
+        for (uint64_t i = 0; i < rarr.size(); ++i) {
+            auto r = map_of(rarr.get(i));
+            if (r.is_null()) continue;
+            int32_t rc = code_of(r);
+            if (rc == la::DOC_LINE_LIT || rc == la::DOC_BLOCK_LIT) continue;
+            if (rc != la::REL_DEF) continue;   // $... CODE-filter contract
+            // Contextual keyword: the grammar accepts any leading IDENT
+            // (a global `rel` keyword would clash with the very common
+            // `rel` identifier); only the literal text `rel` is legal.
+            std::string lead(str_of(r.get(la::REL_KW.code)));
+            if (lead != "rel") {
+                error(std::format(
+                    "mapping '{}': expected `rel`, found '{}' — mapping "
+                    "bodies contain only `rel name(col: ty, …) {{ … }}` "
+                    "members", mname, lead));
+                return;
+            }
+            std::string rn(str_of(r.get(la::NAME.code)));
+            for (const auto& seen : rel_names) {
+                if (seen == rn) {
+                    error(std::format(
+                        "mapping '{}': duplicate rel '{}'", mname, rn));
+                    return;
+                }
+            }
+            rel_names.push_back(rn);
+
+            std::string cols_text;
+            size_t ncols = 0;
+            if (r.has_key(la::PARAMS.code)) {
+                auto cl = map_of(r.get(la::PARAMS.code));
+                if (!cl.is_null() && cl.has_key(la::ITEMS.code)) {
+                    auto carr = arr_of(cl.get(la::ITEMS.code));
+                    for (uint64_t j = 0; j < carr.size(); ++j) {
+                        auto cp = map_of(carr.get(j));
+                        if (cp.is_null() || code_of(cp) != la::PARAM) continue;
+                        if (!cp.has_key(la::NAME.code)
+                                || !cp.has_key(la::TYPE.code)) {
+                            error(std::format(
+                                "mapping '{}': rel '{}' columns must be "
+                                "`name: type`", mname, rn));
+                            return;
+                        }
+                        std::string cn(str_of(cp.get(la::NAME.code)));
+                        std::string ct = render_type_src_syntactic_(
+                            map_of(cp.get(la::TYPE.code)));
+                        if (ct != "i64" && ct != "str" && ct != "bool") {
+                            error(std::format(
+                                "mapping '{}': rel '{}' column '{}' has type "
+                                "`{}` — rel columns are i64/str/bool (rows "
+                                "are set-deduplicated; the column type must "
+                                "be joinable/Eq)", mname, rn, cn, ct));
+                            return;
+                        }
+                        if (ncols) cols_text += ", ";
+                        cols_text += cn;
+                        cols_text += ": ";
+                        cols_text += ct;
+                        ++ncols;
+                    }
+                }
+            }
+            if (ncols == 0) {
+                error(std::format(
+                    "mapping '{}': rel '{}' needs at least one typed column",
+                    mname, rn));
+                return;
+            }
+            if (ncols > 8) {
+                error(std::format(
+                    "mapping '{}': rel '{}' has {} columns — at most 8 "
+                    "(current engine limit)", mname, rn, ncols));
+                return;
+            }
+            if (!r.has_key(la::RAW_TEXT.code)) {
+                error(std::format(
+                    "mapping '{}': rel '{}' missing body (grammar "
+                    "regression?)", mname, rn));
+                return;
+            }
+            std::string rbody(str_of(r.get(la::RAW_TEXT.code)));
+            if (r.has_key(la::IS_PUB.code)) body_text += "pub ";
+            body_text += "rel ";
+            body_text += rn;
+            body_text += "(";
+            body_text += cols_text;
+            body_text += ") {";
+            body_text += rbody;
+            body_text += "}\n";
+        }
+    }
+    if (rel_names.empty()) {
+        error(std::format(
+            "mapping '{}': no `rel` declarations — a mapping is a set of "
+            "rels (`rel name(col: ty, …) {{ … }}`)", mname));
+        return;
+    }
+    if (rel_names.size() > 8) {
+        error(std::format(
+            "mapping '{}': {} rels — at most 8 per mapping (current engine "
+            "limit)", mname, rel_names.size()));
+        return;
+    }
+
+    // ── route through the token-macro item seam to the stdlib handler ──
+    auto ovit = func_overloads_.find("__mapping_item");
+    const SemaFuncInfo* macro_info = nullptr;
+    if (ovit != func_overloads_.end()) {
+        for (const auto& sym : ovit->second) {
+            auto fit = funcs_.find(sym);
+            if (fit == funcs_.end()) continue;
+            if (fit->second.is_token_macro) {
+                macro_info = &fit->second;
+                break;
+            }
+        }
+    }
+    if (!macro_info) {
+        error(std::format(
+            "mapping '{}': the mapping lowering handler is not in scope — "
+            "add `use logos.std.wql.mapping_item;` to this module", mname));
+        return;
+    }
+    auto is_str_type = [](TypeRef t) -> bool {
+        return TypeRef(t).kind() == LogosType::Kind::Slice
+            && TypeRef(t).elem()
+            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
+    };
+    bool rt_is_il = is_item_list(macro_info->ret_type);
+    if ((!rt_is_il && !is_quote_item_blob(macro_info->ret_type))
+            || macro_info->param_types.size() != 3
+            || !is_str_type(macro_info->param_types[0])
+            || !is_str_type(macro_info->param_types[1])
+            || !is_str_type(macro_info->param_types[2])) {
+        error("mapping item: '__mapping_item' must be a #[token_macro] "
+              "`(name: str, params: str, body: str) -> ItemList` "
+              "(stdlib/compiler version skew?)");
+        return;
+    }
+    if (!holder_ || !cur_prog_) return;
+    emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 3,
+                               mname, params_text, body_text);
+}
+
+
 void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
                                             lir::LProgram& prog) {
     using logos::writ::AnyVal;
@@ -19634,135 +19993,9 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // `str` via str_from_raw and forwards it to the callee. This is the
     // opaque-block → handler → quote_item! emission seam for resources.
     if (sig_str || sig_str2 || sig_str3) {
-        // Slot layout mirrors the ABI decision in the diagnostic above:
-        //   1-arg (sig_str):  slot 0 = raw block body
-        //   2-arg (sig_str2): slot 0 = LHS binding <name>, slot 1 = raw body
-        //   3-arg (sig_str3): slot 0 = <name>, slot 1 = params text, slot 2 = raw body
-        // Passing name in slot 0 keeps the raw-body slot index STABLE across
-        // both forms (always "the last slot") and matches the param order
-        // `fn h(name, body)` / `fn h(name, params, body)`.
-        auto pack_blob = [](const std::string& s) -> std::vector<uint8_t> {
-            std::vector<uint8_t> b(8 + s.size());
-            uint64_t sz = static_cast<uint64_t>(s.size());
-            std::memcpy(b.data(), &sz, 8);
-            if (!s.empty()) std::memcpy(b.data() + 8, s.data(), s.size());
-            return b;
-        };
-        uint64_t site_id = metacall_site_id(
-            cur_ast_idx_, static_cast<uint32_t>(node.offset().value()));
-        std::vector<std::vector<uint8_t>> blobs;
-        if (sig_str3) {
-            blobs.push_back(pack_blob(resource_name));
-            blobs.push_back(pack_blob(params_text));
-            blobs.push_back(pack_blob(raw_text));
-        } else if (sig_str2) {
-            blobs.push_back(pack_blob(resource_name));
-            blobs.push_back(pack_blob(raw_text));
-        } else {
-            blobs.push_back(pack_blob(raw_text));
-        }
-        lir_mirror_macro_arg_put(prog, prog.macro_arg_blobs, site_id, blobs);
-
-        std::string pkg = cur_package_.empty() ? "__metacall_thunks"
-                                               : cur_package_;
-        std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
-        // The callee invocation, producing an ItemList or QuoteItemBlob.
-        std::string call_text;
-        if (sig_str3) {
-            call_text = std::format(
-                "{{\n"
-                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
-                "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
-                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
-                "    let __pb: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
-                "    let __b: str = unsafe {{ str_from_raw(__pb, {3}i64) }};\n"
-                "    {4}(__n, __pr, __b)\n"
-                "}}",
-                site_id, static_cast<int64_t>(resource_name.size()),
-                static_cast<int64_t>(params_text.size()),
-                static_cast<int64_t>(raw_text.size()),
-                macro_info->base_name);
-        } else if (sig_str2) {
-            call_text = std::format(
-                "{{\n"
-                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ str_from_raw(__pn, {}i64) }};\n"
-                "    let __pb: *const u8 = unsafe {{ logos_macro_arg({}u64, 1u64) }};\n"
-                "    let __b: str = unsafe {{ str_from_raw(__pb, {}i64) }};\n"
-                "    {}(__n, __b)\n"
-                "}}",
-                site_id, static_cast<int64_t>(resource_name.size()),
-                site_id, static_cast<int64_t>(raw_text.size()),
-                macro_info->base_name);
-        } else {
-            call_text = std::format(
-                "{{\n"
-                "    let __p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-                "    let __s: str = unsafe {{ str_from_raw(__p, {}i64) }};\n"
-                "    {}(__s)\n"
-                "}}",
-                site_id, static_cast<int64_t>(raw_text.size()),
-                macro_info->base_name);
-        }
-        std::string thunk_src;
-        if (rt_is_il) {
-            thunk_src = std::format(
-                "package {};\n"
-                "use logos.std.compiler.metaprog;\n"
-                "use logos.mem.collections.vec;\n"
-                "use logos.mem.writ.view;\n"
-                "use std.lang.text;\n"
-                "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
-                "extern fn logos_qib_free_idents(blob: *const u8);\n"
-                "extern fn logos_qib_free_blobs(blob: *const u8);\n"
-                "extern fn logos_qib_free_cursors(blob: *const u8);\n"
-                "unsafe fn {}() -> () {{\n"
-                "    let mut __il: ItemList = {};\n"
-                "    let n: i64 = (&__il.blobs).length();\n"
-                "    let mut i: i64 = 0i64;\n"
-                "    while i < n {{\n"
-                "        let p: *const QuoteItemBlob = unsafe {{\n"
-                "            (&__il.blobs as *const Vec<QuoteItemBlob>).at_const(i)\n"
-                "        }};\n"
-                "        unsafe {{ logos_emit_item_blob_subst(p); }}\n"
-                "        unsafe {{ logos_qib_free_idents((*p).idents_blob); }}\n"
-                "        unsafe {{ logos_qib_free_blobs((*p).blobs_blob); }}\n"
-                "        unsafe {{ logos_qib_free_cursors((*p).cursors_blob); }}\n"
-                "        i = i + 1i64;\n"
-                "    }}\n"
-                "    return;\n"
-                "}}\n",
-                pkg, thunk_name, call_text);
-        } else {
-            thunk_src = std::format(
-                "package {};\n"
-                "use logos.std.compiler.metaprog;\n"
-                "use logos.mem.collections.vec;\n"
-                "use logos.mem.writ.view;\n"
-                "use std.lang.text;\n"
-                "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
-                "extern fn logos_qib_free_idents(blob: *const u8);\n"
-                "extern fn logos_qib_free_blobs(blob: *const u8);\n"
-                "extern fn logos_qib_free_cursors(blob: *const u8);\n"
-                "unsafe fn {}() -> () {{\n"
-                "    let __b: QuoteItemBlob = {};\n"
-                "    unsafe {{ logos_emit_item_blob_subst(&__b); }}\n"
-                "    unsafe {{ logos_qib_free_idents(__b.idents_blob); }}\n"
-                "    unsafe {{ logos_qib_free_blobs(__b.blobs_blob); }}\n"
-                "    unsafe {{ logos_qib_free_cursors(__b.cursors_blob); }}\n"
-                "    return;\n"
-                "}}\n",
-                pkg, thunk_name, call_text);
-        }
-        MetacallSiteStage site;
-        site.ast_idx = cur_ast_idx_;
-        site.expr_offset = static_cast<uint32_t>(node.offset().value());
-        site.thunk_name = thunk_name;
-        site.thunk_source = std::move(thunk_src);
-        site.ret_tag = lir::MetacallRetTag::ItemBlob;
-        site.callee_name = macro_info->base_name;
-        push_metacall_site(prog, site);
+        emit_token_macro_item_site(node, prog, macro_info, rt_is_il,
+                                   sig_str3 ? 3 : (sig_str2 ? 2 : 1),
+                                   resource_name, params_text, raw_text);
         return;
     }
 

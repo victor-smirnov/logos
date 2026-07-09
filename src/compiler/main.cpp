@@ -4307,7 +4307,10 @@ int main(int argc, char** argv) {
                         auto cav = tom.get(logos::compiler::ast::CODE.code);
                         if (!cav.is_null() && cav.is_value()) {
                             int32_t cur = cav.as_value<int32_t>();
-                            if (cur == logos::compiler::ast::FN_MACRO_CALL_ITEM.code)
+                            // MAPPING_DEF (ADR 0016) rides the same token-macro
+                            // item seam — consumed sites get the same marker.
+                            if (cur == logos::compiler::ast::FN_MACRO_CALL_ITEM.code
+                                || cur == logos::compiler::ast::MAPPING_DEF.code)
                                 done_code = logos::compiler::ast::FN_MACRO_CALL_ITEM_DONE.code;
                         }
                     }

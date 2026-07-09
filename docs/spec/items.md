@@ -6,7 +6,7 @@ Scope: item-level constructs of Logos — functions, structs, enums, unions, `ei
 
 ### `item.kinds.set` — Module item alternatives
 
-A module item is one of: doc-comment (line/block, inner/outer), template decl, annotation, const/type-alias def, enum def (pub/plain), datatype def/instantiation (pub/plain), trait instance (pub/plain), struct unit/instantiation/def (pub/plain), explicit-instantiation decl (pub/plain), item-position metacall, resource decl, fn-macro item invocation, schema/schema-enum def (pub/plain), union def (pub/plain), trait def (pub/plain), impl block, extern block, extern fn def, or fn def (pub/plain).
+A module item is one of: doc-comment (line/block, inner/outer), template decl, annotation, const/type-alias def, enum def (pub/plain), datatype def/instantiation (pub/plain), trait instance (pub/plain), struct unit/instantiation/def (pub/plain), explicit-instantiation decl (pub/plain), item-position metacall, resource decl, fn-macro item invocation, schema/schema-enum def (pub/plain), mapping def (pub/plain, ADR 0016), union def (pub/plain), trait def (pub/plain), impl block, extern block, extern fn def, or fn def (pub/plain).
 
 Evidence: `tools/peg_gen_cpp/grammars/logos.peg#L535`
 
@@ -888,6 +888,34 @@ Evidence: `src/compiler/sema_collect.cpp#L1768-L1785`
 **Related:** `item.union.shared-namespace`, `item.dup.odr-dedup`
 
 Evidence: `src/compiler/sema_collect.cpp#L415-L434`
+
+## Mappings (ADR 0016)
+
+### `item.mapping.rule-module` — mapping: named typed rule-module over a source shape
+
+`[pub] mapping M(param: Type, …) { [pub] rel r(col: ty, …) { <rules> } … }` (MAPPING_DEF: PARAMS = PARAM array, FIELDS = REL_DEF array) declares a named, typed, reusable set of domain relations over a source shape. The item and rel SIGNATURES are grammar/sema-owned; each rel BODY is captured token-level (balanced-brace raw text) and compiles through the deem pipeline (parse_program → graph-path desugar → walk_program_params) — one generated fn per rel, mangled `<M>__<rel>`, so `M::rel(args)` resolves through ordinary `Type::method` static-call resolution and returns `Result<Vec<Row>, ElError>`.
+
+Evidence: `tools/peg_gen_cpp/grammars/logos.peg` (pub_mapping_def/mapping_def/rel_def), `src/compiler/sema_expr.cpp` (lower_mapping_def), `stdlib/std/wql/mapping_item.logos`
+
+### `item.mapping.rel-contextual-keyword` — `rel` is contextual inside a mapping body
+
+A rel member's lead token is a bare IDENT (REL_KW slot) validated == "rel" during lowering — a global `rel` keyword would clash with the common `rel` identifier; any other lead identifier is an error naming the offender. Doc-comment lines/blocks may precede a rel member (rel_def_or_doc).
+
+### `item.mapping.header-params` — mapping header params: simple `name: Type` bindings, ≥ 1
+
+The mapping header parameter list reuses the fn param grammar but only simple `name: Type` bindings are legal (ref/mut/pattern binders rejected at lowering); at least one parameter (the source shape) is required. Generated per-rel fns take the header params verbatim, in order. Param and column types are re-rendered SYNTACTICALLY (as written: `str`, `&Writ`) into the canonical text, not in resolved form.
+
+### `item.mapping.rel-columns` — rel columns: 1–8 typed columns restricted to i64/str/bool
+
+Each rel declares 1–8 `name: type` columns; column types are restricted to i64/str/bool (rel rows are set-deduplicated — column types must be joinable/Eq; f64 rejected). Duplicate rel names within one mapping are an error; at most 8 rels per mapping (current engine limit).
+
+### `item.mapping.rel-visibility` — per-rel `pub` maps to generated-fn visibility
+
+`pub rel r(…)` emits `pub fn <M>__<r>`; a non-pub rel emits a non-pub fn — callable in-package, rejected cross-package by the ordinary fn visibility check. Non-pub rels remain referencable from other rels of the same mapping (cross-rel references are body-level, resolved inside the compiled rule program). The visibility travels as a leading `-` marker on the generated fn name, consumed at the stdlib emit sites (vis_strip/vis_is_priv, params.logos).
+
+### `item.mapping.lowering-seam` — mapping lowers through the token-macro item seam
+
+Sema validates the item, reconstructs canonical `(name, params, body)` text from the checked AST, and dispatches it to the `#[token_macro]` handler `__mapping_item` (logos.std.wql.mapping_item — must be in scope via `use`; the error otherwise names the missing import). The consumed MAPPING_DEF node is marked FN_MACRO_CALL_ITEM_DONE exactly like an item-position fn-macro. The mapping introduces no nominal type in this slice (arrives with the mapping-as-value/functor slice).
 
 ## Type aliases
 

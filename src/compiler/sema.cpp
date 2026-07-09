@@ -7539,6 +7539,15 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             pending_annots.clear();
             continue;
         }
+        if (c == la::MAPPING_DEF) {
+            // ADR 0016: `mapping M(…) { rel … }` — validate the item +
+            // rel signatures, then route the canonicalised text through
+            // the token-macro item seam (the node is DONE-flipped by the
+            // driver exactly like FN_MACRO_CALL_ITEM).
+            lower_mapping_def(item, prog);
+            pending_annots.clear();
+            continue;
+        }
         if (c == la::FN_MACRO_CALL_ITEM_DONE) {
             pending_annots.clear();
             continue;

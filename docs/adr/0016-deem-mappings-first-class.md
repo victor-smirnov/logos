@@ -71,7 +71,24 @@ ADR 0015's S1–S3 built by hand exactly what this case gives for free: `TraceSt
 
 ## 3. Language integration
 
-`mapping` becomes an item at the `schema` level (precedent: `schema`, `resource` + `deem!` — item declarations with codegen behind them). Static use: `deem!(g: M)` — the macro inlines the mapping's enumeration (case 1 = today's slice scan; case 2 = the generated walk; case 3 = expanded rules). Runtime use: `env.bind_mapping("g", M, root)` — one binding replaces the `bind_source_*` family (which remains as the low-level API the mapping compiler targets).
+`mapping` is an item at the `schema` level — **LANDED 2026-07-09** (grammar-level; supersedes the `mapping!` macro, `mapping` is now a keyword):
+
+```
+pub mapping Services(g: &Writ) {
+    pub rel engine(owner: i64, name: str) { from g ** .engine e select (e.parent, e.vs); }
+    rel big_port(p: i64) { from port r where r.p >= 8443 select r.p; }   // non-pub
+}
+…  Services::engine(&doc)?   // ordinary static-call resolution; pub enforced
+```
+
+Architecture of the lift (the front/back cut): **C++ owns text, names and signatures; the Logos stdlib owns Datalog semantics and emission.**
+
+- Grammar: `MAPPING_DEF`/`REL_DEF` items (logos.peg + ast.hpp mirror); `rel` is a CONTEXTUAL keyword (validated in sema — a global keyword would clash with the `rel` identifier throughout the WQL stdlib itself); rel bodies stay token-level (`RAW_GROUP_BRACE`) — they are rule text for the deem pipeline, not Logos expressions.
+- Sema (`lower_mapping_def`): validates the item (param forms, contextual `rel`, duplicate rels, typed columns restricted to i64/str/bool = the joinable/Eq set), reconstructs CANONICAL `(name, params, body)` text from the CHECKED nodes (syntactic type render), and routes it through the shared token-macro item seam (`emit_token_macro_item_site` — the factored tail of `lower_fn_macro_call_item`) to the `__mapping_item` handler (`logos.std.wql.mapping_item`, requires that `use`).
+- Handler: same pipeline as deem! (parse_program → gpath desugar → walk_program_params), per rel one generated fn mangled `<M>__<rel>` — `M::rel(args)` resolves through the ordinary `Type::method` static-call path (mangled-name concatenation + flat fn registry) with ZERO new resolution code; per-rel `pub` maps to generated-fn visibility (a `-` fn-name marker consumed at the emit sites), enforced by the ordinary cross-package fn check.
+- No marker TYPE is minted yet (nothing needs the nominal type until mappings become values/generic — the functor slice).
+
+Static consumption `deem!(g: M)` (M2b-2) and runtime `env.bind_mapping("g", M, root)` stand as designed; note the registry problem M2b-2 was deferred on is now DISSOLVED — rel signatures are Sema-owned, so consumption needs only a collect-phase mapping table + deem!-param enrichment, no macro-to-macro registry.
 
 ## 4. Slices
 
@@ -79,7 +96,7 @@ ADR 0015's S1–S3 built by hand exactly what this case gives for free: `TraceSt
 |---|---|---|
 | M1 | `mapping` item + case-1/2a lowering (subsume today's APIs; both binding times) — **M1a LANDED** (`deem!(g: &Writ)` = the graph source as a native rel, `acf38a0f`; the `mapping` item proper arrives with M2b) | `wql_writ_graph_e2e` (recursion over the graph param, graph ⋈ slice, two docs, hand-walk oracle) |
 | M2 | case-3 path-rule DSL → rel lowering (`.` / `[*]` / `**` / kind filters) — **M2a LANDED** (`d0c82fff` + `**`): path steps as query-surface sugar (`from g .db .pool [*] {kind} ** v`), ONE shared plan→plan desugar for both binding times, anchored at the VIRTUAL ROOT EDGE (parent = 0 — both walkers emit it; root queryable, no root-handle plumbing); `**` = a reach hop through an INJECTED ordinary Datalog rel (`__reach_<src>`, descendant-or-self; both engines evaluate it with existing rel machinery — no new evaluator code); `{kind}` = filter, not movement; named errors for bind-less last step / binder-on-filter / dangling or consecutive `**`. NOTE: the sugar generalized beyond the mapping layer — it works in ANY deem body/entry, which is the language-level directive done right | `wql_gpath_e2e` (static: every step kind, mid-path bindings, gpath in rel bodies, aggregate heads, path+join) + `query_gpath_e2e` (runtime: sugar ≡ hand-written classic AND `**` ≡ hand-written reach rel — differential parity, exactly this row's gate) |
-| M2b | `mapping!` packaging — **v1 LANDED**: a named rel-set over a source shape, one generated PUBLIC fn per relation (`Services_engine(&doc)`), compiled through the SAME pipeline as deem! (gpath sugar, `**`, recursion, cross-rel refs — mappings are UNRESTRICTED rule modules per the design decision); scalar params ride along. Deferred: `deem!(g: Services)` consumption (needs a macro-to-macro registry — M2b-2), per-call dep-rel rematerialization (M6 pairs) | `wql_mapping_e2e` (paths+`**`, cross-rel, scalar param, two mappings per module) |
+| M2b | mapping packaging — **v1 LANDED** (`mapping!` macro), **v2 LANDED 2026-07-09: the language ITEM** (§3): grammar+Sema own the item and rel signatures, `Services::engine(&doc)` path calls, per-rel `pub`→fn visibility, canonical-text seam to the stdlib pipeline; the `mapping!` macro is REMOVED (`mapping` = keyword). Deferred: `deem!(g: Services)` consumption (M2b-2 — now unblocked: signatures are Sema-owned, needs a collect-phase table + param enrichment, NOT a macro registry), per-call dep-rel rematerialization (M6 pairs) | `wql_mapping_e2e` (ITEM form: paths+`**`, cross-rel through a NON-pub rel, scalar param, two mappings per module, rel doc-comments) |
 | M3 | per-relation materialization annotation | plan inspection + perf smoke; semantics unchanged |
 | M4 | case 2b: static (reflection walk) + the per-tag traverse protocol shared with 2a | graph tests over native object graphs (incl. Rc cycles) |
 | M5 | case S: `EngineState` mapping replacing the hand-rolled S1–S3 accessors — **LANDED** (static form): a `deem!` param typed `&IncrRec` registers four native relations — `<p>_trace(epoch,kind,step,delta,total,ns)` / `<p>_epochs` / `<p>_tail(epoch,converged,pending,bound,cutr)` / `<p>_controls(epoch,kind,val)` — materialized by `logos.std.deem` state materializers (`mapping_state.logos`); I1 is now a mapping-class contract (rows = sensor facts about the completed past); the chunk pulls `use logos.std.deem` CONDITIONALLY (unconditional = module cycle, wql must not import deem). The runtime twin (`bind_engine` for the self-applicable loop proper) pairs with ADR 0015 S5 | `wql_engine_source_e2e`: the Encounter rule as a static deem! query over `<p>_tail` (one row at the cut, ZERO after raise+converge — the §6 honesty pair through this path), Σδ consistency AS A DEEM AGGREGATE over `<p>_trace` (the S1 oracle expressed in Deem itself), controls audit, epochs ledger |

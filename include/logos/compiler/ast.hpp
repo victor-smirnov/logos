@@ -274,6 +274,8 @@ inline constexpr Code OFFSET_OF            {"OFFSET_OF",           255}; // offs
 inline constexpr Code SCHEMA_DEF           {"SCHEMA_DEF",          256}; // ADR 0011: schema S : code(expr)? { name: type = key, … } — typed view over a map-like Writ object. NAME, FIELDS(=SCHEMA_FIELD_DEF array), CODE_EXPR? clause sub-node.
 inline constexpr Code SCHEMA_FIELD_DEF     {"SCHEMA_FIELD_DEF",    257}; // ADR 0011: schema field binding. NAME, TYPE, VALUE(=key const-expr, optional → positional), IS_PUB?
 inline constexpr Code SCHEMA_ENUM_DEF      {"SCHEMA_ENUM_DEF",     258}; // ADR 0011: schema enum E { V(S), … } — closed union over schemas. NAME, FIELDS(=VARIANT_DEF array: NAME=variant, TYPE=concrete schema), CODE_EXPR? category clause.
+inline constexpr Code MAPPING_DEF          {"MAPPING_DEF",         259}; // ADR 0016: mapping M(g: &Writ, …) { pub? rel r(col: ty, …) { <rules> } … } — named typed rule-module. NAME, PARAMS(=PARAM array), FIELDS(=REL_DEF array), IS_PUB/VIS. Sema: zero-field marker struct (is_mapping=true) + per-rel signatures; bodies compile via the deem pipeline.
+inline constexpr Code REL_DEF              {"REL_DEF",             260}; // ADR 0016: one rel member of a mapping item. REL_KW(=contextual lead ident, must be "rel"), NAME, PARAMS(=typed column PARAM array), RAW_TEXT(=token-level rule body), IS_PUB?.
 inline constexpr Code ANNOT_KV             {"ANNOT_KV",            192}; // named annotation arg: #[A(key=lit)]; NAME(1)=key, VALUE(7)=literal node
 inline constexpr Code ANNOT_POS            {"ANNOT_POS",           193}; // positional annotation arg: #[A(lit)]; VALUE(7)=literal node
 inline constexpr Code ANNOT_ARR            {"ANNOT_ARR",           194}; // annotation array literal [lit,...]; ITEMS(2)=sub-literal nodes
@@ -355,6 +357,7 @@ inline constexpr Key KEY       {"KEY",       51};            // map key in WRIT_
 inline constexpr Key CODE_EXPR {"CODE_EXPR", 6};             // ADR 0011: `code(expr)` clause sub-node on SCHEMA_DEF/SCHEMA_ENUM_DEF (reuses RET_TYPE; AST TOM keys are 0..51)
 inline constexpr Key PATH      {"PATH",      22};            // sub-node {ITEMS:[str,…]} for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
 inline constexpr Key NAME_VAR  {"NAME_VAR",  38};            // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot)
+inline constexpr Key REL_KW    {"REL_KW",    20};            // ADR 0016: contextual lead IDENT of a rel_def inside a mapping item (sema validates text == "rel"; reuses RECEIVER slot — REL_DEF never has a receiver)
 // VARIANT_DEF reuses LO_NEG (49) as "discriminant is negative" flag.
 // PAT_WRIT_INT reuses LO_NEG (49) as "integer is negative" flag — same semantics.
 // WRIT_ENTRY reuses LO_NEG (49) as "negation flag" (writ entries never have LO_NEG).

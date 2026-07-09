@@ -4053,6 +4053,24 @@ private:
     // arg-blob shim (slice 3 raw-capture path).
     void          lower_fn_macro_call_item(writ::TinyMapView node,
                                            lir::LProgram& prog);
+    // ADR 0016 (M2b-2): `mapping` ITEM lowering — validates the parsed item
+    // (rel signatures, contextual `rel` keyword, column types), reconstructs
+    // canonical (name, params, body) text from the CHECKED nodes, and routes
+    // it through emit_token_macro_item_site to the `__mapping_item` handler
+    // (logos.std.wql.mapping_item).
+    void          lower_mapping_def(writ::TinyMapView node,
+                                    lir::LProgram& prog);
+    // Shared tail of the #[token_macro] ITEM path (pack arg blobs, synth the
+    // JIT thunk, register the MetacallSiteStage); factored from
+    // lower_fn_macro_call_item so lower_mapping_def rides the same seam.
+    // nargs selects the 1/2/3-str handler ABI.
+    void          emit_token_macro_item_site(writ::TinyMapView node,
+                                             lir::LProgram& prog,
+                                             const SemaFuncInfo* macro_info,
+                                             bool rt_is_il, int nargs,
+                                             const std::string& resource_name,
+                                             const std::string& params_text,
+                                             const std::string& raw_text);
 
 public:
     // ── AST → Logos source pretty-printer (sema_render.cpp) ──────────

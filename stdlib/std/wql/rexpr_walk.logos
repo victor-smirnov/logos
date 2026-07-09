@@ -191,9 +191,15 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
 // The paren text is the REAL Logos parameter list from the deem!(…) surface —
 // the compiler parses + type-checks it when the emitted chunk compiles, and
 // the generated-fn param ORDER is the paren-list order, verbatim.
+// ADR 0016: a leading `-` on fn_name (vis_is_priv, params.logos) marks a
+// NON-pub generated fn — a private mapping rel; the marker is consumed here.
 fn emit_fn_head(em: &mut Emitter, fn_name: str, params_text: str) {
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
+    if vis_is_priv(fn_name) {
+        em.push_text("fn ");
+    } else {
+        em.push_text("pub fn ");
+    }
+    em.push_text(vis_strip(fn_name));
     em.push_text("(");
     em.push_text(params_text);
 }
@@ -3957,7 +3963,7 @@ fn emit_rel_fn_oneshot(em: &mut Emitter, rel: RQRel, ri: i64, fn_name: str,
                        h: &Writ) -> bool {
     let row_ty: str = prm.rel_rowty[ri];
     em.push_text("fn __wql_");
-    em.push_text(fn_name);
+    em.push_text(vis_strip(fn_name));
     em.push_text("_rel_");
     em.push_text(prm.rel_names[ri]);
     em.push_text("(");
@@ -4130,7 +4136,7 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
     }
     // ── Signature ──
     em.push_text("fn __wql_");
-    em.push_text(fn_name);
+    em.push_text(vis_strip(fn_name));
     em.push_text("_scc");
     push_nk(em, "", c);
     em.push_text("(");

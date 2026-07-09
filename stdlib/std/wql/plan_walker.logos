@@ -1836,7 +1836,7 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
     prelude.push_str(": Vec<");
     prelude.push_str(prm.rel_rowty[r]);
     prelude.push_str("> = __wql_");
-    prelude.push_str(name);
+    prelude.push_str(vis_strip(name));
     prelude.push_str("_rel_");
     prelude.push_str(prm.rel_names[r]);
     prelude.push_str("(");
@@ -1879,7 +1879,7 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
         r2 = r2 + 1i64;
     }
     prelude.push_str("    __wql_");
-    prelude.push_str(name);
+    prelude.push_str(vis_strip(name));
     prelude.push_str("_scc");
     prelude.push_i64(c);
     prelude.push_str("(");

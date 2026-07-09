@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.28)
 # Jenny toolchain remains available opt-in via
 #   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/jenny.cmake
 
-project(logos VERSION 0.9.0 LANGUAGES CXX C ASM)
+project(logos VERSION 0.9.1 LANGUAGES CXX C ASM)
 
 # ── Version & parallel-install slot ──────────────────────────────────────
 # Single source of truth: project(VERSION) above + the pre-release marker

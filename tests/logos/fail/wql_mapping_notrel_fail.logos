@@ -1,0 +1,19 @@
+// mapping ITEM (ADR 0016) — CONTEXTUAL `rel` KEYWORD diagnostic. The grammar
+// accepts any lead IDENT for a mapping member (a global `rel` keyword would
+// clash with the very common `rel` identifier); sema must reject any lead
+// identifier other than the literal `rel`, naming the offender.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.collections.vec;
+use logos.std.wql.mapping_item;
+
+pub mapping Bad(g: &Writ) {
+    pub relation ports(svc: i64, p: i64) {
+        from g .ports [*] q select (q.parent, q.vi);
+    }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

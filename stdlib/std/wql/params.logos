@@ -33,6 +33,24 @@ unsafe fn mp_str_range(src: str, start: i64, len: i64) -> str {
     return str_from_raw((src.as_ptr() as i64 + start) as *const u8, l);
 }
 
+// ── ADR 0016: generated-fn visibility marker ────────────────────────────────
+// A leading `-` on a generated fn name marks it NON-pub (a private mapping
+// rel — `rel r(…)` without `pub` in a `mapping` item). The marker travels
+// inside the fn_name thread through the walk/emit pipeline; every site that
+// EMBEDS the name into emitted text strips it via `vis_strip`, and
+// `emit_fn_head` (rexpr_walk) additionally chooses `fn` over `pub fn` when
+// `vis_is_priv`. `-` cannot begin a Logos identifier, so the marker is
+// unambiguous.
+pub fn vis_is_priv(fn_name: str) -> bool {
+    return fn_name.len() > 0i64 && str_byte_at(fn_name, 0i64) == 45u8;
+}
+pub fn vis_strip(fn_name: str) -> str {
+    if vis_is_priv(fn_name) {
+        return unsafe { mp_str_range(fn_name, 1i64, fn_name.len() - 1i64) };
+    }
+    return fn_name;
+}
+
 // ── The parsed parameter list ──────────────────────────────────────────────
 // The REL REGISTRY section (`rel_*` / `relc_*`) is filled by the wql! PROGRAM
 // walker (plan_walker) when the block declares `rel` blocks (slice B): the
