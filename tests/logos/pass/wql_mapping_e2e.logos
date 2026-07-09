@@ -1,0 +1,72 @@
+// wql_mapping_e2e — the `mapping!` packaging macro (ADR 0016 M2b v1).
+// A mapping = a NAMED, typed, reusable set of domain relations over a source
+// shape — the first concrete rule-module. Each declared rel emits one public
+// fn `<Mapping>_<rel>(<params>) -> Result<Vec<RowTy>, ElError>`, compiled
+// through the SAME pipeline as deem! (graph-path sugar, `**`/reach injection,
+// recursion, cross-rel references all work). Asserts:
+//   (a) path-rule relations over a graph param (incl. `**`);
+//   (b) CROSS-REL reference (one mapping rel consuming another);
+//   (c) a mapping over TWO params (graph + threshold scalar);
+//   (d) two mappings in one module (no symbol collisions).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;        // parse_writ
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.mapping;
+
+// ── (a)+(b): the service-config vocabulary ───────────────────────────────────
+resource Services = mapping!(g: &Writ) {
+    rel engine(owner: i64, name: str) {
+        from g ** .engine e select (e.parent, e.vs);
+    }
+    rel port(svc: i64, p: i64) {
+        from g .ports [*] q select (q.parent, q.vi);
+    }
+    rel big_port(p: i64) {
+        from port r where r.p >= 8443 select r.p;
+    }
+};
+
+// ── (c): scalar param alongside the graph ────────────────────────────────────
+resource Limits = mapping!(g: &Writ, floor: i64) {
+    rel over(key: str, v: i64) {
+        from g ** x {i64} where x.vi >= floor select (x.key, x.vi);
+    }
+};
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(
+        r#"{ db: { engine: "pg", pool: { min: 2, max: 16 } },
+             ports: [8080, 8443],
+             cache: { engine: "redis" } }"#);
+    if doc.root().is_null() { return 90i32; }
+
+    // (a) engines anywhere: pg, redis
+    let e: Vec<(i64, str)> = match Services_engine(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if e.len() != 2i64 { return 2i32; }
+    let e0: (i64, str) = e.get(0i64);
+    if !str_eq(e0.1, "pg") { return 3i32; }
+
+    // (a) ports
+    let p: Vec<(i64, i64)> = match Services_port(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e2) => { return 4i32; } };
+    if p.len() != 2i64 { return 5i32; }
+
+    // (b) cross-rel: big_port consumes port
+    let b: Vec<i64> = match Services_big_port(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e3) => { return 6i32; } };
+    if b.len() != 1i64 || b.get(0i64) != 8443i64 { return 7i32; }
+
+    // (c) threshold param: i64 leaves ≥ 16 → pool.max 16, ports 8080, 8443
+    let o: Vec<(str, i64)> = match Limits_over(&doc, 16i64)
+    { Result::Ok(v) => { v } Result::Err(_e4) => { return 8i32; } };
+    if o.len() != 3i64 { return 9i32; }
+
+    // (d) both mappings coexist — exercised above by construction
+    return 0i32;
+}
