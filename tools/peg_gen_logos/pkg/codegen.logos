@@ -33,6 +33,7 @@ use logos.lang.writ.array;
 use logos.lang.writ.wmap;
 use logos.lang.writ.wstring;
 use logos.mem.collections.vec;
+use logos.lang.panic;
 
 use peg_gen_logos.ast;
 
@@ -1540,6 +1541,24 @@ fn emit_kw_embed_helper(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("    let mut tern: i64 = 0i64;    // '?' opened, closed by ':'");
     w.line("    while p < len {");
     w.line("        let c: u8 = str_byte_at(src, p);");
+    w.line("        // A string literal is skipped WHOLE — a stop byte inside it");
+    w.line("        // (`select \"a,b\"`) must not end the clause. Same for `//`.");
+    w.line("        if c == 34u8 || c == 39u8 {                                 // \" '");
+    w.line("            let q: u8 = c;");
+    w.line("            p = p + 1i64;");
+    w.line("            while p < len {");
+    w.line("                let e: u8 = str_byte_at(src, p);");
+    w.line("                if e == 92u8 { p = p + 2i64; continue; }            // escape");
+    w.line("                if e == q { break; }");
+    w.line("                p = p + 1i64;");
+    w.line("            }");
+    w.line("            p = p + 1i64;");
+    w.line("            continue;");
+    w.line("        }");
+    w.line("        if c == 47u8 && p + 1i64 < len && str_byte_at(src, p + 1i64) == 47u8 {");
+    w.line("            while p < len && str_byte_at(src, p) != 10u8 { p = p + 1i64; }");
+    w.line("            continue;");
+    w.line("        }");
     w.line("        if c == 40u8 || c == 91u8 { depth = depth + 1i64; }         // ( [");
     w.line("        else if c == 41u8 || c == 93u8 {                            // ) ]");
     w.line("            if depth == 0i64 { return p; }   // top-level close → stop");
@@ -3657,9 +3676,40 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
 //   "str"        → `n.f = <interned str>`                            (string-ref)
 //   "WAny"       → `n.f = hand_any(cap)` / verbatim literal          (dynamic)
 //   scalar i8..i64/u8..u64/i56/isize/usize/bool → `n.f = <val> as T` (inline)
+// Is `ftype` one of the forms emit_schema_field actually models? Anything else
+// used to fall through to a bare `as <ftype>` cast, so a typo in the %schema
+// block produced code that only failed when the GENERATED source was compiled.
+fn ftype_is_known(ftype: str) -> bool {
+    if ftype_is_fan(ftype) || ftype_is_ref(ftype) { return true; }
+    if str_eq(ftype, "WAny") || str_eq(ftype, "str") || str_eq(ftype, "bool") { return true; }
+    if str_eq(ftype, "i8")  || str_eq(ftype, "i16") || str_eq(ftype, "i32") { return true; }
+    if str_eq(ftype, "i56") || str_eq(ftype, "i64") || str_eq(ftype, "isize") { return true; }
+    if str_eq(ftype, "u8")  || str_eq(ftype, "u16") || str_eq(ftype, "u32") { return true; }
+    if str_eq(ftype, "u64") || str_eq(ftype, "usize") { return true; }
+    return false;
+}
+
 fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
                      ftype: str, ekind: i64, sval: str, ival: i64, foldv: str, ref_wrap: str,
                      cap_is_int_tok: bool, cap_is_str_tok: bool, cap_is_flt_tok: bool) {
+    // A field the %schema block never declared: schema_field_type returned "".
+    // This used to fall silently into the scalar-cast branch.
+    if ftype.len() == 0i64 {
+        let mut m: String = String::new();
+        m.push_str("%schema: action writes field '");
+        m.push_str(fname);
+        m.push_str("', which the node's %schema declaration does not have");
+        panic(m.as_str());
+    }
+    if !ftype_is_known(ftype) {
+        let mut m2: String = String::new();
+        m2.push_str("%schema: field '");
+        m2.push_str(fname);
+        m2.push_str("' has unknown type \"");
+        m2.push_str(ftype);
+        m2.push_str("\"");
+        panic(m2.as_str());
+    }
     // Assignment LHS: `node.f = `.
     let mut lhs: String = String::new();
     lhs.push_str(node_var); lhs.push_str("."); lhs.push_str(fname); lhs.push_str(" = ");

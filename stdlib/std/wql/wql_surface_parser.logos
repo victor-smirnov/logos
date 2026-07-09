@@ -453,6 +453,24 @@ fn embed_find_close(src: str, pos: i64, len: i64) -> i64 {
     let mut tern: i64 = 0i64;    // '?' opened, closed by ':'
     while p < len {
         let c: u8 = str_byte_at(src, p);
+        // A string literal is skipped WHOLE — a stop byte inside it
+        // (`select "a,b"`) must not end the clause. Same for `//`.
+        if c == 34u8 || c == 39u8 {                                 // " '
+            let q: u8 = c;
+            p = p + 1i64;
+            while p < len {
+                let e: u8 = str_byte_at(src, p);
+                if e == 92u8 { p = p + 2i64; continue; }            // escape
+                if e == q { break; }
+                p = p + 1i64;
+            }
+            p = p + 1i64;
+            continue;
+        }
+        if c == 47u8 && p + 1i64 < len && str_byte_at(src, p + 1i64) == 47u8 {
+            while p < len && str_byte_at(src, p) != 10u8 { p = p + 1i64; }
+            continue;
+        }
         if c == 40u8 || c == 91u8 { depth = depth + 1i64; }         // ( [
         else if c == 41u8 || c == 93u8 {                            // ) ]
             if depth == 0i64 { return p; }   // top-level close → stop

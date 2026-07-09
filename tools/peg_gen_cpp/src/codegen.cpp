@@ -604,6 +604,9 @@ public:
             if (!s.has_type_code)
                 errs += std::format("  {}: missing `code(0x…)` type code\n", s.name);
             for (const auto& f : s.fields) {
+                if (!ftype_is_known(f))
+                    errs += std::format("  {}.{}: unknown field type \"{}\"\n",
+                                        s.name, f.name, f.ftype);
                 if (f.is_fan()) {
                     if (f.fan_cap() <= 0)
                         errs += std::format("  {}.{}: fan needs a trailing slot "
@@ -2639,15 +2642,28 @@ private:
         w.line("// First index at or after `pos` where the embedded clause ends.");
         w.line("// `(`/`[` nest; a top-level `)`/`]`/`,`/`;`/`}` or keyword stops.");
         w.line("// `?`/`:` are ternary-balanced so a result-type `:` still stops.");
-        w.line("// NOTE (inherited from the Logos backend): string literals and");
-        w.line("// comments are NOT skipped — a `,` inside a quoted EL string ends");
-        w.line("// the clause early.");
+        w.line("// String literals and `//` comments are skipped WHOLE, so a stop");
+        w.line("// character inside them (`select \"a,b\"`) does not end the clause.");
         w.line("static size_t embed_find_close(std::string_view s, size_t pos) {");
         w.indent();
         w.line("size_t depth = 0, tern = 0;");
         w.line("for (size_t p = pos; p < s.size(); ++p) {");
         w.indent();
         w.line("char c = s[p];");
+        w.line("if (c == '\"' || c == '\\'') {   // string literal: skip to its close");
+        w.indent();
+        w.line("char q = c;");
+        w.line("for (++p; p < s.size(); ++p) {");
+        w.line("    if (s[p] == '\\\\') { ++p; continue; }   // escape: skip the next byte");
+        w.line("    if (s[p] == q) break;");
+        w.line("}");
+        w.line("continue;   // p is at the closing quote (or EOI)");
+        w.dedent();
+        w.line("}");
+        w.line("if (c == '/' && p + 1 < s.size() && s[p + 1] == '/') {");
+        w.line("    while (p < s.size() && s[p] != '\\n') ++p;");
+        w.line("    continue;");
+        w.line("}");
         w.line("if (c == '(' || c == '[') { ++depth; continue; }");
         w.line("if (c == ')' || c == ']') { if (depth == 0) return p; --depth; continue; }");
         w.line("if (depth) continue;");
@@ -2904,6 +2920,18 @@ private:
             case '\'': return "\\'";
             default:   return std::string(1, c);
         }
+    }
+
+    // Is this a form emit_schema_field actually models? Anything else fell
+    // through to scalar_cast's int64_t default, so a typo'd type in the %schema
+    // block silently produced a wrong-width write.
+    static bool ftype_is_known(const SchemaField& f) {
+        if (f.is_fan() || f.is_ref()) return true;
+        for (const char* k : {"WAny", "str", "bool",
+                              "i8", "i16", "i32", "i56", "i64", "isize",
+                              "u8", "u16", "u32", "u64", "usize"})
+            if (f.ftype == k) return true;
+        return false;
     }
 
     // Declared width → the C++ integer the AnyVal Pod is narrowed to.
