@@ -2423,12 +2423,39 @@ fn emit_lex_string(w: &mut CodeWriter, name: str, pat: str) {
     let b0: u8 = if inner.len() > 0i64 { str_byte_at(inner, 0i64) } else { 34u8 };
     let b1: u8 = if inner.len() > 1i64 { str_byte_at(inner, 1i64) } else { 0u8 };
     if b0 == 114u8 && b1 == 34u8 {
-        // r"…"  raw string: no escapes, body is any byte except the closing quote.
-        w.line("        if c == 114u8 && self.cur(1i64) == 34u8 {");
-        w.line("            self.pos = self.pos + 2i64;");
-        w.line("            while self.pos < self.src.len() && self.cur(0i64) != 34u8 { self.pos = self.pos + 1i64; }");
-        w.line("            if self.pos < self.src.len() { self.pos = self.pos + 1i64; }");
-        w.l3("            return Token { kind: TK_", name, ", start: start, len: self.pos - start, line: sl };");
+        // Raw string: `r"…"` AND `r#"…"#`, `r##"…"##`, … The grammar's pattern
+        // (`/r"[^"]*"/`) describes only the hash-less form — the hash-counting
+        // shape is a lexer special case, which peg_gen_cpp has had all along and
+        // this backend did not. Every source using `r#"…"#` therefore failed to
+        // parse here: all 22 of the cross-backend oracle's 2273-file corpus
+        // mismatches were exactly this, and nothing else.
+        w.line("        if c == 114u8 && self.pos + 1i64 < self.src.len()");
+        w.line("        && (self.cur(1i64) == 34u8 || self.cur(1i64) == 35u8) {");
+        w.line("            let mut hashes: i64 = 0i64;");
+        w.line("            let mut p: i64 = self.pos + 1i64;");
+        w.line("            while p < self.src.len() && str_byte_at(self.src, p) == 35u8 {");
+        w.line("                hashes = hashes + 1i64; p = p + 1i64;");
+        w.line("            }");
+        w.line("            if p < self.src.len() && str_byte_at(self.src, p) == 34u8 {");
+        w.line("                self.pos = p + 1i64;");
+        w.line("                let mut found: bool = false;");
+        w.line("                while !found && self.pos < self.src.len() {");
+        w.line("                    if self.cur(0i64) == 34u8 {");
+        w.line("                        let mut h: i64 = 0i64;");
+        w.line("                        while h < hashes && self.pos + 1i64 + h < self.src.len()");
+        w.line("                              && str_byte_at(self.src, self.pos + 1i64 + h) == 35u8 {");
+        w.line("                            h = h + 1i64;");
+        w.line("                        }");
+        w.line("                        if h == hashes { self.pos = self.pos + 1i64 + hashes; found = true; }");
+        w.line("                        else { self.pos = self.pos + 1i64; }");
+        w.line("                    } else {");
+        // A raw-string body may span lines; miss this and every later line drifts.
+        w.line("                        if self.cur(0i64) == 10u8 { self.line = self.line + 1i64; }");
+        w.line("                        self.pos = self.pos + 1i64;");
+        w.line("                    }");
+        w.line("                }");
+        w.l3("                return Token { kind: TK_", name, ", start: start, len: self.pos - start, line: sl };");
+        w.line("            }");
         w.line("        }");
         return;
     }
