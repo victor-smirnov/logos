@@ -4102,9 +4102,14 @@ private:
         std::string src_param_type;        // its syntactic type, e.g. "&Writ"
         std::string body_text;             // canonical rel list
         size_t      nrels = 0;
-        bool        enrichable = false;    // exactly one param (the source)
+        bool        enrichable = false;    // source-first param shape holds
         std::string type_param;            // "S" for `mapping M<S: Bound>`
         std::string bound;                 // the bound source trait
+        // Scalar params after the source (`floor: i64`, …). Bound at the
+        // consumption site by NAME IDENTITY: the consumer must declare a
+        // param with the same name and type — the spliced rule bodies then
+        // resolve the scalar exactly as the mapping wrote it, no EL rename.
+        std::vector<std::pair<std::string, std::string>> scalars;
     };
     std::unordered_map<std::string, MappingInfo> mappings_;
 

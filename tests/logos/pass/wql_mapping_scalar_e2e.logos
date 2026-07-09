@@ -1,0 +1,65 @@
+// wql_mapping_scalar_e2e — mapping scalar params bound at consumption by NAME
+// IDENTITY (ADR 0016): `mapping Limits(g: &Writ, floor: i64)` consumed by a
+// deem! that declares `floor: i64` itself; the spliced rules resolve `floor`
+// exactly as written — no rename, no new syntax. Asserts:
+//   (a) a concrete mapping with a scalar, fused and parameterized per call;
+//   (b) a GENERIC mapping with a scalar over a user source type.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+
+mapping Limits(g: &Writ, floor: i64) {
+    pub rel over(key: str, v: i64) {
+        from g ** x {i64} where x.vi >= floor select (x.key, x.vi);
+    }
+}
+
+pub deem big_vals(w: Limits, floor: i64) {
+    from over o select o.v
+}
+
+// (b) generic + scalar.
+pub trait EdgeSource {
+    rel link(a: i64, b: i64);
+}
+struct Chain { pub n: i64 }
+fn chain_edges(c: &Chain) -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 1i64;
+    while i < c.n { v.push((i, i + 1i64)); i = i + 1i64; }
+    return v;
+}
+impl EdgeSource for Chain {
+    rel link = chain_edges;
+}
+pub mapping Far<S: EdgeSource>(g: &S, min_b: i64) {
+    pub rel far(a: i64, b: i64) {
+        from g e where e.b >= min_b select (e.a, e.b);
+    }
+}
+pub deem far_edges(w: Far<Chain>, min_b: i64) {
+    from far f select (f.a, f.b)
+}
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(r#"{ a: 5, b: 50, c: { d: 500 } }"#);
+
+    let v1: Vec<i64> = match big_vals(&doc, 100i64)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if v1.len() != 1i64 { return 2i32; }      // only 500
+
+    let v2: Vec<i64> = match big_vals(&doc, 10i64)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if v2.len() != 2i64 { return 4i32; }      // 50, 500 — same query, new bound
+
+    let c: Chain = Chain { n: 5i64 };
+    let fe: Vec<(i64, i64)> = match far_edges(&c, 4i64)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if fe.len() != 2i64 { return 6i32; }      // →4, →5
+
+    return 0i32;
+}

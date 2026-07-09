@@ -19883,10 +19883,16 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
                 mname, out.first_param_name, want);
             return false;
         }
-        if (out.nparams != 1) {
+    }
+    // Params after the source must be SCALARS (they ride into the generated
+    // fns and, at a consumption site, bind by name identity).
+    for (size_t i = 1; i < out.params.size(); ++i) {
+        const auto& ty = out.params[i].second;
+        if (ty != "i64" && ty != "f64" && ty != "str" && ty != "bool") {
             out.err = std::format(
-                "mapping '{}': a generic mapping takes only the source "
-                "parameter (scalar params are a later slice)", mname);
+                "mapping '{}': parameter '{}' has type `{}` — params after "
+                "the source must be scalars (i64/f64/str/bool)",
+                mname, out.params[i].first, ty);
             return false;
         }
     }
@@ -20022,7 +20028,9 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
         mi.src_param_type = parts.first_param_type;
         mi.body_text      = parts.body_text;
         mi.nrels          = parts.rel_names.size();
-        mi.enrichable     = (parts.nparams == 1);
+        mi.enrichable     = true;   // scalars bind by name identity at the site
+        for (size_t i = 1; i < parts.params.size(); ++i)
+            mi.scalars.push_back(parts.params[i]);
         mi.type_param     = parts.type_param;
         mi.bound          = parts.bound;
         mappings_[mname] = std::move(mi);
@@ -20317,13 +20325,22 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                         }
                     }
                 }
-                if (!mi.enrichable) {
-                    error(std::format(
-                        "'{}!': parameter '{}' binds mapping '{}', which has "
-                        "more than one parameter — only single-source mappings "
-                        "can enrich a deem! today (scalar mapping params are a "
-                        "later slice)", callee_label, pn, pt));
-                    return false;
+                // Scalars bind by NAME IDENTITY: each `floor: i64` of the
+                // mapping must appear verbatim among the consumer's params —
+                // the spliced rule bodies then resolve `floor` exactly as the
+                // mapping wrote it (no EL rename, no new syntax).
+                for (const auto& [sn, st] : mi.scalars) {
+                    bool found = false;
+                    for (const auto& [qn, qt] : pairs)
+                        if (qn == sn && qt == st) { found = true; break; }
+                    if (!found) {
+                        error(std::format(
+                            "'{}!': mapping '{}' has a scalar parameter "
+                            "`{}: {}` — declare a parameter with that exact "
+                            "name and type in the deem!(…) list to bind it",
+                            callee_label, mbase, sn, st));
+                        return false;
+                    }
                 }
                 enrich += std::format("{}={}@{}-{};", mi.src_param_name, pn,
                                       next_rel, next_rel + mi.nrels);
