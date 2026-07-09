@@ -40,7 +40,6 @@ use logos.mem.writ.parser;        // parse_writ — text → owned document
 use logos.lang.str;
 use logos.mem.string;
 use logos.mem.collections.vec;
-use logos.mem.collections.hashmap;
 use logos.std.wql.wql;            // deem! — the static macro
 
 extern fn printf(fmt: *const u8, ...) -> i32;
@@ -62,6 +61,9 @@ struct EdgeF {
 }
 
 // ── the generic walk (the virtual scan's static twin) ───────────────────────
+// Fully SAFE: string reads go through the null-safe WAny::as_wstr, and the
+// visited set is a plain Vec<u64> (linear probe — example-scale documents;
+// the engine's internal scan uses a HashMap for the same discipline).
 fn fnv2(a: i64, b: i64) -> i64 {
     let mut hh: u64 = 14695981039346656037u64;
     hh = wrapping_mul(hh ^ (a as u64), 1099511628211u64);
@@ -85,24 +87,29 @@ fn is_container(v: WAny) -> bool {
     return v.is_map() || v.is_array() || v.is_tinymap();
 }
 
-unsafe fn emit_edge(out: &mut Vec<EdgeF>, parent: WAny, key: str, idx: i64,
-                    child: WAny, ord: i64) {
+fn seen_has(seen: &Vec<u64>, h: u64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < seen.len() {
+        if seen.get(i) == h { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn emit_edge(out: &mut Vec<EdgeF>, parent: WAny, key: str, idx: i64,
+             child: WAny, ord: i64) {
     let cid: i64 = if is_container(child) { child.raw() as i64 }
                    else { fnv2(parent.raw() as i64, ord) };
     let mut vi: i64 = 0i64;
-    let mut vs: str = "";
     if child.is_int()       { vi = child.as_i64(); }
     else if child.is_bool() { vi = if child.as_bool() { 1i64 } else { 0i64 }; }
-    else if child.is_string() {
-        let ws: &WString = &*(child.resolve() as *const WString);
-        vs = ws.as_str();
-    }
     out.push(EdgeF { parent: parent.raw() as i64, key: key, idx: idx,
                      child: cid, kind: w_kind(child),
-                     tag: child.type_code() as i64, vi: vi, vs: vs });
+                     tag: child.type_code() as i64, vi: vi,
+                     vs: child.as_wstr() });   // null-safe: "" for non-strings
 }
 
-unsafe fn walk(v: WAny, out: &mut Vec<EdgeF>, seen: &mut HashMap<u64, i64>) {
+fn walk(v: WAny, out: &mut Vec<EdgeF>, seen: &mut Vec<u64>) {
     if v.is_map() {
         let m: &WMap<WString, WAny> = v.as_map();
         let mut ord: i64 = 0i64;
@@ -110,9 +117,8 @@ unsafe fn walk(v: WAny, out: &mut Vec<EdgeF>, seen: &mut HashMap<u64, i64>) {
         while s < m.slots() {
             let kv: WAny = m.key_at(s);
             if !kv.is_null() {
-                let ks: &WString = &*(kv.resolve() as *const WString);
                 let cv: WAny = m.val_at(s);
-                emit_edge(out, v, ks.as_str(), 0i64 - 1i64, cv, ord);
+                emit_edge(out, v, kv.as_wstr(), 0i64 - 1i64, cv, ord);
                 descend(cv, out, seen);
                 ord = ord + 1i64;
             }
@@ -132,12 +138,11 @@ unsafe fn walk(v: WAny, out: &mut Vec<EdgeF>, seen: &mut HashMap<u64, i64>) {
     }
 }
 
-unsafe fn descend(child: WAny, out: &mut Vec<EdgeF>, seen: &mut HashMap<u64, i64>) {
+fn descend(child: WAny, out: &mut Vec<EdgeF>, seen: &mut Vec<u64>) {
     if !is_container(child) { return; }
     let hw: u64 = child.raw() as u64;
-    let sp: *mut HashMap<u64, i64> = seen;
-    if (sp.get(&hw) as i64) != 0i64 { return; }   // expanded already (DAG/cycle)
-    let _m: *mut i64 = sp.get_or_insert(hw, 1i64);
+    if seen_has(seen, hw) { return; }   // expanded already (DAG/cycle)
+    seen.push(hw);
     walk(child, out, seen);
 }
 
@@ -189,12 +194,9 @@ fn main() -> i32 {
 
     // ── the bridge walk: graph → one edge relation ───────────────────────────
     let mut g: Vec<EdgeF> = vec_new::<EdgeF>();
-    let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();
-    unsafe {
-        let sp: *mut HashMap<u64, i64> = &mut seen;
-        let _r: *mut i64 = sp.get_or_insert(root.raw() as u64, 1i64);
-        walk(root, &mut g, &mut seen);
-    }
+    let mut seen: Vec<u64> = vec_new::<u64>();
+    seen.push(root.raw() as u64);
+    walk(root, &mut g, &mut seen);
     unsafe { printf("edges: %ld\n" as *const u8, g.len()); }
 
     hdr("every `engine` setting, wherever it sits");
