@@ -43,7 +43,7 @@ use logos.std.wql.writ_graph;     // writ_graph_edges — the NATIVE graph-sourc
 // the same convention the metacall thunk chunks follow. Package = the
 // TRIGGER module's (emit_target_pkg), so the generated fn lands next to
 // its callsite and sees the trigger package's types (row schemas etc.).
-pub fn begin_chunk(em: &mut Emitter, view: &OView) {
+pub fn begin_chunk(em: &mut Emitter, view: &OView, with_deem: bool) {
     em.emit_target_pkg(view);
     // logos.lang.option covers the single-row query modes (`select first` /
     // `find` return Option<E> / Option<&Row>). hashmap/set/btree cover the
@@ -65,6 +65,13 @@ pub fn begin_chunk(em: &mut Emitter, view: &OView) {
     // logos.lang.writ.container — the Writ type the verbatim `&Writ` fn
     // signature references.
     em.push_text("use logos.std.wql.writ_graph; use logos.lang.writ.container; ");
+    // logos.std.deem — ONLY when an engine-source param (`e: &IncrRec`) is in
+    // play (ADR 0016 M5): unconditional would demand the deem engine in every
+    // deem!-consumer's load closure (and wql itself must not import deem —
+    // module cycle). The user has it: an IncrRec value requires the import.
+    if with_deem {
+        em.push_text("use logos.std.deem; ");
+    }
 }
 
 // ── Builtin function registry ───────────────────────────────────────────────

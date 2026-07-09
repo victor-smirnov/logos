@@ -1,0 +1,75 @@
+// logos.std.deem — ENGINE-STATE MATERIALIZERS (ADR 0016 M5, case S: the
+// engine as a source). The native-rel materializers behind the `deem!`
+// engine-source parameter (`e: &IncrRec`): the reasoner's own past as
+// ordinary relations, one flat Vec of tuples per relation.
+//
+// This is ADR 0015's I1 discipline as a MAPPING-CLASS CONTRACT: every row is
+// a sensor fact about the COMPLETED past (trace/journal are append-only; the
+// tail is the current residual assessment) — reading them can never affect
+// the run that produced them. The hand-rolled per-test materialization
+// (tail_edb in the L0/L1 tests) is exactly what these replace; S5's
+// self-ontology becomes a query vocabulary over these relations.
+//
+// Relations (registered by the deem! walker as `<p>_trace` etc.):
+//   <p>_trace(epoch, kind, step, delta, total, ns)   one row per TraceStep
+//   <p>_epochs(epoch, ins, del, rounds, ns)          one row per epoch()
+//   <p>_tail(epoch, converged, pending, bound, cutr) ONE row — the residual
+//   <p>_controls(epoch, kind, val)                   applied control atoms
+// `ns` is a wall-clock SENSOR (nondeterministic) — assert ≥ 0, never golden.
+// One package across several files (see deem.logos for the module-level doc).
+package logos.std.deem;
+
+use logos.mem.collections.vec;
+
+/// <p>_trace rows: (epoch, kind, step, delta_card, total_rows, ns).
+pub fn deem_state_trace(e: &IncrRec) -> Vec<(i64, i64, i64, i64, i64, i64)> {
+    let mut out: Vec<(i64, i64, i64, i64, i64, i64)> = vec_new::<(i64, i64, i64, i64, i64, i64)>();
+    let n: i64 = e.trace_len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: TraceStep = e.trace_at(i);
+        out.push((t.epoch, t.kind as i64, t.step, t.delta_card, t.total_rows, t.ns));
+        i = i + 1i64;
+    }
+    return out;
+}
+
+/// <p>_epochs rows: (epoch, d_ins, d_del, rounds, ns).
+pub fn deem_state_epochs(e: &IncrRec) -> Vec<(i64, i64, i64, i64, i64)> {
+    let mut out: Vec<(i64, i64, i64, i64, i64)> = vec_new::<(i64, i64, i64, i64, i64)>();
+    let n: i64 = e.epochs_len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: TraceEpoch = e.epoch_at(i);
+        out.push((t.epoch, t.d_ins, t.d_del, t.rounds, t.ns));
+        i = i + 1i64;
+    }
+    return out;
+}
+
+/// <p>_tail row (exactly one): (epoch, converged 0/1, pending, bound_dir, cut_reason).
+pub fn deem_state_tail(e: &IncrRec) -> Vec<(i64, i64, i64, i64, i64)> {
+    let mut out: Vec<(i64, i64, i64, i64, i64)> = vec_new::<(i64, i64, i64, i64, i64)>();
+    let t: TruncatedTail = e.tail();
+    out.push((t.epoch, if t.converged { 1i64 } else { 0i64 },
+              t.pending_delta_card, t.bound_dir as i64, t.cut_reason as i64));
+    return out;
+}
+
+/// <p>_controls rows: applied control atoms, epoch-stamped (kind, val).
+pub fn deem_state_controls(e: &IncrRec) -> Vec<(i64, i64, i64)> {
+    let mut out: Vec<(i64, i64, i64)> = vec_new::<(i64, i64, i64)>();
+    let nj: i64 = e.journal_len();
+    let mut i: i64 = 0i64;
+    while i < nj {
+        let nc: i64 = e.journal_controls_at(i);
+        let mut j: i64 = 0i64;
+        while j < nc {
+            let a: ControlAtom = e.journal_control_at(i, j);
+            out.push((a.epoch, a.kind as i64, a.val));
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return out;
+}

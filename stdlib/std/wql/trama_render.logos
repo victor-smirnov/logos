@@ -662,7 +662,7 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // The signature params are re-emitted VERBATIM from the surface parens, so
     // the compiler parses + type-checks them (`o: &Order, greeting: str` etc.).
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view);
+    begin_chunk(&mut em, &view, false);
     em.push_text("pub fn ");
     em.push_text(fn_name);
     em.push_text("(");

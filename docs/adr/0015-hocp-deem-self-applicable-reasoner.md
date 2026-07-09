@@ -111,6 +111,15 @@ Fork + evaluate + collapse implements the article's §5.3 "search in the space o
 
 ## 6. S5 — The reasoner's self-ontology (dogfooding)
 
+**Mechanism note (2026-07-09, ADR 0016 M5):** the vocabulary below is now
+DIRECTLY QUERYABLE — a `deem!` parameter typed `&IncrRec` exposes
+`<p>_trace` / `<p>_epochs` / `<p>_tail` / `<p>_controls` as native relations
+(the "engine as a source" mapping case; `wql_engine_source_e2e` runs the
+Encounter rule and the §6 honesty pair as statically compiled queries, and
+expresses the S1 Σδ oracle as a Deem aggregate). S5 proper = authoring the
+self-ontology AS this vocabulary + the full protocol; the hand-rolled
+per-test materialization (tail_edb) is obsolete.
+
 The vocabulary of §§2–5 (`step_stats`, `truncated_tail`, `branch`, `merged`, `control`, `decision`, provenance refs into R4) *is* the "ontology of the self-applicable reasoner" — authored as a Deem model, consumed by Deem (EDB, per I1).
 
 **Free-will demonstration protocol** (the acceptance pair from §0, both ctest-able):

@@ -1384,6 +1384,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                                          String::new(), String::new(), String::new(), String::new()];
     let mut nat_dsrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                           String::new(), String::new(), String::new(), String::new()];
+    let mut nat_name_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new()];
 
     if prog.has_rels() {
         let rels: RQRelArr = prog.rels_arr();
@@ -1469,7 +1471,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // generic graph-edge relation AFTER the parse-side rels (registry
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
-        if !register_native_rels(prm, &mut nat_src_bufs, &mut nat_dsrc_bufs) { return false; }
+        if !register_native_rels(prm, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
         // — recursion is legal, realized by the SCC fixpoint. Dep edges + the
@@ -1503,7 +1505,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // No parse-side rels — native params may still register (an entry
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
-        if !register_native_rels(prm, &mut nat_src_bufs, &mut nat_dsrc_bufs) { return false; }
+        if !register_native_rels(prm, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
         }
@@ -1678,28 +1680,40 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
 // the parse-side rels (registry idx 0..nr-1 stays parse-aligned) and BEFORE
 // the body pass (bodies may scan them). Column names/types mirror
 // logos.std.wql.writ_graph::WritEdgeRow.
+// Register ONE native rel; returns its registry idx or −1 (cap/dup errors
+// surfaced by the caller). `disp` = the rel's DECLARED name text (backed by
+// the caller's frame Strings).
+fn reg_native(prm: &mut MacroParams, disp: str, rowty: str, nkind: i32,
+              srcb: &mut String, dsrcb: &mut String) -> i64 {
+    srcb.push_str("__rel_");
+    srcb.push_str(disp);
+    srcb.push_str("_sl");
+    dsrcb.push_str("__dl_");
+    dsrcb.push_str(disp);
+    dsrcb.push_str("_sl");
+    let idx: i64 = prm.rel_add(disp, string_as_str(srcb), string_as_str(dsrcb), rowty);
+    if idx >= 0i64 {
+        prm.rel_native[idx] = true;
+        prm.rel_nkind[idx] = nkind;
+    }
+    return idx;
+}
+
 fn register_native_rels(prm: &mut MacroParams,
-                        srcb: &mut [String; 8], dsrcb: &mut [String; 8]) -> bool {
+                        srcb: &mut [String; 8], dsrcb: &mut [String; 8],
+                        nameb: &mut [String; 8]) -> bool {
     let mut p: i64 = 0i64;
     let mut k: i64 = 0i64;
     while p < prm.n {
         if !prm.is_slice[p] && str_eq(prm.tys[p], "Writ") {
             let nm: str = prm.names[p];
             if k >= 8i64 || prm.rel_n >= 8i64 {
-                error("wql!: too many rels (max 8, graph params included)");
+                error("wql!: too many rels (max 8, native source params included)");
                 return false;
             }
-            srcb[k].push_str("__rel_");
-            srcb[k].push_str(nm);
-            srcb[k].push_str("_sl");
-            dsrcb[k].push_str("__dl_");
-            dsrcb[k].push_str(nm);
-            dsrcb[k].push_str("_sl");
-            let idx: i64 = prm.rel_add(nm, string_as_str(&srcb[k]),
-                                       string_as_str(&dsrcb[k]),
-                                       "(i64, str, i64, i64, str, i64, i64, str)");
-            if idx < 0i64 { error("wql!: too many rels (max 8, graph params included)"); return false; }
-            prm.rel_native[idx] = true;
+            let idx: i64 = reg_native(prm, nm, "(i64, str, i64, i64, str, i64, i64, str)",
+                                      1i32, &mut srcb[k], &mut dsrcb[k]);
+            if idx < 0i64 { error("wql!: too many rels (max 8, native source params included)"); return false; }
             prm.rel_add_col("parent", "i64");
             prm.rel_add_col("key", "str");
             prm.rel_add_col("idx", "i64");
@@ -1710,9 +1724,71 @@ fn register_native_rels(prm: &mut MacroParams,
             prm.rel_add_col("vs", "str");
             k = k + 1i64;
         }
+        // ADR 0016 M5 (case S): an ENGINE param exposes the reasoner's own
+        // past as four relations — <p>_trace / <p>_epochs / <p>_tail /
+        // <p>_controls (see logos.std.deem mapping_state materializers).
+        if !prm.is_slice[p] && str_eq(prm.tys[p], "IncrRec") {
+            let nm2: str = prm.names[p];
+            if k + 4i64 > 8i64 || prm.rel_n + 4i64 > 8i64 {
+                error("wql!: too many rels (max 8, native source params included)");
+                return false;
+            }
+            // <p>_trace(epoch, kind, step, delta, total, ns)
+            nameb[k].push_str(nm2); nameb[k].push_str("_trace");
+            let i1: i64 = reg_native(prm, string_as_str(&nameb[k]),
+                                     "(i64, i64, i64, i64, i64, i64)", 2i32,
+                                     &mut srcb[k], &mut dsrcb[k]);
+            if i1 < 0i64 { error("wql!: too many rels"); return false; }
+            prm.rel_add_col("epoch", "i64");
+            prm.rel_add_col("kind", "i64");
+            prm.rel_add_col("step", "i64");
+            prm.rel_add_col("delta", "i64");
+            prm.rel_add_col("total", "i64");
+            prm.rel_add_col("ns", "i64");
+            k = k + 1i64;
+            // <p>_epochs(epoch, ins, del, rounds, ns)
+            nameb[k].push_str(nm2); nameb[k].push_str("_epochs");
+            let i2: i64 = reg_native(prm, string_as_str(&nameb[k]),
+                                     "(i64, i64, i64, i64, i64)", 3i32,
+                                     &mut srcb[k], &mut dsrcb[k]);
+            if i2 < 0i64 { error("wql!: too many rels"); return false; }
+            prm.rel_add_col("epoch", "i64");
+            prm.rel_add_col("ins", "i64");
+            prm.rel_add_col("del", "i64");
+            prm.rel_add_col("rounds", "i64");
+            prm.rel_add_col("ns", "i64");
+            k = k + 1i64;
+            // <p>_tail(epoch, converged, pending, bound, cutr) — ONE row
+            nameb[k].push_str(nm2); nameb[k].push_str("_tail");
+            let i3: i64 = reg_native(prm, string_as_str(&nameb[k]),
+                                     "(i64, i64, i64, i64, i64)", 4i32,
+                                     &mut srcb[k], &mut dsrcb[k]);
+            if i3 < 0i64 { error("wql!: too many rels"); return false; }
+            prm.rel_add_col("epoch", "i64");
+            prm.rel_add_col("converged", "i64");
+            prm.rel_add_col("pending", "i64");
+            prm.rel_add_col("bound", "i64");
+            prm.rel_add_col("cutr", "i64");
+            k = k + 1i64;
+            // <p>_controls(epoch, kind, val)
+            nameb[k].push_str(nm2); nameb[k].push_str("_controls");
+            let i4: i64 = reg_native(prm, string_as_str(&nameb[k]),
+                                     "(i64, i64, i64)", 5i32,
+                                     &mut srcb[k], &mut dsrcb[k]);
+            if i4 < 0i64 { error("wql!: too many rels"); return false; }
+            prm.rel_add_col("epoch", "i64");
+            prm.rel_add_col("kind", "i64");
+            prm.rel_add_col("val", "i64");
+            k = k + 1i64;
+        }
         p = p + 1i64;
     }
     return true;
+}
+
+// Leading `n` bytes of `s` as a view (native-rel param-name recovery).
+fn pw_prefix(s: str, n: i64) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), if n < 0i64 { 0i64 } else { n }) };
 }
 
 // One-shot rel `r` (singleton SCC, no self-edge — the slice-B path):
@@ -1728,8 +1804,23 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
         prelude.push_str(prm.rel_names[r]);
         prelude.push_str(": Vec<");
         prelude.push_str(prm.rel_rowty[r]);
-        prelude.push_str("> = writ_graph_edges(");
-        prelude.push_str(prm.rel_names[r]);
+        prelude.push_str("> = ");
+        let nk: i32 = prm.rel_nkind[r];
+        if nk == 1i32      { prelude.push_str("writ_graph_edges("); }
+        else if nk == 2i32 { prelude.push_str("deem_state_trace("); }
+        else if nk == 3i32 { prelude.push_str("deem_state_epochs("); }
+        else if nk == 4i32 { prelude.push_str("deem_state_tail("); }
+        else               { prelude.push_str("deem_state_controls("); }
+        // the OWNING param: rel name for the graph flavor; for the engine
+        // flavors strip the `_suffix` back to the param name.
+        if nk == 1i32 {
+            prelude.push_str(prm.rel_names[r]);
+        } else {
+            let full: str = prm.rel_names[r];
+            let mut cut: i64 = full.len() - 1i64;
+            while cut > 0i64 && str_byte_at(full, cut) != 95u8 { cut = cut - 1i64; }
+            prelude.push_str(pw_prefix(full, cut));
+        }
         prelude.push_str(");\n");
         prelude.push_str("    let ");
         prelude.push_str(prm.rel_srcs[r]);

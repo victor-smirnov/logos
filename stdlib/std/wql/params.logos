@@ -75,6 +75,9 @@ pub struct MacroParams {
     // no parse-side RQRel (skipped by body passes + fn emission); its
     // prelude line calls the native helper directly.
     pub rel_native:  [bool; 8],
+    // native FLAVOR: 0 none · 1 writ graph edges · 2 engine trace · 3 engine
+    // epochs · 4 engine tail · 5 engine controls (ADR 0016 M5, case S).
+    pub rel_nkind:   [i32; 8],
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -107,6 +110,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_is_agg:  [false; 8],
         rel_agg_dir: [0i32; 8],
         rel_native:  [false; 8],
+        rel_nkind:   [0i32; 8],
     };
 }
 
@@ -133,6 +137,17 @@ impl MacroParams {
         let i: i64 = self.index_of(name);
         if i < 0i64 { return false; }
         return !self.is_slice[i];
+    }
+
+    // Any `IncrRec` engine-source param present? (drives the emitted chunk's
+    // conditional `use logos.std.deem;` — ADR 0016 M5.)
+    pub fn has_engine_param(self: &MacroParams) -> bool {
+        let mut i: i64 = 0i64;
+        while i < self.n {
+            if !self.is_slice[i] && str_eq(self.tys[i], "IncrRec") { return true; }
+            i = i + 1i64;
+        }
+        return false;
     }
 
     // The CORE type name of the param named `name` ("" if absent).
