@@ -2391,6 +2391,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         }
     }
     if (!callee_fn) {
+        if (::getenv("LOGOS_TRACE_CALL_MISS")) {
+            std::fprintf(stderr, "[call-miss] '%s' — near-name FuncOps:\n",
+                         callee.c_str());
+            std::string frag = callee.substr(callee.rfind('$') + 1);
+            if (auto us = frag.find("__"); us != std::string::npos)
+                frag = frag.substr(0, us);
+            parent_mod.walk([&](mlir::func::FuncOp fn) {
+                if (fn.getName().contains(frag))
+                    std::fprintf(stderr, "  %s\n", fn.getName().str().c_str());
+            });
+        }
         llvm::SmallVector<mlir::Value> args;
         for (size_t i = 0; i < arg_les.size(); ++i) {
             auto v = gen_expr(arg_les[i]);

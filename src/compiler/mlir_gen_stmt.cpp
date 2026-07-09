@@ -1406,12 +1406,27 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     if (v.value() && !let_nm.empty() && let_nm != "_" && !scope_.count(let_nm)) {
         TypeRef lty = v.type(pool_impl());
         auto lk = lty ? TypeRef(lty).kind() : LogosType::Kind::Void;
-        if (lk != LogosType::Kind::Void && lk != LogosType::Kind::Never)
+        if (lk != LogosType::Kind::Void && lk != LogosType::Kind::Never) {
+            // Name the failing initializer: for a call, WHICH callee — the
+            // difference between a compiler-bug report someone can act on and
+            // a shrug. (assertion-as-diagnostic class.)
+            std::string what;
+            {
+                auto er = v.value();
+                auto ek = er.kind();
+                what = std::format(" (init kind {})", static_cast<int>(ek));
+                if (ek == lir_schema::expr::Code::Call) {
+                    lir_view::ECallView cv{er};
+                    what = std::format(" (call to '{}')",
+                                       std::string(cv.callee()));
+                }
+            }
             std::fprintf(stderr,
-                         "mlir_gen: `let %s` initializer produced no value — "
+                         "mlir_gen: `let %s` initializer produced no value%s — "
                          "statement DROPPED (compiler bug; dependents will "
                          "vanish too)\n",
-                         let_nm.c_str());
+                         let_nm.c_str(), what.c_str());
+        }
     }
     // -g: after the binding's slot is set in scope_, attach DWARF local-var info.
     if (debug_info_ && di_subprogram_)
