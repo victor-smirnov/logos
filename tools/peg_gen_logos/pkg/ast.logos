@@ -49,6 +49,14 @@ pub const GROUP_NAME: u8 = 21u8;  // RULE / NameDecl: group name
 pub const FTYPE:      u8 = 22u8;  // SCHEMA_FIELD: field-type string ("ref SExpr" | "i32" | "u8" | "str" | "WAny")
 pub const PACKAGE:    u8 = 23u8;  // META_INFO: emitted `package` name (overrides OUTPUT; OUTPUT stays the file basename)
 pub const GPREFIX:    u8 = 24u8;  // META_INFO: prefix for module-GLOBAL emitted names (token consts, NULLP, runtime structs) — lets 2 generated parsers coexist in ONE module
+// The two numbers below MUST match tools/peg_gen_cpp/src/grammar_ast.hpp: the
+// generators share ONE grammar IR, so a .peg reads identically through both.
+// Neither is consumed by THIS backend — it emits `node.field = …` and lets
+// logosc resolve field→key and stamp the type code via `doc.make::<S>()`. The
+// C++ backend has no second pass and must bake both in, so the .peg carries
+// them and stays the single source of truth.
+pub const FKEY:       u8 = 25u8;  // SCHEMA_FIELD: explicit TOM key (`field: "ty" = N`)
+pub const TYPE_CODE:  u8 = 26u8;  // SCHEMA_DECL: ADR-0011 `code(0x…)` type code
 
 // ---------------------------------------------------------------------------
 // Node type discriminants  (stored as value of CODE field)

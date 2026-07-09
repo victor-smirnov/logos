@@ -90,9 +90,18 @@ struct SchemaField {
     std::string ftype;          // "ref T" | "fan set_x MAX" | "argfan" | "str" | "bool" | "WAny" | scalar
     int32_t     key = 0;
     bool        has_key = false;
+
+    // A fan field is not a TOM slot: it spreads an ARRAY_CAPTURE across the
+    // node's slot fields (+ a count), so it carries no key of its own.
+    bool is_fan() const {
+        return ftype == "argfan" || ftype.rfind("fan ", 0) == 0;
+    }
+    bool is_ref() const { return ftype.rfind("ref ", 0) == 0; }
 };
 struct SchemaDecl {
     std::string              name;
+    uint64_t                 type_code = 0;   // ADR-0011 `code(0x…)`
+    bool                     has_type_code = false;
     std::vector<SchemaField> fields;
 
     const SchemaField* find(const std::string& n) const {
@@ -205,6 +214,12 @@ public:
 
             SchemaDecl sd;
             sd.name = read_str(node.get(uint8_t(ast::NAME)), h);
+
+            AnyVal tc = node.get(uint8_t(ast::TYPE_CODE));
+            if (!tc.is_null() && tc.is_value()) {
+                sd.type_code = tc.as_value<uint64_t>();
+                sd.has_type_code = true;
+            }
 
             AnyVal fields_val = node.get(uint8_t(ast::FIELDS));
             if (fields_val.is_pointer()) {
@@ -518,15 +533,20 @@ public:
         std::fprintf(stderr,
             "peg_gen: %s: %%schema codegen is not implemented in the C++ backend yet.\n",
             path.c_str());
-        size_t missing_keys = 0;
-        for (const auto& s : g.schemas)
+        size_t missing_keys = 0, missing_codes = 0;
+        for (const auto& s : g.schemas) {
+            if (!s.has_type_code) ++missing_codes;
             for (const auto& f : s.fields)
-                if (!f.has_key) ++missing_keys;
-        if (missing_keys) {
+                if (!f.has_key && !f.is_fan()) ++missing_keys;   // fans own no slot
+        }
+        if (missing_keys || missing_codes) {
             std::fprintf(stderr,
-                "  %zu of the block's fields carry no explicit `= KEY`, and no node\n"
-                "  declares its `code(...)` type code. Both are required here.\n",
-                missing_keys);
+                "  missing: %zu field `= KEY` assignment(s), %zu node `code(...)` "
+                "type code(s).\n"
+                "  Spell them exactly as the mirrored `schema` item does, e.g.\n"
+                "    SBin : code(0x0010_0000_0000_0004) "
+                "{ op: \"i32\" = 0, lhs: \"ref SExpr\" = 1 }\n",
+                missing_keys, missing_codes);
         }
         std::fprintf(stderr,
             "  Schema nodes seen: %zu.  arena=%s  ref_wrap=%s\n",

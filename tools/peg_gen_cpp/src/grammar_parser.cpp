@@ -216,9 +216,19 @@ private:
         }
 
         // ── Integer ───────────────────────────────────────────────────────
+        // Decimal, or `0x`-prefixed hex. Both admit `_` digit separators so a
+        // %schema type code can be written exactly as its ADR-0011 `schema`
+        // item spells it (e.g. code(0x0010_0000_0000_0004)).
         if (std::isdigit(c) || (c == '-' && std::isdigit(cur(1)))) {
             if (c == '-') eat();
-            while (pos_ < src_.size() && std::isdigit(cur())) eat();
+            if (cur() == '0' && (cur(1) == 'x' || cur(1) == 'X')) {
+                eat(); eat();
+                while (pos_ < src_.size() &&
+                       (std::isxdigit(cur()) || cur() == '_')) eat();
+            } else {
+                while (pos_ < src_.size() &&
+                       (std::isdigit(cur()) || cur() == '_')) eat();
+            }
             return make(TK::Integer, start, ln, cn);
         }
 
@@ -337,9 +347,34 @@ private:
         return TinyMap(doc_.make_tiny_map(cap).get(), doc_.holder());
     }
 
+    // Strip `_` separators and detect a `0x` prefix. Returns the digit body and
+    // its base; the leading `-` (if any) is left on the caller's plate.
+    static std::pair<std::string, int> num_body(std::string_view text) {
+        std::string s;
+        s.reserve(text.size());
+        for (char ch : text) if (ch != '_') s += ch;
+        bool neg = !s.empty() && s[0] == '-';
+        std::string_view v = s;
+        if (neg) v.remove_prefix(1);
+        int base = 10;
+        if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) {
+            base = 16;
+            v.remove_prefix(2);
+        }
+        return {std::string(neg ? "-" : "") + std::string(v), base};
+    }
+
     int32_t parse_int(std::string_view text) {
+        auto [body, base] = num_body(text);
         int32_t v = 0;
-        std::from_chars(text.data(), text.data() + text.size(), v);
+        std::from_chars(body.data(), body.data() + body.size(), v, base);
+        return v;
+    }
+
+    uint64_t parse_u64(std::string_view text) {
+        auto [body, base] = num_body(text);
+        uint64_t v = 0;
+        std::from_chars(body.data(), body.data() + body.size(), v, base);
         return v;
     }
 
@@ -432,15 +467,16 @@ private:
         while (lex_.peek().kind == TK::Ident) {
             Token head = lex_.next();
 
-            // Header key (`use:` / `arena:` / `ref_wrap:`) vs a node decl:
-            // only header keys are followed by a colon.
-            if (try_eat(TK::Colon)) {
-                std::string_view k = head.text;
-                if (k == "use") {
+            // Header key vs node decl. Dispatch on the NAME, not on a following
+            // colon — a node decl may carry one too: `SBin : code(0x…) { … }`.
+            std::string_view hk = head.text;
+            if (hk == "use" || hk == "arena" || hk == "ref_wrap") {
+                expect(TK::Colon, ":");
+                if (hk == "use") {
                     Token v = expect(TK::String, "module path string");
                     if (!uses.empty()) uses += ' ';
                     uses += unquote(v.text);
-                } else if (k == "arena") {
+                } else if (hk == "arena") {
                     Token v = expect(TK::Ident, "`external` or `internal`");
                     if (v.text == "external") {
                         root.put("schema_arena_ext", AnyVal::from_value(true)).get();
@@ -448,18 +484,34 @@ private:
                         error(v, std::format("arena must be `external` or "
                                              "`internal`, found '{}'", v.text));
                     }
-                } else if (k == "ref_wrap") {
+                } else {
                     Token v = expect(TK::String, "ref-wrapper type name");
                     auto s = make_str(unquote(v.text));
                     root.put("schema_ref_wrap", s.to_anyval()).get();
-                } else {
-                    error(head, std::format("unknown %schema header key '{}' "
-                                            "(expected use/arena/ref_wrap)", k));
                 }
+                try_eat(TK::Comma);
                 continue;
             }
 
-            // Node decl: `Name { field: "type" [= KEY], … }`
+            // Node decl: `Name [: code(0x…)] { field: "type" [= KEY], … }`
+            // The optional `code(...)` is the ADR-0011 type code, spelled exactly
+            // as in the mirrored `schema` item. Only the C++ backend needs it
+            // (to stamp set_schema_type_code); the Logos backend gets it from
+            // `doc.make::<S>()`, so it stays optional at parse time.
+            bool     has_type_code = false;
+            uint64_t type_code = 0;
+            if (try_eat(TK::Colon)) {
+                Token kw = expect(TK::Ident, "`code`");
+                if (kw.text != "code")
+                    error(kw, std::format("expected `code(...)` after schema node "
+                                          "name, found '{}'", kw.text));
+                expect(TK::LParen, "(");
+                Token num = expect(TK::Integer, "type code");
+                type_code = parse_u64(num.text);
+                has_type_code = true;
+                expect(TK::RParen, ")");
+            }
+
             expect(TK::LBrace, "{");
             auto fields_arr = doc_.make_array(8).get();
             while (lex_.peek().kind == TK::Ident) {
@@ -488,6 +540,8 @@ private:
             node.put(ast::CODE,   AnyVal::from_value(ast::SCHEMA_DECL)).get();
             node.put(ast::NAME,   ns.to_anyval()).get();
             node.put(ast::FIELDS, fields_arr.to_anyval()).get();
+            if (has_type_code)
+                node.put(ast::TYPE_CODE, AnyVal::from_value(type_code)).get();
             out.push_back(node.to_anyval()).get();
             try_eat(TK::Comma);
         }

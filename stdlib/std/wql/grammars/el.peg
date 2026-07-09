@@ -97,27 +97,36 @@
     // generator DOES support captured-token → `str` field (`wstr_as_str`). This
     // closes the former GAP:key/GAP:idx: `SField.name`/`SParam.name`/`SCall.fn_name`
     // hold the real identifier text now.
-    SLit   { val: "WAny" }                                   // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
-    SParam { name: "str" }                                   // $name — captured IDENT
-    SVar   { name: "str" }                                   // loop var — captured IDENT
-    SField { base: "ref SExpr", name: "str" }                // field NAME — captured IDENT
-    SBin   { op: "i32", lhs: "ref SExpr", rhs: "ref SExpr" }
-    SUn    { op: "i32", arg: "ref SExpr" }
-    SCall  { fn_name: "str", args: "ref SExprArr" }          // call NAME — captured IDENT
-    SCond  { c: "ref SExpr", t: "ref SExpr", e: "ref SExpr" }
-    SComp  { plan: "ref RExpr", head: "ref SExpr", var: "str" }
-    STuple { items: "ref SExprArr" }                         // tuple projection `(a, b, …)`
+    // Each decl MIRRORS its ADR-0011 `schema` item in ir.logos ONE-FOR-ONE — the
+    // `code(...)` type code and the per-field `= KEY` included. The Logos backend
+    // ignores both (logosc resolves the field→key map from the schema item, and
+    // `doc.make::<S>()` stamps the type code); the C++ backend has no second pass
+    // and must bake them in. Carrying them HERE is what makes this file the single
+    // source of truth for both backends, instead of a hand-checked mirror.
+    SLit   : code(0x0010_0000_0000_0000) { val: "WAny" = 0 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
+    SParam : code(0x0010_0000_0000_0001) { name: "str" = 0 }    // $name — captured IDENT
+    SVar   : code(0x0010_0000_0000_0002) { name: "str" = 0 }    // loop var — captured IDENT
+    SField : code(0x0010_0000_0000_0003) { base: "ref SExpr" = 0, name: "str" = 1 }   // field NAME — captured IDENT
+    SBin   : code(0x0010_0000_0000_0004) { op: "i32" = 0, lhs: "ref SExpr" = 1, rhs: "ref SExpr" = 2 }
+    SUn    : code(0x0010_0000_0000_0005) { op: "i32" = 0, arg: "ref SExpr" = 1 }
+    SCall  : code(0x0010_0000_0000_0006) { fn_name: "str" = 0, args: "ref SExprArr" = 1 }   // call NAME — captured IDENT
+    SCond  : code(0x0010_0000_0000_0007) { c: "ref SExpr" = 0, t: "ref SExpr" = 1, e: "ref SExpr" = 2 }
+    SComp  : code(0x0010_0000_0000_0008) { plan: "ref RExpr" = 0, head: "ref SExpr" = 1, var: "str" = 2 }
+    STuple : code(0x0010_0000_0000_0009) { items: "ref SExprArr" = 0 }   // tuple projection `(a, b, …)`
 
     // The materialized argument list. `args: "argfan"` is a fan-out field type: an
     // ARRAY_CAPTURE ($...) of the parsed arg edges is spread into the fixed slots
     // a0..a7 via set_arg + set_len (ADR 0011 SExprArr write API) — multi-arg calls
     // like contains(a,b) carry EVERY arg (was a 0-slot placeholder).
-    SExprArr { args: "argfan" }
+    // A fan is not a TOM slot of its own, so it takes no `= KEY`: it writes the
+    // node's `count` (key 0) and slots a0..a7 (keys 1..8), per ir.logos.
+    SExprArr : code(0x0010_0000_0000_000A) { args: "argfan" }
 
     // Relational tier — RExpr (ir.logos). The comprehension lowers to a scan
-    // (+ optional filter) plan; the source is a captured IDENT name.
-    RScan   { node_code: "i56", src_name: "str" }            // source NAME — captured IDENT
-    RFilter { input: "ref RExpr", pred: "ref SExpr" }
+    // (+ optional filter) plan; the source is a captured IDENT name. Only the
+    // fields this grammar WRITES are declared — RScan also has row_ty/var_name.
+    RScan   : code(0x0011_0000_0000_0000) { node_code: "i56" = 0, src_name: "str" = 1 }   // source NAME — captured IDENT
+    RFilter : code(0x0011_0000_0000_0002) { input: "ref RExpr" = 0, pred: "ref SExpr" = 1 }
 }
 
 // ── Tokens ─────────────────────────────────────────────────────────────────

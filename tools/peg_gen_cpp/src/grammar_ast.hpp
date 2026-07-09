@@ -28,8 +28,12 @@
 //   MetaInfo    (TinyObjectMap): { NAME, VERSION, NAMESPACE, OUTPUT, PACKAGE?, GPREFIX? }
 //   Import      (TinyObjectMap): { PATH, ALIAS }
 //   NameDecl    (TinyObjectMap): { NAME, CODE }   e.g. { "LEFT", 1 }
-//   SchemaDecl  (TinyObjectMap): { NAME, FIELDS }        FIELDS: Array<SchemaField>
-//   SchemaField (TinyObjectMap): { NAME, FTYPE, FKEY }   FKEY = explicit TOM key
+//   SchemaDecl  (TinyObjectMap): { NAME, TYPE_CODE?, FIELDS }  FIELDS: Array<SchemaField>
+//   SchemaField (TinyObjectMap): { NAME, FTYPE, FKEY }         FKEY = explicit TOM key
+//
+//   A %schema decl mirrors its ADR-0011 `schema` item one-for-one:
+//     SBin : code(0x0010_0000_0000_0004) { op: "i32" = 0, lhs: "ref SExpr" = 1 }
+//   ≡ pub schema SBin : code(0x0010_0000_0000_0004) { op: i32 = 0, lhs: WRef<SExpr> = 1 }
 //
 //   TokenDecl   (TinyObjectMap): { NAME, KIND, PATTERN }
 //     KIND: TOKEN_LITERAL | TOKEN_REGEX | TOKEN_SKIP
@@ -104,6 +108,7 @@ inline constexpr Key FTYPE     {"FTYPE",     22};  // SCHEMA_FIELD: field-type s
 inline constexpr Key PACKAGE   {"PACKAGE",   23};  // META_INFO: emitted `package` name (overrides OUTPUT; OUTPUT stays the file basename)
 inline constexpr Key GPREFIX   {"GPREFIX",   24};  // META_INFO: prefix for module-GLOBAL emitted names — lets 2 generated parsers coexist in one module
 inline constexpr Key FKEY      {"FKEY",      25};  // SCHEMA_FIELD: explicit TOM key (`field: "ty" = N`). REQUIRED by the C++ backend: unlike the Logos backend (which emits `node.field = …` and lets logosc resolve field→key against the ADR-0011 `schema` item), C++ has no second pass and must bake the key in.
+inline constexpr Key TYPE_CODE {"TYPE_CODE", 26};  // SCHEMA_DECL: the ADR-0011 `code(0x…)` type code (`S : code(0x…) { … }`), stored as u64. Logos gets it from `doc.make::<S>()`; C++ must stamp set_schema_type_code() itself.
 
 // ---------------------------------------------------------------------------
 // Node type discriminants  (stored as value of CODE field)

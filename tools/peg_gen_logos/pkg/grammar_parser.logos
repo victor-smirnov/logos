@@ -81,6 +81,9 @@ fn is_alpha(c: u8) -> bool {
 }
 fn is_alnum(c: u8) -> bool { return is_alpha(c) || is_digit(c); }
 fn is_upper(c: u8) -> bool { return c >= 65u8 && c <= 90u8; }
+fn is_hex(c: u8) -> bool {                                                        // 0-9 a-f A-F
+    return is_digit(c) || (c >= 97u8 && c <= 102u8) || (c >= 65u8 && c <= 70u8);
+}
 
 // The null WAny (`null` is a reserved word, so `WAny::null()` cannot be named).
 fn wnull() -> WAny { return WAny::ref_to(0i64 as *const u8); }
@@ -264,9 +267,20 @@ impl Lexer {
         }
 
         // ── Integer (with optional leading -) ───────────────────────────────
+        // Decimal, or `0x`-prefixed hex. Both admit `_` digit separators so a
+        // %schema type code can be spelled exactly as its ADR-0011 `schema` item
+        // spells it: `code(0x0010_0000_0000_0004)`.
         if is_digit(c) || (c == 45u8 && is_digit(self.cur(1i64))) {
             if c == 45u8 { self.eat(); }
-            while self.pos < self.src.len() && is_digit(self.cur(0i64)) { self.eat(); }
+            if self.cur(0i64) == 48u8
+            && (self.cur(1i64) == 120u8 || self.cur(1i64) == 88u8) {      // 0x / 0X
+                self.eat(); self.eat();
+                while self.pos < self.src.len()
+                      && (is_hex(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.eat(); }
+            } else {
+                while self.pos < self.src.len()
+                      && (is_digit(self.cur(0i64)) || self.cur(0i64) == 95u8) { self.eat(); }
+            }
             return self.make(TK_INTEGER, start, ln, cn);
         }
 
@@ -338,17 +352,33 @@ fn unquote(s: str) -> str {
 }
 
 // Parse a (possibly negative) decimal integer from `s`.
+// Decimal, or `0x`-prefixed hex; `_` digit separators are skipped in both.
+// (Hex + separators exist so a %schema type code reads exactly as the mirrored
+// ADR-0011 `schema` item spells it: `code(0x0010_0000_0000_0004)`.)
 fn parse_int(s: str) -> i64 {
     let n: i64 = s.len();
     if n == 0i64 { return 0i64; }
     let mut i: i64 = 0i64;
     let mut neg: bool = false;
     if str_byte_at(s, 0i64) == 45u8 { neg = true; i = 1i64; }     // leading -
+
+    let mut base: i64 = 10i64;
+    if i + 1i64 < n && str_byte_at(s, i) == 48u8
+    && (str_byte_at(s, i + 1i64) == 120u8 || str_byte_at(s, i + 1i64) == 88u8) {
+        base = 16i64;
+        i = i + 2i64;
+    }
+
     let mut v: i64 = 0i64;
     while i < n {
         let c: u8 = str_byte_at(s, i);
-        if !is_digit(c) { break; }
-        v = v * 10i64 + ((c as i64) - 48i64);
+        if c == 95u8 { i = i + 1i64; continue; }                  // `_` separator
+        let mut d: i64 = 0i64;
+        if is_digit(c) { d = (c as i64) - 48i64; }
+        else if base == 16i64 && c >= 97u8 && c <= 102u8 { d = (c as i64) - 87i64; }
+        else if base == 16i64 && c >= 65u8 && c <= 70u8  { d = (c as i64) - 55i64; }
+        else { break; }
+        v = v * base + d;
         i = i + 1i64;
     }
     if neg { return 0i64 - v; }
@@ -734,9 +764,11 @@ fn parse_schema(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>,
         let name: Token = lex.next();
         let nt: str = name.text(src);
 
-        // Section attributes: `use: "path"` / `arena: external`.
-        if lex.peek(0i64).kind == TK_COLON {
-            lex.next();
+        // Section attributes: `use: "path"` / `arena: external` / `ref_wrap: "W"`.
+        // Dispatch on the NAME, not on the following colon: a node declaration
+        // may also carry a colon — `SBin : code(0x…) { … }`.
+        if str_eq(nt, "use") || str_eq(nt, "arena") || str_eq(nt, "ref_wrap") {
+            expect(lex, TK_COLON, "expected ':' after schema attribute");
             if str_eq(nt, "use") {
                 // `use:` may appear MULTIPLE times (a schema whose fields
                 // reference types from several modules — e.g. Trama's TStmt
@@ -760,7 +792,24 @@ fn parse_schema(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>,
             continue;
         }
 
-        // `S { field: "type", ... }` — a schema-node declaration.
+        // `S [: code(0x…)] { field: "type" [= KEY], ... }` — a node declaration.
+        // The `code(...)` type code and the per-field `= KEY` are consumed by the
+        // C++ backend only (it has no second pass in which logosc would resolve
+        // them); this backend records them and otherwise ignores them. They live
+        // here so the .peg — not ir.logos/plan.logos — is the source of truth.
+        let mut has_code: bool = false;
+        let mut tcode: i64 = 0i64;
+        if lex.peek(0i64).kind == TK_COLON {
+            lex.next();
+            let kw: Token = expect(lex, TK_IDENT, "expected 'code' after schema node name");
+            if !str_eq(kw.text(src), "code") { perror("expected `code(...)` after schema node name"); }
+            expect(lex, TK_LPAREN, "expected '(' after `code`");
+            let cnum: Token = expect(lex, TK_INTEGER, "expected type code");
+            tcode = parse_int(cnum.text(src));
+            has_code = true;
+            expect(lex, TK_RPAREN, "expected ')' to close `code(...)`");
+        }
+
         expect(lex, TK_LBRACE, "expected '{' after schema node name");
         let fields_arr: &mut WArray<WAny> = doc.array(8i64);
         while lex.peek(0i64).kind == TK_IDENT {
@@ -770,6 +819,11 @@ fn parse_schema(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>,
             let fnode: &mut WMap<Wu6, WAny> = node_with_code(doc, SCHEMA_FIELD);
             fnode.set(NAME, wstr(doc, fname.text(src)));
             fnode.set(FTYPE, wstr(doc, unquote(ftype.text(src))));
+            if lex.peek(0i64).kind == TK_EQUALS {
+                lex.next();
+                let knum: Token = expect(lex, TK_INTEGER, "expected TOM key after '='");
+                fnode.set(FKEY, WAny::from(parse_int(knum.text(src)) as i56));
+            }
             fields_arr.push(wnode(fnode as *const WMap<Wu6, WAny>));
             try_eat(lex, TK_COMMA);
         }
@@ -778,6 +832,7 @@ fn parse_schema(doc: &Writ, lex: &mut Lexer, src: str, out: &mut WArray<WAny>,
         let node: &mut WMap<Wu6, WAny> = node_with_code(doc, SCHEMA_DECL);
         node.set(NAME, wstr(doc, nt));
         node.set(FIELDS, warr(fields_arr as *const WArray<WAny>));
+        if has_code { node.set(TYPE_CODE, WAny::from(tcode as i56)); }
         out.push(wnode(node as *const WMap<Wu6, WAny>));
         try_eat(lex, TK_COMMA);
     }
