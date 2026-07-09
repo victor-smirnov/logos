@@ -1,28 +1,29 @@
 //
-// Deem × Writ showcase — querying a DYNAMIC document with NO materialization.
+// Deem × Writ showcase — the STATIC twin: compile-time queries over a
+// runtime-parsed document.
 //
-// A JSON-like document arrives at RUNTIME (types known only via tag dispatch).
-// The document IS the fact base: `bind_source_tree` exposes it as a VIRTUAL
-// relation — the scan is a preorder walk, one row per edge, nothing copied
-// anywhere (the no-gratuitous-materialization rule). Node ids are the Writ
-// handles themselves — no numbering pass.
+// The document arrives as TEXT and parses at runtime (parse_writ — one call,
+// owned Writ). The queries are `deem!` resources — compiled with the program
+// into plain functions; no engine, no query text, no catalog at runtime.
 //
-//   tree edge row:  parent  child   : i64 node handles (stable ids)
-//                   key             : map key ("" under an array)
-//                   idx             : array position (−1 under a map)
-//                   kind            : child's tag — map/arr/str/i64/f64/bool/null
-//                   vi, vs          : child's scalar/string value, else Null
+// The bridge between the two: the GRAPH-EDGE VOCABULARY — the same 8 columns
+// the virtual runtime source (bind_source_tree) exposes:
 //
-// Acts:
-//   A — flat questions asked DIRECTLY of the document (filter, Null-lenient
-//       scalars, a self-join on node handles);
-//   B — Datalog on the document: subtree membership as a two-line recursive
-//       rel, subtree leaf harvest — all still zero-copy;
-//   C — the other no-flatten tier: table-shaped ragged JSON via the LENIENT
-//       erased source (missing field → Null, CEL-style).
+//   parent, child : i64 ids (container = Writ handle; leaf = synthetic
+//                   FNV(parent, ordinal) — a leaf's value word is no identity)
+//   key, idx      : map key / array position (TOM field key code in idx)
+//   kind, tag     : friendly tag ("obj" = open world) / raw type_code
+//   vi, vs        : the child's scalar (i64; bool as 0/1) / string value
 //
-// Virtual = re-scan semantics: no deltas (incremental engines reject a tree
-// source by name; live facts go through FactStore — a later, systemic step).
+// One generic walk materializes the edge rows for the static engine — the
+// ACUTE-NECESSITY bridge: the static macro only scans `&[RowTy]` slices
+// today (a tree-source parameter kind for deem! is the noted follow-up; the
+// runtime path already needs no materialization at all). Same vocabulary ⇒
+// every query below ports verbatim to the virtual source and back.
+//
+// Graph discipline in the walk (matching the engine's virtual scan): every
+// edge emits; a container EXPANDS exactly once (visited set) — DAGs don't
+// duplicate, cycles terminate.
 //
 // Build: cmake --build build --target example_deem_writ_showcase
 // Run:   ./build/examples/deem_writ_showcase
@@ -31,15 +32,16 @@
 package deem_writ_showcase;
 
 use logos.lang.writ.container;    // Writ
-use logos.lang.writ.anyval;       // WAny — tag dispatch (only for .raw() here!)
-use logos.mem.writ.parser;        // parse — SDN text → Writ values
-use logos.lang.rc;
-use logos.lang.result;
+use logos.lang.writ.anyval;       // WAny — tag dispatch
+use logos.lang.writ.array;        // WArray
+use logos.lang.writ.wmap;         // WMap<WString, WAny>
+use logos.lang.writ.wstring;      // WString
+use logos.mem.writ.parser;        // parse_writ — text → owned document
 use logos.lang.str;
 use logos.mem.string;
 use logos.mem.collections.vec;
-use logos.std.wql.ir;
-use logos.std.deem;               // Query/QEnv — the runtime engine
+use logos.mem.collections.hashmap;
+use logos.std.wql.wql;            // deem! — the static macro
 
 extern fn printf(fmt: *const u8, ...) -> i32;
 
@@ -47,55 +49,133 @@ fn hdr(label: str) {
     unsafe { printf("\n=== %.*s ===\n" as *const u8, label.len() as i32, label.as_ptr()); }
 }
 
-// print a QRows table: str/dyn and i64 columns, one row per line
-fn dump(rows: &QRows) {
-    let mut r: i64 = 0i64;
-    while r < rows.row_count() {
-        unsafe { printf("  " as *const u8); }
-        let mut c: i64 = 0i64;
-        while c < rows.col_count() {
-            if rows.is_null(r, c) {
-                unsafe { printf("%-10s " as *const u8, "null" as *const u8); }
-            } else if str_eq(rows.col_ty(c), "str") {
-                let s: str = rows.get_str(r, c);
-                unsafe { printf("%-10.*s " as *const u8, s.len() as i32, s.as_ptr()); }
-            } else {
-                // i64 col, or a dyn cell: print the string view when it has
-                // one, the integer reading otherwise (example-grade printer)
-                let s: str = rows.get_str(r, c);
-                if s.len() > 0i64 {
-                    unsafe { printf("%-10.*s " as *const u8, s.len() as i32, s.as_ptr()); }
-                } else {
-                    unsafe { printf("%-10ld " as *const u8, rows.get_i64(r, c)); }
-                }
+// ── the edge fact: ONE generic relation, the shared vocabulary ──────────────
+struct EdgeF {
+    pub parent: i64,
+    pub key:    str,
+    pub idx:    i64,
+    pub child:  i64,
+    pub kind:   str,
+    pub tag:    i64,
+    pub vi:     i64,   // i64 leaf value; bool as 0/1; 0 otherwise
+    pub vs:     str,   // string leaf value; "" otherwise
+}
+
+// ── the generic walk (the virtual scan's static twin) ───────────────────────
+fn fnv2(a: i64, b: i64) -> i64 {
+    let mut hh: u64 = 14695981039346656037u64;
+    hh = wrapping_mul(hh ^ (a as u64), 1099511628211u64);
+    hh = wrapping_mul(hh ^ (b as u64), 1099511628211u64);
+    return hh as i64;
+}
+
+fn w_kind(v: WAny) -> str {
+    if v.is_map()     { return "map"; }
+    if v.is_array()   { return "arr"; }
+    if v.is_tinymap() { return "tom"; }
+    if v.is_string()  { return "str"; }
+    if v.is_null()    { return "null"; }
+    if v.is_bool()    { return "bool"; }
+    if v.is_float()   { return "f64"; }
+    if v.is_int()     { return "i64"; }
+    return "obj";
+}
+
+fn is_container(v: WAny) -> bool {
+    return v.is_map() || v.is_array() || v.is_tinymap();
+}
+
+unsafe fn emit_edge(out: &mut Vec<EdgeF>, parent: WAny, key: str, idx: i64,
+                    child: WAny, ord: i64) {
+    let cid: i64 = if is_container(child) { child.raw() as i64 }
+                   else { fnv2(parent.raw() as i64, ord) };
+    let mut vi: i64 = 0i64;
+    let mut vs: str = "";
+    if child.is_int()       { vi = child.as_i64(); }
+    else if child.is_bool() { vi = if child.as_bool() { 1i64 } else { 0i64 }; }
+    else if child.is_string() {
+        let ws: &WString = &*(child.resolve() as *const WString);
+        vs = ws.as_str();
+    }
+    out.push(EdgeF { parent: parent.raw() as i64, key: key, idx: idx,
+                     child: cid, kind: w_kind(child),
+                     tag: child.type_code() as i64, vi: vi, vs: vs });
+}
+
+unsafe fn walk(v: WAny, out: &mut Vec<EdgeF>, seen: &mut HashMap<u64, i64>) {
+    if v.is_map() {
+        let m: &WMap<WString, WAny> = v.as_map();
+        let mut ord: i64 = 0i64;
+        let mut s: i64 = 0i64;
+        while s < m.slots() {
+            let kv: WAny = m.key_at(s);
+            if !kv.is_null() {
+                let ks: &WString = &*(kv.resolve() as *const WString);
+                let cv: WAny = m.val_at(s);
+                emit_edge(out, v, ks.as_str(), 0i64 - 1i64, cv, ord);
+                descend(cv, out, seen);
+                ord = ord + 1i64;
             }
-            c = c + 1i64;
+            s = s + 1i64;
         }
-        unsafe { printf("\n" as *const u8); }
-        r = r + 1i64;
+        return;
     }
-}
-
-fn run_dump(q: &Query, env: &QEnv) -> bool {
-    match q.run(env) {
-        Result::Ok(rows) => { dump(&rows); return true; }
-        Result::Err(er)  => {
-            let m: str = er.message();
-            unsafe { printf("deem error: %.*s\n" as *const u8, m.len() as i32, m.as_ptr()); }
-            return false;
+    if v.is_array() {
+        let a: &WArray<WAny> = v.as_array();
+        let mut i: i64 = 0i64;
+        while i < a.len() {
+            let cv: WAny = a.get(i);
+            emit_edge(out, v, "", i, cv, i);
+            descend(cv, out, seen);
+            i = i + 1i64;
         }
     }
 }
 
-fn compile_or_die(text: str, c: &SchemaCatalog) -> Result<Query, QError> {
-    return Query::compile(text, c);
+unsafe fn descend(child: WAny, out: &mut Vec<EdgeF>, seen: &mut HashMap<u64, i64>) {
+    if !is_container(child) { return; }
+    let hw: u64 = child.raw() as u64;
+    let sp: *mut HashMap<u64, i64> = seen;
+    if (sp.get(&hw) as i64) != 0i64 { return; }   // expanded already (DAG/cycle)
+    let _m: *mut i64 = sp.get_or_insert(hw, 1i64);
+    walk(child, out, seen);
 }
+
+// ── the queries: compiled with the program, zero runtime machinery ──────────
+// every `engine` setting, wherever it sits
+resource engines = deem!(g: &[EdgeF]) {
+    from g e where e.key == "engine" select e.vs : str
+};
+// numeric leaves over a threshold (ports)
+resource big_nums = deem!(g: &[EdgeF], min: i64) {
+    from g e where e.kind == "i64" && e.vi >= min select (e.idx, e.vi)
+};
+// top-level map sections
+resource sections = deem!(g: &[EdgeF], root: i64) {
+    from g e where e.parent == root && e.kind == "map" select e.key : str
+};
+// i64 leaves inside the `db` subtree — Datalog on the edge relation
+resource db_ints = deem!(g: &[EdgeF]) {
+    rel dsc(a: i64, b: i64) {
+        from g s where s.key == "db" select (s.parent, s.child);
+        from dsc d join g e on e.parent == d.b select (d.a, e.child);
+    }
+    from dsc d join g e on e.child == d.b
+    where e.kind == "i64" select (e.key, e.vi)
+};
+// per-section node counts (reachability + group by)
+resource section_sizes = deem!(g: &[EdgeF], root: i64) {
+    rel dsc(a: i64, b: i64) {
+        from g s where s.parent == root select (s.child, s.child);
+        from dsc d join g e on e.parent == d.b select (d.a, e.child);
+    }
+    from dsc d join g t on t.child == d.a
+    group by t.key aggregate n = count() select (key, n) order by key
+};
 
 fn main() -> i32 {
-    // ── the document: arrives as TEXT, parsed at runtime ────────────────────
-    let rc: Rc<Writ> = unsafe { writ_rc(65536i64) };
-    let h: &Writ = rc.deref();
-    let doc: WAny = unsafe { parse(h,
+    // ── the document: text → owned Writ, one call ───────────────────────────
+    let doc: Writ = parse_writ(
         r#"{
             service: "api",
             replicas: 3,
@@ -103,70 +183,66 @@ fn main() -> i32 {
             db:    { engine: "pg",    host: "db1", pool: { min: 2, max: 16 } },
             cache: { engine: "redis", host: "c1" },
             debug: false
-        }"#) };
+        }"#);
+    let root: WAny = doc.root();
+    if root.is_null() { return 90i32; }
 
-    // the WHOLE setup: one binding. No walk, no fact tables, no schemas.
-    let c: SchemaCatalog = SchemaCatalog::new();
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("tree", doc);
-    env.bind_i64("root", doc.raw() as i64);   // the root's handle IS its id
+    // ── the bridge walk: graph → one edge relation ───────────────────────────
+    let mut g: Vec<EdgeF> = vec_new::<EdgeF>();
+    let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();
+    unsafe {
+        let sp: *mut HashMap<u64, i64> = &mut seen;
+        let _r: *mut i64 = sp.get_or_insert(root.raw() as u64, 1i64);
+        walk(root, &mut g, &mut seen);
+    }
+    unsafe { printf("edges: %ld\n" as *const u8, g.len()); }
 
-    // ── Act A: ask the document directly ────────────────────────────────────
-    hdr("Act A: every `engine` setting, wherever it sits");
-    let q1: Query = match compile_or_die(
-        r#"from tree e where e.key == "engine" select (e.key, e.vs)"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    if !run_dump(&q1, &env) { return 1i32; }
+    hdr("every `engine` setting, wherever it sits");
+    let eng: Vec<str> = engines(g.as_slice()).unwrap();
+    let mut i: i64 = 0i64;
+    while i < eng.len() {
+        let s: str = eng.get(i);
+        unsafe { printf("  %.*s\n" as *const u8, s.len() as i32, s.as_ptr()); }
+        i = i + 1i64;
+    }
 
-    hdr("Act A: numeric leaves >= 1000 (vi is Null-lenient)");
-    let q2: Query = match compile_or_die(
-        "from tree e where e.vi >= 1000 select (e.idx, e.vi)", &c)
-    { Result::Ok(v) => { v } Result::Err(_e2) => { return 2i32; } };
-    if !run_dump(&q2, &env) { return 2i32; }
+    hdr("numeric leaves >= 1000");
+    let nums: Vec<(i64, i64)> = big_nums(g.as_slice(), 1000i64).unwrap();
+    let mut j: i64 = 0i64;
+    while j < nums.len() {
+        let row: (i64, i64) = nums.get(j);
+        unsafe { printf("  idx %ld -> %ld\n" as *const u8, row.0, row.1); }
+        j = j + 1i64;
+    }
 
-    hdr("Act A: top-level sections (self-join on node handles)");
-    let q3: Query = match compile_or_die(
-        r#"from tree e where e.parent == root && e.kind == "map" select e.key"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e3) => { return 3i32; } };
-    if !run_dump(&q3, &env) { return 3i32; }
+    hdr("top-level sections");
+    let secs: Vec<str> = sections(g.as_slice(), root.raw() as i64).unwrap();
+    let mut k: i64 = 0i64;
+    while k < secs.len() {
+        let s2: str = secs.get(k);
+        unsafe { printf("  %.*s\n" as *const u8, s2.len() as i32, s2.as_ptr()); }
+        k = k + 1i64;
+    }
 
-    // ── Act B: Datalog straight on the document ─────────────────────────────
-    // subtree membership = two lines; the entry then harvests i64 leaves
-    // under the `db` section — zero copies, the rel derives over the walk.
-    hdr("Act B: i64 leaves under `db` (recursive rel over the tree)");
-    let q4: Query = match compile_or_die(
-        r#"rel dsc(a: i64, b: i64) {
-             from tree s where s.key == "db" select (s.parent, s.child);
-             from dsc d join tree e on e.parent == d.b select (d.a, e.child);
-           }
-           from dsc d join tree e on e.child == d.b
-           where e.kind == "i64" select (e.key, e.vi)"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e4) => { return 4i32; } };
-    if !run_dump(&q4, &env) { return 4i32; }
+    hdr("i64 leaves under `db` (recursive rel)");
+    let dbv: Vec<(str, i64)> = db_ints(g.as_slice()).unwrap();
+    let mut k2: i64 = 0i64;
+    while k2 < dbv.len() {
+        let row2: (str, i64) = dbv.get(k2);
+        unsafe { printf("  %.*s = %ld\n" as *const u8,
+                        row2.0.len() as i32, row2.0.as_ptr(), row2.1); }
+        k2 = k2 + 1i64;
+    }
 
-    hdr("Act B: how many nodes in each top-level section");
-    let q5: Query = match compile_or_die(
-        r#"rel dsc(a: i64, b: i64) {
-             from tree s where s.parent == root select (s.child, s.child);
-             from dsc d join tree e on e.parent == d.b select (d.a, e.child);
-           }
-           from dsc d join tree t on t.child == d.a
-           group by t.key aggregate n = count() select (key, n) order by key"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e5) => { return 5i32; } };
-    if !run_dump(&q5, &env) { return 5i32; }
-
-    // ── Act C: table-shaped ragged JSON — the LENIENT tier, also no flatten ──
-    hdr("Act C: lenient rows (missing field -> Null, row dropped)");
-    let hosts: WAny = unsafe { parse(h,
-        r#"[ { name: "web1", cpu: 8 },
-             { name: "web2", cpu: 32 },
-             { name: "spare" } ]"#) };
-    let mut env2: QEnv = QEnv::new();
-    env2.bind_source_erased("hosts", hosts);
-    let q6: Query = match compile_or_die(
-        "from hosts hh where hh.cpu >= 16 select hh.name", &c)
-    { Result::Ok(v) => { v } Result::Err(_e6) => { return 6i32; } };
-    if !run_dump(&q6, &env2) { return 6i32; }
+    hdr("how many nodes in each top-level section");
+    let sz: Vec<(str, i64)> = section_sizes(g.as_slice(), root.raw() as i64).unwrap();
+    let mut k3: i64 = 0i64;
+    while k3 < sz.len() {
+        let row3: (str, i64) = sz.get(k3);
+        unsafe { printf("  %-10.*s %ld\n" as *const u8,
+                        row3.0.len() as i32, row3.0.as_ptr(), row3.1); }
+        k3 = k3 + 1i64;
+    }
 
     unsafe { printf("\ndone.\n" as *const u8); }
     return 0i32;
