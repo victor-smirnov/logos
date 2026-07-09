@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -79,6 +81,26 @@ struct Rule {
     std::vector<Item::Alt> alts;
 };
 
+// %schema — one declared field of a typed-Writ node. `key` is the explicit TOM
+// key (`field: "ty" = N`); `has_key` is false when the grammar omitted it, which
+// the Logos backend tolerates (logosc resolves field→key against the real
+// `schema` item) but the C++ backend cannot — see emit_schema_action.
+struct SchemaField {
+    std::string name;
+    std::string ftype;          // "ref T" | "fan set_x MAX" | "argfan" | "str" | "bool" | "WAny" | scalar
+    int32_t     key = 0;
+    bool        has_key = false;
+};
+struct SchemaDecl {
+    std::string              name;
+    std::vector<SchemaField> fields;
+
+    const SchemaField* find(const std::string& n) const {
+        for (const auto& f : fields) if (f.name == n) return &f;
+        return nullptr;
+    }
+};
+
 struct GrammarInfo {
     // %meta
     std::string name, cxx_namespace, output;
@@ -100,6 +122,23 @@ struct GrammarInfo {
 
     // %rules
     std::vector<Rule> rules;
+
+    // %schema — the typed-Writ dialect. A NON-EMPTY `schemas` IS the mode switch
+    // (mirrors peg_gen_logos's cg.schema_mode): actions then name a quoted schema
+    // type in CODE and address that type's declared fields by name, and node
+    // construction routes through emit_schema_action instead of emit_action.
+    // Absent ⇒ raw-TOM mode, byte-identical to before (keeps the oracle green).
+    std::vector<SchemaDecl> schemas;
+    std::string             schema_use;   // space-joined `use:` module paths
+    bool                    arena_ext = false;
+    std::string             ref_wrap;     // Logos-only edge wrapper; C++ emits ref AnyVals
+
+    bool schema_mode() const { return !schemas.empty(); }
+
+    const SchemaDecl* find_schema(const std::string& n) const {
+        for (const auto& s : schemas) if (s.name == n) return &s;
+        return nullptr;
+    }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -145,7 +184,48 @@ public:
         read_prec(root, h, g);
         read_rules(root, h, g);
         read_imports(root, h, all_modules, g);
+        read_schema(root, h, g);
         return g;
+    }
+
+    // %schema → g.schemas + the block's header settings.
+    static void read_schema(MapView& root, MemHolder* h, GrammarInfo& g) {
+        g.schema_use = read_str(root.get("schema_use"), h);
+        g.ref_wrap   = read_str(root.get("schema_ref_wrap"), h);
+        AnyVal ae = root.get("schema_arena_ext");
+        g.arena_ext = !ae.is_null() && ae.is_value() && ae.as_value<bool>();
+
+        AnyVal arr_val = root.get("schema");
+        if (arr_val.is_null() || !arr_val.is_pointer()) return;
+        auto arr = logos::writ::as_array(arr_val, h);
+        for (uint64_t i = 0; i < arr.size(); ++i) {
+            AnyVal el = arr.get(i);
+            if (!el.is_pointer()) continue;
+            auto node = logos::writ::as_tinymap(el, h);
+
+            SchemaDecl sd;
+            sd.name = read_str(node.get(uint8_t(ast::NAME)), h);
+
+            AnyVal fields_val = node.get(uint8_t(ast::FIELDS));
+            if (fields_val.is_pointer()) {
+                auto farr = logos::writ::as_array(fields_val, h);
+                for (uint64_t j = 0; j < farr.size(); ++j) {
+                    AnyVal fel = farr.get(j);
+                    if (!fel.is_pointer()) continue;
+                    auto fn = logos::writ::as_tinymap(fel, h);
+                    SchemaField sf;
+                    sf.name  = read_str(fn.get(uint8_t(ast::NAME)),  h);
+                    sf.ftype = read_str(fn.get(uint8_t(ast::FTYPE)), h);
+                    AnyVal k = fn.get(uint8_t(ast::FKEY));
+                    if (!k.is_null() && k.is_value()) {
+                        sf.key = k.as_value<int32_t>();
+                        sf.has_key = true;
+                    }
+                    sd.fields.push_back(std::move(sf));
+                }
+            }
+            g.schemas.push_back(std::move(sd));
+        }
     }
 
 private:
@@ -420,6 +500,39 @@ public:
     void emit_all() {
         emit_header();
         emit_source();
+    }
+
+    // Called BEFORE any output file is opened. The C++ backend needs strictly
+    // more from a %schema block than the Logos backend does, because it has no
+    // second compile pass in which field names and type codes get resolved
+    // against the real ADR-0011 `schema` item:
+    //   • an explicit `= KEY` per field  (Logos emits `node.f = …`; logosc maps
+    //     the field name to its key when compiling the generated source);
+    //   • the node's `code(...)` type code (Logos gets it from `doc.make::<S>()`).
+    // Both live in the .logos schema item today (stdlib/std/wql/{ir,plan}.logos).
+    // Carrying them in the %schema block is what makes the .peg the single
+    // source of truth for BOTH backends — and lets the generators emit the
+    // C++ constants and the Logos `schema` items instead of hand-mirroring them.
+    [[noreturn]] static void check_schema_supported(const GrammarInfo& g,
+                                                    const std::string& path) {
+        std::fprintf(stderr,
+            "peg_gen: %s: %%schema codegen is not implemented in the C++ backend yet.\n",
+            path.c_str());
+        size_t missing_keys = 0;
+        for (const auto& s : g.schemas)
+            for (const auto& f : s.fields)
+                if (!f.has_key) ++missing_keys;
+        if (missing_keys) {
+            std::fprintf(stderr,
+                "  %zu of the block's fields carry no explicit `= KEY`, and no node\n"
+                "  declares its `code(...)` type code. Both are required here.\n",
+                missing_keys);
+        }
+        std::fprintf(stderr,
+            "  Schema nodes seen: %zu.  arena=%s  ref_wrap=%s\n",
+            g.schemas.size(), g.arena_ext ? "external" : "internal",
+            g.ref_wrap.empty() ? "WRef(default)" : g.ref_wrap.c_str());
+        std::exit(1);
     }
 
 private:
@@ -2304,6 +2417,13 @@ private:
     void emit_action(CodeWriter& w, const Action& action,
                      const std::vector<std::string>& captures,
                      const std::string& out_cap = "") {
+        // Schema mode is a whole-grammar switch — a grammar builds either raw
+        // numeric-key TOMs (%fields/%nodes) or typed schema nodes (%schema),
+        // never both. codegen() rejects schema mode up front; this is the
+        // belt-and-braces guard against ever falling into the numeric path,
+        // which would emit references to `<ns>::SBin` constants that no
+        // %nodes block declares.
+        if (g_.schema_mode()) check_schema_supported(g_, g_.name);
         int slot_count = int(action.fields.size()) + 2; // +1 for CODE, +1 for SRC_LINE
         w.fmt("auto* node = logos::writ::WritAccess::raw_tiny_map(doc_, {}).get();", slot_count);
 
@@ -2554,6 +2674,10 @@ void codegen(const std::vector<ResolvedModule>& modules, const CodegenOptions& o
                 mod.path);
             continue;
         }
+
+        // Validate BEFORE opening any output file: a mid-emission bail would
+        // leave a truncated .cpp on disk that a later build could pick up.
+        if (g.schema_mode()) CodeGen::check_schema_supported(g, mod.path);
 
         std::println("peg_gen: generating {}.hpp / .cpp  ({})",
             g.output, mod.path);

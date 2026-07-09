@@ -266,6 +266,7 @@ public:
         auto tokens  = doc_.make_array(32).get();
         auto prec    = doc_.make_array(8).get();
         auto rules   = doc_.make_array(32).get();
+        auto schema  = doc_.make_array(16).get();
 
         while (!lex_.at_end()) {
             Token t = lex_.peek();
@@ -281,6 +282,7 @@ public:
             else if (kw == "%tokens")  parse_tokens(tokens);
             else if (kw == "%prec")    parse_prec(prec);
             else if (kw == "%rules")   parse_rules(rules);
+            else if (kw == "%schema")  parse_schema(root, schema);
             else error(t, std::format("unknown directive '{}'", kw));
         }
 
@@ -291,6 +293,9 @@ public:
         root.put("tokens",  tokens.to_anyval()).get();
         root.put("prec",    prec.to_anyval()).get();
         root.put("rules",   rules.to_anyval()).get();
+        // Empty unless a %schema block was seen — its non-emptiness IS the
+        // schema-mode switch for codegen (mirrors peg_gen_logos's cg.schema_mode).
+        root.put("schema",  schema.to_anyval()).get();
 
         doc_.set_root(root.to_anyval());
         return std::move(doc_);
@@ -357,6 +362,11 @@ private:
             else if (k == "version")   meta.put(ast::VERSION,   ref).get();
             else if (k == "namespace") meta.put(ast::NAMESPACE, ref).get();
             else if (k == "output")    meta.put(ast::OUTPUT,    ref).get();
+            // %schema-dialect meta keys (mirrors peg_gen_logos): `package` names
+            // the emitted module, `prefix` disambiguates module-global emitted
+            // names so two generated parsers can coexist in one module.
+            else if (k == "package")   meta.put(ast::PACKAGE,   ref).get();
+            else if (k == "prefix")    meta.put(ast::GPREFIX,   ref).get();
             else error(key, std::format("unknown meta key '{}'", k));
         }
         expect(TK::RBrace, "}");
@@ -390,6 +400,103 @@ private:
             out.push_back(s.to_anyval()).get();
         }
         expect(TK::RBrace, "}");
+    }
+
+    // ── Section: %schema ──────────────────────────────────────────────────
+    //
+    // The typed-Writ dialect (ADR 0011 schemas). Presence of this block puts
+    // the whole grammar in schema mode: actions name a QUOTED schema type in
+    // CODE and address that type's declared fields by name, instead of the
+    // numeric %fields/%nodes constants.
+    //
+    //   %schema {
+    //       use:      "logos.std.wql.plan"     // repeatable
+    //       arena:    external                 // bare ident: external | internal
+    //       ref_wrap: "WRef"                   // Logos backend only (see below)
+    //
+    //       SBin { op: "i32" = 0, lhs: "ref SExpr" = 1, rhs: "ref SExpr" = 2 }
+    //   }
+    //
+    // The explicit `= KEY` is what makes ONE dialect serve both backends. The
+    // Logos backend emits `node.lhs = …` and lets logosc resolve field→key
+    // against the real `schema` item; C++ has no such second pass and must bake
+    // the TOM key in. Parsed as OPTIONAL here so the Logos-only grammars keep
+    // parsing; the C++ schema codegen rejects a keyless field with a precise
+    // diagnostic at the point the key is actually needed.
+    //
+    // `ref_wrap` names the Logos edge-wrapper type (default "WRef"); it has no
+    // C++ runtime counterpart — a `ref T` field lowers to a plain ref AnyVal.
+    void parse_schema(MapView& root, ArrayView& out) {
+        expect(TK::LBrace, "{");
+        std::string uses;
+        while (lex_.peek().kind == TK::Ident) {
+            Token head = lex_.next();
+
+            // Header key (`use:` / `arena:` / `ref_wrap:`) vs a node decl:
+            // only header keys are followed by a colon.
+            if (try_eat(TK::Colon)) {
+                std::string_view k = head.text;
+                if (k == "use") {
+                    Token v = expect(TK::String, "module path string");
+                    if (!uses.empty()) uses += ' ';
+                    uses += unquote(v.text);
+                } else if (k == "arena") {
+                    Token v = expect(TK::Ident, "`external` or `internal`");
+                    if (v.text == "external") {
+                        root.put("schema_arena_ext", AnyVal::from_value(true)).get();
+                    } else if (v.text != "internal") {
+                        error(v, std::format("arena must be `external` or "
+                                             "`internal`, found '{}'", v.text));
+                    }
+                } else if (k == "ref_wrap") {
+                    Token v = expect(TK::String, "ref-wrapper type name");
+                    auto s = make_str(unquote(v.text));
+                    root.put("schema_ref_wrap", s.to_anyval()).get();
+                } else {
+                    error(head, std::format("unknown %schema header key '{}' "
+                                            "(expected use/arena/ref_wrap)", k));
+                }
+                continue;
+            }
+
+            // Node decl: `Name { field: "type" [= KEY], … }`
+            expect(TK::LBrace, "{");
+            auto fields_arr = doc_.make_array(8).get();
+            while (lex_.peek().kind == TK::Ident) {
+                Token fname = lex_.next();
+                expect(TK::Colon, ":");
+                Token fty = expect(TK::String, "field-type string");
+
+                auto f   = make_tm(4);
+                auto fns = make_str(fname.text);
+                auto fts = make_str(unquote(fty.text));
+                f.put(ast::CODE,  AnyVal::from_value(ast::SCHEMA_FIELD)).get();
+                f.put(ast::NAME,  fns.to_anyval()).get();
+                f.put(ast::FTYPE, fts.to_anyval()).get();
+                if (try_eat(TK::Equals)) {
+                    Token num = expect(TK::Integer, "TOM key");
+                    f.put(ast::FKEY,
+                          AnyVal::from_value(parse_int(num.text))).get();
+                }
+                fields_arr.push_back(f.to_anyval()).get();
+                try_eat(TK::Comma);
+            }
+            expect(TK::RBrace, "}");
+
+            auto node = make_tm(4);
+            auto ns   = make_str(head.text);
+            node.put(ast::CODE,   AnyVal::from_value(ast::SCHEMA_DECL)).get();
+            node.put(ast::NAME,   ns.to_anyval()).get();
+            node.put(ast::FIELDS, fields_arr.to_anyval()).get();
+            out.push_back(node.to_anyval()).get();
+            try_eat(TK::Comma);
+        }
+        expect(TK::RBrace, "}");
+
+        if (!uses.empty()) {
+            auto us = make_str(uses);
+            root.put("schema_use", us.to_anyval()).get();
+        }
     }
 
     // ── Section: %fields / %nodes ─────────────────────────────────────────

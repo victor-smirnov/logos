@@ -13,10 +13,23 @@
 //     "tokens"  → Array<TokenDecl>
 //     "prec"    → Array<PrecLevel>
 //     "rules"   → Array<Rule>
+//     "schema"           → Array<SchemaDecl>   (%schema — typed-Writ dialect)
+//     "schema_use"       → String   (space-joined `use:` module paths)
+//     "schema_arena_ext" → bool     (`arena: external` — parse fn takes the caller's arena)
+//     "schema_ref_wrap"  → String   (`ref_wrap:`, default "WRef"; Logos-only, C++ emits AnyVal::ref_to)
 //
-//   MetaInfo    (TinyObjectMap): { NAME, VERSION, NAMESPACE, OUTPUT }
+//   Two DIALECTS share every other section and the whole action-block syntax;
+//   they differ only in how a node is constructed:
+//     numeric  (%fields/%nodes): CODE is a bare ident → %nodes constant; fields
+//              are %fields constants; emits raw TinyObjectMap put(numeric_key,…).
+//     %schema : CODE is a QUOTED type name; fields are that SchemaDecl's names.
+//   Mode is selected per-grammar by the mere PRESENCE of a %schema block.
+//
+//   MetaInfo    (TinyObjectMap): { NAME, VERSION, NAMESPACE, OUTPUT, PACKAGE?, GPREFIX? }
 //   Import      (TinyObjectMap): { PATH, ALIAS }
 //   NameDecl    (TinyObjectMap): { NAME, CODE }   e.g. { "LEFT", 1 }
+//   SchemaDecl  (TinyObjectMap): { NAME, FIELDS }        FIELDS: Array<SchemaField>
+//   SchemaField (TinyObjectMap): { NAME, FTYPE, FKEY }   FKEY = explicit TOM key
 //
 //   TokenDecl   (TinyObjectMap): { NAME, KIND, PATTERN }
 //     KIND: TOKEN_LITERAL | TOKEN_REGEX | TOKEN_SKIP
@@ -85,6 +98,12 @@ inline constexpr Key NAMESPACE {"NAMESPACE", 18};
 inline constexpr Key OUTPUT    {"OUTPUT",    19};
 inline constexpr Key FIELDS    {"FIELDS",    20};  // GROUP_DECL: array of NameDecls
 inline constexpr Key GROUP_NAME {"GROUP_NAME", 21}; // RULE / NameDecl: group name
+// %schema dialect. Numbers 22..24 are chosen to MATCH tools/peg_gen_logos/pkg/ast.logos
+// (FTYPE=22, PACKAGE=23, GPREFIX=24) so the two generators' grammar IRs stay aligned.
+inline constexpr Key FTYPE     {"FTYPE",     22};  // SCHEMA_FIELD: field-type string ("ref SExpr" | "fan set_x MAX" | "argfan" | "str" | "bool" | "WAny" | scalar)
+inline constexpr Key PACKAGE   {"PACKAGE",   23};  // META_INFO: emitted `package` name (overrides OUTPUT; OUTPUT stays the file basename)
+inline constexpr Key GPREFIX   {"GPREFIX",   24};  // META_INFO: prefix for module-GLOBAL emitted names — lets 2 generated parsers coexist in one module
+inline constexpr Key FKEY      {"FKEY",      25};  // SCHEMA_FIELD: explicit TOM key (`field: "ty" = N`). REQUIRED by the C++ backend: unlike the Logos backend (which emits `node.field = …` and lets logosc resolve field→key against the ADR-0011 `schema` item), C++ has no second pass and must bake the key in.
 
 // ---------------------------------------------------------------------------
 // Node type discriminants  (stored as value of CODE field)
@@ -99,6 +118,9 @@ inline constexpr Code TOKEN_DECL    {"TOKEN_DECL",    3};
 inline constexpr Code PREC_LEVEL    {"PREC_LEVEL",    4};
 inline constexpr Code RULE          {"RULE",          5};
 inline constexpr Code ALT           {"ALT",           6};
+// %schema dialect (codes match tools/peg_gen_logos/pkg/ast.logos:72-73)
+inline constexpr Code SCHEMA_DECL   {"SCHEMA_DECL",   8};  // one `S { field: "ty" = N, … }` entry: { NAME, FIELDS }
+inline constexpr Code SCHEMA_FIELD  {"SCHEMA_FIELD",  9};  // one `field: "ty" = N` entry: { NAME, FTYPE, FKEY }
 
 // Item kinds
 inline constexpr Code RULE_REF      {"RULE_REF",      10};
