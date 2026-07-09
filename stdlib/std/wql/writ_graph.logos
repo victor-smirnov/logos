@@ -37,6 +37,19 @@ use logos.mem.collections.vec;
 // One graph edge row (the shared vocabulary; see the module doc).
 pub type WritEdgeRow = (i64, str, i64, i64, str, i64, i64, str);
 
+// ── The source trait (ADR 0016 §6) ──────────────────────────────────────────
+// THE canonical registration of Writ as a deem! source: a `g: &Writ` param
+// carries this one-rel vocabulary, addressable as the param itself
+// (`from g ** .engine e …`). This declaration IS the mechanism — the compiler
+// keeps only a bootstrap-path fallback seed that defers to it.
+pub trait GraphSource {
+    rel edge(parent: i64, key: str, idx: i64, child: i64,
+             kind: str, tag: i64, vi: i64, vs: str);
+}
+impl GraphSource for Writ {
+    rel edge = writ_graph_edges;
+}
+
 fn wg_fnv2(a: i64, b: i64) -> i64 {
     let mut hh: u64 = 14695981039346656037u64;
     hh = wrapping_mul(hh ^ (a as u64), 1099511628211u64);

@@ -19704,6 +19704,16 @@ void SemaChecker::seed_builtin_source_impls() {
     // otherwise suppress the Writ/IncrRec seeds entirely.
     if (builtin_sources_seeded_) return;
     builtin_sources_seeded_ = true;
+    // CONTENT-guarded, not just flag-guarded: the canonical declarations now
+    // live in the stdlib (writ_graph.logos / mapping_state.logos, collected
+    // from source OR from the binary module's AST) — when collect already
+    // registered a type's bindings, the seed defers. This fallback survives
+    // only for bootstrap paths that compile without those stdlib modules.
+    const bool have_writ = source_impls_.count("Writ") > 0;
+    const bool have_incr = source_impls_.count("IncrRec") > 0;
+    if (::getenv("LOGOS_TRACE_SOURCE_SEED"))
+        std::fprintf(stderr, "[source-seed] stdlib-declared: Writ=%d IncrRec=%d\n",
+                     have_writ ? 1 : 0, have_incr ? 1 : 0);
     auto mk = [](const char* tr, const char* rel, const char* fn,
                  const char* mod, std::vector<TraitRelCol> cols) {
         SourceRelBind b;
@@ -19713,11 +19723,13 @@ void SemaChecker::seed_builtin_source_impls() {
         return b;
     };
     // trait GraphSource { rel edge(…) } — impl for Writ (M1a/64dd1286 vocabulary).
+    if (!have_writ)
     source_impls_["Writ"].push_back(mk("GraphSource", "edge", "writ_graph_edges",
         "logos.std.wql.writ_graph",
         {{"parent","i64"},{"key","str"},{"idx","i64"},{"child","i64"},
          {"kind","str"},{"tag","i64"},{"vi","i64"},{"vs","str"}}));
     // trait EngineState { rel trace/epochs/tail/controls } — impl for IncrRec (M5).
+    if (have_incr) return;
     auto& e = source_impls_["IncrRec"];
     e.push_back(mk("EngineState", "trace", "deem_state_trace", "logos.std.deem",
         {{"epoch","i64"},{"kind","i64"},{"step","i64"},{"delta","i64"},
@@ -20398,6 +20410,8 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
 void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
                                             lir::LProgram& prog) {
     node_line_ = get_line(node);   // errors point at THIS item, not at stale state
+    if (node.has_key(la::NAME))
+        ctx_ = std::format("resource {}", str_of(node.get(la::NAME.code)));
     using logos::writ::AnyVal;
     using logos::writ::WritAccess;
     using logos::writ::TinyObjectMap;

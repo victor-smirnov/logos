@@ -606,6 +606,23 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // the time bodies are lowered. (Was collected post-sema — too late for the
     // sema gate, which previously relied on the LIR-blob lookup_export proxy.)
     StrSet dep_symbols;
+    // A manifest with NO `depends` lines leaves this gate EMPTY while -L still
+    // loads binary-module ASTs — sema then silently RECOMPILES every dependency
+    // body from the archived ASTs (slow), and the metaprog JIT of macro-heavy
+    // closures (wql) breaks on unresolved recompiled calls. That failure mode
+    // cost a debugging session; warn loudly instead of degrading in silence.
+    if (dep_archives.empty()) {
+        bool any_binary = false;
+        for (const auto& m : modules)
+            if (m.from_binary_module) { any_binary = true; break; }
+        if (any_binary)
+            std::fprintf(stderr,
+                "logosc: warning: --emit-module manifest has no `depends` "
+                "lines, but binary modules were loaded via -L/-l — dependency "
+                "bodies will be RECOMPILED from their archived ASTs instead of "
+                "linked. Add `depends <name>` per dependency archive "
+                "(e.g. `depends logos-std`).\n");
+    }
     for (const auto& a : dep_archives) {
         FILE* pipe = ::popen(("nm --defined-only -j " + a + " 2>/dev/null").c_str(), "r");
         if (!pipe) continue;

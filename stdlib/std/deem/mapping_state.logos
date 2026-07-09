@@ -22,6 +22,23 @@ package logos.std.deem;
 use logos.mem.collections.vec;
 
 /// <p>_trace rows: (epoch, kind, step, delta_card, total_rows, ns).
+// ── The engine-state source trait (ADR 0016 §6 / M5) ───────────────────────
+// THE canonical registration of IncrRec as a deem! source: an `e: &IncrRec`
+// param carries this four-rel vocabulary, param-prefixed at the use site
+// (`from e_trace t …`). Rows = sensor facts about the completed past (I1).
+pub trait EngineState {
+    rel trace(epoch: i64, kind: i64, step: i64, delta: i64, total: i64, ns: i64);
+    rel epochs(epoch: i64, ins: i64, del: i64, rounds: i64, ns: i64);
+    rel tail(epoch: i64, converged: i64, pending: i64, bound: i64, cutr: i64);
+    rel controls(epoch: i64, kind: i64, val: i64);
+}
+impl EngineState for IncrRec {
+    rel trace    = deem_state_trace;
+    rel epochs   = deem_state_epochs;
+    rel tail     = deem_state_tail;
+    rel controls = deem_state_controls;
+}
+
 pub fn deem_state_trace(e: &IncrRec) -> Vec<(i64, i64, i64, i64, i64, i64)> {
     let mut out: Vec<(i64, i64, i64, i64, i64, i64)> = vec_new::<(i64, i64, i64, i64, i64, i64)>();
     let n: i64 = e.trace_len();
