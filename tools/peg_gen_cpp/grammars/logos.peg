@@ -328,6 +328,14 @@
     SCHEMA_ENUM_DEF             = 258   // ADR 0011: `schema enum E : category(expr)? { V(S), … }` — closed union over schemas, discriminated by the pointee's schema_type_code. NAME = enum name; FIELDS = array of VARIANT_DEF (each NAME=variant, TYPE=concrete schema); CODE_EXPR? = optional `category(expr)` clause.
     MAPPING_DEF                 = 259   // ADR 0016: `mapping M(g: &Writ, …) { pub? rel r(col: ty, …) { <rules> } … }` — named, typed rule-module over a source shape. NAME = mapping name; PARAMS = source/scalar param list (PARAM array, same shape as fn params); FIELDS = array of REL_DEF; IS_PUB/VIS as usual. Sema registers a zero-field marker struct (is_mapping=true) + per-rel signatures; rel bodies compile through the deem pipeline.
     REL_DEF                     = 260   // ADR 0016: one rel member of a mapping item. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array); RAW_TEXT = rule body captured token-level (balanced braces); IS_PUB optional.
+
+    // ── Sema-internal codes ───────────────────────────────────────────────
+    // Never produced by this parser; synthesised by the compiler after parsing.
+    // They live here anyway because they share the node-code space: declaring
+    // them elsewhere is exactly how WRIT_BLOB came to collide with
+    // TEMPLATE_DECL (both 199), a clash that only stayed harmless because one
+    // is an item and the other an expression.
+    WRIT_BLOB                   = 261   // pre-serialised Writ static blob (driver splice from a metacall WritStatic return); VALUE = raw blob bytes (Varchar)
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
