@@ -1,0 +1,25 @@
+// BtIter is #[borrow_carrying] and opened from &self, so a live iterator
+// holds a shared borrow of its ContainerRef — mutating the container while
+// iterating is a compile error (Rust iterator-invalidation guard).
+package persistent_mut_while_iter;
+use logos.std.deem.data.handle;
+use logos.std.deem.data.store;
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.bt.descent;
+use logos.std.deem.data.bt.mutate;
+use logos.std.deem.data.bt.iter;
+use logos.lang.fabric;
+use logos.lang.writ.wstatic;
+pub const StoreCfg: WritStatic = @{ "name":"m","ctr_id":<type:u64>,"snp_id":<type:u64>,"block_id":<type:u64>, };
+pub const MapCfg: WritStatic = @{ "key":<type:u64>,"value":<type:u64>,"fanout":4 };
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
+    let mut cr = create_ctr::<MapCfg>(&mut snap, 1u64);
+    cr.insert(1u64, 1u64);
+    let it = cr.iter();
+    cr.insert(2u64, 2u64);     // ERROR: cr borrowed by live iter `it`
+    if it.valid() { return 0; }
+    return 1;
+}

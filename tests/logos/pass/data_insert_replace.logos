@@ -1,0 +1,118 @@
+// Insert semantics: replace-on-hit + ordering across splits.
+//
+//   1. Insert 50 entries with value = key * 2.
+//   2. Re-insert all 50 with value = key * 11. cr.len stays at 50.
+//   3. Verify every key reads back the LATEST value (key * 11).
+//   4. Insert in reverse order into a fresh container — splits push
+//      the OPPOSITE half across, but the final read is still ordered.
+//   5. Mixed-order: insert keys via a quasi-random pattern, verify
+//      every key resolves correctly.
+
+package persistent_insert_replace;
+
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
+use logos.lang.writ.wstatic;
+
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.store;
+use logos.std.deem.data.handle;
+
+pub const StoreCfg: WritStatic = @{
+    "name": "ins-replace", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
+
+    // ── Stage 1: container A, sequential insert, replace-on-hit ──
+    {
+        let mut cr =
+            create_ctr::<MapCfg>(&mut snap, 1u64);
+
+        let mut i = 0u64;
+        while i < 50u64 {
+            cr.insert(i, i * 2u64);
+            i = i + 1u64;
+        }
+        if cr.len() != 50u64 { return 10; }
+
+        // Re-insert all 50 with new values; len stays at 50, value updated.
+        i = 0u64;
+        while i < 50u64 {
+            cr.insert(i, i * 11u64);
+            i = i + 1u64;
+        }
+        if cr.len() != 50u64 { return 11; }
+
+        // Verify the LATEST value wins.
+        i = 0u64;
+        while i < 50u64 {
+            let out = match cr.get(i) {
+                Option::Some(x) => x,
+                Option::None => { return 12; }
+            };
+            if out != i * 11u64 { return 13; }
+            i = i + 1u64;
+        }
+    }
+
+    // ── Stage 2: container B, REVERSE-order insert ──
+    {
+        let mut cr =
+            create_ctr::<MapCfg>(&mut snap, 2u64);
+
+        let mut i = 49i64;
+        while i >= 0i64 {
+            let k = i as u64;
+            cr.insert(k, k * 7u64);
+            i = i - 1i64;
+        }
+        if cr.len() != 50u64 { return 20; }
+
+        let mut j = 0u64;
+        while j < 50u64 {
+            let out = match cr.get(j) {
+                Option::Some(x) => x,
+                Option::None => { return 21; }
+            };
+            if out != j * 7u64 { return 22; }
+            j = j + 1u64;
+        }
+    }
+
+    // ── Stage 3: container C, quasi-random order via odd-step modulus ──
+    {
+        let mut cr =
+            create_ctr::<MapCfg>(&mut snap, 3u64);
+
+        // Step of 7 over 50 keys hits each unique key once (gcd(7,50)=1).
+        let mut step = 0u64;
+        let mut count = 0u64;
+        while count < 50u64 {
+            let k = step % 50u64;
+            cr.insert(k, k + 1000u64);
+            step = step + 7u64;
+            count = count + 1u64;
+        }
+        if cr.len() != 50u64 { return 30; }
+
+        let mut j = 0u64;
+        while j < 50u64 {
+            let out = match cr.get(j) {
+                Option::Some(x) => x,
+                Option::None => { return 31; }
+            };
+            if out != j + 1000u64 { return 32; }
+            j = j + 1u64;
+        }
+    }
+
+    let id = snap.commit();
+    return 0;
+}

@@ -1,0 +1,644 @@
+// logos.std.deem.data.bt.mutate — write-side BTree on NodeARC.
+//
+// Insert / remove descend through the tree, CoW-clone any node that
+// wasn't created in the current snapshot (snapshot_id mismatch),
+// split overflow leaves / branches, and grow the root when needed.
+// All operations work on `&mut NodeARC<STORE_CFG>` handles; child
+// refs live in `Vec<NodeARC>` slots and are mutated via
+// arc_replace_in_slot to keep rc accounting honest.
+//
+// Algorithms mirror the legacy bt.mutate.* path. Differences:
+//   • Receiver is NodeARC, not raw `*mut NodeBase`.
+//   • CoW skip uses `header.snapshot_id != cur` instead of `rc > 1`.
+//   • Children retained on clone via `Vec.clone_arc` per element
+//     (in cow_clone trait impl); no manual node_retain_c.
+//   • Auto-Drop chains the release path — no explicit walker needed.
+
+package logos.std.deem.data.bt.mutate;
+
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.lang.fabric;
+use logos.lang.writ.wstatic;
+
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.bt.descent;
+use logos.lang.panic;
+
+// ── Vec<NodeARC> insert helper ────────────────────────────────────────
+// Vec lacks `insert_at`. We push the by-value `new_arc` at the end (its share
+// transfers into the slot — no clone), then bubble it up to position by
+// swapping whole Arc handles with `mem::swap` (a bitwise exchange — no
+// refcount churn). The caller passes a LOCAL by value, so Logos move-tracks
+// the consumption correctly (the old intrusive code had to hand-neutralise a
+// struct-field arg to dodge a double-free; routing through a local + by-value
+// move makes that unnecessary).
+/// Inserts `new_arc` at index `idx` in `v`, shifting later elements right.
+/// Caller must ensure `idx <= v.len()`; the shift is whole-handle swaps (no refcount churn).
+pub unsafe fn vec_arc_insert_at<const STORE_CFG: WritStatic>(
+    v: *mut Vec<NodeARC<STORE_CFG>>, idx: i64, new_arc: NodeARC<STORE_CFG>
+) {
+    v.push(new_arc);
+    let mut i: i64 = v.len() - 1i64;
+    while i > idx {
+        let a: *mut NodeARC<STORE_CFG> = v.at(i);
+        let b: *mut NodeARC<STORE_CFG> = v.at(i - 1i64);
+        swap::<NodeARC<STORE_CFG>>(a, b);
+        i = i - 1i64;
+    }
+}
+
+// ── Insert outcome — propagates split info up the recursion ───────────
+// In the Memoria-style "max-key-per-child" model, branch.keys[i] = max
+// key in children[i] (N keys ↔ N children). On split, the parent
+// inserts (right.max, right_arc) at i+1; left's max may also have
+// changed, so parent.keys[i] is updated unconditionally.
+//
+// `right_max` carries the max key of the new right node; `right_max_present`
+// gates validity (K isn't Default-able in general, so we can't fill with
+// a sentinel).
+/// Outcome of a recursive insert: whether an existing key was replaced, and whether
+/// the visited node split.
+pub struct InsertOutcome<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic> {
+    /// True if `key` already existed (value was replaced, not inserted).
+    pub hit:                bool,
+    /// True if the node split during this insert; `right`/`right_max*` are then valid.
+    pub split:              bool,
+    /// The new right sibling produced by a split.
+    pub right:              Option<NodeARC<STORE_CFG>>,   // Some iff split
+    /// True if `right_max` holds a valid value (K isn't `Default`-able in general).
+    pub right_max_present:  bool,
+    /// Max key of `right`'s subtree, valid only when `right_max_present`.
+    pub right_max:          K::ViewInStore,
+}
+
+// Read max key of arc's subtree. Both leaf and branch have keys[last]
+// as the local max — for branches, keys[last] = max of children[last] =
+// max of subtree (Memoria invariant). V parameter is needed only because
+// as_leaf is parametric over V; for branch reads it's unused.
+/// Returns the max key of `arc`'s subtree, relying on the leaf/branch max-key invariant.
+pub unsafe fn node_max_key<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    arc: &NodeARC<STORE_CFG>,
+) -> K::ViewInStore {
+    if arc_is_leaf::<STORE_CFG>(arc) {
+        let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
+        return leaf.keys.get(leaf.keys.len() - 1u64);
+    }
+    let br = as_branch::<K, STORE_CFG, CFG>(arc);
+    return br.keys.get(br.keys.len() - 1u64);
+}
+
+// Helper to alloc a fresh block id (bump caller's counter).
+unsafe fn alloc_id<const STORE_CFG: WritStatic>(p: *mut BlockId<STORE_CFG>) -> BlockId<STORE_CFG> {
+    *p = *p + 1u64;
+    return *p;
+}
+
+// ── Leaf split ────────────────────────────────────────────────────────
+// Take the right half of `leaf`'s entries into a fresh leaf. Original
+// retains [0..mid]; right gets [mid..]. Both halves carry full entries.
+// Caller propagates max keys: parent.keys[i] = left.keys.last (new max
+// of left), parent.keys.insert(i+1, right.keys.last).
+/// Splits `leaf` in half, moving the upper half of entries into a freshly allocated
+/// right leaf; `leaf` keeps the lower half. Panics if `keys.len() != vals.len()`.
+pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>,
+    new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
+) -> NodeARC<STORE_CFG> {
+    let cap: u64 = leaf.keys.len();
+    let vcap: u64 = leaf.vals.len();
+    if cap != vcap { panic("[split_leaf] keys.len != vals.len"); }
+    let mid: u64 = cap / 2u64;
+    let rh: NodeARC<STORE_CFG> =
+        leaf_alloc::<K, V, STORE_CFG, CFG>(new_id, snapshot_id);
+    let right: *mut LeafNode<K, V, STORE_CFG, CFG> =
+        node_arc_data_ptr::<STORE_CFG>(&rh) as *mut LeafNode<K, V, STORE_CFG, CFG>;
+    // Split [mid..] of keys/vals into the fresh right leaf — Buffer::split_at
+    // truncates the left and returns the right half (works for any K/V incl.
+    // DView, which re-encodes into right's cells).
+    right.keys = leaf.keys.split_at(mid);
+    right.vals = leaf.vals.split_at(mid);
+    return rh;
+}
+
+// ── Branch split ──────────────────────────────────────────────────────
+// Memoria-style symmetric split: keys+children are parallel arrays,
+// keys[i] = max of children[i]. Take pairs [mid..] into right; left
+// keeps [0..mid]. No separator promotion — both halves carry their own
+// (key, child) sequences. Caller updates parent.keys[i] = new left max
+// and inserts (right.keys[last], right_arc) at i+1.
+/// Splits `branch` in half, moving the upper half of keys/children/subtree_size into
+/// a freshly allocated right branch; `branch` keeps the lower half.
+pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    branch: *mut BranchNode<K, STORE_CFG, CFG>,
+    new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
+) -> NodeARC<STORE_CFG> {
+    let cap: u64 = branch.keys.len();
+    let mid: u64 = cap / 2u64;
+    let rh: NodeARC<STORE_CFG> =
+        branch_alloc::<K, STORE_CFG, CFG>(new_id, snapshot_id);
+    let right: *mut BranchNode<K, STORE_CFG, CFG> =
+        node_arc_data_ptr::<STORE_CFG>(&rh) as *mut BranchNode<K, STORE_CFG, CFG>;
+    // Move keys[mid..] into right.
+    let mut i: u64 = mid;
+    while i < cap {
+        right.keys.push(branch.keys.get(i));
+        i = i + 1u64;
+    }
+    // Move children[mid..] into right (parallel, transfer rc shares).
+    let nc: i64 = branch.children.len();
+    let mut j: i64 = mid as i64;
+    while j < nc {
+        let src: *mut NodeARC<STORE_CFG> = branch.children.at(j);
+        // clone bumps rc; the upcoming pop on left releases its share.
+        right.children.push((*src).clone());
+        j = j + 1i64;
+    }
+    // SUM aggregate: split parallel subtree_size column same way.
+    let stn: u64 = branch.subtree_size.len;
+    let mut sj: u64 = mid;
+    while sj < stn {
+        right.subtree_size.push(branch.subtree_size.get(sj));
+        sj = sj + 1u64;
+    }
+    // Shrink left to [0..mid].
+    while branch.children.len() > (mid as i64) {
+        let _ = branch.children.pop();   // pop's drop releases rc (balanced by bump above)
+    }
+    while branch.keys.len() > mid { branch.keys.erase(branch.keys.len() - 1u64); }
+    while branch.subtree_size.len > mid { branch.subtree_size.remove_at(branch.subtree_size.len - 1u64); }
+    return rh;
+}
+
+// ── Recursive insert ──────────────────────────────────────────────────
+/// Recursively inserts `key`/`val` (positioned by `qkey`) into the subtree rooted at
+/// `arc`, CoW-cloning any node not owned by `cur_snapshot_id` and splitting on overflow.
+/// Returns an `InsertOutcome` reporting whether an existing key was replaced and
+/// whether `arc` split.
+pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    arc: &mut NodeARC<STORE_CFG>,
+    key: K::ViewInStore, val: V::ViewInStore, qkey: K::ViewInStore,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) -> InsertOutcome<K, STORE_CFG, CFG> {
+    // CoW skip: if `arc`'s block was created in another snapshot, clone.
+    make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
+
+    if arc_is_leaf::<STORE_CFG>(arc) {
+        let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
+        let max_keys: u64 = max_keys_leaf::<CFG>();
+        let pos: u64 = leaf_lower_bound::<K, V, STORE_CFG, CFG>(leaf, qkey);
+        // replace-on-hit (map MAX semantics)
+        if pos < leaf.keys.len() {
+            let kv: K::ViewInStore = leaf.keys.get(pos);
+            let phantom: *const K = 0 as *const K;
+            match phantom.cmp_views(kv, qkey) {
+                Ordering::Equal => {
+                    leaf.vals.set(pos, val);
+                    return InsertOutcome::<K, STORE_CFG, CFG> {
+                        hit: true, split: false,
+                        right: Option::None,
+                        right_max_present: false, right_max: key,
+                    };
+                }
+                _ => { }
+            }
+        }
+        leaf.keys.insert(pos, key);
+        leaf.vals.insert(pos, val);
+        if leaf.keys.len() > max_keys {
+            let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
+            let right: NodeARC<STORE_CFG> = split_leaf::<K, V, STORE_CFG, CFG>(leaf, new_id, cur_snapshot_id);
+            // right_max = right's last key (the new max of right subtree).
+            let rl = as_leaf::<K, V, STORE_CFG, CFG>(&right);
+            let rmax: K::ViewInStore = rl.keys.get(rl.keys.len() - 1u64);
+            return InsertOutcome::<K, STORE_CFG, CFG> {
+                hit: false, split: true, right: Option::Some(right),
+                right_max_present: true, right_max: rmax,
+            };
+        }
+        return InsertOutcome::<K, STORE_CFG, CFG> {
+            hit: false, split: false,
+            right: Option::None,
+            right_max_present: false, right_max: key,
+        };
+    }
+
+    // Branch path. branch_descend_idx returns smallest i where keys[i] ≥ qkey;
+    // when qkey > all maxes (i == n), saturate to last child and the
+    // post-recursion max-update will lift the new max into keys[n-1].
+    let br = as_branch::<K, STORE_CFG, CFG>(arc);
+    let max_keys: u64 = max_keys_branch::<CFG>();
+    let n: u64 = br.keys.len();
+    let mut i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, qkey);
+    if i >= n { i = n - 1u64; }
+    let child_ref: &mut NodeARC<STORE_CFG> = br.children.borrow_mut(i as i64);
+    let mut inner = insert_rec::<K, V, STORE_CFG, CFG>(child_ref, key, val, qkey, cur_snapshot_id, id_ctr_p);
+    if inner.hit {
+        return InsertOutcome::<K, STORE_CFG, CFG> {
+            hit: true, split: false,
+            right: Option::None,
+            right_max_present: false, right_max: key,
+        };
+    }
+    // Update parent.keys[i] = new max of child (may have grown if key was
+    // appended at end of child's subtree).
+    let child_after: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
+    let new_left_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(child_after);
+    br.keys.set(i, new_left_max);
+    // SUM aggregate: refresh subtree_size[i] to reflect the new size of
+    // children[i] post-insert. Maintained slot-by-slot so bt_size_rec
+    // (and future seek-by-N) read O(1) at the parent.
+    let new_left_size: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(child_after);
+    if br.subtree_size.len > i { br.subtree_size.set(i, new_left_size); }
+    else                       { br.subtree_size.push(new_left_size); }
+
+    if !inner.split {
+        return InsertOutcome::<K, STORE_CFG, CFG> {
+            hit: false, split: false,
+            right: Option::None,
+            right_max_present: false, right_max: key,
+        };
+    }
+    // Inner split: insert (right_max, right_arc) at i+1. Move the child's right
+    // handle out of the Option (split ⇒ Some), leaving None so `inner`'s drop
+    // is a no-op on that field.
+    let right_node: NodeARC<STORE_CFG> = inner.right.take().unwrap();
+    br.keys.insert(i + 1u64, inner.right_max);
+    let right_size: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
+    vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, right_node);
+    if br.subtree_size.len > i + 1u64 { br.subtree_size.insert_at(i + 1u64, right_size); }
+    else                              { br.subtree_size.push(right_size); }
+    if br.keys.len() > max_keys {
+        let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
+        let right: NodeARC<STORE_CFG> = split_branch::<K, STORE_CFG, CFG>(br, new_id, cur_snapshot_id);
+        let rb = as_branch::<K, STORE_CFG, CFG>(&right);
+        let rmax: K::ViewInStore = rb.keys.get(rb.keys.len() - 1u64);
+        return InsertOutcome::<K, STORE_CFG, CFG> {
+            hit: false, split: true, right: Option::Some(right),
+            right_max_present: true, right_max: rmax,
+        };
+    }
+    return InsertOutcome::<K, STORE_CFG, CFG> {
+        hit: false, split: false,
+        right: Option::None,
+        right_max_present: false, right_max: key,
+    };
+}
+
+// ── Top-level insert: descend, possibly grow root ─────────────────────
+/// Inserts `key`/`val` into the tree rooted at `root`, growing a new root when the
+/// old root splits. Returns the previous value if `key` already existed (mirrors
+/// Rust `BTreeMap::insert`).
+pub unsafe fn bt_insert<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    root: &mut NodeARC<STORE_CFG>,
+    key: K::ViewInStore, val: V::ViewInStore, qkey: K::ViewInStore,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) -> Option<V::ViewInStore> {
+    // Rust BTreeMap::insert parity: return the displaced value (Some) or None
+    // if the key is new. Captured by a pre-insert lookup — one extra O(depth)
+    // read against the frozen pre-mutation tree, which keeps the verified
+    // insert/split algorithm (and its InsertOutcome) untouched.
+    let old: Option<V::ViewInStore> = bt_get_rec::<K, V, STORE_CFG, CFG>(root, qkey);
+    let mut outcome = insert_rec::<K, V, STORE_CFG, CFG>(root, key, val, qkey, cur_snapshot_id, id_ctr_p);
+    if outcome.split {
+        // Grow root: new branch with [old_root, outcome.right] and
+        // keys = [old_root_max, right_max] (one per child, max-key invariant).
+        // Move the right handle out of the Option (split ⇒ Some).
+        let right_node: NodeARC<STORE_CFG> = outcome.right.take().unwrap();
+        let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
+        let new_arc: NodeARC<STORE_CFG> =
+            branch_alloc::<K, STORE_CFG, CFG>(new_id, cur_snapshot_id);
+        let new_root: *mut BranchNode<K, STORE_CFG, CFG> =
+            node_arc_data_ptr::<STORE_CFG>(&new_arc) as *mut BranchNode<K, STORE_CFG, CFG>;
+        // old_root's max — read before we transfer the handle.
+        let old_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(root);
+        new_root.keys.push(old_max);
+        new_root.keys.push(outcome.right_max);
+        // SUM aggregate column for the freshly grown root: one entry per
+        // child = subtree size below it. Sizes read before moving the handles in.
+        let left_sz:  u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(root);
+        let right_sz: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
+        // children[0] = old_root (clone — the slot's original share is released
+        // by arc_replace_in_slot below), children[1] = outcome.right (moved in).
+        new_root.children.push(root.clone());
+        new_root.children.push(right_node);
+        new_root.subtree_size.push(left_sz);
+        new_root.subtree_size.push(right_sz);
+        arc_replace_in_slot::<STORE_CFG>(
+            root as *mut NodeARC<STORE_CFG>, new_arc);
+    }
+    let _ = outcome.hit;   // hit/split consumed above; displaced value is `old`
+    return old;
+}
+
+// ── Remove outcome — propagates underflow signal up the recursion ─────
+// `hit`: key was found and removed. `underflow`: this node is now
+// below min_keys and needs the parent to rebalance via siblings.
+/// Outcome of a recursive remove: whether the key was found, and whether the visited
+/// node underflowed and needs the parent to rebalance.
+pub struct RemoveOutcome {
+    /// True if the key was found and removed.
+    pub hit:       bool,
+    /// True if the node is now below `min_keys` and the parent must rebalance it.
+    pub underflow: bool,
+}
+
+// ── Leaf rebalance: merge-first, borrow only when forced ──────────────
+// Memoria-style decision: if child + sibling combined arity ≤ max_keys,
+// merge them — keeps the tree shorter and avoids paying for another
+// underflow on the next remove near here. Otherwise borrow (which is
+// always feasible because, with the merge-fits failing, the sibling
+// must have > max_keys − child_len ≥ max_keys − (min_keys − 1) > min_keys).
+//
+// Only the sibling we actually use gets CoW-cloned (probe length first
+// without make_unique — reads only).
+//
+// Max-key invariant restored after every op:
+//   borrow-from-left:  parent.keys[i-1] = left.keys.last (post-pop);
+//                      parent.keys[i]   unchanged (child's max unchanged).
+//   borrow-from-right: parent.keys[i]   = the moved key (= child.keys.last);
+//                      parent.keys[i+1] unchanged (right's max unaffected).
+//   merge-with-right:  parent.keys.erase(i) — keys[i+1] (right's max =
+//                      merged child's new max) slides to i.
+//                      parent.children.remove_at(i+1).
+//   merge-with-left:   parent.keys.erase(i-1) — keys[i] (child's old
+//                      max = merged left's new max) slides to i-1.
+//                      parent.children.remove_at(i).
+/// Rebalances leaf child `i` of `parent_branch` after underflow: merges with a
+/// sibling when the combined length fits `max_keys`, otherwise borrows one entry
+/// from whichever sibling has more keys.
+pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    parent_branch: *mut BranchNode<K, STORE_CFG, CFG>, i: i64,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) {
+    let max_keys: u64 = max_keys_leaf::<CFG>();
+    let nc: i64 = parent_branch.children.len();
+    let has_left:  bool = i > 0i64;
+    let has_right: bool = i + 1i64 < nc;
+
+    // Probe sizes without CoW (reads only).
+    let child_probe = as_leaf::<K, V, STORE_CFG, CFG>(parent_branch.children.borrow(i));
+    let child_len: u64 = child_probe.keys.len();
+    let mut left_len:  u64 = 0u64;
+    let mut right_len: u64 = 0u64;
+    if has_left {
+        let lp = as_leaf::<K, V, STORE_CFG, CFG>(parent_branch.children.borrow(i - 1i64));
+        left_len = lp.keys.len();
+    }
+    if has_right {
+        let rp = as_leaf::<K, V, STORE_CFG, CFG>(parent_branch.children.borrow(i + 1i64));
+        right_len = rp.keys.len();
+    }
+
+    // Prefer merge — keeps tree compact. Right preferred over left when
+    // both fit (consistent with iter / scan direction).
+    if has_right && child_len + right_len <= max_keys {
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_leaf::<K, V, STORE_CFG, CFG>(right_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+        while right.keys.len() > 0u64 {
+            child.keys.push(right.keys.get(0u64));
+            child.vals.push(right.vals.get(0u64));
+            right.keys.erase(0u64);
+            right.vals.erase(0u64);
+        }
+        parent_branch.keys.erase(i as u64);
+        let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i + 1i64);
+        return;
+    }
+    if has_left && child_len + left_len <= max_keys {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_leaf::<K, V, STORE_CFG, CFG>(left_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+        while child.keys.len() > 0u64 {
+            left.keys.push(child.keys.get(0u64));
+            left.vals.push(child.vals.get(0u64));
+            child.keys.erase(0u64);
+            child.vals.erase(0u64);
+        }
+        parent_branch.keys.erase((i - 1i64) as u64);
+        let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i);
+        return;
+    }
+    // Merge didn't fit on either side — borrow. Prefer the side with more
+    // keys (more stable; less likely to underflow next remove).
+    if has_left && (!has_right || left_len >= right_len) {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_leaf::<K, V, STORE_CFG, CFG>(left_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+        let last: u64 = left.keys.len() - 1u64;
+        let k: K::ViewInStore = left.keys.get(last);
+        let v: V::ViewInStore = left.vals.get(last);
+        child.keys.insert(0u64, k);
+        child.vals.insert(0u64, v);
+        left.keys.erase(last);
+        left.vals.erase(last);
+        parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
+        return;
+    }
+    {   // borrow from right
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_leaf::<K, V, STORE_CFG, CFG>(right_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_leaf::<K, V, STORE_CFG, CFG>(child_ref);
+        let k: K::ViewInStore = right.keys.get(0u64);
+        let v: V::ViewInStore = right.vals.get(0u64);
+        child.keys.push(k);
+        child.vals.push(v);
+        right.keys.erase(0u64);
+        right.vals.erase(0u64);
+        parent_branch.keys.set(i as u64, child.keys.get(child.keys.len() - 1u64));
+    }
+}
+
+// ── Branch rebalance: merge-first, borrow only when forced ────────────
+// Same decision policy as rebalance_leaf_child but the unit transferred
+// is (key, child) pair instead of (key, val).
+/// Rebalances branch child `i` of `parent_branch` after underflow: merges with a
+/// sibling when the combined length fits `max_keys`, otherwise borrows one
+/// (key, child) pair from whichever sibling has more keys.
+pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    parent_branch: *mut BranchNode<K, STORE_CFG, CFG>, i: i64,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) {
+    let max_keys: u64 = max_keys_branch::<CFG>();
+    let nc: i64 = parent_branch.children.len();
+    let has_left:  bool = i > 0i64;
+    let has_right: bool = i + 1i64 < nc;
+
+    // Probe sizes without CoW.
+    let child_probe = as_branch::<K, STORE_CFG, CFG>(parent_branch.children.borrow(i));
+    let child_len: u64 = child_probe.keys.len();
+    let mut left_len:  u64 = 0u64;
+    let mut right_len: u64 = 0u64;
+    if has_left {
+        let lp = as_branch::<K, STORE_CFG, CFG>(parent_branch.children.borrow(i - 1i64));
+        left_len = lp.keys.len();
+    }
+    if has_right {
+        let rp = as_branch::<K, STORE_CFG, CFG>(parent_branch.children.borrow(i + 1i64));
+        right_len = rp.keys.len();
+    }
+
+    // Merge-with-right if it fits.
+    if has_right && child_len + right_len <= max_keys {
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_branch::<K, STORE_CFG, CFG>(right_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+        while right.keys.len() > 0u64 {
+            child.keys.push(right.keys.get(0u64));
+            right.keys.erase(0u64);
+        }
+        while right.children.len() > 0i64 {
+            let moved: NodeARC<STORE_CFG> = right.children.remove(0i64);
+            child.children.push(moved);
+        }
+        parent_branch.keys.erase(i as u64);
+        let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i + 1i64);
+        return;
+    }
+    if has_left && child_len + left_len <= max_keys {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_branch::<K, STORE_CFG, CFG>(left_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+        while child.keys.len() > 0u64 {
+            left.keys.push(child.keys.get(0u64));
+            child.keys.erase(0u64);
+        }
+        while child.children.len() > 0i64 {
+            let moved: NodeARC<STORE_CFG> = child.children.remove(0i64);
+            left.children.push(moved);
+        }
+        parent_branch.keys.erase((i - 1i64) as u64);
+        let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i);
+        return;
+    }
+    // Borrow — prefer side with more keys for stability.
+    if has_left && (!has_right || left_len >= right_len) {
+        let left_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i - 1i64);
+        make_unique::<STORE_CFG>(left_ref, cur_snapshot_id, id_ctr_p);
+        let left = as_branch::<K, STORE_CFG, CFG>(left_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+        let last: u64 = left.keys.len() - 1u64;
+        let moved_key: K::ViewInStore = left.keys.get(last);
+        child.keys.insert(0u64, moved_key);
+        let moved_child: NodeARC<STORE_CFG> = left.children.remove(left.children.len() - 1i64);
+        vec_arc_insert_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64, moved_child);
+        left.keys.erase(last);
+        parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
+        return;
+    }
+    {   // borrow from right
+        let right_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i + 1i64);
+        make_unique::<STORE_CFG>(right_ref, cur_snapshot_id, id_ctr_p);
+        let right = as_branch::<K, STORE_CFG, CFG>(right_ref);
+        let child_ref: &mut NodeARC<STORE_CFG> = parent_branch.children.borrow_mut(i);
+        let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
+        let moved_key: K::ViewInStore = right.keys.get(0u64);
+        child.keys.push(moved_key);
+        let moved_child: NodeARC<STORE_CFG> = right.children.remove(0i64);
+        child.children.push(moved_child);
+        right.keys.erase(0u64);
+        parent_branch.keys.set(i as u64, child.keys.get(child.keys.len() - 1u64));
+    }
+}
+
+// ── Recursive remove with rebalance ───────────────────────────────────
+/// Recursively removes `qkey` from the subtree rooted at `arc`, CoW-cloning any node
+/// not owned by `cur_snapshot_id` and rebalancing children that underflow.
+/// Returns a `RemoveOutcome` reporting whether the key was found and whether `arc`
+/// itself underflowed.
+pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    arc: &mut NodeARC<STORE_CFG>,
+    qkey: K::ViewInStore,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) -> RemoveOutcome {
+    make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
+
+    if arc_is_leaf::<STORE_CFG>(arc) {
+        let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
+        let idx: i64 = leaf_find::<K, V, STORE_CFG, CFG>(leaf, qkey);
+        if idx < 0i64 { return RemoveOutcome { hit: false, underflow: false }; }
+        leaf.keys.erase(idx as u64);
+        leaf.vals.erase(idx as u64);
+        let under: bool = leaf.keys.len() < min_keys_leaf::<CFG>();
+        return RemoveOutcome { hit: true, underflow: under };
+    }
+    let br = as_branch::<K, STORE_CFG, CFG>(arc);
+    let n: u64 = br.keys.len();
+    let mut i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, qkey);
+    if i >= n { return RemoveOutcome { hit: false, underflow: false }; }   // qkey > all maxes
+    let child_ref: &mut NodeARC<STORE_CFG> = br.children.borrow_mut(i as i64);
+    let inner = remove_rec::<K, V, STORE_CFG, CFG>(child_ref, qkey, cur_snapshot_id, id_ctr_p);
+
+    if !inner.hit { return RemoveOutcome { hit: false, underflow: false }; }
+    if inner.underflow {
+        let child_check: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
+        if arc_is_leaf::<STORE_CFG>(child_check) {
+            rebalance_leaf_child::<K, V, STORE_CFG, CFG>(br, i as i64, cur_snapshot_id, id_ctr_p);
+        } else {
+            rebalance_branch_child::<K, V, STORE_CFG, CFG>(br, i as i64, cur_snapshot_id, id_ctr_p);
+        }
+        // After rebalance the child slot may have moved (merge with left
+        // shifts everything down by one) and parent.keys are already
+        // restored by the rebalance helper. SUM aggregate column may
+        // have stale slots — rebuild from current children.
+        while br.subtree_size.len > 0u64 {
+            br.subtree_size.remove_at(br.subtree_size.len - 1u64);
+        }
+        let nc_after: i64 = br.children.len();
+        let mut sk: i64 = 0i64;
+        while sk < nc_after {
+            let c: &NodeARC<STORE_CFG> = br.children.borrow(sk);
+            br.subtree_size.push(bt_size_rec::<K, V, STORE_CFG, CFG>(c));
+            sk = sk + 1i64;
+        }
+    } else {
+        // No rebalance: child still at slot i. Its max may have shrunk if
+        // the removed key was the last → propagate up.
+        let child_after: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
+        let new_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(child_after);
+        br.keys.set(i, new_max);
+        let new_size: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(child_after);
+        if br.subtree_size.len > i { br.subtree_size.set(i, new_size); }
+        else                       { br.subtree_size.push(new_size); }
+    }
+    let self_under: bool = br.keys.len() < min_keys_branch::<CFG>();
+    return RemoveOutcome { hit: true, underflow: self_under };
+}
+
+// ── Top-level remove: descend, then collapse root if it shrank to one child ─
+/// Removes `qkey` from the tree rooted at `root`, collapsing the root while it's a
+/// branch with a single remaining child. Returns `true` if the key was found and removed.
+pub unsafe fn bt_remove<K: Container + ContainerOrd, V: Container, const STORE_CFG: WritStatic, const CFG: WritStatic>(
+    root: &mut NodeARC<STORE_CFG>, qkey: K::ViewInStore,
+    cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
+) -> bool {
+    let outcome = remove_rec::<K, V, STORE_CFG, CFG>(root, qkey, cur_snapshot_id, id_ctr_p);
+    // Root-collapse: when the root is a branch with only one remaining
+    // child, demote that child to be the new root. Loop in case multiple
+    // levels collapse (rare but possible after large drains).
+    while !arc_is_leaf::<STORE_CFG>(root) {
+        let br = as_branch::<K, STORE_CFG, CFG>(root);
+        if br.children.len() != 1i64 { break; }
+        let only_child: NodeARC<STORE_CFG> = br.children.remove(0i64);
+        arc_replace_in_slot::<STORE_CFG>(
+            root as *mut NodeARC<STORE_CFG>, only_child);
+    }
+    return outcome.hit;
+}

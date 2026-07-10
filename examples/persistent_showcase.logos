@@ -1,5 +1,5 @@
 //
-// logos.std.data.persistent showcase — a tour of the public API.
+// logos.std.deem.data showcase — a tour of the public API.
 //
 // What the package gives you:
 //   1. Store         — owns the commit DAG, allocates block + snapshot ids
@@ -30,10 +30,10 @@ use logos.lang.mem;
 use logos.lang.cmp; use logos.lang.fabric;
 use logos.lang.writ.wstatic;
 
-use logos.std.data.persistent.bt.node;
-use logos.std.data.persistent.bt.cow;
-use logos.std.data.persistent.store;
-use logos.std.data.persistent.handle;
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.store;
+use logos.std.deem.data.handle;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
 

@@ -1,0 +1,213 @@
+// logos.std.deem.data.bt.node — uniform node header + BTreeNode trait
+// + NodeARC alias for the dyn-trait persistent-store rearch.
+//
+// Architecture summary:
+//
+//   NodeBase<STORE_CFG>          uniform header at offset 0 of every block
+//   BTreeNode<STORE_CFG>         trait — identity hashes + type-erased walk +
+//                                CoW duplication
+//   NodeARC<STORE_CFG>           = Arc<dyn BTreeNode<STORE_CFG>> — a standard
+//                                atomically-reference-counted owning handle
+//
+// The trait uses dyn dispatch — concrete BranchNode / LeafNode / LeafDirNode
+// (defined in bt.cow) impl BTreeNode and end up in the `Arc<dyn>` vtable per
+// concrete instantiation. Dropping the last `Arc<dyn BTreeNode>` share fires
+// the concrete type's destructor THROUGH THE VTABLE drop slot — running its
+// user `impl Drop` (if any) + recursive field destructors automatically
+// (Vec<NodeARC> auto-drops elements, Buffer<V> auto-drops storage). No manual
+// `__drop_in_place` is needed: Arc's own drop does it.
+//
+// The refcount is NO LONGER intrusive (the old NodeBase.rc is gone): it lives
+// in Arc's control block prefix (ArcInner.strong, atomic) — so block sharing is
+// thread-safe by construction, which the old hand-rolled `*rcp = *rcp + 1` was
+// not.
+//
+// STORE_CFG carries the ID-types (block_id, snp_id, ctr_id) so different
+// stores can pick e.g. u128 block ids without changing the source.
+
+package logos.std.deem.data.bt.node;
+
+use logos.lang.mem;
+use logos.lang.cmp;
+use logos.lang.drop;
+use logos.lang.fabric;
+use logos.lang.writ.wstatic;
+use logos.mem.sync;        // Arc<dyn BTreeNode> is the node handle
+
+// ── Public aliases for STORE_CFG slot types ───────────────────────────
+// `SnpId<STORE_CFG>` / `BlockId<STORE_CFG>` get used
+// hundreds of times across the persistent stack. Aliases keep
+// signatures readable; sema resolves them transparently per
+// monomorphisation.
+/// Snapshot-id type for `STORE_CFG`, i.e. `STORE_CFG.snp_id`.
+pub type SnpId<const STORE_CFG: WritStatic>   = <type:STORE_CFG.snp_id>;
+/// Block-id type for `STORE_CFG`, i.e. `STORE_CFG.block_id`.
+pub type BlockId<const STORE_CFG: WritStatic> = <type:STORE_CFG.block_id>;
+
+// ── NodeBase — uniform header per-store ───────────────────────────────────
+// Layout: STORE_CFG-typed ids + leaf flag + physical block_code. The refcount
+// is NOT here anymore — it lives in the enclosing Arc control block. ID widths
+// come from the store config so different stores can pick u128 / opaque tokens
+// for block_id / snp_id without changing the source. All field reads are by
+// name (layout-driven), so an i64 → struct ID widening needs no offset edits.
+/// Uniform per-block header shared by every concrete node type in a store.
+pub struct NodeBase<const STORE_CFG: WritStatic> {
+    /// Persistent block id.
+    pub id:          BlockId<STORE_CFG>,    // persistent block id
+    /// Creating snapshot id — the CoW skip key.
+    pub snapshot_id: SnpId<STORE_CFG>,      // creating snapshot — CoW skip key
+    /// Branch/leaf discriminator.
+    pub is_leaf:     bool,                  // branch/leaf discriminator
+    // schema_code of the concrete node, stamped at alloc. PHYSICAL (not a
+    // vtable method) so a loader can read it from raw bytes before any vtable
+    // exists, then revive the dyn via vtable_of/dyn_from_parts. The type-erased
+    // layer reads every header field through the shared NodeBase<STORE_CFG> view
+    // (layout-driven), not by hand-computed offset, so adding/moving a header
+    // field can't desync those readers.
+    /// Physical schema code of the concrete node type, stamped at alloc.
+    pub block_code:  u64,
+}
+
+// ── BTreeNode trait ────────────────────────────────────────────────────
+// Three concrete-typed methods + the type-erased child walk. The destructor
+// is no longer a trait method — `Arc<dyn BTreeNode>`'s own drop fires the
+// concrete destructor through the vtable drop slot.
+//
+//   cfg_hash()        — wstatic_hash_of::<CFG>() per concrete impl. Used by
+//                       IO consistency check (verify on-disk CFG matches
+//                       runtime CFG when a block is loaded).
+//   block_type_hash() — returns the PHYSICAL base.block_code (stamped at
+//                       alloc with schema_code::<ConcreteNode>()). Single
+//                       source of truth: the vtable method and the on-disk
+//                       header agree by construction.
+
+/// Type-erased operations every concrete B-tree node (branch/leaf) implements.
+pub trait BTreeNode<const STORE_CFG: WritStatic> {
+    /// Returns `wstatic_hash_of::<CFG>()` for the concrete impl's `STORE_CFG`.
+    fn cfg_hash(&self) -> u64;
+    /// Returns the physical `block_code` stamped on this node at allocation.
+    fn block_type_hash(&self) -> u64;
+
+    // CoW duplication — alloc a new node with the same logical content and
+    // a fresh (id, snapshot_id) stamp. Children referenced by branches /
+    // dir-leaves get their NodeARC `.clone()`'d (atomic rc bump). Returns a new
+    // NodeARC handle (strong=1) over the freshly allocated block.
+    //
+    // ID widths come from the store config so the same trait works
+    // for stores with u128 / opaque-token id types.
+    /// Clones this node's content into a fresh block stamped `(new_id, snapshot_id)`.
+    fn cow_clone(&self, new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG>;
+
+    // Type-erased child traversal — the foundation for save/load,
+    // integrity checks, and any walk that needs to recurse over the
+    // tree without knowing the concrete K/V/CFG of each level.
+    //
+    //   • BranchNode: child_count = children.length, child_at = children[idx].
+    //   • LeafDirNode: child_count = vals.length, child_at = vals[idx]
+    //                  (dir leaves carry NodeARC vals — the heterogeneous
+    //                   container roots are themselves children of the dir).
+    //   • LeafNode (data): child_count = 0; child_at must not be called.
+    //
+    // Caller holds the parent's NodeARC for the duration of the walk —
+    // returned `*const NodeARC<STORE_CFG>` is valid as long as the
+    // parent's vals/children Vec isn't mutated.
+    /// Returns this node's number of type-erased children (0 for data leaves).
+    fn child_count(&self) -> u64;
+    /// Returns a pointer to child `idx`; must not be called when `child_count()` is 0.
+    fn child_at(&self, idx: u64) -> *const NodeARC<STORE_CFG>;
+}
+
+// ── NodeARC — shared owning handle ────────────────────────────────────
+/// Shared owning handle: a standard atomic `Arc<dyn BTreeNode<STORE_CFG>>`.
+/// Clone bumps the atomic strong count; dropping the last share recursively
+/// destroys the concrete node through the vtable, then frees the block.
+pub type NodeARC<const STORE_CFG: WritStatic> = Arc<dyn BTreeNode<STORE_CFG>>;
+
+/// Returns the node's base address (where its `NodeBase` header sits).
+/// The data half of the fat `Arc` pointer, reinterpretable as the concrete node type.
+pub unsafe fn node_arc_data_ptr<const STORE_CFG: WritStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
+    let p: *mut NodeARC<STORE_CFG> = arc as *const NodeARC<STORE_CFG> as *mut NodeARC<STORE_CFG>;
+    return p.data_u8();
+}
+
+// Deserialization/load kernel: reconstruct an owning NodeARC from a raw block
+// pointer (`data` = the block's NodeBase address, i.e. an ArcInner `val` slot)
+// plus the trait vtable resolved from the block's physical code. The block lives
+// inside a LIVE `ArcInner<dyn>` whose 8-byte control prefix {strong:i32, weak:i32}
+// sits at `data - 8`; we reassemble the fat `*mut ArcInner<dyn>` = {inner_base,
+// vtable} and take a NEW strong share (rc++). Existing handles stay valid. This
+// is the Arc-model analog of the old intrusive `node_arc_wrap`.
+/// Reconstructs an owning `NodeARC` from a raw block pointer and its resolved vtable.
+/// Takes a new strong share (rc++); existing handles over the same block stay valid.
+pub unsafe fn node_arc_from_parts<const STORE_CFG: WritStatic>(
+    data: *mut u8, vtable: *const u8,
+) -> NodeARC<STORE_CFG> {
+    let inner_base: *mut u8 = (data as i64 - 8i64) as *mut u8;
+    // dyn_from_parts assembles a fat {inner_base, vtable} pair; its bits ARE the
+    // fat `*mut ArcInner<dyn BTreeNode>` (uniform fat-pointer layout — the dyn
+    // tail's vtable is the same vtable an ArcInner<dyn> carries).
+    let fat: *mut dyn BTreeNode<STORE_CFG> =
+        dyn_from_parts::<BTreeNode<STORE_CFG>>(inner_base, vtable);
+    let inner: *mut ArcInner<dyn BTreeNode<STORE_CFG>> =
+        fat as *mut ArcInner<dyn BTreeNode<STORE_CFG>>;
+    return arc_from_raw_inner::<dyn BTreeNode<STORE_CFG>>(inner);
+}
+
+/// Returns whether `a` and `b` point at the same underlying block.
+/// Used by writeback to skip a no-op slot update.
+pub unsafe fn node_arc_same<const STORE_CFG: WritStatic>(a: &NodeARC<STORE_CFG>, b: &NodeARC<STORE_CFG>) -> bool {
+    return node_arc_data_ptr::<STORE_CFG>(a) == node_arc_data_ptr::<STORE_CFG>(b);
+}
+
+/// Visits every `NodeARC` in the tree rooted at `arc` exactly once, post-order.
+/// Accumulates the total count visited (including `arc` itself) into `*counter`.
+/// Doesn't touch refcounts — caller's `NodeARC` keeps the tree alive for the walk.
+pub unsafe fn for_each_block_rec<const STORE_CFG: WritStatic>(
+    arc: &NodeARC<STORE_CFG>, counter: *mut u64,
+) {
+    let nc: u64 = arc.deref().child_count();
+    let mut i: u64 = 0u64;
+    while i < nc {
+        let child_p: *const NodeARC<STORE_CFG> = arc.deref().child_at(i);
+        for_each_block_rec::<STORE_CFG>(&*child_p, counter);
+        i = i + 1u64;
+    }
+    *counter = *counter + 1u64;
+}
+
+/// Drops the share held by `*slot` in place (atomic rc--, recursive release/free if last).
+/// Leaves `*slot` a null/moved-from handle so a later auto-drop on it is a no-op.
+pub unsafe fn arc_release_in_slot<const STORE_CFG: WritStatic>(
+    slot: *mut NodeARC<STORE_CFG>,
+) {
+    slot.drop_arc();
+}
+
+/// Replaces the `NodeARC` at `*slot` with `new_arc`, releasing the old share.
+/// The old share is dropped via `Arc`'s own drop (atomic rc-- + recursive release if last).
+pub unsafe fn arc_replace_in_slot<const STORE_CFG: WritStatic>(
+    slot:    *mut NodeARC<STORE_CFG>,
+    new_arc: NodeARC<STORE_CFG>,
+) {
+    let _old: NodeARC<STORE_CFG> = slot.take_arc();   // move old out (slot now null)
+    slot[0] = new_arc;                                 // store new share (slot was null → no drop)
+    // _old drops here → atomic rc-- + recursive release at last ref.
+}
+
+/// Ensures `*arc` uniquely owns its block for `cur_snapshot_id`, CoW-cloning in place
+/// (via `cow_clone` + a fresh id from `*id_ctr_p`) if the block belongs to an older snapshot.
+/// No-op if the block's `snapshot_id` already matches; caller may then mutate in place.
+pub unsafe fn make_unique<const STORE_CFG: WritStatic>(
+    arc:             &mut NodeARC<STORE_CFG>,
+    cur_snapshot_id: SnpId<STORE_CFG>,
+    id_ctr_p:        *mut BlockId<STORE_CFG>,
+) {
+    let data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
+    // Layout-driven header read via the shared NodeBase view.
+    let hdr: *mut NodeBase<STORE_CFG> = data_p as *mut NodeBase<STORE_CFG>;
+    if hdr.snapshot_id == cur_snapshot_id { return; }
+    *id_ctr_p = *id_ctr_p + 1u64;
+    let new_id: BlockId<STORE_CFG> = *id_ctr_p;
+    let cloned: NodeARC<STORE_CFG> = arc.deref().cow_clone(new_id, cur_snapshot_id);
+    arc_replace_in_slot::<STORE_CFG>(arc as *mut NodeARC<STORE_CFG>, cloned);
+}

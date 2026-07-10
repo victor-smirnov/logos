@@ -1,0 +1,64 @@
+// String DView keys in the persistent tree: Map<DView(String), DView(u64)>.
+// Variable-width keys flow through the same B+tree (cmp_views → htag_cmp string
+// arm), with commit/reopen and lexicographic get_at.
+
+package persistent_dview_str;
+
+use logos.lang.option;
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.str;
+use logos.lang.writ.wstatic;
+use logos.lang.writ.dview;
+
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.store;
+use logos.std.deem.data.handle;
+
+pub const StoreCfg: WritStatic = @{
+    "name":     "dvs",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+pub const DvCfg: WritStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 8 };
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+
+    let mut c0: u64 = 0u64;
+    {
+        let mut snap = store.fork(GENESIS);
+        {
+            let mut cr = create_ctr::<DvCfg>(&mut snap, 1u64);
+            let v1: u64 = 10u64; cr.insert(DView::from_str("banana"), DView::from(&v1));
+            let v2: u64 = 20u64; cr.insert(DView::from_str("apple"),  DView::from(&v2));
+            let v3: u64 = 30u64; cr.insert(DView::from_str("cherry"), DView::from(&v3));
+            if cr.len() != 3u64 { return 10; }
+            match cr.get(DView::from_str("apple")) {
+                Option::Some(dv) => { if dv.to::<u64>() != 20u64 { return 11; } }
+                Option::None     => { return 12; }
+            }
+        }
+        c0 = snap.commit();
+    }
+
+    {
+        let mut snap = store.fork(c0);
+        let cr = open_ctr::<DvCfg>(&mut snap, 1u64).unwrap();
+        if cr.len() != 3u64 { return 20; }
+        // smallest key lexicographically = "apple" → 20
+        match cr.get_at(0u64) {
+            Option::Some(kv) => {
+                if kv.0.as_str().len() != 5i64 { return 21; }
+                match kv.0.compare(&DView::from_str("apple")) { Ordering::Equal => {} _ => { return 22; } }
+                if kv.1.to::<u64>() != 20u64 { return 23; }
+            }
+            Option::None => { return 24; }
+        }
+        match cr.get(DView::from_str("durian")) { Option::Some(_) => { return 25; } Option::None => {} }
+    }
+    return 0;
+}

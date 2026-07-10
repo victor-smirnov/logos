@@ -1,0 +1,148 @@
+// DAG topology — verify multi-parent CommitEntry, children index,
+// roots(), parents_of, children_of, commit_count.
+//
+// Topology built (single root, two-way fan-out at C0 + at C1):
+//
+//                      C0 (root, parents=[])
+//                     /                  \
+//                    C1                  C2
+//                   /  \                  |
+//                  C3   C4                C5
+//
+// Built by sequential snap_fork+commit calls — no merge API yet,
+// so every commit has 0 or 1 parent. Multi-parent testing comes
+// when the merge surface lands.
+
+package persistent_dag_topology;
+
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
+use logos.lang.writ.wstatic;
+
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.store;
+use logos.std.deem.data.handle;
+
+pub const StoreCfg: WritStatic = @{
+    "name": "dag", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+
+fn vec_contains_u64(v: &Vec<u64>, x: u64) -> bool {
+    let n = v.length();
+    let mut i = 0i64;
+    while i < n {
+        if v.get(i) == x { return true; }
+        i = i + 1i64;
+    }
+    return false;}
+
+fn commit_with(store: &mut Store<StoreCfg>, parent: u64, ctr_id: u64, k: u64) -> u64 {
+    let mut snap = store.fork(parent);
+    {
+        // Probe: if the container doesn't exist in the parent, create it.
+        let absent = open_ctr::<MapCfg>(&mut snap, ctr_id).is_none();
+        let mut cr = if absent {
+            create_ctr::<MapCfg>(&mut snap, ctr_id)
+        } else {
+            open_ctr::<MapCfg>(&mut snap, ctr_id).unwrap()
+        };
+        cr.insert(k, k * 2u64);
+    }
+    return snap.commit();}
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+
+    // Build the topology described above. c0 forks from GENESIS;
+    // every later commit chains off a previous one.
+    let c0: u64 = commit_with(&mut store, GENESIS, 7u64, 100u64);
+    let c1: u64 = commit_with(&mut store, c0,      7u64, 101u64);
+    let c2: u64 = commit_with(&mut store, c0,      7u64, 201u64);
+    let c3: u64 = commit_with(&mut store, c1,      7u64, 301u64);
+    let c4: u64 = commit_with(&mut store, c1,      7u64, 401u64);
+    let c5: u64 = commit_with(&mut store, c2,      7u64, 501u64);
+
+
+    // ── commit_count ── (genesis + 6 user commits)
+    if store.commit_count() != 7i64 { return 10; }
+
+    // ── parents_of ──
+    {
+        let pg = store.parents_of(GENESIS);
+        if pg.length() != 0i64 { return 19; }
+    }
+    {
+        let p0 = store.parents_of(c0);
+        if p0.length() != 1i64 { return 20; }
+        if p0.get(0i64) != GENESIS { return 25; }
+    }
+    {
+        let p1 = store.parents_of(c1);
+        if p1.length() != 1i64 { return 21; }
+        if p1.get(0i64) != c0  { return 22; }
+    }
+    {
+        let p5 = store.parents_of(c5);
+        if p5.length() != 1i64 { return 23; }
+        if p5.get(0i64) != c2  { return 24; }
+    }
+
+    // ── children_of ──
+    {
+        let ch0 = store.children_of(c0);
+        if ch0.length() != 2i64 { return 30; }
+        if !vec_contains_u64(&ch0, c1) { return 31; }
+        if !vec_contains_u64(&ch0, c2) { return 32; }
+    }
+    {
+        let ch1 = store.children_of(c1);
+        if ch1.length() != 2i64 { return 33; }
+        if !vec_contains_u64(&ch1, c3) { return 34; }
+        if !vec_contains_u64(&ch1, c4) { return 35; }
+    }
+    {
+        let ch2 = store.children_of(c2);
+        if ch2.length() != 1i64 { return 36; }
+        if ch2.get(0i64)  != c5 { return 37; }
+    }
+    // Leaf commits — no children.
+    {
+        let ch3 = store.children_of(c3);
+        if ch3.length() != 0i64 { return 38; }
+        let ch4 = store.children_of(c4);
+        if ch4.length() != 0i64 { return 39; }
+        let ch5 = store.children_of(c5);
+        if ch5.length() != 0i64 { return 40; }
+    }
+
+    // ── roots() ── (only GENESIS, the auto-seeded commit 0)
+    {
+        let rs = store.roots();
+        if rs.length() != 1i64 { return 50; }
+        if rs.get(0i64)  != GENESIS { return 51; }
+    }
+    // GENESIS has c0 as its only child.
+    {
+        let chg = store.children_of(GENESIS);
+        if chg.length() != 1i64 { return 52; }
+        if chg.get(0i64) != c0  { return 53; }
+    }
+
+    // Sanity: each commit's data still resolves through checkout.
+    let probes = [100u64, 101u64, 201u64, 301u64, 401u64, 501u64];
+    let cids:   [u64; 6] = [c0, c1, c2, c3, c4, c5];
+    let mut i: i64 = 0i64;
+    while i < 6i64 {
+        let mut snap = store.fork(cids[i]);
+        let cr =
+            open_ctr::<MapCfg>(&mut snap, 7u64).unwrap();
+        let probe = probes[i];
+        if !cr.contains(probe) { return 60; }
+        i = i + 1i64;
+    }
+
+    return 0;
+}

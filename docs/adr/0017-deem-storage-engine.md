@@ -80,7 +80,7 @@ for a single byte of file I/O.
 
 - Move: `bt/{node,shuttle,cow,descent,mutate,iter}.logos`, `store.logos`,
   `handle.logos`, `descent.genos.md` → `stdlib/std/deem/data/`.
-- Namespaces: `logos.std.data.persistent.*` → `logos.std.deem.data.*`
+- Namespaces: `logos.std.deem.data.*` → `logos.std.deem.data.*`
   (`…deem.data.bt.*` for the tree layer). Import direction: deem.data imports
   nothing from deem's query layer (data is the bottom of the deem stack);
   `incr.logos`/`incr_rec.logos` import data.

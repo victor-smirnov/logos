@@ -1,0 +1,202 @@
+// End-to-end "load step" for logos.std.deem.data: reconstruct a working
+// `dyn BTreeNode<CFG>` from a raw block whose only type information is the
+// PHYSICAL block_code stamped in its NodeBase header — no vtable pointer is
+// stored with the block. This is the deserialization kernel: on disk a block
+// carries an integer code (a function of its schema); on load we read that
+// code, map it to the right vtable, and rebuild the fat trait pointer.
+//
+//   leaf_alloc / branch_alloc  →  owning NodeARC (Arc<dyn>); block lives inside
+//                                  the ArcInner, base.block_code stamped
+//   node_arc_data_ptr          →  raw *mut u8 at the block's NodeBase (val slot)
+//   read code                  →  *mut NodeBase<StoreCfg> (header only)
+//   code → vtable              →  library registry (schema_code → vtable_of)
+//   node_arc_from_parts        →  reattach the vtable + take a NEW share = the
+//                                  revived owning NodeARC (the fat handle)
+//
+// The revival is TYPE-ERASED: revive() never names Leaf/Branch/Dir — it only
+// knows NodeBase<StoreCfg> (the store-level header) and the BTreeNode trait.
+
+package persistent_revive_dyn;
+
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.option;
+use logos.lang.writ.wstatic;
+
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.compiler.metaprog;
+
+pub const StoreCfg: WritStatic = @{
+    "name":     "revive",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+pub const DataCfg: WritStatic = @{
+    "key":    <type:u64>,
+    "value":  <type:u64>,
+    "fanout": 8,
+};
+pub const DirCfg: WritStatic = @{
+    "key":    <type:u64>,
+    "fanout": 16,
+};
+
+// The "library registry": map a stable block code to the vtable of the
+// concrete node type that produced it. In a real store this is populated once
+// at open() per registered node flavour; here an if-chain is plenty. vtable_of
+// keys on the concrete receiver, so each code resolves to exactly one impl.
+unsafe fn vtable_for_code(code: u64) -> *const u8 {
+    if code == schema_code::<LeafNode<u64, u64, StoreCfg, DataCfg>>() {
+        return vtable_of::<BTreeNode<StoreCfg>, LeafNode<u64, u64, StoreCfg, DataCfg>>();
+    }
+    if code == schema_code::<BranchNode<u64, StoreCfg, DataCfg>>() {
+        return vtable_of::<BTreeNode<StoreCfg>, BranchNode<u64, StoreCfg, DataCfg>>();
+    }
+    if code == schema_code::<LeafDirNode<u64, StoreCfg, DirCfg>>() {
+        return vtable_of::<BTreeNode<StoreCfg>, LeafDirNode<u64, StoreCfg, DirCfg>>();
+    }
+    return 0 as *const u8;
+}
+
+// THE LOAD STEP. Given a raw block pointer (the NodeBase address), read its code
+// from the physical header and rebuild the dyn. Returns None on a registry miss
+// (schema drift) — the caller's deserialization-error guard; Some(arc) holds a
+// fresh owning share with the right vtable reattached.
+unsafe fn revive(data: *mut u8) -> Option<NodeARC<StoreCfg>> {
+    let hdr = data as *mut NodeBase<StoreCfg>;
+    let code = hdr.block_code;                 // physical — no vtable needed
+    let vt = vtable_for_code(code);
+    if vt == (0 as *const u8) {
+        return Option::<NodeARC<StoreCfg>>::None;
+    }
+    // Reconstruct the fat {data, vtable} pair, reattach + take an owning share.
+    return Option::<NodeARC<StoreCfg>>::Some(
+        node_arc_from_parts::<StoreCfg>(data, vt));
+}
+
+fn main() -> i32 {
+    // ── Data leaf ─────────────────────────────────────────────────────
+    {
+        let src = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(101u64, 1u64)
+        };
+        unsafe {
+            let lp = node_arc_data_ptr::<StoreCfg>(&src)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
+            lp.keys.push(10u64); lp.vals.push(100u64);
+        }
+
+        let want = schema_code::<LeafNode<u64, u64, StoreCfg, DataCfg>>();
+        let arc = unsafe {
+            match revive(node_arc_data_ptr::<StoreCfg>(&src)) {
+                Option::Some(a) => a,
+                Option::None    => { return 1; }
+            }
+        };
+        unsafe {
+            // dispatch THROUGH the revived dyn: the concrete impl reads the
+            // physical code back, proving the right vtable was reattached.
+            if arc.deref().block_type_hash() != want   { return 2; }
+            if arc.deref().cfg_hash() != wstatic_hash_of::<DataCfg>() { return 3; }
+            if arc.deref().child_count() != 0u64       { return 4; }
+        }
+        // both `src` (alloc share) and `arc` (revived share) drop → rc 2→1→0
+    }
+
+    // ── Branch holding two leaves — revived dyn drives a child walk ────
+    {
+        let la = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(201u64, 1u64) };
+        let lb = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(202u64, 1u64) };
+        unsafe {
+            let lap = node_arc_data_ptr::<StoreCfg>(&la)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
+            let lbp = node_arc_data_ptr::<StoreCfg>(&lb)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
+            lap.keys.push(1u64); lap.vals.push(11u64);
+            lbp.keys.push(2u64); lbp.vals.push(22u64);
+        }
+        let bsrc = unsafe {
+            branch_alloc::<u64, StoreCfg, DataCfg>(301u64, 1u64) };
+        unsafe {
+            let bp = node_arc_data_ptr::<StoreCfg>(&bsrc)
+                as *mut BranchNode<u64, StoreCfg, DataCfg>;
+            bp.children.push(la.clone());
+            bp.children.push(lb.clone());
+        }
+
+        let want = schema_code::<BranchNode<u64, StoreCfg, DataCfg>>();
+        let arc = unsafe {
+            match revive(node_arc_data_ptr::<StoreCfg>(&bsrc)) {
+                Option::Some(a) => a,
+                Option::None    => { return 5; }
+            }
+        };
+        unsafe {
+            if arc.deref().block_type_hash() != want { return 6; }
+            if arc.deref().child_count() != 2u64     { return 7; }
+            // walk a child through the revived dyn and dispatch on IT too
+            let c0 = arc.deref().child_at(0u64);
+            if (*c0).deref().child_count() != 0u64   { return 8; }
+        }
+        // arc, bsrc, la, lb all release; branch's children Vec drops its shares
+    }
+
+    // ── Directory leaf (holds NodeARC vals) ───────────────────────────
+    {
+        let leaf_a = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(401u64, 2u64) };
+        let dsrc = unsafe {
+            leaf_dir_alloc::<u64, StoreCfg, DirCfg>(501u64, 2u64) };
+        unsafe {
+            let dirp = node_arc_data_ptr::<StoreCfg>(&dsrc)
+                as *mut LeafDirNode<u64, StoreCfg, DirCfg>;
+            dirp.keys.push(101u64);
+            dirp.vals.push(leaf_a.clone());
+        }
+
+        let want = schema_code::<LeafDirNode<u64, StoreCfg, DirCfg>>();
+        let arc = unsafe {
+            match revive(node_arc_data_ptr::<StoreCfg>(&dsrc)) {
+                Option::Some(a) => a,
+                Option::None    => { return 9; }
+            }
+        };
+        unsafe {
+            if arc.deref().block_type_hash() != want { return 10; }
+            if arc.deref().child_count() != 1u64     { return 11; }
+        }
+    }
+
+    // ── Unknown code → registry miss → None (graceful) ────────────────
+    {
+        let src = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(601u64, 1u64) };
+        unsafe {
+            let data = node_arc_data_ptr::<StoreCfg>(&src);
+            // Corrupt the header code → simulate schema drift on load.
+            let hdr = data as *mut NodeBase<StoreCfg>;
+            let good = hdr.block_code;
+            hdr.block_code = 0xDEADBEEFu64;
+            match revive(data) {
+                Option::Some(a) => { let _ = a; return 12; }   // should NOT revive
+                Option::None    => {}                          // expected
+            }
+            // restore the real code and revive properly
+            hdr.block_code = good;
+            match revive(data) {
+                Option::Some(a) => { let _ = a; }              // expected
+                Option::None    => { return 13; }
+            }
+        }
+        // `src` drops → rc 1→0 → block freed
+    }
+
+    return 0;
+}

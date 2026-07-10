@@ -1,0 +1,112 @@
+// Multi-container in one snapshot:
+//   - Create 4 containers (ids 1, 7, 99, 1000) in one snap.
+//   - Each gets a distinct value formula so cross-container leaks
+//     are visible (would resolve to a different value).
+//   - open_ctr on a missing ctr_id returns an empty handle (arc.p == null).
+//   - Operations on one container don't affect others.
+//   - After commit + fork, all four containers are visible in the fork.
+
+package persistent_multi_container;
+
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
+use logos.lang.writ.wstatic;
+
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.store;
+use logos.std.deem.data.handle;
+
+pub const StoreCfg: WritStatic = @{
+    "name": "multi-ctr", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+
+
+fn fill(cr: &mut ContainerRef<StoreCfg, MapCfg>, n: u64, mul: u64) {
+    let mut i = 0u64;
+    while i < n {
+        cr.insert(i, i * mul);
+        i = i + 1u64;
+    }
+}
+
+fn check(cr: &ContainerRef<StoreCfg, MapCfg>, n: u64, mul: u64) -> bool {
+    if cr.len() != n { return false; }
+    let mut i = 0u64;
+    while i < n {
+        let out = match cr.get(i) {
+            Option::Some(x) => x,
+            Option::None => { return false; }
+        };
+        if out != i * mul { return false; }
+        i = i + 1u64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+    let mut commit = 0u64;
+
+    {
+        let mut snap = store.fork(GENESIS);
+
+        // Four containers, distinct multipliers. Each is SCOPED so it drops
+        // (closes) before the next — and before commit (the open-container
+        // guard). create_ctr/fill/insert are all safe; the bare `{ }` is for
+        // scoping only, no `unsafe` needed.
+        {
+            let mut a = create_ctr::<MapCfg>(&mut snap, 1u64);
+            fill(&mut a, 30u64, 3u64);
+            // Drop a here — its slot's NodeARC is in the dir; cr.arc share dropped.
+        }
+        {
+            let mut b = create_ctr::<MapCfg>(&mut snap, 7u64);
+            fill(&mut b, 50u64, 5u64);
+        }
+        {
+            let mut c = create_ctr::<MapCfg>(&mut snap, 99u64);
+            fill(&mut c, 20u64, 9u64);
+        }
+        {
+            let mut d = create_ctr::<MapCfg>(&mut snap, 1000u64);
+            fill(&mut d, 10u64, 13u64);
+        }
+
+        // open_ctr on missing id returns None.
+        {
+            if open_ctr::<MapCfg>(&mut snap, 42u64).is_some() { return 10; }
+        }
+
+        // Re-open each container, verify its own data.
+        {
+            let a = open_ctr::<MapCfg>(&mut snap, 1u64).unwrap();
+            if !check(&a, 30u64, 3u64) { return 11; }
+            let b = open_ctr::<MapCfg>(&mut snap, 7u64).unwrap();
+            if !check(&b, 50u64, 5u64) { return 12; }
+            let c = open_ctr::<MapCfg>(&mut snap, 99u64).unwrap();
+            if !check(&c, 20u64, 9u64) { return 13; }
+            let d = open_ctr::<MapCfg>(&mut snap, 1000u64).unwrap();
+            if !check(&d, 10u64, 13u64) { return 14; }
+        }
+
+        commit = snap.commit();
+    }
+
+    // Fork: all four containers visible, untouched.
+    {
+        let mut fork = store.fork(commit);
+        let a = open_ctr::<MapCfg>(&mut fork, 1u64).unwrap();
+        if !check(&a, 30u64, 3u64) { return 30; }
+        let b = open_ctr::<MapCfg>(&mut fork, 7u64).unwrap();
+        if !check(&b, 50u64, 5u64) { return 31; }
+        let c = open_ctr::<MapCfg>(&mut fork, 99u64).unwrap();
+        if !check(&c, 20u64, 9u64) { return 32; }
+        let d = open_ctr::<MapCfg>(&mut fork, 1000u64).unwrap();
+        if !check(&d, 10u64, 13u64) { return 33; }
+    }
+
+    return 0;
+}

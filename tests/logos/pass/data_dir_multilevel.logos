@@ -1,0 +1,79 @@
+// Multi-level directory: insert >16 containers (DirCfg fanout=16) so
+// the dir grows from a single LeafDirNode to a multi-level tree
+// (root branch + multiple dir leaves). Verify every container is
+// reachable + retains its data across opens, and that the dir tree
+// preserves identity through commit + fork.
+package persistent_dir_multilevel;
+
+use logos.std.deem.data.handle;
+use logos.std.deem.data.store;
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.bt.descent;
+use logos.std.deem.data.bt.mutate;
+use logos.lang.fabric;
+use logos.lang.writ.wstatic;
+
+pub const StoreCfg: WritStatic = @{
+    "name": "dirmulti", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+    let mut commit = 0u64;
+
+    // ── Build a snap with 50 containers (>> dir fanout=16). Each holds
+    // a single key-value (k=ctr_id, v=ctr_id*1000) so we can verify
+    // identity-by-content. Pre-commit phase. ──
+    {
+        let mut snap = store.fork(GENESIS);
+        let mut id = 0u64;
+        while id < 50u64 {
+            let mut cr =
+                create_ctr::<MapCfg>(&mut snap, id);
+            cr.insert(id, id * 1000u64);
+            id = id + 1u64;
+        }
+        // Open every container in the same snap; verify content.
+        let mut q = 0u64;
+        while q < 50u64 {
+            let cr =
+                match open_ctr::<MapCfg>(&mut snap, q) {
+                    Option::Some(c) => c,
+                    Option::None => { return 100 + q as i32; }
+                };
+            let out = match cr.get(q) {
+                Option::Some(x) => x,
+                Option::None => { return 200 + q as i32; }
+            };
+            if out != q * 1000u64               { return 300 + q as i32; }
+            q = q + 1u64;
+        }
+        // Look up an absent ctr_id — should return None.
+        if open_ctr::<MapCfg>(&mut snap, 9999u64).is_some() { return 1; }
+
+        commit = snap.commit();
+    }
+
+    // ── Fork from the commit, verify all 50 containers still resolve. ──
+    {
+        let mut fork = store.fork(commit);
+        let mut q = 0u64;
+        while q < 50u64 {
+            let cr =
+                match open_ctr::<MapCfg>(&mut fork, q) {
+                    Option::Some(c) => c,
+                    Option::None => { return 400 + q as i32; }
+                };
+            let out = match cr.get(q) {
+                Option::Some(x) => x,
+                Option::None => { return 500 + q as i32; }
+            };
+            if out != q * 1000u64               { return 600 + q as i32; }
+            q = q + 1u64;
+        }
+    }
+
+    return 0;
+}

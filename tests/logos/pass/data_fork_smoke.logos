@@ -1,0 +1,142 @@
+// Multi-snapshot CoW smoke for persistent stack.
+//
+//   1. snap_a creates ctr=7 with [0..50) → i*3 (multi-level: splits cause
+//      Branch root). Commits → C0.
+//   2. Fork B from C0: reads ctr=7 (sees 50 inherited entries), extends
+//      with [50..100) → i*5. Commits → C1.
+//   3. Fork C from C0: must NOT see fork B's writes — C0's container
+//      stays clean. Adds [100..150) → i*7. Commits → C2.
+//   4. Fork D from C0: still clean (50 entries).
+//   5. Fork B' from C1: sees [0..100). 6. Fork C' from C2: sees [0..50) ∪ [100..150).
+//
+// Validates: dir CoW + container CoW (make_unique on snapshot mismatch),
+// writeback into dir slot on root-grow, isolation between sibling forks.
+
+package zz_v3_fork_smoke;
+
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.writ.wstatic;
+
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.store;
+use logos.std.deem.data.handle;
+
+pub const StoreCfg: WritStatic = @{
+    "name":     "fork",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+
+pub const MapCfg: WritStatic = @{
+    "key":    <type:u64>,
+    "value":  <type:u64>,
+    "fanout": 8,
+};
+
+fn fill_range(cr: &mut ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) {
+    let mut i = lo;
+    while i < hi {
+        cr.insert(i, i * mul);
+        i = i + 1u64;
+    }
+}
+
+fn check_range(cr: &ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) -> i32 {
+    let mut i = lo;
+    while i < hi {
+        let out = match cr.get(i) {
+            Option::Some(x) => x,
+            Option::None => { return 1i32; }
+        };
+        if out != i * mul { return 2i32; }
+        i = i + 1u64;
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+
+    // Build base commit C0 — ctr=7 has [0..50) at *3 (multi-level)
+    let mut c0: u64 = 0u64;
+    {
+        let mut snap_a = store.fork(GENESIS);
+        {
+            let mut cr =
+                create_ctr::<MapCfg>(&mut snap_a, 7u64);
+            fill_range(&mut cr, 0u64, 50u64, 3u64);
+            if cr.len() != 50u64 { return 10; }
+        }
+        c0 = snap_a.commit();
+    }
+
+    // Fork B: extend ctr=7 with [50..100) at *5
+    let mut c1: u64 = 0u64;
+    {
+        let mut snap_b = store.fork(c0);
+        {
+            let mut cr =
+                open_ctr::<MapCfg>(&mut snap_b, 7u64).unwrap();
+            if cr.len() != 50u64 { return 21; }
+            fill_range(&mut cr, 50u64, 100u64, 5u64);
+            if cr.len() != 100u64 { return 22; }
+        }
+        c1 = snap_b.commit();
+    }
+
+    // Fork C from C0 — extend ctr=7 with [100..150) at *7
+    let mut c2: u64 = 0u64;
+    {
+        let mut snap_c = store.fork(c0);
+        {
+            let mut cr =
+                open_ctr::<MapCfg>(&mut snap_c, 7u64).unwrap();
+            if cr.len() != 50u64 { return 30; }
+            fill_range(&mut cr, 100u64, 150u64, 7u64);
+            if cr.len() != 100u64 { return 31; }
+        }
+        c2 = snap_c.commit();
+    }
+
+    // Fork D from C0 — must see only [0..50), not fork B's nor C's writes.
+    {
+        let mut snap_d = store.fork(c0);
+        let cr =
+            open_ctr::<MapCfg>(&mut snap_d, 7u64).unwrap();
+        if cr.len() != 50u64 { return 40; }
+        if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 41; }
+        let probe = 75u64;
+        if cr.contains(probe) { return 42; }
+    }
+
+    // Fork B' from C1 — sees [0..100) merged.
+    {
+        let mut snap_b2 = store.fork(c1);
+        let cr =
+            open_ctr::<MapCfg>(&mut snap_b2, 7u64).unwrap();
+        if cr.len() != 100u64 { return 50; }
+        if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 51; }
+        if check_range(&cr, 50u64, 100u64, 5u64) != 0i32 { return 52; }
+        let probe = 120u64;
+        if cr.contains(probe) { return 53; }
+    }
+
+    // Fork C' from C2 — sees [0..50) ∪ [100..150).
+    {
+        let mut snap_c2 = store.fork(c2);
+        let cr =
+            open_ctr::<MapCfg>(&mut snap_c2, 7u64).unwrap();
+        if cr.len() != 100u64 { return 60; }
+        if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 61; }
+        if check_range(&cr, 100u64, 150u64, 7u64) != 0i32 { return 62; }
+        let probe = 75u64;
+        if cr.contains(probe) { return 63; }
+    }
+
+    return 0;
+}
