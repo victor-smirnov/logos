@@ -67,12 +67,21 @@ to simulate metaprogramming C++ lacks:
 
 ### 1.2 What must be ported faithfully (the load-bearing ideas)
 
-1. **PackedAllocator** — a sub-allocator inside one fixed-size block: slot
-   table (offsets), bitmap of nested-allocator slots, bump-allocated tail;
-   nested composition (a leaf = one allocator holding N packed streams).
-   Blocks are CONTIGUOUS + RELOCATABLE — this is what makes blocks
-   serializable/mappable, and it is THE architectural difference from
-   persistent's heap-node model (Arc<dyn> pointers, non-relocatable).
+1. **PackedAllocator** — ported 1-TO-1 as an OBJECT design (user,
+   2026-07-10; the languages are close enough): `PackedAllocatable`
+   {allocator_offset — the SELF-RELATIVE back-reference to the owning
+   allocator} is AGGREGATED as the first field of EVERY packed structure
+   (aggregation, not inheritance), the allocator itself included. This makes
+   packed structures SELF-SUFFICIENT: a structure asks ITS OWN allocator to
+   `resize_block(self, size)`, and the allocator, when out of space, asks
+   ITS parent (`enlarge → resize → parent.resize_block(this)`) — recursive
+   to any nesting depth. The slot bitmap (RAW_MEMORY vs ALLOCATABLE) is
+   load-bearing: on shifts, ONLY allocatable slots get their back-reference
+   re-pointed (`move_element_data → set_allocator_offset(this)`); raw bytes
+   move untouched (interiors are self-relative). Shrink auto-packs nested
+   allocators. Blocks stay CONTIGUOUS + RELOCATABLE. Follow-up task (user):
+   befriend the borrow checker — the end state has NO unsafe in the packed
+   layer; until then unsafe is confined inside impl bodies.
 2. **PackedDataTypeBuffer** — the columnar leaf stream: packed array of a
    datatype (fixed or length-prefixed variable), optional nested running-sum
    index (fan-out 32) for O(log n) rank/range. The unified successor of the
