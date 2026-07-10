@@ -1404,7 +1404,7 @@ impl Query {
                 if aei < 0i64 {
                     return Result::Err(qerr("Query::incremental: the aggregate source is not bound on the env"));
                 }
-                if env.kinds[aei] == QB_TSRC {
+                if env.kinds[aei] == QB_TSRC || env.kinds[aei] == QB_EDGE {
                     return Result::Err(qerr("Query::incremental: a tree source (bind_source_tree) is virtual/re-scan — no delta capture; materialize facts via FactStore for the incremental path"));
                 }
                 let asrcv: WAny = WAny::ref_to(env.words[aei] as *const u8);
@@ -1467,7 +1467,7 @@ impl Query {
         if lei < 0i64 || rei < 0i64 {
             return Result::Err(qerr("Query::incremental: a join source is not bound on the env"));
         }
-        if env.kinds[lei] == QB_TSRC || env.kinds[rei] == QB_TSRC {
+        if env.kinds[lei] == QB_TSRC || env.kinds[rei] == QB_TSRC || env.kinds[lei] == QB_EDGE || env.kinds[rei] == QB_EDGE {
             return Result::Err(qerr("Query::incremental: a tree source (bind_source_tree) is virtual/re-scan — no delta capture; materialize facts via FactStore for the incremental path"));
         }
         let lsrcv: WAny = WAny::ref_to(env.words[lei] as *const u8);

@@ -630,6 +630,43 @@ fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
     return out;
 }
 
+// PRE-MATERIALIZED edge rows: the same dotted-column RowSet as ts_scan, but
+// filled from a bound Writ array of 8-element rows (the edge vocabulary) —
+// the runtime consumption path for #[derive_graph_source] materializers.
+fn es_scan(var: str, rows_w: i64, scratch: &Writ) -> RowSet {
+    let mut out: RowSet = rs_new();
+    let cols: [str; 8] = ["parent", "key", "idx", "child", "kind", "tag", "vi", "vs"];
+    let mut c: i64 = 0i64;
+    while c < 8i64 {
+        let mut nm: String = String::new();
+        nm.push_str(var);
+        nm.push_str(".");
+        nm.push_str(cols[c]);
+        out.vars[c] = intern_str(scratch, sstr(&nm));
+        c = c + 1i64;
+    }
+    out.nvars = 8i64;
+    let av: WAny = WAny::ref_to(rows_w as *const u8);
+    if !av.is_array() { return out; }
+    let arr: &WArray<WAny> = av.as_array();
+    let n: i64 = arr.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let row: WAny = arr.get(i);
+        if row.is_array() {
+            let ra: &WArray<WAny> = row.as_array();
+            let mut k: i64 = 0i64;
+            while k < 8i64 {
+                out.cells.push(wany_to_rt(ra.get(k)));
+                k = k + 1i64;
+            }
+            out.nrows = out.nrows + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return out;
+}
+
 // ── exec_rexpr — the pipeline walk (everything BELOW the projection) ─────────
 // `rctx` — the rel materialization context (always valid; n = 0 without rels).
 fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
@@ -683,6 +720,11 @@ fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             // materialization rule: the document is the fact base).
             if ei0 >= 0i64 && env.kinds[ei0] == QB_TSRC {
                 return ts_scan(sc.var_name, env.words[ei0], scratch);
+            }
+            // PRE-MATERIALIZED edge rows (bind_edge_rows): same dotted
+            // columns as the tree scan, read from the bound array.
+            if ei0 >= 0i64 && env.kinds[ei0] == QB_EDGE {
+                return es_scan(sc.var_name, env.words[ei0], scratch);
             }
             let mut out: RowSet = rs_new();
             out.vars[0] = sc.var_name;

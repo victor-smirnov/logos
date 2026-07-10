@@ -462,6 +462,11 @@ const QB_TSRC:  i32 = 9i32;   // a TREE source (bind_source_tree): a Writ VALUE
                               // are fixed: (parent, key, idx, child, kind,
                               // vi, vs) — see the checker's CT_TREEROW table.
 
+const QB_EDGE:  i32 = 10i32;  // PRE-MATERIALIZED edge rows (bind_edge_rows):
+                              // a Writ array of 8-element rows in the SAME
+                              // graph-edge vocabulary as QB_TSRC — the runtime
+                              // twin of a #[derive_graph_source] materializer.
+
 const QENV_CAP: i64 = 24i64;
 // UDF/UDA registry capacities (metadata tables — rows are Vec-backed).
 const QENV_FNS:     i64 = 8i64;
@@ -634,6 +639,18 @@ impl QEnv {
         self.kinds[i] = QB_TSRC;
         self.words[i] = root.raw();
         self.codes[i] = 0u64;
+    }
+
+    /// Binds PRE-MATERIALIZED graph-edge rows under `name` — the runtime twin
+    /// of a `#[derive_graph_source]` materializer: `rows` is a Writ ARRAY of
+    /// 8-element rows in the edge vocabulary (parent, key, idx, child, kind,
+    /// tag, vi, vs; see `edges_to_source`). Scanned like a tree source (the
+    /// same dotted columns), but from the given rows instead of a walk.
+    pub fn bind_edge_rows(self: &mut QEnv, name: str, rows: WAny) {
+        let i: i64 = self.slot(name);
+        if i < 0i64 { return; }
+        self.kinds[i] = QB_EDGE;
+        self.words[i] = rows.raw();
     }
 
     // ── UDF/UDA registration (ADR §6) ───────────────────────────────────────

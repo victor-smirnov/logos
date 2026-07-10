@@ -741,6 +741,8 @@ fn resolve_source(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
     }
     if env.kinds[ei] == QB_ESRC { return ct(CT_DYNSRC); }   // lenient source
     if env.kinds[ei] == QB_TSRC { return ct(CT_TREESRC); }  // virtual tree source
+    if env.kinds[ei] == QB_EDGE { return ct(CT_TREESRC); }  // pre-materialized edge rows
+                                                            // — SAME vocabulary/typing
     if env.kinds[ei] != QB_SRC {
         chk_fail(chk, "source '", name,
                  "' is not bound as a source — use bind_source", "", "");
