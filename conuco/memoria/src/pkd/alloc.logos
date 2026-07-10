@@ -1,39 +1,39 @@
-// memoria.pkd — the PackedAllocator: a sub-allocator inside ONE contiguous,
-// fixed-size, relocatable block (ADR 0018 §1.2.1; C++ reference:
-// core/packed/tools/packed_allocator.hpp).
+// memoria.pkd — PackedAllocatable + PackedAllocator, an OBJECT port of
+// core/packed/tools/{packed_allocator_types.hpp, packed_allocator.hpp}
+// (ADR 0018 §1.2.1). Method-for-method with the C++; deviations are named.
 //
-// A block is a flat byte region addressed only by OFFSETS from its own start —
-// no absolute pointers inside — so a block can be memcpy'd, dumped or shipped
-// and stays valid (the relocatability contract; pkd_smoke asserts it).
+// THE design idea: every packed structure AGGREGATES `PkdAllocatable` as its
+// FIRST field — a SELF-RELATIVE back-reference (offset from the structure to
+// its owning allocator). Structures are self-sufficient: they ask THEIR OWN
+// allocator to resize them; an allocator out of space asks ITS parent to
+// enlarge it — recursively, to any nesting depth. The allocator itself is
+// allocatable (uniform nesting).
 //
-// v1 layout — SLOT-ORDER CONTIGUOUS, the C++ model: payloads live in slot
-// index order, back to back, so resizing slot `i` shifts the single region
-// [offs[i+1], offs[n]) and patches the offsets after it. Every slot is always
-// "allocated" (length ≥ 0); alloc = resize-from-zero.
+// Block layout (all cells u32 = psize_t; header is 16 bytes, 8-aligned):
 //
-//   [0]  block_size   u32   total block bytes (fixed at init)
-//   [4]  slot_count   u32   n
-//   [8]  offs[n+1]    u32   payload start per slot; offs[n] = end of used
-//                           space (the tail). len(i) = offs[i+1] − offs[i].
-//   [..] payloads, 8-byte aligned lengths, slot 0 first
+//   PkdAlloc { able.alc_off, block_size, layout_size, bitmap_size }
+//   buffer_:  layout[layout_size/4]   element offsets RELATIVE TO base();
+//                                     cell[elements()] = end-of-used;
+//                                     entry count padded to EVEN (8-align)
+//             bitmap[bitmap_size]     1 bit per slot: RAW=0 / ALLOCATABLE=1
+//             base(): element payloads, slot order, 8-aligned sizes
 //
-// Nesting: a slot's payload may itself be pkd_init'ed, which is how a B+tree
-// node composes N packed streams (memoria-bt). A nested structure that needs
-// to GROW asks its PARENT (pkd_grow_nested) — the parent shifts its siblings
-// and the nested header's block_size is patched to the new slot length.
+// The bitmap is load-bearing: when elements shift, ONLY allocatable slots
+// get their back-reference re-pointed (interiors are self-relative, plain
+// byte moves are safe for them).
+//
+// unsafe status: confined to impl bodies; the follow-up task (user, ADR
+// §1.2.1) is befriending the borrow checker until this layer has NO unsafe.
+// Deviation from C++: OOM at the top level returns failure (0/false)
+// instead of throwing.
 package memoria.pkd;
 
-const HDR_BYTES: u32 = 8u32;
+pub const PKD_RAW: u32         = 0u32;
+pub const PKD_ALLOCATABLE: u32 = 1u32;
 
-// ── raw cells ────────────────────────────────────────────────────────────────
-
-unsafe fn rd_u32(base: *const u8, off: u32) -> u32 {
-    return *(((base as i64) + (off as i64)) as *const u32);
-}
-
-unsafe fn wr_u32(base: *mut u8, off: u32, v: u32) {
-    *(((base as i64) + (off as i64)) as *mut u32) = v;
-}
+/// AlignmentBlock = 8 (PackedAllocationAlignment).
+pub fn round_up_bytes(v: u32) -> u32 { return (v + 7u32) & (0xFFFF_FFFFu32 - 7u32); }
+pub fn round_down_bytes(v: u32) -> u32 { return v & (0xFFFF_FFFFu32 - 7u32); }
 
 // Overlap-safe byte move (memmove): picks copy direction by pointer order.
 pub unsafe fn move_bytes(dst: *mut u8, src: *const u8, n: i64) {
@@ -53,113 +53,353 @@ pub unsafe fn move_bytes(dst: *mut u8, src: *const u8, n: i64) {
     }
 }
 
-fn align8(v: u32) -> u32 { return (v + 7u32) & (0xFFFF_FFFFu32 - 7u32); }
-
-fn off_pos(slot: u32) -> u32 { return HDR_BYTES + slot * 4u32; }
-
-// ── header accessors ─────────────────────────────────────────────────────────
-
-/// Total block size fixed at `pkd_init`.
-pub unsafe fn pkd_block_size(base: *const u8) -> u32 { return rd_u32(base, 0u32); }
-/// Number of slots.
-pub unsafe fn pkd_slot_count(base: *const u8) -> u32 { return rd_u32(base, 4u32); }
-
-/// Payload offset of `slot` (valid for slot ≤ slot_count; slot_count yields
-/// the tail — the end of used space).
-pub unsafe fn pkd_offset(base: *const u8, slot: u32) -> u32 {
-    return rd_u32(base, off_pos(slot));
+unsafe fn zero_bytes(dst: *mut u8, n: i64) {
+    let mut i: i64 = 0i64;
+    while i < n { *(((dst as i64) + i) as *mut u8) = 0u8; i = i + 1i64; }
 }
 
-/// Payload byte length of `slot` (8-aligned; 0 = empty).
-pub unsafe fn pkd_len(base: *const u8, slot: u32) -> u32 {
-    return pkd_offset(base, slot + 1u32) - pkd_offset(base, slot);
+// ── PackedAllocatable ────────────────────────────────────────────────────────
+
+/// The aggregated head of EVERY packed structure: a self-relative offset
+/// back to the owning allocator (0 = top-level / detached).
+pub struct PkdAllocatable {
+    alc_off: u32,
 }
 
-/// Free bytes remaining after the last slot's payload.
-pub unsafe fn pkd_free(base: *const u8) -> u32 {
-    return pkd_block_size(base) - pkd_offset(base, pkd_slot_count(base));
-}
+impl PkdAllocatable {
+    pub fn set_top_level(self: &mut PkdAllocatable) { self.alc_off = 0u32; }
+    pub fn has_allocator(self: &PkdAllocatable) -> bool { return self.alc_off > 0u32; }
+    pub fn allocator_offset(self: &PkdAllocatable) -> u32 { return self.alc_off; }
 
-/// Raw payload pointer for `slot` (always valid; zero-length slots point at
-/// the shared boundary with their successor).
-pub unsafe fn pkd_at(base: *mut u8, slot: u32) -> *mut u8 {
-    return ((base as i64) + (pkd_offset(base as *const u8, slot) as i64)) as *mut u8;
-}
-
-// ── init / resize ────────────────────────────────────────────────────────────
-
-/// Formats `base[0..block_size)` as an empty allocator with `slots` zero-length
-/// slots. Returns false when the block can't hold the tables.
-pub unsafe fn pkd_init(base: *mut u8, block_size: u32, slots: u32) -> bool {
-    let start: u32 = align8(HDR_BYTES + (slots + 1u32) * 4u32);
-    if start > block_size { return false; }
-    wr_u32(base, 0u32, block_size);
-    wr_u32(base, 4u32, slots);
-    let mut i: u32 = 0u32;
-    while i <= slots {
-        wr_u32(base, off_pos(i), start);
-        i = i + 1u32;
+    /// Points the back-reference at `alc` (self must live INSIDE alc's block,
+    /// above it in memory — the offset is positive by construction).
+    pub fn set_allocator_offset(self: &mut PkdAllocatable, alc: *const PkdAlloc) {
+        let sp: *mut PkdAllocatable = self;
+        let off: u32 = ((sp as i64) - (alc as i64)) as u32;
+        unsafe { sp.alc_off = off; }
     }
-    return true;
+
+    /// The owning allocator (undefined for top-level; check has_allocator).
+    pub fn allocator(self: &mut PkdAllocatable) -> *mut PkdAlloc {
+        let sp: *mut PkdAllocatable = self;
+        return ((sp as i64) - ((&*sp).alc_off as i64)) as *mut PkdAlloc;
+    }
+
+    /// The owning allocator or null for a top-level structure.
+    pub fn allocator_or_null(self: &mut PkdAllocatable) -> *mut PkdAlloc {
+        if self.alc_off > 0u32 { return self.allocator(); }
+        return 0i64 as *mut PkdAlloc;
+    }
 }
 
-/// Resizes `slot`'s payload to `new_len` bytes (rounded up to 8) IN PLACE:
-/// the following slots' payloads shift by the delta and their offsets are
-/// patched. Grow fails (false) when the tail lacks room; shrink always
-/// succeeds. Data in the surviving prefix of the slot is preserved.
-pub unsafe fn pkd_resize(base: *mut u8, slot: u32, new_len: u32) -> bool {
-    let n: u32 = pkd_slot_count(base as *const u8);
-    if slot >= n { return false; }
-    let cur: u32 = pkd_len(base as *const u8, slot);
-    let want: u32 = align8(new_len);
-    if want == cur { return true; }
-    if want > cur {
-        let grow: u32 = want - cur;
-        if grow > pkd_free(base as *const u8) { return false; }
-        // shift [offs[slot+1], tail) up by `grow` (backward copy via move_bytes)
-        let from: u32 = pkd_offset(base as *const u8, slot + 1u32);
-        let tail: u32 = pkd_offset(base as *const u8, n);
-        move_bytes(((base as i64) + (from as i64) + (grow as i64)) as *mut u8,
-                   ((base as i64) + (from as i64)) as *const u8,
-                   (tail - from) as i64);
-        let mut i: u32 = slot + 1u32;
-        while i <= n {
-            wr_u32(base, off_pos(i), pkd_offset(base as *const u8, i) + grow);
+// ── PackedAllocator ──────────────────────────────────────────────────────────
+
+/// The in-block sub-allocator; itself allocatable (uniform nesting).
+pub struct PkdAlloc {
+    pub able:    PkdAllocatable,
+    block_size:  u32,
+    layout_size: u32,
+    bitmap_size: u32,
+}
+
+/// sizeof the fixed header (C++ my_size()).
+fn my_size() -> u32 { return 16u32; }
+
+/// Formats `mem[0..block_size)` as a top-level allocator with `blocks` slots;
+/// returns the typed view. (C++ init() + setTopLevelAllocator.)
+pub unsafe fn pkd_format(mem: *mut u8, block_size: u32, blocks: u32) -> *mut PkdAlloc {
+    let a: *mut PkdAlloc = mem as *mut PkdAlloc;
+    a.able.set_top_level();
+    a.init(block_size, blocks);
+    return a;
+}
+
+impl PkdAlloc {
+    // ── geometry ─────────────────────────────────────────────────────────
+
+    unsafe fn buffer(self: &PkdAlloc) -> *mut u8 {
+        let sp: *const PkdAlloc = self;
+        return ((sp as i64) + (my_size() as i64)) as *mut u8;
+    }
+    /// Start of element payloads; element offsets are relative to this.
+    pub unsafe fn base(self: &PkdAlloc) -> *mut u8 {
+        return ((self.buffer() as i64) + (self.layout_size as i64) + (self.bitmap_size as i64)) as *mut u8;
+    }
+    pub fn block_size(self: &PkdAlloc) -> u32 { return self.block_size; }
+    pub fn set_block_size(self: &mut PkdAlloc, v: u32) { self.block_size = v; }
+    /// Slot capacity (incl. the spare the even-padding may add; C++ elements()).
+    pub fn elements(self: &PkdAlloc) -> u32 { return self.layout_size / 4u32 - 1u32; }
+    pub fn client_area(self: &PkdAlloc) -> u32 {
+        return self.block_size - my_size() - self.layout_size - self.bitmap_size;
+    }
+    pub unsafe fn allocated(self: &PkdAlloc) -> u32 {
+        return self.element_offset(self.elements());
+    }
+    pub unsafe fn free_space(self: &PkdAlloc) -> u32 {
+        return self.client_area() - self.allocated();
+    }
+    pub unsafe fn total_free_space(self: &mut PkdAlloc) -> u32 {
+        let mut space: u32 = self.free_space();
+        let parent: *mut PkdAlloc = self.able.allocator_or_null();
+        if (parent as i64) != 0i64 { space = space + parent.total_free_space(); }
+        return space;
+    }
+
+    /// Header + layout + bitmap for `blocks` slots (C++ empty_size()).
+    pub fn empty_size_for(blocks: u32) -> u32 {
+        let layout_blocks: u32 = blocks + (if blocks % 2u32 == 1u32 { 1u32 } else { 2u32 });
+        return my_size() + layout_blocks * 4u32 + 8u32;   // bitmap: one u64 word (≤64 slots)
+    }
+
+    /// (Re)formats this allocator in place (C++ init()).
+    pub unsafe fn init(self: &mut PkdAlloc, block_size: u32, blocks: u32) {
+        self.block_size = round_down_bytes(block_size);
+        let layout_blocks: u32 = blocks + (if blocks % 2u32 == 1u32 { 1u32 } else { 2u32 });
+        self.layout_size = layout_blocks * 4u32;
+        zero_bytes(self.buffer(), self.layout_size as i64);
+        self.bitmap_size = 8u32;                          // one u64 word (≤64 slots)
+        zero_bytes(((self.buffer() as i64) + (self.layout_size as i64)) as *mut u8,
+                   self.bitmap_size as i64);
+    }
+
+    // ── layout cells + bitmap ────────────────────────────────────────────
+
+    unsafe fn layout_cell(self: &PkdAlloc, idx: u32) -> *mut u32 {
+        return ((self.buffer() as i64) + (idx as i64) * 4i64) as *mut u32;
+    }
+    pub unsafe fn element_offset(self: &PkdAlloc, idx: u32) -> u32 {
+        return *self.layout_cell(idx);
+    }
+    pub unsafe fn element_size(self: &PkdAlloc, idx: u32) -> u32 {
+        return self.element_offset(idx + 1u32) - self.element_offset(idx);
+    }
+
+    unsafe fn bitmap_word(self: &PkdAlloc) -> *mut u64 {
+        return ((self.buffer() as i64) + (self.layout_size as i64)) as *mut u64;
+    }
+    pub unsafe fn is_allocatable(self: &PkdAlloc, idx: u32) -> bool {
+        return (*self.bitmap_word() >> (idx as u64)) & 1u64 == 1u64;
+    }
+    pub unsafe fn set_block_type(self: &mut PkdAlloc, idx: u32, typ: u32) {
+        let w: *mut u64 = self.bitmap_word();
+        if typ == PKD_ALLOCATABLE { *w = *w | (1u64 << (idx as u64)); }
+        else { *w = *w & (0xFFFF_FFFF_FFFF_FFFFu64 - (1u64 << (idx as u64))); }
+    }
+
+    // ── element addressing ───────────────────────────────────────────────
+
+    /// Typed pointer to element `idx`'s payload.
+    pub unsafe fn get<T>(self: &PkdAlloc, idx: u32) -> *mut T {
+        return ((self.base() as i64) + (self.element_offset(idx) as i64)) as *mut T;
+    }
+
+    /// Offset of an interior pointer relative to base() (C++ compute_element_offset).
+    pub unsafe fn compute_element_offset(self: &PkdAlloc, element: *const u8) -> u32 {
+        return ((element as i64) - (self.base() as i64)) as u32;
+    }
+
+    /// Which slot holds the element at `ptr` (C++ find_element). ptr must be
+    /// an element START address.
+    pub unsafe fn find_element(self: &PkdAlloc, ptr: *const u8) -> u32 {
+        let off: u32 = self.compute_element_offset(ptr);
+        let n: u32 = self.elements();
+        let mut i: u32 = 0u32;
+        while i < n {
+            if self.element_offset(i) == off && self.element_size(i) > 0u32 { return i; }
             i = i + 1u32;
         }
-    } else {
-        let shrink: u32 = cur - want;
-        let from: u32 = pkd_offset(base as *const u8, slot + 1u32);
-        let tail: u32 = pkd_offset(base as *const u8, n);
-        move_bytes(((base as i64) + (from as i64) - (shrink as i64)) as *mut u8,
-                   ((base as i64) + (from as i64)) as *const u8,
-                   (tail - from) as i64);
-        let mut i: u32 = slot + 1u32;
-        while i <= n {
-            wr_u32(base, off_pos(i), pkd_offset(base as *const u8, i) - shrink);
+        // empty slots share offsets; fall back to first offset match
+        i = 0u32;
+        while i < n {
+            if self.element_offset(i) == off { return i; }
             i = i + 1u32;
         }
+        return n;   // not found (caller bug)
     }
-    return true;
-}
 
-// ── nesting ──────────────────────────────────────────────────────────────────
+    // ── the move machinery ───────────────────────────────────────────────
 
-/// Formats `slot`'s CURRENT payload as a nested allocator with `slots` slots.
-/// The nested block_size = the slot's length; grow it via `pkd_grow_nested`.
-pub unsafe fn pkd_init_nested(parent: *mut u8, slot: u32, slots: u32) -> bool {
-    let len: u32 = pkd_len(parent as *const u8, slot);
-    return pkd_init(pkd_at(parent, slot), len, slots);
-}
+    // Move one element's payload by `delta` (up = toward the tail), fixing
+    // the back-reference of ALLOCATABLE elements (C++ move_element_data).
+    unsafe fn move_element_data(self: &mut PkdAlloc, idx: u32, delta: u32, up: bool) {
+        let size: u32 = self.element_size(idx);
+        if size == 0u32 { return; }
+        let ptr: *mut u8 = ((self.base() as i64) + (self.element_offset(idx) as i64)) as *mut u8;
+        let dst: *mut u8 = if up { ((ptr as i64) + (delta as i64)) as *mut u8 }
+                           else  { ((ptr as i64) - (delta as i64)) as *mut u8 };
+        move_bytes(dst, ptr as *const u8, size as i64);
+        if self.is_allocatable(idx) {
+            let el: *mut PkdAllocatable = dst as *mut PkdAllocatable;
+            let sp: *const PkdAlloc = self;
+            el.set_allocator_offset(sp);
+        }
+    }
 
-/// Grows the nested allocator in `slot` to `new_size` total bytes: resizes the
-/// parent slot (shifting siblings) and patches the nested header's block_size.
-/// The nested tables and payloads are preserved (they sit at the region start).
-pub unsafe fn pkd_grow_nested(parent: *mut u8, slot: u32, new_size: u32) -> bool {
-    let cur: u32 = pkd_len(parent as *const u8, slot);
-    if new_size <= cur { return true; }
-    if !pkd_resize(parent, slot, new_size) { return false; }
-    let np: *mut u8 = pkd_at(parent, slot);
-    wr_u32(np, 0u32, pkd_len(parent as *const u8, slot));
-    return true;
+    // Shift elements [idx..) up by delta: payloads LAST-TO-FIRST, then the
+    // offsets (C++ move_elements_up).
+    unsafe fn move_elements_up(self: &mut PkdAlloc, idx: u32, delta: u32) {
+        let n: u32 = self.elements();
+        let mut ii: u32 = n;
+        while ii > idx {
+            self.move_element_data(ii - 1u32, delta, true);
+            ii = ii - 1u32;
+        }
+        let mut k: u32 = idx;
+        while k <= n {
+            *self.layout_cell(k) = self.element_offset(k) + delta;
+            k = k + 1u32;
+        }
+    }
+
+    // Shift elements [idx..) down by delta: payloads FIRST-TO-LAST
+    // (C++ move_elements_down / moveElements).
+    unsafe fn move_elements_down(self: &mut PkdAlloc, idx: u32, delta: u32) {
+        let n: u32 = self.elements();
+        let mut ii: u32 = idx;
+        while ii < n {
+            self.move_element_data(ii, delta, false);
+            ii = ii + 1u32;
+        }
+        let mut k: u32 = idx;
+        while k <= n {
+            *self.layout_cell(k) = self.element_offset(k) - delta;
+            k = k + 1u32;
+        }
+    }
+
+    // ── the resize protocol ──────────────────────────────────────────────
+
+    /// Resizes element `idx` to `new_size` (rounded up to 8). Grow beyond
+    /// free space asks THE PARENT to enlarge this allocator — recursively.
+    /// Returns the allocation size, or 0xFFFFFFFF on top-level OOM
+    /// (C++ throws; we return the sentinel).
+    pub unsafe fn resize_block_at(self: &mut PkdAlloc, idx: u32, new_size: u32) -> u32 {
+        let allocation_size: u32 = round_up_bytes(new_size);
+        let size: u32 = self.element_size(idx);
+        if allocation_size > size {
+            let delta: u32 = allocation_size - size;
+            let free: u32 = self.free_space();
+            if delta > free {
+                if self.enlarge(delta - free) == 0xFFFF_FFFFu32 { return 0xFFFF_FFFFu32; }
+            }
+            self.move_elements_up(idx + 1u32, delta);
+        } else if allocation_size < size {
+            let delta: u32 = size - allocation_size;
+            self.move_elements_down(idx + 1u32, delta);
+            if self.able.allocator_offset() > 0u32 {
+                let _ = self.pack();      // nested allocators auto-compact
+            }
+        }
+        return allocation_size;
+    }
+
+    /// Resize by interior element pointer (C++ resize_block(const void*, …)).
+    pub unsafe fn resize_block(self: &mut PkdAlloc, element: *const u8, new_size: u32) -> u32 {
+        let idx: u32 = self.find_element(element);
+        return self.resize_block_at(idx, new_size);
+    }
+
+    /// Can a grow of element `idx` to `new_size` succeed? Probes the whole
+    /// parent chain without mutating (C++ try_allocation).
+    pub unsafe fn try_allocation(self: &mut PkdAlloc, idx: u32, new_size: u32) -> bool {
+        let allocation_size: u32 = round_up_bytes(new_size);
+        let size: u32 = self.element_size(idx);
+        if allocation_size > size {
+            let delta: u32 = allocation_size - size;
+            let free: u32 = self.free_space();
+            if delta > free {
+                if self.able.allocator_offset() > 0u32 {
+                    let parent: *mut PkdAlloc = self.able.allocator();
+                    let sp: *const PkdAlloc = self;
+                    let my_idx: u32 = parent.find_element(sp as *const u8);
+                    return parent.try_allocation(my_idx, delta - free);
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Grows this allocator's own block by `delta` bytes through its parent
+    /// (top-level cannot grow: 0xFFFFFFFF).
+    pub unsafe fn enlarge(self: &mut PkdAlloc, delta: u32) -> u32 {
+        return self.resize(round_up_bytes(self.block_size + delta));
+    }
+
+    /// Shrinks this allocator's own block by `delta` bytes through its parent.
+    pub unsafe fn shrink(self: &mut PkdAlloc, delta: u32) -> u32 {
+        return self.resize(round_down_bytes(self.block_size - delta));
+    }
+
+    // Ask the parent for a new own-block size; top-level can only shrink-or-
+    // stay (C++ resize(); OOM → sentinel instead of throw).
+    unsafe fn resize(self: &mut PkdAlloc, new_size: u32) -> u32 {
+        if self.able.allocator_offset() > 0u32 {
+            let parent: *mut PkdAlloc = self.able.allocator();
+            let sp: *const PkdAlloc = self;
+            let got: u32 = parent.resize_block(sp as *const u8, new_size);
+            if got == 0xFFFF_FFFFu32 { return 0xFFFF_FFFFu32; }
+            self.block_size = got;
+        } else if new_size > self.block_size {
+            return 0xFFFF_FFFFu32;   // top-level OOM
+        }
+        return self.block_size;
+    }
+
+    /// Releases this allocator's free tail back to its parent (C++ pack()).
+    pub unsafe fn pack(self: &mut PkdAlloc) -> u32 {
+        let free: u32 = self.free_space();
+        return self.resize(self.block_size - free);
+    }
+
+    // ── allocate / free / import ─────────────────────────────────────────
+
+    /// Sizes element `idx` to `size`, zero-fills it, stamps the block type;
+    /// ALLOCATABLE elements get their back-reference set. Returns the
+    /// payload pointer, or null on OOM (C++ allocate()).
+    pub unsafe fn allocate(self: &mut PkdAlloc, idx: u32, size: u32, typ: u32) -> *mut u8 {
+        let allocation_size: u32 = round_up_bytes(size);
+        self.set_block_type(idx, typ);
+        if self.resize_block_at(idx, allocation_size) == 0xFFFF_FFFFu32 {
+            return 0i64 as *mut u8;
+        }
+        let p: *mut u8 = ((self.base() as i64) + (self.element_offset(idx) as i64)) as *mut u8;
+        zero_bytes(p, allocation_size as i64);
+        if typ == PKD_ALLOCATABLE {
+            let el: *mut PkdAllocatable = p as *mut PkdAllocatable;
+            let sp: *const PkdAlloc = self;
+            el.set_allocator_offset(sp);
+        }
+        return p;
+    }
+
+    /// Empties element `idx`, compacting the tail (C++ free()).
+    pub unsafe fn free_at(self: &mut PkdAlloc, idx: u32) {
+        let size: u32 = self.element_size(idx);
+        if size > 0u32 {
+            self.move_elements_down(idx + 1u32, size);
+            if self.able.allocator_offset() > 0u32 {
+                let _ = self.pack();
+            }
+        }
+    }
+
+    /// Copies element `src_idx` of `src` into our `idx` — size, type, bytes,
+    /// back-reference (C++ import_block()).
+    pub unsafe fn import_block(self: &mut PkdAlloc, idx: u32,
+                               src: *const PkdAlloc, src_idx: u32) -> bool {
+        let ssize: u32 = src.element_size(src_idx);
+        let styp: u32 = if src.is_allocatable(src_idx) { PKD_ALLOCATABLE } else { PKD_RAW };
+        if self.resize_block_at(idx, ssize) == 0xFFFF_FFFFu32 { return false; }
+        self.set_block_type(idx, styp);
+        let sp: *const u8 = ((src.base() as i64) + (src.element_offset(src_idx) as i64)) as *const u8;
+        let tp: *mut u8 = ((self.base() as i64) + (self.element_offset(idx) as i64)) as *mut u8;
+        move_bytes(tp, sp, ssize as i64);
+        if ssize > 0u32 && styp == PKD_ALLOCATABLE {
+            let el: *mut PkdAllocatable = tp as *mut PkdAllocatable;
+            let sp: *const PkdAlloc = self;
+            el.set_allocator_offset(sp);
+        }
+        return true;
+    }
 }

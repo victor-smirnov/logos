@@ -1,14 +1,14 @@
-// pkd_vle — the packed variable-length buffer: init/insert/get/remove with
-// middle insertion, empty entries, neighbor-slot survival, exact-fit shrink,
-// and content integrity across table rebuilds.
+// pkd_vle — PkdVle as a self-growing packed structure: middle insertion,
+// empty entries, removal, churn, and neighbor survival (a PkdArr sibling
+// shifting below it).
 package test;
 
 use memoria.pkd;
 use logos.lang.mem;
 use logos.lang.str;
 
-unsafe fn vle_eq(base: *mut u8, slot: u32, i: u32, want: str) -> bool {
-    let (p, n) = vle_get(base, slot, i);
+unsafe fn vle_eq(v: *mut PkdVle, i: u32, want: str) -> bool {
+    let (p, n) = v.get(i);
     if n != want.len() { return false; }
     let mut k: i64 = 0i64;
     while k < n {
@@ -18,75 +18,68 @@ unsafe fn vle_eq(base: *mut u8, slot: u32, i: u32, want: str) -> bool {
     return true;
 }
 
-unsafe fn vle_put(base: *mut u8, slot: u32, i: u32, s: str) -> bool {
-    return vle_insert(base, slot, i, s.as_ptr(), s.len());
+unsafe fn vle_put(v: *mut PkdVle, i: u32, s: str) -> bool {
+    return v.insert(i, s.as_ptr(), s.len());
 }
 
 fn main() -> i32 {
     unsafe {
-        let base: *mut u8 = alloc(4096i64);
-        if !pkd_init(base, 4096u32, 2u32) { return 1i32; }
-        if !vle_init(base, 0u32) { return 2i32; }
-        if !vle_init(base, 1u32) { return 3i32; }
+        let mem: *mut u8 = alloc(8192i64);
+        let a: *mut PkdAlloc = pkd_format(mem, 8192u32, 2u32);
+        let vs: *mut PkdVle = vle_format(a, 0u32);
+        if (vs as i64) == 0i64 { return 1i32; }
+        let canary: *mut PkdArr = arr_format(a, 1u32);
+        if (canary as i64) == 0i64 { return 2i32; }
+        if !canary.push::<u64>(4242u64) { return 3i32; }
 
-        // neighbor canary in slot 1
-        if !vle_put(base, 1u32, 0u32, "canary") { return 4i32; }
-
-        // build ["alpha", "gamma"], then insert "beta" in the middle
-        if !vle_put(base, 0u32, 0u32, "alpha") { return 5i32; }
-        if !vle_put(base, 0u32, 1u32, "gamma") { return 6i32; }
-        if !vle_put(base, 0u32, 1u32, "beta")  { return 7i32; }
-        if vle_count(base as *const u8, 0u32) != 3u32 { return 8i32; }
-        if !vle_eq(base, 0u32, 0u32, "alpha") { return 9i32; }
-        if !vle_eq(base, 0u32, 1u32, "beta")  { return 10i32; }
-        if !vle_eq(base, 0u32, 2u32, "gamma") { return 11i32; }
+        if !vle_put(vs, 0u32, "alpha") { return 4i32; }
+        if !vle_put(vs, 1u32, "gamma") { return 5i32; }
+        if !vle_put(vs, 1u32, "beta")  { return 6i32; }
+        if vs.count() != 3u32 { return 7i32; }
+        if !vle_eq(vs, 0u32, "alpha") { return 8i32; }
+        if !vle_eq(vs, 1u32, "beta")  { return 9i32; }
+        if !vle_eq(vs, 2u32, "gamma") { return 10i32; }
 
         // empty entry at the front
-        if !vle_put(base, 0u32, 0u32, "") { return 12i32; }
-        if vle_count(base as *const u8, 0u32) != 4u32 { return 13i32; }
-        let (_ep, el) = vle_get(base, 0u32, 0u32);
-        if el != 0i64 { return 14i32; }
-        if !vle_eq(base, 0u32, 1u32, "alpha") { return 15i32; }
+        if !vle_put(vs, 0u32, "") { return 11i32; }
+        let (_ep, el) = vs.get(0u32);
+        if el != 0i64 { return 12i32; }
+        if !vle_eq(vs, 1u32, "alpha") { return 13i32; }
 
-        // remove the empty + the middle; survivors intact
-        vle_remove(base, 0u32, 0u32);
-        vle_remove(base, 0u32, 1u32);                // "beta"
-        if vle_count(base as *const u8, 0u32) != 2u32 { return 16i32; }
-        if !vle_eq(base, 0u32, 0u32, "alpha") { return 17i32; }
-        if !vle_eq(base, 0u32, 1u32, "gamma") { return 18i32; }
+        vs.remove(0u32);
+        vs.remove(1u32);                       // "beta"
+        if vs.count() != 2u32 { return 14i32; }
+        if !vle_eq(vs, 0u32, "alpha") { return 15i32; }
+        if !vle_eq(vs, 1u32, "gamma") { return 16i32; }
 
-        // neighbor survived everything
-        if !vle_eq(base, 1u32, 0u32, "canary") { return 19i32; }
-
-        // churn: 50 entries, remove every second, verify the rest
+        // churn: 50 appends + 25 alternating removes
         let mut i: u32 = 0u32;
         while i < 50u32 {
-            // entry text = "vNN" via two bytes — build tiny buf on heap
             let b: *mut u8 = alloc(3i64);
-            *b = 0x76u8;                              // 'v'
+            *b = 0x76u8;
             *(((b as i64) + 1i64) as *mut u8) = (0x30u32 + i / 10u32) as u8;
             *(((b as i64) + 2i64) as *mut u8) = (0x30u32 + i % 10u32) as u8;
-            if !vle_insert(base, 0u32, vle_count(base as *const u8, 0u32), b as *const u8, 3i64) { return 20i32; }
+            let at: u32 = vs.count();
+            if !vs.insert(at, b as *const u8, 3i64) { return 17i32; }
             dealloc(b);
             i = i + 1u32;
         }
-        if vle_count(base as *const u8, 0u32) != 52u32 { return 21i32; }
-        // remove indices 2,3,4… every second of the fifty appended
+        if vs.count() != 52u32 { return 18i32; }
         let mut r: u32 = 0u32;
-        while r < 25u32 {
-            vle_remove(base, 0u32, 2u32 + r);
-            r = r + 1u32;
-        }
-        if vle_count(base as *const u8, 0u32) != 27u32 { return 22i32; }
-        if !vle_eq(base, 0u32, 0u32, "alpha") { return 23i32; }
-        if !vle_eq(base, 0u32, 1u32, "gamma") { return 24i32; }
-        // after removing 25 alternating entries starting at 2, the survivors
-        // of the appended block are v01,v03,…,v49 — check a few
-        if !vle_eq(base, 0u32, 2u32, "v01") { return 25i32; }
-        if !vle_eq(base, 0u32, 3u32, "v03") { return 26i32; }
-        if !vle_eq(base, 0u32, 26u32, "v49") { return 27i32; }
+        while r < 25u32 { vs.remove(2u32 + r); r = r + 1u32; }
+        if vs.count() != 27u32 { return 19i32; }
+        if !vle_eq(vs, 0u32, "alpha") { return 20i32; }
+        if !vle_eq(vs, 2u32, "v01") { return 21i32; }
+        if !vle_eq(vs, 3u32, "v03") { return 22i32; }
+        if !vle_eq(vs, 26u32, "v49") { return 23i32; }
 
-        dealloc(base);
+        // the arr sibling below survived all the shifting, back-ref healed
+        let c2: *mut PkdArr = a.get::<PkdArr>(1u32);
+        if c2.count() != 1u32 { return 24i32; }
+        if c2.get::<u64>(0u32) != 4242u64 { return 25i32; }
+        if (c2.able.allocator() as i64) != (a as i64) { return 26i32; }
+
+        dealloc(mem);
     }
     return 0i32;
 }

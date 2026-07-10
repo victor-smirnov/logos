@@ -48,39 +48,40 @@ impl BtArena {
     /// Allocates + formats a fresh node block; returns its nonzero id.
     pub fn alloc_node(self: &mut BtArena, is_leaf: bool, level: u32) -> u64 {
         unsafe {
-            let p: *mut u8 = alloc(BT_BLOCK as i64);
-            let ok: bool = pkd_init(p, BT_BLOCK, 3u32);
-            if !ok { return 0u64; }
-            let ok2: bool = pkd_resize(p, SLOT_HDR, 8u32);
-            if !ok2 { return 0u64; }
-            let h: *mut u32 = pkd_at(p, SLOT_HDR) as *mut u32;
+            let mem: *mut u8 = alloc(BT_BLOCK as i64);
+            let a: *mut PkdAlloc = pkd_format(mem, BT_BLOCK, 3u32);
+            let h: *mut u32 = a.allocate(SLOT_HDR, 8u32, PKD_RAW) as *mut u32;
+            if (h as i64) == 0i64 { return 0u64; }
             *h = if is_leaf { 1u32 } else { 0u32 };
             *(((h as i64) + 4i64) as *mut u32) = level;
-            let _ = arr_init(p, SLOT_KEYS);
-            let _ = arr_init(p, SLOT_VALS);
-            self.blocks.push(p as i64);
+            if (arr_format(a, SLOT_KEYS) as i64) == 0i64 { return 0u64; }
+            if (arr_format(a, SLOT_VALS) as i64) == 0i64 { return 0u64; }
+            self.blocks.push(mem as i64);
             return self.blocks.len() as u64;   // ids are 1-based
         }
     }
-    /// Raw block pointer for `id`.
-    pub fn at(self: &BtArena, id: u64) -> *mut u8 {
-        return self.blocks.get((id as i64) - 1i64) as *mut u8;
+    /// Node block view for `id`.
+    pub fn at(self: &BtArena, id: u64) -> *mut PkdAlloc {
+        return self.blocks.get((id as i64) - 1i64) as *mut PkdAlloc;
     }
 }
 
-unsafe fn node_is_leaf(p: *const u8) -> bool {
-    let pay: *const u8 = ((p as i64) + (pkd_offset(p, SLOT_HDR) as i64)) as *const u8;
-    return *(pay as *const u32) == 1u32;
+// Typed slot views of a node block.
+unsafe fn nkeys(a: *mut PkdAlloc) -> *mut PkdArr { return a.get::<PkdArr>(SLOT_KEYS); }
+unsafe fn nvals(a: *mut PkdAlloc) -> *mut PkdArr { return a.get::<PkdArr>(SLOT_VALS); }
+
+unsafe fn node_is_leaf(a: *mut PkdAlloc) -> bool {
+    return *(a.get::<u32>(SLOT_HDR)) == 1u32;
 }
 
-unsafe fn node_level(p: *mut u8) -> u32 {
-    return *(((pkd_at(p, SLOT_HDR) as i64) + 4i64) as *const u32);
+unsafe fn node_level(a: *mut PkdAlloc) -> u32 {
+    return *(((a.get::<u32>(SLOT_HDR) as i64) + 4i64) as *const u32);
 }
 
-unsafe fn keys_count(p: *const u8) -> u32 { return arr_count(p, SLOT_KEYS); }
+unsafe fn keys_count(a: *mut PkdAlloc) -> u32 { return nkeys(a).count(); }
 
-unsafe fn max_key(p: *mut u8) -> u64 {
-    return arr_get::<u64>(p, SLOT_KEYS, keys_count(p as *const u8) - 1u32);
+unsafe fn max_key(a: *mut PkdAlloc) -> u64 {
+    return nkeys(a).get::<u64>(nkeys(a).count() - 1u32);
 }
 
 // ── shuttles ─────────────────────────────────────────────────────────────────
@@ -94,27 +95,29 @@ pub struct ShuttleRes { pub pos: u32, pub found: bool }
 /// accumulate whatever their task needs (running ranks, budgets, …).
 pub trait Shuttle {
     /// Choose the child to descend into. `node` = a BRANCH block.
-    fn on_branch(self: *mut Self, node: *mut u8) -> ShuttleRes;
+    fn on_branch(self: *mut Self, node: *mut PkdAlloc) -> ShuttleRes;
     /// Position within the LEAF at arrival.
-    fn on_leaf(self: *mut Self, node: *mut u8) -> ShuttleRes;
+    fn on_leaf(self: *mut Self, node: *mut PkdAlloc) -> ShuttleRes;
 }
 
 /// Key search: lower_bound over branch max-keys, then over leaf keys.
 pub struct FindShuttle { pub key: u64 }
 impl Shuttle for FindShuttle {
-    fn on_branch(self: *mut FindShuttle, node: *mut u8) -> ShuttleRes {
+    fn on_branch(self: *mut FindShuttle, node: *mut PkdAlloc) -> ShuttleRes {
         unsafe {
-            let n: u32 = keys_count(node as *const u8);
-            let mut c: u32 = arr_lower_bound_u64(node, SLOT_KEYS, self.key);
+            let ks: *mut PkdArr = nkeys(node);
+            let n: u32 = ks.count();
+            let mut c: u32 = ks.lower_bound_u64(self.key);
             if c >= n { c = n - 1u32; }   // beyond every max → rightmost child
             return ShuttleRes { pos: c, found: true };
         }
     }
-    fn on_leaf(self: *mut FindShuttle, node: *mut u8) -> ShuttleRes {
+    fn on_leaf(self: *mut FindShuttle, node: *mut PkdAlloc) -> ShuttleRes {
         unsafe {
-            let pos: u32 = arr_lower_bound_u64(node, SLOT_KEYS, self.key);
-            let n: u32 = keys_count(node as *const u8);
-            let found: bool = pos < n && arr_get::<u64>(node, SLOT_KEYS, pos) == self.key;
+            let ks: *mut PkdArr = nkeys(node);
+            let pos: u32 = ks.lower_bound_u64(self.key);
+            let n: u32 = ks.count();
+            let found: bool = pos < n && ks.get::<u64>(pos) == self.key;
             return ShuttleRes { pos: pos, found: found };
         }
     }
@@ -128,13 +131,13 @@ pub fn bt_ride(arena: &BtArena, root: u64, sh: *mut dyn Shuttle,
     unsafe {
         let mut cur: u64 = root;
         loop {
-            let p: *mut u8 = arena.at(cur);
-            if node_is_leaf(p as *const u8) {
+            let p: *mut PkdAlloc = arena.at(cur);
+            if node_is_leaf(p) {
                 return (cur, sh.on_leaf(p));
             }
             let r: ShuttleRes = sh.on_branch(p);
             path.push((cur, r.pos));
-            cur = arr_get::<u64>(p, SLOT_VALS, r.pos);
+            cur = nvals(p).get::<u64>(r.pos);
         }
     }
 }
@@ -166,7 +169,7 @@ pub fn bt_find(arena: &BtArena, t: &BtTree, key: u64) -> Option<u64> {
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
         if !r.found { return Option::None; }
-        return Option::Some(arr_get::<u64>(arena.at(leaf), SLOT_VALS, r.pos));
+        return Option::Some(nvals(arena.at(leaf)).get::<u64>(r.pos));
     }
 }
 
@@ -177,11 +180,9 @@ unsafe fn fix_maxes(arena: &BtArena, path: &Vec<(u64, u32)>, bottom: u64) {
     let mut i: i64 = path.len() - 1i64;
     while i >= 0i64 {
         let (bid, idx) = path.get(i);
-        let bp: *mut u8 = arena.at(bid);
+        let ks: *mut PkdArr = nkeys(arena.at(bid));
         let cm: u64 = max_key(arena.at(child));
-        if arr_get::<u64>(bp, SLOT_KEYS, idx) != cm {
-            arr_set::<u64>(bp, SLOT_KEYS, idx, cm);
-        }
+        if ks.get::<u64>(idx) != cm { ks.set::<u64>(idx, cm); }
         child = bid;
         i = i - 1i64;
     }
@@ -189,16 +190,15 @@ unsafe fn fix_maxes(arena: &BtArena, path: &Vec<(u64, u32)>, bottom: u64) {
 
 // Split `node` at its midpoint into a fresh right sibling; returns its id.
 unsafe fn split_node(arena: &mut BtArena, node: u64) -> u64 {
-    let p0: *mut u8 = arena.at(node);
-    let leaf: bool = node_is_leaf(p0 as *const u8);
+    let p0: *mut PkdAlloc = arena.at(node);
+    let leaf: bool = node_is_leaf(p0);
     let lvl: u32 = node_level(p0);
     let right: u64 = arena.alloc_node(leaf, lvl);
-    let rp: *mut u8 = arena.at(right);
-    let p: *mut u8 = arena.at(node);
-    let cnt: u32 = keys_count(p as *const u8);
-    let mid: u32 = cnt / 2u32;
-    let _ = arr_split::<u64>(p, SLOT_KEYS, rp, SLOT_KEYS, mid);
-    let _ = arr_split::<u64>(p, SLOT_VALS, rp, SLOT_VALS, mid);
+    let rp: *mut PkdAlloc = arena.at(right);
+    let p: *mut PkdAlloc = arena.at(node);
+    let mid: u32 = keys_count(p) / 2u32;
+    let _ = nkeys(p).split_into::<u64>(nkeys(rp), mid);
+    let _ = nvals(p).split_into::<u64>(nvals(rp), mid);
     return right;
 }
 
@@ -212,35 +212,35 @@ unsafe fn wire_split(arena: &mut BtArena, t: &mut BtTree,
     if pi < 0i64 {
         let lvl: u32 = node_level(arena.at(left));
         let nr: u64 = arena.alloc_node(false, lvl + 1u32);
-        let np: *mut u8 = arena.at(nr);
-        let _ = arr_push::<u64>(np, SLOT_KEYS, lmax);
-        let _ = arr_push::<u64>(np, SLOT_VALS, left);
-        let _ = arr_push::<u64>(np, SLOT_KEYS, rmax);
-        let _ = arr_push::<u64>(np, SLOT_VALS, right);
+        let np: *mut PkdAlloc = arena.at(nr);
+        let _ = nkeys(np).push::<u64>(lmax);
+        let _ = nvals(np).push::<u64>(left);
+        let _ = nkeys(np).push::<u64>(rmax);
+        let _ = nvals(np).push::<u64>(right);
         t.root = nr;
         return;
     }
     let (bid, idx) = path.get(pi);
-    let bp: *mut u8 = arena.at(bid);
-    arr_set::<u64>(bp, SLOT_KEYS, idx, lmax);            // left kept the low half
-    let ok1: bool = arr_insert::<u64>(bp, SLOT_KEYS, idx + 1u32, rmax);
-    let ok2: bool = if ok1 { arr_insert::<u64>(bp, SLOT_VALS, idx + 1u32, right) } else { false };
+    let bp: *mut PkdAlloc = arena.at(bid);
+    nkeys(bp).set::<u64>(idx, lmax);                     // left kept the low half
+    let ok1: bool = nkeys(bp).insert::<u64>(idx + 1u32, rmax);
+    let ok2: bool = if ok1 { nvals(bp).insert::<u64>(idx + 1u32, right) } else { false };
     if ok1 && ok2 { return; }
-    if ok1 && !ok2 { arr_remove::<u64>(bp, SLOT_KEYS, idx + 1u32); }
+    if ok1 && !ok2 { nkeys(bp).remove::<u64>(idx + 1u32); }
     // parent full: split it, wire ITS halves one level up, then place
     // (rmax, right) into whichever half now owns position idx+1
     let bright: u64 = split_node(arena, bid);
     wire_split(arena, t, path, pi - 1i64, bid, bright);
-    let bp2: *mut u8 = arena.at(bid);
-    let lcnt: u32 = keys_count(bp2 as *const u8);
+    let bp2: *mut PkdAlloc = arena.at(bid);
+    let lcnt: u32 = keys_count(bp2);
     if idx + 1u32 <= lcnt {
-        let _ = arr_insert::<u64>(bp2, SLOT_KEYS, idx + 1u32, rmax);
-        let _ = arr_insert::<u64>(bp2, SLOT_VALS, idx + 1u32, right);
+        let _ = nkeys(bp2).insert::<u64>(idx + 1u32, rmax);
+        let _ = nvals(bp2).insert::<u64>(idx + 1u32, right);
     } else {
-        let brp: *mut u8 = arena.at(bright);
+        let brp: *mut PkdAlloc = arena.at(bright);
         let at: u32 = idx + 1u32 - lcnt;
-        let _ = arr_insert::<u64>(brp, SLOT_KEYS, at, rmax);
-        let _ = arr_insert::<u64>(brp, SLOT_VALS, at, right);
+        let _ = nkeys(brp).insert::<u64>(at, rmax);
+        let _ = nvals(brp).insert::<u64>(at, right);
     }
 }
 
@@ -250,19 +250,19 @@ pub fn bt_insert(arena: &mut BtArena, t: &mut BtTree, key: u64, val: u64) -> boo
         let mut sh: FindShuttle = FindShuttle { key: key };
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
-        let lp: *mut u8 = arena.at(leaf);
+        let lp: *mut PkdAlloc = arena.at(leaf);
         if r.found {
-            arr_set::<u64>(lp, SLOT_VALS, r.pos, val);
+            nvals(lp).set::<u64>(r.pos, val);
             return true;
         }
-        let n0: u32 = keys_count(lp as *const u8);
-        let ok1: bool = arr_insert::<u64>(lp, SLOT_KEYS, r.pos, key);
-        let ok2: bool = if ok1 { arr_insert::<u64>(lp, SLOT_VALS, r.pos, val) } else { false };
+        let n0: u32 = keys_count(lp);
+        let ok1: bool = nkeys(lp).insert::<u64>(r.pos, key);
+        let ok2: bool = if ok1 { nvals(lp).insert::<u64>(r.pos, val) } else { false };
         if ok1 && ok2 {
             if r.pos == n0 { fix_maxes(arena, &path, leaf); }
             return true;
         }
-        if ok1 && !ok2 { arr_remove::<u64>(lp, SLOT_KEYS, r.pos); }
+        if ok1 && !ok2 { nkeys(lp).remove::<u64>(r.pos); }
         // leaf full → split, wire the right half in, then retry: the target
         // leaf (either half) now has room
         let right: u64 = split_node(arena, leaf);
@@ -279,10 +279,10 @@ pub fn bt_remove(arena: &mut BtArena, t: &mut BtTree, key: u64) -> bool {
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
         if !r.found { return false; }
-        let lp: *mut u8 = arena.at(leaf);
-        arr_remove::<u64>(lp, SLOT_KEYS, r.pos);
-        arr_remove::<u64>(lp, SLOT_VALS, r.pos);
-        let n: u32 = keys_count(lp as *const u8);
+        let lp: *mut PkdAlloc = arena.at(leaf);
+        nkeys(lp).remove::<u64>(r.pos);
+        nvals(lp).remove::<u64>(r.pos);
+        let n: u32 = keys_count(lp);
         if n > 0u32 && r.pos == n {
             fix_maxes(arena, &path, leaf);   // removed the rightmost entry
         }
@@ -304,11 +304,11 @@ pub fn bt_bulk_build(arena: &mut BtArena, keys: *const u64, vals: *const u64,
         let mut i: i64 = 0i64;
         while i < n {
             let leaf: u64 = arena.alloc_node(true, 0u32);
-            let lp: *mut u8 = arena.at(leaf);
+            let lp: *mut PkdAlloc = arena.at(leaf);
             let mut k: u32 = 0u32;
             while k < per_node && i < n {
-                let _ = arr_push::<u64>(lp, SLOT_KEYS, *(((keys as i64) + i * 8i64) as *const u64));
-                let _ = arr_push::<u64>(lp, SLOT_VALS, *(((vals as i64) + i * 8i64) as *const u64));
+                let _ = nkeys(lp).push::<u64>(*(((keys as i64) + i * 8i64) as *const u64));
+                let _ = nvals(lp).push::<u64>(*(((vals as i64) + i * 8i64) as *const u64));
                 k = k + 1u32;
                 i = i + 1i64;
             }
@@ -320,12 +320,12 @@ pub fn bt_bulk_build(arena: &mut BtArena, keys: *const u64, vals: *const u64,
             let mut j: i64 = 0i64;
             while j < level_ids.len() {
                 let br: u64 = arena.alloc_node(false, lvl);
-                let bp: *mut u8 = arena.at(br);
+                let bp: *mut PkdAlloc = arena.at(br);
                 let mut k2: u32 = 0u32;
                 while k2 < per_node && j < level_ids.len() {
                     let cid: u64 = level_ids.get(j);
-                    let _ = arr_push::<u64>(bp, SLOT_KEYS, max_key(arena.at(cid)));
-                    let _ = arr_push::<u64>(bp, SLOT_VALS, cid);
+                    let _ = nkeys(bp).push::<u64>(max_key(arena.at(cid)));
+                    let _ = nvals(bp).push::<u64>(cid);
                     k2 = k2 + 1u32;
                     j = j + 1i64;
                 }
@@ -352,12 +352,12 @@ pub fn bt_first(arena: &BtArena, t: &BtTree) -> BtCursor {
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let mut cur: u64 = t.root;
         loop {
-            let p: *mut u8 = arena.at(cur);
-            if node_is_leaf(p as *const u8) { break; }
+            let p: *mut PkdAlloc = arena.at(cur);
+            if node_is_leaf(p) { break; }
             path.push((cur, 0u32));
-            cur = arr_get::<u64>(p, SLOT_VALS, 0u32);
+            cur = nvals(p).get::<u64>(0u32);
         }
-        if keys_count(arena.at(cur) as *const u8) == 0u32 {
+        if keys_count(arena.at(cur)) == 0u32 {
             return BtCursor { path: path, leaf: 0u64, pos: 0u32 };
         }
         return BtCursor { path: path, leaf: cur, pos: 0u32 };
@@ -370,7 +370,7 @@ pub fn bt_seek(arena: &BtArena, t: &BtTree, key: u64) -> BtCursor {
         let mut sh: FindShuttle = FindShuttle { key: key };
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
-        let n: u32 = keys_count(arena.at(leaf) as *const u8);
+        let n: u32 = keys_count(arena.at(leaf));
         if r.pos >= n {
             // lower bound falls past this leaf → first entry of the next one
             let mut c: BtCursor = BtCursor { path: path, leaf: leaf,
@@ -385,20 +385,20 @@ pub fn bt_seek(arena: &BtArena, t: &BtTree, key: u64) -> BtCursor {
 impl BtCursor {
     pub fn valid(self: &BtCursor) -> bool { return self.leaf != 0u64; }
     pub fn key(self: &BtCursor, arena: &BtArena) -> u64 {
-        return unsafe { arr_get::<u64>(arena.at(self.leaf), SLOT_KEYS, self.pos) };
+        return unsafe { nkeys(arena.at(self.leaf)).get::<u64>(self.pos) };
     }
     pub fn val(self: &BtCursor, arena: &BtArena) -> u64 {
-        return unsafe { arr_get::<u64>(arena.at(self.leaf), SLOT_VALS, self.pos) };
+        return unsafe { nvals(arena.at(self.leaf)).get::<u64>(self.pos) };
     }
     /// Entries remaining in the current chunk (leaf) from the cursor on.
     pub fn chunk_remaining(self: &BtCursor, arena: &BtArena) -> u32 {
-        return unsafe { keys_count(arena.at(self.leaf) as *const u8) - self.pos };
+        return unsafe { keys_count(arena.at(self.leaf)) - self.pos };
     }
 
     /// Steps one entry forward, hopping leaves through the path.
     pub fn next(self: &mut BtCursor, arena: &BtArena) {
         unsafe {
-            let n: u32 = keys_count(arena.at(self.leaf) as *const u8);
+            let n: u32 = keys_count(arena.at(self.leaf));
             if self.pos + 1u32 < n { self.pos = self.pos + 1u32; return; }
             self.next_chunk(arena);
         }
@@ -410,15 +410,15 @@ impl BtCursor {
             loop {
                 if self.path.len() == 0i64 { self.leaf = 0u64; return; }
                 let (bid, idx) = self.path.get(self.path.len() - 1i64);
-                let bp: *mut u8 = arena.at(bid);
-                if idx + 1u32 < keys_count(bp as *const u8) {
+                let bp: *mut PkdAlloc = arena.at(bid);
+                if idx + 1u32 < keys_count(bp) {
                     self.path.set(self.path.len() - 1i64, (bid, idx + 1u32));
-                    let mut cur: u64 = arr_get::<u64>(bp, SLOT_VALS, idx + 1u32);
+                    let mut cur: u64 = nvals(bp).get::<u64>(idx + 1u32);
                     loop {
-                        let p: *mut u8 = arena.at(cur);
-                        if node_is_leaf(p as *const u8) { break; }
+                        let p: *mut PkdAlloc = arena.at(cur);
+                        if node_is_leaf(p) { break; }
                         self.path.push((cur, 0u32));
-                        cur = arr_get::<u64>(p, SLOT_VALS, 0u32);
+                        cur = nvals(p).get::<u64>(0u32);
                     }
                     self.leaf = cur;
                     self.pos = 0u32;
@@ -438,17 +438,17 @@ impl BtCursor {
                 let (bid, idx) = self.path.get(self.path.len() - 1i64);
                 if idx > 0u32 {
                     self.path.set(self.path.len() - 1i64, (bid, idx - 1u32));
-                    let bp: *mut u8 = arena.at(bid);
-                    let mut cur: u64 = arr_get::<u64>(bp, SLOT_VALS, idx - 1u32);
+                    let bp: *mut PkdAlloc = arena.at(bid);
+                    let mut cur: u64 = nvals(bp).get::<u64>(idx - 1u32);
                     loop {
-                        let p: *mut u8 = arena.at(cur);
-                        if node_is_leaf(p as *const u8) { break; }
-                        let last: u32 = keys_count(p as *const u8) - 1u32;
+                        let p: *mut PkdAlloc = arena.at(cur);
+                        if node_is_leaf(p) { break; }
+                        let last: u32 = keys_count(p) - 1u32;
                         self.path.push((cur, last));
-                        cur = arr_get::<u64>(p, SLOT_VALS, last);
+                        cur = nvals(p).get::<u64>(last);
                     }
                     self.leaf = cur;
-                    self.pos = keys_count(arena.at(cur) as *const u8) - 1u32;
+                    self.pos = keys_count(arena.at(cur)) - 1u32;
                     return;
                 }
                 let _ = self.path.pop();

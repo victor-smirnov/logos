@@ -1,158 +1,146 @@
-// memoria.pkd — packed VARIABLE-LENGTH-ELEMENT buffer (the vle face of C++'s
-// PackedDataTypeBuffer): length-prefixed byte entries (strings, encoded keys,
-// blobs) in ONE PackedAllocator slot, positionally addressed. Same growth
-// discipline as the fse array: exact fit, through the parent allocator; the
-// bt layer owns fullness policy.
+// memoria.pkd — PkdVle: packed variable-length-element buffer (the vle face
+// of C++'s PackedDataTypeBuffer): length-prefixed byte entries, positionally
+// addressed. An ALLOCATABLE packed structure like PkdArr: aggregates
+// PkdAllocatable, grows itself through its own allocator, exact fit.
 //
-// Payload layout: [count u32][offs: (count+1) × u32][bytes…]
-// offs are relative to the PAYLOAD start; entry i occupies
-// [offs[i], offs[i+1]). offs[count] = end of used bytes.
+// Payload: PkdVle { able, count } + offs[(count+1) × u32] + bytes.
+// offs are relative to the STRUCTURE start; entry i = [offs[i], offs[i+1]).
 //
-// Mutations snapshot the tiny offset table into transient scratch, move the
-// data region, and rebuild the table from scratch values — no in-place
-// aliasing to reason about. Blocks stay pure (offsets only); the scratch is
-// transient heap, never stored.
+// Mutations snapshot the tiny offset table into transient heap scratch, move
+// the data region once, and rebuild the table from entry lengths — no
+// in-place aliasing. Blocks stay pure (offsets only).
 package memoria.pkd;
 
 use logos.lang.mem;               // alloc/dealloc — transient table scratch
-
-const VLE_HDR: u32 = 4u32;
-
-unsafe fn vle_rd(pay: *const u8, off: u32) -> u32 {
-    return *(((pay as i64) + (off as i64)) as *const u32);
-}
-unsafe fn vle_wr(pay: *mut u8, off: u32, v: u32) {
-    *(((pay as i64) + (off as i64)) as *mut u32) = v;
-}
-
-/// Number of entries (0 for an unformatted slot).
-pub unsafe fn vle_count(base: *const u8, slot: u32) -> u32 {
-    if pkd_len(base, slot) < VLE_HDR { return 0u32; }
-    let pay: *const u8 = ((base as i64) + (pkd_offset(base, slot) as i64)) as *const u8;
-    return vle_rd(pay, 0u32);
-}
-
-unsafe fn vle_off(pay: *const u8, i: u32) -> u32 {
-    return vle_rd(pay, VLE_HDR + i * 4u32);
-}
-
-/// Entry `i`'s bytes: pointer into the block + length. Valid only until the
-/// next mutation of this allocator (offsets-only discipline — never store it).
-pub unsafe fn vle_get(base: *mut u8, slot: u32, i: u32) -> (*const u8, i64) {
-    let pay: *mut u8 = pkd_at(base, slot);
-    let o: u32 = vle_off(pay as *const u8, i);
-    let e: u32 = vle_off(pay as *const u8, i + 1u32);
-    return ((((pay as i64) + (o as i64)) as *const u8), (e - o) as i64);
-}
-
-/// Formats `slot` as an empty vle buffer.
-pub unsafe fn vle_init(base: *mut u8, slot: u32) -> bool {
-    let need: u32 = VLE_HDR + 4u32;               // count + offs[0]
-    if pkd_len(base as *const u8, slot) < need {
-        if !pkd_resize(base, slot, need) { return false; }
-    }
-    let pay: *mut u8 = pkd_at(base, slot);
-    vle_wr(pay, 0u32, 0u32);                      // count = 0
-    vle_wr(pay, VLE_HDR, VLE_HDR + 4u32);         // offs[0] = data start
-    return true;
-}
-
-// Snapshot the offset table (cnt+1 cells) into fresh scratch. Caller frees.
-unsafe fn tbl_snapshot(pay: *const u8, cnt: u32) -> *mut u32 {
-    let t: *mut u32 = alloc(((cnt as i64) + 1i64) * 4i64) as *mut u32;
-    let mut k: u32 = 0u32;
-    while k <= cnt {
-        *(((t as i64) + (k as i64) * 4i64) as *mut u32) = vle_off(pay, k);
-        k = k + 1u32;
-    }
-    return t;
-}
 
 unsafe fn tbl_at(t: *const u32, k: u32) -> u32 {
     return *(((t as i64) + (k as i64) * 4i64) as *const u32);
 }
 
-/// Inserts `src[0..len)` as entry `i` (0 ≤ i ≤ count). Grows the slot exactly;
-/// false = no room in the block.
-pub unsafe fn vle_insert(base: *mut u8, slot: u32, i: u32,
-                         src: *const u8, len: i64) -> bool {
-    let cnt: u32 = vle_count(base as *const u8, slot);
-    {
-        let pay0: *const u8 = ((base as i64) + (pkd_offset(base as *const u8, slot) as i64)) as *const u8;
-        let need: u32 = vle_off(pay0, cnt) + 4u32 + (len as u32);
-        if pkd_len(base as *const u8, slot) < need {
-            if !pkd_resize(base, slot, need) { return false; }
-        }
-    }
-    let pay: *mut u8 = pkd_at(base, slot);
-    let old: *mut u32 = tbl_snapshot(pay as *const u8, cnt);
-    let d0: u32 = tbl_at(old as *const u32, 0u32);
-    let dn: u32 = tbl_at(old as *const u32, cnt);
-    let at: u32 = tbl_at(old as *const u32, i);
-    // one extra table cell → data region moves up by 4…
-    move_bytes(((pay as i64) + (d0 as i64) + 4i64) as *mut u8,
-               ((pay as i64) + (d0 as i64)) as *const u8,
-               (dn - d0) as i64);
-    // …then a `len` hole opens at the (shifted) insert point, and fills.
-    move_bytes(((pay as i64) + (at as i64) + 4i64 + len) as *mut u8,
-               ((pay as i64) + (at as i64) + 4i64) as *const u8,
-               (dn - at) as i64);
-    move_bytes(((pay as i64) + (at as i64) + 4i64) as *mut u8, src, len);
-    // rebuild the table from old entry lengths.
-    let mut new_off: u32 = d0 + 4u32;
-    vle_wr(pay, VLE_HDR, new_off);
-    let mut k: u32 = 0u32;
-    let mut o: u32 = 0u32;                        // old entry cursor
-    while k <= cnt {
-        let elen: u32 = if k == i { len as u32 }
-                        else {
-                            let l: u32 = tbl_at(old as *const u32, o + 1u32)
-                                       - tbl_at(old as *const u32, o);
-                            o = o + 1u32;
-                            l
-                        };
-        new_off = new_off + elen;
-        vle_wr(pay, VLE_HDR + (k + 1u32) * 4u32, new_off);
-        k = k + 1u32;
-    }
-    vle_wr(pay, 0u32, cnt + 1u32);
-    dealloc(old as *mut u8);
-    return true;
+pub struct PkdVle {
+    pub able: PkdAllocatable,
+    count:    u32,
 }
 
-/// Removes entry `i`, shrinking the slot to exact fit.
-pub unsafe fn vle_remove(base: *mut u8, slot: u32, i: u32) {
-    let cnt: u32 = vle_count(base as *const u8, slot);
-    let pay: *mut u8 = pkd_at(base, slot);
-    let old: *mut u32 = tbl_snapshot(pay as *const u8, cnt);
-    let d0: u32 = tbl_at(old as *const u32, 0u32);
-    let dn: u32 = tbl_at(old as *const u32, cnt);
-    let o: u32 = tbl_at(old as *const u32, i);
-    let e: u32 = tbl_at(old as *const u32, i + 1u32);
-    let len: u32 = e - o;
-    // close the data hole…
-    move_bytes(((pay as i64) + (o as i64)) as *mut u8,
-               ((pay as i64) + (e as i64)) as *const u8,
-               (dn - e) as i64);
-    // …then the whole compacted data region moves down by 4 (one cell fewer).
-    move_bytes(((pay as i64) + (d0 as i64) - 4i64) as *mut u8,
-               ((pay as i64) + (d0 as i64)) as *const u8,
-               (dn - len - d0) as i64);
-    // rebuild the table from surviving entry lengths.
-    let mut new_off: u32 = d0 - 4u32;
-    vle_wr(pay, VLE_HDR, new_off);
-    let mut k: u32 = 0u32;
-    let mut oi: u32 = 0u32;                       // old entry cursor
-    while k < cnt - 1u32 {
-        if oi == i { oi = oi + 1u32; }
-        let elen: u32 = tbl_at(old as *const u32, oi + 1u32)
-                      - tbl_at(old as *const u32, oi);
-        new_off = new_off + elen;
-        vle_wr(pay, VLE_HDR + (k + 1u32) * 4u32, new_off);
-        oi = oi + 1u32;
-        k = k + 1u32;
+const VLE_HDR: u32 = 8u32;
+
+/// Formats slot `idx` of `alc` as an empty PkdVle; null on OOM.
+pub unsafe fn vle_format(alc: *mut PkdAlloc, idx: u32) -> *mut PkdVle {
+    let p: *mut u8 = alc.allocate(idx, VLE_HDR + 4u32, PKD_ALLOCATABLE);
+    if (p as i64) == 0i64 { return 0i64 as *mut PkdVle; }
+    let v: *mut PkdVle = p as *mut PkdVle;
+    v.set_off(0u32, VLE_HDR + 4u32);   // data starts after count+offs[0]
+    return v;
+}
+
+impl PkdVle {
+    pub fn count(self: &PkdVle) -> u32 { return self.count; }
+
+    unsafe fn off_cell(self: &PkdVle, i: u32) -> *mut u32 {
+        let sp: *const PkdVle = self;
+        return ((sp as i64) + (VLE_HDR as i64)
+                + (i as i64) * 4i64) as *mut u32;
     }
-    vle_wr(pay, 0u32, cnt - 1u32);
-    dealloc(old as *mut u8);
-    let _ = pkd_resize(base, slot, new_off);
+    unsafe fn off(self: &PkdVle, i: u32) -> u32 { return *self.off_cell(i); }
+    unsafe fn set_off(self: &mut PkdVle, i: u32, v: u32) { *self.off_cell(i) = v; }
+
+    /// Entry `i`'s bytes (pointer into the block + length). Valid only until
+    /// the next mutation of the containing block.
+    pub unsafe fn get(self: &PkdVle, i: u32) -> (*const u8, i64) {
+        let o: u32 = self.off(i);
+        let e: u32 = self.off(i + 1u32);
+        let sp: *const PkdVle = self;
+        return (((sp as i64) + (o as i64)) as *const u8, (e - o) as i64);
+    }
+
+    unsafe fn resize_self(self: &mut PkdVle, new_size: u32) -> bool {
+        let alc: *mut PkdAlloc = self.able.allocator();
+        let sp: *mut PkdVle = self;
+        return alc.resize_block(sp as *const u8, new_size)
+               != 0xFFFF_FFFFu32;
+    }
+
+    // Snapshot offs[0..count] into fresh scratch (caller frees).
+    unsafe fn tbl_snapshot(self: &PkdVle) -> *mut u32 {
+        let t: *mut u32 = alloc(((self.count as i64) + 1i64) * 4i64) as *mut u32;
+        let mut k: u32 = 0u32;
+        while k <= self.count {
+            *(((t as i64) + (k as i64) * 4i64) as *mut u32) = self.off(k);
+            k = k + 1u32;
+        }
+        return t;
+    }
+
+    /// Inserts `src[0..len)` as entry `i` (0 ≤ i ≤ count); false = OOM.
+    pub unsafe fn insert(self: &mut PkdVle, i: u32, src: *const u8, len: i64) -> bool {
+        let cnt: u32 = self.count;
+        let need: u32 = self.off(cnt) + 4u32 + (len as u32);
+        if !self.resize_self(need) { return false; }
+        let old: *mut u32 = self.tbl_snapshot();
+        let d0: u32 = tbl_at(old as *const u32, 0u32);
+        let dn: u32 = tbl_at(old as *const u32, cnt);
+        let at: u32 = tbl_at(old as *const u32, i);
+        let sp: *mut PkdVle = self;
+        let me: i64 = sp as i64;
+        // one extra table cell → data moves up 4, then a len-hole opens
+        move_bytes((me + (d0 as i64) + 4i64) as *mut u8,
+                   (me + (d0 as i64)) as *const u8, (dn - d0) as i64);
+        move_bytes((me + (at as i64) + 4i64 + len) as *mut u8,
+                   (me + (at as i64) + 4i64) as *const u8, (dn - at) as i64);
+        move_bytes((me + (at as i64) + 4i64) as *mut u8, src, len);
+        // rebuild the table from old entry lengths
+        let mut new_off: u32 = d0 + 4u32;
+        self.set_off(0u32, new_off);
+        let mut k: u32 = 0u32;
+        let mut o: u32 = 0u32;
+        while k <= cnt {
+            let elen: u32 = if k == i { len as u32 }
+                            else {
+                                let l: u32 = tbl_at(old as *const u32, o + 1u32)
+                                           - tbl_at(old as *const u32, o);
+                                o = o + 1u32;
+                                l
+                            };
+            new_off = new_off + elen;
+            self.set_off(k + 1u32, new_off);
+            k = k + 1u32;
+        }
+        self.count = cnt + 1u32;
+        dealloc(old as *mut u8);
+        return true;
+    }
+
+    /// Removes entry `i`, shrinking to exact fit.
+    pub unsafe fn remove(self: &mut PkdVle, i: u32) {
+        let cnt: u32 = self.count;
+        let old: *mut u32 = self.tbl_snapshot();
+        let d0: u32 = tbl_at(old as *const u32, 0u32);
+        let dn: u32 = tbl_at(old as *const u32, cnt);
+        let o: u32 = tbl_at(old as *const u32, i);
+        let e: u32 = tbl_at(old as *const u32, i + 1u32);
+        let len: u32 = e - o;
+        let sp: *mut PkdVle = self;
+        let me: i64 = sp as i64;
+        move_bytes((me + (o as i64)) as *mut u8,
+                   (me + (e as i64)) as *const u8, (dn - e) as i64);
+        move_bytes((me + (d0 as i64) - 4i64) as *mut u8,
+                   (me + (d0 as i64)) as *const u8, (dn - len - d0) as i64);
+        let mut new_off: u32 = d0 - 4u32;
+        self.set_off(0u32, new_off);
+        let mut k: u32 = 0u32;
+        let mut oi: u32 = 0u32;
+        while k < cnt - 1u32 {
+            if oi == i { oi = oi + 1u32; }
+            let elen: u32 = tbl_at(old as *const u32, oi + 1u32)
+                          - tbl_at(old as *const u32, oi);
+            new_off = new_off + elen;
+            self.set_off(k + 1u32, new_off);
+            oi = oi + 1u32;
+            k = k + 1u32;
+        }
+        self.count = cnt - 1u32;
+        dealloc(old as *mut u8);
+        let keep: u32 = if self.count == 0u32 { VLE_HDR + 4u32 } else { new_off };
+        let _ = self.resize_self(keep);
+    }
 }
