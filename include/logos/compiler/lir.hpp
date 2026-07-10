@@ -22,6 +22,7 @@
 #include <logos/writ/compat.hpp>  // ExternalRef, resolve_external_ref (cross-arena body refs)
 #include <unordered_set>
 #include <string>
+#include <set>
 
 #include <array>
 #include <cstdint>
@@ -879,6 +880,14 @@ struct LProgram {
     // already compiled and will be found by the linker in the .a).
     // Stage E: heap-free — membership ObjectMap (null values).
     lir_view::ObjectMapRef binary_symbols;
+
+    // Deferred-emission poison guard (transient, mono → mlir_gen): link names
+    // of fns whose bodies reference types that are still UNRESOLVED (typically
+    // a struct a metaprog derive emits later — dispatch iter 0). mlir_gen
+    // defines each as a TRAP body: never called in that iter's JIT, loud if it
+    // ever is, and — unlike a declaration — it can't be satisfied by a STALE
+    // same-named symbol from a prior build's archive on the JIT search path.
+    std::set<std::string> poisoned_fns;
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }

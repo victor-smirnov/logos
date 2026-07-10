@@ -295,6 +295,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             if (!sd_pkg.empty())
                 struct_templates_[sd_pkg + "." + sd_name] = sd;
             struct_templates_[sd_name] = sd;  // stable: in_.structs not moved
+
         }
         // L1: build (base_struct, short_method_name) → template index for lazy
         // method instantiation. After unification, method fn-names are
@@ -976,6 +977,46 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
 
     out_.diags          = std::move(in_.diags);
     out_.binary_symbols = std::move(in_.binary_symbols);
+
+    // Deferred-emission poison guard: demote poisoned fns (see mono_impl.hpp)
+    // to declarations. mlir_gen keys is_binary_skip off these link names.
+    if (!missing_struct_insts_.empty() || !poisoned_fns_.empty()) {
+        // Probe pass: find every fn whose types reference a struct instance
+        // whose template was missing (or an EMPTY-NAME struct — an unresolved
+        // name that survived sema), and demote it too.
+        missing_probe_ = &missing_struct_insts_;
+        auto* mp_pool = out_.type_pool.impl();
+        for (auto& fn : out_.functions) {
+            missing_hit_ = false;
+            collect_type_for_structs(fn.ret_type(mp_pool));
+            for (auto& p : fn.params()) collect_type_for_structs(p.type(mp_pool));
+            if (!missing_hit_ && (bool)fn.body())
+                collect_struct_needs_from_block(fn.body());
+            if (missing_hit_)
+                poisoned_fns_.insert(sym::link_name(fn, out_.pkg_module_ids));
+        }
+        for (auto& sd : out_.structs) {
+            sd.each_method([&](lir_view::FunctionView m) {
+                if (!m) return;
+                missing_hit_ = false;
+                collect_type_for_structs(m.ret_type(mp_pool));
+                for (auto& p : m.params()) collect_type_for_structs(p.type(mp_pool));
+                if (!missing_hit_ && (bool)m.body())
+                    collect_struct_needs_from_block(m.body());
+                if (missing_hit_)
+                    poisoned_fns_.insert(sym::link_name(m, out_.pkg_module_ids));
+            });
+        }
+        missing_probe_ = nullptr;
+        if (!poisoned_fns_.empty())
+            std::fprintf(stderr,
+                "mono: note: %zu unresolved struct template(s)/name(s) "
+                "(awaiting metaprog emission?); %zu fn(s) demoted to trap "
+                "stubs\n",
+                missing_struct_insts_.size(), poisoned_fns_.size());
+    }
+    for (auto& n : poisoned_fns_)
+        out_.poisoned_fns.insert(n);
 
     // B.6 Stage 1b: full bulk emit pass replaced with cache-only walker.
     // Functions, struct methods, and enum-impl methods are emit'd eagerly at

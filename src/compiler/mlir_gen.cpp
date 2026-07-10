@@ -516,12 +516,31 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     size_t bodies_emitted = 0;
     size_t method_bodies = 0;
     size_t fn_bodies = 0;
+    // Deferred-emission poison guard: a fn whose body still references an
+    // UNRESOLVED type (macro-emitted struct not yet materialised — dispatch
+    // iter 0) gets a TRAP body: defined (so a stale same-named symbol in a
+    // prior build's archive can't be pulled in as its resolution), safe when
+    // unreachable, loud if ever executed. The post-emission passes re-clone
+    // it with the real body.
+    auto emit_trap_body = [&](mlir::func::FuncOp func) {
+        if (!func || !func.getBody().empty()) return;
+        auto* entry = func.addEntryBlock();
+        mlir::OpBuilder::InsertionGuard g(builder_);
+        builder_.setInsertionPointToStart(entry);
+        builder_.create<mlir::LLVM::Trap>(loc_);
+        builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+    };
     for (auto& sd : prog.structs) {
         bool method_failed = false;
         sd.each_method([&](lir_view::FunctionView m) {
             if (method_failed) return;
             if (is_binary_skip(m) || is_lazy_skip(m)) return;
             auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(m));
+            if (prog.poisoned_fns.count(link_name(m))) {
+                emit_trap_body(func);
+                ++method_bodies; ++bodies_emitted;
+                return;
+            }
             if (!gen_function_body(func, m)) { method_failed = true; return; }
             ++method_bodies; ++bodies_emitted;
         });
@@ -529,6 +548,12 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     }
     for (auto& fn : prog.functions) {
         if (fn.is_extern() || is_binary_skip(fn) || is_lazy_skip(fn)) continue;
+        if (prog.poisoned_fns.count(link_name(fn))) {
+            auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(fn));
+            emit_trap_body(func);
+            ++fn_bodies; ++bodies_emitted;
+            continue;
+        }
         auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(fn));
         if (!gen_function_body(func, fn)) return nullptr;
         ++fn_bodies; ++bodies_emitted;

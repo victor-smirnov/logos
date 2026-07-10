@@ -27,7 +27,27 @@ void Mono::scan_fn(lir_view::FunctionView fn) {
     auto b = fn.body();
     if (!b) return;
     out_.type_pool.arena_or_init();   // ensure the out type-pool is live before scan
+    auto saved_link = std::move(scanning_fn_link_);
+    scanning_fn_link_ = sym::link_name(fn, out_.pkg_module_ids);
     scan_block(b);
+    scanning_fn_link_ = std::move(saved_link);
+}
+
+// Recursive Error/unresolved probe over a type's visible structure. CfgSlotType
+// counts: post-substitution it can no longer resolve within this program run.
+bool Mono::type_contains_error(TypeRef t, int depth) const {
+    if (!t || depth > 16) return false;
+    auto k = t.kind();
+    if (k == LogosType::Kind::Error || k == LogosType::Kind::CfgSlotType) return true;
+    // An unresolved struct name survives sema as a Struct with an EMPTY name
+    // (the "struct ''" of downstream diagnostics) — same deferred-emission class.
+    if ((k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) &&
+        t.struct_name().empty()) return true;
+    for (auto a : t.type_args())
+        if (type_contains_error(a, depth + 1)) return true;
+    if (auto pe = t.pointee(); pe && pe != t)
+        if (type_contains_error(pe, depth + 1)) return true;
+    return false;
 }
 
 void Mono::scan_block(lir_view::BlockRef b) {
@@ -458,6 +478,20 @@ lir_view::FunctionView Mono::find_best_spec(
 void Mono::enqueue_if_needed(const std::string& mangled_callee,
                        const std::vector<TypeRef>& type_args) {
     if (done_.count(mangled_callee)) return;
+
+    // Deferred-emission poison guard (see mono_impl.hpp): an Error inside the
+    // type args means an unresolved name survived substitution — do NOT
+    // instantiate, and demote the scanning fn to a trap body.
+    for (auto& a : type_args) {
+        if (!type_contains_error(a)) continue;
+        if (!scanning_fn_link_.empty()) poisoned_fns_.insert(scanning_fn_link_);
+        std::fprintf(stderr,
+            "mono: note: skipping instantiation '%s' (unresolved type arg; "
+            "'%s' becomes a trap stub — expected only before a metaprog "
+            "emission round)\n",
+            mangled_callee.c_str(), scanning_fn_link_.c_str());
+        return;
+    }
 
     // Find the base name by checking templates_ and specs_.
     std::string orig_name;

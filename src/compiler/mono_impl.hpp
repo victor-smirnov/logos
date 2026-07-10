@@ -496,6 +496,31 @@ private:
     // (test fns + their iterator monomorphizations) it never executes.
     StrSet entry_points_;
 
+    // Deferred-emission poison guard. A generic call whose substituted type
+    // args still contain Error (an unresolved name — typically a type a
+    // metaprog derive EMITS later, referenced by same-build code at dispatch
+    // iter 0, before the emission exists) must not be instantiated: the clone
+    // would carry error-typed exprs into mlir_gen, which half-lowers it and
+    // crashes the LLVM pipeline (this killed the trigger hooks that would
+    // have EMITTED the missing type). Instead the instantiation is skipped
+    // and the SCANNING fn is recorded here; run()'s tail publishes these via
+    // LProgram::poisoned_fns and mlir_gen gives each a TRAP body (defined —
+    // so a stale same-named symbol in a prior build's archive can't satisfy
+    // it — but loud if ever executed). Later passes (post-emission re-sema)
+    // resolve the name and produce the real bodies.
+    std::string scanning_fn_link_;   // link name of the fn scan_fn is walking
+    StrSet      poisoned_fns_;       // link names to demote to trap stubs
+    bool type_contains_error(TypeRef t, int depth = 0) const;
+
+    // Struct instantiations whose TEMPLATE was missing (same deferred-emission
+    // class: the template is a macro-emitted struct that doesn't exist yet at
+    // dispatch iter 0). instantiate_struct_templates records them; run()'s
+    // tail re-walks fn bodies in probe mode (missing_probe_ set) and demotes
+    // every fn referencing one — those bodies would otherwise half-lower.
+    StrSet missing_struct_insts_;
+    const StrSet* missing_probe_ = nullptr;  // non-null → record_needed_struct probes
+    bool missing_hit_ = false;               // probe result for the current fn
+
     // Prune-mode (entry_points_ non-empty) free-fn reachability worklist.
     // free_fn_index_ maps every non-generic free fn's name to its template;
     // enqueue_free_fn pushes a name once; drain_free_fn_queue clones each.
@@ -643,6 +668,10 @@ private:
         // wraps the TypeVars).
         for (auto a : tr.type_args())
             if (contains_typevar(a)) return;
+        if (missing_probe_) {           // probe mode: no recording, just a hit test
+            if (missing_probe_->count(qualified_cname(tr))) missing_hit_ = true;
+            return;
+        }
         auto cname = qualified_cname(tr);
         if (!struct_done_.count(cname)) {
             if (depth_ >= max_depth_) {
@@ -1114,6 +1143,12 @@ private:
     // ── Struct/enum type collection (inline) ────────────────────────
     void collect_type_for_structs(TypeRef tr) {
         if (!tr) return;
+        // Probe mode (deferred-emission guard): any Error / unresolved
+        // residue in the type marks the probed fn for demotion.
+        if (missing_probe_ && type_contains_error(tr)) {
+            missing_hit_ = true;
+            return;
+        }
         switch (tr.kind()) {
         case LogosType::Kind::Ptr:
         case LogosType::Kind::Ref:

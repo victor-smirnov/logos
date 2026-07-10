@@ -5900,7 +5900,15 @@ void Mono::instantiate_struct_templates() {
                 tmpl = spec;
             } else {
                 tmpl = find_struct_template_pkg_first(struct_pkg, base);
-                if (!tmpl.valid()) continue;
+                if (!tmpl.valid()) {
+                    // Deferred-emission poison guard (see mono_impl.hpp): the
+                    // template may be a macro-emitted struct that doesn't
+                    // exist yet (dispatch iter 0). Remember the instance so
+                    // fns referencing it demote to declarations.
+                    missing_struct_insts_.insert(qcname);
+                    missing_struct_insts_.insert(cname);
+                    continue;
+                }
                 auto tmpl_tps = tmpl.type_params();
                 for (size_t i = 0, j = 0; i < tmpl_tps.size(); ++i) {
                     if (tmpl_tps[i].is_variadic()) {

@@ -2327,7 +2327,7 @@ int run_metaprog_dispatch(
     if (!opts.dump_dir.empty()) g_ast_provenance = prov;
 
     auto report = [&](const char* label) {
-        if (!opts.trace) return;
+        if (!opts.trace && !std::getenv("LOGOS_TRACE_DISPATCH")) return;
         std::fprintf(stderr, "[metaprog dispatch] %s\n", label);
     };
     auto* stats = opts.stats_out;
@@ -2421,7 +2421,7 @@ int run_metaprog_dispatch(
         }
         if (prog.metaprog_targets.empty() && !has_pending_item_mc) break;
 
-        if (opts.trace) {
+        if (opts.trace || std::getenv("LOGOS_TRACE_DISPATCH")) {
             std::fprintf(stderr, "[metaprog iter %d] %zu target(s):\n",
                          iter, prog.metaprog_targets.size());
             for (auto& t : prog.metaprog_targets)
