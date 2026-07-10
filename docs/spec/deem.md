@@ -1,16 +1,16 @@
 # Deem
 
-> Scope: Deem — Logos's native query facility over Writ data. Two surfaces share one Writ-schema IR (SExpr scalar tier + RExpr relational/graph tier): the STATIC `deem!(params){ query }` compile-time macro (metacall → native `pub fn`, sqlx-style prepared statement) and the DYNAMIC `Query::compile(text,&cat)?.run(&env)?` runtime API (package `logos.std.deem`). This spec is ALSO the canonical home of EL (rule domain `el.*`), the CEL-class expression sublanguage embedded by both Deem clauses and Trama (`docs/spec/trama.md` links these `el.*` ids). Deem ships/versions with the language but is a metaprogramming/stdlib surface, so it has its own spec. Source layers: `stdlib/std/wql/grammars/{wql,el}.peg` (PEG surfaces, schema-emission mode), `stdlib/std/wql/*.logos` (engine — ABI-excluded internals), `stdlib/std/deem/deem.logos` (the ABI-stable dynamic API), ADR 0012 (`docs/adr/0012-writ-query-language.md`) + ADR 0012-queue2 (`docs/adr/0012-queue2-interpreter.md`). Each rule's `id` is its permanent linkable address; the domain is `deem` for the query surface and `el` for the shared expression language.
+> Scope: Deem — Logos's native query facility over Writ data. Two surfaces share one Writ-schema IR (SExpr scalar tier + RExpr relational/graph tier): the STATIC `deem` LANGUAGE ITEM (`pub? deem q(params) { query }` — metacall → native fn, sqlx-style prepared statement; the historical `deem!` macro is RETIRED, its spelling errors with the replacement written out) and the DYNAMIC `Query::compile(text,&cat)?.run(&env)?` runtime API (package `logos.std.deem`). This spec is ALSO the canonical home of EL (rule domain `el.*`), the CEL-class expression sublanguage embedded by both Deem clauses and Trama (`docs/spec/trama.md` links these `el.*` ids). Deem ships/versions with the language but is a metaprogramming/stdlib surface, so it has its own spec. Source layers: `stdlib/std/wql/grammars/{wql,el}.peg` (PEG surfaces, schema-emission mode), `stdlib/std/wql/*.logos` (engine — ABI-excluded internals), `stdlib/std/deem/deem.logos` (the ABI-stable dynamic API), ADR 0012 (`docs/adr/0012-writ-query-language.md`) + ADR 0012-queue2 (`docs/adr/0012-queue2-interpreter.md`). Each rule's `id` is its permanent linkable address; the domain is `deem` for the query surface and `el` for the shared expression language.
 
 ## Surfaces and execution model
 
-### `deem.surface.static-macro` — `deem!(params){ query }` static macro
+### `deem.surface.static-item` — `pub? deem q(params) { query }` language item
 
-`resource <name> = deem!(<real Logos param list>){ <query> };` is a `#[token_macro]` that at compile time parses the query via the peg-generated surface parser to an `RQuery` plan, walks that plan, and emits `pub fn <name>(<params>) -> <Ret>` — a "prepared statement" compiled to native code, no runtime-string parse (ADR 0012 §queues, queue 1 = static/compiled first).
+The static surface is the `deem` ITEM (grammar/Sema-owned head; contextual lead ident — see `item.deem.*` in `items.md`): the COMPILER parses the body with the C++ parser generated from the same `wql.peg` the runtime parser comes from and hands the stdlib handler a zero-copy pointer into its arena; the handler walks the plan and emits `fn <name>(<params>) -> <Ret>` — a prepared statement compiled to native code. Item visibility is real (`pub`/none); the historical `resource <name> = deem!(…){…};` macro spelling is RETIRED and errors with the item replacement written out (name and params substituted).
 
-*Divergence:* the compile-time-typed-query model is `sqlx::query!` for Writ (ADR 0012 "`resource`/`deem!{}` = `sqlx::query!`"); unlike SQL there is no runtime query planner in this surface.
+*Divergence:* the compile-time-typed-query model is `sqlx::query!` for Writ; unlike SQL there is no runtime query planner in this surface.
 
-*Evidence:* `stdlib/std/wql/wql.logos#L74-L97`; `deem_walk!` alias `stdlib/std/wql/wql_walk.logos#L24-L42`
+*Evidence:* `src/compiler/sema_expr.cpp` (lower_deem_def), `stdlib/std/wql/wql.logos`, `tests/logos/pass/wql_deem_item_e2e.logos`, `tests/logos/fail/wql_deem_macro_retired_fail.logos`
 
 ### `deem.surface.params` — parenthesized parameter list
 
@@ -304,6 +304,66 @@ One shared `agg_result_ty(fn, arg_ty) -> ty` table maps `count:()→INT`, `sum/m
 
 *Evidence:* `stdlib/std/wql/rexpr_walk.logos#L2349-L2353,L2398-L2403`; `stdlib/std/wql/el.logos#L182-L185`
 
+## Graph sources and the edge vocabulary
+
+### `deem.graph.vocabulary` — the eight-column edge relation
+
+Every graph-shaped source materializes as ONE relation `edge(parent: i64, key: str, idx: i64, child: i64, kind: str, tag: i64, vi: i64, vs: str)`: container nodes carry structure (ids = handles/addresses; `key` = field/map key, `idx` = array position, −1 otherwise), leaves carry the value in the TYPED payload columns `vi`/`vs` with `kind` as the discriminator. Payload columns are TOTAL — canonical fillers `0`/`""`, never Null (rel rows are set-deduplicated; two-valued Eq only). `bool` rides `vi` as 0/1; `f64` rides `vi` as its IEEE-754 BITS (`kind == "f64"`; bit identity is the honest Eq for floats — NaN payloads and ±0.0 stay distinct; recover via `f64_from_bits`). ONE vocabulary across all producers and binding times: the Writ walker, the native derive, and the runtime tree scan.
+
+*Evidence:* `stdlib/std/wql/writ_graph.logos` (wg_emit), `stdlib/std/deem/exec.logos` (ts_scan/ts_walk/es_scan), `tests/logos/pass/wql_native_graph_e2e.logos` (f64 bits, executed)
+
+### `deem.graph.writ-param` — `g: &Writ` is a graph source
+
+A deem param typed `&Writ` registers the edge relation under the param's own name; the document is scanned edge-per-row (expansion-once: DAG/cycle-safe), with a VIRTUAL ROOT EDGE (`parent == 0`) making the root queryable. No materialized copy of the document exists — the document IS the fact base.
+
+*Evidence:* `stdlib/std/wql/writ_graph.logos`, `tests/logos/pass/wql_writ_graph_e2e.logos`
+
+### `deem.graph.path-sugar` — `from g .key [*] * {kind} ** v` graph paths
+
+`from <graph> <step>* <binder>` navigates: `.key` (map/field move), `[*]` (array elements, `idx >= 0`), `*` (any child), `{kind}` (a FILTER on the current node's kind, not a move), `**` (descendant-or-self). Steps desugar to a classic join chain over the edge relation in ONE shared plan→plan pass used by BOTH binding times; `**` lowers to an INJECTED ordinary Datalog relation `__reach_<src>` (self-pairs + transitive step; deduped by name per program), so reachability runs on the existing rel machinery — no second engine.
+
+*Evidence:* `stdlib/std/wql/lower.logos` (gp_desugar/gp_reach_rel), `tests/logos/pass/wql_gpath_e2e.logos`
+
+### `deem.graph.native-derive` — `#[derive_graph_source]` for native objects
+
+Native Logos objects are deliberately UNTAGGED (types are known statically or via dyn Trait/TypeId; the tag system is a Writ-style special case), so their traversal is GENERATED at compile time by reflection: per annotated struct the derive emits a walker + a materializer `__gs_edges_<T>` + `impl GraphSource for T` — the same vocabulary (node id = address, `tag = 0`, Vec fields as a container node with `idx`-ed elements). Field classes v1: i64/bool/str/f64, `Vec<i64|str|Struct>`, nested annotated structs; dyn-Trait fields (vtable + TypeId) are the named v2.
+
+*Evidence:* `stdlib/std/compiler/metaprog/derive_graph_source.logos`, `tests/logos/pass/wql_native_graph_e2e.logos`
+
+## Source traits
+
+### `deem.source.trait` — `trait { rel … }` declares a source vocabulary
+
+A trait may declare `rel` members (`rel edge(parent: i64, …);` — columns i64/str/bool, the Hash+Eq rule); an impl binds each rel to a MATERIALIZER (`rel edge = writ_graph_edges;`, `fn(&T) -> Vec<RowTuple>`). A deem param typed by an implementing type carries the trait's relations: a single-rel vocabulary is addressable as the param itself (`from g …`), a multi-rel one is param-prefixed (`from e_trace t …`). The walker is source-type-blind — which params carry relations, their columns, and the materializer all arrive as compiler-computed data (the natspec), and the built-in Writ/IncrRec sources are ordinary stdlib impl declarations riding the same mechanism.
+
+*Evidence:* `stdlib/std/wql/writ_graph.logos` (GraphSource), `stdlib/std/deem/mapping_state.logos` (EngineState), `tests/logos/pass/wql_source_trait_e2e.logos`
+
+## Mappings (consumption; the item is specced in items.md)
+
+### `deem.mapping.fusion` — `deem q(w: M)` splices the mapping's rules
+
+A deem param TYPED by a mapping name fuses that mapping's rules into the program: the canonical rel list is prepended, parsed as ONE program, the param's type rewrites to the mapping's source type in the emitted signature, and the mapping's own source param is renamed to the consumer's inside just the spliced rels. Fusion, not materialization: one RelDeps/SCC, one fixpoint; recursion and `**` work across the seam; consumer rels may build on spliced ones. Item order and module boundaries do not matter (pre-scan registry; archives carry consumed mappings as `MAPPING_DEF_DONE` with identity intact; visibility = the fn three tiers).
+
+*Evidence:* `tests/logos/pass/wql_mapping_consume_e2e.logos`, `tests/logos/pass/wql_mapping_cross_module_e2e.logos`
+
+### `deem.mapping.generic` — `mapping M<S: Bound>(g: &S)` instantiated by fusion
+
+A generic mapping is a PURE rule module (no standalone fns; bodies validated at first consumption). `deem q(w: M<T>)` checks the bound per-trait (every rel of the bound bound in T's impls) and substitutes `&S → &T` — the one place S appears. One rule module serves every implementing source type.
+
+*Evidence:* `tests/logos/pass/wql_mapping_generic_e2e.logos`, `tests/logos/fail/wql_mapping_generic_unbound_fail.logos`
+
+### `deem.mapping.scalars` — scalar params bind by name identity
+
+A mapping's scalar params (`floor: i64`) bind at the consumption site by NAME IDENTITY: the consumer declares a param with the same name and type; the spliced rules resolve the scalar as written — no rename, no binding syntax. Missing scalar = named error.
+
+*Evidence:* `tests/logos/pass/wql_mapping_scalar_e2e.logos`
+
+### `deem.mapping.runtime-artifacts` — `<M>__rules()` / `<M>__src()` and `compile_with_mapping`
+
+Mappings are STATIC-ONLY items; the dynamic side only CONSUMES them. Each mapping emits two artifacts — `<M>__rules() -> str` (canonical rel-list text) and `<M>__src() -> str` (its source-param name) — and `Query::compile_with_mapping(text, &cat, bind_as, rules, src)` fuses them into a dynamically-compiled query with the same parse/graft/rename machinery; the source binds via `bind_source_tree(bind_as, root)`.
+
+*Evidence:* `stdlib/std/deem/query.logos` (compile_with_mapping), `tests/logos/pass/query_mapping_runtime_e2e.logos` (parity with the static twin)
+
 ## rel blocks and Datalog
 
 ### `deem.datalog.rel-block` — `rel NAME(cols){ bodies }`
@@ -511,6 +571,12 @@ The dynamic surface reuses the peg-generated parsers, the IR optimizer, the plan
 *Divergence:* EXTENSION — the runtime binding/registry surface (`QEnv`), analogous to a prepared-statement parameter set plus a UDF registry; `register_fn` caps at 4 args and takes a typed signature `(args: &[str], ret: str)`.
 
 *Evidence:* `stdlib/std/deem/deem.logos#L457-L499` (`QEnv`), `L522-L564` (`bind_node`/`bind_source`/`bind_i64`/…), `L600-L626` (`register_fn` → bool), `L642-L660` (`register_agg` → bool, init/step/fin); ADR 0012-queue2 §6
+
+### `deem.exec.bind-kinds` — the four source binding kinds
+
+`bind_source` (a Writ array of schema'd rows) · `bind_source_erased` (lenient rows, CEL Null semantics) · `bind_source_tree` (a Writ VALUE scanned virtually, one row per edge, the graph vocabulary) · `bind_edge_rows` (PRE-MATERIALIZED rows in the same edge vocabulary — the runtime twin of a `#[derive_graph_source]` materializer). Tree and edge sources type identically (`vi: i64`, `vs: str`, total) and are REJECTED by the incremental path with a named error (no delta capture — materialize facts via FactStore).
+
+*Evidence:* `stdlib/std/deem/deem.logos` (QB_* + binders), `stdlib/std/deem/check.logos`, `tests/logos/pass/wql_native_graph_e2e.logos` (runtime twin)
 
 ### `deem.exec.rtval` — RtVal runtime scalar and QRows
 
