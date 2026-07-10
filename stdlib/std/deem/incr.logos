@@ -16,6 +16,14 @@ use logos.lang.option;            // Option — HashMapKeys iterator item (SEMIL
 use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
 use logos.mem.string;             // String
 use logos.lang.mem;               // replace — FactStore::take_delta move-out
+use logos.lang.cmp;               // DView ordering (container key compare)
+use logos.lang.fabric;            // NodeARC plumbing (data layer)
+use logos.lang.drop;              // container-handle drops (data layer)
+use logos.lang.writ.dview;        // DView — the container's runtime-typed cells
+use logos.std.deem.data.bt.node;  // storage engine (ADR 0017): epoch-history layer
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.store;
+use logos.std.deem.data.handle;
 use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
@@ -94,6 +102,25 @@ impl ZBatch {
 // (i64/f64/bool/str): `field_read` returns RtVal::Node for edge/edge-array
 // fields, which hash to one bucket and never rt_eq — unusable as identity. The
 // ctor validates each key field via `cat.field_ty` and returns Err otherwise.
+// ── The epoch-history layer (ADR 0017 P1) ───────────────────────────────────
+// The hot working set below (node/key/present/idx) is untouched — it serves
+// every intra-epoch read and the U1 clamps at Vec/HashMap speed. The `data`
+// store records the SET at each EPOCH BOUNDARY: take_delta applies the ±
+// changelog to a container in a scoped fork→apply→commit cycle, so
+// **epoch = commit** — every epoch has a queryable, fork-able identity in the
+// snapshot DAG, and the future dump (P4) serializes exactly this committed
+// state. Snap/ContainerRef are NEVER stored across calls: SnapCtx carries a
+// raw pointer into the Snap value (location-anchored), so the cycle opens and
+// closes them inside one scope.
+pub const FsStoreCfg: WritStatic = @{
+    "name":     "factstore",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+pub const FsCtrCfg: WritStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 16 };
+const FS_CTR_ID: u64 = 1u64;
+
 pub struct FactStore {
     doc:     Writ,               // OWNS the arena the canonical handles point into
                                  // (must outlive the engine — bind_source contract)
@@ -105,6 +132,10 @@ pub struct FactStore {
     present: Vec<bool>,          // SET presence per slot
     idx:     HashMap<u64, Vec<i64>>,  // content-hash → candidate slot indices
     pend:    ZBatch,             // pending ± changelog since last take_delta
+    epend:   Vec<i64>,           // this epoch's ±slot log for the history layer
+                                 // (slot ≥ 0 = insert, −slot−1 = retract)
+    hist:    Store<FsStoreCfg>,  // the data store (ADR 0017): epoch history
+    heads:   Vec<u64>,           // commit id per epoch (heads[e] = epoch e's SET)
 }
 
 // An OWNED scalar key element. RtVal::S carries a `str` VIEW (borrows the source
@@ -123,6 +154,38 @@ fn fskey_of(v: RtVal) -> FsKey {
         RtVal::S(ss) => { let mut t: String = String::new(); t.push_str(ss);
                           return FsKey { k: 4i32, i: 0i64,  f: 0.0f64, b: false, s: t }; }
         _            => { return FsKey { k: 0i32, i: 0i64,  f: 0.0f64, b: false, s: String::new() }; }
+    }
+}
+
+// Encode a key tuple into container-key bytes: per field, one tag byte then a
+// tag-determined payload (i64/f64-bits: 8B; bool: 1B; str: 4B len + bytes).
+// Deterministic and prefix-collision-safe ⇒ byte equality ≡ tuple equality;
+// the B+tree only needs SOME total order, and lexicographic-over-bytes is one.
+fn fs_key_enc(k: &Vec<FsKey>, out: &mut String) {
+    let n: i64 = k.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let e: &FsKey = k.borrow(i);
+        out.push_u8(e.k as u8);
+        if e.k == 1i32 {
+            let mut v: u64 = e.i as u64;
+            let mut b: i64 = 0i64;
+            while b < 8i64 { out.push_u8(((v >> 56u64) & 255u64) as u8); v = v << 8u64; b = b + 1i64; }
+        } else if e.k == 2i32 {
+            let mut v: u64 = f64_to_bits(e.f);
+            let mut b: i64 = 0i64;
+            while b < 8i64 { out.push_u8(((v >> 56u64) & 255u64) as u8); v = v << 8u64; b = b + 1i64; }
+        } else if e.k == 3i32 {
+            out.push_u8(if e.b { 1u8 } else { 0u8 });
+        } else if e.k == 4i32 {
+            let mut l: u64 = e.s.len() as u64;
+            let mut b: i64 = 0i64;
+            while b < 4i64 { out.push_u8(((l >> 24u64) & 255u64) as u8); l = l << 8u64; b = b + 1i64; }
+            let sl: i64 = e.s.len();
+            let mut j: i64 = 0i64;
+            while j < sl { out.push_u8(str_byte_at(e.s.as_str(), j)); j = j + 1i64; }
+        }
+        i = i + 1i64;
     }
 }
 
@@ -203,6 +266,9 @@ impl FactStore {
             present: vec_new::<bool>(),
             idx:     hashmap_new::<u64, Vec<i64>>(),
             pend:    ZBatch::new(),
+            epend:   vec_new::<i64>(),
+            hist:    store_open::<FsStoreCfg>(),
+            heads:   vec_new::<u64>(),
         });
     }
 
@@ -253,6 +319,7 @@ impl FactStore {
                 self.present.set(i, true);
                 let cn: WAny = self.node.get(i);
                 self.pend.push(cn, 1i64);
+                self.epend.push(i);
             }
             return;   // present-again → no-op, no push
         }
@@ -267,6 +334,7 @@ impl FactStore {
             (&mut *vp).push(slot);
         }
         self.pend.push(node, 1i64);
+        self.epend.push(slot);
     }
 
     // Retract a fact. Miss OR already-absent → no-op (no phantom minus). Present
@@ -279,6 +347,7 @@ impl FactStore {
         self.present.set(i, false);
         let cn: WAny = self.node.get(i);
         self.pend.push(cn, -1i64);
+        self.epend.push(0i64 - i - 1i64);
     }
 
     // Move out the accumulated ± changelog and reset it. The returned ZBatch is
@@ -286,8 +355,85 @@ impl FactStore {
     // (intra-epoch multi-touch on one content = +1 then −1 on the SAME canonical
     // raw; the engine admit loops coalesce by raw() → net zero, no manual netting).
     pub fn take_delta(self: &mut FactStore) -> ZBatch {
+        // ── epoch boundary (ADR 0017 P1): apply this epoch's ±slot log to the
+        // history container in ONE scoped fork→apply→commit cycle. epoch =
+        // commit: heads[e] names epoch e's SET in the snapshot DAG. Applying
+        // in order makes the last op per slot win (same-epoch insert+retract
+        // nets out exactly like the hot set).
+        {
+            let parent: u64 = if self.heads.len() == 0i64 { GENESIS }
+                              else { self.heads.get(self.heads.len() - 1i64) };
+            let mut snap = self.hist.fork(parent);
+            {
+                let mut cr = if self.heads.len() == 0i64 {
+                    create_ctr::<FsCtrCfg>(&mut snap, FS_CTR_ID)
+                } else {
+                    match open_ctr::<FsCtrCfg>(&mut snap, FS_CTR_ID) {
+                        Option::Some(c) => { c }
+                        Option::None    => { create_ctr::<FsCtrCfg>(&mut snap, FS_CTR_ID) }
+                    }
+                };
+                let ne: i64 = self.epend.len();
+                let mut i: i64 = 0i64;
+                while i < ne {
+                    let op: i64 = self.epend.get(i);
+                    let slot: i64 = if op >= 0i64 { op } else { 0i64 - op - 1i64 };
+                    let mut kb: String = String::new();
+                    fs_key_enc(self.key.borrow(slot), &mut kb);
+                    if op >= 0i64 {
+                        let sv: u64 = slot as u64;
+                        cr.insert(DView::from_str(kb.as_str()), DView::from(&sv));
+                    } else {
+                        cr.remove(DView::from_str(kb.as_str()));
+                    }
+                    i = i + 1i64;
+                }
+            }
+            self.heads.push(snap.commit());
+            self.epend.clear();
+        }
         let pp: *mut ZBatch = &mut self.pend;
         return unsafe { replace::<ZBatch>(pp, ZBatch::new()) };
+    }
+
+    // ── epoch-history reads (ADR 0017 P1) ───────────────────────────────
+    /// Number of committed epochs.
+    pub fn epoch_count(self: &FactStore) -> i64 { return self.heads.len(); }
+
+    /// The commit id naming epoch `e`'s SET in the history store's DAG —
+    /// the fork point for S4 (P2).
+    pub fn epoch_head(self: &FactStore, e: i64) -> u64 { return self.heads.get(e); }
+
+    /// Number of facts present at committed epoch `e`.
+    pub fn count_at(self: &mut FactStore, e: i64) -> i64 {
+        let head: u64 = self.heads.get(e);
+        let mut snap = self.hist.fork(head);
+        let mut n: i64 = 0i64;
+        {
+            match open_ctr::<FsCtrCfg>(&mut snap, FS_CTR_ID) {
+                Option::Some(cr) => { n = cr.len() as i64; }
+                Option::None     => { n = 0i64; }
+            }
+        }
+        // read-only fork: dropped, not committed (no DAG node per read)
+        return n;
+    }
+
+    /// Was the fact with `node`'s content present at committed epoch `e`?
+    pub fn contains_at(self: &mut FactStore, e: i64, node: WAny) -> bool {
+        let k: Vec<FsKey> = self.key_of(node);
+        let mut kb: String = String::new();
+        fs_key_enc(&k, &mut kb);
+        let head: u64 = self.heads.get(e);
+        let mut snap = self.hist.fork(head);
+        let mut hit: bool = false;
+        {
+            match open_ctr::<FsCtrCfg>(&mut snap, FS_CTR_ID) {
+                Option::Some(cr) => { hit = cr.contains(DView::from_str(kb.as_str())); }
+                Option::None     => { hit = false; }
+            }
+        }
+        return hit;
     }
 
     // Materialize the CURRENT present set into the owned arena as a Writ array of
