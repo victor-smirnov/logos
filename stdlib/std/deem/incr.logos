@@ -120,6 +120,17 @@ pub const FsStoreCfg: WritStatic = @{
 };
 pub const FsCtrCfg: WritStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 16 };
 const FS_CTR_ID: u64 = 1u64;
+// The JOURNAL container (ADR 0017 P3, user accent #4): an append-only ΔEDB log
+// INSIDE the same store — one row per effective ±op, keyed by a global
+// sequence number (monotone u64 ⇒ rightmost-path inserts, append in practice).
+// Row value bytes: [epoch u64 BE][sign u8: 1=+ 0=−][per catalog field:
+// tag u8 (0 null · 1 i64 · 2 f64-bits · 3 bool · 4 len-prefixed str ·
+// 5 non-scalar, skipped) + payload]. FULL fields (not just the key tuple), so
+// replay can RECONSTRUCT each fact; non-scalar fields are journaled as tag 5
+// and replay lossy — v0 fidelity is scalar-field relations. The journal is
+// REPLAY + QUERYABLE HISTORY (ADR 0015 §4), NOT crash consistency (no WAL).
+pub const FsJnCfg: WritStatic = @{ "key": <type:u64>, "value": <type:DView>, "fanout": 16 };
+const FS_JN_ID: u64 = 2u64;
 
 pub struct FactStore {
     doc:     Writ,               // OWNS the arena the canonical handles point into
@@ -136,6 +147,7 @@ pub struct FactStore {
                                  // (slot ≥ 0 = insert, −slot−1 = retract)
     hist:    Store<FsStoreCfg>,  // the data store (ADR 0017): epoch history
     heads:   Vec<u64>,           // commit id per epoch (heads[e] = epoch e's SET)
+    jseq:    u64,                // next journal row key (== journal row count)
     // ── S4 v0 branches (ADR 0015 §5 / ADR 0017 P2): assumption-ΔEDB
     // exploration over the LIVE store. An active branch records its EFFECTIVE
     // ±slot ops; branch_end rolls the live set back by applying the INVERSE
@@ -208,6 +220,59 @@ fn fs_key_enc(k: &Vec<FsKey>, out: &mut String) {
         }
         i = i + 1i64;
     }
+}
+
+// Encode ONE journal row (ADR 0017 P3): epoch + sign + the fact's FULL field
+// tuple in catalog order, read through the same field_read the key path uses.
+fn fs_jn_row_enc(cat: &SchemaCatalog, si: i64, node: WAny, epoch: u64, positive: bool, out: &mut String) {
+    let mut e: u64 = epoch;
+    let mut b: i64 = 0i64;
+    while b < 8i64 { out.push_u8(((e >> 56u64) & 255u64) as u8); e = e << 8u64; b = b + 1i64; }
+    out.push_u8(if positive { 1u8 } else { 0u8 });
+    let nf: i64 = cat.f_n;
+    let mut fi: i64 = 0i64;
+    while fi < nf {
+        if cat.f_owner.get(fi) == si {
+            match field_read(cat, node, cat.f_names.get(fi)) {
+                RtVal::I(v) => {
+                    out.push_u8(1u8);
+                    let mut u: u64 = v as u64;
+                    let mut k: i64 = 0i64;
+                    while k < 8i64 { out.push_u8(((u >> 56u64) & 255u64) as u8); u = u << 8u64; k = k + 1i64; }
+                }
+                RtVal::F(v) => {
+                    out.push_u8(2u8);
+                    let mut u: u64 = f64_to_bits(v);
+                    let mut k: i64 = 0i64;
+                    while k < 8i64 { out.push_u8(((u >> 56u64) & 255u64) as u8); u = u << 8u64; k = k + 1i64; }
+                }
+                RtVal::B(v) => {
+                    out.push_u8(3u8);
+                    out.push_u8(if v { 1u8 } else { 0u8 });
+                }
+                RtVal::S(v) => {
+                    out.push_u8(4u8);
+                    let mut l: u64 = v.len() as u64;
+                    let mut k: i64 = 0i64;
+                    while k < 4i64 { out.push_u8(((l >> 24u64) & 255u64) as u8); l = l << 8u64; k = k + 1i64; }
+                    let sl: i64 = v.len();
+                    let mut j: i64 = 0i64;
+                    while j < sl { out.push_u8(str_byte_at(v, j)); j = j + 1i64; }
+                }
+                RtVal::Node(_n) => { out.push_u8(5u8); }   // non-scalar: lossy (v0)
+                _ => { out.push_u8(0u8); }                  // null / absent
+            }
+        }
+        fi = fi + 1i64;
+    }
+}
+
+// Big-endian u64 at byte offset `at` of `bytes` (journal row decode).
+fn fs_rd_u64(bytes: str, at: i64) -> u64 {
+    let mut v: u64 = 0u64;
+    let mut k: i64 = 0i64;
+    while k < 8i64 { v = (v << 8u64) | (str_byte_at(bytes, at + k) as u64); k = k + 1i64; }
+    return v;
 }
 
 fn fskey_eq(a: &FsKey, b: &FsKey) -> bool {
@@ -290,6 +355,7 @@ impl FactStore {
             epend:   vec_new::<i64>(),
             hist:    store_open::<FsStoreCfg>(),
             heads:   vec_new::<u64>(),
+            jseq:    0u64,
             br_on:   false,
             br_pnm:  String::new(),
             br_log:  vec_new::<i64>(),
@@ -423,6 +489,31 @@ impl FactStore {
                     } else {
                         cr.remove(DView::from_str(kb.as_str()));
                     }
+                    i = i + 1i64;
+                }
+            }
+            // ── journal (P3): one row per effective op, in op order, same snap ──
+            {
+                let mut jr = if self.heads.len() == 0i64 {
+                    create_ctr::<FsJnCfg>(&mut snap, FS_JN_ID)
+                } else {
+                    match open_ctr::<FsJnCfg>(&mut snap, FS_JN_ID) {
+                        Option::Some(c) => { c }
+                        Option::None    => { create_ctr::<FsJnCfg>(&mut snap, FS_JN_ID) }
+                    }
+                };
+                let epoch: u64 = self.heads.len() as u64;
+                let si: i64 = self.cat.sidx_of_name(self.sname);
+                let ne: i64 = self.epend.len();
+                let mut i: i64 = 0i64;
+                while i < ne {
+                    let op: i64 = self.epend.get(i);
+                    let slot: i64 = if op >= 0i64 { op } else { 0i64 - op - 1i64 };
+                    let mut rb: String = String::new();
+                    fs_jn_row_enc(&self.cat, si, self.node.get(slot), epoch, op >= 0i64, &mut rb);
+                    let sq: u64 = self.jseq;
+                    self.jseq = self.jseq + 1u64;
+                    jr.insert(sq, DView::from_str(rb.as_str()));
                     i = i + 1i64;
                 }
             }
@@ -644,6 +735,107 @@ impl FactStore {
     /// Whether a history-DAG commit has been released (losers are, post-merge).
     pub fn hist_is_released(self: &mut FactStore, id: u64) -> bool {
         return self.hist.is_released(id);
+    }
+
+    /// Number of journal rows written so far.
+    pub fn journal_rows(self: &FactStore) -> i64 { return self.jseq as i64; }
+
+    /// Rebuilds a FRESH FactStore by replaying this store's journal container
+    /// (ADR 0017 P3 gate; the ADR 0015 §4 replay law at the EDB tier): rows are
+    /// applied in sequence order, epoch boundaries are reproduced (take_delta
+    /// at each epoch change), and each fact is RECONSTRUCTED from its journaled
+    /// field tuple in the fresh store's own arena. v0 fidelity: scalar-field
+    /// relations (non-scalar fields journal as a lossy marker). The replayed
+    /// store re-derives its own epoch history and journal as it goes.
+    pub fn replay_fresh(self: &mut FactStore, seg: i64) -> Result<FactStore, str> {
+        let mut out: FactStore = match FactStore::new(&self.cat, self.sname,
+                                                      self.keyf.as_slice(), seg) {
+            Result::Ok(o)  => { o }
+            Result::Err(e) => { return Result::Err(e); }
+        };
+        if self.heads.len() == 0i64 { return Result::Ok(out); }
+        self.replay_rows_into(&mut out);
+        let _last: ZBatch = out.take_delta();   // commit the final epoch
+        return Result::Ok(out);
+    }
+
+    // The journal scan + fact reconstruction of replay_fresh (split out so
+    // `out` has a single move-out point in the public fn).
+    fn replay_rows_into(self: &mut FactStore, out: &mut FactStore) {
+        // &mut is affine — thread a raw pointer so per-iteration method calls
+        // don't consume the reference (the pend-pointer idiom of take_delta).
+        let outp: *mut FactStore = out;
+        let si: i64 = self.cat.sidx_of_name(self.sname);
+        let code: u64 = self.cat.s_codes.get(si);
+        // Count the schema's fields once (TOM capacity + decode loop bound).
+        let mut nf: i64 = 0i64;
+        {
+            let mut fi: i64 = 0i64;
+            while fi < self.cat.f_n {
+                if self.cat.f_owner.get(fi) == si { nf = nf + 1i64; }
+                fi = fi + 1i64;
+            }
+        }
+        let head: u64 = self.heads.get(self.heads.len() - 1i64);
+        let mut snap = self.hist.fork(head);
+        {
+            let jr = match open_ctr::<FsJnCfg>(&mut snap, FS_JN_ID) {
+                Option::Some(c) => { c }
+                Option::None    => { return; }   // no journal yet
+            };
+            let od: &Writ = unsafe { &*(&*outp).arena_ptr() };
+            let mut cur_ep: u64 = 0u64;
+            let mut it = jr.iter();
+            while it.valid() {
+                let rv: DView = it.val();
+                let bytes: str = rv.as_str();
+                let epoch: u64 = fs_rd_u64(bytes, 0i64);
+                if epoch != cur_ep {
+                    let _d: ZBatch = unsafe { (&mut *outp).take_delta() };   // epoch boundary
+                    cur_ep = epoch;
+                }
+                let positive: bool = str_byte_at(bytes, 8i64) == 1u8;
+                // Reconstruct the fact from the journaled field tuple.
+                let mp: *const WMap<Wu6, WAny> = od.make_schema(nf, code);
+                let m: &mut WMap<Wu6, WAny> = unsafe { &mut *(mp as *mut WMap<Wu6, WAny>) };
+                let mut at: i64 = 9i64;
+                let mut fi: i64 = 0i64;
+                while fi < self.cat.f_n {
+                    if self.cat.f_owner.get(fi) == si {
+                        let kc: u8 = self.cat.f_keys.get(fi) as u8;
+                        let tag: u8 = str_byte_at(bytes, at);
+                        at = at + 1i64;
+                        if tag == 1u8 {
+                            m.set(kc, od.int(fs_rd_u64(bytes, at) as i64));
+                            at = at + 8i64;
+                        } else if tag == 2u8 {
+                            m.set(kc, od.float(f64_from_bits(fs_rd_u64(bytes, at))));
+                            at = at + 8i64;
+                        } else if tag == 3u8 {
+                            m.set(kc, WAny::from(str_byte_at(bytes, at) == 1u8));
+                            at = at + 1i64;
+                        } else if tag == 4u8 {
+                            let mut l: u64 = 0u64;
+                            let mut k: i64 = 0i64;
+                            while k < 4i64 { l = (l << 8u64) | (str_byte_at(bytes, at + k) as u64); k = k + 1i64; }
+                            at = at + 4i64;
+                            let sv: str = unsafe {
+                                str_from_raw(((bytes.as_ptr() as i64) + at) as *const u8, l as i64)
+                            };
+                            let ws: &WString = od.wstring(sv);
+                            m.set(kc, WAny::ref_to((ws as *const WString) as *const u8));
+                            at = at + (l as i64);
+                        }
+                        // tags 0 (null) and 5 (non-scalar, lossy) carry no payload
+                    }
+                    fi = fi + 1i64;
+                }
+                let w: WAny = WAny::ref_to(mp as *const u8);
+                if positive { unsafe { (&mut *outp).insert(w); } }
+                else        { unsafe { (&mut *outp).retract(w); } }
+                it.step();
+            }
+        }
     }
 
     // Materialize the CURRENT present set into the owned arena as a Writ array of

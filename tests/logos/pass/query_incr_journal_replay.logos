@@ -1,0 +1,179 @@
+// query_incr_journal_replay — the JOURNAL container + replay (ADR 0017 P3;
+// the ADR 0015 §4 replay law at the EDB tier): every take_delta also appends
+// the epoch's effective ±ops — with FULL reconstructed-able field tuples — to
+// an append-only container (seq → row bytes) inside the same store;
+// replay_fresh rebuilds a NEW FactStore from that journal alone, reproducing
+// epoch boundaries. Gate: an engine built over the REPLAYED store ≡ the live
+// engine. Asserts:
+//   (a) journal rows accumulate one per effective op (no-ops journal nothing);
+//   (b) replayed store: count, epoch_count, and per-epoch history ≡ original;
+//   (c) a standing transitive-closure engine over the replayed store's
+//       build_present() computes the SAME closure as the live engine
+//       (weighted multiset over snapshots);
+//   (d) mixed field types round-trip (i64 + str + bool fields, str keys);
+//   (e) retracted facts replay as retractions (epoch-faithful, not net state).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema Edge : code(0x0E09_0000_0000_0031) {
+    src: i64 = 0,
+    dst: i64 = 1,
+}
+pub schema Tag : code(0x0E09_0000_0000_0032) {
+    name: str  = 0,
+    hot:  bool = 1,
+    rank: i64  = 2,
+}
+resource cat = schema_catalog!{ Edge, Tag };
+
+fn mk_edge(dp: *const Writ, s: i64, t: i64) -> WAny {
+    let d: &Writ = unsafe { &*dp };
+    let e: Edge = d.make::<Edge>();
+    e.src = s; e.dst = t;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+
+fn mk_tag(dp: *const Writ, nm: str, h: bool, r: i64) -> WAny {
+    let d: &Writ = unsafe { &*dp };
+    let t: Tag = d.make::<Tag>();
+    t.name = nm; t.hot = h; t.rank = r;
+    return WAny::ref_to((t.m as i64) as *const u8);
+}
+
+fn qrow_eq(a: &QRows, ai: i64, b: &QRows, bi: i64) -> bool {
+    let nc: i64 = a.col_count();
+    let mut c: i64 = 0i64;
+    while c < nc {
+        if a.is_null(ai, c) != b.is_null(bi, c) { return false; }
+        if a.get_i64(ai, c) != b.get_i64(bi, c) { return false; }
+        c = c + 1i64;
+    }
+    return true;
+}
+fn multiset_eq(a: &QRows, b: &QRows) -> bool {
+    if a.row_count() != b.row_count() { return false; }
+    let n: i64 = a.row_count();
+    let mut used: Vec<bool> = vec_new::<bool>();
+    let mut i: i64 = 0i64;
+    while i < n { used.push(false); i = i + 1i64; }
+    let mut ai: i64 = 0i64;
+    while ai < n {
+        let mut found: bool = false;
+        let mut bi: i64 = 0i64;
+        while bi < n && !found {
+            if !used.get(bi) {
+                if qrow_eq(a, ai, b, bi) { used.set(bi, true); found = true; }
+            }
+            bi = bi + 1i64;
+        }
+        if !found { return false; }
+        ai = ai + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+
+    // ── Edge store: multi-epoch history with inserts AND retractions ──
+    let kf: [str; 2] = ["src", "dst"];
+    let mut st: FactStore = match FactStore::new(&c, "Edge", &kf[..], 1048576i64) {
+        Result::Ok(s)   => { s }
+        Result::Err(_e) => { return 91i32; }
+    };
+    let ap: *const Writ = st.arena_ptr();
+
+    // epoch 0: chain 0→1→2→3
+    st.insert(mk_edge(ap, 0i64, 1i64));
+    st.insert(mk_edge(ap, 1i64, 2i64));
+    st.insert(mk_edge(ap, 2i64, 3i64));
+    let _d0: ZBatch = st.take_delta();
+    if st.journal_rows() != 3i64 { return 1i32; }          // (a)
+    // epoch 1: close the cycle + a no-op re-insert (journals nothing extra)
+    st.insert(mk_edge(ap, 3i64, 0i64));
+    st.insert(mk_edge(ap, 0i64, 1i64));                    // present → no-op
+    let _d1: ZBatch = st.take_delta();
+    if st.journal_rows() != 4i64 { return 2i32; }
+    // epoch 2: break the chain (retraction) + a fresh edge
+    st.retract(mk_edge(ap, 1i64, 2i64));
+    st.insert(mk_edge(ap, 1i64, 3i64));
+    let _d2: ZBatch = st.take_delta();
+    if st.journal_rows() != 6i64 { return 3i32; }
+
+    // ── replay ──
+    let mut rp: FactStore = match st.replay_fresh(1048576i64) {
+        Result::Ok(r)   => { r }
+        Result::Err(_e) => { return 10i32; }
+    };
+    // (b) state + history equivalence
+    if rp.count() != st.count() { return 11i32; }
+    if rp.epoch_count() != st.epoch_count() { return 12i32; }
+    let mut e: i64 = 0i64;
+    while e < st.epoch_count() {
+        if rp.count_at(e) != st.count_at(e) { return 13i32; }
+        e = e + 1i64;
+    }
+    // (e) the retracted edge is absent NOW but present at its epochs
+    if !st.contains_at(1i64, mk_edge(ap, 1i64, 2i64)) { return 14i32; }
+    let rap: *const Writ = rp.arena_ptr();
+    if !rp.contains_at(1i64, mk_edge(rap, 1i64, 2i64)) { return 15i32; }
+    if rp.contains_at(2i64, mk_edge(rap, 1i64, 2i64)) { return 16i32; }
+
+    // (c) engine over live vs engine over replayed: identical closures.
+    let q: Query = match Query::compile(
+        r#"rel path(a: i64, b: i64) {
+             from edges e select (e.src, e.dst);
+             from path p join edges e on p.b == e.src select (p.a, e.dst);
+           }
+           from path p select (p.a, p.b)"#,
+        &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 90i32; } };
+    let mut env_a: QEnv = QEnv::new();
+    env_a.bind_source("edges", st.build_present());
+    let eng_a: IncrRec = match q.incremental_rec(&env_a)
+    { Result::Ok(x) => { x } Result::Err(_e2) => { return 92i32; } };
+    let mut env_b: QEnv = QEnv::new();
+    env_b.bind_source("edges", rp.build_present());
+    let eng_b: IncrRec = match q.incremental_rec(&env_b)
+    { Result::Ok(x) => { x } Result::Err(_e2) => { return 93i32; } };
+    let sa: QRows = eng_a.snapshot();
+    let sb: QRows = eng_b.snapshot();
+    if sa.row_count() == 0i64 { return 94i32; }            // sanity: non-trivial
+    if !multiset_eq(&sa, &sb) { return 20i32; }            // THE gate
+
+    // ── (d) mixed scalar fields (str key, bool + i64 payload) ──
+    let kt: [str; 1] = ["name"];
+    let mut ts: FactStore = match FactStore::new(&c, "Tag", &kt[..], 65536i64) {
+        Result::Ok(s)   => { s }
+        Result::Err(_e) => { return 30i32; }
+    };
+    let tp: *const Writ = ts.arena_ptr();
+    ts.insert(mk_tag(tp, "alpha", true, 7i64));
+    ts.insert(mk_tag(tp, "beta", false, 0i64 - 3i64));
+    let _t0: ZBatch = ts.take_delta();
+    ts.retract(mk_tag(tp, "alpha", true, 7i64));
+    let _t1: ZBatch = ts.take_delta();
+    let mut tr: FactStore = match ts.replay_fresh(65536i64) {
+        Result::Ok(r)   => { r }
+        Result::Err(_e) => { return 31i32; }
+    };
+    if tr.count() != 1i64 { return 32i32; }
+    if tr.epoch_count() != 2i64 { return 33i32; }
+    if tr.count_at(0i64) != 2i64 { return 34i32; }
+    let trp: *const Writ = tr.arena_ptr();
+    if !tr.contains_at(0i64, mk_tag(trp, "alpha", true, 7i64)) { return 35i32; }
+    if tr.contains_at(1i64, mk_tag(trp, "alpha", true, 7i64)) { return 36i32; }
+    if !tr.contains_at(1i64, mk_tag(trp, "beta", false, 0i64 - 3i64)) { return 37i32; }
+
+    return 0i32;
+}
