@@ -3,29 +3,29 @@
 // core/packed/tools/packed_allocator.hpp).
 //
 // A block is a flat byte region addressed only by OFFSETS from its own start —
-// no absolute pointers inside — so a block can be memcpy'd, dumped, mapped or
-// shipped and stays valid. The allocator owns a small header, a slot table of
-// offsets (one per sub-structure "element"), and a bump-allocated data tail.
-// Nesting: a slot's payload may itself be a PackedAllocator, which is how a
-// B+tree leaf composes N packed streams inside one node block (memoria-bt).
+// no absolute pointers inside — so a block can be memcpy'd, dumped or shipped
+// and stays valid (the relocatability contract; pkd_smoke asserts it).
 //
-// v0 layout (all fields little-endian u32, offsets relative to block start):
+// v1 layout — SLOT-ORDER CONTIGUOUS, the C++ model: payloads live in slot
+// index order, back to back, so resizing slot `i` shifts the single region
+// [offs[i+1], offs[n]) and patches the offsets after it. Every slot is always
+// "allocated" (length ≥ 0); alloc = resize-from-zero.
 //
-//   [0]  block_size      total block bytes (fixed at init)
-//   [4]  slot_count      number of slots in the table
-//   [8]  tail            bump pointer: next free byte offset
-//   [12] slot_off[slot_count]   0 = unallocated, else payload offset
-//   [..] slot_len[slot_count]   payload byte length (0 when unallocated)
-//   [..] payloads, 8-byte aligned, allocated front-to-back
+//   [0]  block_size   u32   total block bytes (fixed at init)
+//   [4]  slot_count   u32   n
+//   [8]  offs[n+1]    u32   payload start per slot; offs[n] = end of used
+//                           space (the tail). len(i) = offs[i+1] − offs[i].
+//   [..] payloads, 8-byte aligned lengths, slot 0 first
 //
-// v0 scope: init / alloc / spans / free-tail accounting. In-place resize with
-// slot shifting (the C++ `resizeBlock` dance) and nested-allocator bitmaps
-// land in M1 proper.
+// Nesting: a slot's payload may itself be pkd_init'ed, which is how a B+tree
+// node composes N packed streams (memoria-bt). A nested structure that needs
+// to GROW asks its PARENT (pkd_grow_nested) — the parent shifts its siblings
+// and the nested header's block_size is patched to the new slot length.
 package memoria.pkd;
 
-const HDR_BYTES: u32 = 12u32;
+const HDR_BYTES: u32 = 8u32;
 
-// ── raw u32 cells ────────────────────────────────────────────────────────────
+// ── raw cells ────────────────────────────────────────────────────────────────
 
 unsafe fn rd_u32(base: *const u8, off: u32) -> u32 {
     return *(((base as i64) + (off as i64)) as *const u32);
@@ -35,74 +35,131 @@ unsafe fn wr_u32(base: *mut u8, off: u32, v: u32) {
     *(((base as i64) + (off as i64)) as *mut u32) = v;
 }
 
+// Overlap-safe byte move (memmove): picks copy direction by pointer order.
+pub unsafe fn move_bytes(dst: *mut u8, src: *const u8, n: i64) {
+    if (dst as i64) == (src as i64) || n <= 0i64 { return; }
+    if (dst as i64) < (src as i64) {
+        let mut i: i64 = 0i64;
+        while i < n {
+            *(((dst as i64) + i) as *mut u8) = *(((src as i64) + i) as *const u8);
+            i = i + 1i64;
+        }
+    } else {
+        let mut i: i64 = n - 1i64;
+        while i >= 0i64 {
+            *(((dst as i64) + i) as *mut u8) = *(((src as i64) + i) as *const u8);
+            i = i - 1i64;
+        }
+    }
+}
+
+fn align8(v: u32) -> u32 { return (v + 7u32) & (0xFFFF_FFFFu32 - 7u32); }
+
+fn off_pos(slot: u32) -> u32 { return HDR_BYTES + slot * 4u32; }
+
 // ── header accessors ─────────────────────────────────────────────────────────
 
 /// Total block size fixed at `pkd_init`.
 pub unsafe fn pkd_block_size(base: *const u8) -> u32 { return rd_u32(base, 0u32); }
-/// Number of slots in the table.
+/// Number of slots.
 pub unsafe fn pkd_slot_count(base: *const u8) -> u32 { return rd_u32(base, 4u32); }
-/// Current bump offset (next free byte).
-pub unsafe fn pkd_tail(base: *const u8) -> u32 { return rd_u32(base, 8u32); }
 
-fn slot_off_pos(slot: u32) -> u32 { return HDR_BYTES + slot * 4u32; }
-unsafe fn slot_len_pos(base: *const u8, slot: u32) -> u32 {
-    return HDR_BYTES + pkd_slot_count(base) * 4u32 + slot * 4u32;
-}
-
-/// Payload offset of `slot` (0 = unallocated).
+/// Payload offset of `slot` (valid for slot ≤ slot_count; slot_count yields
+/// the tail — the end of used space).
 pub unsafe fn pkd_offset(base: *const u8, slot: u32) -> u32 {
-    return rd_u32(base, slot_off_pos(slot));
+    return rd_u32(base, off_pos(slot));
 }
 
-/// Payload byte length of `slot` (0 when unallocated).
+/// Payload byte length of `slot` (8-aligned; 0 = empty).
 pub unsafe fn pkd_len(base: *const u8, slot: u32) -> u32 {
-    return rd_u32(base, slot_len_pos(base, slot));
+    return pkd_offset(base, slot + 1u32) - pkd_offset(base, slot);
 }
 
-/// Free bytes remaining in the data tail.
+/// Free bytes remaining after the last slot's payload.
 pub unsafe fn pkd_free(base: *const u8) -> u32 {
-    return pkd_block_size(base) - pkd_tail(base);
+    return pkd_block_size(base) - pkd_offset(base, pkd_slot_count(base));
 }
 
-// ── init / alloc ─────────────────────────────────────────────────────────────
+/// Raw payload pointer for `slot` (always valid; zero-length slots point at
+/// the shared boundary with their successor).
+pub unsafe fn pkd_at(base: *mut u8, slot: u32) -> *mut u8 {
+    return ((base as i64) + (pkd_offset(base as *const u8, slot) as i64)) as *mut u8;
+}
 
-fn align8(v: u32) -> u32 { return (v + 7u32) & (0xFFFF_FFFFu32 - 7u32); }
+// ── init / resize ────────────────────────────────────────────────────────────
 
-/// Formats `base[0..block_size)` as an empty allocator with `slots` table
-/// entries. Returns false when the block can't even hold the tables.
+/// Formats `base[0..block_size)` as an empty allocator with `slots` zero-length
+/// slots. Returns false when the block can't hold the tables.
 pub unsafe fn pkd_init(base: *mut u8, block_size: u32, slots: u32) -> bool {
-    let tables: u32 = HDR_BYTES + slots * 8u32;
-    if tables > block_size { return false; }
+    let start: u32 = align8(HDR_BYTES + (slots + 1u32) * 4u32);
+    if start > block_size { return false; }
     wr_u32(base, 0u32, block_size);
     wr_u32(base, 4u32, slots);
-    wr_u32(base, 8u32, align8(tables));
     let mut i: u32 = 0u32;
-    while i < slots * 2u32 {
-        wr_u32(base, HDR_BYTES + i * 4u32, 0u32);
+    while i <= slots {
+        wr_u32(base, off_pos(i), start);
         i = i + 1u32;
     }
     return true;
 }
 
-/// Allocates `size` payload bytes for `slot` from the tail (8-byte aligned).
-/// Returns the payload offset, or 0 on failure (slot taken / out of space /
-/// slot out of range). Offset 0 can never be a valid payload (the header is
-/// there), so 0 is a safe failure sentinel.
-pub unsafe fn pkd_alloc(base: *mut u8, slot: u32, size: u32) -> u32 {
-    if slot >= pkd_slot_count(base as *const u8) { return 0u32; }
-    if pkd_offset(base as *const u8, slot) != 0u32 { return 0u32; }
-    let at: u32 = pkd_tail(base as *const u8);
-    let sz: u32 = align8(size);
-    if at + sz > pkd_block_size(base as *const u8) { return 0u32; }
-    wr_u32(base, 8u32, at + sz);
-    wr_u32(base, slot_off_pos(slot), at);
-    wr_u32(base, slot_len_pos(base as *const u8, slot) , size);
-    return at;
+/// Resizes `slot`'s payload to `new_len` bytes (rounded up to 8) IN PLACE:
+/// the following slots' payloads shift by the delta and their offsets are
+/// patched. Grow fails (false) when the tail lacks room; shrink always
+/// succeeds. Data in the surviving prefix of the slot is preserved.
+pub unsafe fn pkd_resize(base: *mut u8, slot: u32, new_len: u32) -> bool {
+    let n: u32 = pkd_slot_count(base as *const u8);
+    if slot >= n { return false; }
+    let cur: u32 = pkd_len(base as *const u8, slot);
+    let want: u32 = align8(new_len);
+    if want == cur { return true; }
+    if want > cur {
+        let grow: u32 = want - cur;
+        if grow > pkd_free(base as *const u8) { return false; }
+        // shift [offs[slot+1], tail) up by `grow` (backward copy via move_bytes)
+        let from: u32 = pkd_offset(base as *const u8, slot + 1u32);
+        let tail: u32 = pkd_offset(base as *const u8, n);
+        move_bytes(((base as i64) + (from as i64) + (grow as i64)) as *mut u8,
+                   ((base as i64) + (from as i64)) as *const u8,
+                   (tail - from) as i64);
+        let mut i: u32 = slot + 1u32;
+        while i <= n {
+            wr_u32(base, off_pos(i), pkd_offset(base as *const u8, i) + grow);
+            i = i + 1u32;
+        }
+    } else {
+        let shrink: u32 = cur - want;
+        let from: u32 = pkd_offset(base as *const u8, slot + 1u32);
+        let tail: u32 = pkd_offset(base as *const u8, n);
+        move_bytes(((base as i64) + (from as i64) - (shrink as i64)) as *mut u8,
+                   ((base as i64) + (from as i64)) as *const u8,
+                   (tail - from) as i64);
+        let mut i: u32 = slot + 1u32;
+        while i <= n {
+            wr_u32(base, off_pos(i), pkd_offset(base as *const u8, i) - shrink);
+            i = i + 1u32;
+        }
+    }
+    return true;
 }
 
-/// Raw payload pointer for an allocated `slot`; null when unallocated.
-pub unsafe fn pkd_at(base: *mut u8, slot: u32) -> *mut u8 {
-    let off: u32 = pkd_offset(base as *const u8, slot);
-    if off == 0u32 { return 0i64 as *mut u8; }
-    return ((base as i64) + (off as i64)) as *mut u8;
+// ── nesting ──────────────────────────────────────────────────────────────────
+
+/// Formats `slot`'s CURRENT payload as a nested allocator with `slots` slots.
+/// The nested block_size = the slot's length; grow it via `pkd_grow_nested`.
+pub unsafe fn pkd_init_nested(parent: *mut u8, slot: u32, slots: u32) -> bool {
+    let len: u32 = pkd_len(parent as *const u8, slot);
+    return pkd_init(pkd_at(parent, slot), len, slots);
+}
+
+/// Grows the nested allocator in `slot` to `new_size` total bytes: resizes the
+/// parent slot (shifting siblings) and patches the nested header's block_size.
+/// The nested tables and payloads are preserved (they sit at the region start).
+pub unsafe fn pkd_grow_nested(parent: *mut u8, slot: u32, new_size: u32) -> bool {
+    let cur: u32 = pkd_len(parent as *const u8, slot);
+    if new_size <= cur { return true; }
+    if !pkd_resize(parent, slot, new_size) { return false; }
+    let np: *mut u8 = pkd_at(parent, slot);
+    wr_u32(np, 0u32, pkd_len(parent as *const u8, slot));
+    return true;
 }

@@ -1,0 +1,66 @@
+// pkd_arr — the packed fse array: init/push/insert/remove/get/set,
+// lower_bound over sorted u64 keys, growth-through-parent with a NEIGHBOR
+// slot's array surviving the shifts intact, and the split primitive.
+package test;
+
+use memoria.pkd;
+use logos.lang.mem;
+
+fn main() -> i32 {
+    unsafe {
+        let base: *mut u8 = alloc(4096i64);
+        if !pkd_init(base, 4096u32, 3u32) { return 1i32; }
+        if !arr_init(base, 0u32) { return 2i32; }
+        if !arr_init(base, 1u32) { return 3i32; }
+
+        // neighbor canary in slot 1
+        let mut i: u64 = 0u64;
+        while i < 8u64 { if !arr_push::<u64>(base, 1u32, 1000u64 + i) { return 4i32; } i = i + 1u64; }
+
+        // slot 0: sorted evens 0..2..38 via push
+        i = 0u64;
+        while i < 20u64 { if !arr_push::<u64>(base, 0u32, i * 2u64) { return 5i32; } i = i + 1u64; }
+        if arr_count(base as *const u8, 0u32) != 20u32 { return 6i32; }
+        if arr_get::<u64>(base, 0u32, 19u32) != 38u64 { return 7i32; }
+
+        // insert 7 at its sorted position (lower_bound)
+        let pos: u32 = arr_lower_bound_u64(base, 0u32, 7u64);
+        if pos != 4u32 { return 8i32; }             // 0,2,4,6 | 8…
+        if !arr_insert::<u64>(base, 0u32, pos, 7u64) { return 9i32; }
+        if arr_get::<u64>(base, 0u32, 4u32) != 7u64 { return 10i32; }
+        if arr_get::<u64>(base, 0u32, 5u32) != 8u64 { return 11i32; }
+        if arr_count(base as *const u8, 0u32) != 21u32 { return 12i32; }
+
+        // lower_bound hits: exact, absent, past-end
+        if arr_lower_bound_u64(base, 0u32, 8u64) != 5u32 { return 13i32; }
+        if arr_lower_bound_u64(base, 0u32, 9u64) != 6u32 { return 14i32; }
+        if arr_lower_bound_u64(base, 0u32, 100u64) != 21u32 { return 15i32; }
+
+        // remove the 7 back out; set/get roundtrip
+        arr_remove::<u64>(base, 0u32, 4u32);
+        if arr_get::<u64>(base, 0u32, 4u32) != 8u64 { return 16i32; }
+        arr_set::<u64>(base, 0u32, 0u32, 999u64);
+        if arr_get::<u64>(base, 0u32, 0u32) != 999u64 { return 17i32; }
+
+        // the neighbor survived all the shifting
+        if arr_count(base as *const u8, 1u32) != 8u32 { return 18i32; }
+        i = 0u64;
+        while i < 8u64 {
+            if arr_get::<u64>(base, 1u32, i as u32) != 1000u64 + i { return 19i32; }
+            i = i + 1u64;
+        }
+
+        // split: [0..20) at mid 10 into a SECOND block's slot 0
+        let right: *mut u8 = alloc(4096i64);
+        if !pkd_init(right, 4096u32, 3u32) { return 20i32; }
+        if !arr_split::<u64>(base, 0u32, right, 0u32, 10u32) { return 21i32; }
+        if arr_count(base as *const u8, 0u32) != 10u32 { return 22i32; }
+        if arr_count(right as *const u8, 0u32) != 10u32 { return 23i32; }
+        if arr_get::<u64>(right, 0u32, 0u32) != 20u64 { return 24i32; }  // old idx 10
+        if arr_get::<u64>(base, 0u32, 9u32) != 18u64 { return 25i32; }
+
+        dealloc(right);
+        dealloc(base);
+    }
+    return 0i32;
+}

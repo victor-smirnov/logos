@@ -1,0 +1,123 @@
+// memoria.pkd — packed FIXED-SIZE-ELEMENT array (the fse face of C++'s
+// PackedDataTypeBuffer): a typed, positionally-addressed array living inside
+// ONE PackedAllocator slot. Insert/remove shift within the slot; when the
+// slot is full the array grows it THROUGH the allocator (siblings shift —
+// the packed discipline: structures never own memory, blocks do).
+//
+// Payload layout: [count u32][pad u32][elems: count × sizeof(T)]
+// The 4-byte pad keeps element 0 at an 8-aligned offset for 8-byte T.
+//
+// Capacity policy: exact-fit growth (grow to precisely what the insert
+// needs). Amortization is deliberately NOT done here — the B+tree layer
+// (memoria-bt) owns fullness policy: a node that can't grow SPLITS. Keeping
+// the packed layer exact makes node-fill accounting deterministic.
+package memoria.pkd;
+
+const ARR_HDR: u32 = 8u32;
+
+unsafe fn arr_count_p(base: *mut u8, slot: u32) -> *mut u32 {
+    return pkd_at(base, slot) as *mut u32;
+}
+
+/// Number of elements ("" for an unformatted/zero-length slot: 0).
+pub unsafe fn arr_count(base: *const u8, slot: u32) -> u32 {
+    if pkd_len(base, slot) < ARR_HDR { return 0u32; }
+    let p: *const u8 = ((base as i64) + (pkd_offset(base, slot) as i64)) as *const u8;
+    return *(p as *const u32);
+}
+
+unsafe fn arr_elem_ptr<T>(base: *mut u8, slot: u32, i: u32) -> *mut T {
+    let pay: *mut u8 = pkd_at(base, slot);
+    return (((pay as i64) + (ARR_HDR as i64) + (i as i64) * sizeof::<T>()) as *mut T);
+}
+
+/// Element `i` by value. No bounds check (callers hold the count).
+pub unsafe fn arr_get<T>(base: *mut u8, slot: u32, i: u32) -> T {
+    return *arr_elem_ptr::<T>(base, slot, i);
+}
+
+/// Overwrites element `i`.
+pub unsafe fn arr_set<T>(base: *mut u8, slot: u32, i: u32, v: T) {
+    *arr_elem_ptr::<T>(base, slot, i) = v;
+}
+
+/// Formats `slot` as an empty array (grows the slot to the header if needed).
+pub unsafe fn arr_init(base: *mut u8, slot: u32) -> bool {
+    if pkd_len(base as *const u8, slot) < ARR_HDR {
+        if !pkd_resize(base, slot, ARR_HDR) { return false; }
+    }
+    *arr_count_p(base, slot) = 0u32;
+    return true;
+}
+
+/// Inserts `v` at position `i` (0 ≤ i ≤ count), shifting the suffix right.
+/// Grows the slot exactly when full; false = no room in the block.
+pub unsafe fn arr_insert<T>(base: *mut u8, slot: u32, i: u32, v: T) -> bool {
+    let cnt: u32 = arr_count(base as *const u8, slot);
+    let esz: i64 = sizeof::<T>();
+    let need: u32 = ARR_HDR + (((cnt as i64) + 1i64) * esz) as u32;
+    if pkd_len(base as *const u8, slot) < need {
+        if !pkd_resize(base, slot, need) { return false; }
+    }
+    let src: *mut T = arr_elem_ptr::<T>(base, slot, i);
+    move_bytes((((src as i64) + esz) as *mut u8),
+               src as *const u8,
+               ((cnt - i) as i64) * esz);
+    *src = v;
+    *arr_count_p(base, slot) = cnt + 1u32;
+    return true;
+}
+
+/// Appends `v` at the end.
+pub unsafe fn arr_push<T>(base: *mut u8, slot: u32, v: T) -> bool {
+    return arr_insert::<T>(base, slot, arr_count(base as *const u8, slot), v);
+}
+
+/// Removes position `i`, shifting the suffix left and shrinking the slot to
+/// exact fit (keeps node-fill accounting honest for the bt layer).
+pub unsafe fn arr_remove<T>(base: *mut u8, slot: u32, i: u32) {
+    let cnt: u32 = arr_count(base as *const u8, slot);
+    let esz: i64 = sizeof::<T>();
+    let dst: *mut T = arr_elem_ptr::<T>(base, slot, i);
+    move_bytes(dst as *mut u8,
+               (((dst as i64) + esz) as *const u8),
+               ((cnt - i - 1u32) as i64) * esz);
+    *arr_count_p(base, slot) = cnt - 1u32;
+    let keep: u32 = ARR_HDR + (((cnt as i64) - 1i64) * esz) as u32;
+    let _ = pkd_resize(base, slot, keep);
+}
+
+/// Splits the array at `mid`: elements [mid..count) move to `dst_slot` of the
+/// allocator at `dst_base` (formatted as an array, then filled); the source
+/// truncates to [0..mid). The bt leaf/branch split primitive.
+pub unsafe fn arr_split<T>(base: *mut u8, slot: u32,
+                           dst_base: *mut u8, dst_slot: u32, mid: u32) -> bool {
+    let cnt: u32 = arr_count(base as *const u8, slot);
+    if !arr_init(dst_base, dst_slot) { return false; }
+    let esz: i64 = sizeof::<T>();
+    let need: u32 = ARR_HDR + (((cnt - mid) as i64) * esz) as u32;
+    if !pkd_resize(dst_base, dst_slot, need) { return false; }
+    move_bytes(((pkd_at(dst_base, dst_slot) as i64) + (ARR_HDR as i64)) as *mut u8,
+               arr_elem_ptr::<T>(base, slot, mid) as *const u8,
+               ((cnt - mid) as i64) * esz);
+    *(pkd_at(dst_base, dst_slot) as *mut u32) = cnt - mid;
+    *arr_count_p(base, slot) = mid;
+    let keep: u32 = ARR_HDR + ((mid as i64) * esz) as u32;
+    let _ = pkd_resize(base, slot, keep);
+    return true;
+}
+
+// ── search (typed; the bt layer brings comparator-driven descent in M2) ─────
+
+/// First position whose element is ≥ `key` in a SORTED u64 array (count when
+/// none) — the classic lower_bound.
+pub unsafe fn arr_lower_bound_u64(base: *mut u8, slot: u32, key: u64) -> u32 {
+    let mut lo: u32 = 0u32;
+    let mut hi: u32 = arr_count(base as *const u8, slot);
+    while lo < hi {
+        let mid: u32 = lo + (hi - lo) / 2u32;
+        if arr_get::<u64>(base, slot, mid) < key { lo = mid + 1u32; }
+        else { hi = mid; }
+    }
+    return lo;
+}
