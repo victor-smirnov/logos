@@ -501,15 +501,22 @@ fn ts_row(out: &mut RowSet, parent: WAny, key: str, idx: i64, child: WAny, ord: 
     out.cells.push(RtVal::S(ts_kind(child)));
     out.cells.push(RtVal::I(child.type_code() as i64));
     let cv: RtVal = wany_to_rt(child);
+    // ONE vocabulary across binding times (the static walkers set it): vi/vs
+    // are TOTAL typed columns with canonical fillers — kind discriminates
+    // which payload is meaningful. Null payloads made rows that don't inhabit
+    // the typed relation (fusion exposed it: a typed rel column rightly
+    // refused them), and nullable columns re-open the "Null == Null?" hole
+    // set-dedup cannot afford. f64 rides as IEEE bits, same as the static
+    // vocabulary (bit identity IS the honest Eq for floats).
     match cv {
         RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
-        RtVal::F(x)  => { out.cells.push(RtVal::F(x)); }
-        RtVal::B(x)  => { out.cells.push(RtVal::B(x)); }
-        _            => { out.cells.push(RtVal::Null); }
+        RtVal::F(x)  => { out.cells.push(RtVal::I(f64_to_bits(x) as i64)); }
+        RtVal::B(x)  => { out.cells.push(RtVal::I(if x { 1i64 } else { 0i64 })); }
+        _            => { out.cells.push(RtVal::I(0i64)); }
     }
     match cv {
         RtVal::S(s2) => { out.cells.push(RtVal::S(s2)); }
-        _            => { out.cells.push(RtVal::Null); }
+        _            => { out.cells.push(RtVal::S("")); }
     }
     out.nrows = out.nrows + 1i64;
 }
@@ -604,15 +611,16 @@ fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
     out.cells.push(RtVal::S(ts_kind(root)));
     out.cells.push(RtVal::I(root.type_code() as i64));
     let rv0: RtVal = wany_to_rt(root);
+    // same canonical-filler contract as ts_walk (see there).
     match rv0 {
         RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
-        RtVal::F(x)  => { out.cells.push(RtVal::F(x)); }
-        RtVal::B(x)  => { out.cells.push(RtVal::B(x)); }
-        _            => { out.cells.push(RtVal::Null); }
+        RtVal::F(x)  => { out.cells.push(RtVal::I(f64_to_bits(x) as i64)); }
+        RtVal::B(x)  => { out.cells.push(RtVal::I(if x { 1i64 } else { 0i64 })); }
+        _            => { out.cells.push(RtVal::I(0i64)); }
     }
     match rv0 {
         RtVal::S(s3) => { out.cells.push(RtVal::S(s3)); }
-        _            => { out.cells.push(RtVal::Null); }
+        _            => { out.cells.push(RtVal::S("")); }
     }
     out.nrows = out.nrows + 1i64;
     let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();

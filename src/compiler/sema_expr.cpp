@@ -19485,7 +19485,8 @@ void SemaChecker::emit_token_macro_item_site(
     const SemaFuncInfo* macro_info, bool rt_is_il, int nargs,
     const std::string& resource_name, const std::string& params_text,
     const std::string& raw_text, IrEntry ir_entry,
-    const std::string& pub_mask, const std::string& natspec) {
+    const std::string& pub_mask, const std::string& natspec,
+    const std::string& rules_text) {
         const bool ir_mode = (ir_entry != IrEntry::None);
         // Slot layout mirrors the ABI decision in the diagnostic above:
         //   1-arg (sig_str):  slot 0 = raw block body
@@ -19518,6 +19519,11 @@ void SemaChecker::emit_token_macro_item_site(
             // materializer fn + module. The walker registers native rels from
             // THIS, not from hardcoded type-name compares.
             blobs.push_back(pack_blob(natspec));
+            // Slot 4 (RelList only): the canonical rules TEXT — the mapping
+            // item's runtime artifact. The handler emits `<M>__rules() -> str`
+            // from it, so dynamically-compiled queries can FUSE a statically
+            // declared mapping (mappings are static-only; dynamics consumes).
+            if (ir_entry == IrEntry::RelList) blobs.push_back(pack_blob(rules_text));
 
             auto doc = logos::writ::make_doc(1u << 20).get();   // MultiChunk: never moves
             logos::wql::surface::WqlParser wp(raw_text, doc);
@@ -19560,7 +19566,32 @@ void SemaChecker::emit_token_macro_item_site(
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         // The callee invocation, producing an ItemList or QuoteItemBlob.
         std::string call_text;
-        if (ir_mode) {
+        if (ir_entry == IrEntry::RelList) {
+            // (name, params, pubs, natspec, rules, ir) — the mapping ABI: one
+            // more slot than deem's, the canonical rules text (the mapping's
+            // RUNTIME artifact — mappings are static-only, dynamics consumes).
+            call_text = std::format(
+                "{{\n"
+                "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
+                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
+                "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
+                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pm: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
+                "    let __mk: str = unsafe {{ str_from_raw(__pm, {3}i64) }};\n"
+                "    let __ps: *const u8 = unsafe {{ logos_macro_arg({0}u64, 3u64) }};\n"
+                "    let __ns: str = unsafe {{ str_from_raw(__ps, {4}i64) }};\n"
+                "    let __pt: *const u8 = unsafe {{ logos_macro_arg({0}u64, 4u64) }};\n"
+                "    let __rt: str = unsafe {{ str_from_raw(__pt, {5}i64) }};\n"
+                "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
+                "    {6}(__n, __pr, __mk, __ns, __rt, __ir)\n"
+                "}}",
+                site_id, static_cast<int64_t>(resource_name.size()),
+                static_cast<int64_t>(params_text.size()),
+                static_cast<int64_t>(pub_mask.size()),
+                static_cast<int64_t>(natspec.size()),
+                static_cast<int64_t>(rules_text.size()),
+                macro_info->base_name);
+        } else if (ir_mode) {
             // (name, params, extra, natspec, ir) — the unified rule-IR ABI.
             // `extra` is the pub mask (mapping) or the fusion spec (deem!);
             // `natspec` describes native-source params; `ir` is a POINTER into
@@ -20097,14 +20128,15 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
     };
     bool rt_is_il = is_item_list(macro_info->ret_type);
     if ((!rt_is_il && !is_quote_item_blob(macro_info->ret_type))
-            || macro_info->param_types.size() != 5
+            || macro_info->param_types.size() != 6
             || !is_str_type(macro_info->param_types[0])
             || !is_str_type(macro_info->param_types[1])
             || !is_str_type(macro_info->param_types[2])
             || !is_str_type(macro_info->param_types[3])
-            || !is_const_u8_ptr(macro_info->param_types[4])) {
+            || !is_str_type(macro_info->param_types[4])
+            || !is_const_u8_ptr(macro_info->param_types[5])) {
         error("mapping item: '__mapping_item' must be a #[token_macro] "
-              "`(name: str, params: str, pubs: str, natspec: str, "
+              "`(name: str, params: str, pubs: str, natspec: str, rules: str, "
               "ir: *const u8) -> ItemList` (stdlib/compiler version skew?)");
         return;
     }
@@ -20121,7 +20153,8 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
     }
     emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 3,
                                mname, parts.params_text, parts.body_text,
-                               IrEntry::RelList, parts.pub_mask, natspec);
+                               IrEntry::RelList, parts.pub_mask, natspec,
+                               parts.body_text);
 }
 
 

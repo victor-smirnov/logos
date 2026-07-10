@@ -260,13 +260,17 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 // A virtual graph-source edge row: the FIXED column table
                 // (bind_source_tree's contract). parent/child are ids
                 // (container = node handle, leaf = synthetic); `tag` is the
-                // RAW type_code (open vocabulary — user tags flow through);
-                // vi/vs are the child's scalar value when the kind matches,
-                // Null otherwise (lenient tier).
+                // RAW type_code (open vocabulary — user tags flow through).
+                // vi/vs are TOTAL typed payload columns with canonical
+                // fillers (0 / ""), `kind` discriminating which is meaningful
+                // — ONE vocabulary with the static walkers; f64 rides vi as
+                // IEEE bits. Typed precisely, so a rel column may consume
+                // them (runtime mapping fusion needs exactly this).
                 if str_eq(f.name, "parent") || str_eq(f.name, "child")
-                || str_eq(f.name, "idx") || str_eq(f.name, "tag") { return ct(CT_INT); }
-                if str_eq(f.name, "key") || str_eq(f.name, "kind") { return ct(CT_STR); }
-                if str_eq(f.name, "vi") || str_eq(f.name, "vs") { return ct(CT_DYN); }
+                || str_eq(f.name, "idx") || str_eq(f.name, "tag")
+                || str_eq(f.name, "vi") { return ct(CT_INT); }
+                if str_eq(f.name, "key") || str_eq(f.name, "kind")
+                || str_eq(f.name, "vs") { return ct(CT_STR); }
                 chk_fail(chk, "unknown tree-source column '", f.name,
                          "' — a graph edge row has (parent, key, idx, child, kind, tag, vi, vs)",
                          "", "");

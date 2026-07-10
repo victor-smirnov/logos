@@ -1,0 +1,61 @@
+// query_mapping_runtime_e2e — a DYNAMICALLY-compiled query CONSUMES a
+// statically-declared mapping (ADR 0016: mappings are STATIC-ONLY items; the
+// dynamic side only consumes). The `mapping` item emits two runtime artifacts —
+// `<M>__rules()` (canonical rel-list text) and `<M>__src()` (its source-param
+// name) — and Query::compile_with_mapping fuses them into the query text with
+// the same parser + rename machinery the static path uses. Asserts parity with
+// the STATIC fused twin over the same document.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.std.deem;
+use logos.mem.collections.vec;
+use logos.lang.str;
+use logos.std.io;
+
+pub mapping Net(g: &Writ) {
+    pub rel engine(owner: i64, name: str) {
+        from g ** .engine e select (e.parent, e.vs);
+    }
+}
+
+// the static twin
+pub deem s_engines(w: Net) {
+    from engine e select e.name
+}
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
+
+    let st: Vec<str> = match s_engines(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+
+    let cat: SchemaCatalog = SchemaCatalog::new();
+    let q: Query = match Query::compile_with_mapping(
+        "from engine e select e.name", &cat,
+        "w", Net__rules(), Net__src())
+    { Result::Ok(v) => { v } Result::Err(e) => { println(e.msg.as_str()); return 2i32; } };
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_tree("w", doc.root());
+    let rows: QRows = match q.run(&env)
+    { Result::Ok(v) => { v } Result::Err(e) => { println(e.msg.as_str()); return 3i32; } };
+
+    // parity: same count, same SET of names.
+    if rows.row_count() != st.len() { return 4i32; }
+    let mut i: i64 = 0i64;
+    while i < st.len() {
+        let mut found: bool = false;
+        let mut j: i64 = 0i64;
+        while j < rows.row_count() {
+            if str_eq(rows.get_str(j, 0i64), st.get(i)) { found = true; }
+            j = j + 1i64;
+        }
+        if !found { return 5i32; }
+        i = i + 1i64;
+    }
+    return 0i32;
+}

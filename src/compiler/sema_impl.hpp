@@ -4173,7 +4173,8 @@ private:
                                              const std::string& raw_text,
                                              IrEntry ir_entry = IrEntry::None,
                                              const std::string& pub_mask = {},
-                                             const std::string& natspec = {});
+                                             const std::string& natspec = {},
+                                             const std::string& rules_text = {});
 
 public:
     // ── AST → Logos source pretty-printer (sema_render.cpp) ──────────

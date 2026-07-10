@@ -67,7 +67,7 @@ fn ms(s: &String) -> str {
 /// points at the RQRelArr the compiler already parsed, `pubs` carries the
 /// per-rel visibility the query grammar cannot express. Not a user-facing macro.
 #[token_macro]
-pub fn __mapping_item(name: str, params: str, pubs: str, natspec: str, ir: *const u8) -> ItemList {
+pub fn __mapping_item(name: str, params: str, pubs: str, natspec: str, rules: str, ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("mapping item: empty mapping name (compiler seam regression?)");
@@ -151,6 +151,42 @@ pub fn __mapping_item(name: str, params: str, pubs: str, natspec: str, ir: *cons
             return out;
         }
         r = r + 1i64;
+    }
+
+    // ── the mapping's RUNTIME artifact (mappings are STATIC-ONLY items; the
+    // dynamic side only CONSUMES them): `<M>__rules() -> str` returns the
+    // canonical rel-list text, which Query::compile_with_mapping parses with
+    // the SAME generated parser and fuses into a dynamically-compiled query.
+    {
+        let view: OView = oview_module_ast();
+        let mut em: Emitter = Emitter::new();
+        em.emit_target_pkg(&view);
+        em.push_text("pub fn ");
+        em.push_text(name);
+        em.push_text("__rules() -> str {\n    return \"");
+        // escape the canonical text into a string literal
+        let n2: i64 = rules.len();
+        let mut i2: i64 = 0i64;
+        while i2 < n2 {
+            let c: u8 = str_byte_at(rules, i2);
+            if c == 34u8 { em.push_text("\\\""); }
+            else if c == 92u8 { em.push_text("\\\\"); }
+            else if c == 10u8 { em.push_text("\\n"); }
+            else {
+                let one: str = unsafe { str_from_raw(((rules.as_ptr() as i64) + i2) as *const u8, 1i64) };
+                em.push_text(one);
+            }
+            i2 = i2 + 1i64;
+        }
+        em.push_text("\";\n}\n");
+        // the source-param name — Query::compile_with_mapping renames it to
+        // the caller's binding name inside the fused rules.
+        em.push_text("pub fn ");
+        em.push_text(name);
+        em.push_text("__src() -> str {\n    return \"");
+        em.push_text(prm0.names[0]);
+        em.push_text("\";\n}\n");
+        em.commit();
     }
     return out;
 }

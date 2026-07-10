@@ -364,6 +364,67 @@ impl Query {
             m.push_str(" — expected `[rel NAME(col: ty, …){ body; … }]* from <src> <var> [ [anti] join … on … ]* [where …] [group by … aggregate …] select …` (or `from <src> <var> find <pred>`)");
             return Result::Err(QError { msg: m });
         }
+        return Query::compile_prog(prog_any, doc, cat);
+    }
+
+    /// Compiles a query that CONSUMES a statically-declared mapping (ADR 0016
+    /// — mappings are STATIC-ONLY items; dynamics only consumes them):
+    ///
+    ///     let q = Query::compile_with_mapping(
+    ///         "from engine e select e.name", &cat,
+    ///         "w", Net__rules(), Net__src())?;
+    ///     env.bind_source_tree("w", doc);
+    ///
+    /// `rules`/`map_src` are the mapping's generated artifacts. The rules parse
+    /// with the same generated parser, their rel array is grafted BEFORE the
+    /// query's own rels (static-fusion order), and the mapping's source param
+    /// is renamed to `bind_as` inside just those rels — the runtime twin of
+    /// `deem!(w: Net)`.
+    pub fn compile_with_mapping(text: str, cat: &SchemaCatalog, bind_as: str,
+                                rules: str, map_src: str) -> Result<Query, QError> {
+        let doc: Writ = writ_new(16384i64);
+        let mut prog_any: WAny = WAny::ref_to(0i64 as *const u8);
+        let far_line: i64 = parse_program_far(text, &doc, &mut prog_any);
+        if prog_any.is_null() {
+            let mut m: String = String::new();
+            m.push_str("Query::compile_with_mapping: parse error at query line ");
+            m.push_i64(far_line);
+            return Result::Err(QError { msg: m });
+        }
+        let mrels_any: WAny = parse_rel_list(rules, &doc);
+        if mrels_any.is_null() {
+            return Result::Err(qerr("Query::compile_with_mapping: malformed mapping rules (generated artifact — version skew?)"));
+        }
+        // merge: mapping rels FIRST, then the query's own (cap 8 shared).
+        let mrels: RQRelArr = mrels_any.view::<RQRelArr>();
+        let nm: i64 = mrels.len();
+        let prog0: RQProgram = prog_any.view::<RQProgram>();
+        let nq: i64 = if prog0.has_rels() { prog0.rels_arr().len() } else { 0i64 };
+        if nm + nq > QREL_MAX {
+            return Result::Err(qerr("Query::compile_with_mapping: too many rels (mapping + query > 8)"));
+        }
+        let merged: RQRelArr = doc.make::<RQRelArr>();
+        let mut mm: RQRelArr = merged;
+        let mut i: i64 = 0i64;
+        while i < nm {
+            mm.set_rel(i, WAny::ref_to(mrels.rel_raw(i) as *const u8));
+            i = i + 1i64;
+        }
+        let mut j: i64 = 0i64;
+        while j < nq {
+            mm.set_rel(nm + j, WAny::ref_to(prog0.rels_arr().rel_raw(j) as *const u8));
+            j = j + 1i64;
+        }
+        mm.set_len(nm + nq);
+        let mut fp: RQProgram = rq_fat_program(prog_any, &doc);
+        fp.rels = WRef::<RQRelArr>::from_any(mm.as_ref());
+        // the mapping's own source param → the caller's binding name, inside
+        // JUST the mapping's rels (the query may use `map_src` for its own).
+        rename_rel_sources(prog_any, 0i64, nm, map_src, bind_as, &doc);
+        return Query::compile_prog(prog_any, doc, cat);
+    }
+
+    fn compile_prog(prog_any: WAny, doc: Writ, cat: &SchemaCatalog) -> Result<Query, QError> {
         // ADR 0016 M2a: graph paths (`from g .a [*] ** v …`) desugar to the
         // classic join-chain plan — SHARED pass with the static macro.
         let mut gperr: String = String::new();
