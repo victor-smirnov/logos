@@ -77,14 +77,25 @@ to simulate metaprogramming C++ lacks:
    datatype (fixed or length-prefixed variable), optional nested running-sum
    index (fan-out 32) for O(log n) rank/range. The unified successor of the
    old PkdFTree/PkdVLETree. One fixed + one variable variant suffice initially.
-3. **B+tree algorithms** (`prototypes/bt/container/`): insert/find, batch ops,
-   branch/leaf split+merge (fixed & variable), walk, CoW-vs-in-place branch
-   ops as a config axis (NOT a container axis). Shuttles (descend-comparing-
-   branch-summaries) collapse to loops with comparator fns.
-4. **Chunk iterators** — leaf-granularity cursors exposing zero-copy spans
-   (`current_key()`, `keys()/values()`, `next_chunk()`), not per-element
-   virtual calls. Build ONLY this; the legacy element-wise iterator layer is
-   ballast.
+3. **B+tree algorithms** (`prototypes/bt/container/`): insert/find, branch/
+   leaf split+merge (fixed & variable), walk, CoW-vs-in-place branch ops as a
+   config axis (NOT a container axis). **STREAMING/BATCH container creation
+   is a KILLER FEATURE (user, 2026-07-10)** — Memoria's bulk-build path
+   (`bt_c_insert_batch_*`, `bt_tools_batch_input.hpp`: feed a stream of
+   entries, nodes fill bottom-up without per-element descent) is one of the
+   framework's core differentiators vs other B+tree libraries and is ported
+   FIRST-CLASS, not as an afterthought bolted onto point inserts.
+4. **Shuttles are the traversal abstraction, NOT ballast** (user correction,
+   2026-07-10): stateful objects walking the tree forward AND backward,
+   TASK-SPECIFIC — an OPEN set (find, skip, select, rank, custom per
+   container/query), unlike the one-or-two iterator shapes of C++ STL
+   containers. Iterators EXIST but are IMPLEMENTED VIA shuttles. The port
+   keeps shuttles as a first-class trait (walk state + branch-summary
+   consumption + direction); what collapses is only the C++ template-functor
+   HIERARCHY around them. Chunk cursors (leaf-granularity, zero-copy spans,
+   `next_chunk()`) are built ON shuttles; the legacy element-wise iterator
+   mixin layer stays behind. Echo in the mock: persistent's bt/shuttle.logos
+   + derive_branch_node's per-op shuttle wrappers already carry the concept.
 5. **The store model** (memory CoW): snapshot DAG of `HistoryNode`
    {parent, children, status ∈ ACTIVE/COMMITTED/DROPPED/DATA_LOCKED,
    snapshot_id, refs}; named branches + `master` as pointers into the DAG;
