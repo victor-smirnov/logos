@@ -11,10 +11,10 @@ use memoria.store;
 use logos.lang.mem;
 
 fn main() -> i32 {
-    // linkage smoke for the sibling skeleton modules
-    if bt_stage() != 0i64 { return 90i32; }
-    if ctr_stage() != 0i64 { return 91i32; }
-    if store_stage() != 0i64 { return 92i32; }
+    // linkage smoke for the sibling modules (stage markers only grow)
+    if bt_stage() < 1i64 { return 90i32; }
+    if ctr_stage() < 0i64 { return 91i32; }
+    if store_stage() < 0i64 { return 92i32; }
 
     unsafe {
         let base: *mut u8 = alloc(4096i64);
