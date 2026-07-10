@@ -913,6 +913,12 @@ Each rel declares 1–8 `name: type` columns; column types are restricted to i64
 
 `pub rel r(…)` emits `pub fn <M>__<r>`; a non-pub rel emits a non-pub fn — callable in-package, rejected cross-package by the ordinary fn visibility check. Non-pub rels remain referencable from other rels of the same mapping (cross-rel references are body-level, resolved inside the compiled rule program). The visibility travels as a leading `-` marker on the generated fn name, consumed at the stdlib emit sites (vis_strip/vis_is_priv, params.logos).
 
+### `item.mapping.visibility` — three-tier visibility, incl. across binary modules
+
+`mapping M` is private to its package; `pub(module) mapping M` is visible to every package of its own module and nowhere else; `pub mapping M` is consumable anywhere — including from another module compiled against this module's archive (the consumed item survives the metacall flip as MAPPING_DEF_DONE with its identity intact, so consumers register its rules from the archived AST). Violations are named errors stating the tier and the fix.
+
+Evidence: `tests/logos/pass/wql_mapping_cross_module_e2e.logos`, `tests/logos/fail/wql_mapping_cross_module_{priv,modvis}_fail.logos`, `tests/logos/wql_map_lib/`
+
 ### `item.mapping.lowering-seam` — mapping lowers through the token-macro item seam
 
 Sema validates the item, reconstructs canonical `(name, params, body)` text from the checked AST, and dispatches it to the `#[token_macro]` handler `__mapping_item` (logos.std.wql.mapping_item — must be in scope via `use`; the error otherwise names the missing import). The consumed MAPPING_DEF node is marked FN_MACRO_CALL_ITEM_DONE exactly like an item-position fn-macro. The mapping introduces no nominal type in this slice (arrives with the mapping-as-value/functor slice).
