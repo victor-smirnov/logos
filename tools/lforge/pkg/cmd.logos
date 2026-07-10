@@ -486,11 +486,16 @@ fn build_test_bin(test_logos: &String,
         return 1;
     }
 
-    // cc <obj> [<lib>...] <stdlib_archives> -lpthread -lm -o <bin>
+    // cc <obj> --start-group [<lib>...] <stdlib_archives> --end-group … -o <bin>
+    // ALL THREE stdlib layers (std+mem+lang) inside one ld group: a test may
+    // reference any layer directly (e.g. logos.lang.mem::alloc), and archive
+    // cross-references make single-pass left-to-right ordering fragile —
+    // the group mirrors the repo ctest harness (run_test.sh).
     let mut largv: Vec<String> = vec_new::<String>();
     push_arg(&mut largv, "cc");
     push_arg(&mut largv, "-Wl,--gc-sections");
     push_string_arg(&mut largv, &obj_path);
+    push_arg(&mut largv, "-Wl,--start-group");
     let mut lk: i64 = 0 as i64;
     while lk < lan {
         let s: &String = all_lib_archs.borrow(lk);
@@ -500,12 +505,18 @@ fn build_test_bin(test_logos: &String,
     let lib_view: str = lib_dir.as_str();
     let mut p1: String = String::new();
     p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv.push(p1);
+    let mut p1m: String = String::new();
+    p1m.push_str(lib_view); append_path(&mut p1m, "liblogos-mem.a"); largv.push(p1m);
+    let mut p1l: String = String::new();
+    p1l.push_str(lib_view); append_path(&mut p1l, "liblogos-lang.a"); largv.push(p1l);
     let mut p2: String = String::new();
     p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv.push(p2);
     let mut p3: String = String::new();
     p3.push_str(lib_view); append_path(&mut p3, "liblstdlib_rt.a"); largv.push(p3);
     let mut p4: String = String::new();
     p4.push_str(lib_view); append_path(&mut p4, "liblstdlib_uring.a"); largv.push(p4);
+    push_arg(&mut largv, "-Wl,--end-group");
+    push_arg(&mut largv, "-Wl,--allow-multiple-definition");
     push_arg(&mut largv, "-lpthread");
     push_arg(&mut largv, "-lm");
     push_arg(&mut largv, "-lstdc++");
