@@ -879,7 +879,32 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
             tv.kind() == LogosType::Kind::ZonedStruct)
             return {ptr, mlir_struct_key(t)};
     }
-    std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct access\n");
+    // A receiver whose TYPE says plainly "not a struct" (slice/str, scalar,
+    // fn-value, …) is a correct NEGATIVE answer, not a failure: callers probe
+    // this helper on the lvalue route and fall back by design (first seen as
+    // years of "unsupported receiver kind" noise from fmt's variadic tuples
+    // with str elements — the fallback always worked; the print was the bug).
+    if (recv_ty) {
+        auto k = TypeRef(recv_ty).kind();
+        TypeRef pt = TypeRef(recv_ty).pointee()
+                   ? TypeRef(TypeRef(recv_ty).pointee())
+                   : TypeRef(recv_ty);
+        auto pk = pt.kind();
+        auto nonstruct = [](LogosType::Kind kk) {
+            return kk != LogosType::Kind::Struct
+                && kk != LogosType::Kind::ZonedStruct
+                && kk != LogosType::Kind::Tuple;
+        };
+        if (nonstruct(k) && nonstruct(pk))
+            return {nullptr, {}};
+    }
+    // Name the genuinely unexpected offender: WHICH type, in which fn.
+    std::fprintf(stderr,
+                 "mlir_gen: unsupported receiver kind for struct access "
+                 "(recv type '%s', kind %d, in %s)\n",
+                 recv_ty ? std::string(type_str(recv_ty)).c_str() : "<none>",
+                 recv_ty ? static_cast<int>(TypeRef(recv_ty).kind()) : -1,
+                 cur_fn_name_.empty() ? "<unknown fn>" : cur_fn_name_.c_str());
     return {nullptr, {}};
 }
 
