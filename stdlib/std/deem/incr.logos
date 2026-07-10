@@ -136,6 +136,27 @@ pub struct FactStore {
                                  // (slot ≥ 0 = insert, −slot−1 = retract)
     hist:    Store<FsStoreCfg>,  // the data store (ADR 0017): epoch history
     heads:   Vec<u64>,           // commit id per epoch (heads[e] = epoch e's SET)
+    // ── S4 v0 branches (ADR 0015 §5 / ADR 0017 P2): assumption-ΔEDB
+    // exploration over the LIVE store. An active branch records its EFFECTIVE
+    // ±slot ops; branch_end rolls the live set back by applying the INVERSE
+    // ops — the engine consumes the rollback delta like any other epoch (law
+    // I4: fork/merge is EDB-only, IDB re-derives incrementally). Ended
+    // branches retain name + head + log; select_one re-applies the winner's
+    // log, registers a MERGE commit in the history DAG (winner = first
+    // parent, losers = extra parents), and RELEASES the losers' heads.
+    br_on:   bool,               // a branch is recording
+    br_pnm:  String,             // active branch's name
+    br_log:  Vec<i64>,           // active branch's ±slot ops
+    br_name: Vec<String>,        // ended branches: names
+    br_head: Vec<u64>,           //   their epoch-head commits
+    br_ops:  Vec<i64>,           //   retained logs (flat pool)
+    br_off:  Vec<i64>,           //   per-branch offset into br_ops
+    br_cnt:  Vec<i64>,           //   per-branch op count
+    mg_win:  Vec<String>,        // merges: winner branch name
+    mg_cid:  Vec<u64>,           //   merge commit id in the history DAG
+    mg_lsr:  Vec<String>,        //   loser names (flat pool)
+    mg_loff: Vec<i64>,           //   per-merge offset into mg_lsr
+    mg_lcnt: Vec<i64>,           //   per-merge loser count
 }
 
 // An OWNED scalar key element. RtVal::S carries a `str` VIEW (borrows the source
@@ -269,6 +290,19 @@ impl FactStore {
             epend:   vec_new::<i64>(),
             hist:    store_open::<FsStoreCfg>(),
             heads:   vec_new::<u64>(),
+            br_on:   false,
+            br_pnm:  String::new(),
+            br_log:  vec_new::<i64>(),
+            br_name: vec_new::<String>(),
+            br_head: vec_new::<u64>(),
+            br_ops:  vec_new::<i64>(),
+            br_off:  vec_new::<i64>(),
+            br_cnt:  vec_new::<i64>(),
+            mg_win:  vec_new::<String>(),
+            mg_cid:  vec_new::<u64>(),
+            mg_lsr:  vec_new::<String>(),
+            mg_loff: vec_new::<i64>(),
+            mg_lcnt: vec_new::<i64>(),
         });
     }
 
@@ -320,6 +354,7 @@ impl FactStore {
                 let cn: WAny = self.node.get(i);
                 self.pend.push(cn, 1i64);
                 self.epend.push(i);
+                if self.br_on { self.br_log.push(i); }
             }
             return;   // present-again → no-op, no push
         }
@@ -335,6 +370,7 @@ impl FactStore {
         }
         self.pend.push(node, 1i64);
         self.epend.push(slot);
+        if self.br_on { self.br_log.push(slot); }
     }
 
     // Retract a fact. Miss OR already-absent → no-op (no phantom minus). Present
@@ -348,6 +384,7 @@ impl FactStore {
         let cn: WAny = self.node.get(i);
         self.pend.push(cn, -1i64);
         self.epend.push(0i64 - i - 1i64);
+        if self.br_on { self.br_log.push(0i64 - i - 1i64); }
     }
 
     // Move out the accumulated ± changelog and reset it. The returned ZBatch is
@@ -434,6 +471,179 @@ impl FactStore {
             }
         }
         return hit;
+    }
+
+    // ── S4 v0 fork/merge (ADR 0015 §5 select_one; ADR 0017 P2) ──────────
+
+    // Apply a ±slot op to the live set — the rollback / re-apply primitive.
+    // Mirrors insert()'s re-insert path and retract() (presence + ZBatch +
+    // epoch log), WITHOUT branch recording: callers run with br_on == false.
+    fn apply_slot_op(self: &mut FactStore, op: i64) {
+        let slot: i64 = if op >= 0i64 { op } else { 0i64 - op - 1i64 };
+        if op >= 0i64 {
+            if !self.present.get(slot) {
+                self.present.set(slot, true);
+                let cn: WAny = self.node.get(slot);
+                self.pend.push(cn, 1i64);
+                self.epend.push(slot);
+            }
+        } else {
+            if self.present.get(slot) {
+                self.present.set(slot, false);
+                let cn: WAny = self.node.get(slot);
+                self.pend.push(cn, -1i64);
+                self.epend.push(0i64 - slot - 1i64);
+            }
+        }
+    }
+
+    /// Begins recording an assumption branch. Precondition: no branch active
+    /// and a clean epoch boundary (take_delta consumed).
+    pub fn branch_begin(self: &mut FactStore, name: str) {
+        if self.br_on { panic("FactStore::branch_begin: a branch is already active"); }
+        if self.epend.len() != 0i64 { panic("FactStore::branch_begin: pending epoch ops — take_delta first"); }
+        let mut nm: String = String::new();
+        nm.push_str(name);
+        self.br_pnm = nm;
+        self.br_on = true;
+    }
+
+    /// Ends the active branch: captures its head (the last committed epoch),
+    /// retains its log for select_one, and rolls the live set back with the
+    /// INVERSE ops. The caller feeds the rollback delta to the engine via the
+    /// usual take_delta()/epoch() cycle.
+    pub fn branch_end(self: &mut FactStore) {
+        if !self.br_on { panic("FactStore::branch_end: no active branch"); }
+        if self.epend.len() != 0i64 { panic("FactStore::branch_end: pending epoch ops — take_delta first"); }
+        self.br_on = false;
+        let mut nm: String = String::new();
+        nm.push_str(self.br_pnm.as_str());
+        self.br_name.push(nm);
+        let bh: u64 = if self.heads.len() == 0i64 { 0u64 }
+                      else { self.heads.get(self.heads.len() - 1i64) };
+        self.br_head.push(bh);
+        self.br_off.push(self.br_ops.len());
+        self.br_cnt.push(self.br_log.len());
+        let n: i64 = self.br_log.len();
+        let mut i: i64 = 0i64;
+        while i < n { self.br_ops.push(self.br_log.get(i)); i = i + 1i64; }
+        // Roll back: inverse ops in reverse order (op negation `−op−1` is the
+        // involution slot s ↔ −s−1, i.e. insert ↔ retract of the same slot).
+        let mut j: i64 = n - 1i64;
+        while j >= 0i64 {
+            let op: i64 = self.br_log.get(j);
+            self.apply_slot_op(0i64 - op - 1i64);
+            j = j - 1i64;
+        }
+        self.br_log.clear();
+    }
+
+    /// Resolves the ended-branch set by select_one: re-applies the winner's
+    /// ops to the live set, registers a MERGE commit (winner's head = first
+    /// parent, each loser's head = extra parent) in the history DAG, RELEASES
+    /// the losers' head commits, records the merge for querying, and clears
+    /// the branch set. Returns the merge commit id. The caller feeds the
+    /// re-apply delta to the engine via take_delta()/epoch().
+    pub fn select_one(self: &mut FactStore, winner: str) -> u64 {
+        if self.br_on { panic("FactStore::select_one: end the active branch first"); }
+        if self.epend.len() != 0i64 { panic("FactStore::select_one: pending epoch ops — take_delta first"); }
+        let nb: i64 = self.br_name.len();
+        let mut w: i64 = 0i64 - 1i64;
+        {
+            let mut i: i64 = 0i64;
+            while i < nb {
+                if str_eq(self.br_name.borrow(i).as_str(), winner) { w = i; }
+                i = i + 1i64;
+            }
+        }
+        if w < 0i64 { panic("FactStore::select_one: unknown branch"); }
+        // Re-apply the winner's ops (forward order).
+        let off: i64 = self.br_off.get(w);
+        let cnt: i64 = self.br_cnt.get(w);
+        let mut k: i64 = 0i64;
+        while k < cnt { self.apply_slot_op(self.br_ops.get(off + k)); k = k + 1i64; }
+        // Merge commit: winner first, losers extra parents (skipping losers
+        // whose head coincides with the winner's — an op-less branch).
+        let wh: u64 = self.br_head.get(w);
+        let mut losers: Vec<u64> = vec_new::<u64>();
+        {
+            let mut i: i64 = 0i64;
+            while i < nb {
+                if i != w {
+                    let lh: u64 = self.br_head.get(i);
+                    if lh != wh { losers.push(lh); }
+                }
+                i = i + 1i64;
+            }
+        }
+        let mc: u64 = self.hist.merge(wh, &losers);
+        {
+            let nl: i64 = losers.len();
+            let mut i: i64 = 0i64;
+            while i < nl { self.hist.release(losers.get(i)); i = i + 1i64; }
+        }
+        // Record the merge (queryable: merge_count / merge_winner / …).
+        {
+            let mut nm: String = String::new();
+            nm.push_str(winner);
+            self.mg_win.push(nm);
+            self.mg_cid.push(mc);
+            self.mg_loff.push(self.mg_lsr.len());
+            self.mg_lcnt.push(nb - 1i64);
+            let mut i: i64 = 0i64;
+            while i < nb {
+                if i != w {
+                    let mut ln: String = String::new();
+                    ln.push_str(self.br_name.borrow(i).as_str());
+                    self.mg_lsr.push(ln);
+                }
+                i = i + 1i64;
+            }
+        }
+        self.br_name.clear();
+        self.br_head.clear();
+        self.br_ops.clear();
+        self.br_off.clear();
+        self.br_cnt.clear();
+        return mc;
+    }
+
+    // ── branch/merge history reads ──
+    /// Number of ended, not-yet-resolved branches.
+    pub fn branch_count(self: &FactStore) -> i64 { return self.br_name.len(); }
+    /// Name of ended branch `i` (owned copy).
+    pub fn branch_name(self: &FactStore, i: i64) -> String {
+        let mut out: String = String::new();
+        out.push_str(self.br_name.borrow(i).as_str());
+        return out;
+    }
+    /// Head commit of ended branch `i`.
+    pub fn branch_head(self: &FactStore, i: i64) -> u64 { return self.br_head.get(i); }
+    /// Number of resolved merges.
+    pub fn merge_count(self: &FactStore) -> i64 { return self.mg_win.len(); }
+    /// Winner branch name of merge `i` (owned copy).
+    pub fn merge_winner(self: &FactStore, i: i64) -> String {
+        let mut out: String = String::new();
+        out.push_str(self.mg_win.borrow(i).as_str());
+        return out;
+    }
+    /// The history-DAG commit id of merge `i`.
+    pub fn merge_commit(self: &FactStore, i: i64) -> u64 { return self.mg_cid.get(i); }
+    /// Number of losers of merge `i`.
+    pub fn merge_loser_count(self: &FactStore, i: i64) -> i64 { return self.mg_lcnt.get(i); }
+    /// Name of loser `j` of merge `i` (owned copy).
+    pub fn merge_loser(self: &FactStore, i: i64, j: i64) -> String {
+        let mut out: String = String::new();
+        out.push_str(self.mg_lsr.borrow(self.mg_loff.get(i) + j).as_str());
+        return out;
+    }
+    /// Parent commits of a history-DAG commit (e.g. a merge's [winner, losers…]).
+    pub fn hist_parents_of(self: &mut FactStore, id: u64) -> Vec<u64> {
+        return self.hist.parents_of(id);
+    }
+    /// Whether a history-DAG commit has been released (losers are, post-merge).
+    pub fn hist_is_released(self: &mut FactStore, id: u64) -> bool {
+        return self.hist.is_released(id);
     }
 
     // Materialize the CURRENT present set into the owned arena as a Writ array of
