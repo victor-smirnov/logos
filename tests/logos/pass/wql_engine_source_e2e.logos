@@ -1,10 +1,10 @@
 // wql_engine_source_e2e — THE ENGINE AS A SOURCE (ADR 0016 M5, case S).
-// A `deem!` parameter typed `&IncrRec` exposes the reasoner's own past as
+// A deem parameter typed `&IncrRec` exposes the reasoner's own past as
 // four native relations — <p>_trace, <p>_epochs, <p>_tail, <p>_controls —
 // materialized by logos.std.deem's state materializers. This is ADR 0015's
 // I1 as a mapping-class contract, and it replaces the hand-rolled per-test
 // materialization of the L0/L1 Observer tests. Asserts:
-//   (a) the ENCOUNTER rule as a static deem! query over <p>_tail: one row
+//   (a) the ENCOUNTER rule as a static deem query over <p>_tail: one row
 //       (epoch, pending>0) at the budget cut — decision-time irreducibility;
 //   (b) the honesty pair's second half: after raise+converge the SAME query
 //       returns zero rows — the residual dissolves in retrospect;
