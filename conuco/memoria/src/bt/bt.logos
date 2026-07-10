@@ -1,0 +1,12 @@
+// memoria.bt — B+tree algorithms over packed node blocks (ADR 0018 M2).
+//
+// Planned surface (C++ reference: prototypes/bt/container/*, bt_ss/):
+// node layouts composed of memoria.pkd streams; insert/find; branch/leaf
+// split + merge (fixed & variable); walk; CoW-vs-in-place branch ops as a
+// PROFILE axis; chunk iterators (leaf-granularity span cursors). The C++
+// shuttles collapse to descent loops with comparator fns; NDT0 dispatch
+// collapses to a macro-emitted match over node kinds.
+package memoria.bt;
+
+/// Stage marker: bumps as M2 slices land (0 = skeleton).
+pub fn bt_stage() -> i64 { return 0i64; }

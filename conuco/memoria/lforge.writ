@@ -1,0 +1,14 @@
+{
+    name:    "memoria",
+    version: "0.1.0",
+    requires_logos: "0.1",
+    targets: [
+        { kind: "lib", name: "memoria-pkd",   src: "src/pkd" },
+        { kind: "lib", name: "memoria-bt",    src: "src/bt",
+          deps: ["memoria-pkd"] },
+        { kind: "lib", name: "memoria-ctr",   src: "src/ctr",
+          deps: ["memoria-bt", "memoria-pkd"] },
+        { kind: "lib", name: "memoria-store", src: "src/store",
+          deps: ["memoria-ctr", "memoria-bt", "memoria-pkd"] }
+    ]
+}

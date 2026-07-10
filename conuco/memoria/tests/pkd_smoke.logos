@@ -1,0 +1,63 @@
+// pkd_smoke — the PackedAllocator v0 primitives over a heap block: format,
+// slot alloc (alignment, lengths), exhaustion, out-of-range and double-alloc
+// failures, and offset-only addressing (block copied byte-for-byte to a new
+// address stays fully readable — the relocatability contract).
+package test;
+
+use memoria.pkd;
+use memoria.bt;
+use memoria.ctr;
+use memoria.store;
+use logos.lang.mem;
+
+fn main() -> i32 {
+    // linkage smoke for the sibling skeleton modules
+    if bt_stage() != 0i64 { return 90i32; }
+    if ctr_stage() != 0i64 { return 91i32; }
+    if store_stage() != 0i64 { return 92i32; }
+
+    unsafe {
+        let base: *mut u8 = alloc(4096i64);
+        if !pkd_init(base, 4096u32, 4u32) { return 1i32; }
+        if pkd_block_size(base as *const u8) != 4096u32 { return 2i32; }
+        if pkd_slot_count(base as *const u8) != 4u32 { return 3i32; }
+        // tables = 12 + 4*8 = 44 → tail aligns to 48
+        if pkd_tail(base as *const u8) != 48u32 { return 4i32; }
+
+        // slot 1: 10 bytes → offset 48, tail bumps to 64 (align8(10)=16)
+        let o1: u32 = pkd_alloc(base, 1u32, 10u32);
+        if o1 != 48u32 { return 5i32; }
+        if pkd_len(base as *const u8, 1u32) != 10u32 { return 6i32; }
+        if pkd_tail(base as *const u8) != 64u32 { return 7i32; }
+        // double-alloc on the same slot fails
+        if pkd_alloc(base, 1u32, 8u32) != 0u32 { return 8i32; }
+        // out-of-range slot fails
+        if pkd_alloc(base, 4u32, 8u32) != 0u32 { return 9i32; }
+
+        // write through slot 1's payload, read back
+        let p1: *mut u8 = pkd_at(base, 1u32);
+        if (p1 as i64) == 0i64 { return 10i32; }
+        *p1 = 0xABu8;
+        *(((p1 as i64) + 9i64) as *mut u8) = 0xCDu8;
+
+        // slot 0: exhaustion — bigger than the remaining tail fails cleanly
+        if pkd_alloc(base, 0u32, 5000u32) != 0u32 { return 11i32; }
+        let o0: u32 = pkd_alloc(base, 0u32, 4000u32);
+        if o0 != 64u32 { return 12i32; }
+        if pkd_free(base as *const u8) != 4096u32 - 64u32 - 4000u32 { return 13i32; }
+
+        // ── relocatability: byte-copy the block, read via the COPY only ──
+        let copy: *mut u8 = alloc(4096i64);
+        let mut i: i64 = 0i64;
+        while i < 4096i64 {
+            *(((copy as i64) + i) as *mut u8) = *(((base as i64) + i) as *const u8);
+            i = i + 1i64;
+        }
+        if pkd_offset(copy as *const u8, 1u32) != 48u32 { return 20i32; }
+        if pkd_len(copy as *const u8, 1u32) != 10u32 { return 21i32; }
+        let c1: *mut u8 = pkd_at(copy, 1u32);
+        if *c1 != 0xABu8 { return 22i32; }
+        if *(((c1 as i64) + 9i64) as *const u8) != 0xCDu8 { return 23i32; }
+    }
+    return 0i32;
+}

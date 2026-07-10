@@ -1,0 +1,108 @@
+// memoria.pkd — the PackedAllocator: a sub-allocator inside ONE contiguous,
+// fixed-size, relocatable block (ADR 0018 §1.2.1; C++ reference:
+// core/packed/tools/packed_allocator.hpp).
+//
+// A block is a flat byte region addressed only by OFFSETS from its own start —
+// no absolute pointers inside — so a block can be memcpy'd, dumped, mapped or
+// shipped and stays valid. The allocator owns a small header, a slot table of
+// offsets (one per sub-structure "element"), and a bump-allocated data tail.
+// Nesting: a slot's payload may itself be a PackedAllocator, which is how a
+// B+tree leaf composes N packed streams inside one node block (memoria-bt).
+//
+// v0 layout (all fields little-endian u32, offsets relative to block start):
+//
+//   [0]  block_size      total block bytes (fixed at init)
+//   [4]  slot_count      number of slots in the table
+//   [8]  tail            bump pointer: next free byte offset
+//   [12] slot_off[slot_count]   0 = unallocated, else payload offset
+//   [..] slot_len[slot_count]   payload byte length (0 when unallocated)
+//   [..] payloads, 8-byte aligned, allocated front-to-back
+//
+// v0 scope: init / alloc / spans / free-tail accounting. In-place resize with
+// slot shifting (the C++ `resizeBlock` dance) and nested-allocator bitmaps
+// land in M1 proper.
+package memoria.pkd;
+
+const HDR_BYTES: u32 = 12u32;
+
+// ── raw u32 cells ────────────────────────────────────────────────────────────
+
+unsafe fn rd_u32(base: *const u8, off: u32) -> u32 {
+    return *(((base as i64) + (off as i64)) as *const u32);
+}
+
+unsafe fn wr_u32(base: *mut u8, off: u32, v: u32) {
+    *(((base as i64) + (off as i64)) as *mut u32) = v;
+}
+
+// ── header accessors ─────────────────────────────────────────────────────────
+
+/// Total block size fixed at `pkd_init`.
+pub unsafe fn pkd_block_size(base: *const u8) -> u32 { return rd_u32(base, 0u32); }
+/// Number of slots in the table.
+pub unsafe fn pkd_slot_count(base: *const u8) -> u32 { return rd_u32(base, 4u32); }
+/// Current bump offset (next free byte).
+pub unsafe fn pkd_tail(base: *const u8) -> u32 { return rd_u32(base, 8u32); }
+
+fn slot_off_pos(slot: u32) -> u32 { return HDR_BYTES + slot * 4u32; }
+unsafe fn slot_len_pos(base: *const u8, slot: u32) -> u32 {
+    return HDR_BYTES + pkd_slot_count(base) * 4u32 + slot * 4u32;
+}
+
+/// Payload offset of `slot` (0 = unallocated).
+pub unsafe fn pkd_offset(base: *const u8, slot: u32) -> u32 {
+    return rd_u32(base, slot_off_pos(slot));
+}
+
+/// Payload byte length of `slot` (0 when unallocated).
+pub unsafe fn pkd_len(base: *const u8, slot: u32) -> u32 {
+    return rd_u32(base, slot_len_pos(base, slot));
+}
+
+/// Free bytes remaining in the data tail.
+pub unsafe fn pkd_free(base: *const u8) -> u32 {
+    return pkd_block_size(base) - pkd_tail(base);
+}
+
+// ── init / alloc ─────────────────────────────────────────────────────────────
+
+fn align8(v: u32) -> u32 { return (v + 7u32) & (0xFFFF_FFFFu32 - 7u32); }
+
+/// Formats `base[0..block_size)` as an empty allocator with `slots` table
+/// entries. Returns false when the block can't even hold the tables.
+pub unsafe fn pkd_init(base: *mut u8, block_size: u32, slots: u32) -> bool {
+    let tables: u32 = HDR_BYTES + slots * 8u32;
+    if tables > block_size { return false; }
+    wr_u32(base, 0u32, block_size);
+    wr_u32(base, 4u32, slots);
+    wr_u32(base, 8u32, align8(tables));
+    let mut i: u32 = 0u32;
+    while i < slots * 2u32 {
+        wr_u32(base, HDR_BYTES + i * 4u32, 0u32);
+        i = i + 1u32;
+    }
+    return true;
+}
+
+/// Allocates `size` payload bytes for `slot` from the tail (8-byte aligned).
+/// Returns the payload offset, or 0 on failure (slot taken / out of space /
+/// slot out of range). Offset 0 can never be a valid payload (the header is
+/// there), so 0 is a safe failure sentinel.
+pub unsafe fn pkd_alloc(base: *mut u8, slot: u32, size: u32) -> u32 {
+    if slot >= pkd_slot_count(base as *const u8) { return 0u32; }
+    if pkd_offset(base as *const u8, slot) != 0u32 { return 0u32; }
+    let at: u32 = pkd_tail(base as *const u8);
+    let sz: u32 = align8(size);
+    if at + sz > pkd_block_size(base as *const u8) { return 0u32; }
+    wr_u32(base, 8u32, at + sz);
+    wr_u32(base, slot_off_pos(slot), at);
+    wr_u32(base, slot_len_pos(base as *const u8, slot) , size);
+    return at;
+}
+
+/// Raw payload pointer for an allocated `slot`; null when unallocated.
+pub unsafe fn pkd_at(base: *mut u8, slot: u32) -> *mut u8 {
+    let off: u32 = pkd_offset(base as *const u8, slot);
+    if off == 0u32 { return 0i64 as *mut u8; }
+    return ((base as i64) + (off as i64)) as *mut u8;
+}

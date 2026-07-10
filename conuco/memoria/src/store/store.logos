@@ -1,0 +1,14 @@
+// memoria.store — the memory CoW store (ADR 0018 M3; C++ reference:
+// store/memory_cow/*).
+//
+// Planned: snapshot DAG of history nodes {parent, children, status,
+// snapshot_id, refs}; named branches + master; per-snapshot container
+// directory; block header carries ctr_type_hash; refcounted CoW blocks with
+// deferred DAG GC; container-flavour REGISTRATION at open (the instantiating
+// module registers — Memoria-style); flat-binary dump/load. PLUS the
+// multi-parent merge commit — our ADR-0017 S4 extension Memoria lacks.
+// Threads-only concurrency; the fibers SWMR store comes later (no mmap).
+package memoria.store;
+
+/// Stage marker: bumps as M3 slices land (0 = skeleton).
+pub fn store_stage() -> i64 { return 0i64; }

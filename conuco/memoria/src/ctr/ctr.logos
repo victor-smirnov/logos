@@ -1,0 +1,11 @@
+// memoria.ctr — container declarations: Map, Set, Vector, Collection
+// (ADR 0018 M2; C++ reference: containers/{map,set,vector,collection}).
+//
+// A container is declared by a WritStatic config (the persistent pattern;
+// profiles included — ID widths are a profile axis). Declaration sugar comes
+// later, once real usage exists; the config space is treated as a small
+// database that Deem/EL can query and validate.
+package memoria.ctr;
+
+/// Stage marker: bumps as M2 slices land (0 = skeleton).
+pub fn ctr_stage() -> i64 { return 0i64; }
