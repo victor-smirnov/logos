@@ -135,11 +135,19 @@ sequences) driven through both sides; the YAML replay format is the template.
 
 ## 2. Proposed shape (for discussion)
 
+### 2.0 Build (user, 2026-07-10)
+
+conuco/memoria is a SEPARATE project temporarily living in this repo. It
+builds via **lforge** (its own `lforge.hermes`, multiple lib targets), NOT via
+the repo CMake. lforge builds lib targets serially in topo order today —
+parallelizing independent `--emit-module` targets is a planned lforge
+improvement along the way.
+
 ### 2.1 conuco/memoria layout
 
 ```
 conuco/memoria/
-  memoria.module          # depends logos-std (conuco tier, tracks HEAD)
+  lforge.hermes           # lforge project: several lib targets (pkd, bt, ctr, store-mem)
   src/pkd/                # PackedAllocator, PackedDataTypeBuffer (fse+vle)
   src/bt/                 # tree algorithms, generic over macro-emitted node layouts
   src/ctr/                # container declarations: map, set, vector, collection
@@ -187,8 +195,27 @@ topic.)
   op sequences. PLUS our merge-commit extension (S4).
 - **M4** — Deem rehosting: FactStore over the seam → epochs/branches/journal
   green over memoria store (existing ADR-0017 gate tests as the suite).
-- **M5** — SWMR lite (`lite_raw` → mapped): superblock, double-buffered
-  header flip, block counters, eviction; real durability.
+- ~~M5 — SWMR lite (`lite_raw` → mapped)~~ — NOT NOW (user, 2026-07-10): when
+  SWMR lands it is built DIRECTLY ON FIBERS, without mmap (io_uring-era file
+  I/O per the concurrency model). Current goal ends at M4: базовая Мемория +
+  полная интеграция с инкрементным Deem.
+
+### 2.4 No compilation firewall (user, 2026-07-10)
+
+Memoria heavily uses the compilation-firewall pattern — the `containers-api/`
+vs `containers/` split, virtual `ICtrApi<CtrName,Profile>` wrappers over
+concrete containers, type-erased `CtrReferenceable`, explicit template
+instantiation confined to generated `.cpp` TUs — to keep its internal
+templates OUT of client translation units, purely for C++ compile speed. In
+Logos NONE of this is reproduced: modules precompile their generics, clients
+see concrete container types directly, and the api/impl mirror-header split
+collapses into one definition.
+
+Type erasure survives ONLY where it is load-bearing at RUNTIME, not at
+compile time: (a) the registry's operations vtables (block/ctr dispatch by
+type hash — a raw block must resolve to code without static knowledge), and
+(b) the stdlib↔module seam traits (IStore/ISnapshot/ICtr), where dyn is the
+module boundary itself. Everything else is direct, monomorphized calls.
 
 ## 4. Design decisions (user, 2026-07-10)
 
