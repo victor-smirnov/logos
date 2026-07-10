@@ -28,33 +28,33 @@ use logos.std.wql.mapping_item;
 // (f) consumers FIRST — the mapping pre-scan must make item order irrelevant.
 
 // (a) param named `w`, mapping's own param is `g`: the rename is exercised.
-resource all_engines = deem!(w: Net) { from engine e select (e.owner, e.name) };
+pub deem all_engines(w: Net) { from engine e select (e.owner, e.name) }
 
 // (b) mapping rel + direct graph access through the SAME enriched param.
-resource pg_owner_kind = deem!(w: Net) {
+pub deem pg_owner_kind(w: Net) {
     from engine e join w d on d.child == e.owner
     where e.name == "pg"
     select d.kind
-};
+}
 
 // (c) mapping rel ⋈ the consumer's own slice param.
 struct Svc { pub id: i64, pub label: str }
-resource port_labels = deem!(w: Net, svcs: &[Svc]) {
+pub deem port_labels(w: Net, svcs: &[Svc]) {
     from port p join svcs s on s.id == p.p
     select (p.p, s.label)
-};
+}
 
 // (d) a consumer rel on top of a spliced rel.
-resource big_ports = deem!(w: Net) {
+pub deem big_ports(w: Net) {
     rel big(p: i64) { from port r where r.p >= 1000 select r.p; }
     from big b select b.p
-};
+}
 
 // (e) the hand-written twin of all_engines (no mapping involved).
-resource all_engines_hand = deem!(g: &Writ) {
+pub deem all_engines_hand(g: &Writ) {
     rel engine(owner: i64, name: str) { from g ** .engine e select (e.parent, e.vs); }
     from engine e select (e.owner, e.name)
-};
+}
 
 pub mapping Net(g: &Writ) {
     pub rel engine(owner: i64, name: str) {

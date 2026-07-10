@@ -17,11 +17,11 @@ struct Reg  { pub rid: i64,  pub bonus: i64 }
 
 // 3-way chain: emp → dept (e.dept == d.id) → region (d.region == r.rid);
 // project salary + region bonus.
-resource emp_bonus = deem!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+pub deem emp_bonus(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
     from emps e
     join depts d on e.dept == d.id
     join regs r on d.region == r.rid
-    select e.salary + r.bonus };
+    select e.salary + r.bonus }
 
 fn main() -> i32 {
     let emps: [Emp; 4] = [

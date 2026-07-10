@@ -15,18 +15,18 @@ struct Dept { pub id: i64,   pub region: i64 }
 struct Reg  { pub rid: i64,  pub bonus: i64 }
 
 // order by the joined total, descending, capped at 2.
-resource top2 = deem!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+pub deem top2(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
     from emps e
     join depts d on e.dept == d.id
     join regs r on d.region == r.rid
-    select e.salary + r.bonus order by e.salary + r.bonus desc limit 2 };
+    select e.salary + r.bonus order by e.salary + r.bonus desc limit 2 }
 
 // `select first` over the same chain with an ascending order → the MINIMUM.
-resource least = deem!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+pub deem least(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
     from emps e
     join depts d on e.dept == d.id
     join regs r on d.region == r.rid
-    select first e.salary + r.bonus order by e.salary + r.bonus };
+    select first e.salary + r.bonus order by e.salary + r.bonus }
 
 fn main() -> i32 {
     let emps: [Emp; 4] = [

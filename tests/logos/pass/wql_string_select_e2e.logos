@@ -36,7 +36,7 @@ struct Person {
 //       }
 //       return __out;
 //   }
-resource eng_names = deem!(people: &[Person]) { from people p where p.dept == "eng" select p.name : str };
+pub deem eng_names(people: &[Person]) { from people p where p.dept == "eng" select p.name : str }
 
 fn main() -> i32 {
     let people: [Person; 4] = [

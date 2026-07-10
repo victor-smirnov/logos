@@ -35,26 +35,26 @@ fn hdr(label: str) {
 // ── the queries: graph-path sugar (ADR 0016 M2a) — each one reads like the
 // question it asks. No structs, no walk, no root-handle plumbing.
 // every `engine` setting, wherever it sits (`**` = descend any depth)
-resource engines = deem!(g: &Writ) {
+pub deem engines(g: &Writ) {
     from g ** .engine e select e.vs : str
-};
+}
 // numeric leaves over a threshold, anywhere in the document
-resource big_nums = deem!(g: &Writ, min: i64) {
+pub deem big_nums(g: &Writ, min: i64) {
     from g ** v {i64} where v.vi >= min select (v.idx, v.vi)
-};
+}
 // top-level map sections (`*` = one step from the root; {map} filters kind)
-resource sections = deem!(g: &Writ) {
+pub deem sections(g: &Writ) {
     from g * s {map} select s.key : str
-};
+}
 // i64 leaves inside the `db` subtree — the old 5-line rel is now the path
-resource db_ints = deem!(g: &Writ) {
+pub deem db_ints(g: &Writ) {
     from g .db ** v {i64} select (v.key, v.vi)
-};
+}
 // per-section edge counts (descend under each top-level map section)
-resource section_sizes = deem!(g: &Writ) {
+pub deem section_sizes(g: &Writ) {
     from g * s {map} ** v
     group by s.key aggregate n = count() select (key, n) order by key
-};
+}
 
 fn main() -> i32 {
     // ── the document: text → owned Writ, one call ───────────────────────────

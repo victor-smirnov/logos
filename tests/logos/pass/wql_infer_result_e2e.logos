@@ -26,14 +26,14 @@ struct Person {
 
 // STR projection, STR filter — no `: str`, no `with`. Reflection types `name`
 // and `dept` as `str` from the schema; the result element is inferred `str`.
-resource eng_names = deem!(people: &[Person]) { from people p where p.dept == "eng" select p.name };
+pub deem eng_names(people: &[Person]) { from people p where p.dept == "eng" select p.name }
 
 // INT projection — inferred `i64` from the schema's `age: i64`.
-resource ages = deem!(people: &[Person]) { from people p where p.age >= 30 select p.age };
+pub deem ages(people: &[Person]) { from people p where p.age >= 30 select p.age }
 
 // BOOL projection — a comparison projects a `bool` column (inferred). The
 // scalar param `min: i64` is referenced bare in the predicate.
-resource is_adult = deem!(people: &[Person], min: i64) { from people p select p.age >= min };
+pub deem is_adult(people: &[Person], min: i64) { from people p select p.age >= min }
 
 fn main() -> i32 {
     let people: [Person; 4] = [

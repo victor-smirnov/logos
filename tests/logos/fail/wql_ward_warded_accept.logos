@@ -17,13 +17,13 @@ use logos.lang.str;
 
 struct Node { pub id: i64 }
 
-resource grow = deem!(base: &[Node]) {
+pub deem grow(base: &[Node]) {
     rel R(x: i64) {
         from base b select (b.id);      // R(x) :- Node(x)
         from R r select (fresh());      // R(y) :- R(x)   [existential head]
     }
     from R r select (r.x)
-};
+}
 
 fn main() -> i32 {
     let base: [Node; 1] = [ Node { id: 1i64 } ];

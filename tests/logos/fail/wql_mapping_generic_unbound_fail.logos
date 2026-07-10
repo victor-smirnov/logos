@@ -17,6 +17,6 @@ pub mapping Reach<S: EdgeSource>(g: &S) {
     pub rel r(x: i64, y: i64) { from g e select (e.a, e.b); }
 }
 
-resource bad = deem!(w: Reach<NoImpl>) { from r t select t.y };
+pub deem bad(w: Reach<NoImpl>) { from r t select t.y }
 
 fn main() -> i32 { return 0i32; }

@@ -17,13 +17,13 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource reach = deem!(edges: &[Edge], start: i64) {
+pub deem reach(edges: &[Edge], start: i64) {
     rel path(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from path p join edges e on p.b == e.src select (p.a, e.dst);
     }
     from path p where p.a == start select p.b order by p.b
-};
+}
 
 fn main() -> i32 {
     let edges: [Edge; 5] = [

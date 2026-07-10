@@ -9,6 +9,6 @@ use logos.mem.collections.vec;
 
 struct M { pub id: i64, pub score: f64 }
 
-resource bad = deem!(ms: &[M]) { from ms m select distinct (m.id, m.score) };
+pub deem bad(ms: &[M]) { from ms m select distinct (m.id, m.score) }
 
 fn main() -> i32 { return 0i32; }

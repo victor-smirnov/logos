@@ -34,12 +34,12 @@ pub schema B : code(0x0DF2_0000_0000_0002) { b0: i64 = 0, b1: i64 = 1, b2: i64 =
 resource cat = schema_catalog!{ A, B };
 
 // ── the six STATIC resources (native emitted fns), single-i64 projection ──────
-resource sf = deem!(a: &[SA], thr: i64) { from a x where x.a0 >= thr select x.a1 * 100 + x.a2 : i64 };
-resource sj = deem!(a: &[SA], b: &[SB]) { from a x join b y on x.a0 == y.b0 select x.a1 * 100 + y.b1 : i64 };
-resource sa = deem!(a: &[SA], b: &[SB]) { from a x anti join b y on x.a0 == y.b0 select x.a1 : i64 };
-resource sg = deem!(a: &[SA]) { from a x group by x.a0 aggregate s = sum(x.a1) select key * 100 + s : i64 };
-resource sm = deem!(a: &[SA]) { from a x group by x.a0 aggregate lo = min(x.a1), hi = max(x.a1) select key * 10000 + lo * 100 + hi : i64 };
-resource sd = deem!(a: &[SA]) { from a x select distinct x.a1 : i64 };
+pub deem sf(a: &[SA], thr: i64) { from a x where x.a0 >= thr select x.a1 * 100 + x.a2 : i64 }
+pub deem sj(a: &[SA], b: &[SB]) { from a x join b y on x.a0 == y.b0 select x.a1 * 100 + y.b1 : i64 }
+pub deem sa(a: &[SA], b: &[SB]) { from a x anti join b y on x.a0 == y.b0 select x.a1 : i64 }
+pub deem sg(a: &[SA]) { from a x group by x.a0 aggregate s = sum(x.a1) select key * 100 + s : i64 }
+pub deem sm(a: &[SA]) { from a x group by x.a0 aggregate lo = min(x.a1), hi = max(x.a1) select key * 10000 + lo * 100 + hi : i64 }
+pub deem sd(a: &[SA]) { from a x select distinct x.a1 : i64 }
 
 // ── RNG (wrapping — plain */+ trap on u64 overflow) ──────────────────────────
 struct Rng { s: u64 }

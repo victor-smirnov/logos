@@ -15,6 +15,6 @@ mapping Limits(g: &Writ, floor: i64) {
 }
 
 // No `floor: i64` param declared here.
-resource bad = deem!(w: Limits) { from over o select o.v };
+pub deem bad(w: Limits) { from over o select o.v }
 
 fn main() -> i32 { return 0i32; }

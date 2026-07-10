@@ -30,7 +30,7 @@ struct Person {
 //       }
 //       return __out;
 //   }
-resource adults = deem!(people: &[Person]) { from people p where p.age >= 18 select p.age : i64 };
+pub deem adults(people: &[Person]) { from people p where p.age >= 18 select p.age : i64 }
 
 fn main() -> i32 {
     let people: [Person; 4] = [

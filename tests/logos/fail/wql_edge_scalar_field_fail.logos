@@ -10,9 +10,9 @@ use logos.mem.collections.vec;
 struct Emp  { pub name: str }
 struct Dept { pub dname: str, pub boss: Emp, pub emps: Vec<Emp> }
 
-resource bad = deem!(depts: &[Dept]) {
+pub deem bad(depts: &[Dept]) {
     from depts d
     join d.boss e
-    select e.name };
+    select e.name }
 
 fn main() -> i32 { return 0i32; }

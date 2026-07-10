@@ -14,7 +14,7 @@ use logos.lang.str;
 struct Node { pub id: i64 }
 struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
 
-resource bad = deem!(src: &[Node], edges: &[Edge]) {
+pub deem bad(src: &[Node], edges: &[Edge]) {
     rel tot(node: i64, s: i64) {
         from src n select (n.id, 0);
         from tot x join edges e on e.src == x.node
@@ -23,7 +23,7 @@ resource bad = deem!(src: &[Node], edges: &[Edge]) {
             select (e.dst, s);
     }
     from tot r select (r.node, r.s)
-};
+}
 
 fn main() -> i32 {
     let src: [Node; 1] = [ Node { id: 1i64 } ];

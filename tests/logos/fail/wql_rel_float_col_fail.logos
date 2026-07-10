@@ -9,12 +9,12 @@ use logos.lang.str;
 
 struct Reading { pub id: i64, pub w: f64 }
 
-resource weights = deem!(rs: &[Reading]) {
+pub deem weights(rs: &[Reading]) {
     rel wr(id: i64, w: f64) {
         from rs r select (r.id, r.w);
     }
     from wr s select s.id
-};
+}
 
 fn main() -> i32 {
     let rs: [Reading; 1] = [ Reading { id: 1i64, w: 2.5f64 } ];

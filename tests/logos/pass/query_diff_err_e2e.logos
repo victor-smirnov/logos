@@ -22,11 +22,11 @@ pub schema A : code(0x0DFF_0000_0000_0001) { a0: i64 = 0, a1: i64 = 1 }
 resource cat = schema_catalog!{ A };
 
 // overflow: a0 = 4e9, 4e9 * 4e9 = 1.6e19 > i64::MAX
-resource s_ov  = deem!(a: &[SA]) { from a x select x.a0 * 4000000000 : i64 };
+pub deem s_ov(a: &[SA]) { from a x select x.a0 * 4000000000 : i64 }
 // division by zero
-resource s_dz  = deem!(a: &[SA]) { from a x select x.a0 / x.a1 : i64 };
+pub deem s_dz(a: &[SA]) { from a x select x.a0 / x.a1 : i64 }
 // valid
-resource s_ok  = deem!(a: &[SA]) { from a x select x.a0 + x.a1 : i64 };
+pub deem s_ok(a: &[SA]) { from a x select x.a0 + x.a1 : i64 }
 
 fn static_errored_ov(sl: &[SA]) -> bool { match s_ov(sl) { Result::Ok(_v) => { return false; } Result::Err(_e) => { return true; } } }
 fn static_errored_dz(sl: &[SA]) -> bool { match s_dz(sl) { Result::Ok(_v) => { return false; } Result::Err(_e) => { return true; } } }

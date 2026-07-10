@@ -19,26 +19,26 @@ use logos.lang.str;
 struct Row  { pub dept: str, pub amt: i64 }
 struct Dept { pub name: str, pub region: str }
 
-resource by_dept = deem!(rows: &[Row]) {
+pub deem by_dept(rows: &[Row]) {
     from rows r group by r.dept aggregate n = count(), total = sum(r.amt)
     select (key, n, total) order by key
-};
+}
 
-resource by_region = deem!(rows: &[Row], depts: &[Dept]) {
+pub deem by_region(rows: &[Row], depts: &[Dept]) {
     from rows r
     join depts d on r.dept == d.name
     group by d.region
     aggregate total = sum(r.amt)
     select (key, total) order by key desc
-};
+}
 
-resource by_rel = deem!(rows: &[Row]) {
+pub deem by_rel(rows: &[Row]) {
     rel big(dept: str, amt: i64) {
         from rows r where r.amt > 5 select (r.dept, r.amt);
     }
     from big b group by b.dept aggregate n = count()
     select (key, n) order by key
-};
+}
 
 fn main() -> i32 {
     let rows: [Row; 5] = [

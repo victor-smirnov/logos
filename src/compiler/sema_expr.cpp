@@ -20642,7 +20642,19 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // arg-blob slot 0 as `[u64 size][bytes]`; the thunk reconstructs a
     // `str` via str_from_raw and forwards it to the callee. This is the
     // opaque-block → handler → quote_item! emission seam for resources.
-    if (sig_str || sig_str2 || sig_str3 || sig_ir5) {
+    // The deem! macro form is RETIRED: the ir-ABI handler is reachable only
+    // through the `deem` language item (its exact replacement — same handler,
+    // same seam, plus real visibility and doc comments). Precedent: mapping!.
+    if (sig_ir5) {
+        error(std::format(
+            "'{}!' is retired — write the language item instead:\n"
+            "    pub deem {}({}) {{ … }}",
+            callee_name,
+            resource_name.empty() ? "<name>" : resource_name,
+            params_text));
+        return;
+    }
+    if (sig_str || sig_str2 || sig_str3) {
         // ── mapping fusion (ADR 0016 M2b-2): `deem!(g: Services)` ─────
         // A param TYPED by a registered mapping name splices that mapping's
         // rules into this program: the mapping's canonical rel list is
@@ -20654,15 +20666,10 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
         // cross-references all work — fusion, not materialization.
         std::string enrich;
         std::string natspec;
-        if (sig_ir5
-                && !enrich_deem_params(callee_name, params_text, raw_text,
-                                       enrich, natspec))
-            return;
         emit_token_macro_item_site(node, prog, macro_info, rt_is_il,
                                    sig_str3 ? 3 : (sig_str2 ? 2 : 1),
                                    resource_name, params_text, raw_text,
-                                   sig_ir5 ? IrEntry::Program : IrEntry::None,
-                                   enrich, natspec);
+                                   IrEntry::None, enrich, natspec);
         return;
     }
 

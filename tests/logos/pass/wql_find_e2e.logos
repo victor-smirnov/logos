@@ -13,13 +13,13 @@ struct Person { pub name: str, pub age: i64 }
 
 // hit: borrow of the first row with age 41 (Bob — Dan shares the age but comes
 // LATER in scan order).
-resource find_41 = deem!(people: &[Person]) { from people p find p.age == 41 };
+pub deem find_41(people: &[Person]) { from people p find p.age == 41 }
 
 // miss → None.
-resource find_ancient = deem!(people: &[Person]) { from people p find p.age > 100 };
+pub deem find_ancient(people: &[Person]) { from people p find p.age > 100 }
 
 // scalar-param predicate (bare `n`).
-resource find_by_age = deem!(people: &[Person], n: i64) { from people p find p.age == n };
+pub deem find_by_age(people: &[Person], n: i64) { from people p find p.age == n }
 
 fn main() -> i32 {
     let people: [Person; 4] = [

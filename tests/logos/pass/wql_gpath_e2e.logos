@@ -24,53 +24,53 @@ use logos.std.wql.wql;
 struct Label { pub key: str, pub title: str }
 
 // (a) exact path
-resource pool_min = deem!(g: &Writ) {
+pub deem pool_min(g: &Writ) {
     from g .db .pool .min m select m.vi
-};
+}
 // (b) array elements + by index
-resource all_ports = deem!(g: &Writ) {
+pub deem all_ports(g: &Writ) {
     from g .ports [*] p select p.vi order by p.vi
-};
-resource second_port = deem!(g: &Writ) {
+}
+pub deem second_port(g: &Writ) {
     from g .ports [1] p select p.vi
-};
+}
 // (c) any + kind filter — top-level sections that are maps
-resource sections = deem!(g: &Writ) {
+pub deem sections(g: &Writ) {
     from g * s {map} select s.key : str
-};
+}
 // (d) mid-path binding: both step rows project
-resource db_engine = deem!(g: &Writ) {
+pub deem db_engine(g: &Writ) {
     from g .db d * e where e.key == "engine" select (d.child, e.vs)
-};
+}
 // (e) gpath inside a rel body
-resource port_rel = deem!(g: &Writ) {
+pub deem port_rel(g: &Writ) {
     rel pv(v: i64) {
         from g .ports [*] p select p.vi;
     }
     from pv r where r.v >= 8443 select r.v
-};
+}
 // (f) aggregate over a path scan
-resource kind_hist = deem!(g: &Writ) {
+pub deem kind_hist(g: &Writ) {
     from g .db d * e group by e.kind aggregate n = count()
     select (key, n) order by key
-};
+}
 // (g) path + classic join step (`*` — pool is a MAP: its entries carry
 // idx = −1, so `[*]` (array elements, idx ≥ 0) would be empty by design)
-resource titled = deem!(g: &Writ, labels: &[Label]) {
+pub deem titled(g: &Writ, labels: &[Label]) {
     from g .db .pool * m join labels l on l.key == m.key
     select (l.title, m.vi)
-};
+}
 
 // (h) ** descent
-resource all_engines = deem!(g: &Writ) {
+pub deem all_engines(g: &Writ) {
     from g ** .engine e select e.vs : str
-};
-resource db_desc_edges = deem!(g: &Writ) {
+}
+pub deem db_desc_edges(g: &Writ) {
     from g .db ** v select v.key : str
-};
-resource db_i64_leaves = deem!(g: &Writ) {
+}
+pub deem db_i64_leaves(g: &Writ) {
     from g .db ** v {i64} select v.vi order by v.vi
-};
+}
 
 fn main() -> i32 {
     let doc: Writ = parse_writ(

@@ -22,10 +22,10 @@ use logos.lang.str;
 struct Emp  { pub name: str, pub dept: i64, pub salary: i64 }
 struct Dept { pub id: i64,   pub budget: i64 }
 
-resource top_paid = deem!(emps: &[Emp], depts: &[Dept], n: i64) {
+pub deem top_paid(emps: &[Emp], depts: &[Dept], n: i64) {
     from emps e join depts d on e.dept == d.id
     where e.salary > n * 10
-    select e.name limit n : str };
+    select e.name limit n : str }
 
 fn main() -> i32 {
     let emps: [Emp; 5] = [

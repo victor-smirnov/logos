@@ -10,13 +10,13 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource src_sums = deem!(edges: &[Edge]) {
+pub deem src_sums(edges: &[Edge]) {
     rel p(a: i64, b: i64) {
         from edges e where e.dst > 0 select (e.src, e.dst);
     }
     from p s group by s.a aggregate n = count(), total = sum(s.b)
     select (key, n, total) order by key
-};
+}
 
 fn main() -> i32 {
     let edges: [Edge; 5] = [

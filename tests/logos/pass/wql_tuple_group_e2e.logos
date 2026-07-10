@@ -12,19 +12,19 @@ use logos.mem.collections.vec;
 struct Sale { pub dept: i64, pub amount: i64 }
 
 // (key, n, mean) + having: only groups with ≥ 2 sales survive.
-resource dept_stats = deem!(sales: &[Sale]) {
+pub deem dept_stats(sales: &[Sale]) {
     from sales s
     group by s.dept
     aggregate n = count(), mean = avg(s.amount)
     having n >= 2
-    select (key, n, mean) };
+    select (key, n, mean) }
 
 // Plain single-pass shape (no modifiers): (key, total).
-resource dept_totals = deem!(sales: &[Sale]) {
+pub deem dept_totals(sales: &[Sale]) {
     from sales s
     group by s.dept
     aggregate total = sum(s.amount)
-    select (key, total) };
+    select (key, total) }
 
 fn main() -> i32 {
     let sales: [Sale; 5] = [

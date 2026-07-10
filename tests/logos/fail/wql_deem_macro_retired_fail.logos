@@ -1,0 +1,13 @@
+// The deem! macro form is RETIRED — the `deem` language item replaced it
+// (same handler, same seam, plus real visibility and doc comments). The old
+// spelling gets a named error that WRITES OUT the replacement.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct P { pub a: i64 }
+
+resource q = deem!(ps: &[P]) { from ps p select p.a };
+
+fn main() -> i32 { return 0i32; }

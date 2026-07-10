@@ -16,7 +16,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource odd_reach = deem!(edges: &[Edge], start: i64) {
+pub deem odd_reach(edges: &[Edge], start: i64) {
     rel odd(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from even v join edges e on v.b == e.src select (v.a, e.dst);
@@ -25,9 +25,9 @@ resource odd_reach = deem!(edges: &[Edge], start: i64) {
         from odd o join edges e on o.b == e.src select (o.a, e.dst);
     }
     from odd p where p.a == start select p.b order by p.b
-};
+}
 
-resource even_reach = deem!(edges: &[Edge], start: i64) {
+pub deem even_reach(edges: &[Edge], start: i64) {
     rel odd(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from even v join edges e on v.b == e.src select (v.a, e.dst);
@@ -36,7 +36,7 @@ resource even_reach = deem!(edges: &[Edge], start: i64) {
         from odd o join edges e on o.b == e.src select (o.a, e.dst);
     }
     from even p where p.a == start select p.b order by p.b
-};
+}
 
 fn main() -> i32 {
     // Chain 1→2→3→4→5.

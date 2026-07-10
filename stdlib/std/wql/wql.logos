@@ -12,9 +12,9 @@
 // exactly trama!'s model; the old inline `:[Ty]` source typing, the `$` param
 // sigil, and the `with` clause are GONE):
 //
-//   resource <name> = deem!(<params>) { from <src> <var> [ where P ] select S [: RTy] };
-//     e.g.  resource top = deem!(emps: &[Emp], n: i64) {
-//               from emps e where e.salary > 50.0 select e.name limit n };
+//   pub deem <name>(<params>) { from <src> <var> [ where P ] select S [: RTy] }
+//     e.g.  pub deem top(emps: &[Emp], n: i64) {
+//               from emps e where e.salary > 50.0 select e.name limit n }
 //
 //   →  pub fn top(emps: &[Emp], n: i64) -> Result<Vec<str>, ElError> { … }
 //        (error-returning: an integer overflow / division-by-zero in an EL
@@ -79,7 +79,7 @@ use logos.lang.str;                      // str_from_raw — error-text view
 // handler returns an (empty) ItemList.
 /// Handler behind the `deem!{}` macro — Logos's Datalog/query DSL over `Writ` data.
 ///
-/// Invoked as `resource <name> = deem!(<params>) { <query> };`; `name` is the
+/// Invoked by the `deem` ITEM lowering (`pub deem <name>(<params>) { <query> }`); `name` is the
 /// `resource` binding, `params` is the raw parenthesized fn-parameter-list source
 /// (slice params are query sources, scalar params are bare-referenced in clauses),
 /// and `body` is the raw `{ … }` query-block text. Splices a generated native fn
@@ -114,7 +114,7 @@ fn gp_err_str(s: &String) -> str {
 pub fn deem(name: str, params: str, enrich: str, natspec: str, ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
-        error("wql!: needs a binding name — write `resource <name> = deem!(<params>){ from … select … }`");
+        error("deem: needs a name — write `pub deem <name>(<params>) { from … select … }`");
         return out;
     }
     // Parse the REAL parameter list (shared mechanism with trama!). The params
@@ -123,7 +123,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, ir: *const u8) ->
     let mut prm: MacroParams = macro_params_new();
     parse_macro_params(params, &mut prm);
     if prm.n == 0i64 {
-        error("wql!: needs at least one parameter — write `resource <name> = deem!(<src>: &[RowTy], …){ from <src> <var> … }`");
+        error("deem: needs at least one parameter — write `pub deem <name>(<src>: &[RowTy], …) { from <src> <var> … }`");
         return out;
     }
     // Our OWN arena — only for nodes the desugar/walk passes synthesise. The

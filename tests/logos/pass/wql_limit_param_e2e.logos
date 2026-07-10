@@ -12,10 +12,10 @@ struct Person { pub name: str, pub age: i64 }
 
 // pub fn first_ages(people: &[Person], n: i64) -> Vec<i64> — ages of adults in
 // source order, capped at the runtime `n`.
-resource first_ages = deem!(people: &[Person], n: i64) { from people p where p.age >= 18 select p.age limit n };
+pub deem first_ages(people: &[Person], n: i64) { from people p where p.age >= 18 select p.age limit n }
 
 // limit n combined with order by desc — the cap applies AFTER the sort.
-resource top_ages = deem!(people: &[Person], n: i64) { from people p select p.age order by p.age desc limit n };
+pub deem top_ages(people: &[Person], n: i64) { from people p select p.age order by p.age desc limit n }
 
 fn main() -> i32 {
     let people: [Person; 5] = [

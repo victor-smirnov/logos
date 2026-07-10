@@ -14,11 +14,11 @@ struct Dept { pub id: i64, pub region: i64 }
 struct Reg  { pub rid: i64, pub label: str }
 
 // 3-way join; the projection takes one column from EACH bound var.
-resource emp_geo = deem!(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
+pub deem emp_geo(emps: &[Emp], depts: &[Dept], regs: &[Reg]) {
     from emps e
     join depts d on e.dept == d.id
     join regs r on d.region == r.rid
-    select (e.name, d.region, r.label) };
+    select (e.name, d.region, r.label) }
 
 fn main() -> i32 {
     let emps: [Emp; 3] = [

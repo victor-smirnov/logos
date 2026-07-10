@@ -15,14 +15,14 @@ use logos.lang.str;
 
 struct N { pub k: i64 }
 
-resource bad = deem!(sa: &[N], sc: &[N]) {
+pub deem bad(sa: &[N], sc: &[N]) {
     rel W(g: i64, d1: i64, d2: i64) { from sa x select (x.k, fresh(), fresh()); }
     rel M(mm: i64, t: i64)          { from sc x select (fresh(), x.k); }   // M[0] existential
     rel H(a: i64, b: i64) {
         from W w join M m on w.d1 == m.mm select (w.d1, w.d2);
     }
     from H h select (h.a)
-};
+}
 
 fn main() -> i32 {
     let sa: [N; 1] = [ N { k: 1i64 } ];

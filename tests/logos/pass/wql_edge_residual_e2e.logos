@@ -13,12 +13,12 @@ struct Emp  { pub name: str, pub skills: Vec<str> }
 struct Dept { pub dname: str, pub emps: Vec<Emp> }
 
 // Residual on BOTH traversal levels + where over the outer var.
-resource eng_skills = deem!(depts: &[Dept], banned: str) {
+pub deem eng_skills(depts: &[Dept], banned: str) {
     from depts d
     join d.emps e on e.name != "bob"
     join e.skills s on s != banned
     where d.dname == "eng"
-    select s };
+    select s }
 
 fn mk_emp(name: str, s1: str, s2: str) -> Emp {
     let mut sk: Vec<str> = Vec::<str>::new();

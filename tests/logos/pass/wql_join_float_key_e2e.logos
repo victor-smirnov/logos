@@ -15,18 +15,18 @@ struct IEmp  { pub dept: i64, pub salary: i64 }
 struct IDept { pub id: i64,   pub budget: i64 }
 
 // f64 key → nested-loop tier.
-resource f_sal = deem!(emps: &[FEmp], depts: &[FDept]) {
+pub deem f_sal(emps: &[FEmp], depts: &[FDept]) {
     from emps e
     join depts d on e.dept == d.id
     where d.budget > 100
-    select e.salary };
+    select e.salary }
 
 // The SAME query over i64 keys → hash tier (the results oracle).
-resource i_sal = deem!(emps: &[IEmp], depts: &[IDept]) {
+pub deem i_sal(emps: &[IEmp], depts: &[IDept]) {
     from emps e
     join depts d on e.dept == d.id
     where d.budget > 100
-    select e.salary };
+    select e.salary }
 
 fn main() -> i32 {
     let femps: [FEmp; 4] = [

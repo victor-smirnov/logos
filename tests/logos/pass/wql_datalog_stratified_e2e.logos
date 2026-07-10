@@ -16,7 +16,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource farq = deem!(edges: &[Edge], start: i64) {
+pub deem farq(edges: &[Edge], start: i64) {
     rel path(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from path p join edges e on p.b == e.src select (p.a, e.dst);
@@ -25,7 +25,7 @@ resource farq = deem!(edges: &[Edge], start: i64) {
         from path p anti join edges e on e.src == p.a && e.dst == p.b select (p.a, p.b);
     }
     from far f where f.a == start select f.b order by f.b
-};
+}
 
 fn main() -> i32 {
     let edges: [Edge; 4] = [

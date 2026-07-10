@@ -12,12 +12,12 @@ use logos.lang.str;
 struct Edge { pub src: i64, pub dst: i64 }
 struct Name { pub id: i64, pub label: str }
 
-resource dst_labels = deem!(edges: &[Edge], names: &[Name]) {
+pub deem dst_labels(edges: &[Edge], names: &[Name]) {
     rel hops(a: i64, b: i64) {
         from edges e where e.src > 0 select (e.src, e.dst);
     }
     from hops s join names n on s.b == n.id select (s.a, n.label)
-};
+}
 
 fn main() -> i32 {
     let edges: [Edge; 3] = [

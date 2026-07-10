@@ -17,18 +17,18 @@ struct Dept { pub id: i64, pub dname: str }
 struct Org  { pub oname: str, pub emps: Vec<Emp> }
 
 // Keyed hash join first, traversal second.
-resource emp_geo = deem!(emps: &[Emp], depts: &[Dept]) {
+pub deem emp_geo(emps: &[Emp], depts: &[Dept]) {
     from emps e
     join depts d on e.dept == d.id
     join e.skills s
-    select (d.dname, s) };
+    select (d.dname, s) }
 
 // Traversal first, keyed hash join over the traversal-bound var second.
-resource org_depts = deem!(orgs: &[Org], depts: &[Dept]) {
+pub deem org_depts(orgs: &[Org], depts: &[Dept]) {
     from orgs o
     join o.emps e
     join depts d on e.dept == d.id
-    select (o.oname, e.name, d.dname) };
+    select (o.oname, e.name, d.dname) }
 
 fn mk_emp(name: str, dept: i64, s1: str) -> Emp {
     let mut sk: Vec<str> = Vec::<str>::new();

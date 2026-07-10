@@ -66,24 +66,24 @@ impl Transit for Timetable {
 }
 
 // (b)+(c): transitive closure over the user edges — `g` IS the rel.
-resource reach = deem!(g: &MyGraph) {
+pub deem reach(g: &MyGraph) {
     rel r(x: i64, y: i64) {
         from g e select (e.a, e.b);
         from r p join g e on e.a == p.y select (p.x, e.b);
     }
     from r t where t.x == 1 select t.y
-};
+}
 
 // (d): user source ⋈ slice param.
 struct Label { pub id: i64, pub name: str }
-resource labeled = deem!(g: &MyGraph, ls: &[Label]) {
+pub deem labeled(g: &MyGraph, ls: &[Label]) {
     from g e join ls l on l.id == e.b select (e.a, l.name)
-};
+}
 
 // (e): multi-rel vocabulary — param-prefixed rel names.
-resource south_of_north = deem!(s: &Timetable) {
+pub deem south_of_north(s: &Timetable) {
     from s_hop h join s_stop t on t.id == h.dst select t.name
-};
+}
 
 fn main() -> i32 {
     let g: MyGraph = MyGraph { n: 5i64 };

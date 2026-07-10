@@ -31,21 +31,21 @@ pub schema Edge : code(0x0E20_0000_0000_0002) { src: i64 = 0, dst: i64 = 1 }
 resource cat = schema_catalog!{ Edge };
 
 // the L0 Observer's Encounter rule — statically compiled, over the engine
-resource encounters = deem!(e: &IncrRec) {
+pub deem encounters(e: &IncrRec) {
     from e_tail t where t.converged == 0 && t.pending > 0 select (t.epoch, t.pending)
-};
+}
 // the S1 consistency oracle — IN Deem: Σ delta over the whole trace
-resource delta_sum = deem!(e: &IncrRec) {
+pub deem delta_sum(e: &IncrRec) {
     from e_trace t group by t.kind aggregate s = sum(t.delta) select (key, s)
-};
+}
 // applied raise-budget atoms (kind 1)
-resource raises = deem!(e: &IncrRec) {
+pub deem raises(e: &IncrRec) {
     from e_controls c where c.kind == 1 select (c.epoch, c.val)
-};
+}
 // epochs ledger
-resource n_epochs = deem!(e: &IncrRec) {
+pub deem n_epochs(e: &IncrRec) {
     from e_epochs x select x.epoch
-};
+}
 
 fn mk_edge(d: &Writ, s: i64, t: i64) -> WAny {
     let ee: Edge = d.make::<Edge>();

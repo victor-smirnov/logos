@@ -28,7 +28,7 @@ use logos.lang.str;
 struct Node { pub id: i64 }
 struct Edge { pub src: i64, pub dst: i64, pub cap: i64 }
 
-resource widest = deem!(src: &[Node], edges: &[Edge]) {
+pub deem widest(src: &[Node], edges: &[Edge]) {
     rel cap(node: i64, c: i64) {
         from src s select (s.id, 1000i64);
         from cap x join edges e on e.src == x.node
@@ -37,7 +37,7 @@ resource widest = deem!(src: &[Node], edges: &[Edge]) {
             select (e.dst, c);
     }
     from cap r select (r.node, r.c) order by r.node
-};
+}
 
 // ── Independent reference: array widest-path ((max, min) semiring), |V| passes ──
 fn ref_widest(edges: &[Edge], source: i64, maxid: i64, big: i64) -> Vec<(i64, i64)> {

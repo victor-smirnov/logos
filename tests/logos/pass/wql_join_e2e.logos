@@ -25,18 +25,18 @@ struct Dept { pub id: i64,   pub budget: i64 }
 //   }
 // Result type INFERRED from the join projection (`e.salary` reflects `Emp.salary`
 // as i64 ⇒ `Vec<i64>`) — no `: ResultTy` annotation needed.
-resource emp_salaries = deem!(emps: &[Emp], depts: &[Dept]) { from emps e
+pub deem emp_salaries(emps: &[Emp], depts: &[Dept]) { from emps e
       join depts d on e.dept == d.id
       where d.budget > 100
-      select e.salary };
+      select e.salary }
 
 // ANTI JOIN: emit each employee's salary whose dept has NO matching department
 // row at all — the relational RAnti (semijoin complement) lowered to a native
 // "scan-for-any-match, push iff none" loop.
 //   pub fn orphan_salaries(emps: &[Emp], depts: &[Dept]) -> Vec<i64> { … }
-resource orphan_salaries = deem!(emps: &[Emp], depts: &[Dept]) { from emps e
+pub deem orphan_salaries(emps: &[Emp], depts: &[Dept]) { from emps e
       anti join depts d on e.dept == d.id
-      select e.salary };
+      select e.salary }
 
 fn main() -> i32 {
     let emps: [Emp; 4] = [

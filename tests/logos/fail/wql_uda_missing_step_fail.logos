@@ -11,9 +11,9 @@ struct P { pub g: i64, pub v: i64 }
 fn myagg_init() -> i64 { return 0i64; }
 // (no myagg_step)
 
-resource bad = deem!(xs: &[P]) { from xs x
+pub deem bad(xs: &[P]) { from xs x
       group by x.g
       aggregate m = myagg(x.v)
-      select m };
+      select m }
 
 fn main() -> i32 { return 0i32; }

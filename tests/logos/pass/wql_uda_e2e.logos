@@ -20,11 +20,11 @@ fn sumsq_init() -> f64 { return 0.0f64; }
 fn sumsq_step(acc: f64, x: f64) -> f64 { return acc + x * x; }
 fn sumsq_fin(acc: f64) -> f64 { return acc * 10.0f64; }
 
-resource groups = deem!(xs: &[M]) { from xs x
+pub deem groups(xs: &[M]) { from xs x
       group by x.g
       aggregate s = sumsq(x.v), c = count()
       having s > 100.0
-      select key * 10000 + c order by s desc };
+      select key * 10000 + c order by s desc }
 
 fn main() -> i32 {
     let xs: [M; 5] = [

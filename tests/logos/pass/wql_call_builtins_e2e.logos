@@ -23,9 +23,9 @@ struct Person {
 //   pub fn pick(people: &[Person]) -> Vec<str> {
 //     … if (starts_with((p.name),("A")) && (((p.name).len()) >= 3)) push p.dept …
 //   }
-resource pick = deem!(people: &[Person]) { from people p
+pub deem pick(people: &[Person]) { from people p
       where starts_with(p.name, "A") && len(p.name) >= 3
-      select p.dept : str };
+      select p.dept : str }
 
 fn main() -> i32 {
     let people: [Person; 4] = [

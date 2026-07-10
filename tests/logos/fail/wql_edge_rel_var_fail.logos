@@ -8,12 +8,12 @@ use logos.mem.collections.vec;
 
 struct Node { pub id: i64, pub kids: Vec<i64> }
 
-resource bad = deem!(nodes: &[Node]) {
+pub deem bad(nodes: &[Node]) {
     rel ids(x: i64) {
         from nodes n select n.id;
     }
     from ids r
     join r.kids k
-    select k };
+    select k }
 
 fn main() -> i32 { return 0i32; }

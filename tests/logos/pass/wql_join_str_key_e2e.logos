@@ -11,15 +11,15 @@ use logos.mem.collections.vec;
 struct Emp  { pub city: str, pub salary: i64 }
 struct Hub  { pub city: str, pub code: i64 }
 
-resource hub_sal = deem!(emps: &[Emp], hubs: &[Hub]) {
+pub deem hub_sal(emps: &[Emp], hubs: &[Hub]) {
     from emps e
     join hubs h on e.city == h.city
-    select e.salary + h.code };
+    select e.salary + h.code }
 
-resource remote_sal = deem!(emps: &[Emp], hubs: &[Hub]) {
+pub deem remote_sal(emps: &[Emp], hubs: &[Hub]) {
     from emps e
     anti join hubs h on e.city == h.city
-    select e.salary };
+    select e.salary }
 
 fn main() -> i32 {
     let emps: [Emp; 4] = [

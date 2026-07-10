@@ -20,7 +20,7 @@ use logos.mem.collections.vec;
 struct SA { pub g: i64, pub v: i64 }
 pub schema A : code(0x0E11_0000_0000_0001) { g: i64 = 0, v: i64 = 1 }
 resource cat = schema_catalog!{ A };
-resource s_sum = deem!(a: &[SA]) { from a x group by x.g aggregate s = sum(x.v) select key * 100 + s : i64 };
+pub deem s_sum(a: &[SA]) { from a x group by x.g aggregate s = sum(x.v) select key * 100 + s : i64 }
 
 fn dyn_rc(qt: str, c: &SchemaCatalog, env: &QEnv) -> i64 {
     match Query::compile(qt, c) { Result::Ok(q) => { match q.run(env) { Result::Ok(r) => { return r.row_count(); } Result::Err(_e) => { return -1i64; } } } Result::Err(_e2) => { return -1i64; } }

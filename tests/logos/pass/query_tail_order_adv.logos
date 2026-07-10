@@ -32,14 +32,14 @@ pub schema A : code(0x0DF3_0000_0000_0001) { a0: i64 = 0, a1: i64 = 1, a2: i64 =
 resource cat = schema_catalog!{ A };
 
 // STATIC shapes (fixed text; a2 == row index makes each projection unique).
-resource so_asc  = deem!(a: &[SA]) { from a x select x.a0 * 1000 + x.a2 order by x.a0 : i64 };
-resource so_desc = deem!(a: &[SA]) { from a x select x.a0 * 1000 + x.a2 order by x.a0 desc : i64 };
-resource so_k1   = deem!(a: &[SA]) { from a x select x.a1 * 1000 + x.a2 order by x.a1 : i64 };
-resource so_lim  = deem!(a: &[SA], n: i64) { from a x select x.a0 * 1000 + x.a2 order by x.a0 limit n : i64 };
-resource so_wlim = deem!(a: &[SA], thr: i64, n: i64) { from a x where x.a1 >= thr select x.a0 * 1000 + x.a2 order by x.a0 desc limit n : i64 };
-resource sg_ord  = deem!(a: &[SA]) { from a x group by x.a0 aggregate s = sum(x.a1) select key * 1000 + s order by key desc : i64 };
-resource sg_hav  = deem!(a: &[SA]) { from a x group by x.a0 aggregate c = count() having c >= 2 select key * 100 + c order by key : i64 };
-resource so_scan = deem!(a: &[SA], n: i64) { from a x select x.a0 * 1000 + x.a2 limit n : i64 };
+pub deem so_asc(a: &[SA]) { from a x select x.a0 * 1000 + x.a2 order by x.a0 : i64 }
+pub deem so_desc(a: &[SA]) { from a x select x.a0 * 1000 + x.a2 order by x.a0 desc : i64 }
+pub deem so_k1(a: &[SA]) { from a x select x.a1 * 1000 + x.a2 order by x.a1 : i64 }
+pub deem so_lim(a: &[SA], n: i64) { from a x select x.a0 * 1000 + x.a2 order by x.a0 limit n : i64 }
+pub deem so_wlim(a: &[SA], thr: i64, n: i64) { from a x where x.a1 >= thr select x.a0 * 1000 + x.a2 order by x.a0 desc limit n : i64 }
+pub deem sg_ord(a: &[SA]) { from a x group by x.a0 aggregate s = sum(x.a1) select key * 1000 + s order by key desc : i64 }
+pub deem sg_hav(a: &[SA]) { from a x group by x.a0 aggregate c = count() having c >= 2 select key * 100 + c order by key : i64 }
+pub deem so_scan(a: &[SA], n: i64) { from a x select x.a0 * 1000 + x.a2 limit n : i64 }
 
 struct Rng { s: u64 }
 impl Rng {

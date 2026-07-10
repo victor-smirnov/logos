@@ -33,7 +33,7 @@ struct Mon  { pub sensor: str, pub target: str }
 struct Part { pub part: str, pub whole: str }
 struct Loc  { pub ind: str, pub room: str }
 
-resource audit = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
+pub deem audit(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
     rel sub_tr(a: str, b: str) {
         from subs s select (s.sub, s.sup);
         from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);
@@ -58,9 +58,9 @@ resource audit = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part],
     join type bt on loc.place == bt.x
     where t.c == "rotating_equipment" && bt.c == "building"
     select (t.x, loc.place) order by t.x
-};
+}
 
-resource census = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
+pub deem census(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part], locs: &[Loc]) {
     rel sub_tr(a: str, b: str) {
         from subs s select (s.sub, s.sup);
         from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);
@@ -86,9 +86,9 @@ resource census = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], parts: &[Part]
     group by loc.place
     aggregate n = count()
     select (key, n) order by key
-};
+}
 
-resource classify = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], who: str) {
+pub deem classify(subs: &[Sub], inst: &[Isa], mons: &[Mon], who: str) {
     rel sub_tr(a: str, b: str) {
         from subs s select (s.sub, s.sup);
         from sub_tr t join subs s on t.b == s.sub select (t.a, s.sup);
@@ -100,7 +100,7 @@ resource classify = deem!(subs: &[Sub], inst: &[Isa], mons: &[Mon], who: str) {
         from type t join sub_tr s on t.c == s.a select (t.x, s.b);
     }
     from type t where t.x == who select t.c order by t.c
-};
+}
 
 fn main() -> i32 {
     // TBox: иерархия классов.

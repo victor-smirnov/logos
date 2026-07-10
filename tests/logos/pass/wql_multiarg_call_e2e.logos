@@ -19,9 +19,9 @@ struct Person {
 //   pub fn pick(people: &[Person], sub: str) -> Vec<str> {
 //       … if (str_contains((p.name),(sub))) { __out.push(p.dept); } …
 //   }
-resource pick = deem!(people: &[Person], sub: str) { from people p
+pub deem pick(people: &[Person], sub: str) { from people p
       where contains(p.name, sub)
-      select p.dept : str };
+      select p.dept : str }
 
 fn main() -> i32 {
     let people: [Person; 4] = [

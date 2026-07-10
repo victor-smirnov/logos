@@ -20,8 +20,8 @@ struct Driver { pub k: i64 }
 //   pub fn doubles(rows: &[Driver], nums: &[i64], lo: i64) -> Vec<Vec<i64>> {
 //       … push ({ let mut __cv: Vec<i64> = …; while … if (n > lo) { __cv.push((n * 2)); } … __cv }) …
 //   }
-resource doubles = deem!(rows: &[Driver], nums: &[i64], lo: i64) { from rows r
-      select [ n * 2 for n in nums if n > lo ] : i64 };
+pub deem doubles(rows: &[Driver], nums: &[i64], lo: i64) { from rows r
+      select [ n * 2 for n in nums if n > lo ] : i64 }
 
 fn main() -> i32 {
     let drivers: [Driver; 1] = [ Driver { k: 0i64 } ];

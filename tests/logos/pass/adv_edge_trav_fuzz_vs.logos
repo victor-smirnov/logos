@@ -20,62 +20,62 @@ struct DeptT { pub id: i64, pub val: i64 }
 struct Co    { pub cid: i64, pub depts: Vec<Dept> }
 
 // ── fixed static edge-traversal shapes ────────────────────────────────────────
-resource r_flat = deem!(depts: &[Dept]) {
+pub deem r_flat(depts: &[Dept]) {
     from depts d join d.emps e join e.skills s
-    select d.did * 10000i64 + e.eid * 100i64 + s : i64 };
+    select d.did * 10000i64 + e.eid * 100i64 + s : i64 }
 
-resource r_resid = deem!(depts: &[Dept], p1: i64, p2: i64, p3: i64) {
+pub deem r_resid(depts: &[Dept], p1: i64, p2: i64, p3: i64) {
     from depts d
     join d.emps e on e.eid != p1
     join e.skills s on s > p2
     where d.did != p3
-    select d.did * 10000i64 + e.eid * 100i64 + s : i64 };
+    select d.did * 10000i64 + e.eid * 100i64 + s : i64 }
 
-resource r_empty = deem!(depts: &[Dept]) {
-    from depts d anti join d.emps e select d.did : i64 };
+pub deem r_empty(depts: &[Dept]) {
+    from depts d anti join d.emps e select d.did : i64 }
 
-resource r_norsk = deem!(depts: &[Dept], target: i64) {
+pub deem r_norsk(depts: &[Dept], target: i64) {
     from depts d join d.emps e
     anti join e.skills s on s == target
-    select e.eid : i64 };
+    select e.eid : i64 }
 
-resource r_cnt = deem!(depts: &[Dept]) {
+pub deem r_cnt(depts: &[Dept]) {
     from depts d join d.emps e join e.skills s
     group by d.did aggregate n = count()
-    select key * 100i64 + n : i64 };
+    select key * 100i64 + n : i64 }
 
-resource r_reach = deem!(nodes: &[Node], root: i64) {
+pub deem r_reach(nodes: &[Node], root: i64) {
     rel reach(x: i64) {
         from nodes n join n.kids k where n.id == root select k;
         from reach r join nodes n on n.id == r.x join n.kids k select k;
     }
-    from reach r select r.x : i64 };
+    from reach r select r.x : i64 }
 
 // residual compares the LEAF element to the OUTER row var (cross-level ref)
-resource r_rout = deem!(depts: &[Dept]) {
+pub deem r_rout(depts: &[Dept]) {
     from depts d join d.emps e join e.skills s on s >= d.did
-    select d.did * 10000i64 + e.eid * 100i64 + s : i64 };
+    select d.did * 10000i64 + e.eid * 100i64 + s : i64 }
 
 // group by the LEAF value (traversed scalar as key)
-resource r_gleaf = deem!(depts: &[Dept]) {
+pub deem r_gleaf(depts: &[Dept]) {
     from depts d join d.emps e join e.skills s
-    group by s aggregate n = count() select key * 100i64 + n : i64 };
+    group by s aggregate n = count() select key * 100i64 + n : i64 }
 
 // sum of traversed leaves grouped by a MID-level var
-resource r_seid = deem!(depts: &[Dept]) {
+pub deem r_seid(depts: &[Dept]) {
     from depts d join d.emps e join e.skills s
-    group by e.eid aggregate t = sum(s) select key * 10000i64 + t : i64 };
+    group by e.eid aggregate t = sum(s) select key * 10000i64 + t : i64 }
 
 // traversal THEN keyed hash join over the traversal-bound var
-resource r_mixed = deem!(orgs: &[Org], depts: &[DeptT]) {
+pub deem r_mixed(orgs: &[Org], depts: &[DeptT]) {
     from orgs o join o.emps e join depts d on e.dept == d.id
-    select o.oid * 10000i64 + e.eid * 100i64 + d.val : i64 };
+    select o.oid * 10000i64 + e.eid * 100i64 + d.val : i64 }
 
 // DEEP chain: 3 traversal steps (co → depts → emps → skills)
-resource r_deep = deem!(cos: &[Co]) {
+pub deem r_deep(cos: &[Co]) {
     from cos c join c.depts d join d.emps e join e.skills s
     where s != c.cid
-    select c.cid * 1000000i64 + d.did * 10000i64 + e.eid * 100i64 + s : i64 };
+    select c.cid * 1000000i64 + d.did * 10000i64 + e.eid * 100i64 + s : i64 }
 
 // ── RNG (wrapping — plain */+ trap on u64 overflow) ──────────────────────────
 struct Rng { s: u64 }

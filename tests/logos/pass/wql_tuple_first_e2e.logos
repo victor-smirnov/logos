@@ -11,13 +11,13 @@ use logos.lang.str;
 struct Person { pub name: str, pub age: i64 }
 
 // hit: the first adult → ("Ada", 45).
-resource first_adult = deem!(people: &[Person]) { from people p where p.age >= 18 select first (p.name, p.age) };
+pub deem first_adult(people: &[Person]) { from people p where p.age >= 18 select first (p.name, p.age) }
 
 // miss: nobody above 100 → None.
-resource first_ancient = deem!(people: &[Person]) { from people p where p.age > 100 select first (p.name, p.age) };
+pub deem first_ancient(people: &[Person]) { from people p where p.age > 100 select first (p.name, p.age) }
 
 // first + order by desc: the OLDEST person as a tuple.
-resource oldest = deem!(people: &[Person]) { from people p select first (p.name, p.age) order by p.age desc };
+pub deem oldest(people: &[Person]) { from people p select first (p.name, p.age) order by p.age desc }
 
 fn main() -> i32 {
     let people: [Person; 4] = [

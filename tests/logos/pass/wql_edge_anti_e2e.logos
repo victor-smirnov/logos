@@ -13,17 +13,17 @@ struct Emp  { pub name: str, pub skills: Vec<str> }
 struct Dept { pub dname: str, pub emps: Vec<Emp> }
 
 // Depts with NO employees at all (anti + empty-containment).
-resource empty_depts = deem!(depts: &[Dept]) {
+pub deem empty_depts(depts: &[Dept]) {
     from depts d
     anti join d.emps e
-    select d.dname };
+    select d.dname }
 
 // Employees with NO "rust" skill (anti traversal WITH a predicate).
-resource no_rust = deem!(depts: &[Dept]) {
+pub deem no_rust(depts: &[Dept]) {
     from depts d
     join d.emps e
     anti join e.skills s on s == "rust"
-    select e.name };
+    select e.name }
 
 fn mk_emp(name: str, s1: str, s2: str) -> Emp {
     let mut sk: Vec<str> = Vec::<str>::new();

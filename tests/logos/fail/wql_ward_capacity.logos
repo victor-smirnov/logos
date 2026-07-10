@@ -11,12 +11,12 @@ use logos.lang.str;
 
 struct Node { pub k: i64 }
 
-resource q = deem!(base: &[Node]) {
+pub deem q(base: &[Node]) {
     rel R(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64) {
         from base x select (x.k, x.k, x.k, x.k, x.k, x.k, fresh());
     }
     from R r select (r.a)
-};
+}
 
 fn main() -> i32 {
     let base: [Node; 1] = [ Node { k: 1i64 } ];

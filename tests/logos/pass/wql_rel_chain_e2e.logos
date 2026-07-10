@@ -14,7 +14,7 @@ use logos.lang.str;
 
 struct Edge { pub src: i64, pub dst: i64 }
 
-resource layered = deem!(edges: &[Edge]) {
+pub deem layered(edges: &[Edge]) {
     rel pairs(x: i64, y: i64) {
         from edges e select (e.src, e.dst);
     }
@@ -22,7 +22,7 @@ resource layered = deem!(edges: &[Edge]) {
         from pairs t where t.x > 1 select t.y;
     }
     from bigy s select s.p order by s.p
-};
+}
 
 fn main() -> i32 {
     let edges: [Edge; 4] = [

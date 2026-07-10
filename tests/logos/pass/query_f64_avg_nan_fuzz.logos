@@ -31,13 +31,13 @@ pub schema B : code(0x0DFA_0000_0000_0002) { g: i64 = 0, v: f64 = 1 }
 resource cat = schema_catalog!{ A, B };
 
 // STATIC resources (native emitted fns)
-resource s_sel  = deem!(a: &[SA]) { from a x select x.v };
-resource s_flt  = deem!(a: &[SA]) { from a x where x.v > 0.5 select x.v };
-resource s_join = deem!(a: &[SA], b: &[SB]) { from a x join b y on x.v == y.v select x.g };
-resource s_avg  = deem!(a: &[SA]) { from a x group by x.g aggregate m = avg(x.v) select m };
-resource s_sum  = deem!(a: &[SA]) { from a x group by x.g aggregate s = sum(x.v) select s };
-resource s_min  = deem!(a: &[SA]) { from a x group by x.g aggregate lo = min(x.v) select lo };
-resource s_max  = deem!(a: &[SA]) { from a x group by x.g aggregate hi = max(x.v) select hi };
+pub deem s_sel(a: &[SA]) { from a x select x.v }
+pub deem s_flt(a: &[SA]) { from a x where x.v > 0.5 select x.v }
+pub deem s_join(a: &[SA], b: &[SB]) { from a x join b y on x.v == y.v select x.g }
+pub deem s_avg(a: &[SA]) { from a x group by x.g aggregate m = avg(x.v) select m }
+pub deem s_sum(a: &[SA]) { from a x group by x.g aggregate s = sum(x.v) select s }
+pub deem s_min(a: &[SA]) { from a x group by x.g aggregate lo = min(x.v) select lo }
+pub deem s_max(a: &[SA]) { from a x group by x.g aggregate hi = max(x.v) select hi }
 
 // ── RNG ───────────────────────────────────────────────────────────────────────
 struct Rng { s: u64 }

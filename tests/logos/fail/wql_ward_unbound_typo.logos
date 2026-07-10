@@ -13,10 +13,10 @@ use logos.lang.str;
 
 struct Node { pub id: i64 }
 
-resource q = deem!(base: &[Node]) {
+pub deem q(base: &[Node]) {
     rel R(x: i64) { from base b select (zz); }   // `zz` bare, unbound, no fresh()
     from R r select (r.x)
-};
+}
 
 fn main() -> i32 {
     let base: [Node; 1] = [ Node { id: 1i64 } ];

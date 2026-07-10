@@ -18,9 +18,9 @@ struct Row {
     pub zero: i64,
 }
 
-resource dbl  = deem!(xs: &[Row]) { from xs r select r.big + r.big : i64 };
-resource divz = deem!(xs: &[Row]) { from xs r select r.big / r.zero : i64 };
-resource ok   = deem!(xs: &[Row]) { from xs r select r.big + 1i64 : i64 };
+pub deem dbl(xs: &[Row]) { from xs r select r.big + r.big : i64 }
+pub deem divz(xs: &[Row]) { from xs r select r.big / r.zero : i64 }
+pub deem ok(xs: &[Row]) { from xs r select r.big + 1i64 : i64 }
 
 fn main() -> i32 {
     // big = 9_000_000_000_000_000_000 (< i64::MAX ≈ 9.22e18); big+big overflows.

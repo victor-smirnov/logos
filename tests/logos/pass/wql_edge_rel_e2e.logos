@@ -12,19 +12,19 @@ use logos.mem.collections.vec;
 struct Node { pub id: i64, pub kids: Vec<i64> }
 
 // Non-recursive: all (parent, kid) edges via traversal in a rel body.
-resource edges = deem!(nodes: &[Node]) {
+pub deem edges(nodes: &[Node]) {
     rel edge(p: i64, c: i64) {
         from nodes n join n.kids k select (n.id, k);
     }
-    from edge e select e.p * 100i64 + e.c };
+    from edge e select e.p * 100i64 + e.c }
 
 // Recursive: ids reachable from `root` (graph closure over the kid lists).
-resource reachable = deem!(nodes: &[Node], root: i64) {
+pub deem reachable(nodes: &[Node], root: i64) {
     rel reach(x: i64) {
         from nodes n join n.kids k where n.id == root select k;
         from reach r join nodes n on n.id == r.x join n.kids k select k;
     }
-    from reach r select r.x };
+    from reach r select r.x }
 
 fn mk_node(id: i64, k1: i64, k2: i64) -> Node {
     let mut ks: Vec<i64> = Vec::<i64>::new();

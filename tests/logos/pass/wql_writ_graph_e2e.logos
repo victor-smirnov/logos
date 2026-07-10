@@ -27,27 +27,27 @@ use logos.std.wql.wql;
 struct Label { pub key: str, pub title: str }
 
 // ── the static queries ───────────────────────────────────────────────────────
-resource engines = deem!(g: &Writ) {
+pub deem engines(g: &Writ) {
     from g e where e.key == "engine" select e.vs : str
-};
-resource nmaps = deem!(g: &Writ) {
+}
+pub deem nmaps(g: &Writ) {
     from g e where e.kind == "map" select e.child
-};
-resource ints_under_db = deem!(g: &Writ) {
+}
+pub deem ints_under_db(g: &Writ) {
     rel dsc(a: i64, b: i64) {
         from g s where s.key == "db" select (s.parent, s.child);
         from dsc d join g e on e.parent == d.b select (d.a, e.child);
     }
     from dsc d join g e on e.child == d.b
     where e.kind == "i64" select e.vi order by e.vi
-};
-resource titled = deem!(g: &Writ, labels: &[Label]) {
+}
+pub deem titled(g: &Writ, labels: &[Label]) {
     from g e join labels l on l.key == e.key select (l.title, e.vi)
-};
-resource both_engines = deem!(a: &Writ, b: &Writ) {
+}
+pub deem both_engines(a: &Writ, b: &Writ) {
     from a e1 join b e2 on e2.key == e1.key
     where e1.key == "engine" select (e1.vs, e2.vs)
-};
+}
 
 // ── independent oracle walk ──────────────────────────────────────────────────
 fn count_maps(v: WAny) -> i64 {

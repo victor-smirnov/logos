@@ -10,7 +10,7 @@ use logos.mem.collections.vec;
 struct Person { pub name: i64, pub age: i64 }
 
 // 99999999999999999999 (20 nines) > i64::MAX (9223372036854775807).
-resource bad = deem!(people: &[Person]) { from people p select p.age + 99999999999999999999 : i64 };
+pub deem bad(people: &[Person]) { from people p select p.age + 99999999999999999999 : i64 }
 
 fn main() -> i32 {
     let people: [Person; 1] = [ Person { name: 1i64, age: 15i64 } ];

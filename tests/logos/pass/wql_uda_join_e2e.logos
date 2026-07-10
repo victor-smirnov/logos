@@ -20,13 +20,13 @@ fn big_step(acc: i64, x: i64) -> i64 {
 }
 fn big_fin(acc: i64) -> i64 { return acc * 10i64; }
 
-resource region_stats = deem!(orders: &[Order], depts: &[Dept]) {
+pub deem region_stats(orders: &[Order], depts: &[Dept]) {
     from orders o
     join depts d on o.dept == d.id
     group by d.region
     aggregate m = big(o.amt), total = sum(o.amt)
     having m > 500
-    select key * 100000 + m + total };
+    select key * 100000 + m + total }
 
 fn main() -> i32 {
     let orders: [Order; 5] = [

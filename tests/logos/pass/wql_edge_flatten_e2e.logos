@@ -13,11 +13,11 @@ use logos.lang.str;
 struct Emp  { pub name: str, pub skills: Vec<str> }
 struct Dept { pub dname: str, pub emps: Vec<Emp> }
 
-resource all_skills = deem!(depts: &[Dept]) {
+pub deem all_skills(depts: &[Dept]) {
     from depts d
     join d.emps e
     join e.skills s
-    select (d.dname, e.name, s) };
+    select (d.dname, e.name, s) }
 
 fn mk_emp(name: str, s1: str, s2: str) -> Emp {
     let mut sk: Vec<str> = Vec::<str>::new();

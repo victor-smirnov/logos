@@ -34,23 +34,23 @@ struct SS { pub id: i64 }
 struct SE { pub src: i64, pub dst: i64, pub w: i64 }
 
 // static oracles (already correct pre-fix): least-fixpoint SSSP and widest-path
-resource sssp  = deem!(src: &[SS], edges: &[SE]) {
+pub deem sssp(src: &[SS], edges: &[SE]) {
     rel dist(node: i64, d: i64) {
         from src s select (s.id, 0);
         from dist x join edges e on e.src == x.node group by e.dst aggregate d = min(x.d + e.w) select (e.dst, d);
     }
     from dist r select r.node * 1000 + r.d : i64
-};
+}
 // max-direction recursive aggregate (longest-hop-count to each node) — exercises
 // the dir==4 best-map path too. Acyclic-safe (hop count, +1 per edge) so the
 // max fixpoint converges; the cycle graph G3 is checked with SSSP (min) only.
-resource longest = deem!(src: &[SS], edges: &[SE]) {
+pub deem longest(src: &[SS], edges: &[SE]) {
     rel hop(node: i64, d: i64) {
         from src s select (s.id, 0);
         from hop x join edges e on e.src == x.node group by e.dst aggregate d = max(x.d + 1) select (e.dst, d);
     }
     from hop r select r.node * 1000 + r.d : i64
-};
+}
 
 fn sort_v(v: &mut Vec<i64>) {
     let n: i64 = v.len(); let mut i: i64 = 0i64;

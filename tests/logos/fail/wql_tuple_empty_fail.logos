@@ -8,6 +8,6 @@ use logos.mem.collections.vec;
 
 struct P { pub a: i64 }
 
-resource bad = deem!(ps: &[P]) { from ps p select () };
+pub deem bad(ps: &[P]) { from ps p select () }
 
 fn main() -> i32 { return 0i32; }

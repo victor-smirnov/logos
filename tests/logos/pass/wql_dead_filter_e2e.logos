@@ -23,8 +23,8 @@ struct Person {
     pub age:  i64,
 }
 
-resource all_rows  = deem!(people: &[Person]) { from people p where 1 < 2 select p.age : i64 };
-resource none_rows = deem!(people: &[Person]) { from people p where 1 > 2 select p.age : i64 };
+pub deem all_rows(people: &[Person]) { from people p where 1 < 2 select p.age : i64 }
+pub deem none_rows(people: &[Person]) { from people p where 1 > 2 select p.age : i64 }
 
 fn main() -> i32 {
     let people: [Person; 4] = [

@@ -46,9 +46,9 @@ impl EdgeSource for Star {
 }
 
 // (e) a consumer BEFORE the mapping it instantiates.
-resource chain_reach = deem!(w: Reach<Chain>) {
+pub deem chain_reach(w: Reach<Chain>) {
     from r t where t.x == 1 select t.y
-};
+}
 
 // ── ONE mapping, any EdgeSource ─────────────────────────────────────────────
 pub mapping Reach<S: EdgeSource>(g: &S) {
@@ -59,15 +59,15 @@ pub mapping Reach<S: EdgeSource>(g: &S) {
 }
 
 // (c) the same mapping over the star.
-resource star_reach = deem!(w: Reach<Star>) {
+pub deem star_reach(w: Reach<Star>) {
     from r t where t.x == 0 select t.y
-};
+}
 
 // (d) a consumer rel on top of the generic mapping's rel.
-resource endpoints = deem!(w: Reach<Chain>) {
+pub deem endpoints(w: Reach<Chain>) {
     rel ends(y: i64) { from r t where t.x == 1 select t.y; }
     from ends e where e.y == 4 select e.y
-};
+}
 
 fn main() -> i32 {
     let c: Chain = Chain { n: 4i64 };

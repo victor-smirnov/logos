@@ -9,6 +9,6 @@ struct P { pub v: i64 }
 
 fn dbl(x: i64) -> i64 { return x * 2i64; }
 
-resource bad = deem!(xs: &[P]) { from xs x select dbl(x.v, 7) };
+pub deem bad(xs: &[P]) { from xs x select dbl(x.v, 7) }
 
 fn main() -> i32 { return 0i32; }

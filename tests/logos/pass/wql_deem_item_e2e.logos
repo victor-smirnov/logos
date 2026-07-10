@@ -1,5 +1,5 @@
 // wql_deem_item_e2e — the deem QUERY as a LANGUAGE ITEM (ADR 0016): the item
-// form of `resource q = deem!(params){ body }`, same handler, same zero-copy
+// form of `pub deem q(params) { body }`, same handler, same zero-copy
 // seam. What the item adds over the resource form:
 //   (a) real visibility — `deem q(…)` emits a NON-pub fn, `pub deem` a pub one
 //       (the resource form is always pub);

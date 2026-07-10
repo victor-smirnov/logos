@@ -18,15 +18,15 @@ struct SE { pub src: i64, pub dst: i64 }
 pub schema ES : code(0x0EC1_0000_0000_0001) { src: i64 = 0, dst: i64 = 1 }
 resource cat = schema_catalog!{ ES };
 
-resource tc = deem!(edges: &[SE]) {
+pub deem tc(edges: &[SE]) {
     rel path(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from path p join edges e on p.b == e.src select (p.a, e.dst);
     }
     from path p select p.a * 100 + p.b
-};
+}
 
-resource mut_odd = deem!(edges: &[SE]) {
+pub deem mut_odd(edges: &[SE]) {
     rel odd(a: i64, b: i64) {
         from edges e select (e.src, e.dst);
         from even v join edges e on v.b == e.src select (v.a, e.dst);
@@ -35,7 +35,7 @@ resource mut_odd = deem!(edges: &[SE]) {
         from odd o join edges e on o.b == e.src select (o.a, e.dst);
     }
     from odd p select p.a * 100 + p.b
-};
+}
 
 struct Rng { s: u64 }
 impl Rng {
