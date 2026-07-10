@@ -31,6 +31,7 @@ use logos.lang.writ.array;        // WArray
 use logos.lang.writ.wmap;         // WMap<WString, WAny> / WMap<Wu6, WAny>
 use logos.lang.writ.wstring;      // as_wstr — null-safe str view
 use logos.lang.str;
+use logos.lang.num.float;   // f64_to_bits — f64 leaves ride vi as IEEE bits
 use logos.lang.arith;             // wrapping_mul — FNV mixes wrap by design
 use logos.mem.collections.vec;
 
@@ -89,6 +90,12 @@ fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: str, idx: i64,
     let mut vi: i64 = 0i64;
     if child.is_int()       { vi = child.as_i64(); }
     else if child.is_bool() { vi = if child.as_bool() { 1i64 } else { 0i64 }; }
+    // f64 leaf: vi carries the IEEE-754 BIT PATTERN (kind == "f64" tells the
+    // consumer to reinterpret via f64_from_bits). Bit identity is exact and
+    // Hash/Eq-sound — the honest set semantics for floats (NaN payloads and
+    // ±0.0 stay distinct); the VALUE itself cannot be a rel column (not Eq).
+    // Before this, an f64 leaf was VISIBLE but its value silently dropped.
+    else if child.is_float() { vi = f64_to_bits(child.as_f64()) as i64; }
     out.push((parent.raw() as i64, key, idx, cid, wg_kind(child),
               child.type_code() as i64, vi, child.as_wstr()));
 }

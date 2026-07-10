@@ -28,9 +28,12 @@
 //   S (another #[derive_graph_source] struct)
 //                       → edge row + recurse via __gs_walk_S
 //   Vec<S>              → per element: edge row + recurse (idx = position)
-// Named v2 extensions: dyn-Trait fields traverse through the VTABLE
+//   f64                 → leaf row, vi = IEEE-754 BITS (kind "f64"; consume
+//                         via f64_from_bits — the value itself cannot be a rel
+//                         column, floats are not Eq; bit identity is)
+// Named v2 extension: dyn-Trait fields traverse through the VTABLE
 // (`dyn GraphSource` + TypeId for the tag column) — the dyn-Trait alternative
-// to tags, per the design; f64 leaves need a vocabulary decision (vi is i64).
+// to tags, per the design.
 //
 // The hook cannot see other modules, so a field typed by a non-annotated (or
 // foreign) struct emits a call to __gs_walk_<S> that fails resolution with an
@@ -62,7 +65,7 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
 
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    em.push_text("use logos.mem.collections.vec; use logos.lang.str; ");
+    em.push_text("use logos.mem.collections.vec; use logos.lang.str; use logos.lang.num.float; ");
     // GraphSource (the trait) + the row alias live with the Writ walker.
     em.push_text("use logos.std.wql.writ_graph; use logos.lang.writ.container; ");
 
@@ -107,6 +110,16 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
             em.push_text(" as *const str) as i64, \"str\", 0i64, 0i64, v.");
             em.push_text(fname);
             em.push_text("));\n");
+        } else if gs_is(tname, "f64") {
+            // vi = IEEE-754 bits (kind "f64"), same contract as the Writ
+            // walker: exact, Hash/Eq-sound; consume via f64_from_bits.
+            em.push_text("    out.push((id, \"");
+            em.push_text(fname);
+            em.push_text("\", -1i64, (&v.");
+            em.push_text(fname);
+            em.push_text(" as *const f64) as i64, \"f64\", 0i64, f64_to_bits(v.");
+            em.push_text(fname);
+            em.push_text(") as i64, \"\"));\n");
         } else if gs_is(tname, "Vec") {
             let at: SView = view.ast_field_type_arg0_name(fld);
             let scalar: bool = gs_is(at, "i64") || gs_is(at, "str");

@@ -17,9 +17,10 @@ use logos.std.wql.writ_graph;
 use logos.lang.writ.container;
 use logos.mem.collections.vec;
 use logos.lang.str;
+use logos.lang.num.float;
 
 #[derive_graph_source]
-pub struct Db { pub host: str, pub port: i64 }
+pub struct Db { pub host: str, pub port: i64, pub load: f64 }
 
 #[derive_graph_source]
 pub struct Cfg { pub name: str, pub db: Db, pub replicas: Vec<i64> }
@@ -32,10 +33,14 @@ pub deem all_replicas(g: &Cfg) {
     from g .replicas [*] r select r.vi
 }
 
+pub deem loads(g: &Cfg) {
+    from g ** p {f64} select p.vi
+}
+
 fn main() -> i32 {
     let mut reps: Vec<i64> = vec_new::<i64>();
     reps.push(9001i64); reps.push(9002i64);
-    let cfg: Cfg = Cfg { name: "prod", db: Db { host: "h1", port: 5432i64 }, replicas: reps };
+    let cfg: Cfg = Cfg { name: "prod", db: Db { host: "h1", port: 5432i64, load: 0.75f64 }, replicas: reps };
 
     let p: Vec<i64> = match ports(&cfg)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
@@ -45,5 +50,13 @@ fn main() -> i32 {
     let r: Vec<i64> = match all_replicas(&cfg)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
     if r.len() != 2i64 { return 5i32; }
+
+    // f64 leaf: vi carries the IEEE bits (kind "f64") — exact, and
+    // recoverable via f64_from_bits after the query.
+    let l: Vec<i64> = match loads(&cfg)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if l.len() != 1i64 { return 7i32; }
+    let lf: f64 = f64_from_bits(l.get(0i64) as u64);
+    if !(lf > 0.74f64 && lf < 0.76f64) { return 8i32; }
     return 0i32;
 }
