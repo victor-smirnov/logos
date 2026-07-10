@@ -613,8 +613,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // cost a debugging session; warn loudly instead of degrading in silence.
     if (dep_archives.empty()) {
         bool any_binary = false;
-        for (const auto& m : modules)
-            if (m.from_binary_module) { any_binary = true; break; }
+        for (bool fb : from_binary_module_flags)
+            if (fb) { any_binary = true; break; }
         if (any_binary)
             std::fprintf(stderr,
                 "logosc: warning: --emit-module manifest has no `depends` "

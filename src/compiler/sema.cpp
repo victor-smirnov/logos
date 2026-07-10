@@ -7331,7 +7331,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         mi.type_param     = parts.type_param;
         mi.bound          = parts.bound;
         mi.is_pub         = parts.is_pub;
+        mi.is_module_only = parts.is_module_only;
         mi.package        = cur_package_;
+        mi.module_id      = cur_module_id_;
         mappings_[parts.name] = std::move(mi);
     }
 

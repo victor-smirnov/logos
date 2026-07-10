@@ -19800,6 +19800,7 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
         auto pv = node.get(la::IS_PUB.code);
         out.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
     }
+    out.is_module_only = read_module_vis(node);   // §4 `pub(module)`
 
     // ── generic form `mapping M<S: Bound>(g: &S)` (§6 T3): one type param
     // with one source-trait bound. The mapping is then a PURE rule module —
@@ -20054,7 +20055,9 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
         mi.type_param     = parts.type_param;
         mi.bound          = parts.bound;
         mi.is_pub         = parts.is_pub;
+        mi.is_module_only = parts.is_module_only;
         mi.package        = cur_package_;
+        mi.module_id      = cur_module_id_;
         mappings_[mname] = std::move(mi);
     }
     // A GENERIC mapping is a pure rule module: nothing to emit here — its
@@ -20309,13 +20312,26 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                 auto mit = mappings_.find(mbase);
                 if (mit == mappings_.end()) continue;
                 const MappingInfo& mi = mit->second;
-                if (!mi.is_pub && !mi.package.empty()
-                        && mi.package != cur_package_) {
-                    error(std::format(
-                        "'{}!': mapping '{}' is private to package '{}' — "
-                        "mark it `pub mapping` to consume it from '{}'",
-                        callee_label, mbase, mi.package, cur_package_));
-                    return false;
+                // The fn three-tier visibility: private (same package) /
+                // pub(module) (same module, any package) / pub (anywhere).
+                if (!mi.package.empty() && mi.package != cur_package_) {
+                    if (mi.is_module_only) {
+                        if (mi.module_id != cur_module_id_) {
+                            // The module id is a mangle hash — name the
+                            // PACKAGE instead, which the user can find.
+                            error(std::format(
+                                "'{}!': mapping '{}' (package '{}') is "
+                                "`pub(module)` — visible only inside its own "
+                                "module", callee_label, mbase, mi.package));
+                            return false;
+                        }
+                    } else if (!mi.is_pub) {
+                        error(std::format(
+                            "'{}!': mapping '{}' is private to package '{}' — "
+                            "mark it `pub mapping` to consume it from '{}'",
+                            callee_label, mbase, mi.package, cur_package_));
+                        return false;
+                    }
                 }
                 if (mi.type_param.empty() != marg.empty()) {
                     error(mi.type_param.empty()

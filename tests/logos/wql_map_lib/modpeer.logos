@@ -1,0 +1,14 @@
+// A SECOND package of the same module: consumes the sibling package's
+// `pub(module) mapping Internal` — the same-module tier of the three-tier
+// visibility, exercised during the fixture's own emit.
+package modpeer;
+
+use maplib;
+use logos.lang.writ.container;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+
+pub deem all_leaves(w: Internal) {
+    from leaf l select l.v
+}

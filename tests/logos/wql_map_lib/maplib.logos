@@ -21,3 +21,12 @@ mapping Hidden(g: &Writ) {
         from g ** x {i64} select x.vi;
     }
 }
+
+// pub(module): visible to this module's OTHER packages (modpeer.logos consumes
+// it during THIS module's build), but a named error from another module (the
+// _modvis fail test).
+pub(module) mapping Internal(g: &Writ) {
+    pub rel leaf(v: i64) {
+        from g ** x {i64} select x.vi;
+    }
+}

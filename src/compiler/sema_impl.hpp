@@ -4087,6 +4087,7 @@ private:
         std::string type_param;           // "S", empty = concrete mapping
         std::string bound;                // the source-trait bound
         bool        is_pub = false;
+        bool        is_module_only = false;   // `pub(module)`
         std::string err;
     };
     bool          reconstruct_mapping_def(writ::TinyMapView node,
@@ -4107,7 +4108,9 @@ private:
         std::string type_param;            // "S" for `mapping M<S: Bound>`
         std::string bound;                 // the bound source trait
         bool        is_pub = false;        // cross-package consumption needs pub
+        bool        is_module_only = false;// `pub(module)`: same-module only
         std::string package;               // defining package
+        std::string module_id;             // defining module (mangle key)
         // Scalar params after the source (`floor: i64`, …). Bound at the
         // consumption site by NAME IDENTITY: the consumer must declare a
         // param with the same name and type — the spliced rule bodies then
