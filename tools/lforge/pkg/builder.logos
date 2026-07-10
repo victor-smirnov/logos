@@ -16,6 +16,7 @@ use lforge.schema_types;
 use lforge.util;
 use lforge.proc;
 use lforge.build_paths;
+use lforge.cwd;            // make_absolute — dep -L paths survive logosc cwd
 use lforge.spawn_helpers;
 
 // Append profile-driven compilation flags to a logosc argv. debug = -g (DWARF
@@ -50,6 +51,12 @@ fn profile_compile_flags(profile: str, argv: &mut Vec<String>) {
         }
     }
     else                                { push_arg(argv, "-g"); }
+}
+
+// Push `p` made absolute (module-loader -L paths must survive logosc's cwd).
+fn largv_push_abs(argv: &mut Vec<String>, p: &String) {
+    let a: String = make_absolute(p.as_str());
+    argv.push(a);
 }
 
 pub fn build_lib(t: &Target, profile: str, logosc: &String,
@@ -109,6 +116,18 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         man.push_str("root ");
         man.push_str(t.src.as_str());
         man.push_u8(10 as u8);
+        // Sibling lib deps become manifest `depends` lines so the module
+        // loader LINKS their archives instead of recompiling their bodies
+        // from the archived ASTs (and so cross-target `use` resolves).
+        let ndeps: i64 = t.deps.length();
+        let mut di: i64 = 0 as i64;
+        while di < ndeps {
+            let d: &String = t.deps.borrow(di);
+            man.push_str("depends ");
+            man.push_str(d.as_str());
+            man.push_u8(10 as u8);
+            di = di + 1 as i64;
+        }
         man_path.push_str(gd.as_str());
         man_path.push_u8(47 as u8);
         man_path.push_str(t.name.as_str());
@@ -158,6 +177,14 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
                 push_arg(&mut argv, "--dump-metaprog-filter");
                 push_string_arg(&mut argv, dump_filter);
             }
+        }
+        // Sibling dep archives resolve through the project out dir: the
+        // generated manifest's `depends` lines + this -L let the module
+        // loader link lib<dep>.a (topo order guarantees they exist).
+        if t.deps.length() > 0 as i64 {
+            push_arg(&mut argv, "-L");
+            let odl: String = out_dir_for(profile);
+            largv_push_abs(&mut argv, &odl);
         }
         // External archives so logosc can load their .writ0 modules and
         // resolve `use <pkg>` statements that reference symbols outside
