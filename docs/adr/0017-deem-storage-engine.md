@@ -1,6 +1,6 @@
 # ADR 0017 — the Deem storage engine («data»): persistent absorbed, completed, integrated
 
-Status: PROPOSED (direction review pending). Date: 2026-07-10.
+Status: ACCEPTED (direction reviewed by the user — four accents incorporated). Date: 2026-07-10.
 
 ## 0. Context and mandate
 
