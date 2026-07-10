@@ -21,6 +21,8 @@ use logos.lang.cmp;
 use logos.std.sync;
 use logos.lang.fabric;
 use logos.lang.writ.wstatic;
+use logos.mem.string;              // String — commit labels + head names (ADR 0017 P2)
+use logos.lang.str;
 
 use logos.std.deem.data.bt.node;
 
@@ -48,6 +50,8 @@ pub struct CommitEntry<const STORE_CFG: WritStatic> {
     // via NodeARC rc — blocks unique to this commit drop to rc=0 and
     // free; blocks shared with a sibling/descendant commit retain rc≥1.
     pub released: bool,
+    /// Optional human-readable commit label (ADR 0017 P2); empty when unset.
+    pub label:    String,
 }
 
 // ── IStore trait ──────────────────────────────────────────────────────
@@ -69,6 +73,11 @@ pub trait IStore<const STORE_CFG: WritStatic> {
     // valid; genesis is seeded directly by store_open and bypasses this fn). The
     // parent's children list gains the new id.
     fn register_commit(self: *mut Self, root: NodeARC<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG>;
+
+    /// Pins a MERGE commit whose directory-tree root is `root`, with an
+    /// arbitrary non-empty parent list (ADR 0017 P2). First parent = the
+    /// winner whose tree `root` is; the rest record merged-in history.
+    fn register_merge_commit(self: *mut Self, root: NodeARC<STORE_CFG>, parents: Vec<SnpId<STORE_CFG>>) -> SnpId<STORE_CFG>;
 
     /// Returns a `NodeARC` clone of `id`'s pinned root.
     // Return a NodeARC clone of the commit's pinned root. Bumps rc.
@@ -119,6 +128,10 @@ pub struct LockingStore<const STORE_CFG: WritStatic> {
     pub next_block_id:    BlockId<STORE_CFG>,
     /// Tracks the next snapshot id to hand out.
     pub next_snapshot_id: SnpId<STORE_CFG>,
+    /// Named heads (ADR 0017 P2): parallel name/commit vectors — a head is a
+    /// named moving ref to a commit. Linear scan; head counts stay tiny.
+    pub head_names:       Vec<String>,
+    pub head_ids:         Vec<SnpId<STORE_CFG>>,
 }
 
 // Build a single-element parents Vec inline. Helper fn so the
@@ -137,6 +150,8 @@ pub fn locking_store_new<const STORE_CFG: WritStatic>() -> LockingStore<STORE_CF
         lock:             mutex_new::<i32>(0i32),
         next_block_id:    0u64,
         next_snapshot_id: 0u64,
+        head_names:       vec_new::<String>(),
+        head_ids:         vec_new::<SnpId<STORE_CFG>>(),
     };
 }
 
@@ -176,6 +191,30 @@ impl<const STORE_CFG: WritStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG> 
                 parents:  make_parents_vec::<STORE_CFG>(parent),
                 children: vec_new::<SnpId<STORE_CFG>>(),
                 released: false,
+                label:    String::new(),
+            });
+            self.lock.unlock();
+            return id;
+        }
+    }
+    fn register_merge_commit(self: *mut LockingStore<STORE_CFG>, root: NodeARC<STORE_CFG>, parents: Vec<SnpId<STORE_CFG>>) -> SnpId<STORE_CFG> {
+        unsafe {
+            self.lock.lock();
+            let id: SnpId<STORE_CFG> = self.dag.len() as SnpId<STORE_CFG>;
+            let np: i64 = parents.len();
+            let mut i: i64 = 0i64;
+            while i < np {
+                let p: SnpId<STORE_CFG> = parents.get(i);
+                let pe: &mut CommitEntry<STORE_CFG> = self.dag.borrow_mut(p as i64);
+                pe.children.push(id);
+                i = i + 1i64;
+            }
+            self.dag.push(CommitEntry::<STORE_CFG> {
+                root:     root,
+                parents:  parents,
+                children: vec_new::<SnpId<STORE_CFG>>(),
+                released: false,
+                label:    String::new(),
             });
             self.lock.unlock();
             return id;

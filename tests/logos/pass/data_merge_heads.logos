@@ -1,0 +1,124 @@
+// data_merge_heads — commit history + merge commits (ADR 0017 P2 store side):
+// named heads, commit labels, first-parent log, and Store::merge — a
+// select_one merge whose state ≡ the winner's tree while the losers stay
+// reachable as extra parents. Asserts:
+//   (a) two branches forked off one base diverge (no cross-contamination);
+//   (b) merge(winner, [loser]) → state ≡ winner (container contents);
+//   (c) the merge commit's parents = [winner, loser] — history queryable;
+//   (d) named heads move (set_head/head) and resolve to commits;
+//   (e) labels round-trip; log(head) walks the first-parent chain to genesis;
+//   (f) releasing the loser afterwards keeps the merge readable.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package data_merge_heads;
+
+use logos.lang.option;
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+
+use logos.std.deem.data.bt.node;
+use logos.std.deem.data.bt.cow;
+use logos.std.deem.data.store;
+use logos.std.deem.data.handle;
+
+pub const StoreCfg: WritStatic = @{
+    "name": "merge-heads", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,
+};
+pub const MapCfg: WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 8 };
+
+fn put_range(store: &mut Store<StoreCfg>, parent: u64, lo: u64, hi: u64, mul: u64) -> u64 {
+    let mut snap = store.fork(parent);
+    {
+        let mut cr = if parent == GENESIS {
+            create_ctr::<MapCfg>(&mut snap, 1u64)
+        } else {
+            open_ctr::<MapCfg>(&mut snap, 1u64).unwrap()
+        };
+        let mut k: u64 = lo;
+        while k < hi { cr.insert(k, k * mul); k = k + 1u64; }
+    }
+    return snap.commit();
+}
+
+fn ctr_len(store: &mut Store<StoreCfg>, at: u64) -> u64 {
+    let mut snap = store.fork(at);
+    let cr = open_ctr::<MapCfg>(&mut snap, 1u64).unwrap();
+    return cr.len();
+}
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+
+    // base: [0..10)
+    let base: u64 = put_range(&mut store, GENESIS, 0u64, 10u64, 2u64);
+    store.set_head("main", base);
+
+    // (a) two diverging branches off base.
+    let br_a: u64 = put_range(&mut store, base, 10u64, 20u64, 3u64);   // [0..20)
+    let br_b: u64 = put_range(&mut store, base, 50u64, 55u64, 5u64);   // [0..10)+[50..55)
+    store.set_head("a", br_a);
+    store.set_head("b", br_b);
+    if ctr_len(&mut store, br_a) != 20u64 { return 10i32; }
+    if ctr_len(&mut store, br_b) != 15u64 { return 11i32; }
+    {
+        let mut snap = store.fork(br_a);
+        let cr = open_ctr::<MapCfg>(&mut snap, 1u64).unwrap();
+        let probe: u64 = 52u64;
+        if cr.contains(probe) { return 12i32; }    // b's keys not in a
+    }
+
+    // (b)+(c) select_one merge: a wins, b becomes an extra parent.
+    let mut losers: Vec<u64> = vec_new::<u64>();
+    losers.push(br_b);
+    let m: u64 = store.merge(br_a, &losers);
+    store.set_head("main", m);
+    store.set_label(m, "select_one: a over b");
+    if ctr_len(&mut store, m) != 20u64 { return 20i32; }   // state ≡ winner
+    {
+        let mut snap = store.fork(m);
+        let cr = open_ctr::<MapCfg>(&mut snap, 1u64).unwrap();
+        let probe: u64 = 52u64;
+        if cr.contains(probe) { return 21i32; }
+        let pa: u64 = 15u64;
+        match cr.get(pa) { Option::Some(v) => { if v != 45u64 { return 22i32; } }
+                           Option::None    => { return 23i32; } }
+    }
+    let ps: Vec<u64> = store.parents_of(m);
+    if ps.len() != 2i64 { return 24i32; }
+    if ps.get(0i64) != br_a { return 25i32; }
+    if ps.get(1i64) != br_b { return 26i32; }
+    let cb: Vec<u64> = store.children_of(br_b);
+    if cb.len() != 1i64 { return 27i32; }
+    if cb.get(0i64) != m { return 28i32; }
+
+    // (d) heads resolve.
+    match store.head("main") { Option::Some(h) => { if h != m { return 30i32; } }
+                               Option::None    => { return 31i32; } }
+    match store.head("a")    { Option::Some(h) => { if h != br_a { return 32i32; } }
+                               Option::None    => { return 33i32; } }
+    match store.head("nope") { Option::Some(_h) => { return 34i32; }
+                               Option::None     => { } }
+
+    // (e) label + first-parent log: m → br_a → base → genesis.
+    if !str_eq(store.label_of(m).as_str(), "select_one: a over b") { return 40i32; }
+    if store.label_of(br_a).len() != 0i64 { return 41i32; }
+    let lg: Vec<u64> = store.log(m);
+    if lg.len() != 4i64 { return 42i32; }
+    if lg.get(0i64) != m { return 43i32; }
+    if lg.get(1i64) != br_a { return 44i32; }
+    if lg.get(2i64) != base { return 45i32; }
+    if lg.get(3i64) != GENESIS { return 46i32; }
+
+    // (f) releasing the loser keeps the merge fully readable.
+    store.release(br_b);
+    if !store.is_released(br_b) { return 50i32; }
+    if ctr_len(&mut store, m) != 20u64 { return 51i32; }
+    let ps2: Vec<u64> = store.parents_of(m);
+    if ps2.len() != 2i64 { return 52i32; }         // history intact post-release
+
+    return 0i32;
+}
