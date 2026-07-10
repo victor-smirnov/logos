@@ -47,7 +47,7 @@ namespace fs = std::filesystem;
 // The whole `logos.std.wql.*` package tree — IR schemas (SExpr/RExpr/RQuery/
 // TStmt), the peg-generated parsers, plan_walker/rexpr_walk, optimize, codegen,
 // reflect, el/trama internals — is IMPLEMENTATION DETAIL. The only consumer-
-// facing surface is the macros (wql!/trama!/wql_walk!), which are #[token_macro]
+// facing surface is the `deem`/`mapping` items + the trama! macro (#[token_macro]
 // and are ALREADY dropped by is_macro_hook(). A consumer never links a
 // logos.std.wql.* symbol: the macro expands into the CONSUMER's module using
 // Vec/String from OTHER packages. So the query engine is not link-time ABI, and
