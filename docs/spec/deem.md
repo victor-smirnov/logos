@@ -170,7 +170,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 ### `deem.select.limit` — `limit N | param`
 
-`limit <N|p>` truncates to the first N rows: N is either an INTEGER literal or a bare IDENT naming a scalar param from the `deem!(…)` list; lowers to an `RLimit` ABOVE the projection.
+`limit <N|p>` truncates to the first N rows: N is either an INTEGER literal or a bare IDENT naming a scalar param from the deem parameter list; lowers to an `RLimit` ABOVE the projection.
 
 *Divergence:* SQL `LIMIT` (no `OFFSET`, RESTRICTION); the param form is the prepared-statement bind.
 
@@ -338,6 +338,12 @@ A trait may declare `rel` members (`rel edge(parent: i64, …);` — columns i64
 
 *Evidence:* `stdlib/std/wql/writ_graph.logos` (GraphSource), `stdlib/std/deem/mapping_state.logos` (EngineState), `tests/logos/pass/wql_source_trait_e2e.logos`
 
+### `deem.source.engine-state` — `e: &IncrRec` exposes the reasoner's own past
+
+A deem param typed `&IncrRec` carries the `EngineState` vocabulary (`impl EngineState for IncrRec`, stdlib): four relations `<p>_trace(epoch, kind, step, delta, total, ns)` · `<p>_epochs(epoch, ins, del, rounds, ns)` · `<p>_tail(epoch, converged, pending, bound, cutr)` · `<p>_controls(epoch, kind, val)` — sensor facts about the COMPLETED past (the I1 contract), materialized by `logos.std.deem` state materializers. This is the self-applicability seam (ADR 0015/0016 case S): the engine is a source like any other, and its honesty oracles (Σδ consistency, the raise/converge Encounter pair) are expressed in Deem itself.
+
+*Evidence:* `stdlib/std/deem/mapping_state.logos` (EngineState + materializers), `tests/logos/pass/wql_engine_source_e2e.logos`
+
 ## Mappings (consumption; the item is specced in items.md)
 
 ### `deem.mapping.fusion` — `deem q(w: M)` splices the mapping's rules
@@ -450,7 +456,7 @@ An `anti join R` or an aggregate body reading `R` where `R` is in the SAME SCC a
 
 ### `deem.udf.reflection` — user functions reflected from the trigger module
 
-The deem!/trama! handler reflects every top-level `fn` of the trigger module into the UDF registry (name, return EL-lattice tag via `el_ret_class`, declared return type name, arity); codegen resolves a call name against the builtin registry first, then the UDF table (builtins shadow a same-named UDF); capacity is 32 top-level fns.
+The deem/trama handlers reflect every top-level `fn` of the trigger module into the UDF registry (name, return EL-lattice tag via `el_ret_class`, declared return type name, arity); codegen resolves a call name against the builtin registry first, then the UDF table (builtins shadow a same-named UDF); capacity is 32 top-level fns.
 
 *Divergence:* EXTENSION over CEL/SQL — UDFs are ordinary module-local Logos functions, resolved by reflection, not a separate registration API (static surface).
 
@@ -532,7 +538,7 @@ Sorting by a key that const-folds to a literal orders nothing (every row compare
 
 ## Static vs dynamic surfaces
 
-### `deem.exec.static` — static deem! (metacall → native, compile diagnostics)
+### `deem.exec.static` — the static `deem` item (metacall → native, compile diagnostics)
 
 The static surface parses, type-checks, optimizes and lowers at COMPILE time via metacall, emitting native Logos code linked into the program; all errors are compile DIAGNOSTICS; there are no runtime-string queries in this surface (queue 1).
 
@@ -577,6 +583,12 @@ The dynamic surface reuses the peg-generated parsers, the IR optimizer, the plan
 `bind_source` (a Writ array of schema'd rows) · `bind_source_erased` (lenient rows, CEL Null semantics) · `bind_source_tree` (a Writ VALUE scanned virtually, one row per edge, the graph vocabulary) · `bind_edge_rows` (PRE-MATERIALIZED rows in the same edge vocabulary — the runtime twin of a `#[derive_graph_source]` materializer). Tree and edge sources type identically (`vi: i64`, `vs: str`, total) and are REJECTED by the incremental path with a named error (no delta capture — materialize facts via FactStore).
 
 *Evidence:* `stdlib/std/deem/deem.logos` (QB_* + binders), `stdlib/std/deem/check.logos`, `tests/logos/pass/wql_native_graph_e2e.logos` (runtime twin)
+
+### `deem.exec.incremental` — the DBSP incremental path (ADR 0013)
+
+`Query::incremental` maintains results under fact deltas (±-weighted Z-set batches): full relational algebra, recursion, and aggregation with change capture and provenance, oracle-gated against from-scratch recomputation. Facts live in a `FactStore` (the delta boundary: `insert`/`retract` events); virtual sources — tree scans and pre-materialized edge rows — are REJECTED with a named error (re-scan semantics have no delta capture; materialize facts to cross). The engine's own execution history is queryable back through `deem.source.engine-state`.
+
+*Evidence:* `stdlib/std/deem/incr.logos`, `stdlib/std/deem/incr_rec.logos`, `tests/logos/pass/query_incr_*.logos`, ADR 0013
 
 ### `deem.exec.rtval` — RtVal runtime scalar and QRows
 

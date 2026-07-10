@@ -8,7 +8,7 @@
 
 Every `{{ … }}` interpolation and every `{% if/for/set … %}` tag expression body is an EL expression (canonical grammar + typing + Null rules in [deem.md](deem.md), rule ids `el.*`); Trama couples to it through exactly one edge — the `WRef<SExpr>` on each statement node — and specifies no expression semantics of its own beyond how it typechecks and renders the resulting value.
 
-*Divergence:* Jinja2 has an untyped ad-hoc expression grammar; Trama delegates to EL, a strongly-typed (static surface) / strictly-checked (dynamic surface) CEL-class language shared verbatim with the `deem!` / `Query` sibling surfaces.
+*Divergence:* Jinja2 has an untyped ad-hoc expression grammar; Trama delegates to EL, a strongly-typed (static surface) / strictly-checked (dynamic surface) CEL-class language shared verbatim with the `deem` / `Query` sibling surfaces.
 
 *Evidence:* `stdlib/std/wql/grammars/trama.peg#L227-L232` (`expr <- el::expr`); `stdlib/std/wql/trama.logos#L7-L9` (the EXPRESSION seam); `ADR 0012 §seam`
 
@@ -24,7 +24,7 @@ The static surface is `resource <name> = trama!(<params>){ <template> };`; `#[to
 
 ### `trama.surface.params-form` — Params are a real Logos parameter list
 
-`params` is a genuine Logos fn-style parameter list (e.g. `o: &Order, greeting: str`), re-emitted VERBATIM into the generated signature so the compiler parses and type-checks it, and parsed a second time locally (`parse_macro_params`, shared with `deem!`) to drive reflection; at least one parameter is required (`trama!: needs at least one parameter`).
+`params` is a genuine Logos fn-style parameter list (e.g. `o: &Order, greeting: str`), re-emitted VERBATIM into the generated signature so the compiler parses and type-checks it, and parsed a second time locally (`parse_macro_params`, shared with the deem item) to drive reflection; at least one parameter is required (`trama!: needs at least one parameter`).
 
 *Divergence:* Replaces Jinja2's dynamic, untyped context dict with a typed, compiler-checked parameter list — the params ARE the type source (the old `data`/`with` DSL header is GONE).
 

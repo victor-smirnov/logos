@@ -925,7 +925,7 @@ Sema validates the item, reconstructs canonical `(name, params, body)` text from
 
 ### `item.deem.query-item` — deem: a query as a language item
 
-`[pub] deem q(param: Type, …) { <query> }` (DEEM_DEF: PARAMS = PARAM array, RAW_TEXT = the query body) declares a deem query as an item — the item form of `resource q = deem!(params){ body }`, lowered through the SAME handler and zero-copy rule-IR seam. Header params follow the mapping discipline (simple `name: Type`, ≥ 1, syntactic re-render); every deem! capability rides along unchanged: rels + recursion, graph params, mapping fusion (`w: Net`), generic-mapping instantiation (`w: Reach<Chain>`).
+`[pub] deem q(param: Type, …) { <query> }` (DEEM_DEF: PARAMS = PARAM array, RAW_TEXT = the query body) declares a deem query as an item (the RETIRED `resource q = deem!(params){ body }` macro was its predecessor — same handler, same zero-copy rule-IR seam). Header params follow the mapping discipline (simple `name: Type`, ≥ 1, syntactic re-render); every deem capability rides along unchanged: rels + recursion, graph params, mapping fusion (`w: Net`), generic-mapping instantiation (`w: Reach<Chain>`).
 
 Evidence: `tools/peg_gen_cpp/grammars/logos.peg` (pub_deem_def/deem_def), `src/compiler/sema_expr.cpp` (lower_deem_def), `tests/logos/pass/wql_deem_item_e2e.logos`
 
@@ -935,7 +935,7 @@ The item's lead token is a bare IDENT validated == "deem" during lowering — a 
 
 ### `item.deem.visibility` — item visibility is real; the resource form stays pub
 
-`deem q(…)` emits a NON-pub fn; `pub deem q(…)` a pub one (the `-` fn-name marker convention consumed at the emit sites). The `resource q = deem!(…){…}` macro form keeps emitting a pub fn, unchanged.
+`deem q(…)` emits a NON-pub fn; `pub deem q(…)` a pub one (the `-` fn-name marker convention consumed at the emit sites). The `resource q = deem!(…){…}` macro spelling is RETIRED and errors with the item replacement written out.
 
 ## Type aliases
 
