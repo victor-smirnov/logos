@@ -1,0 +1,49 @@
+// wql_native_graph_e2e — a NATIVE Logos object graph as a deem! source
+// (ADR 0016 case 2b, STATIC form; the honest half of what "T4/M4" meant).
+// Native objects are deliberately UNTAGGED — types are known statically — so
+// #[derive_graph_source] generates the traversal by COMPILE-TIME reflection:
+// a walker + materializer + `impl GraphSource for T` per annotated struct,
+// emitting the SAME eight-column vocabulary as the Writ walker. Every deem!
+// feature applies to native objects unchanged: `**` descent, gpath sugar
+// ([*]), {kind} filters, joins, and (by construction) generic mappings.
+// Asserts: nested-struct descent finds db.port via `**`; [*] enumerates a
+// Vec field. Ordering machinery under test: the deem! sites' natspec is
+// seeded BY CONVENTION from the annotation one metaprog round before the
+// derive's emitted impl collects (identical re-registration = confirmation).
+package test;
+use logos.std.compiler.metaprog;
+use logos.std.wql.wql;
+use logos.std.wql.writ_graph;
+use logos.lang.writ.container;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+#[derive_graph_source]
+pub struct Db { pub host: str, pub port: i64 }
+
+#[derive_graph_source]
+pub struct Cfg { pub name: str, pub db: Db, pub replicas: Vec<i64> }
+
+pub deem ports(g: &Cfg) {
+    from g ** p {i64} where p.key == "port" select p.vi
+}
+
+pub deem all_replicas(g: &Cfg) {
+    from g .replicas [*] r select r.vi
+}
+
+fn main() -> i32 {
+    let mut reps: Vec<i64> = vec_new::<i64>();
+    reps.push(9001i64); reps.push(9002i64);
+    let cfg: Cfg = Cfg { name: "prod", db: Db { host: "h1", port: 5432i64 }, replicas: reps };
+
+    let p: Vec<i64> = match ports(&cfg)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if p.len() != 1i64 { return 2i32; }
+    if p.get(0i64) != 5432i64 { return 3i32; }
+
+    let r: Vec<i64> = match all_replicas(&cfg)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if r.len() != 2i64 { return 5i32; }
+    return 0i32;
+}

@@ -2624,8 +2624,19 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 }
                 for (const auto& seen : trait_rels_[tname]) {
                     if (seen.rel == sig.rel) {
-                        error(std::format("trait '{}': duplicate rel '{}'",
-                                          tname, sig.rel));
+                        // User ASTs re-collect every metaprog round while the
+                        // registry persists across rounds (snapshot) — an
+                        // IDENTICAL re-collection is confirmation. Divergence
+                        // (changed columns) is the real duplicate.
+                        bool same = seen.cols.size() == sig.cols.size();
+                        if (same)
+                            for (size_t ci = 0; ci < sig.cols.size(); ++ci)
+                                if (seen.cols[ci].name != sig.cols[ci].name
+                                    || seen.cols[ci].ty != sig.cols[ci].ty)
+                                    { same = false; break; }
+                        if (!same)
+                            error(std::format("trait '{}': duplicate rel '{}'",
+                                              tname, sig.rel));
                         sig.rel.clear();
                         break;
                     }
@@ -3288,13 +3299,22 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 b.mat_fn = std::string(str_of(m.get(la::VALUE.code)));
                 b.mat_module = cur_package_;   // refined at spec time if needed
                 b.cols   = sig->cols;
-                bool dup = false;
+                bool dup = false, same = false;
                 for (const auto& e : source_impls_[target])
-                    if (e.rel == rn) { dup = true; break; }
+                    if (e.rel == rn) {
+                        dup = true;
+                        // The convention pre-scan (#[derive_graph_source])
+                        // seeds this exact binding a round before the derive's
+                        // emitted impl collects — identical re-registration
+                        // is confirmation, not conflict.
+                        same = (e.trait_name == trait_name && e.mat_fn == b.mat_fn);
+                        break;
+                    }
                 if (dup) {
-                    error(std::format(
-                        "impl {} for {}: duplicate rel binding '{}'",
-                        trait_name, target, rn));
+                    if (!same)
+                        error(std::format(
+                            "impl {} for {}: duplicate rel binding '{}'",
+                            trait_name, target, rn));
                     continue;
                 }
                 source_impls_[target].push_back(std::move(b));

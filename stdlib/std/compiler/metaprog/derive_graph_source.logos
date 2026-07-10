@@ -1,0 +1,172 @@
+// logos.std.compiler.metaprog — #[derive_graph_source]: a NATIVE Logos object
+// graph as a deem! source (ADR 0016 case 2b, the STATIC form).
+//
+// Native objects are deliberately UNTAGGED — their types are known statically
+// (or through dyn Trait / TypeId, never through the tag system, which is a
+// Writ-style special case). So the traversal is generated at COMPILE TIME by
+// reflection over the annotated struct:
+//
+//   #[derive_graph_source]
+//   pub struct Cfg { pub port: i64, pub name: str, pub db: Db, pub tags: Vec<str> }
+//
+// emits, per struct:
+//   pub fn __gs_walk_Cfg(v: &Cfg, parent: i64, key: str, idx: i64, out: &mut Vec<Row>)
+//   pub fn __gs_edges_Cfg(root: &Cfg) -> Vec<Row>          // the materializer
+//   impl GraphSource for Cfg { rel edge = __gs_edges_Cfg; }
+//
+// Row = the GraphSource vocabulary (parent, key, idx, child, kind, tag, vi, vs)
+// — the SAME eight columns as Writ's walker, so `**`, gpath sugar, generic
+// mappings (`Reach<Cfg>`) and every deem! feature apply to native objects
+// unchanged. Node id = ADDRESS (fields are inline → distinct; valid for the
+// duration of one materializer run, i.e. one query — a snapshot semantics
+// consistent with slice params). The root is emitted as a VIRTUAL ROOT EDGE
+// (parent == 0), Writ-walker convention. tag = 0: native objects carry none.
+//
+// v1 FIELD CLASSES (anything else is a NAMED compile error via emitted text):
+//   i64 / bool / str    → leaf row (kind = the type name; bool → vi 0/1)
+//   Vec<i64> / Vec<str> → one leaf row per element (idx = position)
+//   S (another #[derive_graph_source] struct)
+//                       → edge row + recurse via __gs_walk_S
+//   Vec<S>              → per element: edge row + recurse (idx = position)
+// Named v2 extensions: dyn-Trait fields traverse through the VTABLE
+// (`dyn GraphSource` + TypeId for the tag column) — the dyn-Trait alternative
+// to tags, per the design; f64 leaves need a vocabulary decision (vi is i64).
+//
+// The hook cannot see other modules, so a field typed by a non-annotated (or
+// foreign) struct emits a call to __gs_walk_<S> that fails resolution with an
+// ordinary unknown-fn error naming the missing derive — honest, if terse.
+
+package logos.std.compiler.metaprog;
+
+use logos.mem.collections.vec;
+use logos.lang.writ.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+fn gs_sv(s: SView) -> str {
+    return unsafe { str_from_raw(s.ptr, s.len as i64) };
+}
+
+fn gs_is(s: SView, w: str) -> bool {
+    return str_eq(gs_sv(s), w);
+}
+
+#[metaprog_handler("derive_graph_source")]
+fn derive_graph_source_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    let nm_sv: SView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+    let nm: str = gs_sv(nm_sv);
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.push_text("use logos.mem.collections.vec; use logos.lang.str; ");
+    // GraphSource (the trait) + the row alias live with the Writ walker.
+    em.push_text("use logos.std.wql.writ_graph; use logos.lang.writ.container; ");
+
+    // ── the walker ──
+    em.push_text("pub fn __gs_walk_");
+    em.push_text(nm);
+    em.push_text("(v: &");
+    em.push_text(nm);
+    em.push_text(", parent: i64, key: str, idx: i64, out: &mut Vec<WritEdgeRow>) {\n");
+    em.push_text("    let id: i64 = (v as *const ");
+    em.push_text(nm);
+    em.push_text(") as i64;\n");
+    em.push_text("    out.push((parent, key, idx, id, \"struct\", 0i64, 0i64, \"\"));\n");
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(item, i);
+        let fname: str = gs_sv(view.ast_field_name(fld));
+        let tname: SView = view.ast_field_type_name(fld);
+        if gs_is(tname, "i64") {
+            em.push_text("    out.push((id, \"");
+            em.push_text(fname);
+            em.push_text("\", -1i64, (&v.");
+            em.push_text(fname);
+            em.push_text(" as *const i64) as i64, \"i64\", 0i64, v.");
+            em.push_text(fname);
+            em.push_text(", \"\"));\n");
+        } else if gs_is(tname, "bool") {
+            em.push_text("    out.push((id, \"");
+            em.push_text(fname);
+            em.push_text("\", -1i64, (&v.");
+            em.push_text(fname);
+            em.push_text(" as *const bool) as i64, \"bool\", 0i64, if v.");
+            em.push_text(fname);
+            em.push_text(" { 1i64 } else { 0i64 }, \"\"));\n");
+        } else if gs_is(tname, "str") {
+            em.push_text("    out.push((id, \"");
+            em.push_text(fname);
+            em.push_text("\", -1i64, (&v.");
+            em.push_text(fname);
+            em.push_text(" as *const str) as i64, \"str\", 0i64, 0i64, v.");
+            em.push_text(fname);
+            em.push_text("));\n");
+        } else if gs_is(tname, "Vec") {
+            let at: SView = view.ast_field_type_arg0_name(fld);
+            let scalar: bool = gs_is(at, "i64") || gs_is(at, "str");
+            // Writ-walker shape: the Vec field is a NODE (kind "arr") and its
+            // elements hang off it with idx >= 0 — the two-level layout the
+            // gpath steps navigate (`.field` then `[*]`).
+            em.push_text("    { let __vid: i64 = (&v.");
+            em.push_text(fname);
+            em.push_text(" as *const Vec<");
+            em.push_text(gs_sv(at));
+            em.push_text(">) as i64;\n");
+            em.push_text("      out.push((id, \"");
+            em.push_text(fname);
+            em.push_text("\", -1i64, __vid, \"arr\", 0i64, 0i64, \"\"));\n");
+            em.push_text("      let __s = v.");
+            em.push_text(fname);
+            em.push_text(".as_slice(); let mut __k: i64 = 0i64;\n");
+            em.push_text("      while __k < __s.len() {\n");
+            if scalar {
+                em.push_text("        out.push((__vid, \"\", __k, (&__s[__k] as *const ");
+                em.push_text(gs_sv(at));
+                em.push_text(") as i64, \"");
+                em.push_text(gs_sv(at));
+                em.push_text("\", 0i64, ");
+                if gs_is(at, "i64") { em.push_text("__s[__k], \"\""); }
+                else                { em.push_text("0i64, __s[__k]"); }
+                em.push_text("));\n");
+            } else {
+                em.push_text("        __gs_walk_");
+                em.push_text(gs_sv(at));
+                em.push_text("(&__s[__k], __vid, \"\", __k, out);\n");
+            }
+            em.push_text("        __k = __k + 1i64;\n      } }\n");
+        } else {
+            // Another annotated struct — recurse through its generated walker.
+            em.push_text("    __gs_walk_");
+            em.push_text(gs_sv(tname));
+            em.push_text("(&v.");
+            em.push_text(fname);
+            em.push_text(", id, \"");
+            em.push_text(fname);
+            em.push_text("\", -1i64, out);\n");
+        }
+        i = i + (1 as u64);
+    }
+    em.push_text("}\n");
+
+    // ── the materializer + the source-trait registration ──
+    em.push_text("pub fn __gs_edges_");
+    em.push_text(nm);
+    em.push_text("(root: &");
+    em.push_text(nm);
+    em.push_text(") -> Vec<WritEdgeRow> {\n    let mut out: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();\n    __gs_walk_");
+    em.push_text(nm);
+    em.push_text("(root, 0i64, \"\", -1i64, &mut out);\n    return out;\n}\n");
+    em.push_text("impl GraphSource for ");
+    em.push_text(nm);
+    em.push_text(" { rel edge = __gs_edges_");
+    em.push_text(nm);
+    em.push_text("; }\n");
+    em.commit();
+    return;
+}

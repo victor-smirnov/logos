@@ -602,6 +602,10 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->conditional_copy     = std::move(conditional_copy_);
     s->pkg_reexports        = std::move(pkg_reexports_);
     s->collected_holders    = std::move(collected_holders_);
+    s->trait_rels           = std::move(trait_rels_);
+    s->source_impls         = std::move(source_impls_);
+    s->mappings             = std::move(mappings_);
+    s->builtin_sources_seeded = builtin_sources_seeded_;
     s->synth_field_name_pool = std::move(synth_field_name_pool_);
 
     // M5 step 5c: drop entries owned by user packages — user ASTs are
@@ -769,6 +773,10 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     conditional_copy_     = std::move(s->conditional_copy);
     pkg_reexports_        = std::move(s->pkg_reexports);
     collected_holders_    = std::move(s->collected_holders);
+    trait_rels_           = std::move(s->trait_rels);
+    source_impls_         = std::move(s->source_impls);
+    mappings_             = std::move(s->mappings);
+    builtin_sources_seeded_ = s->builtin_sources_seeded;
     synth_field_name_pool_ = std::move(s->synth_field_name_pool);
 }
 
@@ -7303,6 +7311,45 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
 
     // ADR 0016 §6: built-in source impls (Writ/IncrRec) — seed once.
     seed_builtin_source_impls();
+
+    // ── #[derive_graph_source] pre-scan (ADR 0016 case 2b, static) ─────
+    // The derive's emitted impl arrives as a NEW AST one metaprog round LATER
+    // than the deem! sites that need its natspec — so the registration is
+    // seeded by CONVENTION here: the vocabulary comes from the GraphSource
+    // trait (collected from stdlib before lowering), the materializer name is
+    // the derive's contract, `__gs_edges_<T>`. The emitted impl then registers
+    // the SAME entry (collect dedup: identical rel, error on divergence).
+    {
+        bool pending_gs = false;
+        auto trit = trait_rels_.find("GraphSource");
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto item = map_of(items.get(i));
+            if (item.is_null()) continue;
+            int32_t ic = code_of(item);
+            if (ic == la::ANNOTATION) {
+                if (item.has_key(la::NAME)
+                        && str_of(item.get(la::NAME.code)) == "derive_graph_source")
+                    pending_gs = true;
+                continue;
+            }
+            if (ic == la::STRUCT && pending_gs
+                    && trit != trait_rels_.end() && item.has_key(la::NAME)) {
+                std::string sname(str_of(item.get(la::NAME.code)));
+                if (!sname.empty() && !source_impls_.count(sname)) {
+                    for (const auto& ts : trit->second) {
+                        SourceRelBind b;
+                        b.trait_name = "GraphSource";
+                        b.rel        = ts.rel;
+                        b.mat_fn     = "__gs_edges_" + sname;
+                        b.mat_module = std::string{};   // emitted into this package
+                        b.cols       = ts.cols;
+                        source_impls_[sname].push_back(std::move(b));
+                    }
+                }
+            }
+            pending_gs = false;
+        }
+    }
 
     // ── mapping pre-scan (ADR 0016 M2b-2) ──────────────────────────────
     // Register every `mapping` item's signature + canonical rule text BEFORE

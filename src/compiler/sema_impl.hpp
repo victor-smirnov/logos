@@ -5053,6 +5053,15 @@ public:
     std::set<std::string>                   copy_types;
     std::unordered_map<std::string, std::vector<size_t>> conditional_copy;
     StrMap<std::vector<std::string>>       pkg_reexports;
+    // ADR 0016 registries: cross-round persistence — the round-2 sema skips
+    // re-collecting cached (stdlib) holders, so anything collect-derived that
+    // is not snapshotted would silently VANISH between metaprog rounds (the
+    // emitted `impl GraphSource for T` then failed with "trait declares no
+    // rel 'edge'" — the trait was collected one round earlier).
+    std::unordered_map<std::string, std::vector<SemaChecker::TraitRelSig>>   trait_rels;
+    std::unordered_map<std::string, std::vector<SemaChecker::SourceRelBind>> source_impls;
+    std::unordered_map<std::string, SemaChecker::MappingInfo>                mappings;
+    bool builtin_sources_seeded = false;
     // Holders whose collect_module() contribution is already in these
     // tables. SemaChecker's per-AST loops skip walks for holders in
     // this set — re-walking would be deduped but the walk itself is
