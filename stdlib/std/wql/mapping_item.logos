@@ -1,66 +1,42 @@
-// logos.std.wql.mapping_item — the `mapping` ITEM lowering backend (ADR 0016
-// M2b-2, the language-level form; supersedes the `mapping!` macro).
+// logos.std.wql.mapping_item — the `mapping` ITEM lowering backend (ADR 0016).
 //
-// A MAPPING is a named, typed, reusable set of domain relations over a
-// source shape (ADR 0016 §1) — the first concrete rule-module:
+// A MAPPING is a PURE RULE MODULE: a named, typed, reusable set of domain
+// relations over a source shape — a vocabulary DEFINITION, never an
+// executable. You query THROUGH a mapping (the OBDA/R2RML posture), you do
+// not call it:
 //
 //   pub mapping Services(g: &Writ) {
-//       pub rel engine(owner: i64, name: str) {
-//           from g ** .engine e select (e.parent, e.vs);
-//       }
-//       rel helper(p: i64) { … }              // non-pub rel → non-pub fn
+//       pub rel engine(owner: i64, name: str) { from g ** .engine e select (e.parent, e.vs); }
 //   }
+//   pub deem engines(w: Services) { from engine e select (e.owner, e.name) }   // static
+//   Query::compile_with_mapping(text, &cat, "w", Services__rules(), Services__src())  // dynamic
 //
-//   → impl-free generated fns, path-addressable via the static-call mangle:
-//     pub fn Services__engine(g: &Writ) -> Result<Vec<(i64, str)>, ElError>
-//     fn     Services__helper(g: &Writ) -> Result<Vec<i64>, ElError>
-//     call sites write `Services::engine(&doc)` — `Type::method` resolution
-//     concatenates `Services__engine` and finds the generated fn; `pub` is
-//     enforced by the ordinary cross-package fn visibility check.
+// HISTORY: v1 emitted one fn per rel (`Services::engine(&doc)`) because
+// fusion did not exist yet; those direct calls conflated definition with
+// query, re-materialized dependency rels per call, and made concrete and
+// generic mappings different animals (generics never emitted fns). RETIRED —
+// all mappings are uniformly pure now.
 //
-// SEAM: the compiler owns the grammar, the Sema validation of the item and the
-// rel SIGNATURES (sema_expr.cpp lower_mapping_def), AND the parse. It hands this
-// handler `(name, params, pubs, ir)`, where `ir` points at the RQRelArr it
-// parsed — with the C++ parser generated from the same wql.peg the Logos runtime
-// parser comes from — living in the compiler's never-move arena. The handler
-// scans no text: rel names and columns are read out of the IR, and `pubs` is one
-// '0'/'1' per rel in declaration order (visibility is an item-layer concept the
-// query grammar knows nothing of).
+// The handler therefore does two things only:
+//   1. sanity-checks the seam inputs (the compiler already parsed and
+//      validated signatures; rel BODIES are validated at first consumption,
+//      like generics and templates);
+//   2. emits the mapping's RUNTIME ARTIFACTS — `<M>__rules() -> str` (the
+//      canonical rel-list text) and `<M>__src() -> str` (its source-param
+//      name) — which Query::compile_with_mapping consumes (mappings are
+//      STATIC-ONLY items; the dynamic side only consumes them).
 //
-// MECHANICS: pure reuse. The mapping body is parsed ONCE. Per declared rel
-// R(c1, …, cn) the handler synthesizes the tiny entry `from R __mx select
-// (__mx.c1, …)` and grafts the SHARED rel array onto it, so rels still see each
-// other, then runs the SAME pipeline as deem! (graph-path desugar →
-// walk_program_params) stamped with the fn name `<Mapping>__<R>` (a leading `-`
-// marks a non-pub rel — consumed by emit_fn_head / vis_strip, params.logos).
-//
-// Sharing the rel array across walks rests on two properties, both load-bearing:
-//   * walk_program_params REWRITES a rel reference's `src_name` to the emitted
-//     `__rel_<r>_sl`, so `resolve_source` accepts that name as an alias for the
-//     rel (params.logos rel_find_src) — the walk is idempotent.
-//   * the desugar rewrites rel bodies in place and dedups its injected
-//     `__reach_*` rels by name, so it runs ONCE, before the loop.
-//
-// Cost note (v1): each generated fn materializes its dependency rels per
-// call. The `deem!(g: Services)` consumption form (mapping rels as native
-// rels inside one query) and demand-driven bodies are later slices (M2b-2 /
-// M6).
+// Per-rel `pub` is retained in the surface: its meaning is now "this rel is
+// part of the mapping's consumer-visible vocabulary" (enforcement at the
+// consumption seam is a named follow-up; non-pub rels are internals).
 package logos.std.wql.mapping_item;
 
 use logos.std.compiler.metaprog;         // ItemList, item_list_new, error
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.std.wql.params;                // MacroParams / parse_macro_params
-use logos.std.wql.wql_surface_parser;    // parse_program (the synthesized entry)
-use logos.std.wql.plan;                  // RQProgram / RQRelArr views, rq_fat_program
-use logos.std.wql.plan_walker;           // walk_program_params
-use logos.std.wql.lower;                 // desugar_program_gpaths
 use logos.lang.str;
 use logos.mem.string;
-
-fn ms(s: &String) -> str {
-    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
-}
 
 /// Lowering handler behind the `mapping` ITEM (ADR 0016). Invoked by the
 /// COMPILER (sema lower_mapping_def) through the token-macro item seam: `ir`
@@ -79,84 +55,19 @@ pub fn __mapping_item(name: str, params: str, pubs: str, natspec: str, rules: st
         error("mapping item: needs at least one parameter — the source shape (e.g. `g: &Writ`)");
         return out;
     }
-    let rels_any: WAny = WAny::ref_to(ir);
-    let rels: RQRelArr = rels_any.view::<RQRelArr>();
-    let nr: i64 = rels.len();
-    if nr == 0i64 {
-        error("mapping item: no `rel` declarations found — a mapping is a set of rels (`rel name(col: ty, …){ body; }`)");
-        return out;
-    }
-    if pubs.len() != nr {
-        error("mapping item: visibility mask does not match the rel count (compiler seam regression?)");
-        return out;
-    }
+    // `ir` (the parsed RQRelArr) and `natspec` arrive for ABI uniformity with
+    // the deem handler; a pure rule module consumes neither — the compiler's
+    // parse already syntax-checked the bodies, and their SEMANTIC validation
+    // happens at first consumption (fusion), uniformly with generic mappings.
+    let _ = ir;
+    let _ = natspec;
+    let _ = pubs;
 
-    // ONE arena for the whole item. The desugar hangs its injected `__reach_*`
-    // rels off the SHARED rel array, and the walker interns the names it stamps
-    // into the plan through this allocator — an arena scoped to a single loop
-    // iteration would leave the next one reading freed memory.
-    let h: Writ = writ_new(65536i64);
-
-    let mut r: i64 = 0i64;
-    while r < nr {
-        let rel: RQRel = rels.rel_at(r);
-        let cols: RQRelColArr = rel.cols_arr();
-        let nc: i64 = cols.len();
-
-        let mut entry: String = String::new();
-        entry.push_str("from ");
-        entry.push_str(rel.name);
-        entry.push_str(" __mx select ");
-        if nc == 1i64 {
-            entry.push_str("__mx.");
-            entry.push_str(cols.col_at(0i64).name);
-        } else {
-            entry.push_str("(");
-            let mut c: i64 = 0i64;
-            while c < nc {
-                if c > 0i64 { entry.push_str(", "); }
-                entry.push_str("__mx.");
-                entry.push_str(cols.col_at(c).name);
-                c = c + 1i64;
-            }
-            entry.push_str(")");
-        }
-
-        let mut fname: String = String::new();
-        if str_byte_at(pubs, r) != 49u8 { fname.push_str("-"); }   // '1' = pub
-        fname.push_str(name);
-        fname.push_str("__");
-        fname.push_str(rel.name);
-
-        // A rel-less program (its `rels` edge parses NULL) — then graft the
-        // shared array on. `has_rels()` is just `rels != null`.
-        let root: WAny = parse_program(ms(&entry), &h);
-        if root.is_null() {
-            error("mapping item: cannot synthesize the entry query for a rel (compiler seam regression?)");
-            return out;
-        }
-        let mut prog: RQProgram = rq_fat_program(root, &h);
-        prog.rels = WRef::<RQRelArr>::from_any(rels_any);
-
-        if r == 0i64 {
-            let mut gperr: String = String::new();
-            if !desugar_program_gpaths(root, &h, &mut gperr) {
-                error(ms(&gperr));
-                return out;
-            }
-        }
-        let mut prm: MacroParams = macro_params_new();
-        parse_macro_params(params, &mut prm);
-        if !walk_program_params(root, ms(&fname), params, natspec, &mut prm, &h) {
-            return out;
-        }
-        r = r + 1i64;
-    }
-
-    // ── the mapping's RUNTIME artifact (mappings are STATIC-ONLY items; the
+    // ── the mapping's RUNTIME artifacts (mappings are STATIC-ONLY items; the
     // dynamic side only CONSUMES them): `<M>__rules() -> str` returns the
     // canonical rel-list text, which Query::compile_with_mapping parses with
-    // the SAME generated parser and fuses into a dynamically-compiled query.
+    // the SAME generated parser and fuses into a dynamically-compiled query;
+    // `<M>__src() -> str` names the source param the fusion renames.
     {
         let view: OView = oview_module_ast();
         let mut em: Emitter = Emitter::new();
@@ -164,7 +75,6 @@ pub fn __mapping_item(name: str, params: str, pubs: str, natspec: str, rules: st
         em.push_text("pub fn ");
         em.push_text(name);
         em.push_text("__rules() -> str {\n    return \"");
-        // escape the canonical text into a string literal
         let n2: i64 = rules.len();
         let mut i2: i64 = 0i64;
         while i2 < n2 {
@@ -179,8 +89,6 @@ pub fn __mapping_item(name: str, params: str, pubs: str, natspec: str, rules: st
             i2 = i2 + 1i64;
         }
         em.push_text("\";\n}\n");
-        // the source-param name — Query::compile_with_mapping renames it to
-        // the caller's binding name inside the fused rules.
         em.push_text("pub fn ");
         em.push_text(name);
         em.push_text("__src() -> str {\n    return \"");

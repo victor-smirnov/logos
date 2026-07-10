@@ -893,7 +893,7 @@ Evidence: `src/compiler/sema_collect.cpp#L415-L434`
 
 ### `item.mapping.rule-module` — mapping: named typed rule-module over a source shape
 
-`[pub] mapping M(param: Type, …) { [pub] rel r(col: ty, …) { <rules> } … }` (MAPPING_DEF: PARAMS = PARAM array, FIELDS = REL_DEF array) declares a named, typed, reusable set of domain relations over a source shape. The item and rel SIGNATURES are grammar/sema-owned; each rel BODY is captured token-level (balanced-brace raw text) and compiles through the deem pipeline (parse_program → graph-path desugar → walk_program_params) — one generated fn per rel, mangled `<M>__<rel>`, so `M::rel(args)` resolves through ordinary `Type::method` static-call resolution and returns `Result<Vec<Row>, ElError>`.
+`[pub] mapping M(param: Type, …) { [pub] rel r(col: ty, …) { <rules> } … }` (MAPPING_DEF: PARAMS = PARAM array, FIELDS = REL_DEF array) declares a PURE RULE MODULE — a named, typed, reusable vocabulary of domain relations over a source shape. A mapping is a DEFINITION, never an executable: it emits no per-rel fns (the historical `M::rel(args)` direct-call surface is retired — it conflated definition with query, re-materialized dependency rels per call, and made concrete and generic mappings different animals); it is queried THROUGH — statically by fusion (`deem q(w: M) { … }`) or dynamically via its runtime artifacts (`<M>__rules()` / `<M>__src()` + `Query::compile_with_mapping`). Rel BODIES are syntax-checked at the item (the compiler parses them) and semantically validated at first consumption, uniformly with generic mappings.
 
 Evidence: `tools/peg_gen_cpp/grammars/logos.peg` (pub_mapping_def/mapping_def/rel_def), `src/compiler/sema_expr.cpp` (lower_mapping_def), `stdlib/std/wql/mapping_item.logos`
 
@@ -909,9 +909,9 @@ The mapping header parameter list reuses the fn param grammar but only simple `n
 
 Each rel declares 1–8 `name: type` columns; column types are restricted to i64/str/bool (rel rows are set-deduplicated — column types must be joinable/Eq; f64 rejected). Duplicate rel names within one mapping are an error; at most 8 rels per mapping (current engine limit).
 
-### `item.mapping.rel-visibility` — per-rel `pub` maps to generated-fn visibility
+### `item.mapping.rel-visibility` — per-rel `pub` marks the consumer-visible vocabulary
 
-`pub rel r(…)` emits `pub fn <M>__<r>`; a non-pub rel emits a non-pub fn — callable in-package, rejected cross-package by the ordinary fn visibility check. Non-pub rels remain referencable from other rels of the same mapping (cross-rel references are body-level, resolved inside the compiled rule program). The visibility travels as a leading `-` marker on the generated fn name, consumed at the stdlib emit sites (vis_strip/vis_is_priv, params.logos).
+A rel without `pub` is an INTERNAL of the vocabulary (other rels of the same mapping may reference it); `pub rel` marks the rels a consumer is meant to query. (Enforcement at the consumption seam is a named follow-up; with the direct-call surface retired there are no per-rel fns for visibility to attach to.)
 
 ### `item.mapping.visibility` — three-tier visibility, incl. across binary modules
 

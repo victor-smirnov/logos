@@ -104,6 +104,8 @@ Static consumption `deem!(g: M)` (M2b-2) and runtime `env.bind_mapping("g", M, r
 
 Ordering notes: M1/M2 unblock Gellish; M4 gates on the tag-system user-type feature maturing (the traverse seam is designed, not blocked); M5 pairs naturally with ADR 0015 S5; M6 belongs to the reasoning-in-large opening.
 
+**Direct per-rel calls RETIRED 2026-07-09 (user: definition ≠ executable).** The v1 packaging emitted one fn per rel (`Services::engine(&doc)`) because fusion did not exist yet; with fusion (static + runtime) shipped, the direct form conflated the vocabulary with a query, re-materialized dependency rels per call (the v1 cost note), and split mappings into two natures (generics never emitted fns). All mappings are now uniformly PURE rule modules: the handler emits only the runtime artifacts; rel bodies validate at first consumption. Per-rel `pub` re-reads as "consumer-visible vocabulary member" (seam enforcement = named follow-up).
+
 ## 5. Deferred / out of scope
 
 - Incremental mappings (mapping + delta events) — arrives with the systemic incrementality step; the FactStore path remains the live-fact route until then.
