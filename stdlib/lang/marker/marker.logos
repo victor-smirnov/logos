@@ -45,8 +45,45 @@ pub auto trait Unpin {}
 // move semantics, `Fst` governs representation; packed element types
 // typically want both (`T: Copy + Fst`).
 /// Marks a fixed-size, relocation-safe value: byte-movable and free of absolute
-/// references. Auto trait, derived structurally; pointer kinds are excluded.
+/// references. Auto trait, derived structurally; pointer kinds are excluded;
+/// a type with a destructor (own `impl Drop`) is not `Fst` — bitwise
+/// duplication into a dumpable block would double its drop obligation.
 pub auto trait Fst {}
+
+// StableLayout — the layout-freeze contract (repr(C) in Rust terms): the
+// type's in-memory layout is DECLARATION ORDER + natural padding, forever.
+// Logos lays out every struct that way TODAY, but nothing guarantees it —
+// this trait is the promise: the compiler may never apply field reordering,
+// niche packing or any other layout optimisation to an implementing type,
+// and dumped blocks containing its values stay readable across compiler
+// versions. OPT-IN and VALIDATED, like `Copy`: `impl StableLayout for X {}`
+// is accepted only when X is a struct (or scalar/array of stable) whose
+// every field type is itself StableLayout. Enums are NOT eligible for now —
+// their payload representation already uses niches. Primitives and fixed
+// arrays of stable elements are covered by compiler-known rules.
+/// Marks a type whose memory layout is frozen (declaration order + natural
+/// padding — repr(C)). Opt-in and validated: every field must be StableLayout;
+/// enums are not eligible (niche-packed payloads).
+pub trait StableLayout {}
+
+// Primitive layouts are trivially frozen (single scalars; usize/isize are
+// per-target but stable within one). Raw/fn pointers are fixed 8-byte cells.
+impl StableLayout for i8 {}
+impl StableLayout for i16 {}
+impl StableLayout for i32 {}
+impl StableLayout for i64 {}
+impl StableLayout for i128 {}
+impl StableLayout for u8 {}
+impl StableLayout for u16 {}
+impl StableLayout for u32 {}
+impl StableLayout for u64 {}
+impl StableLayout for u128 {}
+impl StableLayout for f32 {}
+impl StableLayout for f64 {}
+impl StableLayout for bool {}
+impl StableLayout for char {}
+impl StableLayout for usize {}
+impl StableLayout for isize {}
 
 /// A zero-sized field that opts a struct out of `Unpin`.
 /// A struct containing one (or marked `#[pinned]`) is `!Unpin`, so it cannot be moved

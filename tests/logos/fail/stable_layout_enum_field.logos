@@ -1,0 +1,11 @@
+// StableLayout validation: an enum-typed field breaks the layout-freeze
+// contract (payload enums are niche-packed; their repr is not pinned).
+package test;
+
+use logos.lang.marker;
+use logos.lang.option;
+
+struct Bad { n: i64, o: Option<i64> }
+impl StableLayout for Bad {}
+
+fn main() -> i32 { return 0i32; }

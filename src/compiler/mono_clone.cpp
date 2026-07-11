@@ -253,6 +253,11 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
         // Match sema_auto_trait.cpp: try mangled, type_str, and unmangled base.
         if (has_explicit(cn) || has_explicit(type_str(tv)) || has_explicit(base))
             return true;
+        // Fst = no-Drop (mirror of the sema rule): an own Drop impl kills it.
+        if (trait_name == "Fst" &&
+            (concrete_impls_.count("Drop::" + cn) ||
+             concrete_impls_.count("Drop::" + base)))
+            return false;
         // Locate the struct definition. Look in out_ first (post-mono shape),
         // then in_ (pre-mono templates).
         const TypePoolImpl* ias_pool = out_.type_pool.impl();
@@ -279,7 +284,17 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
         return true;
     }
 
+    case Kind::UnsizedSlice:
+        // Bare `[E]`: Fst iff E is Fst (mirror of the sema rule).
+        if (trait_name == "Fst")
+            return tv.elem() ? is_auto_satisfied(tv.elem(), "Fst", visited) : true;
+        return false;
+
     case Kind::Enum: {
+        if (trait_name == "Fst") {
+            std::string en{tv.enum_name()};
+            if (concrete_impls_.count("Drop::" + en)) return false;
+        }
         std::string ename{tv.enum_name()};
         if (has_explicit(ename) || has_explicit(type_str(tv))) return true;
         std::optional<lir_view::EnumView> ed;

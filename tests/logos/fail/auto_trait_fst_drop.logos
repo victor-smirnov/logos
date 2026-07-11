@@ -1,0 +1,18 @@
+// Fst = "pure bytes": a type with its own Drop is not relocation-safe —
+// bitwise duplication into a dumpable block would double the drop obligation.
+package test;
+
+use logos.lang.marker;
+
+struct Handle { fd: i64 }
+impl Drop for Handle {
+    fn drop(self: Handle) { let _ = self.fd; }
+}
+
+fn need_fst<T: Fst>(v: T) -> T { return v; }
+
+fn main() -> i32 {
+    let h: Handle = Handle { fd: 3i64 };
+    let _ = need_fst(h);
+    return 0i32;
+}

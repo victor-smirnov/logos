@@ -3006,6 +3006,77 @@ void SemaChecker::compute_auto_copy_types() {
                 target));
         }
     }
+
+    // StableLayout (ADR 0018): `impl StableLayout for X` is the layout-freeze
+    // promise (repr(C): declaration order + natural padding, forever). It is
+    // VALIDATED like Copy/E0184: X must be a struct whose every field type is
+    // itself layout-stable — a primitive, a raw/fn pointer (fixed 8B), a
+    // fixed array of stable elements, or a struct with its own StableLayout
+    // impl. Enums are not eligible (payloads are niche-packed); references
+    // and other fat-or-erased kinds are excluded until their repr contracts
+    // are pinned. Primitive impls live in lang.marker; this loop checks the
+    // user's struct impls.
+    {
+        std::function<bool(TypeRef, std::string*)> stable_ok =
+            [&](TypeRef ft, std::string* why) -> bool {
+            if (!ft) return false;
+            using K = LogosType::Kind;
+            switch (ft.kind()) {
+            case K::I8: case K::I16: case K::I32: case K::I64:
+            case K::U8: case K::U16: case K::U32: case K::U64:
+            case K::I128: case K::U128:
+            case K::F32: case K::F64:
+            case K::Bool: case K::Char:
+            case K::Usize: case K::Isize:
+            case K::Ptr: case K::FnPtr:
+                return true;
+            case K::Array:
+                return stable_ok(ft.elem(), why);
+            case K::Struct:
+            case K::ZonedStruct: {
+                std::string n{ft.struct_name()};
+                if (impls_.count("StableLayout::" + n) ||
+                    impls_.count("StableLayout::" + concrete_struct_name(ft)) ||
+                    impls_.count("StableLayout::" + type_str(ft)))
+                    return true;
+                if (why) *why = std::format(
+                    "struct '{}' has no StableLayout impl", n);
+                return false;
+            }
+            default:
+                if (why) *why = std::format(
+                    "type '{}' is not layout-stable (enums are niche-packed; "
+                    "references/fat kinds are not yet pinned)", type_str(ft));
+                return false;
+            }
+        };
+        for (auto& [ikey, info] : impls_) {
+            constexpr std::string_view kSlPrefix = "StableLayout::";
+            if (ikey.rfind(kSlPrefix, 0) != 0) continue;
+            if (info.is_negative) continue;
+            std::string target = ikey.substr(kSlPrefix.size());
+            // structs_ keys are pkg-qualified (sema_key); the impl key's
+            // target is the bare/type_str spelling — probe both forms.
+            auto sit = structs_.find(target);
+            if (sit == structs_.end()) {
+                for (auto& [sk, si] : structs_) {
+                    auto sep = sk.rfind("::");
+                    std::string bare = sep == std::string::npos ? sk : sk.substr(sep + 2);
+                    if (bare == target) { sit = structs_.find(sk); break; }
+                }
+            }
+            if (sit == structs_.end()) continue;   // primitives / unknown: no field check
+            for (auto& f : sit->second.fields) {
+                std::string why;
+                if (!stable_ok(f.type, &why)) {
+                    error(std::format(
+                        "impl StableLayout for {}: field '{}' breaks the "
+                        "layout-freeze contract — {}",
+                        target, std::string(f.name), why));
+                }
+            }
+        }
+    }
 }
 
 std::string SemaChecker::trait_targ_suffix(const std::vector<TypeRef>& args) const {

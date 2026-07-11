@@ -150,6 +150,15 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Struct / ZonedStruct: explicit impl OR all fields satisfied ─────────
     case Kind::Struct:
     case Kind::ZonedStruct: {
+        // Fst is "pure bytes": a type with a destructor (its own impl Drop —
+        // fields recurse below and catch their own) is NOT relocation-safe:
+        // bitwise duplication into a dumpable block would double its drop
+        // obligation. Explicit impls (positive/negative) still win below.
+        if (trait_name == "Fst" && !drop_fn_for(tv).empty()) {
+            int expl0 = check_impl_for_struct(tv);
+            if (expl0 == 1) return true;
+            return false;
+        }
         // logos-core 2.2: `UnsafeCell<T>` is the foundational interior-
         // mutability lang-item. A type reachable through `UnsafeCell` is
         // auto-`!Sync` (Rust's rule: shared `&T` can mutate the interior,
@@ -207,7 +216,16 @@ bool SemaChecker::is_auto_trait_satisfied(
     }
 
     // ── Enum: explicit impl OR every variant payload satisfied ──────────────
+    case Kind::UnsizedSlice:
+        // Bare `[E]` (the VALUE, not the fat &[E] carrier): its bytes are the
+        // elements' bytes — Fst iff E is Fst. Other auto traits keep the
+        // conservative default (fall through to the bottom).
+        if (trait_name == "Fst")
+            return tv.elem() ? is_auto_trait_satisfied(tv.elem(), "Fst", visited) : true;
+        return false;
+
     case Kind::Enum: {
+        if (trait_name == "Fst" && !drop_fn_for(tv).empty()) return false;
         int verdict = check_impl_for_struct(tv);
         if (verdict == 1) return true;
         if (verdict == -1) return false;
