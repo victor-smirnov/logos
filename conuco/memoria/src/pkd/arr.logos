@@ -1,124 +1,147 @@
-// memoria.pkd — PkdArr<T>: packed fixed-size-element array (the fse face of
-// C++'s PackedDataTypeBuffer), an ALLOCATABLE packed structure: it AGGREGATES
-// PkdAllocatable first and GROWS ITSELF through its own allocator
-// (self.able.allocator().resize_block(self, …)) — no external orchestration,
-// any nesting depth. Slot-order growth moves only LATER siblings, so `self`
-// never moves during its own resize.
+// memoria.pkd — PkdArr<T>: the packed fixed-size-element array as a GENERIC
+// CUSTOM DST — a self-describing struct whose unsized `[T]` tail lives
+// directly in the block. Typed at the STRUCT level: element access is
+// language-level indexing (`self.data[i]`, bounds-checked against the
+// in-band count via SelfDescribing::dst_len), not per-call turbofish over
+// raw byte arithmetic. This is the road to the no-unsafe packed layer: the
+// compiler's DST machinery already understands these views.
 //
-// Payload: PkdArr { able, count } + elements (count × sizeof(T)), 8-aligned
-// header (8 bytes) so 8-byte T start aligned.
+// An ALLOCATABLE packed structure: aggregates PkdAllocatable first, GROWS
+// ITSELF through its own allocator — recursive to any nesting depth.
+// Slot-order growth moves only later siblings, so `self` never moves during
+// its own resize.
 //
-// Capacity policy: exact fit. Fullness is the CALLER's policy signal (a
-// B+tree node that can't grow splits) — deliberate, keeps node-fill
-// accounting deterministic.
+// Capacity policy: exact fit — data.len() == count, always. Fullness is the
+// caller's policy signal (a B+tree node that can't grow splits).
 package memoria.pkd;
 
-pub struct PkdArr {
+use logos.lang.marker;    // SelfDescribing
+
+/// Header (8 bytes) + `count` elements of `T` inline in the block.
+#[self_describing]
+pub struct PkdArr<T> {
     pub able: PkdAllocatable,
     count:    u32,
+    /// The elements — an inline flexible-array tail, length == count.
+    pub data: [T],
 }
 
-const ARR_HDR: u32 = 8u32;
-
-/// Formats slot `idx` of `alc` as an empty PkdArr (ALLOCATABLE); returns the
-/// typed view, or null on OOM.
-pub unsafe fn arr_format(alc: *mut PkdAlloc, idx: u32) -> *mut PkdArr {
-    let p: *mut u8 = alc.allocate(idx, ARR_HDR, PKD_ALLOCATABLE);
-    if (p as i64) == 0i64 { return 0i64 as *mut PkdArr; }
-    return p as *mut PkdArr;    // count zero-filled by allocate
+/// The `[T]` tail length is the in-band `count`: raw `*PkdArr<T>` stays THIN;
+/// fat `&PkdArr<T>` / `self.data` views materialize through this.
+impl<T> SelfDescribing for PkdArr<T> {
+    fn dst_len(self: *const PkdArr<T>) -> i64 { return unsafe { (*self).count as i64 }; }
 }
 
-impl PkdArr {
-    pub fn count(self: &PkdArr) -> u32 { return self.count; }
+/// Formats slot `idx` of `alc` as an empty PkdArr<T> (ALLOCATABLE); null on OOM.
+pub unsafe fn arr_format<T>(alc: *mut PkdAlloc, idx: u32) -> *mut PkdArr<T> {
+    let p: *mut u8 = alc.allocate(idx, sizeof::<PkdArr<T>>() as u32, PKD_ALLOCATABLE);
+    if (p as i64) == 0i64 { return 0i64 as *mut PkdArr<T>; }
+    return p as *mut PkdArr<T>;    // count zero-filled by allocate
+}
 
-    unsafe fn elem_ptr<T>(self: &PkdArr, i: u32) -> *mut T {
-        let sp: *const PkdArr = self;
-        return ((sp as i64) + (ARR_HDR as i64)
-                + (i as i64) * sizeof::<T>()) as *mut T;
+impl<T> PkdArr<T> {
+    pub fn count(self: &PkdArr<T>) -> u32 { return self.count; }
+
+    /// Element `i` by value. (Index-read of a GENERIC tail currently trips
+    /// E0507 even under `T: Copy` — raw typed read until the checker learns
+    /// Copy-indexing on generic DST tails; the u64 impl below stays typed.)
+    pub fn get(self: &PkdArr<T>, i: u32) -> T where T: Copy {
+        let sp: *const PkdArr<T> = self as *const PkdArr<T>;
+        let ep: i64 = (sp as i64) + (sizeof::<PkdArr<T>>() as i64)
+                    + (i as i64) * sizeof::<T>();
+        return unsafe { *(ep as *const T) };
     }
 
-    /// Element `i` by value (no bounds check — callers hold the count).
-    pub unsafe fn get<T>(self: &PkdArr, i: u32) -> T {
-        return *self.elem_ptr::<T>(i);
+    /// Overwrites element `i` — typed, bounds-checked.
+    pub fn set(self: &mut PkdArr<T>, i: u32, v: T) where T: Copy {
+        let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
+        unsafe {
+            let r: &mut PkdArr<T> = &mut *sp;
+            r.data[i as i64] = v;
+        }
     }
 
-    /// Overwrites element `i`.
-    pub unsafe fn set<T>(self: &mut PkdArr, i: u32, v: T) {
-        *self.elem_ptr::<T>(i) = v;
+    // Raw address of element `i` — ONLY for the shift/split moves below.
+    unsafe fn elem_raw(self: &PkdArr<T>, i: u32) -> *mut u8 {
+        let sp: *const PkdArr<T> = self as *const PkdArr<T>;
+        return ((sp as i64) + (sizeof::<PkdArr<T>>() as i64)
+                + (i as i64) * sizeof::<T>()) as *mut u8;
     }
 
     // Grow/shrink my own block through MY allocator; false = OOM upstream.
-    unsafe fn resize_self(self: &mut PkdArr, new_size: u32) -> bool {
+    unsafe fn resize_self(self: &mut PkdArr<T>, new_size: u32) -> bool {
         let alc: *mut PkdAlloc = self.able.allocator();
-        let sp: *mut PkdArr = self;
-        return alc.resize_block(sp as *const u8, new_size)
-               != 0xFFFF_FFFFu32;
+        let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
+        return alc.resize_block(sp as *const u8, new_size) != 0xFFFF_FFFFu32;
     }
 
     /// Inserts `v` at position `i` (0 ≤ i ≤ count), shifting the suffix.
     /// Grows exactly; false = no room anywhere up the allocator chain.
-    pub unsafe fn insert<T>(self: &mut PkdArr, i: u32, v: T) -> bool {
-        let sp: *mut PkdArr = self;
+    pub unsafe fn insert(self: &mut PkdArr<T>, i: u32, v: T) -> bool where T: Copy {
+        let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
         let esz: i64 = sizeof::<T>();
         let cnt: u32 = sp.count();
-        let need: u32 = ARR_HDR + (((cnt as i64) + 1i64) * esz) as u32;
+        let need: u32 = (sizeof::<PkdArr<T>>() as u32) + (((cnt as i64) + 1i64) * esz) as u32;
         if !sp.resize_self(need) { return false; }
-        let src: *mut T = sp.elem_ptr::<T>(i);
-        move_bytes((((src as i64) + esz) as *mut u8), src as *const u8,
+        let src: *mut u8 = sp.elem_raw(i);
+        move_bytes(((src as i64) + esz) as *mut u8, src as *const u8,
                    ((cnt - i) as i64) * esz);
-        *src = v;
-        sp.count = cnt + 1u32;
+        sp.count = cnt + 1u32;                 // count first: the write below
+        let r: &mut PkdArr<T> = &mut *sp;      // is bounds-checked against it
+        r.data[i as i64] = v;
         return true;
     }
 
     /// Appends `v`.
-    pub unsafe fn push<T>(self: &mut PkdArr, v: T) -> bool {
-        let sp: *mut PkdArr = self;
+    pub unsafe fn push(self: &mut PkdArr<T>, v: T) -> bool where T: Copy {
+        let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
         let at: u32 = sp.count();
-        return sp.insert::<T>(at, v);
+        return sp.insert(at, v);
     }
 
     /// Removes position `i`, shrinking to exact fit.
-    pub unsafe fn remove<T>(self: &mut PkdArr, i: u32) {
-        let sp: *mut PkdArr = self;
+    pub unsafe fn remove(self: &mut PkdArr<T>, i: u32) {
+        let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
         let esz: i64 = sizeof::<T>();
         let cnt: u32 = sp.count();
-        let dst: *mut T = sp.elem_ptr::<T>(i);
-        move_bytes(dst as *mut u8, (((dst as i64) + esz) as *const u8),
+        let dst: *mut u8 = sp.elem_raw(i);
+        move_bytes(dst, ((dst as i64) + esz) as *const u8,
                    ((cnt - i - 1u32) as i64) * esz);
         sp.count = cnt - 1u32;
-        let keep: u32 = ARR_HDR + (((cnt - 1u32) as i64) * esz) as u32;
+        let keep: u32 = (sizeof::<PkdArr<T>>() as u32) + (((cnt - 1u32) as i64) * esz) as u32;
         let _ = sp.resize_self(keep);
     }
 
-    /// Moves elements [mid..count) into `dst` (an EMPTY formatted PkdArr,
+    /// Moves elements [mid..count) into `dst` (an EMPTY formatted PkdArr<T>,
     /// typically in another node block); truncates self to [0..mid). The
     /// B+tree split primitive. false = OOM growing dst.
-    pub unsafe fn split_into<T>(self: &mut PkdArr, dst: *mut PkdArr, mid: u32) -> bool {
-        let sp: *mut PkdArr = self;
+    pub unsafe fn split_into(self: &mut PkdArr<T>, dst: *mut PkdArr<T>, mid: u32) -> bool {
+        let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
         let esz: i64 = sizeof::<T>();
         let moved: u32 = sp.count() - mid;
-        let need: u32 = ARR_HDR + ((moved as i64) * esz) as u32;
+        let need: u32 = (sizeof::<PkdArr<T>>() as u32) + ((moved as i64) * esz) as u32;
         if !dst.resize_self(need) { return false; }
-        move_bytes((((dst as i64) + (ARR_HDR as i64)) as *mut u8),
-                   sp.elem_ptr::<T>(mid) as *const u8,
+        move_bytes(dst.elem_raw(0u32), sp.elem_raw(mid) as *const u8,
                    (moved as i64) * esz);
         dst.count = moved;
         sp.count = mid;
-        let keep: u32 = ARR_HDR + ((mid as i64) * esz) as u32;
+        let keep: u32 = (sizeof::<PkdArr<T>>() as u32) + ((mid as i64) * esz) as u32;
         let _ = sp.resize_self(keep);
         return true;
     }
+}
 
-    /// First position with element ≥ `key` in a SORTED u64 array.
-    pub unsafe fn lower_bound_u64(self: &PkdArr, key: u64) -> u32 {
-        let mut lo: u32 = 0u32;
-        let mut hi: u32 = self.count;
-        while lo < hi {
-            let mid: u32 = lo + (hi - lo) / 2u32;
-            if self.get::<u64>(mid) < key { lo = mid + 1u32; }
-            else { hi = mid; }
-        }
-        return lo;
+/// First position with element ≥ `key` in a SORTED PkdArr<u64>. (A free fn:
+/// concrete-instantiation impl methods on a generic DST don't resolve across
+/// module boundaries yet; the generic comparator-driven form arrives with
+/// the ctr-layer key abstraction.)
+pub unsafe fn arr_lower_bound_u64(a: *mut PkdArr<u64>, key: u64) -> u32 {
+    let mut lo: u32 = 0u32;
+    let mut hi: u32 = a.count();
+    while lo < hi {
+        let mid: u32 = lo + (hi - lo) / 2u32;
+        if a.get(mid) < key { lo = mid + 1u32; }
+        else { hi = mid; }
     }
+    return lo;
 }
