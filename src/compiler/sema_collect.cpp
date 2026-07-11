@@ -1179,6 +1179,14 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != bound.trait_name) continue;
                 auto bound_satisfied = [&](const std::string& bt) {
+                    // A blanket's own bound may be an AUTO trait (Fst/Send/…) —
+                    // the string-recursive impl lookup can't see structural
+                    // satisfaction, so consult the auto engine first.
+                    auto tit = traits_.find(bt);
+                    if (tit != traits_.end() && tit->second.is_auto) {
+                        logos::compiler::StrSet av;
+                        return is_auto_trait_satisfied(concrete, bt, av);
+                    }
                     logos::compiler::StrSet seen;
                     return sema_has_impl_recursive(bt, concrete_str, unwrapped_name, seen);
                 };
@@ -1209,6 +1217,34 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 !cv.struct_name().empty()) {
                 auto key3 = bound.trait_name + "::" + std::string(cv.struct_name());
                 if (type_args_ok && impls_.count(key3)) continue;
+            }
+            // Slice-impl bound satisfaction (the Sized-partition pattern):
+            // `impl<E: …> Trait for [E]` registers under `$slice$T` (concrete
+            // elem impls under `$slice$<elem>`). A concrete [u8] satisfies
+            // the bound through either key; the impl's own element bounds
+            // are validated at monomorphization like the generic-struct and
+            // tuple paths below.
+            if ((cv.kind() == LogosType::Kind::Slice ||
+                 cv.kind() == LogosType::Kind::UnsizedSlice) && type_args_ok) {
+                TypeRef selem = cv.elem();
+                std::string ekey = bound.trait_name + "::$slice$"
+                    + (selem ? type_str(selem) : std::string("?"));
+                if (impls_.count(ekey)) continue;
+                if (impls_.count(bound.trait_name + "::$slice$T")) continue;
+            }
+            // Slice-impl bound satisfaction (the Sized-partition pattern):
+            // `impl<E: …> Trait for [E]` registers under `$slice$T` (concrete
+            // elem impls under `$slice$<elem>`). A concrete [u8] satisfies
+            // the bound through either key; the impl's own element bounds
+            // are validated at monomorphization like the generic-struct and
+            // tuple paths below.
+            if ((cv.kind() == LogosType::Kind::Slice ||
+                 cv.kind() == LogosType::Kind::UnsizedSlice) && type_args_ok) {
+                TypeRef selem = cv.elem();
+                std::string ekey = bound.trait_name + "::$slice$"
+                    + (selem ? type_str(selem) : std::string("?"));
+                if (impls_.count(ekey)) continue;
+                if (impls_.count(bound.trait_name + "::$slice$T")) continue;
             }
             // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
             // are registered under `$tuple$N` (generic, mirrors the

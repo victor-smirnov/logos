@@ -352,6 +352,8 @@ private:
     // Populate trait_engine_ from concrete_impls_ + blanket_impls_.
     // Cheap: a few hundred entries even for medium codebases.
     void populate_trait_engine_();
+    // Name → TypeRef for the auto-trait shape predicates (see .cpp).
+    TypeRef mono_typeref_by_name_(const std::string& n);
 
     // Reverse uid → TypeRef table populated when a metaprog `Type` value
     // is emitted. Drives `reify_type` and (later) `quote_ty!` antiquot

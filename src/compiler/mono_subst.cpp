@@ -497,38 +497,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         }
         if (cur.kind() == lir_schema::writ_val::Code::Type) {
             std::string tname(lir_view::WVTypeView{cur}.name());
-            auto alloc_kind = [&](LogosType::Kind k) -> TypeRef {
-                LogosTypeBuilder b; b.kind = k;
-                return out_.type_pool.alloc(std::move(b));
-            };
-            if (tname == "u8")   return alloc_kind(LogosType::Kind::U8);
-            if (tname == "u16")  return alloc_kind(LogosType::Kind::U16);
-            if (tname == "u32")  return alloc_kind(LogosType::Kind::U32);
-            if (tname == "u64")  return alloc_kind(LogosType::Kind::U64);
-            if (tname == "i8")   return alloc_kind(LogosType::Kind::I8);
-            if (tname == "i16")  return alloc_kind(LogosType::Kind::I16);
-            if (tname == "i32")  return alloc_kind(LogosType::Kind::I32);
-            if (tname == "i64")  return alloc_kind(LogosType::Kind::I64);
-            if (tname == "f32")  return alloc_kind(LogosType::Kind::F32);
-            if (tname == "f64")  return alloc_kind(LogosType::Kind::F64);
-            if (tname == "bool") return alloc_kind(LogosType::Kind::Bool);
-            for (auto& sd : out_.structs)
-                if (sd.name() == tname) {
-                    LogosTypeBuilder b;
-                    b.kind = sd.is_zoned() ? LogosType::Kind::ZonedStruct
-                                         : LogosType::Kind::Struct;
-                    b.struct_name = tname;
-                    b.pkg_name = std::string(sd.pkg());
-                    return out_.type_pool.alloc(std::move(b));
-                }
-            for (auto& ed : out_.enums)
-                if (ed.name() == tname) {
-                    LogosTypeBuilder b;
-                    b.kind = LogosType::Kind::Enum;
-                    b.enum_name = tname;
-                    b.pkg_name = std::string(ed.pkg());
-                    return out_.type_pool.alloc(std::move(b));
-                }
+            if (TypeRef r = mono_typeref_by_name_(tname)) return r;
             return tv;
         }
         return tv;

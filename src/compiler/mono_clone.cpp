@@ -5147,7 +5147,92 @@ void Mono::populate_trait_engine_() {
     trait_engine_.add_shape_auto_impl("Fn",     "closure", is_closure_typename);
     trait_engine_.add_shape_auto_impl("FnMut",  "closure", is_closure_typename);
     trait_engine_.add_shape_auto_impl("FnOnce", "closure", is_closure_typename);
+    // Slice-target impls (`impl<E> Trait for [E]` → key "$slice$T";
+    // concrete-elem form → "$slice$<elem>"): the engine's name-based facts
+    // can't match a query for "[u8]" against those keys, so register a
+    // shape-auto per such trait accepting slice-spelled names (elem bounds
+    // are validated at instantiation, as with generic-struct impls).
+    {
+        StrSet slice_traits;
+        for (auto& k : concrete_impls_) {
+            auto pos = k.find("::$slice$");
+            if (pos == std::string::npos) continue;
+            slice_traits.insert(k.substr(0, pos));
+        }
+        for (auto& tn : slice_traits) {
+            trait_engine_.add_shape_auto_impl(tn, "slice",
+                [](std::string_view n) {
+                    return !n.empty() && n.front() == '[';
+                });
+        }
+    }
+    // AUTO traits (Fst/Send/Sync/Unpin) as shape-autos: satisfaction is
+    // STRUCTURAL (the is_auto_satisfied engine), which the name-based
+    // derivations (D)/(B) can't see — a blanket bound like
+    // `impl<T: Copy + Fst + …> PkdElem for T` must verify `Fst(u64)`
+    // structurally when the method-instantiation gate asks
+    // `satisfies("PkdElem", "u64")` (the unified-PkdArray path).
+    for (const char* at : {"Fst", "Send", "Sync", "Unpin"}) {
+        std::string atn(at);
+        trait_engine_.add_shape_auto_impl(atn, "auto",
+            [this, atn](std::string_view n) -> bool {
+                TypeRef t = mono_typeref_by_name_(std::string(n));
+                if (!t) return false;   // unknown name — conservative
+                StrSet v;
+                return is_auto_satisfied(t, atn, v);
+            });
+    }
     trait_engine_dirty_ = false;
+}
+
+// Best-effort NAME → TypeRef for the auto-trait shape predicates above:
+// primitives by spelling; instantiated/plain structs and enums through the
+// registries mono already maintains. Null for anything else (tuples, refs —
+// their canonical names aren't keys here), which the predicate treats as
+// "not satisfied" — conservative, and sema's bound check (TypeRef-based)
+// remains the authoritative error surface.
+TypeRef Mono::mono_typeref_by_name_(const std::string& n) {
+    auto prim = [&](LogosType::Kind k) -> TypeRef {
+        LogosTypeBuilder b; b.kind = k;
+        return out_.type_pool.alloc(std::move(b));
+    };
+    if (n == "i8")   return prim(LogosType::Kind::I8);
+    if (n == "i16")  return prim(LogosType::Kind::I16);
+    if (n == "i32")  return prim(LogosType::Kind::I32);
+    if (n == "i64")  return prim(LogosType::Kind::I64);
+    if (n == "i128") return prim(LogosType::Kind::I128);
+    if (n == "u8")   return prim(LogosType::Kind::U8);
+    if (n == "u16")  return prim(LogosType::Kind::U16);
+    if (n == "u32")  return prim(LogosType::Kind::U32);
+    if (n == "u64")  return prim(LogosType::Kind::U64);
+    if (n == "u128") return prim(LogosType::Kind::U128);
+    if (n == "f32")  return prim(LogosType::Kind::F32);
+    if (n == "f64")  return prim(LogosType::Kind::F64);
+    if (n == "bool") return prim(LogosType::Kind::Bool);
+    if (n == "char") return prim(LogosType::Kind::Char);
+    if (n == "usize") return prim(LogosType::Kind::Usize);
+    if (n == "isize") return prim(LogosType::Kind::Isize);
+    if (auto it = concrete_struct_types_.find(n); it != concrete_struct_types_.end())
+        return it->second;
+    auto struct_ref = [&](lir_view::StructView sd) -> TypeRef {
+        LogosTypeBuilder b;                       // the ONE mono struct/enum
+        b.kind = sd.is_zoned() ? LogosType::Kind::ZonedStruct
+                               : LogosType::Kind::Struct;   // name→TypeRef site
+        b.struct_name = n;
+        b.pkg_name = std::string(sd.pkg());
+        return out_.type_pool.alloc(std::move(b));
+    };
+    for (auto& sd : out_.structs) if (sd.name() == n) return struct_ref(sd);
+    for (auto& sd : in_.structs)  if (sd.name() == n) return struct_ref(sd);
+    for (auto& ed : out_.enums)
+        if (ed.name() == n) {
+            LogosTypeBuilder b;
+            b.kind = LogosType::Kind::Enum;
+            b.enum_name = n;
+            b.pkg_name = std::string(ed.pkg());
+            return out_.type_pool.alloc(std::move(b));
+        }
+    return TypeRef{};
 }
 
 // L1.4: bound-gate, factored from clone_struct_def's method loop. Returns
@@ -5199,6 +5284,30 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
                                          TypeRef concrete,
                                          StrSet& seen) {
     if (!concrete) return false;
+
+    // AUTO traits (Fst/Send/Sync/Unpin) are satisfied structurally, not by
+    // registered impls — route to the auto engine (mirror of sema's blanket
+    // bound_satisfied). Known auto-trait names suffice here: mono has no
+    // trait registry with is_auto, and user auto traits reaching blanket
+    // bounds beyond these four have no precedent yet.
+    if (trait_name == "Fst" || trait_name == "Send" ||
+        trait_name == "Sync" || trait_name == "Unpin") {
+        StrSet av;
+        return is_auto_satisfied(concrete, trait_name, av);
+    }
+    // Slice concretes satisfy through the $slice$ impl keys (mirror of the
+    // sema bound acceptance; elem bounds validate at instantiation).
+    {
+        TypeRef sct{concrete};
+        if (sct.kind() == LogosType::Kind::Slice ||
+            sct.kind() == LogosType::Kind::UnsizedSlice) {
+            TypeRef el = sct.elem();
+            std::string ek = trait_name + "::$slice$"
+                + (el ? type_str(el) : std::string("?"));
+            if (concrete_impls_.count(ek)) return true;
+            if (concrete_impls_.count(trait_name + "::$slice$T")) return true;
+        }
+    }
 
     // Strip the concrete name the same way method_bound_ok does so
     // the trait-engine lookup keys line up.
