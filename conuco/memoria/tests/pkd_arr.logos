@@ -13,9 +13,9 @@ fn main() -> i32 {
         let mem: *mut u8 = alloc(8192i64);
         let a: *mut PkdAlloc = pkd_format(mem, 8192u32, 3u32);
 
-        let xs: *mut PkdFseArray<u64> = fse_format::<u64>(a, 0u32);
+        let xs: *mut PkdArray<u64> = fse_format::<u64>(a, 0u32);
         if (xs as i64) == 0i64 { return 1i32; }
-        let canary: *mut PkdFseArray<u64> = fse_format::<u64>(a, 1u32);
+        let canary: *mut PkdArray<u64> = fse_format::<u64>(a, 1u32);
         if (canary as i64) == 0i64 { return 2i32; }
 
         let mut i: u64 = 0u64;
@@ -25,7 +25,7 @@ fn main() -> i32 {
         // re-resolve it through the allocator after mutations
         i = 0u64;
         while i < 20u64 { if !xs.push(i * 2u64) { return 4i32; } i = i + 1u64; }
-        let canary2: *mut PkdFseArray<u64> = a.get::<PkdFseArray<u64>>(1u32);
+        let canary2: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(1u32);
         if canary2.count() != 8u32 { return 5i32; }
         if canary2.get(7u32) != 1007u64 { return 6i32; }
         if (canary2.able.allocator() as i64) != (a as i64) { return 7i32; }  // healed
@@ -48,7 +48,7 @@ fn main() -> i32 {
         // split into a SECOND block
         let mem2: *mut u8 = alloc(8192i64);
         let b: *mut PkdAlloc = pkd_format(mem2, 8192u32, 3u32);
-        let right: *mut PkdFseArray<u64> = fse_format::<u64>(b, 0u32);
+        let right: *mut PkdArray<u64> = fse_format::<u64>(b, 0u32);
         if !xs.split_into(right, 10u32) { return 17i32; }
         if xs.count() != 10u32 { return 18i32; }
         if right.count() != 10u32 { return 19i32; }
@@ -63,7 +63,7 @@ fn main() -> i32 {
         let inner: *mut PkdAlloc = np as *mut PkdAlloc;
         inner.init(a.element_size(2u32), 2u32);
         inner.able.set_allocator_offset(a as *const PkdAlloc);
-        let deep: *mut PkdFseArray<u64> = fse_format::<u64>(inner, 0u32);
+        let deep: *mut PkdArray<u64> = fse_format::<u64>(inner, 0u32);
         if (deep as i64) == 0i64 { return 23i32; }
         let mut d: u64 = 0u64;
         while d < 200u64 {                          // far beyond inner's 32 bytes
@@ -71,11 +71,11 @@ fn main() -> i32 {
             d = d + 1u64;
         }
         let inner2: *mut PkdAlloc = a.get::<PkdAlloc>(2u32);
-        let deep2: *mut PkdFseArray<u64> = inner2.get::<PkdFseArray<u64>>(0u32);
+        let deep2: *mut PkdArray<u64> = inner2.get::<PkdArray<u64>>(0u32);
         if deep2.count() != 200u32 { return 25i32; }
         if deep2.get(199u32) != 199u64 { return 26i32; }
         // and the arrays in slots 0/1 survived the deep growth
-        let xs2: *mut PkdFseArray<u64> = a.get::<PkdFseArray<u64>>(0u32);
+        let xs2: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(0u32);
         if xs2.count() != 10u32 { return 27i32; }
         if xs2.get(0u32) != 999u64 { return 28i32; }
 
@@ -89,6 +89,6 @@ fn main() -> i32 {
 // pointers held across mutations would dangle — resolve per operation).
 unsafe fn deep2_push(a: *mut PkdAlloc, v: u64) -> bool {
     let inner: *mut PkdAlloc = a.get::<PkdAlloc>(2u32);
-    let deep: *mut PkdFseArray<u64> = inner.get::<PkdFseArray<u64>>(0u32);
+    let deep: *mut PkdArray<u64> = inner.get::<PkdArray<u64>>(0u32);
     return deep.push(v);
 }

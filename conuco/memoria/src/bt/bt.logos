@@ -67,8 +67,8 @@ impl BtArena {
 }
 
 // Typed slot views of a node block.
-unsafe fn nkeys(a: *mut PkdAlloc) -> *mut PkdFseArray<u64> { return a.get::<PkdFseArray<u64>>(SLOT_KEYS); }
-unsafe fn nvals(a: *mut PkdAlloc) -> *mut PkdFseArray<u64> { return a.get::<PkdFseArray<u64>>(SLOT_VALS); }
+unsafe fn nkeys(a: *mut PkdAlloc) -> *mut PkdArray<u64> { return a.get::<PkdArray<u64>>(SLOT_KEYS); }
+unsafe fn nvals(a: *mut PkdAlloc) -> *mut PkdArray<u64> { return a.get::<PkdArray<u64>>(SLOT_VALS); }
 
 unsafe fn node_is_leaf(a: *mut PkdAlloc) -> bool {
     return *(a.get::<u32>(SLOT_HDR)) == 1u32;
@@ -105,7 +105,7 @@ pub struct FindShuttle { pub key: u64 }
 impl Shuttle for FindShuttle {
     fn on_branch(self: *mut FindShuttle, node: *mut PkdAlloc) -> ShuttleRes {
         unsafe {
-            let ks: *mut PkdFseArray<u64> = nkeys(node);
+            let ks: *mut PkdArray<u64> = nkeys(node);
             let n: u32 = ks.count();
             let mut c: u32 = fse_lower_bound_u64(ks, self.key);
             if c >= n { c = n - 1u32; }   // beyond every max → rightmost child
@@ -114,7 +114,7 @@ impl Shuttle for FindShuttle {
     }
     fn on_leaf(self: *mut FindShuttle, node: *mut PkdAlloc) -> ShuttleRes {
         unsafe {
-            let ks: *mut PkdFseArray<u64> = nkeys(node);
+            let ks: *mut PkdArray<u64> = nkeys(node);
             let pos: u32 = fse_lower_bound_u64(ks, self.key);
             let n: u32 = ks.count();
             let found: bool = pos < n && ks.get(pos) == self.key;
@@ -180,7 +180,7 @@ unsafe fn fix_maxes(arena: &BtArena, path: &Vec<(u64, u32)>, bottom: u64) {
     let mut i: i64 = path.len() - 1i64;
     while i >= 0i64 {
         let (bid, idx) = path.get(i);
-        let ks: *mut PkdFseArray<u64> = nkeys(arena.at(bid));
+        let ks: *mut PkdArray<u64> = nkeys(arena.at(bid));
         let cm: u64 = max_key(arena.at(child));
         if ks.get(idx) != cm { ks.set(idx, cm); }
         child = bid;
