@@ -6157,6 +6157,26 @@ void Mono::instantiate_struct_templates() {
             // sites that only have sd.name fall through bare lookup.
             concrete_struct_types_[qcname] = struct_t;
             concrete_struct_types_[cname]  = struct_t;
+            // Module-tag-less aliases: a method call lowered to a NAMED call
+            // (the DstRef dispatch path) mints its receiver base via
+            // concrete_struct_name_raw WITHOUT pkg — the §P3 bare-name
+            // discipline — so its "<Concrete>__<method>" spelling carries no
+            // "$M<module>" coexistence tag. Key the instance under the
+            // stripped spellings too, or the lazy-method enqueue (scan_expr
+            // L1.5 / deferred drain) never resolves those callees and the
+            // method instance is never cloned (module-mode-only failure).
+            auto strip_mtags = [](std::string s) {
+                for (size_t p; (p = s.find("$M")) != std::string::npos; ) {
+                    size_t q = p + 2;
+                    while (q < s.size() && s[q] != '$') ++q;   // id = 'm'+hex, runs to next '$'
+                    s.erase(p, q - p);
+                }
+                return s;
+            };
+            if (auto sq = strip_mtags(qcname); sq != qcname)
+                concrete_struct_types_[sq] = struct_t;
+            if (auto sc = strip_mtags(cname); sc != cname)
+                concrete_struct_types_[sc] = struct_t;
             auto inst = clone_struct_def(tmpl, subst, packs, cname);
             // The generic's home pkg owns the conceptual identity. A spec in a
             // different pkg only contributes layout; the cloned inst should

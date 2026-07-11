@@ -177,6 +177,24 @@ add_custom_command(
 )
 add_custom_target(lazy_pkg_binary ALL DEPENDS ${LAZY_PKG_BIN})
 
+# Generic #[self_describing] DST module fixture: the emit-module build must
+# clone the full DstRef-dispatched method chain (private helpers included) —
+# regression for the $M-less named-call enqueue key (module-mode-only class).
+set(SD_DST_MOD_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/sd_dst_mod)
+set(SD_DST_MOD_MANIFEST ${SD_DST_MOD_DIR}/sd_dst_mod.module)
+set(SD_DST_MOD_BIN      ${CMAKE_CURRENT_BINARY_DIR}/libsd_dst_mod.a)
+file(GLOB SD_DST_MOD_SOURCES ${SD_DST_MOD_DIR}/*.logos)
+add_custom_command(
+    OUTPUT  ${SD_DST_MOD_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${SD_DST_MOD_MANIFEST}
+            -o ${SD_DST_MOD_BIN}
+    DEPENDS logosc ${SD_DST_MOD_MANIFEST} ${SD_DST_MOD_SOURCES} ${STDLIB_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libsd_dst_mod.a"
+)
+add_custom_target(sd_dst_mod_binary ALL DEPENDS ${SD_DST_MOD_BIN})
+
 # Lazy→lazy chain fixture: liblazy_lower.a + liblazy_upper.a (both lazy).
 # Exercises the case where a lazy module's `use` resolves to another
 # lazy archive — both ASTs must reach the consumer's sema as user-code
@@ -456,6 +474,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_COEX2_USERS coex_from_a coex_from_b)
     # Phase 6 (multi-arena IR) lazy-mode fixture: archive ships AST only.
     set(LOCAL_LAZY_PKG_USERS lazy_pkg_basic)
+    # Generic self-describing DST from a module archive (fresh instantiation).
+    set(LOCAL_SD_DST_MOD_USERS sd_dst_module_methods)
     # Phase 6 lazy→lazy chain: consumer pulls upper (lazy) which pulls
     # lower (also lazy). Both archives must reach sema as user code.
     set(LOCAL_LAZY_CHAIN_USERS lazy_pkg_chain)
@@ -503,6 +523,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${COEX2A_BIN} -l ${COEX2B_BIN})
     elseif (BASE IN_LIST LOCAL_LAZY_PKG_USERS)
         set(_extra -l ${LAZY_PKG_BIN})
+    elseif (BASE IN_LIST LOCAL_SD_DST_MOD_USERS)
+        set(_extra -l ${SD_DST_MOD_BIN})
     elseif (BASE IN_LIST LOCAL_LAZY_CHAIN_USERS)
         set(_extra -l ${LAZY_LOWER_BIN} -l ${LAZY_UPPER_BIN})
     elseif (BASE IN_LIST LOCAL_THREE_LAYER_USERS)

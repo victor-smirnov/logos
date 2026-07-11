@@ -1,0 +1,29 @@
+// Cross-module methods of a generic #[self_describing] DST from an archive:
+// instantiate with a FRESH type argument (u32 — never instantiated inside
+// the module) plus the module's own u64 instance, exercising the consumer-
+// side lazy clone of the full method chain (get/set → at → me) and the
+// receiver-seeded type-arg inference on DstRef receivers.
+package sd_dst_module_methods;
+
+use sd_dst_mod;
+
+extern fn malloc(n: i64) -> *mut u8;
+
+fn main() -> i32 {
+    unsafe {
+        if sd_mod_probe() != 42u64 { return 1i32; }
+
+        let m: *mut u8 = malloc(64i64);
+        let a: *mut SdArr<u32> = m as *mut SdArr<u32>;
+        a.init(3u32);
+        a.set(0u32, 7u32);
+        a.set(1u32, 14u32);
+        a.set(2u32, 21u32);
+        if a.get(0u32) + a.get(1u32) + a.get(2u32) != 42u32 { return 2i32; }
+
+        // materialized reference receiver crosses back into the same methods
+        let r: &SdArr<u32> = &*a;
+        if r.get(2u32) != 21u32 { return 3i32; }
+    }
+    return 0i32;
+}

@@ -1,0 +1,53 @@
+// Module fixture: a GENERIC #[self_describing] DST whose methods call each
+// other through the DstRef receiver. Regression class (module-mode only):
+// the DstRef method-call path lowers to a NAMED call whose receiver base
+// carries no "$M<module>" coexistence tag, so the lazy-method enqueue key
+// missed concrete_struct_types_ and private helper instances (me/at) were
+// never cloned — "does not reference a valid function" at mlir verify.
+// Building THIS module is half the test; the consumer test crosses modules.
+package sd_dst_mod;
+
+use logos.lang.marker;
+
+extern fn malloc(n: i64) -> *mut u8;
+
+#[self_describing]
+pub struct SdArr<T: Copy> {
+    count: u32,
+    pad:   u32,
+    tail:  [T],
+}
+
+impl<T: Copy> SelfDescribing for SdArr<T> {
+    fn dst_len(self: *const SdArr<T>) -> i64 {
+        return unsafe { (*self).count as i64 };
+    }
+}
+
+impl<T: Copy> SdArr<T> {
+    // private helpers — reachable ONLY through cloned method bodies
+    fn me(self: &SdArr<T>) -> i64 {
+        let sp: *const SdArr<T> = self as *const SdArr<T>;
+        return sp as i64;
+    }
+    unsafe fn at(self: &SdArr<T>, i: u32) -> *mut T {
+        return (self.me() + (sizeof::<SdArr<T>>() as i64)
+                          + (i as i64) * sizeof::<T>()) as *mut T;
+    }
+    pub unsafe fn get(self: &SdArr<T>, i: u32) -> T { return *self.at(i); }
+    pub unsafe fn set(self: &SdArr<T>, i: u32, v: T) { *self.at(i) = v; }
+    pub unsafe fn init(self: *mut SdArr<T>, n: u32) {
+        unsafe { (*self).count = n; }
+    }
+}
+
+/// In-module instantiation (the emit-module compile must already clone the
+/// full method set transitively).
+pub unsafe fn sd_mod_probe() -> u64 {
+    let m: *mut u8 = malloc(64i64);
+    let a: *mut SdArr<u64> = m as *mut SdArr<u64>;
+    a.init(2u32);
+    a.set(0u32, 40u64);
+    a.set(1u32, 2u64);
+    return a.get(0u32) + a.get(1u32);
+}

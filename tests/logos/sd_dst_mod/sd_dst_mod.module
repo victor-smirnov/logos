@@ -1,0 +1,3 @@
+module sd_dst_mod
+version 0.1
+root tests/logos/sd_dst_mod/

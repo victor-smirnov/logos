@@ -3683,6 +3683,39 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
         else if (actual_norm.kind() == LogosType::Kind::Ref ||
                  actual_norm.kind() == LogosType::Kind::MutRef)
             unify_types(formal.pointee(), actual_norm.pointee(), bindings);
+        else if (actual_norm.kind() == LogosType::Kind::DstRef) {
+            // thin custom-DST reference — same struct-view trick as Ref
+            LogosTypeBuilder snb;
+            snb.kind        = LogosType::Kind::Struct;
+            snb.struct_name = std::string(actual_norm.struct_name());
+            snb.pkg_name    = std::string(actual_norm.pkg_name());
+            snb.type_args   = actual_norm.type_args();
+            TypeRef sv = pool_->alloc(std::move(snb));
+            unify_types(formal.pointee(), sv, bindings);
+        }
+        break;
+    case LogosType::Kind::DstRef:
+        // Canonicalised `self: &GB<T>` / `*const GB<T>` — the FORMAL is a
+        // DstRef whose type-args hold the method's type params. Unify them
+        // pairwise against any reference form over the same struct.
+        if (actual_norm.kind() == LogosType::Kind::DstRef) {
+            if (formal.struct_name() != actual_norm.struct_name()) break;
+            auto fa = formal.type_args();
+            auto aa = actual_norm.type_args();
+            for (size_t i = 0; i < fa.size() && i < aa.size(); ++i)
+                unify_types(fa[i], aa[i], bindings);
+        } else if (actual_norm.kind() == LogosType::Kind::Ref ||
+                   actual_norm.kind() == LogosType::Kind::MutRef ||
+                   actual_norm.kind() == LogosType::Kind::Ptr) {
+            TypeRef ap = actual_norm.pointee();
+            if (ap && TypeRef(ap).kind() == LogosType::Kind::Struct &&
+                TypeRef(ap).struct_name() == formal.struct_name()) {
+                auto fa = formal.type_args();
+                auto aa = TypeRef(ap).type_args();
+                for (size_t i = 0; i < fa.size() && i < aa.size(); ++i)
+                    unify_types(fa[i], aa[i], bindings);
+            }
+        }
         break;
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef:
@@ -3705,6 +3738,19 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
             unb.elem = actual_norm.elem();
             TypeRef us = pool_->alloc(std::move(unb));
             unify_types(formal.pointee(), us, bindings);
+        }
+        else if (actual_norm.kind() == LogosType::Kind::DstRef) {
+            // A DstRef is the canonicalised THIN reference over a custom-DST
+            // struct — for inference it is Ref(Struct<args>). Rebuild the
+            // struct view and recurse so `self: &GB<T>` binds T from a
+            // DstRef-typed `GB<u64>` receiver.
+            LogosTypeBuilder snb;
+            snb.kind        = LogosType::Kind::Struct;
+            snb.struct_name = std::string(actual_norm.struct_name());
+            snb.pkg_name    = std::string(actual_norm.pkg_name());
+            snb.type_args   = actual_norm.type_args();
+            TypeRef sv = pool_->alloc(std::move(snb));
+            unify_types(formal.pointee(), sv, bindings);
         }
         else if (actual_norm.kind() == LogosType::Kind::TraitObject) {
             // Phase 1B-4: same trick for dyn. Actual `&dyn Trait` is
@@ -6870,6 +6916,12 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dstref(
             }
             m_type_args.clear();
             SemaSubst seed; seed["Self"] = mtypes[0];
+            // Bind impl-level type params from the RECEIVER first: for a
+            // method of a generic #[self_describing] struct, T may appear
+            // ONLY in the receiver (`self: &GB<T>`), which infer_type_args
+            // skips (it walks explicit args from param 1).
+            if (!dfi->param_types.empty())
+                unify_types(dfi->param_types[0], mtypes[0], seed);
             if (infer_type_args(*dfi, d_args, m_type_args, seed, 1)) {
                 return finish_generic_call(
                     dfi->symbol_name.empty() ? mangled : dfi->symbol_name,

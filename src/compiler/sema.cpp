@@ -1480,9 +1480,22 @@ static std::string mangle_type_for_name(TypeRef t) {
         return "uslice_" + mangle_type_for_name(TypeRef(t).elem());
     case LogosType::Kind::UnsizedDyn:
         return "udyn_" + std::string(TypeRef(t).trait_name());
-    case LogosType::Kind::DstRef:
-        return (TypeRef(t).mut_ptr() ? "dstmutref_" : "dstref_") +
-               std::string(TypeRef(t).struct_name());
+    case LogosType::Kind::DstRef: {
+        // Mirror the Struct case: module-qualify (coexistence) and carry the
+        // generic args — `dstref_PkdFseArray` for two different modules' (or
+        // two instantiations') arrays must not collide in symbols.
+        std::string base(TypeRef(t).struct_name());
+        base += type_module_suffix(TypeRef(t).pkg_name());
+        if (!TypeRef(t).type_args().empty()) {
+            base += "$G";
+            base += std::to_string(TypeRef(t).type_args().size());
+            for (auto a : TypeRef(t).type_args()) {
+                base += "$";
+                base += mangle_type_for_name(a);
+            }
+        }
+        return (TypeRef(t).mut_ptr() ? "dstmutref_" : "dstref_") + base;
+    }
     case LogosType::Kind::AssocType:
         return mangle_type_for_name(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
     case LogosType::Kind::WStaticLit: {
