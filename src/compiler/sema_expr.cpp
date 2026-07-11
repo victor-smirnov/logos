@@ -3262,7 +3262,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     auto pt = exact_fi->param_types[i];
                     if (TypeRef(at).kind() != LogosType::Kind::Error &&
                         TypeRef(pt).kind() != LogosType::Kind::Error &&
-                        !types_compatible(at, pt))
+                        !types_compatible(at, pt) &&
+                        !sd_thin_compatible(at, pt))
                         { auto [es, gs] = type_str_pair(pt, at);
                           error(std::format("call to '{}' arg {}: expected {}, got {}",
                               callee, i + 1, es, gs)); }
@@ -3285,6 +3286,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::Error &&
                     !types_compatible(at, pt) &&
+                    !sd_thin_compatible(at, pt) &&
                     !ref_arg_satisfies_dyn(at, pt))   // G158-7
                     { auto [es, gs] = type_str_pair(pt, at);
                       error(std::format("call to '{}' arg {}: expected {}, got {}",
@@ -3519,7 +3521,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 auto pt = fi.param_types[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    !types_compatible(at, pt))
+                    !types_compatible(at, pt) &&
+                    !sd_thin_compatible(at, pt))
                     { auto [es, gs] = type_str_pair(pt, at);
                       error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, es, gs)); }
@@ -3542,6 +3545,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::Error &&
                 !types_compatible(at, pt) &&
+                !sd_thin_compatible(at, pt) &&
                 !ref_arg_satisfies_dyn(at, pt))   // G158-7
                 { auto [es, gs] = type_str_pair(pt, at);
                   error(std::format("call to '{}' arg {}: expected {}, got {}",
@@ -4281,7 +4285,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                !types_compatible(at, pt))
+                !types_compatible(at, pt) &&
+                !sd_thin_compatible(at, pt))
                 { auto [es, gs] = type_str_pair(pt, at);
                   error(std::format("call to '{}' arg {}: expected {}, got {}",
                       callee_diag, i + 1, es, gs)); }
@@ -4313,7 +4318,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     TypeRef(pt).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                     TypeRef(pt).kind() != LogosType::Kind::AssocType &&
-                    !types_compatible(at, pt))
+                    !types_compatible(at, pt) &&
+                    !sd_thin_compatible(at, pt))
                     { auto [es, gs] = type_str_pair(pt, at);
                       error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee_diag, i + 1, es, gs)); }
@@ -6804,15 +6810,66 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dstref(
     const SemaFuncInfo* dfi = nullptr;
     if (auto fit = find_func_by_base_and_signature(mangled, mtypes, false))
         dfi = fit;
-    else if (auto git = find_generic_func(mangled))
+    else if (auto git = find_generic_func(mangled)) {
         dfi = git;
+        // Mutability guard (name-only match): `self: &mut/*mut Self` still
+        // rejects a const DstRef receiver.
+        if (!git->param_types.empty()) {
+            TypeRef p0 = git->param_types[0];
+            auto pk = TypeRef(p0).kind();
+            bool p_mut = (pk == LogosType::Kind::MutRef) ||
+                         ((pk == LogosType::Kind::Ptr ||
+                           pk == LogosType::Kind::DstRef) && TypeRef(p0).mut_ptr());
+            if (p_mut && !TypeRef(mtypes[0]).mut_ptr()) dfi = nullptr;
+        }
+    }
+    if (!dfi) {
+        // Receiver-lenient retry: a non-generic method of a #[self_describing]
+        // struct declares `self: &Foo` (canonicalised per ref-repr), and the
+        // strict signature match can miss the DstRef receiver spelling even
+        // though the receiver IS this struct by construction (we only got
+        // here through its DstRef). Accept the single by-arg-count candidate
+        // whose receiver form is thin-compatible — mutability still flows
+        // one way (a `&mut`/`*mut` self rejects a const receiver).
+        auto cands = find_func_candidates(mangled);
+        const SemaFuncInfo* pick = nullptr;
+        for (auto* c : cands) {
+            if (c->param_types.size() != mtypes.size()) continue;
+            if (!c->param_types.empty() &&
+                !types_compatible(mtypes[0], c->param_types[0]) &&
+                !sd_thin_compatible(mtypes[0], c->param_types[0])) continue;
+            if (pick) { pick = nullptr; break; }   // ambiguous — keep strict
+            pick = c;
+        }
+        dfi = pick;
+    }
     if (dfi) {
         std::vector<lir::LExprPtr> pargs;
         pargs.push_back(std::move(recv));
         for (auto& a : d_args) pargs.push_back(std::move(a));
         if (!dfi->type_params.empty()) {
-            SemaSubst seed; seed["Self"] = mtypes[0];
+            // Explicit turbofish (`recv.method::<T..>(args)`) wins over
+            // inference — required when a type param appears only in the
+            // return type or nowhere in the value params (e.g. `get<T>`).
             std::vector<TypeRef> m_type_args;
+            if (node.has_key(la::TYPE_PARAMS)) {
+                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+                if (tplist.has_key(la::ITEMS)) {
+                    auto items = arr_of(tplist.get(la::ITEMS.code));
+                    bool was_ok = unsized_ok_;
+                    unsized_ok_ = true;
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        m_type_args.push_back(resolve_type(map_of(items.get(i))));
+                    unsized_ok_ = was_ok;
+                }
+            }
+            if (m_type_args.size() == dfi->type_params.size()) {
+                return finish_generic_call(
+                    dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
+                    *dfi, std::move(m_type_args), std::move(pargs));
+            }
+            m_type_args.clear();
+            SemaSubst seed; seed["Self"] = mtypes[0];
             if (infer_type_args(*dfi, d_args, m_type_args, seed, 1)) {
                 return finish_generic_call(
                     dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
@@ -8583,6 +8640,33 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     // (or moves) out of the reference; borrow-check enforces
                     // Copy/move-out soundness downstream.
                     needs_deref = true;
+                } else if ([&]() -> bool {
+                    // #[self_describing] receiver leniency: every reference
+                    // form over such a struct (raw pointer, &/&mut,
+                    // DstRef-canonicalised self) is ONE thin repr, so any
+                    // pairing is compatible when the struct identities match.
+                    auto dst_name = [&](TypeRef t) -> std::string {
+                        if (!t) return {};
+                        TypeRef u = t;
+                        auto k = u.kind();
+                        if ((k == LogosType::Kind::Ptr ||
+                             k == LogosType::Kind::Ref ||
+                             k == LogosType::Kind::MutRef) && u.pointee())
+                            u = u.pointee();
+                        auto uk = TypeRef(u).kind();
+                        if (uk == LogosType::Kind::Struct ||
+                            uk == LogosType::Kind::ZonedStruct ||
+                            uk == LogosType::Kind::DstRef)
+                            return std::string(TypeRef(u).struct_name());
+                        return {};
+                    };
+                    std::string an = dst_name(actual0), fn2 = dst_name(formal0);
+                    if (an.empty() || an != fn2) return false;
+                    auto [dp, dsi] = find_struct_by_name(an);
+                    (void)dp;
+                    return dsi && dsi->self_describing;
+                }()) {
+                    // compatible — thin one-repr receiver forms.
                 } else if (!types_compatible(actual0, formal0)) {
                     ok = false;
                 }
@@ -8678,6 +8762,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
                                types_equal(TypeRef(actual0).pointee(), TypeRef(formal0).pointee())) {
                         // const/mut pointer receivers are compatible if pointees match.
+                    } else if (sd_thin_compatible(actual0, formal0)) {
+                        // compatible — thin one-repr receiver forms.
                     } else if (!types_compatible(actual0, formal0)) {
                         ok = false;
                     }
@@ -8692,7 +8778,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         break;
                     }
                 }
-                if (!ok) continue;
+                if (!ok) {
+                    if (std::getenv("LOGOS_DBG_DISP") &&
+                        base_mangled.find("PkdAlloc__") != std::string::npos)
+                        std::fprintf(stderr, "[disp-dbg] %s cand rejected: a0k=%d f0k=%d nparams=%zu ntypes=%zu\n",
+                            base_mangled.c_str(),
+                            types[0] ? (int)TypeRef(types[0]).kind() : -1,
+                            cand->param_types[0] ? (int)TypeRef(cand->param_types[0]).kind() : -1,
+                            cand->param_types.size(), types.size());
+                    continue;
+                }
                 fi_ptr = cand;
                 auto_ref_recv = needs_ref;
                 auto_ref_mut = needs_mut;

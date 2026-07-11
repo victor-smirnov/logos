@@ -1,0 +1,29 @@
+// Fail twin of self_describing_thin_form_dispatch: the thin-one-repr leniency
+// does NOT erase mutability — a *const/& form where a mutable form is
+// expected stays a type error.
+package self_describing_thin_form_const_to_mut;
+
+extern fn malloc(n: i64) -> *mut u8;
+
+#[self_describing]
+struct Blk {
+    size: i64,
+    tail: [u8],
+}
+
+impl SelfDescribing for Blk {
+    fn dst_len(self: *const Blk) -> i64 { return unsafe { (*self).size }; }
+}
+
+impl Blk {
+    fn bump(self: *mut Blk) {
+        unsafe { (*self).size = (*self).size + 1i64; }
+    }
+}
+
+unsafe fn main() -> i32 {
+    let raw: *mut u8 = malloc(64i64);
+    let b: &Blk = &*(raw as *const Blk);
+    b.bump();                     // const receiver into *mut method: ERROR
+    return 0i32;
+}

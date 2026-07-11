@@ -3809,6 +3809,44 @@ private:
             std::string_view base_name,
             const std::vector<TypeRef>& arg_types,
             bool is_method_recv);
+    // #[self_describing] thin-one-repr leniency: every reference form over
+    // such a struct (raw ptr, &/&mut, DstRef-canonicalised) is a single thin
+    // representation, so the forms interconvert when the struct matches —
+    // EXCEPT that a mutable expected form still demands a mutable actual
+    // (const→mut stays an error). The SHARED predicate for arg checks and
+    // method-receiver matching; `a` = actual, `b` = expected.
+    bool sd_thin_compatible(TypeRef a, TypeRef b) {
+        // {struct name, is-mutable form}; empty name = not a thin ref form.
+        auto dst_form = [&](TypeRef t) -> std::pair<std::string, bool> {
+            if (!t) return {};
+            TypeRef u = t;
+            bool mut_form = false;
+            auto k = u.kind();
+            if ((k == LogosType::Kind::Ptr ||
+                 k == LogosType::Kind::Ref ||
+                 k == LogosType::Kind::MutRef) && u.pointee()) {
+                mut_form = (k == LogosType::Kind::MutRef) ||
+                           (k == LogosType::Kind::Ptr && u.mut_ptr());
+                u = u.pointee();
+            }
+            auto uk = TypeRef(u).kind();
+            if (uk == LogosType::Kind::DstRef)
+                return {std::string(TypeRef(u).struct_name()),
+                        mut_form || TypeRef(u).mut_ptr()};
+            if (uk == LogosType::Kind::Struct ||
+                uk == LogosType::Kind::ZonedStruct)
+                return {std::string(TypeRef(u).struct_name()), mut_form};
+            return {};
+        };
+        auto [an, amut] = dst_form(a);
+        auto [bn, bmut] = dst_form(b);
+        if (an.empty() || an != bn) return false;
+        if (bmut && !amut) return false;  // expected mutable, actual const
+        auto [dp, dsi] = find_struct_by_name(an);
+        (void)dp;
+        return dsi && dsi->self_describing;
+    }
+
     const SemaFuncInfo* find_func_by_base_and_signature(std::string_view base_name,
                                                         const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;

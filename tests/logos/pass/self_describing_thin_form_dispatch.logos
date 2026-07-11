@@ -1,0 +1,68 @@
+// #[self_describing] thin-one-repr leniency: a self-describing struct has ONE
+// thin representation behind every reference form (*const/*mut, &/&mut,
+// DstRef-canonicalised receiver), so method dispatch and call-arg checks
+// accept any const-compatible pairing of those forms — method declared over
+// `*const S`/`*mut S` callable through the other spellings, thin ptr passed
+// where `&S` is expected, generic methods included. Mutability still flows
+// one way: a mutable expected form demands a mutable actual (see the fail
+// twin self_describing_thin_form_const_to_mut).
+package self_describing_thin_form_dispatch;
+
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+#[self_describing]
+struct Blk {
+    size:  i64,        // in-band total tail length
+    tag:   i64,
+    tail:  [u8],
+}
+
+impl SelfDescribing for Blk {
+    fn dst_len(self: *const Blk) -> i64 { return unsafe { (*self).size }; }
+}
+
+impl Blk {
+    fn init(self: *mut Blk, size: i64, tag: i64) {
+        unsafe { (*self).size = size; (*self).tag = tag; }
+    }
+    fn tag(self: *const Blk) -> i64 {
+        return unsafe { (*self).tag };
+    }
+    fn get<T>(self: *const Blk, off: i64) -> i64 {
+        return unsafe { (*self).tag + off };
+    }
+    fn bump(self: *mut Blk, d: i64) {
+        unsafe { (*self).tag = (*self).tag + d; }
+    }
+}
+
+// free fns taking the two reference spellings — thin forms must satisfy both
+fn read_tag_ref(b: &Blk) -> i64 { return b.tag; }
+unsafe fn read_tag_ptr(b: *const Blk) -> i64 { return b.tag(); }
+
+unsafe fn main() -> i32 {
+    let raw: *mut u8 = malloc(64i64);
+    let b: *mut Blk = raw as *mut Blk;
+    b.init(16i64, 40i64);                       // *mut receiver, declared *mut
+
+    // *mut where *const-receiver methods are declared
+    if b.tag() != 40i64 { return 1i32; }
+    if b.get::<i64>(2i64) != 42i64 { return 2i32; }
+
+    // materialized references cross back to ptr-receiver methods
+    let r: &Blk = &*b;
+    if r.tag() != 40i64 { return 3i32; }
+    if r.get::<i64>(1i64) != 41i64 { return 4i32; }
+    let m: &mut Blk = &mut *b;
+    m.bump(2i64);                               // &mut where *mut declared
+    if b.tag() != 42i64 { return 5i32; }
+
+    // call-arg positions: thin ptr ↔ reference spellings
+    if read_tag_ref(&*b) != 42i64 { return 6i32; }
+    if read_tag_ptr(b) != 42i64 { return 7i32; }
+    if read_tag_ptr(&*b) != 42i64 { return 8i32; }
+
+    free(raw);
+    return 0i32;
+}
