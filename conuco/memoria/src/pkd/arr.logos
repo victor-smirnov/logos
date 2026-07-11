@@ -21,13 +21,15 @@ use logos.lang.marker;    // SelfDescribing
 ///
 /// `T` is an FST — a FIXED-SIZE TYPE: statically sized (the implicit Sized
 /// bound; sizeof::<T>() is the element stride), Copy/no-Drop (elements are
-/// byte-moved on shifts and splits), and free of absolute references (the
-/// block is relocatable and dumpable). The first two are enforced today
-/// (Sized implicitly, Copy on value ops); the no-references leg becomes a
-/// checkable `Fst` marker bound when the ctr layer lands its datatype
-/// vocabulary (Memoria's fixed-size DataType discipline).
+/// byte-moved on shifts and splits; Copy excludes Drop — E0184), and free of
+/// absolute references (the block is relocatable and dumpable). The first
+/// two are enforced AT THE STRUCT DECLARATION — `PkdArr<String>` is not a
+/// nameable type, the error lands where the slot's element type is written.
+/// The no-references leg becomes a checkable `Fst` marker bound (auto trait,
+/// structurally derived, pointer kinds unconditionally out) when the ctr
+/// layer lands its datatype vocabulary.
 #[self_describing]
-pub struct PkdArr<T> {
+pub struct PkdArr<T: Copy> {
     pub able: PkdAllocatable,
     count:    u32,
     /// The elements — an inline flexible-array tail, length == count.
@@ -36,24 +38,24 @@ pub struct PkdArr<T> {
 
 /// The `[T]` tail length is the in-band `count`: raw `*PkdArr<T>` stays THIN;
 /// fat `&PkdArr<T>` / `self.data` views materialize through this.
-impl<T> SelfDescribing for PkdArr<T> {
+impl<T: Copy> SelfDescribing for PkdArr<T> {
     fn dst_len(self: *const PkdArr<T>) -> i64 { return unsafe { (*self).count as i64 }; }
 }
 
 /// Formats slot `idx` of `alc` as an empty PkdArr<T> (ALLOCATABLE); null on OOM.
-pub unsafe fn arr_format<T>(alc: *mut PkdAlloc, idx: u32) -> *mut PkdArr<T> {
+pub unsafe fn arr_format<T: Copy>(alc: *mut PkdAlloc, idx: u32) -> *mut PkdArr<T> {
     let p: *mut u8 = alc.allocate(idx, sizeof::<PkdArr<T>>() as u32, PKD_ALLOCATABLE);
     if (p as i64) == 0i64 { return 0i64 as *mut PkdArr<T>; }
     return p as *mut PkdArr<T>;    // count zero-filled by allocate
 }
 
-impl<T> PkdArr<T> {
+impl<T: Copy> PkdArr<T> {
     pub fn count(self: &PkdArr<T>) -> u32 { return self.count; }
 
     /// Element `i` by value. (Index-read of a GENERIC tail currently trips
     /// E0507 even under `T: Copy` — raw typed read until the checker learns
     /// Copy-indexing on generic DST tails; the u64 impl below stays typed.)
-    pub fn get(self: &PkdArr<T>, i: u32) -> T where T: Copy {
+    pub fn get(self: &PkdArr<T>, i: u32) -> T {
         let sp: *const PkdArr<T> = self as *const PkdArr<T>;
         let ep: i64 = (sp as i64) + (sizeof::<PkdArr<T>>() as i64)
                     + (i as i64) * sizeof::<T>();
@@ -61,7 +63,7 @@ impl<T> PkdArr<T> {
     }
 
     /// Overwrites element `i` — typed, bounds-checked.
-    pub fn set(self: &mut PkdArr<T>, i: u32, v: T) where T: Copy {
+    pub fn set(self: &mut PkdArr<T>, i: u32, v: T) {
         let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
         unsafe {
             let r: &mut PkdArr<T> = &mut *sp;
@@ -85,7 +87,7 @@ impl<T> PkdArr<T> {
 
     /// Inserts `v` at position `i` (0 ≤ i ≤ count), shifting the suffix.
     /// Grows exactly; false = no room anywhere up the allocator chain.
-    pub unsafe fn insert(self: &mut PkdArr<T>, i: u32, v: T) -> bool where T: Copy {
+    pub unsafe fn insert(self: &mut PkdArr<T>, i: u32, v: T) -> bool {
         let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
         let esz: i64 = sizeof::<T>();
         let cnt: u32 = sp.count();
@@ -101,7 +103,7 @@ impl<T> PkdArr<T> {
     }
 
     /// Appends `v`.
-    pub unsafe fn push(self: &mut PkdArr<T>, v: T) -> bool where T: Copy {
+    pub unsafe fn push(self: &mut PkdArr<T>, v: T) -> bool {
         let sp: *mut PkdArr<T> = self as *mut PkdArr<T>;
         let at: u32 = sp.count();
         return sp.insert(at, v);
