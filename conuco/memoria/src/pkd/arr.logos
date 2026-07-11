@@ -18,6 +18,14 @@ package memoria.pkd;
 use logos.lang.marker;    // SelfDescribing
 
 /// Header (8 bytes) + `count` elements of `T` inline in the block.
+///
+/// `T` is an FST — a FIXED-SIZE TYPE: statically sized (the implicit Sized
+/// bound; sizeof::<T>() is the element stride), Copy/no-Drop (elements are
+/// byte-moved on shifts and splits), and free of absolute references (the
+/// block is relocatable and dumpable). The first two are enforced today
+/// (Sized implicitly, Copy on value ops); the no-references leg becomes a
+/// checkable `Fst` marker bound when the ctr layer lands its datatype
+/// vocabulary (Memoria's fixed-size DataType discipline).
 #[self_describing]
 pub struct PkdArr<T> {
     pub able: PkdAllocatable,
