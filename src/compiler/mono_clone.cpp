@@ -1939,13 +1939,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     };
                     std::vector<TypeRef> direct;
                     if (fold_pack(direct)) {
-                        LogosTypeBuilder sb;
-                        sb.kind = LogosType::Kind::Struct;
-                        sb.struct_name = tmpl_name;
-                        for (auto& s : out_.structs)
-                            if (s.name() == tmpl_name) { sb.pkg_name = std::string(s.pkg()); break; }
-                        sb.type_args = direct;
-                        TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
+                        TypeRef inst_t = build_generic_struct_typeref(tmpl_name, direct);
                         collect_type_for_structs(inst_t);
                         uint64_t uid = type_hash_64bit(
                             type_hash_23(type_id_canon(inst_t)));
@@ -2067,16 +2061,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     }
                     targs.push_back(ti);
                 }
-                LogosTypeBuilder sb;
-                sb.kind = LogosType::Kind::Struct;
-                sb.struct_name = tmpl_name;
-                // M0.4 follow-up: thread pkg from the template definition
-                // so metacall-instantiated specs share UID/registry keys
-                // with the rest of the pipeline.
-                for (auto& s : out_.structs)
-                    if (s.name() == tmpl_name) { sb.pkg_name = std::string(s.pkg()); break; }
-                sb.type_args = targs;
-                TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
+                // Pkg threads from the template definition (M0.4 follow-up)
+                // so metacall-instantiated specs share UID/registry keys.
+                TypeRef inst_t = build_generic_struct_typeref(tmpl_name, targs);
                 collect_type_for_structs(inst_t);
                 uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(inst_t)));
                 uid_to_type_[uid] = inst_t;
@@ -2223,16 +2210,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     }
                     targs.push_back(ti);
                 }
-                LogosTypeBuilder sb;
-                sb.kind = LogosType::Kind::Struct;
-                sb.struct_name = tmpl_name;
-                // M0.4 follow-up: thread pkg from the template definition
-                // so metacall-instantiated specs share UID/registry keys
-                // with the rest of the pipeline.
-                for (auto& s : out_.structs)
-                    if (s.name() == tmpl_name) { sb.pkg_name = std::string(s.pkg()); break; }
-                sb.type_args = targs;
-                TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
+                // Pkg threads from the template definition (M0.4 follow-up)
+                // so metacall-instantiated specs share UID/registry keys.
+                TypeRef inst_t = build_generic_struct_typeref(tmpl_name, targs);
                 collect_type_for_structs(inst_t);
                 uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(inst_t)));
                 uid_to_type_[uid] = inst_t;
@@ -3437,6 +3417,59 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     if (mf && mf.name() == nc.callee)
                                         { mt = mf; break; }
                             }
+                            // Partial-spec impl method (impl<E> PkdArray<[E]>):
+                            // it lives in the SPEC StructView's METHODS, not the
+                            // base method-template map, and the call's type_args
+                            // bind the SPEC's pattern vars — the positional copy
+                            // above named the wrong struct instance ($G1$u8 for
+                            // a PkdArray<[u8]> receiver). Recover the struct's
+                            // concrete args by substituting the spec patterns.
+                            if (!mt.valid()) {
+                                std::string bare_sp = struct_part;
+                                if (auto dp2 = bare_sp.rfind('.'); dp2 != std::string::npos)
+                                    bare_sp = bare_sp.substr(dp2 + 1);
+                                for (const std::string& skey : {struct_part, bare_sp}) {
+                                    auto sit2 = struct_specs_.find(skey);
+                                    if (sit2 == struct_specs_.end()) continue;
+                                    for (auto spec : sit2->second) {
+                                        lir_view::FunctionView sm;
+                                        spec.each_method([&](lir_view::FunctionView m) {
+                                            if (!sm.valid() && m && m.name() == nc.callee)
+                                                sm = m;
+                                        });
+                                        if (!sm.valid()) continue;
+                                        auto pats = spec.spec_patterns(out_.type_pool.impl());
+                                        std::vector<std::string> pvars;
+                                        for (auto pt2 : pats)
+                                            collect_pattern_typevars(pt2, pvars);
+                                        SubstMap ib2;
+                                        for (size_t ai = 0; ai < pvars.size() &&
+                                                            ai < nc.type_args.size(); ++ai)
+                                            ib2[pvars[ai]] = nc.type_args[ai];
+                                        std::vector<TypeRef> pargs2;
+                                        bool resolved2 = true;
+                                        for (auto pt2 : pats) {
+                                            auto sa = subst_type(pt2, ib2);
+                                            if (!sa || contains_typevar(sa) ||
+                                                contains_assoc_type(sa))
+                                                { resolved2 = false; break; }
+                                            pargs2.push_back(sa);
+                                        }
+                                        if (resolved2) {
+                                            args = std::move(pargs2);
+                                            mt = sm;
+                                            // Schedule the spec instance so its
+                                            // methods (this one included) clone.
+                                            record_needed_struct(
+                                                build_generic_struct_typeref(
+                                                    bare_sp, args,
+                                                    std::string(spec.pkg())));
+                                        }
+                                        break;
+                                    }
+                                    if (mt.valid()) break;
+                                }
+                            }
                             TypeRef mt_itp = mt ? mt.impl_target_pattern(out_.type_pool.impl()) : TypeRef{};
                             if (mt && mt_itp) {
                                 auto pat = TypeRef(mt_itp);
@@ -3502,11 +3535,25 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             // return type `rt_` is a fallback for the common
                             // Self-returning constructor/`from_wany` case.
                             if (mt && mt_itp) {
+                                // Bind impl-level params by UNIFYING the impl-
+                                // target pattern args against the STRUCT's
+                                // concrete args — positional copy is wrong for
+                                // structured patterns (impl<E> PkdArray<[E]>:
+                                // struct arg [u8] binds E:=u8, not E:=[u8] —
+                                // the positional form looped instantiation
+                                // depth: PkdArray<[[u8]]>, <[[[u8]]]>, …).
                                 SubstMap ib;
-                                size_t ai = 0;
-                                for (auto& tp : mt.impl_type_params())
-                                    if (ai < args.size())
-                                        ib[std::string(tp.name())] = args[ai++];
+                                {
+                                    auto pa2 = TypeRef(mt_itp).type_args();
+                                    for (size_t i2 = 0; i2 < pa2.size() &&
+                                                        i2 < args.size(); ++i2) {
+                                        SubstMap b2;
+                                        if (args[i2] && pa2[i2] &&
+                                            unify_impl_target(args[i2], pa2[i2], b2))
+                                            for (auto& [bk2, bv2] : b2)
+                                                if (!ib.count(bk2)) ib[bk2] = bv2;
+                                    }
+                                }
                                 TypeRef recv_t = subst_type(TypeRef(mt_itp), ib);
                                 if (recv_t &&
                                     (recv_t.kind() == LogosType::Kind::Struct ||

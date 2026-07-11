@@ -2869,6 +2869,15 @@ private:
     logos::compiler::StrMap<uint64_t>         explicit_type_codes_;
     // concrete_name (e.g. "Pair__i32") → SemaStructInfo for explicit specializations.
     logos::compiler::StrMap<SemaStructInfo>   struct_specs_sema_;
+    // True when ANY (partial) specialization is registered for this struct
+    // base name — a spec may govern instantiations the base's params would
+    // reject (unsized args at a slice-pattern position), so gates that
+    // consult the base's type_params relax when this holds.
+    bool struct_has_specs(std::string_view base_name) const {
+        for (auto& [k, info] : struct_specs_sema_)
+            if (info.base_name == base_name) return true;
+        return false;
+    }
     logos::compiler::StrMap<SemaEnumInfo>     enums_;
     logos::compiler::StrMap<SemaFuncInfo>     funcs_;
     // base name -> concrete overload symbols stored in funcs_.
@@ -3624,7 +3633,8 @@ private:
     void collect_const(writ::TinyMapView node);
     void collect_trait(writ::TinyMapView node);
     void collect_impl(writ::TinyMapView node);
-    void collect_struct_spec(writ::TinyMapView node);
+    void collect_struct_spec(writ::TinyMapView node,
+                             const StructAttrFlags* attr_flags = nullptr);
     void collect_struct(writ::TinyMapView node);
     void collect_schema(writ::TinyMapView node);        // ADR 0011: `schema S {…}`
     void collect_schema_enum(writ::TinyMapView node);   // ADR 0011: `schema enum E {…}`

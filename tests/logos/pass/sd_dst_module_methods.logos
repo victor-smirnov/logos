@@ -24,6 +24,19 @@ fn main() -> i32 {
         // materialized reference receiver crosses back into the same methods
         let r: &SdArr<u32> = &*a;
         if r.get(2u32) != 21u32 { return 3i32; }
+
+        // slice-pattern spec across the module boundary: in-module instance
+        // + a FRESH element type; overlapping method names route to the spec
+        if sd_vle_probe() != 42u32 { return 4i32; }
+        let m2: *mut u8 = malloc(64i64);
+        let v: *mut SdVle<[u16]> = sd_vle_format::<u16>(m2);
+        (*v).hdr = 0u32;
+        (*v).cnt = 20u32;
+        if v.bump(1u32) != 21u32 { return 5i32; }
+        // base (sized) family of the same NAME still works
+        let f: *mut SdVle<u64> = m2 as *mut SdVle<u64>;
+        (*f).count = 7u32;
+        if f.count() != 7u32 { return 6i32; }
     }
     return 0i32;
 }

@@ -557,6 +557,24 @@ private:
     // Returns null TypeRef if `name` doesn't match anything. Centralises
     // the per-candidate TypeRef construction that previously got
     // duplicated at every eager-instantiation / deep-bound-check site.
+    // Generic-struct TypeRef with pkg threaded from an explicit pkg or (when
+    // empty) the template definition in out_.structs. THE mono-side analog of
+    // sema's make_generic_struct — use this, never an inline LogosTypeBuilder
+    // (antipat_inline_typebuilder: each inline site risks dropping pkg_name).
+    TypeRef build_generic_struct_typeref(const std::string& name,
+                                         std::vector<TypeRef> args,
+                                         std::string pkg = {}) {
+        LogosTypeBuilder sb;
+        sb.kind = LogosType::Kind::Struct;
+        sb.struct_name = name;
+        if (pkg.empty())
+            for (auto& s : out_.structs)
+                if (s.name() == name) { pkg = std::string(s.pkg()); break; }
+        sb.pkg_name  = std::move(pkg);
+        sb.type_args = std::move(args);
+        return out_.type_pool.alloc(std::move(sb));
+    }
+
     TypeRef build_concrete_typeref(const std::string& name) {
         // Struct (incl. ZonedStruct).
         for (auto& sd : out_.structs)
@@ -950,6 +968,15 @@ private:
             bindings[std::string(tvn)] = c;
             return true;
         }
+        // Slice patterns ([E]) match either slice spelling of the concrete —
+        // bare-[T]-as-type-arg canonicalises to UnsizedSlice, but Slice
+        // reaches here from some paths; one type at this level (mirrors
+        // sema's match_type_sema).
+        if ((p.kind() == LogosType::Kind::Slice ||
+             p.kind() == LogosType::Kind::UnsizedSlice) &&
+            (c.kind() == LogosType::Kind::Slice ||
+             c.kind() == LogosType::Kind::UnsizedSlice))
+            return match_type(c.elem(), p.elem(), bindings);
         if (p.kind() != c.kind()) return false;
         switch (p.kind()) {
         case LogosType::Kind::Ptr:
@@ -992,6 +1019,16 @@ private:
             bindings[std::string(tvn)] = c;
             return true;
         }
+        // Slice patterns match either slice spelling (Slice / UnsizedSlice —
+        // bare-[T] type-args canonicalise to the latter; one type here).
+        {
+            auto is_sl = [](TypeRef t) {
+                return t.kind() == LogosType::Kind::Slice ||
+                       t.kind() == LogosType::Kind::UnsizedSlice;
+            };
+            if (is_sl(p) && is_sl(c))
+                return unify_impl_target(c.elem(), p.elem(), bindings);
+        }
         if (p.kind() != c.kind()) return false;
         switch (p.kind()) {
         case LogosType::Kind::Ptr:
@@ -1002,8 +1039,6 @@ private:
             return unify_impl_target(c.pointee(), p.pointee(), bindings);
         case LogosType::Kind::Array:
             if (p.arr_size() != c.arr_size()) return false;
-            return unify_impl_target(c.elem(), p.elem(), bindings);
-        case LogosType::Kind::Slice:
             return unify_impl_target(c.elem(), p.elem(), bindings);
         case LogosType::Kind::Struct:
         case LogosType::Kind::ZonedStruct: {
@@ -1061,6 +1096,9 @@ private:
         if (!tr || tr.kind() == LogosType::Kind::TypeVar) return 0;
         if (tr.kind() == LogosType::Kind::Ptr)   return 1 + type_specificity(tr.pointee());
         if (tr.kind() == LogosType::Kind::Array)  return 1 + type_specificity(tr.elem());
+        if (tr.kind() == LogosType::Kind::Slice ||
+            tr.kind() == LogosType::Kind::UnsizedSlice)
+            return 1 + type_specificity(tr.elem());
         return 100;
     }
 

@@ -3685,12 +3685,11 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
             unify_types(formal.pointee(), actual_norm.pointee(), bindings);
         else if (actual_norm.kind() == LogosType::Kind::DstRef) {
             // thin custom-DST reference — same struct-view trick as Ref
-            LogosTypeBuilder snb;
-            snb.kind        = LogosType::Kind::Struct;
-            snb.struct_name = std::string(actual_norm.struct_name());
-            snb.pkg_name    = std::string(actual_norm.pkg_name());
-            snb.type_args   = actual_norm.type_args();
-            TypeRef sv = pool_->alloc(std::move(snb));
+            auto dargs = actual_norm.type_args();
+            TypeRef sv = make_generic_struct(
+                actual_norm.struct_name(),
+                std::vector<TypeRef>(dargs.begin(), dargs.end()), {},
+                actual_norm.pkg_name());
             unify_types(formal.pointee(), sv, bindings);
         }
         break;
@@ -3706,9 +3705,16 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
                 unify_types(fa[i], aa[i], bindings);
         } else if (actual_norm.kind() == LogosType::Kind::Ref ||
                    actual_norm.kind() == LogosType::Kind::MutRef ||
-                   actual_norm.kind() == LogosType::Kind::Ptr) {
-            TypeRef ap = actual_norm.pointee();
-            if (ap && TypeRef(ap).kind() == LogosType::Kind::Struct &&
+                   actual_norm.kind() == LogosType::Kind::Ptr ||
+                   actual_norm.kind() == LogosType::Kind::Struct ||
+                   actual_norm.kind() == LogosType::Kind::ZonedStruct) {
+            // Bare-struct actual included: method-receiver latitude peels the
+            // reference off the actual before unifying against a DstRef formal.
+            TypeRef ap = (actual_norm.kind() == LogosType::Kind::Struct ||
+                          actual_norm.kind() == LogosType::Kind::ZonedStruct)
+                         ? actual_norm : TypeRef(actual_norm.pointee());
+            if (ap && (TypeRef(ap).kind() == LogosType::Kind::Struct ||
+                       TypeRef(ap).kind() == LogosType::Kind::ZonedStruct) &&
                 TypeRef(ap).struct_name() == formal.struct_name()) {
                 auto fa = formal.type_args();
                 auto aa = TypeRef(ap).type_args();
@@ -3744,12 +3750,11 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
             // struct — for inference it is Ref(Struct<args>). Rebuild the
             // struct view and recurse so `self: &GB<T>` binds T from a
             // DstRef-typed `GB<u64>` receiver.
-            LogosTypeBuilder snb;
-            snb.kind        = LogosType::Kind::Struct;
-            snb.struct_name = std::string(actual_norm.struct_name());
-            snb.pkg_name    = std::string(actual_norm.pkg_name());
-            snb.type_args   = actual_norm.type_args();
-            TypeRef sv = pool_->alloc(std::move(snb));
+            auto dargs = actual_norm.type_args();
+            TypeRef sv = make_generic_struct(
+                actual_norm.struct_name(),
+                std::vector<TypeRef>(dargs.begin(), dargs.end()), {},
+                actual_norm.pkg_name());
             unify_types(formal.pointee(), sv, bindings);
         }
         else if (actual_norm.kind() == LogosType::Kind::TraitObject) {
@@ -3783,7 +3788,12 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
         }
         break;
     case LogosType::Kind::Slice:
-        if (actual_norm.kind() == LogosType::Kind::Slice)
+    case LogosType::Kind::UnsizedSlice:
+        // A slice pattern unifies against either slice spelling — bare-[T]
+        // type-args canonicalise to UnsizedSlice, value positions to Slice;
+        // they are one type for inference (the [E] partial-spec selector).
+        if (actual_norm.kind() == LogosType::Kind::Slice ||
+            actual_norm.kind() == LogosType::Kind::UnsizedSlice)
             unify_types(formal.elem(), actual_norm.elem(), bindings);
         break;
     case LogosType::Kind::Struct:
@@ -3851,20 +3861,36 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
     if (git->second.size() < 2) return nullptr;
     const SemaFuncInfo* best = nullptr;
     int best_score = -1;
+    int best_fspec = -1;
     bool best_local = false;
+    // DstRef receiver (thin ref over a self-describing struct): for unify
+    // and scoring it is `&Struct<args>` — rebuild that view once.
+    std::vector<TypeRef> arg_types_norm(arg_types.begin(), arg_types.end());
+    if (is_method_recv && !arg_types_norm.empty() && arg_types_norm[0] &&
+        TypeRef(arg_types_norm[0]).kind() == LogosType::Kind::DstRef) {
+        TypeRef d = arg_types_norm[0];
+        auto dargs = TypeRef(d).type_args();
+        TypeRef sv = make_generic_struct(
+            TypeRef(d).struct_name(),
+            std::vector<TypeRef>(dargs.begin(), dargs.end()), {},
+            TypeRef(d).pkg_name());
+        arg_types_norm[0] = TypeRef(d).mut_ptr() ? make_ref(true, sv)
+                                                 : make_ref(false, sv);
+    }
+    const std::vector<TypeRef>& atv = arg_types_norm;
     for (auto& sym : git->second) {
         auto fit = generic_funcs_.find(sym);
         if (fit == generic_funcs_.end()) continue;
         auto& fi = fit->second;
         if (!pkg_qualifier_ok(fi)) continue;  // T2-28: explicit pkg filter
-        bool arity_ok = fi.is_vararg ? arg_types.size() >= fi.param_types.size()
-                                     : fi.param_types.size() == arg_types.size();
+        bool arity_ok = fi.is_vararg ? atv.size() >= fi.param_types.size()
+                                     : fi.param_types.size() == atv.size();
         if (!arity_ok) continue;
         StrMap<TypeRef> binds;
-        size_t n = std::min(fi.param_types.size(), arg_types.size());
+        size_t n = std::min(fi.param_types.size(), atv.size());
         for (size_t i = 0; i < n; ++i) {
             TypeRef pt = fi.param_types[i];
-            TypeRef at = arg_types[i];
+            TypeRef at = atv[i];
             if (i == 0 && is_method_recv && pt && at) {
                 // Unify through the autoref/autoderef shapes the method path
                 // applies later: by-value recv vs &self formal (and the
@@ -3899,7 +3925,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
         bool ok = true;
         for (size_t i = 0; i < n; ++i) {
             TypeRef pt = fi.param_types[i];
-            TypeRef at = arg_types[i];
+            TypeRef at = atv[i];
             if (!pt || !at) { ok = false; break; }
             if (!binds.empty()) pt = subst_type_sema(pt, s);
             if (types_equal(pt, at)) { score += 2; continue; }
@@ -3917,14 +3943,72 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
                     !is_ref_like(TypeRef(pt).kind()) &&
                     TypeRef(pt).kind() != LogosType::Kind::Ptr &&
                     types_equal(TypeRef(at).pointee(), pt)) { score += 1; continue; }
+                // Raw-ptr receiver vs &self formal (and the reverse): the
+                // method path reinterprets thin forms later (unsafe-gated);
+                // rank below exact so a true ptr-receiver overload still wins.
+                if (TypeRef(at).pointee() && TypeRef(pt).pointee() &&
+                    (TypeRef(at).kind() == LogosType::Kind::Ptr ||
+                     is_ref_like(TypeRef(at).kind())) &&
+                    (TypeRef(pt).kind() == LogosType::Kind::Ptr ||
+                     is_ref_like(TypeRef(pt).kind())) &&
+                    types_equal(TypeRef(at).pointee(), TypeRef(pt).pointee()))
+                    { score += 1; continue; }
+                // DstRef formal (canonicalised `self` of a #[self_describing]
+                // struct): matches any thin form over the same struct
+                // instance. Compare the rebuilt struct views structurally.
+                if (TypeRef(pt).kind() == LogosType::Kind::DstRef) {
+                    TypeRef ap = at;
+                    if ((TypeRef(ap).kind() == LogosType::Kind::Ptr ||
+                         is_ref_like(TypeRef(ap).kind())) && TypeRef(ap).pointee())
+                        ap = TypeRef(ap).pointee();
+                    bool same = false;
+                    if (TypeRef(ap).kind() == LogosType::Kind::DstRef ||
+                        TypeRef(ap).kind() == LogosType::Kind::Struct ||
+                        TypeRef(ap).kind() == LogosType::Kind::ZonedStruct) {
+                        if (TypeRef(ap).struct_name() == TypeRef(pt).struct_name()) {
+                            auto fa = TypeRef(pt).type_args();
+                            auto aa = TypeRef(ap).type_args();
+                            same = fa.size() == aa.size();
+                            for (size_t j = 0; same && j < fa.size(); ++j) {
+                                TypeRef f2 = fa[j], a2 = aa[j];
+                                bool fsl = f2 && (f2.kind() == LogosType::Kind::Slice ||
+                                                  f2.kind() == LogosType::Kind::UnsizedSlice);
+                                bool asl = a2 && (a2.kind() == LogosType::Kind::Slice ||
+                                                  a2.kind() == LogosType::Kind::UnsizedSlice);
+                                if (fsl && asl)
+                                    same = types_equal(f2.elem(), a2.elem());
+                                else
+                                    same = f2 && a2 && types_equal(f2, a2);
+                            }
+                        }
+                    }
+                    if (same) { score += 1; continue; }
+                }
             }
             if (types_compatible(at, pt)) { score += 1; continue; }
             ok = false; break;
         }
         if (!ok) continue;
+        // Partial-spec partial order: on equal arg-match score, the overload
+        // with MORE STRUCTURE in its unsubstituted formals is more specialized
+        // (impl<E> PkdArray<[E]> beats impl<T> PkdArray<T> for a slice arg) —
+        // the C++ partial-specialization ordering, transplanted.
+        std::function<int(TypeRef)> tdepth = [&](TypeRef t) -> int {
+            if (!t || t.kind() == LogosType::Kind::TypeVar) return 0;
+            int d = 1;
+            if (t.pointee()) d += tdepth(t.pointee());
+            if (t.elem())    d += tdepth(t.elem());
+            for (auto a : t.type_args())   d += tdepth(a);
+            for (auto e : t.tuple_elems()) d += tdepth(e);
+            return d;
+        };
+        int fspec = 0;
+        for (auto pt2 : fi.param_types) fspec += tdepth(pt2);
         bool local = !cur_package_.empty() && fi.package == cur_package_;
-        if (score > best_score || (score == best_score && local && !best_local)) {
-            best = &fi; best_score = score; best_local = local;
+        if (score > best_score ||
+            (score == best_score && fspec > best_fspec) ||
+            (score == best_score && fspec == best_fspec && local && !best_local)) {
+            best = &fi; best_score = score; best_local = local; best_fspec = fspec;
         }
     }
     return best;
@@ -6856,6 +6940,12 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dstref(
     const SemaFuncInfo* dfi = nullptr;
     if (auto fit = find_func_by_base_and_signature(mangled, mtypes, false))
         dfi = fit;
+    else if (auto sel = find_generic_func_for_args(mangled, mtypes,
+                                                   /*is_method_recv=*/true)) {
+        // ≥2 generic overloads (base template vs partial-spec impls): pick by
+        // args + formal specificity, not by registration order.
+        dfi = sel;
+    }
     else if (auto git = find_generic_func(mangled)) {
         dfi = git;
         // Mutability guard (name-only match): `self: &mut/*mut Self` still
@@ -8979,6 +9069,21 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // though H could be inferred from the arg.
     std::vector<TypeRef> m_type_args;
     if (!fi.type_params.empty()) {
+        // Partial-spec impls (impl<E> PkdArray<[E]>): the positional
+        // struct_subst above binds the BASE template's param names — a spec's
+        // own params live INSIDE its receiver pattern. Seed them by unifying
+        // the formal receiver against the actual receiver type.
+        if (!fi.param_types.empty() && expr_type(recv)) {
+            bool unbound = false;
+            for (auto& tp : fi.type_params)
+                if (!struct_subst.count(tp.name)) { unbound = true; break; }
+            if (unbound) {
+                StrMap<TypeRef> rb;
+                unify_types(fi.param_types[0], expr_type(recv), rb);
+                for (auto& [k, v] : rb)
+                    if (!struct_subst.count(k)) struct_subst[k] = v;
+            }
+        }
         // Method-level turbofish (`recv.method::<T1,T2>(args)`) wins over
         // inference: seed struct_subst with the explicit args so the
         // arg-compat check below sees the substituted param types, and
@@ -9709,6 +9814,24 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         // whose type is the unsized form).
         auto [spkg_lookup, ssi_dst] = find_struct_by_name(sname_dst);
         if (!ssi_dst) { auto [dpkg, dsi] = find_datatype_by_name(sname_dst); ssi_dst = dsi; }
+        // Partial-spec receiver (PkdArray<[u8]> → the [E] spec): the SPEC's
+        // fields govern this instantiation, and its pattern vars bind from
+        // the DstRef's type-args (E := u8) for field-type substitution.
+        SemaSubst spec_subst;
+        {
+            auto ta0 = TypeRef(recv_base_t).type_args();
+            if (!ta0.empty()) {
+                std::vector<TypeRef> ta_vec(ta0.begin(), ta0.end());
+                if (auto* spec = find_best_sema_struct_spec(sname_dst, ta_vec)) {
+                    StrMap<TypeRef> binds;
+                    for (size_t j = 0; j < spec->spec_patterns.size() &&
+                                       j < ta_vec.size(); ++j)
+                        unify_types(spec->spec_patterns[j], ta_vec[j], binds);
+                    spec_subst = SemaSubst(binds.begin(), binds.end());
+                    ssi_dst = const_cast<SemaStructInfo*>(spec);
+                }
+            }
+        }
         // A `#[self_describing]` DST recovers its tail length in-band (dst_len),
         // so a `&Foo` borrowed of it is a complete, safe reference — field access
         // is well-defined without `unsafe` (unlike a plain custom-DST `&Foo`,
@@ -9722,8 +9845,9 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         size_t prefix_byte_size = 0;
         // Substitution map from the DstRef's type-args onto the template's
         // params — shared by the prefix-offset walk and the tail-type probe.
-        SemaSubst dst_subst;
-        if (ssi_dst && !TypeRef(recv_base_t).type_args().empty() &&
+        SemaSubst dst_subst = spec_subst;   // spec pattern binds (may be empty)
+        if (dst_subst.empty() && ssi_dst &&
+            !TypeRef(recv_base_t).type_args().empty() &&
             !ssi_dst->type_params.empty()) {
             auto& tps = ssi_dst->type_params;
             auto ta = TypeRef(recv_base_t).type_args();
@@ -10184,7 +10308,14 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (tplist.has_key(la::ITEMS)) {
                     auto items = arr_of(tplist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size() && i < sinfo.type_params.size(); ++i) {
+                        // Phase 1B-5 parity with resolve_type's generic path:
+                        // a `?Sized` param accepts a bare `[T]`/`dyn` type-arg
+                        // (the slice-pattern partial-spec selector rides this).
+                        bool was_uok = unsized_ok_;
+                        if (!sinfo.type_params[i].implicit_sized ||
+                            struct_has_specs(sname)) unsized_ok_ = true;
                         auto resolved = resolve_type(map_of(items.get(i)));
+                        unsized_ok_ = was_uok;
                         if (resolved && TypeRef(resolved).kind() != LogosType::Kind::Error) {
                             inferred[sinfo.type_params[i].name] = resolved;
                             explicit_args.push_back(resolved);
@@ -10336,7 +10467,11 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 }
             }
         }
-        check_type_bounds(std::string(sname), sinfo.type_params, args);
+        // A matching (partial) specialization GOVERNS its instantiations —
+        // the base template's bounds do not apply (C++ partial-spec model;
+        // the spec's own pattern vars carry any bounds it wants).
+        if (!find_best_sema_struct_spec(std::string(sname), args))
+            check_type_bounds(std::string(sname), sinfo.type_params, args);
         std::vector<std::string> lit_lt_args;
         if (hint_struct_type_ && TypeRef(hint_struct_type_).struct_name() == std::string(sname))
             lit_lt_args = TypeRef(hint_struct_type_).lifetime_args();

@@ -15,7 +15,11 @@
 
 set -euo pipefail
 ROOT="${1:-$(dirname "$(realpath "$0")")/..}"
-LINT_BASELINE=7
+LINT_BASELINE=5
+# 5 — ratcheted down 2026-07-11: mono_clone's three metacall-instantiation
+# inline builders + the partial-spec seam consolidated into
+# `Mono::build_generic_struct_typeref` (helper counts as 1). The grep is
+# now whitespace-robust (aligned `kind        =` used to evade it).
 # 7 — ratcheted down 2026-05-19 after mono Phase 2 step 2 introduced
 # `Mono::build_concrete_typeref(const std::string& name)` in
 # `mono_impl.hpp` and deduped the three inline Struct/Enum/primitive
@@ -23,7 +27,7 @@ LINT_BASELINE=7
 # call per candidate. Helper itself counts as 1 site (Enum branch);
 # net reduction 10 → 7.
 
-count=$(grep -rE "kind = LogosType::Kind::(Struct|Enum|ZonedStruct)\b" \
+count=$(grep -rE "kind[[:space:]]*=[[:space:]]*LogosType::Kind::(Struct|Enum|ZonedStruct)\b" \
         "$ROOT/src/compiler/" 2>/dev/null \
         | grep -v "sema_impl.hpp" \
         | wc -l)
@@ -32,7 +36,7 @@ if [ "$count" -gt "$LINT_BASELINE" ]; then
     echo "ERROR: inline LogosTypeBuilder Struct/Enum/ZonedStruct sites grew" >&2
     echo "  baseline: $LINT_BASELINE, current: $count" >&2
     echo "Each new site is a pkg-threading risk.  Use make_*_type helpers." >&2
-    grep -rEn "kind = LogosType::Kind::(Struct|Enum|ZonedStruct)\b" \
+    grep -rEn "kind[[:space:]]*=[[:space:]]*LogosType::Kind::(Struct|Enum|ZonedStruct)\b" \
         "$ROOT/src/compiler/" | grep -v "sema_impl.hpp" >&2
     exit 1
 fi

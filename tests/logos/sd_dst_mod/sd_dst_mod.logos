@@ -51,3 +51,57 @@ pub unsafe fn sd_mod_probe() -> u64 {
     a.set(1u32, 2u64);
     return a.get(0u32) + a.get(1u32);
 }
+
+// ── slice-pattern partial spec (the PkdArray FSE/VLE unification model) ──────
+// The [E] spec has different fields AND same-named methods; method bodies
+// call each other (me→at→get chain analog). Regression: the mono named-call
+// seam bound impl params POSITIONALLY from struct args (E := [u8]) →
+// runaway instantiation depth (SdArr<[[u8]]>, <[[[u8]]]>, …), module-mode only.
+
+#[self_describing]
+pub struct SdVle<T: Copy> { count: u32, pad: u32, tail: [T] }
+
+impl<T: Copy> SelfDescribing for SdVle<T> {
+    fn dst_len(self: *const SdVle<T>) -> i64 { return unsafe { (*self).count as i64 }; }
+}
+
+#[self_describing]
+pub struct SdVle<[E]> { hdr: u32, cnt: u32, buf: [u8] }
+
+impl<E> SelfDescribing for SdVle<[E]> {
+    fn dst_len(self: *const SdVle<[E]>) -> i64 { return unsafe { (*self).hdr as i64 }; }
+}
+
+impl<T: Copy> SdVle<T> {
+    pub unsafe fn count(self: &SdVle<T>) -> u32 { return self.count; }
+}
+
+impl<E> SdVle<[E]> {
+    unsafe fn base(self: &SdVle<[E]>) -> i64 {
+        let sp: *const SdVle<[E]> = self as *const SdVle<[E]>;
+        return sp as i64;
+    }
+    pub unsafe fn count(self: &SdVle<[E]>) -> u32 {
+        let _b: i64 = self.base();
+        return self.cnt;
+    }
+    pub unsafe fn bump(self: &mut SdVle<[E]>, d: u32) -> u32 {
+        let sp: *mut SdVle<[E]> = self as *mut SdVle<[E]>;
+        let c: u32 = sp.count();
+        sp.cnt = c + d;
+        return sp.count();
+    }
+}
+
+pub unsafe fn sd_vle_format<E>(mem: *mut u8) -> *mut SdVle<[E]> {
+    return mem as *mut SdVle<[E]>;
+}
+
+/// In-module instantiation of the spec (build-time regression for the seam).
+pub unsafe fn sd_vle_probe() -> u32 {
+    let m: *mut u8 = malloc(64i64);
+    let v: *mut SdVle<[u8]> = sd_vle_format::<u8>(m);
+    (*v).hdr = 0u32;
+    (*v).cnt = 40u32;
+    return v.bump(2u32);
+}

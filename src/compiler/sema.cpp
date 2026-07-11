@@ -5654,7 +5654,11 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
             bool was_ok = unsized_ok_;
             bool param_known =
                 target_params && type_arg_idx < target_params->size();
-            if (param_known && !(*target_params)[type_arg_idx].implicit_sized) {
+            if (param_known && (!(*target_params)[type_arg_idx].implicit_sized ||
+                                struct_has_specs(name))) {
+                // ?Sized param — or a partial spec may govern this
+                // instantiation (its slice pattern selects on the unsized
+                // arg, e.g. PkdArray<[u8]> → the VLE spec).
                 unsized_ok_ = true;
             } else if (!param_known && code_of(item) == la::DYN_TYPE) {
                 // The target's params can't be consulted yet — the struct is
@@ -5711,7 +5715,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     // Phase 1B-5/10: Sized-enforcement at struct/enum/datatype generic
     // instantiation. Parallel to the fn-call path in finish_generic_call.
     // Phase 1B-10 adds the TypeVar→Sized propagation check too.
-    if (target_params) {
+    if (target_params && !find_best_sema_struct_spec(name, args)) {
         for (size_t i = 0; i < args.size() && i < target_params->size(); ++i) {
             if (!(*target_params)[i].implicit_sized) continue;
             auto t = args[i];
@@ -5755,7 +5759,9 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     }
     if (ssi) {
         check_type_arg_arity(name, ssi->type_params, args, "struct");
-        check_type_bounds(std::string(name), ssi->type_params, args);
+        // A matching (partial) specialization governs — base bounds off.
+        if (!find_best_sema_struct_spec(name, args))
+            check_type_bounds(std::string(name), ssi->type_params, args);
     }
     return make_generic_struct(name, std::move(args), std::move(lt_args), spkg);
 }
@@ -6618,6 +6624,15 @@ static bool match_type_sema(TypeRef c, TypeRef p,
         bindings[std::string(p.type_var_name())] = c;
         return true;
     }
+    // Slice patterns ([E]) match either slice spelling of the concrete —
+    // bare-[T]-as-type-arg canonicalises to UnsizedSlice, but Slice reaches
+    // here from some resolve paths; the two are one type at this level.
+    auto is_slice = [](TypeRef t) {
+        return t.kind() == LogosType::Kind::Slice ||
+               t.kind() == LogosType::Kind::UnsizedSlice;
+    };
+    if (is_slice(p) && is_slice(c))
+        return match_type_sema(c.elem(), p.elem(), bindings);
     if (p.kind() != c.kind()) return false;
     switch (p.kind()) {
     case LogosType::Kind::Ptr:
@@ -6641,6 +6656,9 @@ static int specificity_sema(TypeRef t) {
     if (!t || t.kind() == LogosType::Kind::TypeVar) return 0;
     if (t.kind() == LogosType::Kind::Ptr)   return 1 + specificity_sema(t.pointee());
     if (t.kind() == LogosType::Kind::Array) return 1 + specificity_sema(t.elem());
+    if (t.kind() == LogosType::Kind::Slice ||
+        t.kind() == LogosType::Kind::UnsizedSlice)
+        return 1 + specificity_sema(t.elem());
     return 100;
 }
 
@@ -6692,7 +6710,8 @@ TypeRef SemaChecker::field_type_of(std::string_view sname, std::string_view fnam
 TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
                                              std::string_view fname) {
     if (!struct_t || (TypeRef(struct_t).kind() != LogosType::Kind::Struct &&
-                      TypeRef(struct_t).kind() != LogosType::Kind::ZonedStruct)) return nullptr;
+                      TypeRef(struct_t).kind() != LogosType::Kind::ZonedStruct &&
+                      TypeRef(struct_t).kind() != LogosType::Kind::DstRef)) return nullptr;
     // Check for a concrete specialization first (including partial specs
     // via pattern matching).
     if (!TypeRef(struct_t).type_args().empty()) {

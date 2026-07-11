@@ -1602,7 +1602,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     // promotion (#[datatype]/#[annotation]) vs structural flags.
                     check_annotations(AttrTarget::Struct, sname, htp, pending_annots);
                     auto aflags = parse_struct_attr_flags(pending_annots);
-                    if (is_specialization_struct(item)) collect_struct_spec(item);
+                    if (is_specialization_struct(item)) collect_struct_spec(item, &aflags);
                     else if (aflags.promotes_to_datatype()) {
                         collect_datatype(item, aflags.annotation);
                     } else {
@@ -1675,7 +1675,8 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 if (item.has_key(la::NAME.code)) {
                     bool is_spec = is_specialization_struct(item);
                     if (is_spec) {
-                        collect_struct_spec(item);
+                        auto aflags2 = parse_struct_attr_flags(pending_annots);
+                        collect_struct_spec(item, &aflags2);
                         continue;
                     }
                     // Pre-scan pending annotations to pass the #[annotation] flag
@@ -3988,7 +3989,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
 // Collect a struct specialization into struct_specs_sema_.
 // Only full specializations (all patterns concrete) are registered;
 
-void SemaChecker::collect_struct_spec(TinyMapView node) {
+void SemaChecker::collect_struct_spec(TinyMapView node,
+                                      const StructAttrFlags* attr_flags) {
     auto sname = std::string(str_of(node.get(la::NAME.code)));
     ctx_ = std::format("struct {} (specialization)", sname);
 
@@ -4004,9 +4006,13 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
                 for (uint64_t i = 0; i < tpitems.size(); ++i) {
                     auto tpnode = map_of(tpitems.get(i));
                     int32_t tc  = code_of(tpnode);
-                    if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
+                    if (tc == la::PTR_TYPE || tc == la::ARR_TYPE ||
+                        tc == la::SLICE_TYPE || tc == la::UNSIZED_SLICE_TYPE) {
                         extract_typevars_from_type_node(tpnode, pattern_tvars);
+                        bool was_uok = unsized_ok_;
+                        unsized_ok_ = true;   // [E] pattern = ?Sized position
                         spec_patterns.push_back(resolve_type(tpnode));
+                        unsized_ok_ = was_uok;
                     } else if (tc == la::TYPE_PARAM) {
                         auto name = str_of(tpnode.get(la::NAME.code));
                         auto known = try_resolve_as_known_type(name);
@@ -4034,15 +4040,39 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
     info.module_id = cur_module_id_;
     info.base_name = sname;
     info.spec_patterns = spec_patterns;
+    // Structural attribute flags apply to specs exactly like to base structs
+    // (#[self_describing] on the [E] spec of a packed array, #[zoned], …).
+    if (attr_flags) {
+        info.no_auto_drop    |= attr_flags->no_auto_drop;
+        info.self_describing |= attr_flags->self_describing;
+        info.rel_ptr         |= attr_flags->rel_ptr;
+        info.pinned          |= attr_flags->pinned;
+        info.zone_mut        |= attr_flags->zone_mut;
+        info.zoned2          |= attr_flags->zoned;
+        info.borrow_carrying |= attr_flags->borrow_carrying;
+        info.non_null        |= attr_flags->non_null;
+    }
     std::string spec_field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
         auto fields = arr_of(node.get(la::FIELDS.code));
+        uint64_t last_fdef = 0;
+        for (uint64_t i = 0; i < fields.size(); ++i)
+            if (code_of(map_of(fields.get(i))) == la::FIELD_DEF) last_fdef = i;
         for (uint64_t i = 0; i < fields.size(); ++i) {
             auto fnode = map_of(fields.get(i));
             if (try_append_doc(spec_field_sweep_doc, fnode)) continue;
             if (code_of(fnode) != la::FIELD_DEF) continue;
             auto fname = str_of(fnode.get(la::NAME.code));
-            auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+            // Phase 1B-13 parity with the base-struct path: the LAST field
+            // may be a `[T]` slice tail (custom DST).
+            auto ftype_node = map_of(fnode.get(la::TYPE.code));
+            bool is_slice_tail = (i == last_fdef) &&
+                                 code_of(ftype_node) == la::UNSIZED_SLICE_TYPE;
+            bool was_ok2 = unsized_ok_;
+            if (is_slice_tail) unsized_ok_ = true;
+            auto ftype = resolve_type(ftype_node);
+            unsized_ok_ = was_ok2;
+            if (is_slice_tail) info.is_dst = true;
             bool fpub = fnode.has_key(la::IS_PUB) &&
                         fnode.get(la::IS_PUB.code).is_value() &&
                         fnode.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
@@ -4573,7 +4603,8 @@ void SemaChecker::extract_typevars_from_type_node(TinyMapView node,
         if (node.has_key(la::POINTEE))
             extract_typevars_from_type_node(
                 map_of(node.get(la::POINTEE.code)), out_tvars);
-    } else if (tc == la::ARR_TYPE) {
+    } else if (tc == la::ARR_TYPE || tc == la::SLICE_TYPE ||
+               tc == la::UNSIZED_SLICE_TYPE) {
         if (node.has_key(la::TYPE))
             extract_typevars_from_type_node(
                 map_of(node.get(la::TYPE.code)), out_tvars);
@@ -4599,8 +4630,11 @@ bool SemaChecker::is_specialization_fn(TinyMapView node) {
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto n = map_of(items.get(i));
         int32_t c = code_of(n);
-        if (c == la::PTR_TYPE || c == la::ARR_TYPE)
-            return true;  // structured pattern → specialisation
+        if (c == la::PTR_TYPE || c == la::ARR_TYPE ||
+            c == la::SLICE_TYPE || c == la::UNSIZED_SLICE_TYPE)
+            return true;  // structured pattern → specialisation ([E] included:
+                          // the Sized-partition spec — slices select e.g. the
+                          // VLE family of a packed array)
         if (c == la::TYPE_PARAM && !n.has_key(la::ITEMS)) {
             auto name = str_of(n.get(la::NAME.code));
             if (try_resolve_as_known_type(name))
@@ -4650,8 +4684,11 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto n = map_of(items.get(i));
         int32_t c = code_of(n);
-        if (c == la::PTR_TYPE || c == la::ARR_TYPE)
-            return true;  // structured pattern → specialisation
+        if (c == la::PTR_TYPE || c == la::ARR_TYPE ||
+            c == la::SLICE_TYPE || c == la::UNSIZED_SLICE_TYPE)
+            return true;  // structured pattern → specialisation ([E] included:
+                          // the Sized-partition spec — slices select e.g. the
+                          // VLE family of a packed array)
         if (c == la::TYPE_PARAM && !n.has_key(la::ITEMS)) {
             auto name = str_of(n.get(la::NAME.code));
             if (try_resolve_as_known_type(name))
@@ -4692,9 +4729,13 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
                     auto tpnode = map_of(tpitems.get(i));
                     int32_t tc  = code_of(tpnode);
                     if (tc == la::LIFETIME_PARAM) continue;  // skip — deferred to borrow checker
-                    if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
+                    if (tc == la::PTR_TYPE || tc == la::ARR_TYPE ||
+                        tc == la::SLICE_TYPE || tc == la::UNSIZED_SLICE_TYPE) {
                         extract_typevars_from_type_node(tpnode, pattern_tvars);
+                        bool was_uok = unsized_ok_;
+                        unsized_ok_ = true;   // [E] pattern = ?Sized position
                         spec_patterns.push_back(resolve_type(tpnode));
+                        unsized_ok_ = was_uok;
                     } else if (tc == la::TYPE_PARAM) {
                         auto name = str_of(tpnode.get(la::NAME.code));
                         if (tpnode.has_key(la::ITEMS)) {
@@ -4734,12 +4775,23 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
         if (fields.size() > 0) {
             auto fa = sd.array(stk::FIELDS);
             std::string field_doc;
+            uint64_t last_fdef = 0;
+            for (uint64_t i = 0; i < fields.size(); ++i)
+                if (code_of(map_of(fields.get(i))) == la::FIELD_DEF) last_fdef = i;
             for (uint64_t i = 0; i < fields.size(); ++i) {
                 auto fnode = map_of(fields.get(i));
                 if (try_append_doc(field_doc, fnode)) continue;
                 if (code_of(fnode) != la::FIELD_DEF) continue;
                 auto fname = str_of(fnode.get(la::NAME.code));
-                auto ftype = resolve_type(map_of(fnode.get(la::TYPE.code)));
+                // Last field may be a `[T]` slice tail (custom DST) —
+                // Phase 1B-13 parity with lower_struct_def.
+                auto ftype_node = map_of(fnode.get(la::TYPE.code));
+                bool is_slice_tail = (i == last_fdef) &&
+                                     code_of(ftype_node) == la::UNSIZED_SLICE_TYPE;
+                bool was_ok2 = unsized_ok_;
+                if (is_slice_tail) unsized_ok_ = true;
+                auto ftype = resolve_type(ftype_node);
+                unsized_ok_ = was_ok2;
                 lir::LField fld{std::string(fname), ftype, false, std::move(field_doc)};
                 fa.push_field(fld);
                 field_doc.clear();
@@ -4799,10 +4851,14 @@ DeclBuilder SemaChecker::lower_spec_fn(TinyMapView node) {
                     int32_t tc  = code_of(tpnode);
 
                     if (tc == la::LIFETIME_PARAM) continue;  // skip — deferred to borrow checker
-                    if (tc == la::PTR_TYPE || tc == la::ARR_TYPE) {
+                    if (tc == la::PTR_TYPE || tc == la::ARR_TYPE ||
+                        tc == la::SLICE_TYPE || tc == la::UNSIZED_SLICE_TYPE) {
                         // Structured pattern: extract TypeVars then resolve.
                         extract_typevars_from_type_node(tpnode, pattern_tvars);
+                        bool was_uok = unsized_ok_;
+                        unsized_ok_ = true;   // [E] pattern = ?Sized position
                         spec_patterns.push_back(resolve_type(tpnode));
+                        unsized_ok_ = was_uok;
 
                     } else if (tc == la::TYPE_PARAM) {
                         auto name = str_of(tpnode.get(la::NAME.code));
