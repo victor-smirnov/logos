@@ -32,6 +32,22 @@ pub trait Sized {}
 /// ergonomics ship in `logos.lang.pin`.
 pub auto trait Unpin {}
 
+// Fst — a FIXED-SIZE, RELOCATION-SAFE value: statically sized, byte-movable,
+// and free of ABSOLUTE REFERENCES (raw pointers, references, fat views, code
+// pointers). The marker for values that may live inside relocatable,
+// dumpable memory blocks (packed structures, Writ segments): a block whose
+// contents are all `Fst` can be memcpy'd, shipped, or reloaded in another
+// address space and stays meaningful. Structural derivation: scalars are
+// `Fst`; structs/enums/tuples/arrays are `Fst` iff every field/element is;
+// pointer/reference kinds and fn-pointers are NOT (a raw pointer may opt in
+// with an explicit unsafe impl — the Send-style escape hatch — references
+// never can). Note `Fst` neither implies nor requires `Copy`: `Copy` governs
+// move semantics, `Fst` governs representation; packed element types
+// typically want both (`T: Copy + Fst`).
+/// Marks a fixed-size, relocation-safe value: byte-movable and free of absolute
+/// references. Auto trait, derived structurally; pointer kinds are excluded.
+pub auto trait Fst {}
+
 /// A zero-sized field that opts a struct out of `Unpin`.
 /// A struct containing one (or marked `#[pinned]`) is `!Unpin`, so it cannot be moved
 /// out of a `Pin<P>`.

@@ -94,9 +94,14 @@ bool SemaChecker::is_auto_trait_satisfied(
     case Kind::I128: case Kind::U128:
     case Kind::F32: case Kind::F64:
     case Kind::IntLit: case Kind::FloatLit:
+        return true;
+
+    // Fn items/pointers: satisfied for Send/Sync/Unpin (code identity is
+    // process-global), NOT for Fst (a code address in a dumpable block is
+    // meaningless in another address space).
     case Kind::FnItem:
     case Kind::FnPtr:
-        return true;
+        return trait_name != "Fst";
 
     // ── Unpin: default-TRUE world (Rust semantics) ──────────────────────────
     // Everything is Unpin unless it (transitively) stores a PhantomPinned,
@@ -119,11 +124,14 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Shared reference &T: Send iff T:Sync; Sync iff T:Sync ──────────────
     case Kind::Ref:
         if (trait_name == "Unpin") return true;   // &T is always Unpin
+        if (trait_name == "Fst") return false;    // references are never
+                                                  // relocation-safe (no opt-in)
         return is_auto_trait_satisfied(tv.pointee(), "Sync", visited);
 
     // ── Mutable reference &mut T: Send iff T:Send; Sync iff T:Sync ─────────
     case Kind::MutRef:
         if (trait_name == "Unpin") return true;   // &mut T is always Unpin
+        if (trait_name == "Fst") return false;    // never relocation-safe
         if (trait_name == "Send")
             return is_auto_trait_satisfied(tv.pointee(), "Send", visited);
         else
@@ -224,6 +232,7 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Slice &[T]: like &T, both Send and Sync require the element to be Sync ─
     // Bug 2 fix: &[T] is a shared reference; must check T: Sync, not T: trait_name.
     case Kind::Slice:
+        if (trait_name == "Fst") return false;    // a fat reference — never
         return tv.elem() ? is_auto_trait_satisfied(tv.elem(), "Sync", visited) : true;
 
     // ── Tuple: every element must satisfy ───────────────────────────────────

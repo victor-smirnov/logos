@@ -1,0 +1,25 @@
+// auto_trait_fst — the Fst marker (fixed-size, relocation-safe): structural
+// derivation accepts scalars, POD structs/enums/tuples/arrays and their
+// nesting; the fail twin (auto_trait_fst_ptr_field) rejects pointer carriers.
+package test;
+
+use logos.lang.marker;
+
+struct Pod { a: i64, b: f64, c: bool }
+struct Nested { p: Pod, xs: [u32; 4], t: (i64, u8) }
+enum Tag { A, B(i64), C(Pod) }
+
+fn need_fst<T: Fst>(v: T) -> T { return v; }
+
+fn main() -> i32 {
+    let _a: i64 = need_fst(42i64);
+    let _b: f64 = need_fst(1.5f64);
+    let _c: Pod = need_fst(Pod { a: 1i64, b: 2.0f64, c: true });
+    let _d: Nested = need_fst(Nested {
+        p: Pod { a: 3i64, b: 4.0f64, c: false },
+        xs: [1u32, 2u32, 3u32, 4u32],
+        t: (7i64, 8u8),
+    });
+    let _e: Tag = need_fst(Tag::C(Pod { a: 5i64, b: 6.0f64, c: true }));
+    return 0i32;
+}

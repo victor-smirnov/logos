@@ -209,9 +209,13 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
     case Kind::I128: case Kind::U128:
     case Kind::F32: case Kind::F64:
     case Kind::IntLit: case Kind::FloatLit:
+        return true;
+
+    // Fn items/pointers: fine for Send/Sync/Unpin, NOT for Fst (a code
+    // address inside a dumpable block is meaningless elsewhere).
     case Kind::FnItem:
     case Kind::FnPtr:
-        return true;
+        return trait_name != "Fst";
 
     // Raw pointers: !Send/!Sync unless explicit unsafe impl (Rust rule).
     case Kind::Ptr: {
@@ -219,12 +223,14 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
         return has_explicit(tstr);
     }
 
-    // &T  : Send iff T: Sync; Sync iff T: Sync.
+    // &T  : Send iff T: Sync; Sync iff T: Sync. Never Fst.
     case Kind::Ref:
+        if (trait_name == "Fst") return false;
         return is_auto_satisfied(tv.pointee(), "Sync", visited);
 
-    // &mut T: Send iff T: Send; Sync iff T: Sync.
+    // &mut T: Send iff T: Send; Sync iff T: Sync. Never Fst.
     case Kind::MutRef:
+        if (trait_name == "Fst") return false;
         return is_auto_satisfied(tv.pointee(),
                                   trait_name == "Send" ? "Send" : "Sync",
                                   visited);
@@ -232,6 +238,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
     case Kind::Array:
         return tv.elem() ? is_auto_satisfied(tv.elem(), trait_name, visited) : true;
     case Kind::Slice:
+        if (trait_name == "Fst") return false;    // a fat reference — never
         return tv.elem() ? is_auto_satisfied(tv.elem(), "Sync", visited) : true;
 
     case Kind::Tuple:

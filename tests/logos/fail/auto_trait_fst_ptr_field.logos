@@ -1,0 +1,15 @@
+// Fst rejects absolute references: a struct carrying a raw pointer is not
+// relocation-safe and must fail the bound STRUCTURALLY (no impl needed).
+package test;
+
+use logos.lang.marker;
+
+struct HasPtr { n: i64, p: *mut u8 }
+
+fn need_fst<T: Fst>(v: T) -> T { return v; }
+
+fn main() -> i32 {
+    let x: HasPtr = HasPtr { n: 1i64, p: 0i64 as *mut u8 };
+    let _ = need_fst(x);
+    return 0i32;
+}
