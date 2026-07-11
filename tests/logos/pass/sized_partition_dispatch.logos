@@ -1,0 +1,53 @@
+// sized_partition_dispatch — the Rust-stable Sized-partition pattern: a
+// blanket `impl<T> Trait for T` (implicit T: Sized) coexists with
+// `impl<E> Trait for [E]` WITHOUT specialization (coherence sees them as
+// disjoint), and STATIC generic dispatch through a `T: ?Sized` param picks
+// the right impl per instantiation. The pattern behind memoria's unified
+// PkdArray<T: ?Sized + PkdElem> (ADR 0018). Covers the three fixed defects:
+//   (a) blanket instances for PRIMITIVES and TUPLES via static dispatch
+//       (mono G159-1 was gated to struct/enum receivers);
+//   (b) slice receivers resolve through the $slice$<elem>/$slice$T sentinel
+//       ladder with the ELEMENT injected as the impl-level type arg
+//       (previously fell to the str alias / never instantiated);
+//   (c) the phantom-receiver spelling for unsized T: a fat-pointer value is
+//       the ADDRESS of its {data, meta} pair, so the null receiver is a
+//       zeroed stack pair (casting a raw 0 yields a null PAIR ADDRESS and
+//       any receiver copy would fault).
+// `str` is Slice<u8> by language design (sema resolve_type), so the str
+// arm dispatches to the [E] impl with E = u8.
+package test;
+
+pub trait PkdElem {
+    fn stride(self: *const Self) -> i64;
+}
+
+struct Pod { a: i64, b: i64 }
+
+impl<T> PkdElem for T {                     // implicit T: Sized — the partition
+    fn stride(self: *const T) -> i64 { return sizeof::<T>(); }
+}
+impl<E> PkdElem for [E] {
+    fn stride(self: *const [E]) -> i64 { return 0i64 - sizeof::<E>(); }
+}
+
+fn stride_of<T: PkdElem + ?Sized>() -> i64 {
+    // A fat-pointer VALUE is the address of its {data, meta} pair, so the
+    // phantom receiver must point at a VALID pair location — a zeroed stack
+    // pair is the well-defined "null fat pointer" spelling. (For sized T the
+    // cast is a plain thin pointer and the pair is simply unused.)
+    let z: (i64, i64) = (0i64, 0i64);
+    let p: *const T = ((&z as *const (i64, i64)) as i64) as *const T;
+    return unsafe { p.stride() };
+}
+
+fn main() -> i32 {
+    if stride_of::<Pod>() != 16i64 { return 1i32; }          // struct via blanket
+    if stride_of::<i64>() != 8i64 { return 2i32; }           // (a) primitive
+    if stride_of::<u8>() != 1i64 { return 3i32; }            // (a) primitive
+    if stride_of::<f64>() != 8i64 { return 4i32; }           // (a) primitive
+    if stride_of::<(u32, u32)>() != 8i64 { return 5i32; }    // (a) tuple
+    if stride_of::<[u8]>() != 0i64 - 1i64 { return 6i32; }   // (b) slice, E=u8
+    if stride_of::<[u64]>() != 0i64 - 8i64 { return 7i32; }  // (b) slice, E=u64
+    if stride_of::<str>() != 0i64 - 1i64 { return 8i32; }    // str ≡ [u8]
+    return 0i32;
+}

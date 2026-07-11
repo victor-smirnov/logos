@@ -3726,6 +3726,55 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         if (exists) cname = k;
                     }
                 }
+                // Phase 1B-10 mirror for the GENERIC-dispatch path: a
+                // receiver that monomorphised to a SLICE resolves through the
+                // same sentinel ladder sema uses for direct calls —
+                // `$slice$<elem>` (concrete impl) → `$slice$T` (impl<E> for
+                // [E]) → `str` (the &str==Slice<u8> alias, last). Without
+                // this the callee lands on the literal/str spelling and the
+                // `impl for [E]` instance is never found (Sized-partition
+                // probe: stride_of::<[u8]> → str__stride, invalid).
+                {
+                    TypeRef slice_rt = rt;
+                    while (slice_rt &&
+                           (TypeRef(slice_rt).kind() == LogosType::Kind::Ptr ||
+                            TypeRef(slice_rt).kind() == LogosType::Kind::Ref ||
+                            TypeRef(slice_rt).kind() == LogosType::Kind::MutRef) &&
+                           TypeRef(slice_rt).pointee())
+                        slice_rt = TypeRef(slice_rt).pointee();
+                    auto srk = slice_rt ? TypeRef(slice_rt).kind() : LogosType::Kind::Error;
+                    if ((srk == LogosType::Kind::Slice ||
+                         srk == LogosType::Kind::UnsizedSlice) &&
+                        (cname.empty() || cname == type_str(rt) ||
+                         (TypeRef(rt).pointee() &&
+                          cname == type_str(TypeRef(rt).pointee())))) {
+                        TypeRef elem = TypeRef(slice_rt).elem();
+                        auto has_m = [&](const std::string& base) -> bool {
+                            std::string fn = base + "__" + method;
+                            if (templates_.count(fn) || specs_.count(fn)) return true;
+                            std::string pfx = fn + "__";
+                            std::string dotp = "." + pfx;
+                            for (auto& [kn, _] : templates_)
+                                if (kn.rfind(pfx, 0) == 0 ||
+                                    kn.find(dotp) != std::string::npos) return true;
+                            for (auto& f : in_.functions) {
+                                auto t = bare_fn_name(f.name());
+                                if (t == fn || t.rfind(pfx, 0) == 0) return true;
+                            }
+                            for (auto& f : out_.functions) {
+                                auto t = bare_fn_name(f.name());
+                                if (t == fn || t.rfind(pfx, 0) == 0) return true;
+                            }
+                            return false;
+                        };
+                        std::string conc = "$slice$" + (elem ? type_str(elem) : std::string("?"));
+                        if (has_m(conc))                cname = conc;
+                        else if (has_m("$slice$T"))     cname = "$slice$T";
+                        else if (elem &&
+                                 TypeRef(elem).kind() == LogosType::Kind::U8 &&
+                                 has_m("str"))          cname = "str";
+                    }
+                }
                 if (cname.empty()) cname = type_str(rt);
                 if (cname == "&[u8]") cname = "str";
                 // G158-6: a `&`/`&mut` receiver over a concrete Struct/Enum may
@@ -3866,12 +3915,34 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             TypeRef(inner_rt).kind() == LogosType::Kind::MutRef) &&
                            TypeRef(inner_rt).pointee())
                         inner_rt = TypeRef(inner_rt).pointee();
+                    // (+ primitives: the eager pass deliberately skips them —
+                    // cloning every blanket for every primitive is unsound, an
+                    // integer-bodied blanket fails to verify on f32 — so a
+                    // primitive receiver reaching a blanket via STATIC generic
+                    // dispatch lands here, on demand, bound-filtered. Memoria's
+                    // Sized-partition probe: stride_of::<i64>() → i64__stride.)
+                    auto g159_kind_ok = [&](TypeRef t) -> bool {
+                        switch (TypeRef(t).kind()) {
+                        case LogosType::Kind::Struct:
+                        case LogosType::Kind::ZonedStruct:
+                        case LogosType::Kind::Enum:
+                        case LogosType::Kind::I8:  case LogosType::Kind::I16:
+                        case LogosType::Kind::I32: case LogosType::Kind::I64:
+                        case LogosType::Kind::U8:  case LogosType::Kind::U16:
+                        case LogosType::Kind::U32: case LogosType::Kind::U64:
+                        case LogosType::Kind::I128: case LogosType::Kind::U128:
+                        case LogosType::Kind::F32: case LogosType::Kind::F64:
+                        case LogosType::Kind::Bool: case LogosType::Kind::Char:
+                        case LogosType::Kind::Usize: case LogosType::Kind::Isize:
+                        case LogosType::Kind::Tuple:
+                            return true;
+                        default:
+                            return false;
+                        }
+                    };
                     if (tmpl_key == base_fn &&
                         !templates_.count(base_fn) && !specs_.count(base_fn) &&
-                        inner_rt &&
-                        (TypeRef(inner_rt).kind() == LogosType::Kind::Struct ||
-                         TypeRef(inner_rt).kind() == LogosType::Kind::ZonedStruct ||
-                         TypeRef(inner_rt).kind() == LogosType::Kind::Enum)) {
+                        inner_rt && g159_kind_ok(inner_rt)) {
                         for (auto& bi : blanket_impls_) {
                             std::string full_prefix = "$blanket$" + bi.trait_name
                                 + "$" + bi.bound_trait + "$" + bi.target_typevar + "__";
@@ -4028,6 +4099,35 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                            nc.type_args.end() - method_slots,
                                            nc.type_args.end());
                         nc.type_args = std::move(rebuilt);
+                    }
+                    // $slice$T (`impl<E> Trait for [E]`) — inject the SLICE
+                    // ELEMENT type as the impl-level arg, preserving any
+                    // method-level tail (mirror of the tuple path above; the
+                    // Sized-partition generic-dispatch route reaches here with
+                    // empty type_args, so the instance was never mangled or
+                    // enqueued).
+                    if (cname == "$slice$T") {
+                        TypeRef s_rt = rt;
+                        while (s_rt &&
+                               (TypeRef(s_rt).kind() == LogosType::Kind::Ptr ||
+                                TypeRef(s_rt).kind() == LogosType::Kind::Ref ||
+                                TypeRef(s_rt).kind() == LogosType::Kind::MutRef) &&
+                               TypeRef(s_rt).pointee())
+                            s_rt = TypeRef(s_rt).pointee();
+                        auto s_k = s_rt ? TypeRef(s_rt).kind() : LogosType::Kind::Error;
+                        TypeRef s_elem = (s_k == LogosType::Kind::Slice ||
+                                          s_k == LogosType::Kind::UnsizedSlice)
+                                         ? TypeRef(s_rt).elem() : TypeRef{};
+                        if (s_elem) {
+                            size_t method_slots =
+                                tmpl_tparam_count > 1 ? tmpl_tparam_count - 1 : 0;
+                            std::vector<TypeRef> rebuilt{s_elem};
+                            if (method_slots > 0 && nc.type_args.size() >= method_slots)
+                                rebuilt.insert(rebuilt.end(),
+                                               nc.type_args.end() - method_slots,
+                                               nc.type_args.end());
+                            nc.type_args = std::move(rebuilt);
+                        }
                     }
                     if (tmpl_tparam_count == 0) nc.type_args.clear();
                     else if (!tmpl_has_variadic && nc.type_args.size() > tmpl_tparam_count)

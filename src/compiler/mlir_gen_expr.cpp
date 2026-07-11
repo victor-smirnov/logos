@@ -3765,6 +3765,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             v64 = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), val);
         else
             v64 = coerce_int(val, builder_.getI64Type());
+        // int → pointer. NOTE for fat-pointee targets (`as *const [T]` /
+        // `*const str`): a fat-pointer VALUE in this codegen is the ADDRESS
+        // of its {data, meta} pair, so the integer is taken AS that address
+        // (the established Vec/str pointer-arithmetic idiom). `0 as *const
+        // [u8]` therefore yields a NULL PAIR ADDRESS — constructing a
+        // dereferenceable null fat pointer requires a valid pair location
+        // (see tests/logos/pass/sized_partition_dispatch.logos).
         return builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), v64);
     }
     // ptr → int
