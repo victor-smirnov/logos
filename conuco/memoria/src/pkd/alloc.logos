@@ -28,7 +28,7 @@
 // instead of throwing.
 package memoria.pkd;
 
-use logos.lang.marker;    // Fst — the negative impl below
+use logos.lang.marker;    // Fst (negative impl below) + SelfDescribing
 
 pub const PKD_RAW: u32         = 0u32;
 pub const PKD_ALLOCATABLE: u32 = 1u32;
@@ -104,16 +104,33 @@ impl PkdAllocatable {
 
 // ── PackedAllocator ──────────────────────────────────────────────────────────
 
-/// The in-block sub-allocator; itself allocatable (uniform nesting).
+/// The in-block sub-allocator; itself allocatable (uniform nesting). A real
+/// custom DST, like the C++ original (`uint8_t buffer_[1]` FAM): the header
+/// is followed by the unsized `buffer` tail holding the layout cells, the
+/// bitmap and the element payloads. `#[self_describing]` keeps every
+/// reference form THIN (the tail length is in-band: block_size − header),
+/// so all `*mut PkdAlloc` plumbing — including the self-relative back-refs —
+/// is a plain 8-byte pointer.
+#[self_describing]
 pub struct PkdAlloc {
     pub able:    PkdAllocatable,
     block_size:  u32,
     layout_size: u32,
     bitmap_size: u32,
+    buffer:      [u8],
 }
 
-/// sizeof the fixed header (C++ my_size()).
-fn my_size() -> u32 { return 16u32; }
+/// The `[u8]` tail spans everything after the header: layout + bitmap +
+/// element payloads = block_size − my_size().
+impl SelfDescribing for PkdAlloc {
+    fn dst_len(self: *const PkdAlloc) -> i64 {
+        return unsafe { ((*self).block_size - my_size()) as i64 };
+    }
+}
+
+/// sizeof the fixed header (C++ my_size(); for a self-describing DST,
+/// sizeof::<PkdAlloc>() IS the header size — the tail is not counted).
+fn my_size() -> u32 { return sizeof::<PkdAlloc>() as u32; }
 
 /// Formats `mem[0..block_size)` as a top-level allocator with `blocks` slots;
 /// returns the typed view. (C++ init() + setTopLevelAllocator.)
@@ -127,8 +144,11 @@ pub unsafe fn pkd_format(mem: *mut u8, block_size: u32, blocks: u32) -> *mut Pkd
 impl PkdAlloc {
     // ── geometry ─────────────────────────────────────────────────────────
 
+    // The tail's base address. (sizeof::<PkdAlloc>() = header size; the
+    // `buffer` field starts right after it — same address arithmetic the
+    // C++ FAM idiom produces, now anchored to a REAL field.)
     unsafe fn buffer(self: &PkdAlloc) -> *mut u8 {
-        let sp: *const PkdAlloc = self;
+        let sp: *const PkdAlloc = self as *const PkdAlloc;
         return ((sp as i64) + (my_size() as i64)) as *mut u8;
     }
     /// Start of element payloads; element offsets are relative to this.
@@ -240,7 +260,7 @@ impl PkdAlloc {
         move_bytes(dst, ptr as *const u8, size as i64);
         if self.is_allocatable(idx) {
             let el: *mut PkdAllocatable = dst as *mut PkdAllocatable;
-            let sp: *const PkdAlloc = self;
+            let sp: *const PkdAlloc = self as *const PkdAlloc;
             el.set_allocator_offset(sp);
         }
     }
@@ -320,7 +340,7 @@ impl PkdAlloc {
             if delta > free {
                 if self.able.allocator_offset() > 0u32 {
                     let parent: *mut PkdAlloc = self.able.allocator();
-                    let sp: *const PkdAlloc = self;
+                    let sp: *const PkdAlloc = self as *const PkdAlloc;
                     let my_idx: u32 = parent.find_element(sp as *const u8);
                     return parent.try_allocation(my_idx, delta - free);
                 }
@@ -346,7 +366,7 @@ impl PkdAlloc {
     unsafe fn resize(self: &mut PkdAlloc, new_size: u32) -> u32 {
         if self.able.allocator_offset() > 0u32 {
             let parent: *mut PkdAlloc = self.able.allocator();
-            let sp: *const PkdAlloc = self;
+            let sp: *const PkdAlloc = self as *const PkdAlloc;
             let got: u32 = parent.resize_block(sp as *const u8, new_size);
             if got == 0xFFFF_FFFFu32 { return 0xFFFF_FFFFu32; }
             self.block_size = got;
@@ -377,7 +397,7 @@ impl PkdAlloc {
         zero_bytes(p, allocation_size as i64);
         if typ == PKD_ALLOCATABLE {
             let el: *mut PkdAllocatable = p as *mut PkdAllocatable;
-            let sp: *const PkdAlloc = self;
+            let sp: *const PkdAlloc = self as *const PkdAlloc;
             el.set_allocator_offset(sp);
         }
         return p;
@@ -407,7 +427,7 @@ impl PkdAlloc {
         move_bytes(tp, sp, ssize as i64);
         if ssize > 0u32 && styp == PKD_ALLOCATABLE {
             let el: *mut PkdAllocatable = tp as *mut PkdAllocatable;
-            let sp: *const PkdAlloc = self;
+            let sp: *const PkdAlloc = self as *const PkdAlloc;
             el.set_allocator_offset(sp);
         }
         return true;
