@@ -1004,6 +1004,7 @@ sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_new__f
 sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_push__f__pmut_WritStringStorage__StringView
 sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_remove_at__f__pmut_WritStringStorage__u64
 sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_set__f__pmut_WritStringStorage__u64__StringView
+sym	logos_lang..logos.lang.fabric.u64__cmp_views__g__pcst_DT__DT::Prim__DT::Prim
 sym	logos_lang..logos.lang.hash.DefaultBuildHasher__build_hasher__f__ref_DefaultBuildHasher
 sym	logos_lang..logos.lang.hash.FxHasher__finish__f__ref_FxHasher
 sym	logos_lang..logos.lang.hash.FxHasher__write_bool__f__refmut_FxHasher__bool
@@ -10414,9 +10415,11 @@ vtable	logos.lang.iter.IntoIterator	slots=[into_iter]
 vtable	logos.lang.iter.Iterator	slots=[next,filter,map,take,skip,enumerate,chain,zip,max,min,peekable,collect,sum,product,min_by,max_by,take_while,skip_while,step_by,inspect,fold,try_fold,find_map,reduce,count,for_each,try_for_each,any,all,nth,find,position,last]
 vtable	logos.lang.iter.Product	slots=[product]
 vtable	logos.lang.iter.Sum	slots=[sum]
+vtable	logos.lang.marker.Fst	slots=[]
 vtable	logos.lang.marker.SelfDescribing	slots=[dst_len]
 vtable	logos.lang.marker.Send	slots=[]
 vtable	logos.lang.marker.Sized	slots=[]
+vtable	logos.lang.marker.StableLayout	slots=[]
 vtable	logos.lang.marker.Sync	slots=[]
 vtable	logos.lang.marker.Unpin	slots=[]
 vtable	logos.lang.num.parse.FromStr	slots=[from_str]
