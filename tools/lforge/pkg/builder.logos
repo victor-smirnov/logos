@@ -16,6 +16,7 @@ use lforge.schema_types;
 use lforge.util;
 use lforge.proc;
 use lforge.build_paths;
+use lforge.topo;            // external_lookup — sibling-vs-external dep split
 use lforge.cwd;            // make_absolute — dep -L paths survive logosc cwd
 use lforge.spawn_helpers;
 
@@ -116,16 +117,22 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         man.push_str("root ");
         man.push_str(t.src.as_str());
         man.push_u8(10 as u8);
-        // Sibling lib deps become manifest `depends` lines so the module
+        // SIBLING lib deps become manifest `depends` lines so the module
         // loader LINKS their archives instead of recompiling their bodies
         // from the archived ASTs (and so cross-target `use` resolves).
+        // EXTERNAL deps are excluded: their archives live in the external
+        // project's own out/cache dir and already reach logosc via the
+        // `-l <archive>` loop below — a `depends` line would send the
+        // loader hunting for lib<name>.a in OUR -L paths and fail.
         let ndeps: i64 = t.deps.length();
         let mut di: i64 = 0 as i64;
         while di < ndeps {
             let d: &String = t.deps.borrow(di);
-            man.push_str("depends ");
-            man.push_str(d.as_str());
-            man.push_u8(10 as u8);
+            if external_lookup(externals, d.as_str()) < 0 as i64 {
+                man.push_str("depends ");
+                man.push_str(d.as_str());
+                man.push_u8(10 as u8);
+            }
             di = di + 1 as i64;
         }
         man_path.push_str(gd.as_str());
