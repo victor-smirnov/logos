@@ -28,6 +28,8 @@
 // instead of throwing.
 package memoria.pkd;
 
+use logos.lang.marker;    // Fst — the negative impl below
+
 pub const PKD_RAW: u32         = 0u32;
 pub const PKD_ALLOCATABLE: u32 = 1u32;
 
@@ -65,6 +67,14 @@ unsafe fn zero_bytes(dst: *mut u8, n: i64) {
 pub struct PkdAllocatable {
     alc_off: u32,
 }
+
+// A DISGUISED relative reference: alc_off is anchored to the OWNING ALLOCATOR,
+// not to self — a value carrying it that moves separately from its allocator
+// breaks. The structural Fst derivation sees only a u32, so the exclusion is
+// explicit: packed-allocatable structures never qualify as inert Fst bytes
+// (allocator slots with bitmap-driven back-ref fixups are their home; PkdArray
+// entries are for plain data).
+impl !Fst for PkdAllocatable {}
 
 impl PkdAllocatable {
     pub fn set_top_level(self: &mut PkdAllocatable) { self.alc_off = 0u32; }
