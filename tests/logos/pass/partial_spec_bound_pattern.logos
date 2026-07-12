@@ -70,6 +70,10 @@ fn main() -> i32 {
     if sf.tag() != 109u64 { return 10i32; }
     let sv: PkdB<VarThing> = PkdB::<VarThing>::mk(11u64);
     if sv.tag() != 11u64 { return 11i32; }
+    // hint-less context (no let annotation): the class turbofish alone
+    // must route the twin — the strict signature match would first-win
+    if PkdB::<i64>::mk(3u64).tag() != 3u64 { return 12i32; }
+    if PkdB::<u32>::mk(4u32).tag() != 104u64 { return 13i32; }
 
     // str (unsized): fails Copy → primary
     let m: *mut u8 = unsafe { malloc(16i64) };

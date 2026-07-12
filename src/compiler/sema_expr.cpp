@@ -14002,7 +14002,60 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     if (!class_is_abstract_tp) {
         std::vector<TypeRef> arg_types;
         for (auto& a : arg_exprs) arg_types.push_back(expr_type(a));
-        auto fit = find_func_by_base_and_signature(mangled, arg_types, false);
+        // Bound-discriminated STATIC twins (PkdArray::<str>::format vs
+        // PkdArray::<u64>::format): identical value signatures, the
+        // discriminating T only in the CLASS turbofish — a strict signature
+        // match would first-win the wrong twin. Select by binding the
+        // turbofish args against each candidate's bounds FIRST.
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto cands0 = find_func_candidates(mangled);
+            size_t n_generic = 0, n_bounded = 0;
+            for (auto* c : cands0)
+                if (c && !c->type_params.empty()) {
+                    ++n_generic;
+                    for (auto& tp : c->type_params)
+                        if (!tp.bounds.empty()) { ++n_bounded; break; }
+                }
+            if (n_generic >= 2 && n_bounded >= 1) {
+                std::vector<TypeRef> tf;
+                {
+                    auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+                    if (tplist.has_key(la::ITEMS)) {
+                        auto items = arr_of(tplist.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < items.size(); ++i)
+                            tf.push_back(resolve_type(map_of(items.get(i))));
+                    }
+                }
+                if (!tf.empty()) {
+                    const SemaFuncInfo* best = nullptr;
+                    int best_b = -1;
+                    for (auto* cand : cands0) {
+                        if (!cand || cand->type_params.empty()) continue;
+                        if (cand->param_types.size() != arg_exprs.size())
+                            continue;
+                        size_t n = std::min(tf.size(), cand->type_params.size());
+                        bool viable = true;
+                        int nb = 0;
+                        for (size_t i = 0; i < n && viable; ++i) {
+                            auto& tp = cand->type_params[i];
+                            nb += static_cast<int>(tp.bounds.size());
+                            if (tp.bounds.empty() || !tf[i]) continue;
+                            if (TypeRef(tf[i]).kind() == LogosType::Kind::TypeVar)
+                                continue;
+                            std::vector<TypeParam> one{tp};
+                            std::vector<TypeRef> a1{tf[i]};
+                            if (!type_bounds_satisfied_quiet(mangled, one, a1))
+                                viable = false;
+                        }
+                        if (!viable) continue;
+                        if (nb > best_b) { best = cand; best_b = nb; }
+                    }
+                    fi_ptr = best;
+                }
+            }
+        }
+        auto fit = fi_ptr ? fi_ptr
+                          : find_func_by_base_and_signature(mangled, arg_types, false);
         if (fit) fi_ptr = fit;
         else {
             auto cands = find_func_candidates(mangled);
