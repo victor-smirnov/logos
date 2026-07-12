@@ -572,6 +572,44 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
 
     // Put type params in scope for the duration of the function body
     push_type_params(type_params);
+    // Per-method `where T: Trait` TRAIT bounds → the body scope. The subject
+    // may be an IMPL-level param (not in this fn's own type_params), so they
+    // can't ride tp.bounds; they augment current_type_bounds_ for the body
+    // only (unwound after the body). This is what lets a method of
+    // `impl<T: ?Sized> PkdArray<T>` say `where T: EntryBytes` and call
+    // `src.entry_ptr()` on a `&T` receiver.
+    std::vector<std::pair<std::string, TraitBound>> where_scope_bounds;
+    if (node.has_key(la::WHERE)) {
+        AnyVal wav = node.get(la::WHERE.code);
+        if (!wav.is_null()) {
+            auto wmap = map_of(wav);
+            if (wmap.has_key(la::ITEMS)) {
+                auto witems = arr_of(wmap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < witems.size(); ++i) {
+                    auto witem = map_of(witems.get(i));
+                    if (code_of(witem) != la::TYPE_PARAM) continue;
+                    if (!witem.has_key(la::ITEMS)) continue;
+                    std::string tname(str_of(witem.get(la::NAME.code)));
+                    auto inner = arr_of(witem.get(la::ITEMS.code));
+                    for (uint64_t j = 0; j < inner.size(); ++j) {
+                        auto inode = map_of(inner.get(j));
+                        if (code_of(inode) != la::TRAIT_BOUND) continue;
+                        TraitBound tb;
+                        tb.trait_name = std::string(str_of(inode.get(la::NAME.code)));
+                        where_scope_bounds.emplace_back(tname, std::move(tb));
+                    }
+                }
+            }
+        }
+    }
+    std::vector<std::pair<std::string, std::vector<TraitBound>>> where_saved_bounds;
+    for (auto& [wn, wb] : where_scope_bounds) {
+        auto it = current_type_bounds_.find(wn);
+        where_saved_bounds.emplace_back(
+            wn, it != current_type_bounds_.end() ? it->second
+                                                 : std::vector<TraitBound>{});
+        current_type_bounds_[wn].push_back(wb);
+    }
     // Type-param uniqueness on fn (B-gn-01 family)
     check_unique_names(type_params,
                        [](auto& tp) -> std::string_view { return tp.name; },
@@ -1177,6 +1215,11 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
 
     inside_unsafe_ = was_unsafe;
     pop_scope();
+    // Unwind the per-method where bounds (reverse order restores nesting).
+    for (auto it = where_saved_bounds.rbegin(); it != where_saved_bounds.rend(); ++it) {
+        if (it->second.empty()) current_type_bounds_.erase(it->first);
+        else current_type_bounds_[it->first] = it->second;
+    }
     pop_type_params(type_params);
 
     // Emit the values held in working locals into the mirror, now final.

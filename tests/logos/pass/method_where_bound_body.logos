@@ -1,0 +1,40 @@
+// Per-method `where T: Trait` bounds reach the BODY scope: the subject may
+// be an IMPL-level param (impl<T: ?Sized> — not the fn's own type param),
+// so the bound can't ride the fn's type_params; it must still let the body
+// dispatch trait methods on a `&T` receiver. The memoria PkdArray pattern:
+// a ?Sized container whose typed insert is only offered `where T: EntryBytes`.
+package method_where_bound_body;
+
+pub trait ByteView {
+    fn view_len(self: &Self) -> i64;
+}
+impl ByteView for str {
+    fn view_len(self: &str) -> i64 { return self.len(); }
+}
+impl<E: Copy> ByteView for [E] {
+    fn view_len(self: &[E]) -> i64 { return self.len() * sizeof::<E>(); }
+}
+
+pub struct Holder<T: ?Sized> { total: i64 }
+
+impl<T: ?Sized> Holder<T> {
+    pub fn add(self: &mut Holder<T>, src: &T) -> i64 where T: ByteView {
+        self.total = self.total + src.view_len();   // trait method on &T
+        return self.total;
+    }
+    /// A method WITHOUT the where-bound coexists (no bleed-through).
+    pub fn total(self: &Holder<T>) -> i64 { return self.total; }
+}
+
+fn main() -> i32 {
+    let mut hs: Holder<str> = Holder::<str> { total: 0i64 };
+    if hs.add("hello") != 5i64 { return 1i32; }
+    if hs.add("ab") != 7i64 { return 2i32; }
+    if hs.total() != 7i64 { return 3i32; }
+
+    let arr: [u32; 3] = [1u32, 2u32, 3u32];
+    let sl: &[u32] = &arr;
+    let mut hb: Holder<[u32]> = Holder::<[u32]> { total: 0i64 };
+    if hb.add(sl) != 12i64 { return 4i32; }
+    return 0i32;
+}
