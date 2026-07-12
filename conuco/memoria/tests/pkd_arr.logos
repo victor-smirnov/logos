@@ -30,7 +30,7 @@ fn main() -> i32 {
         // fat-ref materialization calls the FAMILY-correct dst_len (FSE=count)
         if fse_data_len_u64(canary2) != 8i64 { return 50i32; }
         if canary2.get(7u32) != 1007u64 { return 6i32; }
-        if (canary2.able.allocator() as i64) != (a as i64) { return 7i32; }  // healed
+        if (canary2.allocator() as i64) != (a as i64) { return 7i32; }  // healed
 
         // sorted insert via lower_bound
         let pos: u32 = fse_lower_bound_u64(xs, 7u64);
@@ -64,7 +64,7 @@ fn main() -> i32 {
         if (np as i64) == 0i64 { return 22i32; }
         let inner: *mut PkdAlloc = np as *mut PkdAlloc;
         inner.init(a.element_size(2u32), 2u32);
-        inner.able.set_allocator_offset(a as *const PkdAlloc);
+        inner.set_allocator(a as *const PkdAlloc);
         let deep: *mut PkdArray<u64> = PkdArray::<u64>::format(inner, 0u32);
         if (deep as i64) == 0i64 { return 23i32; }
         let mut d: u64 = 0u64;

@@ -22,7 +22,7 @@ fn main() -> i32 {
         let a: *mut PkdAlloc = pkd_format(mem, 4096u32, 4u32);
         if a.block_size() != 4096u32 { return 1i32; }
         if a.elements() < 4u32 { return 2i32; }
-        if a.able.has_allocator() { return 3i32; }          // top-level
+        if a.has_allocator() { return 3i32; }          // top-level
         if a.allocated() != 0u32 { return 4i32; }
         let ca: u32 = a.client_area();
         if ca != 4096u32 - 16u32 - 24u32 - 8u32 { return 5i32; }  // hdr+layout(6×4)+bitmap
@@ -40,9 +40,9 @@ fn main() -> i32 {
         if !a.is_allocatable(1u32) { return 10i32; }
         let inner: *mut PkdAlloc = n1 as *mut PkdAlloc;
         inner.init(a.element_size(1u32), 2u32);
-        inner.able.set_allocator_offset(a as *const PkdAlloc);  // allocate() set it, init keeps able — re-assert
-        if !inner.able.has_allocator() { return 11i32; }
-        if (inner.able.allocator() as i64) != (a as i64) { return 12i32; }
+        inner.set_allocator(a as *const PkdAlloc);  // allocate() set it, init keeps able — re-assert
+        if !inner.has_allocator() { return 11i32; }
+        if (inner.allocator() as i64) != (a as i64) { return 12i32; }
 
         // a RAW element INSIDE the nested allocator
         let ir: *mut u8 = inner.allocate(0u32, 24u32, PkdAlloc::RAW);
@@ -66,7 +66,7 @@ fn main() -> i32 {
         *r2 = 0x77u8;
         if a.resize_block_at(0u32, 64u32) == 0xFFFF_FFFFu32 { return 19i32; }
         let inner_moved: *mut PkdAlloc = a.get::<PkdAlloc>(1u32);
-        if (inner_moved.able.allocator() as i64) != (a as i64) { return 20i32; }  // healed
+        if (inner_moved.allocator() as i64) != (a as i64) { return 20i32; }  // healed
         if *(a.get::<u8>(0u32)) != 0xABu8 { return 21i32; }
         let ir_moved: *mut u8 = inner_moved.get::<u8>(0u32);
         if *ir_moved != 0xCDu8 { return 22i32; }             // nested content intact
@@ -96,7 +96,7 @@ fn main() -> i32 {
         let ca2: *mut PkdAlloc = copy as *mut PkdAlloc;
         if *(ca2.get::<u8>(0u32)) != 0xABu8 { return 30i32; }
         let cinner: *mut PkdAlloc = ca2.get::<PkdAlloc>(1u32);
-        if (cinner.able.allocator() as i64) != (ca2 as i64) { return 31i32; }
+        if (cinner.allocator() as i64) != (ca2 as i64) { return 31i32; }
         if *(cinner.get::<u8>(0u32)) != 0xCDu8 { return 32i32; }
         dealloc(copy);
         dealloc(mem);

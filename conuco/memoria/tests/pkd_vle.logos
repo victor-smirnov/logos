@@ -77,7 +77,7 @@ fn main() -> i32 {
         let c2: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(1u32);
         if c2.count() != 1u32 { return 24i32; }
         if c2.get(0u32) != 4242u64 { return 25i32; }
-        if (c2.able.allocator() as i64) != (a as i64) { return 26i32; }
+        if (c2.allocator() as i64) != (a as i64) { return 26i32; }
 
         dealloc(mem);
     }

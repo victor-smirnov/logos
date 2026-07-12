@@ -112,7 +112,7 @@ impl PkdAllocatable {
 /// is a plain 8-byte pointer.
 #[self_describing]
 pub struct PkdAlloc {
-    pub able:    PkdAllocatable,
+    able:        PkdAllocatable,
     block_size:  u32,
     layout_size: u32,
     bitmap_size: u32,
@@ -141,6 +141,20 @@ pub unsafe fn pkd_format(mem: *mut u8, block_size: u32, blocks: u32) -> *mut Pkd
 }
 
 impl PkdAlloc {
+    /// True when this allocator is NESTED (has a parent up the chain).
+    pub fn has_allocator(self: &PkdAlloc) -> bool {
+        return self.able.has_allocator();
+    }
+    /// The parent allocator (undefined for a top-level one — check first).
+    pub unsafe fn allocator(self: &PkdAlloc) -> *mut PkdAlloc {
+        return self.able.allocator();
+    }
+    /// Wires this (nested) allocator to its parent — the self-relative
+    /// back-reference every packed structure carries as its first field.
+    pub unsafe fn set_allocator(self: &mut PkdAlloc, parent: *const PkdAlloc) {
+        self.able.set_allocator_offset(parent);
+    }
+
     /// Slot kinds (the bitmap bit): RAW = opaque bytes (memmove-safe as-is);
     /// ALLOCATABLE = starts with a PkdAllocatable back-ref that shifts must
     /// re-point (move_element_data heals it).

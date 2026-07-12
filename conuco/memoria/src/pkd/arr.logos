@@ -60,7 +60,7 @@ impl<T: ?Sized> PkdArray<T> {
         if (p as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
         inner.init(alc.element_size(idx), PkdArray::SLOTS);
-        inner.able.set_allocator_offset(alc as *const PkdAlloc);
+        inner.set_allocator(alc as *const PkdAlloc);
         let cp: *mut u8 = inner.allocate(PkdArray::SLOT_CNT, 4u32, PkdAlloc::RAW);
         if (cp as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
         *(cp as *mut u32) = 0u32;
@@ -169,7 +169,7 @@ impl<T: ?Sized> PkdArray<T> {
 /// Header (8 bytes) + `count × T` inline. The B+tree node vocabulary.
 #[self_describing]
 pub struct PkdArray<T: Copy + Fst + StableLayout> {
-    pub able: PkdAllocatable,
+    able:     PkdAllocatable,
     count:    u32,
     data:     [T],
 }
@@ -194,6 +194,12 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
     }
 
     pub fn count(self: &PkdArray<T>) -> u32 { return self.count; }
+
+    /// The allocator owning this array's block (back-ref chain root for
+    /// self-growth; healed by the allocator on shifts).
+    pub unsafe fn allocator(self: &PkdArray<T>) -> *mut PkdAlloc {
+        return self.able.allocator();
+    }
 
     unsafe fn me(self: &PkdArray<T>) -> i64 {
         let sp: *const PkdArray<T> = self as *const PkdArray<T>;
