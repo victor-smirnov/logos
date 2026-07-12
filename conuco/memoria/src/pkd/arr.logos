@@ -135,17 +135,16 @@ impl<T: ?Sized> PkdArray<T> {
         let bytes: &[u8] = src.entry_bytes();
         let len: i64 = bytes.len();
         unsafe {
-            let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-            let cnt = sp.count();
+            let cnt = self.count();
             assert(i <= cnt, "PkdArray::insert: index out of range");
-            let dn = sp.off(cnt);                      // used data bytes
+            let dn = self.off(cnt);                    // used data bytes
             // grow OFFS to (count+2) cells, then DATA by len (each resize
             // may shift the other slot; re-resolve views per step)
-            sp.a().resize_block_at(PkdArray::SLOT_OFFS, (cnt + 2) * 4)?;
-            sp.a().resize_block_at(PkdArray::SLOT_DATA, dn + (len as u32))?;
+            self.a().resize_block_at(PkdArray::SLOT_OFFS, (cnt + 2) * 4)?;
+            self.a().resize_block_at(PkdArray::SLOT_DATA, dn + (len as u32))?;
             // shift data tail [off(i), dn) up by len, place the entry
-            let at: u32 = sp.off(i);
-            let d: *mut u8 = sp.a().get::<u8>(PkdArray::SLOT_DATA);
+            let at: u32 = self.off(i);
+            let d: *mut u8 = self.a().get::<u8>(PkdArray::SLOT_DATA);
             move_bytes(d.byte_add(at + len), d.byte_add(at), dn - at);
             move_bytes(d.byte_add(at), bytes.as_ptr(), len);
             // shift offsets: new offs[k] = old offs[k−1] + len for
@@ -153,11 +152,11 @@ impl<T: ?Sized> PkdArray<T> {
             // then offs[i+1] = entry end
             let mut k: u32 = cnt;
             while k > i {
-                sp.off_wr(k + 1u32, sp.off(k) + (len as u32));
+                self.off_wr(k + 1u32, self.off(k) + (len as u32));
                 k = k - 1u32;
             }
-            sp.off_wr(i + 1, at + (len as u32));
-            sp.set_count(cnt + 1);
+            self.off_wr(i + 1, at + (len as u32));
+            self.set_count(cnt + 1);
         }
         return Result::Ok(());
     }
@@ -171,26 +170,25 @@ impl<T: ?Sized> PkdArray<T> {
 
     /// Removes entry `i`, shrinking both slots to exact fit.
     pub unsafe fn remove(self: &mut PkdArray<T>, i: u32) {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let cnt: u32 = sp.count();
-        let o: u32 = sp.off(i);
-        let e: u32 = sp.off(i + 1u32);
+        let cnt: u32 = self.count();
+        let o: u32 = self.off(i);
+        let e: u32 = self.off(i + 1u32);
         let len: u32 = e - o;
-        let dn: u32 = sp.off(cnt);
+        let dn: u32 = self.off(cnt);
         // close the data gap
-        let d: *mut u8 = sp.a().get::<u8>(PkdArray::SLOT_DATA);
+        let d: *mut u8 = self.a().get::<u8>(PkdArray::SLOT_DATA);
         move_bytes(d.byte_add(o), d.byte_add(e), dn - e);
         // close the offs gap: new offs[k] = old offs[k+1] − len for k ∈ [i..cnt−1]
         // (ascending — cell k is written after cell k+1 was read)
         let mut k: u32 = i;
         while k < cnt {
-            sp.off_wr(k, sp.off(k + 1u32) - len);
+            self.off_wr(k, self.off(k + 1u32) - len);
             k = k + 1u32;
         }
-        sp.set_count(cnt - 1);
+        self.set_count(cnt - 1);
         // exact-fit shrink (best-effort; shrink auto-packs the container)
-        let _ = sp.a().resize_block_at(PkdArray::SLOT_DATA, dn - len);
-        let _ = sp.a().resize_block_at(PkdArray::SLOT_OFFS, cnt * 4);
+        let _ = self.a().resize_block_at(PkdArray::SLOT_DATA, dn - len);
+        let _ = self.a().resize_block_at(PkdArray::SLOT_OFFS, cnt * 4);
     }
 }
 
@@ -259,38 +257,35 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
     /// through the allocator chain.
     pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
         -> Result<(), PkdError> {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let esz: i64 = sizeof::<T>();
-        let cnt = sp.count();
+        let cnt = self.count();
         let need = fse_hdr::<T>() + ((cnt + 1) * esz) as u32;
-        sp.resize_self(need)?;
-        let at: *mut T = sp.at(i);
+        self.resize_self(need)?;
+        let at: *mut T = self.at(i);
         move_bytes((at as *mut u8).byte_add(esz), at as *const u8,
                    (cnt - i) * esz);
         *at = *src;
-        sp.count = cnt + 1;
+        self.count = cnt + 1;
         return Result::Ok(());
     }
 
     /// Appends `*src`.
     pub unsafe fn push(self: &mut PkdArray<T>, src: &T) -> Result<(), PkdError> {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let at = sp.count();
-        return sp.insert(at, src);
+        let at = self.count();
+        return self.insert(at, src);
     }
 
     /// Removes element `i`, shrinking to exact fit (shrink auto-packs the
     /// containing allocator).
     pub unsafe fn remove(self: &mut PkdArray<T>, i: u32) {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let esz: i64 = sizeof::<T>();
-        let cnt = sp.count();
-        let at: *mut T = sp.at(i);
+        let cnt = self.count();
+        let at: *mut T = self.at(i);
         move_bytes(at as *mut u8, (at as *const u8).byte_add(esz),
                    (cnt - i - 1) * esz);
-        sp.count = cnt - 1;
+        self.count = cnt - 1;
         let keep = fse_hdr::<T>() + ((cnt - 1) * esz) as u32;
-        let _ = sp.resize_self(keep);      // shrink is best-effort
+        let _ = self.resize_self(keep);      // shrink is best-effort
     }
 
     /// Moves elements [mid..count) into `dst` (an EMPTY formatted FSE
@@ -298,18 +293,17 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
     /// B+tree split primitive.
     pub unsafe fn split_into(self: &mut PkdArray<T>,
                              dst: *mut PkdArray<T>, mid: u32) -> Result<(), PkdError> {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let esz: i64 = sizeof::<T>();
-        let cnt = sp.count();
+        let cnt = self.count();
         let moved = cnt - mid;
         let need = fse_hdr::<T>() + (moved * esz) as u32;
         dst.resize_self(need)?;
-        move_bytes(dst.at(0) as *mut u8, sp.at(mid) as *const u8,
+        move_bytes(dst.at(0) as *mut u8, self.at(mid) as *const u8,
                    moved * esz);
         dst.count = moved;
-        sp.count = mid;
+        self.count = mid;
         let keep = fse_hdr::<T>() + (mid * esz) as u32;
-        let _ = sp.resize_self(keep);      // shrink is best-effort
+        let _ = self.resize_self(keep);      // shrink is best-effort
         return Result::Ok(());
     }
 }
