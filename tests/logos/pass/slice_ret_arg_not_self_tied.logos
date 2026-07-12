@@ -1,0 +1,24 @@
+// A FAT result of a method that ALSO takes a ref/fat parameter is ambiguous
+// under elision-without-lifetimes — the checker must NOT tie it to self
+// (Token::text(&self, src: str) -> str slices src; the token is offsets).
+package slice_ret_arg_not_self_tied;
+use logos.lang.str;
+
+pub struct Tok { start: i64, len: i64 }
+impl Tok {
+    pub fn text(self: &Tok, src: str) -> str {
+        return unsafe {
+            str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len)
+        };
+    }
+}
+fn main() -> i32 {
+    let src: str = "hello world";
+    let mut name: str = "";
+    {
+        let t: Tok = Tok { start: 6i64, len: 5i64 };
+        name = t.text(src);
+    }                          // t dies; name borrows src, NOT t
+    if str_cmp(name, "world") != 0i32 { return 1i32; }
+    return 0i32;
+}

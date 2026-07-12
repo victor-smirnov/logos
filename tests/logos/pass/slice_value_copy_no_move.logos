@@ -1,0 +1,28 @@
+// A str/slice VALUE result is a COPY of a stored borrow (Copy in Rust) — using
+// it must not move the receiver, and it carries the ELEMENT's lifetime, not the
+// receiver's (Vec<str>::get -> T ties to nothing). Regression: is_ref_kind
+// widened to fat forms once routed these through a consuming visit that moved
+// the &mut Vec receiver.
+package slice_value_copy_no_move;
+
+fn swap_max(v: &mut Vec<str>) {
+    if v.len() > 1i64 {
+        if str_cmp(v.get(0i64), v.get(1i64)) < 0i32 {
+            let t: str = v.get(0i64);
+            v.set(0i64, v.get(1i64));
+            v.set(1i64, t);
+        }
+    }
+}
+fn head(v: &Vec<str>) -> str {
+    return v.get(0i64);      // copy of the stored borrow — returnable
+}
+fn main() -> i32 {
+    let mut v: Vec<str> = Vec::<str>::new();
+    v.push("alpha");
+    v.push("omega");
+    swap_max(&mut v);
+    if str_cmp(v.get(0i64), "omega") != 0i32 { return 1i32; }
+    if str_cmp(head(&v), "omega") != 0i32 { return 2i32; }
+    return 0i32;
+}

@@ -494,6 +494,27 @@ static bool is_ref_kind(TypeRef t) {
     // { return &local; }` — the elided lifetime defaults to the
     // outer-scope (caller) but the local doesn't outlive the fn.
     // Borrowing-form only — owning Box<dyn T> doesn't qualify.
+    // Fat borrowed forms carry the same provenance duties as `&T`:
+    // `&[T]`/`&mut [T]` (Kind::Slice — Logos has no owning slice value; the
+    // owning forms are Box<[T]>/DstRef-owning) and a borrowed custom-DST
+    // reference (non-owning DstRef). Without these, a method returning a
+    // slice VIEW of its receiver (`fn offs(&self) -> &[u32]`) did not extend
+    // the receiver's borrow — resize-after-view compiled and dangled.
+    return t && (t.kind() == LogosType::Kind::Ref ||
+                 t.kind() == LogosType::Kind::MutRef ||
+                 t.kind() == LogosType::Kind::Slice ||
+                 (t.kind() == LogosType::Kind::DstRef && !t.owning_dst()) ||
+                 (t.kind() == LogosType::Kind::TraitObject &&
+                  !t.owning_trait_object()));
+}
+
+// The `&`/`&mut`/borrowed-dyn subset of is_ref_kind — WITHOUT the fat value
+// forms (str/&[T]/borrowed DST). The ESCAPE/provenance ARG-capture heuristics
+// use this: a by-value slice argument is a COPY of a borrow whose lifetime is
+// its ELEMENT's, so a borrow-returning call must not have its result tied to
+// the argument's root (`tv_build(h, name.as_str(), …)` interns into `h`; tying
+// the WAny to local `name` falsely rejected the return).
+static bool is_plain_ref_kind(TypeRef t) {
     return t && (t.kind() == LogosType::Kind::Ref ||
                  t.kind() == LogosType::Kind::MutRef ||
                  (t.kind() == LogosType::Kind::TraitObject &&
@@ -1062,10 +1083,18 @@ class BorrowChecker {
             case EC::MethodCall: {
                 lir_view::EMethodCallView v{e};
                 // Only a borrow-returning call ties the result to its inputs.
-                if (is_ref_kind(e.type(pool)) || is_borrow_carrying_type(e.type(pool))) {
+                // A FAT value result (str/&[T]/borrowed DST) ties to the receiver
+                // only when the method borrows self (see prov_of MethodCall) —
+                // `Vec<str>::get` copies a stored borrow out, no receiver tie.
+                TypeRef rt = e.type(pool);
+                bool plain = is_plain_ref_kind(rt);
+                bool fat   = !plain && is_ref_kind(rt);
+                bool bc    = is_borrow_carrying_type(rt);
+                if (plain || bc || (fat && result_borrows_self(v))) {
                     collect_ref_sources(v.receiver(), out);
                     v.each_arg([&](lir_view::ExprRef a) {
-                        if (a && is_ref_kind(a.type(pool))) collect_ref_sources(a, out);
+                        if (a && is_plain_ref_kind(a.type(pool)))
+                            collect_ref_sources(a, out);
                     });
                 }
                 return;
@@ -1090,7 +1119,8 @@ class BorrowChecker {
                 lir_view::ECallView v{e};
                 if (is_ref_kind(e.type(pool)) || is_borrow_carrying_type(e.type(pool)))
                     v.each_arg([&](lir_view::ExprRef a) {
-                        if (a && is_ref_kind(a.type(pool))) collect_ref_sources(a, out);
+                        if (a && is_plain_ref_kind(a.type(pool)))
+                            collect_ref_sources(a, out);
                     });
                 return;
             }
@@ -1549,14 +1579,26 @@ class BorrowChecker {
         if (!f) return false;
         auto* pool = prog_.type_pool.impl();
         auto params = f.params();
-        return !params.empty() && is_ref_kind(params[0].type(pool)) &&
-               f.lifetime_params().empty() &&
-               (is_ref_kind(f.ret_type(pool)) ||
-                is_borrow_carrying_type(f.ret_type(pool)));
+        if (params.empty() || !is_ref_kind(params[0].type(pool)) ||
+            !f.lifetime_params().empty())
+            return false;
+        TypeRef ret = f.ret_type(pool);
+        if (is_borrow_carrying_type(ret)) return true;
+        if (is_plain_ref_kind(ret)) return true;
+        if (!is_ref_kind(ret)) return false;
+        // FAT result (str/&[T]/borrowed DST) with no lifetime syntax to
+        // disambiguate: if the method ALSO takes a ref/fat non-self param, the
+        // result may slice THAT instead of self (`Token::text(&self, src: str)
+        // -> str` returns a piece of src — the token is just offsets). Tie to
+        // self only when self is the sole borrow input; ambiguous → no tie
+        // (lenient vs Rust elision; revisit with explicit lifetimes).
+        for (size_t i = 1; i < params.size(); ++i)
+            if (is_ref_kind(params[i].type(pool))) return false;
+        return true;
     }
 
     // Does this method-call's RESULT reference borrow its receiver (by elision)?
-    bool result_borrows_self(lir_view::EMethodCallView v) {
+    bool result_borrows_self(lir_view::EMethodCallView v) const {
         if (auto it = fn_index_.by_name.find(std::string(v.resolved_symbol()));
             it != fn_index_.by_name.end())
             return is_self_borrowing(it->second);
@@ -1792,8 +1834,18 @@ class BorrowChecker {
                 // A `&T` result borrows the receiver; SO DOES a `#[borrow_carrying]`
                 // value result (WAny) — its value may be a Ref into the receiver's
                 // arena. Both tie the result's provenance to the receiver.
-                if (!is_ref_kind(e.type(pool)) &&
-                    !is_borrow_carrying_type(e.type(pool))) return {};
+                // A FAT value result (str/&[T]/borrowed DST) ties only when the
+                // method's own signature borrows self: `Vec<str>::get -> T` copies
+                // a STORED borrow out — its lifetime is the element's, not the
+                // receiver's (returning it past the receiver is fine, Rust parity).
+                {
+                    TypeRef rt = e.type(pool);
+                    bool plain = is_plain_ref_kind(rt);
+                    bool fat   = !plain && is_ref_kind(rt);
+                    if (!plain && !fat && !is_borrow_carrying_type(rt)) return {};
+                    if (fat && !is_borrow_carrying_type(rt) &&
+                        !result_borrows_self(v)) return {};
+                }
                 RefProv rp = prov_of(v.receiver());
                 // A by-VALUE-self adapter (`.enumerate()` / `.filter()` —
                 // `self: Self`) CONSUMES the receiver: a temporary receiver
@@ -1820,8 +1872,11 @@ class BorrowChecker {
                 // empty → freely returnable.) Non-borrow-carrying = caller-owned.
                 if (!is_borrow_carrying_type(e.type(pool))) return {};
                 RefProv merged = {};
+                // Plain `&`/`&mut` args only — a by-value slice arg
+                // (`tv_build(h, name.as_str(), …)`) is a copied borrow with the
+                // element's lifetime; it is not a capture channel for the result.
                 ECallView{e}.each_arg([&](ExprRef a) {
-                    if (a && is_ref_kind(a.type(pool)))
+                    if (a && is_plain_ref_kind(a.type(pool)))
                         merged = merge_prov(merged, prov_of(a));
                 });
                 return merged;
@@ -2148,6 +2203,18 @@ class BorrowChecker {
                 // reset immediately so nested arg processing doesn't inherit it.
                 bool force_mut = reborrow_force_mut_;
                 reborrow_force_mut_ = false;
+                // A method whose result does NOT borrow self (`Vec<str>::get`
+                // returns T by value — a COPY of the stored borrow, whose
+                // lifetime is the element's, not `&self`'s) produces a plain
+                // value: no receiver tie. Route through the exec visitor —
+                // receiver conflict checks + call-scope arg borrows — instead
+                // of falling into the ref-receiver forwarding below, whose
+                // `default:` consuming visit would MOVE a `&mut`-typed
+                // receiver (`let t: str = v.get(i)` must not move `v`).
+                if (!result_borrows_self(v)) {
+                    visit(e, /*consuming=*/false, line);
+                    break;
+                }
                 // Front (a): a method whose result borrows `self` (elision) ties
                 // the returned reference to the receiver — hold a borrow of the
                 // receiver's root place for the result's lifetime (`holder`), of

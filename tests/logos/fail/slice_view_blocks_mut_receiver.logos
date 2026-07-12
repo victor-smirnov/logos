@@ -1,0 +1,21 @@
+// A slice VIEW returned by a &self method extends the receiver's borrow
+// (is_ref_kind includes fat borrowed forms): a later &mut-self call while the
+// view is live must be rejected — the pkd slot-view invalidation contract
+// (resize_block_at invalidates higher-slot views; the checker forbids it).
+package slice_view_blocks_mut_receiver;
+use logos.lang.slice;
+
+pub struct A { x: u32 }
+impl A {
+    pub fn view(self: &A) -> &[u32] {
+        let p: *const u32 = (self as *const A) as *const u32;
+        return unsafe { slice_from_raw::<u32>(p, 1) };
+    }
+    pub fn resize(self: &mut A) { self.x = self.x + 1u32; }
+}
+fn main() -> i32 {
+    let mut a: A = A { x: 1u32 };
+    let v: &[u32] = a.view();
+    a.resize();              // ERROR: v is a live view of a
+    return v[0] as i32;
+}
