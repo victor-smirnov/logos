@@ -1,0 +1,26 @@
+// A #[self_describing] DST method call lowers to a plain Call with a DstRef
+// receiver arg — the elision tie + receiver conflict check must still apply:
+// a live slot view rejects a &mut-self call (pkd invalidation contract).
+package sd_dst_view_blocks_mut_receiver;
+use logos.lang.marker;
+use logos.lang.slice;
+
+#[self_describing]
+pub struct D { x: u32, tail: [u8] }
+impl SelfDescribing for D {
+    fn dst_len(self: *const D) -> i64 { return 4i64; }
+}
+impl D {
+    pub fn data(self: &D, idx: u32) -> &[u8] {
+        let _ = idx;
+        let sp: *const D = self as *const D;
+        return unsafe { slice_from_raw::<u8>(sp as *const u8, 4) };
+    }
+    pub fn resize(self: &mut D, n: u32) { self.x = n; }
+}
+fn poke(ar: &mut D) -> u8 {
+    let v: &[u8] = ar.data(1u32);
+    ar.resize(64u32);            // ERROR: v is a live view of ar
+    return v[0];
+}
+fn main() -> i32 { return 0i32; }

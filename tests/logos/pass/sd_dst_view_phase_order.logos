@@ -1,0 +1,36 @@
+// Legal phase order on a #[self_describing] DST: mutate first, view after —
+// and SEQUENTIAL views (NLL releases each at its last use), including a view
+// whose last use is INSIDE a while body followed by a &mut-self call.
+package sd_dst_view_phase_order;
+use logos.lang.marker;
+use logos.lang.slice;
+
+#[self_describing]
+pub struct D { x: u32, tail: [u8] }
+impl SelfDescribing for D {
+    fn dst_len(self: *const D) -> i64 { return 4i64; }
+}
+impl D {
+    pub fn view(self: &mut D) -> &mut [u32] {
+        let sp: *const D = self as *const D;
+        return unsafe { slice_from_raw::<u32>(sp as *const u32, 1) as &mut [u32] };
+    }
+    pub fn bump(self: &mut D) { self.x = self.x + 1u32; }
+}
+fn work(d: &mut D) -> u32 {
+    d.bump();                          // mutate first
+    let v: &mut [u32] = d.view();      // view after
+    let mut k: i64 = 0i64;
+    while k < 1i64 {
+        v[k] = v[k] + 10u32;           // last use INSIDE the loop body
+        k = k + 1i64;
+    }
+    d.bump();                          // v expired (NLL) — legal
+    let w: &[u32] = d.view();          // second sequential view
+    return w[0];
+}
+fn main() -> i32 {
+    let mut d: D = D { x: 1u32, tail: [] };
+    if work(&mut d) != 13u32 { return 1i32; }
+    return 0i32;
+}

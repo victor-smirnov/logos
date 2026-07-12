@@ -818,6 +818,9 @@ class BorrowChecker {
     // Populated by scan_uses_block over the entire fn body before checking.
     // A borrow with non-empty holder is released once cur_line >= last_use_line_[holder].
     std::unordered_map<std::string, uint32_t> last_use_line_;
+    // Max statement line visited so far — the NLL release point after a
+    // COMPOUND statement (its uses extend past its start line).
+    uint32_t max_line_seen_ = 0;
 
     void report(uint32_t line, std::string msg) {
         // P2-10 exclusivity-only mode (Tier 1, generic templates): drop the
@@ -1642,9 +1645,17 @@ class BorrowChecker {
         if (!f) return 0;
         auto f_params = f.params();
         if (f_params.empty()) return 0;
-        auto k = f_params[0].type(pool).kind();
+        TypeRef p0 = f_params[0].type(pool);
+        auto k = p0.kind();
         if (k == LogosType::Kind::MutRef) return 2;
         if (k == LogosType::Kind::Ref)    return 1;
+        // A `#[self_describing]` struct's `&self`/`&mut self` canonicalises
+        // to a non-owning DstRef (thin) — same borrow semantics as Ref/MutRef.
+        // Without this, `&mut self` methods on DST structs (resize_block_at)
+        // skipped the receiver conflict check and a live slot view survived
+        // the resize (the pkd invalidation contract).
+        if (k == LogosType::Kind::DstRef && !p0.owning_dst())
+            return p0.mut_ptr() ? 2 : 1;
         return 0;
     }
 
@@ -2190,7 +2201,45 @@ class BorrowChecker {
             // needs per-fn signature provenance (future work).
             case Code::Call: {
                 ECallView v{e};
+                // A `#[self_describing]` DST method call lowers to a PLAIN
+                // Call with the receiver as arg0 (typed non-owning DstRef) —
+                // the MethodCall elision tie below never sees it. Same rule:
+                // when the callee's signature borrows its DstRef receiver and
+                // returns a borrow, hold the receiver root's borrow for the
+                // holder's lifetime with the formal's mutability
+                // (`let v = alc.data(i); alc.resize(…)` must reject).
+                bool tied_recv = false;
+                if (auto it = fn_index_.by_name.find(std::string(v.callee()));
+                    it != fn_index_.by_name.end() && it->second &&
+                    !it->second.params().empty() && is_self_borrowing(it->second)) {
+                    TypeRef p0 = it->second.params()[0].type(pool);
+                    if (p0 && p0.kind() == LogosType::Kind::DstRef &&
+                        !p0.owning_dst()) {
+                        ExprRef a0; uint64_t ai0 = 0;
+                        v.each_arg([&](ExprRef a){ if (ai0++ == 0) a0 = a; });
+                        if (a0) {
+                            BorrowPlace bp = extract_borrow_place(a0, pool);
+                            bool rawptr = bp.root_type &&
+                                bp.root_type.kind() == LogosType::Kind::Ptr;
+                            if (!bp.root.empty() && !rawptr &&
+                                var_has(bp.root_slot, bp.root)) {
+                                bool m = p0.mut_ptr();
+                                if (!bp.path.empty())
+                                    take_field_borrow(bp.root, bp.root_slot, bp.path,
+                                                      m, line, bp.root_type, holder);
+                                else
+                                    take_borrow(bp.root, bp.root_slot, m, line, holder,
+                                                /*skip_mut_binding_check=*/true);
+                                tied_recv = true;
+                            }
+                        }
+                    }
+                }
+                uint64_t ai = 0;
                 v.each_arg([&](ExprRef a) {
+                    bool is_recv = tied_recv && ai == 0;
+                    ai++;
+                    if (is_recv) return;   // receiver borrow recorded above
                     if (a && is_ref_kind(a.type(pool)))
                         take_ref_borrows(a, line, holder);
                 });
@@ -2699,9 +2748,24 @@ class BorrowChecker {
 
     void visit_block(lir_view::BlockRef br) {
         push_scope();
+        // NLL release cursor: a COMPOUND statement (while/if/block) spans past
+        // its start line — a holder whose last use sits INSIDE the body
+        // (`while … { o[k] = …; }` then `self.mutate()`) must count as expired
+        // once the whole statement has been visited. Release against the max
+        // line inside the just-visited statement's SUBTREE (tracked via
+        // max_line_seen_, reset per statement), folded monotonically across
+        // this block. NOT a global max: sema emits out-of-line-order shapes
+        // (`unsafe { …; return x; }` becomes a Return stmt whose line is the
+        // LAST line, wrapping a BlockExpr of the earlier ones) — a global max
+        // would pre-release every borrow inside such a block.
+        uint32_t cursor = 0;
         br.each_stmt([&](lir_view::StmtRef sr) {
+            uint32_t saved = max_line_seen_;
+            max_line_seen_ = lir_view::stmt_line(sr);
             visit_stmt(sr);
-            release_dead_borrows(lir_view::stmt_line(sr));
+            cursor = std::max(cursor, max_line_seen_);
+            max_line_seen_ = std::max(saved, max_line_seen_);
+            release_dead_borrows(cursor);
         });
         pop_scope();
     }
@@ -2732,6 +2796,7 @@ class BorrowChecker {
     void visit_stmt(lir_view::StmtRef sr) {
         if (!sr) return;
         uint32_t ln = lir_view::stmt_line(sr);
+        if (ln > max_line_seen_) max_line_seen_ = ln;
         using namespace lir_view;
         using Code = lir_schema::stmt::Code;
         const auto* pool = prog_.type_pool.impl();
@@ -3283,6 +3348,8 @@ public:
         param_names_.clear();
         param_lifetimes_.clear();
         last_use_line_.clear();
+        max_line_seen_ = 0;   // per-fn: a prior fn's higher lines must not
+                              // count as "already visited" for NLL release
         // Per-body ref / dropck / dangling tracking. Borrow-checking is
         // strictly per-function (Rust never crosses fn bodies), so these are
         // per-function state — but they were never reset between functions.
@@ -3444,10 +3511,11 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             // tracked place) — whole-root conflict checks below suffice.
             bool root_is_rawptr =
                 bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr;
-            bool root_is_ref =
-                bp.root_type &&
-                (bp.root_type.kind() == LogosType::Kind::Ref ||
-                 bp.root_type.kind() == LogosType::Kind::MutRef);
+            // Any borrowed-form root (incl. fat: `&mut [T]`, borrowed DST) —
+            // writing THROUGH it needs no `mut` on the binding (Rust parity:
+            // `let c: &mut [u32] = …; c[0] = n;` is legal); only reassigning
+            // the binding itself would.
+            bool root_is_ref = bp.root_type && is_ref_kind(bp.root_type);
             if (!root.empty() && !root_is_rawptr && var_has(NO_SLOT, root)) {
                 auto sit = var_find(NO_SLOT, root);
                 // Mut-binding check (root-level) — skipped for reference roots.
@@ -3691,9 +3759,28 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         }
 
         // ── Free function call: f(args) ───────────────────────────────
-        case Code::Call:
-            visit_args(ECallView{e});
+        case Code::Call: {
+            ECallView cv{e};
+            // SD-DST method dispatch lowers to a plain Call with the receiver
+            // as arg0 (non-owning DstRef formal) — run the same receiver
+            // conflict check a MethodCall gets, so a `&mut self` DST method
+            // (resize_block_at) rejects while a slot view is live.
+            if (auto it = fn_index_.by_name.find(std::string(cv.callee()));
+                it != fn_index_.by_name.end() && it->second &&
+                !it->second.params().empty()) {
+                TypeRef p0 = it->second.params()[0].type(pool);
+                if (p0 && p0.kind() == LogosType::Kind::DstRef &&
+                    !p0.owning_dst()) {
+                    ExprRef a0; uint64_t ai0 = 0;
+                    cv.each_arg([&](ExprRef a){ if (ai0++ == 0) a0 = a; });
+                    if (a0)
+                        check_recv_conflict(extract_borrow_place(a0, pool),
+                                            /*is_mut=*/p0.mut_ptr(), line);
+                }
+            }
+            visit_args(cv);
             break;
+        }
 
         // ── Closure call ───────────────────────────────────────────────
         case Code::ClosureCall: {

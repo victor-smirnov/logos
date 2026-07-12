@@ -69,6 +69,59 @@ pub fn slice_get_range<T>(s: &[T], lo: i64, hi: i64) -> &[T] {
     }
 }
 
+/// Returns the mutable sub-slice `s[lo..hi]` (the `&mut s[lo..hi]` form).
+/// Same clamping rules as `slice_get_range`; empty when `hi <= lo` after
+/// clamping. The result borrows `s` exclusively for its lifetime.
+pub fn slice_get_range_mut<T>(s: &mut [T], lo: i64, hi: i64) -> &mut [T] {
+    let n: i64 = s.len() as i64;
+    let l0: i64 = if lo < 0i64 { 0i64 } else { if lo > n { n } else { lo } };
+    let h0: i64 = if hi < 0i64 { 0i64 } else { if hi > n { n } else { hi } };
+    let cnt: i64 = if h0 > l0 { h0 - l0 } else { 0i64 };
+    unsafe {
+        let base: *const T = s.as_ptr() as *const T;
+        let start_p: *const T = (base as i64 + l0 * (sizeof::<T>() as i64)) as *const T;
+        return slice_from_raw::<T>(start_p, cnt) as &mut [T];
+    }
+}
+
+/// Copies all of `src` into `dst` (`slice::copy_from_slice`). Panics when the
+/// lengths differ. The borrow checker guarantees `dst` and `src` are disjoint
+/// (`&mut` vs `&`), so a plain forward copy is always correct.
+pub fn slice_copy_from<T: Copy>(dst: &mut [T], src: &[T]) {
+    let n: i64 = dst.len() as i64;
+    assert(n == src.len() as i64,
+           "slice_copy_from: source and destination lengths differ");
+    unsafe {
+        let d: *mut T = dst.as_ptr() as *mut T;
+        let s: *const T = src.as_ptr() as *const T;
+        let mut i: i64 = 0i64;
+        while i < n { *d.add(i) = *s.add(i); i = i + 1i64; }
+    }
+}
+
+/// Copies `s[src_lo..src_hi]` to positions starting at `dst` within the same
+/// slice (`slice::copy_within`) — overlap-safe (copy direction picked by
+/// order). Panics when either range falls outside the slice.
+pub fn slice_copy_within<T: Copy>(s: &mut [T], src_lo: i64, src_hi: i64, dst: i64) {
+    let n: i64 = s.len() as i64;
+    assert(0i64 <= src_lo && src_lo <= src_hi && src_hi <= n,
+           "slice_copy_within: source range out of bounds");
+    let cnt: i64 = src_hi - src_lo;
+    assert(0i64 <= dst && dst + cnt <= n,
+           "slice_copy_within: destination range out of bounds");
+    if cnt == 0i64 || dst == src_lo { return; }
+    unsafe {
+        let base: *mut T = s.as_ptr() as *mut T;
+        if dst < src_lo {
+            let mut i: i64 = 0i64;
+            while i < cnt { *base.add(dst + i) = *base.add(src_lo + i); i = i + 1i64; }
+        } else {
+            let mut i: i64 = cnt - 1i64;
+            while i >= 0i64 { *base.add(dst + i) = *base.add(src_lo + i); i = i - 1i64; }
+        }
+    }
+}
+
 /// Constructs an `&[T]` fat pointer from a raw pointer and element count.
 /// Compiler intrinsic (sema intercepts the call); mirrors `str_from_raw` in `lang/str`.
 /// `ptr` must be valid for reads of `len` elements for as long as the result is used.

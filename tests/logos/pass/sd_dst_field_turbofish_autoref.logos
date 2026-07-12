@@ -1,0 +1,33 @@
+// A #[self_describing] struct's &self/&mut self canonicalises to a THIN
+// DstRef; a generic method called with turbofish on a bare-place receiver
+// (an unsized field) must still autoref — the receiver reached
+// finish_generic_call by value ("expected &mut B, got B").
+package sd_dst_field_turbofish_autoref;
+use logos.lang.marker;
+
+#[self_describing]
+pub struct B { x: u32, tail: [u8] }
+impl SelfDescribing for B {
+    fn dst_len(self: *const B) -> i64 { return 0i64; }
+}
+impl B {
+    pub fn gen_mut<S: Copy>(self: &mut B, v: S) { let _ = v; self.x = self.x + 1u32; }
+    pub fn gen_ref<S: Copy>(self: &B) -> u32 { return self.x; }
+}
+
+#[self_describing]
+pub struct W<T: ?Sized> { b: B }
+impl<T: ?Sized> SelfDescribing for W<T> {
+    fn dst_len(self: *const W<T>) -> i64 { return 0i64; }
+}
+impl<T: ?Sized> W<T> {
+    pub fn poke(self: &mut W<T>) -> u32 {
+        self.b.gen_mut::<u32>(7u32);        // &mut autoref + turbofish
+        return self.b.gen_ref::<u32>();     // & autoref + turbofish
+    }
+}
+fn main() -> i32 {
+    let mut w: W<str> = W::<str> { b: B { x: 1u32, tail: [] } };
+    if w.poke() != 2u32 { return 1i32; }
+    return 0i32;
+}

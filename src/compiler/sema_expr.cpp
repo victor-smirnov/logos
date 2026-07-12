@@ -9409,6 +9409,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     auto ref_ty = make_ref(is_mut, expr_type(recv));
                     recv = materialize_recv_ref(std::move(recv), is_mut, ref_ty);
+                } else if (formal0 &&
+                           TypeRef(formal0).kind() == LogosType::Kind::DstRef &&
+                           expr_type(recv) &&
+                           (TypeRef(expr_type(recv)).kind() == LogosType::Kind::Struct ||
+                            TypeRef(expr_type(recv)).kind() == LogosType::Kind::ZonedStruct)) {
+                    // A `#[self_describing]` struct's `&self`/`&mut self`
+                    // canonicalises to a THIN DstRef (Phase 1B-14), which
+                    // is_ref_like doesn't cover — a bare place receiver
+                    // (`self.alc.cells_mut::<u32>(i)` on an unsized field)
+                    // reached finish_generic_call by VALUE and failed the
+                    // arg-compat check ("expected &mut B, got B"). Same
+                    // autoref, materialized with the formal's own DstRef type.
+                    bool is_mut = TypeRef(formal0).mut_ptr();
+                    recv = materialize_recv_ref(std::move(recv), is_mut, formal0);
                 }
             }
             track_args_moved(arg_exprs);

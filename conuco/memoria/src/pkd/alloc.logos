@@ -28,8 +28,10 @@
 // instead of throwing.
 package memoria.pkd;
 
-use logos.lang.marker;
-use logos.lang.result;   // Result/PkdError plumbing    // Fst (negative impl below) + SelfDescribing
+use logos.lang.marker;   // Fst (negative impl below) + SelfDescribing
+use logos.lang.result;   // Result/PkdError plumbing
+use logos.lang.slice;    // slice_from_raw (safe slot views)
+use logos.lang.panic;    // assert (index contracts)
 
 
 
@@ -254,6 +256,56 @@ impl PkdAlloc {
         return self.base().byte_add(self.element_offset(idx)) as *mut T;
     }
 
+    // ── safe slot views ──────────────────────────────────────────────────
+    //
+    // The graceful-invalidation contract: resize_block_at on slot i SHIFTS
+    // every later slot, so any raw pointer into them dangles. These views
+    // borrow the ALLOCATOR itself — while one is live, the borrow checker
+    // rejects every `&mut self` call (resize/allocate/free), so a view can
+    // never witness a shift. Resize first, view after; the checker enforces
+    // the phase order.
+
+    /// Slot `idx`'s payload as a byte view. Panics on a bad index
+    /// (programming error); a well-formed `&PkdAlloc` implies a formatted
+    /// block, so the view itself is safe.
+    pub fn data(self: &PkdAlloc, idx: u32) -> &[u8] {
+        assert(idx < self.elements(), "PkdAlloc::data: bad slot index");
+        return unsafe {
+            slice_from_raw::<u8>(self.get::<u8>(idx) as *const u8,
+                                 self.element_size(idx))
+        };
+    }
+
+    /// Slot `idx`'s payload as an exclusive byte view.
+    pub fn data_mut(self: &mut PkdAlloc, idx: u32) -> &mut [u8] {
+        assert(idx < self.elements(), "PkdAlloc::data_mut: bad slot index");
+        return unsafe {
+            slice_from_raw::<u8>(self.get::<u8>(idx) as *const u8,
+                                 self.element_size(idx)) as &mut [u8]
+        };
+    }
+
+    /// Slot `idx`'s payload as `element_size / sizeof(S)` cells of `S`
+    /// (pure-bytes cell types only — the FSE bound set).
+    pub fn cells<S: Copy + Fst + StableLayout>(self: &PkdAlloc, idx: u32) -> &[S] {
+        assert(idx < self.elements(), "PkdAlloc::cells: bad slot index");
+        return unsafe {
+            slice_from_raw::<S>(self.get::<S>(idx) as *const S,
+                                (self.element_size(idx) as i64) / sizeof::<S>())
+        };
+    }
+
+    /// Slot `idx`'s payload as exclusive cells of `S`.
+    pub fn cells_mut<S: Copy + Fst + StableLayout>(self: &mut PkdAlloc, idx: u32)
+        -> &mut [S] {
+        assert(idx < self.elements(), "PkdAlloc::cells_mut: bad slot index");
+        return unsafe {
+            slice_from_raw::<S>(self.get::<S>(idx) as *const S,
+                                (self.element_size(idx) as i64) / sizeof::<S>())
+                as &mut [S]
+        };
+    }
+
     /// Offset of an interior pointer relative to base() (C++ compute_element_offset).
     pub unsafe fn compute_element_offset(self: &PkdAlloc, element: *const u8) -> u32 {
         return element.byte_offset_from(self.base() as *const u8) as u32;
@@ -333,23 +385,32 @@ impl PkdAlloc {
     /// Resizes element `idx` to `new_size` (rounded up to 8). Grow beyond
     /// free space asks THE PARENT to enlarge this allocator — recursively.
     /// Ok(allocation size); Err(OutOfMem) when the chain can't provide.
-    pub unsafe fn resize_block_at(self: &mut PkdAlloc, idx: u32, new_size: u32)
+    ///
+    /// SAFE: the growth invariant (resize NEVER moves this block, only later
+    /// siblings shift — through the whole parent chain) keeps `self` valid;
+    /// interior views are borrow-tied to `self`, so a live view makes this
+    /// `&mut self` call a compile error — invalidation is unreachable from
+    /// safe code. Bad index panics (programming error).
+    pub fn resize_block_at(self: &mut PkdAlloc, idx: u32, new_size: u32)
         -> Result<u32, PkdError> {
-        let allocation_size = round_up_bytes(new_size);
-        let size = self.element_size(idx);
-        if allocation_size > size {
-            let delta = allocation_size - size;
-            let free = self.free_space();
-            if delta > free { self.enlarge(delta - free)?; }
-            self.move_elements_up(idx + 1, delta);
-        } else if allocation_size < size {
-            let delta = size - allocation_size;
-            self.move_elements_down(idx + 1, delta);
-            if self.able.allocator_offset() > 0 {
-                let _ = self.pack();      // nested allocators auto-compact
+        assert(idx < self.elements(), "PkdAlloc::resize_block_at: bad slot index");
+        unsafe {
+            let allocation_size = round_up_bytes(new_size);
+            let size = self.element_size(idx);
+            if allocation_size > size {
+                let delta = allocation_size - size;
+                let free = self.free_space();
+                if delta > free { self.enlarge(delta - free)?; }
+                self.move_elements_up(idx + 1, delta);
+            } else if allocation_size < size {
+                let delta = size - allocation_size;
+                self.move_elements_down(idx + 1, delta);
+                if self.able.allocator_offset() > 0 {
+                    let _ = self.pack();      // nested allocators auto-compact
+                }
             }
+            return Result::Ok(allocation_size);
         }
-        return Result::Ok(allocation_size);
     }
 
     /// Resize by interior element pointer (C++ resize_block(const void*, …)).

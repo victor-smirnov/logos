@@ -97,18 +97,19 @@ impl<T: ?Sized> PkdArray<T> {
 
     /// SAFE: a well-formed `&PkdArray<T>` implies a formatted block.
     pub fn count(self: &PkdArray<T>) -> u32 {
-        return unsafe { *(self.a().get::<u32>(PkdArray::SLOT_CNT)) };
+        return self.alc.cells::<u32>(PkdArray::SLOT_CNT)[0];
     }
-    unsafe fn set_count(self: &PkdArray<T>, n: u32) {
-        *(self.a().get::<u32>(PkdArray::SLOT_CNT)) = n;
+    fn set_count(self: &mut PkdArray<T>, n: u32) {
+        let c: &mut [u32] = self.alc.cells_mut::<u32>(PkdArray::SLOT_CNT);
+        c[0] = n;
+    }
+    /// The offsets table view (count+1 valid cells; borrow-tied to self).
+    fn offs(self: &PkdArray<T>) -> &[u32] {
+        return self.alc.cells::<u32>(PkdArray::SLOT_OFFS);
     }
     unsafe fn off(self: &PkdArray<T>, k: u32) -> u32 {
         let t: *mut u32 = self.a().get::<u32>(PkdArray::SLOT_OFFS);
         return *t.add(k);
-    }
-    unsafe fn off_wr(self: &PkdArray<T>, k: u32, v: u32) {
-        let t: *mut u32 = self.a().get::<u32>(PkdArray::SLOT_OFFS);
-        *t.add(k) = v;
     }
 
     /// Entry `i` as raw bytes: (pointer into the block, byte length). Valid
@@ -124,40 +125,40 @@ impl<T: ?Sized> PkdArray<T> {
     /// a programming error, not an environment one). Slot-wise exact growth
     /// through the allocator chain; Err(OutOfMem) when the chain can't.
     ///
-    /// SAFE: a well-formed `&mut PkdArray<T>` implies a formatted block
-    /// (the unsafe was spent materializing it); growth never moves SELF
-    /// (only later siblings shift — unreachable from safe code while this
-    /// `&mut` is live); the entry's length rides the safe `&[u8]`; and the
-    /// borrow checker rejects `src` borrowed from `*self` (the aliasing
-    /// shift-then-copy hazard) by construction.
+    /// NO unsafe — the phase discipline the borrow checker enforces:
+    /// resizes first (no views live), views after (each view borrows the
+    /// allocator, so a resize while one is live does not compile). The
+    /// entry's length rides the safe `&[u8]`; `src` aliasing `*self` is
+    /// rejected by borrowck (`&mut self` vs `&T`); a well-formed
+    /// `&mut PkdArray<T>` implies a formatted block (the unsafe was spent
+    /// materializing it); growth never moves SELF, only later siblings.
     pub fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
         -> Result<(), PkdError> where T: EntryBytes {
         let bytes: &[u8] = src.entry_bytes();
-        let len: i64 = bytes.len();
-        unsafe {
-            let cnt = self.count();
-            assert(i <= cnt, "PkdArray::insert: index out of range");
-            let dn = self.off(cnt);                    // used data bytes
-            // grow OFFS to (count+2) cells, then DATA by len (each resize
-            // may shift the other slot; re-resolve views per step)
-            self.a().resize_block_at(PkdArray::SLOT_OFFS, (cnt + 2) * 4)?;
-            self.a().resize_block_at(PkdArray::SLOT_DATA, dn + (len as u32))?;
-            // shift data tail [off(i), dn) up by len, place the entry
-            let at: u32 = self.off(i);
-            let d: *mut u8 = self.a().get::<u8>(PkdArray::SLOT_DATA);
-            move_bytes(d.byte_add(at + len), d.byte_add(at), dn - at);
-            move_bytes(d.byte_add(at), bytes.as_ptr(), len);
-            // shift offsets: new offs[k] = old offs[k−1] + len for
-            // k ∈ [i+2..cnt+1] (descending — reads stay ahead of writes),
-            // then offs[i+1] = entry end
-            let mut k: u32 = cnt;
-            while k > i {
-                self.off_wr(k + 1u32, self.off(k) + (len as u32));
-                k = k - 1u32;
-            }
-            self.off_wr(i + 1, at + (len as u32));
-            self.set_count(cnt + 1);
+        let len: u32 = bytes.len() as u32;
+        let cnt = self.count();
+        assert(i <= cnt, "PkdArray::insert: index out of range");
+        let dn = self.offs()[cnt];                     // used data bytes
+        // phase 1 — resizes: grow OFFS to (count+2) cells, DATA by len
+        self.alc.resize_block_at(PkdArray::SLOT_OFFS, (cnt + 2) * 4)?;
+        self.alc.resize_block_at(PkdArray::SLOT_DATA, dn + len)?;
+        // phase 2 — data view: shift the tail [at, dn) up by len, place the
+        // entry (offset VALUES survive the resizes; only payloads shifted)
+        let at = self.offs()[i];
+        let d: &mut [u8] = self.alc.data_mut(PkdArray::SLOT_DATA);
+        slice_copy_within(d, at, dn, at + len);
+        slice_copy_from(slice_get_range_mut(d, at, at + len), bytes);
+        // phase 3 — offs view: new offs[k] = old offs[k−1] + len for
+        // k ∈ [i+2..cnt+1] (descending — reads stay ahead of writes),
+        // then offs[i+1] = entry end
+        let o: &mut [u32] = self.alc.cells_mut::<u32>(PkdArray::SLOT_OFFS);
+        let mut k: u32 = cnt;
+        while k > i {
+            o[k + 1u32] = o[k] + len;
+            k = k - 1u32;
         }
+        o[i + 1u32] = at + len;
+        self.set_count(cnt + 1);
         return Result::Ok(());
     }
 
@@ -168,27 +169,39 @@ impl<T: ?Sized> PkdArray<T> {
         return self.insert(at, src);
     }
 
-    /// Removes entry `i`, shrinking both slots to exact fit.
-    pub unsafe fn remove(self: &mut PkdArray<T>, i: u32) {
-        let cnt: u32 = self.count();
-        let o: u32 = self.off(i);
-        let e: u32 = self.off(i + 1u32);
-        let len: u32 = e - o;
-        let dn: u32 = self.off(cnt);
+    /// Entry `i` as a byte view — borrow-tied to self: alive views block
+    /// every mutation of the array (the graceful form of `entry`).
+    pub fn get_bytes(self: &PkdArray<T>, i: u32) -> &[u8] {
+        assert(i < self.count(), "PkdArray::get_bytes: index out of range");
+        let o = self.offs()[i];
+        let e = self.offs()[i + 1u32];
+        return slice_get_range(self.alc.data(PkdArray::SLOT_DATA), o, e);
+    }
+
+    /// Removes entry `i`, shrinking both slots to exact fit. NO unsafe —
+    /// same phase discipline as insert (here views first, resizes last).
+    pub fn remove(self: &mut PkdArray<T>, i: u32) {
+        let cnt = self.count();
+        assert(i < cnt, "PkdArray::remove: index out of range");
+        let o0 = self.offs()[i];
+        let e = self.offs()[i + 1u32];
+        let len = e - o0;
+        let dn = self.offs()[cnt];
         // close the data gap
-        let d: *mut u8 = self.a().get::<u8>(PkdArray::SLOT_DATA);
-        move_bytes(d.byte_add(o), d.byte_add(e), dn - e);
+        let d: &mut [u8] = self.alc.data_mut(PkdArray::SLOT_DATA);
+        slice_copy_within(d, e, dn, o0);
         // close the offs gap: new offs[k] = old offs[k+1] − len for k ∈ [i..cnt−1]
         // (ascending — cell k is written after cell k+1 was read)
+        let o: &mut [u32] = self.alc.cells_mut::<u32>(PkdArray::SLOT_OFFS);
         let mut k: u32 = i;
         while k < cnt {
-            self.off_wr(k, self.off(k + 1u32) - len);
+            o[k] = o[k + 1u32] - len;
             k = k + 1u32;
         }
         self.set_count(cnt - 1);
         // exact-fit shrink (best-effort; shrink auto-packs the container)
-        let _ = self.a().resize_block_at(PkdArray::SLOT_DATA, dn - len);
-        let _ = self.a().resize_block_at(PkdArray::SLOT_OFFS, cnt * 4);
+        let _ = self.alc.resize_block_at(PkdArray::SLOT_DATA, dn - len);
+        let _ = self.alc.resize_block_at(PkdArray::SLOT_OFFS, cnt * 4);
     }
 }
 
