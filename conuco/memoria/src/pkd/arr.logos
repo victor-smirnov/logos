@@ -117,21 +117,8 @@ impl<T: ?Sized> PkdArray<T> {
     pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
         -> Result<(), PkdError> where T: EntryBytes {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        return sp.insert_bytes(i, src.entry_ptr(), src.entry_len());
-    }
-
-    /// Appends `*src`.
-    pub unsafe fn push(self: &mut PkdArray<T>, src: &T)
-        -> Result<(), PkdError> where T: EntryBytes {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let at = sp.count();
-        return sp.insert(at, src);
-    }
-
-    // Byte-level plumbing (the typed insert/push above are the API).
-    unsafe fn insert_bytes(self: &mut PkdArray<T>, i: u32,
-                           src: *const u8, len: i64) -> Result<(), PkdError> {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+        let bytes: *const u8 = src.entry_ptr();
+        let len: i64 = src.entry_len();
         let cnt = sp.count();
         let dn = sp.off(cnt);                          // used data bytes
         // grow OFFS to (count+2) cells, then DATA by len (each resize may
@@ -142,7 +129,7 @@ impl<T: ?Sized> PkdArray<T> {
         let at: u32 = sp.off(i);
         let d: *mut u8 = sp.a().get::<u8>(PkdArray::SLOT_DATA);
         move_bytes(d.byte_add(at + len), d.byte_add(at), dn - at);
-        move_bytes(d.byte_add(at), src, len);
+        move_bytes(d.byte_add(at), bytes, len);
         // shift offsets: new offs[k] = old offs[k−1] + len for k ∈ [i+2..cnt+1]
         // (descending — reads stay ahead of writes), then offs[i+1] = entry end
         let mut k: u32 = cnt;
@@ -153,6 +140,14 @@ impl<T: ?Sized> PkdArray<T> {
         sp.off_wr(i + 1, at + (len as u32));
         sp.set_count(cnt + 1);
         return Result::Ok(());
+    }
+
+    /// Appends `*src`.
+    pub unsafe fn push(self: &mut PkdArray<T>, src: &T)
+        -> Result<(), PkdError> where T: EntryBytes {
+        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+        let at = sp.count();
+        return sp.insert(at, src);
     }
 
     /// Removes entry `i`, shrinking both slots to exact fit.
