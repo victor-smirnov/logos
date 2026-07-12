@@ -1,36 +1,170 @@
-// memoria.pkd — PkdArray<T>: ONE name, TWO representations (the C++
-// `template<typename T, bool FSE = is_fse<T>>` model, done with partial
-// specialization by SHAPE — a blessed Logos divergence from Rust):
+// memoria.pkd — PkdArray<T>: ONE name, selection by the PROPERTIES of T
+// (the C++ `template<typename T, bool FSE = is_fse<T>>` model; is_fse<T> is
+// spelled as the bound set `Copy + Fst + StableLayout`):
 //
-//   PkdArray<T>    T sized — the FSE family. Inherits-by-first-field from
-//                  PkdAllocatable: layout INLINE in the structure (header +
-//                  count × T right after), no slot machinery at all. A real
-//                  #[self_describing] DST with a TYPED [T] tail (dst_len =
-//                  count); grows itself through its own back-ref, recursive
-//                  enlarge to any depth (the resize protocol of alloc.logos).
+//   PkdArray<T: Copy + Fst + StableLayout>   the FSE spec. Inherits-by-first-
+//       field from PkdAllocatable: layout INLINE (header + count × T), no
+//       slot machinery at all. #[self_describing] DST with a TYPED [T] tail
+//       (dst_len = count); grows itself through its own back-ref (recursive
+//       enlarge — the resize protocol of alloc.logos).
 //
-//   PkdArray<[E]>  slice pattern — the VLE family. Inherits from PkdAlloc
-//                  (single unsized base field): internal structure lives in
-//                  the SLOTS of the embedded allocator (the C++
-//                  PackedDataTypeBuffer : public PackedAllocator pattern):
+//   PkdArray<T: ?Sized>   the primary — every OTHER T (unsized, non-Copy,
+//       droppable, layout-unstable) is a VARIABLE-LENGTH-entry array.
+//       Inherits from PkdAlloc (single unsized base field): internal
+//       structure lives in the SLOTS of the embedded allocator (the C++
+//       PackedDataTypeBuffer : public PackedAllocator pattern):
 //
-//                    slot 0 (CNT)   entry count, u32
-//                    slot 1 (OFFS)  u32[count+1], offsets RELATIVE to the
-//                                   data slot (entry i = data[offs[i]..offs[i+1]))
-//                    slot 2 (DATA)  entry bytes, contiguous
+//         slot 0 (CNT)   entry count, u32
+//         slot 1 (OFFS)  u32[count+1], offsets RELATIVE to the data slot
+//                        (entry i = data[offs[i] .. offs[i+1]))
+//         slot 2 (DATA)  entry bytes, contiguous
 //
-//                  The allocator does inter-slot shifting and back-ref
-//                  healing; entries are raw byte runs (str rides as its
-//                  bytes — str ≡ [u8] by language design).
+//       Entries are raw byte runs (PkdArray<str> is the canonical string
+//       array — str ≡ [u8] by language design).
 //
-// FSE element contract: Copy + Fst (no absolute refs, no Drop) +
-// StableLayout (frozen repr) — pure relocatable bytes, type-enforced.
+// `let a: PkdArray<u64>` → FSE; `let a: PkdArray<str>` → VLE. The bound set
+// IS the family selector — no shape spelling at use sites.
 package memoria.pkd;
 
 use logos.lang.marker;    // Fst, StableLayout, SelfDescribing
 use logos.lang.mem;
 
-// ── FSE: the base template (sized T) ────────────────────────────────────────
+// ── VLE: the primary (any T that is NOT FSE-able) ───────────────────────────
+
+const SLOT_CNT:  u32 = 0u32;
+const SLOT_OFFS: u32 = 1u32;
+const SLOT_DATA: u32 = 2u32;
+const VLE_SLOTS: u32 = 3u32;
+
+/// A PkdAlloc with the 3-slot VLE convention. Single unsized "base" field —
+/// the primary adds no data of its own (everything lives in slots), it adds
+/// the vocabulary.
+#[self_describing]
+pub struct PkdArray<T: ?Sized> {
+    pub alc: PkdAlloc,
+}
+
+impl<T: ?Sized> SelfDescribing for PkdArray<T> {
+    fn dst_len(self: *const PkdArray<T>) -> i64 {
+        let a: *const PkdAlloc = self as *const PkdAlloc;
+        return unsafe { a.dst_len() };
+    }
+}
+
+/// Formats slot `idx` of `alc` as an empty VLE PkdArray<T>; null on OOM.
+pub unsafe fn vle_format<T: ?Sized>(alc: *mut PkdAlloc, idx: u32) -> *mut PkdArray<T> {
+    // header + slot table for 3 slots + CNT cell + OFFS[1]
+    let need: u32 = PkdAlloc::empty_size_for(VLE_SLOTS) + 8u32 + 8u32;
+    let p: *mut u8 = alc.allocate(idx, need, PKD_ALLOCATABLE);
+    if (p as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
+    let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+    inner.init(alc.element_size(idx), VLE_SLOTS);
+    inner.able.set_allocator_offset(alc as *const PkdAlloc);
+    let cp: *mut u8 = inner.allocate(SLOT_CNT, 4u32, PKD_RAW);
+    if (cp as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
+    *(cp as *mut u32) = 0u32;
+    let op: *mut u8 = inner.allocate(SLOT_OFFS, 4u32, PKD_RAW);
+    if (op as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
+    *(op as *mut u32) = 0u32;                     // offs[0] = 0
+    return p as *mut PkdArray<T>;
+}
+
+impl<T: ?Sized> PkdArray<T> {
+    /// The embedded allocator (same address — the base view).
+    unsafe fn a(self: &PkdArray<T>) -> *mut PkdAlloc {
+        let sp: *const PkdArray<T> = self as *const PkdArray<T>;
+        return sp as *mut PkdAlloc;
+    }
+
+    pub unsafe fn count(self: &PkdArray<T>) -> u32 {
+        return *(self.a().get::<u32>(SLOT_CNT));
+    }
+    unsafe fn set_count(self: &PkdArray<T>, n: u32) {
+        *(self.a().get::<u32>(SLOT_CNT)) = n;
+    }
+    unsafe fn off(self: &PkdArray<T>, k: u32) -> u32 {
+        let t: *mut u32 = self.a().get::<u32>(SLOT_OFFS);
+        return *(((t as i64) + (k as i64) * 4i64) as *const u32);
+    }
+    unsafe fn off_wr(self: &PkdArray<T>, k: u32, v: u32) {
+        let t: *mut u32 = self.a().get::<u32>(SLOT_OFFS);
+        *(((t as i64) + (k as i64) * 4i64) as *mut u32) = v;
+    }
+
+    /// Entry `i` as raw bytes: (pointer into the block, byte length). Valid
+    /// only until the next mutation of the containing block.
+    pub unsafe fn entry(self: &PkdArray<T>, i: u32) -> (*const u8, i64) {
+        let o: u32 = self.off(i);
+        let e: u32 = self.off(i + 1u32);
+        let d: *mut u8 = self.a().get::<u8>(SLOT_DATA);
+        return (((d as i64) + (o as i64)) as *const u8, (e - o) as i64);
+    }
+
+    /// Inserts `src[0..len)` as entry `i` (0 ≤ i ≤ count). Slot-wise exact
+    /// growth through the allocator chain; false = no room anywhere.
+    pub unsafe fn insert_bytes(self: &mut PkdArray<T>, i: u32,
+                               src: *const u8, len: i64) -> bool {
+        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+        let cnt: u32 = sp.count();
+        let dn: u32 = sp.off(cnt);                     // used data bytes
+        // grow OFFS to (count+2) cells, then DATA by len (each resize may
+        // shift the other slot; re-resolve views per step)
+        if sp.a().resize_block_at(SLOT_OFFS, ((cnt as i64) + 2i64) as u32 * 4u32)
+            == 0xFFFF_FFFFu32 { return false; }
+        if sp.a().resize_block_at(SLOT_DATA, dn + (len as u32))
+            == 0xFFFF_FFFFu32 { return false; }
+        // shift data tail [off(i), dn) up by len, place the entry
+        let at: u32 = sp.off(i);
+        let d: *mut u8 = sp.a().get::<u8>(SLOT_DATA);
+        move_bytes(((d as i64) + (at as i64) + len) as *mut u8,
+                   ((d as i64) + (at as i64)) as *const u8, (dn - at) as i64);
+        move_bytes(((d as i64) + (at as i64)) as *mut u8, src, len);
+        // shift offsets: new offs[k] = old offs[k−1] + len for k ∈ [i+2..cnt+1]
+        // (descending — reads stay ahead of writes), then offs[i+1] = entry end
+        let mut k: u32 = cnt;
+        while k > i {
+            sp.off_wr(k + 1u32, sp.off(k) + (len as u32));
+            k = k - 1u32;
+        }
+        sp.off_wr(i + 1u32, at + (len as u32));
+        sp.set_count(cnt + 1u32);
+        return true;
+    }
+
+    /// Appends an entry.
+    pub unsafe fn push_bytes(self: &mut PkdArray<T>, src: *const u8, len: i64) -> bool {
+        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+        let at: u32 = sp.count();
+        return sp.insert_bytes(at, src, len);
+    }
+
+    /// Removes entry `i`, shrinking both slots to exact fit.
+    pub unsafe fn remove(self: &mut PkdArray<T>, i: u32) {
+        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+        let cnt: u32 = sp.count();
+        let o: u32 = sp.off(i);
+        let e: u32 = sp.off(i + 1u32);
+        let len: u32 = e - o;
+        let dn: u32 = sp.off(cnt);
+        // close the data gap
+        let d: *mut u8 = sp.a().get::<u8>(SLOT_DATA);
+        move_bytes(((d as i64) + (o as i64)) as *mut u8,
+                   ((d as i64) + (e as i64)) as *const u8, (dn - e) as i64);
+        // close the offs gap: new offs[k] = old offs[k+1] − len for k ∈ [i..cnt−1]
+        // (ascending — cell k is written after cell k+1 was read)
+        let mut k: u32 = i;
+        while k < cnt {
+            sp.off_wr(k, sp.off(k + 1u32) - len);
+            k = k + 1u32;
+        }
+        sp.set_count(cnt - 1u32);
+        // exact-fit shrink (shrink auto-packs the containing allocator)
+        let _ = sp.a().resize_block_at(SLOT_DATA, dn - len);
+        let _ = sp.a().resize_block_at(SLOT_OFFS, ((cnt as i64)) as u32 * 4u32);
+    }
+}
+
+// ── FSE: the bound-discriminated spec (T: Copy + Fst + StableLayout) ────────
 
 /// Header (8 bytes) + `count × T` inline. The B+tree node vocabulary.
 #[self_describing]
@@ -153,139 +287,4 @@ pub unsafe fn fse_lower_bound_u64(a: *mut PkdArray<u64>, key: u64) -> u32 {
         else { hi = mid; }
     }
     return lo;
-}
-
-// ── VLE: the slice-pattern partial specialization ───────────────────────────
-
-const SLOT_CNT:  u32 = 0u32;
-const SLOT_OFFS: u32 = 1u32;
-const SLOT_DATA: u32 = 2u32;
-const VLE_SLOTS: u32 = 3u32;
-
-/// A PkdAlloc with the 3-slot VLE convention. Single unsized "base" field —
-/// the spec adds no data of its own (everything lives in slots), it adds
-/// the vocabulary.
-#[self_describing]
-pub struct PkdArray<[E]> {
-    pub alc: PkdAlloc,
-}
-
-impl<E> SelfDescribing for PkdArray<[E]> {
-    fn dst_len(self: *const PkdArray<[E]>) -> i64 {
-        let a: *const PkdAlloc = self as *const PkdAlloc;
-        return unsafe { a.dst_len() };
-    }
-}
-
-/// Formats slot `idx` of `alc` as an empty VLE PkdArray<[E]>; null on OOM.
-pub unsafe fn vle_format<E>(alc: *mut PkdAlloc, idx: u32) -> *mut PkdArray<[E]> {
-    // header + slot table for 3 slots + CNT cell + OFFS[1]
-    let need: u32 = PkdAlloc::empty_size_for(VLE_SLOTS) + 8u32 + 8u32;
-    let p: *mut u8 = alc.allocate(idx, need, PKD_ALLOCATABLE);
-    if (p as i64) == 0i64 { return 0i64 as *mut PkdArray<[E]>; }
-    let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-    inner.init(alc.element_size(idx), VLE_SLOTS);
-    inner.able.set_allocator_offset(alc as *const PkdAlloc);
-    let cp: *mut u8 = inner.allocate(SLOT_CNT, 4u32, PKD_RAW);
-    if (cp as i64) == 0i64 { return 0i64 as *mut PkdArray<[E]>; }
-    *(cp as *mut u32) = 0u32;
-    let op: *mut u8 = inner.allocate(SLOT_OFFS, 4u32, PKD_RAW);
-    if (op as i64) == 0i64 { return 0i64 as *mut PkdArray<[E]>; }
-    *(op as *mut u32) = 0u32;                     // offs[0] = 0
-    return p as *mut PkdArray<[E]>;
-}
-
-impl<E> PkdArray<[E]> {
-    /// The embedded allocator (same address — the base view).
-    unsafe fn a(self: &PkdArray<[E]>) -> *mut PkdAlloc {
-        let sp: *const PkdArray<[E]> = self as *const PkdArray<[E]>;
-        return sp as *mut PkdAlloc;
-    }
-
-    pub unsafe fn count(self: &PkdArray<[E]>) -> u32 {
-        return *(self.a().get::<u32>(SLOT_CNT));
-    }
-    unsafe fn set_count(self: &PkdArray<[E]>, n: u32) {
-        *(self.a().get::<u32>(SLOT_CNT)) = n;
-    }
-    unsafe fn off(self: &PkdArray<[E]>, k: u32) -> u32 {
-        let t: *mut u32 = self.a().get::<u32>(SLOT_OFFS);
-        return *(((t as i64) + (k as i64) * 4i64) as *const u32);
-    }
-    unsafe fn off_wr(self: &PkdArray<[E]>, k: u32, v: u32) {
-        let t: *mut u32 = self.a().get::<u32>(SLOT_OFFS);
-        *(((t as i64) + (k as i64) * 4i64) as *mut u32) = v;
-    }
-
-    /// Entry `i` as raw bytes: (pointer into the block, byte length). Valid
-    /// only until the next mutation of the containing block.
-    pub unsafe fn entry(self: &PkdArray<[E]>, i: u32) -> (*const u8, i64) {
-        let o: u32 = self.off(i);
-        let e: u32 = self.off(i + 1u32);
-        let d: *mut u8 = self.a().get::<u8>(SLOT_DATA);
-        return (((d as i64) + (o as i64)) as *const u8, (e - o) as i64);
-    }
-
-    /// Inserts `src[0..len)` as entry `i` (0 ≤ i ≤ count). Slot-wise exact
-    /// growth through the allocator chain; false = no room anywhere.
-    pub unsafe fn insert_bytes(self: &mut PkdArray<[E]>, i: u32,
-                               src: *const u8, len: i64) -> bool {
-        let sp: *mut PkdArray<[E]> = self as *mut PkdArray<[E]>;
-        let cnt: u32 = sp.count();
-        let dn: u32 = sp.off(cnt);                     // used data bytes
-        // grow OFFS to (count+2) cells, then DATA by len (each resize may
-        // shift the other slot; re-resolve views per step)
-        if sp.a().resize_block_at(SLOT_OFFS, ((cnt as i64) + 2i64) as u32 * 4u32)
-            == 0xFFFF_FFFFu32 { return false; }
-        if sp.a().resize_block_at(SLOT_DATA, dn + (len as u32))
-            == 0xFFFF_FFFFu32 { return false; }
-        // shift data tail [off(i), dn) up by len, place the entry
-        let at: u32 = sp.off(i);
-        let d: *mut u8 = sp.a().get::<u8>(SLOT_DATA);
-        move_bytes(((d as i64) + (at as i64) + len) as *mut u8,
-                   ((d as i64) + (at as i64)) as *const u8, (dn - at) as i64);
-        move_bytes(((d as i64) + (at as i64)) as *mut u8, src, len);
-        // shift offsets: new offs[k] = old offs[k−1] + len for k ∈ [i+2..cnt+1]
-        // (descending — reads stay ahead of writes), then offs[i+1] = entry end
-        let mut k: u32 = cnt;
-        while k > i {
-            sp.off_wr(k + 1u32, sp.off(k) + (len as u32));
-            k = k - 1u32;
-        }
-        sp.off_wr(i + 1u32, at + (len as u32));
-        sp.set_count(cnt + 1u32);
-        return true;
-    }
-
-    /// Appends an entry.
-    pub unsafe fn push_bytes(self: &mut PkdArray<[E]>, src: *const u8, len: i64) -> bool {
-        let sp: *mut PkdArray<[E]> = self as *mut PkdArray<[E]>;
-        let at: u32 = sp.count();
-        return sp.insert_bytes(at, src, len);
-    }
-
-    /// Removes entry `i`, shrinking both slots to exact fit.
-    pub unsafe fn remove(self: &mut PkdArray<[E]>, i: u32) {
-        let sp: *mut PkdArray<[E]> = self as *mut PkdArray<[E]>;
-        let cnt: u32 = sp.count();
-        let o: u32 = sp.off(i);
-        let e: u32 = sp.off(i + 1u32);
-        let len: u32 = e - o;
-        let dn: u32 = sp.off(cnt);
-        // close the data gap
-        let d: *mut u8 = sp.a().get::<u8>(SLOT_DATA);
-        move_bytes(((d as i64) + (o as i64)) as *mut u8,
-                   ((d as i64) + (e as i64)) as *const u8, (dn - e) as i64);
-        // close the offs gap: new offs[k] = old offs[k+1] − len for k ∈ [i..cnt−1]
-        // (ascending — cell k is written after cell k+1 was read)
-        let mut k: u32 = i;
-        while k < cnt {
-            sp.off_wr(k, sp.off(k + 1u32) - len);
-            k = k + 1u32;
-        }
-        sp.set_count(cnt - 1u32);
-        // exact-fit shrink (shrink auto-packs the containing allocator)
-        let _ = sp.a().resize_block_at(SLOT_DATA, dn - len);
-        let _ = sp.a().resize_block_at(SLOT_OFFS, ((cnt as i64)) as u32 * 4u32);
-    }
 }
