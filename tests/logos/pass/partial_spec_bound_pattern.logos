@@ -28,14 +28,24 @@ pub struct PkdB<T: Copy + Frozen> {
 }
 
 impl<T: ?Sized> PkdB<T> {
+    pub const FAMILY: u32 = 0u32;          // pub assoc const (impl_item grammar)
     pub fn tag(self: &PkdB<T>) -> u64 { return self.hdr; }
+    /// Associated (static) constructor — the VLE-family twin.
+    pub fn mk(h: u64) -> PkdB<T> {
+        return PkdB::<T> { hdr: h, cnt: 0u32, pad: PkdB::FAMILY };
+    }
 }
 
 impl<T: Copy + Frozen> PkdB<T> {
+    pub const FAMILY: u32 = 1u32;
     pub fn tag(self: &PkdB<T>) -> u64 { return (self.x as u64) + 100u64; }
     pub fn bump(self: &mut PkdB<T>, d: u32) -> u64 {
         self.x = self.x + d;
         return self.tag();            // spec method calling spec method
+    }
+    /// Static twin with the SAME name — routed by the turbofish arg's family.
+    pub fn mk(x: u32) -> PkdB<T> {
+        return PkdB::<T> { count: 0u32, x: x };
     }
 }
 
@@ -55,6 +65,12 @@ fn main() -> i32 {
     // i64: Copy but NOT Frozen → primary
     let w: PkdB<i64> = PkdB::<i64> { hdr: 4u64, cnt: 0u32, pad: 0u32 };
     if w.tag() != 4u64 { return 5i32; }
+    // associated STATIC twins route by the turbofish arg's family
+    let sf: PkdB<u64> = PkdB::<u64>::mk(9u32);
+    if sf.tag() != 109u64 { return 10i32; }
+    let sv: PkdB<VarThing> = PkdB::<VarThing>::mk(11u64);
+    if sv.tag() != 11u64 { return 11i32; }
+
     // str (unsized): fails Copy → primary
     let m: *mut u8 = unsafe { malloc(16i64) };
     let p: *mut PkdB<str> = m as *mut PkdB<str>;

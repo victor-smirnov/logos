@@ -10566,7 +10566,17 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         std::string concrete = concrete_struct_name(lit_type);
         const SemaStructInfo* effective = &sinfo;
         auto spec_it = struct_specs_sema_.find(concrete);
-        if (spec_it != struct_specs_sema_.end())
+        bool exact_is_bound_spec = false;
+        if (spec_it != struct_specs_sema_.end()) {
+            // A bound-discriminated spec's concrete key equals the BASE's
+            // mangled template form (`PkdB$G1$T`) — an exact hit on one must
+            // NOT bypass the bound gate (a base-impl body's `PkdB::<T>{…}`
+            // literal would wrongly bind the spec's fields). Route those
+            // through find_best (which gates on scope bounds).
+            for (auto& tp : spec_it->second.type_params)
+                if (!tp.bounds.empty()) { exact_is_bound_spec = true; break; }
+        }
+        if (spec_it != struct_specs_sema_.end() && !exact_is_bound_spec)
             effective = &spec_it->second;
         else if (auto* pspec = find_best_sema_struct_spec(std::string(sname), args))
             effective = pspec;
@@ -13773,6 +13783,31 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
+    // Phase 1B-5 parity for TYPE-side turbofish (`PkdArray::<str>::format`):
+    // bare `[T]`/`str`-as-unsized/`dyn` type args are legal when the class's
+    // param is `?Sized` (or a partial spec may govern). resolve_generic's
+    // Sized-enforcement still rejects genuinely wrong args; without this the
+    // arg canonicalised to the VALUE form (&[u8]) and the instantiation
+    // family silently changed.
+    struct UOkGuard {
+        bool& flag; bool saved;
+        UOkGuard(bool& f, bool v) : flag(f), saved(f) { flag = v; }
+        ~UOkGuard() { flag = saved; }
+    };
+    std::optional<UOkGuard> static_call_uok_;
+    {
+        std::string cn0(str_of(node.get(la::RECEIVER.code)));
+        auto [p0, ssi0] = find_struct_by_name(cn0);
+        (void)p0;
+        bool relax = false;
+        if (ssi0) {
+            for (auto& tp : ssi0->type_params)
+                if (!tp.implicit_sized) { relax = true; break; }
+            if (!relax && struct_has_specs(cn0)) relax = true;
+        }
+        if (relax) static_call_uok_.emplace(unsized_ok_, true);
+    }
+
     std::string class_name(str_of(node.get(la::RECEIVER.code)));
     auto method_name = str_of(node.get(la::NAME.code));
 

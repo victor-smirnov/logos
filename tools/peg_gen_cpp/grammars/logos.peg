@@ -1104,6 +1104,8 @@
               => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
                / KW_TYPE IDENT ASSIGN type_ref SEMI
               => { CODE: ASSOC_TYPE_IMPL, NAME: $2, TYPE: $4 }
+               / KW_PUB KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: ASSOC_CONST_IMPL, NAME: $3, TYPE: $5, VALUE: $7, IS_PUB: 1 }
                / KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: ASSOC_CONST_IMPL, NAME: $2, TYPE: $4, VALUE: $6 }
 
