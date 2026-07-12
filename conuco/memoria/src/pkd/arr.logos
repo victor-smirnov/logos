@@ -27,27 +27,34 @@
 package memoria.pkd;
 
 use logos.lang.marker;
-use logos.lang.result;   // Result/PkdError plumbing    // Fst, StableLayout, SelfDescribing
+use logos.lang.result;   // Result/PkdError plumbing
+use logos.lang.slice;    // slice_from_raw (EntryBytes for [E])
+use logos.lang.panic;    // assert (index contract)    // Fst, StableLayout, SelfDescribing
 use logos.lang.mem;
 
 // ── the VLE entry contract ──────────────────────────────────────────────────
 
 /// Byte view of a variable-length entry: any `T` whose `&T` exposes its
-/// bytes. `str` and `[E]` are the built-in entry shapes; custom var-len
-/// element types opt in by implementing it.
+/// bytes AS A SAFE SLICE — the length travels inside `&[u8]`, so a lying
+/// implementation can at worst mis-slice its OWN bytes, never induce an
+/// out-of-bounds copy in the array (that is what lets `insert`/`push` be
+/// SAFE fns). `str` and `[E]` are the built-in entry shapes; custom
+/// var-len element types opt in by implementing it.
 pub trait EntryBytes {
-    fn entry_ptr(self: &Self) -> *const u8;
-    fn entry_len(self: &Self) -> i64;
+    fn entry_bytes(self: &Self) -> &[u8];
 }
 
-impl EntryBytes for str {
-    fn entry_ptr(self: &str) -> *const u8 { return self.as_ptr(); }
-    fn entry_len(self: &str) -> i64 { return self.len(); }
-}
-
+// NOTE: no separate `impl EntryBytes for str` — str ≡ [u8] by language
+// design, so the [E] impl below IS the str impl (a second one would be a
+// coherence overlap and confuses slice-receiver dispatch).
 impl<E: Copy + Fst + StableLayout> EntryBytes for [E] {
-    fn entry_ptr(self: &[E]) -> *const u8 { return self.as_ptr(); }
-    fn entry_len(self: &[E]) -> i64 { return self.len() * sizeof::<E>(); }
+    fn entry_bytes(self: &[E]) -> &[u8] {
+        // Pure-bytes elements (Copy + Fst + StableLayout): the reinterpret
+        // is the impl's contract, contained here.
+        return unsafe {
+            slice_from_raw::<u8>(self.as_ptr(), self.len() * sizeof::<E>())
+        };
+    }
 }
 
 // ── VLE: the primary (any T that is NOT FSE-able) ───────────────────────────
@@ -88,8 +95,9 @@ impl<T: ?Sized> PkdArray<T> {
         return sp as *mut PkdAlloc;
     }
 
-    pub unsafe fn count(self: &PkdArray<T>) -> u32 {
-        return *(self.a().get::<u32>(PkdArray::SLOT_CNT));
+    /// SAFE: a well-formed `&PkdArray<T>` implies a formatted block.
+    pub fn count(self: &PkdArray<T>) -> u32 {
+        return unsafe { *(self.a().get::<u32>(PkdArray::SLOT_CNT)) };
     }
     unsafe fn set_count(self: &PkdArray<T>, n: u32) {
         *(self.a().get::<u32>(PkdArray::SLOT_CNT)) = n;
@@ -112,42 +120,53 @@ impl<T: ?Sized> PkdArray<T> {
         return (d.byte_add(o) as *const u8, (e - o) as i64);
     }
 
-    /// Inserts `*src` as entry `i` (0 ≤ i ≤ count). Slot-wise exact growth
-    /// through the allocator chain.
-    pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
+    /// Inserts `*src` as entry `i` (0 ≤ i ≤ count; out of range panics —
+    /// a programming error, not an environment one). Slot-wise exact growth
+    /// through the allocator chain; Err(OutOfMem) when the chain can't.
+    ///
+    /// SAFE: a well-formed `&mut PkdArray<T>` implies a formatted block
+    /// (the unsafe was spent materializing it); growth never moves SELF
+    /// (only later siblings shift — unreachable from safe code while this
+    /// `&mut` is live); the entry's length rides the safe `&[u8]`; and the
+    /// borrow checker rejects `src` borrowed from `*self` (the aliasing
+    /// shift-then-copy hazard) by construction.
+    pub fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
         -> Result<(), PkdError> where T: EntryBytes {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let bytes: *const u8 = src.entry_ptr();
-        let len: i64 = src.entry_len();
-        let cnt = sp.count();
-        let dn = sp.off(cnt);                          // used data bytes
-        // grow OFFS to (count+2) cells, then DATA by len (each resize may
-        // shift the other slot; re-resolve views per step)
-        sp.a().resize_block_at(PkdArray::SLOT_OFFS, (cnt + 2) * 4)?;
-        sp.a().resize_block_at(PkdArray::SLOT_DATA, dn + (len as u32))?;
-        // shift data tail [off(i), dn) up by len, place the entry
-        let at: u32 = sp.off(i);
-        let d: *mut u8 = sp.a().get::<u8>(PkdArray::SLOT_DATA);
-        move_bytes(d.byte_add(at + len), d.byte_add(at), dn - at);
-        move_bytes(d.byte_add(at), bytes, len);
-        // shift offsets: new offs[k] = old offs[k−1] + len for k ∈ [i+2..cnt+1]
-        // (descending — reads stay ahead of writes), then offs[i+1] = entry end
-        let mut k: u32 = cnt;
-        while k > i {
-            sp.off_wr(k + 1u32, sp.off(k) + (len as u32));
-            k = k - 1u32;
+        let bytes: &[u8] = src.entry_bytes();
+        let len: i64 = bytes.len();
+        unsafe {
+            let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+            let cnt = sp.count();
+            assert(i <= cnt, "PkdArray::insert: index out of range");
+            let dn = sp.off(cnt);                      // used data bytes
+            // grow OFFS to (count+2) cells, then DATA by len (each resize
+            // may shift the other slot; re-resolve views per step)
+            sp.a().resize_block_at(PkdArray::SLOT_OFFS, (cnt + 2) * 4)?;
+            sp.a().resize_block_at(PkdArray::SLOT_DATA, dn + (len as u32))?;
+            // shift data tail [off(i), dn) up by len, place the entry
+            let at: u32 = sp.off(i);
+            let d: *mut u8 = sp.a().get::<u8>(PkdArray::SLOT_DATA);
+            move_bytes(d.byte_add(at + len), d.byte_add(at), dn - at);
+            move_bytes(d.byte_add(at), bytes.as_ptr(), len);
+            // shift offsets: new offs[k] = old offs[k−1] + len for
+            // k ∈ [i+2..cnt+1] (descending — reads stay ahead of writes),
+            // then offs[i+1] = entry end
+            let mut k: u32 = cnt;
+            while k > i {
+                sp.off_wr(k + 1u32, sp.off(k) + (len as u32));
+                k = k - 1u32;
+            }
+            sp.off_wr(i + 1, at + (len as u32));
+            sp.set_count(cnt + 1);
         }
-        sp.off_wr(i + 1, at + (len as u32));
-        sp.set_count(cnt + 1);
         return Result::Ok(());
     }
 
-    /// Appends `*src`.
-    pub unsafe fn push(self: &mut PkdArray<T>, src: &T)
+    /// Appends `*src`. SAFE — see insert.
+    pub fn push(self: &mut PkdArray<T>, src: &T)
         -> Result<(), PkdError> where T: EntryBytes {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let at = sp.count();
-        return sp.insert(at, src);
+        let at = self.count();
+        return self.insert(at, src);
     }
 
     /// Removes entry `i`, shrinking both slots to exact fit.
