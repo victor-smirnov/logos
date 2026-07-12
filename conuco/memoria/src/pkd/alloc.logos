@@ -30,8 +30,7 @@ package memoria.pkd;
 
 use logos.lang.marker;    // Fst (negative impl below) + SelfDescribing
 
-pub const PKD_RAW: u32         = 0u32;
-pub const PKD_ALLOCATABLE: u32 = 1u32;
+
 
 /// AlignmentBlock = 8 (PackedAllocationAlignment).
 pub fn round_up_bytes(v: u32) -> u32 { return (v + 7u32) & (0xFFFF_FFFFu32 - 7u32); }
@@ -142,6 +141,12 @@ pub unsafe fn pkd_format(mem: *mut u8, block_size: u32, blocks: u32) -> *mut Pkd
 }
 
 impl PkdAlloc {
+    /// Slot kinds (the bitmap bit): RAW = opaque bytes (memmove-safe as-is);
+    /// ALLOCATABLE = starts with a PkdAllocatable back-ref that shifts must
+    /// re-point (move_element_data heals it).
+    pub const RAW: u32         = 0u32;
+    pub const ALLOCATABLE: u32 = 1u32;
+
     // ── geometry ─────────────────────────────────────────────────────────
 
     // The tail's base address. (sizeof::<PkdAlloc>() = header size; the
@@ -212,7 +217,7 @@ impl PkdAlloc {
     }
     pub unsafe fn set_block_type(self: &mut PkdAlloc, idx: u32, typ: u32) {
         let w: *mut u64 = self.bitmap_word();
-        if typ == PKD_ALLOCATABLE { *w = *w | (1u64 << (idx as u64)); }
+        if typ == PkdAlloc::ALLOCATABLE { *w = *w | (1u64 << (idx as u64)); }
         else { *w = *w & (0xFFFF_FFFF_FFFF_FFFFu64 - (1u64 << (idx as u64))); }
     }
 
@@ -395,7 +400,7 @@ impl PkdAlloc {
         }
         let p: *mut u8 = ((self.base() as i64) + (self.element_offset(idx) as i64)) as *mut u8;
         zero_bytes(p, allocation_size as i64);
-        if typ == PKD_ALLOCATABLE {
+        if typ == PkdAlloc::ALLOCATABLE {
             let el: *mut PkdAllocatable = p as *mut PkdAllocatable;
             let sp: *const PkdAlloc = self as *const PkdAlloc;
             el.set_allocator_offset(sp);
@@ -419,13 +424,13 @@ impl PkdAlloc {
     pub unsafe fn import_block(self: &mut PkdAlloc, idx: u32,
                                src: *const PkdAlloc, src_idx: u32) -> bool {
         let ssize: u32 = src.element_size(src_idx);
-        let styp: u32 = if src.is_allocatable(src_idx) { PKD_ALLOCATABLE } else { PKD_RAW };
+        let styp: u32 = if src.is_allocatable(src_idx) { PkdAlloc::ALLOCATABLE } else { PkdAlloc::RAW };
         if self.resize_block_at(idx, ssize) == 0xFFFF_FFFFu32 { return false; }
         self.set_block_type(idx, styp);
         let sp: *const u8 = ((src.base() as i64) + (src.element_offset(src_idx) as i64)) as *const u8;
         let tp: *mut u8 = ((self.base() as i64) + (self.element_offset(idx) as i64)) as *mut u8;
         move_bytes(tp, sp, ssize as i64);
-        if ssize > 0u32 && styp == PKD_ALLOCATABLE {
+        if ssize > 0u32 && styp == PkdAlloc::ALLOCATABLE {
             let el: *mut PkdAllocatable = tp as *mut PkdAllocatable;
             let sp: *const PkdAlloc = self as *const PkdAlloc;
             el.set_allocator_offset(sp);
