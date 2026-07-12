@@ -107,7 +107,7 @@ impl PkdAllocatable {
     /// The owning allocator (undefined for top-level; check has_allocator).
     pub fn allocator(self: &mut PkdAllocatable) -> *mut PkdAlloc {
         let sp: *mut PkdAllocatable = self;
-        return unsafe { (sp as *mut u8).byte_sub((&*sp).alc_off as i64) } as *mut PkdAlloc;
+        return unsafe { (sp as *mut u8).byte_sub((&*sp).alc_off) } as *mut PkdAlloc;
     }
 
     /// The owning allocator or null for a top-level structure.
@@ -178,11 +178,11 @@ impl PkdAlloc {
     // C++ FAM idiom produces, now anchored to a REAL field.)
     unsafe fn buffer(self: &PkdAlloc) -> *mut u8 {
         let sp: *const PkdAlloc = self as *const PkdAlloc;
-        return (sp as *mut u8).byte_add(my_size() as i64);
+        return (sp as *mut u8).byte_add(my_size());
     }
     /// Start of element payloads; element offsets are relative to this.
     pub unsafe fn base(self: &PkdAlloc) -> *mut u8 {
-        return self.buffer().byte_add((self.layout_size + self.bitmap_size) as i64);
+        return self.buffer().byte_add(self.layout_size + self.bitmap_size);
     }
     pub fn block_size(self: &PkdAlloc) -> u32 { return self.block_size; }
     pub fn set_block_size(self: &mut PkdAlloc, v: u32) { self.block_size = v; }
@@ -215,16 +215,16 @@ impl PkdAlloc {
         self.block_size = round_down_bytes(block_size);
         let layout_blocks: u32 = blocks + (if blocks % 2u32 == 1u32 { 1u32 } else { 2u32 });
         self.layout_size = layout_blocks * 4u32;
-        zero_bytes(self.buffer(), self.layout_size as i64);
+        zero_bytes(self.buffer(), self.layout_size);
         self.bitmap_size = 8u32;                          // one u64 word (≤64 slots)
-        zero_bytes(self.buffer().byte_add(self.layout_size as i64),
-                   self.bitmap_size as i64);
+        zero_bytes(self.buffer().byte_add(self.layout_size),
+                   self.bitmap_size);
     }
 
     // ── layout cells + bitmap ────────────────────────────────────────────
 
     unsafe fn layout_cell(self: &PkdAlloc, idx: u32) -> *mut u32 {
-        return (self.buffer() as *mut u32).add(idx as i64);
+        return (self.buffer() as *mut u32).add(idx);
     }
     pub unsafe fn element_offset(self: &PkdAlloc, idx: u32) -> u32 {
         return *self.layout_cell(idx);
@@ -234,7 +234,7 @@ impl PkdAlloc {
     }
 
     unsafe fn bitmap_word(self: &PkdAlloc) -> *mut u64 {
-        return self.buffer().byte_add(self.layout_size as i64) as *mut u64;
+        return self.buffer().byte_add(self.layout_size) as *mut u64;
     }
     pub unsafe fn is_allocatable(self: &PkdAlloc, idx: u32) -> bool {
         return (*self.bitmap_word() >> (idx as u64)) & 1u64 == 1u64;
@@ -251,7 +251,7 @@ impl PkdAlloc {
 
     /// Typed pointer to element `idx`'s payload.
     pub unsafe fn get<T>(self: &PkdAlloc, idx: u32) -> *mut T {
-        return self.base().byte_add(self.element_offset(idx) as i64) as *mut T;
+        return self.base().byte_add(self.element_offset(idx)) as *mut T;
     }
 
     /// Offset of an interior pointer relative to base() (C++ compute_element_offset).
@@ -285,10 +285,10 @@ impl PkdAlloc {
     unsafe fn move_element_data(self: &mut PkdAlloc, idx: u32, delta: u32, up: bool) {
         let size: u32 = self.element_size(idx);
         if size == 0u32 { return; }
-        let ptr: *mut u8 = self.base().byte_add(self.element_offset(idx) as i64);
-        let dst: *mut u8 = if up { ptr.byte_add(delta as i64) }
-                           else  { ptr.byte_sub(delta as i64) };
-        move_bytes(dst, ptr as *const u8, size as i64);
+        let ptr: *mut u8 = self.base().byte_add(self.element_offset(idx));
+        let dst: *mut u8 = if up { ptr.byte_add(delta) }
+                           else  { ptr.byte_sub(delta) };
+        move_bytes(dst, ptr as *const u8, size);
         if self.is_allocatable(idx) {
             let el: *mut PkdAllocatable = dst as *mut PkdAllocatable;
             let sp: *const PkdAlloc = self as *const PkdAlloc;
@@ -420,8 +420,8 @@ impl PkdAlloc {
         let is_allocatable = match kind { SlotKind::Allocatable => true, SlotKind::Raw => false };
         self.set_block_type(idx, kind);
         self.resize_block_at(idx, allocation_size)?;
-        let p: *mut u8 = self.base().byte_add(self.element_offset(idx) as i64);
-        zero_bytes(p, allocation_size as i64);
+        let p: *mut u8 = self.base().byte_add(self.element_offset(idx));
+        zero_bytes(p, allocation_size);
         if is_allocatable {
             let el: *mut PkdAllocatable = p as *mut PkdAllocatable;
             let sp: *const PkdAlloc = self as *const PkdAlloc;
@@ -473,9 +473,9 @@ impl PkdAlloc {
         self.resize_block_at(idx, ssize)?;
         self.set_block_type(idx, if src_allocatable { SlotKind::Allocatable }
                                  else { SlotKind::Raw });
-        let sp: *const u8 = src.base().byte_add(src.element_offset(src_idx) as i64) as *const u8;
-        let tp: *mut u8 = self.base().byte_add(self.element_offset(idx) as i64);
-        move_bytes(tp, sp, ssize as i64);
+        let sp: *const u8 = src.base().byte_add(src.element_offset(src_idx)) as *const u8;
+        let tp: *mut u8 = self.base().byte_add(self.element_offset(idx));
+        move_bytes(tp, sp, ssize);
         if ssize > 0 && src_allocatable {
             let el: *mut PkdAllocatable = tp as *mut PkdAllocatable;
             let sp2: *const PkdAlloc = self as *const PkdAlloc;
