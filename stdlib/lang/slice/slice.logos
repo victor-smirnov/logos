@@ -11,6 +11,7 @@ use logos.lang.iter;
 use logos.lang.ops;
 use logos.lang.option;
 use logos.lang.result;
+use logos.lang.panic;
 use logos.lang.cmp;
 
 // ── split_at ──────────────────────────────────────────────────────────────
@@ -72,9 +73,10 @@ pub fn slice_get_range<T>(s: &[T], lo: i64, hi: i64) -> &[T] {
 /// Compiler intrinsic (sema intercepts the call); mirrors `str_from_raw` in `lang/str`.
 /// `ptr` must be valid for reads of `len` elements for as long as the result is used.
 pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
-    // Body unreachable — sema intercepts the call.
-    let dummy: &[T] = &[];
-    return dummy;
+    // Body unreachable — sema intercepts the call. If a call path ever
+    // slips past the intercept, FAIL LOUDLY instead of returning an empty
+    // slice (the old placeholder was a silent miscompile).
+    panic("slice_from_raw: intrinsic call was not intercepted (compiler bug)");
 }
 
 // ── Chunks<T> — non-overlapping consecutive chunks of size `n` ───────────

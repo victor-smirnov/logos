@@ -5257,10 +5257,6 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // codegen at mlir-gen.
     if (callee == "slice_from_raw") {
         auto ts = collect_type_args(node);
-        if (ts.size() != 1 || !ts[0]) {
-            error("slice_from_raw::<T>(ptr, len) requires exactly one type argument");
-            return error_expr();
-        }
         std::vector<lir::LExprPtr> args;
         if (node.has_key(la::ARGS)) {
             auto args_av = node.get(la::ARGS.code);
@@ -5273,6 +5269,21 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         }
         if (args.size() != 2) {
             error("slice_from_raw requires exactly 2 args: (ptr: *const T, len: i64)");
+            return error_expr();
+        }
+        // No turbofish: infer T from the ptr arg's pointee. A turbofish-less
+        // call inside a generic body used to FALL PAST this intercept into
+        // the ordinary generic-call path — and link the placeholder body
+        // (`&[]`), a silent empty-slice miscompile.
+        if (ts.empty()) {
+            TypeRef pt = expr_type(args[0]);
+            if (pt && TypeRef(pt).kind() == LogosType::Kind::Ptr &&
+                TypeRef(pt).pointee())
+                ts.push_back(TypeRef(pt).pointee());
+        }
+        if (ts.size() != 1 || !ts[0]) {
+            error("slice_from_raw::<T>(ptr, len): cannot determine T "
+                  "(pass the turbofish)");
             return error_expr();
         }
         auto slice_t = make_slice_type(ts[0]);
@@ -6821,9 +6832,18 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
         pargs.push_back(std::move(recv));
         for (auto& a : slc_args) pargs.push_back(std::move(a));
         if (!fi_ptr->type_params.empty()) {
+            // Bind the impl's params by UNIFYING the formal receiver against
+            // the actual slice — the old name-keyed "T" special case broke
+            // any impl<E> Trait for [E] whose param isn't literally T.
+            StrMap<TypeRef> binds;
+            if (!fi_ptr->param_types.empty())
+                unify_types(fi_ptr->param_types[0], expr_type(pargs[0]), binds);
             std::vector<TypeRef> m_type_args;
             for (auto& tp : fi_ptr->type_params) {
-                if (tp.name == "T") m_type_args.push_back(TypeRef(expr_type(pargs[0])).elem());
+                if (auto bit2 = binds.find(tp.name); bit2 != binds.end())
+                    m_type_args.push_back(bit2->second);
+                else if (tp.name == "T")
+                    m_type_args.push_back(TypeRef(expr_type(pargs[0])).elem());
                 else m_type_args.push_back(error_t());
             }
             return finish_generic_call(
