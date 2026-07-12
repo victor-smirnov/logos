@@ -83,7 +83,7 @@ add_custom_command(
     # the cross-CU WRef mono-bug regression) `use`s logos.std.wql.ir + logos.lang.writ.*,
     # so the fixture must build AFTER the stdlib and see it (matches coex2a/2b). Without
     # this a clean build schedules libpub_lib before liblogos-* -> module-loader misses.
-    DEPENDS logosc ${PUB_LIB_MANIFEST} ${PUB_LIB_SOURCES}
+    DEPENDS logosc ${PUB_LIB_MANIFEST} ${PUB_LIB_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
             ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: libpub_lib.a"
@@ -101,7 +101,7 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${WQL_MAP_LIB}/maplib.module -L ${STDLIB_BIN_DIR}
             -o ${WQL_MAP_LIB_BIN}
-    DEPENDS logosc ${WQL_MAP_LIB}/maplib.module ${WQL_MAP_LIB_SOURCES}
+    DEPENDS logosc ${WQL_MAP_LIB}/maplib.module ${WQL_MAP_LIB_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
             ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: libwql_map_lib.a"
@@ -121,7 +121,7 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${COEX_MANIFEST}
             -o ${COEX_BIN}
-    DEPENDS logosc ${COEX_MANIFEST} ${COEX_SOURCES}
+    DEPENDS logosc ${COEX_MANIFEST} ${COEX_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: libcoex.a"
 )
@@ -171,7 +171,7 @@ add_custom_command(
     # logos.lang.ops), the stale name in this archive collides with the
     # fresh name at consumer sema time. Add STDLIB_SOURCES so any stdlib
     # change triggers rebuild. Phase 7 cleanup removes the need.
-    DEPENDS logosc ${LAZY_PKG_MANIFEST} ${LAZY_PKG_SOURCES} ${STDLIB_SOURCES}
+    DEPENDS logosc ${LAZY_PKG_MANIFEST} ${LAZY_PKG_SOURCES} ${STDLIB_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: liblazy_pkg.a"
 )
@@ -189,7 +189,11 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${SD_DST_MOD_MANIFEST}
             -o ${SD_DST_MOD_BIN}
-    DEPENDS logosc ${SD_DST_MOD_MANIFEST} ${SD_DST_MOD_SOURCES} ${STDLIB_SOURCES}
+    # BUILT stdlib archives, not just sources: the fixture imports
+    # logos.lang.marker, so ninja must order it after the stdlib layers
+    # (the sources-only dep raced on CI — the coex2 fixtures are the model).
+    DEPENDS logosc ${SD_DST_MOD_MANIFEST} ${SD_DST_MOD_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: libsd_dst_mod.a"
 )
@@ -211,7 +215,7 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${LAZY_LOWER_MANIFEST}
             -o ${LAZY_LOWER_BIN}
-    DEPENDS logosc ${LAZY_LOWER_MANIFEST} ${LAZY_LOWER_SOURCES} ${STDLIB_SOURCES}
+    DEPENDS logosc ${LAZY_LOWER_MANIFEST} ${LAZY_LOWER_SOURCES} ${STDLIB_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: liblazy_lower.a"
 )
@@ -221,7 +225,7 @@ add_custom_command(
             --emit-module ${LAZY_UPPER_MANIFEST}
             -o ${LAZY_UPPER_BIN}
             -l ${LAZY_LOWER_BIN}
-    DEPENDS logosc ${LAZY_UPPER_MANIFEST} ${LAZY_UPPER_SOURCES} ${LAZY_LOWER_BIN} ${STDLIB_SOURCES}
+    DEPENDS logosc ${LAZY_UPPER_MANIFEST} ${LAZY_UPPER_SOURCES} ${LAZY_LOWER_BIN} ${STDLIB_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: liblazy_upper.a"
 )
@@ -248,7 +252,7 @@ add_custom_command(
     COMMAND $<TARGET_FILE:logosc>
             --emit-module ${THREE_LAYER_LOW_MANIFEST}
             -o ${THREE_LAYER_LOW_BIN}
-    DEPENDS logosc ${THREE_LAYER_LOW_MANIFEST} ${THREE_LAYER_LOW_SOURCES}
+    DEPENDS logosc ${THREE_LAYER_LOW_MANIFEST} ${THREE_LAYER_LOW_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: liblow.a (three_layer)"
 )
@@ -258,7 +262,7 @@ add_custom_command(
             --emit-module ${THREE_LAYER_MID_MANIFEST}
             -L ${THREE_LAYER_OUT_DIR}
             -o ${THREE_LAYER_MID_BIN}
-    DEPENDS logosc ${THREE_LAYER_MID_MANIFEST} ${THREE_LAYER_MID_SOURCES} ${THREE_LAYER_LOW_BIN}
+    DEPENDS logosc ${THREE_LAYER_MID_MANIFEST} ${THREE_LAYER_MID_SOURCES} ${THREE_LAYER_LOW_BIN} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: libmid.a (three_layer; depends low)"
 )
@@ -268,7 +272,7 @@ add_custom_command(
             --emit-module ${THREE_LAYER_HI_MANIFEST}
             -L ${THREE_LAYER_OUT_DIR}
             -o ${THREE_LAYER_HI_BIN}
-    DEPENDS logosc ${THREE_LAYER_HI_MANIFEST} ${THREE_LAYER_HI_SOURCES} ${THREE_LAYER_MID_BIN} ${THREE_LAYER_LOW_BIN}
+    DEPENDS logosc ${THREE_LAYER_HI_MANIFEST} ${THREE_LAYER_HI_SOURCES} ${THREE_LAYER_MID_BIN} ${THREE_LAYER_LOW_BIN} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: libhi.a (three_layer; depends mid + low)"
 )
