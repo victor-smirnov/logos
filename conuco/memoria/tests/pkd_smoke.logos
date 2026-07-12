@@ -10,6 +10,7 @@ use memoria.bt;
 use memoria.ctr;
 use memoria.store;
 use logos.lang.mem;
+use logos.lang.result;
 
 fn main() -> i32 {
     // linkage smoke for the sibling modules (stage markers only grow)
@@ -28,43 +29,46 @@ fn main() -> i32 {
         if ca != 4096u32 - 16u32 - 24u32 - 8u32 { return 5i32; }  // hdr+layout(6×4)+bitmap
 
         // RAW element in slot 0; write/read through it
-        let r0: *mut u8 = a.allocate(0u32, 10u32, PkdAlloc::RAW);
-        if (r0 as i64) == 0i64 { return 6i32; }
+        let r0: *mut u8 = match a.allocate(0, 10, SlotKind::Raw) {
+            Result::Ok(p) => p, Result::Err(_) => { return 6i32; }
+        };
         if a.element_size(0u32) != 16u32 { return 7i32; }    // 8-aligned
         if a.is_allocatable(0u32) { return 8i32; }
         *r0 = 0xABu8;
 
         // ALLOCATABLE nested allocator in slot 1
-        let n1: *mut u8 = a.allocate(1u32, PkdAlloc::empty_size_for(2u32) + 64u32, PkdAlloc::ALLOCATABLE);
-        if (n1 as i64) == 0i64 { return 9i32; }
+        // one call: allocate + init + parent wiring
+        let inner: *mut PkdAlloc = match a.allocate_nested(1, 2, 64) {
+            Result::Ok(p) => p, Result::Err(_) => { return 9i32; }
+        };
         if !a.is_allocatable(1u32) { return 10i32; }
-        let inner: *mut PkdAlloc = n1 as *mut PkdAlloc;
-        inner.init(a.element_size(1u32), 2u32);
-        inner.set_allocator(a as *const PkdAlloc);  // allocate() set it, init keeps able — re-assert
         if !inner.has_allocator() { return 11i32; }
         if (inner.allocator() as i64) != (a as i64) { return 12i32; }
 
         // a RAW element INSIDE the nested allocator
-        let ir: *mut u8 = inner.allocate(0u32, 24u32, PkdAlloc::RAW);
-        if (ir as i64) == 0i64 { return 13i32; }
+        let ir: *mut u8 = match inner.allocate(0, 24, SlotKind::Raw) {
+            Result::Ok(p) => p, Result::Err(_) => { return 13i32; }
+        };
         *ir = 0xCDu8;
 
         // ── recursive growth: the nested allocator can't fit a bigger
         // element → it asks the PARENT to enlarge it, siblings shift ──
         let before_parent_free: u32 = a.free_space();
         let big: u32 = inner.client_area() + 64u32;          // beyond inner's space
-        let ir2: *mut u8 = inner.allocate(1u32, big, PkdAlloc::RAW);
-        if (ir2 as i64) == 0i64 { return 14i32; }
+        let ir2: *mut u8 = match inner.allocate(1, big, SlotKind::Raw) {
+            Result::Ok(p) => p, Result::Err(_) => { return 14i32; }
+        };
         if a.free_space() >= before_parent_free { return 15i32; }  // parent paid
         if *ir != 0xCDu8 { return 16i32; }                   // survived its own grow
         if *r0 != 0xABu8 { return 17i32; }                   // raw sibling intact
 
         // slot 2 AFTER the nested one: growing IT shifts nothing below,
         // but growing slot 0 shifts the NESTED allocator — back-ref must heal
-        let r2: *mut u8 = a.allocate(2u32, 8u32, PkdAlloc::RAW);
-        if (r2 as i64) == 0i64 { return 18i32; }
+        let r2: *mut u8 = match a.allocate(2, 8, SlotKind::Raw) {
+            Result::Ok(p) => p, Result::Err(_) => { return 18i32; }
+        };
         *r2 = 0x77u8;
-        if a.resize_block_at(0u32, 64u32) == 0xFFFF_FFFFu32 { return 19i32; }
+        if a.resize_block_at(0, 64).is_err() { return 19i32; }
         let inner_moved: *mut PkdAlloc = a.get::<PkdAlloc>(1u32);
         if (inner_moved.allocator() as i64) != (a as i64) { return 20i32; }  // healed
         if *(a.get::<u8>(0u32)) != 0xABu8 { return 21i32; }
@@ -83,7 +87,7 @@ fn main() -> i32 {
         if a.allocated() >= alloc_before { return 27i32; }
 
         // top-level OOM: growing beyond the block fails with the sentinel
-        if a.resize_block_at(0u32, 100000u32) != 0xFFFF_FFFFu32 { return 28i32; }
+        if a.resize_block_at(0, 100000).is_ok() { return 28i32; }
 
         // ── relocatability: byte-copy the block; ALL views (incl. nested
         // back-refs) work at the new address ──

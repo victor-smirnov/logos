@@ -26,7 +26,8 @@
 // IS the family selector — no shape spelling at use sites.
 package memoria.pkd;
 
-use logos.lang.marker;    // Fst, StableLayout, SelfDescribing
+use logos.lang.marker;
+use logos.lang.result;   // Result/PkdError plumbing    // Fst, StableLayout, SelfDescribing
 use logos.lang.mem;
 
 // ── VLE: the primary (any T that is NOT FSE-able) ───────────────────────────
@@ -52,22 +53,13 @@ impl<T: ?Sized> PkdArray<T> {
     const SLOT_DATA: u32 = 2u32;
     const SLOTS:     u32 = 3u32;
 
-    /// Formats slot `idx` of `alc` as an empty VLE array; null on OOM.
-    pub unsafe fn format(alc: *mut PkdAlloc, idx: u32) -> *mut PkdArray<T> {
-        // header + slot table for 3 slots + CNT cell + OFFS[1]
-        let need: u32 = PkdAlloc::empty_size_for(PkdArray::SLOTS) + 8u32 + 8u32;
-        let p: *mut u8 = alc.allocate(idx, need, PkdAlloc::ALLOCATABLE);
-        if (p as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
-        let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-        inner.init(alc.element_size(idx), PkdArray::SLOTS);
-        inner.set_allocator(alc as *const PkdAlloc);
-        let cp: *mut u8 = inner.allocate(PkdArray::SLOT_CNT, 4u32, PkdAlloc::RAW);
-        if (cp as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
-        *(cp as *mut u32) = 0u32;
-        let op: *mut u8 = inner.allocate(PkdArray::SLOT_OFFS, 4u32, PkdAlloc::RAW);
-        if (op as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
-        *(op as *mut u32) = 0u32;                 // offs[0] = 0
-        return p as *mut PkdArray<T>;
+    /// Formats slot `idx` of `alc` as an empty VLE array.
+    pub unsafe fn format(alc: *mut PkdAlloc, idx: u32)
+        -> Result<*mut PkdArray<T>, PkdError> {
+        let inner = alc.allocate_nested(idx, PkdArray::SLOTS, 16)?;
+        inner.allocate_cell::<u32>(PkdArray::SLOT_CNT, 0)?;
+        inner.allocate_cell::<u32>(PkdArray::SLOT_OFFS, 0)?;   // offs[0] = 0
+        return Result::Ok(inner as *mut PkdArray<T>);
     }
 
     /// The embedded allocator (same address — the base view).
@@ -101,18 +93,16 @@ impl<T: ?Sized> PkdArray<T> {
     }
 
     /// Inserts `src[0..len)` as entry `i` (0 ≤ i ≤ count). Slot-wise exact
-    /// growth through the allocator chain; false = no room anywhere.
+    /// growth through the allocator chain.
     pub unsafe fn insert_bytes(self: &mut PkdArray<T>, i: u32,
-                               src: *const u8, len: i64) -> bool {
+                               src: *const u8, len: i64) -> Result<(), PkdError> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let cnt: u32 = sp.count();
-        let dn: u32 = sp.off(cnt);                     // used data bytes
+        let cnt = sp.count();
+        let dn = sp.off(cnt);                          // used data bytes
         // grow OFFS to (count+2) cells, then DATA by len (each resize may
         // shift the other slot; re-resolve views per step)
-        if sp.a().resize_block_at(PkdArray::SLOT_OFFS, ((cnt as i64) + 2i64) as u32 * 4u32)
-            == 0xFFFF_FFFFu32 { return false; }
-        if sp.a().resize_block_at(PkdArray::SLOT_DATA, dn + (len as u32))
-            == 0xFFFF_FFFFu32 { return false; }
+        sp.a().resize_block_at(PkdArray::SLOT_OFFS, (cnt + 2) * 4)?;
+        sp.a().resize_block_at(PkdArray::SLOT_DATA, dn + (len as u32))?;
         // shift data tail [off(i), dn) up by len, place the entry
         let at: u32 = sp.off(i);
         let d: *mut u8 = sp.a().get::<u8>(PkdArray::SLOT_DATA);
@@ -126,15 +116,16 @@ impl<T: ?Sized> PkdArray<T> {
             sp.off_wr(k + 1u32, sp.off(k) + (len as u32));
             k = k - 1u32;
         }
-        sp.off_wr(i + 1u32, at + (len as u32));
-        sp.set_count(cnt + 1u32);
-        return true;
+        sp.off_wr(i + 1, at + (len as u32));
+        sp.set_count(cnt + 1);
+        return Result::Ok(());
     }
 
     /// Appends an entry.
-    pub unsafe fn push_bytes(self: &mut PkdArray<T>, src: *const u8, len: i64) -> bool {
+    pub unsafe fn push_bytes(self: &mut PkdArray<T>, src: *const u8, len: i64)
+        -> Result<(), PkdError> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let at: u32 = sp.count();
+        let at = sp.count();
         return sp.insert_bytes(at, src, len);
     }
 
@@ -157,10 +148,10 @@ impl<T: ?Sized> PkdArray<T> {
             sp.off_wr(k, sp.off(k + 1u32) - len);
             k = k + 1u32;
         }
-        sp.set_count(cnt - 1u32);
-        // exact-fit shrink (shrink auto-packs the containing allocator)
+        sp.set_count(cnt - 1);
+        // exact-fit shrink (best-effort; shrink auto-packs the container)
         let _ = sp.a().resize_block_at(PkdArray::SLOT_DATA, dn - len);
-        let _ = sp.a().resize_block_at(PkdArray::SLOT_OFFS, ((cnt as i64)) as u32 * 4u32);
+        let _ = sp.a().resize_block_at(PkdArray::SLOT_OFFS, cnt * 4);
     }
 }
 
@@ -186,11 +177,11 @@ fn fse_hdr<T: Copy + Fst + StableLayout>() -> u32 {
 }
 
 impl<T: Copy + Fst + StableLayout> PkdArray<T> {
-    /// Formats slot `idx` of `alc` as an empty FSE array; null on OOM.
-    pub unsafe fn format(alc: *mut PkdAlloc, idx: u32) -> *mut PkdArray<T> {
-        let p: *mut u8 = alc.allocate(idx, fse_hdr::<T>(), PkdAlloc::ALLOCATABLE);
-        if (p as i64) == 0i64 { return 0i64 as *mut PkdArray<T>; }
-        return p as *mut PkdArray<T>;
+    /// Formats slot `idx` of `alc` as an empty FSE array.
+    pub unsafe fn format(alc: *mut PkdAlloc, idx: u32)
+        -> Result<*mut PkdArray<T>, PkdError> {
+        let p = alc.allocate(idx, fse_hdr::<T>(), SlotKind::Allocatable)?;
+        return Result::Ok(p as *mut PkdArray<T>);
     }
 
     pub fn count(self: &PkdArray<T>) -> u32 { return self.count; }
@@ -212,10 +203,12 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
                           + (i as i64) * sizeof::<T>()) as *mut T;
     }
 
-    unsafe fn resize_self(self: &mut PkdArray<T>, new_size: u32) -> bool {
+    unsafe fn resize_self(self: &mut PkdArray<T>, new_size: u32)
+        -> Result<(), PkdError> {
         let alc: *mut PkdAlloc = self.able.allocator();
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        return alc.resize_block(sp as *const u8, new_size) != 0xFFFF_FFFFu32;
+        alc.resize_block(sp as *const u8, new_size)?;
+        return Result::Ok(());
     }
 
     pub unsafe fn get(self: &PkdArray<T>, i: u32) -> T {
@@ -227,24 +220,24 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
     }
 
     /// Inserts `v` at position `i` (0 ≤ i ≤ count). Exact-fit growth through
-    /// the allocator chain; false = no room anywhere up the chain.
-    pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, v: T) -> bool {
+    /// the allocator chain.
+    pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, v: T) -> Result<(), PkdError> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let esz: i64 = sizeof::<T>();
-        let cnt: u32 = sp.count();
-        let need: u32 = fse_hdr::<T>() + (((cnt as i64) + 1i64) * esz) as u32;
-        if !sp.resize_self(need) { return false; }
+        let cnt = sp.count();
+        let need = fse_hdr::<T>() + (((cnt as i64) + 1) * esz) as u32;
+        sp.resize_self(need)?;
         let at: i64 = sp.at(i) as i64;
         move_bytes((at + esz) as *mut u8, at as *const u8,
                    ((cnt - i) as i64) * esz);
         *(at as *mut T) = v;
-        sp.count = cnt + 1u32;
-        return true;
+        sp.count = cnt + 1;
+        return Result::Ok(());
     }
 
-    pub unsafe fn push(self: &mut PkdArray<T>, v: T) -> bool {
+    pub unsafe fn push(self: &mut PkdArray<T>, v: T) -> Result<(), PkdError> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let at: u32 = sp.count();
+        let at = sp.count();
         return sp.insert(at, v);
     }
 
@@ -253,33 +246,33 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
     pub unsafe fn remove(self: &mut PkdArray<T>, i: u32) {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let esz: i64 = sizeof::<T>();
-        let cnt: u32 = sp.count();
+        let cnt = sp.count();
         let at: i64 = sp.at(i) as i64;
         move_bytes(at as *mut u8, (at + esz) as *const u8,
-                   ((cnt - i - 1u32) as i64) * esz);
-        sp.count = cnt - 1u32;
-        let keep: u32 = fse_hdr::<T>() + (((cnt - 1u32) as i64) * esz) as u32;
-        let _ = sp.resize_self(keep);
+                   ((cnt - i - 1) as i64) * esz);
+        sp.count = cnt - 1;
+        let keep = fse_hdr::<T>() + (((cnt - 1) as i64) * esz) as u32;
+        let _ = sp.resize_self(keep);      // shrink is best-effort
     }
 
     /// Moves elements [mid..count) into `dst` (an EMPTY formatted FSE
     /// PkdArray<T> in another block); truncates self to [0..mid). The
     /// B+tree split primitive.
     pub unsafe fn split_into(self: &mut PkdArray<T>,
-                             dst: *mut PkdArray<T>, mid: u32) -> bool {
+                             dst: *mut PkdArray<T>, mid: u32) -> Result<(), PkdError> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let esz: i64 = sizeof::<T>();
-        let cnt: u32 = sp.count();
-        let moved: u32 = cnt - mid;
-        let need: u32 = fse_hdr::<T>() + ((moved as i64) * esz) as u32;
-        if !dst.resize_self(need) { return false; }
-        move_bytes(dst.at(0u32) as *mut u8, sp.at(mid) as *const u8,
+        let cnt = sp.count();
+        let moved = cnt - mid;
+        let need = fse_hdr::<T>() + ((moved as i64) * esz) as u32;
+        dst.resize_self(need)?;
+        move_bytes(dst.at(0) as *mut u8, sp.at(mid) as *const u8,
                    (moved as i64) * esz);
         dst.count = moved;
         sp.count = mid;
-        let keep: u32 = fse_hdr::<T>() + ((mid as i64) * esz) as u32;
-        let _ = sp.resize_self(keep);
-        return true;
+        let keep = fse_hdr::<T>() + ((mid as i64) * esz) as u32;
+        let _ = sp.resize_self(keep);      // shrink is best-effort
+        return Result::Ok(());
     }
 }
 

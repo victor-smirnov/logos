@@ -25,6 +25,7 @@ package memoria.bt;
 use memoria.pkd;
 use logos.lang.mem;
 use logos.lang.option;
+use logos.lang.result;
 use logos.mem.collections.vec;
 
 // ── node geometry ────────────────────────────────────────────────────────────
@@ -49,13 +50,15 @@ impl BtArena {
     pub fn alloc_node(self: &mut BtArena, is_leaf: bool, level: u32) -> u64 {
         unsafe {
             let mem: *mut u8 = alloc(BT_BLOCK as i64);
-            let a: *mut PkdAlloc = pkd_format(mem, BT_BLOCK, 3u32);
-            let h: *mut u32 = a.allocate(SLOT_HDR, 8u32, PkdAlloc::RAW) as *mut u32;
-            if (h as i64) == 0i64 { return 0u64; }
+            let a: *mut PkdAlloc = pkd_format(mem, BT_BLOCK, 3);
+            let h: *mut u32 = match a.allocate(SLOT_HDR, 8, SlotKind::Raw) {
+                Result::Ok(p) => p as *mut u32,
+                Result::Err(_) => { return 0u64; }
+            };
             *h = if is_leaf { 1u32 } else { 0u32 };
             *(((h as i64) + 4i64) as *mut u32) = level;
-            if (PkdArray::<u64>::format(a, SLOT_KEYS) as i64) == 0u64 as i64 { return 0u64; }
-            if (PkdArray::<u64>::format(a, SLOT_VALS) as i64) == 0u64 as i64 { return 0u64; }
+            if PkdArray::<u64>::format(a, SLOT_KEYS).is_err() { return 0u64; }
+            if PkdArray::<u64>::format(a, SLOT_VALS).is_err() { return 0u64; }
             self.blocks.push(mem as i64);
             return self.blocks.len() as u64;   // ids are 1-based
         }
@@ -223,8 +226,8 @@ unsafe fn wire_split(arena: &mut BtArena, t: &mut BtTree,
     let (bid, idx) = path.get(pi);
     let bp: *mut PkdAlloc = arena.at(bid);
     nkeys(bp).set(idx, lmax);                     // left kept the low half
-    let ok1: bool = nkeys(bp).insert(idx + 1u32, rmax);
-    let ok2: bool = if ok1 { nvals(bp).insert(idx + 1u32, right) } else { false };
+    let ok1: bool = nkeys(bp).insert(idx + 1, rmax).is_ok();
+    let ok2: bool = if ok1 { nvals(bp).insert(idx + 1, right).is_ok() } else { false };
     if ok1 && ok2 { return; }
     if ok1 && !ok2 { nkeys(bp).remove(idx + 1u32); }
     // parent full: split it, wire ITS halves one level up, then place
@@ -256,8 +259,8 @@ pub fn bt_insert(arena: &mut BtArena, t: &mut BtTree, key: u64, val: u64) -> boo
             return true;
         }
         let n0: u32 = keys_count(lp);
-        let ok1: bool = nkeys(lp).insert(r.pos, key);
-        let ok2: bool = if ok1 { nvals(lp).insert(r.pos, val) } else { false };
+        let ok1: bool = nkeys(lp).insert(r.pos, key).is_ok();
+        let ok2: bool = if ok1 { nvals(lp).insert(r.pos, val).is_ok() } else { false };
         if ok1 && ok2 {
             if r.pos == n0 { fix_maxes(arena, &path, leaf); }
             return true;

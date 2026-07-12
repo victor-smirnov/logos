@@ -28,9 +28,24 @@
 // instead of throwing.
 package memoria.pkd;
 
-use logos.lang.marker;    // Fst (negative impl below) + SelfDescribing
+use logos.lang.marker;
+use logos.lang.result;   // Result/PkdError plumbing    // Fst (negative impl below) + SelfDescribing
 
 
+
+/// The packed layer's error vocabulary. OutOfMem = the whole parent chain
+/// could not produce the bytes (C++ throws PackedOOMException; Logos returns).
+pub enum PkdError {
+    OutOfMem,
+}
+
+/// Slot kind (one bitmap bit per slot): Raw = opaque bytes, memmove-safe
+/// as-is; Allocatable = the payload STARTS with a PkdAllocatable back-ref
+/// that shifts must re-point (move_element_data heals it).
+pub enum SlotKind {
+    Raw,
+    Allocatable,
+}
 
 /// AlignmentBlock = 8 (PackedAllocationAlignment).
 pub fn round_up_bytes(v: u32) -> u32 { return (v + 7u32) & (0xFFFF_FFFFu32 - 7u32); }
@@ -155,12 +170,6 @@ impl PkdAlloc {
         self.able.set_allocator_offset(parent);
     }
 
-    /// Slot kinds (the bitmap bit): RAW = opaque bytes (memmove-safe as-is);
-    /// ALLOCATABLE = starts with a PkdAllocatable back-ref that shifts must
-    /// re-point (move_element_data heals it).
-    pub const RAW: u32         = 0u32;
-    pub const ALLOCATABLE: u32 = 1u32;
-
     // ── geometry ─────────────────────────────────────────────────────────
 
     // The tail's base address. (sizeof::<PkdAlloc>() = header size; the
@@ -229,10 +238,12 @@ impl PkdAlloc {
     pub unsafe fn is_allocatable(self: &PkdAlloc, idx: u32) -> bool {
         return (*self.bitmap_word() >> (idx as u64)) & 1u64 == 1u64;
     }
-    pub unsafe fn set_block_type(self: &mut PkdAlloc, idx: u32, typ: u32) {
+    pub unsafe fn set_block_type(self: &mut PkdAlloc, idx: u32, kind: SlotKind) {
         let w: *mut u64 = self.bitmap_word();
-        if typ == PkdAlloc::ALLOCATABLE { *w = *w | (1u64 << (idx as u64)); }
-        else { *w = *w & (0xFFFF_FFFF_FFFF_FFFFu64 - (1u64 << (idx as u64))); }
+        match kind {
+            SlotKind::Allocatable => { *w = *w | (1u64 << (idx as u64)); }
+            SlotKind::Raw => { *w = *w & (0xFFFF_FFFF_FFFF_FFFFu64 - (1u64 << (idx as u64))); }
+        }
     }
 
     // ── element addressing ───────────────────────────────────────────────
@@ -320,31 +331,30 @@ impl PkdAlloc {
 
     /// Resizes element `idx` to `new_size` (rounded up to 8). Grow beyond
     /// free space asks THE PARENT to enlarge this allocator — recursively.
-    /// Returns the allocation size, or 0xFFFFFFFF on top-level OOM
-    /// (C++ throws; we return the sentinel).
-    pub unsafe fn resize_block_at(self: &mut PkdAlloc, idx: u32, new_size: u32) -> u32 {
-        let allocation_size: u32 = round_up_bytes(new_size);
-        let size: u32 = self.element_size(idx);
+    /// Ok(allocation size); Err(OutOfMem) when the chain can't provide.
+    pub unsafe fn resize_block_at(self: &mut PkdAlloc, idx: u32, new_size: u32)
+        -> Result<u32, PkdError> {
+        let allocation_size = round_up_bytes(new_size);
+        let size = self.element_size(idx);
         if allocation_size > size {
-            let delta: u32 = allocation_size - size;
-            let free: u32 = self.free_space();
-            if delta > free {
-                if self.enlarge(delta - free) == 0xFFFF_FFFFu32 { return 0xFFFF_FFFFu32; }
-            }
-            self.move_elements_up(idx + 1u32, delta);
+            let delta = allocation_size - size;
+            let free = self.free_space();
+            if delta > free { self.enlarge(delta - free)?; }
+            self.move_elements_up(idx + 1, delta);
         } else if allocation_size < size {
-            let delta: u32 = size - allocation_size;
-            self.move_elements_down(idx + 1u32, delta);
-            if self.able.allocator_offset() > 0u32 {
+            let delta = size - allocation_size;
+            self.move_elements_down(idx + 1, delta);
+            if self.able.allocator_offset() > 0 {
                 let _ = self.pack();      // nested allocators auto-compact
             }
         }
-        return allocation_size;
+        return Result::Ok(allocation_size);
     }
 
     /// Resize by interior element pointer (C++ resize_block(const void*, …)).
-    pub unsafe fn resize_block(self: &mut PkdAlloc, element: *const u8, new_size: u32) -> u32 {
-        let idx: u32 = self.find_element(element);
+    pub unsafe fn resize_block(self: &mut PkdAlloc, element: *const u8, new_size: u32)
+        -> Result<u32, PkdError> {
+        let idx = self.find_element(element);
         return self.resize_block_at(idx, new_size);
     }
 
@@ -370,56 +380,75 @@ impl PkdAlloc {
     }
 
     /// Grows this allocator's own block by `delta` bytes through its parent
-    /// (top-level cannot grow: 0xFFFFFFFF).
-    pub unsafe fn enlarge(self: &mut PkdAlloc, delta: u32) -> u32 {
+    /// (a top-level allocator cannot grow).
+    pub unsafe fn enlarge(self: &mut PkdAlloc, delta: u32) -> Result<u32, PkdError> {
         return self.resize(round_up_bytes(self.block_size + delta));
     }
 
     /// Shrinks this allocator's own block by `delta` bytes through its parent.
-    pub unsafe fn shrink(self: &mut PkdAlloc, delta: u32) -> u32 {
+    pub unsafe fn shrink(self: &mut PkdAlloc, delta: u32) -> Result<u32, PkdError> {
         return self.resize(round_down_bytes(self.block_size - delta));
     }
 
     // Ask the parent for a new own-block size; top-level can only shrink-or-
-    // stay (C++ resize(); OOM → sentinel instead of throw).
-    unsafe fn resize(self: &mut PkdAlloc, new_size: u32) -> u32 {
-        if self.able.allocator_offset() > 0u32 {
+    // stay (C++ resize() throws; Logos propagates).
+    unsafe fn resize(self: &mut PkdAlloc, new_size: u32) -> Result<u32, PkdError> {
+        if self.able.allocator_offset() > 0 {
             let parent: *mut PkdAlloc = self.able.allocator();
             let sp: *const PkdAlloc = self as *const PkdAlloc;
-            let got: u32 = parent.resize_block(sp as *const u8, new_size);
-            if got == 0xFFFF_FFFFu32 { return 0xFFFF_FFFFu32; }
-            self.block_size = got;
+            self.block_size = parent.resize_block(sp as *const u8, new_size)?;
         } else if new_size > self.block_size {
-            return 0xFFFF_FFFFu32;   // top-level OOM
+            return Result::Err(PkdError::OutOfMem);   // top-level OOM
         }
-        return self.block_size;
+        return Result::Ok(self.block_size);
     }
 
     /// Releases this allocator's free tail back to its parent (C++ pack()).
-    pub unsafe fn pack(self: &mut PkdAlloc) -> u32 {
-        let free: u32 = self.free_space();
+    pub unsafe fn pack(self: &mut PkdAlloc) -> Result<u32, PkdError> {
+        let free = self.free_space();
         return self.resize(self.block_size - free);
     }
 
     // ── allocate / free / import ─────────────────────────────────────────
 
-    /// Sizes element `idx` to `size`, zero-fills it, stamps the block type;
-    /// ALLOCATABLE elements get their back-reference set. Returns the
-    /// payload pointer, or null on OOM (C++ allocate()).
-    pub unsafe fn allocate(self: &mut PkdAlloc, idx: u32, size: u32, typ: u32) -> *mut u8 {
-        let allocation_size: u32 = round_up_bytes(size);
-        self.set_block_type(idx, typ);
-        if self.resize_block_at(idx, allocation_size) == 0xFFFF_FFFFu32 {
-            return 0i64 as *mut u8;
-        }
+    /// Sizes element `idx` to `size`, zero-fills it, stamps the slot kind;
+    /// Allocatable elements get their back-reference set (C++ allocate()).
+    pub unsafe fn allocate(self: &mut PkdAlloc, idx: u32, size: u32, kind: SlotKind)
+        -> Result<*mut u8, PkdError> {
+        let allocation_size = round_up_bytes(size);
+        let is_allocatable = match kind { SlotKind::Allocatable => true, SlotKind::Raw => false };
+        self.set_block_type(idx, kind);
+        self.resize_block_at(idx, allocation_size)?;
         let p: *mut u8 = ((self.base() as i64) + (self.element_offset(idx) as i64)) as *mut u8;
         zero_bytes(p, allocation_size as i64);
-        if typ == PkdAlloc::ALLOCATABLE {
+        if is_allocatable {
             let el: *mut PkdAllocatable = p as *mut PkdAllocatable;
             let sp: *const PkdAlloc = self as *const PkdAlloc;
             el.set_allocator_offset(sp);
         }
-        return p;
+        return Result::Ok(p);
+    }
+
+    /// Allocates slot `idx` as a NESTED allocator with `slots` slots and
+    /// `extra` bytes of client area — the recurring allocate → init →
+    /// set_allocator dance as ONE operation.
+    pub unsafe fn allocate_nested(self: &mut PkdAlloc, idx: u32, slots: u32, extra: u32)
+        -> Result<*mut PkdAlloc, PkdError> {
+        let need = PkdAlloc::empty_size_for(slots) + round_up_bytes(extra);
+        let p = self.allocate(idx, need, SlotKind::Allocatable)?;
+        let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+        inner.init(self.element_size(idx), slots);
+        inner.set_allocator(self as *const PkdAlloc);
+        return Result::Ok(inner);
+    }
+
+    /// Allocates slot `idx` as a RAW cell of type `S` holding `v`.
+    pub unsafe fn allocate_cell<S: Copy + Fst + StableLayout>(
+        self: &mut PkdAlloc, idx: u32, v: S) -> Result<*mut S, PkdError> {
+        let p = self.allocate(idx, sizeof::<S>() as u32, SlotKind::Raw)?;
+        let cell: *mut S = p as *mut S;
+        *cell = v;
+        return Result::Ok(cell);
     }
 
     /// Empties element `idx`, compacting the tail (C++ free()).
@@ -433,22 +462,24 @@ impl PkdAlloc {
         }
     }
 
-    /// Copies element `src_idx` of `src` into our `idx` — size, type, bytes,
+    /// Copies element `src_idx` of `src` into our `idx` — size, kind, bytes,
     /// back-reference (C++ import_block()).
     pub unsafe fn import_block(self: &mut PkdAlloc, idx: u32,
-                               src: *const PkdAlloc, src_idx: u32) -> bool {
-        let ssize: u32 = src.element_size(src_idx);
-        let styp: u32 = if src.is_allocatable(src_idx) { PkdAlloc::ALLOCATABLE } else { PkdAlloc::RAW };
-        if self.resize_block_at(idx, ssize) == 0xFFFF_FFFFu32 { return false; }
-        self.set_block_type(idx, styp);
+                               src: *const PkdAlloc, src_idx: u32)
+        -> Result<(), PkdError> {
+        let ssize = src.element_size(src_idx);
+        let src_allocatable = src.is_allocatable(src_idx);
+        self.resize_block_at(idx, ssize)?;
+        self.set_block_type(idx, if src_allocatable { SlotKind::Allocatable }
+                                 else { SlotKind::Raw });
         let sp: *const u8 = ((src.base() as i64) + (src.element_offset(src_idx) as i64)) as *const u8;
         let tp: *mut u8 = ((self.base() as i64) + (self.element_offset(idx) as i64)) as *mut u8;
         move_bytes(tp, sp, ssize as i64);
-        if ssize > 0u32 && styp == PkdAlloc::ALLOCATABLE {
+        if ssize > 0 && src_allocatable {
             let el: *mut PkdAllocatable = tp as *mut PkdAllocatable;
-            let sp: *const PkdAlloc = self as *const PkdAlloc;
-            el.set_allocator_offset(sp);
+            let sp2: *const PkdAlloc = self as *const PkdAlloc;
+            el.set_allocator_offset(sp2);
         }
-        return true;
+        return Result::Ok(());
     }
 }

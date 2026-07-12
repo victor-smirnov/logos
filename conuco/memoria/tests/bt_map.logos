@@ -9,6 +9,7 @@ use memoria.pkd;
 use memoria.bt;
 use logos.lang.mem;
 use logos.lang.option;
+use logos.lang.result;
 use logos.mem.collections.vec;
 
 // deterministic LCG (Knuth MMIX)

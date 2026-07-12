@@ -7,24 +7,27 @@ package test;
 
 use memoria.pkd;
 use logos.lang.mem;
+use logos.lang.result;
 
 fn main() -> i32 {
     unsafe {
         let mem: *mut u8 = alloc(8192i64);
         let a: *mut PkdAlloc = pkd_format(mem, 8192u32, 3u32);
 
-        let xs: *mut PkdArray<u64> = PkdArray::<u64>::format(a, 0u32);
-        if (xs as i64) == 0i64 { return 1i32; }
-        let canary: *mut PkdArray<u64> = PkdArray::<u64>::format(a, 1u32);
-        if (canary as i64) == 0i64 { return 2i32; }
+        let xs: *mut PkdArray<u64> = match PkdArray::<u64>::format(a, 0) {
+            Result::Ok(p) => p, Result::Err(_) => { return 1i32; }
+        };
+        let canary: *mut PkdArray<u64> = match PkdArray::<u64>::format(a, 1) {
+            Result::Ok(p) => p, Result::Err(_) => { return 2i32; }
+        };
 
         let mut i: u64 = 0u64;
-        while i < 8u64 { if !canary.push(1000u64 + i) { return 3i32; } i = i + 1u64; }
+        while i < 8u64 { if canary.push(1000u64 + i).is_err() { return 3i32; } i = i + 1u64; }
 
         // xs grows itself; canary sits BELOW xs (later slot) and shifts —
         // re-resolve it through the allocator after mutations
         i = 0u64;
-        while i < 20u64 { if !xs.push(i * 2u64) { return 4i32; } i = i + 1u64; }
+        while i < 20u64 { if xs.push(i * 2u64).is_err() { return 4i32; } i = i + 1u64; }
         let canary2: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(1u32);
         if canary2.count() != 8u32 { return 5i32; }
         // fat-ref materialization calls the FAMILY-correct dst_len (FSE=count)
@@ -35,7 +38,7 @@ fn main() -> i32 {
         // sorted insert via lower_bound
         let pos: u32 = fse_lower_bound_u64(xs, 7u64);
         if pos != 4u32 { return 8i32; }
-        if !xs.insert(pos, 7u64) { return 9i32; }
+        if xs.insert(pos, 7u64).is_err() { return 9i32; }
         if xs.get(4u32) != 7u64 { return 10i32; }
         if xs.get(5u32) != 8u64 { return 11i32; }
         if xs.count() != 21u32 { return 12i32; }
@@ -50,8 +53,10 @@ fn main() -> i32 {
         // split into a SECOND block
         let mem2: *mut u8 = alloc(8192i64);
         let b: *mut PkdAlloc = pkd_format(mem2, 8192u32, 3u32);
-        let right: *mut PkdArray<u64> = PkdArray::<u64>::format(b, 0u32);
-        if !xs.split_into(right, 10u32) { return 17i32; }
+        let right: *mut PkdArray<u64> = match PkdArray::<u64>::format(b, 0) {
+            Result::Ok(p) => p, Result::Err(_) => { return 170i32; }
+        };
+        if xs.split_into(right, 10u32).is_err() { return 17i32; }
         if xs.count() != 10u32 { return 18i32; }
         if right.count() != 10u32 { return 19i32; }
         if right.get(0u32) != 20u64 { return 20i32; }
@@ -59,17 +64,14 @@ fn main() -> i32 {
 
         // ── depth 2: an arr inside a NESTED allocator grows through the
         // whole chain (child asks inner, inner asks the top level) ──
-        let hold: u32 = PkdAlloc::empty_size_for(2u32) + 32u32;
-        let np: *mut u8 = a.allocate(2u32, hold, PkdAlloc::ALLOCATABLE);
-        if (np as i64) == 0i64 { return 22i32; }
-        let inner: *mut PkdAlloc = np as *mut PkdAlloc;
-        inner.init(a.element_size(2u32), 2u32);
-        inner.set_allocator(a as *const PkdAlloc);
-        let deep: *mut PkdArray<u64> = PkdArray::<u64>::format(inner, 0u32);
-        if (deep as i64) == 0i64 { return 23i32; }
+        // allocate_nested folds the allocate → init → set_allocator dance
+        let inner: *mut PkdAlloc = match a.allocate_nested(2, 2, 32) {
+            Result::Ok(p) => p, Result::Err(_) => { return 22i32; }
+        };
+        if PkdArray::<u64>::format(inner, 0).is_err() { return 23i32; }
         let mut d: u64 = 0u64;
         while d < 200u64 {                          // far beyond inner's 32 bytes
-            if !deep2_push(a, d) { return 24i32; }
+            if deep2_push(a, d).is_err() { return 24i32; }
             d = d + 1u64;
         }
         let inner2: *mut PkdAlloc = a.get::<PkdAlloc>(2u32);
@@ -89,7 +91,7 @@ fn main() -> i32 {
 
 // Push through freshly-resolved views (mutations shift structures, so raw
 // pointers held across mutations would dangle — resolve per operation).
-unsafe fn deep2_push(a: *mut PkdAlloc, v: u64) -> bool {
+unsafe fn deep2_push(a: *mut PkdAlloc, v: u64) -> Result<(), PkdError> {
     let inner: *mut PkdAlloc = a.get::<PkdAlloc>(2u32);
     let deep: *mut PkdArray<u64> = inner.get::<PkdArray<u64>>(0u32);
     return deep.push(v);
