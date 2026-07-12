@@ -242,78 +242,103 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         return self.able.allocator();
     }
 
-    /// Address of element `i` (raw view; valid until the next mutation of
-    /// the containing block).
+    /// Address of element `i` (raw; the safe views below are built on it).
     unsafe fn at(self: &PkdArray<T>, i: u32) -> *mut T {
         let sp: *const PkdArray<T> = self as *const PkdArray<T>;
         let data: *mut T = (sp as *mut u8).byte_add(fse_hdr::<T>()) as *mut T;
         return data.add(i);
     }
 
-    unsafe fn resize_self(self: &mut PkdArray<T>, new_size: u32)
+    /// All elements as a view — borrow-tied to self: alive views block every
+    /// mutation of the array (the FSE analog of VLE's get_bytes).
+    pub fn as_slice(self: &PkdArray<T>) -> &[T] {
+        return unsafe { slice_from_raw::<T>(self.at(0) as *const T, self.count) };
+    }
+    fn elems_mut(self: &mut PkdArray<T>) -> &mut [T] {
+        return unsafe {
+            slice_from_raw::<T>(self.at(0) as *const T, self.count) as &mut [T]
+        };
+    }
+
+    /// Own-block resize through the parent chain (a top-level array has no
+    /// parent to grow through — Err(OutOfMem)). SAFE: a well-formed
+    /// `&mut PkdArray<T>` implies a valid back-ref, and resize never moves
+    /// this block — only later siblings shift.
+    fn resize_self(self: &mut PkdArray<T>, new_size: u32)
         -> Result<(), PkdError> {
-        let alc: *mut PkdAlloc = self.able.allocator();
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        alc.resize_block(sp as *const u8, new_size)?;
+        if !self.able.has_allocator() { return Result::Err(PkdError::OutOfMem); }
+        unsafe {
+            let alc: *mut PkdAlloc = self.able.allocator();
+            let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+            alc.resize_block(sp as *const u8, new_size)?;
+        }
         return Result::Ok(());
     }
 
-    pub unsafe fn get(self: &PkdArray<T>, i: u32) -> T {
-        return *self.at(i);
+    /// Element `i` by value (T: Copy). Bad index panics.
+    pub fn get(self: &PkdArray<T>, i: u32) -> T {
+        assert(i < self.count, "PkdArray::get: index out of range");
+        return self.as_slice()[i];
     }
 
-    pub unsafe fn set(self: &PkdArray<T>, i: u32, v: T) {
-        *self.at(i) = v;
+    pub fn set(self: &mut PkdArray<T>, i: u32, v: T) {
+        assert(i < self.count, "PkdArray::set: index out of range");
+        let e: &mut [T] = self.elems_mut();
+        e[i] = v;
     }
 
-    /// Inserts `*src` at position `i` (0 ≤ i ≤ count). Exact-fit growth
-    /// through the allocator chain.
-    pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
+    /// Inserts `*src` at position `i` (0 ≤ i ≤ count; out of range panics).
+    /// Exact-fit growth through the allocator chain. NO unsafe — phase form:
+    /// resize first (no views live), count bumped, view after (shift reads
+    /// only the old valid range).
+    pub fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
         -> Result<(), PkdError> {
         let esz: i64 = sizeof::<T>();
-        let cnt = self.count();
+        let cnt = self.count;
+        assert(i <= cnt, "PkdArray::insert: index out of range");
         let need = fse_hdr::<T>() + ((cnt + 1) * esz) as u32;
         self.resize_self(need)?;
-        let at: *mut T = self.at(i);
-        move_bytes((at as *mut u8).byte_add(esz), at as *const u8,
-                   (cnt - i) * esz);
-        *at = *src;
         self.count = cnt + 1;
+        let e: &mut [T] = self.elems_mut();
+        slice_copy_within(e, i, cnt, i + 1u32);
+        e[i] = *src;
         return Result::Ok(());
     }
 
-    /// Appends `*src`.
-    pub unsafe fn push(self: &mut PkdArray<T>, src: &T) -> Result<(), PkdError> {
-        let at = self.count();
+    /// Appends `*src`. SAFE — see insert.
+    pub fn push(self: &mut PkdArray<T>, src: &T) -> Result<(), PkdError> {
+        let at = self.count;
         return self.insert(at, src);
     }
 
     /// Removes element `i`, shrinking to exact fit (shrink auto-packs the
-    /// containing allocator).
-    pub unsafe fn remove(self: &mut PkdArray<T>, i: u32) {
+    /// containing allocator). NO unsafe — view first, resize last.
+    pub fn remove(self: &mut PkdArray<T>, i: u32) {
         let esz: i64 = sizeof::<T>();
-        let cnt = self.count();
-        let at: *mut T = self.at(i);
-        move_bytes(at as *mut u8, (at as *const u8).byte_add(esz),
-                   (cnt - i - 1) * esz);
+        let cnt = self.count;
+        assert(i < cnt, "PkdArray::remove: index out of range");
+        let e: &mut [T] = self.elems_mut();
+        slice_copy_within(e, i + 1u32, cnt, i);
         self.count = cnt - 1;
         let keep = fse_hdr::<T>() + ((cnt - 1) * esz) as u32;
         let _ = self.resize_self(keep);      // shrink is best-effort
     }
 
     /// Moves elements [mid..count) into `dst` (an EMPTY formatted FSE
-    /// PkdArray<T> in another block); truncates self to [0..mid). The
-    /// B+tree split primitive.
-    pub unsafe fn split_into(self: &mut PkdArray<T>,
-                             dst: *mut PkdArray<T>, mid: u32) -> Result<(), PkdError> {
+    /// PkdArray<T> in ANOTHER block — disjoint objects, so `&mut dst` +
+    /// `&self` views coexist); truncates self to [0..mid). The B+tree split
+    /// primitive. NO unsafe.
+    pub fn split_into(self: &mut PkdArray<T>,
+                      dst: &mut PkdArray<T>, mid: u32) -> Result<(), PkdError> {
         let esz: i64 = sizeof::<T>();
-        let cnt = self.count();
+        let cnt = self.count;
+        assert(mid <= cnt, "PkdArray::split_into: mid out of range");
         let moved = cnt - mid;
         let need = fse_hdr::<T>() + (moved * esz) as u32;
         dst.resize_self(need)?;
-        move_bytes(dst.at(0) as *mut u8, self.at(mid) as *const u8,
-                   moved * esz);
         dst.count = moved;
+        let d: &mut [T] = dst.elems_mut();
+        slice_copy_from(d, slice_get_range(self.as_slice(), mid, cnt));
         self.count = mid;
         let keep = fse_hdr::<T>() + (mid * esz) as u32;
         let _ = self.resize_self(keep);      // shrink is best-effort
@@ -332,8 +357,9 @@ pub unsafe fn fse_data_len_u64(a: *mut PkdArray<u64>) -> i64 {
     return p.dst_len();
 }
 
-/// First position with element ≥ `key` in a SORTED PkdArray<u64>.
-pub unsafe fn fse_lower_bound_u64(a: *mut PkdArray<u64>, key: u64) -> u32 {
+/// First position with element ≥ `key` in a SORTED PkdArray<u64>. SAFE —
+/// raw-pointer callers pass through the thin-form leniency (*mut ⊆ &).
+pub fn fse_lower_bound_u64(a: &PkdArray<u64>, key: u64) -> u32 {
     let mut lo: u32 = 0u32;
     let mut hi: u32 = a.count();
     while lo < hi {
