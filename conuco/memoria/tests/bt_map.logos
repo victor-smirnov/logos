@@ -131,8 +131,8 @@ fn main() -> i32 {
     unsafe {
         let mut j: i64 = 0i64;
         while j < m {
-            *(((keys as i64) + j * 8i64) as *mut u64) = (j as u64) * 3u64;
-            *(((vals as i64) + j * 8i64) as *mut u64) = (j as u64) * 3u64 + 1u64;
+            *keys.add(j) = (j as u64) * 3u64;
+            *vals.add(j) = (j as u64) * 3u64 + 1u64;
             j = j + 1i64;
         }
     }

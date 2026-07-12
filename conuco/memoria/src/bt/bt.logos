@@ -56,7 +56,7 @@ impl BtArena {
                 Result::Err(_) => { return 0u64; }
             };
             *h = if is_leaf { 1u32 } else { 0u32 };
-            *(((h as i64) + 4i64) as *mut u32) = level;
+            *h.add(1) = level;
             if PkdArray::<u64>::format(a, SLOT_KEYS).is_err() { return 0u64; }
             if PkdArray::<u64>::format(a, SLOT_VALS).is_err() { return 0u64; }
             self.blocks.push(mem as i64);
@@ -78,7 +78,7 @@ unsafe fn node_is_leaf(a: *mut PkdAlloc) -> bool {
 }
 
 unsafe fn node_level(a: *mut PkdAlloc) -> u32 {
-    return *(((a.get::<u32>(SLOT_HDR) as i64) + 4i64) as *const u32);
+    return *a.get::<u32>(SLOT_HDR).add(1);
 }
 
 unsafe fn keys_count(a: *mut PkdAlloc) -> u32 { return nkeys(a).count(); }
@@ -310,8 +310,8 @@ pub fn bt_bulk_build(arena: &mut BtArena, keys: *const u64, vals: *const u64,
             let lp: *mut PkdAlloc = arena.at(leaf);
             let mut k: u32 = 0u32;
             while k < per_node && i < n {
-                let _ = nkeys(lp).push(*(((keys as i64) + i * 8i64) as *const u64));
-                let _ = nvals(lp).push(*(((vals as i64) + i * 8i64) as *const u64));
+                let _ = nkeys(lp).push(*keys.add(i));
+                let _ = nvals(lp).push(*vals.add(i));
                 k = k + 1u32;
                 i = i + 1i64;
             }

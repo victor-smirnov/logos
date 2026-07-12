@@ -94,7 +94,7 @@ fn main() -> i32 {
         let copy: *mut u8 = alloc(4096i64);
         let mut i: i64 = 0i64;
         while i < 4096i64 {
-            *(((copy as i64) + i) as *mut u8) = *(((mem as i64) + i) as *const u8);
+            *copy.byte_add(i) = *mem.byte_add(i);
             i = i + 1i64;
         }
         let ca2: *mut PkdAlloc = copy as *mut PkdAlloc;

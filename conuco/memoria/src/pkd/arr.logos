@@ -76,20 +76,20 @@ impl<T: ?Sized> PkdArray<T> {
     }
     unsafe fn off(self: &PkdArray<T>, k: u32) -> u32 {
         let t: *mut u32 = self.a().get::<u32>(PkdArray::SLOT_OFFS);
-        return *(((t as i64) + (k as i64) * 4i64) as *const u32);
+        return *t.add(k as i64);
     }
     unsafe fn off_wr(self: &PkdArray<T>, k: u32, v: u32) {
         let t: *mut u32 = self.a().get::<u32>(PkdArray::SLOT_OFFS);
-        *(((t as i64) + (k as i64) * 4i64) as *mut u32) = v;
+        *t.add(k as i64) = v;
     }
 
     /// Entry `i` as raw bytes: (pointer into the block, byte length). Valid
     /// only until the next mutation of the containing block.
     pub unsafe fn entry(self: &PkdArray<T>, i: u32) -> (*const u8, i64) {
         let o: u32 = self.off(i);
-        let e: u32 = self.off(i + 1u32);
+        let e: u32 = self.off(i + 1);
         let d: *mut u8 = self.a().get::<u8>(PkdArray::SLOT_DATA);
-        return (((d as i64) + (o as i64)) as *const u8, (e - o) as i64);
+        return (d.byte_add(o as i64) as *const u8, (e - o) as i64);
     }
 
     /// Inserts `src[0..len)` as entry `i` (0 ≤ i ≤ count). Slot-wise exact
@@ -106,9 +106,9 @@ impl<T: ?Sized> PkdArray<T> {
         // shift data tail [off(i), dn) up by len, place the entry
         let at: u32 = sp.off(i);
         let d: *mut u8 = sp.a().get::<u8>(PkdArray::SLOT_DATA);
-        move_bytes(((d as i64) + (at as i64) + len) as *mut u8,
-                   ((d as i64) + (at as i64)) as *const u8, (dn - at) as i64);
-        move_bytes(((d as i64) + (at as i64)) as *mut u8, src, len);
+        move_bytes(d.byte_add((at as i64) + len), d.byte_add(at as i64),
+                   (dn - at) as i64);
+        move_bytes(d.byte_add(at as i64), src, len);
         // shift offsets: new offs[k] = old offs[k−1] + len for k ∈ [i+2..cnt+1]
         // (descending — reads stay ahead of writes), then offs[i+1] = entry end
         let mut k: u32 = cnt;
@@ -139,8 +139,7 @@ impl<T: ?Sized> PkdArray<T> {
         let dn: u32 = sp.off(cnt);
         // close the data gap
         let d: *mut u8 = sp.a().get::<u8>(PkdArray::SLOT_DATA);
-        move_bytes(((d as i64) + (o as i64)) as *mut u8,
-                   ((d as i64) + (e as i64)) as *const u8, (dn - e) as i64);
+        move_bytes(d.byte_add(o as i64), d.byte_add(e as i64), (dn - e) as i64);
         // close the offs gap: new offs[k] = old offs[k+1] − len for k ∈ [i..cnt−1]
         // (ascending — cell k is written after cell k+1 was read)
         let mut k: u32 = i;
@@ -192,15 +191,12 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         return self.able.allocator();
     }
 
-    unsafe fn me(self: &PkdArray<T>) -> i64 {
-        let sp: *const PkdArray<T> = self as *const PkdArray<T>;
-        return sp as i64;
-    }
     /// Address of element `i` (raw view; valid until the next mutation of
     /// the containing block).
     unsafe fn at(self: &PkdArray<T>, i: u32) -> *mut T {
-        return (self.me() + (fse_hdr::<T>() as i64)
-                          + (i as i64) * sizeof::<T>()) as *mut T;
+        let sp: *const PkdArray<T> = self as *const PkdArray<T>;
+        let data: *mut T = (sp as *mut u8).byte_add(fse_hdr::<T>() as i64) as *mut T;
+        return data.add(i as i64);
     }
 
     unsafe fn resize_self(self: &mut PkdArray<T>, new_size: u32)
@@ -227,10 +223,10 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         let cnt = sp.count();
         let need = fse_hdr::<T>() + (((cnt as i64) + 1) * esz) as u32;
         sp.resize_self(need)?;
-        let at: i64 = sp.at(i) as i64;
-        move_bytes((at + esz) as *mut u8, at as *const u8,
+        let at: *mut T = sp.at(i);
+        move_bytes((at as *mut u8).byte_add(esz), at as *const u8,
                    ((cnt - i) as i64) * esz);
-        *(at as *mut T) = v;
+        *at = v;
         sp.count = cnt + 1;
         return Result::Ok(());
     }
@@ -247,8 +243,8 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let esz: i64 = sizeof::<T>();
         let cnt = sp.count();
-        let at: i64 = sp.at(i) as i64;
-        move_bytes(at as *mut u8, (at + esz) as *const u8,
+        let at: *mut T = sp.at(i);
+        move_bytes(at as *mut u8, (at as *const u8).byte_add(esz),
                    ((cnt - i - 1) as i64) * esz);
         sp.count = cnt - 1;
         let keep = fse_hdr::<T>() + (((cnt - 1) as i64) * esz) as u32;
