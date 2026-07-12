@@ -344,10 +344,64 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     pop_type_params(node_tparams);
     pop_type_params(impl_type_params_);
 
+        // Bound-discriminated impl twins (`impl<T: Copy+Fst> S<T>` vs
+        // `impl<T: ?Sized> S<T>`) declare STRUCTURALLY IDENTICAL methods —
+        // only the bound sets differ. Prefer the candidate whose bound
+        // fingerprint equals this impl's, else the loops below first-win the
+        // wrong twin and the body type-checks under the wrong family.
+        {
+            auto bounds_fp = [](const std::vector<TypeParam>& tps) {
+                std::vector<std::string> v;
+                for (auto& tp : tps)
+                    for (auto& b : tp.bounds) v.push_back(b.trait_name);
+                std::sort(v.begin(), v.end());
+                return v;
+            };
+            auto want_fp = bounds_fp(impl_type_params_);
+            {
+                auto nf = bounds_fp(node_tparams);
+                want_fp.insert(want_fp.end(), nf.begin(), nf.end());
+                std::sort(want_fp.begin(), want_fp.end());
+            }
+            size_t want_tps = impl_type_params_.size() + node_tparams.size();
+            // The pass exists ONLY for bound-discriminated twins. Gate on
+            // their presence (some candidate with matching type-param arity
+            // carries bounds), or it steals unrelated same-name overloads
+            // (static `fn new()` vs method `fn new(&self)` — the +1 self-slot
+            // allowance made them ambiguous; a generic decl vs its
+            // non-generic overload — the arity check above).
+            bool bound_twins = !want_fp.empty();
+            if (!bound_twins)
+                for (auto* cand : find_func_candidates(mangled)) {
+                    if (!cand || cand->type_params.size() != want_tps) continue;
+                    if (!bounds_fp(cand->type_params).empty())
+                        { bound_twins = true; break; }
+                }
+            if (bound_twins)
+            for (int round = 0; round < 2 && !fi_ptr; ++round)
+            for (auto* cand : find_func_candidates(mangled)) {
+                if (!cand) continue;
+                if (cand->type_params.size() != want_tps) continue;
+                // exact param arity first; the +1 self-slot allowance only
+                // as a second round so it can't shadow an exact match.
+                size_t want_np = decl_param_types.size() + (round ? 1 : 0);
+                if (cand->param_types.size() != want_np) continue;
+                if (bounds_fp(cand->type_params) != want_fp) continue;
+                size_t off = round ? 1 : 0;
+                bool same = true;
+                for (size_t i = 0; i < decl_param_types.size(); ++i) {
+                    if (!cand->param_types[i + off] || !decl_param_types[i] ||
+                        !types_equal(cand->param_types[i + off],
+                                     decl_param_types[i])) { same = false; break; }
+                }
+                if (same) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
+            }
+        }
         // Match by (type_params arity, param signature). When this declaration
         // has type params, a non-generic same-name overload must NOT win — both
         // can have empty value-param lists (e.g. `fn f() -> u64` vs
         // `fn f<T...>() -> u64`) and only the type-params arity disambiguates.
+        if (!fi_ptr)
         for (auto* cand : find_func_candidates(mangled)) {
             if (!cand || cand->type_params.size() != node_tparams.size()) continue;
             if (cand->param_types.size() != decl_param_types.size()) continue;
@@ -1729,6 +1783,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         push_type_params(impl_tps);
         impl_type_params_ = impl_tps;  // so lower_fn includes them in fn.type_params
     }
+    if (getenv("LOGOS_DBG_BSPEC")) {
+        size_t nb = 0; for (auto& tp : impl_tps) nb += tp.bounds.size();
+        fprintf(stderr, "[implE] trait=%s tps=%zu bounds=%zu\n",
+                trait_name.c_str(), impl_tps.size(), nb);
+    }
     std::string target;
     TypeRef target_resolved = nullptr;
     if (node.has_key(la::TYPE)) {
@@ -2143,7 +2202,34 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             auto p = ss_pats[i];
                             if (!a || !p) { match = false; break; }
                             if (TypeRef(a).kind() == LogosType::Kind::TypeVar &&
-                                TypeRef(p).kind() == LogosType::Kind::TypeVar) continue;  // both TV, OK
+                                TypeRef(p).kind() == LogosType::Kind::TypeVar) {
+                                // Both TypeVar: for a BOUND-DISCRIMINATED spec
+                                // the impl belongs to it only when the impl
+                                // var's bound-set EQUALS the pattern var's
+                                // (impl<T: Copy+Fst> S<T> → the bounded spec;
+                                // impl<T: ?Sized> S<T> → the base template).
+                                std::vector<std::string> pat_bounds;
+                                for (auto stp : ss.type_params()) {
+                                    if (stp.name() != TypeRef(p).type_var_name())
+                                        continue;
+                                    stp.each_bound([&](lir_view::FnTraitBoundView b) {
+                                        pat_bounds.push_back(std::string(b.trait_name()));
+                                    });
+                                    break;
+                                }
+                                std::vector<std::string> impl_bounds;
+                                for (auto& itp : impl_tps) {
+                                    if (itp.name != TypeRef(a).type_var_name())
+                                        continue;
+                                    for (auto& b : itp.bounds)
+                                        impl_bounds.push_back(b.trait_name);
+                                    break;
+                                }
+                                std::sort(pat_bounds.begin(), pat_bounds.end());
+                                std::sort(impl_bounds.begin(), impl_bounds.end());
+                                if (pat_bounds != impl_bounds) { match = false; break; }
+                                continue;
+                            }
                             if (TypeRef(a).kind() == LogosType::Kind::TypeVar ||
                                 TypeRef(p).kind() == LogosType::Kind::TypeVar) { match = false; break; }
                             if (!types_equal(a, p)) { match = false; break; }

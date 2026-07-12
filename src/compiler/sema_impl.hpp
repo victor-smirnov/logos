@@ -2873,10 +2873,61 @@ private:
     // base name — a spec may govern instantiations the base's params would
     // reject (unsized args at a slice-pattern position), so gates that
     // consult the base's type_params relax when this holds.
+    // Identity of each struct name's FIRST declaration (pass-0), so the
+    // bounded-pattern spec rule in is_specialization_struct can tell "the
+    // base decl revisited in a later pass" (its own bounds are ordinary
+    // param bounds) from "a genuine SECOND decl" (a bound-discriminated
+    // specialization).
+    logos::compiler::StrMap<std::pair<void*, uint32_t>> first_struct_decl_;
     bool struct_has_specs(std::string_view base_name) const {
         for (auto& [k, info] : struct_specs_sema_)
             if (info.base_name == base_name) return true;
         return false;
+    }
+    // Any spec of this struct discriminated by pattern-var BOUNDS?
+    // (Symbol disambiguation for same-signature impl methods keys off this.)
+    bool struct_has_bounded_spec(std::string_view base_name) const {
+        for (auto& [k, info] : struct_specs_sema_) {
+            if (info.base_name != base_name) continue;
+            for (auto& tp : info.type_params)
+                if (!tp.bounds.empty()) return true;
+        }
+        return false;
+    }
+    // NAME-ONLY bound reader for spec patterns: TRAIT_BOUND names per
+    // TYPE_PARAM, relaxed (`?Trait`) markers dropped, NO type resolution —
+    // spec patterns may carry parametrized bounds whose args (assoc types
+    // etc.) can't resolve in this context; the bound-spec gate only needs
+    // trait names.
+    std::vector<TypeParam> read_spec_pattern_bounds(writ::TinyMapView node) {
+        std::vector<TypeParam> out;
+        if (!node.has_key(sema_detail::la::TYPE_PARAMS)) return out;
+        writ::AnyVal tpav = node.get(sema_detail::la::TYPE_PARAMS.code);
+        if (tpav.is_null()) return out;
+        auto tplist = map_of(tpav);
+        if (!tplist.has_key(sema_detail::la::ITEMS)) return out;
+        auto items = arr_of(tplist.get(sema_detail::la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto n = map_of(items.get(i));
+            if (code_of(n) != sema_detail::la::TYPE_PARAM) continue;
+            TypeParam tp;
+            tp.name = std::string(str_of(n.get(sema_detail::la::NAME.code)));
+            if (n.has_key(sema_detail::la::ITEMS)) {
+                auto bs = arr_of(n.get(sema_detail::la::ITEMS.code));
+                for (uint64_t b = 0; b < bs.size(); ++b) {
+                    auto bn = map_of(bs.get(b));
+                    if (code_of(bn) != sema_detail::la::TRAIT_BOUND) continue;
+                    writ::AnyVal rv = bn.get(sema_detail::la::RELAXED.code);
+                    if (!rv.is_null() && rv.is_value() &&
+                        rv.as_value<uint8_t>() != 0) continue;
+                    TraitBound tb;
+                    tb.trait_name = std::string(str_of(bn.get(sema_detail::la::NAME.code)));
+                    tp.bounds.push_back(std::move(tb));
+                }
+            }
+            out.push_back(std::move(tp));
+        }
+        return out;
     }
     logos::compiler::StrMap<SemaEnumInfo>     enums_;
     logos::compiler::StrMap<SemaFuncInfo>     funcs_;
@@ -3608,6 +3659,23 @@ private:
     void check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
                            const std::vector<TypeRef>& args);
+    // Quiet-probe mode for check_type_bounds: bound-based partial-spec
+    // selection (a `struct S<T: Bounds>` spec matches only when the concrete
+    // arg SATISFIES the bounds) must test satisfaction without emitting
+    // diagnostics. The probe flag turns every failure site in
+    // check_type_bounds into `bounds_probe_ok_ = false` instead of error().
+    bool bounds_probe_    = false;
+    bool bounds_probe_ok_ = true;
+    bool type_bounds_satisfied_quiet(const std::string& target_name,
+                                     const std::vector<TypeParam>& type_params,
+                                     const std::vector<TypeRef>& args) {
+        bool was = bounds_probe_, wok = bounds_probe_ok_;
+        bounds_probe_ = true; bounds_probe_ok_ = true;
+        check_type_bounds(target_name, type_params, args);
+        bool ok = bounds_probe_ok_;
+        bounds_probe_ = was; bounds_probe_ok_ = wok;
+        return ok;
+    }
 
     // Recursive trait-satisfaction: does `concrete` (or `concrete_alt`,
     // an optional unwrapped alias) implement `trait_name`, directly via

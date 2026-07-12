@@ -38,5 +38,12 @@ fn main() -> i32 {
         (*f).count = 7u32;
         if f.count() != 7u32 { return 6i32; }
     }
+    // bound-discriminated spec across the module boundary: in-module probe +
+    // fresh instantiations of both families (u32 = spec; i64 = primary)
+    if sd_sel_probe() != 1142u64 { return 7i32; }
+    let mut s: SdSel<u32> = SdSel::<u32> { count: 0u32, x: 5u32 };
+    if s.bump(1u32) != 106u64 { return 8i32; }
+    let p: SdSel<i64> = SdSel::<i64> { hdr: 77u64, cnt: 0u32, pad: 0u32 };
+    if p.tag() != 77u64 { return 9i32; }
     return 0i32;
 }

@@ -5817,7 +5817,14 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
     // L1.4: in lazy mode, skip eager method cloning. drain_method_worklist
     // will clone methods on demand (from L1.1 call-site hook, L1.2 dispatch
     // pin, L1.3 is_root_pin). The bound gate runs there too.
-    if (lazy_methods_ && !tmpl.type_params_empty()) return nd;
+    // Specialization templates ALWAYS clone eagerly: their TYPE_PARAMS carry
+    // the bound-discriminator pattern vars (not lazy-cloneable call-site
+    // params), and the lazy on-demand hooks resolve against the BASE
+    // template's method map — a lazy-skipped spec's methods would never
+    // materialize (the pre-bounds [E]-era spec mirrors had no TYPE_PARAMS,
+    // so they eagerly cloned by accident of the emptiness test).
+    if (lazy_methods_ && !tmpl.type_params_empty() &&
+        !tmpl.is_specialization()) return nd;
     const TypePoolImpl* csd_pool = pool;
     auto tmpl_tparams = tmpl.type_params();
     for (auto m : tmpl.methods()) {
@@ -5923,13 +5930,52 @@ lir_view::StructView Mono::find_best_struct_spec(
         if (pats.size() != type_args.size()) continue;
         SubstMap dummy;
         bool ok = true;
+        // Bound gates apply only to bound-DISCRIMINATED specs (all pattern
+        // positions TypeVar) — mirrors sema; shape-selected specs' pattern
+        // bounds are ordinary constraints.
+        bool all_tv = true;
+        for (auto pp : pats)
+            if (!pp || TypeRef(pp).kind() != LogosType::Kind::TypeVar)
+                { all_tv = false; break; }
+        std::vector<int> bound_bonus(type_args.size(), 0);
         for (size_t i = 0; i < type_args.size(); ++i) {
             if (!match_type(type_args[i], pats[i], dummy)) {
                 ok = false; break;
             }
+            // Bound-discriminated pattern (`struct S<T: Copy + Fst>`): the
+            // spec matches only args SATISFYING the pattern var's bounds
+            // (mirrors sema's find_best_sema_struct_spec gate). TypeVar-
+            // bearing args accept — template-time scans re-run concrete.
+            if (all_tv && pats[i] && TypeRef(pats[i]).kind() == LogosType::Kind::TypeVar) {
+                std::string pv(TypeRef(pats[i]).type_var_name());
+                for (auto tp : spec.type_params()) {
+                    if (tp.name() != pv || tp.bounds_empty()) continue;
+                    int nb = 0;
+                    if (type_args[i] && !contains_typevar(type_args[i])) {
+                        bool sat = true;
+                        tp.each_bound([&](lir_view::FnTraitBoundView b) {
+                            if (!sat) return;
+                            StrSet seen;
+                            if (!mono_concrete_satisfies_bound(
+                                    std::string(b.trait_name()),
+                                    type_args[i], seen))
+                                sat = false;
+                            ++nb;
+                        });
+                        if (!sat) { ok = false; }
+                    } else {
+                        tp.each_bound([&](lir_view::FnTraitBoundView) { ++nb; });
+                    }
+                    bound_bonus[i] = nb;
+                    break;
+                }
+                if (!ok) break;
+            }
         }
         if (!ok) continue;
         auto svec = specificity_vec(pats);
+        for (size_t i = 0; i < svec.size() && i < bound_bonus.size(); ++i)
+            svec[i] += bound_bonus[i];
         if (!best.valid() || svec > best_vec) {
             best_vec  = svec;
             best      = spec;

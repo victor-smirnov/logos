@@ -387,6 +387,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                 } else {
                     structs_[key] = {};
                     first_struct[key] = {holder_, item_off(item)};
+                    first_struct_decl_[key] = {static_cast<void*>(holder_), item_off(item)};
                 }
             } else if (ic == la::UNION_DEF) {
                 // §6.1 (Rust `items.union.namespace`): unions share the
@@ -924,6 +925,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if (bound.on_ref_subject) {
                 std::string rk = (bound.is_ref_mut ? "$mut_ref_" : "$ref_") + concrete_str;
                 if (impls_.count(bound.trait_name + "::" + rk)) continue;
+                if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
                 error(std::format("'{}': type '{}{}' does not implement trait '{}' "
                                   "required by parameter '&{}'",
                       target_name, bound.is_ref_mut ? "&mut " : "&", concrete_str,
@@ -936,6 +938,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 StrSet visited;
                 last_offender_ = {};
                 if (is_auto_trait_satisfied(concrete, bound.trait_name, visited)) continue;
+                if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
                 if (!last_offender_.field_name.empty()) {
                     error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
                                       "(field '{}' of type '{}' is not {})",
@@ -1162,6 +1165,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         }
                         binders_str += ">";
                     }
+                    if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
                     error(std::format(
                         "'{}': type '{}' does not satisfy `{}{}` bound: "
                         "impl's trait-arg lifetimes are incompatible with "
@@ -1371,6 +1375,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         : pfx + concrete_str;
                 if (impls_.count(bound.trait_name + "::" + mangled)) continue;
             }
+            if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
                   target_name, concrete_str, bound.trait_name, tp.name));
         }
@@ -4040,6 +4045,11 @@ void SemaChecker::collect_struct_spec(TinyMapView node,
     info.module_id = cur_module_id_;
     info.base_name = sname;
     info.spec_patterns = spec_patterns;
+    // Pattern-var BOUNDS (bound-discriminated specs): `struct S<T: Copy>`
+    // matches only args satisfying the bounds — keep them for the
+    // find_best_sema_struct_spec gate. Name-only reader: parametrized bound
+    // args may not resolve in this context and the gate needs trait names.
+    info.type_params = read_spec_pattern_bounds(node);
     // Structural attribute flags apply to specs exactly like to base structs
     // (#[self_describing] on the [E] spec of a packed array, #[zoned], …).
     if (attr_flags) {
@@ -4675,11 +4685,17 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
     auto items = arr_of(tplist.get(la::ITEMS.code));
     // Gate: structs/datatypes/enums with this name already registered?
     bool base_exists = false;
+    bool base_is_schema = false;
     if (node.has_key(la::NAME.code)) {
         auto sname = std::string(str_of(node.get(la::NAME.code)));
         auto key_in_pkg = sema_key(cur_package_, sname);
-        base_exists = structs_.count(key_in_pkg) > 0
-                   || datatypes_.count(key_in_pkg) > 0;
+        auto sit2 = structs_.find(key_in_pkg);
+        auto dit2 = datatypes_.find(key_in_pkg);
+        base_exists = sit2 != structs_.end() || dit2 != datatypes_.end();
+        // A generic SCHEMA materializes same-named struct decls via metaprog;
+        // those are the schema's backing, not specializations of it.
+        if (sit2 != structs_.end() && sit2->second.is_schema) base_is_schema = true;
+        if (dit2 != datatypes_.end() && dit2->second.is_schema) base_is_schema = true;
     }
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto n = map_of(items.get(i));
@@ -4696,6 +4712,35 @@ bool SemaChecker::is_specialization_struct(TinyMapView node) {
             if (base_exists && pass0_decl_names_
                 && pass0_decl_names_->count(std::string(name)))
                 return true;  // user-type name AND base exists → spec
+        }
+        bool is_first_decl = false;
+        if (node.has_key(la::NAME.code)) {
+            auto sname2 = std::string(str_of(node.get(la::NAME.code)));
+            auto key2 = sema_key(cur_package_, sname2);
+            auto fit2 = first_struct_decl_.find(key2);
+            uint32_t off2 = static_cast<uint32_t>(node.offset().value());
+            if (fit2 != first_struct_decl_.end() &&
+                fit2->second.first == static_cast<void*>(holder_) &&
+                fit2->second.second == off2)
+                is_first_decl = true;
+        }
+        if (c == la::TYPE_PARAM && n.has_key(la::ITEMS) && base_exists &&
+            !base_is_schema && !is_first_decl) {
+            // Bound-discriminated spec: a SECOND same-name decl whose param
+            // carries real trait bounds (`struct PkdArray<T: Copy + Fst>`
+            // after `struct PkdArray<T: ?Sized>`) specializes by the
+            // PROPERTIES of T — the C++ `is_fse<T>` predicate as a bound
+            // set. `?Trait` relaxed markers don't count (the base decl
+            // itself may say `?Sized`).
+            auto bitems = arr_of(n.get(la::ITEMS.code));
+            for (uint64_t b = 0; b < bitems.size(); ++b) {
+                auto bn = map_of(bitems.get(b));
+                if (code_of(bn) != la::TRAIT_BOUND) continue;
+                AnyVal rv = bn.get(la::RELAXED.code);
+                bool relaxed = !rv.is_null() && rv.is_value() &&
+                               rv.as_value<uint8_t>() != 0;
+                if (!relaxed) return true;
+            }
         }
     }
     return false;
@@ -4762,6 +4807,18 @@ DeclBuilder SemaChecker::lower_spec_struct(TinyMapView node) {
     if (!spec_patterns.empty()) {
         auto pa = sd.array(stk::SPEC_PATTERNS);
         for (auto t : spec_patterns) pa.push_type(t);
+    }
+    // Bound-discriminated specs: persist the pattern vars' bounds so mono's
+    // find_best_struct_spec (and the Stage E impl→spec matcher) can gate
+    // selection on bound satisfaction.
+    {
+        auto tps_full = read_spec_pattern_bounds(node);
+        bool any_bounds = false;
+        for (auto& tp : tps_full) if (!tp.bounds.empty()) { any_bounds = true; break; }
+        if (any_bounds) {
+            auto ta2 = sd.array(stk::TYPE_PARAMS);
+            for (auto& tp : tps_full) ta2.push_fn_tparam(tp);
+        }
     }
 
     // Lower fields (TypeVars from patterns now in scope). The grammar's

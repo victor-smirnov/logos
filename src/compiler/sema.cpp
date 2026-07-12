@@ -1582,6 +1582,27 @@ std::string SemaChecker::function_symbol_name(std::string_view base_name,
     s.package    = info.package;
     s.base       = std::string(base_name);
     s.sig        = key.substr(std::string(base_name).size() + 2);
+    // Bound-discriminated impls (`impl<T: Copy+Fst> PkdArray<T>` vs
+    // `impl<T: ?Sized> PkdArray<T>`): same base, same STRUCTURAL signature —
+    // only the bound sets differ. Suffix the sig with the sorted bound
+    // fingerprint so the two coexist as distinct symbols. Scoped to methods
+    // of structs that HAVE a bounded spec (zero symbol churn elsewhere).
+    if (auto us = std::string_view(base_name).find("__");
+        us != std::string_view::npos && !info.type_params.empty()) {
+        std::string_view owner = std::string_view(base_name).substr(0, us);
+        bool any_b = false;
+        for (auto& tp : info.type_params)
+            if (!tp.bounds.empty()) { any_b = true; break; }
+        if (any_b && struct_has_bounded_spec(owner)) {
+            std::vector<std::string> names;
+            for (auto& tp : info.type_params)
+                for (auto& b : tp.bounds) names.push_back(b.trait_name);
+            std::sort(names.begin(), names.end());
+            std::string tag = "$where";
+            for (auto& n : names) { tag += "$"; tag += n; }
+            s.sig += tag;
+        }
+    }
     s.is_generic = !info.type_params.empty();
     s.is_method  = base_name.find("__") != std::string_view::npos;
     s.is_extern  = info.is_extern;
@@ -6662,6 +6683,17 @@ static int specificity_sema(TypeRef t) {
     return 100;
 }
 
+// TypeVar anywhere in the tree — bound gates defer such args to mono.
+static bool contains_typevar_sema(TypeRef t) {
+    if (!t) return false;
+    if (t.kind() == LogosType::Kind::TypeVar) return true;
+    if (t.pointee() && contains_typevar_sema(t.pointee())) return true;
+    if (t.elem()    && contains_typevar_sema(t.elem()))    return true;
+    for (auto a : t.type_args())     if (contains_typevar_sema(a)) return true;
+    for (auto e : t.tuple_elems())   if (contains_typevar_sema(e)) return true;
+    return false;
+}
+
 // Find the most specific spec in struct_specs_sema_ whose patterns match
 // `type_args` under template `base_name`.  Returns nullptr if none match.
 const SemaChecker::SemaStructInfo* SemaChecker::find_best_sema_struct_spec(
@@ -6674,10 +6706,76 @@ const SemaChecker::SemaStructInfo* SemaChecker::find_best_sema_struct_spec(
         if (info.spec_patterns.size() != type_args.size()) continue;
         StrMap<TypeRef> binds;
         bool ok = true;
+        // Bound-DISCRIMINATED spec = selectable ONLY by bounds: every pattern
+        // position is a TypeVar. Specs with structural/concrete positions
+        // (Map<Bitmap, V>, PkdArray<[E]>) select by SHAPE — their pattern
+        // vars' bounds are ordinary constraints, NOT selection gates (the
+        // historical eidos behavior; gating them broke stdlib spec pickup
+        // inside generic bodies whose scope doesn't restate the bounds).
+        bool all_tv = true;
+        for (auto pp : info.spec_patterns)
+            if (!pp || TypeRef(pp).kind() != LogosType::Kind::TypeVar)
+                { all_tv = false; break; }
         std::vector<int> scores(type_args.size());
         for (size_t i = 0; i < type_args.size(); ++i) {
             if (!match_type_sema(type_args[i], info.spec_patterns[i], binds)) { ok = false; break; }
             scores[i] = specificity_sema(info.spec_patterns[i]);
+            // Bound-discriminated pattern (`struct S<T: Copy + Fst>`): the
+            // spec matches only when the concrete arg SATISFIES the pattern
+            // var's bounds; each bound adds specificity (a bounded pattern
+            // beats the base and less-bounded specs). TypeVar-bearing args
+            // defer to mono (accept here, mono re-gates).
+            TypeRef pat = info.spec_patterns[i];
+            if (all_tv && pat && TypeRef(pat).kind() == LogosType::Kind::TypeVar) {
+                std::string pv(TypeRef(pat).type_var_name());
+                for (auto& tp : info.type_params) {
+                    if (tp.name != pv || tp.bounds.empty()) continue;
+                    TypeRef arg = type_args[i];
+                    if (arg && TypeRef(arg).kind() == LogosType::Kind::TypeVar) {
+                        // Generic context: a bare TypeVar arg matches a
+                        // bounded pattern only when the SCOPE declares the
+                        // var with a superset of the pattern's bounds —
+                        // inside `impl<T: Copy+Fst> S<T>` the receiver
+                        // selects this spec; inside `impl<T: ?Sized> S<T>`
+                        // it selects the base.
+                        std::string avn(TypeRef(arg).type_var_name());
+                        const std::vector<TraitBound>* scope_bounds = nullptr;
+                        if (auto bit = current_type_bounds_.find(avn);
+                            bit != current_type_bounds_.end())
+                            scope_bounds = &bit->second;
+                        if (!scope_bounds)
+                            // Some lowering passes reach here with the scope
+                            // stack unwound but the impl's params still
+                            // published — fall back to them.
+                            for (auto& itp2 : impl_type_params_)
+                                if (itp2.name == avn && !itp2.bounds.empty())
+                                    { scope_bounds = &itp2.bounds; break; }
+                        bool cover = scope_bounds != nullptr;
+                        if (cover) {
+                            for (auto& need : tp.bounds) {
+                                bool found = false;
+                                for (auto& have : *scope_bounds)
+                                    if (have.trait_name == need.trait_name)
+                                        { found = true; break; }
+                                if (!found) { cover = false; break; }
+                            }
+                        }
+                        if (!cover) ok = false;
+                        else scores[i] += static_cast<int>(tp.bounds.size());
+                    } else if (arg && contains_typevar_sema(arg)) {
+                        // Compound TypeVar-bearing arg: defer to mono.
+                        scores[i] += static_cast<int>(tp.bounds.size());
+                    } else if (arg &&
+                               !type_bounds_satisfied_quiet(
+                                   std::string(base_name), {tp}, {arg})) {
+                        ok = false;
+                    } else {
+                        scores[i] += static_cast<int>(tp.bounds.size());
+                    }
+                    break;
+                }
+                if (!ok) break;
+            }
         }
         if (!ok) continue;
         // Lexicographic comparison: prefer higher specificity at earlier positions.

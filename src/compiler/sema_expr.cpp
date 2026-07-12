@@ -3851,6 +3851,16 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
     }
 }
 
+static bool contains_typevar_sema_expr(TypeRef t) {
+    if (!t) return false;
+    if (t.kind() == LogosType::Kind::TypeVar) return true;
+    if (t.pointee() && contains_typevar_sema_expr(t.pointee())) return true;
+    if (t.elem()    && contains_typevar_sema_expr(t.elem()))    return true;
+    for (auto a : t.type_args())     if (contains_typevar_sema_expr(a)) return true;
+    for (auto e : t.tuple_elems())   if (contains_typevar_sema_expr(e)) return true;
+    return false;
+}
+
 const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
         std::string_view base_name,
         const std::vector<TypeRef>& arg_types,
@@ -3989,6 +3999,51 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
             ok = false; break;
         }
         if (!ok) continue;
+        // Bound-discriminated overloads (`impl<T: Copy+Fst> S<T>` vs
+        // `impl<T: ?Sized> S<T>` — structurally identical methods): a
+        // candidate whose type-param bounds the bound value FAILS is not
+        // viable; among viable ones, more bounds = more specialized (the
+        // fspec bonus below).
+        int bound_count = 0;
+        {
+            bool viable = true;
+            for (auto& tp : fi.type_params) {
+                if (tp.bounds.empty()) continue;
+                bound_count += static_cast<int>(tp.bounds.size());
+                auto bit = binds.find(tp.name);
+                if (bit == binds.end() || !bit->second) continue;  // unbound → defer
+                TypeRef bv = bit->second;
+                if (TypeRef(bv).kind() == LogosType::Kind::TypeVar) {
+                    // Generic context: check the SCOPE's declared bounds of
+                    // the bound-to var (impl_type_params_ as fallback for
+                    // passes that reach here with the scope unwound).
+                    std::string bvn(TypeRef(bv).type_var_name());
+                    const std::vector<TraitBound>* sb = nullptr;
+                    if (auto cit = current_type_bounds_.find(bvn);
+                        cit != current_type_bounds_.end()) sb = &cit->second;
+                    if (!sb)
+                        for (auto& itp2 : impl_type_params_)
+                            if (itp2.name == bvn && !itp2.bounds.empty())
+                                { sb = &itp2.bounds; break; }
+                    for (auto& need : tp.bounds) {
+                        bool found = false;
+                        if (sb)
+                            for (auto& have : *sb)
+                                if (have.trait_name == need.trait_name)
+                                    { found = true; break; }
+                        if (!found) { viable = false; break; }
+                    }
+                } else if (!contains_typevar_sema_expr(bv)) {
+                    std::vector<TypeParam> one{tp};
+                    std::vector<TypeRef> args1{bv};
+                    if (!type_bounds_satisfied_quiet(std::string(base_name),
+                                                     one, args1))
+                        viable = false;
+                }
+                if (!viable) break;
+            }
+            if (!viable) continue;
+        }
         // Partial-spec partial order: on equal arg-match score, the overload
         // with MORE STRUCTURE in its unsubstituted formals is more specialized
         // (impl<E> PkdArray<[E]> beats impl<T> PkdArray<T> for a slice arg) —
@@ -4002,7 +4057,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
             for (auto e : t.tuple_elems()) d += tdepth(e);
             return d;
         };
-        int fspec = 0;
+        int fspec = bound_count;
         for (auto pt2 : fi.param_types) fspec += tdepth(pt2);
         bool local = !cur_package_.empty() && fi.package == cur_package_;
         if (score > best_score ||
@@ -10085,7 +10140,34 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // Resolve the actual struct type (receiver may be a pointer/reference to a struct).
     TypeRef recv_struct_t = recv_base_t;
     auto ft = field_type_of_for_type(recv_struct_t, field_name);
+    if (!ft && metaprog_mode_) {
+        // Metaprog discovery lowers impl bodies WITHOUT the impl's type-param
+        // bound scope, so a bound-discriminated spec (whose fields this body
+        // reads) can't be selected for a generic receiver here. Mirror the
+        // <error>-receiver policy above: propagate silently — the
+        // post-dispatch full sema pass re-checks with the real scope and
+        // surfaces a genuine missing field.
+        bool tv_args = false;
+        for (auto a : TypeRef(recv_struct_t).type_args())
+            if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar)
+                { tv_args = true; break; }
+        if (tv_args)
+            return builder().field_read(std::move(recv), std::string(field_name),
+                                        error_t());
+    }
     if (!ft) {
+        if (getenv("LOGOS_DBG_BSPEC")) {
+            auto bT = current_type_bounds_.find("T");
+            size_t itb = 0;
+            for (auto& tp : impl_type_params_) itb += tp.bounds.size();
+            std::string keys;
+            for (auto& [k2, v2] : current_type_bounds_) { keys += k2; keys += ","; }
+            fprintf(stderr, "[fld-miss2] f=%s mp=%d scopeT=%zu shadow=%zu itp=%zu itb=%zu bkeys=%s\n",
+                    std::string(field_name).c_str(), (int)metaprog_mode_,
+                    bT != current_type_bounds_.end() ? bT->second.size() : (size_t)0,
+                    type_param_shadow_stack_.size(), impl_type_params_.size(), itb,
+                    keys.c_str());
+        }
         error(std::format("field read: struct '{}' has no field '{}'", sname, field_name));
         return builder().field_read(std::move(recv), std::string(field_name), error_t());
     }

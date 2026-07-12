@@ -1,0 +1,14 @@
+// Fail twin: an instantiation routed to the bound spec exposes ONLY the
+// spec's fields — the primary's fields are not visible on it.
+package partial_spec_bound_pattern_fields;
+
+pub trait Frozen {}
+impl Frozen for u64 {}
+
+pub struct PkdB<T: ?Sized> { hdr: u64 }
+pub struct PkdB<T: Copy + Frozen> { count: u32, x: u32 }
+
+fn main() -> i32 {
+    let f: PkdB<u64> = PkdB::<u64> { hdr: 1u64 };   // spec governs: no 'hdr'
+    return 0i32;
+}

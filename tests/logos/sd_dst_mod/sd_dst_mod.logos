@@ -105,3 +105,34 @@ pub unsafe fn sd_vle_probe() -> u32 {
     (*v).cnt = 40u32;
     return v.bump(2u32);
 }
+
+// ── bound-discriminated spec (module-mode regression) ───────────────────────
+// The classes this exercises at MODULE build: eager method cloning for spec
+// templates despite TYPE_PARAMS (the lazy-skip emptiness test), impl→spec
+// routing by bound-set equality, the $where symbol fingerprint for
+// structurally-identical method twins.
+
+pub trait SdFrozen {}
+impl SdFrozen for u64 {}
+impl SdFrozen for u32 {}
+
+pub struct SdSel<T: ?Sized> { pub hdr: u64, pub cnt: u32, pub pad: u32 }
+pub struct SdSel<T: Copy + SdFrozen> { pub count: u32, pub x: u32 }
+
+impl<T: ?Sized> SdSel<T> {
+    pub fn tag(self: &SdSel<T>) -> u64 { return self.hdr; }
+}
+impl<T: Copy + SdFrozen> SdSel<T> {
+    pub fn tag(self: &SdSel<T>) -> u64 { return (self.x as u64) + 100u64; }
+    pub fn bump(self: &mut SdSel<T>, d: u32) -> u64 {
+        self.x = self.x + d;
+        return self.tag();
+    }
+}
+
+/// In-module instantiations of BOTH families.
+pub fn sd_sel_probe() -> u64 {
+    let mut f: SdSel<u64> = SdSel::<u64> { count: 0u32, x: 40u32 };
+    let v: SdSel<i64> = SdSel::<i64> { hdr: 1000u64, cnt: 0u32, pad: 0u32 };
+    return f.bump(2u32) + v.tag();    // 142 + 1000
+}

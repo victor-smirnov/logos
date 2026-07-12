@@ -1,0 +1,63 @@
+// Bound-discriminated partial specialization: `struct S<T: Bounds>` after a
+// primary `struct S<T: ?Sized>` selects by the PROPERTIES of T — the C++
+// `template<typename T, bool P = pred<T>> struct S;` model with the predicate
+// spelled as a bound set (memoria's is_fse<T> ≡ Copy+Fst+StableLayout).
+// Selection: args SATISFYING the bounds instantiate the spec; everything
+// else (unsized, non-Copy, unimplemented marker) gets the primary. Method
+// impls partition the same way (`impl<T: Bounds>` vs `impl<T: ?Sized>` with
+// overlapping names — distinct symbols via the $where bound fingerprint).
+package partial_spec_bound_pattern;
+
+extern fn malloc(n: i64) -> *mut u8;
+
+pub trait Frozen {}
+impl Frozen for u64 {}
+impl Frozen for u32 {}
+
+// primary: ANY T — the VLE-like fallback
+pub struct PkdB<T: ?Sized> {
+    hdr: u64,
+    cnt: u32,
+    pad: u32,
+}
+
+// spec: selected when T: Copy + Frozen
+pub struct PkdB<T: Copy + Frozen> {
+    count: u32,
+    x:     u32,
+}
+
+impl<T: ?Sized> PkdB<T> {
+    pub fn tag(self: &PkdB<T>) -> u64 { return self.hdr; }
+}
+
+impl<T: Copy + Frozen> PkdB<T> {
+    pub fn tag(self: &PkdB<T>) -> u64 { return (self.x as u64) + 100u64; }
+    pub fn bump(self: &mut PkdB<T>, d: u32) -> u64 {
+        self.x = self.x + d;
+        return self.tag();            // spec method calling spec method
+    }
+}
+
+pub struct VarThing { s: i64 }
+
+fn main() -> i32 {
+    // u64: Copy + Frozen → the spec (fields count/x, spec methods)
+    let mut f: PkdB<u64> = PkdB::<u64> { count: 1u32, x: 7u32 };
+    if f.tag() != 107u64 { return 1i32; }
+    if f.bump(3u32) != 110u64 { return 2i32; }
+    // u32: also FSE-able — second instantiation of the same spec
+    let g: PkdB<u32> = PkdB::<u32> { count: 0u32, x: 1u32 };
+    if g.tag() != 101u64 { return 3i32; }
+    // VarThing: NOT Frozen → primary
+    let v: PkdB<VarThing> = PkdB::<VarThing> { hdr: 9u64, cnt: 0u32, pad: 0u32 };
+    if v.tag() != 9u64 { return 4i32; }
+    // i64: Copy but NOT Frozen → primary
+    let w: PkdB<i64> = PkdB::<i64> { hdr: 4u64, cnt: 0u32, pad: 0u32 };
+    if w.tag() != 4u64 { return 5i32; }
+    // str (unsized): fails Copy → primary
+    let m: *mut u8 = unsafe { malloc(16i64) };
+    let p: *mut PkdB<str> = m as *mut PkdB<str>;
+    unsafe { (*p).hdr = 5u64; if (*p).hdr != 5u64 { return 6i32; } }
+    return 0i32;
+}
