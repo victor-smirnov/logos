@@ -20,7 +20,7 @@ unsafe fn vle_eq(v: *mut PkdArray<str>, i: u32, want: str) -> bool {
 }
 
 unsafe fn vle_put(v: *mut PkdArray<str>, i: u32, s: str) -> bool {
-    return v.insert_bytes(i, s.as_ptr(), s.len()).is_ok();
+    return v.insert(i, s).is_ok();
 }
 
 fn main() -> i32 {
@@ -33,7 +33,7 @@ fn main() -> i32 {
         let canary: *mut PkdArray<u64> = match PkdArray::<u64>::format(a, 1) {
             Result::Ok(p) => p, Result::Err(_) => { return 2i32; }
         };
-        if canary.push(4242u64).is_err() { return 3i32; }
+        if canary.push(&(4242u64)).is_err() { return 3i32; }
 
         if !vle_put(vs, 0u32, "alpha") { return 4i32; }
         if !vle_put(vs, 1u32, "gamma") { return 5i32; }
@@ -62,8 +62,8 @@ fn main() -> i32 {
             *b = 0x76u8;
             *b.byte_add(1) = (0x30u32 + i / 10u32) as u8;
             *b.byte_add(2) = (0x30u32 + i % 10u32) as u8;
-            let at: u32 = vs.count();
-            if vs.insert_bytes(at, b as *const u8, 3i64).is_err() { return 17i32; }
+            let entry: str = str_from_raw(b as *const u8, 3i64);
+            if vs.push(entry).is_err() { return 17i32; }
             dealloc(b);
             i = i + 1u32;
         }

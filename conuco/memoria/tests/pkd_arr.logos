@@ -22,12 +22,12 @@ fn main() -> i32 {
         };
 
         let mut i: u64 = 0u64;
-        while i < 8u64 { if canary.push(1000u64 + i).is_err() { return 3i32; } i = i + 1u64; }
+        while i < 8u64 { if canary.push(&(1000u64 + i)).is_err() { return 3i32; } i = i + 1u64; }
 
         // xs grows itself; canary sits BELOW xs (later slot) and shifts —
         // re-resolve it through the allocator after mutations
         i = 0u64;
-        while i < 20u64 { if xs.push(i * 2u64).is_err() { return 4i32; } i = i + 1u64; }
+        while i < 20u64 { if xs.push(&(i * 2u64)).is_err() { return 4i32; } i = i + 1u64; }
         let canary2: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(1u32);
         if canary2.count() != 8u32 { return 5i32; }
         // fat-ref materialization calls the FAMILY-correct dst_len (FSE=count)
@@ -38,7 +38,7 @@ fn main() -> i32 {
         // sorted insert via lower_bound
         let pos: u32 = fse_lower_bound_u64(xs, 7u64);
         if pos != 4u32 { return 8i32; }
-        if xs.insert(pos, 7u64).is_err() { return 9i32; }
+        if xs.insert(pos, &(7u64)).is_err() { return 9i32; }
         if xs.get(4u32) != 7u64 { return 10i32; }
         if xs.get(5u32) != 8u64 { return 11i32; }
         if xs.count() != 21u32 { return 12i32; }
@@ -94,5 +94,5 @@ fn main() -> i32 {
 unsafe fn deep2_push(a: *mut PkdAlloc, v: u64) -> Result<(), PkdError> {
     let inner: *mut PkdAlloc = a.get::<PkdAlloc>(2u32);
     let deep: *mut PkdArray<u64> = inner.get::<PkdArray<u64>>(0u32);
-    return deep.push(v);
+    return deep.push(&(v));
 }

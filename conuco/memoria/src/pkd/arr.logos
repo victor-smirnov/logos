@@ -30,6 +30,26 @@ use logos.lang.marker;
 use logos.lang.result;   // Result/PkdError plumbing    // Fst, StableLayout, SelfDescribing
 use logos.lang.mem;
 
+// ── the VLE entry contract ──────────────────────────────────────────────────
+
+/// Byte view of a variable-length entry: any `T` whose `&T` exposes its
+/// bytes. `str` and `[E]` are the built-in entry shapes; custom var-len
+/// element types opt in by implementing it.
+pub trait EntryBytes {
+    fn entry_ptr(self: &Self) -> *const u8;
+    fn entry_len(self: &Self) -> i64;
+}
+
+impl EntryBytes for str {
+    fn entry_ptr(self: &str) -> *const u8 { return self.as_ptr(); }
+    fn entry_len(self: &str) -> i64 { return self.len(); }
+}
+
+impl<E: Copy + Fst + StableLayout> EntryBytes for [E] {
+    fn entry_ptr(self: &[E]) -> *const u8 { return self.as_ptr(); }
+    fn entry_len(self: &[E]) -> i64 { return self.len() * sizeof::<E>(); }
+}
+
 // ── VLE: the primary (any T that is NOT FSE-able) ───────────────────────────
 
 /// A PkdAlloc with the 3-slot VLE convention. Single unsized "base" field —
@@ -92,10 +112,25 @@ impl<T: ?Sized> PkdArray<T> {
         return (d.byte_add(o) as *const u8, (e - o) as i64);
     }
 
-    /// Inserts `src[0..len)` as entry `i` (0 ≤ i ≤ count). Slot-wise exact
-    /// growth through the allocator chain.
-    pub unsafe fn insert_bytes(self: &mut PkdArray<T>, i: u32,
-                               src: *const u8, len: i64) -> Result<(), PkdError> {
+    /// Inserts `*src` as entry `i` (0 ≤ i ≤ count). Slot-wise exact growth
+    /// through the allocator chain.
+    pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
+        -> Result<(), PkdError> where T: EntryBytes {
+        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+        return sp.insert_bytes(i, src.entry_ptr(), src.entry_len());
+    }
+
+    /// Appends `*src`.
+    pub unsafe fn push(self: &mut PkdArray<T>, src: &T)
+        -> Result<(), PkdError> where T: EntryBytes {
+        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
+        let at = sp.count();
+        return sp.insert(at, src);
+    }
+
+    // Byte-level plumbing (the typed insert/push above are the API).
+    unsafe fn insert_bytes(self: &mut PkdArray<T>, i: u32,
+                           src: *const u8, len: i64) -> Result<(), PkdError> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let cnt = sp.count();
         let dn = sp.off(cnt);                          // used data bytes
@@ -118,14 +153,6 @@ impl<T: ?Sized> PkdArray<T> {
         sp.off_wr(i + 1, at + (len as u32));
         sp.set_count(cnt + 1);
         return Result::Ok(());
-    }
-
-    /// Appends an entry.
-    pub unsafe fn push_bytes(self: &mut PkdArray<T>, src: *const u8, len: i64)
-        -> Result<(), PkdError> {
-        let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
-        let at = sp.count();
-        return sp.insert_bytes(at, src, len);
     }
 
     /// Removes entry `i`, shrinking both slots to exact fit.
@@ -214,9 +241,10 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         *self.at(i) = v;
     }
 
-    /// Inserts `v` at position `i` (0 ≤ i ≤ count). Exact-fit growth through
-    /// the allocator chain.
-    pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, v: T) -> Result<(), PkdError> {
+    /// Inserts `*src` at position `i` (0 ≤ i ≤ count). Exact-fit growth
+    /// through the allocator chain.
+    pub unsafe fn insert(self: &mut PkdArray<T>, i: u32, src: &T)
+        -> Result<(), PkdError> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let esz: i64 = sizeof::<T>();
         let cnt = sp.count();
@@ -225,15 +253,16 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         let at: *mut T = sp.at(i);
         move_bytes((at as *mut u8).byte_add(esz), at as *const u8,
                    (cnt - i) * esz);
-        *at = v;
+        *at = *src;
         sp.count = cnt + 1;
         return Result::Ok(());
     }
 
-    pub unsafe fn push(self: &mut PkdArray<T>, v: T) -> Result<(), PkdError> {
+    /// Appends `*src`.
+    pub unsafe fn push(self: &mut PkdArray<T>, src: &T) -> Result<(), PkdError> {
         let sp: *mut PkdArray<T> = self as *mut PkdArray<T>;
         let at = sp.count();
-        return sp.insert(at, v);
+        return sp.insert(at, src);
     }
 
     /// Removes element `i`, shrinking to exact fit (shrink auto-packs the
