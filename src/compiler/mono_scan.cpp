@@ -781,6 +781,51 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     auto tpars = stt_ptr.type_params();
     auto type_args = TypeRef(concrete_struct_t).type_args();
 
+    // Bound-discriminated twins (impl<T: Copy+Fst> S<T> vs impl<T: ?Sized>
+    // S<T>): an instance belongs to ONE family — the chosen spec's pattern
+    // bounds (empty = the base template). Methods whose impl-level bound
+    // fingerprint differs belong to the OTHER twin; cloning them here puts
+    // the wrong body on the instance (a VLE dst_len reading .alc on an FSE
+    // array). Computed only when such specs exist — ordinary bounded
+    // methods on spec-less structs are untouched.
+    bool family_filter = false;
+    std::vector<std::string> family_fp;
+    {
+        const TypePoolImpl* fpool = out_.type_pool.impl();
+        auto fit = struct_specs_.find(base);
+        if (fit == struct_specs_.end()) {
+            std::string qb = pkg.empty() ? base : pkg + "." + base;
+            fit = struct_specs_.find(qb);
+        }
+        if (fit != struct_specs_.end()) {
+            bool any_bounded_alltv = false;
+            for (auto spec : fit->second) {
+                auto pats = spec.spec_patterns(fpool);
+                bool all_tv = !pats.empty();
+                for (auto pp : pats)
+                    if (!pp || TypeRef(pp).kind() != LogosType::Kind::TypeVar)
+                        { all_tv = false; break; }
+                if (!all_tv) continue;
+                for (auto tp : spec.type_params())
+                    if (!tp.bounds_empty()) { any_bounded_alltv = true; break; }
+                if (any_bounded_alltv) break;
+            }
+            if (any_bounded_alltv) {
+                family_filter = true;
+                if (auto chosen = find_best_struct_spec(
+                        base, std::vector<TypeRef>(type_args.begin(),
+                                                   type_args.end()));
+                    chosen.valid()) {
+                    for (auto tp : chosen.type_params())
+                        tp.each_bound([&](lir_view::FnTraitBoundView b) {
+                            family_fp.push_back(std::string(b.trait_name()));
+                        });
+                    std::sort(family_fp.begin(), family_fp.end());
+                }
+            }
+        }
+    }
+
     for (auto& [sn, fp] : matches) {
         // Skip methods with method-level type-params (e.g. `fn map<U>` on
         // `impl<I, T> Iterator<T> for FilterIter<I, T>`). The root-pin /
@@ -799,6 +844,27 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
             if (!is_struct_tparam) { has_method_tparam = true; break; }
         }
         if (has_method_tparam) continue;
+
+        // Family filter (see above): the method's IMPL-LEVEL bound
+        // fingerprint (bounds of the type params that appear in its
+        // impl-target pattern) must equal the instance's family.
+        if (family_filter) {
+            TypeRef m_itp = fp.impl_target_pattern(lmi_pool);
+            std::vector<std::string> ivars;
+            if (m_itp) collect_pattern_typevars(m_itp, ivars);
+            std::vector<std::string> mfp;
+            for (auto& tp : fp.type_params()) {
+                bool is_impl_var = false;
+                for (auto& iv : ivars)
+                    if (iv == tp.name()) { is_impl_var = true; break; }
+                if (!is_impl_var) continue;
+                tp.each_bound([&](lir_view::FnTraitBoundView b) {
+                    mfp.push_back(std::string(b.trait_name()));
+                });
+            }
+            std::sort(mfp.begin(), mfp.end());
+            if (mfp != family_fp) continue;
+        }
 
         // Dedup key uses the short user-facing name so multiple overloads
         // sharing it dedupe to one slot (matches eager rename semantics).

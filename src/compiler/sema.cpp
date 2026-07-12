@@ -6813,11 +6813,23 @@ TypeRef SemaChecker::field_type_of_for_type(TypeRef struct_t,
     // Check for a concrete specialization first (including partial specs
     // via pattern matching).
     if (!TypeRef(struct_t).type_args().empty()) {
-        if (auto* spec = find_best_sema_struct_spec(TypeRef(struct_t).struct_name(), TypeRef(struct_t).type_args())) {
+        auto ta = TypeRef(struct_t).type_args();
+        std::vector<TypeRef> ta_vec(ta.begin(), ta.end());
+        if (auto* spec = find_best_sema_struct_spec(TypeRef(struct_t).struct_name(), ta_vec)) {
+            // Substitute the spec's pattern-var binds into the field type:
+            // a bound-discriminated spec's fields mention the pattern var
+            // (`data: [T]`) — returning them raw leaked `[T]` into concrete
+            // instantiations. (Concrete-pattern eidos specs bind nothing.)
+            StrMap<TypeRef> binds;
+            for (size_t i = 0; i < spec->spec_patterns.size() && i < ta_vec.size(); ++i)
+                unify_types(spec->spec_patterns[i], ta_vec[i], binds);
+            SemaSubst sub(binds.begin(), binds.end());
             for (auto& f : spec->fields) {
-                if (f.name == fname) return f.type;
-                if (f.is_variadic && fname.starts_with(f.name) && fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_')
-                    return f.type;
+                if (f.name == fname ||
+                    (f.is_variadic && fname.starts_with(f.name) &&
+                     fname.size() > f.name.size() + 1 && fname[f.name.size()] == '_'))
+                    return sub.empty() ? TypeRef(f.type)
+                                       : subst_type_sema(f.type, sub);
             }
             return nullptr;  // field not in specialization
         }

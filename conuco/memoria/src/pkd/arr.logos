@@ -46,8 +46,7 @@ pub struct PkdArray<T: ?Sized> {
 
 impl<T: ?Sized> SelfDescribing for PkdArray<T> {
     fn dst_len(self: *const PkdArray<T>) -> i64 {
-        let a: *const PkdAlloc = self as *const PkdAlloc;
-        return unsafe { a.dst_len() };
+        return unsafe { (*self).alc.dst_len() };
     }
 }
 
@@ -216,6 +215,7 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
     pub unsafe fn get(self: &PkdArray<T>, i: u32) -> T {
         return *self.at(i);
     }
+
     pub unsafe fn set(self: &PkdArray<T>, i: u32, v: T) {
         *self.at(i) = v;
     }
@@ -275,6 +275,17 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         let _ = sp.resize_self(keep);
         return true;
     }
+}
+
+/// Tail-slice length through the LANGUAGE-level [T] tail: materializing the
+/// fat `&PkdArray<u64>` from the thin pointer calls SelfDescribing::dst_len —
+/// this observably pins the FAMILY-correct dst_len (FSE = count, not the VLE
+/// twin's) to FSE instances (the ADR 0019 twin-routing regression).
+/// (Concrete element type: the generic-tail-in-generic-body form is a known
+/// open item on the no-unsafe worklist.)
+pub unsafe fn fse_data_len_u64(a: *mut PkdArray<u64>) -> i64 {
+    let p: *const PkdArray<u64> = a as *const PkdArray<u64>;
+    return p.dst_len();
 }
 
 /// First position with element ≥ `key` in a SORTED PkdArray<u64>.
