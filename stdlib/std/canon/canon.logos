@@ -1,0 +1,242 @@
+// logos.std.canon.canon — Canon wave-0: the container-design JUDGE (ADR 0020).
+//
+// Canon orchestrates container DESIGN and never touches execution: it consumes
+// the FACT doc mirrored from ONE `container` declaration (built by
+// logos.std.canon.container_item) and returns a VERDICT doc. Judge, not doer
+// (ADR 0020 §5): Canon never emits code; the item handler never decides —
+// it reads these verdicts and emits (or diagnoses) mechanically.
+//
+// The rules are ordinary deem/mapping items over the &Writ graph source —
+// Canon is a Deem APPLICATION, not a Deem extension. Wave-0 axioms
+// (docs/design/memoria-canon-wave0.md §d):
+//
+//   can_scan(C)      ← kind(C, k), k ∈ {vector, ordered_map}
+//   can_rank(C)      ← measure(C, count)
+//   can_seek(C, col) ← kind(C, ordered_map) ∧ measure(C, max, col)
+//   col_mode(C, col) = by_value iff ty ∈ {fixed primitive list} ∨ param(col)
+//                      (wave-0 approximation of Fst ∧ sizeof ≤ 32B — the
+//                      threshold rule arrives with real layout facts);
+//                      everything else (str, …) = by_view
+//   missing_measure  ← kind(C, ordered_map) ∧ ¬measure(C, max, first key col)
+//                      (first key col = entry col idx 0 — wave-0 positional
+//                      convention; stratified negation)
+//
+// Fact doc shape (flat rows, scalar leaves — the deem-over-&Writ convenience
+// shape):
+//   { containers: [ { name, pub, generics, backing, kind } ],
+//     cols:       [ { ctr, idx, name, ty, param } … ],
+//     measures:   [ { ctr, mfn, arg } … ] }
+//
+// Verdict doc shape (canon_verdicts):
+//   { ok: bool,                                    // ⇔ errors array empty
+//     caps:      [ { ctr, cap, col } … ],          // col = "" for whole-ctr caps
+//     col_modes: [ { ctr, col, mode } … ],         // mode = by_value | by_view
+//     errors:    [ { ctr, code, detail, reason } … ] }
+package logos.std.canon.canon;
+
+use logos.lang.result;
+use logos.lang.str;
+use logos.lang.writ.container;
+use logos.lang.writ.wmap;
+use logos.lang.writ.array;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+
+// ── CanonCol — the by_value → i64 column projection used by generated scan
+// materializers (design §f). Unsigned wide types project by BIT
+// reinterpretation (as-cast): rel columns are i64; order semantics for the
+// high half of u64/usize is a later wave's concern, set identity is exact.
+pub trait CanonCol {
+    fn canon_col(&self) -> i64;
+}
+impl CanonCol for i64   { fn canon_col(&self) -> i64 { return *self; } }
+impl CanonCol for i32   { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for i16   { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for i8    { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for u64   { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for u32   { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for u16   { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for u8    { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for usize { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for isize { fn canon_col(&self) -> i64 { return *self as i64; } }
+impl CanonCol for bool  { fn canon_col(&self) -> i64 { return if *self { 1i64 } else { 0i64 }; } }
+
+// ── The Canon rule module ────────────────────────────────────────────────────
+// Fact vocabulary + the derived rows the axioms negate over. A fact row is a
+// FLAT map in one of the three top-level arrays; its attributes are edges
+// sharing the row map's node handle — so flat rows reconstruct as self-joins
+// of the attribute harvest on the row id. Budget note: the engine caps a
+// program at 8 rels (mapping + consumer entry), so axioms that are plain
+// joins/filters live in the consuming deem ENTRIES below; only rows that are
+// (a) shared or (b) the RHS of a stratified anti join earn a rel here.
+mapping CanonFacts(g: &Writ) {
+    // Attribute harvest: one row per (section, row map, attribute) edge.
+    rel att(sec: str, row: i64, k: str, vs: str, vi: i64) {
+        from g * s [*] r * a select (s.key, r.child, a.key, a.vs, a.vi);
+    }
+
+    // Flat fact rows (the ADR 0020 §5 vocabulary, wave-0 cut).
+    pub rel ctr_kind(ctr: str, kind: str) {
+        from att n join att k on k.row == n.row
+        where n.sec == "containers" && n.k == "name" && k.k == "kind"
+        select (n.vs, k.vs);
+    }
+    pub rel col_fact(ctr: str, idx: i64, col: str, ty: str, prm: i64) {
+        from att c join att i on i.row == c.row
+            join att n on n.row == c.row
+            join att t on t.row == c.row
+            join att p on p.row == c.row
+        where c.sec == "cols" && c.k == "ctr" && i.k == "idx" && n.k == "name"
+              && t.k == "ty" && p.k == "param"
+        select (c.vs, i.vi, n.vs, t.vs, p.vi);
+    }
+    pub rel meas_fact(ctr: str, mfn: str, arg: str) {
+        from att c join att f on f.row == c.row
+            join att a on a.row == c.row
+        where c.sec == "measures" && c.k == "ctr" && f.k == "mfn" && a.k == "arg"
+        select (c.vs, f.vs, a.vs);
+    }
+
+    // by_value: type param (monomorphized later — wave-0 treats it as small)
+    // or a member of the fixed primitive list.
+    pub rel mode_value(ctr: str, col: str) {
+        from col_fact c
+        where c.prm == 1
+           || c.ty == "i8"  || c.ty == "i16" || c.ty == "i32" || c.ty == "i64"
+           || c.ty == "u8"  || c.ty == "u16" || c.ty == "u32" || c.ty == "u64"
+           || c.ty == "usize" || c.ty == "isize"
+           || c.ty == "bool"  || c.ty == "f32" || c.ty == "f64" || c.ty == "char"
+        select (c.ctr, c.col);
+    }
+    // Declared max-measures — the RHS of both can_seek and the completeness
+    // negation.
+    pub rel max_meas(ctr: str, col: str) {
+        from meas_fact m where m.mfn == "max" select (m.ctr, m.arg);
+    }
+}
+
+// Verdict projections — one deem per verdict set (a deem item has one entry;
+// canon_verdicts runs them all and assembles the doc).
+deem canon_can_scan(w: CanonFacts) {
+    from ctr_kind k where k.kind == "vector" || k.kind == "ordered_map"
+    select k.ctr : str
+}
+deem canon_can_rank(w: CanonFacts) {
+    from meas_fact m where m.mfn == "count" select m.ctr : str
+}
+deem canon_can_seek(w: CanonFacts) {
+    from ctr_kind x join max_meas m on m.ctr == x.ctr
+    where x.kind == "ordered_map"
+    select (x.ctr, m.col)
+}
+deem canon_mode_value(w: CanonFacts) {
+    from mode_value c select (c.ctr, c.col)
+}
+deem canon_mode_view(w: CanonFacts) {
+    from col_fact c anti join mode_value v on v.ctr == c.ctr && v.col == c.col
+    select (c.ctr, c.col)
+}
+// Completeness: an ordered_map must declare `measure max(<first key col>)` —
+// the seek measure over the key column (idx 0 by the wave-0 convention).
+deem canon_missing_max(w: CanonFacts) {
+    from ctr_kind x join col_fact c on c.ctr == x.ctr
+         anti join max_meas m on m.ctr == x.ctr && m.col == c.col
+    where x.kind == "ordered_map" && c.idx == 0
+    select (x.ctr, c.col)
+}
+
+fn cv_push_cap(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, cap: str, col: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(4i64);
+    m.set("ctr", ctr);
+    m.set("cap", cap);
+    m.set("col", col);
+    arr.push(WAny::from(&*m));
+}
+
+fn cv_push_mode(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, col: str, mode: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(4i64);
+    m.set("ctr", ctr);
+    m.set("col", col);
+    m.set("mode", mode);
+    arr.push(WAny::from(&*m));
+}
+
+/// Runs the Canon wave-0 rules over one fact doc and returns the verdict doc
+/// (owned). An engine failure yields a NULL-root doc — the caller diagnoses
+/// (the same convention as a malformed spec in container_facts).
+pub fn canon_verdicts(facts: &Writ) -> Writ {
+    let doc: Writ = writ_new(65536i64);
+
+    let scan: Vec<str> = match canon_can_scan(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let rank: Vec<str> = match canon_can_rank(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let seek: Vec<(str, str)> = match canon_can_seek(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let mval: Vec<(str, str)> = match canon_mode_value(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let mview: Vec<(str, str)> = match canon_mode_view(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let missing: Vec<(str, str)> = match canon_missing_max(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+
+    let root: &mut WMap<WString, WAny> = doc.map(8i64);
+
+    let caps: &mut WArray<WAny> = doc.array(scan.len() + rank.len() + seek.len());
+    let mut i: i64 = 0i64;
+    while i < scan.len()  { cv_push_cap(&doc, caps, scan.get(i), "can_scan", ""); i = i + 1i64; }
+    i = 0i64;
+    while i < rank.len()  { cv_push_cap(&doc, caps, rank.get(i), "can_rank", ""); i = i + 1i64; }
+    i = 0i64;
+    while i < seek.len() {
+        let s: (str, str) = seek.get(i);
+        cv_push_cap(&doc, caps, s.0, "can_seek", s.1);
+        i = i + 1i64;
+    }
+    root.set("caps", &*caps);
+
+    let modes: &mut WArray<WAny> = doc.array(mval.len() + mview.len());
+    i = 0i64;
+    while i < mval.len() {
+        let r: (str, str) = mval.get(i);
+        cv_push_mode(&doc, modes, r.0, r.1, "by_value");
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < mview.len() {
+        let r: (str, str) = mview.get(i);
+        cv_push_mode(&doc, modes, r.0, r.1, "by_view");
+        i = i + 1i64;
+    }
+    root.set("col_modes", &*modes);
+
+    let errs: &mut WArray<WAny> = doc.array(missing.len());
+    i = 0i64;
+    while i < missing.len() {
+        let r: (str, str) = missing.get(i);
+        let mut detail: String = String::new();
+        detail.push_str("max(");
+        detail.push_str(r.1);
+        detail.push_str(")");
+        let mut reason: String = String::new();
+        reason.push_str("kind=ordered_map requires measure(max(<first key col>)) — declare `measure max(");
+        reason.push_str(r.1);
+        reason.push_str(");`");
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set("ctr", r.0);
+        m.set("code", "missing_measure");
+        m.set("detail", detail.as_str());
+        m.set("reason", reason.as_str());
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    root.set("errors", &*errs);
+    root.set("ok", missing.len() == 0i64);
+
+    doc.set_root(WAny::from(&*root));
+    return doc;
+}

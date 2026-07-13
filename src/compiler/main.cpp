@@ -2159,6 +2159,43 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
     return buf + 8;
 }
 
+// The ONE canonical host-extern surface for every metaprog JIT — the
+// iteration-loop meta_jit AND the compile-mode metacall mc_jit. The two used
+// to bind hand-maintained SUBSETS; once archived stdlib code that references
+// metaprog externs can enter a thunk module (the std.canon deem items pull
+// the wql cone, whose plan lowering references logos_rule_ir), a missing
+// binding fails WHOLE-UNIT materialization even when the thunk never calls
+// the extern. Binding the full set in both JITs removes the drift class.
+static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
+    auto bind = [&](const char* name, void* fn) -> bool {
+        if (jit.define_symbol(name, fn)) return true;
+        std::fprintf(stderr, "logosc: bind %s (%s): %s\n", name, who,
+                     jit.error_str().c_str());
+        return false;
+    };
+    return bind("logos_emit_source",               reinterpret_cast<void*>(&logos_emit_source))
+        && bind("logos_emit_item_blob",            reinterpret_cast<void*>(&logos_emit_item_blob))
+        && bind("logos_emit_item_blob_subst",      reinterpret_cast<void*>(&logos_emit_item_blob_subst))
+        && bind("logos_qib_pack_idents",           reinterpret_cast<void*>(&logos_qib_pack_idents))
+        && bind("logos_qib_free_idents",           reinterpret_cast<void*>(&logos_qib_free_idents))
+        && bind("logos_qib_pack_blobs",            reinterpret_cast<void*>(&logos_qib_pack_blobs))
+        && bind("logos_qib_free_blobs",            reinterpret_cast<void*>(&logos_qib_free_blobs))
+        && bind("logos_qib_pack_cursors",          reinterpret_cast<void*>(&logos_qib_pack_cursors))
+        && bind("logos_qib_free_cursors",          reinterpret_cast<void*>(&logos_qib_free_cursors))
+        && bind("logos_metaprog_gensym",           reinterpret_cast<void*>(&logos_metaprog_gensym))
+        && bind("logos_metacall_freeze2",          reinterpret_cast<void*>(&logos_metacall_freeze2))
+        && bind("logos_metaprog_test_module_blob", reinterpret_cast<void*>(&logos_metaprog_test_module_blob))
+        && bind("logos_test_make_bin_op_blob",     reinterpret_cast<void*>(&logos_test_make_bin_op_blob))
+        && bind("logos_quote_expr_subst",          reinterpret_cast<void*>(&logos_quote_expr_subst))
+        && bind("logos_get_module_ast",            reinterpret_cast<void*>(&logos_get_module_ast))
+        && bind("logos_get_module_ast_oview",      reinterpret_cast<void*>(&logos_get_module_ast_oview))
+        && bind("logos_holder_release",            reinterpret_cast<void*>(&logos_holder_release))
+        && bind("logos_metaprog_error",            reinterpret_cast<void*>(&logos_metaprog_error))
+        && bind("logos_metaprog_error_at",         reinterpret_cast<void*>(&logos_metaprog_error_at))
+        && bind("logos_macro_arg",                 reinterpret_cast<void*>(&logos_macro_arg))
+        && bind("logos_rule_ir",                   reinterpret_cast<void*>(&logos_rule_ir));
+}
+
 // Round-trip a stack-built LLVM module through textual IR into a fresh
 // heap-owned LLVMContext, then hand it to a new logos::jit::Jit. Returns
 // the fully initialized Jit or nullptr on failure (errors printed).
@@ -2626,37 +2663,12 @@ int run_metaprog_dispatch(
                     // Non-fatal (matches build_jit_from_module).
                 }
             }
-            auto bind_sym = [&](const char* name, void* fn) -> bool {
-                if (m6_meta_jit->define_symbol(name, fn)) return true;
-                std::fprintf(stderr, "logosc: bind %s: %s\n",
-                             name, m6_meta_jit->error_str().c_str());
-                return false;
-            };
-            if (!bind_sym("logos_emit_source",                reinterpret_cast<void*>(&logos_emit_source))) return 1;
-            if (!bind_sym("logos_emit_item_blob",             reinterpret_cast<void*>(&logos_emit_item_blob))) return 1;
-            if (!bind_sym("logos_emit_item_blob_subst",       reinterpret_cast<void*>(&logos_emit_item_blob_subst))) return 1;
-            if (!bind_sym("logos_qib_pack_idents",            reinterpret_cast<void*>(&logos_qib_pack_idents))) return 1;
-            if (!bind_sym("logos_qib_free_idents",            reinterpret_cast<void*>(&logos_qib_free_idents))) return 1;
-            if (!bind_sym("logos_qib_pack_blobs",             reinterpret_cast<void*>(&logos_qib_pack_blobs))) return 1;
-            if (!bind_sym("logos_qib_free_blobs",             reinterpret_cast<void*>(&logos_qib_free_blobs))) return 1;
-            if (!bind_sym("logos_qib_pack_cursors",           reinterpret_cast<void*>(&logos_qib_pack_cursors))) return 1;
-            if (!bind_sym("logos_qib_free_cursors",           reinterpret_cast<void*>(&logos_qib_free_cursors))) return 1;
-            if (!bind_sym("logos_metaprog_gensym",            reinterpret_cast<void*>(&logos_metaprog_gensym))) return 1;
-            if (!bind_sym("logos_metacall_freeze2",           reinterpret_cast<void*>(&logos_metacall_freeze2))) return 1;
-            if (!bind_sym("logos_metaprog_test_module_blob",  reinterpret_cast<void*>(&logos_metaprog_test_module_blob))) return 1;
-            if (!bind_sym("logos_test_make_bin_op_blob",      reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) return 1;
-            if (!bind_sym("logos_quote_expr_subst",           reinterpret_cast<void*>(&logos_quote_expr_subst))) return 1;
-            if (!bind_sym("logos_get_module_ast",             reinterpret_cast<void*>(&logos_get_module_ast))) return 1;
-            if (!bind_sym("logos_get_module_ast_oview",       reinterpret_cast<void*>(&logos_get_module_ast_oview))) return 1;
-            if (!bind_sym("logos_holder_release",             reinterpret_cast<void*>(&logos_holder_release))) return 1;
-            if (!bind_sym("logos_metaprog_error",             reinterpret_cast<void*>(&logos_metaprog_error))) return 1;
-            if (!bind_sym("logos_metaprog_error_at",          reinterpret_cast<void*>(&logos_metaprog_error_at))) return 1;
-            // WQL/Trama raw-text item macros: bind the per-site macro-arg
-            // accessor so a #[token_macro] `(str) -> ItemList` item thunk can
-            // reconstruct its block bytes (g_macro_args is set around the
-            // item-thunk loop below).
-            if (!bind_sym("logos_macro_arg",                  reinterpret_cast<void*>(&logos_macro_arg))) return 1;
-            if (!bind_sym("logos_rule_ir",                    reinterpret_cast<void*>(&logos_rule_ir))) return 1;
+            // The canonical extern set (shared with the compile-mode
+            // metacall JIT — see bind_metaprog_host_externs). Includes the
+            // per-site macro-arg accessor for #[token_macro] item thunks
+            // (g_macro_args is set around the item-thunk loop below) and
+            // the rule-IR handoff.
+            if (!bind_metaprog_host_externs(*m6_meta_jit, "meta_jit")) return 1;
         }
         if (!m6_meta_jit->add_module(std::move(meta_llvm), std::move(meta_llvm_ctx_ptr))) {
             std::fprintf(stderr, "logosc-metaprog: jit add_module: %s\n",
@@ -4227,83 +4239,12 @@ int main(int argc, char** argv) {
             if (!mc_jit) return 1;
             mc_stat_step(_mc_t, "jit_build", mi);
 
-            // Slice 7 of metaprog-quote derisk: bind the hand-built BIN_OP
-            // blob fixture so `metacall_expr_blob.logos` can resolve the
-            // extern fn from the metacall JIT (separate from meta_jit).
-            if (!mc_jit->define_symbol("logos_test_make_bin_op_blob",
-                    reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) {
-                std::fprintf(stderr, "logosc: bind logos_test_make_bin_op_blob (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_quote_expr_subst",
-                    reinterpret_cast<void*>(&logos_quote_expr_subst))) {
-                std::fprintf(stderr, "logosc: bind logos_quote_expr_subst (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            // MC1.2: item-position metacall thunks call this from inside
-            // their bodies — bind on the metacall JIT alongside meta_jit.
-            if (!mc_jit->define_symbol("logos_emit_item_blob_subst",
-                    reinterpret_cast<void*>(&logos_emit_item_blob_subst))) {
-                std::fprintf(stderr, "logosc: bind logos_emit_item_blob_subst (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_qib_pack_idents",
-                    reinterpret_cast<void*>(&logos_qib_pack_idents))) {
-                std::fprintf(stderr, "logosc: bind logos_qib_pack_idents (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_qib_free_idents",
-                    reinterpret_cast<void*>(&logos_qib_free_idents))) {
-                std::fprintf(stderr, "logosc: bind logos_qib_free_idents (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_qib_pack_blobs",
-                    reinterpret_cast<void*>(&logos_qib_pack_blobs))) {
-                std::fprintf(stderr, "logosc: bind logos_qib_pack_blobs (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_qib_free_blobs",
-                    reinterpret_cast<void*>(&logos_qib_free_blobs))) {
-                std::fprintf(stderr, "logosc: bind logos_qib_free_blobs (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_qib_pack_cursors",
-                    reinterpret_cast<void*>(&logos_qib_pack_cursors))) {
-                std::fprintf(stderr, "logosc: bind logos_qib_pack_cursors (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_qib_free_cursors",
-                    reinterpret_cast<void*>(&logos_qib_free_cursors))) {
-                std::fprintf(stderr, "logosc: bind logos_qib_free_cursors (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_metaprog_gensym",
-                    reinterpret_cast<void*>(&logos_metaprog_gensym))) {
-                std::fprintf(stderr, "logosc: bind logos_metaprog_gensym (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_metacall_freeze2",
-                    reinterpret_cast<void*>(&logos_metacall_freeze2))) {
-                std::fprintf(stderr, "logosc: bind logos_metacall_freeze2 (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
-            if (!mc_jit->define_symbol("logos_macro_arg",
-                    reinterpret_cast<void*>(&logos_macro_arg))) {
-                std::fprintf(stderr, "logosc: bind logos_macro_arg (mc_jit): %s\n",
-                             mc_jit->error_str().c_str());
-                return 1;
-            }
+            // The canonical metaprog extern set, shared with the
+            // iteration-loop meta_jit (bind_metaprog_host_externs): thunk
+            // modules can carry archived stdlib code referencing ANY of the
+            // metaprog externs (whole-unit ORC materialization), so the two
+            // JITs must expose an identical surface.
+            if (!bind_metaprog_host_externs(*mc_jit, "mc_jit")) return 1;
 
             // Function-style macros (slice 1.3b): publish the per-site
             // arg-blob table so `logos_macro_arg(site, idx)` can resolve

@@ -3870,11 +3870,20 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             v.each_arm([&](EMatchArmRef arm) {
                 states_ = saved_s;
                 prov_   = saved_p;
+                bool saved_div = cur_diverged_;
+                cur_diverged_ = false;
                 push_scope();
                 declare_pat_bindings(arm.pat());
                 if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
                 visit(arm.value(), consuming, line);
                 pop_scope();
+                bool arm_div = cur_diverged_;
+                cur_diverged_ = saved_div;
+                // A DIVERGED arm (its value is a block whose tail returns —
+                // `Err(_) => { return d; }`) contributes nothing to the
+                // post-match move state: its moves never reach the join.
+                // Stmt-form Match parity (see the Code::Match case).
+                if (arm_div) return;
                 if (!merged_s) {
                     merged_s = states_;
                     merged_p = prov_;
@@ -3887,10 +3896,15 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 }
             });
             if (merged_s) {
+                states_ = saved_s;
+                prov_   = saved_p;
                 merged_s->for_each([&](uint32_t slot, std::string_view name, VarState& st) {
                     if (saved_s.has_id(slot, name)) states_.at_id(slot, name) = st;
                 });
                 merge_provs(prov_, *merged_p);
+            } else {
+                states_ = saved_s;
+                prov_   = saved_p;
             }
             break;
         }

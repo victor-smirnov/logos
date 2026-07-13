@@ -9447,10 +9447,28 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             auto lhs = map_of(arm.get(la::LHS.code));
             return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
         };
+        // Same per-arm move / definite-assignment discipline as the
+        // STATEMENT-form lower_match (see the rationale there): every arm
+        // sees the pre-match state, and a DIVERGING arm's moves must not
+        // leak into sibling arms or past the match —
+        //   let v = match f() { Ok(v) => v, Err(_) => { return d; } };
+        //   d.use();   // d is NOT moved on this path
+        // Post-match state = union over non-diverging arms.
+        auto pre_moves = moved_vars_;
+        std::set<std::string> post_moves;
+        auto pre_uninit = currently_uninit_vars_;
+        std::set<std::string> post_uninit;
+        bool post_uninit_initialized = false;
+        bool any_non_diverging = false;
         for (uint64_t i = 0; i < eff_arms.size(); ++i) {
             auto arm = eff_arms[i].arm;
             int32_t alt_idx = eff_arms[i].alt_idx;
             if (code_of(arm) != la::MATCH_ARM) continue;
+
+            // Reset moves / definite-assignment to the pre-match state at
+            // each arm boundary (stmt-form parity).
+            moved_vars_ = pre_moves;
+            currently_uninit_vars_ = pre_uninit;
 
             lir::LExprPtr synth_guard = nullptr;
             std::vector<lir_view::StmtRef> body_prologue;
@@ -9711,6 +9729,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // skipped during type unification; non-diverging block arms use
             // their last expression as the value.
             lir::LExprPtr val = nullptr;
+            bool arm_diverges = false;   // move/uninit merge below
             if (arm.has_key(la::EXPR)) {
                 val = lower_expr(map_of(arm.get(la::EXPR.code)));
             } else if (arm.has_key(la::BODY)) {
@@ -9722,6 +9741,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 bool diverges = (code_of(body_node) == la::BLOCK)
                                 ? block_always_diverts(body_node)
                                 : stmt_always_diverts(body_node);
+                arm_diverges = diverges;
                 if (diverges) {
                     // Block always returns — lower it as a block of stmts;
                     // the tail expression is unreachable so we use error_expr()
@@ -9899,7 +9919,24 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             ema.guard = std::move(guard);
             ema.value = std::move(val);
             me.arms.push_back(std::move(ema));
+
+            // A Never-typed arm value (`panic!`, a `=> return x` expr arm)
+            // diverges even without a block body.
+            if (!arm_diverges && me.arms.back().value &&
+                TypeRef(expr_type(me.arms.back().value)).kind() ==
+                    LogosType::Kind::Never)
+                arm_diverges = true;
+            if (!arm_diverges) {
+                any_non_diverging = true;
+                for (auto& m : moved_vars_) post_moves.insert(m);
+                for (auto& v : currently_uninit_vars_) post_uninit.insert(v);
+                post_uninit_initialized = true;
+            }
         }
+        // Merge per-arm contributions back (stmt-form parity).
+        moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
+        currently_uninit_vars_ = (any_non_diverging && post_uninit_initialized)
+            ? std::move(post_uninit) : std::move(pre_uninit);
     }
 
     {

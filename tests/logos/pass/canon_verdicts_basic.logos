@@ -1,0 +1,230 @@
+// ADR 0020 wave-0 M3 — Canon verdicts over HAND-BUILT fact docs (decouples
+// Canon-rule debugging from the container-item pipeline):
+//   doc A: complete Vector (kind=vector, count) + complete Map (kind=
+//          ordered_map, count, max(key)) in ONE doc (multi-row fact arrays);
+//          concrete Map col types (key: i64, val: str) exercise both col modes;
+//   doc B: Map MISSING `measure max(key)` → ok=false + a missing_measure
+//          error NAMING the missing measure; caps stop at scan/rank;
+//   doc C: the REAL fact builder (container_facts, canonical Vector spec)
+//          feeds canon_verdicts — pins the M2→M3 seam shape.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.canon.canon;
+use logos.std.canon.container_item;
+use logos.lang.writ.container;
+use logos.lang.writ.wmap;
+use logos.lang.writ.array;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.lang.str;
+
+fn fact_ctr(doc: &Writ, arr: &mut WArray<WAny>, name: str, kind: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(8i64);
+    m.set("name", name);
+    m.set("pub", true);
+    m.set("generics", "");
+    m.set("backing", "");
+    m.set("kind", kind);
+    arr.push(WAny::from(&*m));
+}
+
+fn fact_col(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str,
+            ty: str, prm: bool) {
+    let m: &mut WMap<WString, WAny> = doc.map(8i64);
+    m.set("ctr", ctr);
+    m.set("idx", idx);
+    m.set("name", name);
+    m.set("ty", ty);
+    m.set("param", prm);
+    arr.push(WAny::from(&*m));
+}
+
+fn fact_meas(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, mfn: str, arg: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(8i64);
+    m.set("ctr", ctr);
+    m.set("mfn", mfn);
+    m.set("arg", arg);
+    arr.push(WAny::from(&*m));
+}
+
+// Row count of a top-level verdict array; −1 = shape violation.
+fn vd_count(vd: &Writ, key: str) -> i64 {
+    let root: WAny = vd.root();
+    if root.is_null() || !root.is_map() { return 0i64 - 1i64; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get(key);
+    if !av.is_array() { return 0i64 - 1i64; }
+    let arr: &WArray<WAny> = av.as_array();
+    return arr.len();
+}
+
+fn vd_ok(vd: &Writ) -> bool {
+    let root: WAny = vd.root();
+    if root.is_null() || !root.is_map() { return false; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let ov: WAny = rm.get("ok");
+    if !ov.is_bool() { return false; }
+    return ov.as_bool();
+}
+
+// True iff an array row matches THREE string attrs (a wildcard is expressed
+// by passing the row's own value — callers assert exact rows).
+fn vd_has3(vd: &Writ, arr_key: str, k1: str, v1: str, k2: str, v2: str,
+           k3: str, v3: str) -> bool {
+    let root: WAny = vd.root();
+    if root.is_null() || !root.is_map() { return false; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get(arr_key);
+    if !av.is_array() { return false; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get(k1);
+            let a2: WAny = em.get(k2);
+            let a3: WAny = em.get(k3);
+            if str_eq(a1.as_wstr(), v1) && str_eq(a2.as_wstr(), v2)
+               && str_eq(a3.as_wstr(), v3) { return true; }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn has_cap(vd: &Writ, ctr: str, cap: str, col: str) -> bool {
+    return vd_has3(vd, "caps", "ctr", ctr, "cap", cap, "col", col);
+}
+
+// Any-col capability probe (e.g. "no can_seek at all for this ctr").
+fn has_cap_any(vd: &Writ, ctr: str, cap: str) -> bool {
+    let root: WAny = vd.root();
+    if root.is_null() || !root.is_map() { return false; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get("caps");
+    if !av.is_array() { return false; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("cap");
+            if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), cap) { return true; }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn has_mode(vd: &Writ, ctr: str, col: str, mode: str) -> bool {
+    return vd_has3(vd, "col_modes", "ctr", ctr, "col", col, "mode", mode);
+}
+
+// The missing_measure error row: exact ctr/code/detail + reason CONTAINS the
+// measure the diagnostic must name.
+fn has_missing(vd: &Writ, ctr: str, detail: str, reason_needle: str) -> bool {
+    let root: WAny = vd.root();
+    if root.is_null() || !root.is_map() { return false; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get("errors");
+    if !av.is_array() { return false; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("code");
+            let a3: WAny = em.get("detail");
+            let a4: WAny = em.get("reason");
+            if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), "missing_measure")
+               && str_eq(a3.as_wstr(), detail)
+               && str_contains(a4.as_wstr(), reason_needle) { return true; }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn main() -> i32 {
+    // ── doc A: complete Vector + complete Map ───────────────────────────
+    let da: Writ = writ_new(65536i64);
+    {
+        let root: &mut WMap<WString, WAny> = da.map(4i64);
+        let ctrs: &mut WArray<WAny> = da.array(2i64);
+        fact_ctr(&da, ctrs, "Vector", "vector");
+        fact_ctr(&da, ctrs, "Map", "ordered_map");
+        root.set("containers", &*ctrs);
+        let cols: &mut WArray<WAny> = da.array(3i64);
+        fact_col(&da, cols, "Vector", 0i64, "elem", "T", true);
+        fact_col(&da, cols, "Map", 0i64, "key", "i64", false);
+        fact_col(&da, cols, "Map", 1i64, "val", "str", false);
+        root.set("cols", &*cols);
+        let meas: &mut WArray<WAny> = da.array(3i64);
+        fact_meas(&da, meas, "Vector", "count", "");
+        fact_meas(&da, meas, "Map", "count", "");
+        fact_meas(&da, meas, "Map", "max", "key");
+        root.set("measures", &*meas);
+        da.set_root(WAny::from(&*root));
+    }
+    let va: Writ = canon_verdicts(&da);
+    if !vd_ok(&va) { return 1i32; }
+    if vd_count(&va, "caps") != 5i64 { return 2i32; }
+    if !has_cap(&va, "Vector", "can_scan", "") { return 3i32; }
+    if !has_cap(&va, "Vector", "can_rank", "") { return 4i32; }
+    if has_cap_any(&va, "Vector", "can_seek") { return 5i32; }
+    if !has_cap(&va, "Map", "can_scan", "") { return 6i32; }
+    if !has_cap(&va, "Map", "can_rank", "") { return 7i32; }
+    if !has_cap(&va, "Map", "can_seek", "key") { return 8i32; }
+    if vd_count(&va, "col_modes") != 3i64 { return 9i32; }
+    if !has_mode(&va, "Vector", "elem", "by_value") { return 10i32; }
+    if !has_mode(&va, "Map", "key", "by_value") { return 11i32; }
+    if !has_mode(&va, "Map", "val", "by_view") { return 12i32; }
+    if vd_count(&va, "errors") != 0i64 { return 13i32; }
+
+    // ── doc B: Map missing `measure max(key)` ───────────────────────────
+    let db: Writ = writ_new(65536i64);
+    {
+        let root: &mut WMap<WString, WAny> = db.map(4i64);
+        let ctrs: &mut WArray<WAny> = db.array(1i64);
+        fact_ctr(&db, ctrs, "Map", "ordered_map");
+        root.set("containers", &*ctrs);
+        let cols: &mut WArray<WAny> = db.array(2i64);
+        fact_col(&db, cols, "Map", 0i64, "key", "K", true);
+        fact_col(&db, cols, "Map", 1i64, "val", "V", true);
+        root.set("cols", &*cols);
+        let meas: &mut WArray<WAny> = db.array(1i64);
+        fact_meas(&db, meas, "Map", "count", "");
+        root.set("measures", &*meas);
+        db.set_root(WAny::from(&*root));
+    }
+    let vb: Writ = canon_verdicts(&db);
+    if vd_ok(&vb) { return 20i32; }
+    if vd_count(&vb, "errors") != 1i64 { return 21i32; }
+    if !has_missing(&vb, "Map", "max(key)", "measure max(key)") { return 22i32; }
+    if !has_cap(&vb, "Map", "can_scan", "") { return 23i32; }
+    if !has_cap(&vb, "Map", "can_rank", "") { return 24i32; }
+    if has_cap_any(&vb, "Map", "can_seek") { return 25i32; }
+    if vd_count(&vb, "caps") != 2i64 { return 26i32; }
+    if !has_mode(&vb, "Map", "key", "by_value") { return 27i32; }
+    if !has_mode(&vb, "Map", "val", "by_value") { return 28i32; }
+
+    // ── doc C: the real fact builder feeds Canon (M2→M3 seam) ──────────
+    let dc: Writ = container_facts(
+        "Vector",
+        "pub=1|generics=<T>|gnames=T|backing=VecCtr<T>|backing_pkg=|kind=vector|entry=elem:T:1|measures=count");
+    let vc: Writ = canon_verdicts(&dc);
+    if !vd_ok(&vc) { return 30i32; }
+    if vd_count(&vc, "caps") != 2i64 { return 31i32; }
+    if !has_cap(&vc, "Vector", "can_scan", "") { return 32i32; }
+    if !has_cap(&vc, "Vector", "can_rank", "") { return 33i32; }
+    if !has_mode(&vc, "Vector", "elem", "by_value") { return 34i32; }
+    if vd_count(&vc, "errors") != 0i64 { return 35i32; }
+
+    return 0i32;
+}

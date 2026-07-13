@@ -7716,11 +7716,16 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     // macros haven't synthesized yet — lower_fn stubs them so they never
     // enter the metaprog JIT slice (multi-module analog of the entry-ast
     // stub; see cur_ast_has_pending_item_mc_ in sema_impl.hpp).
+    // EVERY item form the driver DONE-flips counts: the language-item
+    // macros (deem/mapping/container) synthesize siblings exactly like
+    // fn-macro / metacall items do.
     cur_ast_has_pending_item_mc_ = false;
     if (metaprog_mode_) {
         for (auto& it : flat_items) {
             int32_t cc = code_of(it);
-            if (cc == la::FN_MACRO_CALL_ITEM || cc == la::METACALL_ITEM) {
+            if (cc == la::FN_MACRO_CALL_ITEM || cc == la::METACALL_ITEM
+                || cc == la::DEEM_DEF || cc == la::MAPPING_DEF
+                || cc == la::CONTAINER_DEF) {
                 cur_ast_has_pending_item_mc_ = true;
                 break;
             }
