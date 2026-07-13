@@ -32,6 +32,7 @@ use logos.lang.writ.anyval;        // WAny
 use logos.lang.writ.wstring;       // WString (read-back checks)
 use logos.lang.str;                // str_byte_at, str_eq, str_from_raw
 use logos.mem.string;              // String (diagnostic composition)
+use logos.std.canon.vocab;        // shared fact/verdict vocabulary (no bare strings across the Canon seam)
 
 unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
     let l: i64 = if b > a { b - a } else { 0i64 };
@@ -130,14 +131,14 @@ pub fn container_facts(name: str, spec: str) -> Writ {
     let ctrs: &mut WArray<WAny> = doc.array(1i64);
     {
         let c0: &mut WMap<WString, WAny> = doc.map(8i64);
-        c0.set("name", name);
+        c0.set(K_NAME, name);
         c0.set("pub", cs.is_pub);
         c0.set("generics", cs.gnames);
         c0.set("backing", cs.backing);
-        c0.set("kind", cs.kind);
+        c0.set(K_KIND, cs.kind);
         ctrs.push(WAny::from(&*c0));
     }
-    root.set("containers", &*ctrs);
+    root.set(SEC_CONTAINERS, &*ctrs);
 
     let cols: &mut WArray<WAny> = doc.array(4i64);
     {
@@ -154,17 +155,17 @@ pub fn container_facts(name: str, spec: str) -> Writ {
             while c2 > a && str_byte_at(cs.entry, c2) != 58u8 { c2 = c2 - 1i64; }
             if c1 < 0i64 || c1 >= b || c2 <= c1 { return writ_new(64i64); }
             let r: &mut WMap<WString, WAny> = doc.map(8i64);
-            r.set("ctr", name);
-            r.set("idx", idx);
-            r.set("name", unsafe { cf_sub(cs.entry, a, c1) });
-            r.set("ty", unsafe { cf_sub(cs.entry, c1 + 1i64, c2) });
-            r.set("param", str_eq(unsafe { cf_sub(cs.entry, c2 + 1i64, b) }, "1"));
+            r.set(K_CTR, name);
+            r.set(K_IDX, idx);
+            r.set(K_NAME, unsafe { cf_sub(cs.entry, a, c1) });
+            r.set(K_TY, unsafe { cf_sub(cs.entry, c1 + 1i64, c2) });
+            r.set(K_PARAM, str_eq(unsafe { cf_sub(cs.entry, c2 + 1i64, b) }, "1"));
             cols.push(WAny::from(&*r));
             idx = idx + 1i64;
             a = b + 1i64;
         }
     }
-    root.set("cols", &*cols);
+    root.set(SEC_COLS, &*cols);
 
     let meas: &mut WArray<WAny> = doc.array(4i64);
     {
@@ -174,22 +175,22 @@ pub fn container_facts(name: str, spec: str) -> Writ {
             let b: i64 = cf_next_comma(cs.measures, a, cm);
             let lp: i64 = cf_find(cs.measures, a, 40u8);     // '('
             let r: &mut WMap<WString, WAny> = doc.map(8i64);
-            r.set("ctr", name);
+            r.set(K_CTR, name);
             if lp >= 0i64 && lp < b {
                 if str_byte_at(cs.measures, b - 1i64) != 41u8 {   // ')'
                     return writ_new(64i64);
                 }
-                r.set("mfn", unsafe { cf_sub(cs.measures, a, lp) });
-                r.set("arg", unsafe { cf_sub(cs.measures, lp + 1i64, b - 1i64) });
+                r.set(K_MFN, unsafe { cf_sub(cs.measures, a, lp) });
+                r.set(K_ARG, unsafe { cf_sub(cs.measures, lp + 1i64, b - 1i64) });
             } else {
-                r.set("mfn", unsafe { cf_sub(cs.measures, a, b) });
-                r.set("arg", "");
+                r.set(K_MFN, unsafe { cf_sub(cs.measures, a, b) });
+                r.set(K_ARG, "");
             }
             meas.push(WAny::from(&*r));
             a = b + 1i64;
         }
     }
-    root.set("measures", &*meas);
+    root.set(SEC_MEASURES, &*meas);
 
     doc.set_root(WAny::from(&*root));
     return doc;
@@ -202,7 +203,7 @@ pub fn container_facts(name: str, spec: str) -> Writ {
 // codes), not borrowed strs — WAny steps bind to locals (borrowck contract).
 
 fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> bool {
-    let av: WAny = vroot.get("caps");
+    let av: WAny = vroot.get(V_CAPS);
     if !av.is_array() { return false; }
     let arr: &WArray<WAny> = av.as_array();
     let mut i: i64 = 0i64;
@@ -210,8 +211,8 @@ fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> bool {
         let e: WAny = arr.get(i);
         if e.is_map() {
             let em: &WMap<WString, WAny> = e.as_map();
-            let a1: WAny = em.get("ctr");
-            let a2: WAny = em.get("cap");
+            let a1: WAny = em.get(K_CTR);
+            let a2: WAny = em.get(K_CAP);
             if a1.is_string() && a2.is_string() {
                 if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), cap) {
                     return true;
@@ -228,7 +229,7 @@ fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> bool {
 // 2 = canon_col (project to i64 through CanonCol). Any OTHER proj string is a
 // Canon/handler vocabulary skew and fails LOUDLY — no silent degradation.
 fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
-    let av: WAny = vroot.get("col_projs");
+    let av: WAny = vroot.get(V_COL_PROJS);
     if !av.is_array() {
         error("container item: verdict doc missing its col_projs array (Canon seam regression?)");
         return 0i64;
@@ -239,13 +240,13 @@ fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
         let e: WAny = arr.get(i);
         if e.is_map() {
             let em: &WMap<WString, WAny> = e.as_map();
-            let a1: WAny = em.get("ctr");
-            let a2: WAny = em.get("col");
-            let a3: WAny = em.get("proj");
+            let a1: WAny = em.get(K_CTR);
+            let a2: WAny = em.get(K_COL);
+            let a3: WAny = em.get(K_PROJ);
             if a1.is_string() && a2.is_string() && a3.is_string() {
                 if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), col) {
-                    if str_eq(a3.as_wstr(), "direct") { return 1i64; }
-                    if str_eq(a3.as_wstr(), "canon_col") { return 2i64; }
+                    if str_eq(a3.as_wstr(), PROJ_DIRECT) { return 1i64; }
+                    if str_eq(a3.as_wstr(), PROJ_CANON_COL) { return 2i64; }
                     error("container item: unknown col_proj verdict (Canon/handler vocabulary skew?)");
                     return 0i64;
                 }
@@ -258,7 +259,7 @@ fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
 
 // relty of the (ctr, col) col_proj verdict row; "" when absent.
 fn cv_col_relty(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> str {
-    let av: WAny = vroot.get("col_projs");
+    let av: WAny = vroot.get(V_COL_PROJS);
     if !av.is_array() { return ""; }
     let arr: &WArray<WAny> = av.as_array();
     let mut i: i64 = 0i64;
@@ -266,9 +267,9 @@ fn cv_col_relty(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> str {
         let e: WAny = arr.get(i);
         if e.is_map() {
             let em: &WMap<WString, WAny> = e.as_map();
-            let a1: WAny = em.get("ctr");
-            let a2: WAny = em.get("col");
-            let a3: WAny = em.get("relty");
+            let a1: WAny = em.get(K_CTR);
+            let a2: WAny = em.get(K_COL);
+            let a3: WAny = em.get(K_RELTY);
             if a1.is_string() && a2.is_string() && a3.is_string() {
                 if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), col) {
                     return a3.as_wstr();
@@ -284,7 +285,7 @@ fn cv_col_relty(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> str {
 //   container <ctr>: <code>: <reason>
 // Returns the number of rows reported (0 = clean verdict).
 fn cv_report_errors(vroot: &WMap<WString, WAny>, name: str) -> i64 {
-    let av: WAny = vroot.get("errors");
+    let av: WAny = vroot.get(V_ERRORS);
     if !av.is_array() {
         error("container item: verdict doc missing its errors array (Canon seam regression?)");
         return 1i64;
@@ -299,8 +300,8 @@ fn cv_report_errors(vroot: &WMap<WString, WAny>, name: str) -> i64 {
         msg.push_str(": ");
         if e.is_map() {
             let em: &WMap<WString, WAny> = e.as_map();
-            let cd: WAny = em.get("code");
-            let rs: WAny = em.get("reason");
+            let cd: WAny = em.get(K_CODE);
+            let rs: WAny = em.get(K_REASON);
             if cd.is_string() { msg.push_str(cd.as_wstr()); }
             msg.push_str(": ");
             if rs.is_string() { msg.push_str(rs.as_wstr()); }
@@ -428,7 +429,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         return out;
     }
     let rm: &WMap<WString, WAny> = root.as_map();
-    let ca: WAny = rm.get("containers");
+    let ca: WAny = rm.get(SEC_CONTAINERS);
     if !ca.is_array() {
         error("container item: fact doc missing its containers row (seam regression?)");
         return out;
@@ -444,7 +445,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         return out;
     }
     let rowm: &WMap<WString, WAny> = row.as_map();
-    let kv: WAny = rowm.get("kind");
+    let kv: WAny = rowm.get(K_KIND);
     if !kv.is_string() {
         error("container item: fact doc missing the container kind (seam regression?)");
         return out;
@@ -470,7 +471,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         error("container item: malformed spec (compiler seam regression?)");
         return out;
     }
-    if !str_eq(cs.kind, "vector") { return out; }
+    if !str_eq(cs.kind, KIND_VECTOR) { return out; }
     if !cv_has_cap(vm, name, "can_scan") {
         error("container item: Canon granted no can_scan capability for a vector container (Canon seam regression?)");
         return out;

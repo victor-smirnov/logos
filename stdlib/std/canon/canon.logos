@@ -49,6 +49,7 @@ use logos.mem.string;
 use logos.mem.collections.vec;
 use logos.std.wql.wql;
 use logos.std.wql.mapping_item;
+use logos.std.canon.vocab;   // the shared Canon vocabulary (no bare strings)
 
 // ── CanonCol — the by_value → i64 column projection used by generated scan
 // materializers (design §f). Unsigned wide types project by BIT
@@ -83,10 +84,12 @@ mapping CanonFacts(g: &Writ) {
         from g * s [*] r * a select (s.key, r.child, a.key, a.vs, a.vi);
     }
 
-    // Flat fact rows (the ADR 0020 §5 vocabulary, wave-0 cut).
+    // Flat fact rows (the ADR 0020 §5 vocabulary, wave-0 cut). Section/attr
+    // keys come from logos.std.canon.vocab — the SAME consts the builder
+    // (container_item.logos) `.set`s, so the seam is compiler-checked.
     pub rel ctr_kind(ctr: str, kind: str) {
         from att n join att k on k.row == n.row
-        where n.sec == "containers" && n.k == "name" && k.k == "kind"
+        where n.sec == SEC_CONTAINERS && n.k == K_NAME && k.k == K_KIND
         select (n.vs, k.vs);
     }
     pub rel col_fact(ctr: str, idx: i64, col: str, ty: str, prm: i64) {
@@ -94,19 +97,22 @@ mapping CanonFacts(g: &Writ) {
             join att n on n.row == c.row
             join att t on t.row == c.row
             join att p on p.row == c.row
-        where c.sec == "cols" && c.k == "ctr" && i.k == "idx" && n.k == "name"
-              && t.k == "ty" && p.k == "param"
+        where c.sec == SEC_COLS && c.k == K_CTR && i.k == K_IDX && n.k == K_NAME
+              && t.k == K_TY && p.k == K_PARAM
         select (c.vs, i.vi, n.vs, t.vs, p.vi);
     }
     pub rel meas_fact(ctr: str, mfn: str, arg: str) {
         from att c join att f on f.row == c.row
             join att a on a.row == c.row
-        where c.sec == "measures" && c.k == "ctr" && f.k == "mfn" && a.k == "arg"
+        where c.sec == SEC_MEASURES && c.k == K_CTR && f.k == K_MFN && a.k == K_ARG
         select (c.vs, f.vs, a.vs);
     }
 
     // by_value: type param (monomorphized later — wave-0 treats it as small)
-    // or a member of the fixed primitive list.
+    // or a member of the fixed primitive list. (The primitive-name list is a
+    // local value enumeration — a wave-0 approximation of Fst ∧ sizeof ≤ 32B,
+    // replaced by real layout facts later — not a builder seam, so it stays
+    // literal.)
     pub rel mode_value(ctr: str, col: str) {
         from col_fact c
         where c.prm == 1
@@ -119,22 +125,22 @@ mapping CanonFacts(g: &Writ) {
     // Declared max-measures — the RHS of both can_seek and the completeness
     // negation.
     pub rel max_meas(ctr: str, col: str) {
-        from meas_fact m where m.mfn == "max" select (m.ctr, m.arg);
+        from meas_fact m where m.mfn == MFN_MAX select (m.ctr, m.arg);
     }
 }
 
 // Verdict projections — one deem per verdict set (a deem item has one entry;
 // canon_verdicts runs them all and assembles the doc).
 deem canon_can_scan(w: CanonFacts) {
-    from ctr_kind k where k.kind == "vector" || k.kind == "ordered_map"
+    from ctr_kind k where k.kind == KIND_VECTOR || k.kind == KIND_ORDERED_MAP
     select k.ctr : str
 }
 deem canon_can_rank(w: CanonFacts) {
-    from meas_fact m where m.mfn == "count" select m.ctr : str
+    from meas_fact m where m.mfn == MFN_COUNT select m.ctr : str
 }
 deem canon_can_seek(w: CanonFacts) {
     from ctr_kind x join max_meas m on m.ctr == x.ctr
-    where x.kind == "ordered_map"
+    where x.kind == KIND_ORDERED_MAP
     select (x.ctr, m.col)
 }
 deem canon_mode_value(w: CanonFacts) {
@@ -149,7 +155,7 @@ deem canon_mode_view(w: CanonFacts) {
 deem canon_missing_max(w: CanonFacts) {
     from ctr_kind x join col_fact c on c.ctr == x.ctr
          anti join max_meas m on m.ctr == x.ctr && m.col == c.col
-    where x.kind == "ordered_map" && c.idx == 0
+    where x.kind == KIND_ORDERED_MAP && c.idx == 0
     select (x.ctr, c.col)
 }
 // Wave-0 scan-projection verdicts, per VECTOR column (the handler consumes
@@ -159,13 +165,13 @@ deem canon_missing_max(w: CanonFacts) {
 // to i64 through CanonCol.
 deem canon_proj_direct(w: CanonFacts) {
     from ctr_kind x join col_fact c on c.ctr == x.ctr
-    where x.kind == "vector" && (c.ty == "str" || c.ty == "bool")
+    where x.kind == KIND_VECTOR && (c.ty == TY_STR || c.ty == TY_BOOL)
     select (c.ctr, c.col, c.ty)
 }
 deem canon_proj_canoncol(w: CanonFacts) {
     from ctr_kind x join col_fact c on c.ctr == x.ctr
          join mode_value v on v.ctr == c.ctr && v.col == c.col
-    where x.kind == "vector" && c.ty != "str" && c.ty != "bool"
+    where x.kind == KIND_VECTOR && c.ty != TY_STR && c.ty != TY_BOOL
     select (c.ctr, c.col)
 }
 // Wave-0 emission limits — Canon-derived, with provenance (previously
@@ -173,28 +179,28 @@ deem canon_proj_canoncol(w: CanonFacts) {
 deem canon_unprojectable(w: CanonFacts) {
     from ctr_kind x join col_fact c on c.ctr == x.ctr
          anti join mode_value v on v.ctr == c.ctr && v.col == c.col
-    where x.kind == "vector" && c.ty != "str"
+    where x.kind == KIND_VECTOR && c.ty != TY_STR
     select (c.ctr, c.col, c.ty)
 }
 deem canon_multi_entry(w: CanonFacts) {
     from ctr_kind x join col_fact c on c.ctr == x.ctr
-    where x.kind == "vector" && c.idx == 1
+    where x.kind == KIND_VECTOR && c.idx == 1
     select x.ctr : str
 }
 
 fn cv_push_cap(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, cap: str, col: str) {
     let m: &mut WMap<WString, WAny> = doc.map(4i64);
-    m.set("ctr", ctr);
-    m.set("cap", cap);
-    m.set("col", col);
+    m.set(K_CTR, ctr);
+    m.set(K_CAP, cap);
+    m.set(K_COL, col);
     arr.push(WAny::from(&*m));
 }
 
 fn cv_push_mode(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, col: str, mode: str) {
     let m: &mut WMap<WString, WAny> = doc.map(4i64);
-    m.set("ctr", ctr);
-    m.set("col", col);
-    m.set("mode", mode);
+    m.set(K_CTR, ctr);
+    m.set(K_COL, col);
+    m.set(K_MODE, mode);
     arr.push(WAny::from(&*m));
 }
 
@@ -229,31 +235,31 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
 
     let caps: &mut WArray<WAny> = doc.array(scan.len() + rank.len() + seek.len());
     let mut i: i64 = 0i64;
-    while i < scan.len()  { cv_push_cap(&doc, caps, scan.get(i), "can_scan", ""); i = i + 1i64; }
+    while i < scan.len()  { cv_push_cap(&doc, caps, scan.get(i), CAP_SCAN, ""); i = i + 1i64; }
     i = 0i64;
-    while i < rank.len()  { cv_push_cap(&doc, caps, rank.get(i), "can_rank", ""); i = i + 1i64; }
+    while i < rank.len()  { cv_push_cap(&doc, caps, rank.get(i), CAP_RANK, ""); i = i + 1i64; }
     i = 0i64;
     while i < seek.len() {
         let s: (str, str) = seek.get(i);
-        cv_push_cap(&doc, caps, s.0, "can_seek", s.1);
+        cv_push_cap(&doc, caps, s.0, CAP_SEEK, s.1);
         i = i + 1i64;
     }
-    root.set("caps", &*caps);
+    root.set(V_CAPS, &*caps);
 
     let modes: &mut WArray<WAny> = doc.array(mval.len() + mview.len());
     i = 0i64;
     while i < mval.len() {
         let r: (str, str) = mval.get(i);
-        cv_push_mode(&doc, modes, r.0, r.1, "by_value");
+        cv_push_mode(&doc, modes, r.0, r.1, MODE_BY_VALUE);
         i = i + 1i64;
     }
     i = 0i64;
     while i < mview.len() {
         let r: (str, str) = mview.get(i);
-        cv_push_mode(&doc, modes, r.0, r.1, "by_view");
+        cv_push_mode(&doc, modes, r.0, r.1, MODE_BY_VIEW);
         i = i + 1i64;
     }
-    root.set("col_modes", &*modes);
+    root.set(V_COL_MODES, &*modes);
 
     // Per-column scan projections (kind=vector): the handler's ENTIRE column
     // vocabulary — relty + proj come from these rows, never re-derived.
@@ -262,10 +268,10 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     while i < pdir.len() {
         let r: (str, str, str) = pdir.get(i);
         let m: &mut WMap<WString, WAny> = doc.map(4i64);
-        m.set("ctr", r.0);
-        m.set("col", r.1);
-        m.set("relty", r.2);
-        m.set("proj", "direct");
+        m.set(K_CTR, r.0);
+        m.set(K_COL, r.1);
+        m.set(K_RELTY, r.2);
+        m.set(K_PROJ, PROJ_DIRECT);
         projs.push(WAny::from(&*m));
         i = i + 1i64;
     }
@@ -273,14 +279,14 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     while i < pcol.len() {
         let r: (str, str) = pcol.get(i);
         let m: &mut WMap<WString, WAny> = doc.map(4i64);
-        m.set("ctr", r.0);
-        m.set("col", r.1);
-        m.set("relty", "i64");
-        m.set("proj", "canon_col");
+        m.set(K_CTR, r.0);
+        m.set(K_COL, r.1);
+        m.set(K_RELTY, "i64");
+        m.set(K_PROJ, PROJ_CANON_COL);
         projs.push(WAny::from(&*m));
         i = i + 1i64;
     }
-    root.set("col_projs", &*projs);
+    root.set(V_COL_PROJS, &*projs);
 
     let errs: &mut WArray<WAny> = doc.array(missing.len() + unpr.len() + multi.len());
     i = 0i64;
@@ -295,10 +301,10 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
         reason.push_str(r.1);
         reason.push_str(");`");
         let m: &mut WMap<WString, WAny> = doc.map(4i64);
-        m.set("ctr", r.0);
-        m.set("code", "missing_measure");
-        m.set("detail", detail.as_str());
-        m.set("reason", reason.as_str());
+        m.set(K_CTR, r.0);
+        m.set(K_CODE, ERR_MISSING_MEASURE);
+        m.set(K_DETAIL, detail.as_str());
+        m.set(K_REASON, reason.as_str());
         errs.push(WAny::from(&*m));
         i = i + 1i64;
     }
@@ -316,24 +322,24 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
         reason.push_str(r.2);
         reason.push_str("` is by_view — wave-0 scan emission supports by_view columns of type `str` only");
         let m: &mut WMap<WString, WAny> = doc.map(4i64);
-        m.set("ctr", r.0);
-        m.set("code", "wave0_by_view_unprojectable");
-        m.set("detail", detail.as_str());
-        m.set("reason", reason.as_str());
+        m.set(K_CTR, r.0);
+        m.set(K_CODE, ERR_WAVE0_BY_VIEW_UNPROJ);
+        m.set(K_DETAIL, detail.as_str());
+        m.set(K_REASON, reason.as_str());
         errs.push(WAny::from(&*m));
         i = i + 1i64;
     }
     i = 0i64;
     while i < multi.len() {
         let m: &mut WMap<WString, WAny> = doc.map(4i64);
-        m.set("ctr", multi.get(i));
-        m.set("code", "wave0_vector_multi_entry");
-        m.set("detail", "entry");
-        m.set("reason", "wave-0 `kind vector;` emission supports exactly one entry column");
+        m.set(K_CTR, multi.get(i));
+        m.set(K_CODE, ERR_WAVE0_MULTI_ENTRY);
+        m.set(K_DETAIL, "entry");
+        m.set(K_REASON, "wave-0 `kind vector;` emission supports exactly one entry column");
         errs.push(WAny::from(&*m));
         i = i + 1i64;
     }
-    root.set("errors", &*errs);
+    root.set(V_ERRORS, &*errs);
     root.set("ok", missing.len() == 0i64 && unpr.len() == 0i64 && multi.len() == 0i64);
 
     doc.set_root(WAny::from(&*root));

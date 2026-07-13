@@ -1,0 +1,73 @@
+// logos.std.canon.vocab — the shared Canon vocabulary (ADR 0020 §5).
+//
+// The fact/verdict Writ documents couple TWO sides: the builder
+// (container_item.logos, which `.set`s these keys) and the reader
+// (canon.logos, whose deem rules match them in `where` clauses). String
+// literals duplicated across that seam drift silently — a typo or rename on
+// one side is a NO-OP miss on the other, not a compile error. Naming the
+// vocabulary once here makes every reference compiler-checked (const refs
+// resolve in rule bodies too — verified), so the seam cannot skew.
+//
+// Values are `str` (the fact doc is Writ, str-keyed); an enum layer would buy
+// exhaustiveness but demand an enum↔str encoding at the Writ boundary — the
+// wave-0 pragmatic choice is named str constants (user: "enums, или хотя бы
+// именованные константы").
+package logos.std.canon.vocab;
+
+// ── Fact-doc sections (top-level arrays) ─────────────────────────────────
+pub const SEC_CONTAINERS: str = "containers";
+pub const SEC_COLS:       str = "cols";
+pub const SEC_MEASURES:   str = "measures";
+
+// ── Fact-row attribute keys ──────────────────────────────────────────────
+pub const K_NAME:  str = "name";
+pub const K_KIND:  str = "kind";
+pub const K_CTR:   str = "ctr";
+pub const K_IDX:   str = "idx";
+pub const K_TY:    str = "ty";
+pub const K_PARAM: str = "param";
+pub const K_MFN:   str = "mfn";
+pub const K_ARG:   str = "arg";
+
+// ── Verdict-doc sections + row keys ──────────────────────────────────────
+pub const V_CAPS:      str = "caps";
+pub const V_COL_MODES: str = "col_modes";
+pub const V_COL_PROJS: str = "col_projs";
+pub const V_ERRORS:    str = "errors";
+pub const K_CAP:    str = "cap";
+pub const K_COL:    str = "col";
+pub const K_MODE:   str = "mode";
+pub const K_RELTY:  str = "relty";
+pub const K_PROJ:   str = "proj";
+pub const K_CODE:   str = "code";
+pub const K_DETAIL: str = "detail";
+pub const K_REASON: str = "reason";
+
+// ── Kinds ────────────────────────────────────────────────────────────────
+pub const KIND_VECTOR:      str = "vector";
+pub const KIND_ORDERED_MAP: str = "ordered_map";
+
+// ── Measure functions ────────────────────────────────────────────────────
+pub const MFN_COUNT: str = "count";
+pub const MFN_MAX:   str = "max";
+
+// ── Capabilities ─────────────────────────────────────────────────────────
+pub const CAP_SCAN: str = "can_scan";
+pub const CAP_RANK: str = "can_rank";
+pub const CAP_SEEK: str = "can_seek";
+
+// ── Column materialization modes + scan projections ──────────────────────
+pub const MODE_BY_VALUE: str = "by_value";
+pub const MODE_BY_VIEW:  str = "by_view";
+pub const PROJ_DIRECT:    str = "direct";
+pub const PROJ_CANON_COL: str = "canon_col";
+
+// ── Rel-native column types (carried verbatim; everything else projects to
+// i64 through CanonCol) ──────────────────────────────────────────────────
+pub const TY_STR:  str = "str";
+pub const TY_BOOL: str = "bool";
+
+// ── Error codes ──────────────────────────────────────────────────────────
+pub const ERR_MISSING_MEASURE:      str = "missing_measure";
+pub const ERR_WAVE0_MULTI_ENTRY:    str = "wave0_vector_multi_entry";
+pub const ERR_WAVE0_BY_VIEW_UNPROJ: str = "wave0_by_view_unprojectable";
