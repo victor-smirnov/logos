@@ -8,6 +8,7 @@ package test;
 use memoria.pkd;
 use memoria.bt;
 use logos.lang.mem;
+use logos.lang.arith;   // wrapping_mul/add — the LCG wraps BY DESIGN
 use logos.lang.option;
 use logos.lang.result;
 use logos.mem.collections.vec;
@@ -16,7 +17,9 @@ use logos.mem.collections.vec;
 struct Lcg { s: u64 }
 impl Lcg {
     fn next(self: &mut Lcg) -> u64 {
-        self.s = self.s * 6364136223846793005u64 + 1442695040888963407u64;
+        self.s = wrapping_add::<u64>(
+            wrapping_mul::<u64>(self.s, 6364136223846793005u64),
+            1442695040888963407u64);
         return self.s >> 33u64;
     }
 }
