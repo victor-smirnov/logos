@@ -1,0 +1,109 @@
+// memoria.ctr.vec — Vector-v0: the wave-0 backing container for the
+// `container Vector` declaration (ADR 0020; design docs/design/
+// memoria-canon-wave0.md §g). ONE owned block + one FSE PkdArray slot —
+// enough substrate to close the item → facts → Canon verdicts → generated
+// rel-source → deem-query loop against real packed storage. The BtArena /
+// store-backed vector replaces this in a later wave.
+//
+// Method set = the wave-0 scan contract (`count(&self) -> i64`,
+// `get(&self, i: i64) -> T`) + `push`. Views are re-resolved through the
+// allocator on EVERY call — packed-block pointers dangle across mutations
+// (the pkd_arr idiom).
+package memoria.ctr.vec;
+
+use memoria.pkd;          // pkd_format, PkdAlloc, PkdArray, PkdError
+use logos.lang.mem;       // alloc / dealloc
+use logos.lang.result;
+
+pub struct VecCtr<T: Copy + Fst + StableLayout> {
+    mem: *mut u8,
+    cap: u32,
+}
+
+impl<T: Copy + Fst + StableLayout> VecCtr<T> {
+    /// Fresh vector over one owned block of `cap_bytes` (slot 0 = elements).
+    pub static fn new(cap_bytes: u32) -> VecCtr<T> {
+        unsafe {
+            let mem: *mut u8 = alloc(cap_bytes as i64);
+            let a: *mut PkdAlloc = pkd_format(mem, cap_bytes, 1u32);
+            match PkdArray::<T>::format(a, 0u32) {
+                Result::Ok(_p) => {}
+                Result::Err(_e) => { assert(false, "VecCtr::new: format failed"); }
+            }
+            return VecCtr { mem: mem, cap: cap_bytes };
+        }
+    }
+
+    // Element-array view — re-resolved per call (never cached: block
+    // contents shift on mutation; the block itself never moves).
+    fn arr(self: &VecCtr<T>) -> *mut PkdArray<T> {
+        unsafe {
+            let a: *mut PkdAlloc = self.mem as *mut PkdAlloc;
+            return a.get::<PkdArray<T>>(0u32);
+        }
+    }
+
+    pub fn count(self: &VecCtr<T>) -> i64 {
+        unsafe { return (*self.arr()).count() as i64; }
+    }
+
+    pub fn get(self: &VecCtr<T>, i: i64) -> T {
+        unsafe { return (*self.arr()).get(i as u32); }
+    }
+
+    pub fn push(self: &mut VecCtr<T>, v: T) {
+        unsafe {
+            let xs: *mut PkdArray<T> = self.arr();
+            match xs.push(&v) {
+                Result::Ok(_u) => { return; }
+                Result::Err(_e) => {}
+            }
+            // Block full — grow, then retry once (the doubled block always
+            // admits one more element).
+            self.grow();
+            let xs2: *mut PkdArray<T> = self.arr();
+            match xs2.push(&v) {
+                Result::Ok(_u) => {}
+                Result::Err(_e) => { assert(false, "VecCtr::push: retry failed after grow"); }
+            }
+        }
+    }
+
+    // v0 growth = rebuild: fresh 2× block, format, element copy through the
+    // old array's view, old block freed. (Relocatable-block memcpy +
+    // in-place enlarge is a later wave.)
+    fn grow(self: &mut VecCtr<T>) {
+        unsafe {
+            let new_cap: u32 = self.cap * 2u32;
+            let nmem: *mut u8 = alloc(new_cap as i64);
+            let na: *mut PkdAlloc = pkd_format(nmem, new_cap, 1u32);
+            let nxs: *mut PkdArray<T> = match PkdArray::<T>::format(na, 0u32) {
+                Result::Ok(p) => p,
+                Result::Err(_e) => {
+                    assert(false, "VecCtr::grow: format failed");
+                    return;
+                }
+            };
+            let oxs: *mut PkdArray<T> = self.arr();
+            let n: u32 = (*oxs).count();
+            let mut i: u32 = 0u32;
+            while i < n {
+                let v: T = (*oxs).get(i);
+                match nxs.push(&v) {
+                    Result::Ok(_u) => {}
+                    Result::Err(_e) => { assert(false, "VecCtr::grow: copy overflow"); }
+                }
+                i = i + 1u32;
+            }
+            dealloc(self.mem);
+            self.mem = nmem;
+            self.cap = new_cap;
+        }
+    }
+}
+
+impl<T: Copy + Fst + StableLayout> Drop for VecCtr<T> {
+    fn drop(self: &mut VecCtr<T>) {
+        unsafe { dealloc(self.mem); }
+    }
+}

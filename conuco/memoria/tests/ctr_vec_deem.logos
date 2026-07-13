@@ -1,0 +1,54 @@
+// ctr_vec_deem — ADR 0020 wave-0 e2e over the REAL Vector-v0 (packed
+// storage): the `container` declaration (with the backing's pkd bounds in
+// ITS generic list — design §f/R7) rides the full chain — facts → Canon
+// verdicts → generated scan projection — and a STATIC deem query returns
+// correct rows from a live VecCtr<u64>, across a growth boundary.
+package test;
+
+use memoria.ctr.vec;
+use logos.std.wql.wql;
+use logos.std.canon.container_item;
+use logos.mem.collections.vec;
+use logos.lang.result;        // module-mode: Result is NOT in the prelude here
+
+pub container Vector<T: Copy + Fst + StableLayout> for VecCtr<T> {
+    kind vector;
+    entry { elem: T }
+    measure count;
+}
+
+pub deem big(v: &VecCtr<u64>) {
+    from v e where e.elem > 100 select (e.pos, e.elem)
+}
+
+fn main() -> i32 {
+    // 96-byte block: small enough that 16 u64 pushes force grow() at least
+    // once — the deem scan below reads the REBUILT block.
+    let mut c: VecCtr<u64> = VecCtr::new(96u32);
+    let mut i: i64 = 0i64;
+    while i < 16i64 {
+        // values 10,20,…,160 — rows above 100: (10,110)…(15,160)
+        c.push(((i + 1i64) * 10i64) as u64);
+        i = i + 1i64;
+    }
+    if c.count() != 16i64 { return 1i32; }
+    if c.get(0i64) != 10u64 { return 2i32; }
+    if c.get(15i64) != 160u64 { return 3i32; }
+
+    let rows: Vec<(i64, i64)> = match big(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if rows.len() != 6i64 { return 5i32; }
+    // Expected set: pos p in 10..=15 with elem (p+1)*10. Set semantics —
+    // assert membership + count, not order.
+    let mut mask: i64 = 0i64;
+    i = 0i64;
+    while i < rows.len() {
+        let r: (i64, i64) = rows.get(i);
+        if r.0 < 10i64 || r.0 > 15i64 { return 6i32; }
+        if r.1 != (r.0 + 1i64) * 10i64 { return 7i32; }
+        mask = mask | (1i64 << (r.0 - 10i64));
+        i = i + 1i64;
+    }
+    if mask != 63i64 { return 8i32; }
+    return 0i32;
+}
