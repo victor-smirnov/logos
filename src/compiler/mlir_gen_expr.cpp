@@ -5638,9 +5638,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
     auto is_ok    = builder_.create<mlir::arith::CmpIOp>(
                         loc_, mlir::arith::CmpIPredicate::eq, disc, ok_cst);
 
+    // A unit Ok type (`Result<(), E>` — the `do_it()?;` statement form)
+    // yields no value: logos_to_mlir(void) is null BY CONVENTION, not a
+    // failure. The control flow (err early-return!) is still mandatory —
+    // treating null as failure here silently DROPPED the whole branch and
+    // `?` swallowed the Err (first hit: PkdArray::insert's resize_self
+    // chain overran its block instead of propagating OutOfMem).
     auto ok_mlir = logos_to_mlir(type);
-    if (!ok_mlir) return nullptr;
-    auto result_alloca = create_entry_alloca(ok_mlir);
+    if (!ok_mlir && TypeRef(type) && TypeRef(type).kind() != LogosType::Kind::Void)
+        return nullptr;
+    mlir::Value result_alloca;
+    if (ok_mlir) result_alloca = create_entry_alloca(ok_mlir);
 
     auto* region      = builder_.getBlock()->getParent();
     auto* ok_block    = new mlir::Block();
@@ -5660,7 +5668,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
         for (auto& vp : te->variants) if (vp.disc == ok_d) { ok_vp = &vp; break; }
 
         auto pay_ptr = enum_payload_ptr(inner_ptr, *te);  // Phase 3.5 (LowBit decode)
-        if (ok_vp && !ok_vp->field_types.empty()) {
+        if (ok_mlir && ok_vp && !ok_vp->field_types.empty()) {
             auto ps  = mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), ok_vp->field_types);
             llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
             auto fp  = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ps, pay_ptr, fi);
@@ -5733,8 +5741,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
         }
     }
 
-    // ── merge_block: yield Ok value ────────────────────────────────────
+    // ── merge_block: yield Ok value (none for a unit Ok — the established
+    // void-expression convention) ──────────────────────────────────────
     builder_.setInsertionPointToStart(merge_block);
+    if (!ok_mlir) return nullptr;
     return builder_.create<mlir::LLVM::LoadOp>(loc_, ok_mlir, result_alloca);
 }
 

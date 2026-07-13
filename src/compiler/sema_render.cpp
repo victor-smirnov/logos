@@ -1077,9 +1077,65 @@ std::string SemaChecker::render_type_param_src_(TinyMapView node) {
             s += ": ";
             for (uint64_t i = 0; i < items.size(); ++i) {
                 if (i) s += " + ";
-                s += render_type_src(map_of(items.get(i)));
+                auto b = map_of(items.get(i));
+                // Bounds are TRAIT_BOUND nodes — not types; routing them
+                // through render_type_src would resolve_type-error on the
+                // node code (first hit: `container Vector<T: Copy>`).
+                s += (!b.is_null() && code_of(b) == la::TRAIT_BOUND)
+                         ? render_trait_bound_src_(b)
+                         : render_type_src(b);
             }
         }
+    }
+    return s;
+}
+
+std::string SemaChecker::render_trait_bound_src_(TinyMapView node) {
+    std::string s;
+    if (node.is_null()) return s;
+    // HRTB binders (`for<'a> Fn(&'a T)`) are not reconstructed here —
+    // no reconstruction consumer admits HRTB bounds yet.
+    if (flag_set(node, la::RELAXED)) s += "?";
+    if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tl = map_of(node.get(la::TYPE_PARAMS.code));
+        if (!tl.is_null() && tl.has_key(la::ITEMS)) {
+            auto args = arr_of(tl.get(la::ITEMS.code));
+            s += "<";
+            for (uint64_t i = 0; i < args.size(); ++i) {
+                if (i) s += ", ";
+                auto a = map_of(args.get(i));
+                if (!a.is_null() && code_of(a) == la::ASSOC_EQ_BIND) {
+                    if (a.has_key(la::NAME))
+                        s += std::string(str_of(a.get(la::NAME.code)));
+                    s += " = ";
+                    if (a.has_key(la::TYPE))
+                        s += render_type_src_syntactic_(map_of(a.get(la::TYPE.code)));
+                } else {
+                    s += render_type_src_syntactic_(a);
+                }
+            }
+            s += ">";
+        }
+    }
+    if (node.has_key(la::PARAMS)) {
+        // Fn-family parenthesized form: `Fn(T1, …) -> R`.
+        auto pl = map_of(node.get(la::PARAMS.code));
+        s += "(";
+        if (!pl.is_null() && pl.has_key(la::ITEMS)) {
+            auto args = arr_of(pl.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < args.size(); ++i) {
+                if (i) s += ", ";
+                s += render_type_src_syntactic_(map_of(args.get(i)));
+            }
+        }
+        s += ")";
+    } else if (node.has_key(la::RET_TYPE)) {
+        s += "()";
+    }
+    if (node.has_key(la::RET_TYPE)) {
+        s += " -> ";
+        s += render_type_src_syntactic_(map_of(node.get(la::RET_TYPE.code)));
     }
     return s;
 }

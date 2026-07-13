@@ -20298,9 +20298,29 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
                     mod = fit->second.package;
             }
         }
-        if (!mod.empty() && mod != cur_package_) {
+        // The generated fn's SIGNATURE names the param type — the chunk
+        // must import ITS defining package too (an imported source like
+        // `v: &VecCtr<u64>` with the materializer emitted into the
+        // consuming package). `@` carries a comma-separated module list;
+        // native_use_text emits one use per entry.
+        std::string type_pkg;
+        {
+            std::string base = ptype_stripped;
+            if (auto lt = base.find('<'); lt != std::string::npos)
+                base.resize(lt);
+            while (!base.empty() && base.back() == ' ') base.pop_back();
+            auto [spkg, sinfo] = find_struct_by_name(base);
+            if (sinfo) type_pkg = spkg;
+        }
+        std::string mods;
+        if (!mod.empty() && mod != cur_package_) mods = mod;
+        if (!type_pkg.empty() && type_pkg != cur_package_ && type_pkg != mod) {
+            if (!mods.empty()) mods += ",";
+            mods += type_pkg;
+        }
+        if (!mods.empty()) {
             spec += "@";
-            spec += mod;
+            spec += mods;
         }
         spec += ":";
         spec += pname;
@@ -20719,12 +20739,18 @@ bool SemaChecker::reconstruct_container_def(writ::TinyMapView node,
     {
         // Defining package of the backing BASE type, when already known
         // (undeclared backing is legal until the emission path resolves it).
+        // Structs first — the normal backing shape — then Writ datatypes.
         std::string base = out.backing_src;
         if (auto lt = base.find('<'); lt != std::string::npos)
             base.resize(lt);
         while (!base.empty() && base.back() == ' ') base.pop_back();
-        auto [pkg, info] = find_datatype_by_name(base);
-        out.backing_pkg = info ? pkg : std::string{};
+        auto [spkg, sinfo] = find_struct_by_name(base);
+        if (sinfo) {
+            out.backing_pkg = spkg;
+        } else {
+            auto [dpkg, dinfo] = find_datatype_by_name(base);
+            out.backing_pkg = dinfo ? dpkg : std::string{};
+        }
     }
 
     // ── clauses: `kind k;` / `entry { col: ty, … }` / `measure m;` /

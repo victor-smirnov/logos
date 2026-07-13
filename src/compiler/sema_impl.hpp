@@ -4366,6 +4366,11 @@ private:
     // Item-rendering sub-helpers (sema_render.cpp Stage 2).
     std::string render_path_parts_(writ::TinyMapView node);
     std::string render_type_param_src_(writ::TinyMapView node);
+    // Syntactic render of one TRAIT_BOUND node (`Copy`, `?Sized`,
+    // `Iterator<Item = T>`, `Fn(A) -> R`). A bound is NOT a type —
+    // resolve_type rejects the node — so the bounds loop of
+    // render_type_param_src_ must never route it through render_type_src.
+    std::string render_trait_bound_src_(writ::TinyMapView node);
     std::string render_type_param_list_(writ::TinyMapView node);
     std::string render_param_src_(writ::TinyMapView node);
     std::string render_param_list_(writ::TinyMapView node);

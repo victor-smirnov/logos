@@ -187,9 +187,25 @@ impl MacroParams {
                     j = j + 1i64;
                 }
                 if !seen {
-                    out.push_str("use ");
-                    out.push_str(self.rel_mod[i]);
-                    out.push_str("; ");
+                    // The `@` annotation carries a COMMA-separated module
+                    // list (materializer's module + the source param type's
+                    // defining package) — one use-decl per entry.
+                    let m: str = self.rel_mod[i];
+                    let ml: i64 = m.len();
+                    let mut a: i64 = 0i64;
+                    while a < ml {
+                        let mut b: i64 = a;
+                        while b < ml && str_byte_at(m, b) != 44u8 { b = b + 1i64; }
+                        if b > a {
+                            out.push_str("use ");
+                            out.push_str(unsafe {
+                                str_from_raw(((m.as_ptr() as i64) + a) as *const u8,
+                                             b - a)
+                            });
+                            out.push_str("; ");
+                        }
+                        a = b + 1i64;
+                    }
                 }
             }
             i = i + 1i64;

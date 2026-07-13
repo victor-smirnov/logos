@@ -1,0 +1,41 @@
+// `?` on Result<(), E> — the unit-Ok try. logos_to_mlir(void) is null BY
+// CONVENTION (void yields no value); ETry codegen once treated that null as
+// failure and silently DROPPED the err early-return: `do_it()?;` swallowed
+// the Err and fell through (first hit: PkdArray::insert's resize_self chain
+// overran its block instead of propagating OutOfMem). Covers statement and
+// let-bound forms, enum and primitive error types, plus the Ok fall-through.
+package test;
+
+enum EKind { OutOfMem, Bad }
+
+fn e_unit_enum() -> Result<(), EKind> { return Result::Err(EKind::OutOfMem); }
+fn e_unit_prim() -> Result<(), i32> { return Result::Err(7i32); }
+fn ok_unit() -> Result<(), i32> { return Result::Ok(()); }
+
+fn g_stmt_enum() -> Result<(), EKind> {
+    e_unit_enum()?;
+    return Result::Ok(());
+}
+fn g_stmt_prim() -> Result<(), i32> {
+    e_unit_prim()?;
+    return Result::Ok(());
+}
+fn g_let_unit() -> Result<(), EKind> {
+    let _u: () = e_unit_enum()?;
+    return Result::Ok(());
+}
+fn g_ok_path(mark: &mut i64) -> Result<(), i32> {
+    ok_unit()?;
+    *mark = 41i64;      // must be reached on the Ok path
+    return Result::Ok(());
+}
+
+fn main() -> i32 {
+    match g_stmt_enum() { Result::Ok(_v) => { return 1i32; } Result::Err(_e) => {} }
+    match g_stmt_prim() { Result::Ok(_v) => { return 2i32; } Result::Err(_e) => {} }
+    match g_let_unit() { Result::Ok(_v) => { return 3i32; } Result::Err(_e) => {} }
+    let mut mark: i64 = 0i64;
+    match g_ok_path(&mut mark) { Result::Ok(_v) => {} Result::Err(_e) => { return 4i32; } }
+    if mark != 41i64 { return 5i32; }
+    return 0i32;
+}
