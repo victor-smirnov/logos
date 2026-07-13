@@ -62,8 +62,16 @@ pub fn run_child(argv_strs: &Vec<String>) -> i32 {
             }
         }
         let st: ExitStatus = child.wait();
-        return st.code();
+        return exit_rc_of(&st);
     }
+}
+
+// Shell convention for a signal death (128 + signo): code() is WEXITSTATUS,
+// which reads 0 for a SIGNAL-KILLED child — an aborting test binary
+// (SIGABRT on heap corruption) must NOT count as success.
+fn exit_rc_of(st: &ExitStatus) -> i32 {
+    if !st.exited() { return 128 + st.signal(); }
+    return st.code();
 }
 
 // Spawn `argv` and capture stdout into a String. Stderr is forwarded to the
@@ -95,6 +103,6 @@ pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
             }
         }
         let st: ExitStatus = child.wait();
-        return (st.code(), out);
+        return (exit_rc_of(&st), out);
     }
 }
