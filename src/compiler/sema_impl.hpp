@@ -4248,7 +4248,8 @@ private:
     struct ContainerCol     { std::string name, ty; bool is_param = false; };  // ty syntactic; is_param: ty ∈ container generics
     struct ContainerMeasure { std::string mfn, arg; };                          // ("count",""), ("max","key")
     struct ContainerInfo {
-        std::string name;  bool is_pub = false;  bool is_module_only = false;
+        std::string name;  std::string package;  // package-qualified identity
+        bool is_pub = false;  bool is_module_only = false;
         // True while the declaration node is an UNCONSUMED CONTAINER_DEF in
         // the LATEST pre-scan (the driver flips it to _DONE after its handler
         // ran and emitted). Deem sites over this container's backing type

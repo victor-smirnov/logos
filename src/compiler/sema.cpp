@@ -7587,7 +7587,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             std::string cerr;
             if (reconstruct_container_def(item, ci, cerr)) {
                 ci.pending = (mc == la::CONTAINER_DEF);
-                containers_[ci.name] = std::move(ci);
+                std::string ckey =
+                    (ci.package.empty() ? "" : ci.package + ".") + ci.name;
+                containers_[ckey] = std::move(ci);
             }
             continue;
         }

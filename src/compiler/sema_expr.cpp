@@ -20689,6 +20689,7 @@ bool SemaChecker::reconstruct_container_def(writ::TinyMapView node,
         return false;
     }
     out.name = std::string(str_of(node.get(la::NAME.code)));
+    out.package = cur_package_;   // package-qualified identity (anti-clobber)
     const std::string& cname = out.name;
     // Contextual keyword: the grammar accepts any leading IDENT (a global
     // `container` keyword would clash with the very common identifier —
@@ -20937,7 +20938,12 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
     // lowering is an unconsumed CONTAINER_DEF: its projection emission is
     // still ahead, so consumers of the backing type must defer.
     info.pending = true;
-    containers_[cname] = std::move(info);
+    // Package-qualified key: two containers with the same NAME in different
+    // packages must not clobber each other (finding 4). The pre-scan and this
+    // lowering both target the SAME (package, name), so the idempotent
+    // overwrite still collapses to one entry.
+    std::string ckey = (info.package.empty() ? "" : info.package + ".") + cname;
+    containers_[ckey] = std::move(info);
 
     // ── route through the token-macro item seam to the stdlib handler ──
     auto ovit = func_overloads_.find("__container_item");
