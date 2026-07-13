@@ -1,0 +1,14 @@
+// ADR 0020 wave-0 — parse-level fixture: both canonical `container` item
+// declarations parse (contextual keyword, clauses grammar-owned). Sema treats
+// the node as registered-but-inert until the wave-0 sema slice lands, so the
+// backing types (VecCtr/MapCtr) are intentionally undeclared — nothing
+// resolves them at parse level.
+package test;
+
+pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count; }
+
+pub container Map<K, V> for MapCtr<K, V> { kind ordered_map; entry { key: K, val: V } measure count; measure max(key); }
+
+fn main() -> i32 {
+    return 0i32;
+}

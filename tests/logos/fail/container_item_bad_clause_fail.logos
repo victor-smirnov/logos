@@ -1,0 +1,10 @@
+// ADR 0020 wave-0 — malformed container clause: `measure max();` (empty
+// measure-arg parens) matches none of container_entry / container_measure_arg
+// / container_word, so the item fails to parse.
+package test;
+
+pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure max(); }
+
+fn main() -> i32 {
+    return 0i32;
+}

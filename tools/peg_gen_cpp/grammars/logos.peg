@@ -328,6 +328,8 @@
     SCHEMA_ENUM_DEF             = 258   // ADR 0011: `schema enum E : category(expr)? { V(S), … }` — closed union over schemas, discriminated by the pointee's schema_type_code. NAME = enum name; FIELDS = array of VARIANT_DEF (each NAME=variant, TYPE=concrete schema); CODE_EXPR? = optional `category(expr)` clause.
     MAPPING_DEF                 = 259   // ADR 0016: `mapping M(g: &Writ, …) { pub? rel r(col: ty, …) { <rules> } … }` — named, typed rule-module over a source shape. NAME = mapping name; PARAMS = source/scalar param list (PARAM array, same shape as fn params); FIELDS = array of REL_DEF; IS_PUB/VIS as usual. Sema registers a zero-field marker struct (is_mapping=true) + per-rel signatures; rel bodies compile through the deem pipeline.
     REL_DEF                     = 260   // ADR 0016: one rel member of a mapping item. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array); RAW_TEXT = rule body captured token-level (balanced braces); IS_PUB optional.
+    CONTAINER_DEF               = 266   // ADR 0020 wave-0: `pub? container C<T…> for BackingTy { kind k; entry { col: ty, … } measure m; measure m(col); … }` — a Memoria container declaration. REL_KW = contextual lead ident (must be "container" — a keyword would break the common identifier, e.g. logos.lang.writ.container); NAME; TYPE_PARAMS? (syntactic generics incl. bounds); TYPE = backing type_ref (the wave-0 `for <Type>` pragmatic binding); FIELDS = array of CONTAINER_CLAUSE; IS_PUB/VIS as usual.
+    CONTAINER_CLAUSE            = 268   // ADR 0020 wave-0: one clause of a container item. REL_KW = contextual lead ident ("kind"|"entry"|"measure", validated in sema); NAME = word (`vector`, `count`, `max`); PARAMS = entry column list (PARAM array, reused param_list); VALUE = measure arg ident (`key` in `max(key)`).
 
     // ── Sema-internal codes ───────────────────────────────────────────────
     // Never produced by this parser; synthesised by the compiler after parsing.
@@ -340,6 +342,7 @@
     REL_SIG                     = 262   // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
     REL_BIND                    = 263   // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
     DEEM_DEF                    = 264   // ADR 0016: `pub? deem q(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.
+    CONTAINER_DEF_DONE          = 267   // ADR 0020 wave-0: a CONSUMED container item. Same convention as MAPPING_DEF_DONE — only CODE flips (driver); NAME/TYPE_PARAMS/TYPE/FIELDS survive so a consumer compiling against the ARCHIVE re-registers the declaration (cross-module Canon reasoning).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -548,7 +551,7 @@
     path_dot_ident <- DOT IDENT !(DOT LBRACE)
                    => { NAME: $2 }
 
-    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / resource_item_decl / fn_macro_item_decl / pub_deem_def / deem_def / pub_schema_enum_def / schema_enum_def / pub_schema_def / schema_def / pub_mapping_def / mapping_def / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / resource_item_decl / fn_macro_item_decl / pub_deem_def / deem_def / pub_schema_enum_def / schema_enum_def / pub_schema_def / schema_def / pub_mapping_def / mapping_def / pub_container_def / container_def / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -1298,6 +1301,33 @@
                     => { CODE: MAPPING_DEF, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, FIELDS: $8 }
                      / KW_MAPPING IDENT LPAREN param_list? RPAREN LBRACE rel_def_or_doc* RBRACE
                     => { CODE: MAPPING_DEF, NAME: $2, PARAMS: $4, FIELDS: $7 }
+
+    // ADR 0020 wave-0: `pub? container C<T…> for BackingTy { kind k; entry
+    // { col: ty, … } measure m; measure m(col); … }`. Contextual lead ident
+    // in REL_KW (same convention as deem/rel — a `container` keyword would
+    // break the very common identifier). The backing type after KW_FOR rides
+    // TYPE as an ordinary type_ref. Clauses are grammar-owned (no RAW_TEXT —
+    // the body is fully structured). Clause disambiguation is ordered:
+    // container_entry (LBRACE after first IDENT), then container_measure_arg
+    // (parenthesized arg), then container_word (`kind vector;` and
+    // `measure count;` share this rule — sema dispatches on REL_KW text).
+    container_clause <- doc_line_decl / doc_block_decl
+                      / container_entry / container_measure_arg / container_word
+    container_entry  <- IDENT LBRACE param_list? RBRACE
+                     => { CODE: CONTAINER_CLAUSE, REL_KW: $1, PARAMS: $3 }
+    container_measure_arg <- IDENT IDENT LPAREN IDENT RPAREN SEMI
+                     => { CODE: CONTAINER_CLAUSE, REL_KW: $1, NAME: $2, VALUE: $4 }
+    container_word   <- IDENT IDENT SEMI
+                     => { CODE: CONTAINER_CLAUSE, REL_KW: $1, NAME: $2 }
+
+    pub_container_def <- pub_vis IDENT IDENT type_param_list KW_FOR type_ref LBRACE container_clause* RBRACE
+                      => { CODE: CONTAINER_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, FIELDS: $8 }
+                       / pub_vis IDENT IDENT KW_FOR type_ref LBRACE container_clause* RBRACE
+                      => { CODE: CONTAINER_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, TYPE: $5, FIELDS: $7 }
+    container_def     <- IDENT IDENT type_param_list KW_FOR type_ref LBRACE container_clause* RBRACE
+                      => { CODE: CONTAINER_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, FIELDS: $7 }
+                       / IDENT IDENT KW_FOR type_ref LBRACE container_clause* RBRACE
+                      => { CODE: CONTAINER_DEF, REL_KW: $1, NAME: $2, TYPE: $4, FIELDS: $6 }
 
     // B-ts-01: tuple-struct fields — types only, no field names.
     // Sema synthesises field names "0", "1", … so `foo.0` / pattern
