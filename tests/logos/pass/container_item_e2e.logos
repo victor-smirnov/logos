@@ -30,9 +30,18 @@ impl<T> VecCtr<T> {
     pub fn push(self: &mut VecCtr<T>, v: T) { self.buf.push(v); }
 }
 
-pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count; }
+pub container Vector<T> for VecCtr<T> { 
+    kind vector; 
+    entry { elem: T } 
+    measure count; 
+}
 
-pub container Map<K, V> for MapCtr<K, V> { kind ordered_map; entry { key: K, val: V } measure count; measure max(key); }
+pub container Map<K, V> for MapCtr<K, V> { 
+    kind ordered_map; 
+    entry { key: K, val: V } 
+    measure count; 
+    measure max(key); 
+}
 
 // A static deem query THROUGH the generated projection: the deem site sees
 // `v: &VecCtr<u64>` as a native source (rel row(pos, elem)) — the impl was
