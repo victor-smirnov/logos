@@ -218,7 +218,7 @@ pub fn cmd_build_selected(m: &Manifest, profile: str, selected_idx: i64, use_loc
             dump_dir.push_str(t.name.as_str());
         }
         let rc: i32 = match t.kind {
-            TargetKind::Lib => { build_lib(t, profile, &logosc, &externals, &dump_dir, dump_metacall_sel, force_rebuild) }
+            TargetKind::Lib => { build_lib(t, profile, &logosc, &lib_dir, &externals, &dump_dir, dump_metacall_sel, force_rebuild) }
             TargetKind::Bin => { build_bin(t, &m.targets, profile, &logosc, &lib_dir, &externals, &dump_dir, dump_metacall_sel, force_rebuild) }
         };
         if rc != 0 {
@@ -589,7 +589,7 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
             TargetKind::Lib => {
                 let no_dump: String = String::new();
                 let no_filter: String = String::new();
-                let rc: i32 = build_lib(t, profile, &logosc, &no_externals, &no_dump, &no_filter, false);
+                let rc: i32 = build_lib(t, profile, &logosc, &lib_dir, &no_externals, &no_dump, &no_filter, false);
                 if rc != 0 {
                     println_str(2, "lforge: lib target failed; aborting test run");
                     return rc;

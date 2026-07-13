@@ -61,6 +61,7 @@ fn largv_push_abs(argv: &mut Vec<String>, p: &String) {
 }
 
 pub fn build_lib(t: &Target, profile: str, logosc: &String,
+                        lib_dir: &String,
                         externals: &Vec<ExternalLib>,
                         dump_dir: &String,
                         dump_filter: &String,
@@ -203,6 +204,25 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             push_arg(&mut argv, "-l");
             push_string_arg(&mut argv, &lb.archive_path);
             ei_lib = ei_lib + 1 as i64;
+        }
+        // The three stdlib layers as explicit `-l` archives so emit_module
+        // nm-scans them into the skeleton-skip gate. Without this, a source
+        // that pulls a stdlib METAPROG cone (a `container`/`deem` item drags
+        // in wql_surface_parser) RE-LOWERS those bodies from the archived AST
+        // instead of skipping them — and the comptime `parse_expr` intercept
+        // does not survive re-lowering ("initializer produced no value").
+        // The baked -L already RESOLVES stdlib for plain `use`; this makes it
+        // SKELETON-SKIPPED, which the metaprog cone needs.
+        if lib_dir.len() > 0 as i64 {
+            let mut sp: String = String::new();
+            sp.push_str(lib_dir.as_str()); append_path(&mut sp, "liblogos-std.a");
+            push_arg(&mut argv, "-l"); push_string_arg(&mut argv, &sp);
+            let mut mp: String = String::new();
+            mp.push_str(lib_dir.as_str()); append_path(&mut mp, "liblogos-mem.a");
+            push_arg(&mut argv, "-l"); push_string_arg(&mut argv, &mp);
+            let mut lp: String = String::new();
+            lp.push_str(lib_dir.as_str()); append_path(&mut lp, "liblogos-lang.a");
+            push_arg(&mut argv, "-l"); push_string_arg(&mut argv, &lp);
         }
 
         let child: Child = spawn_inherit(&argv);

@@ -569,7 +569,9 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                                const std::string& docs_path = "",
                                int opt_level = 0,
                                bool overflow_checks = true,
-                               const std::string& target_cpu = "generic") {
+                               const std::string& target_cpu = "generic",
+                               std::vector<std::optional<EmitProvenance>>*
+                                   provenance_out = nullptr) {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -643,6 +645,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
         mopts.self_module_id = module_id;    // hook-appended asts belong to THIS module
         mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
+        mopts.provenance_out = provenance_out;  // synth-chunk → source-file attribution
         // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
         // handler fns whose bodies reach into stdlib (Vec, AnyVal, etc.).
         // The metaprog mlir module spans the whole stdlib, so JIT lookup
@@ -1487,6 +1490,13 @@ bool emit_module(const ModuleManifest& manifest,
             module_name_to_id.emplace(m.module_name, m.module_id);
         asts.push_back(std::move(m.ast));
     }
+    // Trigger-site file per modules_for_h0 entry, parallel to it (real files:
+    // own path; synth chunks: provenance src_file). Only consulted by the
+    // --only-file filter; harmless otherwise. Real-file half filled here;
+    // synth half filled in the harvest loop below (thunk skips break asts
+    // index parallelism, so it must be tracked alongside modules_for_h0).
+    std::vector<std::string> mfh_trigger_file;
+    for (auto& m : modules_for_h0) mfh_trigger_file.push_back(m.path);
 
     // Phase 6 lazy mode: skip compile_to_object entirely. The lazy archive
     // ships only the parsed AST; the consumer's sema lowers items locally
@@ -1494,6 +1504,11 @@ bool emit_module(const ModuleManifest& manifest,
     size_t original_ast_count = asts.size();
     StdlibExports exports;
     std::vector<uint8_t> lir_blob;
+    // Synth-chunk provenance (parallel to asts): src_file per metaprog-emitted
+    // doc. Used by the --only-file .writ0 filter to keep a generated chunk
+    // whose trigger site is IN the target file (a container's projection
+    // belongs to the file that declared it).
+    std::vector<std::optional<EmitProvenance>> synth_prov;
     if (manifest.lazy) {
         if (verbose) {
             std::fprintf(stderr,
@@ -1535,7 +1550,8 @@ bool emit_module(const ModuleManifest& manifest,
                                    : std::string{},
                                /*opt_level=*/opts.opt_level,
                                /*overflow_checks=*/opts.overflow_checks,
-                               /*target_cpu=*/opts.target_cpu)) {
+                               /*target_cpu=*/opts.target_cpu,
+                               /*provenance_out=*/&synth_prov)) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }
@@ -1605,24 +1621,41 @@ bool emit_module(const ModuleManifest& manifest,
             }
         }
         modules_for_h0.push_back({path, pkg, asts[i], false, {}, {}});
+        // Attribute this synth chunk to its trigger site's file (provenance
+        // parallel to asts); "" when unknown (kept only in whole-module mode).
+        mfh_trigger_file.push_back(
+            (i < synth_prov.size() && synth_prov[i]) ? synth_prov[i]->src_file
+                                                     : std::string{});
     }
 
-    // .writ0: in per-file mode, contains only the target file's AST.
+    // .writ0: in per-file mode, contains the target file's AST PLUS the synth
+    // chunks TRIGGERED by that file (a container's generated projection must
+    // ship with the file that declared it — else an lforge lib target exports
+    // the container decl but not its projection, and consumers can't resolve
+    // the source). Matching is by trigger-site file: own path for real
+    // modules, provenance src_file for synth chunks.
     if (!opts.only_file.empty()) {
         std::vector<ParsedModule> single;
-        for (auto& m : modules_for_h0) {
-            std::error_code can_ec;
-            auto canon = fs::weakly_canonical(m.path, can_ec).string();
-            if (can_ec) canon = m.path;
-            if (canon == only_file_canon ||
-                (canon.size() >= only_file_canon.size() &&
-                 canon.compare(canon.size() - only_file_canon.size(),
-                               only_file_canon.size(), only_file_canon) == 0)) {
-                single.push_back(m);
-                break;
-            }
+        auto ends_with_target = [&](const std::string& raw) {
+            if (raw.empty()) return false;
+            std::error_code ec;
+            auto c = fs::weakly_canonical(raw, ec).string();
+            if (ec) c = raw;
+            return c == only_file_canon ||
+                (c.size() >= only_file_canon.size() &&
+                 c.compare(c.size() - only_file_canon.size(),
+                           only_file_canon.size(), only_file_canon) == 0);
+        };
+        bool matched_real = false;
+        for (size_t k = 0; k < modules_for_h0.size(); ++k) {
+            const std::string& trig =
+                k < mfh_trigger_file.size() ? mfh_trigger_file[k]
+                                            : modules_for_h0[k].path;
+            if (!ends_with_target(trig)) continue;
+            single.push_back(modules_for_h0[k]);
+            if (trig == modules_for_h0[k].path) matched_real = true;
         }
-        if (single.empty()) {
+        if (!matched_real) {
             std::fprintf(stderr,
                 "emit_module: --only-file '%s' did not match any source file in the manifest\n",
                 opts.only_file.c_str());

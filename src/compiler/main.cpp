@@ -2376,7 +2376,10 @@ int run_metaprog_dispatch(
     // (so they can read it post-dispatch); otherwise local & discarded.
     std::vector<std::optional<EmitProvenance>> local_provenance;
     auto* prov = opts.provenance_out ? opts.provenance_out : &local_provenance;
-    if (!opts.dump_dir.empty()) g_ast_provenance = prov;
+    // Wire when EITHER the dump driver wants it OR a caller passed a sink
+    // (emit_module uses it to attribute synth chunks to their source file in
+    // per-file mode — see the --only-file filter in emit_module.cpp).
+    if (!opts.dump_dir.empty() || opts.provenance_out) g_ast_provenance = prov;
 
     auto report = [&](const char* label) {
         if (!opts.trace && !std::getenv("LOGOS_TRACE_DISPATCH")) return;

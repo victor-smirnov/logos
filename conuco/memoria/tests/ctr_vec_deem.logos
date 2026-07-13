@@ -7,16 +7,13 @@ package test;
 
 use memoria.ctr.vec;
 use logos.std.wql.wql;
-use logos.std.canon.container_item;
 use logos.mem.collections.vec;
 use logos.lang.result;        // module-mode: Result is NOT in the prelude here
 
-pub container Vector<T: Copy + Fst + StableLayout> for VecCtr<T> {
-    kind vector;
-    entry { elem: T }
-    measure count;
-}
-
+// The `container Vector` declaration lives in the memoria-ctr LIB
+// (src/ctr/vec.logos); this consumer only `use`s it and queries — the
+// generated scan projection travels in the lib archive (per-file
+// emit-module, provenance-attributed synth chunks + stdlib skeleton-skip).
 pub deem big(v: &VecCtr<u64>) {
     from v e where e.elem > 100 select (e.pos, e.elem)
 }

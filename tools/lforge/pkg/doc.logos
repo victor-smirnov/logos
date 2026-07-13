@@ -161,7 +161,8 @@ pub fn cmd_doc(m: &Manifest, profile: str) -> i32 {
                 // Build the lib (generates its .module manifest + resolves deps).
                 let nod: String = String::new();
                 let nof: String = String::new();
-                let rc: i32 = build_lib(t, profile, &logosc, &no_externals, &nod, &nof, false);
+                let ld_doc: String = resolve_logos_lib_dir();
+                let rc: i32 = build_lib(t, profile, &logosc, &ld_doc, &no_externals, &nod, &nof, false);
                 if rc != 0 { println_str(2, "lforge: lib build failed; aborting doc"); return rc; }
 
                 // Whole-module doc emit: <doc_dir>/<name>.docwr (+ .o/.wr0 byproducts).
