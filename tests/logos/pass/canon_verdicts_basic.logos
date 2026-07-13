@@ -151,6 +151,57 @@ fn has_missing(vd: &Writ, ctr: str, detail: str, reason_needle: str) -> bool {
     return false;
 }
 
+// Generic error-row probe: (ctr, code) present with reason containing needle.
+fn has_err(vd: &Writ, ctr: str, code: str, reason_needle: str) -> bool {
+    let root: WAny = vd.root();
+    if !root.is_map() { return false; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get("errors");
+    if !av.is_array() { return false; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("code");
+            let a4: WAny = em.get("reason");
+            if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), code)
+               && str_contains(a4.as_wstr(), reason_needle) { return true; }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// col_proj verdict probe: (ctr, col) row with exactly this relty + proj.
+fn has_proj(vd: &Writ, ctr: str, col: str, relty: str, proj: str) -> bool {
+    let root: WAny = vd.root();
+    if !root.is_map() { return false; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get("col_projs");
+    if !av.is_array() { return false; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("col");
+            let a3: WAny = em.get("relty");
+            let a4: WAny = em.get("proj");
+            if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), col)
+               && str_eq(a3.as_wstr(), relty) && str_eq(a4.as_wstr(), proj) {
+                return true;
+            }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
 fn main() -> i32 {
     // ── doc A: complete Vector + complete Map ───────────────────────────
     let da: Writ = writ_new(65536i64);
@@ -225,6 +276,46 @@ fn main() -> i32 {
     if !has_cap(&vc, "Vector", "can_rank", "") { return 33i32; }
     if !has_mode(&vc, "Vector", "elem", "by_value") { return 34i32; }
     if vd_count(&vc, "errors") != 0i64 { return 35i32; }
+    // col_proj rows are Canon's — the handler consumes them verbatim.
+    if vd_count(&vc, "col_projs") != 1i64 { return 36i32; }
+    if !has_proj(&vc, "Vector", "elem", "i64", "canon_col") { return 37i32; }
+    // doc A: only the vector's column earns a proj row (Map cols do not).
+    if vd_count(&va, "col_projs") != 1i64 { return 38i32; }
+    if !has_proj(&va, "Vector", "elem", "i64", "canon_col") { return 39i32; }
+
+    // ── doc D: wave-0 emission limits are CANON's errors, with provenance ──
+    // VecS: str column → direct/str proj, clean. VecB: by_view non-str →
+    // wave0_by_view_unprojectable. VecM: two entry columns →
+    // wave0_vector_multi_entry.
+    let dd: Writ = writ_new(65536i64);
+    {
+        let root: &mut WMap<WString, WAny> = dd.map(4i64);
+        let ctrs: &mut WArray<WAny> = dd.array(3i64);
+        fact_ctr(&dd, ctrs, "VecS", "vector");
+        fact_ctr(&dd, ctrs, "VecB", "vector");
+        fact_ctr(&dd, ctrs, "VecM", "vector");
+        root.set("containers", &*ctrs);
+        let cols: &mut WArray<WAny> = dd.array(4i64);
+        fact_col(&dd, cols, "VecS", 0i64, "elem", "str", false);
+        fact_col(&dd, cols, "VecB", 0i64, "elem", "Blob", false);
+        fact_col(&dd, cols, "VecM", 0i64, "a", "i64", false);
+        fact_col(&dd, cols, "VecM", 1i64, "b", "i64", false);
+        root.set("cols", &*cols);
+        let meas: &mut WArray<WAny> = dd.array(3i64);
+        fact_meas(&dd, meas, "VecS", "count", "");
+        fact_meas(&dd, meas, "VecB", "count", "");
+        fact_meas(&dd, meas, "VecM", "count", "");
+        root.set("measures", &*meas);
+        dd.set_root(WAny::from(&*root));
+    }
+    let vd_: Writ = canon_verdicts(&dd);
+    if vd_ok(&vd_) { return 40i32; }
+    if !has_proj(&vd_, "VecS", "elem", "str", "direct") { return 41i32; }
+    if !has_err(&vd_, "VecB", "wave0_by_view_unprojectable",
+                "by_view columns of type `str` only") { return 42i32; }
+    if !has_err(&vd_, "VecM", "wave0_vector_multi_entry",
+                "exactly one entry column") { return 43i32; }
+    if vd_count(&vd_, "errors") != 2i64 { return 44i32; }
 
     return 0i32;
 }

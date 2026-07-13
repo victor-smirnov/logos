@@ -21,6 +21,7 @@ package logos.std.wql.params;
 
 use logos.lang.str;
 use logos.mem.string;   // String — native_use_text builds the chunk's use-decl text
+use logos.mem.collections.vec;   // per-module use-decl dedup
 
 fn mp_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
 fn mp_is_alpha(c: u8) -> bool {
@@ -174,38 +175,40 @@ impl MacroParams {
     /// has_engine_param flag: which modules a chunk needs is now data carried
     /// by the natspec, not a type the walker knows about.
     pub fn native_use_text(self: &MacroParams, out: &mut String) {
+        // The `@` annotation carries a COMMA-separated module list
+        // (materializer's module + the source param type's defining package).
+        // Dedup is PER MODULE, not per list — the same module may appear in
+        // different lists across params ("modA" vs "modA,pkgB"), and a
+        // duplicate use-decl in the generated chunk is a warning.
+        let mut emitted: Vec<str> = Vec::<str>::new();
         let mut i: i64 = 0i64;
         while i < self.rel_n {
             if self.rel_native[i] && self.rel_mod[i].len() > 0i64 {
-                let mut seen: bool = false;
-                let mut j: i64 = 0i64;
-                while j < i {
-                    if self.rel_native[j] && str_eq(self.rel_mod[j], self.rel_mod[i]) {
-                        seen = true;
-                        break;
-                    }
-                    j = j + 1i64;
-                }
-                if !seen {
-                    // The `@` annotation carries a COMMA-separated module
-                    // list (materializer's module + the source param type's
-                    // defining package) — one use-decl per entry.
-                    let m: str = self.rel_mod[i];
-                    let ml: i64 = m.len();
-                    let mut a: i64 = 0i64;
-                    while a < ml {
-                        let mut b: i64 = a;
-                        while b < ml && str_byte_at(m, b) != 44u8 { b = b + 1i64; }
-                        if b > a {
+                let m: str = self.rel_mod[i];
+                let ml: i64 = m.len();
+                let mut a: i64 = 0i64;
+                while a < ml {
+                    let mut b: i64 = a;
+                    while b < ml && str_byte_at(m, b) != 44u8 { b = b + 1i64; }
+                    if b > a {
+                        let one: str = unsafe {
+                            str_from_raw(((m.as_ptr() as i64) + a) as *const u8,
+                                         b - a)
+                        };
+                        let mut seen: bool = false;
+                        let mut j: i64 = 0i64;
+                        while j < emitted.len() {
+                            if str_eq(emitted.get(j), one) { seen = true; break; }
+                            j = j + 1i64;
+                        }
+                        if !seen {
+                            emitted.push(one);
                             out.push_str("use ");
-                            out.push_str(unsafe {
-                                str_from_raw(((m.as_ptr() as i64) + a) as *const u8,
-                                             b - a)
-                            });
+                            out.push_str(one);
                             out.push_str("; ");
                         }
-                        a = b + 1i64;
                     }
+                    a = b + 1i64;
                 }
             }
             i = i + 1i64;

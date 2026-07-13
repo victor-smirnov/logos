@@ -5645,7 +5645,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
     // `?` swallowed the Err (first hit: PkdArray::insert's resize_self
     // chain overran its block instead of propagating OutOfMem).
     auto ok_mlir = logos_to_mlir(type);
-    if (!ok_mlir && TypeRef(type) && TypeRef(type).kind() != LogosType::Kind::Void)
+    // Only a GENUINE Void ok-type may proceed without a result slot; a null/
+    // invalid `type` stays a hard failure (the pre-fix contract) — it must
+    // not ride the unit-Ok path.
+    if (!ok_mlir && (!TypeRef(type) || TypeRef(type).kind() != LogosType::Kind::Void))
         return nullptr;
     mlir::Value result_alloca;
     if (ok_mlir) result_alloca = create_entry_alloca(ok_mlir);

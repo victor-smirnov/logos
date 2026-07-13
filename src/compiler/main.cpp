@@ -275,7 +275,13 @@ extern "C" void logos_metaprog_error_at(uint32_t target_offset,
     g_metaprog_diags->push_back(std::move(out));
 }
 
-extern "C" int32_t logos_emit_source(const char* src) {
+// Shared emit_source core. The FILENAME is the channel tag: "<metaprog>" =
+// user-facing generated items (harvested into module .wr0 archives so
+// consumers resolve them); "<metaprog-thunk>" = metacall/item thunk sources
+// (JIT-only, never archived — their use-lists carry thunk-frame package
+// aliases like `std.lang.text` that a consumer's module loader cannot
+// resolve).
+static int32_t emit_source_tagged(const char* src, const char* filename) {
     if (!g_emit_seen || !g_any_emitted || !g_asts || !g_filenames
         || !g_from_binary || !src) return 0;
     std::string s(src);
@@ -291,12 +297,21 @@ extern "C" int32_t logos_emit_source(const char* src) {
         return 0;
     }
     g_asts->push_back(std::move(ast));
-    g_filenames->emplace_back("<metaprog>");
+    g_filenames->emplace_back(filename);
     g_from_binary->push_back(false);
     if (g_module_ids) g_module_ids->push_back(g_self_module_id);
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
+}
+
+extern "C" int32_t logos_emit_source(const char* src) {
+    return emit_source_tagged(src, "<metaprog>");
+}
+
+// C++-side thunk staging (metacall sites, item thunks).
+static int32_t logos_emit_source_thunk(const char* src) {
+    return emit_source_tagged(src, "<metaprog-thunk>");
 }
 
 // Slice 3 of metaprog-quote (~/.claude/plans/metaprog-quote.md): item-level
@@ -2536,7 +2551,7 @@ int run_metaprog_dispatch(
             g_any_emitted = &tmp_emitted;
             for (const auto& s : meta_item_sites) {
                 if (!s.thunk_source.empty())
-                    logos_emit_source(s.thunk_source.c_str());
+                    logos_emit_source_thunk(s.thunk_source.c_str());
             }
             g_any_emitted = prev_any;
             auto resema_opts = meta_opts;
@@ -4057,7 +4072,8 @@ int main(int argc, char** argv) {
             if (i == entry_idx) continue;
             if (i >= filenames.size()) continue;
             const std::string& fn = filenames[i];
-            if (fn != "<metaprog-blob-subst>" && fn != "<metaprog>") continue;
+            if (fn != "<metaprog-blob-subst>" && fn != "<metaprog>" &&
+                fn != "<metaprog-thunk>") continue;
             auto* h = asts[i].holder();
             auto root_off = logos::writ::WritAccess::root_offset(asts[i]);
             std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
@@ -4146,7 +4162,7 @@ int main(int argc, char** argv) {
             bool emitted_any_thunk = false;
             for (const auto& site : prog.metacall_sites) {
                 if (site.thunk_source().empty()) continue;
-                if (logos_emit_source(std::string(site.thunk_source()).c_str()))
+                if (logos_emit_source_thunk(std::string(site.thunk_source()).c_str()))
                     emitted_any_thunk = true;
             }
             if (emitted_any_thunk) {

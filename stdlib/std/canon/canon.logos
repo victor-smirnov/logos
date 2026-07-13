@@ -31,7 +31,11 @@
 //   { ok: bool,                                    // ⇔ errors array empty
 //     caps:      [ { ctr, cap, col } … ],          // col = "" for whole-ctr caps
 //     col_modes: [ { ctr, col, mode } … ],         // mode = by_value | by_view
+//     col_projs: [ { ctr, col, relty, proj } … ],  // proj = direct | canon_col
+//                                                  // (kind=vector cols only)
 //     errors:    [ { ctr, code, detail, reason } … ] }
+//                // codes: missing_measure | wave0_by_view_unprojectable |
+//                //        wave0_vector_multi_entry
 package logos.std.canon.canon;
 
 use logos.lang.result;
@@ -148,6 +152,35 @@ deem canon_missing_max(w: CanonFacts) {
     where x.kind == "ordered_map" && c.idx == 0
     select (x.ctr, c.col)
 }
+// Wave-0 scan-projection verdicts, per VECTOR column (the handler consumes
+// these rows verbatim — it holds NO type vocabulary of its own; ADR 0020 §5).
+// direct: rel-native column types (str is by_view but rel-native; bool is
+// by_value and rel-native); canon_col: every other by_value column projects
+// to i64 through CanonCol.
+deem canon_proj_direct(w: CanonFacts) {
+    from ctr_kind x join col_fact c on c.ctr == x.ctr
+    where x.kind == "vector" && (c.ty == "str" || c.ty == "bool")
+    select (c.ctr, c.col, c.ty)
+}
+deem canon_proj_canoncol(w: CanonFacts) {
+    from ctr_kind x join col_fact c on c.ctr == x.ctr
+         join mode_value v on v.ctr == c.ctr && v.col == c.col
+    where x.kind == "vector" && c.ty != "str" && c.ty != "bool"
+    select (c.ctr, c.col)
+}
+// Wave-0 emission limits — Canon-derived, with provenance (previously
+// handler-authored diagnostics; the drift the ADR warns about).
+deem canon_unprojectable(w: CanonFacts) {
+    from ctr_kind x join col_fact c on c.ctr == x.ctr
+         anti join mode_value v on v.ctr == c.ctr && v.col == c.col
+    where x.kind == "vector" && c.ty != "str"
+    select (c.ctr, c.col, c.ty)
+}
+deem canon_multi_entry(w: CanonFacts) {
+    from ctr_kind x join col_fact c on c.ctr == x.ctr
+    where x.kind == "vector" && c.idx == 1
+    select x.ctr : str
+}
 
 fn cv_push_cap(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, cap: str, col: str) {
     let m: &mut WMap<WString, WAny> = doc.map(4i64);
@@ -183,6 +216,14 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
     let missing: Vec<(str, str)> = match canon_missing_max(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let pdir: Vec<(str, str, str)> = match canon_proj_direct(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let pcol: Vec<(str, str)> = match canon_proj_canoncol(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let unpr: Vec<(str, str, str)> = match canon_unprojectable(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let multi: Vec<str> = match canon_multi_entry(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
 
     let root: &mut WMap<WString, WAny> = doc.map(8i64);
 
@@ -214,7 +255,34 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     root.set("col_modes", &*modes);
 
-    let errs: &mut WArray<WAny> = doc.array(missing.len());
+    // Per-column scan projections (kind=vector): the handler's ENTIRE column
+    // vocabulary — relty + proj come from these rows, never re-derived.
+    let projs: &mut WArray<WAny> = doc.array(pdir.len() + pcol.len());
+    i = 0i64;
+    while i < pdir.len() {
+        let r: (str, str, str) = pdir.get(i);
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set("ctr", r.0);
+        m.set("col", r.1);
+        m.set("relty", r.2);
+        m.set("proj", "direct");
+        projs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < pcol.len() {
+        let r: (str, str) = pcol.get(i);
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set("ctr", r.0);
+        m.set("col", r.1);
+        m.set("relty", "i64");
+        m.set("proj", "canon_col");
+        projs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    root.set("col_projs", &*projs);
+
+    let errs: &mut WArray<WAny> = doc.array(missing.len() + unpr.len() + multi.len());
     i = 0i64;
     while i < missing.len() {
         let r: (str, str) = missing.get(i);
@@ -234,8 +302,39 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
         errs.push(WAny::from(&*m));
         i = i + 1i64;
     }
+    i = 0i64;
+    while i < unpr.len() {
+        let r: (str, str, str) = unpr.get(i);
+        let mut detail: String = String::new();
+        detail.push_str(r.1);
+        detail.push_str(": ");
+        detail.push_str(r.2);
+        let mut reason: String = String::new();
+        reason.push_str("column `");
+        reason.push_str(r.1);
+        reason.push_str(": ");
+        reason.push_str(r.2);
+        reason.push_str("` is by_view — wave-0 scan emission supports by_view columns of type `str` only");
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set("ctr", r.0);
+        m.set("code", "wave0_by_view_unprojectable");
+        m.set("detail", detail.as_str());
+        m.set("reason", reason.as_str());
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < multi.len() {
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set("ctr", multi.get(i));
+        m.set("code", "wave0_vector_multi_entry");
+        m.set("detail", "entry");
+        m.set("reason", "wave-0 `kind vector;` emission supports exactly one entry column");
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
     root.set("errors", &*errs);
-    root.set("ok", missing.len() == 0i64);
+    root.set("ok", missing.len() == 0i64 && unpr.len() == 0i64 && multi.len() == 0i64);
 
     doc.set_root(WAny::from(&*root));
     return doc;

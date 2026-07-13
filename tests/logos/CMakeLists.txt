@@ -199,6 +199,25 @@ add_custom_command(
 )
 add_custom_target(sd_dst_mod_binary ALL DEPENDS ${SD_DST_MOD_BIN})
 
+# Cross-module `container` fixture (ADR 0020): the declaration + backing type
+# live in libctr_mod.a; a consumer re-registers the CONTAINER_DEF_DONE node
+# and queries the generated projection across the module boundary.
+set(CTR_MOD_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/ctr_mod)
+set(CTR_MOD_MANIFEST ${CTR_MOD_DIR}/ctr_mod.module)
+set(CTR_MOD_BIN      ${CMAKE_CURRENT_BINARY_DIR}/libctr_mod.a)
+file(GLOB CTR_MOD_SOURCES ${CTR_MOD_DIR}/*.logos)
+add_custom_command(
+    OUTPUT  ${CTR_MOD_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${CTR_MOD_MANIFEST}
+            -o ${CTR_MOD_BIN}
+    DEPENDS logosc ${CTR_MOD_MANIFEST} ${CTR_MOD_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libctr_mod.a"
+)
+add_custom_target(ctr_mod_binary ALL DEPENDS ${CTR_MOD_BIN})
+
 # Lazy→lazy chain fixture: liblazy_lower.a + liblazy_upper.a (both lazy).
 # Exercises the case where a lazy module's `use` resolves to another
 # lazy archive — both ASTs must reach the consumer's sema as user-code
@@ -480,6 +499,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_LAZY_PKG_USERS lazy_pkg_basic)
     # Generic self-describing DST from a module archive (fresh instantiation).
     set(LOCAL_SD_DST_MOD_USERS sd_dst_module_methods)
+    # ADR 0020: container declared in a binary module, queried by a consumer.
+    set(LOCAL_CTR_MOD_USERS container_item_from_module)
     # Phase 6 lazy→lazy chain: consumer pulls upper (lazy) which pulls
     # lower (also lazy). Both archives must reach sema as user code.
     set(LOCAL_LAZY_CHAIN_USERS lazy_pkg_chain)
@@ -529,6 +550,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${LAZY_PKG_BIN})
     elseif (BASE IN_LIST LOCAL_SD_DST_MOD_USERS)
         set(_extra -l ${SD_DST_MOD_BIN})
+    elseif (BASE IN_LIST LOCAL_CTR_MOD_USERS)
+        set(_extra -l ${CTR_MOD_BIN})
     elseif (BASE IN_LIST LOCAL_LAZY_CHAIN_USERS)
         set(_extra -l ${LAZY_LOWER_BIN} -l ${LAZY_UPPER_BIN})
     elseif (BASE IN_LIST LOCAL_THREE_LAYER_USERS)

@@ -1558,13 +1558,19 @@ bool emit_module(const ModuleManifest& manifest,
     // resolve those symbols.
     for (size_t i = original_ast_count; i < asts.size(); ++i) {
         std::string path = i < filenames.size() ? filenames[i] : std::string();
-        // Skip metacall thunk asts — they're for JIT only, not for
-        // downstream sema. Synth docs from item-blob substitution carry
-        // the inherited package name; read it.
-        if (path == "<metaprog>") continue;
-        // Multiple synth docs share filename "<metaprog-blob-subst>" —
-        // disambiguate so module_loader's visited_files dedup doesn't
-        // drop all but the first when the .writ0 is loaded by user.
+        // Thunk sources ("<metaprog-thunk>") are JIT-only staging — never
+        // archived (their use-lists carry thunk-frame package aliases a
+        // consumer's loader cannot resolve).
+        if (path == "<metaprog-thunk>") continue;
+        // "<metaprog>" = logos_emit_source chunks — REAL generated items
+        // (container projections, deem chunks); it is that channel's ONLY
+        // filename (main.cpp:294), NOT thunk asts. The old skip here
+        // silently dropped every emit_source-generated item from module
+        // archives — a container declared in a module was invisible to
+        // cross-module deem sites (its projection never reached the .wr0).
+        // Multiple synth docs share a filename ("<metaprog-blob-subst>",
+        // "<metaprog>") — disambiguate so module_loader's visited_files
+        // dedup doesn't drop all but the first when the .writ0 is loaded.
         path += "#" + std::to_string(i - original_ast_count);
         std::string pkg;
         auto root_av = asts[i].root_object();

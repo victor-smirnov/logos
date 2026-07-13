@@ -1,0 +1,40 @@
+// Cross-module `container` fixture: the declaration + backing type live in
+// THIS archive; the deem consumer compiles against the binary module. Pins
+// the CONTAINER_DEF_DONE re-registration path (a consumer's pre-scan must
+// re-register the container and see its generated projection).
+package ctr_mod;
+
+use logos.std.wql.wql;
+use logos.std.canon.container_item;
+use logos.lang.mem;
+
+pub container Boxes<T> for BoxCtr<T> {
+    kind vector;
+    entry { elem: T }
+    measure count;
+}
+
+/// Wave-0 scan-contract backing: count/get over a plain heap array (this
+/// fixture pins the MODULE seam, not packed storage — conuco owns that).
+pub struct BoxCtr<T: Copy> {
+    mem: *mut u8,
+    n:   i64,
+    cap: i64,
+}
+
+impl<T: Copy> BoxCtr<T> {
+    pub static fn new(cap: i64) -> BoxCtr<T> {
+        let bytes: i64 = cap * sizeof::<T>();
+        return BoxCtr { mem: unsafe { alloc(bytes) }, n: 0i64, cap: cap };
+    }
+    pub fn count(self: &BoxCtr<T>) -> i64 { return self.n; }
+    pub fn get(self: &BoxCtr<T>, i: i64) -> T {
+        return unsafe { *((self.mem as *mut T).add(i)) };
+    }
+    pub fn push(self: &mut BoxCtr<T>, v: T) {
+        if self.n < self.cap {
+            unsafe { *((self.mem as *mut T).add(self.n)) = v; }
+            self.n = self.n + 1i64;
+        }
+    }
+}

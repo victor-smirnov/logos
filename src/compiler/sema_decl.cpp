@@ -961,9 +961,9 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // side fns that are themselves stubs in this metaprog discovery
     // pass; lowering them would dangle in the meta_prog mlir module.
     //
-    // Don't stub metacall thunks emitted via logos_emit_source (filename
-    // "<metaprog>") — those need to JIT-compile so the discovery loop
-    // can invoke them. The final non-metaprog sema pass lowers
+    // Don't stub metacall thunks ("<metaprog-thunk>") or user emit_source
+    // chunks ("<metaprog>") — those need to JIT-compile so the discovery
+    // loop can invoke them. The final non-metaprog sema pass lowers
     // everything for real.
     bool is_synth_blob = file_ == "<metaprog-blob-subst>"
                       || file_ == "<test_main_synth>";

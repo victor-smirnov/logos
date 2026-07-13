@@ -1,0 +1,6 @@
+module ctr_mod
+version 0.1
+root tests/logos/ctr_mod/
+depends logos-lang
+depends logos-mem
+depends logos-std

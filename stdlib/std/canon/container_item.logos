@@ -223,10 +223,16 @@ fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> bool {
     return false;
 }
 
-// col_mode verdict for (ctr, col): 0 = no verdict, 1 = by_value, 2 = by_view.
-fn cv_mode_code(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
-    let av: WAny = vroot.get("col_modes");
-    if !av.is_array() { return 0i64; }
+// col_proj verdict for (ctr, col): the handler's ONLY column vocabulary.
+// 0 = no verdict row; 1 = direct (rel-native column, relty = declared type);
+// 2 = canon_col (project to i64 through CanonCol). Any OTHER proj string is a
+// Canon/handler vocabulary skew and fails LOUDLY — no silent degradation.
+fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
+    let av: WAny = vroot.get("col_projs");
+    if !av.is_array() {
+        error("container item: verdict doc missing its col_projs array (Canon seam regression?)");
+        return 0i64;
+    }
     let arr: &WArray<WAny> = av.as_array();
     let mut i: i64 = 0i64;
     while i < arr.len() {
@@ -235,17 +241,43 @@ fn cv_mode_code(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
             let em: &WMap<WString, WAny> = e.as_map();
             let a1: WAny = em.get("ctr");
             let a2: WAny = em.get("col");
-            let a3: WAny = em.get("mode");
+            let a3: WAny = em.get("proj");
             if a1.is_string() && a2.is_string() && a3.is_string() {
                 if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), col) {
-                    if str_eq(a3.as_wstr(), "by_value") { return 1i64; }
-                    return 2i64;
+                    if str_eq(a3.as_wstr(), "direct") { return 1i64; }
+                    if str_eq(a3.as_wstr(), "canon_col") { return 2i64; }
+                    error("container item: unknown col_proj verdict (Canon/handler vocabulary skew?)");
+                    return 0i64;
                 }
             }
         }
         i = i + 1i64;
     }
     return 0i64;
+}
+
+// relty of the (ctr, col) col_proj verdict row; "" when absent.
+fn cv_col_relty(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> str {
+    let av: WAny = vroot.get("col_projs");
+    if !av.is_array() { return ""; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("col");
+            let a3: WAny = em.get("relty");
+            if a1.is_string() && a2.is_string() && a3.is_string() {
+                if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), col) {
+                    return a3.as_wstr();
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+    return "";
 }
 
 // Reports every Canon error row as a compile diagnostic:
@@ -443,17 +475,14 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         error("container item: Canon granted no can_scan capability for a vector container (Canon seam regression?)");
         return out;
     }
-    // Wave-0 scan contract: `get(&self, i) -> T` returns THE element — one
-    // entry column. (Multi-column vector entries need a row-shaped element
-    // contract; a later wave.)
+    // Canon has already judged wave-0 emission limits (multi-entry vector,
+    // unprojectable by_view column) as error rows above — a vector reaching
+    // this point has exactly one entry column with a col_proj verdict.
+    // Anything else here is a seam regression, not a user error.
     let ce: i64 = cs.entry.len();
     let b0: i64 = cf_next_comma(cs.entry, 0i64, ce);
     if b0 != ce {
-        let mut m1: String = String::new();
-        m1.push_str("container ");
-        m1.push_str(name);
-        m1.push_str(": wave-0 `kind vector;` emission supports exactly one entry column");
-        error(m1.as_str());
+        error("container item: multi-entry vector past Canon's verdict (seam regression?)");
         return out;
     }
     let c1: i64 = cf_find(cs.entry, 0i64, 58u8);    // ':'
@@ -467,28 +496,18 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
     let col_ty: str = unsafe { cf_sub(cs.entry, c1 + 1i64, c2) };
     let col_prm: bool = str_eq(unsafe { cf_sub(cs.entry, c2 + 1i64, b0) }, "1");
 
-    // Column projection per the col_mode verdict + declared type (design §f):
-    // str/bool rel columns carry the value verbatim; every other by_value
-    // column projects to i64 through CanonCol. A by_view column of any other
-    // type has no wave-0 scan projection.
-    let mut relty: str = "i64";
-    let mut direct: bool = false;
-    if str_eq(col_ty, "str") {
-        relty = "str";
-        direct = true;
-    } else if str_eq(col_ty, "bool") {
-        relty = "bool";
-        direct = true;
-    } else if cv_mode_code(vm, name, col_name) != 1i64 {
-        let mut m2: String = String::new();
-        m2.push_str("container ");
-        m2.push_str(name);
-        m2.push_str(": column `");
-        m2.push_str(col_name);
-        m2.push_str(": ");
-        m2.push_str(col_ty);
-        m2.push_str("` is by_view — wave-0 scan emission supports by_view columns of type `str` only");
-        error(m2.as_str());
+    // Column projection = Canon's col_proj verdict, consumed verbatim — the
+    // handler holds NO type vocabulary of its own (ADR 0020 §5; the verdict
+    // rows are the single source of relty/proj truth).
+    let pj: i64 = cv_col_proj(vm, name, col_name);
+    if pj == 0i64 {
+        error("container item: no col_proj verdict for the entry column (Canon seam regression?)");
+        return out;
+    }
+    let direct: bool = pj == 1i64;
+    let relty: str = cv_col_relty(vm, name, col_name);
+    if relty.len() == 0i64 {
+        error("container item: col_proj verdict missing relty (Canon seam regression?)");
         return out;
     }
     let bound_param: str = if !direct && col_prm { col_ty } else { "" };
