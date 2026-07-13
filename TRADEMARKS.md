@@ -26,6 +26,8 @@ recognisable.
   (IDB) over Writ data (EDB).
 * **Trama** — the wordmark for Logos Lang's query engine over Writ,
   including its incremental (DBSP-based) evaluation engine.
+* **Nous** — the wordmark for Logos Lang's ontology / knowledge
+  layer built on Deem and Writ.
 
 The bare word "Logos" is **not** claimed by this project. A prior US
 registration exists in Class 9 (USPTO serial 99742916, unrelated
@@ -77,8 +79,8 @@ the project crosses a maturity threshold where the cost / benefit of
 filing flips. Until then the marks are claimed via common law
 ("Logos Lang™" — common-law mark, ™ symbol acceptable in public
 references). The same common-law basis applies to the **Writ**,
-**Hest**, **Deem**, and **Trama** marks (Writ™, Hest™, Deem™,
-Trama™). Once a formal registration completes,
+**Hest**, **Deem**, **Trama**, and **Nous** marks (Writ™, Hest™,
+Deem™, Trama™, Nous™). Once a formal registration completes,
 this policy will be updated and the ® symbol becomes appropriate.
 
 ## Reporting concerns
