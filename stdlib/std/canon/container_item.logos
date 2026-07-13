@@ -1,0 +1,239 @@
+// logos.std.canon.container_item — the `container` ITEM lowering backend
+// (ADR 0020 wave-0, Memoria container-interface plane).
+//
+// A CONTAINER declaration names a relational interface over a backing type:
+//
+//   pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count; }
+//
+// The responsibility chain is rigid (ADR 0020 §5): the COMPILER records the
+// declaration and serializes it to a one-line spec string; THIS handler
+// mirrors the spec to the FACT Writ doc; CANON (deem rules over the fact doc)
+// returns verdicts; the handler consumes verdicts and emits (or diagnoses).
+// Canon never emits; this handler never decides.
+//
+// Wave-0 M2 scope: spec → fact doc + shape sanity. Canon verdicts (M3) and
+// the Vector scan-projection emission (M4) attach behind the fact mirror.
+//
+// The spec string (compiler → handler; sema lower_container_def): one line,
+// `|`-separated `k=v` in fixed key order, values never containing `|`:
+//
+//   pub=1|generics=<T>|gnames=T|backing=VecCtr<T>|backing_pkg=|kind=vector|entry=elem:T:1|measures=count
+//
+// entry cols = comma-separated `name:ty:is_param(0|1)`; measures =
+// comma-separated `mfn` or `mfn(arg)`.
+package logos.std.canon.container_item;
+
+use logos.std.compiler.metaprog;   // ItemList, item_list_new, error
+use logos.lang.writ.container;     // Writ, writ_new
+use logos.lang.writ.wmap;          // doc.map / WMap::set
+use logos.lang.writ.array;         // doc.array / WArray::push
+use logos.lang.writ.anyval;        // WAny
+use logos.lang.writ.wstring;       // WString (read-back checks)
+use logos.lang.str;                // str_byte_at, str_eq, str_from_raw
+
+unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
+    let l: i64 = if b > a { b - a } else { 0i64 };
+    return str_from_raw((s.as_ptr() as i64 + a) as *const u8, l);
+}
+
+fn cf_find(s: str, from: i64, c: u8) -> i64 {
+    let n: i64 = s.len();
+    let mut i: i64 = from;
+    while i < n {
+        if str_byte_at(s, i) == c { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+// Index of the next TOP-LEVEL `,` in s[from, end) — commas nested in
+// `<…>` / `(…)` / `[…]` (generic args in a column type) don't split.
+fn cf_next_comma(s: str, from: i64, end: i64) -> i64 {
+    let mut i: i64 = from;
+    let mut depth: i64 = 0i64;
+    while i < end {
+        let c: u8 = str_byte_at(s, i);
+        if c == 60u8 || c == 40u8 || c == 91u8 { depth = depth + 1i64; }
+        else if c == 62u8 || c == 41u8 || c == 93u8 { depth = depth - 1i64; }
+        else if c == 44u8 && depth == 0i64 { return i; }
+        i = i + 1i64;
+    }
+    return end;
+}
+
+/// One parsed container spec — string fields borrow the spec line.
+pub struct ContainerSpec {
+    pub is_pub:      bool,
+    pub generics:    str,   // "<T>" verbatim (bounds included), "" = concrete
+    pub gnames:      str,   // "T" / "K,V"
+    pub backing:     str,   // "VecCtr<T>" (syntactic)
+    pub backing_pkg: str,   // defining package of the backing base type, or ""
+    pub kind:        str,   // "vector" | "ordered_map"
+    pub entry:       str,   // raw "name:ty:p,…" (iterated by the fact builder)
+    pub measures:    str,   // raw "count,max(key)"
+}
+
+pub fn container_spec_new() -> ContainerSpec {
+    return ContainerSpec {
+        is_pub: false, generics: "", gnames: "", backing: "",
+        backing_pkg: "", kind: "", entry: "", measures: "",
+    };
+}
+
+/// Parses the compiler's spec line. Returns false on any shape violation
+/// (unknown key, missing segment, empty kind/entry) — the caller diagnoses.
+pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
+    let n: i64 = spec.len();
+    let mut pos: i64 = 0i64;
+    let mut seen: i64 = 0i64;
+    while pos < n {
+        let mut end: i64 = cf_find(spec, pos, 124u8);   // '|'
+        if end < 0i64 { end = n; }
+        let eq: i64 = cf_find(spec, pos, 61u8);          // '='
+        if eq < 0i64 || eq >= end { return false; }
+        let key: str = unsafe { cf_sub(spec, pos, eq) };
+        let val: str = unsafe { cf_sub(spec, eq + 1i64, end) };
+        if str_eq(key, "pub")              { out.is_pub = str_eq(val, "1"); }
+        else if str_eq(key, "generics")    { out.generics = val; }
+        else if str_eq(key, "gnames")      { out.gnames = val; }
+        else if str_eq(key, "backing")     { out.backing = val; }
+        else if str_eq(key, "backing_pkg") { out.backing_pkg = val; }
+        else if str_eq(key, "kind")        { out.kind = val; }
+        else if str_eq(key, "entry")       { out.entry = val; }
+        else if str_eq(key, "measures")    { out.measures = val; }
+        else { return false; }
+        seen = seen + 1i64;
+        pos = end + 1i64;
+    }
+    return seen == 8i64 && out.kind.len() > 0i64 && out.entry.len() > 0i64;
+}
+
+/// Builds the FACT Writ doc for ONE container item (wave-0 has no cross-item
+/// accumulation) — the ADR 0020 §5 fact vocabulary restricted to wave-0:
+///
+///   { containers: [ { name, pub, generics, backing, kind } ],
+///     cols:       [ { ctr, idx, name, ty, param } … ],
+///     measures:   [ { ctr, mfn, arg } … ] }
+///
+/// Convenience shape for the deem-over-&Writ graph source: top-level WMap,
+/// arrays of FLAT maps, scalar leaves only. A malformed spec yields a doc
+/// with a NULL root — the caller diagnoses.
+pub fn container_facts(name: str, spec: str) -> Writ {
+    let doc: Writ = writ_new(65536i64);
+    let mut cs: ContainerSpec = container_spec_new();
+    if !parse_container_spec(spec, &mut cs) { return doc; }
+
+    let root: &mut WMap<WString, WAny> = doc.map(8i64);
+
+    let ctrs: &mut WArray<WAny> = doc.array(1i64);
+    {
+        let c0: &mut WMap<WString, WAny> = doc.map(8i64);
+        c0.set("name", name);
+        c0.set("pub", cs.is_pub);
+        c0.set("generics", cs.gnames);
+        c0.set("backing", cs.backing);
+        c0.set("kind", cs.kind);
+        ctrs.push(WAny::from(&*c0));
+    }
+    root.set("containers", &*ctrs);
+
+    let cols: &mut WArray<WAny> = doc.array(4i64);
+    {
+        let ce: i64 = cs.entry.len();
+        let mut a: i64 = 0i64;
+        let mut idx: i64 = 0i64;
+        while a < ce {
+            let b: i64 = cf_next_comma(cs.entry, a, ce);
+            // `name:ty:p` — name up to the FIRST ':', flag after the LAST
+            // (the type may itself contain `:` never, but generic commas do
+            // occur — hence the depth-aware outer split).
+            let c1: i64 = cf_find(cs.entry, a, 58u8);        // ':'
+            let mut c2: i64 = b - 1i64;
+            while c2 > a && str_byte_at(cs.entry, c2) != 58u8 { c2 = c2 - 1i64; }
+            if c1 < 0i64 || c1 >= b || c2 <= c1 { return writ_new(64i64); }
+            let r: &mut WMap<WString, WAny> = doc.map(8i64);
+            r.set("ctr", name);
+            r.set("idx", idx);
+            r.set("name", unsafe { cf_sub(cs.entry, a, c1) });
+            r.set("ty", unsafe { cf_sub(cs.entry, c1 + 1i64, c2) });
+            r.set("param", str_eq(unsafe { cf_sub(cs.entry, c2 + 1i64, b) }, "1"));
+            cols.push(WAny::from(&*r));
+            idx = idx + 1i64;
+            a = b + 1i64;
+        }
+    }
+    root.set("cols", &*cols);
+
+    let meas: &mut WArray<WAny> = doc.array(4i64);
+    {
+        let cm: i64 = cs.measures.len();
+        let mut a: i64 = 0i64;
+        while a < cm {
+            let b: i64 = cf_next_comma(cs.measures, a, cm);
+            let lp: i64 = cf_find(cs.measures, a, 40u8);     // '('
+            let r: &mut WMap<WString, WAny> = doc.map(8i64);
+            r.set("ctr", name);
+            if lp >= 0i64 && lp < b {
+                if str_byte_at(cs.measures, b - 1i64) != 41u8 {   // ')'
+                    return writ_new(64i64);
+                }
+                r.set("mfn", unsafe { cf_sub(cs.measures, a, lp) });
+                r.set("arg", unsafe { cf_sub(cs.measures, lp + 1i64, b - 1i64) });
+            } else {
+                r.set("mfn", unsafe { cf_sub(cs.measures, a, b) });
+                r.set("arg", "");
+            }
+            meas.push(WAny::from(&*r));
+            a = b + 1i64;
+        }
+    }
+    root.set("measures", &*meas);
+
+    doc.set_root(WAny::from(&*root));
+    return doc;
+}
+
+/// Lowering handler behind the `container` ITEM (ADR 0020 wave-0). Invoked by
+/// the COMPILER (sema lower_container_def) through the token-macro item seam
+/// with the serialized spec line. Not a user-facing macro.
+#[token_macro]
+pub fn __container_item(name: str, spec: str) -> ItemList {
+    let out: ItemList = item_list_new();
+    if name.len() == 0i64 {
+        error("container item: empty container name (compiler seam regression?)");
+        return out;
+    }
+    let facts: Writ = container_facts(name, spec);
+    // Shape gate on the fact mirror — a malformed spec (or a fact-builder
+    // regression) must fail the COMPILE, not silently drop the declaration.
+    let root: WAny = facts.root();
+    if root.is_null() || !root.is_map() {
+        error("container item: malformed spec (compiler seam regression?)");
+        return out;
+    }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let ca: WAny = rm.get("containers");
+    if !ca.is_array() {
+        error("container item: fact doc missing its containers row (seam regression?)");
+        return out;
+    }
+    let caa: &WArray<WAny> = ca.as_array();
+    if caa.len() != 1i64 {
+        error("container item: fact doc missing its containers row (seam regression?)");
+        return out;
+    }
+    let row: WAny = caa.get(0i64);
+    if !row.is_map() {
+        error("container item: fact doc missing the container kind (seam regression?)");
+        return out;
+    }
+    let rowm: &WMap<WString, WAny> = row.as_map();
+    let kv: WAny = rowm.get("kind");
+    if !kv.is_string() {
+        error("container item: fact doc missing the container kind (seam regression?)");
+        return out;
+    }
+    // Canon verdicts (M3) and the kind=vector scan-projection emission (M4)
+    // attach here; wave-0 M2 ends at the fact mirror.
+    return out;
+}

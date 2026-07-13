@@ -20644,6 +20644,305 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
 }
 
 
+// ADR 0020 wave-0 — the `container` ITEM (Memoria container-interface plane).
+// Reconstructs + SHAPE-validates one CONTAINER_DEF(_DONE) node into a
+// ContainerInfo. Completeness (ordered_map requires measure(max(<first key
+// col>))) is deliberately NOT checked here: sema records, Canon judges
+// (ADR 0020 §5 — the responsibility chain is declarations → facts → Canon
+// verdicts → metaprog emits).
+bool SemaChecker::reconstruct_container_def(writ::TinyMapView node,
+                                            ContainerInfo& out,
+                                            std::string& err) {
+    if (!node.has_key(la::NAME)) {
+        err = "container item: missing name (grammar regression?)";
+        return false;
+    }
+    out.name = std::string(str_of(node.get(la::NAME.code)));
+    const std::string& cname = out.name;
+    // Contextual keyword: the grammar accepts any leading IDENT (a global
+    // `container` keyword would clash with the very common identifier —
+    // logos.lang.writ.container &c); only the literal text is legal.
+    std::string lead(str_of(node.get(la::REL_KW.code)));
+    if (lead != "container") {
+        err = std::format(
+            "unknown item `{} {} for …` — did you mean "
+            "`container {} for <Type> {{ … }}`?", lead, cname, cname);
+        return false;
+    }
+    if (node.has_key(la::IS_PUB)) {
+        auto pv = node.get(la::IS_PUB.code);
+        out.is_pub = !pv.is_null() && pv.is_value()
+                  && pv.as_value<uint8_t>() != 0;
+    }
+    out.is_module_only = read_module_vis(node);
+
+    // ── generics: verbatim syntactic render (bounds included) + bare names ──
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tpl = map_of(node.get(la::TYPE_PARAMS.code));
+        out.generics_src = render_type_param_list_(tpl);
+        if (!tpl.is_null() && tpl.has_key(la::ITEMS.code)) {
+            auto tarr = arr_of(tpl.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < tarr.size(); ++i) {
+                auto tp = map_of(tarr.get(i));
+                if (tp.is_null() || code_of(tp) != la::TYPE_PARAM) continue;
+                out.generic_names.emplace_back(str_of(tp.get(la::NAME.code)));
+            }
+        }
+    }
+
+    // ── the `for <Type>` backing binding (wave-0 pragmatic; the final
+    // language may separate declaration from binding). Syntactic render —
+    // resolution happens only on the emission path.
+    if (!node.has_key(la::TYPE)) {
+        err = std::format(
+            "container '{}': missing backing type (grammar regression?)",
+            cname);
+        return false;
+    }
+    out.backing_src = render_type_src_syntactic_(map_of(node.get(la::TYPE.code)));
+    if (out.backing_src.empty()) {
+        err = std::format(
+            "container '{}': cannot render the backing type", cname);
+        return false;
+    }
+    {
+        // Defining package of the backing BASE type, when already known
+        // (undeclared backing is legal until the emission path resolves it).
+        std::string base = out.backing_src;
+        if (auto lt = base.find('<'); lt != std::string::npos)
+            base.resize(lt);
+        while (!base.empty() && base.back() == ' ') base.pop_back();
+        auto [pkg, info] = find_datatype_by_name(base);
+        out.backing_pkg = info ? pkg : std::string{};
+    }
+
+    // ── clauses: `kind k;` / `entry { col: ty, … }` / `measure m;` /
+    // `measure m(col);` — leads are contextual idents, dispatched here.
+    if (node.has_key(la::FIELDS)) {
+        auto carr = arr_of(node.get(la::FIELDS.code));
+        for (uint64_t i = 0; i < carr.size(); ++i) {
+            auto cl = map_of(carr.get(i));
+            if (cl.is_null()) continue;
+            int32_t cc = code_of(cl);
+            if (cc == la::DOC_LINE_LIT || cc == la::DOC_BLOCK_LIT) continue;
+            if (cc != la::CONTAINER_CLAUSE) continue;   // $... CODE-filter contract
+            std::string clead(str_of(cl.get(la::REL_KW.code)));
+            if (clead == "kind") {
+                if (!cl.has_key(la::NAME.code) || cl.has_key(la::VALUE.code)
+                        || cl.has_key(la::PARAMS.code)) {
+                    err = std::format(
+                        "container '{}': `kind` takes one bare word "
+                        "(`kind vector;`)", cname);
+                    return false;
+                }
+                if (!out.kind.empty()) {
+                    err = std::format(
+                        "container '{}': duplicate `kind` clause", cname);
+                    return false;
+                }
+                std::string kw(str_of(cl.get(la::NAME.code)));
+                if (kw != "vector" && kw != "ordered_map") {
+                    err = std::format(
+                        "container '{}': unknown kind '{}' — wave-0 kinds "
+                        "are `vector` and `ordered_map`", cname, kw);
+                    return false;
+                }
+                out.kind = kw;
+            } else if (clead == "entry") {
+                if (cl.has_key(la::NAME.code)) {
+                    err = std::format(
+                        "container '{}': `entry` takes a column list "
+                        "(`entry {{ col: ty, … }}`)", cname);
+                    return false;
+                }
+                if (!out.entry.empty()) {
+                    err = std::format(
+                        "container '{}': duplicate `entry` clause", cname);
+                    return false;
+                }
+                if (cl.has_key(la::PARAMS.code)) {
+                    auto pl = map_of(cl.get(la::PARAMS.code));
+                    if (!pl.is_null() && pl.has_key(la::ITEMS.code)) {
+                        auto parr = arr_of(pl.get(la::ITEMS.code));
+                        for (uint64_t j = 0; j < parr.size(); ++j) {
+                            auto p = map_of(parr.get(j));
+                            if (p.is_null() || code_of(p) != la::PARAM) continue;
+                            if (!p.has_key(la::NAME.code)
+                                    || !p.has_key(la::TYPE.code)
+                                    || p.has_key(la::PAT.code)
+                                    || p.has_key(la::NAMES.code)) {
+                                err = std::format(
+                                    "container '{}': entry columns must be "
+                                    "simple `name: type` bindings", cname);
+                                return false;
+                            }
+                            ContainerCol col;
+                            col.name = std::string(str_of(p.get(la::NAME.code)));
+                            col.ty = render_type_src_syntactic_(
+                                map_of(p.get(la::TYPE.code)));
+                            if (col.ty.empty()) {
+                                err = std::format(
+                                    "container '{}': cannot render the type "
+                                    "of entry column '{}'", cname, col.name);
+                                return false;
+                            }
+                            for (const auto& gn : out.generic_names)
+                                if (col.ty == gn) { col.is_param = true; break; }
+                            out.entry.push_back(std::move(col));
+                        }
+                    }
+                }
+                if (out.entry.empty()) {
+                    err = std::format(
+                        "container '{}': `entry` needs at least one typed "
+                        "column", cname);
+                    return false;
+                }
+            } else if (clead == "measure") {
+                if (!cl.has_key(la::NAME.code)) {
+                    err = std::format(
+                        "container '{}': `measure` needs a name "
+                        "(`measure count;` / `measure max(col);`)", cname);
+                    return false;
+                }
+                ContainerMeasure m;
+                m.mfn = std::string(str_of(cl.get(la::NAME.code)));
+                if (cl.has_key(la::VALUE.code))
+                    m.arg = std::string(str_of(cl.get(la::VALUE.code)));
+                if (m.mfn == "count") {
+                    if (!m.arg.empty()) {
+                        err = std::format(
+                            "container '{}': `measure count` takes no "
+                            "argument", cname);
+                        return false;
+                    }
+                } else if (m.mfn == "max") {
+                    if (m.arg.empty()) {
+                        err = std::format(
+                            "container '{}': `measure max` requires a column "
+                            "argument (`measure max(key);`)", cname);
+                        return false;
+                    }
+                } else {
+                    err = std::format(
+                        "container '{}': unknown measure '{}' — wave-0 "
+                        "measures are `count` and `max(col)`", cname, m.mfn);
+                    return false;
+                }
+                out.measures.push_back(std::move(m));
+            } else {
+                err = std::format(
+                    "container '{}': unknown clause `{}` — container bodies "
+                    "contain `kind`, `entry` and `measure` clauses",
+                    cname, clead);
+                return false;
+            }
+        }
+    }
+    if (out.kind.empty()) {
+        err = std::format(
+            "container '{}': missing `kind` clause (`kind vector;` / "
+            "`kind ordered_map;`)", cname);
+        return false;
+    }
+    if (out.entry.empty()) {
+        err = std::format(
+            "container '{}': missing `entry` clause "
+            "(`entry {{ col: ty, … }}`)", cname);
+        return false;
+    }
+    return true;
+}
+
+// ADR 0020 wave-0: `pub? container C<T…> for BackingTy { … }` — register the
+// declaration and mirror it to the FACT layer: serialize the checked
+// ContainerInfo to the one-line spec string and route (name, spec) through
+// the token-macro item seam to `__container_item`
+// (logos.std.canon.container_item), which builds the fact Writ doc and asks
+// Canon for verdicts. The compiler RECORDS; it never judges and never emits.
+void SemaChecker::lower_container_def(writ::TinyMapView node,
+                                      lir::LProgram& prog) {
+    node_line_ = get_line(node);   // errors point at THIS item, not at stale state
+    ContainerInfo info;
+    std::string err;
+    if (!reconstruct_container_def(node, info, err)) {
+        error(err);
+        return;
+    }
+    const std::string cname = info.name;
+
+    // ── the spec string (compiler → handler): one line, `|`-separated `k=v`
+    // (values never contain `|`), fixed key order.
+    std::string spec = std::format("pub={}|generics={}|gnames=",
+                                   info.is_pub ? 1 : 0, info.generics_src);
+    for (size_t i = 0; i < info.generic_names.size(); ++i) {
+        if (i) spec += ",";
+        spec += info.generic_names[i];
+    }
+    spec += std::format("|backing={}|backing_pkg={}|kind={}|entry=",
+                        info.backing_src, info.backing_pkg, info.kind);
+    for (size_t i = 0; i < info.entry.size(); ++i) {
+        if (i) spec += ",";
+        spec += std::format("{}:{}:{}", info.entry[i].name, info.entry[i].ty,
+                            info.entry[i].is_param ? 1 : 0);
+    }
+    spec += "|measures=";
+    for (size_t i = 0; i < info.measures.size(); ++i) {
+        if (i) spec += ",";
+        spec += info.measures[i].mfn;
+        if (!info.measures[i].arg.empty())
+            spec += std::format("({})", info.measures[i].arg);
+    }
+
+    // Register (idempotent overwrite — the lower_module_items pre-scan
+    // already did this for source-level containers; macro-GENERATED ones in
+    // later metacall rounds only pass through here).
+    containers_[cname] = std::move(info);
+
+    // ── route through the token-macro item seam to the stdlib handler ──
+    auto ovit = func_overloads_.find("__container_item");
+    const SemaFuncInfo* macro_info = nullptr;
+    if (ovit != func_overloads_.end()) {
+        for (const auto& sym : ovit->second) {
+            auto fit = funcs_.find(sym);
+            if (fit == funcs_.end()) continue;
+            if (fit->second.is_token_macro) {
+                macro_info = &fit->second;
+                break;
+            }
+        }
+    }
+    if (!macro_info) {
+        error(std::format(
+            "container '{}': the container lowering handler is not in scope "
+            "— add `use logos.std.canon.container_item;` to this module",
+            cname));
+        return;
+    }
+    auto is_str_type = [](TypeRef t) -> bool {
+        return TypeRef(t).kind() == LogosType::Kind::Slice
+            && TypeRef(t).elem()
+            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
+    };
+    bool rt_is_il = is_item_list(macro_info->ret_type);
+    if ((!rt_is_il && !is_quote_item_blob(macro_info->ret_type))
+            || macro_info->param_types.size() != 2
+            || !is_str_type(macro_info->param_types[0])
+            || !is_str_type(macro_info->param_types[1])) {
+        error("container item: '__container_item' must be a #[token_macro] "
+              "`(name: str, spec: str) -> ItemList` "
+              "(stdlib/compiler version skew?)");
+        return;
+    }
+    if (!holder_ || !cur_prog_) return;
+    // nargs==2 non-IR path: exactly (name, spec) blobs — the container body
+    // is fully structured, nothing for the WQL parser (no rule IR).
+    emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 2,
+                               cname, "", spec,
+                               IrEntry::None, "", "", "");
+}
+
+
 // ADR 0016 — `pub? deem q(g: &Writ, …) { <query> }`: the deem QUERY as a
 // language item. Pure surface over the deem! seam: Sema owns the name, the
 // param list (real PARAM nodes, canonicalised syntactically) and visibility;

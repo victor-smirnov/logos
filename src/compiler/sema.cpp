@@ -7577,6 +7577,18 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         // MAPPING_DEF_DONE = a consumed mapping from a BINARY module's AST —
         // its fns are compiled in the archive, but its RULES register here so
         // a consumer's deem!(w: M) can fuse them (ADR 0016 cross-module).
+        // ADR 0020 wave-0: `container` declarations register in the same
+        // pre-scan (CONTAINER_DEF_DONE = a consumed container from a BINARY
+        // module's AST — re-registers so cross-module Canon reasoning sees
+        // it). Invalid containers register nothing here; lower_container_def
+        // reports them moments later with the full diagnostics.
+        if (mc == la::CONTAINER_DEF || mc == la::CONTAINER_DEF_DONE) {
+            ContainerInfo ci;
+            std::string cerr;
+            if (reconstruct_container_def(item, ci, cerr))
+                containers_[ci.name] = std::move(ci);
+            continue;
+        }
         if (mc != la::MAPPING_DEF && mc != la::MAPPING_DEF_DONE) continue;
         MappingParts parts;
         if (!reconstruct_mapping_def(item, parts)) continue;
@@ -7854,6 +7866,21 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             // the token-macro item seam (the node is DONE-flipped by the
             // driver exactly like FN_MACRO_CALL_ITEM).
             lower_mapping_def(item, prog);
+            pending_annots.clear();
+            continue;
+        }
+        if (c == la::CONTAINER_DEF_DONE) {
+            // Consumed in a prior compile (binary module) — already registered
+            // by the pre-scan; nothing to lower or emit.
+            pending_annots.clear();
+            continue;
+        }
+        if (c == la::CONTAINER_DEF) {
+            // ADR 0020 wave-0: `container C<T…> for Ty { … }` — validate the
+            // item, register it, and route the serialized spec through the
+            // token-macro item seam (the node is DONE-flipped by the driver
+            // exactly like MAPPING_DEF).
+            lower_container_def(item, prog);
             pending_annots.clear();
             continue;
         }

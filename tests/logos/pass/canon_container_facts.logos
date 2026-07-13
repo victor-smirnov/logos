@@ -1,0 +1,142 @@
+// ADR 0020 wave-0 — the FACT mirror (container spec → fact Writ doc), asserted
+// row by row against the design schema:
+//   { containers: [ { name, pub, generics, backing, kind } ],
+//     cols:       [ { ctr, idx, name, ty, param } … ],
+//     measures:   [ { ctr, mfn, arg } … ] }
+// The spec strings are VERBATIM what sema lower_container_def serializes for
+// the two canonical declarations (backing_pkg empty: backing types unresolved
+// before the emission path). Exit 0 iff every assertion holds; a nonzero code
+// names the first failure.
+package test;
+
+use logos.std.canon.container_item;
+use logos.lang.writ.container;
+use logos.lang.writ.wmap;
+use logos.lang.writ.array;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.lang.str;
+
+fn main() -> i32 {
+    // ── Vector ──────────────────────────────────────────────────────────
+    let vd: Writ = container_facts(
+        "Vector",
+        "pub=1|generics=<T>|gnames=T|backing=VecCtr<T>|backing_pkg=|kind=vector|entry=elem:T:1|measures=count");
+    let vroot: WAny = vd.root();
+    if vroot.is_null() || !vroot.is_map() { return 1i32; }
+    let vm: &WMap<WString, WAny> = vroot.as_map();
+
+    let vca: WAny = vm.get("containers");
+    if !vca.is_array() { return 2i32; }
+    let vcaa: &WArray<WAny> = vca.as_array();
+    if vcaa.len() != 1i64 { return 2i32; }
+    let vc0: WAny = vcaa.get(0i64);
+    if !vc0.is_map() { return 3i32; }
+    let vc0m: &WMap<WString, WAny> = vc0.as_map();
+    let mut v: WAny = vc0m.get("name");
+    if !str_eq(v.as_wstr(), "Vector") { return 4i32; }
+    v = vc0m.get("pub");
+    if !v.as_bool() { return 5i32; }
+    v = vc0m.get("generics");
+    if !str_eq(v.as_wstr(), "T") { return 6i32; }
+    v = vc0m.get("backing");
+    if !str_eq(v.as_wstr(), "VecCtr<T>") { return 7i32; }
+    v = vc0m.get("kind");
+    if !str_eq(v.as_wstr(), "vector") { return 8i32; }
+
+    let vcols: WAny = vm.get("cols");
+    if !vcols.is_array() { return 9i32; }
+    let vcolsa: &WArray<WAny> = vcols.as_array();
+    if vcolsa.len() != 1i64 { return 9i32; }
+    let vk0: WAny = vcolsa.get(0i64);
+    let vk0m: &WMap<WString, WAny> = vk0.as_map();
+    v = vk0m.get("ctr");
+    if !str_eq(v.as_wstr(), "Vector") { return 10i32; }
+    v = vk0m.get("idx");
+    if v.as_i64() != 0i64 { return 11i32; }
+    v = vk0m.get("name");
+    if !str_eq(v.as_wstr(), "elem") { return 12i32; }
+    v = vk0m.get("ty");
+    if !str_eq(v.as_wstr(), "T") { return 13i32; }
+    v = vk0m.get("param");
+    if !v.as_bool() { return 14i32; }
+
+    let vms: WAny = vm.get("measures");
+    if !vms.is_array() { return 15i32; }
+    let vmsa: &WArray<WAny> = vms.as_array();
+    if vmsa.len() != 1i64 { return 15i32; }
+    let vm0: WAny = vmsa.get(0i64);
+    let vm0m: &WMap<WString, WAny> = vm0.as_map();
+    v = vm0m.get("mfn");
+    if !str_eq(v.as_wstr(), "count") { return 16i32; }
+    v = vm0m.get("arg");
+    if v.as_wstr().len() != 0i64 { return 17i32; }
+
+    // ── Map ─────────────────────────────────────────────────────────────
+    let md: Writ = container_facts(
+        "Map",
+        "pub=1|generics=<K, V>|gnames=K,V|backing=MapCtr<K, V>|backing_pkg=|kind=ordered_map|entry=key:K:1,val:V:1|measures=count,max(key)");
+    let mroot: WAny = md.root();
+    if mroot.is_null() || !mroot.is_map() { return 20i32; }
+    let mm: &WMap<WString, WAny> = mroot.as_map();
+
+    let mca: WAny = mm.get("containers");
+    if !mca.is_array() { return 21i32; }
+    let mcaa: &WArray<WAny> = mca.as_array();
+    if mcaa.len() != 1i64 { return 21i32; }
+    let mc0: WAny = mcaa.get(0i64);
+    let mc0m: &WMap<WString, WAny> = mc0.as_map();
+    v = mc0m.get("kind");
+    if !str_eq(v.as_wstr(), "ordered_map") { return 22i32; }
+    v = mc0m.get("generics");
+    if !str_eq(v.as_wstr(), "K,V") { return 23i32; }
+    v = mc0m.get("backing");
+    if !str_eq(v.as_wstr(), "MapCtr<K, V>") { return 24i32; }
+
+    let mcols: WAny = mm.get("cols");
+    if !mcols.is_array() { return 25i32; }
+    let mcolsa: &WArray<WAny> = mcols.as_array();
+    if mcolsa.len() != 2i64 { return 25i32; }
+    let mk0: WAny = mcolsa.get(0i64);
+    let mk0m: &WMap<WString, WAny> = mk0.as_map();
+    v = mk0m.get("idx");
+    if v.as_i64() != 0i64 { return 26i32; }
+    v = mk0m.get("name");
+    if !str_eq(v.as_wstr(), "key") { return 27i32; }
+    v = mk0m.get("ty");
+    if !str_eq(v.as_wstr(), "K") { return 28i32; }
+    v = mk0m.get("param");
+    if !v.as_bool() { return 29i32; }
+    let mk1: WAny = mcolsa.get(1i64);
+    let mk1m: &WMap<WString, WAny> = mk1.as_map();
+    v = mk1m.get("idx");
+    if v.as_i64() != 1i64 { return 30i32; }
+    v = mk1m.get("name");
+    if !str_eq(v.as_wstr(), "val") { return 31i32; }
+    v = mk1m.get("ty");
+    if !str_eq(v.as_wstr(), "V") { return 32i32; }
+
+    let mms: WAny = mm.get("measures");
+    if !mms.is_array() { return 33i32; }
+    let mmsa: &WArray<WAny> = mms.as_array();
+    if mmsa.len() != 2i64 { return 33i32; }
+    let mm0: WAny = mmsa.get(0i64);
+    let mm0m: &WMap<WString, WAny> = mm0.as_map();
+    v = mm0m.get("mfn");
+    if !str_eq(v.as_wstr(), "count") { return 34i32; }
+    v = mm0m.get("arg");
+    if v.as_wstr().len() != 0i64 { return 35i32; }
+    let mm1: WAny = mmsa.get(1i64);
+    let mm1m: &WMap<WString, WAny> = mm1.as_map();
+    v = mm1m.get("mfn");
+    if !str_eq(v.as_wstr(), "max") { return 36i32; }
+    v = mm1m.get("arg");
+    if !str_eq(v.as_wstr(), "key") { return 37i32; }
+
+    // ── malformed spec ⇒ NULL-root doc (the handler's diagnostic trigger) ──
+    let bd: Writ = container_facts("X", "nonsense");
+    let broot: WAny = bd.root();
+    if !broot.is_null() { return 40i32; }
+
+    return 0i32;
+}

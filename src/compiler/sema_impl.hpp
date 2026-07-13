@@ -4235,6 +4235,40 @@ private:
     };
     std::unordered_map<std::string, MappingInfo> mappings_;
 
+    // ADR 0020 wave-0: module-level `container` registry. Filled by the same
+    // lower_module_items pre-scan as mappings_ (declaration order never
+    // matters; CONTAINER_DEF_DONE nodes from a BINARY module's AST re-register
+    // here for cross-module Canon reasoning) and again by lower_container_def
+    // (idempotent overwrite) for macro-generated containers in later metacall
+    // rounds.
+    struct ContainerCol     { std::string name, ty; bool is_param = false; };  // ty syntactic; is_param: ty ∈ container generics
+    struct ContainerMeasure { std::string mfn, arg; };                          // ("count",""), ("max","key")
+    struct ContainerInfo {
+        std::string name;  bool is_pub = false;  bool is_module_only = false;
+        std::string generics_src;                 // "<T>" / "<K, V>" verbatim (bounds included)
+        std::vector<std::string> generic_names;   // ["T"] / ["K","V"]
+        std::string backing_src;                  // "VecCtr<T>" — SYNTACTIC render (mapping precedent; resolved only on the emission path)
+        std::string backing_pkg;                  // defining package of the backing base type if resolvable, else ""
+        std::string kind;                         // "vector" | "ordered_map"
+        std::vector<ContainerCol>     entry;
+        std::vector<ContainerMeasure> measures;
+    };
+    std::unordered_map<std::string, ContainerInfo> containers_;
+    // Reconstructs + validates one CONTAINER_DEF(_DONE) node. Validation here
+    // is SHAPE only (clause leads, one kind ∈ {vector, ordered_map}, one
+    // non-empty entry, measure arities) — COMPLETENESS (ordered_map requires
+    // measure(max(first key col))) is Canon's verdict, never sema's
+    // (judge-not-doer, ADR 0020 §5).
+    bool          reconstruct_container_def(writ::TinyMapView node,
+                                            ContainerInfo& out,
+                                            std::string& err);
+    // ADR 0020 wave-0: `container` ITEM lowering — registers the declaration,
+    // serializes it to the one-line spec string, and routes (name, spec)
+    // through emit_token_macro_item_site to the `__container_item` handler
+    // (logos.std.canon.container_item), which mirrors it to the FACT doc.
+    void          lower_container_def(writ::TinyMapView node,
+                                      lir::LProgram& prog);
+
     // ADR 0016 §6 — sources as relational interfaces. A trait's `rel` members
     // declare a relational vocabulary; an impl binds each rel to its native
     // materializer (`rel edge = writ_graph_edges;`). A deem!/mapping param

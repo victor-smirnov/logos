@@ -1,0 +1,11 @@
+// ADR 0020 wave-0 — sema clause validation: `measure count` is nullary; an
+// argument form must be rejected at the ITEM (reconstruct_container_def),
+// naming the container. (Completeness — ordered_map requiring max(key) — is
+// Canon's verdict, a separate diagnostic; this one is pure shape.)
+package test;
+
+pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count(elem); }
+
+fn main() -> i32 {
+    return 0i32;
+}

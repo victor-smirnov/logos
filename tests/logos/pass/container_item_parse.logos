@@ -1,9 +1,12 @@
-// ADR 0020 wave-0 — parse-level fixture: both canonical `container` item
-// declarations parse (contextual keyword, clauses grammar-owned). Sema treats
-// the node as registered-but-inert until the wave-0 sema slice lands, so the
-// backing types (VecCtr/MapCtr) are intentionally undeclared — nothing
-// resolves them at parse level.
+// ADR 0020 wave-0 — item-pipeline fixture: both canonical `container`
+// declarations parse, sema-register, and round through the token-macro item
+// seam to `__container_item`, whose fact-mirror shape gate must stay silent
+// (an error() there fails this compile). The backing types (VecCtr/MapCtr)
+// are intentionally undeclared — nothing resolves them before the emission
+// path (M4), which pins the parse+facts-only contract for wave-0 Map.
 package test;
+
+use logos.std.canon.container_item;
 
 pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count; }
 

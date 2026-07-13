@@ -2807,6 +2807,8 @@ int run_metaprog_dispatch(
                         done_code2 = ast::FN_MACRO_CALL_ITEM_DONE.code;
                     if (cur == ast::MAPPING_DEF.code)
                         done_code2 = ast::MAPPING_DEF_DONE.code;
+                    if (cur == ast::CONTAINER_DEF.code)
+                        done_code2 = ast::CONTAINER_DEF_DONE.code;
                 }
             }
             if (auto r = tom.put(
@@ -4384,6 +4386,11 @@ int main(int argc, char** argv) {
                             // cross-module fusion (ADR 0016).
                             if (cur == logos::compiler::ast::MAPPING_DEF.code)
                                 done_code = logos::compiler::ast::MAPPING_DEF_DONE.code;
+                            // A consumed CONTAINER likewise keeps its identity
+                            // (ADR 0020): archive consumers re-register the
+                            // declaration for cross-module Canon reasoning.
+                            if (cur == logos::compiler::ast::CONTAINER_DEF.code)
+                                done_code = logos::compiler::ast::CONTAINER_DEF_DONE.code;
                         }
                     }
                     if (auto r = tom.put(
