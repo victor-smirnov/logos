@@ -1,0 +1,14 @@
+// ADR 0020 wave-0 — Canon COMPLETENESS verdict as a compile diagnostic: an
+// ordered_map container without `measure max(<first key col>)` must fail the
+// compile with Canon's reason (missing_measure), carried verbatim by the
+// item handler. The kind/entry/measure shapes are all individually legal —
+// only the Canon axiom rejects the combination (judge-not-doer, ADR 0020 §5).
+package test;
+
+use logos.std.canon.container_item;
+
+pub container Map<K, V> for MapCtr<K, V> { kind ordered_map; entry { key: K, val: V } measure count; }
+
+fn main() -> i32 {
+    return 0i32;
+}

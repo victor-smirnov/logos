@@ -20263,7 +20263,18 @@ void SemaChecker::seed_builtin_source_impls() {
 std::string SemaChecker::native_source_spec(const std::string& pname,
                                             const std::string& ptype_stripped) {
     auto it = source_impls_.find(ptype_stripped);
-    if (it == source_impls_.end()) return {};
+    if (it == source_impls_.end()) {
+        // A GENERIC source impl (`impl<T: …> Src for VecCtr<T>`) registers
+        // under the BASE name ("VecCtr") while the consumption site's param
+        // carries the instantiation ("VecCtr<u64>") — retry with the type
+        // args stripped.
+        auto lt = ptype_stripped.find('<');
+        if (lt == std::string::npos) return {};
+        std::string base = ptype_stripped.substr(0, lt);
+        while (!base.empty() && base.back() == ' ') base.pop_back();
+        it = source_impls_.find(base);
+        if (it == source_impls_.end()) return {};
+    }
     std::string spec;
     const bool single = (it->second.size() == 1);
     for (const auto& b : it->second) {
@@ -20896,7 +20907,10 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
 
     // Register (idempotent overwrite — the lower_module_items pre-scan
     // already did this for source-level containers; macro-GENERATED ones in
-    // later metacall rounds only pass through here).
+    // later metacall rounds only pass through here). A node reaching this
+    // lowering is an unconsumed CONTAINER_DEF: its projection emission is
+    // still ahead, so consumers of the backing type must defer.
+    info.pending = true;
     containers_[cname] = std::move(info);
 
     // ── route through the token-macro item seam to the stdlib handler ──
@@ -21235,7 +21249,39 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                 std::string_view tv = pt;
                 while (!tv.empty() && (tv.front() == '&' || tv.front() == ' '))
                     tv.remove_prefix(1);
-                natspec += native_source_spec(pn, std::string(tv));
+                std::string key(tv);
+                std::string one = native_source_spec(pn, key);
+                // ADR 0020 wave-0: a `container` item's handler EMITS the
+                // projection impl for its backing type (trait + rel bind),
+                // and emitted chunks only parse on the NEXT metaprog
+                // iteration. While the declaring CONTAINER_DEF is still
+                // unconsumed (pending, refreshed by every pre-scan) and this
+                // unresolved source names its backing base type, DEFER the
+                // whole deem site one iteration: silent false (no
+                // diagnostic), the item stays DEEM_DEF and re-lowers after
+                // the chunk lands. Once the container is DONE its pending
+                // bit drops and an actually-missing source reaches the
+                // walker's normal diagnostic.
+                if (one.empty() && !containers_.empty()) {
+                    std::string base = key.substr(0, key.find('<'));
+                    while (!base.empty() && base.back() == ' ') base.pop_back();
+                    for (const auto& [cn, ci] : containers_) {
+                        if (!ci.pending) continue;
+                        std::string bb =
+                            ci.backing_src.substr(0, ci.backing_src.find('<'));
+                        while (!bb.empty() && bb.back() == ' ') bb.pop_back();
+                        if (bb == base) {
+                            if (std::getenv("LOGOS_CTR_DEBUG"))
+                                std::fprintf(stderr,
+                                    "[ctr-debug] defer deem site: param %s: %s "
+                                    "(container %s pending)\n",
+                                    pn.c_str(), key.c_str(), cn.c_str());
+                            if (cur_prog_) cur_prog_->deferred_item_sites = true;
+                            return false;
+                        }
+                    }
+                }
+                natspec += one;
             }
     }
     return true;

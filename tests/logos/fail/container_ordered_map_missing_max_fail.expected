@@ -1,0 +1,1 @@
+missing_measure: kind=ordered_map requires measure(max(<first key col>)) — declare `measure max(key);`

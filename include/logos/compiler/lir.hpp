@@ -857,6 +857,15 @@ struct LProgram {
     // MetacallRetTag — see above.)
     std::vector<lir_view::MetacallSiteView> metacall_sites;
 
+    // ADR 0020 wave-0: sema DEFERRED at least one language-item site this
+    // pass (a deem over a still-pending `container`'s backing type — its
+    // projection impl is emitted by the container's handler and only parses
+    // next iteration). The dispatch driver must re-run a FULL sema next
+    // iteration (delta-sema skips the deferring module, so the item would
+    // otherwise stay pending forever and its consumers see "call to
+    // undefined function").
+    bool deferred_item_sites = false;
+
     // Function-style macro arg blobs (slice 1.3b of fn-macros).
     //
     // Keyed by site_id (== index into metacall_sites). Each entry is a

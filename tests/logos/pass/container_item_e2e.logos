@@ -1,0 +1,67 @@
+// ADR 0020 wave-0 M4 — the FULL loop in one file: container item → fact doc
+// → Canon verdicts → generated scan projection (source trait + materializer +
+// impl rel bind) → a STATIC deem query over a live container returns correct
+// rows. The backing here is a minimal inline Vec-backed VecCtr honoring the
+// wave-0 scan contract (count/get) + push; the real pkd-backed Vector-v0
+// lives in conuco/memoria (ctr_vec_deem lforge test). MapCtr is intentionally
+// UNDEFINED: an ordered_map container stops at verdicts — its backing
+// resolves only on the emission path (pins wave-0 Map's
+// parse+facts+verdicts-only contract).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.canon.container_item;
+use logos.mem.collections.vec;
+
+pub struct VecCtr<T> { buf: Vec<T> }
+
+impl<T> VecCtr<T> {
+    pub static fn new() -> VecCtr<T> {
+        return VecCtr { buf: vec_new::<T>() };
+    }
+    pub fn count(self: &VecCtr<T>) -> i64 { return self.buf.len(); }
+    // Bitwise-copy read (Vec::get's own mechanics) so the backing stays
+    // UNBOUNDED — the canonical `container Vector<T> for VecCtr<T>` surface
+    // is exercised verbatim; a bounded backing is the conuco fixture's job.
+    pub fn get(self: &VecCtr<T>, i: i64) -> T {
+        unsafe { return *self.buf.at_const(i); }
+    }
+    pub fn push(self: &mut VecCtr<T>, v: T) { self.buf.push(v); }
+}
+
+pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count; }
+
+pub container Map<K, V> for MapCtr<K, V> { kind ordered_map; entry { key: K, val: V } measure count; measure max(key); }
+
+// A static deem query THROUGH the generated projection: the deem site sees
+// `v: &VecCtr<u64>` as a native source (rel row(pos, elem)) — the impl was
+// emitted by the container item one metaprog iteration earlier.
+pub deem big(v: &VecCtr<u64>) {
+    from v e where e.elem > 10 select (e.pos, e.elem)
+}
+
+fn main() -> i32 {
+    let mut c: VecCtr<u64> = VecCtr::new();
+    c.push(5u64);
+    c.push(25u64);
+    c.push(7u64);
+    c.push(42u64);
+    let rows: Vec<(i64, i64)> = match big(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if rows.len() != 2i64 { return 2i32; }
+    // Set semantics — assert membership, not order.
+    let mut seen25: bool = false;
+    let mut seen42: bool = false;
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: (i64, i64) = rows.get(i);
+        if r.0 == 1i64 && r.1 == 25i64 { seen25 = true; }
+        else if r.0 == 3i64 && r.1 == 42i64 { seen42 = true; }
+        else { return 3i32; }
+        i = i + 1i64;
+    }
+    if !seen25 { return 4i32; }
+    if !seen42 { return 5i32; }
+    return 0i32;
+}

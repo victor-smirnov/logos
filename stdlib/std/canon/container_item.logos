@@ -23,13 +23,15 @@
 // comma-separated `mfn` or `mfn(arg)`.
 package logos.std.canon.container_item;
 
-use logos.std.compiler.metaprog;   // ItemList, item_list_new, error
+use logos.std.compiler.metaprog;   // ItemList, item_list_new, error, Emitter
+use logos.std.canon.canon;         // canon_verdicts — the JUDGE (ADR 0020 §5)
 use logos.lang.writ.container;     // Writ, writ_new
 use logos.lang.writ.wmap;          // doc.map / WMap::set
 use logos.lang.writ.array;         // doc.array / WArray::push
 use logos.lang.writ.anyval;        // WAny
 use logos.lang.writ.wstring;       // WString (read-back checks)
 use logos.lang.str;                // str_byte_at, str_eq, str_from_raw
+use logos.mem.string;              // String (diagnostic composition)
 
 unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
     let l: i64 = if b > a { b - a } else { 0i64 };
@@ -193,6 +195,188 @@ pub fn container_facts(name: str, spec: str) -> Writ {
     return doc;
 }
 
+// ── verdict-doc readers (M4) ────────────────────────────────────────────────
+// The handler consumes Canon's verdict doc MECHANICALLY (ADR 0020 §5): a
+// capability grants an emission, an error row becomes a compile diagnostic
+// carrying Canon's reason verbatim. Helpers return scalars (bool / i64
+// codes), not borrowed strs — WAny steps bind to locals (borrowck contract).
+
+fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> bool {
+    let av: WAny = vroot.get("caps");
+    if !av.is_array() { return false; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("cap");
+            if a1.is_string() && a2.is_string() {
+                if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), cap) {
+                    return true;
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// col_mode verdict for (ctr, col): 0 = no verdict, 1 = by_value, 2 = by_view.
+fn cv_mode_code(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
+    let av: WAny = vroot.get("col_modes");
+    if !av.is_array() { return 0i64; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("col");
+            let a3: WAny = em.get("mode");
+            if a1.is_string() && a2.is_string() && a3.is_string() {
+                if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), col) {
+                    if str_eq(a3.as_wstr(), "by_value") { return 1i64; }
+                    return 2i64;
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+    return 0i64;
+}
+
+// Reports every Canon error row as a compile diagnostic:
+//   container <ctr>: <code>: <reason>
+// Returns the number of rows reported (0 = clean verdict).
+fn cv_report_errors(vroot: &WMap<WString, WAny>, name: str) -> i64 {
+    let av: WAny = vroot.get("errors");
+    if !av.is_array() {
+        error("container item: verdict doc missing its errors array (Canon seam regression?)");
+        return 1i64;
+    }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        let mut msg: String = String::new();
+        msg.push_str("container ");
+        msg.push_str(name);
+        msg.push_str(": ");
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let cd: WAny = em.get("code");
+            let rs: WAny = em.get("reason");
+            if cd.is_string() { msg.push_str(cd.as_wstr()); }
+            msg.push_str(": ");
+            if rs.is_string() { msg.push_str(rs.as_wstr()); }
+        } else {
+            msg.push_str("malformed Canon error row");
+        }
+        error(msg.as_str());
+        i = i + 1i64;
+    }
+    return arr.len();
+}
+
+// ── projection emission (M4, kind=vector, can_scan verdict) ────────────────
+// Renders the container's declared generic list with `CanonCol` appended to
+// `bound_param`'s bounds (": CanonCol" when unbounded, " + CanonCol" when
+// bounded). bound_param = "" renders the list verbatim.
+fn emit_generics(em: &mut Emitter, generics: str, bound_param: str) {
+    if generics.len() == 0i64 { return; }
+    let inner: str = unsafe { cf_sub(generics, 1i64, generics.len() - 1i64) };
+    em.push_text("<");
+    let n: i64 = inner.len();
+    let mut a: i64 = 0i64;
+    let mut first: bool = true;
+    while a < n {
+        let b: i64 = cf_next_comma(inner, a, n);
+        let mut s: i64 = a;
+        while s < b && str_byte_at(inner, s) == 32u8 { s = s + 1i64; }
+        let mut e2: i64 = b;
+        while e2 > s && str_byte_at(inner, e2 - 1i64) == 32u8 { e2 = e2 - 1i64; }
+        let seg: str = unsafe { cf_sub(inner, s, e2) };
+        if !first { em.push_text(", "); }
+        first = false;
+        em.push_text(seg);
+        if bound_param.len() > 0i64 {
+            let c: i64 = cf_find(seg, 0i64, 58u8);   // ':'
+            let mut ne: i64 = if c >= 0i64 { c } else { seg.len() };
+            while ne > 0i64 && str_byte_at(seg, ne - 1i64) == 32u8 { ne = ne - 1i64; }
+            let nm: str = unsafe { cf_sub(seg, 0i64, ne) };
+            if str_eq(nm, bound_param) {
+                if c >= 0i64 { em.push_text(" + CanonCol"); }
+                else { em.push_text(": CanonCol"); }
+            }
+        }
+        a = b + 1i64;
+    }
+    em.push_text(">");
+}
+
+// Emits the SCAN projection for one kind=vector container (design §f): a
+// single-rel source trait, a scan materializer over the wave-0 backing
+// contract (`count(&self) -> i64`, `get(&self, i: i64) -> T`), and the impl
+// rel binding — one chunk into the declaring package, imports explicit.
+//   relty:  the rel column type (i64 / str / bool);
+//   direct: push `e` verbatim (str/bool cols) vs `e.canon_col()` (by_value);
+//   bound_param: generic param needing the CanonCol bound ("" = none).
+fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
+                    relty: str, direct: bool, bound_param: str) {
+    let view: OView = oview_module_ast();
+    let mut tp: String = String::new();
+    view.module_package_append(&mut tp);
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.push_text("\nuse logos.mem.collections.vec;\n");
+    if !str_eq(tp.as_str(), "logos.std.canon.canon") {
+        em.push_text("use logos.std.canon.canon;\n");
+    }
+    if cs.backing_pkg.len() > 0i64 && !str_eq(cs.backing_pkg, tp.as_str()) {
+        em.push_text("use ");
+        em.push_text(cs.backing_pkg);
+        em.push_text(";\n");
+    }
+    if cs.is_pub { em.push_text("pub "); }
+    em.push_text("trait __CtrSrc_");
+    em.push_text(name);
+    em.push_text(" { rel row(pos: i64, ");
+    em.push_text(col_name);
+    em.push_text(": ");
+    em.push_text(relty);
+    em.push_text("); }\n");
+    if cs.is_pub { em.push_text("pub "); }
+    em.push_text("fn __ctr_rows_");
+    em.push_text(name);
+    emit_generics(&mut em, cs.generics, bound_param);
+    em.push_text("(c: &");
+    em.push_text(cs.backing);
+    em.push_text(") -> Vec<(i64, ");
+    em.push_text(relty);
+    em.push_text(")> {\n    let mut out: Vec<(i64, ");
+    em.push_text(relty);
+    em.push_text(")> = vec_new::<(i64, ");
+    em.push_text(relty);
+    em.push_text(")>();\n    let n: i64 = c.count();\n    let mut i: i64 = 0i64;\n    while i < n {\n        let e: ");
+    em.push_text(col_ty);
+    em.push_text(" = c.get(i);\n        out.push((i, ");
+    if direct { em.push_text("e"); } else { em.push_text("e.canon_col()"); }
+    em.push_text("));\n        i = i + 1i64;\n    }\n    return out;\n}\n");
+    em.push_text("impl");
+    emit_generics(&mut em, cs.generics, bound_param);
+    em.push_text(" __CtrSrc_");
+    em.push_text(name);
+    em.push_text(" for ");
+    em.push_text(cs.backing);
+    em.push_text(" { rel row = __ctr_rows_");
+    em.push_text(name);
+    em.push_text("; }\n");
+    em.commit();
+}
+
 /// Lowering handler behind the `container` ITEM (ADR 0020 wave-0). Invoked by
 /// the COMPILER (sema lower_container_def) through the token-macro item seam
 /// with the serialized spec line. Not a user-facing macro.
@@ -233,7 +417,81 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         error("container item: fact doc missing the container kind (seam regression?)");
         return out;
     }
-    // Canon verdicts (M3) and the kind=vector scan-projection emission (M4)
-    // attach here; wave-0 M2 ends at the fact mirror.
+
+    // ── Canon judges (M3): facts in, verdicts out — the handler never
+    // decides. An error row fails the COMPILE with Canon's reason verbatim.
+    let verd: Writ = canon_verdicts(&facts);
+    let vr: WAny = verd.root();
+    if vr.is_null() || !vr.is_map() {
+        error("container item: Canon verdict engine failure (logos.std.canon.canon)");
+        return out;
+    }
+    let vm: &WMap<WString, WAny> = vr.as_map();
+    if cv_report_errors(vm, name) > 0i64 { return out; }
+
+    // ── emission (M4): mechanical, capability-gated. Wave-0 emits the scan
+    // projection for kind=vector only; ordered_map stops at verdicts (its
+    // substrate is a later track).
+    let mut cs: ContainerSpec = container_spec_new();
+    if !parse_container_spec(spec, &mut cs) {
+        // Unreachable — container_facts gated the same parse above.
+        error("container item: malformed spec (compiler seam regression?)");
+        return out;
+    }
+    if !str_eq(cs.kind, "vector") { return out; }
+    if !cv_has_cap(vm, name, "can_scan") {
+        error("container item: Canon granted no can_scan capability for a vector container (Canon seam regression?)");
+        return out;
+    }
+    // Wave-0 scan contract: `get(&self, i) -> T` returns THE element — one
+    // entry column. (Multi-column vector entries need a row-shaped element
+    // contract; a later wave.)
+    let ce: i64 = cs.entry.len();
+    let b0: i64 = cf_next_comma(cs.entry, 0i64, ce);
+    if b0 != ce {
+        let mut m1: String = String::new();
+        m1.push_str("container ");
+        m1.push_str(name);
+        m1.push_str(": wave-0 `kind vector;` emission supports exactly one entry column");
+        error(m1.as_str());
+        return out;
+    }
+    let c1: i64 = cf_find(cs.entry, 0i64, 58u8);    // ':'
+    let mut c2: i64 = b0 - 1i64;
+    while c2 > 0i64 && str_byte_at(cs.entry, c2) != 58u8 { c2 = c2 - 1i64; }
+    if c1 < 0i64 || c2 <= c1 {
+        error("container item: malformed entry column (compiler seam regression?)");
+        return out;
+    }
+    let col_name: str = unsafe { cf_sub(cs.entry, 0i64, c1) };
+    let col_ty: str = unsafe { cf_sub(cs.entry, c1 + 1i64, c2) };
+    let col_prm: bool = str_eq(unsafe { cf_sub(cs.entry, c2 + 1i64, b0) }, "1");
+
+    // Column projection per the col_mode verdict + declared type (design §f):
+    // str/bool rel columns carry the value verbatim; every other by_value
+    // column projects to i64 through CanonCol. A by_view column of any other
+    // type has no wave-0 scan projection.
+    let mut relty: str = "i64";
+    let mut direct: bool = false;
+    if str_eq(col_ty, "str") {
+        relty = "str";
+        direct = true;
+    } else if str_eq(col_ty, "bool") {
+        relty = "bool";
+        direct = true;
+    } else if cv_mode_code(vm, name, col_name) != 1i64 {
+        let mut m2: String = String::new();
+        m2.push_str("container ");
+        m2.push_str(name);
+        m2.push_str(": column `");
+        m2.push_str(col_name);
+        m2.push_str(": ");
+        m2.push_str(col_ty);
+        m2.push_str("` is by_view — wave-0 scan emission supports by_view columns of type `str` only");
+        error(m2.as_str());
+        return out;
+    }
+    let bound_param: str = if !direct && col_prm { col_ty } else { "" };
+    emit_vector_scan(&cs, name, col_name, col_ty, relty, direct, bound_param);
     return out;
 }

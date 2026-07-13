@@ -1961,6 +1961,10 @@ private:
     // be stubbed out of the metaprog JIT slice exactly like the entry
     // ast's. Computed per module at the top of lower_module_items.
     bool   cur_ast_has_pending_item_mc_ = false;
+    // Packages flagged pending-item this sema run (see lower_module_items'
+    // discovery block): pending-ness propagates to importing modules so the
+    // dispatch slice never keeps a fully-lowered caller of an erased stub.
+    std::set<std::string> metaprog_pending_pkgs_;
 
     // E0121 analog (audit-v2 T0-3): `_` is not allowed within types on item
     // signatures (fn params / return type / const item type). Set while
@@ -4245,6 +4249,13 @@ private:
     struct ContainerMeasure { std::string mfn, arg; };                          // ("count",""), ("max","key")
     struct ContainerInfo {
         std::string name;  bool is_pub = false;  bool is_module_only = false;
+        // True while the declaration node is an UNCONSUMED CONTAINER_DEF in
+        // the LATEST pre-scan (the driver flips it to _DONE after its handler
+        // ran and emitted). Deem sites over this container's backing type
+        // defer while it holds (see enrich_deem_params) — refreshed every
+        // pre-scan, so it releases the iteration after the emission lands
+        // regardless of whether the checker persists across iterations.
+        bool pending = false;
         std::string generics_src;                 // "<T>" / "<K, V>" verbatim (bounds included)
         std::vector<std::string> generic_names;   // ["T"] / ["K","V"]
         std::string backing_src;                  // "VecCtr<T>" — SYNTACTIC render (mapping precedent; resolved only on the emission path)

@@ -1,12 +1,26 @@
 // ADR 0020 wave-0 — item-pipeline fixture: both canonical `container`
 // declarations parse, sema-register, and round through the token-macro item
-// seam to `__container_item`, whose fact-mirror shape gate must stay silent
-// (an error() there fails this compile). The backing types (VecCtr/MapCtr)
-// are intentionally undeclared — nothing resolves them before the emission
-// path (M4), which pins the parse+facts-only contract for wave-0 Map.
+// seam to `__container_item` (fact mirror → Canon verdicts → emission; an
+// error() anywhere there fails this compile). Vector's backing satisfies the
+// wave-0 scan contract (count/get) so its projection chunk compiles; MapCtr
+// stays intentionally undeclared — an ordered_map stops at verdicts, nothing
+// resolves its backing (pins the parse+facts+verdicts-only contract for
+// wave-0 Map).
 package test;
 
 use logos.std.canon.container_item;
+use logos.mem.collections.vec;
+
+pub struct VecCtr<T> { buf: Vec<T> }
+
+impl<T> VecCtr<T> {
+    pub fn count(self: &VecCtr<T>) -> i64 { return self.buf.len(); }
+    // Bitwise-copy read (Vec::get's own mechanics) — keeps the backing (and
+    // the canonical container declaration) UNBOUNDED.
+    pub fn get(self: &VecCtr<T>, i: i64) -> T {
+        unsafe { return *self.buf.at_const(i); }
+    }
+}
 
 pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count; }
 

@@ -7585,8 +7585,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         if (mc == la::CONTAINER_DEF || mc == la::CONTAINER_DEF_DONE) {
             ContainerInfo ci;
             std::string cerr;
-            if (reconstruct_container_def(item, ci, cerr))
+            if (reconstruct_container_def(item, ci, cerr)) {
+                ci.pending = (mc == la::CONTAINER_DEF);
                 containers_[ci.name] = std::move(ci);
+            }
             continue;
         }
         if (mc != la::MAPPING_DEF && mc != la::MAPPING_DEF_DONE) continue;
@@ -7730,6 +7732,51 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 break;
             }
         }
+        // Pending-ness PROPAGATES along imports: the dispatch slice ERASES
+        // metaprog-stub fns (run_metaprog_dispatch), so a fully-lowered fn
+        // in THIS module calling a stubbed fn of a pending module would
+        // leave a dangling func.call in the metaprog MLIR module ("does not
+        // reference a valid function" — first hit: std.canon.container_item
+        // calling std.canon.canon's canon_verdicts while canon's own deem
+        // items are still pending in the std self-build). Modules lower in
+        // dependency order, so membership against the accumulated pending
+        // set is transitive.
+        if (!cur_ast_has_pending_item_mc_ && !metaprog_pending_pkgs_.empty()
+                && mod.has_key(la::USES)) {
+            auto uses_av = mod.get(la::USES.code);
+            if (!uses_av.is_null() && uses_av.is_pointer()) {
+                auto uses = arr_of(uses_av);
+                for (uint64_t ui = 0;
+                     ui < uses.size() && !cur_ast_has_pending_item_mc_; ++ui) {
+                    auto use_node = map_of(uses.get(ui));
+                    if (use_node.is_null()) continue;
+                    std::string dotted;
+                    if (use_node.has_key(la::NAME))
+                        dotted = std::string(str_of(use_node.get(la::NAME.code)));
+                    if (use_node.has_key(la::mod::PATH_PARTS)) {
+                        auto parts = arr_of(use_node.get(la::mod::PATH_PARTS.code));
+                        for (uint64_t pi = 0; pi < parts.size(); ++pi) {
+                            auto part = map_of(parts.get(pi));
+                            if (part.is_null() || !part.has_key(la::NAME)) continue;
+                            if (!dotted.empty()) dotted += '.';
+                            dotted += std::string(str_of(part.get(la::NAME.code)));
+                        }
+                    }
+                    if (dotted.empty()) continue;
+                    for (const auto& p : metaprog_pending_pkgs_) {
+                        if (dotted == p
+                            || (dotted.size() > p.size()
+                                && dotted.compare(0, p.size(), p) == 0
+                                && dotted[p.size()] == '.')) {
+                            cur_ast_has_pending_item_mc_ = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (cur_ast_has_pending_item_mc_ && !cur_package_.empty())
+            metaprog_pending_pkgs_.insert(cur_package_);
     }
     for (uint64_t i = 0; i < flat_items.size(); ++i) {
         auto item = flat_items[i];

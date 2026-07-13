@@ -2428,6 +2428,11 @@ int run_metaprog_dispatch(
     StrSet m6_prev_emitted_fns;
 
     lir::LProgram prog;
+    // ADR 0020 wave-0: the previous iteration DEFERRED a language-item site
+    // (deem over a pending container's backing). Delta-sema would skip the
+    // deferring module entirely — re-run a FULL fresh sema this iteration so
+    // the deferred item is revisited (the M6.1 cache-bypass precedent).
+    bool retry_deferred = false;
     for (int iter = 0; ; ++iter) {
         auto _t = std::chrono::steady_clock::now();
         auto opts_iter = meta_opts;
@@ -2436,9 +2441,19 @@ int run_metaprog_dispatch(
         // asts there would lose their symbol-table + LIR contributions
         // (no install_snapshot + no bundle splice to compensate).
         if (opts.sema_cache) {
-            opts_iter.delta_start_idx = next_delta_start;
-            next_delta_start = asts.size();
+            if (retry_deferred) {
+                opts_iter.cache = nullptr;
+                opts_iter.delta_start_idx = 0;
+                next_delta_start = asts.size();
+                // Fresh TypePool — the previous iter's mono output holds
+                // handles into the cached arena; threading it would dangle.
+                m6_prev_mono_out = lir::LProgram{};
+            } else {
+                opts_iter.delta_start_idx = next_delta_start;
+                next_delta_start = asts.size();
+            }
         }
+        retry_deferred = false;
         // Phase 6: metaprog dispatch loop doesn't currently thread is_lazy
         // through (no use case yet — metaprog handlers + their callees stay
         // eager regardless). Pass {} to keep the existing behaviour.
@@ -2447,6 +2462,7 @@ int run_metaprog_dispatch(
         stat_step(_t, "sema_lower", iter);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
+        retry_deferred = retry_deferred || prog.deferred_item_sites;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
 
         bool has_pending_item_mc = false;
@@ -2543,6 +2559,7 @@ int run_metaprog_dispatch(
             meta_prog = sema_lower(asts, filenames, from_binary, resema_opts, {},
                                    opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
             if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+            retry_deferred = retry_deferred || meta_prog.deferred_item_sites;
         }
         // WQL/Trama raw-text item macros: a #[token_macro] `(str) -> ItemList`
         // item callee's thunk reads its block bytes via logos_macro_arg(site,0).
@@ -2772,7 +2789,20 @@ int run_metaprog_dispatch(
             if (site.thunk_source.empty()) continue;
             if (site.ast_idx >= asts.size()) continue;
             auto* sym = meta_jit->lookup(std::string(site.thunk_name));
-            if (!sym) continue;
+            if (!sym) {
+                // Sites are re-collected by THIS iteration's sema, so the
+                // thunk must be in this iteration's JIT module — a lookup
+                // miss is a materialization failure. Silently skipping it
+                // leaves the item un-flipped forever: the loop exits on
+                // !any_emitted with the item still pending and every fn of
+                // its module demoted to a trap stub in the final program.
+                std::fprintf(stderr,
+                    "logosc: metaprog item-thunk lookup '%s' (%s): %s\n",
+                    std::string(site.thunk_name).c_str(),
+                    std::string(site.callee_name).c_str(),
+                    meta_jit->error_str().c_str());
+                return 1;
+            }
             // Route oview_module_ast at the TRIGGER module's ast for the
             // handler run (mirrors the derive dispatch above). Single-
             // program builds got this for free (entry idx == the one user
