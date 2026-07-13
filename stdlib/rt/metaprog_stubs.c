@@ -126,6 +126,16 @@ const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
     metaprog_unavailable("logos_macro_arg");
 }
 
+// Rule-IR handoff for deem/mapping item thunks (ADR 0016). The std layer's
+// own deem items (logos.std.canon.canon, ADR 0020) put __metacall_thunk_*
+// bodies referencing this into liblogos-std.a — dead in a compiled binary,
+// but the linker still wants the symbol.
+__attribute__((weak))
+const uint8_t* logos_rule_ir(uint64_t site_id) {
+    (void)site_id;
+    metaprog_unavailable("logos_rule_ir");
+}
+
 __attribute__((weak))
 int32_t logos_emit_item_blob_subst(const void* blob) {
     (void)blob;
