@@ -1,6 +1,7 @@
 # ADR 0020 — Memoria: the container-interface plane of Deem, and Canon, its design orchestrator
 
-- Status: **DRAFT** (pair-designed 2026-07-12..13; awaiting review)
+- Status: **ACCEPTED** (user, 2026-07-13; pair-designed 2026-07-12..13; wave-0
+  prototype landed on main — the design survived implementation unchanged)
 - Date: 2026-07-13
 - Builds on: ADR 0016 (mappings first-class; since c246699b/e8689a51 the whole
   query surface is language items — `deem`/`mapping`/`rel`; `deem!` retired,
@@ -422,6 +423,17 @@ from declarations, what exists, what is complete, and what to generate.
 Equational boundaries (honest): monoid laws, measure-homomorphism
 correctness, kind laws (FIFO) are NOT Horn derivations — oracle property
 tests now, the SMT floor later (EL ⊂ Datalog ⊂ solvers ladder).
+
+Operation semantics as delta rules (wave direction for the oracle harness):
+in a CoW/DBSP store the semantics of a mutating operation IS the delta it
+commits, and a delta is a relation — so an operation SPEC is a rule deriving
+the EXPECTED Z-set from the arguments and the snapshot
+(`insert(k,v) ⊨ Δ = +{(k,v)} − {(k,old) | old = lookup(k)}`). The imperative
+implementation (fast) is then property-checked against the declarative spec
+(slow, exact) — the C++-Memoria-as-oracle pattern generalized to
+spec-as-oracle. §4.3's DML reduction already carries the formalism. This is
+specification and verification of semantics, not synthesis of
+implementations.
 
 ## 6. The projection bridge
 
