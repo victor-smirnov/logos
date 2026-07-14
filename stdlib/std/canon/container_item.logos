@@ -436,20 +436,23 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
 // Emits a concrete b+tree LEAF node for one kind=node container (ADR 0020 Track
 // B 2c): a struct owning a pkd block with two sibling columns (key, val) plus
 // the Node contract (new/count/key_at/val_at/lower_bound/try_insert/split). The
-// split_into body is CHOSEN BY THE CANON VERDICT — this reproduces the
-// hand-written fast template (LeafU64: count/2). The verdict is the codegen
-// decision; the emitter is mechanical.
+// value-column encoding AND the split body are CHOSEN BY THE CANON VERDICT:
+//   - `fast`   → all-FSE columns, count-balanced split (reproduces LeafU64);
+//   - `volume` → a VLE value column (val_at yields &[u8]), a volume-balanced
+//                split over both columns' prefix bytes (reproduces LeafKV).
+// The verdict is the codegen decision; the emitter is mechanical.
 //
 // Wave-0 substrate: the generated leaf targets the memoria pkd allocator
-// (logos.mem.pkd) directly. Parameterising the substrate package (or hoisting pkd
-// to the stdlib) is the ADR §9 implementation-placement question, deferred.
-// Wave-0 emits the FAST (all-FSE) leaf only; a `volume` (VLE-column) verdict is
-// a documented limit at the call site until VLE emission lands.
-fn emit_leaf_node(name: str, kty: str, vty: str) {
+// (logos.mem.pkd) directly, PLAIN pkd (alloc / pkd_format / dealloc, no CoW node
+// header) — exactly like the hand-written leaf.logos / leaf_kv.logos templates.
+fn emit_leaf_node(name: str, kty: str, vty: str, policy: str) {
+    let vol: bool = str_eq(policy, SPLIT_VOLUME);
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    em.push_text("\nuse logos.mem.pkd;\nuse logos.lang.mem;\nuse logos.lang.result;\n\n");
+    em.push_text("\nuse logos.mem.pkd;\nuse logos.lang.mem;\nuse logos.lang.result;\n");
+    if vol { em.push_text("use logos.lang.str;\n"); }   // val.len() on a VLE column
+    em.push_text("\n");
     em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
     em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
     // new
@@ -473,25 +476,74 @@ fn emit_leaf_node(name: str, kty: str, vty: str) {
     // count / key_at / val_at
     em.push_text("    pub fn count(self: &"); em.push_text(name); em.push_text(") -> u32 { return unsafe { (*self.kc()).count() }; }\n");
     em.push_text("    pub fn key_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(kty); em.push_text(" { return unsafe { (*self.kc()).get(i) }; }\n");
-    em.push_text("    pub fn val_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(vty); em.push_text(" { return unsafe { (*self.vc()).get(i) }; }\n");
+    if vol {
+        // VLE value column: borrow the bytes, no owning value type.
+        em.push_text("    pub fn val_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> &[u8] { return unsafe { (*self.vc()).get_bytes(i) }; }\n");
+    } else {
+        em.push_text("    pub fn val_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(vty); em.push_text(" { return unsafe { (*self.vc()).get(i) }; }\n");
+    }
     // lower_bound
     em.push_text("    pub fn lower_bound(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> u32 {\n");
     em.push_text("        let n: u32 = self.count();\n        let mut i: u32 = 0u32;\n");
     em.push_text("        while i < n { if self.key_at(i) >= key { return i; } i = i + 1u32; }\n        return n;\n    }\n");
-    // try_insert (fit-checked, replace-on-hit)
+    // try_insert (fit-checked, replace-on-hit) — VERDICT-SELECTED body
     em.push_text("    pub fn try_insert(self: &mut "); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") -> bool {\n");
-    em.push_text("        unsafe {\n");
-    em.push_text("            let pos: u32 = self.lower_bound(key);\n");
-    em.push_text("            if pos < self.count() && self.key_at(pos) == key { (*self.vc()).set(pos, val); return true; }\n");
-    em.push_text("            let dk: u32 = (*self.kc()).estimate_insert(0u32) - self.a().element_size(0u32);\n");
-    em.push_text("            let dv: u32 = (*self.vc()).estimate_insert(0u32) - self.a().element_size(1u32);\n");
-    em.push_text("            if dk + dv > self.a().free_space() { return false; }\n");
-    em.push_text("            match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
-    em.push_text("            match (*self.vc()).insert(pos, &val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
-    em.push_text("            return true;\n        }\n    }\n");
-    // split — VERDICT-SELECTED body (fast: count/2)
-    em.push_text("    /// Split index: FAST (count-balanced) — the Canon verdict for an all-FSE node.\n");
-    em.push_text("    pub fn split_index(self: &"); em.push_text(name); em.push_text(") -> u32 { return self.count() / 2u32; }\n");
+    if vol {
+        // VLE value column: admission guard on entry bytes, replace-on-hit via
+        // remove+insert (VLE has no set), fit-checked with the value's length.
+        em.push_text("        let vlen: u32 = val.len() as u32;\n");
+        em.push_text("        if 8u32 + vlen > 1024u32 { return false; }\n");
+        em.push_text("        unsafe {\n");
+        em.push_text("            let pos: u32 = self.lower_bound(key);\n");
+        em.push_text("            let hit: bool = pos < self.count() && self.key_at(pos) == key;\n");
+        em.push_text("            if hit {\n");
+        em.push_text("                let old: u32 = (*self.vc()).volume_upto(pos + 1u32) - (*self.vc()).volume_upto(pos);\n");
+        em.push_text("                let grow: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);\n");
+        em.push_text("                let need: u32 = if grow > old { grow - old } else { 0u32 };\n");
+        em.push_text("                if need > self.a().free_space() { return false; }\n");
+        em.push_text("                (*self.vc()).remove(pos);\n");
+        em.push_text("                match (*self.vc()).insert(pos, val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
+        em.push_text("                return true;\n");
+        em.push_text("            }\n");
+        em.push_text("            let dk: u32 = (*self.kc()).estimate_insert(8u32) - self.a().element_size(0u32);\n");
+        em.push_text("            let dv: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);\n");
+        em.push_text("            if dk + dv > self.a().free_space() { return false; }\n");
+        em.push_text("            match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
+        em.push_text("            match (*self.vc()).insert(pos, val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
+        em.push_text("            return true;\n        }\n    }\n");
+    } else {
+        em.push_text("        unsafe {\n");
+        em.push_text("            let pos: u32 = self.lower_bound(key);\n");
+        em.push_text("            if pos < self.count() && self.key_at(pos) == key { (*self.vc()).set(pos, val); return true; }\n");
+        em.push_text("            let dk: u32 = (*self.kc()).estimate_insert(0u32) - self.a().element_size(0u32);\n");
+        em.push_text("            let dv: u32 = (*self.vc()).estimate_insert(0u32) - self.a().element_size(1u32);\n");
+        em.push_text("            if dk + dv > self.a().free_space() { return false; }\n");
+        em.push_text("            match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
+        em.push_text("            match (*self.vc()).insert(pos, &val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
+        em.push_text("            return true;\n        }\n    }\n");
+    }
+    // split_index — VERDICT-SELECTED body
+    if vol {
+        em.push_text("    /// Split index: VOLUME-balanced — the Canon verdict for a VLE-column node.\n");
+        em.push_text("    pub fn split_index(self: &"); em.push_text(name); em.push_text(") -> u32 {\n");
+        em.push_text("        let n: u32 = self.count();\n");
+        em.push_text("        if n <= 1u32 { return n; }\n");
+        em.push_text("        unsafe {\n");
+        em.push_text("            let total: u32 = (*self.kc()).volume_upto(n) + (*self.vc()).volume_upto(n);\n");
+        em.push_text("            let half: u32 = total / 2u32;\n");
+        em.push_text("            let mut lo: u32 = 1u32;\n");
+        em.push_text("            let mut hi: u32 = n - 1u32;\n");
+        em.push_text("            let mut at: u32 = 1u32;\n");
+        em.push_text("            while lo <= hi {\n");
+        em.push_text("                let mid: u32 = lo + (hi - lo) / 2u32;\n");
+        em.push_text("                let cv: u32 = (*self.kc()).volume_upto(mid) + (*self.vc()).volume_upto(mid);\n");
+        em.push_text("                if cv <= half { at = mid; lo = mid + 1u32; } else { if mid == 1u32 { break; } hi = mid - 1u32; }\n");
+        em.push_text("            }\n");
+        em.push_text("            return at;\n        }\n    }\n");
+    } else {
+        em.push_text("    /// Split index: FAST (count-balanced) — the Canon verdict for an all-FSE node.\n");
+        em.push_text("    pub fn split_index(self: &"); em.push_text(name); em.push_text(") -> u32 { return self.count() / 2u32; }\n");
+    }
     em.push_text("    pub fn split_into(self: &mut "); em.push_text(name); em.push_text(", dst: &mut "); em.push_text(name); em.push_text(") {\n");
     em.push_text("        let at: u32 = self.split_index();\n");
     em.push_text("        unsafe {\n");
@@ -563,17 +615,17 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         error("container item: malformed spec (compiler seam regression?)");
         return out;
     }
-    // kind=node: emit a concrete b+tree leaf, its split_into body chosen by
-    // Canon's fast|volume verdict. Wave-0 emits the FAST (all-FSE) leaf; a
-    // `volume` verdict is a documented limit until VLE emission lands.
+    // kind=node: emit a concrete b+tree leaf, its value-column encoding and
+    // split body chosen by Canon's fast|volume verdict — `fast` = all-FSE,
+    // count-balanced; `volume` = VLE value column, volume-balanced split.
     if str_eq(cs.kind, KIND_NODE) {
         let policy: str = cv_split_policy(vm, name);
         if policy.len() == 0i64 {
             error("container item: Canon produced no split_policy verdict for a node (Canon seam regression?)");
             return out;
         }
-        if !str_eq(policy, SPLIT_FAST) {
-            error("container item: wave-0 emit_node emits fast (all-FSE) nodes only — this node's Canon verdict is `volume` (it has a variable-length column); VLE node emission is a later increment");
+        if !str_eq(policy, SPLIT_FAST) && !str_eq(policy, SPLIT_VOLUME) {
+            error("container item: Canon produced an unknown split_policy verdict for a node (Canon/handler vocabulary skew?)");
             return out;
         }
         let ce2: i64 = cs.entry.len();
@@ -603,7 +655,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
             return out;
         }
         let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
-        emit_leaf_node(name, kty, vty);
+        emit_leaf_node(name, kty, vty, policy);
         return out;
     }
     if !str_eq(cs.kind, KIND_VECTOR) { return out; }

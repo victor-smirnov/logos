@@ -1,0 +1,80 @@
+// gen_node_kv — Canon-driven Node codegen with a VLE value column, end to end
+// (ADR 0020 Track B 2c-ii): a `kind node` declaration whose value is `str` →
+// Canon derives split_policy=volume (a variable-length column) → emit_node
+// GENERATES the concrete leaf `GenKV` (struct + Node contract, val_at yielding
+// &[u8], a VOLUME-balanced split chosen by the verdict). main() exercises the
+// GENERATED type: fill with size-skewed values, order/lookup, replace-on-hit,
+// and the volume split. The leaf type is not hand-written here — the container
+// declaration is its entire source.
+package test;
+
+use logos.std.canon.container_item;   // the `container` lowering handler
+use logos.mem.pkd;
+use logos.lang.str;
+
+// key:u64 + val:str → a variable-length column → Canon verdict `volume` →
+// generated leaf with a VLE value column and a volume-balanced split.
+container GenKV for u8 { kind node; entry { key: u64, val: str } }
+
+fn beq(b: &[u8], want: str) -> bool {
+    if b.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    let mut lf: GenKV = GenKV::new();
+    if lf.count() != 0u32 { return 1i32; }
+
+    // fill via the generated try_insert; value byte-lengths [1,30,30,1,1,1] so
+    // the volume-balanced split (index 2) differs from count/2 (index 3).
+    if !lf.try_insert(0u64, "x") { return 2i32; }
+    if !lf.try_insert(1u64, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA") { return 3i32; }   // 30
+    if !lf.try_insert(2u64, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB") { return 4i32; }   // 30
+    if !lf.try_insert(3u64, "y") { return 5i32; }
+    if !lf.try_insert(4u64, "z") { return 6i32; }
+    if !lf.try_insert(5u64, "w") { return 7i32; }
+    if lf.count() != 6u32 { return 8i32; }
+
+    // value bytes land where expected (val_at returns borrowed &[u8])
+    if !beq(lf.val_at(0u32), "x") { return 9i32; }
+    if lf.val_at(1u32).len() != 30i64 { return 10i32; }
+    if !beq(lf.val_at(3u32), "y") { return 11i32; }
+    // key order + point lookup
+    if lf.key_at(3u32) != 3u64 { return 12i32; }
+    if lf.lower_bound(3u64) != 3u32 { return 13i32; }
+    if lf.lower_bound(100u64) != 6u32 { return 14i32; }
+
+    // ── volume-balanced split ────────────────────────────────────────────
+    // cumvol(mid) = 8*mid + Σ val_len[0..mid]; total = 112, half = 56.
+    // largest mid with cumvol <= 56 is 2 (cumvol(2)=47, cumvol(3)=85). The
+    // count-balanced index would be 3 — the difference IS the point.
+    if lf.split_index() != 2u32 { return 15i32; }
+    let total: u32 = lf.count();
+    let mut rt: GenKV = GenKV::new();
+    lf.split_into(&mut rt);
+    if lf.count() != 2u32 { return 16i32; }        // left half (by volume)
+    if rt.count() != 4u32 { return 17i32; }        // right half
+    if lf.count() + rt.count() != total { return 18i32; }
+    // ordering preserved across the split
+    if lf.key_at(1u32) >= rt.key_at(0u32) { return 19i32; }
+    if lf.key_at(0u32) != 0u64 || lf.key_at(1u32) != 1u64 { return 20i32; }
+    if rt.key_at(0u32) != 2u64 || rt.key_at(3u32) != 5u64 { return 21i32; }
+    // the big value moved intact with its key
+    if rt.val_at(0u32).len() != 30i64 { return 22i32; }
+    if !beq(rt.val_at(3u32), "w") { return 23i32; }
+
+    // ── replace-on-hit (Map MAX): overwrite a key's value, count unchanged ──
+    let before: u32 = rt.count();
+    if !rt.try_insert(2u64, "q") { return 24i32; }   // was a 30-byte value
+    if rt.count() != before { return 25i32; }
+    if !beq(rt.val_at(0u32), "q") { return 26i32; }
+    // neighbours undisturbed
+    if !beq(rt.val_at(3u32), "w") { return 27i32; }
+
+    // nodes are tree-managed: free the leaves at the end
+    lf.free();
+    rt.free();
+    return 0i32;
+}
