@@ -1,0 +1,81 @@
+// leaf_kv_node — the LeafKV Node contract with a VLE value column (ADR 0020
+// Track B, step 2b): the split index is chosen by BYTE VOLUME, not entry count.
+// Values are deliberately size-skewed ([1,30,30,1,1,1]) so the volume-balanced
+// split (index 2) differs from the count-balanced one (index 3), proving the
+// binary search over combined column volume drives the split.
+package test;
+
+use memoria.bt.leaf_kv;
+use logos.lang.str;
+
+fn beq(b: &[u8], want: str) -> bool {
+    if b.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    let mut lf: LeafKV = LeafKV::new();
+    // sorted keys 0..5, value byte-lengths [1,30,30,1,1,1]
+    if !lf.try_insert(0u64, "x") { return 1i32; }
+    if !lf.try_insert(1u64, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA") { return 2i32; }   // 30
+    if !lf.try_insert(2u64, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB") { return 3i32; }   // 30
+    if !lf.try_insert(3u64, "y") { return 4i32; }
+    if !lf.try_insert(4u64, "z") { return 5i32; }
+    if !lf.try_insert(5u64, "w") { return 6i32; }
+    if lf.count() != 6u32 { return 7i32; }
+
+    // value bytes land where expected
+    if !beq(lf.val_at(0u32), "x") { return 8i32; }
+    if lf.val_at(1u32).len() != 30i64 { return 9i32; }
+    if !beq(lf.val_at(3u32), "y") { return 10i32; }
+    // key queries
+    if lf.lower_bound(3u64) != 3u32 { return 11i32; }
+    if lf.lower_bound(100u64) != 6u32 { return 12i32; }
+    if lf.max_key() != 5u64 { return 13i32; }
+
+    // ── volume-balanced split ────────────────────────────────────────────
+    // cumvol(mid) = 8*mid + Σ val_len[0..mid]; total = 112, half = 56.
+    // largest mid with cumvol <= 56 is 2 (cumvol(2)=47, cumvol(3)=85). The
+    // count-balanced index would be 3 — the difference IS the point.
+    if lf.split_index() != 2u32 { return 14i32; }
+    let total: u32 = lf.count();
+    let mut rt: LeafKV = LeafKV::new();
+    lf.split_into(&mut rt);
+    if lf.count() != 2u32 { return 15i32; }        // left half (by volume)
+    if rt.count() != 4u32 { return 16i32; }        // right half
+    if lf.count() + rt.count() != total { return 17i32; }
+    // ordering preserved across the split
+    if lf.max_key() >= rt.key_at(0u32) { return 18i32; }
+    if lf.key_at(0u32) != 0u64 || lf.key_at(1u32) != 1u64 { return 19i32; }
+    if rt.key_at(0u32) != 2u64 || rt.key_at(3u32) != 5u64 { return 20i32; }
+    // the big value moved intact with its key
+    if rt.val_at(0u32).len() != 30i64 { return 21i32; }
+    if !beq(rt.val_at(3u32), "w") { return 22i32; }
+
+    // ── merge the halves back ────────────────────────────────────────────
+    if !lf.can_merge_with(&rt) { return 23i32; }
+    lf.merge_with(&rt);
+    if lf.count() != total { return 24i32; }
+    // fully ordered again, values intact
+    let mut k: u32 = 1u32;
+    while k < lf.count() {
+        if lf.key_at(k) <= lf.key_at(k - 1u32) { return 25i32; }
+        k = k + 1u32;
+    }
+    if !beq(lf.val_at(0u32), "x") { return 26i32; }
+    if lf.val_at(1u32).len() != 30i64 { return 27i32; }
+    if !beq(lf.val_at(5u32), "w") { return 28i32; }
+
+    // ── replace-on-hit (Map MAX): shrink key 1's value, count unchanged ──
+    let before: u32 = lf.count();
+    if !lf.try_insert(1u64, "q") { return 29i32; }
+    if lf.count() != before { return 30i32; }
+    if !beq(lf.val_at(1u32), "q") { return 31i32; }
+    // neighbours undisturbed
+    if !beq(lf.val_at(0u32), "x") { return 32i32; }
+    if lf.val_at(2u32).len() != 30i64 { return 33i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,190 @@
+// memoria.bt.leaf_kv — LeafKV: a CONCRETE columnar b+tree leaf with a VLE
+// column (u64 key, str value) validating the VOLUME-BALANCED Node path (ADR
+// 0020 Track B, step 2b). Companion to LeafU64 (all-FSE, count-balanced).
+//
+// Layout: one owned block (≤ KV_MAX_BLOCK bytes), two sibling PkdArray columns —
+// slot 0 keys (FSE u64), slot 1 vals (VLE str). Because a column is
+// variable-length, the split index cannot be count/2 (that could put nearly all
+// the bytes on one side); it is chosen by a binary search over the COMBINED
+// prefix volume of both columns so the two halves are byte-balanced. Merge/fit
+// remain memory-based against the allocator's real free space.
+//
+//   - admission guard: an entry (8-byte key + value bytes) larger than
+//     KV_MAX_BLOCK/4 is rejected — bounds entry size so a node holds ≥ 4 entries.
+//   - try_insert: sum the columns' estimate_insert deltas vs free space; on a
+//     key hit the value is replaced in place (VLE: remove+insert), Map MAX.
+//   - split_into: volume-balanced index over BOTH columns; merge_with appends.
+package memoria.bt.leaf_kv;
+
+use memoria.pkd;          // PkdAlloc, PkdArray, pkd_format, PkdError
+use logos.lang.mem;       // alloc / dealloc
+use logos.lang.result;
+use logos.lang.str;       // str::len
+
+/// Node block size (a container constant later; a fixed 4K for now).
+const KV_MAX_BLOCK: u32 = 4096u32;
+/// Admission ceiling: no entry may exceed a quarter of the block.
+const KV_MAX_ENTRY: u32 = 1024u32;   // KV_MAX_BLOCK / 4
+
+pub struct LeafKV {
+    mem: *mut u8,
+    cap: u32,
+}
+
+impl LeafKV {
+    const SLOT_KEYS: u32 = 0u32;
+    const SLOT_VALS: u32 = 1u32;
+
+    /// A fresh empty leaf: an FSE u64 key column + a VLE str value column.
+    pub static fn new() -> LeafKV {
+        unsafe {
+            let mem: *mut u8 = alloc(KV_MAX_BLOCK as i64);
+            let a: *mut PkdAlloc = pkd_format(mem, KV_MAX_BLOCK, 2u32);
+            match PkdArray::<u64>::format(a, 0u32) {
+                Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "LeafKV::new keys"); }
+            }
+            match PkdArray::<str>::format(a, 1u32) {
+                Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "LeafKV::new vals"); }
+            }
+            return LeafKV { mem: mem, cap: KV_MAX_BLOCK };
+        }
+    }
+
+    unsafe fn a(self: &LeafKV) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
+    unsafe fn keys(self: &LeafKV) -> *mut PkdArray<u64> {
+        return self.a().get::<PkdArray<u64>>(LeafKV::SLOT_KEYS);
+    }
+    unsafe fn vals(self: &LeafKV) -> *mut PkdArray<str> {
+        return self.a().get::<PkdArray<str>>(LeafKV::SLOT_VALS);
+    }
+
+    pub fn count(self: &LeafKV) -> u32 { return unsafe { (*self.keys()).count() }; }
+    pub fn key_at(self: &LeafKV, i: u32) -> u64 { return unsafe { (*self.keys()).get(i) }; }
+    /// The value bytes at index i (borrowed from the VLE column).
+    pub fn val_at(self: &LeafKV, i: u32) -> &[u8] { return unsafe { (*self.vals()).get_bytes(i) }; }
+    /// The node's separator key (max of child) — the last, sorted, key.
+    pub fn max_key(self: &LeafKV) -> u64 {
+        let n: u32 = self.count();
+        assert(n > 0u32, "LeafKV::max_key: empty node");
+        return self.key_at(n - 1u32);
+    }
+
+    /// First index with keys[i] >= key (linear scan; binary search later).
+    pub fn lower_bound(self: &LeafKV, key: u64) -> u32 {
+        let n: u32 = self.count();
+        let mut i: u32 = 0u32;
+        while i < n {
+            if self.key_at(i) >= key { return i; }
+            i = i + 1u32;
+        }
+        return n;
+    }
+
+    /// Admission + fit-checked insert (Map MAX semantics). On a key hit the VLE
+    /// value is replaced (remove+insert) — this CAN grow the node, so it is
+    /// fit-checked too. Returns false when the entry doesn't fit; the caller
+    /// then splits and retries.
+    pub fn try_insert(self: &mut LeafKV, key: u64, val: str) -> bool {
+        let vlen: u32 = val.len() as u32;
+        // Admission guard: key (8) + value bytes must stay under KV_MAX_ENTRY.
+        if 8u32 + vlen > KV_MAX_ENTRY { return false; }   // rejected (too large)
+        unsafe {
+            let pos: u32 = self.lower_bound(key);
+            let hit: bool = pos < self.count() && self.key_at(pos) == key;
+            if hit {
+                // Replace-on-hit: the value column grows by (new - old) bytes; a
+                // fresh insert of vlen minus the current entry's contribution.
+                let old: u32 = (*self.vals()).volume_upto(pos + 1u32)
+                             - (*self.vals()).volume_upto(pos);
+                let grow: u32 = (*self.vals()).estimate_insert(vlen)
+                              - self.a().element_size(LeafKV::SLOT_VALS);
+                // grow already includes +offs+vlen; the removed old bytes free up
+                // room, so net need is grow saturating-minus old.
+                let need: u32 = if grow > old { grow - old } else { 0u32 };
+                if need > self.a().free_space() { return false; }
+                (*self.vals()).remove(pos);
+                match (*self.vals()).insert(pos, val) {
+                    Result::Ok(_u) => {} Result::Err(_e) => { return false; }
+                }
+                return true;
+            }
+            // Fit-check: both columns' growth vs the block's free space.
+            let dk: u32 = (*self.keys()).estimate_insert(8u32)
+                        - self.a().element_size(LeafKV::SLOT_KEYS);
+            let dv: u32 = (*self.vals()).estimate_insert(vlen)
+                        - self.a().element_size(LeafKV::SLOT_VALS);
+            if dk + dv > self.a().free_space() { return false; }   // full → split
+            match (*self.keys()).insert(pos, &key) {
+                Result::Ok(_u) => {} Result::Err(_e) => { return false; }
+            }
+            match (*self.vals()).insert(pos, val) {
+                Result::Ok(_u) => {} Result::Err(_e) => { return false; }
+            }
+            return true;
+        }
+    }
+
+    /// Would merging `other` into self fit within this block?
+    pub fn can_merge_with(self: &LeafKV, other: &LeafKV) -> bool {
+        unsafe {
+            let dk: u32 = (*self.keys()).estimate_merge(&*other.keys())
+                        - self.a().element_size(LeafKV::SLOT_KEYS);
+            let dv: u32 = (*self.vals()).estimate_merge(&*other.vals())
+                        - self.a().element_size(LeafKV::SLOT_VALS);
+            return dk + dv <= self.a().free_space();
+        }
+    }
+
+    /// Appends all of `other`'s entries (self += other). `other`'s keys must all
+    /// sort after self's; caller checks fit via can_merge_with first.
+    pub fn merge_with(self: &mut LeafKV, other: &LeafKV) {
+        unsafe {
+            let _ = (*self.keys()).merge_from(&*other.keys());
+            let _ = (*self.vals()).merge_from(&*other.vals());
+        }
+    }
+
+    /// The volume-balanced split index: the largest `at` in [1, count) whose
+    /// COMBINED prefix volume (keys + vals) does not exceed half the node's
+    /// total volume. Binary search over the monotone cumulative volume. For an
+    /// all-FSE node this coincides with count/2; the VLE column skews it.
+    pub fn split_index(self: &LeafKV) -> u32 {
+        let n: u32 = self.count();
+        if n <= 1u32 { return n; }
+        unsafe {
+            let total: u32 = (*self.keys()).volume_upto(n) + (*self.vals()).volume_upto(n);
+            let half: u32 = total / 2u32;
+            // Largest `at` with cumvol(at) <= half; keep at >= 1 and <= n-1 so
+            // both halves are non-empty.
+            let mut lo: u32 = 1u32;
+            let mut hi: u32 = n - 1u32;
+            let mut at: u32 = 1u32;
+            while lo <= hi {
+                let mid: u32 = lo + (hi - lo) / 2u32;
+                let cv: u32 = (*self.keys()).volume_upto(mid) + (*self.vals()).volume_upto(mid);
+                if cv <= half {
+                    at = mid;
+                    lo = mid + 1u32;
+                } else {
+                    if mid == 1u32 { break; }
+                    hi = mid - 1u32;
+                }
+            }
+            return at;
+        }
+    }
+
+    /// Splits the tail [at..count) into `dst` (a fresh empty leaf), truncating
+    /// self to [0..at). Both columns split at the SAME volume-balanced index.
+    pub fn split_into(self: &mut LeafKV, dst: &mut LeafKV) {
+        let at: u32 = self.split_index();
+        unsafe {
+            let _ = (*self.keys()).split_into(&mut *dst.keys(), at);
+            let _ = (*self.vals()).split_into(&mut *dst.vals(), at);
+        }
+    }
+}
+
+impl Drop for LeafKV {
+    fn drop(self: &mut LeafKV) { unsafe { dealloc(self.mem); } }
+}
