@@ -257,6 +257,29 @@ fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
     return 0i64;
 }
 
+// The split-policy verdict for a kind=node ctr: "fast" | "volume" | "" (absent).
+// The leaf's split_into body is a FUNCTION of this — Canon decides, the emitter
+// reproduces the matching hand-written template.
+fn cv_split_policy(vroot: &WMap<WString, WAny>, ctr: str) -> str {
+    let av: WAny = vroot.get(V_SPLIT);
+    if !av.is_array() { return ""; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get(K_CTR);
+            let a2: WAny = em.get(K_POLICY);
+            if a1.is_string() && a2.is_string() && str_eq(a1.as_wstr(), ctr) {
+                return a2.as_wstr();
+            }
+        }
+        i = i + 1i64;
+    }
+    return "";
+}
+
 // relty of the (ctr, col) col_proj verdict row; "" when absent.
 fn cv_col_relty(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> str {
     let av: WAny = vroot.get(V_COL_PROJS);
@@ -410,6 +433,75 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
     em.commit();
 }
 
+// Emits a concrete b+tree LEAF node for one kind=node container (ADR 0020 Track
+// B 2c): a struct owning a pkd block with two sibling columns (key, val) plus
+// the Node contract (new/count/key_at/val_at/lower_bound/try_insert/split). The
+// split_into body is CHOSEN BY THE CANON VERDICT — this reproduces the
+// hand-written fast template (LeafU64: count/2). The verdict is the codegen
+// decision; the emitter is mechanical.
+//
+// Wave-0 substrate: the generated leaf targets the memoria pkd allocator
+// (memoria.pkd) directly. Parameterising the substrate package (or hoisting pkd
+// to the stdlib) is the ADR §9 implementation-placement question, deferred.
+// Wave-0 emits the FAST (all-FSE) leaf only; a `volume` (VLE-column) verdict is
+// a documented limit at the call site until VLE emission lands.
+fn emit_leaf_node(name: str, kty: str, vty: str) {
+    let view: OView = oview_module_ast();
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.push_text("\nuse memoria.pkd;\nuse logos.lang.mem;\nuse logos.lang.result;\n\n");
+    em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
+    em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
+    // new
+    em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" {\n");
+    em.push_text("        unsafe {\n");
+    em.push_text("            let mem: *mut u8 = alloc(4096i64);\n");
+    em.push_text("            let a: *mut PkdAlloc = pkd_format(mem, 4096u32, 2u32);\n");
+    em.push_text("            match PkdArray::<"); em.push_text(kty); em.push_text(">::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"key col\"); } }\n");
+    em.push_text("            match PkdArray::<"); em.push_text(vty); em.push_text(">::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"val col\"); } }\n");
+    em.push_text("            return "); em.push_text(name); em.push_text(" { mem: mem, cap: 4096u32 };\n");
+    em.push_text("        }\n    }\n");
+    // adopt / block / free
+    em.push_text("    pub static fn adopt(mem: *mut u8) -> "); em.push_text(name);
+    em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }\n");
+    em.push_text("    pub fn block(self: &"); em.push_text(name); em.push_text(") -> *mut u8 { return self.mem; }\n");
+    em.push_text("    pub fn free(self: "); em.push_text(name); em.push_text(") { unsafe { dealloc(self.mem); } }\n");
+    // column accessors
+    em.push_text("    unsafe fn a(self: &"); em.push_text(name); em.push_text(") -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }\n");
+    em.push_text("    unsafe fn kc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(kty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(kty); em.push_text(">>(0u32); }\n");
+    em.push_text("    unsafe fn vc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(vty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(vty); em.push_text(">>(1u32); }\n");
+    // count / key_at / val_at
+    em.push_text("    pub fn count(self: &"); em.push_text(name); em.push_text(") -> u32 { return unsafe { (*self.kc()).count() }; }\n");
+    em.push_text("    pub fn key_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(kty); em.push_text(" { return unsafe { (*self.kc()).get(i) }; }\n");
+    em.push_text("    pub fn val_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(vty); em.push_text(" { return unsafe { (*self.vc()).get(i) }; }\n");
+    // lower_bound
+    em.push_text("    pub fn lower_bound(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> u32 {\n");
+    em.push_text("        let n: u32 = self.count();\n        let mut i: u32 = 0u32;\n");
+    em.push_text("        while i < n { if self.key_at(i) >= key { return i; } i = i + 1u32; }\n        return n;\n    }\n");
+    // try_insert (fit-checked, replace-on-hit)
+    em.push_text("    pub fn try_insert(self: &mut "); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") -> bool {\n");
+    em.push_text("        unsafe {\n");
+    em.push_text("            let pos: u32 = self.lower_bound(key);\n");
+    em.push_text("            if pos < self.count() && self.key_at(pos) == key { (*self.vc()).set(pos, val); return true; }\n");
+    em.push_text("            let dk: u32 = (*self.kc()).estimate_insert(0u32) - self.a().element_size(0u32);\n");
+    em.push_text("            let dv: u32 = (*self.vc()).estimate_insert(0u32) - self.a().element_size(1u32);\n");
+    em.push_text("            if dk + dv > self.a().free_space() { return false; }\n");
+    em.push_text("            match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
+    em.push_text("            match (*self.vc()).insert(pos, &val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
+    em.push_text("            return true;\n        }\n    }\n");
+    // split — VERDICT-SELECTED body (fast: count/2)
+    em.push_text("    /// Split index: FAST (count-balanced) — the Canon verdict for an all-FSE node.\n");
+    em.push_text("    pub fn split_index(self: &"); em.push_text(name); em.push_text(") -> u32 { return self.count() / 2u32; }\n");
+    em.push_text("    pub fn split_into(self: &mut "); em.push_text(name); em.push_text(", dst: &mut "); em.push_text(name); em.push_text(") {\n");
+    em.push_text("        let at: u32 = self.split_index();\n");
+    em.push_text("        unsafe {\n");
+    em.push_text("            let _ = (*self.kc()).split_into(&mut *dst.kc(), at);\n");
+    em.push_text("            let _ = (*self.vc()).split_into(&mut *dst.vc(), at);\n");
+    em.push_text("        }\n    }\n");
+    em.push_text("}\n");
+    em.commit();
+}
+
 /// Lowering handler behind the `container` ITEM (ADR 0020 wave-0). Invoked by
 /// the COMPILER (sema lower_container_def) through the token-macro item seam
 /// with the serialized spec line. Not a user-facing macro.
@@ -469,6 +561,49 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
     if !parse_container_spec(spec, &mut cs) {
         // Unreachable — container_facts gated the same parse above.
         error("container item: malformed spec (compiler seam regression?)");
+        return out;
+    }
+    // kind=node: emit a concrete b+tree leaf, its split_into body chosen by
+    // Canon's fast|volume verdict. Wave-0 emits the FAST (all-FSE) leaf; a
+    // `volume` verdict is a documented limit until VLE emission lands.
+    if str_eq(cs.kind, KIND_NODE) {
+        let policy: str = cv_split_policy(vm, name);
+        if policy.len() == 0i64 {
+            error("container item: Canon produced no split_policy verdict for a node (Canon seam regression?)");
+            return out;
+        }
+        if !str_eq(policy, SPLIT_FAST) {
+            error("container item: wave-0 emit_node emits fast (all-FSE) nodes only — this node's Canon verdict is `volume` (it has a variable-length column); VLE node emission is a later increment");
+            return out;
+        }
+        let ce2: i64 = cs.entry.len();
+        let nb0: i64 = cf_next_comma(cs.entry, 0i64, ce2);
+        if nb0 == ce2 {
+            error("container item: a `kind node` needs two entry columns (`entry { key: K, val: V }`)");
+            return out;
+        }
+        let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce2);
+        if nb1 != ce2 {
+            error("container item: wave-0 `kind node` supports exactly two entry columns (key, val)");
+            return out;
+        }
+        let k1: i64 = cf_find(cs.entry, 0i64, 58u8);            // ':' of key col
+        let mut k2: i64 = nb0 - 1i64;
+        while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
+        if k1 < 0i64 || k2 <= k1 {
+            error("container item: malformed key column (compiler seam regression?)");
+            return out;
+        }
+        let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
+        let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);      // ':' of val col
+        let mut v2: i64 = ce2 - 1i64;
+        while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
+        if v1 < 0i64 || v2 <= v1 {
+            error("container item: malformed val column (compiler seam regression?)");
+            return out;
+        }
+        let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
+        emit_leaf_node(name, kty, vty);
         return out;
     }
     if !str_eq(cs.kind, KIND_VECTOR) { return out; }

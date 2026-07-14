@@ -1,0 +1,49 @@
+// gen_node — Canon-driven Node codegen, end to end (ADR 0020 Track B 2c-ii):
+// a `kind node` declaration → Canon derives split_policy=fast (all-FSE columns)
+// → emit_node GENERATES the concrete leaf `GenU64` (struct + Node contract, with
+// a count-balanced split chosen by the verdict). main() exercises the GENERATED
+// type: fill, order/lookup, and the fast split. The leaf type is not
+// hand-written here — the container declaration is its entire source.
+package test;
+
+use logos.std.canon.container_item;   // the `container` lowering handler
+use memoria.pkd;
+
+// key:u64 + val:u64 → all fixed-size → Canon verdict `fast` → generated leaf.
+container GenU64 for u8 { kind node; entry { key: u64, val: u64 } }
+
+fn main() -> i32 {
+    let mut lf: GenU64 = GenU64::new();
+    if lf.count() != 0u32 { return 1i32; }
+
+    // fill via the generated try_insert (sorted keys)
+    let mut k: u64 = 0u64;
+    while k < 10u64 {
+        if !lf.try_insert(k, k + 100u64) { return 2i32; }
+        k = k + 1u64;
+    }
+    if lf.count() != 10u32 { return 3i32; }
+
+    // order + point lookup through the generated accessors
+    if lf.key_at(3u32) != 3u64 { return 4i32; }
+    if lf.val_at(3u32) != 103u64 { return 5i32; }
+    if lf.lower_bound(5u64) != 5u32 { return 6i32; }
+    if lf.lower_bound(100u64) != 10u32 { return 7i32; }
+
+    // replace-on-hit (Map MAX): overwrite, count unchanged
+    if !lf.try_insert(3u64, 999u64) { return 8i32; }
+    if lf.count() != 10u32 { return 9i32; }
+    if lf.val_at(3u32) != 999u64 { return 10i32; }
+
+    // fast split (count/2 — the generated verdict body)
+    let mut rt: GenU64 = GenU64::new();
+    lf.split_into(&mut rt);
+    if lf.count() != 5u32 { return 11i32; }
+    if rt.count() != 5u32 { return 12i32; }
+    if lf.key_at(4u32) >= rt.key_at(0u32) { return 13i32; }   // ordering across the split
+    if rt.key_at(0u32) != 5u64 { return 14i32; }
+
+    lf.free();
+    rt.free();
+    return 0i32;
+}
