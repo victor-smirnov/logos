@@ -1,0 +1,154 @@
+// memoria.bt.leaf — LeafU64: a CONCRETE columnar b+tree leaf (u64 key, u64
+// value) validating the Node contract before it is lifted to metaprog
+// generation (ADR 0020 Track B). Concrete on purpose — the generic PkdLeaf<K,V>
+// hand-written path hit a generic-DST method-dispatch miscompile; the real
+// Node is generated concrete per instantiation, so this is both the validation
+// vehicle and the generator's template.
+//
+// Layout: one owned block (≤ MAX_BLOCK bytes), two sibling PkdArray columns —
+// slot 0 keys, slot 1 vals. Node operations are memory-based, not fanout-based:
+//   - admission guard: an entry larger than MAX_BLOCK/4 is rejected (bounds
+//     entry size so a node always holds ≥ 4 entries — the tree stays balanced
+//     and the insert-split recursion cannot degenerate).
+//   - try_insert: sum the columns' estimate_insert deltas, compare to the
+//     allocator's real free space; fits → insert (replace-on-hit, Map MAX),
+//     else the caller splits and retries.
+//   - split_into / merge_with: coordinate the split index / merge across BOTH
+//     columns (FSE fast path = count/2; VLE would volume-balance — a later
+//     variant).
+package memoria.bt.leaf;
+
+use memoria.pkd;          // PkdAlloc, PkdArray, pkd_format, PkdError
+use logos.lang.mem;       // alloc / dealloc
+use logos.lang.result;
+
+/// Node block size (a container constant later; a fixed 4K for now).
+pub const MAX_BLOCK: u32 = 4096u32;
+/// Admission ceiling: no entry may exceed a quarter of the block.
+pub const MAX_ENTRY: u32 = 1024u32;   // MAX_BLOCK / 4
+
+pub struct LeafU64 {
+    mem: *mut u8,
+    cap: u32,
+}
+
+/// A fresh empty leaf over one owned MAX_BLOCK block (two empty columns). Free
+/// function, not an associated `LeafU64::new` — a concrete struct's static
+/// assoc fn does not currently resolve cross-module (the consumer re-lowers
+/// instance methods but neither links nor re-emits the static one; a compiler
+/// gap, queued). Free functions link fine (cf. `pkd_format`).
+pub fn leaf_u64_new() -> LeafU64 {
+    unsafe {
+        let mem: *mut u8 = alloc(MAX_BLOCK as i64);
+        let a: *mut PkdAlloc = pkd_format(mem, MAX_BLOCK, 2u32);
+        match PkdArray::<u64>::format(a, 0u32) {
+            Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "leaf_u64_new keys"); }
+        }
+        match PkdArray::<u64>::format(a, 1u32) {
+            Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "leaf_u64_new vals"); }
+        }
+        return LeafU64 { mem: mem, cap: MAX_BLOCK };
+    }
+}
+
+impl LeafU64 {
+    const SLOT_KEYS: u32 = 0u32;
+    const SLOT_VALS: u32 = 1u32;
+
+    unsafe fn a(self: &LeafU64) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
+    unsafe fn keys(self: &LeafU64) -> *mut PkdArray<u64> {
+        return self.a().get::<PkdArray<u64>>(LeafU64::SLOT_KEYS);
+    }
+    unsafe fn vals(self: &LeafU64) -> *mut PkdArray<u64> {
+        return self.a().get::<PkdArray<u64>>(LeafU64::SLOT_VALS);
+    }
+
+    pub fn count(self: &LeafU64) -> u32 { return unsafe { (*self.keys()).count() }; }
+    pub fn key_at(self: &LeafU64, i: u32) -> u64 { return unsafe { (*self.keys()).get(i) }; }
+    pub fn val_at(self: &LeafU64, i: u32) -> u64 { return unsafe { (*self.vals()).get(i) }; }
+    /// The node's separator key (max of child) — the last, sorted, key.
+    pub fn max_key(self: &LeafU64) -> u64 {
+        let n: u32 = self.count();
+        assert(n > 0u32, "LeafU64::max_key: empty node");
+        return self.key_at(n - 1u32);
+    }
+
+    /// First index with keys[i] >= key (linear scan; binary search later).
+    pub fn lower_bound(self: &LeafU64, key: u64) -> u32 {
+        let n: u32 = self.count();
+        let mut i: u32 = 0u32;
+        while i < n {
+            if self.key_at(i) >= key { return i; }
+            i = i + 1u32;
+        }
+        return n;
+    }
+
+    /// Admission + fit-checked insert (Map MAX semantics: an existing key is
+    /// overwritten in place, never grows the node). Returns false when the
+    /// entry doesn't fit — the caller then splits and retries. u64/u64 entries
+    /// are 16 bytes, always under MAX_ENTRY, but the guard is enforced for
+    /// contract fidelity.
+    pub fn try_insert(self: &mut LeafU64, key: u64, val: u64) -> bool {
+        // Admission guard: a fixed u64 key + u64 val = 16 bytes.
+        let entry: u32 = 8u32 + 8u32;
+        if entry > MAX_ENTRY { return false; }   // rejected (too large)
+        unsafe {
+            let pos: u32 = self.lower_bound(key);
+            // Replace-on-hit: overwrite, no growth, always "fits".
+            if pos < self.count() && self.key_at(pos) == key {
+                (*self.vals()).set(pos, val);
+                return true;
+            }
+            // Fit-check: the two columns' growth vs the block's free space.
+            let dk: u32 = (*self.keys()).estimate_insert(8u32)
+                        - self.a().element_size(LeafU64::SLOT_KEYS);
+            let dv: u32 = (*self.vals()).estimate_insert(8u32)
+                        - self.a().element_size(LeafU64::SLOT_VALS);
+            if dk + dv > self.a().free_space() { return false; }   // full → split
+            match (*self.keys()).insert(pos, &key) {
+                Result::Ok(_u) => {} Result::Err(_e) => { return false; }
+            }
+            match (*self.vals()).insert(pos, &val) {
+                Result::Ok(_u) => {} Result::Err(_e) => { return false; }
+            }
+            return true;
+        }
+    }
+
+    /// Would merging `other` into self fit within this block?
+    pub fn can_merge_with(self: &LeafU64, other: &LeafU64) -> bool {
+        unsafe {
+            let dk: u32 = (*self.keys()).estimate_merge(&*other.keys())
+                        - self.a().element_size(LeafU64::SLOT_KEYS);
+            let dv: u32 = (*self.vals()).estimate_merge(&*other.vals())
+                        - self.a().element_size(LeafU64::SLOT_VALS);
+            return dk + dv <= self.a().free_space();
+        }
+    }
+
+    /// Appends all of `other`'s entries (self += other). Caller checks fit via
+    /// can_merge_with first. `other`'s keys must all sort after self's.
+    pub fn merge_with(self: &mut LeafU64, other: &LeafU64) {
+        unsafe {
+            let _ = (*self.keys()).merge_from(&*other.keys());
+            let _ = (*self.vals()).merge_from(&*other.vals());
+        }
+    }
+
+    /// Splits the tail [at..count) into `dst` (a fresh empty leaf), truncating
+    /// self to [0..at). Both columns split at the SAME index — the parallel
+    /// invariant. FSE-only → `at = count/2` (count-balanced ≡ volume-balanced
+    /// for fixed size); a VLE column would search a volume-balanced index.
+    pub fn split_into(self: &mut LeafU64, dst: &mut LeafU64) {
+        let at: u32 = self.count() / 2u32;
+        unsafe {
+            let _ = (*self.keys()).split_into(&mut *dst.keys(), at);
+            let _ = (*self.vals()).split_into(&mut *dst.vals(), at);
+        }
+    }
+}
+
+impl Drop for LeafU64 {
+    fn drop(self: &mut LeafU64) { unsafe { dealloc(self.mem); } }
+}
