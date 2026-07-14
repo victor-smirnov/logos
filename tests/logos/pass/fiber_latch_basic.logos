@@ -7,7 +7,7 @@
 
 package fiber_latch_basic;
 
-use logos.std.rt.fiber;
+use logos.lcm.fiber;
 
 struct Ctx {
     latch:   *mut Latch,

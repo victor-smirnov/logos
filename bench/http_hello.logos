@@ -10,6 +10,7 @@ use std.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
 use logos.std.rt.fiber;
+use logos.lcm.fiber;
 
 const PORT:      u16 = 18080 as u16;
 const N_WORKERS: i32 = 1 as i32;

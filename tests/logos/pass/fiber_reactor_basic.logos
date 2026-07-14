@@ -5,6 +5,7 @@
 package fiber_reactor_basic;
 
 use logos.std.rt.fiber;
+use logos.lcm.fiber;
 
 extern fn logos_io_uring_prep_nop(sqe: *mut u8);
 

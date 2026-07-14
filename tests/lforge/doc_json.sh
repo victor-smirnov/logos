@@ -26,7 +26,10 @@ export LOGOS_LIB_DIR="$LIB"
 
 # ── Build the docgen tool ──────────────────────────────────────────────────
 "$LOGOSC" "$DOCGEN_SRC" -o "$PROJ/docgen.o" >/dev/null 2>&1
-cc "$PROJ/docgen.o" "$LIB"/lib*.a -lpthread -lm -o "$PROJ/docgen" 2>/dev/null
+# --start-group: the layer archives have inter-archive references (std's
+# reactor/thread → lcm's fiber core) that a single left-to-right pass cannot
+# resolve; group them like run_test.sh and the docgen CMake link do.
+cc "$PROJ/docgen.o" -Wl,--start-group "$LIB"/lib*.a -Wl,--end-group -lpthread -lm -o "$PROJ/docgen" 2>/dev/null
 
 # ── Fixture package → .docwr ───────────────────────────────────────────────
 mkdir -p "$PROJ/src"

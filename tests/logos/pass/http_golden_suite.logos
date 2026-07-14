@@ -25,6 +25,7 @@ use logos.mem.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
 use logos.std.rt.fiber;
+use logos.lcm.fiber;
 
 let TEST_PORT: u16 = 48407 as u16;
 

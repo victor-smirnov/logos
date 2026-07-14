@@ -9,7 +9,7 @@
 //   0 means same-thread (or main/non-pool context).
 //   future_complete calls cross_thread_enqueue when waiter_thr != 0.
 
-package logos.std.rt.fiber;
+package logos.lcm.fiber;
 
 use logos.lang.mem;
 
@@ -17,6 +17,8 @@ use logos.lang.mem;
 extern fn logos_fiber_switch(from: *mut FiberCtx, to: *const FiberCtx);
 extern fn logos_sched_get() -> *mut u8;
 extern fn logos_thread_get() -> *mut u8;
+// Cross-thread wake hook installed by the std-tier thread pool (see fiber.logos).
+extern fn logos_xwake_get() -> i64;
 
 // ── FutureSlot<T> ─────────────────────────────────────────────────────────
 
@@ -57,8 +59,15 @@ pub fn future_complete<T: Send>(slot: *mut FutureSlot<T>, val: T) {
             let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
             sched_enqueue(s, waiter);
         } else {
-            // Cross-thread: push re-enqueue sentinel to the consumer's thread.
-            cross_thread_enqueue(wt, waiter);
+            // Cross-thread: wake the consumer's worker through the installed
+            // std-tier hook (thread.logos::cross_thread_enqueue). The hook is
+            // null until a thread pool is created; a cross-thread waiter cannot
+            // exist without one, so a null here means a caller bug, not a path.
+            let hook: i64 = unsafe { logos_xwake_get() };
+            if hook != 0 as i64 {
+                let xwake: fn(i64, i64) -> () = hook as fn(i64, i64) -> ();
+                xwake(wt, waiter);
+            }
         }
         unsafe { slot.waiter = 0; }
     }

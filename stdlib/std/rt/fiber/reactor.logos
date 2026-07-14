@@ -18,6 +18,9 @@
 package logos.std.rt.fiber;
 
 use logos.lang.mem;
+// The cooperative scheduler/fiber core moved down to the lcm tier; the reactor
+// (io_uring, an OS backend) stays in std and depends downward on it.
+use logos.lcm.fiber;
 
 // ── io_uring C shims (also declared in std.io_uring; re-extern here to
 //    avoid a package-level dependency on std.io_uring just for types) ─────
@@ -207,10 +210,9 @@ unsafe fn reactor_dispatch_cqe(r: *mut Reactor, cqe: *mut u8) {
     let ud: i64 = logos_io_uring_cqe_user_data(cqe);
     let res: i32 = logos_io_uring_cqe_result(cqe);
     if ud != 0 as i64 {
-        let fiber: *mut Fiber = ud as *mut Fiber;
-        // FLS slot 0 lives at fiber.fls[0] (first i64).
-        let slot: *mut i64 = fiber.fls;
-        if slot != 0 as *mut i64 { *slot = res as i64; }
+        // FLS slot 0 receives the CQE result. Fiber.fls is private to the lcm
+        // fiber core now, so go through its exported helper.
+        fiber_store_cqe_result(ud, res as i64);
         unpark_fiber(ud);
         r.parked_count = r.parked_count - 1 as i64;
     }

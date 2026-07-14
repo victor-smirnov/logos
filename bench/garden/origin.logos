@@ -31,6 +31,7 @@ use std.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
 use logos.std.rt.fiber;
+use logos.lcm.fiber;
 use logos.mem.encoding.base64;
 
 const PORT: u16 = 18081 as u16;

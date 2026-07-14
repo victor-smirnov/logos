@@ -14,6 +14,7 @@ use std.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
 use logos.std.rt.fiber;
+use logos.lcm.fiber;
 use logos.mem.mem;
 
 const PORT:      u16 = 18080 as u16;

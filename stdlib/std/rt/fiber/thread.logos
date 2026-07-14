@@ -11,12 +11,18 @@
 package logos.std.rt.fiber;
 
 use logos.lang.mem;
+// The cooperative scheduler/fiber core moved down to the lcm tier; the thread
+// pool (pthread/eventfd/poll, an OS backend) stays in std and depends downward.
+use logos.lcm.fiber;
 
 // ── Extras from fiber_ctx.S ───────────────────────────────────────────────
 
 extern fn logos_thread_get() -> *mut u8;
 extern fn logos_thread_set(ptr: *mut u8);
 extern fn logos_sched_set(ptr: *mut u8);
+// Install our cross-thread waker into the process-global hook lcm's
+// future_complete reads (see fiber.logos / fiber_ctx.S).
+extern fn logos_xwake_set(fn_ptr: i64);
 
 // io_uring shims for the multishot notify-fd poll.
 extern fn logos_io_uring_get_sqe(ring: *mut u8) -> *mut u8;
@@ -294,6 +300,11 @@ fn thread_entry(arg: *mut u8) -> *mut u8 {
 /// Creates a pool of `n` workers, each with a scheduler, bounded SPSC inbox, eventfd,
 /// and io_uring reactor. No OS threads run until `thread_pool_start`.
 pub fn thread_pool_new(n: i32) -> *mut ThreadPool {
+    // Install the cross-thread fiber-wake hook so lcm's future_complete can
+    // reach this std-tier waker without an upward tier dependency. Idempotent
+    // (same fn each time); a cross-thread waiter cannot exist without a pool.
+    unsafe { logos_xwake_set(cross_thread_enqueue as *const u8 as i64); }
+
     let pool: *mut ThreadPool = alloc(sizeof::<ThreadPool>()) as *mut ThreadPool;
     let buf:  *mut u8         = alloc(n as i64 * 8);
     unsafe {

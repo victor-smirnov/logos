@@ -9,6 +9,7 @@
 package fiber_thread_future;
 
 use logos.std.rt.fiber;
+use logos.lcm.fiber;
 
 struct CArg {
     result_ptr: *mut i32,

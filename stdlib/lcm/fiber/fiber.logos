@@ -3,7 +3,7 @@
 // Native dependency: stdlib/rt/fiber_ctx.S (compiled into liblogos_rt.a).
 // All scheduler logic lives here in pure Logos.
 
-package logos.std.rt.fiber;
+package logos.lcm.fiber;
 
 use logos.lang.mem;
 
@@ -18,6 +18,13 @@ extern fn logos_get_fiber_entry_addr() -> i64;
 // Per-thread scheduler pointer (stored in fiber_ctx.S .data section).
 extern fn logos_sched_get() -> *mut u8;
 extern fn logos_sched_set(ptr: *mut u8);
+
+// Process-global cross-thread wake hook (fiber_ctx.S). The std-tier thread
+// pool installs its cross_thread_enqueue here via logos_xwake_set; lcm's
+// future_complete reads it via logos_xwake_get to wake a waiter parked on
+// another worker without naming the std tier directly (downward dep only).
+extern fn logos_xwake_get() -> i64;
+extern fn logos_xwake_set(fn_ptr: i64);
 
 // ── OS primitives ──────────────────────────────────────────────────────────
 
@@ -114,7 +121,9 @@ pub struct Scheduler {
 // Intrusive link: append fiber to tail.  Caller must not enqueue a fiber
 // that is already in the queue — we don't scan for duplicates.  fptr is
 // stored as i64 for historical compatibility with call sites.
-fn sched_enqueue(s: *mut Scheduler, fptr: i64) {
+// pub: the std-tier thread pool (thread.logos) re-enqueues cross-thread-woken
+// fibers through this after the fiber/future/sync core moved down to lcm.
+pub fn sched_enqueue(s: *mut Scheduler, fptr: i64) {
     unsafe {
         let f: *mut Fiber = fptr as *mut Fiber;
         f.next = 0 as *mut Fiber;
@@ -139,7 +148,8 @@ fn sched_dequeue(s: *mut Scheduler) -> i64 {
     }
 }
 
-fn sched_empty(s: *const Scheduler) -> bool {
+// pub: the std-tier thread pool loop (thread.logos) tests the run queue.
+pub fn sched_empty(s: *const Scheduler) -> bool {
     unsafe { return s.ready_head == (0 as *mut Fiber); }
 }
 
@@ -454,4 +464,15 @@ pub fn unpark_fiber(fiber_ptr: i64) {
     let s: *mut Scheduler = unsafe { logos_sched_get() } as *mut Scheduler;
     if s == 0 as *mut Scheduler { return; }
     sched_enqueue(s, fiber_ptr);
+}
+
+/// Stores a reactor CQE result into `fiber_ptr`'s FLS slot 0.
+/// Exposed for the std-tier reactor (reactor.logos), which lives above lcm and
+/// cannot reach the private `Fiber.fls` field directly once the fiber core
+/// moved down here. No-op on a null fiber or unallocated FLS array.
+pub fn fiber_store_cqe_result(fiber_ptr: i64, res: i64) {
+    if fiber_ptr == 0 as i64 { return; }
+    let fiber: *mut Fiber = fiber_ptr as *mut Fiber;
+    let slot: *mut i64 = unsafe { fiber.fls };  // FLS slot 0 = first i64
+    if slot != 0 as *mut i64 { unsafe { *slot = res; } }
 }

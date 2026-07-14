@@ -212,3 +212,10 @@ __attribute__((weak)) void* logos_reactor_get(void) { return _stub_slot; }
 __attribute__((weak)) void  logos_reactor_set(void* p) { _stub_slot = p; }
 __attribute__((weak)) int64_t* logos_user_tls_get(void) { return (int64_t*)&_stub_slot; }
 __attribute__((weak)) void  logos_user_tls_set(int64_t* p) { (void)p; }
+
+// Process-global cross-thread fiber-wake hook (fiber_ctx.S .data slot). The
+// std thread pool installs its waker here; lcm's future_complete reads it.
+// JIT-only stub uses a dedicated non-TLS slot; fiber_ctx.S overrides at link.
+static int64_t _stub_xwake;
+__attribute__((weak)) int64_t logos_xwake_get(void) { return _stub_xwake; }
+__attribute__((weak)) void  logos_xwake_set(int64_t p) { _stub_xwake = p; }

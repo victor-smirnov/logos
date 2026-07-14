@@ -179,6 +179,42 @@ logos_reactor_set:
     ret
     .size   logos_reactor_set, .-logos_reactor_set
 
+// ---------------------------------------------------------------------------
+// Cross-thread fiber-wake hook (process-global, NOT thread-local).
+//
+// The cooperative future/scheduler logic lives in the lcm tier and is OS-free;
+// waking a fiber that is parked on ANOTHER worker thread is a std-tier
+// thread-pool operation (SPSC inbox push + eventfd write). To keep the tier
+// dependency pointing downward (std → lcm), lcm's future_complete calls
+// through this installed hook instead of naming the std-tier waker directly.
+//
+// std's thread pool installs cross_thread_enqueue here at pool creation via
+// logos_xwake_set; lcm's future_complete reads it via logos_xwake_get and, if
+// non-null, invokes it as fn(target_thread_i64, fiber_ptr_i64). One process
+// pointer, set once — not per-thread, because the completer may be any thread
+// (incl. the main thread) waking a waiter on a pool worker.
+// ---------------------------------------------------------------------------
+    .section .data
+    .align  8
+_logos_xwake_fn:
+    .quad   0
+
+    .text
+
+    .globl  logos_xwake_get
+    .type   logos_xwake_get, @function
+logos_xwake_get:
+    movq    _logos_xwake_fn(%rip), %rax
+    ret
+    .size   logos_xwake_get, .-logos_xwake_get
+
+    .globl  logos_xwake_set
+    .type   logos_xwake_set, @function
+logos_xwake_set:
+    movq    %rdi, _logos_xwake_fn(%rip)
+    ret
+    .size   logos_xwake_set, .-logos_xwake_set
+
 // Atomic primitives moved to atomic_ops.S (this TU stays pure-fiber/TLS).
 
 

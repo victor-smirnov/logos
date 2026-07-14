@@ -5,7 +5,7 @@
 
 package fiber_yield;
 
-use logos.std.rt.fiber;
+use logos.lcm.fiber;
 
 // Shared state passed to fibers as a pointer to this struct.
 struct State {

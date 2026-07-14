@@ -4,6 +4,7 @@
 package fiber_sleep_ms;
 
 use logos.std.rt.fiber;
+use logos.lcm.fiber;
 
 fn sleeper(arg: i64) {
     let res: i32 = fiber_sleep_ms(1 as i64);
