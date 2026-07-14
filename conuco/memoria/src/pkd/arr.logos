@@ -143,6 +143,21 @@ impl<T: ?Sized> PkdArray<T> {
              + round_up_bytes(dn);               // DATA
     }
 
+    /// The predicted TOTAL byte size of THIS column after inserting ONE more
+    /// entry of `entry_len` bytes (nothing is mutated) — the insert-side twin
+    /// of `estimate_merge`. The Node sums this over its columns (each with its
+    /// own entry's length) and checks Σ(estimate − current) against the
+    /// allocator's free space in `try_insert`. VLE: +1 OFFS cell + entry_len
+    /// DATA bytes.
+    pub fn estimate_insert(self: &PkdArray<T>, entry_len: u32) -> u32 {
+        let n: u32 = self.count() + 1u32;
+        let dn: u32 = self.offs()[self.count()] + entry_len;
+        return PkdAlloc::empty_size_for(PkdArray::SLOTS)
+             + round_up_bytes(4u32)
+             + round_up_bytes((n + 1u32) * 4u32)
+             + round_up_bytes(dn);
+    }
+
     /// Inserts `*src` as entry `i` (0 ≤ i ≤ count; out of range panics —
     /// a programming error, not an environment one). Slot-wise exact growth
     /// through the allocator chain; Err(OutOfMem) when the chain can't.
@@ -379,6 +394,14 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
     pub fn estimate_merge(self: &PkdArray<T>, other: &PkdArray<T>) -> u32 {
         let n: u32 = self.count + other.count;
         return round_up_bytes(fse_hdr::<T>() + n * (sizeof::<T>() as u32));
+    }
+
+    /// Predicted TOTAL byte size after inserting one more element — the
+    /// insert-side twin of `estimate_merge`. `entry_len` is ignored: an FSE
+    /// element is fixed-size, so the growth is exactly one `sizeof::<T>()`.
+    pub fn estimate_insert(self: &PkdArray<T>, entry_len: u32) -> u32 {
+        let _ = entry_len;
+        return round_up_bytes(fse_hdr::<T>() + (self.count + 1u32) * (sizeof::<T>() as u32));
     }
 
     /// Element `i` by value (T: Copy). Bad index panics.

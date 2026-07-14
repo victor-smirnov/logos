@@ -47,6 +47,12 @@ unsafe fn fse_case() -> i32 {
     while k < 6u32 { if (*l).get(k) != ((k as u64) + 1u64) * 10u64 { return 20i32; } k = k + 1u32; }
     // estimate == actual slot size (element_size of slot 0)
     if a.element_size(0u32) != est { return 21i32; }
+    // estimate_insert predicts the size after one more element (FSE: entry_len
+    // ignored). l has 6 elements; push one, compare.
+    let ei: u32 = (*l).estimate_insert(0u32);
+    let x: u64 = 70u64;
+    if (*l).push(&x).is_err() { return 22i32; }
+    if a.element_size(0u32) != ei { return 23i32; }
     dealloc(a as *mut u8);
     dealloc(a2 as *mut u8);
     return 0i32;
@@ -94,6 +100,10 @@ unsafe fn vle_case() -> i32 {
     if (*l).volume_upto(4u32) != 10u32 { return 44i32; }
     // estimate == actual VLE column slot size (element_size of slot 0)
     if a.element_size(0u32) != est { return 45i32; }
+    // estimate_insert with the concrete entry length (VLE: +1 offs + bytes).
+    let ei: u32 = (*l).estimate_insert(5u32);   // "eeeee" is 5 bytes
+    if (*l).push("eeeee").is_err() { return 46i32; }
+    if a.element_size(0u32) != ei { return 47i32; }
     dealloc(a as *mut u8);
     dealloc(a2 as *mut u8);
     return 0i32;
