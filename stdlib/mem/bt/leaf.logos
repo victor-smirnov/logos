@@ -1,4 +1,4 @@
-// memoria.bt.leaf — LeafU64: a CONCRETE columnar b+tree leaf (u64 key, u64
+// logos.mem.bt.leaf — LeafU64: a CONCRETE columnar b+tree leaf (u64 key, u64
 // value) validating the Node contract before it is lifted to metaprog
 // generation (ADR 0020 Track B). Concrete on purpose — the generic PkdLeaf<K,V>
 // hand-written path hit a generic-DST method-dispatch miscompile; the real
@@ -16,10 +16,10 @@
 //   - split_into / merge_with: coordinate the split index / merge across BOTH
 //     columns (FSE fast path = count/2; VLE would volume-balance — a later
 //     variant).
-package memoria.bt.leaf;
+package logos.mem.bt.leaf;
 
 use logos.mem.pkd;          // PkdAlloc, PkdArray, PkdError
-use memoria.bt.node;      // node_alloc / node_pkd / node_free (16-byte header)
+use logos.mem.bt.node;      // node_alloc / node_pkd / node_free (16-byte header)
 use logos.lang.result;
 
 /// Node block size (a container constant later; a fixed 4K for now).

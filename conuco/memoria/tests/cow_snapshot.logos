@@ -6,7 +6,7 @@
 // (valgrind gate). CoW only engages after snapshot() introduces sharing.
 package test;
 
-use memoria.bt.map;       // BtStore, BtSnapshot, MapU64 (Store/Snapshot/Ctr)
+use logos.mem.bt.map;       // BtStore, BtSnapshot, MapU64 (Store/Snapshot/Ctr)
 
 fn main() -> i32 {
     let mut store: BtStore = BtStore::new();

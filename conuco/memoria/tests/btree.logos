@@ -5,7 +5,7 @@
 // absent keys miss, replace-on-hit holds, and the whole structure frees clean.
 package test;
 
-use memoria.bt.tree;      // BTreeU64
+use logos.mem.bt.tree;      // BTreeU64
 
 fn main() -> i32 {
     let mut t: BTreeU64 = BTreeU64::new();

@@ -1,4 +1,4 @@
-// memoria.bt.node — the per-node block header shared by every concrete node
+// logos.mem.bt.node — the per-node block header shared by every concrete node
 // type (ADR 0020 Track B 2c, CoW foundation). Mirrors the persistent oracle's
 // NodeBase, adapted to raw blocks: the refcount that lives in Arc's control
 // block there is INTRUSIVE here (no Arc over raw blocks).
@@ -13,7 +13,7 @@
 //                           this block. cow_clone bumps a shared child's rc; a
 //                           released pointer decrements it, freeing at zero.
 //   @12 pad         : u32   keeps the PkdAlloc region 8-aligned at base+16.
-package memoria.bt.node;
+package logos.mem.bt.node;
 
 use logos.mem.pkd;          // PkdAlloc, pkd_format
 use logos.lang.mem;       // alloc, dealloc

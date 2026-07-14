@@ -3,7 +3,7 @@
 // merge_with round-trip, replace-on-hit (Map MAX) semantics, lower_bound.
 package test;
 
-use memoria.bt.leaf;
+use logos.mem.bt.leaf;
 use logos.lang.result;
 
 fn main() -> i32 {

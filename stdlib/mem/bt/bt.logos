@@ -1,4 +1,4 @@
-// memoria.bt — B+tree over packed node blocks (ADR 0018 M2; C++ reference:
+// logos.mem.bt — B+tree over packed node blocks (ADR 0018 M2; C++ reference:
 // prototypes/bt/{container,shuttles}, bt_ss).
 //
 // A NODE is one PackedAllocator block:
@@ -20,7 +20,7 @@
 // a sorted entry stream and builds the tree BOTTOM-UP — leaves fill left to
 // right, then each branch level is assembled from the level below; no
 // per-element descent.
-package memoria.bt;
+package logos.mem.bt;
 
 use logos.mem.pkd;
 use logos.lang.mem;

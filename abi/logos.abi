@@ -155,12 +155,25 @@ sym	logos.mem.any.AnnotationsView__type_id__g__ref_T
 sym	logos.mem.any.FieldInfo__type_id__g__ref_T
 sym	logos.mem.any.FieldsView__type_id__g__ref_T
 sym	logos.mem.any.TypeInfo__type_id__g__ref_T
+sym	logos.mem.bt.BtArena__type_id__g__ref_T
+sym	logos.mem.bt.BtCursor__type_id__g__ref_T
+sym	logos.mem.bt.BtTree__type_id__g__ref_T
+sym	logos.mem.bt.FindShuttle__type_id__g__ref_T
+sym	logos.mem.bt.ShuttleRes__type_id__g__ref_T
+sym	logos.mem.bt.branch.BranchU64__type_id__g__ref_T
+sym	logos.mem.bt.leaf.LeafU64__type_id__g__ref_T
+sym	logos.mem.bt.leaf_kv.LeafKV__type_id__g__ref_T
+sym	logos.mem.bt.map.BtSnapshot__type_id__g__ref_T
+sym	logos.mem.bt.map.BtStore__type_id__g__ref_T
+sym	logos.mem.bt.map.MapU64__type_id__g__ref_T
+sym	logos.mem.bt.tree.BTreeU64__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$String__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$bool__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$i32__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
+sym	logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$5$i64$i64$i64$i64$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -458,8 +471,11 @@ sym	logos_lang..logos.lang.cmp.$ref_&i64__cmp__f__ref_ref_i64__ref_ref_i64
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]__&[u8]
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__i64__&[u8]__&[u8]__i64
+sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__u64__u32
 sym	logos_lang..logos.lang.cmp.Option__&[u8]__eq__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__&[u8]__ne__g__ref_Option__ref_Option
+sym	logos_lang..logos.lang.cmp.Option__(u64, u32)__eq__g__ref_Option__ref_Option
+sym	logos_lang..logos.lang.cmp.Option__(u64, u32)__ne__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__String__eq__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__String__ne__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__bool__eq__g__ref_Option__ref_Option
@@ -467,6 +483,7 @@ sym	logos_lang..logos.lang.cmp.Option__bool__ne__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__char__eq__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__char__ne__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option__ref_Option__&[u8]
+sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option__ref_Option__(u64, u32)
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option__ref_Option__String
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option__ref_Option__bool
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option__ref_Option__char
@@ -487,6 +504,7 @@ sym	logos_lang..logos.lang.cmp.Option__i64__ne__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__i8__eq__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__i8__ne__g__ref_Option__ref_Option
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option__ref_Option__&[u8]
+sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option__ref_Option__(u64, u32)
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option__ref_Option__String
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option__ref_Option__bool
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option__ref_Option__char
@@ -2658,6 +2676,42 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$u64__skip_while__
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$u64__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$u64__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$u64__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$uslice_u8__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u32__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u8__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u8__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u8__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2754,6 +2808,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$slice_u8__skip_while__g__OptionIte
 sym	logos_lang..logos.lang.iter.OptionIter$G1$slice_u8__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$slice_u8__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$slice_u8__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$tup$2$u64$u32__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$u16__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$u16__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$u16__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2837,6 +2909,7 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$u8__take_while__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.Option__&[u8]__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__&dyn Error__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__(u64, u32)__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Alignment__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Arc$G1$udyn_BTreeNode__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__AsciiChar__into_iter__g__Option
@@ -2889,6 +2962,7 @@ sym	logos_lang..logos.lang.iter.Option__i8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__&[u8]
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__&dyn Error
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__(u64, u32)
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Alignment
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__AsciiChar
@@ -2940,6 +3014,8 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__i64
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__i8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_u32
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_u8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ref_i32
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ref_i64
@@ -2950,6 +3026,8 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__u64
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__u8
 sym	logos_lang..logos.lang.iter.Option__pmut_PkdAlloc__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__pmut_PkdArray$G1$u64__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__pmut_PkdArray$G1$uslice_u8__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__pmut_u32__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__pmut_u8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ref_i32__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ref_i64__into_iter__g__Option
@@ -3600,6 +3678,36 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$u64__skip_while__
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$u64__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$u64__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$u64__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$uslice_u8__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u32__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u8__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u8__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u8__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -3743,6 +3851,8 @@ sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__i64__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_u32__PkdError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__u32__ConvertError
@@ -3753,6 +3863,8 @@ sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__u64__ParseIntError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__u8__ConvertError
 sym	logos_lang..logos.lang.iter.Result__pmut_PkdAlloc__PkdError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__pmut_PkdArray$G1$u64__PkdError__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__pmut_PkdArray$G1$uslice_u8__PkdError__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__pmut_u32__PkdError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__pmut_u8__PkdError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__u16__ConvertError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__u32__ConvertError__into_iter__g__Result
@@ -5324,6 +5436,20 @@ sym	logos_lang..logos.lang.option.Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653
 sym	logos_lang..logos.lang.option.Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__default__g__void
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__(u64, u32)__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__Alignment__default__g__void
 sym	logos_lang..logos.lang.option.Option__Alignment__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__Alignment__filter__g__Option__fn(T) -> bool
@@ -5929,6 +6055,7 @@ sym	logos_lang..logos.lang.option.Option__char__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__default__g__void__&[u8]
 sym	logos_lang..logos.lang.option.Option__default__g__void__&dyn Error
 sym	logos_lang..logos.lang.option.Option__default__g__void__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__default__g__void__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__default__g__void__Alignment
 sym	logos_lang..logos.lang.option.Option__default__g__void__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__default__g__void__AsciiChar
@@ -5980,6 +6107,8 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__i64
 sym	logos_lang..logos.lang.option.Option__default__g__void__i8
 sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_u32
 sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_u8
 sym	logos_lang..logos.lang.option.Option__default__g__void__ref_i32
 sym	logos_lang..logos.lang.option.Option__default__g__void__ref_i64
@@ -5991,6 +6120,7 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__&[u8]
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__&dyn Error
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Alignment
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__AsciiChar
@@ -6042,6 +6172,8 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__i64
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__i8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_u32
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ref_i32
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ref_i64
@@ -6081,6 +6213,7 @@ sym	logos_lang..logos.lang.option.Option__f64__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__&[u8]
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__&dyn Error
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Alignment
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__AsciiChar
@@ -6132,6 +6265,8 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__i64
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__i8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_u32
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_u8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ref_i32
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ref_i64
@@ -6199,6 +6334,7 @@ sym	logos_lang..logos.lang.option.Option__i8__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__&[u8]
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__&dyn Error
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Alignment
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__AsciiChar
@@ -6250,6 +6386,8 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__i64
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__i8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_u32
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ref_i64
@@ -6261,6 +6399,7 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__&[u8]
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__&dyn Error
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Alignment
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__AsciiChar
@@ -6312,6 +6451,8 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__i64
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__i8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_u32
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ref_i64
@@ -6323,6 +6464,7 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__&[u8]
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__&dyn Error
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Alignment
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__AsciiChar
@@ -6374,6 +6516,8 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__i8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_u32
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ref_i32
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ref_i64
@@ -6385,6 +6529,7 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__&[u8]
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__&dyn Error
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Alignment
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__AsciiChar
@@ -6436,6 +6581,8 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__i64
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__i8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_u32
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ref_i64
@@ -6447,6 +6594,7 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__&[u8]
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__&dyn Error
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Alignment
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__AsciiChar
@@ -6498,6 +6646,8 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__i6
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__i8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_u32
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ref_i64
@@ -6534,6 +6684,34 @@ sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$u64__unwrap__g__Optio
 sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$u64__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$u64__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$u64__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__default__g__void
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$uslice_u8__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__pmut_u32__default__g__void
+sym	logos_lang..logos.lang.option.Option__pmut_u32__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__pmut_u32__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__pmut_u32__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__pmut_u32__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__pmut_u32__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__pmut_u32__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__pmut_u32__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__pmut_u32__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__pmut_u32__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__pmut_u32__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__pmut_u32__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__pmut_u32__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__pmut_u32__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__pmut_u8__default__g__void
 sym	logos_lang..logos.lang.option.Option__pmut_u8__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__pmut_u8__filter__g__Option__fn(T) -> bool
@@ -6593,6 +6771,7 @@ sym	logos_lang..logos.lang.option.Option__refmut_i32__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__&[u8]
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__&dyn Error
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Alignment
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__AsciiChar
@@ -6644,6 +6823,8 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__i64
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__i8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_u32
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_u8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ref_i32
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ref_i64
@@ -6655,6 +6836,7 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__&[u8]
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__&dyn Error
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Alignment
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__AsciiChar
@@ -6706,6 +6888,8 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__i64
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__i8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_u32
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ref_i64
@@ -6773,6 +6957,7 @@ sym	logos_lang..logos.lang.option.Option__u8__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__&[u8]
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__&dyn Error
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Alignment
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__AsciiChar
@@ -6824,6 +7009,8 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__i64
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__i8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_u32
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ref_i64
@@ -6835,6 +7022,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__&[u8]
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__&dyn Error
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Alignment
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__AsciiChar
@@ -6886,6 +7074,8 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__i64
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__i8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_u32
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ref_i32
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ref_i64
@@ -6897,6 +7087,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__&[u8]
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__&dyn Error
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Alignment
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__AsciiChar
@@ -6948,6 +7139,8 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__i8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_u32
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ref_i32
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ref_i64
@@ -6959,6 +7152,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__&[u8]
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__&dyn Error
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__(u64, u32)
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Alignment
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__AsciiChar
@@ -7010,6 +7204,8 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__i64
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__i8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_u32
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ref_i64
@@ -7414,6 +7610,8 @@ sym	logos_lang..logos.lang.result.Result__err__g__Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__u32__ConvertError
@@ -7453,6 +7651,8 @@ sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__i64__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u32__ConvertError
@@ -7492,6 +7692,8 @@ sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__i64__
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__u32__ConvertError
@@ -7699,6 +7901,8 @@ sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u32__ConvertError
@@ -7738,6 +7942,8 @@ sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__u32__ConvertError
@@ -7777,6 +7983,8 @@ sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u32__ConvertError
@@ -7785,6 +7993,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u32__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u64__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u64__ParseIntError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u8__ConvertError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__void__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__File__i32
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Json__JsonError
@@ -7816,6 +8025,8 @@ sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__i
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u32__ConvertError
@@ -7855,6 +8066,8 @@ sym	logos_lang..logos.lang.result.Result__ok__g__Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__u32__ConvertError
@@ -7887,6 +8100,30 @@ sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$u64__PkdError__unwrap
 sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$u64__PkdError__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$u64__PkdError__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$u64__PkdError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__err__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$uslice_u8__PkdError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__err__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__pmut_u32__PkdError__unwrap_or_else__g__Result__fn(E) -> T
 sym	logos_lang..logos.lang.result.Result__pmut_u8__PkdError__err__g__Result
 sym	logos_lang..logos.lang.result.Result__pmut_u8__PkdError__expect__g__Result__slice_u8
 sym	logos_lang..logos.lang.result.Result__pmut_u8__PkdError__expect_err__g__Result__slice_u8
@@ -8014,6 +8251,8 @@ sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u32__ConvertError
@@ -8053,6 +8292,8 @@ sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u32__ConvertError
@@ -8092,6 +8333,8 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__i64__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u32__ConvertError
@@ -8131,6 +8374,8 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T_
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_PkdArray$G1$uslice_u8__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_u32__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__u32__ConvertError
@@ -8532,9 +8777,16 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__AtomicU32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__AtomicU64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__AtomicU8
 sym	logos_lang.logos.lang.any$type_id_of__g__void__AtomicUsize
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BTreeU64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowMutError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowedBuf
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BranchU64
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtArena
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtCursor
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtSnapshot
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtStore
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtTree
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ByteSplitter
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Bytes
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BytesMut
@@ -8571,6 +8823,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__FiberCtx
 sym	logos_lang.logos.lang.any$type_id_of__g__void__FieldInfo
 sym	logos_lang.logos.lang.any$type_id_of__g__void__FieldsView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__File
+sym	logos_lang.logos.lang.any$type_id_of__g__void__FindShuttle
 sym	logos_lang.logos.lang.any$type_id_of__g__void__FloatErrorKind
 sym	logos_lang.logos.lang.any$type_id_of__g__void__FnService
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Formatter
@@ -8598,6 +8851,8 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__JsonError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__JsonField
 sym	logos_lang.logos.lang.any$type_id_of__g__void__JsonWriter
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Latch
+sym	logos_lang.logos.lang.any$type_id_of__g__void__LeafKV
+sym	logos_lang.logos.lang.any$type_id_of__g__void__LeafU64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__LineReader
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Lines
 sym	logos_lang.logos.lang.any$type_id_of__g__void__LitKind
@@ -8606,6 +8861,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceU32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceU64
+sym	logos_lang.logos.lang.any$type_id_of__g__void__MapU64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Method
 sym	logos_lang.logos.lang.any$type_id_of__g__void__OView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Ordering
@@ -8647,6 +8903,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__SView2
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Scheduler
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SchemaCatalog
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Segment
+sym	logos_lang.logos.lang.any$type_id_of__g__void__ShuttleRes
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SipHasher
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SlotKind
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SockAddr4
@@ -9088,6 +9345,7 @@ sym	logos_lang.logos.lang.mem$realloc_buf__f__pmut_u8__i64
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__&[u8]
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__&dyn Error
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__(Arc<dyn BTreeNode>, SnapCtx<@hs_45653aa7d5363fd0>)
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__(u64, u32)
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Alignment
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Arc$G1$udyn_BTreeNode
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__AsciiChar
@@ -9139,6 +9397,8 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__i64
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__i8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_PkdAlloc
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_PkdArray$G1$u64
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_PkdArray$G1$uslice_u8
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_u32
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_u8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ref_i32
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ref_i64
@@ -9196,9 +9456,13 @@ sym	logos_lang.logos.lang.result$is_err_i32__f__Result
 sym	logos_lang.logos.lang.result$is_ok_i32__f__Result
 sym	logos_lang.logos.lang.result$unwrap_or_i32__f__Result__i32
 sym	logos_lang.logos.lang.slice$slice_copy_from__g__slice_T__slice_T__u64
+sym	logos_lang.logos.lang.slice$slice_copy_from__g__slice_T__slice_T__u8
 sym	logos_lang.logos.lang.slice$slice_copy_within__g__slice_T__i64__i64__i64__u64
+sym	logos_lang.logos.lang.slice$slice_copy_within__g__slice_T__i64__i64__i64__u8
 sym	logos_lang.logos.lang.slice$slice_get_range__g__slice_T__i64__i64__u64
+sym	logos_lang.logos.lang.slice$slice_get_range__g__slice_T__i64__i64__u8
 sym	logos_lang.logos.lang.slice$slice_get_range_mut__g__slice_T__i64__i64__u64
+sym	logos_lang.logos.lang.slice$slice_get_range_mut__g__slice_T__i64__i64__u8
 sym	logos_lang.logos.lang.str$bool_from_str__f__slice_u8
 sym	logos_lang.logos.lang.str$char_count__f__pcst_u8__i64
 sym	logos_lang.logos.lang.str$chars_from_raw__f__pcst_u8__i64
@@ -9348,6 +9612,88 @@ sym	logos_mem..logos.mem.any.TypeInfo__kind__f__ref_TypeInfo
 sym	logos_mem..logos.mem.any.TypeInfo__name__f__ref_TypeInfo
 sym	logos_mem..logos.mem.any.TypeInfo__pkg__f__ref_TypeInfo
 sym	logos_mem..logos.mem.any.TypeInfo__type_code__f__ref_TypeInfo
+sym	logos_mem..logos.mem.bt.BtArena__alloc_node__f__refmut_BtArena__bool__u32
+sym	logos_mem..logos.mem.bt.BtArena__at__f__ref_BtArena__u64
+sym	logos_mem..logos.mem.bt.BtCursor__chunk_remaining__f__ref_BtCursor__ref_BtArena
+sym	logos_mem..logos.mem.bt.BtCursor__key__f__ref_BtCursor__ref_BtArena
+sym	logos_mem..logos.mem.bt.BtCursor__next__f__refmut_BtCursor__ref_BtArena
+sym	logos_mem..logos.mem.bt.BtCursor__next_chunk__f__refmut_BtCursor__ref_BtArena
+sym	logos_mem..logos.mem.bt.BtCursor__prev__f__refmut_BtCursor__ref_BtArena
+sym	logos_mem..logos.mem.bt.BtCursor__val__f__ref_BtCursor__ref_BtArena
+sym	logos_mem..logos.mem.bt.BtCursor__valid__f__ref_BtCursor
+sym	logos_mem..logos.mem.bt.FindShuttle__on_branch__f__pmut_FindShuttle__pmut_PkdAlloc
+sym	logos_mem..logos.mem.bt.FindShuttle__on_leaf__f__pmut_FindShuttle__pmut_PkdAlloc
+sym	logos_mem..logos.mem.bt.branch.BranchU64__adopt__f__pmut_u8
+sym	logos_mem..logos.mem.bt.branch.BranchU64__block__f__ref_BranchU64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__can_insert_child__f__ref_BranchU64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__child__f__ref_BranchU64__u32
+sym	logos_mem..logos.mem.bt.branch.BranchU64__child_addr__f__ref_BranchU64__u32
+sym	logos_mem..logos.mem.bt.branch.BranchU64__child_count__f__ref_BranchU64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__cow_clone__f__ref_BranchU64__u64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__find_child__f__ref_BranchU64__u64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__free_block__f__BranchU64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__free_children__f__BranchU64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__get_or__f__ref_BranchU64__u64__u64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__insert_child__f__refmut_BranchU64__u32__u64__u64__pmut_u8
+sym	logos_mem..logos.mem.bt.branch.BranchU64__max_sep__f__ref_BranchU64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__new__f__void
+sym	logos_mem..logos.mem.bt.branch.BranchU64__new_in__f__u64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__push_child__f__refmut_BranchU64__u64__u64__pmut_u8
+sym	logos_mem..logos.mem.bt.branch.BranchU64__rank__f__ref_BranchU64__u64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__sep_at__f__ref_BranchU64__u32
+sym	logos_mem..logos.mem.bt.branch.BranchU64__set_child_addr__f__refmut_BranchU64__u32__pmut_u8
+sym	logos_mem..logos.mem.bt.branch.BranchU64__size_at__f__ref_BranchU64__u32
+sym	logos_mem..logos.mem.bt.branch.BranchU64__split_into__f__refmut_BranchU64__refmut_BranchU64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__total_size__f__ref_BranchU64
+sym	logos_mem..logos.mem.bt.branch.BranchU64__update_child__f__refmut_BranchU64__u32__u64__u64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__adopt__f__pmut_u8
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__block__f__ref_LeafU64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__can_merge_with__f__ref_LeafU64__ref_LeafU64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__count__f__ref_LeafU64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__cow_clone__f__ref_LeafU64__u64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__free__f__LeafU64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__key_at__f__ref_LeafU64__u32
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__lower_bound__f__ref_LeafU64__u64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__max_key__f__ref_LeafU64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__merge_with__f__refmut_LeafU64__ref_LeafU64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__new__f__void
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__new_in__f__u64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__split_into__f__refmut_LeafU64__refmut_LeafU64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__try_insert__f__refmut_LeafU64__u64__u64
+sym	logos_mem..logos.mem.bt.leaf.LeafU64__val_at__f__ref_LeafU64__u32
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__adopt__f__pmut_u8
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__block__f__ref_LeafKV
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__can_merge_with__f__ref_LeafKV__ref_LeafKV
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__count__f__ref_LeafKV
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__free__f__LeafKV
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__key_at__f__ref_LeafKV__u32
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__lower_bound__f__ref_LeafKV__u64
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__max_key__f__ref_LeafKV
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__merge_with__f__refmut_LeafKV__ref_LeafKV
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__new__f__void
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__split_index__f__ref_LeafKV
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__split_into__f__refmut_LeafKV__refmut_LeafKV
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__try_insert__f__refmut_LeafKV__u64__slice_u8
+sym	logos_mem..logos.mem.bt.leaf_kv.LeafKV__val_at__f__ref_LeafKV__u32
+sym	logos_mem..logos.mem.bt.map.BtSnapshot__free__f__BtSnapshot
+sym	logos_mem..logos.mem.bt.map.BtSnapshot__get_or__f__ref_BtSnapshot__u64__u64
+sym	logos_mem..logos.mem.bt.map.BtSnapshot__insert__f__refmut_BtSnapshot__u64__u64
+sym	logos_mem..logos.mem.bt.map.BtSnapshot__map__f__refmut_BtSnapshot
+sym	logos_mem..logos.mem.bt.map.BtSnapshot__size__f__ref_BtSnapshot
+sym	logos_mem..logos.mem.bt.map.BtSnapshot__snapshot_id__f__ref_BtSnapshot
+sym	logos_mem..logos.mem.bt.map.BtStore__commit__f__refmut_BtStore__ref_BtSnapshot
+sym	logos_mem..logos.mem.bt.map.BtStore__free__f__BtStore
+sym	logos_mem..logos.mem.bt.map.BtStore__new__f__void
+sym	logos_mem..logos.mem.bt.map.BtStore__snapshot__f__refmut_BtStore
+sym	logos_mem..logos.mem.bt.map.MapU64__get_or__f__ref_MapU64__u64__u64
+sym	logos_mem..logos.mem.bt.map.MapU64__insert__f__ref_MapU64__u64__u64
+sym	logos_mem..logos.mem.bt.map.MapU64__size__f__ref_MapU64
+sym	logos_mem..logos.mem.bt.tree.BTreeU64__free__f__BTreeU64
+sym	logos_mem..logos.mem.bt.tree.BTreeU64__get_or__f__ref_BTreeU64__u64__u64
+sym	logos_mem..logos.mem.bt.tree.BTreeU64__height__f__ref_BTreeU64
+sym	logos_mem..logos.mem.bt.tree.BTreeU64__insert__f__refmut_BTreeU64__u64__u64
+sym	logos_mem..logos.mem.bt.tree.BTreeU64__new__f__void
+sym	logos_mem..logos.mem.bt.tree.BTreeU64__size__f__ref_BTreeU64
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__drop__g__HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__get__g__pmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__get_or_insert__g__pmut_HashMap$G2$K$V__K__V
@@ -9592,6 +9938,18 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__len__g_
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__len__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__pop__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__drop__g__Vec$G1$T
@@ -9755,6 +10113,7 @@ sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Format
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__i64__i64
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__i64__i64__i64__i64
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__i64__i64__i64__i64__i64
+sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__u64__u32
 sym	logos_mem..logos.mem.fmt.*const u8__fmt__f__ref_<error>__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.DebugList__finish__f__refmut_DebugList
 sym	logos_mem..logos.mem.fmt.DebugMap__finish__f__refmut_DebugMap
@@ -9781,6 +10140,7 @@ sym	logos_mem..logos.mem.fmt.Formatter__write_int_dec_u64__f__refmut_Formatter__
 sym	logos_mem..logos.mem.fmt.Formatter__write_int_radix_u64__f__refmut_Formatter__u64__u64__bool
 sym	logos_mem..logos.mem.fmt.Formatter__write_str__f__refmut_Formatter__slice_u8
 sym	logos_mem..logos.mem.fmt.Option__&[u8]__fmt__g__ref_Option__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.Option__(u64, u32)__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__Ordering__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__String__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__Vec$G1$slice_u8__fmt__g__ref_Option__refmut_Formatter
@@ -9791,6 +10151,7 @@ sym	logos_mem..logos.mem.fmt.Option__bool__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__f32__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__f64__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__&[u8]
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__(u64, u32)
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Ordering
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__String
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$slice_u8
@@ -9907,12 +10268,16 @@ sym	logos_mem..logos.mem.fmt.void__Debug__fmt__f__ref_void__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.void__Display__fmt__f__ref_void__refmut_Formatter
 sym	logos_mem..logos.mem.manually_drop.Alignment__as_u64__f__ref_Alignment
 sym	logos_mem..logos.mem.manually_drop.Alignment__log2__f__ref_Alignment
+sym	logos_mem..logos.mem.pkd.$slice$T__entry_bytes__g__slice_E__u8
 sym	logos_mem..logos.mem.pkd.PkdAlloc__allocate__f__dstmutref_PkdAlloc__u32__u32__SlotKind
+sym	logos_mem..logos.mem.pkd.PkdAlloc__allocate_cell__g__dstmutref_PkdAlloc__u32__S__u32
 sym	logos_mem..logos.mem.pkd.PkdAlloc__allocate_nested__f__dstmutref_PkdAlloc__u32__u32__u32
 sym	logos_mem..logos.mem.pkd.PkdAlloc__allocated__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__allocator__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__base__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__block_size__f__dstref_PkdAlloc
+sym	logos_mem..logos.mem.pkd.PkdAlloc__cells__g__dstref_PkdAlloc__u32__u32
+sym	logos_mem..logos.mem.pkd.PkdAlloc__cells_mut__g__dstmutref_PkdAlloc__u32__u32
 sym	logos_mem..logos.mem.pkd.PkdAlloc__client_area__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__compute_element_offset__f__dstref_PkdAlloc__pcst_u8
 sym	logos_mem..logos.mem.pkd.PkdAlloc__data__f__dstref_PkdAlloc__u32
@@ -9926,6 +10291,9 @@ sym	logos_mem..logos.mem.pkd.PkdAlloc__enlarge__f__dstmutref_PkdAlloc__u32
 sym	logos_mem..logos.mem.pkd.PkdAlloc__find_element__f__dstref_PkdAlloc__pcst_u8
 sym	logos_mem..logos.mem.pkd.PkdAlloc__free_at__f__dstmutref_PkdAlloc__u32
 sym	logos_mem..logos.mem.pkd.PkdAlloc__free_space__f__dstref_PkdAlloc
+sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__PkdArray$G1$u64
+sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__PkdArray$G1$uslice_u8
+sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__u32
 sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__u8
 sym	logos_mem..logos.mem.pkd.PkdAlloc__has_allocator__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__import_block__f__dstmutref_PkdAlloc__u32__pcst_PkdAlloc__u32
@@ -9962,6 +10330,17 @@ sym	logos_mem..logos.mem.pkd.PkdArray$G1$u64__remove__g__refmut_PkdArray$G1$T__u
 sym	logos_mem..logos.mem.pkd.PkdArray$G1$u64__set__g__refmut_PkdArray$G1$T__u32__T$where$Copy$Fst$StableLayout
 sym	logos_mem..logos.mem.pkd.PkdArray$G1$u64__split_into__g__refmut_PkdArray$G1$T__refmut_PkdArray$G1$T__u32$where$Copy$Fst$StableLayout
 sym	logos_mem..logos.mem.pkd.PkdArray$G1$u64__volume_upto__g__ref_PkdArray$G1$T__u32$where$Copy$Fst$StableLayout
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__count__g__ref_PkdArray$G1$T
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__dst_len__g__pcst_PkdArray$G1$T
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__estimate_insert__g__ref_PkdArray$G1$T__u32
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__estimate_merge__g__ref_PkdArray$G1$T__ref_PkdArray$G1$T
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__format__g__pmut_PkdAlloc__u32
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__get_bytes__g__ref_PkdArray$G1$T__u32
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__insert__g__refmut_PkdArray$G1$T__u32__ref_T
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__merge_from__g__refmut_PkdArray$G1$T__ref_PkdArray$G1$T
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__remove__g__refmut_PkdArray$G1$T__u32
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__split_into__g__refmut_PkdArray$G1$T__refmut_PkdArray$G1$T__u32
+sym	logos_mem..logos.mem.pkd.PkdArray$G1$uslice_u8__volume_upto__g__ref_PkdArray$G1$T__u32
 sym	logos_mem..logos.mem.string.String__advance_len__f__refmut_String__i64
 sym	logos_mem..logos.mem.string.String__as_datum__f__ref_String
 sym	logos_mem..logos.mem.string.String__as_ptr__f__ref_String
@@ -10020,6 +10399,26 @@ sym	logos_mem..logos.mem.writ.tag_system.DataTypeTagSystem__read_tag__f__ref_Dat
 sym	logos_mem..logos.mem.writ.tag_system.TomTagSystem__read_tag__f__ref_TomTagSystem__pcst_u8
 sym	logos_mem..logos.mem.writ.tag_system.WritTagSystem__read_tag__f__ref_WritTagSystem__pcst_u8
 sym	logos_mem..logos.mem.writ.tag_system.WritTypeTagSystem__read_tag__f__ref_WritTypeTagSystem__pcst_u8
+sym	logos_mem.logos.mem.bt$arena_new__f__void
+sym	logos_mem.logos.mem.bt$bt_bulk_build__f__refmut_BtArena__pcst_u64__pcst_u64__i64__u32
+sym	logos_mem.logos.mem.bt$bt_count__f__ref_BtArena__ref_BtTree
+sym	logos_mem.logos.mem.bt$bt_find__f__ref_BtArena__ref_BtTree__u64
+sym	logos_mem.logos.mem.bt$bt_first__f__ref_BtArena__ref_BtTree
+sym	logos_mem.logos.mem.bt$bt_insert__f__refmut_BtArena__refmut_BtTree__u64__u64
+sym	logos_mem.logos.mem.bt$bt_new__f__refmut_BtArena
+sym	logos_mem.logos.mem.bt$bt_remove__f__refmut_BtArena__refmut_BtTree__u64
+sym	logos_mem.logos.mem.bt$bt_ride__f__ref_BtArena__u64__&dyn Shuttle__refmut_Vec$G1$tup$2$u64$u32
+sym	logos_mem.logos.mem.bt$bt_seek__f__ref_BtArena__ref_BtTree__u64
+sym	logos_mem.logos.mem.bt$bt_stage__f__void
+sym	logos_mem.logos.mem.bt.node$node_alloc__f__u32__u32__u64
+sym	logos_mem.logos.mem.bt.node$node_dec_rc__f__pmut_u8
+sym	logos_mem.logos.mem.bt.node$node_free__f__pmut_u8
+sym	logos_mem.logos.mem.bt.node$node_inc_rc__f__pmut_u8
+sym	logos_mem.logos.mem.bt.node$node_pkd__f__pmut_u8
+sym	logos_mem.logos.mem.bt.node$node_rc__f__pmut_u8
+sym	logos_mem.logos.mem.bt.node$node_set_rc__f__pmut_u8__u32
+sym	logos_mem.logos.mem.bt.node$node_set_snapshot__f__pmut_u8__u64
+sym	logos_mem.logos.mem.bt.node$node_snapshot__f__pmut_u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__&[u8]__Vec$G1$i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__&[u8]__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], &[u8])__u8
@@ -10051,6 +10450,7 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(i64, &[u8], i64, i64,
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(i64, i64, i64)
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(i64, i64, i64, i64, i64)
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(i64, i64, i64, i64, i64, i64)
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(u64, u32)
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Arc$G1$udyn_BTreeNode
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__DirEntry
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__ExprBlob
@@ -11039,6 +11439,18 @@ type	logos.mem.any.FieldInfo	fields=[info:WritStatic,map_bits:i64]
 type	logos.mem.any.FieldsView	fields=[info:WritStatic,arr_bits:i64]
 type	logos.mem.any.TypeInfo	fields=[inner:WritStatic]
 type	logos.mem.boxed.Box	fields=[ptr:*mut T]
+type	logos.mem.bt.BtArena	fields=[blocks:Vec<i64>]
+type	logos.mem.bt.BtCursor	fields=[path:Vec<(u64, u32)>,leaf:u64,pos:u32]
+type	logos.mem.bt.BtTree	fields=[root:u64]
+type	logos.mem.bt.FindShuttle	fields=[key:u64]
+type	logos.mem.bt.ShuttleRes	fields=[pos:u32,found:bool]
+type	logos.mem.bt.branch.BranchU64	fields=[mem:*mut u8,cap:u32]
+type	logos.mem.bt.leaf.LeafU64	fields=[mem:*mut u8,cap:u32]
+type	logos.mem.bt.leaf_kv.LeafKV	fields=[mem:*mut u8,cap:u32]
+type	logos.mem.bt.map.BtSnapshot	fields=[snp:u64,root:*mut u8,level:u32]
+type	logos.mem.bt.map.BtStore	fields=[next_snp:u64,head_root:*mut u8,head_level:u32]
+type	logos.mem.bt.map.MapU64	fields=[snap:*mut BtSnapshot]
+type	logos.mem.bt.tree.BTreeU64	fields=[root:*mut u8,root_level:u32]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]
 type	logos.mem.collections.deque.VecDeque	fields=[buf:*mut T,head:i64,len:i64,cap:i64]
@@ -11264,6 +11676,10 @@ vtable	logos.lang.writ.container.Resident	slots=[]
 vtable	logos.lang.writ.dview.Datum	slots=[datum_tag,datum_meta,as_datum,from_datum]
 vtable	logos.lang.writ.wmap.WIntKeyTag	slots=[map_code]
 vtable	logos.lang.writ.wmap.WritField	slots=[from_wany,to_wany]
+vtable	logos.mem.bt.Shuttle	slots=[on_branch,on_leaf]
+vtable	logos.mem.bt.map.Ctr	slots=[size]
+vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id]
+vtable	logos.mem.bt.map.Store	slots=[]
 vtable	logos.mem.fmt.Binary	slots=[fmt]
 vtable	logos.mem.fmt.Debug	slots=[fmt]
 vtable	logos.mem.fmt.Display	slots=[fmt]

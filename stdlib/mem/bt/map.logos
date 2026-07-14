@@ -1,4 +1,4 @@
-// memoria.bt.map — the copy-on-write, snapshot-versioned u64→u64 ordered map,
+// logos.mem.bt.map — the copy-on-write, snapshot-versioned u64→u64 ordered map,
 // expressed through the fundamental container interfaces (ADR 0020 Track B 2c):
 //
 //   trait Store    — owns blocks + snapshot lifecycle (open/commit/reclaim)
@@ -16,12 +16,12 @@
 // free the block and recurse into a branch's children. A never-snapshotted tree
 // keeps `snapshot_id == current` on every node, so it never copies — zero CoW
 // overhead until the first snapshot() introduces sharing.
-package memoria.bt.map;
+package logos.mem.bt.map;
 
 use logos.mem.pkd;
-use memoria.bt.node;      // node_alloc/pkd/snapshot/rc/inc_rc/dec_rc/free
-use memoria.bt.leaf;      // LeafU64
-use memoria.bt.branch;    // BranchU64
+use logos.mem.bt.node;      // node_alloc/pkd/snapshot/rc/inc_rc/dec_rc/free
+use logos.mem.bt.leaf;      // LeafU64
+use logos.mem.bt.branch;    // BranchU64
 
 // ── the fundamental interfaces ──────────────────────────────────────────────
 

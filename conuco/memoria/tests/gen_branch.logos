@@ -11,7 +11,7 @@
 package test;
 
 use logos.std.canon.container_item;   // the `container` lowering handler
-use memoria.bt.leaf;                   // LeafU64 children
+use logos.mem.bt.leaf;                   // LeafU64 children
 use logos.mem.pkd;
 
 // key:u64 → all fixed-size → generated branch (three FSE columns sep/sz/ptr).

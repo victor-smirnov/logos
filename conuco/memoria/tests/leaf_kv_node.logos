@@ -5,7 +5,7 @@
 // binary search over combined column volume drives the split.
 package test;
 
-use memoria.bt.leaf_kv;
+use logos.mem.bt.leaf_kv;
 use logos.lang.str;
 
 fn beq(b: &[u8], want: str) -> bool {

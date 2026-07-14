@@ -1,4 +1,4 @@
-// memoria.bt.leaf_kv — LeafKV: a CONCRETE columnar b+tree leaf with a VLE
+// logos.mem.bt.leaf_kv — LeafKV: a CONCRETE columnar b+tree leaf with a VLE
 // column (u64 key, str value) validating the VOLUME-BALANCED Node path (ADR
 // 0020 Track B, step 2b). Companion to LeafU64 (all-FSE, count-balanced).
 //
@@ -14,7 +14,7 @@
 //   - try_insert: sum the columns' estimate_insert deltas vs free space; on a
 //     key hit the value is replaced in place (VLE: remove+insert), Map MAX.
 //   - split_into: volume-balanced index over BOTH columns; merge_with appends.
-package memoria.bt.leaf_kv;
+package logos.mem.bt.leaf_kv;
 
 use logos.mem.pkd;          // PkdAlloc, PkdArray, pkd_format, PkdError
 use logos.lang.mem;       // alloc / dealloc

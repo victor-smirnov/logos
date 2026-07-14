@@ -5,8 +5,8 @@
 // Nodes are tree-managed: the branch owns its child blocks and frees them.
 package test;
 
-use memoria.bt.leaf;      // LeafU64
-use memoria.bt.branch;    // BranchU64
+use logos.mem.bt.leaf;      // LeafU64
+use logos.mem.bt.branch;    // BranchU64
 
 fn fill(lo: u64, hi: u64) -> LeafU64 {
     let mut lf: LeafU64 = LeafU64::new();

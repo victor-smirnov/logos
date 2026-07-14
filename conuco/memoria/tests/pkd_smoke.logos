@@ -6,7 +6,7 @@
 package test;
 
 use logos.mem.pkd;
-use memoria.bt;
+use logos.mem.bt;
 use memoria.ctr;
 use memoria.store;
 use logos.lang.mem;

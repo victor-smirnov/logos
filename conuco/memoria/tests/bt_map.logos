@@ -6,7 +6,7 @@
 package test;
 
 use logos.mem.pkd;
-use memoria.bt;
+use logos.mem.bt;
 use logos.lang.mem;
 use logos.lang.arith;   // wrapping_mul/add — the LCG wraps BY DESIGN
 use logos.lang.option;

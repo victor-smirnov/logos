@@ -1,4 +1,4 @@
-// memoria.bt.tree — BTreeU64: the concrete b+tree assembly over LeafU64 leaves
+// logos.mem.bt.tree — BTreeU64: the concrete b+tree assembly over LeafU64 leaves
 // and BranchU64 branches (ADR 0020 Track B 2c). Multi-level, height-grown on
 // root split. Level convention (user): a LEAF is level 0, a BRANCH is level > 0;
 // the tree carries the root's level, so descent always knows whether the node
@@ -10,11 +10,11 @@
 // b+tree cascade — descend to the covering leaf, try_insert; on a full node
 // split it, promote the new right sibling one level up, and split branches (and
 // finally grow a new root) as the split propagates.
-package memoria.bt.tree;
+package logos.mem.bt.tree;
 
 use logos.mem.pkd;
-use memoria.bt.leaf;      // LeafU64
-use memoria.bt.branch;    // BranchU64
+use logos.mem.bt.leaf;      // LeafU64
+use logos.mem.bt.branch;    // BranchU64
 use logos.lang.mem;
 
 // The upward result of a recursive insert into a subtree:

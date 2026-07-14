@@ -1,4 +1,4 @@
-// memoria.bt.branch — BranchU64: a CONCRETE b+tree branch node over LeafU64
+// logos.mem.bt.branch — BranchU64: a CONCRETE b+tree branch node over LeafU64
 // children (ADR 0020 Track B, step 2c foundation). Concrete on purpose — the
 // real branch is generated per instantiation; this is the validation vehicle
 // and the generator's template, the height>1 companion to LeafU64/LeafKV.
@@ -16,11 +16,11 @@
 // Nodes are TREE-MANAGED (block-id/arena lifecycle, ADR NodeARC→block-id): the
 // branch owns its child blocks; free_children releases them. Branch columns are
 // all-FSE, so split is count-balanced (the leaf's volume path does not apply).
-package memoria.bt.branch;
+package logos.mem.bt.branch;
 
 use logos.mem.pkd;          // PkdAlloc, PkdArray
-use memoria.bt.leaf;      // LeafU64
-use memoria.bt.node;      // node_alloc / node_pkd / node_free (16-byte header)
+use logos.mem.bt.leaf;      // LeafU64
+use logos.mem.bt.node;      // node_alloc / node_pkd / node_free (16-byte header)
 use logos.lang.result;
 
 /// Branch block size (a container constant later; a fixed 4K for now).
