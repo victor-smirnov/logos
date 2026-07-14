@@ -219,3 +219,8 @@ __attribute__((weak)) void  logos_user_tls_set(int64_t* p) { (void)p; }
 static int64_t _stub_xwake;
 __attribute__((weak)) int64_t logos_xwake_get(void) { return _stub_xwake; }
 __attribute__((weak)) void  logos_xwake_set(int64_t p) { _stub_xwake = p; }
+
+// Fiber stack provisioning (logos_fiber_stack_alloc/free) lives in fiber_stack.c
+// — a strong mmap+guard-page implementation in this same rt archive. No weak
+// stub is needed here: it is always resolvable for both the metacall JIT and
+// user links. An LCM target that does not link liblstdlib_rt.a provides its own.
