@@ -2,9 +2,9 @@
 # WQL/Trama PARSER REGENERATION (ADR 0012 peg-frontend, Phase 4).
 #
 # Regenerates the CHECKED-IN generated parsers from their grammars:
-#   stdlib/std/wql/grammars/el.peg    -> stdlib/std/wql/el_parser.logos
-#   stdlib/std/wql/grammars/trama.peg -> stdlib/std/wql/trama_parser.logos
-#   stdlib/std/wql/grammars/wql.peg   -> stdlib/std/wql/wql_surface_parser.logos
+#   stdlib/mem/wql/grammars/el.peg    -> stdlib/mem/wql/el_parser.logos
+#   stdlib/mem/wql/grammars/trama.peg -> stdlib/mem/wql/trama_parser.logos
+#   stdlib/mem/wql/grammars/wql.peg   -> stdlib/mem/wql/wql_surface_parser.logos
 #
 # This is an OFFLINE, opt-in step (target `wql_peg_regen`). The generated parsers
 # are committed source artifacts; a normal `cmake --build` compiles the committed
@@ -22,8 +22,8 @@ repo="$(cd "$here/../../.." && pwd)"
 build="${1:-$repo/build}"
 
 peg="$build/bin/peg_gen_logos"
-grammars="$repo/stdlib/std/wql/grammars"
-outdir="$repo/stdlib/std/wql"
+grammars="$repo/stdlib/mem/wql/grammars"
+outdir="$repo/stdlib/mem/wql"
 
 [ -x "$peg" ] || { echo "missing $peg — build peg_gen_logos first (cmake --build $build --target peg_gen_logos)"; exit 1; }
 

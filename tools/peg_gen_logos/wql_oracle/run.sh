@@ -13,7 +13,7 @@
 # or:   cmake --build build --target wql_peg_oracle
 #
 # Requires logosc + a built liblogos-std that INCLUDES the committed generated
-# parser (stdlib/std/wql/el_parser.logos) — i.e. a normal `cmake --build`.
+# parser (stdlib/mem/wql/el_parser.logos) — i.e. a normal `cmake --build`.
 set -u
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -94,14 +94,14 @@ add_test(NAME peg_ast_header_fresh
 set_tests_properties(peg_ast_header_fresh PROPERTIES LABELS "lint")
 
 # ── The other mirror: %schema blocks vs the ADR-0011 `schema` items ──────────
-# el.peg's %schema restates stdlib/std/wql/ir.logos, wql.peg's restates
+# el.peg's %schema restates stdlib/mem/wql/ir.logos, wql.peg's restates
 # plan.logos. The grammar declares only the fields it writes, and the .logos
 # files also carry schema enums, helpers and the fan-cap fns — so the .peg
 # cannot GENERATE the items. But every field it DOES declare must agree, or the
 # generated parser writes the wrong TOM slot. Until now el.peg merely ASKED, in
 # a comment, that "types MUST match the field types in ir.logos exactly".
-set(WQL_GRAMMARS ${CMAKE_SOURCE_DIR}/stdlib/std/wql/grammars)
-set(WQL_SCHEMAS  ${CMAKE_SOURCE_DIR}/stdlib/std/wql)
+set(WQL_GRAMMARS ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/grammars)
+set(WQL_SCHEMAS  ${CMAKE_SOURCE_DIR}/stdlib/mem/wql)
 
 add_test(NAME peg_schema_mirror_el
     COMMAND $<TARGET_FILE:peg_gen_cpp> ${WQL_GRAMMARS}/el.peg

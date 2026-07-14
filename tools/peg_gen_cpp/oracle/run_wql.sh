@@ -22,7 +22,7 @@ build="${1:-$repo/build}"
 logosc="$build/bin/logosc"
 peg_cpp="$build/tools/peg_gen_cpp/peg_gen_cpp"
 libd="$build/lib/logos"
-grammars="$repo/stdlib/std/wql/grammars"
+grammars="$repo/stdlib/mem/wql/grammars"
 corpus="$here/wql_corpus.txt"
 
 for f in "$logosc" "$peg_cpp" "$corpus"; do
@@ -55,7 +55,7 @@ core="$(find "$build" -name 'liblogos_core*.a' | head -1)"
     -Wl,--end-group -lpthread \
     -o "$work/cpp_wql" || { echo "C++ harness build failed"; exit 1; }
 
-# The Logos side needs no regeneration: stdlib/std/wql/wql_surface_parser.logos is
+# The Logos side needs no regeneration: stdlib/mem/wql/wql_surface_parser.logos is
 # the committed peg_gen_logos output and is already inside liblogos-std.
 echo "== building Logos harness =="
 "$logosc" -O0 "$here/wql_sdump.logos" -o "$work/wql_sdump.o" 2>&1 | flt | grep -iE 'error' \

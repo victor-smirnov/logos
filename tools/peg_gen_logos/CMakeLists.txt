@@ -92,7 +92,7 @@ add_custom_target(peg_gen_logos_schema_test
 
 # ── WQL / Trama frontend regeneration + behavior oracle (ADR 0012, Phase 4) ──
 #
-# The generated EL + Trama parsers (stdlib/std/wql/{el_parser,trama_parser}.logos)
+# The generated EL + Trama parsers (stdlib/mem/wql/{el_parser,trama_parser}.logos)
 # are CHECKED-IN source artifacts, compiled into liblogos-std by a normal build.
 # A normal `cmake --build` does NOT run the generator (no build cycle: peg_gen_logos
 # links liblogos-std). These two OPT-IN targets manage the offline lifecycle:
@@ -108,7 +108,7 @@ add_custom_target(wql_peg_regen
             ${CMAKE_BINARY_DIR}
     DEPENDS peg_gen_logos
     USES_TERMINAL
-    COMMENT "Regenerate committed WQL/Trama parsers (el.peg/trama.peg -> stdlib/std/wql)")
+    COMMENT "Regenerate committed WQL/Trama parsers (el.peg/trama.peg -> stdlib/mem/wql)")
 
 add_custom_target(wql_peg_oracle
     COMMAND ${CMAKE_COMMAND} -E env bash
