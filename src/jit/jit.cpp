@@ -6,6 +6,7 @@
 #include <llvm/ExecutionEngine/Orc/CoreContainers.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/ObjectFileInterface.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -77,8 +78,29 @@ bool Jit::add_static_archive(std::string_view path) {
     if (!impl_->lljit) { last_err_ = "Jit::init not called"; return false; }
     auto& jd = impl_->lljit->getMainJITDylib();
     std::string p(path);
+    // Tier-agnostic metacall: the layer archives legitimately carry duplicate
+    // copies of the same symbol — a lower layer (e.g. logos-lcm) codegens an
+    // ast_only metaprog generic, and a higher layer (logos-std) that uses it via
+    // a derive/mapping re-instantiates the SAME generic into its own object (the
+    // ast_only body is absent from the lower layer's binary index, so mono can't
+    // reference it and re-instantiates). Loading several of these archives into
+    // one JITDylib then hits "Duplicate definition". The duplicates are benign
+    // (identical code), so mark every static-archive symbol Weak: ORC keeps one
+    // definition and drops the rest instead of erroring. This makes the metacall
+    // robust to WHICH tier metaprog (or any shared generic) lives in.
+    auto weak_iface = [](llvm::orc::ExecutionSession& es,
+                         llvm::MemoryBufferRef buf)
+        -> llvm::Expected<llvm::orc::MaterializationUnit::Interface> {
+        auto iface = llvm::orc::getObjectFileInterface(es, buf);
+        if (!iface) return iface.takeError();
+        for (auto& kv : iface->SymbolFlags)
+            kv.second |= llvm::JITSymbolFlags::Weak;
+        return iface;
+    };
     auto gen = llvm::orc::StaticLibraryDefinitionGenerator::Load(
-        impl_->lljit->getObjLinkingLayer(), p.c_str());
+        impl_->lljit->getObjLinkingLayer(), p.c_str(),
+        llvm::orc::StaticLibraryDefinitionGenerator::VisitMembersFunction(),
+        std::move(weak_iface));
     if (!gen) {
         last_err_ = take_err(gen.takeError());
         return false;

@@ -5,3 +5,8 @@ root stdlib/lcm/
 tier lcm
 depends logos-mem
 depends logos-lang
+
+# Metaprog plumbing references host externs defined inside logosc for JIT'd
+# hooks. ast_only embeds their .writ0 AST (the metacall JIT recompiles them)
+# while skipping codegen (the externs aren't linkable into user binaries).
+ast_only compiler/metaprog
