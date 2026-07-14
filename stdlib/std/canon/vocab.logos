@@ -46,7 +46,8 @@ pub const K_REASON: str = "reason";
 // ── Kinds ────────────────────────────────────────────────────────────────
 pub const KIND_VECTOR:      str = "vector";
 pub const KIND_ORDERED_MAP: str = "ordered_map";
-pub const KIND_NODE:        str = "node";   // a storage node (b+tree leaf/branch)
+pub const KIND_NODE:        str = "node";   // a storage node (b+tree leaf)
+pub const KIND_BRANCH:      str = "branch"; // a b+tree BRANCH (routing node over children)
 
 // ── Measure functions ────────────────────────────────────────────────────
 pub const MFN_COUNT: str = "count";

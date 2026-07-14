@@ -554,6 +554,111 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str) {
     em.commit();
 }
 
+// Emits a concrete b+tree BRANCH (routing) node for one kind=branch container
+// (ADR 0020 Track B 2c). Reproduces the hand-written BranchU64 template but on
+// PLAIN pkd (alloc / pkd_format / dealloc, no CoW node header) — three sibling
+// FSE columns over one owned block:
+//   slot 0 sep (kty) : each child's separator = the MAX key in its subtree;
+//   slot 1 sz  (u64) : each child's subtree SIZE (the SUM measure column);
+//   slot 2 ptr (u64) : each child's block address (reached via child_addr).
+// A branch is ALWAYS count-balanced (all-FSE) — no split_policy verdict, unlike
+// a leaf. The branch is CHILD-TYPE-AGNOSTIC (generated with no concrete leaf
+// type in scope), so the child-descent operations (rank, get_or) take a descent
+// HOOK fn-pointer — the caller binds it to the concrete leaf type; free_children
+// releases child blocks by raw dealloc (block-id lifecycle, no typed handle).
+fn emit_branch_node(name: str, kty: str) {
+    let view: OView = oview_module_ast();
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.push_text("\nuse logos.mem.pkd;\nuse logos.lang.mem;\nuse logos.lang.result;\n\n");
+    em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
+    em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
+    // new — one owned block, three FSE columns (sep: kty, sz/ptr: u64)
+    em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" {\n");
+    em.push_text("        unsafe {\n");
+    em.push_text("            let mem: *mut u8 = alloc(4096i64);\n");
+    em.push_text("            let a: *mut PkdAlloc = pkd_format(mem, 4096u32, 3u32);\n");
+    em.push_text("            match PkdArray::<"); em.push_text(kty); em.push_text(">::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"sep col\"); } }\n");
+    em.push_text("            match PkdArray::<u64>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"sz col\"); } }\n");
+    em.push_text("            match PkdArray::<u64>::format(a, 2u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"ptr col\"); } }\n");
+    em.push_text("            return "); em.push_text(name); em.push_text(" { mem: mem, cap: 4096u32 };\n");
+    em.push_text("        }\n    }\n");
+    // adopt / block
+    em.push_text("    pub static fn adopt(mem: *mut u8) -> "); em.push_text(name);
+    em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }\n");
+    em.push_text("    pub fn block(self: &"); em.push_text(name); em.push_text(") -> *mut u8 { return self.mem; }\n");
+    // column accessors
+    em.push_text("    unsafe fn a(self: &"); em.push_text(name); em.push_text(") -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }\n");
+    em.push_text("    unsafe fn sep(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(kty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(kty); em.push_text(">>(0u32); }\n");
+    em.push_text("    unsafe fn szc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(1u32); }\n");
+    em.push_text("    unsafe fn ptrc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(2u32); }\n");
+    // child_count / sep_at / size_at / child_addr / set_child_addr
+    em.push_text("    pub fn child_count(self: &"); em.push_text(name); em.push_text(") -> u32 { return unsafe { (*self.sep()).count() }; }\n");
+    em.push_text("    pub fn sep_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(kty); em.push_text(" { return unsafe { (*self.sep()).get(i) }; }\n");
+    em.push_text("    pub fn size_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> u64 { return unsafe { (*self.szc()).get(i) }; }\n");
+    em.push_text("    pub fn child_addr(self: &"); em.push_text(name); em.push_text(", i: u32) -> *mut u8 { return unsafe { (*self.ptrc()).get(i) as *mut u8 }; }\n");
+    em.push_text("    pub fn set_child_addr(self: &mut "); em.push_text(name); em.push_text(", i: u32, ptr: *mut u8) { unsafe { (*self.ptrc()).set(i, ptr as u64); } }\n");
+    // max_sep
+    em.push_text("    pub fn max_sep(self: &"); em.push_text(name); em.push_text(") -> "); em.push_text(kty); em.push_text(" {\n");
+    em.push_text("        let n: u32 = self.child_count();\n");
+    em.push_text("        assert(n > 0u32, \"max_sep: empty branch\");\n");
+    em.push_text("        return self.sep_at(n - 1u32);\n    }\n");
+    // total_size (the SUM measure fold)
+    em.push_text("    pub fn total_size(self: &"); em.push_text(name); em.push_text(") -> u64 {\n");
+    em.push_text("        let n: u32 = self.child_count();\n        let mut s: u64 = 0u64;\n        let mut i: u32 = 0u32;\n");
+    em.push_text("        while i < n { s = s + self.size_at(i); i = i + 1u32; }\n        return s;\n    }\n");
+    // find_child
+    em.push_text("    pub fn find_child(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> u32 {\n");
+    em.push_text("        let n: u32 = self.child_count();\n        let mut i: u32 = 0u32;\n");
+    em.push_text("        while i < n { if self.sep_at(i) >= key { return i; } i = i + 1u32; }\n");
+    em.push_text("        return if n > 0u32 { n - 1u32 } else { 0u32 };\n    }\n");
+    // rank — order statistic via the SUM column; child descent via the hook `lb`
+    em.push_text("    pub fn rank(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", lb: fn(*mut u8, "); em.push_text(kty); em.push_text(") -> u32) -> u64 {\n");
+    em.push_text("        let n: u32 = self.child_count();\n        if n == 0u32 { return 0u64; }\n");
+    em.push_text("        let ci: u32 = self.find_child(key);\n        let mut base: u64 = 0u64;\n        let mut i: u32 = 0u32;\n");
+    em.push_text("        while i < ci { base = base + self.size_at(i); i = i + 1u32; }\n");
+    em.push_text("        return base + (lb(self.child_addr(ci), key) as u64);\n    }\n");
+    // get_or — descend to the covering child, probe via the hook `probe`
+    em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: u64, probe: fn(*mut u8, "); em.push_text(kty); em.push_text(", u64) -> u64) -> u64 {\n");
+    em.push_text("        let n: u32 = self.child_count();\n        if n == 0u32 { return sentinel; }\n");
+    em.push_text("        let ci: u32 = self.find_child(key);\n");
+    em.push_text("        return probe(self.child_addr(ci), key, sentinel);\n    }\n");
+    // push_child / insert_child / update_child
+    em.push_text("    pub fn push_child(self: &mut "); em.push_text(name); em.push_text(", sep: "); em.push_text(kty); em.push_text(", sz: u64, ptr: *mut u8) {\n");
+    em.push_text("        unsafe {\n            let p: u64 = ptr as u64;\n");
+    em.push_text("            let _ = (*self.sep()).push(&sep);\n            let _ = (*self.szc()).push(&sz);\n            let _ = (*self.ptrc()).push(&p);\n        }\n    }\n");
+    em.push_text("    pub fn insert_child(self: &mut "); em.push_text(name); em.push_text(", pos: u32, sep: "); em.push_text(kty); em.push_text(", sz: u64, ptr: *mut u8) {\n");
+    em.push_text("        unsafe {\n            let p: u64 = ptr as u64;\n");
+    em.push_text("            let _ = (*self.sep()).insert(pos, &sep);\n            let _ = (*self.szc()).insert(pos, &sz);\n            let _ = (*self.ptrc()).insert(pos, &p);\n        }\n    }\n");
+    em.push_text("    pub fn update_child(self: &mut "); em.push_text(name); em.push_text(", i: u32, sep: "); em.push_text(kty); em.push_text(", sz: u64) {\n");
+    em.push_text("        unsafe {\n            (*self.sep()).set(i, sep);\n            (*self.szc()).set(i, sz);\n        }\n    }\n");
+    // can_insert_child (24 bytes across the three FSE columns vs free space)
+    em.push_text("    pub fn can_insert_child(self: &"); em.push_text(name); em.push_text(") -> bool {\n");
+    em.push_text("        unsafe {\n");
+    em.push_text("            let d0: u32 = (*self.sep()).estimate_insert(8u32) - self.a().element_size(0u32);\n");
+    em.push_text("            let d1: u32 = (*self.szc()).estimate_insert(8u32) - self.a().element_size(1u32);\n");
+    em.push_text("            let d2: u32 = (*self.ptrc()).estimate_insert(8u32) - self.a().element_size(2u32);\n");
+    em.push_text("            return d0 + d1 + d2 <= self.a().free_space();\n        }\n    }\n");
+    // split_into — count-balanced (all-FSE); returns the promoted separator
+    em.push_text("    pub fn split_into(self: &mut "); em.push_text(name); em.push_text(", dst: &mut "); em.push_text(name); em.push_text(") -> "); em.push_text(kty); em.push_text(" {\n");
+    em.push_text("        let at: u32 = self.child_count() / 2u32;\n");
+    em.push_text("        unsafe {\n");
+    em.push_text("            let _ = (*self.sep()).split_into(&mut *dst.sep(), at);\n");
+    em.push_text("            let _ = (*self.szc()).split_into(&mut *dst.szc(), at);\n");
+    em.push_text("            let _ = (*self.ptrc()).split_into(&mut *dst.ptrc(), at);\n");
+    em.push_text("        }\n        return self.max_sep();\n    }\n");
+    // free_children — release every child block, then this branch's block. Plain
+    // pkd: a child block is freed by raw dealloc (no typed leaf handle needed).
+    em.push_text("    pub fn free_children(self: "); em.push_text(name); em.push_text(") {\n");
+    em.push_text("        let n: u32 = self.child_count();\n        let mut i: u32 = 0u32;\n");
+    em.push_text("        while i < n { unsafe { dealloc(self.child_addr(i)); } i = i + 1u32; }\n");
+    em.push_text("        unsafe { dealloc(self.mem); }\n    }\n");
+    // free_block — release ONLY this branch's block (children freed elsewhere).
+    em.push_text("    pub fn free_block(self: "); em.push_text(name); em.push_text(") { unsafe { dealloc(self.mem); } }\n");
+    em.push_text("}\n");
+    em.commit();
+}
+
 /// Lowering handler behind the `container` ITEM (ADR 0020 wave-0). Invoked by
 /// the COMPILER (sema lower_container_def) through the token-macro item seam
 /// with the serialized spec line. Not a user-facing macro.
@@ -656,6 +761,27 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         }
         let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
         emit_leaf_node(name, kty, vty, policy);
+        return out;
+    }
+    // kind=branch: emit a concrete b+tree BRANCH (routing node). Always
+    // count-balanced (all-FSE), so no split_policy verdict — the single `entry
+    // { key: K }` column names the separator type; sz/ptr are u64.
+    if str_eq(cs.kind, KIND_BRANCH) {
+        let ceb: i64 = cs.entry.len();
+        let bb0: i64 = cf_next_comma(cs.entry, 0i64, ceb);
+        if bb0 != ceb {
+            error("container item: a `kind branch` needs exactly one entry column (`entry { key: K }`)");
+            return out;
+        }
+        let bk1: i64 = cf_find(cs.entry, 0i64, 58u8);          // ':' of key col
+        let mut bk2: i64 = ceb - 1i64;
+        while bk2 > 0i64 && str_byte_at(cs.entry, bk2) != 58u8 { bk2 = bk2 - 1i64; }
+        if bk1 < 0i64 || bk2 <= bk1 {
+            error("container item: malformed key column (compiler seam regression?)");
+            return out;
+        }
+        let bkty: str = unsafe { cf_sub(cs.entry, bk1 + 1i64, bk2) };
+        emit_branch_node(name, bkty);
         return out;
     }
     if !str_eq(cs.kind, KIND_VECTOR) { return out; }

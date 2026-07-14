@@ -20779,10 +20779,12 @@ bool SemaChecker::reconstruct_container_def(writ::TinyMapView node,
                     return false;
                 }
                 std::string kw(str_of(cl.get(la::NAME.code)));
-                if (kw != "vector" && kw != "ordered_map" && kw != "node") {
+                if (kw != "vector" && kw != "ordered_map" && kw != "node"
+                        && kw != "branch") {
                     err = std::format(
                         "container '{}': unknown kind '{}' — wave-0 kinds "
-                        "are `vector`, `ordered_map`, and `node`", cname, kw);
+                        "are `vector`, `ordered_map`, `node`, and `branch`",
+                        cname, kw);
                     return false;
                 }
                 out.kind = kw;

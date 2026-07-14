@@ -1,0 +1,105 @@
+// gen_branch — Canon-driven BRANCH codegen, end to end (ADR 0020 Track B 2c):
+// a `kind branch` declaration → the container handler GENERATES the concrete
+// branch `GenBr` (three FSE columns sep/sz/ptr, count-balanced split). The
+// generated branch is CHILD-TYPE-AGNOSTIC (no concrete leaf type in scope at
+// generation), so its descent operations (rank, get_or) take a hook fn-pointer
+// bound here to memoria's LeafU64; free_children releases child blocks by raw
+// dealloc. main() builds a height-2 structure over three LeafU64 children and
+// validates search descent, the SUM column (total_size + rank order stats),
+// point lookup, and a count-balanced split with separator promotion. The branch
+// type is not hand-written here — the container declaration is its whole source.
+package test;
+
+use logos.std.canon.container_item;   // the `container` lowering handler
+use memoria.bt.leaf;                   // LeafU64 children
+use logos.mem.pkd;
+
+// key:u64 → all fixed-size → generated branch (three FSE columns sep/sz/ptr).
+container GenBr for u8 { kind branch; entry { key: u64 } }
+
+// Descent hooks binding the child-agnostic branch to concrete LeafU64 children:
+// rank needs the child's lower_bound; get_or needs a full point probe.
+fn leaf_lb(node: *mut u8, key: u64) -> u32 {
+    return LeafU64::adopt(node).lower_bound(key);
+}
+fn leaf_probe(node: *mut u8, key: u64, sentinel: u64) -> u64 {
+    let lf: LeafU64 = LeafU64::adopt(node);
+    let p: u32 = lf.lower_bound(key);
+    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }
+    return sentinel;
+}
+
+fn fill(lo: u64, hi: u64) -> LeafU64 {
+    let mut lf: LeafU64 = LeafU64::new();
+    let mut k: u64 = lo;
+    while k <= hi {
+        if !lf.try_insert(k, k + 100u64) { assert(false, "fill: leaf full too early"); }
+        k = k + 2u64;
+    }
+    return lf;
+}
+
+fn main() -> i32 {
+    // three leaves: [0,2,4,6,8] (5), [10,12,14,16] (4), [20,22,24] (3)
+    let l0: LeafU64 = fill(0u64, 8u64);
+    let l1: LeafU64 = fill(10u64, 16u64);
+    let l2: LeafU64 = fill(20u64, 24u64);
+    if l0.count() != 5u32 || l1.count() != 4u32 || l2.count() != 3u32 { return 1i32; }
+
+    // build the GENERATED branch (children pushed in ascending separator order)
+    let mut br: GenBr = GenBr::new();
+    br.push_child(l0.max_key(), l0.count() as u64, l0.block());
+    br.push_child(l1.max_key(), l1.count() as u64, l1.block());
+    br.push_child(l2.max_key(), l2.count() as u64, l2.block());
+    if br.child_count() != 3u32 { return 2i32; }
+    if br.sep_at(0u32) != 8u64 || br.sep_at(1u32) != 16u64 || br.sep_at(2u32) != 24u64 { return 3i32; }
+    if br.size_at(0u32) != 5u64 { return 4i32; }
+
+    // SUM column: total entries across all subtrees
+    if br.total_size() != 12u64 { return 5i32; }
+
+    // search descent → correct covering child
+    if br.find_child(5u64) != 0u32 { return 6i32; }
+    if br.find_child(10u64) != 1u32 { return 7i32; }
+    if br.find_child(24u64) != 2u32 { return 8i32; }
+    if br.find_child(100u64) != 2u32 { return 9i32; }
+
+    // point lookup through the branch (descent hook → LeafU64 probe)
+    if br.get_or(12u64, 999u64, leaf_probe) != 112u64 { return 10i32; }
+    if br.get_or(0u64, 999u64, leaf_probe) != 100u64 { return 11i32; }
+    if br.get_or(24u64, 999u64, leaf_probe) != 124u64 { return 12i32; }
+    if br.get_or(13u64, 999u64, leaf_probe) != 999u64 { return 13i32; }   // absent
+    if br.get_or(100u64, 999u64, leaf_probe) != 999u64 { return 14i32; }
+
+    // rank via the SUM column (global 0-based position; descent hook → lower_bound)
+    // global order: 0,2,4,6,8, 10,12,14,16, 20,22,24
+    if br.rank(0u64, leaf_lb) != 0u64 { return 15i32; }
+    if br.rank(8u64, leaf_lb) != 4u64 { return 16i32; }
+    if br.rank(14u64, leaf_lb) != 7u64 { return 17i32; }   // 5 (leaf0) + lower_bound(14)=2
+    if br.rank(20u64, leaf_lb) != 9u64 { return 18i32; }   // 5 + 4 + 0
+    if br.rank(24u64, leaf_lb) != 11u64 { return 19i32; }
+
+    // ── branch split (count-balanced, separator promotion) ───────────────
+    let total: u64 = br.total_size();
+    let cc: u32 = br.child_count();
+    let mut rt: GenBr = GenBr::new();
+    let promoted: u64 = br.split_into(&mut rt);
+    // at = 3/2 = 1 → left keeps child0, right takes child1,child2
+    if br.child_count() != 1u32 { return 20i32; }
+    if rt.child_count() != 2u32 { return 21i32; }
+    if br.child_count() + rt.child_count() != cc { return 22i32; }
+    if promoted != 8u64 { return 23i32; }                    // left's max separator
+    if br.max_sep() >= rt.sep_at(0u32) { return 24i32; }     // ordering across the split
+    if br.total_size() != 5u64 { return 25i32; }
+    if rt.total_size() != 7u64 { return 26i32; }
+    if br.total_size() + rt.total_size() != total { return 27i32; }
+    // children still reachable & correct on each side
+    if br.get_or(4u64, 999u64, leaf_probe) != 104u64 { return 28i32; }
+    if rt.get_or(22u64, 999u64, leaf_probe) != 122u64 { return 29i32; }
+
+    // tree-managed teardown: each branch frees exactly its own children + block
+    // (the split partitioned the ptr column, so no block is freed twice).
+    br.free_children();
+    rt.free_children();
+    return 0i32;
+}
