@@ -5,8 +5,8 @@
 
 package logos.std.io.pipe;
 
-use logos.std.io.read;
-use logos.std.io.write;  // Write trait, IoSlice
+use logos.mem.io.read;
+use logos.mem.io.write;  // Write trait, IoSlice
 
 extern fn pipe2(fds: *mut i32, flags: i32) -> i32;
 extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;

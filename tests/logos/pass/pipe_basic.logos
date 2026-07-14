@@ -2,8 +2,8 @@
 package test;
 
 use logos.std.io.pipe;
-use logos.std.io.read;
-use logos.std.io.write;
+use logos.mem.io.read;
+use logos.mem.io.write;
 
 fn main() -> i32 {
     let mut p: Pipe = pipe_new();

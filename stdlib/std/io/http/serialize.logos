@@ -3,7 +3,7 @@
 package logos.std.io.http;
 
 use logos.mem.collections.vec;
-use logos.std.io.write;
+use logos.mem.io.write;
 
 fn write_str_bytes(s: str, out: &mut Vec<u8>) {
     let p: *const u8 = s.as_ptr();

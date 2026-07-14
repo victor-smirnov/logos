@@ -13,7 +13,7 @@ use logos.mem.collections.vec;
 use logos.lang.option;
 use logos.lang.result;
 use logos.std.io.net.url;
-use logos.std.io.read;
+use logos.mem.io.read;
 use logos.std.io.buffered;
 
 // ── RFC 7230 character classes ───────────────────────────────────────────────

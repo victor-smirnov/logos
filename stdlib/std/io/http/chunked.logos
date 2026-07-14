@@ -4,8 +4,8 @@
 package logos.std.io.http;
 
 use logos.mem.collections.vec;
-use logos.std.io.read;
-use logos.std.io.write;
+use logos.mem.io.read;
+use logos.mem.io.write;
 
 fn hex_digit_value(b: u8) -> i32 {
     if b >= 48 as u8 && b <= 57 as u8  { return (b as i32) - 48; }

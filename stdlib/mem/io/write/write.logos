@@ -1,4 +1,4 @@
-// Logos standard library — logos.std.io.write
+// Logos standard library — logos.mem.io.write
 //
 // Abstraction for byte-oriented output sinks.
 //
@@ -7,7 +7,7 @@
 //   n == 0  : sink refused further bytes (treat as error)
 //   n <  0  : -errno
 
-package logos.std.io.write;
+package logos.mem.io.write;
 
 /// A byte-oriented output sink.
 ///

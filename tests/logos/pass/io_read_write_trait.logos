@@ -1,8 +1,8 @@
-// logos.std.io.read + logos.std.io.write — exercise traits through Pipe.
+// logos.mem.io.read + logos.mem.io.write — exercise traits through Pipe.
 package test;
 
-use logos.std.io.read;
-use logos.std.io.write;
+use logos.mem.io.read;
+use logos.mem.io.write;
 use logos.std.io.pipe;
 
 fn do_write<W: Write>(w: &mut W, buf: *const u8, len: i64) -> i64 {

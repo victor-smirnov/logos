@@ -4,7 +4,7 @@ package test;
 
 use logos.std.io.http;
 use logos.std.io.pipe;
-use logos.std.io.read;
+use logos.mem.io.read;
 use logos.std.io.buffered;
 use logos.mem.collections.vec;
 use logos.mem.string;

@@ -196,6 +196,7 @@ sym	logos.mem.fmt.DebugStruct__type_id__g__ref_T
 sym	logos.mem.fmt.DebugTuple__type_id__g__ref_T
 sym	logos.mem.fmt.Error__type_id__g__ref_T
 sym	logos.mem.fmt.Formatter__type_id__g__ref_T
+sym	logos.mem.io.write.IoSlice__type_id__g__ref_T
 sym	logos.mem.manually_drop.Alignment__type_id__g__ref_T
 sym	logos.mem.pkd.PkdAlloc__type_id__g__ref_T
 sym	logos.mem.pkd.PkdAllocatable__type_id__g__ref_T
@@ -256,7 +257,6 @@ sym	logos.std.io.net.TcpStream__type_id__g__ref_T
 sym	logos.std.io.net.UdpSocket__type_id__g__ref_T
 sym	logos.std.io.net.url.Url__type_id__g__ref_T
 sym	logos.std.io.pipe.Pipe__type_id__g__ref_T
-sym	logos.std.io.write.IoSlice__type_id__g__ref_T
 sym	logos.std.lang.text.regex.Regex__type_id__g__ref_T
 sym	logos.std.process.Child__type_id__g__ref_T
 sym	logos.std.process.ExitStatus__type_id__g__ref_T
@@ -10511,6 +10511,8 @@ sym	logos_mem.logos.mem.fmt$fmt_tuple_sep__f__refmut_Formatter
 sym	logos_mem.logos.mem.fmt$formatter_for__f__refmut_String
 sym	logos_mem.logos.mem.fmt$formatter_for_sink__f__&dyn FmtWrite
 sym	logos_mem.logos.mem.fmt$ok__f__void
+sym	logos_mem.logos.mem.io.write$io_slice__f__pcst_u8__i64
+sym	logos_mem.logos.mem.io.write$write_all__g__refmut_W__pcst_u8__i64__AsyncTcpStream
 sym	logos_mem.logos.mem.manually_drop$alignment_new__f__u64
 sym	logos_mem.logos.mem.manually_drop$alignment_new_unchecked__f__u64
 sym	logos_mem.logos.mem.pkd$fse_data_len_u64__f__pmut_PkdArray$G1$u64
@@ -11109,8 +11111,6 @@ sym	logos_std.logos.std.io.net.url$url_format__f__ref_Url__refmut_String
 sym	logos_std.logos.std.io.net.url$url_parse__f__slice_u8
 sym	logos_std.logos.std.io.pipe$pipe_new__f__void
 sym	logos_std.logos.std.io.pipe$pipe_new_nonblock__f__void
-sym	logos_std.logos.std.io.write$io_slice__f__pcst_u8__i64
-sym	logos_std.logos.std.io.write$write_all__g__refmut_W__pcst_u8__i64__AsyncTcpStream
 sym	logos_std.logos.std.lang.text.regex$compile__f__slice_u8
 sym	logos_std.logos.std.lang.text.regex$find__f__ref_Regex__slice_u8
 sym	logos_std.logos.std.lang.text.regex$is_match__f__ref_Regex__slice_u8
@@ -11478,6 +11478,7 @@ type	logos.mem.fmt.DebugStruct	fields=[f:*mut Formatter,result:Result,has_fields
 type	logos.mem.fmt.DebugTuple	fields=[f:*mut Formatter,result:Result,fields:i64]
 type	logos.mem.fmt.Error	fields=[]
 type	logos.mem.fmt.Formatter	fields=[w:&dyn FmtWrite,fill:u8,align_code:u8,sign_plus:bool,alternate:bool,zero_pad:bool,width:i64,precision:i64,indent:i64]
+type	logos.mem.io.write.IoSlice	fields=[base:*const u8,len:i64]
 type	logos.mem.manually_drop.Alignment	fields=[bytes:u64]
 type	logos.mem.manually_drop.DropGuard	fields=[f:F,armed:bool]
 type	logos.mem.manually_drop.ManuallyDrop	fields=[value:T]
@@ -11553,7 +11554,6 @@ type	logos.std.io.net.TcpStream	fields=[fd:i32]
 type	logos.std.io.net.UdpSocket	fields=[fd:i32]
 type	logos.std.io.net.url.Url	fields=[scheme:String,host:String,port:i32,path:String,query:String]
 type	logos.std.io.pipe.Pipe	fields=[read_fd:i32,write_fd:i32]
-type	logos.std.io.write.IoSlice	fields=[base:*const u8,len:i64]
 type	logos.std.lang.text.regex.Regex	fields=[pat:*const u8,plen:i64]
 type	logos.std.process.Child	fields=[pid:i32,stdin:i32,stdout:i32,stderr:i32]
 type	logos.std.process.ExitStatus	fields=[raw:i32]
@@ -11689,10 +11689,10 @@ vtable	logos.mem.fmt.LowerHex	slots=[fmt]
 vtable	logos.mem.fmt.Octal	slots=[fmt]
 vtable	logos.mem.fmt.UpperExp	slots=[fmt]
 vtable	logos.mem.fmt.UpperHex	slots=[fmt]
+vtable	logos.mem.io.read.Read	slots=[read]
+vtable	logos.mem.io.write.Write	slots=[write,flush]
 vtable	logos.mem.pkd.EntryBytes	slots=[entry_bytes]
 vtable	logos.mem.string.ToString	slots=[to_string]
 vtable	logos.mem.writ.tag_system.TagSystem	slots=[read_tag]
 vtable	logos.std.canon.canon.CanonCol	slots=[canon_col]
 vtable	logos.std.io.http.Service	slots=[call]
-vtable	logos.std.io.read.Read	slots=[read]
-vtable	logos.std.io.write.Write	slots=[write,flush]
