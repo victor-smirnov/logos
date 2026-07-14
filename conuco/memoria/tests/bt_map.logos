@@ -5,7 +5,7 @@
 // sorted stream, cross-checked entry-by-entry against the point-built tree.
 package test;
 
-use memoria.pkd;
+use logos.mem.pkd;
 use memoria.bt;
 use logos.lang.mem;
 use logos.lang.arith;   // wrapping_mul/add — the LCG wraps BY DESIGN

@@ -5,7 +5,7 @@
 // column byte size; (5) volume_upto is the prefix byte volume.
 package test;
 
-use memoria.pkd;
+use logos.mem.pkd;
 use logos.lang.mem;
 use logos.lang.result;
 use logos.lang.str;

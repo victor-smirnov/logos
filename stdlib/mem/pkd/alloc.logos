@@ -1,4 +1,4 @@
-// memoria.pkd — PackedAllocatable + PackedAllocator, an OBJECT port of
+// logos.mem.pkd — PackedAllocatable + PackedAllocator, an OBJECT port of
 // core/packed/tools/{packed_allocator_types.hpp, packed_allocator.hpp}
 // (ADR 0018 §1.2.1). Method-for-method with the C++; deviations are named.
 //
@@ -26,7 +26,7 @@
 // §1.2.1) is befriending the borrow checker until this layer has NO unsafe.
 // Deviation from C++: OOM at the top level returns failure (0/false)
 // instead of throwing.
-package memoria.pkd;
+package logos.mem.pkd;
 
 use logos.lang.marker;   // Fst (negative impl below) + SelfDescribing
 use logos.lang.result;   // Result/PkdError plumbing

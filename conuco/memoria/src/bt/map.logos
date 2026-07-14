@@ -18,7 +18,7 @@
 // overhead until the first snapshot() introduces sharing.
 package memoria.bt.map;
 
-use memoria.pkd;
+use logos.mem.pkd;
 use memoria.bt.node;      // node_alloc/pkd/snapshot/rc/inc_rc/dec_rc/free
 use memoria.bt.leaf;      // LeafU64
 use memoria.bt.branch;    // BranchU64

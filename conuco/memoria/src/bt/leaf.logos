@@ -18,7 +18,7 @@
 //     variant).
 package memoria.bt.leaf;
 
-use memoria.pkd;          // PkdAlloc, PkdArray, PkdError
+use logos.mem.pkd;          // PkdAlloc, PkdArray, PkdError
 use memoria.bt.node;      // node_alloc / node_pkd / node_free (16-byte header)
 use logos.lang.result;
 

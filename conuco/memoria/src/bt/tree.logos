@@ -12,7 +12,7 @@
 // finally grow a new root) as the split propagates.
 package memoria.bt.tree;
 
-use memoria.pkd;
+use logos.mem.pkd;
 use memoria.bt.leaf;      // LeafU64
 use memoria.bt.branch;    // BranchU64
 use logos.lang.mem;

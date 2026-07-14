@@ -441,7 +441,7 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
 // decision; the emitter is mechanical.
 //
 // Wave-0 substrate: the generated leaf targets the memoria pkd allocator
-// (memoria.pkd) directly. Parameterising the substrate package (or hoisting pkd
+// (logos.mem.pkd) directly. Parameterising the substrate package (or hoisting pkd
 // to the stdlib) is the ADR §9 implementation-placement question, deferred.
 // Wave-0 emits the FAST (all-FSE) leaf only; a `volume` (VLE-column) verdict is
 // a documented limit at the call site until VLE emission lands.
@@ -449,7 +449,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str) {
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    em.push_text("\nuse memoria.pkd;\nuse logos.lang.mem;\nuse logos.lang.result;\n\n");
+    em.push_text("\nuse logos.mem.pkd;\nuse logos.lang.mem;\nuse logos.lang.result;\n\n");
     em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
     em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
     // new

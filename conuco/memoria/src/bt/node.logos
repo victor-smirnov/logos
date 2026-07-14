@@ -15,7 +15,7 @@
 //   @12 pad         : u32   keeps the PkdAlloc region 8-aligned at base+16.
 package memoria.bt.node;
 
-use memoria.pkd;          // PkdAlloc, pkd_format
+use logos.mem.pkd;          // PkdAlloc, pkd_format
 use logos.lang.mem;       // alloc, dealloc
 
 pub const NODE_HDR: i64 = 16i64;

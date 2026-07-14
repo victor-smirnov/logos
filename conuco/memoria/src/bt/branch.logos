@@ -18,7 +18,7 @@
 // all-FSE, so split is count-balanced (the leaf's volume path does not apply).
 package memoria.bt.branch;
 
-use memoria.pkd;          // PkdAlloc, PkdArray
+use logos.mem.pkd;          // PkdAlloc, PkdArray
 use memoria.bt.leaf;      // LeafU64
 use memoria.bt.node;      // node_alloc / node_pkd / node_free (16-byte header)
 use logos.lang.result;

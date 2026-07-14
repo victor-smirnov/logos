@@ -22,7 +22,7 @@
 // per-element descent.
 package memoria.bt;
 
-use memoria.pkd;
+use logos.mem.pkd;
 use logos.lang.mem;
 use logos.lang.option;
 use logos.lang.result;

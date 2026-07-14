@@ -3,7 +3,7 @@
 // shifting below it).
 package test;
 
-use memoria.pkd;
+use logos.mem.pkd;
 use logos.lang.mem;
 use logos.lang.result;
 use logos.lang.str;

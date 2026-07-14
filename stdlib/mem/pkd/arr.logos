@@ -1,4 +1,4 @@
-// memoria.pkd — PkdArray<T>: ONE name, selection by the PROPERTIES of T
+// logos.mem.pkd — PkdArray<T>: ONE name, selection by the PROPERTIES of T
 // (the C++ `template<typename T, bool FSE = is_fse<T>>` model; is_fse<T> is
 // spelled as the bound set `Copy + Fst + StableLayout`):
 //
@@ -24,7 +24,7 @@
 //
 // `let a: PkdArray<u64>` → FSE; `let a: PkdArray<str>` → VLE. The bound set
 // IS the family selector — no shape spelling at use sites.
-package memoria.pkd;
+package logos.mem.pkd;
 
 use logos.lang.marker;
 use logos.lang.result;   // Result/PkdError plumbing

@@ -16,7 +16,7 @@
 //   - split_into: volume-balanced index over BOTH columns; merge_with appends.
 package memoria.bt.leaf_kv;
 
-use memoria.pkd;          // PkdAlloc, PkdArray, pkd_format, PkdError
+use logos.mem.pkd;          // PkdAlloc, PkdArray, pkd_format, PkdError
 use logos.lang.mem;       // alloc / dealloc
 use logos.lang.result;
 use logos.lang.str;       // str::len

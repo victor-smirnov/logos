@@ -11,7 +11,7 @@
 // (the pkd_arr idiom).
 package memoria.ctr.vec;
 
-use memoria.pkd;          // pkd_format, PkdAlloc, PkdArray, PkdError
+use logos.mem.pkd;          // pkd_format, PkdAlloc, PkdArray, PkdError
 use logos.lang.mem;       // alloc / dealloc
 use logos.lang.result;
 use logos.std.wql.wql;               // native-source machinery for the projection

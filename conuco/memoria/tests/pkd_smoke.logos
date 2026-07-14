@@ -5,7 +5,7 @@
 // readable — back-refs are self-relative, so they survive).
 package test;
 
-use memoria.pkd;
+use logos.mem.pkd;
 use memoria.bt;
 use memoria.ctr;
 use memoria.store;
