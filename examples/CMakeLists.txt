@@ -35,6 +35,7 @@ function(logos_add_example NAME)
     set(_link_archives
         ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
         ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
+        ${LOGOS_BUILD_LIB_DIR}/liblogos-lcm.a
         ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a)

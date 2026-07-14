@@ -150,6 +150,7 @@ sym	logos.lang.writ.wmap.Wu6__type_id__g__ref_T
 sym	logos.lang.writ.wstatic.StringView__type_id__g__ref_T
 sym	logos.lang.writ.wstatic.WritStatic__type_id__g__ref_T
 sym	logos.lang.writ.wstring.WString__type_id__g__ref_T
+sym	logos.lcm.io.write.IoSlice__type_id__g__ref_T
 sym	logos.mem.any.AnnotationInfo__type_id__g__ref_T
 sym	logos.mem.any.AnnotationsView__type_id__g__ref_T
 sym	logos.mem.any.FieldInfo__type_id__g__ref_T
@@ -196,7 +197,6 @@ sym	logos.mem.fmt.DebugStruct__type_id__g__ref_T
 sym	logos.mem.fmt.DebugTuple__type_id__g__ref_T
 sym	logos.mem.fmt.Error__type_id__g__ref_T
 sym	logos.mem.fmt.Formatter__type_id__g__ref_T
-sym	logos.mem.io.write.IoSlice__type_id__g__ref_T
 sym	logos.mem.manually_drop.Alignment__type_id__g__ref_T
 sym	logos.mem.pkd.PkdAlloc__type_id__g__ref_T
 sym	logos.mem.pkd.PkdAllocatable__type_id__g__ref_T
@@ -9593,6 +9593,8 @@ sym	logos_lang.logos.lang.writ.typed_arr$writ_build_map_u32_anyval__f__pcst_u32_
 sym	logos_lang.logos.lang.writ.typed_arr$writ_build_map_u64_anyval__f__pcst_u64__pcst_i64__i64
 sym	logos_lang.logos.lang.writ.wstatic$writ_static_size__f__pcst_u8
 sym	logos_lang.logos.lang.writ.wstring$wstring_in_alloc__f__pmut_Allocator__slice_u8
+sym	logos_lcm.logos.lcm.io.write$io_slice__f__pcst_u8__i64
+sym	logos_lcm.logos.lcm.io.write$write_all__g__refmut_W__pcst_u8__i64__AsyncTcpStream
 sym	logos_mem..logos.mem.any.AnnotationInfo__get_int__f__ref_AnnotationInfo__slice_u8
 sym	logos_mem..logos.mem.any.AnnotationInfo__get_str__f__ref_AnnotationInfo__slice_u8
 sym	logos_mem..logos.mem.any.AnnotationInfo__type_name__f__ref_AnnotationInfo
@@ -10511,8 +10513,6 @@ sym	logos_mem.logos.mem.fmt$fmt_tuple_sep__f__refmut_Formatter
 sym	logos_mem.logos.mem.fmt$formatter_for__f__refmut_String
 sym	logos_mem.logos.mem.fmt$formatter_for_sink__f__&dyn FmtWrite
 sym	logos_mem.logos.mem.fmt$ok__f__void
-sym	logos_mem.logos.mem.io.write$io_slice__f__pcst_u8__i64
-sym	logos_mem.logos.mem.io.write$write_all__g__refmut_W__pcst_u8__i64__AsyncTcpStream
 sym	logos_mem.logos.mem.manually_drop$alignment_new__f__u64
 sym	logos_mem.logos.mem.manually_drop$alignment_new_unchecked__f__u64
 sym	logos_mem.logos.mem.pkd$fse_data_len_u64__f__pmut_PkdArray$G1$u64
@@ -11433,6 +11433,7 @@ type	logos.lang.writ.wmap.Wu6	fields=[]
 type	logos.lang.writ.wstatic.StringView	fields=[ptr:*const u8,len:u64]
 type	logos.lang.writ.wstatic.WritStatic	fields=[ptr:*const u8]
 type	logos.lang.writ.wstring.WString	fields=[bytes:[u8]]
+type	logos.lcm.io.write.IoSlice	fields=[base:*const u8,len:i64]
 type	logos.mem.any.AnnotationInfo	fields=[info:WritStatic,map_bits:i64]
 type	logos.mem.any.AnnotationsView	fields=[info:WritStatic,arr_bits:i64]
 type	logos.mem.any.FieldInfo	fields=[info:WritStatic,map_bits:i64]
@@ -11478,7 +11479,6 @@ type	logos.mem.fmt.DebugStruct	fields=[f:*mut Formatter,result:Result,has_fields
 type	logos.mem.fmt.DebugTuple	fields=[f:*mut Formatter,result:Result,fields:i64]
 type	logos.mem.fmt.Error	fields=[]
 type	logos.mem.fmt.Formatter	fields=[w:&dyn FmtWrite,fill:u8,align_code:u8,sign_plus:bool,alternate:bool,zero_pad:bool,width:i64,precision:i64,indent:i64]
-type	logos.mem.io.write.IoSlice	fields=[base:*const u8,len:i64]
 type	logos.mem.manually_drop.Alignment	fields=[bytes:u64]
 type	logos.mem.manually_drop.DropGuard	fields=[f:F,armed:bool]
 type	logos.mem.manually_drop.ManuallyDrop	fields=[value:T]
@@ -11676,6 +11676,8 @@ vtable	logos.lang.writ.container.Resident	slots=[]
 vtable	logos.lang.writ.dview.Datum	slots=[datum_tag,datum_meta,as_datum,from_datum]
 vtable	logos.lang.writ.wmap.WIntKeyTag	slots=[map_code]
 vtable	logos.lang.writ.wmap.WritField	slots=[from_wany,to_wany]
+vtable	logos.lcm.io.read.Read	slots=[read]
+vtable	logos.lcm.io.write.Write	slots=[write,flush]
 vtable	logos.mem.bt.Shuttle	slots=[on_branch,on_leaf]
 vtable	logos.mem.bt.map.Ctr	slots=[size]
 vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id]
@@ -11689,8 +11691,6 @@ vtable	logos.mem.fmt.LowerHex	slots=[fmt]
 vtable	logos.mem.fmt.Octal	slots=[fmt]
 vtable	logos.mem.fmt.UpperExp	slots=[fmt]
 vtable	logos.mem.fmt.UpperHex	slots=[fmt]
-vtable	logos.mem.io.read.Read	slots=[read]
-vtable	logos.mem.io.write.Write	slots=[write,flush]
 vtable	logos.mem.pkd.EntryBytes	slots=[entry_bytes]
 vtable	logos.mem.string.ToString	slots=[to_string]
 vtable	logos.mem.writ.tag_system.TagSystem	slots=[read_tag]

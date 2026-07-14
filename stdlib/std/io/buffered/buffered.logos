@@ -13,8 +13,8 @@ package logos.std.io.buffered;
 use logos.lang.mem;
 use logos.mem.string;
 use logos.lang.str;
-use logos.mem.io.read;
-use logos.mem.io.write;
+use logos.lcm.io.read;
+use logos.lcm.io.write;
 
 extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;

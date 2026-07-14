@@ -9,7 +9,7 @@
 package test;
 
 use logos.std.io.pipe;
-use logos.mem.io.write;  // IoSlice
+use logos.lcm.io.write;  // IoSlice
 
 fn main() -> i32 {
     let mut p: Pipe = pipe_new();

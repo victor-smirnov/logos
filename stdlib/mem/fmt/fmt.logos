@@ -60,7 +60,7 @@ pub fn err() -> Result<(), Error> {
 // is byte-shaped pending Phase 1B-13 utf8 char ports).
 
 // Named `FmtWrite` (not `Write`) because Logos's trait registry is
-// flat across packages — `logos.mem.io.write::Write` already owns that
+// flat across packages — `logos.lcm.io.write::Write` already owns that
 // name. Rust gets away with `core::fmt::Write` distinct from
 // `std::io::Write` because the conflict resolves at import; the
 // underlying B-mv-02 bug here forces the rename until the trait

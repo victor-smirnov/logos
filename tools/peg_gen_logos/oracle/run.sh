@@ -61,7 +61,7 @@ EOF
 "$logosc" $OPT --emit-module "$work/pkg/oracle.module" -o "$work/pkg.a" 2>&1 | flt | grep -iE 'error' && exit 1
 "$logosc" $OPT -l "$work/pkg.a" "$here/oracle_main.logos" -o "$work/main.o" 2>&1 | flt | grep -iE 'error' && exit 1
 "$cxx" -Wl,--gc-sections "$work/main.o" -Wl,--start-group "$work/pkg.a" \
-    "$libd/liblogos-lang.a" "$libd/liblogos-mem.a" "$libd/liblstdlib_rt.a" "$libd/liblstdlib_fibers.a" \
+    "$libd/liblogos-lang.a" "$libd/liblogos-mem.a" "$libd/liblogos-lcm.a" "$libd/liblstdlib_rt.a" "$libd/liblstdlib_fibers.a" \
     -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm -o "$work/los" \
     2>&1 | grep -iE 'undefined|error' && exit 1
 

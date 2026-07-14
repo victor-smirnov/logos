@@ -3,6 +3,7 @@ id logos-std
 version 0.1
 root stdlib/std/
 tier std
+depends logos-lcm
 depends logos-mem
 depends logos-lang
 

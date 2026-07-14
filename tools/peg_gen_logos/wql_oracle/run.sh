@@ -38,7 +38,7 @@ echo "== linking =="
 extra_uring=""
 [ -f "$libd/liblstdlib_uring.a" ] && extra_uring="$libd/liblstdlib_uring.a"
 "$cxx" -Wl,--gc-sections "$work/wql_oracle.o" -Wl,--start-group \
-    "$libd/liblogos-lang.a" "$libd/liblogos-mem.a" "$libd/liblogos-std.a" \
+    "$libd/liblogos-lang.a" "$libd/liblogos-mem.a" "$libd/liblogos-lcm.a" "$libd/liblogos-std.a" \
     "$libd/liblstdlib_rt.a" "$libd/liblstdlib_fibers.a" $extra_uring \
     -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm \
     -o "$work/wql_oracle_run" 2>&1 | grep -iE 'undefined|error' && { echo "link failed"; exit 1; }

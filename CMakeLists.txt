@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.28)
 # Jenny toolchain remains available opt-in via
 #   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/jenny.cmake
 
-project(logos VERSION 0.12.0 LANGUAGES CXX C ASM)
+project(logos VERSION 0.13.0 LANGUAGES CXX C ASM)
 
 # ── Version & parallel-install slot ──────────────────────────────────────
 # Single source of truth: project(VERSION) above + the pre-release marker
@@ -235,6 +235,7 @@ install(TARGETS logosc RUNTIME DESTINATION ${LOGOS_TREE_RELDIR}/bin)
 install(FILES
     ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
+    ${LOGOS_BUILD_LIB_DIR}/liblogos-lcm.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
@@ -331,6 +332,7 @@ add_custom_target(logos-abi
     DEPENDS logosc
             ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
             ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
+            ${LOGOS_BUILD_LIB_DIR}/liblogos-lcm.a
             ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     COMMENT "Regenerating abi/logos.abi (ABI spec)"
     VERBATIM)

@@ -72,7 +72,7 @@ echo "== compiling =="
 
 echo "== linking =="
 "$cxx" -Wl,--gc-sections "$work/demo_all.o" -Wl,--start-group \
-    "$libd/liblogos-lang.a" "$libd/liblogos-mem.a" "$libd/liblogos-std.a" \
+    "$libd/liblogos-lang.a" "$libd/liblogos-mem.a" "$libd/liblogos-lcm.a" "$libd/liblogos-std.a" \
     "$libd/liblstdlib_rt.a" "$libd/liblstdlib_fibers.a" \
     -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm \
     -o "$work/demo_run" 2>&1 | grep -iE 'undefined|error' && { echo "link failed"; exit 1; }

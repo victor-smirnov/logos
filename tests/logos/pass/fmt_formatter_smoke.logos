@@ -1,6 +1,6 @@
 // Smoke: logos.mem.fmt::Formatter + FmtWrite trait.
 // Mirror of core::fmt's Formatter + Write surface (renamed to
-// FmtWrite to avoid colliding with logos.mem.io.write::Write).
+// FmtWrite to avoid colliding with logos.lcm.io.write::Write).
 package test;
 
 use logos.lang.result;

@@ -48,10 +48,15 @@ std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
             else { err_out = "manifest: 'lowering' must be 'lazy' or 'eager', got '" + val + "'"; return {}; }
         }
         else if (key == "tier") {
-            // Phase 3 of three-layer split. Validate against the closed set;
-            // empty/unknown values rejected so typos surface early.
-            if (val != "lang" && val != "mem" && val != "std") {
-                err_out = "manifest: 'tier' must be 'lang', 'mem', or 'std', got '" + val + "'";
+            // Four-tier runtime stratification (2026-07-14): lang → mem → lcm → std.
+            //   lang — synthesizable, static memory only.
+            //   mem  — dynamic allocation (malloc/free).
+            //   lcm  — virtualized IO + threads + fibers (LCM-native runtime).
+            //   std  — processes + concrete-OS IO (io_uring/pthread backends).
+            // Validate against the closed set; empty/unknown values rejected so
+            // typos surface early.
+            if (val != "lang" && val != "mem" && val != "lcm" && val != "std") {
+                err_out = "manifest: 'tier' must be 'lang', 'mem', 'lcm', or 'std', got '" + val + "'";
                 return {};
             }
             m.tier = val;

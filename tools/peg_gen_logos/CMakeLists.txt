@@ -36,6 +36,7 @@ set(_pgl_link_archives
     ${PGL_PKG_BIN}
     ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
+    ${LOGOS_BUILD_LIB_DIR}/liblogos-lcm.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a)

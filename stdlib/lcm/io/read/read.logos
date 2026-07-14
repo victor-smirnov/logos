@@ -1,4 +1,4 @@
-// Logos standard library — logos.mem.io.read
+// Logos standard library — logos.lcm.io.read
 //
 // Abstraction for byte-oriented input sources.
 //
@@ -7,7 +7,7 @@
 //   n == 0  : end of stream
 //   n <  0  : -errno
 
-package logos.mem.io.read;
+package logos.lcm.io.read;
 
 /// Abstraction for byte-oriented input sources.
 pub trait Read {

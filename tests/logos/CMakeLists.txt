@@ -20,12 +20,15 @@ set(PUB_LIB     ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
 set(STDLIB_BIN_DIR ${LOGOS_BUILD_LIB_DIR})
 set(LOGOS_LANG_MANIFEST ${CMAKE_SOURCE_DIR}/stdlib/lang/logos.module)
 set(LOGOS_MEM_MANIFEST  ${CMAKE_SOURCE_DIR}/stdlib/mem/logos.module)
+set(LOGOS_LCM_MANIFEST  ${CMAKE_SOURCE_DIR}/stdlib/lcm/logos.module)
 set(LOGOS_STD_MANIFEST  ${CMAKE_SOURCE_DIR}/stdlib/std/logos.module)
 set(LOGOS_LANG_BIN ${STDLIB_BIN_DIR}/liblogos-lang.a)
 set(LOGOS_MEM_BIN  ${STDLIB_BIN_DIR}/liblogos-mem.a)
+set(LOGOS_LCM_BIN  ${STDLIB_BIN_DIR}/liblogos-lcm.a)
 set(LOGOS_STD_BIN  ${STDLIB_BIN_DIR}/liblogos-std.a)
 file(GLOB_RECURSE LOGOS_LANG_SOURCES ${CMAKE_SOURCE_DIR}/stdlib/lang/*.logos)
 file(GLOB_RECURSE LOGOS_MEM_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/mem/*.logos)
+file(GLOB_RECURSE LOGOS_LCM_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/lcm/*.logos)
 file(GLOB_RECURSE LOGOS_STD_SOURCES  ${CMAKE_SOURCE_DIR}/stdlib/std/*.logos)
 add_custom_command(
     OUTPUT  ${LOGOS_LANG_BIN}
@@ -49,24 +52,35 @@ add_custom_command(
     COMMENT "Building stdlib layer: liblogos-mem.a (depends logos-lang via manifest)"
 )
 add_custom_command(
+    OUTPUT  ${LOGOS_LCM_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            ${LOGOS_LIB_OPT}
+            --emit-module ${LOGOS_LCM_MANIFEST}
+            -L ${STDLIB_BIN_DIR}
+            -o ${LOGOS_LCM_BIN}
+    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_LCM_MANIFEST} ${LOGOS_LCM_SOURCES} ${LOGOS_MEM_BIN} ${LOGOS_LANG_BIN} logos_rt logos_fibers
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building stdlib layer: liblogos-lcm.a (depends logos-mem + logos-lang via manifest)"
+)
+add_custom_command(
     OUTPUT  ${LOGOS_STD_BIN}
     COMMAND $<TARGET_FILE:logosc>
             ${LOGOS_LIB_OPT}
             --emit-module ${LOGOS_STD_MANIFEST}
             -L ${STDLIB_BIN_DIR}
             -o ${LOGOS_STD_BIN}
-    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_STD_MANIFEST} ${LOGOS_STD_SOURCES} ${LOGOS_MEM_BIN} ${LOGOS_LANG_BIN} logos_rt logos_fibers
+    DEPENDS $<TARGET_FILE:logosc> ${LOGOS_STD_MANIFEST} ${LOGOS_STD_SOURCES} ${LOGOS_LCM_BIN} ${LOGOS_MEM_BIN} ${LOGOS_LANG_BIN} logos_rt logos_fibers
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Building stdlib layer: liblogos-std.a (depends logos-mem + logos-lang via manifest)"
+    COMMENT "Building stdlib layer: liblogos-std.a (depends logos-lcm + logos-mem + logos-lang via manifest)"
 )
 add_custom_target(stdlib_layers ALL DEPENDS
-    ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN})
+    ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_LCM_BIN} ${LOGOS_STD_BIN})
 
 # The monolith `stdlib_binary` target is gone (folded into the std layer);
 # keep the name as an alias to the layer set so existing
 # `add_dependencies(... stdlib_binary)` / DEPENDS sites still resolve.
 add_custom_target(stdlib_binary ALL DEPENDS
-    ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN})
+    ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_LCM_BIN} ${LOGOS_STD_BIN})
 
 # Build libpub_lib.a from the pub_lib test fixture manifest. Used as a
 # realistic `-l <user-archive>` smoke test in the publib suite, replacing

@@ -6,8 +6,8 @@
 package logos.std.io.net;
 
 use logos.std.rt.fiber;
-use logos.mem.io.read;
-use logos.mem.io.write;
+use logos.lcm.io.read;
+use logos.lcm.io.write;
 
 extern fn socket(domain: i32, typ: i32, protocol: i32) -> i32;
 extern fn bind(fd: i32, addr: *const u8, addrlen: i32) -> i32;

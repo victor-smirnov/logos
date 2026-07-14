@@ -1,0 +1,7 @@
+module logos-lcm
+id logos-lcm
+version 0.1
+root stdlib/lcm/
+tier lcm
+depends logos-mem
+depends logos-lang
