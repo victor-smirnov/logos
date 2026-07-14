@@ -1,0 +1,146 @@
+// memoria.bt.tree — BTreeU64: the concrete b+tree assembly over LeafU64 leaves
+// and BranchU64 branches (ADR 0020 Track B 2c). Multi-level, height-grown on
+// root split. Level convention (user): a LEAF is level 0, a BRANCH is level > 0;
+// the tree carries the root's level, so descent always knows whether the node
+// it holds is a leaf (level 0 → probe) or a branch (level > 0 → recurse). On a
+// root split a fresh BRANCH root is created with level = old_root_level + 1.
+//
+// Nodes are tree-managed (block-id/arena lifecycle): the tree owns every block
+// and frees the whole structure via `free`. Insert is the classic recursive
+// b+tree cascade — descend to the covering leaf, try_insert; on a full node
+// split it, promote the new right sibling one level up, and split branches (and
+// finally grow a new root) as the split propagates.
+package memoria.bt.tree;
+
+use memoria.pkd;
+use memoria.bt.leaf;      // LeafU64
+use memoria.bt.branch;    // BranchU64
+use logos.lang.mem;
+
+// The upward result of a recursive insert into a subtree:
+//   lsep/lsize — the (possibly changed) separator + subtree size of the node we
+//                descended into (its max key / entry count moved after insert);
+//   split      — true iff that node overflowed and split, in which case
+//   rsep/rsize/rptr describe the NEW RIGHT sibling to graft in one level up.
+struct InsertRet {
+    lsep: u64,
+    lsize: u64,
+    split: bool,
+    rsep: u64,
+    rsize: u64,
+    rptr: *mut u8,
+}
+
+pub struct BTreeU64 {
+    root: *mut u8,
+    root_level: u32,
+}
+
+// Inserts (key, val) into the subtree at `node` sitting at `level` (0 = leaf).
+// Mutates in place; returns the graft/refresh info for the parent.
+fn insert_rec(node: *mut u8, level: u32, key: u64, val: u64) -> InsertRet {
+    if level == 0u32 {
+        // ── leaf ──
+        let mut lf: LeafU64 = LeafU64::adopt(node);
+        if lf.try_insert(key, val) {
+            return InsertRet { lsep: lf.max_key(), lsize: lf.count() as u64,
+                               split: false, rsep: 0u64, rsize: 0u64, rptr: node };
+        }
+        // full → split, then place the key in the half that owns it
+        let mut rt: LeafU64 = LeafU64::new();
+        lf.split_into(&mut rt);
+        if key <= lf.max_key() {
+            let _ = lf.try_insert(key, val);
+        } else {
+            let _ = rt.try_insert(key, val);
+        }
+        return InsertRet { lsep: lf.max_key(), lsize: lf.count() as u64,
+                           split: true, rsep: rt.max_key(), rsize: rt.count() as u64,
+                           rptr: rt.block() };
+    }
+    // ── branch ──
+    let mut br: BranchU64 = BranchU64::adopt(node);
+    let ci: u32 = br.find_child(key);
+    let r: InsertRet = insert_rec(br.child_addr(ci), level - 1u32, key, val);
+    // the descended child's max/size always changed
+    br.update_child(ci, r.lsep, r.lsize);
+    if !r.split {
+        return InsertRet { lsep: br.max_sep(), lsize: br.total_size(),
+                           split: false, rsep: 0u64, rsize: 0u64, rptr: node };
+    }
+    // a child split — graft its new right sibling right after ci
+    if br.can_insert_child() {
+        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
+        return InsertRet { lsep: br.max_sep(), lsize: br.total_size(),
+                           split: false, rsep: 0u64, rsize: 0u64, rptr: node };
+    }
+    // branch full → split it (count-balanced), then place the new child in the
+    // correct half; the split propagates one level up.
+    let mut rb: BranchU64 = BranchU64::new();
+    let _ = br.split_into(&mut rb);
+    let lc: u32 = br.child_count();
+    if ci + 1u32 < lc {
+        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
+    } else {
+        rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr);
+    }
+    return InsertRet { lsep: br.max_sep(), lsize: br.total_size(),
+                       split: true, rsep: rb.max_sep(), rsize: rb.total_size(),
+                       rptr: rb.block() };
+}
+
+fn free_rec(node: *mut u8, level: u32) {
+    if level == 0u32 { LeafU64::adopt(node).free(); return; }
+    let br: BranchU64 = BranchU64::adopt(node);
+    let n: u32 = br.child_count();
+    let mut i: u32 = 0u32;
+    while i < n { free_rec(br.child_addr(i), level - 1u32); i = i + 1u32; }
+    br.free_block();
+}
+
+impl BTreeU64 {
+    /// A fresh empty tree: a single leaf root at level 0.
+    pub static fn new() -> BTreeU64 {
+        let lf: LeafU64 = LeafU64::new();
+        return BTreeU64 { root: lf.block(), root_level: 0u32 };
+    }
+
+    /// The root's level (0 = a lone leaf; grows by 1 each root split).
+    pub fn height(self: &BTreeU64) -> u32 { return self.root_level; }
+
+    /// Total entries in the tree (the SUM measure at the root).
+    pub fn size(self: &BTreeU64) -> u64 {
+        if self.root_level == 0u32 { return LeafU64::adopt(self.root).count() as u64; }
+        return BranchU64::adopt(self.root).total_size();
+    }
+
+    /// Inserts / replaces (Map MAX). Grows a new root when the old root splits.
+    pub fn insert(self: &mut BTreeU64, key: u64, val: u64) {
+        let r: InsertRet = insert_rec(self.root, self.root_level, key, val);
+        if r.split {
+            let mut nr: BranchU64 = BranchU64::new();
+            nr.push_child(r.lsep, r.lsize, self.root);
+            nr.push_child(r.rsep, r.rsize, r.rptr);
+            self.root = nr.block();
+            self.root_level = self.root_level + 1u32;
+        }
+    }
+
+    /// Point lookup: descend to the covering leaf and probe it.
+    pub fn get_or(self: &BTreeU64, key: u64, sentinel: u64) -> u64 {
+        let mut node: *mut u8 = self.root;
+        let mut level: u32 = self.root_level;
+        while level > 0u32 {
+            let br: BranchU64 = BranchU64::adopt(node);
+            node = br.child_addr(br.find_child(key));
+            level = level - 1u32;
+        }
+        let lf: LeafU64 = LeafU64::adopt(node);
+        let p: u32 = lf.lower_bound(key);
+        if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }
+        return sentinel;
+    }
+
+    /// Frees every node block (tree-managed teardown). Call once.
+    pub fn free(self: BTreeU64) { free_rec(self.root, self.root_level); }
+}

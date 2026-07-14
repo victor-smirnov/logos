@@ -73,6 +73,11 @@ impl BranchU64 {
         let p: u64 = unsafe { (*self.ptrc()).get(i) };
         return LeafU64::adopt(unsafe { p as *mut u8 });
     }
+    /// The child's raw block address — for a height-tagged descent where the
+    /// child may itself be a branch (the tree, not the node, knows the level).
+    pub fn child_addr(self: &BranchU64, i: u32) -> *mut u8 {
+        return unsafe { (*self.ptrc()).get(i) as *mut u8 };
+    }
     /// This branch's separator (max key it routes) — the last child's separator.
     pub fn max_sep(self: &BranchU64) -> u64 {
         let n: u32 = self.child_count();
@@ -160,6 +165,17 @@ impl BranchU64 {
         }
     }
 
+    /// Would one more child entry (24 bytes across the three FSE columns) fit in
+    /// this branch's block? The caller splits the branch first when it won't.
+    pub fn can_insert_child(self: &BranchU64) -> bool {
+        unsafe {
+            let d0: u32 = (*self.sep()).estimate_insert(8u32) - self.a().element_size(BranchU64::SLOT_SEP);
+            let d1: u32 = (*self.szc()).estimate_insert(8u32) - self.a().element_size(BranchU64::SLOT_SZ);
+            let d2: u32 = (*self.ptrc()).estimate_insert(8u32) - self.a().element_size(BranchU64::SLOT_PTR);
+            return d0 + d1 + d2 <= self.a().free_space();
+        }
+    }
+
     /// Splits the tail [at..count) of children into `dst`, truncating self to
     /// [0..at). All-FSE → count-balanced (at = count/2). Returns the promoted
     /// separator: self's new max, the routing key the parent stores between the
@@ -175,7 +191,9 @@ impl BranchU64 {
     }
 
     /// Releases every child leaf block, then this branch's own block. The owner
-    /// calls this exactly once (tree-managed lifecycle).
+    /// calls this exactly once (tree-managed lifecycle). For a multi-level tree
+    /// whose children are themselves branches, the tree walks recursively and
+    /// frees each block via `free_block` instead.
     pub fn free_children(self: BranchU64) {
         let n: u32 = self.child_count();
         let mut i: u32 = 0u32;
@@ -185,4 +203,8 @@ impl BranchU64 {
         }
         unsafe { dealloc(self.mem); }
     }
+
+    /// Releases ONLY this branch's own block (its children are freed elsewhere,
+    /// e.g. a recursive tree teardown). Call once.
+    pub fn free_block(self: BranchU64) { unsafe { dealloc(self.mem); } }
 }
