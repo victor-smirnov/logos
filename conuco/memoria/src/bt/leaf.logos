@@ -18,8 +18,8 @@
 //     variant).
 package memoria.bt.leaf;
 
-use memoria.pkd;          // PkdAlloc, PkdArray, pkd_format, PkdError
-use logos.lang.mem;       // alloc / dealloc
+use memoria.pkd;          // PkdAlloc, PkdArray, PkdError
+use memoria.bt.node;      // node_alloc / node_pkd / node_free (16-byte header)
 use logos.lang.result;
 
 /// Node block size (a container constant later; a fixed 4K for now).
@@ -37,18 +37,21 @@ impl LeafU64 {
     const SLOT_KEYS: u32 = 0u32;
     const SLOT_VALS: u32 = 1u32;
 
-    /// A fresh empty leaf over one owned MAX_BLOCK block (two empty columns).
-    pub static fn new() -> LeafU64 {
+    /// A fresh empty leaf over one owned block (header + two empty columns),
+    /// stamped with the creating snapshot id (0 = the pre-snapshot default).
+    pub static fn new() -> LeafU64 { return LeafU64::new_in(0u64); }
+    /// As `new`, stamping the block with snapshot id `snp` (the CoW skip key).
+    pub static fn new_in(snp: u64) -> LeafU64 {
         unsafe {
-            let mem: *mut u8 = alloc(MAX_BLOCK as i64);
-            let a: *mut PkdAlloc = pkd_format(mem, MAX_BLOCK, 2u32);
+            let base: *mut u8 = node_alloc(MAX_BLOCK, 2u32, snp);
+            let a: *mut PkdAlloc = node_pkd(base);
             match PkdArray::<u64>::format(a, 0u32) {
                 Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "LeafU64::new keys"); }
             }
             match PkdArray::<u64>::format(a, 1u32) {
                 Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "LeafU64::new vals"); }
             }
-            return LeafU64 { mem: mem, cap: MAX_BLOCK };
+            return LeafU64 { mem: base, cap: MAX_BLOCK };
         }
     }
 
@@ -57,14 +60,14 @@ impl LeafU64 {
     /// adopted handles for operations; freeing is the owner's job (see `free`).
     /// This is the block-id/arena lifecycle, not RAII-per-node (ADR 0020).
     pub static fn adopt(mem: *mut u8) -> LeafU64 {
-        return LeafU64 { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } };
+        return LeafU64 { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } };
     }
     /// The raw block address — what a parent stores to reach this child.
     pub fn block(self: &LeafU64) -> *mut u8 { return self.mem; }
     /// Releases the owned block. Call exactly once, by the owner.
-    pub fn free(self: LeafU64) { unsafe { dealloc(self.mem); } }
+    pub fn free(self: LeafU64) { unsafe { node_free(self.mem); } }
 
-    unsafe fn a(self: &LeafU64) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
+    unsafe fn a(self: &LeafU64) -> *mut PkdAlloc { return node_pkd(self.mem); }
     unsafe fn keys(self: &LeafU64) -> *mut PkdArray<u64> {
         return self.a().get::<PkdArray<u64>>(LeafU64::SLOT_KEYS);
     }

@@ -1,0 +1,52 @@
+// memoria.bt.node — the per-node block header shared by every concrete node
+// type (ADR 0020 Track B 2c, CoW foundation). Mirrors the persistent oracle's
+// NodeBase, adapted to raw blocks: the refcount that lives in Arc's control
+// block there is INTRUSIVE here (no Arc over raw blocks).
+//
+// Node block layout — a 16-byte header, then the PkdAlloc column region:
+//   @0  snapshot_id : u64   the CREATING snapshot; the CoW skip key. A mutation
+//                           may write a node in place iff its snapshot_id equals
+//                           the writer's current snapshot; otherwise the node is
+//                           shared with a frozen snapshot and must be copied.
+//   @8  rc          : u32   intrusive refcount for structural sharing: how many
+//                           parent pointers (across all snapshot versions) reach
+//                           this block. cow_clone bumps a shared child's rc; a
+//                           released pointer decrements it, freeing at zero.
+//   @12 pad         : u32   keeps the PkdAlloc region 8-aligned at base+16.
+package memoria.bt.node;
+
+use memoria.pkd;          // PkdAlloc, pkd_format
+use logos.lang.mem;       // alloc, dealloc
+
+pub const NODE_HDR: i64 = 16i64;
+
+/// Allocates a node block: a 16-byte header + a `pkd_bytes` PkdAlloc region of
+/// `nslots` slots. Stamps snapshot_id = `snp`, rc = 1, formats the region.
+/// Returns the block base; the caller formats each column slot on node_pkd(base).
+pub unsafe fn node_alloc(pkd_bytes: u32, nslots: u32, snp: u64) -> *mut u8 {
+    let base: *mut u8 = alloc(NODE_HDR + (pkd_bytes as i64));
+    *(base as *mut u64) = snp;                     // snapshot_id
+    *(base.byte_add(8i64) as *mut u32) = 1u32;     // rc
+    let _ = pkd_format(base.byte_add(NODE_HDR), pkd_bytes, nslots);
+    return base;
+}
+
+/// The PkdAlloc column region of a node block.
+pub unsafe fn node_pkd(base: *mut u8) -> *mut PkdAlloc {
+    return base.byte_add(NODE_HDR) as *mut PkdAlloc;
+}
+
+pub unsafe fn node_snapshot(base: *mut u8) -> u64 { return *(base as *mut u64); }
+pub unsafe fn node_set_snapshot(base: *mut u8, snp: u64) { *(base as *mut u64) = snp; }
+pub unsafe fn node_rc(base: *mut u8) -> u32 { return *(base.byte_add(8i64) as *mut u32); }
+pub unsafe fn node_set_rc(base: *mut u8, rc: u32) { *(base.byte_add(8i64) as *mut u32) = rc; }
+pub unsafe fn node_inc_rc(base: *mut u8) { node_set_rc(base, node_rc(base) + 1u32); }
+/// Decrements the refcount; returns the new value (0 = the caller must free).
+pub unsafe fn node_dec_rc(base: *mut u8) -> u32 {
+    let r: u32 = node_rc(base) - 1u32;
+    node_set_rc(base, r);
+    return r;
+}
+
+/// Frees a node block (header + region). Children are released by the caller.
+pub unsafe fn node_free(base: *mut u8) { dealloc(base); }

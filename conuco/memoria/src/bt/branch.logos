@@ -18,9 +18,9 @@
 // all-FSE, so split is count-balanced (the leaf's volume path does not apply).
 package memoria.bt.branch;
 
-use memoria.pkd;          // PkdAlloc, PkdArray, pkd_format
+use memoria.pkd;          // PkdAlloc, PkdArray
 use memoria.bt.leaf;      // LeafU64
-use logos.lang.mem;       // alloc / dealloc
+use memoria.bt.node;      // node_alloc / node_pkd / node_free (16-byte header)
 use logos.lang.result;
 
 /// Branch block size (a container constant later; a fixed 4K for now).
@@ -36,11 +36,13 @@ impl BranchU64 {
     const SLOT_SZ:  u32 = 1u32;
     const SLOT_PTR: u32 = 2u32;
 
-    /// A fresh empty branch (no children yet) over one owned block.
-    pub static fn new() -> BranchU64 {
+    /// A fresh empty branch (no children yet), stamped snapshot id 0 (default).
+    pub static fn new() -> BranchU64 { return BranchU64::new_in(0u64); }
+    /// As `new`, stamping the block with snapshot id `snp` (the CoW skip key).
+    pub static fn new_in(snp: u64) -> BranchU64 {
         unsafe {
-            let mem: *mut u8 = alloc(BR_MAX_BLOCK as i64);
-            let a: *mut PkdAlloc = pkd_format(mem, BR_MAX_BLOCK, 3u32);
+            let base: *mut u8 = node_alloc(BR_MAX_BLOCK, 3u32, snp);
+            let a: *mut PkdAlloc = node_pkd(base);
             match PkdArray::<u64>::format(a, 0u32) {
                 Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "BranchU64::new sep"); }
             }
@@ -50,17 +52,17 @@ impl BranchU64 {
             match PkdArray::<u64>::format(a, 2u32) {
                 Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "BranchU64::new ptr"); }
             }
-            return BranchU64 { mem: mem, cap: BR_MAX_BLOCK };
+            return BranchU64 { mem: base, cap: BR_MAX_BLOCK };
         }
     }
 
     /// A non-owning handle over an existing branch block (tree-managed).
     pub static fn adopt(mem: *mut u8) -> BranchU64 {
-        return BranchU64 { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } };
+        return BranchU64 { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } };
     }
     pub fn block(self: &BranchU64) -> *mut u8 { return self.mem; }
 
-    unsafe fn a(self: &BranchU64) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
+    unsafe fn a(self: &BranchU64) -> *mut PkdAlloc { return node_pkd(self.mem); }
     unsafe fn sep(self: &BranchU64) -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(BranchU64::SLOT_SEP); }
     unsafe fn szc(self: &BranchU64) -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(BranchU64::SLOT_SZ); }
     unsafe fn ptrc(self: &BranchU64) -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(BranchU64::SLOT_PTR); }
@@ -201,10 +203,10 @@ impl BranchU64 {
             self.child(i).free();
             i = i + 1u32;
         }
-        unsafe { dealloc(self.mem); }
+        unsafe { node_free(self.mem); }
     }
 
     /// Releases ONLY this branch's own block (its children are freed elsewhere,
     /// e.g. a recursive tree teardown). Call once.
-    pub fn free_block(self: BranchU64) { unsafe { dealloc(self.mem); } }
+    pub fn free_block(self: BranchU64) { unsafe { node_free(self.mem); } }
 }
