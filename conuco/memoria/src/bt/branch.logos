@@ -80,6 +80,11 @@ impl BranchU64 {
     pub fn child_addr(self: &BranchU64, i: u32) -> *mut u8 {
         return unsafe { (*self.ptrc()).get(i) as *mut u8 };
     }
+    /// Repoints child `i` at `ptr` (its sep/size via update_child). Used by CoW
+    /// when a descended child is copied and the parent must reference the copy.
+    pub fn set_child_addr(self: &mut BranchU64, i: u32, ptr: *mut u8) {
+        unsafe { (*self.ptrc()).set(i, ptr as u64); }
+    }
     /// This branch's separator (max key it routes) — the last child's separator.
     pub fn max_sep(self: &BranchU64) -> u64 {
         let n: u32 = self.child_count();
@@ -209,4 +214,22 @@ impl BranchU64 {
     /// Releases ONLY this branch's own block (its children are freed elsewhere,
     /// e.g. a recursive tree teardown). Call once.
     pub fn free_block(self: BranchU64) { unsafe { node_free(self.mem); } }
+
+    /// A private copy of this branch on a fresh block stamped snapshot id `snp`
+    /// (CoW duplication). Copies the child entries and BUMPS each child's rc —
+    /// the copy and the original now SHARE the children (structural sharing).
+    /// The caller owns the copy (rc = 1); it releases the original's pointer
+    /// separately once it has switched to the copy.
+    pub fn cow_clone(self: &BranchU64, snp: u64) -> BranchU64 {
+        let mut c: BranchU64 = BranchU64::new_in(snp);
+        let n: u32 = self.child_count();
+        let mut i: u32 = 0u32;
+        while i < n {
+            let p: *mut u8 = self.child_addr(i);
+            unsafe { node_inc_rc(p); }
+            c.push_child(self.sep_at(i), self.size_at(i), p);
+            i = i + 1u32;
+        }
+        return c;
+    }
 }

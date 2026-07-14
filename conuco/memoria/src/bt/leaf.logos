@@ -67,6 +67,20 @@ impl LeafU64 {
     /// Releases the owned block. Call exactly once, by the owner.
     pub fn free(self: LeafU64) { unsafe { node_free(self.mem); } }
 
+    /// A private copy of this leaf on a fresh block stamped snapshot id `snp`
+    /// (CoW duplication). Same entries; a leaf has no children, so nothing to
+    /// share. The caller owns the copy (rc = 1).
+    pub fn cow_clone(self: &LeafU64, snp: u64) -> LeafU64 {
+        let mut c: LeafU64 = LeafU64::new_in(snp);
+        let n: u32 = self.count();
+        let mut i: u32 = 0u32;
+        while i < n {
+            let _ = c.try_insert(self.key_at(i), self.val_at(i));
+            i = i + 1u32;
+        }
+        return c;
+    }
+
     unsafe fn a(self: &LeafU64) -> *mut PkdAlloc { return node_pkd(self.mem); }
     unsafe fn keys(self: &LeafU64) -> *mut PkdArray<u64> {
         return self.a().get::<PkdArray<u64>>(LeafU64::SLOT_KEYS);

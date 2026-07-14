@@ -1,0 +1,254 @@
+// memoria.bt.map — the copy-on-write, snapshot-versioned u64→u64 ordered map,
+// expressed through the fundamental container interfaces (ADR 0020 Track B 2c):
+//
+//   trait Store    — owns blocks + snapshot lifecycle (open/commit/reclaim)
+//   trait Snapshot — a consistent version; the source of the CoW skip key
+//   trait Ctr      — a container handle opened from a snapshot (Map/Vector/…)
+//
+// (Canonical Logos naming: no `I`-prefix — a trait IS the interface. `Container`
+// is already the element contract, so the handle role is `Ctr`.)
+//
+// CoW discipline (mirrors the persistent oracle, refcount-intrusive on raw
+// blocks): a node may be written in place iff its `snapshot_id` equals the
+// writer's current snapshot; otherwise it is shared with a frozen snapshot and
+// is cow_clone'd (a fresh block stamped the current snapshot; its children's rc
+// bumped). A replaced pointer `release`s the old target: dec rc, and at zero
+// free the block and recurse into a branch's children. A never-snapshotted tree
+// keeps `snapshot_id == current` on every node, so it never copies — zero CoW
+// overhead until the first snapshot() introduces sharing.
+package memoria.bt.map;
+
+use memoria.pkd;
+use memoria.bt.node;      // node_alloc/pkd/snapshot/rc/inc_rc/dec_rc/free
+use memoria.bt.leaf;      // LeafU64
+use memoria.bt.branch;    // BranchU64
+
+// ── the fundamental interfaces ──────────────────────────────────────────────
+
+/// Owns blocks and the snapshot lifecycle. The concrete factory methods
+/// (`snapshot`, `commit`) live on the implementor.
+pub trait Store {}
+
+/// A consistent version of a store; containers are opened from it. Its id is the
+/// CoW skip key stamped into every node the snapshot writes.
+pub trait Snapshot {
+    fn snapshot_id(self: &Self) -> u64;
+}
+
+/// A container handle bound to a snapshot's storage (Map/Vector/Queue/…).
+pub trait Ctr {
+    fn size(self: &Self) -> u64;
+}
+
+// ── CoW core (free functions over raw node blocks) ──────────────────────────
+
+// The upward result of a recursive CoW insert:
+//   addr        — this subtree's root AFTER the insert. Equals the input node
+//                 when it was written in place, or a fresh copy when the node
+//                 was shared (the caller then repoints + releases the old node);
+//   lsep/lsize  — that node's (possibly changed) separator + subtree size;
+//   split/r*    — a new right sibling to graft one level up, when it overflowed.
+struct CowRet {
+    addr: *mut u8,
+    lsep: u64,
+    lsize: u64,
+    split: bool,
+    rsep: u64,
+    rsize: u64,
+    rptr: *mut u8,
+}
+
+// Drops one reference to `node`; at zero, frees the block (recursing into a
+// branch's children first). The intrusive-rc analog of the oracle's Arc drop.
+unsafe fn release(node: *mut u8, level: u32) {
+    if node_dec_rc(node) == 0u32 {
+        if level > 0u32 {
+            let br: BranchU64 = BranchU64::adopt(node);
+            let n: u32 = br.child_count();
+            let mut i: u32 = 0u32;
+            while i < n { release(br.child_addr(i), level - 1u32); i = i + 1u32; }
+        }
+        node_free(node);
+    }
+}
+
+// Returns a version of `node` the writer may mutate in place under snapshot
+// `cur`: the node itself when it already belongs to `cur`, else a fresh
+// cow_clone stamped `cur` (the original stays referenced by its frozen snapshot).
+unsafe fn leaf_private(node: *mut u8, cur: u64) -> *mut u8 {
+    if node_snapshot(node) == cur { return node; }
+    return LeafU64::adopt(node).cow_clone(cur).block();
+}
+unsafe fn branch_private(node: *mut u8, cur: u64) -> *mut u8 {
+    if node_snapshot(node) == cur { return node; }
+    return BranchU64::adopt(node).cow_clone(cur).block();
+}
+
+// Inserts (key,val) into the subtree at `node` (level 0 = leaf) under snapshot
+// `cur`, copying shared nodes on the path. Never releases `node` itself — the
+// caller repoints and releases it when `addr` differs.
+unsafe fn cow_insert(node: *mut u8, level: u32, key: u64, val: u64, cur: u64) -> CowRet {
+    if level == 0u32 {
+        let work: *mut u8 = leaf_private(node, cur);
+        let mut lf: LeafU64 = LeafU64::adopt(work);
+        if lf.try_insert(key, val) {
+            return CowRet { addr: work, lsep: lf.max_key(), lsize: lf.count() as u64,
+                            split: false, rsep: 0u64, rsize: 0u64, rptr: work };
+        }
+        let mut rt: LeafU64 = LeafU64::new_in(cur);
+        lf.split_into(&mut rt);
+        if key <= lf.max_key() { let _ = lf.try_insert(key, val); }
+        else                   { let _ = rt.try_insert(key, val); }
+        return CowRet { addr: work, lsep: lf.max_key(), lsize: lf.count() as u64,
+                        split: true, rsep: rt.max_key(), rsize: rt.count() as u64,
+                        rptr: rt.block() };
+    }
+    let work: *mut u8 = branch_private(node, cur);
+    let mut br: BranchU64 = BranchU64::adopt(work);
+    let ci: u32 = br.find_child(key);
+    let old_child: *mut u8 = br.child_addr(ci);
+    let r: CowRet = cow_insert(old_child, level - 1u32, key, val, cur);
+    br.update_child(ci, r.lsep, r.lsize);
+    if r.addr != old_child {
+        br.set_child_addr(ci, r.addr);
+        release(old_child, level - 1u32);
+    }
+    if !r.split {
+        return CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(),
+                        split: false, rsep: 0u64, rsize: 0u64, rptr: work };
+    }
+    if br.can_insert_child() {
+        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
+        return CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(),
+                        split: false, rsep: 0u64, rsize: 0u64, rptr: work };
+    }
+    let mut rb: BranchU64 = BranchU64::new_in(cur);
+    let _ = br.split_into(&mut rb);
+    let lc: u32 = br.child_count();
+    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); }
+    else              { rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr); }
+    return CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(),
+                    split: true, rsep: rb.max_sep(), rsize: rb.total_size(),
+                    rptr: rb.block() };
+}
+
+unsafe fn descend_get(root: *mut u8, level: u32, key: u64, sentinel: u64) -> u64 {
+    let mut node: *mut u8 = root;
+    let mut lvl: u32 = level;
+    while lvl > 0u32 {
+        let br: BranchU64 = BranchU64::adopt(node);
+        node = br.child_addr(br.find_child(key));
+        lvl = lvl - 1u32;
+    }
+    let lf: LeafU64 = LeafU64::adopt(node);
+    let p: u32 = lf.lower_bound(key);
+    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }
+    return sentinel;
+}
+
+// ── BtSnapshot — a version; carries the container root + the CoW key ────────
+
+pub struct BtSnapshot {
+    snp: u64,
+    root: *mut u8,
+    level: u32,
+}
+
+impl BtSnapshot {
+    /// Open the (single) map container of this snapshot as a Ctr handle.
+    pub fn map(self: &mut BtSnapshot) -> MapU64 {
+        return MapU64 { snap: self as *mut BtSnapshot };
+    }
+
+    /// Insert / replace (Map MAX), copy-on-write against the current snapshot.
+    pub fn insert(self: &mut BtSnapshot, key: u64, val: u64) {
+        unsafe {
+            let old_root: *mut u8 = self.root;
+            let r: CowRet = cow_insert(self.root, self.level, key, val, self.snp);
+            if r.addr != old_root {
+                self.root = r.addr;
+                release(old_root, self.level);
+            }
+            if r.split {
+                let mut nr: BranchU64 = BranchU64::new_in(self.snp);
+                nr.push_child(r.lsep, r.lsize, r.addr);
+                nr.push_child(r.rsep, r.rsize, r.rptr);
+                self.root = nr.block();
+                self.level = self.level + 1u32;
+            }
+        }
+    }
+
+    pub fn get_or(self: &BtSnapshot, key: u64, sentinel: u64) -> u64 {
+        return unsafe { descend_get(self.root, self.level, key, sentinel) };
+    }
+
+    pub fn size(self: &BtSnapshot) -> u64 {
+        if self.level == 0u32 { return LeafU64::adopt(self.root).count() as u64; }
+        return BranchU64::adopt(self.root).total_size();
+    }
+
+    /// Drop this snapshot version, releasing its root (shared nodes survive
+    /// while another snapshot / the head still references them).
+    pub fn free(self: BtSnapshot) { unsafe { release(self.root, self.level); } }
+}
+
+impl Snapshot for BtSnapshot {
+    fn snapshot_id(self: &BtSnapshot) -> u64 { return self.snp; }
+}
+
+// ── MapU64 — the Ctr handle bound to a snapshot ─────────────────────────────
+
+pub struct MapU64 {
+    snap: *mut BtSnapshot,
+}
+
+impl MapU64 {
+    pub fn insert(self: &MapU64, key: u64, val: u64) { unsafe { (*self.snap).insert(key, val); } }
+    pub fn get_or(self: &MapU64, key: u64, sentinel: u64) -> u64 { return unsafe { (*self.snap).get_or(key, sentinel) }; }
+}
+
+impl Ctr for MapU64 {
+    fn size(self: &MapU64) -> u64 { return unsafe { (*self.snap).size() }; }
+}
+
+// ── BtStore — owns the head version + snapshot ids ──────────────────────────
+
+pub struct BtStore {
+    next_snp: u64,
+    head_root: *mut u8,
+    head_level: u32,
+}
+
+impl BtStore {
+    /// A fresh store holding an empty map (a lone leaf root at snapshot 0).
+    pub static fn new() -> BtStore {
+        let lf: LeafU64 = LeafU64::new_in(0u64);
+        return BtStore { next_snp: 1u64, head_root: lf.block(), head_level: 0u32 };
+    }
+
+    /// Open a writable snapshot branching from the current head. It shares the
+    /// head's nodes (rc bump on the root) until the first write copies a path.
+    pub fn snapshot(self: &mut BtStore) -> BtSnapshot {
+        let snp: u64 = self.next_snp;
+        self.next_snp = self.next_snp + 1u64;
+        unsafe { node_inc_rc(self.head_root); }
+        return BtSnapshot { snp: snp, root: self.head_root, level: self.head_level };
+    }
+
+    /// Publish a snapshot as the new head: release the old head, retain the
+    /// snapshot's root (it is now referenced by both the snapshot and the head).
+    pub fn commit(self: &mut BtStore, s: &BtSnapshot) {
+        unsafe {
+            release(self.head_root, self.head_level);
+            node_inc_rc(s.root);
+            self.head_root = s.root;
+            self.head_level = s.level;
+        }
+    }
+
+    /// Tear the store down, releasing the head version.
+    pub fn free(self: BtStore) { unsafe { release(self.head_root, self.head_level); } }
+}
+
+impl Store for BtStore {}

@@ -1,0 +1,73 @@
+// cow_snapshot — the copy-on-write, snapshot-versioned map through the
+// Store/Snapshot/Ctr interfaces (ADR 0020 Track B 2c). Verifies snapshot
+// ISOLATION (a committed snapshot keeps seeing its own version after a later
+// snapshot mutates a branch of it), that the Ctr handle sees its snapshot's
+// size, and that refcount reclamation frees the shared structure exactly once
+// (valgrind gate). CoW only engages after snapshot() introduces sharing.
+package test;
+
+use memoria.bt.map;       // BtStore, BtSnapshot, MapU64 (Store/Snapshot/Ctr)
+
+fn main() -> i32 {
+    let mut store: BtStore = BtStore::new();
+
+    // ── version A: fill [0, N) through the Ctr handle ────────────────────
+    let n: u64 = 8000u64;
+    let mut s0: BtSnapshot = store.snapshot();
+    if s0.snapshot_id() != 1u64 { return 1i32; }
+    let m0: MapU64 = s0.map();          // open the container (Ctr) from the snapshot
+    let mut k: u64 = 0u64;
+    while k < n { m0.insert(k, k + 7u64); k = k + 1u64; }
+    if m0.size() != n { return 2i32; }  // Ctr sees its snapshot's size
+    store.commit(&s0);
+
+    // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
+    let mut s1: BtSnapshot = store.snapshot();
+    if s1.snapshot_id() != 2u64 { return 3i32; }
+    // s1 shares s0's nodes; it must already see everything s0 has
+    if s1.get_or(0u64, 0xFFFFu64) != 7u64 { return 4i32; }
+    if s1.get_or(n - 1u64, 0xFFFFu64) != (n - 1u64) + 7u64 { return 5i32; }
+    let m1: MapU64 = s1.map();
+    k = n;
+    while k < 2u64 * n { m1.insert(k, k + 7u64); k = k + 1u64; }
+    store.commit(&s1);
+
+    // ── ISOLATION: s0 (frozen) still sees ONLY [0, N); s1 sees [0, 2N) ───
+    if s0.size() != n { return 6i32; }
+    if s1.size() != 2u64 * n { return 7i32; }
+    // s0 keeps its own values, and does NOT see s1's later inserts
+    k = 0u64;
+    while k < n {
+        if s0.get_or(k, 0xFFFFu64) != k + 7u64 { return 8i32; }
+        k = k + 1u64;
+    }
+    if s0.get_or(n, 0xDEADu64) != 0xDEADu64 { return 9i32; }         // s1's key, absent in s0
+    if s0.get_or(2u64 * n - 1u64, 0xDEADu64) != 0xDEADu64 { return 10i32; }
+    // s1 sees the whole union with correct values
+    k = 0u64;
+    while k < 2u64 * n {
+        if s1.get_or(k, 0xFFFFu64) != k + 7u64 { return 11i32; }
+        k = k + 1u64;
+    }
+
+    // ── a third version overwrites a spread of keys in s1's lineage ──────
+    let mut s2: BtSnapshot = store.snapshot();
+    let m2: MapU64 = s2.map();
+    k = 0u64;
+    while k < 2u64 * n { m2.insert(k, k + 1000000u64); k = k + 500u64; }
+    store.commit(&s2);
+    // s2 sees the overwrites; s1 is unchanged (isolation across the overwrite)
+    if s2.get_or(0u64, 0u64) != 1000000u64 { return 12i32; }
+    if s1.get_or(0u64, 0u64) != 7u64 { return 13i32; }              // s1 untouched
+    if s2.get_or(500u64, 0u64) != 500u64 + 1000000u64 { return 14i32; }
+    if s1.get_or(500u64, 0u64) != 500u64 + 7u64 { return 15i32; }
+    if s2.size() != 2u64 * n { return 16i32; }                       // overwrite, no growth
+
+    // ── reclamation: drop every version + the store; rc frees shared nodes
+    // exactly once (the real check is valgrind over this teardown).
+    s0.free();
+    s1.free();
+    s2.free();
+    store.free();
+    return 0i32;
+}
