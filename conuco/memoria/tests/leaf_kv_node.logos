@@ -77,5 +77,7 @@ fn main() -> i32 {
     if !beq(lf.val_at(0u32), "x") { return 32i32; }
     if lf.val_at(2u32).len() != 30i64 { return 33i32; }
 
+    lf.free();
+    rt.free();
     return 0i32;
 }

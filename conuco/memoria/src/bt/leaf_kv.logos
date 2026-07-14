@@ -50,6 +50,14 @@ impl LeafKV {
         }
     }
 
+    /// A NON-owning handle over an existing leaf block (tree-managed lifecycle;
+    /// see LeafU64::adopt).
+    pub static fn adopt(mem: *mut u8) -> LeafKV {
+        return LeafKV { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } };
+    }
+    pub fn block(self: &LeafKV) -> *mut u8 { return self.mem; }
+    pub fn free(self: LeafKV) { unsafe { dealloc(self.mem); } }
+
     unsafe fn a(self: &LeafKV) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
     unsafe fn keys(self: &LeafKV) -> *mut PkdArray<u64> {
         return self.a().get::<PkdArray<u64>>(LeafKV::SLOT_KEYS);
@@ -185,6 +193,3 @@ impl LeafKV {
     }
 }
 
-impl Drop for LeafKV {
-    fn drop(self: &mut LeafKV) { unsafe { dealloc(self.mem); } }
-}

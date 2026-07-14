@@ -52,6 +52,18 @@ impl LeafU64 {
         }
     }
 
+    /// A NON-owning handle over an existing leaf block. Nodes are tree-managed:
+    /// a parent BranchNode stores child block addresses and hands them out as
+    /// adopted handles for operations; freeing is the owner's job (see `free`).
+    /// This is the block-id/arena lifecycle, not RAII-per-node (ADR 0020).
+    pub static fn adopt(mem: *mut u8) -> LeafU64 {
+        return LeafU64 { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } };
+    }
+    /// The raw block address — what a parent stores to reach this child.
+    pub fn block(self: &LeafU64) -> *mut u8 { return self.mem; }
+    /// Releases the owned block. Call exactly once, by the owner.
+    pub fn free(self: LeafU64) { unsafe { dealloc(self.mem); } }
+
     unsafe fn a(self: &LeafU64) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
     unsafe fn keys(self: &LeafU64) -> *mut PkdArray<u64> {
         return self.a().get::<PkdArray<u64>>(LeafU64::SLOT_KEYS);
@@ -146,6 +158,3 @@ impl LeafU64 {
     }
 }
 
-impl Drop for LeafU64 {
-    fn drop(self: &mut LeafU64) { unsafe { dealloc(self.mem); } }
-}

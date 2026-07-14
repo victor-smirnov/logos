@@ -73,5 +73,7 @@ fn main() -> i32 {
     if lf.key_at(0u32) != 0u64 { return 18i32; }
     if lf.max_key() != ((total as u64) - 1u64) * 10u64 { return 19i32; }
 
+    lf.free();
+    rt.free();
     return 0i32;
 }
