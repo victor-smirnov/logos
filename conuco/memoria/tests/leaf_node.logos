@@ -8,7 +8,7 @@ use logos.lang.result;
 
 fn main() -> i32 {
     // ── fill to capacity via fit-checked try_insert ──────────────────────
-    let mut lf: LeafU64 = leaf_u64_new();
+    let mut lf: LeafU64 = LeafU64::new();
     let mut i: u64 = 0u64;
     let mut inserted: u32 = 0u32;
     // Insert sorted keys 0,10,20,… until the node reports full.
@@ -42,7 +42,7 @@ fn main() -> i32 {
 
     // ── split into balanced halves ───────────────────────────────────────
     let total: u32 = lf.count();
-    let mut rt: LeafU64 = leaf_u64_new();
+    let mut rt: LeafU64 = LeafU64::new();
     lf.split_into(&mut rt);
     if lf.count() + rt.count() != total { return 11i32; }
     // roughly balanced

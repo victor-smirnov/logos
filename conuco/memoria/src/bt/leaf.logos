@@ -32,28 +32,25 @@ pub struct LeafU64 {
     cap: u32,
 }
 
-/// A fresh empty leaf over one owned MAX_BLOCK block (two empty columns). Free
-/// function, not an associated `LeafU64::new` — a concrete struct's static
-/// assoc fn does not currently resolve cross-module (the consumer re-lowers
-/// instance methods but neither links nor re-emits the static one; a compiler
-/// gap, queued). Free functions link fine (cf. `pkd_format`).
-pub fn leaf_u64_new() -> LeafU64 {
-    unsafe {
-        let mem: *mut u8 = alloc(MAX_BLOCK as i64);
-        let a: *mut PkdAlloc = pkd_format(mem, MAX_BLOCK, 2u32);
-        match PkdArray::<u64>::format(a, 0u32) {
-            Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "leaf_u64_new keys"); }
-        }
-        match PkdArray::<u64>::format(a, 1u32) {
-            Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "leaf_u64_new vals"); }
-        }
-        return LeafU64 { mem: mem, cap: MAX_BLOCK };
-    }
-}
 
 impl LeafU64 {
     const SLOT_KEYS: u32 = 0u32;
     const SLOT_VALS: u32 = 1u32;
+
+    /// A fresh empty leaf over one owned MAX_BLOCK block (two empty columns).
+    pub static fn new() -> LeafU64 {
+        unsafe {
+            let mem: *mut u8 = alloc(MAX_BLOCK as i64);
+            let a: *mut PkdAlloc = pkd_format(mem, MAX_BLOCK, 2u32);
+            match PkdArray::<u64>::format(a, 0u32) {
+                Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "LeafU64::new keys"); }
+            }
+            match PkdArray::<u64>::format(a, 1u32) {
+                Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "LeafU64::new vals"); }
+            }
+            return LeafU64 { mem: mem, cap: MAX_BLOCK };
+        }
+    }
 
     unsafe fn a(self: &LeafU64) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
     unsafe fn keys(self: &LeafU64) -> *mut PkdArray<u64> {

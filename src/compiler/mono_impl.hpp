@@ -1159,6 +1159,34 @@ private:
     void enqueue_method_inst(TypeRef concrete_struct_t,
                              const std::string& method_name);
 
+    // True once a generic struct instance named `cname` (bare concrete name,
+    // e.g. "PkdArray$G1$uslice_u8") in package `pkg` has been materialized in
+    // out_.structs. concrete_struct_types_ is populated EARLIER (before the
+    // struct is pushed), so a method enqueue that keys off it alone can fire
+    // while drain_method_worklist still has no target StructDraft to attach to —
+    // the method then drops and its done_methods_ marker blocks any retry.
+    // Method enqueue / deferred resolution gates on THIS, so a clone lands only
+    // when emittable. MUST be pkg-aware: two coexisting same-name structs from
+    // different pkgs (user `test.Box$G1$i64` vs stdlib `…box.Box$G1$i64`) both
+    // exist, and drain matches BOTH name and pkg — a bare-name check would let an
+    // enqueue through against the wrong-pkg twin's emission. Amortized O(1): the
+    // key index grows incrementally (mono only ever appends structs).
+    bool struct_emitted(std::string_view cname, std::string_view pkg) const {
+        for (; emitted_indexed_ < out_.structs.size(); ++emitted_indexed_) {
+            auto& sd = out_.structs[emitted_indexed_];
+            emitted_names_.insert(emitted_key(sd.name(), sd.pkg()));
+        }
+        return emitted_names_.find(emitted_key(cname, pkg)) != emitted_names_.end();
+    }
+    static std::string emitted_key(std::string_view name, std::string_view pkg) {
+        std::string k(pkg);
+        k += '\x1f';   // unit separator — absent from names/pkgs
+        k += name;
+        return k;
+    }
+    mutable size_t emitted_indexed_ = 0;
+    mutable StrSet emitted_names_;
+
     // Drain method_worklist_: clone each pending method under its struct's
     // substitution, rename to "<concrete>__<method>", emit its decl mirror and
     // append the FunctionView to the matching StructDraft in out_.structs

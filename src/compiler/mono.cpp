@@ -789,7 +789,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         std::vector<std::pair<std::string, std::string>> still;
         for (auto& [cname, mname] : deferred_method_enqueues_) {
             auto cit = concrete_struct_types_.find(cname);
-            if (cit != concrete_struct_types_.end())
+            // Gate on the struct actually being EMITTED (in out_.structs), not
+            // merely known in concrete_struct_types_ — see struct_emitted().
+            if (cit != concrete_struct_types_.end() &&
+                struct_emitted(concrete_struct_name(cit->second),
+                               TypeRef(cit->second).pkg_name()))
                 enqueue_method_inst(cit->second, mname);
             else
                 still.emplace_back(std::move(cname), std::move(mname));
@@ -833,7 +837,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             std::vector<std::pair<std::string, std::string>> still;
             for (auto& [cname, mname] : deferred_method_enqueues_) {
                 auto cit = concrete_struct_types_.find(cname);
-                if (cit != concrete_struct_types_.end())
+                if (cit != concrete_struct_types_.end() &&
+                    struct_emitted(concrete_struct_name(cit->second),
+                                   TypeRef(cit->second).pkg_name()))
                     enqueue_method_inst(cit->second, mname);
                 else
                     still.emplace_back(std::move(cname), std::move(mname));

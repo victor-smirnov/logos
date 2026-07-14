@@ -1,0 +1,38 @@
+package test;
+use memoria.pkd;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.marker;
+
+// Minimal generic columnar wrapper — the shape that dropped the VLE method
+// call. Concrete Node is what we ship; this probe reproduces the compiler gap.
+#[self_describing]
+pub struct GLeaf<K: ?Sized> { alc: PkdAlloc }
+impl<K: ?Sized> SelfDescribing for GLeaf<K> {
+    fn dst_len(self: *const GLeaf<K>) -> i64 { return unsafe { (*self).alc.dst_len() }; }
+}
+impl<K: ?Sized> GLeaf<K> {
+    pub unsafe fn format(alc: *mut PkdAlloc, idx: u32) -> Result<*mut GLeaf<K>, PkdError> {
+        let inner = alc.allocate_nested(idx, 1u32, 16)?;
+        PkdArray::<K>::format(inner, 0u32)?;
+        return Result::Ok(inner as *mut GLeaf<K>);
+    }
+    unsafe fn keys(self: &GLeaf<K>) -> *mut PkdArray<K> {
+        let sp: *const GLeaf<K> = self as *const GLeaf<K>;
+        return (sp as *mut PkdAlloc).get::<PkdArray<K>>(0u32);
+    }
+    pub fn count(self: &GLeaf<K>) -> u32 { return unsafe { (*self.keys()).count() }; }
+}
+
+fn main() -> i32 {
+    unsafe {
+        let m: *mut u8 = alloc(512i64);
+        let a: *mut PkdAlloc = pkd_format(m, 512u32, 1u32);
+        let g: *mut GLeaf<str> = match GLeaf::<str>::format(a, 0u32) {
+            Result::Ok(p) => p, Result::Err(_e) => { return 1i32; }
+        };
+        if (*g).count() != 0u32 { return 2i32; }
+        dealloc(m);
+    }
+    return 0i32;
+}

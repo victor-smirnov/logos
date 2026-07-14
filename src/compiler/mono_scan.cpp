@@ -751,6 +751,26 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     if (kind != LogosType::Kind::Struct && kind != LogosType::Kind::ZonedStruct)
         return;
     std::string concrete = concrete_struct_name(concrete_struct_t);
+    // The target struct instance must already be materialized in out_.structs
+    // for drain_method_worklist to attach the cloned method to it. When this is
+    // called BEFORE emission — the L1.1 dispatch hook fires while scan_fn walks
+    // a sibling method body (e.g. a generic `GLeaf<K>::count` re-lowered with
+    // K=str calls `(*self.keys()).count()`, whose receiver `PkdArray<str>` is
+    // only reached through pointer casts and hasn't been instantiated yet) —
+    // pushing now would drain against a null target and DROP the method, and the
+    // done_methods_ marker below would then block every retry, silently omitting
+    // the call → a ret-less body → SIGSEGV. Defer instead: the deferred drain
+    // (also gated on struct_emitted) re-fires enqueue once the struct appears.
+    // (record_needed_struct at the dispatch re-lowering site guarantees it will.)
+    if (!struct_emitted(concrete, TypeRef(concrete_struct_t).pkg_name())) {
+        // Defer under the PKG-QUALIFIED name: two coexisting same-name structs
+        // from different pkgs share the bare cname (concrete_struct_types_'s bare
+        // key is last-wins), so a bare deferred key would re-resolve to the wrong
+        // twin. The qualified key routes back to THIS exact instance.
+        deferred_method_enqueues_.emplace_back(
+            qualified_cname(concrete_struct_t), method_name);
+        return;
+    }
     std::string base{TypeRef(concrete_struct_t).struct_name()};
     if (auto p = base.find("$G"); p != std::string::npos)
         base = base.substr(0, p);

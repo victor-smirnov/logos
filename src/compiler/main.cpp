@@ -3720,8 +3720,21 @@ int main(int argc, char** argv) {
                 // re-monomorphises the ENTIRE stdlib in every consumer compile
                 // (mono+borrow re-instantiation storm: borrow 12ms→1300ms). Free
                 // fns use a single `.`/`$` boundary (no `..`) and are unaffected.
-                if (auto dd = sv.find(".."); dd != std::string_view::npos)
-                    binary_symbols.emplace(sv.substr(dd + 2));
+                //
+                // ONLY for `$M`-carrying symbols (generic-method INSTANTIATIONS,
+                // whose receiver type is module-suffixed). A concrete struct's
+                // STATIC assoc fn (`Type__new__f__void`) has no receiver → no
+                // `$M` → its bare alias would EXACTLY equal the consumer's bare
+                // fn_name, wrongly tripping sema's skel_skip_body: the body is
+                // forward-declared bare and expected to link, but the archive
+                // defines it module-qualified → undefined symbol. Instance
+                // methods dodge this only because their `$M<hash>` receiver
+                // suffix makes the alias differ from the bare fn_name; static
+                // assoc fns need the explicit `$M` guard. mono only needs the
+                // alias for `$M` instantiations anyway.
+                if (sv.find("$M") != std::string_view::npos)
+                    if (auto dd = sv.find(".."); dd != std::string_view::npos)
+                        binary_symbols.emplace(sv.substr(dd + 2));
             }
         }
         ::pclose(pipe);
