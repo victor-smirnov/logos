@@ -121,6 +121,28 @@ impl<T: ?Sized> PkdArray<T> {
         return (d.byte_add(o) as *const u8, (e - o) as i64);
     }
 
+    /// Prefix byte volume of entries [0..i) — the DATA bytes they occupy (VLE:
+    /// the offset of entry i). The Node's volume-balanced split searches a
+    /// split index by comparing this across columns. `i ∈ [0, count]`.
+    pub fn volume_upto(self: &PkdArray<T>, i: u32) -> u32 {
+        assert(i <= self.count(), "PkdArray::volume_upto: index out of range");
+        return self.offs()[i];
+    }
+
+    /// The predicted TOTAL byte size of THIS column after merging `other`'s
+    /// entries into it (nothing is mutated). The Node sums this over its
+    /// columns and checks the total against its allocator's free space before
+    /// committing a merge. VLE: the nested allocator holds CNT + OFFS[(n+1)] +
+    /// DATA[sum of all lengths]; each slot is 8-aligned over the empty base.
+    pub fn estimate_merge(self: &PkdArray<T>, other: &PkdArray<T>) -> u32 {
+        let n: u32 = self.count() + other.count();
+        let dn: u32 = self.offs()[self.count()] + other.offs()[other.count()];
+        return PkdAlloc::empty_size_for(PkdArray::SLOTS)
+             + round_up_bytes(4u32)              // CNT
+             + round_up_bytes((n + 1u32) * 4u32) // OFFS
+             + round_up_bytes(dn);               // DATA
+    }
+
     /// Inserts `*src` as entry `i` (0 ≤ i ≤ count; out of range panics —
     /// a programming error, not an environment one). Slot-wise exact growth
     /// through the allocator chain; Err(OutOfMem) when the chain can't.
@@ -203,6 +225,73 @@ impl<T: ?Sized> PkdArray<T> {
         let _ = self.alc.resize_block_at(PkdArray::SLOT_DATA, dn - len);
         let _ = self.alc.resize_block_at(PkdArray::SLOT_OFFS, cnt * 4);
     }
+
+    /// Moves entries [at..count) into `dst` (an EMPTY formatted VLE array in
+    /// ANOTHER block); truncates self to [0..at). The B+tree split primitive —
+    /// index-based like FSE `split_into`; the Node computes `at` by a
+    /// volume-balanced search (`volume_upto`), the column just splits there.
+    /// NO unsafe.
+    pub fn split_into(self: &mut PkdArray<T>,
+                      dst: &mut PkdArray<T>, at: u32) -> Result<(), PkdError> {
+        let cnt = self.count();
+        assert(at <= cnt, "PkdArray::split_into: index out of range");
+        let base = self.offs()[at];              // DATA byte offset of the cut
+        let dn = self.offs()[cnt];               // used data bytes
+        let moved = cnt - at;
+        let mv = dn - base;                       // bytes moving to dst
+        // dst gets `moved` entries: grow its slots, copy the DATA tail, rebuild
+        // its OFFS from zero (dst_offs[j] = self_offs[at+j] − base).
+        dst.alc.resize_block_at(PkdArray::SLOT_OFFS, (moved + 1u32) * 4)?;
+        dst.alc.resize_block_at(PkdArray::SLOT_DATA, mv)?;
+        {
+            // Slice BOTH sides to the exact logical byte count — data_mut/data
+            // return the whole slot payload (round_up_8-padded), longer than mv.
+            let dd: &mut [u8] = dst.alc.data_mut(PkdArray::SLOT_DATA);
+            slice_copy_from(slice_get_range_mut(dd, 0u32, mv),
+                            slice_get_range(self.alc.data(PkdArray::SLOT_DATA),
+                                            base, dn));
+        }
+        {
+            let dofs: &mut [u32] = dst.alc.cells_mut::<u32>(PkdArray::SLOT_OFFS);
+            let sofs: &[u32] = self.offs();
+            let mut j: u32 = 0u32;
+            while j <= moved { dofs[j] = sofs[at + j] - base; j = j + 1u32; }
+        }
+        dst.set_count(moved);
+        // self truncates to [0..at): OFFS to at+1 cells, DATA to `base`.
+        self.set_count(at);
+        let _ = self.alc.resize_block_at(PkdArray::SLOT_DATA, base);
+        let _ = self.alc.resize_block_at(PkdArray::SLOT_OFFS, (at + 1u32) * 4);
+        return Result::Ok(());
+    }
+
+    /// Appends ALL of `other`'s entries to self (self += other). The Node
+    /// checks fit via `estimate_merge` before calling. NO unsafe — grow OFFS
+    /// and DATA, copy other's bytes after self's, extend the offsets table.
+    pub fn merge_from(self: &mut PkdArray<T>, other: &PkdArray<T>)
+        -> Result<(), PkdError> {
+        let a = self.count();
+        let b = other.count();
+        let da = self.offs()[a];                  // self used data bytes
+        let db = other.offs()[b];                 // other used data bytes
+        self.alc.resize_block_at(PkdArray::SLOT_OFFS, (a + b + 1u32) * 4)?;
+        self.alc.resize_block_at(PkdArray::SLOT_DATA, da + db)?;
+        {
+            // Exact logical slices on both sides (padded slot payloads differ).
+            let d: &mut [u8] = self.alc.data_mut(PkdArray::SLOT_DATA);
+            slice_copy_from(slice_get_range_mut(d, da, da + db),
+                            slice_get_range(other.alc.data(PkdArray::SLOT_DATA),
+                                            0u32, db));
+        }
+        {
+            let o: &mut [u32] = self.alc.cells_mut::<u32>(PkdArray::SLOT_OFFS);
+            let oo: &[u32] = other.offs();
+            let mut j: u32 = 1u32;                 // other's offs[0] == 0 == self.off(a)
+            while j <= b { o[a + j] = da + oo[j]; j = j + 1u32; }
+        }
+        self.set_count(a + b);
+        return Result::Ok(());
+    }
 }
 
 // ── FSE: the bound-discriminated spec (T: Copy + Fst + StableLayout) ────────
@@ -275,6 +364,23 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         return Result::Ok(());
     }
 
+    /// Prefix byte volume of entries [0..i) — for a fixed-size array this is
+    /// linear: `i * sizeof::<T>()`. The Node's volume-balanced split queries
+    /// the same primitive on every column (VLE reads offsets, FSE multiplies).
+    pub fn volume_upto(self: &PkdArray<T>, i: u32) -> u32 {
+        assert(i <= self.count, "PkdArray::volume_upto: index out of range");
+        return i * (sizeof::<T>() as u32);
+    }
+
+    /// The predicted TOTAL byte size of THIS column after merging `other`
+    /// into it (nothing is mutated) — header + inline typed tail for the
+    /// combined element count, 8-aligned. FSE size is linear in count, so the
+    /// estimate is exact arithmetic (no data scan, unlike VLE).
+    pub fn estimate_merge(self: &PkdArray<T>, other: &PkdArray<T>) -> u32 {
+        let n: u32 = self.count + other.count;
+        return round_up_bytes(fse_hdr::<T>() + n * (sizeof::<T>() as u32));
+    }
+
     /// Element `i` by value (T: Copy). Bad index panics.
     pub fn get(self: &PkdArray<T>, i: u32) -> T {
         assert(i < self.count, "PkdArray::get: index out of range");
@@ -342,6 +448,22 @@ impl<T: Copy + Fst + StableLayout> PkdArray<T> {
         self.count = mid;
         let keep = fse_hdr::<T>() + (mid * esz) as u32;
         let _ = self.resize_self(keep);      // shrink is best-effort
+        return Result::Ok(());
+    }
+
+    /// Appends ALL of `other`'s elements to self (self += other). The Node
+    /// checks fit via `estimate_merge` before calling; here we grow and copy.
+    /// NO unsafe — resize first, then a single tail slice-copy.
+    pub fn merge_from(self: &mut PkdArray<T>, other: &PkdArray<T>)
+        -> Result<(), PkdError> {
+        let esz: i64 = sizeof::<T>();
+        let a: u32 = self.count;
+        let b: u32 = other.count;
+        let need = fse_hdr::<T>() + ((a + b) * esz as u32);
+        self.resize_self(need)?;
+        self.count = a + b;
+        let d: &mut [T] = self.elems_mut();
+        slice_copy_from(slice_get_range_mut(d, a, a + b), other.as_slice());
         return Result::Ok(());
     }
 }

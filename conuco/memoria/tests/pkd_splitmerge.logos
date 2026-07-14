@@ -1,0 +1,110 @@
+// pkd_splitmerge — split_into + merge_from + estimate_merge/volume_upto for
+// BOTH PkdArray families (ADR 0020 Track B). Validates: (1) merge appends all
+// entries in order; (2) split at an index moves the tail and truncates; (3)
+// split∘merge round-trips; (4) estimate_merge predicts the actual post-merge
+// column byte size; (5) volume_upto is the prefix byte volume.
+package test;
+
+use memoria.pkd;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.str;
+
+// A two-slot host block: column A in slot 0, column B in slot 1 (siblings —
+// the Node shape). Returns the allocator so tests can read free space.
+unsafe fn host(cap: u32) -> *mut PkdAlloc {
+    let m: *mut u8 = alloc(cap as i64);
+    return pkd_format(m, cap, 2u32);
+}
+
+// ── FSE: PkdArray<u64> ──────────────────────────────────────────────────────
+unsafe fn fse_case() -> i32 {
+    let a: *mut PkdAlloc = host(1024u32);   // LEFT node block
+    let a2: *mut PkdAlloc = host(1024u32);  // RIGHT node block (separate)
+    let l: *mut PkdArray<u64> = match PkdArray::<u64>::format(a, 0u32) {
+        Result::Ok(p) => p, Result::Err(_e) => { return 10i32; }
+    };
+    let r: *mut PkdArray<u64> = match PkdArray::<u64>::format(a2, 0u32) {
+        Result::Ok(p) => p, Result::Err(_e) => { return 11i32; }
+    };
+    // l = [10,20,30,40,50,60]
+    let mut i: u64 = 0u64;
+    while i < 6u64 { let v: u64 = (i + 1u64) * 10u64; let _ = (*l).push(&v); i = i + 1u64; }
+    // volume_upto: 3 elements * 8 bytes = 24
+    if (*l).volume_upto(3u32) != 24u32 { return 12i32; }
+    // split at 4 → r = [50,60], l = [10,20,30,40]
+    if (*l).split_into(&mut *r, 4u32).is_err() { return 13i32; }
+    if (*l).count() != 4u32 { return 14i32; }
+    if (*r).count() != 2u32 { return 15i32; }
+    if (*r).get(0u32) != 50u64 || (*r).get(1u32) != 60u64 { return 16i32; }
+    if (*l).get(3u32) != 40u64 { return 17i32; }
+    // estimate_merge(l, r) must equal the real block size after merge_from.
+    let est: u32 = (*l).estimate_merge(&*r);
+    if (*l).merge_from(&*r).is_err() { return 18i32; }
+    if (*l).count() != 6u32 { return 19i32; }
+    // round-trip: back to [10..60]
+    let mut k: u32 = 0u32;
+    while k < 6u32 { if (*l).get(k) != ((k as u64) + 1u64) * 10u64 { return 20i32; } k = k + 1u32; }
+    // estimate == actual slot size (element_size of slot 0)
+    if a.element_size(0u32) != est { return 21i32; }
+    dealloc(a as *mut u8);
+    dealloc(a2 as *mut u8);
+    return 0i32;
+}
+
+// ── VLE: PkdArray<str> ──────────────────────────────────────────────────────
+unsafe fn vle_eq(v: *mut PkdArray<str>, i: u32, want: str) -> bool {
+    let b: &[u8] = (*v).get_bytes(i);
+    if b.len() != want.len() { return false; }
+    let mut k: i64 = 0i64;
+    while k < b.len() { if b[k] != str_byte_at(want, k) { return false; } k = k + 1i64; }
+    return true;
+}
+
+unsafe fn vle_case() -> i32 {
+    let a: *mut PkdAlloc = host(2048u32);   // LEFT node block
+    let a2: *mut PkdAlloc = host(2048u32);  // RIGHT node block (separate)
+    let l: *mut PkdArray<str> = match PkdArray::<str>::format(a, 0u32) {
+        Result::Ok(p) => p, Result::Err(_e) => { return 30i32; }
+    };
+    let r: *mut PkdArray<str> = match PkdArray::<str>::format(a2, 0u32) {
+        Result::Ok(p) => p, Result::Err(_e) => { return 31i32; }
+    };
+    // l = ["a","bb","ccc","dddd"] — lengths 1,2,3,4 (prefix volumes 0,1,3,6,10)
+    let _ = (*l).push("a");
+    let _ = (*l).push("bb");
+    let _ = (*l).push("ccc");
+    let _ = (*l).push("dddd");
+    if (*l).volume_upto(0u32) != 0u32 { return 32i32; }
+    if (*l).volume_upto(2u32) != 3u32 { return 33i32; }   // "a"+"bb"
+    if (*l).volume_upto(4u32) != 10u32 { return 34i32; }  // all
+    // split at 2 → r = ["ccc","dddd"], l = ["a","bb"]
+    if (*l).split_into(&mut *r, 2u32).is_err() { return 35i32; }
+    if (*l).count() != 2u32 || (*r).count() != 2u32 { return 36i32; }
+    if !vle_eq(l, 0u32, "a") || !vle_eq(l, 1u32, "bb") { return 37i32; }
+    if !vle_eq(r, 0u32, "ccc") || !vle_eq(r, 1u32, "dddd") { return 38i32; }
+    if (*l).volume_upto(2u32) != 3u32 { return 39i32; }   // l shrank to 1+2
+    if (*r).volume_upto(2u32) != 7u32 { return 40i32; }   // r holds 3+4
+    // estimate then merge back
+    let est: u32 = (*l).estimate_merge(&*r);
+    if (*l).merge_from(&*r).is_err() { return 41i32; }
+    if (*l).count() != 4u32 { return 42i32; }
+    if !vle_eq(l, 0u32, "a") || !vle_eq(l, 1u32, "bb")
+       || !vle_eq(l, 2u32, "ccc") || !vle_eq(l, 3u32, "dddd") { return 43i32; }
+    if (*l).volume_upto(4u32) != 10u32 { return 44i32; }
+    // estimate == actual VLE column slot size (element_size of slot 0)
+    if a.element_size(0u32) != est { return 45i32; }
+    dealloc(a as *mut u8);
+    dealloc(a2 as *mut u8);
+    return 0i32;
+}
+
+fn main() -> i32 {
+    unsafe {
+        let f: i32 = fse_case();
+        if f != 0i32 { return f; }
+        let v: i32 = vle_case();
+        if v != 0i32 { return v; }
+    }
+    return 0i32;
+}
