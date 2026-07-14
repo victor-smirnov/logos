@@ -127,6 +127,16 @@ mapping CanonFacts(g: &Writ) {
     pub rel max_meas(ctr: str, col: str) {
         from meas_fact m where m.mfn == MFN_MAX select (m.ctr, m.arg);
     }
+
+    // Nodes (kind=node) with at least one VLE (by_view) column — a column not in
+    // mode_value. Earns a rel (not a deem) as the RHS of the split_fast anti
+    // join: fast ⟺ NOT node_has_vle.
+    pub rel node_has_vle(ctr: str) {
+        from ctr_kind x join col_fact c on c.ctr == x.ctr
+             anti join mode_value v on v.ctr == c.ctr && v.col == c.col
+        where x.kind == KIND_NODE
+        select x.ctr;
+    }
 }
 
 // Verdict projections — one deem per verdict set (a deem item has one entry;
@@ -174,6 +184,22 @@ deem canon_proj_canoncol(w: CanonFacts) {
     where x.kind == KIND_VECTOR && c.ty != TY_STR && c.ty != TY_BOOL
     select (c.ctr, c.col)
 }
+// Split policy (kind=node): the leaf's split algorithm is a FUNCTION of its
+// column families. A by_view (VLE, variable-length) column means a count-split
+// could pile most bytes on one side, so the node splits by cumulative byte
+// VOLUME; an all-by_value (FSE, fixed-size) node splits count-balanced (FAST),
+// where count ≡ volume. `mode_view` already partitions the VLE columns, so the
+// verdict is a natural sibling of the mode rules: volume iff ANY VLE column,
+// fast via a stratified anti-join when NONE. (Duplicate ctr rows from multiple
+// VLE columns collapse — a deem yields a set.)
+deem canon_split_volume(w: CanonFacts) {
+    from node_has_vle h select h.ctr : str
+}
+deem canon_split_fast(w: CanonFacts) {
+    from ctr_kind x anti join node_has_vle h on h.ctr == x.ctr
+    where x.kind == KIND_NODE
+    select x.ctr : str
+}
 // Wave-0 emission limits — Canon-derived, with provenance (previously
 // handler-authored diagnostics; the drift the ADR warns about).
 deem canon_unprojectable(w: CanonFacts) {
@@ -204,6 +230,13 @@ fn cv_push_mode(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, col: str, mode: st
     arr.push(WAny::from(&*m));
 }
 
+fn cv_push_split(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, policy: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(4i64);
+    m.set(K_CTR, ctr);
+    m.set(K_POLICY, policy);
+    arr.push(WAny::from(&*m));
+}
+
 /// Runs the Canon wave-0 rules over one fact doc and returns the verdict doc
 /// (owned). An engine failure yields a NULL-root doc — the caller diagnoses
 /// (the same convention as a malformed spec in container_facts).
@@ -229,6 +262,10 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     let unpr: Vec<(str, str, str)> = match canon_unprojectable(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
     let multi: Vec<str> = match canon_multi_entry(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let svol: Vec<str> = match canon_split_volume(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let sfast: Vec<str> = match canon_split_fast(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
 
     let root: &mut WMap<WString, WAny> = doc.map(8i64);
@@ -260,6 +297,16 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
         i = i + 1i64;
     }
     root.set(V_COL_MODES, &*modes);
+
+    // Split policy per node (kind=node): volume when any column is VLE, else
+    // fast. Drives the generated leaf's split_into body (Canon decides, the
+    // metaprog emitter reproduces LeafKV's volume search vs LeafU64's count/2).
+    let splits: &mut WArray<WAny> = doc.array(svol.len() + sfast.len());
+    i = 0i64;
+    while i < svol.len()  { cv_push_split(&doc, splits, svol.get(i),  SPLIT_VOLUME); i = i + 1i64; }
+    i = 0i64;
+    while i < sfast.len() { cv_push_split(&doc, splits, sfast.get(i), SPLIT_FAST);   i = i + 1i64; }
+    root.set(V_SPLIT, &*splits);
 
     // Per-column scan projections (kind=vector): the handler's ENTIRE column
     // vocabulary — relty + proj come from these rows, never re-derived.

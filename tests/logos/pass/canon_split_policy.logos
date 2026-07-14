@@ -1,0 +1,110 @@
+// ADR 0020 wave-0 Track B 2c — Canon derives the LEAF SPLIT POLICY (fast|volume)
+// for a `kind node` from its column families: an all-fixed-size (by_value/FSE)
+// node splits count-balanced (fast); any variable-length (by_view/VLE, e.g.
+// `str`) column forces a volume-balanced split. This is the reasoner half of
+// reasoner-driven Node codegen — the verdict the emitter will turn into the
+// generated leaf's split_into body. The policy is node-only: a `kind vector`
+// gets no split_policy row.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.canon.canon;
+use logos.lang.writ.container;
+use logos.lang.writ.wmap;
+use logos.lang.writ.array;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.lang.str;
+
+fn fact_ctr(doc: &Writ, arr: &mut WArray<WAny>, name: str, kind: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(8i64);
+    m.set("name", name);
+    m.set("pub", true);
+    m.set("generics", "");
+    m.set("backing", "");
+    m.set("kind", kind);
+    arr.push(WAny::from(&*m));
+}
+
+fn fact_col(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str,
+            ty: str, prm: bool) {
+    let m: &mut WMap<WString, WAny> = doc.map(8i64);
+    m.set("ctr", ctr);
+    m.set("idx", idx);
+    m.set("name", name);
+    m.set("ty", ty);
+    m.set("param", prm);
+    arr.push(WAny::from(&*m));
+}
+
+fn vd_count(vd: &Writ, key: str) -> i64 {
+    let root: WAny = vd.root();
+    if root.is_null() || !root.is_map() { return 0i64 - 1i64; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get(key);
+    if !av.is_array() { return 0i64 - 1i64; }
+    let arr: &WArray<WAny> = av.as_array();
+    return arr.len();
+}
+
+// True iff `split_policy` carries a row {ctr, policy}.
+fn has_split(vd: &Writ, ctr: str, policy: str) -> bool {
+    let root: WAny = vd.root();
+    if root.is_null() || !root.is_map() { return false; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get("split_policy");
+    if !av.is_array() { return false; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("policy");
+            if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), policy) { return true; }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn main() -> i32 {
+    // Two node containers (a b+tree leaf's columns) + a vector (which must NOT
+    // get a split policy). MapU64 = key:u64,val:u64 (all FSE → fast);
+    // MapKV = key:u64,val:str (val is VLE → volume).
+    let d: Writ = writ_new(65536i64);
+    {
+        let root: &mut WMap<WString, WAny> = d.map(4i64);
+        let ctrs: &mut WArray<WAny> = d.array(3i64);
+        fact_ctr(&d, ctrs, "MapU64", "node");
+        fact_ctr(&d, ctrs, "MapKV",  "node");
+        fact_ctr(&d, ctrs, "Vec",    "vector");
+        root.set("containers", &*ctrs);
+        let cols: &mut WArray<WAny> = d.array(5i64);
+        fact_col(&d, cols, "MapU64", 0i64, "key", "u64", false);
+        fact_col(&d, cols, "MapU64", 1i64, "val", "u64", false);
+        fact_col(&d, cols, "MapKV",  0i64, "key", "u64", false);
+        fact_col(&d, cols, "MapKV",  1i64, "val", "str", false);   // VLE
+        fact_col(&d, cols, "Vec",    0i64, "elem", "u64", false);
+        root.set("cols", &*cols);
+        let meas: &mut WArray<WAny> = d.array(0i64);
+        root.set("measures", &*meas);
+        d.set_root(WAny::from(&*root));
+    }
+    let v: Writ = canon_verdicts(&d);
+
+    // exactly two split-policy rows — one per node, none for the vector
+    if vd_count(&v, "split_policy") != 2i64 { return 1i32; }
+    // all-FSE node → fast
+    if !has_split(&v, "MapU64", "fast") { return 2i32; }
+    if has_split(&v, "MapU64", "volume") { return 3i32; }
+    // VLE-bearing node → volume
+    if !has_split(&v, "MapKV", "volume") { return 4i32; }
+    if has_split(&v, "MapKV", "fast") { return 5i32; }
+    // the vector is not a node — no split policy at all
+    if has_split(&v, "Vec", "fast") { return 6i32; }
+    if has_split(&v, "Vec", "volume") { return 7i32; }
+
+    return 0i32;
+}

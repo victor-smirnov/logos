@@ -46,6 +46,7 @@ pub const K_REASON: str = "reason";
 // ── Kinds ────────────────────────────────────────────────────────────────
 pub const KIND_VECTOR:      str = "vector";
 pub const KIND_ORDERED_MAP: str = "ordered_map";
+pub const KIND_NODE:        str = "node";   // a storage node (b+tree leaf/branch)
 
 // ── Measure functions ────────────────────────────────────────────────────
 pub const MFN_COUNT: str = "count";
@@ -61,6 +62,15 @@ pub const MODE_BY_VALUE: str = "by_value";
 pub const MODE_BY_VIEW:  str = "by_view";
 pub const PROJ_DIRECT:    str = "direct";
 pub const PROJ_CANON_COL: str = "canon_col";
+
+// ── Split policy (kind=node): the verdict that drives leaf split codegen ──
+// A node whose columns are all fixed-size (by_value/FSE) splits count-balanced
+// (`fast`); any variable-length (by_view/VLE) column forces a volume-balanced
+// binary search over the columns' cumulative byte volume (`volume`).
+pub const V_SPLIT:      str = "split_policy";
+pub const K_POLICY:     str = "policy";
+pub const SPLIT_FAST:   str = "fast";
+pub const SPLIT_VOLUME: str = "volume";
 
 // ── Rel-native column types (carried verbatim; everything else projects to
 // i64 through CanonCol) ──────────────────────────────────────────────────
