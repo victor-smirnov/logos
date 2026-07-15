@@ -6259,6 +6259,21 @@ void Mono::instantiate_struct_templates() {
             } else {
                 tmpl = find_struct_template_pkg_first(struct_pkg, base);
                 if (!tmpl.valid()) {
+                    // Generic-container coherence (S1): a concrete container
+                    // stack (e.g. Map$G2$u64$str) is emitted as a fully-formed
+                    // struct with NO template — the generic container decl emits
+                    // nothing, the driver feeds concrete decls. If a struct
+                    // literally named `cname` already exists in out_.structs,
+                    // the instance is SATISFIED: references link by name. Do not
+                    // record missing and do not poison referencing fns.
+                    bool already_present = false;
+                    for (auto& sd : out_.structs)
+                        if (sd.name() == cname) { already_present = true; break; }
+                    if (already_present) {
+                        concrete_struct_types_[qcname] = struct_t;
+                        concrete_struct_types_[cname]  = struct_t;
+                        continue;
+                    }
                     // Deferred-emission poison guard (see mono_impl.hpp): the
                     // template may be a macro-emitted struct that doesn't
                     // exist yet (dispatch iter 0). Remember the instance so
