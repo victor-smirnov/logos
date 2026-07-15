@@ -221,6 +221,8 @@ __attribute__((weak)) int64_t logos_xwake_get(void) { return _stub_xwake; }
 __attribute__((weak)) void  logos_xwake_set(int64_t p) { _stub_xwake = p; }
 
 // Fiber stack provisioning (logos_fiber_stack_alloc/free) lives in fiber_stack.c
-// — a strong mmap+guard-page implementation in this same rt archive. No weak
-// stub is needed here: it is always resolvable for both the metacall JIT and
-// user links. An LCM target that does not link liblstdlib_rt.a provides its own.
+// and the monotonic clock (logos_clock_now) in clock.c — strong implementations
+// in this same rt archive. No weak stub is needed for either: they are always
+// resolvable for both the metacall JIT and user links (unlike logos_xwake_*,
+// whose strong def sits in the separately-filtered fibers archive). An LCM
+// target that does not link liblstdlib_rt.a provides its own.

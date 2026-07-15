@@ -11,7 +11,7 @@
 #                          via the install/build lib/logos directory.
 #
 #   liblstdlib_rt.a      — atomic_ops.S, thread_uring.c, env.c,
-#                          metaprog_stubs.c, fiber_stack.c. Zero TLS relocations →
+#                          metaprog_stubs.c, fiber_stack.c, clock.c. Zero TLS relocations →
 #                          safe for both link-time use and JIT load.
 #
 # Glob order ensures static-link finds fiber symbols correctly:
@@ -29,7 +29,7 @@ set_target_properties(logos_fibers PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
     OUTPUT_NAME lstdlib_fibers)
 
-add_library(logos_rt STATIC atomic_ops.S thread_uring.c env.c metaprog_stubs.c fs_meta.c fmt_native.c test_recovery.c fiber_stack.c)
+add_library(logos_rt STATIC atomic_ops.S thread_uring.c env.c metaprog_stubs.c fs_meta.c fmt_native.c test_recovery.c fiber_stack.c clock.c)
 target_include_directories(logos_rt PRIVATE /usr/include)
 # Position-independent: these objects are loaded into the metaprog ORC JIT,
 # which may map them anywhere in the address space. Non-PIC codegen emits

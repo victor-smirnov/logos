@@ -147,11 +147,17 @@ pub struct TraceEpoch {
     pub ns:     i64,
 }
 
+// Monotonic nanosecond clock — virtualized as an rt-level hook (clock.c on a
+// conventional OS; a tick source on LCM) so the engine carries no std.time
+// OS-API dependency and can sit in the mem tier. Trace ns-fields and the S2
+// wall-clock anytime-budget both read it.
+extern fn logos_clock_now() -> i64;
+
 // Monotonic sensor read, gated on the trace toggle (I3: bookkeeping is
 // toggleable configuration — off ⇒ zero clock calls, zero cost).
 fn tr_now(on: bool) -> i64 {
     if !on { return 0i64; }
-    unsafe { return instant_now().nanos_since_epoch(); }
+    unsafe { return logos_clock_now(); }
 }
 
 // ── S2 BUDGETED FIXPOINT (ADR 0015 §3): anytime semantics. The inner fixpoint

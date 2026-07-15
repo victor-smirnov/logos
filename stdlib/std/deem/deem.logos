@@ -87,7 +87,6 @@ use logos.std.wql.params;         // RelDeps / RelScc / compute_rel_scc — the 
                                   // (metaprog-free) rel dependency-graph half (I3)
 use logos.mem.collections.vec;    // Vec — row pipelines (unbounded)
 use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct sets
-use logos.std.time;               // instant_now — S1 trace reification (ADR 0015 §2)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QError — a positioned runtime error VALUE.
