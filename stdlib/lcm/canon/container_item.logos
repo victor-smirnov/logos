@@ -784,6 +784,87 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         emit_branch_node(name, bkty);
         return out;
     }
+    // kind=ordered_map: realize Canon's container_shape PLAN. Structure is the
+    // verdict — the handler only reproduces the node types the plan names,
+    // walking its rows (never hardcoding leaf+branch). The tree-assembly and
+    // CoW-map aspects are read here but realized in later increments (I2/I3).
+    if str_eq(cs.kind, KIND_ORDERED_MAP) {
+        // wave-0: only a CONCRETE ordered_map generates its b+tree stack. A
+        // generic `Map<K, V>` has unbound column types (and often an undeclared
+        // backing) — it stops at verdicts, the same parse/facts/verdicts-only
+        // contract as before. The generic-K stack is a later increment (③).
+        if cs.generics.len() > 0i64 { return out; }
+        // Two entry columns (key, val) — same shape as a kind=node leaf.
+        let ce2: i64 = cs.entry.len();
+        let nb0: i64 = cf_next_comma(cs.entry, 0i64, ce2);
+        if nb0 == ce2 {
+            error("container item: a `kind ordered_map` needs two entry columns (`entry { key: K, val: V }`)");
+            return out;
+        }
+        let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce2);
+        if nb1 != ce2 {
+            error("container item: wave-0 `kind ordered_map` supports exactly two entry columns (key, val)");
+            return out;
+        }
+        let k1: i64 = cf_find(cs.entry, 0i64, 58u8);
+        let mut k2: i64 = nb0 - 1i64;
+        while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
+        if k1 < 0i64 || k2 <= k1 {
+            error("container item: malformed key column (compiler seam regression?)");
+            return out;
+        }
+        let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
+        let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);
+        let mut v2: i64 = ce2 - 1i64;
+        while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
+        if v1 < 0i64 || v2 <= v1 {
+            error("container item: malformed val column (compiler seam regression?)");
+            return out;
+        }
+        let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
+
+        // Walk the plan rows: emit the node types (leaf(policy) + branch).
+        let sv: WAny = vm.get(V_SHAPE);
+        if !sv.is_array() {
+            error("container item: Canon produced no container_shape plan for an ordered_map (Canon seam regression?)");
+            return out;
+        }
+        let sa: &WArray<WAny> = sv.as_array();
+        let mut saw_leaf: bool = false;
+        let mut saw_branch: bool = false;
+        let mut si: i64 = 0i64;
+        while si < sa.len() {
+            let e: WAny = sa.get(si);
+            if e.is_map() {
+                let em: &WMap<WString, WAny> = e.as_map();
+                let cc: WAny = em.get(K_CTR);
+                let asp: WAny = em.get(K_ASPECT);
+                if cc.is_string() && asp.is_string()
+                   && str_eq(cc.as_wstr(), name) && str_eq(asp.as_wstr(), ASPECT_NODE) {
+                    let role: WAny = em.get(K_ROLE);
+                    if role.is_string() && str_eq(role.as_wstr(), ROLE_LEAF) {
+                        let pol: WAny = em.get(K_POLICY);
+                        let ps: str = if pol.is_string() { pol.as_wstr() } else { SPLIT_FAST };
+                        let mut ln: String = String::new();
+                        ln.push_str(name); ln.push_str("Leaf");
+                        emit_leaf_node(ln.as_str(), kty, vty, ps);
+                        saw_leaf = true;
+                    } else if role.is_string() && str_eq(role.as_wstr(), ROLE_BRANCH) {
+                        let mut bn: String = String::new();
+                        bn.push_str(name); bn.push_str("Branch");
+                        emit_branch_node(bn.as_str(), kty);
+                        saw_branch = true;
+                    }
+                }
+            }
+            si = si + 1i64;
+        }
+        if !saw_leaf || !saw_branch {
+            error("container item: incomplete container_shape plan (leaf or branch node missing — Canon seam regression?)");
+            return out;
+        }
+        return out;
+    }
     if !str_eq(cs.kind, KIND_VECTOR) { return out; }
     if !cv_has_cap(vm, name, "can_scan") {
         error("container item: Canon granted no can_scan capability for a vector container (Canon seam regression?)");

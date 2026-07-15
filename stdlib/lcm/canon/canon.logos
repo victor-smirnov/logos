@@ -131,10 +131,15 @@ mapping CanonFacts(g: &Writ) {
     // Nodes (kind=node) with at least one VLE (by_view) column — a column not in
     // mode_value. Earns a rel (not a deem) as the RHS of the split_fast anti
     // join: fast ⟺ NOT node_has_vle.
-    pub rel node_has_vle(ctr: str) {
+    // A container with at least one VLE (by_view) column — a column not in
+    // mode_value. Covers BOTH a bare storage node AND an ordered_map (whose
+    // leaf carries the map's columns). The RHS of the split_fast/map_fast anti
+    // joins: fast ⟺ NOT ctr_has_vle. (Kept one rel, not two — CanonFacts is at
+    // the wql source rel cap of 8.)
+    pub rel ctr_has_vle(ctr: str) {
         from ctr_kind x join col_fact c on c.ctr == x.ctr
              anti join mode_value v on v.ctr == c.ctr && v.col == c.col
-        where x.kind == KIND_NODE
+        where x.kind == KIND_NODE || x.kind == KIND_ORDERED_MAP
         select x.ctr;
     }
 }
@@ -193,11 +198,26 @@ deem canon_proj_canoncol(w: CanonFacts) {
 // fast via a stratified anti-join when NONE. (Duplicate ctr rows from multiple
 // VLE columns collapse — a deem yields a set.)
 deem canon_split_volume(w: CanonFacts) {
-    from node_has_vle h select h.ctr : str
+    from ctr_has_vle h join ctr_kind x on x.ctr == h.ctr
+    where x.kind == KIND_NODE
+    select h.ctr : str
 }
 deem canon_split_fast(w: CanonFacts) {
-    from ctr_kind x anti join node_has_vle h on h.ctr == x.ctr
+    from ctr_kind x anti join ctr_has_vle h on h.ctr == x.ctr
     where x.kind == KIND_NODE
+    select x.ctr : str
+}
+// container_shape leaf policy per ordered_map — the same VLE partition applied
+// to the map's own columns (its leaf's entry). volume iff any VLE column; both
+// reuse ctr_has_vle (which already covers ordered_map).
+deem canon_map_volume(w: CanonFacts) {
+    from ctr_has_vle h join ctr_kind x on x.ctr == h.ctr
+    where x.kind == KIND_ORDERED_MAP
+    select h.ctr : str
+}
+deem canon_map_fast(w: CanonFacts) {
+    from ctr_kind x anti join ctr_has_vle h on h.ctr == x.ctr
+    where x.kind == KIND_ORDERED_MAP
     select x.ctr : str
 }
 // Wave-0 emission limits — Canon-derived, with provenance (previously
@@ -237,6 +257,35 @@ fn cv_push_split(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, policy: str) {
     arr.push(WAny::from(&*m));
 }
 
+// One container_shape node row (aspect=node): role leaf|branch (+ leaf policy).
+fn cv_push_shape_node(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, role: str, policy: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(4i64);
+    m.set(K_CTR, ctr);
+    m.set(K_ASPECT, ASPECT_NODE);
+    m.set(K_ROLE, role);
+    m.set(K_POLICY, policy);
+    arr.push(WAny::from(&*m));
+}
+// One container_shape scalar-aspect row (assembly | versioning | measure).
+fn cv_push_shape_aspect(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, aspect: str, value: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(4i64);
+    m.set(K_CTR, ctr);
+    m.set(K_ASPECT, aspect);
+    m.set(K_VALUE, value);
+    arr.push(WAny::from(&*m));
+}
+// The full b+tree map plan for one ordered_map: a policy-tagged leaf, a routing
+// branch, a tree assembly, CoW versioning, and the subtree_size rank measure.
+// FIXED shape today; the point is the DECISION lives in Canon — richer rules
+// (Index/AM2, non-versioned maps, extra measures) extend HERE, not the handler.
+fn cv_push_map_shape(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, leaf_policy: str) {
+    cv_push_shape_node(doc, arr, ctr, ROLE_LEAF, leaf_policy);
+    cv_push_shape_node(doc, arr, ctr, ROLE_BRANCH, "");
+    cv_push_shape_aspect(doc, arr, ctr, ASPECT_ASSEMBLY, ASM_TREE);
+    cv_push_shape_aspect(doc, arr, ctr, ASPECT_VERSION,  VER_COW);
+    cv_push_shape_aspect(doc, arr, ctr, ASPECT_MEASURE,  MEAS_SUBTREE_SIZE);
+}
+
 /// Runs the Canon wave-0 rules over one fact doc and returns the verdict doc
 /// (owned). An engine failure yields a NULL-root doc — the caller diagnoses
 /// (the same convention as a malformed spec in container_facts).
@@ -266,6 +315,10 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     let svol: Vec<str> = match canon_split_volume(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
     let sfast: Vec<str> = match canon_split_fast(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let mvol: Vec<str> = match canon_map_volume(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let mfast: Vec<str> = match canon_map_fast(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
 
     let root: &mut WMap<WString, WAny> = doc.map(8i64);
@@ -307,6 +360,16 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     i = 0i64;
     while i < sfast.len() { cv_push_split(&doc, splits, sfast.get(i), SPLIT_FAST);   i = i + 1i64; }
     root.set(V_SPLIT, &*splits);
+
+    // container_shape: the whole-stack plan per ordered_map (leaf policy from
+    // the VLE partition, then the fixed branch/tree/cow/subtree_size aspects).
+    // Five rows per map; the handler realizes exactly this plan.
+    let shape: &mut WArray<WAny> = doc.array((mvol.len() + mfast.len()) * 5i64);
+    i = 0i64;
+    while i < mvol.len()  { cv_push_map_shape(&doc, shape, mvol.get(i),  SPLIT_VOLUME); i = i + 1i64; }
+    i = 0i64;
+    while i < mfast.len() { cv_push_map_shape(&doc, shape, mfast.get(i), SPLIT_FAST);   i = i + 1i64; }
+    root.set(V_SHAPE, &*shape);
 
     // Per-column scan projections (kind=vector): the handler's ENTIRE column
     // vocabulary — relty + proj come from these rows, never re-derived.

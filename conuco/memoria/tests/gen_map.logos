@@ -1,0 +1,72 @@
+// gen_map — Canon container_shape, end to end (ADR 0020 Track B, ② I1):
+// a single `kind ordered_map` declaration → Canon derives a container_shape
+// PLAN (leaf(fast) + branch + tree + cow + subtree_size) → the handler walks
+// that plan and GENERATES the plan's node types: the concrete leaf `GenMapLeaf`
+// and the routing branch `GenMapBranch`. Structure is Canon's verdict; the ONE
+// declaration is the whole source of BOTH types. main() exercises the generated
+// leaf and builds a height-2 structure with the generated branch over generated
+// children (proving the pair composes). Tree-assembly + CoW-map are I2/I3.
+package test;
+
+use logos.lcm.canon.container_item;   // the `container` lowering handler
+use logos.mem.pkd;
+
+// key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the plan's
+// leaf + branch nodes are both emitted from this one declaration.
+container GenMap for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
+
+// Descent hooks binding the child-agnostic GenMapBranch to GenMapLeaf children.
+fn leaf_lb(node: *mut u8, key: u64) -> u32 {
+    return GenMapLeaf::adopt(node).lower_bound(key);
+}
+fn leaf_probe(node: *mut u8, key: u64, sentinel: u64) -> u64 {
+    let lf: GenMapLeaf = GenMapLeaf::adopt(node);
+    let p: u32 = lf.lower_bound(key);
+    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }
+    return sentinel;
+}
+
+fn fill(lo: u64, hi: u64) -> GenMapLeaf {
+    let mut lf: GenMapLeaf = GenMapLeaf::new();
+    let mut k: u64 = lo;
+    while k <= hi {
+        if !lf.try_insert(k, k + 100u64) { assert(false, "fill: leaf full too early"); }
+        k = k + 2u64;
+    }
+    return lf;
+}
+
+fn main() -> i32 {
+    // (a) the GENERATED leaf works on its own (fill / order / replace-on-hit).
+    let mut lf: GenMapLeaf = GenMapLeaf::new();
+    let mut k: u64 = 0u64;
+    while k < 10u64 { if !lf.try_insert(k, k + 100u64) { return 1i32; } k = k + 1u64; }
+    if lf.count() != 10u32 { return 2i32; }
+    if lf.key_at(3u32) != 3u64 || lf.val_at(3u32) != 103u64 { return 3i32; }
+    if lf.lower_bound(5u64) != 5u32 { return 4i32; }
+    if !lf.try_insert(3u64, 999u64) { return 5i32; }           // replace-on-hit
+    if lf.count() != 10u32 || lf.val_at(3u32) != 999u64 { return 6i32; }
+    lf.free();
+
+    // (b) the GENERATED branch routes over GENERATED-leaf children — one decl
+    // produced a composable leaf+branch pair.
+    let l0: GenMapLeaf = fill(0u64, 8u64);     // [0,2,4,6,8] = 5
+    let l1: GenMapLeaf = fill(10u64, 16u64);   // [10,12,14,16] = 4
+    let l2: GenMapLeaf = fill(20u64, 24u64);   // [20,22,24] = 3
+    // the generated leaf has no `max_key` method (that is LeafU64's); its max is
+    // the last sorted key: key_at(count-1).
+    let mut br: GenMapBranch = GenMapBranch::new();
+    br.push_child(l0.key_at(l0.count() - 1u32), l0.count() as u64, l0.block());
+    br.push_child(l1.key_at(l1.count() - 1u32), l1.count() as u64, l1.block());
+    br.push_child(l2.key_at(l2.count() - 1u32), l2.count() as u64, l2.block());
+    if br.child_count() != 3u32 { return 7i32; }
+    if br.total_size() != 12u64 { return 8i32; }               // SUM column
+    if br.find_child(5u64) != 0u32 { return 9i32; }            // search descent
+    if br.find_child(24u64) != 2u32 { return 10i32; }
+    if br.get_or(12u64, 999u64, leaf_probe) != 112u64 { return 11i32; }  // descent → leaf probe
+    if br.get_or(0u64, 999u64, leaf_probe) != 100u64 { return 12i32; }
+    if br.rank(20u64, leaf_lb) != 9u64 { return 13i32; }       // 5+4 entries before [20..]
+
+    br.free_children();   // frees each child block AND the branch's own block
+    return 0i32;
+}

@@ -73,6 +73,27 @@ pub const K_POLICY:     str = "policy";
 pub const SPLIT_FAST:   str = "fast";
 pub const SPLIT_VOLUME: str = "volume";
 
+// ── container_shape (ADR 0020 §5): the whole-stack PLAN Canon derives for an
+// ordered_map. The handler realizes exactly these rows — structure is a
+// verdict, never hardcoded in the emitter. One flat row per plan aspect:
+//   { ctr, aspect:node,      role:leaf|branch, policy:fast|volume (leaf) }
+//   { ctr, aspect:assembly,  value:tree }
+//   { ctr, aspect:versioning,value:cow }
+//   { ctr, aspect:measure,   value:subtree_size }
+pub const V_SHAPE:  str = "container_shape";
+pub const K_ASPECT: str = "aspect";
+pub const K_ROLE:   str = "role";
+pub const K_VALUE:  str = "value";
+pub const ASPECT_NODE:     str = "node";
+pub const ASPECT_ASSEMBLY: str = "assembly";
+pub const ASPECT_VERSION:  str = "versioning";
+pub const ASPECT_MEASURE:  str = "measure";
+pub const ROLE_LEAF:   str = "leaf";
+pub const ROLE_BRANCH: str = "branch";
+pub const ASM_TREE:    str = "tree";
+pub const VER_COW:     str = "cow";
+pub const MEAS_SUBTREE_SIZE: str = "subtree_size";
+
 // ── Rel-native column types (carried verbatim; everything else projects to
 // i64 through CanonCol) ──────────────────────────────────────────────────
 pub const TY_STR:  str = "str";
