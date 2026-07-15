@@ -8,7 +8,7 @@
 // declaration is its entire source.
 package test;
 
-use logos.std.canon.container_item;   // the `container` lowering handler
+use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;
 use logos.lang.str;
 

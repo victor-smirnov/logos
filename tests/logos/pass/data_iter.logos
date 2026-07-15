@@ -3,13 +3,13 @@
 // sorted order with correct values, exact count.
 package persistent_iter;
 
-use logos.std.deem.data.handle;
-use logos.std.deem.data.store;
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.bt.descent;
-use logos.std.deem.data.bt.mutate;
-use logos.std.deem.data.bt.iter;
+use logos.lcm.deem.data.handle;
+use logos.lcm.deem.data.store;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
+use logos.lcm.deem.data.bt.descent;
+use logos.lcm.deem.data.bt.mutate;
+use logos.lcm.deem.data.bt.iter;
 use logos.lang.fabric;
 use logos.lang.writ.wstatic;
 

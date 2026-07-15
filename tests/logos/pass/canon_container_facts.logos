@@ -9,7 +9,7 @@
 // names the first failure.
 package test;
 
-use logos.std.canon.container_item;
+use logos.lcm.canon.container_item;
 use logos.lang.writ.container;
 use logos.lang.writ.wmap;
 use logos.lang.writ.array;

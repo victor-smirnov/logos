@@ -1,4 +1,4 @@
-// logos.std.deem.data.bt.mutate — write-side BTree on NodeARC.
+// logos.lcm.deem.data.bt.mutate — write-side BTree on NodeARC.
 //
 // Insert / remove descend through the tree, CoW-clone any node that
 // wasn't created in the current snapshot (snapshot_id mismatch),
@@ -14,7 +14,7 @@
 //     (in cow_clone trait impl); no manual node_retain_c.
 //   • Auto-Drop chains the release path — no explicit walker needed.
 
-package logos.std.deem.data.bt.mutate;
+package logos.lcm.deem.data.bt.mutate;
 
 use logos.mem.collections.vec;
 use logos.lang.mem;
@@ -23,9 +23,9 @@ use logos.lang.option;
 use logos.lang.fabric;
 use logos.lang.writ.wstatic;
 
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.bt.descent;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
+use logos.lcm.deem.data.bt.descent;
 use logos.lang.panic;
 
 // ── Vec<NodeARC> insert helper ────────────────────────────────────────

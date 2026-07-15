@@ -1,4 +1,4 @@
-// logos.std.deem.data.store — Store + IStore + MutSnapshot.
+// logos.lcm.deem.data.store — Store + IStore + MutSnapshot.
 //
 // Store side of the persistent stack: holds the commit DAG, allocates
 // monotonic block + snapshot ids, exposes a narrow IStore trait that
@@ -14,17 +14,17 @@
 // (merge) commits are NOT yet exposed; the on-disk CommitEntry
 // already supports arbitrary parent counts.
 
-package logos.std.deem.data.store;
+package logos.lcm.deem.data.store;
 
 use logos.mem.collections.vec;
 use logos.lang.cmp;
-use logos.std.sync;
+use logos.lcm.sync;
 use logos.lang.fabric;
 use logos.lang.writ.wstatic;
 use logos.mem.string;              // String — commit labels + head names (ADR 0017 P2)
 use logos.lang.str;
 
-use logos.std.deem.data.bt.node;
+use logos.lcm.deem.data.bt.node;
 
 // ── DAG entry ─────────────────────────────────────────────────────────
 // Each commit pins one root NodeARC handle. The root is the directory

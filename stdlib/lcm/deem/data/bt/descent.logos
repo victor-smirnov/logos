@@ -1,4 +1,4 @@
-// logos.std.deem.data.bt.descent — read-side BTree walkers on NodeARC.
+// logos.lcm.deem.data.bt.descent — read-side BTree walkers on NodeARC.
 //
 // Walkers follow the legacy bt.descent.* shape but operate on
 // NodeARC<STORE_CFG> handles instead of raw `*mut NodeBase`. Cast to
@@ -6,7 +6,7 @@
 // Branch descent reads child NodeARCs from `Vec<NodeARC>` slots and
 // recurses; no CoW, no rc bumps (read-only access through borrow).
 
-package logos.std.deem.data.bt.descent;
+package logos.lcm.deem.data.bt.descent;
 
 use logos.mem.collections.vec;
 use logos.lang.cmp;
@@ -16,9 +16,9 @@ use logos.lang.writ.wstatic;
 use logos.lang.writ.static_view;   // WView2 — writ reader for @{} blobs
 use logos.lang.writ.anyval;        // WAny
 
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.bt.shuttle;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
+use logos.lcm.deem.data.bt.shuttle;
 
 // ── CFG fanout readers ────────────────────────────────────────────────
 unsafe fn cfg_int_or<const CFG: WritStatic>(key: str, dflt: u64) -> u64 {

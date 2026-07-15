@@ -1,8 +1,8 @@
-// logos.std.canon.canon — Canon wave-0: the container-design JUDGE (ADR 0020).
+// logos.lcm.canon.canon — Canon wave-0: the container-design JUDGE (ADR 0020).
 //
 // Canon orchestrates container DESIGN and never touches execution: it consumes
 // the FACT doc mirrored from ONE `container` declaration (built by
-// logos.std.canon.container_item) and returns a VERDICT doc. Judge, not doer
+// logos.lcm.canon.container_item) and returns a VERDICT doc. Judge, not doer
 // (ADR 0020 §5): Canon never emits code; the item handler never decides —
 // it reads these verdicts and emits (or diagnoses) mechanically.
 //
@@ -36,7 +36,7 @@
 //     errors:    [ { ctr, code, detail, reason } … ] }
 //                // codes: missing_measure | wave0_by_view_unprojectable |
 //                //        wave0_vector_multi_entry
-package logos.std.canon.canon;
+package logos.lcm.canon.canon;
 
 use logos.lang.result;
 use logos.lang.str;
@@ -49,7 +49,7 @@ use logos.mem.string;
 use logos.mem.collections.vec;
 use logos.std.wql.wql;
 use logos.std.wql.mapping_item;
-use logos.std.canon.vocab;   // the shared Canon vocabulary (no bare strings)
+use logos.lcm.canon.vocab;   // the shared Canon vocabulary (no bare strings)
 
 // ── CanonCol — the by_value → i64 column projection used by generated scan
 // materializers (design §f). Unsigned wide types project by BIT
@@ -85,7 +85,7 @@ mapping CanonFacts(g: &Writ) {
     }
 
     // Flat fact rows (the ADR 0020 §5 vocabulary, wave-0 cut). Section/attr
-    // keys come from logos.std.canon.vocab — the SAME consts the builder
+    // keys come from logos.lcm.canon.vocab — the SAME consts the builder
     // (container_item.logos) `.set`s, so the seam is compiler-checked.
     pub rel ctr_kind(ctr: str, kind: str) {
         from att n join att k on k.row == n.row

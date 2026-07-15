@@ -1,4 +1,4 @@
-// logos.std.canon.vocab — the shared Canon vocabulary (ADR 0020 §5).
+// logos.lcm.canon.vocab — the shared Canon vocabulary (ADR 0020 §5).
 //
 // The fact/verdict Writ documents couple TWO sides: the builder
 // (container_item.logos, which `.set`s these keys) and the reader
@@ -12,7 +12,7 @@
 // exhaustiveness but demand an enum↔str encoding at the Writ boundary — the
 // wave-0 pragmatic choice is named str constants (user: "enums, или хотя бы
 // именованные константы").
-package logos.std.canon.vocab;
+package logos.lcm.canon.vocab;
 
 // ── Fact-doc sections (top-level arrays) ─────────────────────────────────
 pub const SEC_CONTAINERS: str = "containers";

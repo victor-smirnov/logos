@@ -20963,7 +20963,7 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
     if (!macro_info) {
         error(std::format(
             "container '{}': the container lowering handler is not in scope "
-            "— add `use logos.std.canon.container_item;` to this module",
+            "— add `use logos.lcm.canon.container_item;` to this module",
             cname));
         return;
     }

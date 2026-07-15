@@ -8,7 +8,7 @@
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
-use logos.std.canon.canon;
+use logos.lcm.canon.canon;
 use logos.lang.writ.container;
 use logos.lang.writ.wmap;
 use logos.lang.writ.array;

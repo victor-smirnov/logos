@@ -12,10 +12,10 @@ use logos.lang.str;
 use logos.lang.writ.wstatic;
 use logos.lang.writ.dview;
 
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.store;
-use logos.std.deem.data.handle;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
+use logos.lcm.deem.data.store;
+use logos.lcm.deem.data.handle;
 
 pub const StoreCfg: WritStatic = @{
     "name":     "dvs",

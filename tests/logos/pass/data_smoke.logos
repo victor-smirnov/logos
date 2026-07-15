@@ -1,4 +1,4 @@
-// Smoke test for logos.std.deem.data — rebuild of the persistent
+// Smoke test for logos.lcm.deem.data — rebuild of the persistent
 // store on dyn-trait dispatch. Verifies that the package's primitives
 // (NodeBase header, NodeARC handle, BranchNode/LeafNode/LeafDirNode
 // concrete types) compose into a working rc'd tree with recursive
@@ -28,8 +28,8 @@ use logos.lang.drop;
 use logos.lang.option;
 use logos.lang.writ.wstatic;
 
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
 
 pub const StoreCfg: WritStatic = @{
     "name":     "smoke",

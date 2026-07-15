@@ -20,10 +20,10 @@ use logos.mem.string;
 use logos.mem.collections.vec;
 use logos.lang.writ.wstatic;
 
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.store;
-use logos.std.deem.data.handle;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
+use logos.lcm.deem.data.store;
+use logos.lcm.deem.data.handle;
 
 pub const StoreCfg: WritStatic = @{
     "name": "merge-heads", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,

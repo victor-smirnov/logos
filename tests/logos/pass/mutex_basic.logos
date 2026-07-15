@@ -2,7 +2,7 @@
 // Full cross-thread stress testing is in fiber_thread_* tests.
 package test;
 
-use logos.std.sync;
+use logos.lcm.sync;
 use logos.lang.option;
 
 fn main() -> i32 {

@@ -5,7 +5,7 @@
 package ctr_mod;
 
 use logos.std.wql.wql;
-use logos.std.canon.container_item;
+use logos.lcm.canon.container_item;
 use logos.lang.mem;
 
 pub container Boxes<T> for BoxCtr<T> {

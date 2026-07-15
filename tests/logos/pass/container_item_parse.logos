@@ -8,7 +8,7 @@
 // wave-0 Map).
 package test;
 
-use logos.std.canon.container_item;
+use logos.lcm.canon.container_item;
 use logos.mem.collections.vec;
 
 pub struct VecCtr<T> { buf: Vec<T> }

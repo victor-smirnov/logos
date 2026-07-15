@@ -3,7 +3,7 @@
 // separate file (same package — private items are package-visible) so the
 // Memoria-backed epoch history can later seat in the lcm tier while the core
 // FactStore lives in mem. See deem.logos for the module-level doc.
-package logos.std.deem;
+package logos.lcm.deem;
 
 
 use logos.lang.writ.container;    // Writ / writ_new
@@ -23,10 +23,10 @@ use logos.lang.fabric;            // NodeARC plumbing (data layer)
 use logos.lang.drop;              // container-handle drops (data layer)
 use logos.lang.writ.dview;        // DView — the container's runtime-typed cells
 use logos.mem.deem;                // FactStore + FsKey/consts/encoders + SchemaCatalog (mem core)
-use logos.std.deem.data.bt.node;  // storage engine (ADR 0017): epoch-history layer
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.store;
-use logos.std.deem.data.handle;
+use logos.lcm.deem.data.bt.node;  // storage engine (ADR 0017): epoch-history layer
+use logos.lcm.deem.data.bt.cow;
+use logos.lcm.deem.data.store;
+use logos.lcm.deem.data.handle;
 use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design

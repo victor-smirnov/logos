@@ -10,7 +10,7 @@
 // type is not hand-written here — the container declaration is its whole source.
 package test;
 
-use logos.std.canon.container_item;   // the `container` lowering handler
+use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.bt.leaf;                   // LeafU64 children
 use logos.mem.pkd;
 

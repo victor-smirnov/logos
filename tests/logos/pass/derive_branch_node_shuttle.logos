@@ -10,8 +10,8 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.shuttle;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.shuttle;
 use logos.lang.fabric;
 use logos.lang.writ.wstatic;
 use logos.lang.mem;

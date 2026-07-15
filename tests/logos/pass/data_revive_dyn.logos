@@ -1,4 +1,4 @@
-// End-to-end "load step" for logos.std.deem.data: reconstruct a working
+// End-to-end "load step" for logos.lcm.deem.data: reconstruct a working
 // `dyn BTreeNode<CFG>` from a raw block whose only type information is the
 // PHYSICAL block_code stamped in its NodeBase header — no vtable pointer is
 // stored with the block. This is the deserialization kernel: on disk a block
@@ -26,8 +26,8 @@ use logos.lang.drop;
 use logos.lang.option;
 use logos.lang.writ.wstatic;
 
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
 use logos.std.compiler.metaprog;
 
 pub const StoreCfg: WritStatic = @{

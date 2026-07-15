@@ -150,6 +150,7 @@ sym	logos.lang.writ.wmap.Wu6__type_id__g__ref_T
 sym	logos.lang.writ.wstatic.StringView__type_id__g__ref_T
 sym	logos.lang.writ.wstatic.WritStatic__type_id__g__ref_T
 sym	logos.lang.writ.wstring.WString__type_id__g__ref_T
+sym	logos.lcm.canon.container_item.ContainerSpec__type_id__g__ref_T
 sym	logos.lcm.fiber.FiberCtx__type_id__g__ref_T
 sym	logos.lcm.fiber.Fiber__type_id__g__ref_T
 sym	logos.lcm.fiber.Latch__type_id__g__ref_T
@@ -217,7 +218,6 @@ sym	logos.mem.writ.tag_system.DataTypeTagSystem__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.TomTagSystem__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.WritTagSystem__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.WritTypeTagSystem__type_id__g__ref_T
-sym	logos.std.canon.container_item.ContainerSpec__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.Emitter__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.ExprBlob__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.IdentSpan__type_id__g__ref_T
@@ -9594,6 +9594,89 @@ sym	logos_lang.logos.lang.writ.typed_arr$writ_build_map_u32_anyval__f__pcst_u32_
 sym	logos_lang.logos.lang.writ.typed_arr$writ_build_map_u64_anyval__f__pcst_u64__pcst_i64__i64
 sym	logos_lang.logos.lang.writ.wstatic$writ_static_size__f__pcst_u8
 sym	logos_lang.logos.lang.writ.wstring$wstring_in_alloc__f__pmut_Allocator__slice_u8
+sym	logos_lcm..logos.lcm.canon.canon.CanonFacts__rules__f__void
+sym	logos_lcm..logos.lcm.canon.canon.CanonFacts__src__f__void
+sym	logos_lcm..logos.lcm.canon.canon.bool__canon_col__f__ref_bool
+sym	logos_lcm..logos.lcm.canon.canon.i16__canon_col__f__ref_i16
+sym	logos_lcm..logos.lcm.canon.canon.i32__canon_col__f__ref_i32
+sym	logos_lcm..logos.lcm.canon.canon.i64__canon_col__f__ref_i64
+sym	logos_lcm..logos.lcm.canon.canon.i8__canon_col__f__ref_i8
+sym	logos_lcm..logos.lcm.canon.canon.isize__canon_col__f__ref_isize
+sym	logos_lcm..logos.lcm.canon.canon.u16__canon_col__f__ref_u16
+sym	logos_lcm..logos.lcm.canon.canon.u32__canon_col__f__ref_u32
+sym	logos_lcm..logos.lcm.canon.canon.u64__canon_col__f__ref_u64
+sym	logos_lcm..logos.lcm.canon.canon.u8__canon_col__f__ref_u8
+sym	logos_lcm..logos.lcm.canon.canon.usize__canon_col__f__ref_usize
+sym	logos_lcm..logos.lcm.sync.Mutex$G1$i32__drop__g__Mutex$G1$T
+sym	logos_lcm..logos.lcm.sync.Mutex$G1$i32__lock__g__pmut_Mutex$G1$T
+sym	logos_lcm..logos.lcm.sync.Mutex$G1$i32__unlock__g__pmut_Mutex$G1$T
+sym	logos_lcm.logos.lcm.canon.canon$canon_verdicts__f__ref_Writ
+sym	logos_lcm.logos.lcm.canon.container_item$container_facts__f__slice_u8__slice_u8
+sym	logos_lcm.logos.lcm.canon.container_item$container_spec_new__f__void
+sym	logos_lcm.logos.lcm.canon.container_item$parse_container_spec__f__slice_u8__refmut_ContainerSpec
+sym	logos_lcm.logos.lcm.deem.data.bt.cow$branch_alloc__g__<cfg-slot-type>__<cfg-slot-type>__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.cow$branch_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.cow$branch_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_e04e579d2c32aa01
+sym	logos_lcm.logos.lcm.deem.data.bt.cow$leaf_alloc__g__<cfg-slot-type>__<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.cow$leaf_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.cow$leaf_dir_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_e04e579d2c32aa01
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$arc_is_leaf__g__ref_Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$as_branch__g__ref_Arc$G1$udyn_BTreeNode__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$as_branch__g__ref_Arc$G1$udyn_BTreeNode__u64__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$as_leaf__g__ref_Arc$G1$udyn_BTreeNode__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$as_leaf__g__ref_Arc$G1$udyn_BTreeNode__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$branch_descend_idx__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__K::ViewInStore__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$branch_descend_idx__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__K::ViewInStore__u64__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$bt_contains_rec__g__ref_Arc$G1$udyn_BTreeNode__K::ViewInStore__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$bt_get_rec__g__ref_Arc$G1$udyn_BTreeNode__K::ViewInStore__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$bt_get_rec__g__ref_Arc$G1$udyn_BTreeNode__K::ViewInStore__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$bt_size_rec__g__ref_Arc$G1$udyn_BTreeNode__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$bt_size_rec__g__ref_Arc$G1$udyn_BTreeNode__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$leaf_find__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__K::ViewInStore__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$leaf_find__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__K::ViewInStore__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$leaf_lower_bound__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__K::ViewInStore__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$leaf_lower_bound__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__K::ViewInStore__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$max_keys_branch__g__void__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$max_keys_branch__g__void__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$max_keys_branch__g__void__@hs_e04e579d2c32aa01
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$max_keys_leaf__g__void__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$max_keys_leaf__g__void__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$max_keys_leaf__g__void__@hs_e04e579d2c32aa01
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$min_keys_branch__g__void__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.descent$min_keys_leaf__g__void__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.iter$bt_iter_open__g__ref_Arc$G1$udyn_BTreeNode__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$bt_insert__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$bt_insert__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$bt_remove__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$insert_rec__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$insert_rec__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$node_max_key__g__ref_Arc$G1$udyn_BTreeNode__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$node_max_key__g__ref_Arc$G1$udyn_BTreeNode__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$rebalance_branch_child__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__i64__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$rebalance_leaf_child__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__i64__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$remove_rec__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$split_branch__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$split_branch__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$split_branch__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_e04e579d2c32aa01
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$split_leaf__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$split_leaf__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
+sym	logos_lcm.logos.lcm.deem.data.bt.mutate$vec_arc_insert_at__g__pmut_Vec$G1$Arc$G1$udyn_BTreeNode__i64__Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.bt.node$arc_release_in_slot__g__pmut_Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.bt.node$arc_replace_in_slot__g__pmut_Arc$G1$udyn_BTreeNode__Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.bt.node$make_unique__g__refmut_Arc$G1$udyn_BTreeNode__<cfg-slot-type>__pmut_<cfg-slot-type>__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.bt.node$node_arc_data_ptr__g__ref_Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.bt.node$node_arc_same__g__ref_Arc$G1$udyn_BTreeNode__ref_Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.bt.shuttle$shuttle_max_u64__f__pcst_PrimVec$G1$u64__u64
+sym	logos_lcm.logos.lcm.deem.data.bt.shuttle$shuttle_sum_u64__f__pcst_PrimVec$G1$u64__u64
+sym	logos_lcm.logos.lcm.deem.data.handle$create_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_4a390729f2270023__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.handle$create_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_5144668e6f075735__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.handle$dir_insert__g__refmut_Arc$G1$udyn_BTreeNode__u64__Arc$G1$udyn_BTreeNode__<cfg-slot-type>__pmut_<cfg-slot-type>__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.handle$dir_lookup__g__ref_Arc$G1$udyn_BTreeNode__u64__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.handle$open_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_4a390729f2270023__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.handle$open_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_5144668e6f075735__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.handle$snap_fork__g__refmut_Store$G1$STORE_CFG__<cfg-slot-type>__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.handle$store_open__g__void__@hs_45653aa7d5363fd0
+sym	logos_lcm.logos.lcm.deem.data.store$locking_store_new__g__void__@hs_45653aa7d5363fd0
 sym	logos_lcm.logos.lcm.fiber$current_fiber__f__void
 sym	logos_lcm.logos.lcm.fiber$fiber_store_cqe_result__f__i64__i64
 sym	logos_lcm.logos.lcm.fiber$fls_get__f__i64
@@ -9617,6 +9700,7 @@ sym	logos_lcm.logos.lcm.fiber$unpark_fiber__f__i64
 sym	logos_lcm.logos.lcm.fiber$yield_fiber__f__void
 sym	logos_lcm.logos.lcm.io.write$io_slice__f__pcst_u8__i64
 sym	logos_lcm.logos.lcm.io.write$write_all__g__refmut_W__pcst_u8__i64__AsyncTcpStream
+sym	logos_lcm.logos.lcm.sync$mutex_new__g__T__i32
 sym	logos_mem..logos.mem.any.AnnotationInfo__get_int__f__ref_AnnotationInfo__slice_u8
 sym	logos_mem..logos.mem.any.AnnotationInfo__get_str__f__ref_AnnotationInfo__slice_u8
 sym	logos_mem..logos.mem.any.AnnotationInfo__type_name__f__ref_AnnotationInfo
@@ -10717,19 +10801,6 @@ sym	logos_mem.logos.std.compiler.metaprog$view_of_str__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$view_of_string__f__ref_String
 sym	logos_mem.logos.std.compiler.tokens$span_unknown__f__void
 sym	logos_mem.logos.std.compiler.tokens$token_stream_new__f__void
-sym	logos_std..logos.std.canon.canon.CanonFacts__rules__f__void
-sym	logos_std..logos.std.canon.canon.CanonFacts__src__f__void
-sym	logos_std..logos.std.canon.canon.bool__canon_col__f__ref_bool
-sym	logos_std..logos.std.canon.canon.i16__canon_col__f__ref_i16
-sym	logos_std..logos.std.canon.canon.i32__canon_col__f__ref_i32
-sym	logos_std..logos.std.canon.canon.i64__canon_col__f__ref_i64
-sym	logos_std..logos.std.canon.canon.i8__canon_col__f__ref_i8
-sym	logos_std..logos.std.canon.canon.isize__canon_col__f__ref_isize
-sym	logos_std..logos.std.canon.canon.u16__canon_col__f__ref_u16
-sym	logos_std..logos.std.canon.canon.u32__canon_col__f__ref_u32
-sym	logos_std..logos.std.canon.canon.u64__canon_col__f__ref_u64
-sym	logos_std..logos.std.canon.canon.u8__canon_col__f__ref_u8
-sym	logos_std..logos.std.canon.canon.usize__canon_col__f__ref_usize
 sym	logos_std..logos.std.fmt.__fmt_eprint__f__slice_u8
 sym	logos_std..logos.std.fmt.__fmt_eprintln__f__slice_u8
 sym	logos_std..logos.std.fmt.__fmt_panic__f__slice_u8
@@ -10883,9 +10954,6 @@ sym	logos_std..logos.std.random.Rng__next_f64__f__refmut_Rng
 sym	logos_std..logos.std.random.Rng__next_range_i64__f__refmut_Rng__i64__i64
 sym	logos_std..logos.std.random.Rng__next_u32__f__refmut_Rng
 sym	logos_std..logos.std.random.Rng__next_u64__f__refmut_Rng
-sym	logos_std..logos.std.sync.Mutex$G1$i32__drop__g__Mutex$G1$T
-sym	logos_std..logos.std.sync.Mutex$G1$i32__lock__g__pmut_Mutex$G1$T
-sym	logos_std..logos.std.sync.Mutex$G1$i32__unlock__g__pmut_Mutex$G1$T
 sym	logos_std..logos.std.testing.TestCtx__assert_eq_i32__f__refmut_TestCtx__i32__i32
 sym	logos_std..logos.std.testing.TestCtx__assert_eq_i64__f__refmut_TestCtx__i64__i64
 sym	logos_std..logos.std.testing.TestCtx__assert_eq_str__f__refmut_TestCtx__slice_u8__slice_u8
@@ -10914,10 +10982,6 @@ sym	logos_std..logos.std.time.SystemTime__since__f__SystemTime__SystemTime
 sym	logos_std..logos.std.time.SystemTime__unix_millis__f__SystemTime
 sym	logos_std..logos.std.time.SystemTime__unix_nanos__f__SystemTime
 sym	logos_std..logos.std.time.SystemTime__unix_secs__f__SystemTime
-sym	logos_std.logos.std.canon.canon$canon_verdicts__f__ref_Writ
-sym	logos_std.logos.std.canon.container_item$container_facts__f__slice_u8__slice_u8
-sym	logos_std.logos.std.canon.container_item$container_spec_new__f__void
-sym	logos_std.logos.std.canon.container_item$parse_container_spec__f__slice_u8__refmut_ContainerSpec
 sym	logos_std.logos.std.crypto$md5__f__pcst_u8__i64__refmut_String
 sym	logos_std.logos.std.crypto$md5_hex__f__pcst_u8__i64__refmut_String
 sym	logos_std.logos.std.crypto$md5_hex_str__f__slice_u8__refmut_String
@@ -10926,69 +10990,6 @@ sym	logos_std.logos.std.crypto$sha256__f__pcst_u8__i64__refmut_String
 sym	logos_std.logos.std.crypto$sha256_hex__f__pcst_u8__i64__refmut_String
 sym	logos_std.logos.std.crypto$sha256_hex_str__f__slice_u8__refmut_String
 sym	logos_std.logos.std.crypto$sha256_str__f__slice_u8__refmut_String
-sym	logos_std.logos.std.deem.data.bt.cow$branch_alloc__g__<cfg-slot-type>__<cfg-slot-type>__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.cow$branch_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.cow$branch_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_e04e579d2c32aa01
-sym	logos_std.logos.std.deem.data.bt.cow$leaf_alloc__g__<cfg-slot-type>__<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.cow$leaf_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.cow$leaf_dir_alloc__g__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_e04e579d2c32aa01
-sym	logos_std.logos.std.deem.data.bt.descent$arc_is_leaf__g__ref_Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.bt.descent$as_branch__g__ref_Arc$G1$udyn_BTreeNode__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$as_branch__g__ref_Arc$G1$udyn_BTreeNode__u64__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$as_leaf__g__ref_Arc$G1$udyn_BTreeNode__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$as_leaf__g__ref_Arc$G1$udyn_BTreeNode__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$branch_descend_idx__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__K::ViewInStore__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$branch_descend_idx__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__K::ViewInStore__u64__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$bt_contains_rec__g__ref_Arc$G1$udyn_BTreeNode__K::ViewInStore__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$bt_get_rec__g__ref_Arc$G1$udyn_BTreeNode__K::ViewInStore__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$bt_get_rec__g__ref_Arc$G1$udyn_BTreeNode__K::ViewInStore__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$bt_size_rec__g__ref_Arc$G1$udyn_BTreeNode__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$bt_size_rec__g__ref_Arc$G1$udyn_BTreeNode__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$leaf_find__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__K::ViewInStore__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$leaf_find__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__K::ViewInStore__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$leaf_lower_bound__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__K::ViewInStore__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$leaf_lower_bound__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__K::ViewInStore__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$max_keys_branch__g__void__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$max_keys_branch__g__void__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$max_keys_branch__g__void__@hs_e04e579d2c32aa01
-sym	logos_std.logos.std.deem.data.bt.descent$max_keys_leaf__g__void__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.descent$max_keys_leaf__g__void__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$max_keys_leaf__g__void__@hs_e04e579d2c32aa01
-sym	logos_std.logos.std.deem.data.bt.descent$min_keys_branch__g__void__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.descent$min_keys_leaf__g__void__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.iter$bt_iter_open__g__ref_Arc$G1$udyn_BTreeNode__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.mutate$bt_insert__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$bt_insert__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.mutate$bt_remove__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$insert_rec__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$insert_rec__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__V::ViewInStore__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.mutate$node_max_key__g__ref_Arc$G1$udyn_BTreeNode__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$node_max_key__g__ref_Arc$G1$udyn_BTreeNode__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.mutate$rebalance_branch_child__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__i64__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$rebalance_leaf_child__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__i64__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$remove_rec__g__refmut_Arc$G1$udyn_BTreeNode__K::ViewInStore__<cfg-slot-type>__pmut_<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$split_branch__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$split_branch__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.mutate$split_branch__g__pmut_BranchNode$G3$K$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__u64__@hs_45653aa7d5363fd0__@hs_e04e579d2c32aa01
-sym	logos_std.logos.std.deem.data.bt.mutate$split_leaf__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__DView__DView__@hs_45653aa7d5363fd0__@hs_5144668e6f075735
-sym	logos_std.logos.std.deem.data.bt.mutate$split_leaf__g__pmut_LeafNode$G4$K$V$STORE_CFG$CFG__<cfg-slot-type>__<cfg-slot-type>__u64__DView__@hs_45653aa7d5363fd0__@hs_4a390729f2270023
-sym	logos_std.logos.std.deem.data.bt.mutate$vec_arc_insert_at__g__pmut_Vec$G1$Arc$G1$udyn_BTreeNode__i64__Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.bt.node$arc_release_in_slot__g__pmut_Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.bt.node$arc_replace_in_slot__g__pmut_Arc$G1$udyn_BTreeNode__Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.bt.node$make_unique__g__refmut_Arc$G1$udyn_BTreeNode__<cfg-slot-type>__pmut_<cfg-slot-type>__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.bt.node$node_arc_data_ptr__g__ref_Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.bt.node$node_arc_same__g__ref_Arc$G1$udyn_BTreeNode__ref_Arc$G1$udyn_BTreeNode__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.bt.shuttle$shuttle_max_u64__f__pcst_PrimVec$G1$u64__u64
-sym	logos_std.logos.std.deem.data.bt.shuttle$shuttle_sum_u64__f__pcst_PrimVec$G1$u64__u64
-sym	logos_std.logos.std.deem.data.handle$create_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_4a390729f2270023__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.handle$create_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_5144668e6f075735__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.handle$dir_insert__g__refmut_Arc$G1$udyn_BTreeNode__u64__Arc$G1$udyn_BTreeNode__<cfg-slot-type>__pmut_<cfg-slot-type>__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.handle$dir_lookup__g__ref_Arc$G1$udyn_BTreeNode__u64__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.handle$open_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_4a390729f2270023__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.handle$open_ctr__g__refmut_Snap$G1$STORE_CFG__u64__@hs_5144668e6f075735__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.handle$snap_fork__g__refmut_Store$G1$STORE_CFG__<cfg-slot-type>__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.handle$store_open__g__void__@hs_45653aa7d5363fd0
-sym	logos_std.logos.std.deem.data.store$locking_store_new__g__void__@hs_45653aa7d5363fd0
 sym	logos_std.logos.std.env$arg__f__i32
 sym	logos_std.logos.std.env$args_count__f__void
 sym	logos_std.logos.std.env$current_dir__f__void
@@ -11217,7 +11218,6 @@ sym	logos_std.logos.std.rt.fiber$thread_pool_set_stack_pool_cap__f__pmut_ThreadP
 sym	logos_std.logos.std.rt.fiber$thread_pool_signal_done__f__pmut_ThreadPool
 sym	logos_std.logos.std.rt.fiber$thread_pool_start__f__pmut_ThreadPool
 sym	logos_std.logos.std.rt.fiber$thread_submit__f__pmut_ThreadPool__i32__fn(i64) -> void__i64
-sym	logos_std.logos.std.sync$mutex_new__g__T__i32
 sym	logos_std.logos.std.thread$current_id__f__void
 sym	logos_std.logos.std.thread$thread_spawn__f__pcst_u8__pmut_u8
 sym	logos_std.logos.std.thread$yield_now__f__void
@@ -11440,6 +11440,7 @@ type	logos.lang.writ.wmap.Wu6	fields=[]
 type	logos.lang.writ.wstatic.StringView	fields=[ptr:*const u8,len:u64]
 type	logos.lang.writ.wstatic.WritStatic	fields=[ptr:*const u8]
 type	logos.lang.writ.wstring.WString	fields=[bytes:[u8]]
+type	logos.lcm.canon.container_item.ContainerSpec	fields=[is_pub:bool,generics:&[u8],gnames:&[u8],backing:&[u8],backing_pkg:&[u8],kind:&[u8],entry:&[u8],measures:&[u8]]
 type	logos.lcm.fiber.Chan	fields=[buf:*mut u8,head:i64,tail:i64,cap:i64,len:i64,elem_size:i64,send_fiber:i64,send_val:i64,recv_fiber:i64]
 type	logos.lcm.fiber.Fiber	fields=[ctx:FiberCtx,stack_base:*mut u8,stack_size:i64,fls:*mut i64,next:*mut Fiber]
 type	logos.lcm.fiber.FiberCtx	fields=[rbp:i64,rbx:i64,r12:i64,r13:i64,r14:i64,r15:i64,rsp:i64]
@@ -11447,6 +11448,8 @@ type	logos.lcm.fiber.FutureSlot	fields=[value_ptr:*mut T,waiter:i64,waiter_thr:i
 type	logos.lcm.fiber.Latch	fields=[count:i64,waiter:i64]
 type	logos.lcm.fiber.Scheduler	fields=[ready_head:*mut Fiber,ready_tail:*mut Fiber,current:i64,pending_free:i64,stack_pool_buf:*mut i64,stack_pool_len:i64,stack_pool_cap:i64,sched_ctx:FiberCtx]
 type	logos.lcm.io.write.IoSlice	fields=[base:*const u8,len:i64]
+type	logos.lcm.sync.Mutex	fields=[data:T,raw:*mut u8]
+type	logos.lcm.sync.RwLock	fields=[data:T,raw:*mut u8]
 type	logos.mem.any.AnnotationInfo	fields=[info:WritStatic,map_bits:i64]
 type	logos.mem.any.AnnotationsView	fields=[info:WritStatic,arr_bits:i64]
 type	logos.mem.any.FieldInfo	fields=[info:WritStatic,map_bits:i64]
@@ -11515,7 +11518,6 @@ type	logos.mem.writ.tag_system.DataTypeTagSystem	fields=[]
 type	logos.mem.writ.tag_system.TomTagSystem	fields=[]
 type	logos.mem.writ.tag_system.WritTagSystem	fields=[]
 type	logos.mem.writ.tag_system.WritTypeTagSystem	fields=[]
-type	logos.std.canon.container_item.ContainerSpec	fields=[is_pub:bool,generics:&[u8],gnames:&[u8],backing:&[u8],backing_pkg:&[u8],kind:&[u8],entry:&[u8],measures:&[u8]]
 type	logos.std.compiler.metaprog.Emitter	fields=[buf:String]
 type	logos.std.compiler.metaprog.ExprBlob	fields=[ptr:*const u8]
 type	logos.std.compiler.metaprog.Ident	fields=[ptr:*const u8,len:u64]
@@ -11576,8 +11578,6 @@ type	logos.std.rt.fiber.Reactor	fields=[ring:*mut u8,parked_count:i64]
 type	logos.std.rt.fiber.SpscRing	fields=[buf:*mut i64,head:i64,tail:i64,cap:i64]
 type	logos.std.rt.fiber.Thread	fields=[idx:i32,pthread_id:i64,sched:*mut Scheduler,notify_fd:i32,sleeping:i64,pool:*mut ThreadPool,inbox:*mut SpscRing,reactor:*mut Reactor]
 type	logos.std.rt.fiber.ThreadPool	fields=[threads:*mut i64,count:i32,shutdown:i64]
-type	logos.std.sync.Mutex	fields=[data:T,raw:*mut u8]
-type	logos.std.sync.RwLock	fields=[data:T,raw:*mut u8]
 type	logos.std.testing.TestCtx	fields=[passed:i32,failed:i32,current:String]
 type	logos.std.thread.JoinHandle	fields=[tid:i64,joined:bool]
 type	logos.std.time.Duration	fields=[nanos:i64]
@@ -11683,6 +11683,7 @@ vtable	logos.lang.writ.container.Resident	slots=[]
 vtable	logos.lang.writ.dview.Datum	slots=[datum_tag,datum_meta,as_datum,from_datum]
 vtable	logos.lang.writ.wmap.WIntKeyTag	slots=[map_code]
 vtable	logos.lang.writ.wmap.WritField	slots=[from_wany,to_wany]
+vtable	logos.lcm.canon.canon.CanonCol	slots=[canon_col]
 vtable	logos.lcm.io.read.Read	slots=[read]
 vtable	logos.lcm.io.write.Write	slots=[write,flush]
 vtable	logos.mem.bt.Shuttle	slots=[on_branch,on_leaf]
@@ -11701,5 +11702,4 @@ vtable	logos.mem.fmt.UpperHex	slots=[fmt]
 vtable	logos.mem.pkd.EntryBytes	slots=[entry_bytes]
 vtable	logos.mem.string.ToString	slots=[to_string]
 vtable	logos.mem.writ.tag_system.TagSystem	slots=[read_tag]
-vtable	logos.std.canon.canon.CanonCol	slots=[canon_col]
 vtable	logos.std.io.http.Service	slots=[call]

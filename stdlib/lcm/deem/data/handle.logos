@@ -1,4 +1,4 @@
-// logos.std.deem.data.handle — Snap + ContainerRef on top of nodes.
+// logos.lcm.deem.data.handle — Snap + ContainerRef on top of nodes.
 //
 // User-facing surface for the persistent stack:
 //
@@ -21,7 +21,7 @@
 // yet); dir leaf is LeafDirNode<u64, ...>. Multi-level + on-disk land
 // in mutate when the BTree algos port over.
 
-package logos.std.deem.data.handle;
+package logos.lcm.deem.data.handle;
 
 use logos.mem.collections.vec;
 use logos.lang.mem;
@@ -37,12 +37,12 @@ use logos.mem.string;      // String — commit labels + head names (ADR 0017 P2
 use logos.lang.str;        // str_eq — head-name lookup
 use logos.lang.writ.wstatic;
 
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.store;
-use logos.std.deem.data.bt.descent;
-use logos.std.deem.data.bt.mutate;
-use logos.std.deem.data.bt.iter;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
+use logos.lcm.deem.data.store;
+use logos.lcm.deem.data.bt.descent;
+use logos.lcm.deem.data.bt.mutate;
+use logos.lcm.deem.data.bt.iter;
 
 /// Specifies the directory-tree node layout: key = `u64` ctr id, val = `NodeARC`, fanout 16.
 // DirCfg — directory layout. Key = ctr_id (u64), val = NodeARC (heterogeneous

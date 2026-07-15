@@ -93,7 +93,7 @@ static bool is_deem_internal_type(std::string_view pkg, std::string_view name) {
         return p == root ||
             (p.size() > root.size() && p.rfind(root, 0) == 0 && p[root.size()] == '.');
     };
-    const bool in_deem = under(pkg, "logos.mem.deem") || under(pkg, "logos.std.deem");
+    const bool in_deem = under(pkg, "logos.mem.deem") || under(pkg, "logos.lcm.deem");
     return in_deem && !is_deem_api_type(name);
 }
 

@@ -1,4 +1,4 @@
-// logos.std.canon.container_item — the `container` ITEM lowering backend
+// logos.lcm.canon.container_item — the `container` ITEM lowering backend
 // (ADR 0020 wave-0, Memoria container-interface plane).
 //
 // A CONTAINER declaration names a relational interface over a backing type:
@@ -21,10 +21,10 @@
 //
 // entry cols = comma-separated `name:ty:is_param(0|1)`; measures =
 // comma-separated `mfn` or `mfn(arg)`.
-package logos.std.canon.container_item;
+package logos.lcm.canon.container_item;
 
 use logos.std.compiler.metaprog;   // ItemList, item_list_new, error, Emitter
-use logos.std.canon.canon;         // canon_verdicts — the JUDGE (ADR 0020 §5)
+use logos.lcm.canon.canon;         // canon_verdicts — the JUDGE (ADR 0020 §5)
 use logos.lang.writ.container;     // Writ, writ_new
 use logos.lang.writ.wmap;          // doc.map / WMap::set
 use logos.lang.writ.array;         // doc.array / WArray::push
@@ -32,7 +32,7 @@ use logos.lang.writ.anyval;        // WAny
 use logos.lang.writ.wstring;       // WString (read-back checks)
 use logos.lang.str;                // str_byte_at, str_eq, str_from_raw
 use logos.mem.string;              // String (diagnostic composition)
-use logos.std.canon.vocab;        // shared fact/verdict vocabulary (no bare strings across the Canon seam)
+use logos.lcm.canon.vocab;        // shared fact/verdict vocabulary (no bare strings across the Canon seam)
 
 unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
     let l: i64 = if b > a { b - a } else { 0i64 };
@@ -388,8 +388,8 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.push_text("\nuse logos.mem.collections.vec;\n");
-    if !str_eq(tp.as_str(), "logos.std.canon.canon") {
-        em.push_text("use logos.std.canon.canon;\n");
+    if !str_eq(tp.as_str(), "logos.lcm.canon.canon") {
+        em.push_text("use logos.lcm.canon.canon;\n");
     }
     if cs.backing_pkg.len() > 0i64 && !str_eq(cs.backing_pkg, tp.as_str()) {
         em.push_text("use ");
@@ -705,7 +705,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
     let verd: Writ = canon_verdicts(&facts);
     let vr: WAny = verd.root();
     if vr.is_null() || !vr.is_map() {
-        error("container item: Canon verdict engine failure (logos.std.canon.canon)");
+        error("container item: Canon verdict engine failure (logos.lcm.canon.canon)");
         return out;
     }
     let vm: &WMap<WString, WAny> = vr.as_map();

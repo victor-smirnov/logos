@@ -1,4 +1,4 @@
-// logos.std.deem.data.bt.iter — forward walker over a multi-level BTree.
+// logos.lcm.deem.data.bt.iter — forward walker over a multi-level BTree.
 //
 // Memoria-style snapshot iter: BtIter holds NodeARC clones for every
 // branch on the path AND for the current leaf. Each clone owns an rc
@@ -14,7 +14,7 @@
 // mono SDrop sentinel→struct path → mlir-gen walks IterFrame's fields
 // → branch_arc.drop fires → rc-- on each branch.
 
-package logos.std.deem.data.bt.iter;
+package logos.lcm.deem.data.bt.iter;
 
 use logos.mem.collections.vec;
 use logos.lang.mem;
@@ -23,10 +23,10 @@ use logos.lang.panic;
 use logos.lang.fabric;
 use logos.lang.writ.wstatic;
 
-use logos.std.deem.data.bt.node;
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.bt.descent;
-use logos.std.deem.data.bt.shuttle;
+use logos.lcm.deem.data.bt.node;
+use logos.lcm.deem.data.bt.cow;
+use logos.lcm.deem.data.bt.descent;
+use logos.lcm.deem.data.bt.shuttle;
 
 /// Records one step of a `BtIter` descent: a pinned branch node plus the child index whose
 /// subtree the iterator currently occupies.

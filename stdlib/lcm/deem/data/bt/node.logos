@@ -1,4 +1,4 @@
-// logos.std.deem.data.bt.node — uniform node header + BTreeNode trait
+// logos.lcm.deem.data.bt.node — uniform node header + BTreeNode trait
 // + NodeARC alias for the dyn-trait persistent-store rearch.
 //
 // Architecture summary:
@@ -25,7 +25,7 @@
 // STORE_CFG carries the ID-types (block_id, snp_id, ctr_id) so different
 // stores can pick e.g. u128 block ids without changing the source.
 
-package logos.std.deem.data.bt.node;
+package logos.lcm.deem.data.bt.node;
 
 use logos.lang.mem;
 use logos.lang.cmp;

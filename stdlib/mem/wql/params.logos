@@ -169,7 +169,7 @@ impl MacroParams {
     }
 
     // Any `IncrRec` engine-source param present? (drives the emitted chunk's
-    // conditional `use logos.std.deem;` — ADR 0016 M5.)
+    // conditional `use logos.lcm.deem;` — ADR 0016 M5.)
     /// The extra `use` decls a generated chunk needs for its native-source
     /// materializers — one per DISTINCT non-empty rel_mod. Replaces the old
     /// has_engine_param flag: which modules a chunk needs is now data carried

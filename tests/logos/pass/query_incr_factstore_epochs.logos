@@ -18,7 +18,7 @@ use logos.lang.writ.anyval;
 use logos.std.wql.ir;
 use logos.std.wql.catalog_macro;
 use logos.mem.deem;
-use logos.std.deem;              // FactHistory (lcm-tier history decorator)
+use logos.lcm.deem;              // FactHistory (lcm-tier history decorator)
 use logos.lang.result;
 use logos.mem.string;
 use logos.lang.str;

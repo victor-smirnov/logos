@@ -15,7 +15,7 @@ use logos.mem.pkd;          // pkd_format, PkdAlloc, PkdArray, PkdError
 use logos.lang.mem;       // alloc / dealloc
 use logos.lang.result;
 use logos.std.wql.wql;               // native-source machinery for the projection
-use logos.std.canon.container_item;  // the `container` item handler
+use logos.lcm.canon.container_item;  // the `container` item handler
 
 /// The Memoria-plane declaration for this backing (ADR 0020): kind + entry +
 /// measures. Canon derives the scan projection; the generated __CtrSrc_Vector
