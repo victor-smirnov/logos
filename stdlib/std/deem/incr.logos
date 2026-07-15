@@ -419,8 +419,7 @@ impl FactStore {
                 self.present.set(i, true);
                 let cn: WAny = self.node.get(i);
                 self.pend.push(cn, 1i64);
-                self.epend.push(i);
-                if self.br_on { self.br_log.push(i); }
+                self.record_op(i, true);
             }
             return;   // present-again → no-op, no push
         }
@@ -435,8 +434,7 @@ impl FactStore {
             (&mut *vp).push(slot);
         }
         self.pend.push(node, 1i64);
-        self.epend.push(slot);
-        if self.br_on { self.br_log.push(slot); }
+        self.record_op(slot, true);
     }
 
     // Retract a fact. Miss OR already-absent → no-op (no phantom minus). Present
@@ -449,15 +447,29 @@ impl FactStore {
         self.present.set(i, false);
         let cn: WAny = self.node.get(i);
         self.pend.push(cn, -1i64);
-        self.epend.push(0i64 - i - 1i64);
-        if self.br_on { self.br_log.push(0i64 - i - 1i64); }
+        self.record_op(i, false);
     }
 
-    // Move out the accumulated ± changelog and reset it. The returned ZBatch is
-    // the net-change EPOCH batch since the last call — feed it to epoch directly
-    // (intra-epoch multi-touch on one content = +1 then −1 on the SAME canonical
-    // raw; the engine admit loops coalesce by raw() → net zero, no manual netting).
-    pub fn take_delta(self: &mut FactStore) -> ZBatch {
+    // ── History-recording seam (ADR 0017) ──────────────────────────────
+    // ALL epoch/branch bookkeeping the live set feeds is funnelled through
+    // these two methods so the history+Memoria layer can be lifted to the lcm
+    // tier as a decorator over the core live set (the mem tier is single-
+    // threaded, lock-free, Memoria-free — a lean CEP over node/key/present/idx
+    // /pend). record_op logs one ±slot op into this epoch's log (and the active
+    // branch's, if any); epoch_commit flushes that log to the history store.
+
+    // Log one effective op: slot for an insert, −slot−1 for a retract.
+    fn record_op(self: &mut FactStore, slot: i64, is_insert: bool) {
+        let op: i64 = if is_insert { slot } else { 0i64 - slot - 1i64 };
+        self.epend.push(op);
+        if self.br_on { self.br_log.push(op); }
+    }
+
+    // Flush this epoch's ±slot log to the history store: fork the parent
+    // snapshot, apply the ops to the fact container + journal, commit, and
+    // record the new head. Lifts to the lcm history decorator (Memoria-backed);
+    // the mem core keeps only the live set and calls this as a no-op seam.
+    fn epoch_commit(self: &mut FactStore) {
         // ── epoch boundary (ADR 0017 P1): apply this epoch's ±slot log to the
         // history container in ONE scoped fork→apply→commit cycle. epoch =
         // commit: heads[e] names epoch e's SET in the snapshot DAG. Applying
@@ -520,6 +532,13 @@ impl FactStore {
             self.heads.push(snap.commit());
             self.epend.clear();
         }
+    }
+
+    // Move out the accumulated ± changelog and reset it: the net-change EPOCH
+    // batch since the last call (feed it to `epoch` directly). Commits the epoch
+    // to the history store first, then drains pend.
+    pub fn take_delta(self: &mut FactStore) -> ZBatch {
+        self.epoch_commit();
         let pp: *mut ZBatch = &mut self.pend;
         return unsafe { replace::<ZBatch>(pp, ZBatch::new()) };
     }
