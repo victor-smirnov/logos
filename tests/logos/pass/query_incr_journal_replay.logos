@@ -87,7 +87,7 @@ fn main() -> i32 {
 
     // ── Edge store: multi-epoch history with inserts AND retractions ──
     let kf: [str; 2] = ["src", "dst"];
-    let mut st: FactStore = match FactStore::new(&c, "Edge", &kf[..], 1048576i64) {
+    let mut st: FactHistory = match FactHistory::new(&c, "Edge", &kf[..], 1048576i64) {
         Result::Ok(s)   => { s }
         Result::Err(_e) => { return 91i32; }
     };
@@ -111,7 +111,7 @@ fn main() -> i32 {
     if st.journal_rows() != 6i64 { return 3i32; }
 
     // ── replay ──
-    let mut rp: FactStore = match st.replay_fresh(1048576i64) {
+    let mut rp: FactHistory = match st.replay_fresh(1048576i64) {
         Result::Ok(r)   => { r }
         Result::Err(_e) => { return 10i32; }
     };
@@ -153,7 +153,7 @@ fn main() -> i32 {
 
     // ── (d) mixed scalar fields (str key, bool + i64 payload) ──
     let kt: [str; 1] = ["name"];
-    let mut ts: FactStore = match FactStore::new(&c, "Tag", &kt[..], 65536i64) {
+    let mut ts: FactHistory = match FactHistory::new(&c, "Tag", &kt[..], 65536i64) {
         Result::Ok(s)   => { s }
         Result::Err(_e) => { return 30i32; }
     };
@@ -163,7 +163,7 @@ fn main() -> i32 {
     let _t0: ZBatch = ts.take_delta();
     ts.retract(mk_tag(tp, "alpha", true, 7i64));
     let _t1: ZBatch = ts.take_delta();
-    let mut tr: FactStore = match ts.replay_fresh(65536i64) {
+    let mut tr: FactHistory = match ts.replay_fresh(65536i64) {
         Result::Ok(r)   => { r }
         Result::Err(_e) => { return 31i32; }
     };

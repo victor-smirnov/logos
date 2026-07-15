@@ -39,7 +39,7 @@ fn mk_edge(dp: *const Writ, s: i64, t: i64) -> WAny {
     return WAny::ref_to((e.m as i64) as *const u8);
 }
 
-fn pump(st: &mut FactStore, eng: &mut IncrRec) {
+fn pump(st: &mut FactHistory, eng: &mut IncrRec) {
     let d: ZBatch = st.take_delta();
     eng.epoch(&d);
 }
@@ -56,7 +56,7 @@ fn main() -> i32 {
         &c)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 90i32; } };
 
-    let mut st: FactStore = match FactStore::new(&c, "Edge", &kf[..], 1048576i64) {
+    let mut st: FactHistory = match FactHistory::new(&c, "Edge", &kf[..], 1048576i64) {
         Result::Ok(s)   => { s }
         Result::Err(_e) => { return 91i32; }
     };

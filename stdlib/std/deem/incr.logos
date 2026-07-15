@@ -143,32 +143,6 @@ pub struct FactStore {
     present: Vec<bool>,          // SET presence per slot
     idx:     HashMap<u64, Vec<i64>>,  // content-hash → candidate slot indices
     pend:    ZBatch,             // pending ± changelog since last take_delta
-    epend:   Vec<i64>,           // this epoch's ±slot log for the history layer
-                                 // (slot ≥ 0 = insert, −slot−1 = retract)
-    hist:    Store<FsStoreCfg>,  // the data store (ADR 0017): epoch history
-    heads:   Vec<u64>,           // commit id per epoch (heads[e] = epoch e's SET)
-    jseq:    u64,                // next journal row key (== journal row count)
-    // ── S4 v0 branches (ADR 0015 §5 / ADR 0017 P2): assumption-ΔEDB
-    // exploration over the LIVE store. An active branch records its EFFECTIVE
-    // ±slot ops; branch_end rolls the live set back by applying the INVERSE
-    // ops — the engine consumes the rollback delta like any other epoch (law
-    // I4: fork/merge is EDB-only, IDB re-derives incrementally). Ended
-    // branches retain name + head + log; select_one re-applies the winner's
-    // log, registers a MERGE commit in the history DAG (winner = first
-    // parent, losers = extra parents), and RELEASES the losers' heads.
-    br_on:   bool,               // a branch is recording
-    br_pnm:  String,             // active branch's name
-    br_log:  Vec<i64>,           // active branch's ±slot ops
-    br_name: Vec<String>,        // ended branches: names
-    br_head: Vec<u64>,           //   their epoch-head commits
-    br_ops:  Vec<i64>,           //   retained logs (flat pool)
-    br_off:  Vec<i64>,           //   per-branch offset into br_ops
-    br_cnt:  Vec<i64>,           //   per-branch op count
-    mg_win:  Vec<String>,        // merges: winner branch name
-    mg_cid:  Vec<u64>,           //   merge commit id in the history DAG
-    mg_lsr:  Vec<String>,        //   loser names (flat pool)
-    mg_loff: Vec<i64>,           //   per-merge offset into mg_lsr
-    mg_lcnt: Vec<i64>,           //   per-merge loser count
 }
 
 // An OWNED scalar key element. RtVal::S carries a `str` VIEW (borrows the source
@@ -352,23 +326,6 @@ impl FactStore {
             present: vec_new::<bool>(),
             idx:     hashmap_new::<u64, Vec<i64>>(),
             pend:    ZBatch::new(),
-            epend:   vec_new::<i64>(),
-            hist:    store_open::<FsStoreCfg>(),
-            heads:   vec_new::<u64>(),
-            jseq:    0u64,
-            br_on:   false,
-            br_pnm:  String::new(),
-            br_log:  vec_new::<i64>(),
-            br_name: vec_new::<String>(),
-            br_head: vec_new::<u64>(),
-            br_ops:  vec_new::<i64>(),
-            br_off:  vec_new::<i64>(),
-            br_cnt:  vec_new::<i64>(),
-            mg_win:  vec_new::<String>(),
-            mg_cid:  vec_new::<u64>(),
-            mg_lsr:  vec_new::<String>(),
-            mg_loff: vec_new::<i64>(),
-            mg_lcnt: vec_new::<i64>(),
         });
     }
 
@@ -382,7 +339,7 @@ impl FactStore {
 
     // Decode a node's scalar key tuple (the content identity). Returns an OWNED
     // Vec<FsKey> — fskey_of consumes each RtVal, so the result borrows nothing.
-    fn key_of(self: &FactStore, node: WAny) -> Vec<FsKey> {
+    pub fn key_of(self: &FactStore, node: WAny) -> Vec<FsKey> {
         let mut k: Vec<FsKey> = vec_new::<FsKey>();
         let n: i64 = self.keyf.len();
         let mut i: i64 = 0i64;
@@ -411,7 +368,7 @@ impl FactStore {
     // here). New content → append canonical slot + push +1. Present-again → NO
     // push (idempotent). Absent-again (present==false) → present, push +1 on the
     // CANONICAL handle (so the engine sees a stable pointer across re-inserts).
-    pub fn insert(self: &mut FactStore, node: WAny) {
+    pub fn insert(self: &mut FactStore, node: WAny) -> i64 {
         let k: Vec<FsKey> = self.key_of(node);
         let i: i64 = self.find(&k);
         if i >= 0i64 {
@@ -419,9 +376,9 @@ impl FactStore {
                 self.present.set(i, true);
                 let cn: WAny = self.node.get(i);
                 self.pend.push(cn, 1i64);
-                self.record_op(i, true);
+                return i;
             }
-            return;   // present-again → no-op, no push
+            return -1i64;   // present-again → no-op, no push
         }
         let slot: i64 = self.node.len();
         let h: u64 = fs_key_hash(&k);
@@ -434,32 +391,134 @@ impl FactStore {
             (&mut *vp).push(slot);
         }
         self.pend.push(node, 1i64);
-        self.record_op(slot, true);
+        return slot;
     }
 
     // Retract a fact. Miss OR already-absent → no-op (no phantom minus). Present
     // → clear presence, push −1 on the canonical handle.
-    pub fn retract(self: &mut FactStore, node: WAny) {
+    pub fn retract(self: &mut FactStore, node: WAny) -> i64 {
         let k: Vec<FsKey> = self.key_of(node);
         let i: i64 = self.find(&k);
-        if i < 0i64 { return; }
-        if !self.present.get(i) { return; }
+        if i < 0i64 { return -1i64; }
+        if !self.present.get(i) { return -1i64; }
         self.present.set(i, false);
         let cn: WAny = self.node.get(i);
         self.pend.push(cn, -1i64);
-        self.record_op(i, false);
+        return i;
     }
 
-    // ── History-recording seam (ADR 0017) ──────────────────────────────
-    // ALL epoch/branch bookkeeping the live set feeds is funnelled through
-    // these two methods so the history+Memoria layer can be lifted to the lcm
-    // tier as a decorator over the core live set (the mem tier is single-
-    // threaded, lock-free, Memoria-free — a lean CEP over node/key/present/idx
-    // /pend). record_op logs one ±slot op into this epoch's log (and the active
-    // branch's, if any); epoch_commit flushes that log to the history store.
+    // Move out the accumulated ± changelog and reset it: the net-change batch
+    // since the last call (feed it to `epoch` directly). CORE = drain only; the
+    // lcm FactHistory decorator commits the epoch to the history store first.
+    pub fn take_delta(self: &mut FactStore) -> ZBatch {
+        let pp: *mut ZBatch = &mut self.pend;
+        return unsafe { replace::<ZBatch>(pp, ZBatch::new()) };
+    }
+
+    // Materialize the CURRENT present set into the owned arena as a Writ array of
+    // canonical handles — the batch oracle binds this via bind_source. One handle
+    // per present slot (byte-role-identical to the harnesses' build_src).
+    pub fn build_present(self: &FactStore) -> WAny {
+        let arr: &mut WArray<WAny> = self.doc.array(self.node.len() + 1i64);
+        let n: i64 = self.node.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if self.present.get(i) { arr.push(self.node.get(i)); }
+            i = i + 1i64;
+        }
+        return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+    }
+
+    // Count of currently-present facts (test probe).
+    pub fn count(self: &FactStore) -> i64 {
+        let n: i64 = self.node.len();
+        let mut c: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < n { if self.present.get(i) { c = c + 1i64; } i = i + 1i64; }
+        return c;
+    }
+}
+
+// ── FactHistory (ADR 0017 / ADR 0015 §4–5): the lcm-tier history + branch/merge
+// decorator over a mem-tier FactStore. OWNS the core live set (composition) and
+// adds the Memoria-backed epoch history (`hist`), the journal, and S4 fork/merge
+// bookkeeping. insert/retract/take_delta mirror the core names but also record
+// the ±slot op and (on take_delta) commit the epoch — history callers hold a
+// FactHistory; the engine drivers pump the inner core's drain-only delta.
+pub struct FactHistory {
+    store:   FactStore,          // the mem-tier live set (node/key/present/idx/pend)
+    epend:   Vec<i64>,           // this epoch's ±slot log (slot ≥ 0 insert, −slot−1 retract)
+    hist:    Store<FsStoreCfg>,  // the data store (ADR 0017): epoch history
+    heads:   Vec<u64>,           // commit id per epoch (heads[e] = epoch e's SET)
+    jseq:    u64,                // next journal row key (== journal row count)
+    br_on:   bool,               // a branch is recording
+    br_pnm:  String,             // active branch's name
+    br_log:  Vec<i64>,           // active branch's ±slot ops
+    br_name: Vec<String>,        // ended branches: names
+    br_head: Vec<u64>,           //   their epoch-head commits
+    br_ops:  Vec<i64>,           //   retained logs (flat pool)
+    br_off:  Vec<i64>,           //   per-branch offset into br_ops
+    br_cnt:  Vec<i64>,           //   per-branch op count
+    mg_win:  Vec<String>,        // merges: winner branch name
+    mg_cid:  Vec<u64>,           //   merge commit id in the history DAG
+    mg_lsr:  Vec<String>,        //   loser names (flat pool)
+    mg_loff: Vec<i64>,           //   per-merge offset into mg_lsr
+    mg_lcnt: Vec<i64>,           //   per-merge loser count
+}
+
+impl FactHistory {
+    pub fn new(cat: &SchemaCatalog, sname: str, keyf: &[str], seg: i64)
+        -> Result<FactHistory, str> {
+        let store: FactStore = match FactStore::new(cat, sname, keyf, seg) {
+            Result::Ok(o)  => { o }
+            Result::Err(e) => { return Result::Err(e); }
+        };
+        return Result::Ok(FactHistory {
+            store:   store,
+            epend:   vec_new::<i64>(),
+            hist:    store_open::<FsStoreCfg>(),
+            heads:   vec_new::<u64>(),
+            jseq:    0u64,
+            br_on:   false,
+            br_pnm:  String::new(),
+            br_log:  vec_new::<i64>(),
+            br_name: vec_new::<String>(),
+            br_head: vec_new::<u64>(),
+            br_ops:  vec_new::<i64>(),
+            br_off:  vec_new::<i64>(),
+            br_cnt:  vec_new::<i64>(),
+            mg_win:  vec_new::<String>(),
+            mg_cid:  vec_new::<u64>(),
+            mg_lsr:  vec_new::<String>(),
+            mg_loff: vec_new::<i64>(),
+            mg_lcnt: vec_new::<i64>(),
+        });
+    }
+
+    // ── core delegators (node-building + engine-cmp read the inner store) ──
+    pub fn arena(self: &FactHistory) -> &Writ { return self.store.arena(); }
+    pub fn arena_ptr(self: &FactHistory) -> *const Writ { return self.store.arena_ptr(); }
+    pub fn build_present(self: &FactHistory) -> WAny { return self.store.build_present(); }
+    pub fn count(self: &FactHistory) -> i64 { return self.store.count(); }
+    pub fn store_ref(self: &FactHistory) -> &FactStore { return &self.store; }
+
+    // insert/retract mirror the core names and additionally record the ±slot op.
+    pub fn insert(self: &mut FactHistory, node: WAny) {
+        let s: i64 = self.store.insert(node);
+        if s >= 0i64 { self.record_op(s, true); }
+    }
+    pub fn retract(self: &mut FactHistory, node: WAny) {
+        let s: i64 = self.store.retract(node);
+        if s >= 0i64 { self.record_op(s, false); }
+    }
+    // take_delta commits this epoch to the history store, then drains the core.
+    pub fn take_delta(self: &mut FactHistory) -> ZBatch {
+        self.epoch_commit();
+        return self.store.take_delta();
+    }
 
     // Log one effective op: slot for an insert, −slot−1 for a retract.
-    fn record_op(self: &mut FactStore, slot: i64, is_insert: bool) {
+    fn record_op(self: &mut FactHistory, slot: i64, is_insert: bool) {
         let op: i64 = if is_insert { slot } else { 0i64 - slot - 1i64 };
         self.epend.push(op);
         if self.br_on { self.br_log.push(op); }
@@ -469,7 +528,7 @@ impl FactStore {
     // snapshot, apply the ops to the fact container + journal, commit, and
     // record the new head. Lifts to the lcm history decorator (Memoria-backed);
     // the mem core keeps only the live set and calls this as a no-op seam.
-    fn epoch_commit(self: &mut FactStore) {
+    fn epoch_commit(self: &mut FactHistory) {
         // ── epoch boundary (ADR 0017 P1): apply this epoch's ±slot log to the
         // history container in ONE scoped fork→apply→commit cycle. epoch =
         // commit: heads[e] names epoch e's SET in the snapshot DAG. Applying
@@ -494,7 +553,7 @@ impl FactStore {
                     let op: i64 = self.epend.get(i);
                     let slot: i64 = if op >= 0i64 { op } else { 0i64 - op - 1i64 };
                     let mut kb: String = String::new();
-                    fs_key_enc(self.key.borrow(slot), &mut kb);
+                    fs_key_enc(self.store.key.borrow(slot), &mut kb);
                     if op >= 0i64 {
                         let sv: u64 = slot as u64;
                         cr.insert(DView::from_str(kb.as_str()), DView::from(&sv));
@@ -515,14 +574,14 @@ impl FactStore {
                     }
                 };
                 let epoch: u64 = self.heads.len() as u64;
-                let si: i64 = self.cat.sidx_of_name(self.sname);
+                let si: i64 = self.store.cat.sidx_of_name(self.store.sname);
                 let ne: i64 = self.epend.len();
                 let mut i: i64 = 0i64;
                 while i < ne {
                     let op: i64 = self.epend.get(i);
                     let slot: i64 = if op >= 0i64 { op } else { 0i64 - op - 1i64 };
                     let mut rb: String = String::new();
-                    fs_jn_row_enc(&self.cat, si, self.node.get(slot), epoch, op >= 0i64, &mut rb);
+                    fs_jn_row_enc(&self.store.cat, si, self.store.node.get(slot), epoch, op >= 0i64, &mut rb);
                     let sq: u64 = self.jseq;
                     self.jseq = self.jseq + 1u64;
                     jr.insert(sq, DView::from_str(rb.as_str()));
@@ -534,25 +593,16 @@ impl FactStore {
         }
     }
 
-    // Move out the accumulated ± changelog and reset it: the net-change EPOCH
-    // batch since the last call (feed it to `epoch` directly). Commits the epoch
-    // to the history store first, then drains pend.
-    pub fn take_delta(self: &mut FactStore) -> ZBatch {
-        self.epoch_commit();
-        let pp: *mut ZBatch = &mut self.pend;
-        return unsafe { replace::<ZBatch>(pp, ZBatch::new()) };
-    }
-
     // ── epoch-history reads (ADR 0017 P1) ───────────────────────────────
     /// Number of committed epochs.
-    pub fn epoch_count(self: &FactStore) -> i64 { return self.heads.len(); }
+    pub fn epoch_count(self: &FactHistory) -> i64 { return self.heads.len(); }
 
     /// The commit id naming epoch `e`'s SET in the history store's DAG —
     /// the fork point for S4 (P2).
-    pub fn epoch_head(self: &FactStore, e: i64) -> u64 { return self.heads.get(e); }
+    pub fn epoch_head(self: &FactHistory, e: i64) -> u64 { return self.heads.get(e); }
 
     /// Number of facts present at committed epoch `e`.
-    pub fn count_at(self: &mut FactStore, e: i64) -> i64 {
+    pub fn count_at(self: &mut FactHistory, e: i64) -> i64 {
         let head: u64 = self.heads.get(e);
         let mut snap = self.hist.fork(head);
         let mut n: i64 = 0i64;
@@ -567,8 +617,8 @@ impl FactStore {
     }
 
     /// Was the fact with `node`'s content present at committed epoch `e`?
-    pub fn contains_at(self: &mut FactStore, e: i64, node: WAny) -> bool {
-        let k: Vec<FsKey> = self.key_of(node);
+    pub fn contains_at(self: &mut FactHistory, e: i64, node: WAny) -> bool {
+        let k: Vec<FsKey> = self.store.key_of(node);
         let mut kb: String = String::new();
         fs_key_enc(&k, &mut kb);
         let head: u64 = self.heads.get(e);
@@ -588,20 +638,20 @@ impl FactStore {
     // Apply a ±slot op to the live set — the rollback / re-apply primitive.
     // Mirrors insert()'s re-insert path and retract() (presence + ZBatch +
     // epoch log), WITHOUT branch recording: callers run with br_on == false.
-    fn apply_slot_op(self: &mut FactStore, op: i64) {
+    fn apply_slot_op(self: &mut FactHistory, op: i64) {
         let slot: i64 = if op >= 0i64 { op } else { 0i64 - op - 1i64 };
         if op >= 0i64 {
-            if !self.present.get(slot) {
-                self.present.set(slot, true);
-                let cn: WAny = self.node.get(slot);
-                self.pend.push(cn, 1i64);
+            if !self.store.present.get(slot) {
+                self.store.present.set(slot, true);
+                let cn: WAny = self.store.node.get(slot);
+                self.store.pend.push(cn, 1i64);
                 self.epend.push(slot);
             }
         } else {
-            if self.present.get(slot) {
-                self.present.set(slot, false);
-                let cn: WAny = self.node.get(slot);
-                self.pend.push(cn, -1i64);
+            if self.store.present.get(slot) {
+                self.store.present.set(slot, false);
+                let cn: WAny = self.store.node.get(slot);
+                self.store.pend.push(cn, -1i64);
                 self.epend.push(0i64 - slot - 1i64);
             }
         }
@@ -609,7 +659,7 @@ impl FactStore {
 
     /// Begins recording an assumption branch. Precondition: no branch active
     /// and a clean epoch boundary (take_delta consumed).
-    pub fn branch_begin(self: &mut FactStore, name: str) {
+    pub fn branch_begin(self: &mut FactHistory, name: str) {
         if self.br_on { panic("FactStore::branch_begin: a branch is already active"); }
         if self.epend.len() != 0i64 { panic("FactStore::branch_begin: pending epoch ops — take_delta first"); }
         let mut nm: String = String::new();
@@ -622,7 +672,7 @@ impl FactStore {
     /// retains its log for select_one, and rolls the live set back with the
     /// INVERSE ops. The caller feeds the rollback delta to the engine via the
     /// usual take_delta()/epoch() cycle.
-    pub fn branch_end(self: &mut FactStore) {
+    pub fn branch_end(self: &mut FactHistory) {
         if !self.br_on { panic("FactStore::branch_end: no active branch"); }
         if self.epend.len() != 0i64 { panic("FactStore::branch_end: pending epoch ops — take_delta first"); }
         self.br_on = false;
@@ -654,7 +704,7 @@ impl FactStore {
     /// the losers' head commits, records the merge for querying, and clears
     /// the branch set. Returns the merge commit id. The caller feeds the
     /// re-apply delta to the engine via take_delta()/epoch().
-    pub fn select_one(self: &mut FactStore, winner: str) -> u64 {
+    pub fn select_one(self: &mut FactHistory, winner: str) -> u64 {
         if self.br_on { panic("FactStore::select_one: end the active branch first"); }
         if self.epend.len() != 0i64 { panic("FactStore::select_one: pending epoch ops — take_delta first"); }
         let nb: i64 = self.br_name.len();
@@ -720,44 +770,44 @@ impl FactStore {
 
     // ── branch/merge history reads ──
     /// Number of ended, not-yet-resolved branches.
-    pub fn branch_count(self: &FactStore) -> i64 { return self.br_name.len(); }
+    pub fn branch_count(self: &FactHistory) -> i64 { return self.br_name.len(); }
     /// Name of ended branch `i` (owned copy).
-    pub fn branch_name(self: &FactStore, i: i64) -> String {
+    pub fn branch_name(self: &FactHistory, i: i64) -> String {
         let mut out: String = String::new();
         out.push_str(self.br_name.borrow(i).as_str());
         return out;
     }
     /// Head commit of ended branch `i`.
-    pub fn branch_head(self: &FactStore, i: i64) -> u64 { return self.br_head.get(i); }
+    pub fn branch_head(self: &FactHistory, i: i64) -> u64 { return self.br_head.get(i); }
     /// Number of resolved merges.
-    pub fn merge_count(self: &FactStore) -> i64 { return self.mg_win.len(); }
+    pub fn merge_count(self: &FactHistory) -> i64 { return self.mg_win.len(); }
     /// Winner branch name of merge `i` (owned copy).
-    pub fn merge_winner(self: &FactStore, i: i64) -> String {
+    pub fn merge_winner(self: &FactHistory, i: i64) -> String {
         let mut out: String = String::new();
         out.push_str(self.mg_win.borrow(i).as_str());
         return out;
     }
     /// The history-DAG commit id of merge `i`.
-    pub fn merge_commit(self: &FactStore, i: i64) -> u64 { return self.mg_cid.get(i); }
+    pub fn merge_commit(self: &FactHistory, i: i64) -> u64 { return self.mg_cid.get(i); }
     /// Number of losers of merge `i`.
-    pub fn merge_loser_count(self: &FactStore, i: i64) -> i64 { return self.mg_lcnt.get(i); }
+    pub fn merge_loser_count(self: &FactHistory, i: i64) -> i64 { return self.mg_lcnt.get(i); }
     /// Name of loser `j` of merge `i` (owned copy).
-    pub fn merge_loser(self: &FactStore, i: i64, j: i64) -> String {
+    pub fn merge_loser(self: &FactHistory, i: i64, j: i64) -> String {
         let mut out: String = String::new();
         out.push_str(self.mg_lsr.borrow(self.mg_loff.get(i) + j).as_str());
         return out;
     }
     /// Parent commits of a history-DAG commit (e.g. a merge's [winner, losers…]).
-    pub fn hist_parents_of(self: &mut FactStore, id: u64) -> Vec<u64> {
+    pub fn hist_parents_of(self: &mut FactHistory, id: u64) -> Vec<u64> {
         return self.hist.parents_of(id);
     }
     /// Whether a history-DAG commit has been released (losers are, post-merge).
-    pub fn hist_is_released(self: &mut FactStore, id: u64) -> bool {
+    pub fn hist_is_released(self: &mut FactHistory, id: u64) -> bool {
         return self.hist.is_released(id);
     }
 
     /// Number of journal rows written so far.
-    pub fn journal_rows(self: &FactStore) -> i64 { return self.jseq as i64; }
+    pub fn journal_rows(self: &FactHistory) -> i64 { return self.jseq as i64; }
 
     /// Rebuilds a FRESH FactStore by replaying this store's journal container
     /// (ADR 0017 P3 gate; the ADR 0015 §4 replay law at the EDB tier): rows are
@@ -766,9 +816,9 @@ impl FactStore {
     /// field tuple in the fresh store's own arena. v0 fidelity: scalar-field
     /// relations (non-scalar fields journal as a lossy marker). The replayed
     /// store re-derives its own epoch history and journal as it goes.
-    pub fn replay_fresh(self: &mut FactStore, seg: i64) -> Result<FactStore, str> {
-        let mut out: FactStore = match FactStore::new(&self.cat, self.sname,
-                                                      self.keyf.as_slice(), seg) {
+    pub fn replay_fresh(self: &mut FactHistory, seg: i64) -> Result<FactHistory, str> {
+        let mut out: FactHistory = match FactHistory::new(&self.store.cat, self.store.sname,
+                                                      self.store.keyf.as_slice(), seg) {
             Result::Ok(o)  => { o }
             Result::Err(e) => { return Result::Err(e); }
         };
@@ -780,18 +830,18 @@ impl FactStore {
 
     // The journal scan + fact reconstruction of replay_fresh (split out so
     // `out` has a single move-out point in the public fn).
-    fn replay_rows_into(self: &mut FactStore, out: &mut FactStore) {
+    fn replay_rows_into(self: &mut FactHistory, out: &mut FactHistory) {
         // &mut is affine — thread a raw pointer so per-iteration method calls
         // don't consume the reference (the pend-pointer idiom of take_delta).
-        let outp: *mut FactStore = out;
-        let si: i64 = self.cat.sidx_of_name(self.sname);
-        let code: u64 = self.cat.s_codes.get(si);
+        let outp: *mut FactHistory = out;
+        let si: i64 = self.store.cat.sidx_of_name(self.store.sname);
+        let code: u64 = self.store.cat.s_codes.get(si);
         // Count the schema's fields once (TOM capacity + decode loop bound).
         let mut nf: i64 = 0i64;
         {
             let mut fi: i64 = 0i64;
-            while fi < self.cat.f_n {
-                if self.cat.f_owner.get(fi) == si { nf = nf + 1i64; }
+            while fi < self.store.cat.f_n {
+                if self.store.cat.f_owner.get(fi) == si { nf = nf + 1i64; }
                 fi = fi + 1i64;
             }
         }
@@ -819,9 +869,9 @@ impl FactStore {
                 let m: &mut WMap<Wu6, WAny> = unsafe { &mut *(mp as *mut WMap<Wu6, WAny>) };
                 let mut at: i64 = 9i64;
                 let mut fi: i64 = 0i64;
-                while fi < self.cat.f_n {
-                    if self.cat.f_owner.get(fi) == si {
-                        let kc: u8 = self.cat.f_keys.get(fi) as u8;
+                while fi < self.store.cat.f_n {
+                    if self.store.cat.f_owner.get(fi) == si {
+                        let kc: u8 = self.store.cat.f_keys.get(fi) as u8;
                         let tag: u8 = str_byte_at(bytes, at);
                         at = at + 1i64;
                         if tag == 1u8 {
@@ -855,29 +905,6 @@ impl FactStore {
                 it.step();
             }
         }
-    }
-
-    // Materialize the CURRENT present set into the owned arena as a Writ array of
-    // canonical handles — the batch oracle binds this via bind_source. One handle
-    // per present slot (byte-role-identical to the harnesses' build_src).
-    pub fn build_present(self: &FactStore) -> WAny {
-        let arr: &mut WArray<WAny> = self.doc.array(self.node.len() + 1i64);
-        let n: i64 = self.node.len();
-        let mut i: i64 = 0i64;
-        while i < n {
-            if self.present.get(i) { arr.push(self.node.get(i)); }
-            i = i + 1i64;
-        }
-        return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
-    }
-
-    // Count of currently-present facts (test probe).
-    pub fn count(self: &FactStore) -> i64 {
-        let n: i64 = self.node.len();
-        let mut c: i64 = 0i64;
-        let mut i: i64 = 0i64;
-        while i < n { if self.present.get(i) { c = c + 1i64; } i = i + 1i64; }
-        return c;
     }
 }
 

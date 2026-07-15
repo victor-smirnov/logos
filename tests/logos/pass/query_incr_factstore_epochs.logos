@@ -48,7 +48,7 @@ fn mk_tag(dp: *const Writ, nm: str) -> WAny {
 fn main() -> i32 {
     let c: SchemaCatalog = cat();
     let kf: [str; 2] = ["src", "dst"];
-    let mut st: FactStore = match FactStore::new(&c, "Edge", &kf[..], 65536i64) {
+    let mut st: FactHistory = match FactHistory::new(&c, "Edge", &kf[..], 65536i64) {
         Result::Ok(s)   => { s }
         Result::Err(_e) => { return 10i32; }
     };
@@ -93,7 +93,7 @@ fn main() -> i32 {
 
     // ── (f) a str-keyed relation rides the same encoding ──
     let kt: [str; 1] = ["name"];
-    let mut ts: FactStore = match FactStore::new(&c, "Tag", &kt[..], 65536i64) {
+    let mut ts: FactHistory = match FactHistory::new(&c, "Tag", &kt[..], 65536i64) {
         Result::Ok(s)   => { s }
         Result::Err(_e) => { return 50i32; }
     };
