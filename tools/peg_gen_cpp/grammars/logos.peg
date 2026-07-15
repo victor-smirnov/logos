@@ -489,6 +489,15 @@
     // codepoint). Sema decodes the body back into the scalar value.
     CHAR_LIT    = /'(\\.|[^'\\])'/
     LIFETIME    = /'[a-z_][a-z0-9_]*/
+    // NOTE (blessed divergence): the generated lexer additionally admits `$`
+    // as an identifier CONTINUATION char (never leading — leading `$` still
+    // routes to DOLLAR/capture). This lets compiler-mangled names such as
+    // `Map$G2$u64$str` (concrete_struct_name) round-trip through the metaprog
+    // source-emit channel (logos_emit_source) — e.g. generic-container
+    // instantiation emitting a concrete container decl + its struct family.
+    // The pattern string below is matched VERBATIM by codegen.cpp to select
+    // the IDENT matcher, so it is kept as-is; the `$` admission lives in the
+    // emitted char-class (codegen.cpp identifier-continuation + word-boundary).
     IDENT       = /[a-zA-Z_][a-zA-Z0-9_]*/
 
     // Skip

@@ -1727,7 +1727,7 @@ private:
                         w.fmt("if (pos_ + {0} <= source_.size() &&", pat.size());
                         w.fmt("    std::char_traits<char>::compare(source_.data() + pos_, \"{1}\", {0}) == 0 &&",
                               pat.size(), pat);
-                        w.fmt("    (pos_ + {0} >= source_.size() || (!std::isalnum(source_[pos_ + {0}]) && source_[pos_ + {0}] != '_'))) {{",
+                        w.fmt("    (pos_ + {0} >= source_.size() || (!std::isalnum(source_[pos_ + {0}]) && source_[pos_ + {0}] != '_' && source_[pos_ + {0}] != '$'))) {{",
                               pat.size());
                     } else {
                         w.fmt("if (pos_ + {0} <= source_.size() &&", pat.size());
@@ -1814,7 +1814,7 @@ private:
         w.line("    !try_suffix(\"ull\") && !try_suffix(\"ul\") && !try_suffix(\"ll\")) {");
         w.line("    // Single-char 'u' — only if not followed by alnum/underscore.");
         w.line("    if (pos_ < source_.size() && source_[pos_] == 'u' &&");
-        w.line("        (pos_+1 >= source_.size() || (!std::isalnum(source_[pos_+1]) && source_[pos_+1] != '_')))");
+        w.line("        (pos_+1 >= source_.size() || (!std::isalnum(source_[pos_+1]) && source_[pos_+1] != '_' && source_[pos_+1] != '$')))");
         w.line("        ++pos_;");
         w.line("}");
     }
@@ -1840,7 +1840,7 @@ private:
                 w.fmt("// {} = /{}/", t.name, pat);
                 w.fmt("if (std::isalpha(c) || c == '_') {{");
                 w.indent();
-                w.line("while (pos_ < source_.size() && (std::isalnum(source_[pos_]) || source_[pos_] == '_'))");
+                w.line("while (pos_ < source_.size() && (std::isalnum(source_[pos_]) || source_[pos_] == '_' || source_[pos_] == '$'))");
                 w.line("    ++pos_;");
                 w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", safe_tok_name(t.name));
                 w.dedent();
@@ -2163,7 +2163,7 @@ private:
                 w.indent();
                 w.line("++pos_;  // advance past apostrophe");
                 if (alnum_rest) {
-                    w.line("while (pos_ < source_.size() && (std::isalnum(source_[pos_]) || source_[pos_] == '_'))");
+                    w.line("while (pos_ < source_.size() && (std::isalnum(source_[pos_]) || source_[pos_] == '_' || source_[pos_] == '$'))");
                     w.line("    ++pos_;");
                 } else {
                     w.line("if (pos_ < source_.size() && std::isalpha(source_[pos_])) ++pos_;");
@@ -2776,7 +2776,7 @@ private:
         w.line("// Whole-word match of any of this grammar's keywords at `p`.");
         w.line("static bool embed_at_kw(std::string_view s, size_t p) {");
         w.indent();
-        w.line("auto word = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };");
+        w.line("auto word = [](char c) { return std::isalnum((unsigned char)c) || c == '_' || c == '$'; };");
         w.line("if (p > 0 && word(s[p - 1])) return false;");
         for (const auto& k : kws)
             w.fmt("if (s.compare(p, {0}, \"{1}\") == 0 && (p + {0} >= s.size() || "
