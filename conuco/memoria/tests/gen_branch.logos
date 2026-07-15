@@ -3,34 +3,37 @@
 // branch `GenBr` (three FSE columns sep/sz/ptr, count-balanced split). The
 // generated branch is CHILD-TYPE-AGNOSTIC (no concrete leaf type in scope at
 // generation), so its descent operations (rank, get_or) take a hook fn-pointer
-// bound here to memoria's LeafU64; free_children releases child blocks by raw
-// dealloc. main() builds a height-2 structure over three LeafU64 children and
-// validates search descent, the SUM column (total_size + rank order stats),
-// point lookup, and a count-balanced split with separator promotion. The branch
-// type is not hand-written here — the container declaration is its whole source.
+// bound here to a GENERATED leaf (`GenBrLeaf`, a `kind node` declaration);
+// free_children releases child blocks by raw dealloc. main() builds a height-2
+// structure over three GenBrLeaf children and validates search descent, the SUM
+// column (total_size + rank order stats), point lookup, and a count-balanced
+// split with separator promotion. Neither node type is hand-written here — the
+// two container declarations are their whole source.
 package test;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler
-use logos.mem.bt.leaf;                   // LeafU64 children
 use logos.mem.pkd;
 
 // key:u64 → all fixed-size → generated branch (three FSE columns sep/sz/ptr).
 container GenBr for u8 { kind branch; entry { key: u64 } }
 
-// Descent hooks binding the child-agnostic branch to concrete LeafU64 children:
+// key:u64 + val:u64 → all fixed-size → generated leaf serving as the children.
+container GenBrLeaf for u8 { kind node; entry { key: u64, val: u64 } }
+
+// Descent hooks binding the child-agnostic branch to concrete GenBrLeaf children:
 // rank needs the child's lower_bound; get_or needs a full point probe.
 fn leaf_lb(node: *mut u8, key: u64) -> u32 {
-    return LeafU64::adopt(node).lower_bound(key);
+    return GenBrLeaf::adopt(node).lower_bound(key);
 }
 fn leaf_probe(node: *mut u8, key: u64, sentinel: u64) -> u64 {
-    let lf: LeafU64 = LeafU64::adopt(node);
+    let lf: GenBrLeaf = GenBrLeaf::adopt(node);
     let p: u32 = lf.lower_bound(key);
     if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }
     return sentinel;
 }
 
-fn fill(lo: u64, hi: u64) -> LeafU64 {
-    let mut lf: LeafU64 = LeafU64::new();
+fn fill(lo: u64, hi: u64) -> GenBrLeaf {
+    let mut lf: GenBrLeaf = GenBrLeaf::new();
     let mut k: u64 = lo;
     while k <= hi {
         if !lf.try_insert(k, k + 100u64) { assert(false, "fill: leaf full too early"); }
@@ -39,18 +42,21 @@ fn fill(lo: u64, hi: u64) -> LeafU64 {
     return lf;
 }
 
+// the generated leaf has no `max_key` method; its max is the last sorted key.
+fn leaf_max(lf: &GenBrLeaf) -> u64 { return lf.key_at(lf.count() - 1u32); }
+
 fn main() -> i32 {
     // three leaves: [0,2,4,6,8] (5), [10,12,14,16] (4), [20,22,24] (3)
-    let l0: LeafU64 = fill(0u64, 8u64);
-    let l1: LeafU64 = fill(10u64, 16u64);
-    let l2: LeafU64 = fill(20u64, 24u64);
+    let l0: GenBrLeaf = fill(0u64, 8u64);
+    let l1: GenBrLeaf = fill(10u64, 16u64);
+    let l2: GenBrLeaf = fill(20u64, 24u64);
     if l0.count() != 5u32 || l1.count() != 4u32 || l2.count() != 3u32 { return 1i32; }
 
     // build the GENERATED branch (children pushed in ascending separator order)
     let mut br: GenBr = GenBr::new();
-    br.push_child(l0.max_key(), l0.count() as u64, l0.block());
-    br.push_child(l1.max_key(), l1.count() as u64, l1.block());
-    br.push_child(l2.max_key(), l2.count() as u64, l2.block());
+    br.push_child(leaf_max(&l0), l0.count() as u64, l0.block());
+    br.push_child(leaf_max(&l1), l1.count() as u64, l1.block());
+    br.push_child(leaf_max(&l2), l2.count() as u64, l2.block());
     if br.child_count() != 3u32 { return 2i32; }
     if br.sep_at(0u32) != 8u64 || br.sep_at(1u32) != 16u64 || br.sep_at(2u32) != 24u64 { return 3i32; }
     if br.size_at(0u32) != 5u64 { return 4i32; }
@@ -64,7 +70,7 @@ fn main() -> i32 {
     if br.find_child(24u64) != 2u32 { return 8i32; }
     if br.find_child(100u64) != 2u32 { return 9i32; }
 
-    // point lookup through the branch (descent hook → LeafU64 probe)
+    // point lookup through the branch (descent hook → GenBrLeaf probe)
     if br.get_or(12u64, 999u64, leaf_probe) != 112u64 { return 10i32; }
     if br.get_or(0u64, 999u64, leaf_probe) != 100u64 { return 11i32; }
     if br.get_or(24u64, 999u64, leaf_probe) != 124u64 { return 12i32; }
