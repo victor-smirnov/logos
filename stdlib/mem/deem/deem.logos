@@ -58,7 +58,7 @@
 //     emit the same per-schema entry calls for schemas declared in OTHER
 //     modules than the schema_catalog! callsite (same-module reflection is
 //     the I1 MVP).
-package logos.std.deem;
+package logos.mem.deem;
 
 use logos.lang.writ.container;    // Writ / writ_new
 use logos.lang.writ.anyval;       // WAny
@@ -170,17 +170,17 @@ const CAT_FIELDS:  i64 = 96i64;
 pub struct SchemaCatalog {
     // schemas
     s_names: Vec<str>,
-    s_codes: Vec<u64>,
+    pub s_codes: Vec<u64>,
     s_n:     i64,
     // fields (flat, owner-indexed)
-    f_owner:   Vec<i64>,   // index into the schema tables
-    f_names:   Vec<str>,
-    f_keys:    Vec<i64>,   // TOM key code
+    pub f_owner:   Vec<i64>,   // index into the schema tables
+    pub f_names:   Vec<str>,
+    pub f_keys:    Vec<i64>,   // TOM key code
     f_tys:     Vec<i64>,   // EL_TY_* (FK_SCALAR only)
     f_kinds:   Vec<i64>,   // FK_*
     f_targets: Vec<u64>,   // FK_EDGE: target schema code (0 = unresolved)
     f_tnames:  Vec<str>,   // FK_EDGE: target schema NAME (late resolution)
-    f_n:       i64,
+    pub f_n:       i64,
 }
 
 impl SchemaCatalog {
@@ -194,7 +194,7 @@ impl SchemaCatalog {
     }
 
     // Internal: schema index by name / code (-1 = absent).
-    fn sidx_of_name(self: &SchemaCatalog, name: str) -> i64 {
+    pub fn sidx_of_name(self: &SchemaCatalog, name: str) -> i64 {
         let mut i: i64 = 0i64;
         while i < self.s_n {
             if str_eq(self.s_names.get(i), name) { return i; }

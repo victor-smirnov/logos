@@ -20248,15 +20248,15 @@ void SemaChecker::seed_builtin_source_impls() {
     // trait EngineState { rel trace/epochs/tail/controls } — impl for IncrRec (M5).
     if (have_incr) return;
     auto& e = source_impls_["IncrRec"];
-    e.push_back(mk("EngineState", "trace", "deem_state_trace", "logos.std.deem",
+    e.push_back(mk("EngineState", "trace", "deem_state_trace", "logos.mem.deem",
         {{"epoch","i64"},{"kind","i64"},{"step","i64"},{"delta","i64"},
          {"total","i64"},{"ns","i64"}}));
-    e.push_back(mk("EngineState", "epochs", "deem_state_epochs", "logos.std.deem",
+    e.push_back(mk("EngineState", "epochs", "deem_state_epochs", "logos.mem.deem",
         {{"epoch","i64"},{"ins","i64"},{"del","i64"},{"rounds","i64"},{"ns","i64"}}));
-    e.push_back(mk("EngineState", "tail", "deem_state_tail", "logos.std.deem",
+    e.push_back(mk("EngineState", "tail", "deem_state_tail", "logos.mem.deem",
         {{"epoch","i64"},{"converged","i64"},{"pending","i64"},{"bound","i64"},
          {"cutr","i64"}}));
-    e.push_back(mk("EngineState", "controls", "deem_state_controls", "logos.std.deem",
+    e.push_back(mk("EngineState", "controls", "deem_state_controls", "logos.mem.deem",
         {{"epoch","i64"},{"kind","i64"},{"val","i64"}}));
 }
 

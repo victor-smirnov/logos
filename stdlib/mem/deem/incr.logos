@@ -1,7 +1,7 @@
 // logos.std.deem — INCREMENTAL DATAFLOW (ADR 0013 slices 1-4): ZBatch, FactStore change-capture, the ZOut signed-weight output, IncrJoin (join/anti/aggregate maintenance), Query::incremental.
 // One package across several files (see deem.logos for the module-level doc);
 // private items are package-visible, so the split is layout-only.
-package logos.std.deem;
+package logos.mem.deem;
 
 
 use logos.lang.writ.container;    // Writ / writ_new
@@ -119,7 +119,7 @@ pub const FsStoreCfg: WritStatic = @{
     "block_id": <type:u64>,
 };
 pub const FsCtrCfg: WritStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 16 };
-const FS_CTR_ID: u64 = 1u64;
+pub const FS_CTR_ID: u64 = 1u64;
 // The JOURNAL container (ADR 0017 P3, user accent #4): an append-only ΔEDB log
 // INSIDE the same store — one row per effective ±op, keyed by a global
 // sequence number (monotone u64 ⇒ rightmost-path inserts, append in practice).
@@ -130,19 +130,23 @@ const FS_CTR_ID: u64 = 1u64;
 // and replay lossy — v0 fidelity is scalar-field relations. The journal is
 // REPLAY + QUERYABLE HISTORY (ADR 0015 §4), NOT crash consistency (no WAL).
 pub const FsJnCfg: WritStatic = @{ "key": <type:u64>, "value": <type:DView>, "fanout": 16 };
-const FS_JN_ID: u64 = 2u64;
+pub const FS_JN_ID: u64 = 2u64;
 
 pub struct FactStore {
-    doc:     Writ,               // OWNS the arena the canonical handles point into
+    // Fields are pub: the FactHistory decorator lives in a sibling package
+    // (logos.std.deem, lcm-tier) and reads the core live set across the package
+    // boundary. TODO: tighten — move the catalog-coupled journal encode/replay
+    // into pub mem helpers so these can go back to package-private.
+    pub doc:     Writ,               // OWNS the arena the canonical handles point into
                                  // (must outlive the engine — bind_source contract)
-    cat:     SchemaCatalog,      // owned catalog snapshot (field_read needs it)
-    sname:   str,                // schema name (documentation / validation)
-    keyf:    Vec<str>,           // scalar content-key field names
-    node:    Vec<WAny>,          // canonical handle per DISTINCT content
-    key:     Vec<Vec<FsKey>>,    // OWNED scalar key tuple per slot (identity)
-    present: Vec<bool>,          // SET presence per slot
-    idx:     HashMap<u64, Vec<i64>>,  // content-hash → candidate slot indices
-    pend:    ZBatch,             // pending ± changelog since last take_delta
+    pub cat:     SchemaCatalog,      // owned catalog snapshot (field_read needs it)
+    pub sname:   str,                // schema name (documentation / validation)
+    pub keyf:    Vec<str>,           // scalar content-key field names
+    pub node:    Vec<WAny>,          // canonical handle per DISTINCT content
+    pub key:     Vec<Vec<FsKey>>,    // OWNED scalar key tuple per slot (identity)
+    pub present: Vec<bool>,          // SET presence per slot
+    pub idx:     HashMap<u64, Vec<i64>>,  // content-hash → candidate slot indices
+    pub pend:    ZBatch,             // pending ± changelog since last take_delta
 }
 
 // An OWNED scalar key element. RtVal::S carries a `str` VIEW (borrows the source
@@ -151,7 +155,7 @@ pub struct FactStore {
 // OWNS its bytes (String) so a key tuple is fully self-contained: identity
 // survives even a transient source node, and key_of returns a borrow-free value.
 //   k: 0 null · 1 i64 · 2 f64 · 3 bool · 4 str
-struct FsKey { k: i32, i: i64, f: f64, b: bool, s: String }
+pub struct FsKey { k: i32, i: i64, f: f64, b: bool, s: String }
 
 fn fskey_of(v: RtVal) -> FsKey {
     match v {
@@ -168,7 +172,7 @@ fn fskey_of(v: RtVal) -> FsKey {
 // tag-determined payload (i64/f64-bits: 8B; bool: 1B; str: 4B len + bytes).
 // Deterministic and prefix-collision-safe ⇒ byte equality ≡ tuple equality;
 // the B+tree only needs SOME total order, and lexicographic-over-bytes is one.
-fn fs_key_enc(k: &Vec<FsKey>, out: &mut String) {
+pub fn fs_key_enc(k: &Vec<FsKey>, out: &mut String) {
     let n: i64 = k.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -198,7 +202,7 @@ fn fs_key_enc(k: &Vec<FsKey>, out: &mut String) {
 
 // Encode ONE journal row (ADR 0017 P3): epoch + sign + the fact's FULL field
 // tuple in catalog order, read through the same field_read the key path uses.
-fn fs_jn_row_enc(cat: &SchemaCatalog, si: i64, node: WAny, epoch: u64, positive: bool, out: &mut String) {
+pub fn fs_jn_row_enc(cat: &SchemaCatalog, si: i64, node: WAny, epoch: u64, positive: bool, out: &mut String) {
     let mut e: u64 = epoch;
     let mut b: i64 = 0i64;
     while b < 8i64 { out.push_u8(((e >> 56u64) & 255u64) as u8); e = e << 8u64; b = b + 1i64; }
@@ -242,7 +246,7 @@ fn fs_jn_row_enc(cat: &SchemaCatalog, si: i64, node: WAny, epoch: u64, positive:
 }
 
 // Big-endian u64 at byte offset `at` of `bytes` (journal row decode).
-fn fs_rd_u64(bytes: str, at: i64) -> u64 {
+pub fn fs_rd_u64(bytes: str, at: i64) -> u64 {
     let mut v: u64 = 0u64;
     let mut k: i64 = 0i64;
     while k < 8i64 { v = (v << 8u64) | (str_byte_at(bytes, at + k) as u64); k = k + 1i64; }

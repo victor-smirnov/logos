@@ -1,7 +1,7 @@
 // logos.std.deem — THE EXECUTOR: RelCtx + the rel-storage watermark/redirect helpers (rctx_*/qrel_push_*), RowSet, exec_rexpr/exec_edge/exec_aggr, OutTab, exec_root.
 // One package across several files (see deem.logos for the module-level doc);
 // private items are package-visible, so the split is layout-only.
-package logos.std.deem;
+package logos.mem.deem;
 
 
 use logos.lang.writ.container;    // Writ / writ_new

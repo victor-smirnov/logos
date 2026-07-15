@@ -85,9 +85,15 @@ static bool is_deem_api_type(std::string_view name) {
            name == "QRows" || name == "QError";
 }
 static bool is_deem_internal_type(std::string_view pkg, std::string_view name) {
-    static constexpr std::string_view kRoot = "logos.std.deem";
-    const bool in_deem = (pkg == kRoot) ||
-        (pkg.size() > kRoot.size() && pkg.rfind(kRoot, 0) == 0 && pkg[kRoot.size()] == '.');
+    // The deem engine/core now lives in logos.mem.deem (mem tier); the history
+    // decorator (FactHistory) + Memoria storage stay under logos.std.deem[.data]
+    // (lcm-bound). Both trees are heavy-dev internals — exclude either root
+    // (except the dynamic-query api allowlist, which is in logos.mem.deem).
+    auto under = [](std::string_view p, std::string_view root) {
+        return p == root ||
+            (p.size() > root.size() && p.rfind(root, 0) == 0 && p[root.size()] == '.');
+    };
+    const bool in_deem = under(pkg, "logos.mem.deem") || under(pkg, "logos.std.deem");
     return in_deem && !is_deem_api_type(name);
 }
 

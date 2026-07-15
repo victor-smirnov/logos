@@ -17,7 +17,7 @@
 //   <p>_controls(epoch, kind, val)                   applied control atoms
 // `ns` is a wall-clock SENSOR (nondeterministic) — assert ≥ 0, never golden.
 // One package across several files (see deem.logos for the module-level doc).
-package logos.std.deem;
+package logos.mem.deem;
 
 use logos.mem.collections.vec;
 

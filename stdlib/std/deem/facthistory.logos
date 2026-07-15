@@ -22,6 +22,7 @@ use logos.lang.cmp;               // DView ordering (container key compare)
 use logos.lang.fabric;            // NodeARC plumbing (data layer)
 use logos.lang.drop;              // container-handle drops (data layer)
 use logos.lang.writ.dview;        // DView — the container's runtime-typed cells
+use logos.mem.deem;                // FactStore + FsKey/consts/encoders + SchemaCatalog (mem core)
 use logos.std.deem.data.bt.node;  // storage engine (ADR 0017): epoch-history layer
 use logos.std.deem.data.bt.cow;
 use logos.std.deem.data.store;

@@ -1,7 +1,7 @@
 // logos.std.deem — EL EVALUATION + TEMPLATES: RBinds, eval_root/field_read/eval_sexpr (the tree-walk evaluator), the render walk, and the Tpl compile-once/render-many API.
 // One package across several files (see deem.logos for the module-level doc);
 // private items are package-visible, so the split is layout-only.
-package logos.std.deem;
+package logos.mem.deem;
 
 
 use logos.lang.writ.container;    // Writ / writ_new

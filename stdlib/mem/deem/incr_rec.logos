@@ -1,7 +1,7 @@
 // logos.std.deem — INCREMENTAL LINEAR-RECURSIVE REL (ADR 0013 slices 5-9 + ADR 0015 S1-S3): IncrRec (semi-naive maintenance, DRed, semilattice aggregation, R4 provenance/explain), trace reification, budgeted fixpoint + truncated_tail, control atoms + journal, Query::incremental_rec.
 // One package across several files (see deem.logos for the module-level doc);
 // private items are package-visible, so the split is layout-only.
-package logos.std.deem;
+package logos.mem.deem;
 
 
 use logos.lang.writ.container;    // Writ / writ_new

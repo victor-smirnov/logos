@@ -1,7 +1,7 @@
 // logos.std.deem — STATIC CHECKERS: the EL/template checker (Chk/CBinds/check_root/check_expr/check_stmts, simplify pass) and the relational checker (QPlan, resolve_source, check_rexpr, the rel-field rewrite).
 // One package across several files (see deem.logos for the module-level doc);
 // private items are package-visible, so the split is layout-only.
-package logos.std.deem;
+package logos.mem.deem;
 
 
 use logos.lang.writ.container;    // Writ / writ_new

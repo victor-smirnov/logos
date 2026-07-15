@@ -1,7 +1,7 @@
 // logos.std.deem — THE QUERY API: QRows (self-contained results), QBodyTab, Query::compile/run and the surface→algebra lowering.
 // One package across several files (see deem.logos for the module-level doc);
 // private items are package-visible, so the split is layout-only.
-package logos.std.deem;
+package logos.mem.deem;
 
 
 use logos.lang.writ.container;    // Writ / writ_new

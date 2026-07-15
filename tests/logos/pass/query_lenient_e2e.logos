@@ -13,7 +13,7 @@ use logos.lang.writ.wmap;
 use logos.lang.writ.wstring;   // WString — the string-keyed map key type
 use logos.std.wql.ir;
 use logos.std.wql.catalog_macro;
-use logos.std.deem;
+use logos.mem.deem;
 use logos.lang.result;
 use logos.mem.string;
 use logos.lang.str;
