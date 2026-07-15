@@ -445,32 +445,52 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
 // Wave-0 substrate: the generated leaf targets the memoria pkd allocator
 // (logos.mem.pkd) directly, PLAIN pkd (alloc / pkd_format / dealloc, no CoW node
 // header) — exactly like the hand-written leaf.logos / leaf_kv.logos templates.
-fn emit_leaf_node(name: str, kty: str, vty: str, policy: str) {
+fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     let vol: bool = str_eq(policy, SPLIT_VOLUME);
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    em.push_text("\nuse logos.mem.pkd;\nuse logos.lang.mem;\nuse logos.lang.result;\n");
+    // CoW flavor (Canon versioning=cow verdict): the node carries the 16-byte
+    // node header (snapshot_id + rc) via logos.mem.bt.node — new_in/cow_clone +
+    // node_alloc/node_pkd/node_free — instead of plain pkd (alloc/pkd_format).
+    em.push_text("\nuse logos.mem.pkd;\n");
+    if cow { em.push_text("use logos.mem.bt.node;\n"); } else { em.push_text("use logos.lang.mem;\n"); }
+    em.push_text("use logos.lang.result;\n");
     if vol { em.push_text("use logos.lang.str;\n"); }   // val.len() on a VLE column
     em.push_text("\n");
     em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
     em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
-    // new
-    em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" {\n");
-    em.push_text("        unsafe {\n");
-    em.push_text("            let mem: *mut u8 = alloc(4096i64);\n");
-    em.push_text("            let a: *mut PkdAlloc = pkd_format(mem, 4096u32, 2u32);\n");
+    // new / new_in — CoW stamps the block with the creating snapshot id.
+    if cow {
+        em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" { return "); em.push_text(name); em.push_text("::new_in(0u64); }\n");
+        em.push_text("    pub static fn new_in(snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
+        em.push_text("        unsafe {\n");
+        em.push_text("            let base: *mut u8 = node_alloc(4096u32, 2u32, snp);\n");
+        em.push_text("            let a: *mut PkdAlloc = node_pkd(base);\n");
+    } else {
+        em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" {\n");
+        em.push_text("        unsafe {\n");
+        em.push_text("            let base: *mut u8 = alloc(4096i64);\n");
+        em.push_text("            let a: *mut PkdAlloc = pkd_format(base, 4096u32, 2u32);\n");
+    }
     em.push_text("            match PkdArray::<"); em.push_text(kty); em.push_text(">::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"key col\"); } }\n");
     em.push_text("            match PkdArray::<"); em.push_text(vty); em.push_text(">::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"val col\"); } }\n");
-    em.push_text("            return "); em.push_text(name); em.push_text(" { mem: mem, cap: 4096u32 };\n");
+    em.push_text("            return "); em.push_text(name); em.push_text(" { mem: base, cap: 4096u32 };\n");
     em.push_text("        }\n    }\n");
     // adopt / block / free
     em.push_text("    pub static fn adopt(mem: *mut u8) -> "); em.push_text(name);
-    em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }\n");
+    if cow {
+        em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } }; }\n");
+    } else {
+        em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }\n");
+    }
     em.push_text("    pub fn block(self: &"); em.push_text(name); em.push_text(") -> *mut u8 { return self.mem; }\n");
-    em.push_text("    pub fn free(self: "); em.push_text(name); em.push_text(") { unsafe { dealloc(self.mem); } }\n");
+    em.push_text("    pub fn free(self: "); em.push_text(name);
+    if cow { em.push_text(") { unsafe { node_free(self.mem); } }\n"); } else { em.push_text(") { unsafe { dealloc(self.mem); } }\n"); }
     // column accessors
-    em.push_text("    unsafe fn a(self: &"); em.push_text(name); em.push_text(") -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }\n");
+    em.push_text("    unsafe fn a(self: &"); em.push_text(name); em.push_text(") -> *mut PkdAlloc { return ");
+    if cow { em.push_text("node_pkd(self.mem)"); } else { em.push_text("self.mem as *mut PkdAlloc"); }
+    em.push_text("; }\n");
     em.push_text("    unsafe fn kc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(kty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(kty); em.push_text(">>(0u32); }\n");
     em.push_text("    unsafe fn vc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(vty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(vty); em.push_text(">>(1u32); }\n");
     // count / key_at / val_at
@@ -550,6 +570,15 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str) {
     em.push_text("            let _ = (*self.kc()).split_into(&mut *dst.kc(), at);\n");
     em.push_text("            let _ = (*self.vc()).split_into(&mut *dst.vc(), at);\n");
     em.push_text("        }\n    }\n");
+    // cow_clone — a private copy on a fresh block stamped `snp` (CoW duplication;
+    // a leaf has no children to share). Only emitted for the CoW node flavor.
+    if cow {
+        em.push_text("    pub fn cow_clone(self: &"); em.push_text(name); em.push_text(", snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
+        em.push_text("        let mut c: "); em.push_text(name); em.push_text(" = "); em.push_text(name); em.push_text("::new_in(snp);\n");
+        em.push_text("        let n: u32 = self.count();\n        let mut i: u32 = 0u32;\n");
+        em.push_text("        while i < n { let _ = c.try_insert(self.key_at(i), self.val_at(i)); i = i + 1u32; }\n");
+        em.push_text("        return c;\n    }\n");
+    }
     em.push_text("}\n");
     em.commit();
 }
@@ -566,29 +595,47 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str) {
 // type in scope), so the child-descent operations (rank, get_or) take a descent
 // HOOK fn-pointer — the caller binds it to the concrete leaf type; free_children
 // releases child blocks by raw dealloc (block-id lifecycle, no typed handle).
-fn emit_branch_node(name: str, kty: str) {
+fn emit_branch_node(name: str, kty: str, cow: bool) {
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    em.push_text("\nuse logos.mem.pkd;\nuse logos.lang.mem;\nuse logos.lang.result;\n\n");
+    // CoW flavor: the branch carries the node header (new_in/cow_clone; cow_clone
+    // bumps every shared child's rc) via logos.mem.bt.node.
+    em.push_text("\nuse logos.mem.pkd;\n");
+    if cow { em.push_text("use logos.mem.bt.node;\n"); } else { em.push_text("use logos.lang.mem;\n"); }
+    em.push_text("use logos.lang.result;\n\n");
     em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
     em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
-    // new — one owned block, three FSE columns (sep: kty, sz/ptr: u64)
-    em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" {\n");
-    em.push_text("        unsafe {\n");
-    em.push_text("            let mem: *mut u8 = alloc(4096i64);\n");
-    em.push_text("            let a: *mut PkdAlloc = pkd_format(mem, 4096u32, 3u32);\n");
+    // new / new_in — one owned block, three FSE columns (sep: kty, sz/ptr: u64)
+    if cow {
+        em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" { return "); em.push_text(name); em.push_text("::new_in(0u64); }\n");
+        em.push_text("    pub static fn new_in(snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
+        em.push_text("        unsafe {\n");
+        em.push_text("            let base: *mut u8 = node_alloc(4096u32, 3u32, snp);\n");
+        em.push_text("            let a: *mut PkdAlloc = node_pkd(base);\n");
+    } else {
+        em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" {\n");
+        em.push_text("        unsafe {\n");
+        em.push_text("            let base: *mut u8 = alloc(4096i64);\n");
+        em.push_text("            let a: *mut PkdAlloc = pkd_format(base, 4096u32, 3u32);\n");
+    }
     em.push_text("            match PkdArray::<"); em.push_text(kty); em.push_text(">::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"sep col\"); } }\n");
     em.push_text("            match PkdArray::<u64>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"sz col\"); } }\n");
     em.push_text("            match PkdArray::<u64>::format(a, 2u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"ptr col\"); } }\n");
-    em.push_text("            return "); em.push_text(name); em.push_text(" { mem: mem, cap: 4096u32 };\n");
+    em.push_text("            return "); em.push_text(name); em.push_text(" { mem: base, cap: 4096u32 };\n");
     em.push_text("        }\n    }\n");
     // adopt / block
     em.push_text("    pub static fn adopt(mem: *mut u8) -> "); em.push_text(name);
-    em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }\n");
+    if cow {
+        em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } }; }\n");
+    } else {
+        em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }\n");
+    }
     em.push_text("    pub fn block(self: &"); em.push_text(name); em.push_text(") -> *mut u8 { return self.mem; }\n");
     // column accessors
-    em.push_text("    unsafe fn a(self: &"); em.push_text(name); em.push_text(") -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }\n");
+    em.push_text("    unsafe fn a(self: &"); em.push_text(name); em.push_text(") -> *mut PkdAlloc { return ");
+    if cow { em.push_text("node_pkd(self.mem)"); } else { em.push_text("self.mem as *mut PkdAlloc"); }
+    em.push_text("; }\n");
     em.push_text("    unsafe fn sep(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(kty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(kty); em.push_text(">>(0u32); }\n");
     em.push_text("    unsafe fn szc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(1u32); }\n");
     em.push_text("    unsafe fn ptrc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(2u32); }\n");
@@ -647,14 +694,28 @@ fn emit_branch_node(name: str, kty: str) {
     em.push_text("            let _ = (*self.szc()).split_into(&mut *dst.szc(), at);\n");
     em.push_text("            let _ = (*self.ptrc()).split_into(&mut *dst.ptrc(), at);\n");
     em.push_text("        }\n        return self.max_sep();\n    }\n");
-    // free_children — release every child block, then this branch's block. Plain
-    // pkd: a child block is freed by raw dealloc (no typed leaf handle needed).
+    // free_children — release every child block, then this branch's block (a flat
+    // free ignoring rc; the CoW map tears down through the rc-aware release path
+    // instead, so this stays a raw free of unshared nodes).
+    let free1: str = if cow { "node_free" } else { "dealloc" };
     em.push_text("    pub fn free_children(self: "); em.push_text(name); em.push_text(") {\n");
     em.push_text("        let n: u32 = self.child_count();\n        let mut i: u32 = 0u32;\n");
-    em.push_text("        while i < n { unsafe { dealloc(self.child_addr(i)); } i = i + 1u32; }\n");
-    em.push_text("        unsafe { dealloc(self.mem); }\n    }\n");
+    em.push_text("        while i < n { unsafe { "); em.push_text(free1); em.push_text("(self.child_addr(i)); } i = i + 1u32; }\n");
+    em.push_text("        unsafe { "); em.push_text(free1); em.push_text("(self.mem); }\n    }\n");
     // free_block — release ONLY this branch's block (children freed elsewhere).
-    em.push_text("    pub fn free_block(self: "); em.push_text(name); em.push_text(") { unsafe { dealloc(self.mem); } }\n");
+    em.push_text("    pub fn free_block(self: "); em.push_text(name); em.push_text(") { unsafe { "); em.push_text(free1); em.push_text("(self.mem); } }\n");
+    // cow_clone — a private copy on a fresh block stamped `snp`; copies the child
+    // entries and BUMPS each child's rc (structural sharing). CoW flavor only.
+    if cow {
+        em.push_text("    pub fn cow_clone(self: &"); em.push_text(name); em.push_text(", snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
+        em.push_text("        let mut c: "); em.push_text(name); em.push_text(" = "); em.push_text(name); em.push_text("::new_in(snp);\n");
+        em.push_text("        let n: u32 = self.child_count();\n        let mut i: u32 = 0u32;\n");
+        em.push_text("        while i < n {\n");
+        em.push_text("            let p: *mut u8 = self.child_addr(i);\n");
+        em.push_text("            unsafe { node_inc_rc(p); }\n");
+        em.push_text("            c.push_child(self.sep_at(i), self.size_at(i), p);\n");
+        em.push_text("            i = i + 1u32;\n        }\n        return c;\n    }\n");
+    }
     em.push_text("}\n");
     em.commit();
 }
@@ -741,6 +802,147 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str) {
     em.push_text("        if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n        return sentinel;\n    }\n");
     em.push_text("    pub fn free(self: "); em.push_text(tname); em.push_text(") { "); em.push_text(tname); em.push_text("_free(self.root, self.root_level); }\n");
     em.push_text("}\n");
+    em.commit();
+}
+
+// Emits the copy-on-write, snapshot-versioned map (`{N}Store` / `{N}Snapshot` /
+// `{N}`) realizing the container_shape `aspect=versioning value=cow` row (ADR
+// 0020 §5). Reproduces the hand-written logos.mem.bt.map template
+// (BtStore/BtSnapshot/MapU64) with the CoW-flavored {N}Leaf/{N}Branch (node
+// header + new_in/cow_clone) and the key/val types threaded in: cow_insert
+// path-copy, rc-reclaim release, snapshot isolation. The Store/Snapshot/Ctr
+// TRAITS are the shared fundamental interfaces from logos.mem.bt.map — the
+// generated structs implement them; `{N}` is the container handle (Ctr).
+//
+// This closes ②: one `container` declaration → the whole CoW-Map stack. Wave-0
+// value handling is by-value (fast leaf), the validated BtStore/MapU64 scope.
+//
+// Wave-0 unit constraint: the DECLARING unit must `use logos.mem.bt.map;` — the
+// generated `impl Store/Snapshot/Ctr for …` names those traits, and the impl's
+// trait-existence check runs at COLLECT time against traits registered from the
+// unit's own imports (an emitted `use` resolves types/functions/bounds at RESOLVE
+// time, but too late for the collect-phase impl check). A generic `kind map`
+// surface (① / a compiler traits-refresh) removes this later. `logos.mem.bt.node`
+// and `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
+fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str) {
+    let view: OView = oview_module_ast();
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.push_text("\nuse logos.mem.bt.node;\n");        // node_snapshot/inc_rc/dec_rc/free
+    em.push_text("use logos.mem.bt.map;\n\n");          // Store / Snapshot / Ctr traits
+    // CowRet — the upward result of a recursive CoW insert (addr = this subtree's
+    // root after the insert; equals the input when written in place, else a copy).
+    em.push_text("struct "); em.push_text(name); em.push_text("CowRet { addr: *mut u8, lsep: "); em.push_text(kty);
+    em.push_text(", lsize: u64, split: bool, rsep: "); em.push_text(kty); em.push_text(", rsize: u64, rptr: *mut u8 }\n\n");
+    // release — drop one ref; at zero free the block (recursing into a branch's
+    // children first). The intrusive-rc analog of the oracle's Arc drop.
+    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_release(node: *mut u8, level: u32) {\n");
+    em.push_text("    if node_dec_rc(node) == 0u32 {\n");
+    em.push_text("        if level > 0u32 {\n");
+    em.push_text("            let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node);\n");
+    em.push_text("            let n: u32 = br.child_count();\n            let mut i: u32 = 0u32;\n");
+    em.push_text("            while i < n { "); em.push_text(name); em.push_text("_release(br.child_addr(i), level - 1u32); i = i + 1u32; }\n");
+    em.push_text("        }\n        node_free(node);\n    }\n}\n\n");
+    // leaf_private / branch_private — a version the writer may mutate in place
+    // under snapshot `cur` (the node itself when it belongs to cur, else a copy).
+    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_leaf_private(node: *mut u8, cur: u64) -> *mut u8 {\n");
+    em.push_text("    if node_snapshot(node) == cur { return node; }\n");
+    em.push_text("    return "); em.push_text(lname); em.push_text("::adopt(node).cow_clone(cur).block();\n}\n");
+    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_branch_private(node: *mut u8, cur: u64) -> *mut u8 {\n");
+    em.push_text("    if node_snapshot(node) == cur { return node; }\n");
+    em.push_text("    return "); em.push_text(bname); em.push_text("::adopt(node).cow_clone(cur).block();\n}\n\n");
+    // cow_insert — insert (key,val) copying shared nodes on the path. Never
+    // releases `node` itself; the caller repoints + releases when `addr` differs.
+    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_cow_insert(node: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(", cur: u64) -> "); em.push_text(name); em.push_text("CowRet {\n");
+    em.push_text("    if level == 0u32 {\n");
+    em.push_text("        let work: *mut u8 = "); em.push_text(name); em.push_text("_leaf_private(node, cur);\n");
+    em.push_text("        let mut lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(work);\n");
+    em.push_text("        if lf.try_insert(key, val) {\n");
+    em.push_text("            return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: work };\n");
+    em.push_text("        }\n");
+    em.push_text("        let mut rt: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new_in(cur);\n");
+    em.push_text("        lf.split_into(&mut rt);\n");
+    em.push_text("        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }\n");
+    em.push_text("        return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };\n");
+    em.push_text("    }\n");
+    em.push_text("    let work: *mut u8 = "); em.push_text(name); em.push_text("_branch_private(node, cur);\n");
+    em.push_text("    let mut br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(work);\n");
+    em.push_text("    let ci: u32 = br.find_child(key);\n");
+    em.push_text("    let old_child: *mut u8 = br.child_addr(ci);\n");
+    em.push_text("    let r: "); em.push_text(name); em.push_text("CowRet = "); em.push_text(name); em.push_text("_cow_insert(old_child, level - 1u32, key, val, cur);\n");
+    em.push_text("    br.update_child(ci, r.lsep, r.lsize);\n");
+    em.push_text("    if r.addr != old_child {\n");
+    em.push_text("        br.set_child_addr(ci, r.addr);\n");
+    em.push_text("        "); em.push_text(name); em.push_text("_release(old_child, level - 1u32);\n    }\n");
+    em.push_text("    if !r.split {\n");
+    em.push_text("        return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };\n");
+    em.push_text("    }\n");
+    em.push_text("    if br.can_insert_child() {\n");
+    em.push_text("        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);\n");
+    em.push_text("        return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };\n");
+    em.push_text("    }\n");
+    em.push_text("    let mut rb: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new_in(cur);\n");
+    em.push_text("    let _ = br.split_into(&mut rb);\n");
+    em.push_text("    let lc: u32 = br.child_count();\n");
+    em.push_text("    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else { rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr); }\n");
+    em.push_text("    return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };\n");
+    em.push_text("}\n\n");
+    // descend_get — read path (never copies).
+    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_descend_get(root: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+    em.push_text("    let mut node: *mut u8 = root;\n    let mut lvl: u32 = level;\n");
+    em.push_text("    while lvl > 0u32 { let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node); node = br.child_addr(br.find_child(key)); lvl = lvl - 1u32; }\n");
+    em.push_text("    let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(node);\n");
+    em.push_text("    let p: u32 = lf.lower_bound(key);\n");
+    em.push_text("    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n    return sentinel;\n}\n\n");
+    // {N}Snapshot — a version; carries the container root + the CoW skip key.
+    em.push_text("pub struct "); em.push_text(name); em.push_text("Snapshot { snp: u64, root: *mut u8, level: u32 }\n");
+    em.push_text("impl "); em.push_text(name); em.push_text("Snapshot {\n");
+    em.push_text("    pub fn map(self: &mut "); em.push_text(name); em.push_text("Snapshot) -> "); em.push_text(name); em.push_text(" { return "); em.push_text(name); em.push_text(" { snap: self as *mut "); em.push_text(name); em.push_text("Snapshot }; }\n");
+    em.push_text("    pub fn insert(self: &mut "); em.push_text(name); em.push_text("Snapshot, key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") {\n");
+    em.push_text("        unsafe {\n");
+    em.push_text("            let old_root: *mut u8 = self.root;\n");
+    em.push_text("            let r: "); em.push_text(name); em.push_text("CowRet = "); em.push_text(name); em.push_text("_cow_insert(self.root, self.level, key, val, self.snp);\n");
+    em.push_text("            if r.addr != old_root { self.root = r.addr; "); em.push_text(name); em.push_text("_release(old_root, self.level); }\n");
+    em.push_text("            if r.split {\n");
+    em.push_text("                let mut nr: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new_in(self.snp);\n");
+    em.push_text("                nr.push_child(r.lsep, r.lsize, r.addr);\n");
+    em.push_text("                nr.push_child(r.rsep, r.rsize, r.rptr);\n");
+    em.push_text("                self.root = nr.block();\n                self.level = self.level + 1u32;\n            }\n        }\n    }\n");
+    em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text("Snapshot, key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+    em.push_text("        return unsafe { "); em.push_text(name); em.push_text("_descend_get(self.root, self.level, key, sentinel) };\n    }\n");
+    em.push_text("    pub fn size(self: &"); em.push_text(name); em.push_text("Snapshot) -> u64 {\n");
+    em.push_text("        if self.level == 0u32 { return "); em.push_text(lname); em.push_text("::adopt(self.root).count() as u64; }\n");
+    em.push_text("        return "); em.push_text(bname); em.push_text("::adopt(self.root).total_size();\n    }\n");
+    em.push_text("    pub fn free(self: "); em.push_text(name); em.push_text("Snapshot) { unsafe { "); em.push_text(name); em.push_text("_release(self.root, self.level); } }\n");
+    em.push_text("}\n");
+    em.push_text("impl Snapshot for "); em.push_text(name); em.push_text("Snapshot {\n");
+    em.push_text("    fn snapshot_id(self: &"); em.push_text(name); em.push_text("Snapshot) -> u64 { return self.snp; }\n}\n\n");
+    // {N} — the Ctr handle bound to a snapshot.
+    em.push_text("pub struct "); em.push_text(name); em.push_text(" { snap: *mut "); em.push_text(name); em.push_text("Snapshot }\n");
+    em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
+    em.push_text("    pub fn insert(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") { unsafe { (*self.snap).insert(key, val); } }\n");
+    em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" { return unsafe { (*self.snap).get_or(key, sentinel) }; }\n");
+    em.push_text("}\n");
+    em.push_text("impl Ctr for "); em.push_text(name); em.push_text(" {\n");
+    em.push_text("    fn size(self: &"); em.push_text(name); em.push_text(") -> u64 { return unsafe { (*self.snap).size() }; }\n}\n\n");
+    // {N}Store — owns the head version + snapshot ids.
+    em.push_text("pub struct "); em.push_text(name); em.push_text("Store { next_snp: u64, head_root: *mut u8, head_level: u32 }\n");
+    em.push_text("impl "); em.push_text(name); em.push_text("Store {\n");
+    em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text("Store {\n");
+    em.push_text("        let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new_in(0u64);\n");
+    em.push_text("        return "); em.push_text(name); em.push_text("Store { next_snp: 1u64, head_root: lf.block(), head_level: 0u32 };\n    }\n");
+    em.push_text("    pub fn snapshot(self: &mut "); em.push_text(name); em.push_text("Store) -> "); em.push_text(name); em.push_text("Snapshot {\n");
+    em.push_text("        let snp: u64 = self.next_snp;\n        self.next_snp = self.next_snp + 1u64;\n");
+    em.push_text("        unsafe { node_inc_rc(self.head_root); }\n");
+    em.push_text("        return "); em.push_text(name); em.push_text("Snapshot { snp: snp, root: self.head_root, level: self.head_level };\n    }\n");
+    em.push_text("    pub fn commit(self: &mut "); em.push_text(name); em.push_text("Store, s: &"); em.push_text(name); em.push_text("Snapshot) {\n");
+    em.push_text("        unsafe {\n");
+    em.push_text("            "); em.push_text(name); em.push_text("_release(self.head_root, self.head_level);\n");
+    em.push_text("            node_inc_rc(s.root);\n");
+    em.push_text("            self.head_root = s.root;\n            self.head_level = s.level;\n        }\n    }\n");
+    em.push_text("    pub fn free(self: "); em.push_text(name); em.push_text("Store) { unsafe { "); em.push_text(name); em.push_text("_release(self.head_root, self.head_level); } }\n");
+    em.push_text("}\n");
+    em.push_text("impl Store for "); em.push_text(name); em.push_text("Store {}\n");
     em.commit();
 }
 
@@ -845,7 +1047,9 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
             return out;
         }
         let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
-        emit_leaf_node(name, kty, vty, policy);
+        // A standalone storage node is PLAIN pkd (no CoW header) — the header is a
+        // property of a versioned map's stack, not a bare `kind node`.
+        emit_leaf_node(name, kty, vty, policy, false);
         return out;
     }
     // kind=branch: emit a concrete b+tree BRANCH (routing node). Always
@@ -866,7 +1070,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
             return out;
         }
         let bkty: str = unsafe { cf_sub(cs.entry, bk1 + 1i64, bk2) };
-        emit_branch_node(name, bkty);
+        emit_branch_node(name, bkty, false);   // standalone branch = plain pkd
         return out;
     }
     // kind=ordered_map: realize Canon's container_shape PLAN. Structure is the
@@ -908,7 +1112,9 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         }
         let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
 
-        // Walk the plan rows: emit the node types (leaf(policy) + branch).
+        // Walk the plan rows to COLLECT the aspects, then realize them — the node
+        // FLAVOR (plain vs CoW-header) depends on the leaf policy AND the
+        // versioning aspect, so structure is emitted post-walk (order-independent).
         let sv: WAny = vm.get(V_SHAPE);
         if !sv.is_array() {
             error("container item: Canon produced no container_shape plan for an ordered_map (Canon seam regression?)");
@@ -918,6 +1124,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         let mut saw_leaf: bool = false;
         let mut saw_branch: bool = false;
         let mut saw_tree: bool = false;
+        let mut saw_cow: bool = false;
         let mut leaf_fast: bool = false;
         let mut si: i64 = 0i64;
         while si < sa.len() {
@@ -933,19 +1140,16 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
                             let pol: WAny = em.get(K_POLICY);
                             let ps: str = if pol.is_string() { pol.as_wstr() } else { SPLIT_FAST };
                             leaf_fast = str_eq(ps, SPLIT_FAST);
-                            let mut ln: String = String::new();
-                            ln.push_str(name); ln.push_str("Leaf");
-                            emit_leaf_node(ln.as_str(), kty, vty, ps);
                             saw_leaf = true;
                         } else if role.is_string() && str_eq(role.as_wstr(), ROLE_BRANCH) {
-                            let mut bn: String = String::new();
-                            bn.push_str(name); bn.push_str("Branch");
-                            emit_branch_node(bn.as_str(), kty);
                             saw_branch = true;
                         }
                     } else if str_eq(asp.as_wstr(), ASPECT_ASSEMBLY) {
                         let val: WAny = em.get(K_VALUE);
                         if val.is_string() && str_eq(val.as_wstr(), ASM_TREE) { saw_tree = true; }
+                    } else if str_eq(asp.as_wstr(), ASPECT_VERSION) {
+                        let val: WAny = em.get(K_VALUE);
+                        if val.is_string() && str_eq(val.as_wstr(), VER_COW) { saw_cow = true; }
                     }
                 }
             }
@@ -955,15 +1159,26 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
             error("container item: incomplete container_shape plan (leaf or branch node missing — Canon seam regression?)");
             return out;
         }
-        // Realize the assembly=tree row: the multi-level b+tree over the plan's
-        // {N}Leaf / {N}Branch. Wave-0 has a VALIDATED tree template only for the
-        // fast (by-value/FSE) leaf — a volume assembly is a later increment, so a
-        // volume ordered_map stops after its leaf+branch (as it did in I1).
+        // Node flavor is a verdict: versioning=cow ⇒ the nodes carry the CoW node
+        // header (snapshot_id + rc, new_in/cow_clone). Wave-0 realizes the tree +
+        // CoW-map stack for the FAST (by-value/FSE) leaf only — a volume assembly
+        // / cow-map is a later increment, so a volume ordered_map stops after its
+        // (plain) leaf+branch, exactly as in I1.
+        let node_cow: bool = leaf_fast && saw_cow;
+        let leaf_policy: str = if leaf_fast { SPLIT_FAST } else { SPLIT_VOLUME };
+        let mut ln: String = String::new(); ln.push_str(name); ln.push_str("Leaf");
+        let mut bn: String = String::new(); bn.push_str(name); bn.push_str("Branch");
+        emit_leaf_node(ln.as_str(), kty, vty, leaf_policy, node_cow);
+        emit_branch_node(bn.as_str(), kty, node_cow);
+        // assembly=tree → the multi-level b+tree over {N}Leaf / {N}Branch.
         if leaf_fast && saw_tree {
-            let mut lt: String = String::new(); lt.push_str(name); lt.push_str("Leaf");
-            let mut bt: String = String::new(); bt.push_str(name); bt.push_str("Branch");
             let mut tt: String = String::new(); tt.push_str(name); tt.push_str("Tree");
-            emit_tree(tt.as_str(), lt.as_str(), bt.as_str(), kty, vty);
+            emit_tree(tt.as_str(), ln.as_str(), bn.as_str(), kty, vty);
+        }
+        // versioning=cow → the CoW snapshot-versioned map ({N}Store/{N}Snapshot/
+        // {N}) over the same CoW-flavored nodes. Closes ②: one decl → whole stack.
+        if leaf_fast && saw_cow {
+            emit_cow_map(name, ln.as_str(), bn.as_str(), kty, vty);
         }
         return out;
     }
