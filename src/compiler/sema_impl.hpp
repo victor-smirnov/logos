@@ -4281,6 +4281,29 @@ private:
     void          lower_container_def(writ::TinyMapView node,
                                       lir::LProgram& prog);
 
+    // ── Generic containers (ADR 0020 wave-0, S2) ──────────────────────────
+    // A `container Map<K,V>` used with CONCRETE args auto-generates a concrete
+    // family per (K,V). The generic decl itself emits nothing (the template);
+    // the resolver, on meeting `Map<u64,str>`, emits a concrete container DECL
+    // SOURCE (this builder) whose NAME is the `$`-mangled instance name, drains
+    // it through the normal container path (main.cpp driver), and returns the
+    // struct type for the mangled family — deferring the fn body until it lands.
+
+    // Build the concrete `container <mangled> for u8 { … }` DECL SOURCE from a
+    // generic container template + per-generic concrete arg SOURCE spellings
+    // (rendered syntactically so `str` stays `str`, not `[u8]`) + the mangled
+    // instance name. generics/gnames dropped; measures + entry-column shape
+    // preserved (generic column types substituted).
+    std::string   build_concrete_container_src(
+                      const ContainerInfo& tpl,
+                      const std::vector<std::string>& arg_srcs,
+                      const std::string& mangled);
+    // True if `base` names a registered GENERIC container (non-empty generics).
+    bool          is_generic_container_base(std::string_view base) const;
+    // True if `sname` names a not-yet-generated instance of a registered
+    // generic container (its family emission is still pending in the fixpoint).
+    bool          is_pending_container_type(std::string_view sname);
+
     // ADR 0016 §6 — sources as relational interfaces. A trait's `rel` members
     // declare a relational vocabulary; an impl binds each rel to its native
     // materializer (`rel edge = writ_graph_edges;`). A deem!/mapping param

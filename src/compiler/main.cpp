@@ -3978,6 +3978,80 @@ int main(int argc, char** argv) {
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
+
+        // ADR 0020 wave-0 (S2): generic-container instances used inside fn
+        // BODIES (`let m: Map<u64,str>`) are invisible to the discovery loop
+        // above — metaprog_mode skips entry-file bodies. Harvest them here with
+        // a THROWAWAY non-metaprog sema (its diagnostics are discarded — the
+        // bodies legitimately don't resolve yet), emit the concrete `container`
+        // DECL sources the resolver queued, and re-run discovery so the proven
+        // container handler builds each family MODULE-LEVEL. The final pass then
+        // type-checks the bodies against real structs — no placeholder
+        // suppression on the hot path. Transitive instances converge over
+        // rounds; bounded to avoid a runaway.
+        //
+        // Cheap gate: only pay for the harvest sema when a GENERIC `container`
+        // is actually declared (a CONTAINER_DEF carrying TYPE_PARAMS). The vast
+        // majority of compiles declare none and skip the whole block.
+        bool has_generic_container = false;
+        {
+            namespace la = logos::compiler::ast;
+            for (size_t ai = 0; ai < asts.size() && !has_generic_container; ++ai) {
+                auto& doc = asts[ai];
+                auto root = doc.root_object().as_tiny_map();
+                if (!root.has_key(la::ITEMS.code)) continue;
+                logos::writ::ArrayView items(root.get(la::ITEMS.code), doc.holder());
+                uint64_t n = items.size();
+                for (uint64_t i = 0; i < n; ++i) {
+                    logos::writ::TinyMapView it(items.get(i), doc.holder());
+                    if (it.is_null()) continue;
+                    auto cv = it.get(la::CODE.code);
+                    if (cv.is_null()) continue;
+                    int32_t ic = cv.as_value<int32_t>();
+                    if ((ic == la::CONTAINER_DEF.code || ic == la::CONTAINER_DEF_DONE.code)
+                            && it.has_key(la::TYPE_PARAMS.code)) {
+                        has_generic_container = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (has_generic_container) {
+            logos::compiler::SemaOptions harvest_opts;
+            harvest_opts.cfg_flags        = cfg_flags;
+            harvest_opts.cache            = &sema_cache;
+            harvest_opts.binary_symbols   = binary_symbols;
+            harvest_opts.implicit_prelude = implicit_prelude_pkg;
+            harvest_opts.module_name_to_id = module_name_to_id;
+            for (int cround = 0; cround < 8; ++cround) {
+                auto harvest = logos::compiler::sema_lower(
+                    asts, filenames, from_binary, harvest_opts, is_lazy, module_ids);
+                if (harvest.pending_container_srcs.empty()) break;
+                // Wire the append-time emit globals at &asts (reserved up front so
+                // growth never reallocs a held Writ&) and emit each concrete decl.
+                std::set<std::string> h_seen;
+                bool h_any = false;
+                auto* p_seen = g_emit_seen; auto* p_asts = g_asts;
+                auto* p_fn = g_filenames;   auto* p_fb = g_from_binary;
+                auto* p_ae = g_any_emitted; auto* p_mids = g_module_ids;
+                g_emit_seen = &h_seen; g_asts = &asts; g_filenames = &filenames;
+                g_from_binary = &from_binary; g_any_emitted = &h_any;
+                g_module_ids = &module_ids;
+                asts.reserve(asts.size() + 4096);
+                filenames.reserve(filenames.size() + 4096);
+                bool emitted = false;
+                for (const auto& src : harvest.pending_container_srcs)
+                    if (logos_emit_source(src.c_str())) emitted = true;
+                g_emit_seen = p_seen; g_asts = p_asts; g_filenames = p_fn;
+                g_from_binary = p_fb; g_any_emitted = p_ae; g_module_ids = p_mids;
+                if (!emitted) break;   // all already present → converged
+                // Re-run discovery so the freshly-emitted concrete containers'
+                // handlers build their b+tree/CoW families.
+                if (logos::compiler::run_metaprog_dispatch(
+                        asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
+                    return 1;
+            }
+        }
     }
 
     // --expand mode: render the entry-file AST + any synth docs that

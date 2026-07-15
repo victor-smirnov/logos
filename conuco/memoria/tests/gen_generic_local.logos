@@ -1,0 +1,32 @@
+// Generic container (ADR 0020 wave-0, S2): `container Map<K,V>` used with
+// concrete args at a fn-body LOCAL auto-generates the concrete b+tree stack
+// per (K,V), mangled + linked by name. `let m: Map<u64,str>` → the volume
+// (VLE-value) tree; insert/lookup drive it end to end.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.lang.str;
+
+container Map<K, V> for u8 { kind ordered_map; entry { key: K, val: V } measure max(key); }
+
+fn beq(b: &[u8], want: str) -> bool {
+    if b.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    let mut m: Map<u64, str> = Map::new();
+    m.insert(1u64, "alpha");
+    m.insert(2u64, "bravo");
+    m.insert(3u64, "charlie");
+    if m.size() != 3u64 { return 1i32; }
+    if !beq(m.get_or(2u64), "bravo") { return 2i32; }
+    if !beq(m.get_or(1u64), "alpha") { return 3i32; }
+    if m.get_or(9u64).len() != 0i64 { return 4i32; }   // absent → empty view
+    m.free();
+    return 0i32;
+}

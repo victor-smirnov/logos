@@ -1386,6 +1386,28 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
 
+    // ADR 0020 wave-0 (S2): register `container` declarations into containers_
+    // in the EARLIEST collect phase, so a generic container used in a fn
+    // SIGNATURE (`fn f(m: &mut Map<u64,str>)`, resolved during phase-1 signature
+    // collection below) is recognised by the type resolver's generic-container
+    // hook. Idempotent with the lower_module_items pre-scan; reconstruct returns
+    // an err string WITHOUT emitting, so a malformed decl is diagnosed there,
+    // not double-reported here.
+    if (phase == 2) {
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto it = map_of(items.get(i));
+            int32_t mc = code_of(it);
+            if (mc != la::CONTAINER_DEF && mc != la::CONTAINER_DEF_DONE) continue;
+            ContainerInfo ci; std::string cerr;
+            if (reconstruct_container_def(it, ci, cerr)) {
+                ci.pending = (mc == la::CONTAINER_DEF);
+                std::string ckey =
+                    (ci.package.empty() ? "" : ci.package + ".") + ci.name;
+                containers_[ckey] = std::move(ci);
+            }
+        }
+    }
+
     // §6.7: flatten `extern "ABI" { extern_fn_def* }` blocks into a
     // linear worklist. Each block's child EXTERN_FN entries inherit
     // the block's ABI string when they don't carry their own. This

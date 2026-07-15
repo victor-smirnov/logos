@@ -866,6 +866,19 @@ struct LProgram {
     // undefined function").
     bool deferred_item_sites = false;
 
+    // ADR 0020 wave-0 (generic containers, S2): concrete `container` DECL
+    // SOURCE strings produced by the type resolver when it meets a generic
+    // container used with fully-concrete args whose family isn't generated
+    // yet (e.g. `let m: Map<u64,str>`). Filled DURING sema (a bare string
+    // push — no logos_emit_source mid-sema, which would realloc the in-flight
+    // Writ&). The dispatch driver (main.cpp) DRAINS these via
+    // logos_emit_source in the reserved-asts region, so the concrete decl
+    // flows through the normal container path → generates the b+tree/CoW
+    // family under its `$`-mangled name, and the next sema resolves the
+    // placeholder to the real struct. Deduped at the emit_source layer, so
+    // the same instantiation at N sites shares ONE generated stack.
+    std::vector<std::string> pending_container_srcs;
+
     // Function-style macro arg blobs (slice 1.3b of fn-macros).
     //
     // Keyed by site_id (== index into metacall_sites). Each entry is a

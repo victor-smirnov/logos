@@ -5455,6 +5455,8 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     return result;
 }
 
+static bool contains_typevar_sema(TypeRef t);  // fwd (defined below)
+
 TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     int32_t tc = code_of(node); (void)tc;
     auto name = str_of(node.get(la::NAME.code));
@@ -5615,6 +5617,57 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
             }
         }
     }
+    // ── Generic container instantiation (ADR 0020 wave-0, S2/S3) ──────────
+    // `container Map<K,V>` used with args auto-generates a concrete family per
+    // (K,V). The generic decl emits nothing; here we mangle the instance and,
+    // if its family isn't generated yet, QUEUE a concrete container DECL SOURCE
+    // (drained by the dispatch driver, NOT emitted mid-sema) and DEFER — the
+    // returned struct type equals the future family's real name, so once the
+    // stack lands the next sema resolves it for real.
+    if (is_generic_container_base(name)) {
+        const ContainerInfo* tpl = nullptr;
+        for (const auto& [ck, ci] : containers_)
+            if (!ci.generic_names.empty() && ci.name == std::string(name)) { tpl = &ci; break; }
+        if (tpl) {
+            std::vector<TypeRef>     cargs;
+            std::vector<std::string> arg_srcs;
+            bool any_tvar = false;
+            if (node.has_key(la::ITEMS)) {
+                auto items = arr_of(node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto item = map_of(items.get(i));
+                    if (item.is_null() || code_of(item) == la::LIFETIME_PARAM) continue;
+                    TypeRef at = resolve_type(item);
+                    cargs.push_back(at);
+                    arg_srcs.push_back(render_type_src_syntactic_(item));
+                    if (contains_typevar_sema(at)) any_tvar = true;
+                }
+            }
+            if (cargs.size() == tpl->generic_names.size() && !any_tvar) {
+                // pkg="" → the literal mangled name carries NO module suffix;
+                // homing the family in tpl->package supplies it once (def+use).
+                std::string mangled = concrete_struct_name_raw(name, cargs, "");
+                // The nameable "map" the base binds to: for an ordered_map that
+                // is the standalone b+tree `{mangled}Tree` (new/insert/get_or/
+                // size/free) — the CoW Ctr `{mangled}` needs a Store/Snapshot,
+                // so it is not the direct standalone handle. Other kinds bind
+                // the bare instance struct.
+                std::string bind = (tpl->kind == "ordered_map")
+                                       ? mangled + "Tree" : mangled;
+                if (auto [mpkg, msi] = find_struct_by_name(bind); msi)
+                    return make_struct_type(bind, mpkg);   // family already built
+                if (cur_prog_) {
+                    cur_prog_->pending_container_srcs.push_back(
+                        build_concrete_container_src(*tpl, arg_srcs, mangled));
+                    cur_prog_->deferred_item_sites = true;
+                }
+                return make_struct_type(bind, tpl->package);  // == future real name
+            }
+            // TypeVar args (`fn foo<K>() { let m: Map<K,u64>; }`) are handled by
+            // the mono back-edge in S3; fall through for now.
+        }
+    }
+
     auto [spkg, ssi] = find_struct_by_name(name);
     auto [dpkg, dsi] = find_datatype_by_name(name);
     auto [epkg, esi] = find_enum_by_name(name);

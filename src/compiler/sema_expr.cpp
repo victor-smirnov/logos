@@ -9087,6 +9087,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
         }
+        // Generic container instance whose family is still being generated
+        // (ADR 0020 wave-0, S2): defer silently instead of erroring on the
+        // not-yet-emitted `<mangled>.insert`/`.get`/… — resolved next sema.
+        if (is_pending_container_type(sname)) {
+            if (cur_prog_) cur_prog_->deferred_item_sites = true;
+            return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
+        }
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
@@ -10201,6 +10208,13 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                     bT != current_type_bounds_.end() ? bT->second.size() : (size_t)0,
                     type_param_shadow_stack_.size(), impl_type_params_.size(), itb,
                     keys.c_str());
+        }
+        // Generic container instance whose family is still being generated
+        // (ADR 0020 wave-0, S2): defer silently on a field of the not-yet-
+        // emitted instance struct — resolved next sema.
+        if (is_pending_container_type(sname)) {
+            if (cur_prog_) cur_prog_->deferred_item_sites = true;
+            return builder().field_read(std::move(recv), std::string(field_name), error_t());
         }
         error(std::format("field read: struct '{}' has no field '{}'", sname, field_name));
         return builder().field_read(std::move(recv), std::string(field_name), error_t());
@@ -13878,6 +13892,25 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
 
+    // Generic container static call (ADR 0020 wave-0, S2): `Map::new()` where
+    // the expected type is a concrete instance `Map$G2$…`. Unlike a generic
+    // STRUCT, the container base `Map` has no template, so the normal
+    // class_name→instance retarget can't fire; redirect class_name to the
+    // mangled instance carried by the return-type hint so `<mangled>::new`
+    // resolves once the family lands (or the pending-defer path suppresses
+    // while it is still being generated).
+    if (is_generic_container_base(class_name) && hint_call_return_type_) {
+        TypeRef h(hint_call_return_type_);
+        if (h.kind() == LogosType::Kind::Struct ||
+            h.kind() == LogosType::Kind::ZonedStruct) {
+            std::string hn(h.struct_name());
+            if (hn.size() > class_name.size() &&
+                hn.compare(0, class_name.size(), class_name) == 0 &&
+                hn[class_name.size()] == '$')
+                class_name = std::move(hn);
+        }
+    }
+
     // If "class_name" is actually an enum, redirect to enum lit with data —
     // but only when method_name is a variant. Otherwise it's a static method
     // call on the enum (trait impl), which falls through to the regular
@@ -14343,6 +14376,17 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                                           std::move(arg_exprs), ret_t);
                 }
             }
+        }
+        // Generic container instance whose family is still being generated
+        // (ADR 0020 wave-0, S2): defer silently — the dispatch driver emits the
+        // concrete stack and the next sema resolves `<mangled>::new` for real.
+        // Return the PLACEHOLDER STRUCT TYPE (not error_t) so the `let`-bound
+        // value stays a struct and its later `.insert`/`.free` hit the pending
+        // method suppression instead of cascading "receiver is not a struct".
+        if (is_pending_container_type(class_name)) {
+            if (cur_prog_) cur_prog_->deferred_item_sites = true;
+            return builder().call(mangled, {}, std::move(arg_exprs),
+                                  make_struct_type(class_name, cur_package_));
         }
         error(std::format("call to undefined static method '{}::{}'", class_name, method_name));
         return builder().call(mangled, {}, std::move(arg_exprs), error_t());
@@ -20988,6 +21032,65 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
     emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 2,
                                cname, "", spec,
                                IrEntry::None, "", "", "");
+}
+
+std::string SemaChecker::build_concrete_container_src(
+        const ContainerInfo& tpl,
+        const std::vector<std::string>& arg_srcs,
+        const std::string& mangled) {
+    // gname -> concrete source spelling (whole-token substitution; wave-0
+    // entry column types are bare generic names, so an exact-string map covers
+    // `key: K`/`val: V`. Concrete columns pass through verbatim.)
+    StrMap<std::string> sub;
+    for (size_t i = 0; i < tpl.generic_names.size() && i < arg_srcs.size(); ++i)
+        sub[tpl.generic_names[i]] = arg_srcs[i];
+    auto subst_ty = [&](const std::string& ty) -> std::string {
+        if (auto it = sub.find(ty); it != sub.end()) return it->second;
+        return ty;
+    };
+    std::string s;
+    // HOME the family in the container's package so type_module_suffix applies
+    // ONCE (the mangled literal name below carries NO suffix — pkg="" at the
+    // mangle site — and homing supplies it on both def and use).
+    if (!tpl.package.empty()) { s += "package "; s += tpl.package; s += ";\n"; }
+    s += "use logos.lcm.canon.container_item;\n";
+    s += "container "; s += mangled; s += " for u8 { ";
+    s += "kind "; s += tpl.kind; s += "; ";
+    s += "entry { ";
+    for (size_t i = 0; i < tpl.entry.size(); ++i) {
+        if (i) s += ", ";
+        s += tpl.entry[i].name; s += ": "; s += subst_ty(tpl.entry[i].ty);
+    }
+    s += " } ";
+    for (const auto& m : tpl.measures) {
+        s += "measure "; s += m.mfn;
+        if (!m.arg.empty()) { s += "("; s += m.arg; s += ")"; }
+        s += "; ";
+    }
+    s += "}\n";
+    return s;
+}
+
+bool SemaChecker::is_generic_container_base(std::string_view base) const {
+    for (const auto& [ck, ci] : containers_)
+        if (!ci.generic_names.empty() && ci.name == base) return true;
+    return false;
+}
+
+bool SemaChecker::is_pending_container_type(std::string_view sname) {
+    // Already generated → not pending.
+    if (find_struct_by_name(std::string(sname)).second) return false;
+    // `sname` is a concrete instance name `Base$…` of some registered generic
+    // container `Base` (module suffix, if any, sits between as `Base$M…`).
+    for (const auto& [ck, ci] : containers_) {
+        if (ci.generic_names.empty()) continue;
+        const std::string& b = ci.name;
+        if (sname.size() > b.size()
+                && sname.compare(0, b.size(), b) == 0
+                && sname[b.size()] == '$')
+            return true;
+    }
+    return false;
 }
 
 
