@@ -659,6 +659,91 @@ fn emit_branch_node(name: str, kty: str) {
     em.commit();
 }
 
+// Emits the concrete b+tree ASSEMBLY (`{N}Tree`) over the plan's leaf `lname`
+// and branch `bname` — the multi-level tree realizing the container_shape
+// `aspect=assembly value=tree` row (ADR 0020 §5). Reproduces the hand-written
+// logos.mem.bt.tree template (BTreeU64) with the leaf/branch NAMES and the
+// key/val types threaded in: the recursive insert cascade (descend → try_insert
+// → split leaf → InsertRet up → parent grafts insert_child → split branch → new
+// root on root split), plus get_or / size / height / recursive free.
+//
+// Threading notes vs the template: the generated leaf has no `max_key` method
+// (LeafU64's), so a node's separator is `key_at(count-1)`; a non-split return's
+// unread `rsep` slot is filled with `key` (any kty value — the parent ignores it
+// when split==false). The branch is child-type-agnostic; the tree binds descent
+// to THIS map's `{N}Leaf` directly (same package, no fn-pointer hook needed).
+// Wave-0 value handling is by-value (fast leaf / FSE val), the validated
+// BTreeU64 scope; a volume (VLE) assembly is a later increment (no template).
+fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str) {
+    let view: OView = oview_module_ast();
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.push_text("\n");
+    // InsertRet — the upward result of a recursive insert (see the template).
+    em.push_text("struct "); em.push_text(tname); em.push_text("IR { lsep: "); em.push_text(kty);
+    em.push_text(", lsize: u64, split: bool, rsep: "); em.push_text(kty); em.push_text(", rsize: u64, rptr: *mut u8 }\n\n");
+    // insert_rec
+    em.push_text("fn "); em.push_text(tname); em.push_text("_ins(node: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") -> "); em.push_text(tname); em.push_text("IR {\n");
+    em.push_text("    if level == 0u32 {\n");
+    em.push_text("        let mut lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(node);\n");
+    em.push_text("        if lf.try_insert(key, val) {\n");
+    em.push_text("            return "); em.push_text(tname); em.push_text("IR { lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: node };\n");
+    em.push_text("        }\n");
+    em.push_text("        let mut rt: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new();\n");
+    em.push_text("        lf.split_into(&mut rt);\n");
+    em.push_text("        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }\n");
+    em.push_text("        return "); em.push_text(tname); em.push_text("IR { lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };\n");
+    em.push_text("    }\n");
+    em.push_text("    let mut br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node);\n");
+    em.push_text("    let ci: u32 = br.find_child(key);\n");
+    em.push_text("    let r: "); em.push_text(tname); em.push_text("IR = "); em.push_text(tname); em.push_text("_ins(br.child_addr(ci), level - 1u32, key, val);\n");
+    em.push_text("    br.update_child(ci, r.lsep, r.lsize);\n");
+    em.push_text("    if !r.split {\n");
+    em.push_text("        return "); em.push_text(tname); em.push_text("IR { lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };\n");
+    em.push_text("    }\n");
+    em.push_text("    if br.can_insert_child() {\n");
+    em.push_text("        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);\n");
+    em.push_text("        return "); em.push_text(tname); em.push_text("IR { lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };\n");
+    em.push_text("    }\n");
+    em.push_text("    let mut rb: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new();\n");
+    em.push_text("    let _ = br.split_into(&mut rb);\n");
+    em.push_text("    let lc: u32 = br.child_count();\n");
+    em.push_text("    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else { rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr); }\n");
+    em.push_text("    return "); em.push_text(tname); em.push_text("IR { lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };\n");
+    em.push_text("}\n\n");
+    // free_rec
+    em.push_text("fn "); em.push_text(tname); em.push_text("_free(node: *mut u8, level: u32) {\n");
+    em.push_text("    if level == 0u32 { "); em.push_text(lname); em.push_text("::adopt(node).free(); return; }\n");
+    em.push_text("    let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node);\n");
+    em.push_text("    let n: u32 = br.child_count();\n    let mut i: u32 = 0u32;\n");
+    em.push_text("    while i < n { "); em.push_text(tname); em.push_text("_free(br.child_addr(i), level - 1u32); i = i + 1u32; }\n");
+    em.push_text("    br.free_block();\n}\n\n");
+    // the tree handle
+    em.push_text("pub struct "); em.push_text(tname); em.push_text(" { root: *mut u8, root_level: u32 }\n");
+    em.push_text("impl "); em.push_text(tname); em.push_text(" {\n");
+    em.push_text("    pub static fn new() -> "); em.push_text(tname); em.push_text(" { let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new(); return "); em.push_text(tname); em.push_text(" { root: lf.block(), root_level: 0u32 }; }\n");
+    em.push_text("    pub fn height(self: &"); em.push_text(tname); em.push_text(") -> u32 { return self.root_level; }\n");
+    em.push_text("    pub fn size(self: &"); em.push_text(tname); em.push_text(") -> u64 {\n");
+    em.push_text("        if self.root_level == 0u32 { return "); em.push_text(lname); em.push_text("::adopt(self.root).count() as u64; }\n");
+    em.push_text("        return "); em.push_text(bname); em.push_text("::adopt(self.root).total_size();\n    }\n");
+    em.push_text("    pub fn insert(self: &mut "); em.push_text(tname); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") {\n");
+    em.push_text("        let r: "); em.push_text(tname); em.push_text("IR = "); em.push_text(tname); em.push_text("_ins(self.root, self.root_level, key, val);\n");
+    em.push_text("        if r.split {\n");
+    em.push_text("            let mut nr: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new();\n");
+    em.push_text("            nr.push_child(r.lsep, r.lsize, self.root);\n");
+    em.push_text("            nr.push_child(r.rsep, r.rsize, r.rptr);\n");
+    em.push_text("            self.root = nr.block();\n            self.root_level = self.root_level + 1u32;\n        }\n    }\n");
+    em.push_text("    pub fn get_or(self: &"); em.push_text(tname); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+    em.push_text("        let mut node: *mut u8 = self.root;\n        let mut level: u32 = self.root_level;\n");
+    em.push_text("        while level > 0u32 { let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node); node = br.child_addr(br.find_child(key)); level = level - 1u32; }\n");
+    em.push_text("        let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(node);\n");
+    em.push_text("        let p: u32 = lf.lower_bound(key);\n");
+    em.push_text("        if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n        return sentinel;\n    }\n");
+    em.push_text("    pub fn free(self: "); em.push_text(tname); em.push_text(") { "); em.push_text(tname); em.push_text("_free(self.root, self.root_level); }\n");
+    em.push_text("}\n");
+    em.commit();
+}
+
 /// Lowering handler behind the `container` ITEM (ADR 0020 wave-0). Invoked by
 /// the COMPILER (sema lower_container_def) through the token-macro item seam
 /// with the serialized spec line. Not a user-facing macro.
@@ -832,6 +917,8 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         let sa: &WArray<WAny> = sv.as_array();
         let mut saw_leaf: bool = false;
         let mut saw_branch: bool = false;
+        let mut saw_tree: bool = false;
+        let mut leaf_fast: bool = false;
         let mut si: i64 = 0i64;
         while si < sa.len() {
             let e: WAny = sa.get(si);
@@ -839,21 +926,26 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
                 let em: &WMap<WString, WAny> = e.as_map();
                 let cc: WAny = em.get(K_CTR);
                 let asp: WAny = em.get(K_ASPECT);
-                if cc.is_string() && asp.is_string()
-                   && str_eq(cc.as_wstr(), name) && str_eq(asp.as_wstr(), ASPECT_NODE) {
-                    let role: WAny = em.get(K_ROLE);
-                    if role.is_string() && str_eq(role.as_wstr(), ROLE_LEAF) {
-                        let pol: WAny = em.get(K_POLICY);
-                        let ps: str = if pol.is_string() { pol.as_wstr() } else { SPLIT_FAST };
-                        let mut ln: String = String::new();
-                        ln.push_str(name); ln.push_str("Leaf");
-                        emit_leaf_node(ln.as_str(), kty, vty, ps);
-                        saw_leaf = true;
-                    } else if role.is_string() && str_eq(role.as_wstr(), ROLE_BRANCH) {
-                        let mut bn: String = String::new();
-                        bn.push_str(name); bn.push_str("Branch");
-                        emit_branch_node(bn.as_str(), kty);
-                        saw_branch = true;
+                if cc.is_string() && asp.is_string() && str_eq(cc.as_wstr(), name) {
+                    if str_eq(asp.as_wstr(), ASPECT_NODE) {
+                        let role: WAny = em.get(K_ROLE);
+                        if role.is_string() && str_eq(role.as_wstr(), ROLE_LEAF) {
+                            let pol: WAny = em.get(K_POLICY);
+                            let ps: str = if pol.is_string() { pol.as_wstr() } else { SPLIT_FAST };
+                            leaf_fast = str_eq(ps, SPLIT_FAST);
+                            let mut ln: String = String::new();
+                            ln.push_str(name); ln.push_str("Leaf");
+                            emit_leaf_node(ln.as_str(), kty, vty, ps);
+                            saw_leaf = true;
+                        } else if role.is_string() && str_eq(role.as_wstr(), ROLE_BRANCH) {
+                            let mut bn: String = String::new();
+                            bn.push_str(name); bn.push_str("Branch");
+                            emit_branch_node(bn.as_str(), kty);
+                            saw_branch = true;
+                        }
+                    } else if str_eq(asp.as_wstr(), ASPECT_ASSEMBLY) {
+                        let val: WAny = em.get(K_VALUE);
+                        if val.is_string() && str_eq(val.as_wstr(), ASM_TREE) { saw_tree = true; }
                     }
                 }
             }
@@ -862,6 +954,16 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         if !saw_leaf || !saw_branch {
             error("container item: incomplete container_shape plan (leaf or branch node missing — Canon seam regression?)");
             return out;
+        }
+        // Realize the assembly=tree row: the multi-level b+tree over the plan's
+        // {N}Leaf / {N}Branch. Wave-0 has a VALIDATED tree template only for the
+        // fast (by-value/FSE) leaf — a volume assembly is a later increment, so a
+        // volume ordered_map stops after its leaf+branch (as it did in I1).
+        if leaf_fast && saw_tree {
+            let mut lt: String = String::new(); lt.push_str(name); lt.push_str("Leaf");
+            let mut bt: String = String::new(); bt.push_str(name); bt.push_str("Branch");
+            let mut tt: String = String::new(); tt.push_str(name); tt.push_str("Tree");
+            emit_tree(tt.as_str(), lt.as_str(), bt.as_str(), kty, vty);
         }
         return out;
     }

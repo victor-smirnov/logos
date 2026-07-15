@@ -1,0 +1,75 @@
+// gen_tree — Canon container_shape assembly, end to end (ADR 0020 Track B, ② I2):
+// one `kind ordered_map` declaration → Canon derives the container_shape PLAN
+// (leaf(fast) + branch + tree + cow + subtree_size) → the handler realizes the
+// `aspect=assembly value=tree` row by GENERATING a multi-level b+tree `GenBtTree`
+// over the plan's generated `GenBtLeaf` / `GenBtBranch`. One declaration is the
+// whole source of the leaf, the branch, AND the tree assembly. main() mirrors the
+// hand-written logos.mem.bt.tree validation (BTreeU64): ascending fill forcing
+// root growth (branch-over-branch), scattered inserts, SUM==count, replace-on-hit.
+package test;
+
+use logos.lcm.canon.container_item;   // the `container` lowering handler
+use logos.mem.pkd;                    // the generated leaf/branch target (PkdArray::format)
+
+// key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the plan's
+// leaf + branch + tree are all emitted from this one declaration.
+container GenBt for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
+
+fn main() -> i32 {
+    let mut t: GenBtTree = GenBtTree::new();
+    if t.height() != 0u32 { return 1i32; }        // lone leaf root
+    if t.size() != 0u64 { return 2i32; }
+
+    // ── grow: ascending insert forces repeated rightmost splits + root growth
+    let n: u64 = 60000u64;
+    let mut k: u64 = 0u64;
+    while k < n {
+        t.insert(k, k + 7u64);
+        k = k + 1u64;
+    }
+    if t.size() != n { return 3i32; }             // SUM measure == entry count
+    if t.height() < 2u32 { return 4i32; }         // multi-level (branch-over-branch)
+
+    // ── every key present with the right value ──────────────────────────
+    k = 0u64;
+    while k < n {
+        if t.get_or(k, 0xFFFFFFFFu64) != k + 7u64 { return 5i32; }
+        k = k + 1u64;
+    }
+    // absent keys miss
+    if t.get_or(n, 0xDEADu64) != 0xDEADu64 { return 6i32; }
+    if t.get_or(n + 1000u64, 0xDEADu64) != 0xDEADu64 { return 7i32; }
+
+    // ── replace-on-hit (Map MAX): overwrite a spread of keys, size unchanged ─
+    let before: u64 = t.size();
+    k = 0u64;
+    while k < n {
+        t.insert(k, k + 1000000u64);              // new value for the same key
+        k = k + 777u64;                           // a scattered subset
+    }
+    if t.size() != before { return 8i32; }        // no growth on replace
+    if t.get_or(0u64, 0u64) != 1000000u64 { return 9i32; }
+    if t.get_or(777u64, 0u64) != 777u64 + 1000000u64 { return 10i32; }
+    if t.get_or(778u64, 0u64) != 778u64 + 7u64 { return 11i32; }   // untouched neighbour
+
+    // ── a second tree with interleaved (non-ascending) key order ─────────
+    let mut t2: GenBtTree = GenBtTree::new();
+    let m: u64 = 20000u64;
+    let mut i: u64 = 0u64;
+    let mut key: u64 = 0u64;
+    while i < m {
+        t2.insert(key, key + 3u64);
+        key = (key + 7919u64) % m;                // pseudo-scatter over [0, m)
+        i = i + 1u64;
+    }
+    if t2.size() != m { return 12i32; }
+    let mut j: u64 = 0u64;
+    while j < m {
+        if t2.get_or(j, 0xFFFFFFFFu64) != j + 3u64 { return 13i32; }
+        j = j + 1u64;
+    }
+
+    t.free();
+    t2.free();
+    return 0i32;
+}
