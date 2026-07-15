@@ -67,6 +67,20 @@ static bool is_wql_internal_pkg(std::string_view pkg) {
            pkg[kRoot.size()] == '.';
 }
 
+// ── ABI-spec scoping: the Canon reasoning orchestrator internals ─────────────
+// logos.lcm.canon (ADR 0020) is a heavy-development reasoning judge — its
+// container-spec / verdict / vocabulary structures (ContainerSpec, CanonFacts,
+// …) grow per slice and are compile-time-derive machinery, not a link-time
+// contract (Canon is invoked through the container_item metaprog derive, never
+// linked by a consumer). Exclude the whole package tree from the .abi spec, the
+// same way the wql engine is excluded — no consumer-facing surface to preserve.
+static bool is_canon_internal_pkg(std::string_view pkg) {
+    static constexpr std::string_view kRoot = "logos.lcm.canon";
+    if (pkg == kRoot) return true;
+    return pkg.size() > kRoot.size() && pkg.rfind(kRoot, 0) == 0 &&
+           pkg[kRoot.size()] == '.';
+}
+
 // ── ABI-spec scoping: the Deem query/reasoning-engine internals ──────────────
 // logos.std.deem holds the queue-2 interpreter AND the DBSP incremental engine
 // (IncrJoin / IncrAnti / IncrRec / AggState / FactStore / Arr / ZBatch / ZOut /
@@ -472,7 +486,7 @@ static void emit_docs_facts(lir::LProgram& prog,
                  "macro " + std::string(mnm) + "!", fn.doc(), fn.source_file());
             continue;
         }
-        if (is_wql_internal_pkg(fn.package())) continue;
+        if ((is_wql_internal_pkg(fn.package()) || is_canon_internal_pkg(fn.package()))) continue;
         std::string_view nm = fn.method_base().empty() ? fn.name() : fn.method_base();
         std::string_view first_pname;
         TypeRef first_ptype;
@@ -500,7 +514,7 @@ static void emit_docs_facts(lir::LProgram& prog,
     // Structs / unions (+ fields). Methods come from prog.functions above
     // (sd.methods() is not populated at this pre-mono point).
     for (auto& sd : prog.structs) {
-        if (is_wql_internal_pkg(sd.pkg()) || is_deem_internal_type(sd.pkg(), sd.name())) continue;
+        if ((is_wql_internal_pkg(sd.pkg()) || is_canon_internal_pkg(sd.pkg())) || is_deem_internal_type(sd.pkg(), sd.name())) continue;
         std::string path = qual(sd.pkg(), sd.name());
         item(sd.is_union() ? "union" : "struct", path, sd.name(), "", sd.is_pub(),
              std::string(sd.is_union() ? "union " : "struct ") + std::string(sd.name()),
@@ -511,7 +525,7 @@ static void emit_docs_facts(lir::LProgram& prog,
     }
     // Enums (+ variants).
     for (auto& ed : prog.enums) {
-        if (is_wql_internal_pkg(ed.pkg()) || is_deem_internal_type(ed.pkg(), ed.name())) continue;
+        if ((is_wql_internal_pkg(ed.pkg()) || is_canon_internal_pkg(ed.pkg())) || is_deem_internal_type(ed.pkg(), ed.name())) continue;
         std::string path = qual(ed.pkg(), ed.name());
         item("enum", path, ed.name(), "", ed.is_pub(),
              "enum " + std::string(ed.name()), ed.doc(), "");
@@ -535,7 +549,7 @@ static void emit_docs_facts(lir::LProgram& prog,
     // method-sig iteration is wired — the implementor edges below already carry
     // the key trait relation).
     for (auto& td : prog.traits) {
-        if (is_wql_internal_pkg(td.pkg()) || is_deem_internal_type(td.pkg(), td.name())) continue;
+        if ((is_wql_internal_pkg(td.pkg()) || is_canon_internal_pkg(td.pkg())) || is_deem_internal_type(td.pkg(), td.name())) continue;
         std::string path = qual(td.pkg(), td.name());
         item("trait", path, td.name(), "", /*is_pub=*/true,
              "trait " + std::string(td.name()), td.doc(), "");
@@ -821,7 +835,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // template is the ABI break at its source. Field offsets need LLVM
         // materialisation, but the field-type list is the layout determinant.
         for (auto& sd : prog.structs) {
-            if (is_wql_internal_pkg(sd.pkg())) continue;  // wql engine is internal
+            if ((is_wql_internal_pkg(sd.pkg()) || is_canon_internal_pkg(sd.pkg()))) continue;  // wql engine is internal
             if (is_deem_internal_type(sd.pkg(), sd.name())) continue;  // deem engine internal (only the Query API is contract)
             if (!abi_treat_pub(sd.name(), sd.is_pub())) continue;  // private type: not consumer ABI
             std::string rec = "type\t" + qual(sd.pkg(), sd.name()) + "\tfields=[";
@@ -836,7 +850,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // Enums (templates included): variant name + payload types (a payload
         // type change, e.g. Some(i32)→Some(i64), changes the layout).
         for (auto& ed : prog.enums) {
-            if (is_wql_internal_pkg(ed.pkg())) continue;  // wql engine is internal
+            if ((is_wql_internal_pkg(ed.pkg()) || is_canon_internal_pkg(ed.pkg()))) continue;  // wql engine is internal
             if (is_deem_internal_type(ed.pkg(), ed.name())) continue;  // deem engine internal (only the Query API is contract)
             if (!abi_treat_pub(ed.name(), ed.is_pub())) continue;  // private type: not consumer ABI
             std::string rec = "type\t" + qual(ed.pkg(), ed.name()) + "\tvariants=[";
@@ -859,7 +873,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             af << rec << "]\n";
         }
         for (auto& td : prog.traits) {
-            if (is_wql_internal_pkg(td.pkg())) continue;  // wql engine is internal
+            if ((is_wql_internal_pkg(td.pkg()) || is_canon_internal_pkg(td.pkg()))) continue;  // wql engine is internal
             if (is_deem_internal_type(td.pkg(), td.name())) continue;  // deem engine internal (only the Query API is contract)
             std::string rec = "vtable\t" + qual(td.pkg(), td.name()) + "\tslots=[";
             bool first = true;
@@ -1007,13 +1021,13 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // must never drop a public type's instantiations.
         std::vector<std::string> excluded_type_names;
         for (auto& sd : prog.structs) {
-            if (is_wql_internal_pkg(sd.pkg()) || is_deem_internal_type(sd.pkg(), sd.name()))
+            if ((is_wql_internal_pkg(sd.pkg()) || is_canon_internal_pkg(sd.pkg())) || is_deem_internal_type(sd.pkg(), sd.name()))
                 excluded_type_names.emplace_back(sd.name());
             else if (!abi_treat_pub(sd.name(), sd.is_pub()))
                 excluded_type_names.emplace_back(sd.name());
         }
         for (auto& ed : prog.enums) {
-            if (is_wql_internal_pkg(ed.pkg()) || is_deem_internal_type(ed.pkg(), ed.name()))
+            if ((is_wql_internal_pkg(ed.pkg()) || is_canon_internal_pkg(ed.pkg())) || is_deem_internal_type(ed.pkg(), ed.name()))
                 excluded_type_names.emplace_back(ed.name());
             else if (!abi_treat_pub(ed.name(), ed.is_pub()))
                 excluded_type_names.emplace_back(ed.name());
@@ -1037,7 +1051,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             // (is_wql_internal_pkg) — its only consumer surface is the macros,
             // already dropped above; a consumer never links a wql symbol. Exclude
             // it so query-engine refactors do not falsely trip the abi-gate.
-            if (is_wql_internal_pkg(fn.package())) return;
+            if ((is_wql_internal_pkg(fn.package()) || is_canon_internal_pkg(fn.package()))) return;
             // Generic instances parameterized by an excluded type (the type
             // survives only in the mangling — see mentions_excluded_type).
             std::string ln = sym::link_name(fn, prog.pkg_module_ids);
@@ -1050,7 +1064,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             // method belongs to its struct's package, so an excluded struct's
             // methods are excluded wholesale (fixes e.g. the wql
             // <Type>__type_id__g__ref_T blanket-impl instances leaking in).
-            if (is_wql_internal_pkg(sd.pkg())) continue;
+            if ((is_wql_internal_pkg(sd.pkg()) || is_canon_internal_pkg(sd.pkg()))) continue;
             if (is_deem_internal_type(sd.pkg(), sd.name())) continue;  // deem engine internal — drop its methods (only the Query API is contract)
             // A NON-pub struct's methods are not consumer-callable API (the
             // type is unnameable outside its module) — spec noise. Uses the
