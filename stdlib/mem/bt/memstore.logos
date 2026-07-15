@@ -1,0 +1,87 @@
+// logos.mem.bt.memstore — the hand-written MemoryStore (ADR 0020 Track B,
+// container⟂store split). The FIRST concrete store: blocks are heap allocations,
+// a branch's `u64` child ref is the raw block ADDRESS, and there is NO direct
+// block mapping — the id space materializes only on serialization (a handle↔ID
+// transform lands with the disk stores). Containers are GENERATED against the
+// `Snapshot` capability (emitter-parameterized, ADR 0020 §5); this module is the
+// hand-written half of the split — few stores, very different, each its own impl.
+//
+//   MemoryStore    — owns the snapshot-id sequence + head lifecycle.
+//   MemorySnapshot — a consistent version: the source of the CoW skip key and
+//                    the storage capability every generated container reaches
+//                    through (node_alloc / rc / get_child).
+package logos.mem.bt.memstore;
+
+use logos.mem.bt.node;   // node_alloc/_free/_inc_rc/_dec_rc/_rc/_snapshot — the intrusive-rc block
+use logos.mem.bt.map;    // trait Store, trait Snapshot — the capability contract
+
+// ── MemorySnapshot: the storage capability ─────────────────────────────────
+
+/// A MemoryStore snapshot. `id` is the CoW skip key stamped into every node it
+/// writes; a node whose stamped id differs is shared with a frozen snapshot and
+/// must be cow-cloned before an in-place write.
+pub struct MemorySnapshot { id: u64 }
+
+// The STORAGE CAPABILITY — inherent methods the generated container reaches
+// through (ADR 0020 Track B, emitter-parameterized: the generator emits concrete
+// `snap.node_alloc(…)` calls, so the surface is inherent, not a consumed trait).
+impl MemorySnapshot {
+    pub static fn with_id(id: u64) -> MemorySnapshot { return MemorySnapshot { id: id }; }
+
+    /// Allocate a fresh node block — a `nslots`-slot PkdAlloc region of
+    /// `pkd_bytes`, stamped with this snapshot's id (the CoW skip key) and rc=1.
+    pub fn node_alloc(self: &mut MemorySnapshot, pkd_bytes: u32, nslots: u32) -> *mut u8 {
+        return unsafe { node_alloc(pkd_bytes, nslots, self.id) };
+    }
+    /// Release a node block (its children are released by the caller).
+    pub fn node_free(self: &mut MemorySnapshot, h: *mut u8) { unsafe { node_free(h); } }
+
+    /// Bump / drop a node's structural-sharing refcount; `dec_rc` returns the
+    /// new value (0 = the caller must `node_free`).
+    pub fn inc_rc(self: &mut MemorySnapshot, h: *mut u8) -> u32 {
+        unsafe { node_inc_rc(h); return node_rc(h); }
+    }
+    pub fn dec_rc(self: &mut MemorySnapshot, h: *mut u8) -> u32 {
+        return unsafe { node_dec_rc(h) };
+    }
+
+    // MemoryStore has no direct block mapping: a `u64` child ref IS the block
+    // address, resolved by a plain cast (a disk store reads the same u64 column
+    // as a BlockID through its block mapping instead).
+    pub fn get_child(self: &MemorySnapshot, cref: u64) -> *mut u8 { return cref as *mut u8; }
+    pub fn child_ref_of(self: &MemorySnapshot, h: *mut u8) -> u64 { return h as u64; }
+
+    /// True iff `h` is shared with a frozen snapshot (its stamped id differs)
+    /// and must be `cow_clone`d before an in-place write.
+    pub fn cow_needed(self: &MemorySnapshot, h: *mut u8) -> bool {
+        return unsafe { node_snapshot(h) } != self.id;
+    }
+}
+
+// The marker trait (logos.mem.bt.map): a snapshot exposes its CoW skip key.
+impl Snapshot for MemorySnapshot {
+    pub fn snapshot_id(self: &MemorySnapshot) -> u64 { return self.id; }
+}
+
+// ── MemoryStore: the snapshot lifecycle ────────────────────────────────────
+
+/// Owns block allocation (indirectly, via the snapshots it hands out) and the
+/// monotonic snapshot-id sequence. v0 tracks only the id counter; head/commit
+/// bookkeeping (the mutable head + frozen versions) fills in as the CoW-map
+/// wires its root through a snapshot.
+pub struct MemoryStore { next_id: u64 }
+
+impl MemoryStore {
+    pub static fn new() -> MemoryStore { return MemoryStore { next_id: 1u64 }; }
+
+    /// Opens a fresh mutable snapshot with the next id in sequence. Nodes this
+    /// snapshot writes are stamped with `id`; nodes reached from an older
+    /// snapshot are shared (frozen) until cow-cloned into `id`.
+    pub fn fork(self: &mut MemoryStore) -> MemorySnapshot {
+        let id: u64 = self.next_id;
+        self.next_id = self.next_id + 1u64;
+        return MemorySnapshot::with_id(id);
+    }
+}
+
+impl Store for MemoryStore {}

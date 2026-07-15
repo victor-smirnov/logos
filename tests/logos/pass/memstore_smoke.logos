@@ -1,0 +1,42 @@
+// memstore_smoke — the hand-written MemoryStore / MemorySnapshot capability
+// (ADR 0020 Track B, container⟂store split, increment 1). Exercises the
+// `Snapshot` contract directly, before the generated container threads through
+// it: fork stamps ids, node_alloc stamps the snapshot + rc=1, rc bump/drop,
+// the u64 child-ref roundtrip (address), and the CoW skip-key discipline.
+package test;
+
+use logos.mem.bt.memstore;   // MemoryStore, MemorySnapshot
+use logos.mem.bt.map;        // trait Snapshot — brings snapshot_id() into scope
+use logos.mem.bt.node;       // node_snapshot / node_rc — verify the stamp directly
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+
+    // fork hands out monotonic ids; the snapshot reports its own id.
+    let mut s1: MemorySnapshot = store.fork();
+    if s1.snapshot_id() != 1u64 { return 1i32; }
+
+    // node_alloc stamps the CREATING snapshot + rc=1, formats a 2-slot region.
+    let h: *mut u8 = s1.node_alloc(4096u32, 2u32);
+    if unsafe { node_snapshot(h) } != 1u64 { return 2i32; }
+    if unsafe { node_rc(h) } != 1u32 { return 3i32; }
+
+    // structural-sharing refcount: inc/dec return the new value.
+    if s1.inc_rc(h) != 2u32 { return 4i32; }
+    if s1.dec_rc(h) != 1u32 { return 5i32; }
+
+    // MemoryStore child ref = the raw block address; roundtrips through the store.
+    let cref: u64 = s1.child_ref_of(h);
+    if s1.get_child(cref) != h { return 6i32; }
+
+    // CoW skip key: a node stamped with THIS snapshot needs no clone.
+    if s1.cow_needed(h) { return 7i32; }
+
+    // a later snapshot sees the same node as shared/frozen → must cow-clone.
+    let mut s2: MemorySnapshot = store.fork();
+    if s2.snapshot_id() != 2u64 { return 8i32; }
+    if !s2.cow_needed(h) { return 9i32; }
+
+    s1.node_free(h);
+    return 0i32;
+}

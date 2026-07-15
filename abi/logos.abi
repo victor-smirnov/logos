@@ -165,6 +165,8 @@ sym	logos.mem.bt.BtCursor__type_id__g__ref_T
 sym	logos.mem.bt.BtTree__type_id__g__ref_T
 sym	logos.mem.bt.FindShuttle__type_id__g__ref_T
 sym	logos.mem.bt.ShuttleRes__type_id__g__ref_T
+sym	logos.mem.bt.memstore.MemorySnapshot__type_id__g__ref_T
+sym	logos.mem.bt.memstore.MemoryStore__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$String__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$bool__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$i32__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -8669,6 +8671,8 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceU32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceU64
+sym	logos_lang.logos.lang.any$type_id_of__g__void__MemorySnapshot
+sym	logos_lang.logos.lang.any$type_id_of__g__void__MemoryStore
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Method
 sym	logos_lang.logos.lang.any$type_id_of__g__void__OView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Ordering
@@ -9514,6 +9518,17 @@ sym	logos_mem..logos.mem.bt.BtCursor__val__f__ref_BtCursor__ref_BtArena
 sym	logos_mem..logos.mem.bt.BtCursor__valid__f__ref_BtCursor
 sym	logos_mem..logos.mem.bt.FindShuttle__on_branch__f__pmut_FindShuttle__pmut_PkdAlloc
 sym	logos_mem..logos.mem.bt.FindShuttle__on_leaf__f__pmut_FindShuttle__pmut_PkdAlloc
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__child_ref_of__f__ref_MemorySnapshot__pmut_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__cow_needed__f__ref_MemorySnapshot__pmut_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__dec_rc__f__refmut_MemorySnapshot__pmut_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__get_child__f__ref_MemorySnapshot__u64
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__inc_rc__f__refmut_MemorySnapshot__pmut_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__node_alloc__f__refmut_MemorySnapshot__u32__u32
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__node_free__f__refmut_MemorySnapshot__pmut_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__snapshot_id__f__ref_MemorySnapshot
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__with_id__f__u64
+sym	logos_mem..logos.mem.bt.memstore.MemoryStore__fork__f__refmut_MemoryStore
+sym	logos_mem..logos.mem.bt.memstore.MemoryStore__new__f__void
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__drop__g__HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__get__g__pmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__get_or_insert__g__pmut_HashMap$G2$K$V__K__V
@@ -11156,6 +11171,8 @@ type	logos.mem.bt.BtCursor	fields=[path:Vec<(u64, u32)>,leaf:u64,pos:u32]
 type	logos.mem.bt.BtTree	fields=[root:u64]
 type	logos.mem.bt.FindShuttle	fields=[key:u64]
 type	logos.mem.bt.ShuttleRes	fields=[pos:u32,found:bool]
+type	logos.mem.bt.memstore.MemorySnapshot	fields=[id:u64]
+type	logos.mem.bt.memstore.MemoryStore	fields=[next_id:u64]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]
 type	logos.mem.collections.deque.VecDeque	fields=[buf:*mut T,head:i64,len:i64,cap:i64]

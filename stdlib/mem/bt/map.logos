@@ -22,11 +22,23 @@ package logos.mem.bt.map;
 use logos.mem.bt.node;
 
 /// Owns blocks and the snapshot lifecycle. The concrete factory methods
-/// (`snapshot`, `commit`) live on the implementor.
+/// (`fork`, `commit`, …) live on the implementor — stores are FEW and very
+/// different (MemoryStore / SWMRStore / OLTPStore), so `Store` stays a marker
+/// and the lifecycle surface is hand-written per store, not generalized.
 pub trait Store {}
 
 /// A consistent version of a store; containers are opened from it. Its id is the
 /// CoW skip key stamped into every node the snapshot writes.
+///
+/// This trait stays a minimal MARKER on purpose (ADR 0020 Track B,
+/// container⟂store split — emitter-parameterized). The full STORAGE CAPABILITY a
+/// container reaches through — node allocation, refcounting, `u64` child-ref
+/// resolution, the CoW skip key — lives as INHERENT methods on each hand-written
+/// snapshot (see `logos.mem.bt.memstore::MemorySnapshot`): the Canon container
+/// generator emits store-specialized CONCRETE calls against it, so nothing
+/// consumes the capability generically and it need not inflate this contract.
+/// When a second store lands (SWMR/OLTP) and enforcing the surface across stores
+/// starts to pay off, the capability graduates to required trait methods here.
 pub trait Snapshot {
     fn snapshot_id(self: &Self) -> u64;
 }
