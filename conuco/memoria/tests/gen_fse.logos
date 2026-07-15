@@ -1,0 +1,106 @@
+// gen_fse — Canon container codegen is GENERIC over any concrete FSE key/val type
+// (ADR 0020 Track B, ② P1): the same one-declaration → whole-stack path proven on
+// NON-u64 columns. Three ordered_maps with distinct FSE key/val types each drive
+// the FULL generated stack (leaf + branch + tree + CoW-map): fill, ordered lookup,
+// replace-on-hit, split, snapshot isolation. The u64/u64 case (gen_tree/gen_cow)
+// was never special — the emitters thread kty/vty; only subtree-size/ptr/snapshot
+// columns are legitimately u64. This test is the proof.
+package test;
+
+use logos.lcm.canon.container_item;   // the `container` lowering handler
+use logos.mem.pkd;                    // the generated leaf/branch target
+use logos.mem.bt.map;                 // the generated CoW-map impls Store/Snapshot/Ctr
+
+// (A) u32 key, i64 value — full tree + CoW stack.
+container FseA for u8 { kind ordered_map; entry { key: u32, val: i64 } measure max(key); }
+// (B) i32 key (SIGNED — proves signed key comparison in lower_bound/find_child),
+//     u32 value — full tree stack over negative→positive keys.
+container FseB for u8 { kind ordered_map; entry { key: i32, val: u32 } measure max(key); }
+// (C) u16 key, u32 value — full tree + CoW stack on a narrow key.
+container FseC for u8 { kind ordered_map; entry { key: u16, val: u32 } measure max(key); }
+
+fn main() -> i32 {
+    // ── (A) u32 → i64 : tree assembly, forcing multi-level growth ────────────
+    let mut ta: FseATree = FseATree::new();
+    let na: u32 = 100000u32;
+    let mut a: u32 = 0u32;
+    while a < na { ta.insert(a, (a as i64) * 2i64 - 100i64); a = a + 1u32; }
+    if ta.size() != na as u64 { return 1i32; }
+    if ta.height() < 2u32 { return 2i32; }
+    a = 0u32;
+    while a < na {
+        if ta.get_or(a, -999i64) != (a as i64) * 2i64 - 100i64 { return 3i32; }
+        a = a + 1u32;
+    }
+    if ta.get_or(na, -999i64) != -999i64 { return 4i32; }        // absent
+    // replace-on-hit, size unchanged
+    let bsz: u64 = ta.size();
+    ta.insert(4000u32, 777777i64);
+    if ta.size() != bsz { return 5i32; }
+    if ta.get_or(4000u32, -1i64) != 777777i64 { return 6i32; }
+    ta.free();
+
+    // ── (A) u32 → i64 : CoW-map snapshot isolation ───────────────────────────
+    let mut store: FseAStore = FseAStore::new();
+    let m: u32 = 3000u32;
+    let mut s0: FseASnapshot = store.snapshot();
+    let c0: FseA = s0.map();
+    let mut k: u32 = 0u32;
+    while k < m { c0.insert(k, k as i64 + 5i64); k = k + 1u32; }
+    if c0.size() != m as u64 { return 7i32; }
+    store.commit(&s0);
+    let mut s1: FseASnapshot = store.snapshot();
+    let c1: FseA = s1.map();
+    k = m;
+    while k < 2u32 * m { c1.insert(k, k as i64 + 5i64); k = k + 1u32; }
+    store.commit(&s1);
+    if s0.size() != m as u64 { return 8i32; }                     // frozen A
+    if s1.size() != 2u64 * m as u64 { return 9i32; }
+    if s0.get_or(m, -42i64) != -42i64 { return 10i32; }          // s1's key absent in s0
+    if s1.get_or(m, -42i64) != m as i64 + 5i64 { return 11i32; }
+    s0.free();
+    s1.free();
+    store.free();
+
+    // ── (B) i32 → u32 : tree over SIGNED keys spanning negative → positive ───
+    let mut tb: FseBTree = FseBTree::new();
+    let lo: i32 = -4000i32;
+    let hi: i32 = 4000i32;
+    let mut ib: i32 = lo;
+    while ib < hi { tb.insert(ib, (ib + 100000i32) as u32); ib = ib + 1i32; }
+    if tb.size() != (hi - lo) as u64 { return 12i32; }
+    ib = lo;
+    while ib < hi {
+        if tb.get_or(ib, 0u32) != (ib + 100000i32) as u32 { return 13i32; }
+        ib = ib + 1i32;
+    }
+    if tb.get_or(-9999i32, 7u32) != 7u32 { return 14i32; }       // below range
+    if tb.get_or(9999i32, 7u32) != 7u32 { return 15i32; }        // above range
+    tb.free();
+
+    // ── (C) u16 → u32 : tree + CoW on a narrow key ──────────────────────────
+    let mut tc: FseCTree = FseCTree::new();
+    let nc: u16 = 6000u16;
+    let mut c: u16 = 0u16;
+    while c < nc { tc.insert(c, c as u32 * 3u32); c = c + 1u16; }
+    if tc.size() != nc as u64 { return 16i32; }
+    c = 0u16;
+    while c < nc {
+        if tc.get_or(c, 0xFFFFu32) != c as u32 * 3u32 { return 17i32; }
+        c = c + 1u16;
+    }
+    tc.free();
+
+    let mut cstore: FseCStore = FseCStore::new();
+    let mut cs0: FseCSnapshot = cstore.snapshot();
+    let cc0: FseC = cs0.map();
+    c = 0u16;
+    while c < 2000u16 { cc0.insert(c, c as u32); c = c + 1u16; }
+    if cc0.size() != 2000u64 { return 18i32; }
+    cstore.commit(&cs0);
+    if cs0.get_or(1500u16, 0xFFFFu32) != 1500u32 { return 19i32; }
+    cs0.free();
+    cstore.free();
+
+    return 0i32;
+}
