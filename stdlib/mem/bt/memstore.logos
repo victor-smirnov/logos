@@ -3,30 +3,119 @@
 // a branch's `u64` child ref is the raw block ADDRESS, and there is NO direct
 // block mapping — the id space materializes only on serialization (a handle↔ID
 // transform lands with the disk stores). Containers are GENERATED against the
-// `Snapshot` capability (emitter-parameterized, ADR 0020 §5); this module is the
+// storage capability (emitter-parameterized, ADR 0020 §5); this module is the
 // hand-written half of the split — few stores, very different, each its own impl.
 //
-//   MemoryStore    — owns the snapshot-id sequence + head lifecycle.
-//   MemorySnapshot — a consistent version: the source of the CoW skip key and
-//                    the storage capability every generated container reaches
-//                    through (node_alloc / rc / get_child).
+//   MemoryStore    — owns the snapshot-id sequence + the committed HEAD directory.
+//   MemorySnapshot — a consistent version: the CoW skip key, the storage
+//                    capability every generated container reaches through
+//                    (node_alloc / rc / get_child), and a DIRECTORY mapping
+//                    `ctr_id → (root, level)` so ONE snapshot spans MANY
+//                    containers and commits them atomically (the Memoria model).
+//
+// A key division of labour makes the store CONTAINER-AGNOSTIC: every generated
+// BRANCH has the uniform 3-slot shape (sep, subtree-size, `PkdArray<u64>` child
+// refs in slot 2) and every node carries the intrusive-rc header, so the store
+// allocates, refcounts and RECURSIVELY RELEASES any tree from just `(root,
+// level)` — walking slot 2 for children, never touching a leaf's typed columns.
+// Only the key-typed / value-typed operations (leaf insert/split, branch
+// routing, cow_clone) are container-specific and stay in the generated code.
 package logos.mem.bt.memstore;
 
-use logos.mem.bt.node;   // node_alloc/_free/_inc_rc/_dec_rc/_rc/_snapshot — the intrusive-rc block
-use logos.mem.bt.map;    // trait Store, trait Snapshot — the capability contract
+use logos.mem.pkd;               // PkdAlloc, PkdArray — the uniform slot-2 child column
+use logos.mem.bt.node;           // node_alloc/_free/_inc_rc/_dec_rc/_rc/_snapshot — the rc header
+use logos.mem.bt.map;            // trait Store, trait Snapshot — the capability contract
+use logos.mem.collections.vec;   // Vec — the directory backing (few containers → linear scan)
 
-// ── MemorySnapshot: the storage capability ─────────────────────────────────
+const BRANCH_CHILD_SLOT: u32 = 2u32;   // every generated branch: slot 2 = PkdArray<u64> child refs
+
+// ── generic tree lifecycle (container-agnostic, over the uniform node shape) ──
+
+/// Recursively drops ONE structural-sharing ref to a subtree. At rc 0 the block
+/// is freed after its children are released (a branch reads slot 2 = child refs;
+/// a leaf, `level == 0`, has none). The intrusive-rc analog of an Arc drop, but
+/// container-agnostic: it needs only `(root, level)` and the uniform node shape.
+pub unsafe fn tree_release(root: *mut u8, level: u32) {
+    if node_dec_rc(root) == 0u32 {
+        if level > 0u32 {
+            let a: *mut PkdAlloc = node_pkd(root);
+            let ch: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(BRANCH_CHILD_SLOT);
+            let n: u32 = (*ch).count();
+            let mut i: u32 = 0u32;
+            while i < n {
+                tree_release((*ch).get(i) as *mut u8, level - 1u32);
+                i = i + 1u32;
+            }
+        }
+        node_free(root);
+    }
+}
+
+// ── directory: ctr_id → (root, level), the snapshot's container registry ─────
+
+/// One container's root in a snapshot's directory. `root`/`level` evolve as the
+/// container is mutated (CoW repoints the root); a fresh container appends a row.
+pub struct DirEntry { pub ctr_id: u64, pub root: *mut u8, pub level: u32 }
+
+/// A snapshot's container registry. Few containers per store → a linear-scan
+/// vector is the right shape; a real profile can swap in a map later.
+pub struct Directory { entries: Vec<DirEntry> }
+
+impl Directory {
+    pub static fn new() -> Directory { return Directory { entries: vec_new::<DirEntry>() }; }
+
+    fn find(self: &Directory, ctr_id: u64) -> i64 {
+        let n: i64 = self.entries.len();
+        let mut i: i64 = 0i64;
+        while i < n { if self.entries.get(i).ctr_id == ctr_id { return i; } i = i + 1i64; }
+        return -1i64;
+    }
+
+    pub fn has(self: &Directory, ctr_id: u64) -> bool { return self.find(ctr_id) >= 0i64; }
+
+    /// (root, level) for `ctr_id`; asserts the container is registered.
+    pub fn root_of(self: &Directory, ctr_id: u64) -> DirEntry {
+        let i: i64 = self.find(ctr_id);
+        assert(i >= 0i64, "directory: unknown container id");
+        return self.entries.get(i);
+    }
+
+    /// Registers a new container's root, or repoints an existing one (CoW).
+    pub fn set_root(self: &mut Directory, ctr_id: u64, root: *mut u8, level: u32) {
+        let i: i64 = self.find(ctr_id);
+        if i >= 0i64 { self.entries.set(i, DirEntry { ctr_id: ctr_id, root: root, level: level }); return; }
+        self.entries.push(DirEntry { ctr_id: ctr_id, root: root, level: level });
+    }
+
+    pub fn len(self: &Directory) -> i64 { return self.entries.len(); }
+    pub fn at(self: &Directory, i: i64) -> DirEntry { return self.entries.get(i); }
+
+    /// A fresh directory with the same rows (block refs copied verbatim — the
+    /// caller inc_rc's each root to record the new snapshot's structural share).
+    pub fn clone_dir(self: &Directory) -> Directory {
+        let mut d: Directory = Directory::new();
+        let n: i64 = self.entries.len();
+        let mut i: i64 = 0i64;
+        while i < n { d.entries.push(self.entries.get(i)); i = i + 1i64; }
+        return d;
+    }
+}
+
+// ── MemorySnapshot: skip key + storage capability + directory ────────────────
 
 /// A MemoryStore snapshot. `id` is the CoW skip key stamped into every node it
-/// writes; a node whose stamped id differs is shared with a frozen snapshot and
-/// must be cow-cloned before an in-place write.
-pub struct MemorySnapshot { id: u64 }
+/// writes; `dir` maps each container's id to its current root in THIS version.
+pub struct MemorySnapshot { id: u64, dir: Directory }
 
 // The STORAGE CAPABILITY — inherent methods the generated container reaches
 // through (ADR 0020 Track B, emitter-parameterized: the generator emits concrete
 // `snap.node_alloc(…)` calls, so the surface is inherent, not a consumed trait).
 impl MemorySnapshot {
-    pub static fn with_id(id: u64) -> MemorySnapshot { return MemorySnapshot { id: id }; }
+    pub static fn with_id(id: u64) -> MemorySnapshot {
+        return MemorySnapshot { id: id, dir: Directory::new() };
+    }
+
+    // — capability: node storage —
 
     /// Allocate a fresh node block — a `nslots`-slot PkdAlloc region of
     /// `pkd_bytes`, stamped with this snapshot's id (the CoW skip key) and rc=1.
@@ -56,6 +145,27 @@ impl MemorySnapshot {
     pub fn cow_needed(self: &MemorySnapshot, h: *mut u8) -> bool {
         return unsafe { node_snapshot(h) } != self.id;
     }
+
+    // — directory: container roots in this version —
+
+    pub fn has_ctr(self: &MemorySnapshot, ctr_id: u64) -> bool { return self.dir.has(ctr_id); }
+    pub fn root_of(self: &MemorySnapshot, ctr_id: u64) -> DirEntry { return self.dir.root_of(ctr_id); }
+    pub fn set_root(self: &mut MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32) {
+        self.dir.set_root(ctr_id, root, level);
+    }
+
+    /// Drops this snapshot's structural share of EVERY container tree (rc-release
+    /// each root; trees with no other holder are freed). Call before the snapshot
+    /// goes out of scope — the raw blocks are rc-managed, not owned by `dir`.
+    pub fn release(self: &mut MemorySnapshot) {
+        let n: i64 = self.dir.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let e: DirEntry = self.dir.at(i);
+            unsafe { tree_release(e.root, e.level); }
+            i = i + 1i64;
+        }
+    }
 }
 
 // The marker trait (logos.mem.bt.map): a snapshot exposes its CoW skip key.
@@ -63,24 +173,59 @@ impl Snapshot for MemorySnapshot {
     pub fn snapshot_id(self: &MemorySnapshot) -> u64 { return self.id; }
 }
 
-// ── MemoryStore: the snapshot lifecycle ────────────────────────────────────
+// ── MemoryStore: snapshot lifecycle over the committed HEAD directory ────────
 
-/// Owns block allocation (indirectly, via the snapshots it hands out) and the
-/// monotonic snapshot-id sequence. v0 tracks only the id counter; head/commit
-/// bookkeeping (the mutable head + frozen versions) fills in as the CoW-map
-/// wires its root through a snapshot.
-pub struct MemoryStore { next_id: u64 }
+/// Owns the monotonic snapshot-id sequence and the committed HEAD version's
+/// directory. `fork` opens a mutable child sharing HEAD's trees; `commit`
+/// atomically swaps HEAD to a snapshot's directory — every container the
+/// snapshot touched moves together (the Memoria multi-container guarantee).
+pub struct MemoryStore { next_id: u64, head: Directory }
 
 impl MemoryStore {
-    pub static fn new() -> MemoryStore { return MemoryStore { next_id: 1u64 }; }
+    pub static fn new() -> MemoryStore { return MemoryStore { next_id: 1u64, head: Directory::new() }; }
 
-    /// Opens a fresh mutable snapshot with the next id in sequence. Nodes this
-    /// snapshot writes are stamped with `id`; nodes reached from an older
-    /// snapshot are shared (frozen) until cow-cloned into `id`.
+    /// Opens a fresh mutable snapshot: the next id + a private copy of HEAD's
+    /// directory, with each shared root's rc bumped for the new version's hold.
+    /// Nodes this snapshot writes are stamped with `id`; nodes reached from HEAD
+    /// are frozen until cow-cloned into `id`.
     pub fn fork(self: &mut MemoryStore) -> MemorySnapshot {
         let id: u64 = self.next_id;
         self.next_id = self.next_id + 1u64;
-        return MemorySnapshot::with_id(id);
+        let dir: Directory = self.head.clone_dir();
+        let n: i64 = dir.len();
+        let mut i: i64 = 0i64;
+        while i < n { unsafe { node_inc_rc(dir.at(i).root); } i = i + 1i64; }
+        return MemorySnapshot { id: id, dir: dir };
+    }
+
+    /// Atomically publishes `snap` as the new HEAD: drops HEAD's old structural
+    /// share of every container tree, then adopts `snap`'s roots (bumping each
+    /// for HEAD's own hold — `snap` keeps its independent refs until released).
+    pub fn commit(self: &mut MemoryStore, snap: &MemorySnapshot) {
+        let hn: i64 = self.head.len();
+        let mut i: i64 = 0i64;
+        while i < hn {
+            let e: DirEntry = self.head.at(i);
+            unsafe { tree_release(e.root, e.level); }
+            i = i + 1i64;
+        }
+        let nd: Directory = snap.dir.clone_dir();
+        let nn: i64 = nd.len();
+        let mut j: i64 = 0i64;
+        while j < nn { unsafe { node_inc_rc(nd.at(j).root); } j = j + 1i64; }
+        self.head = nd;
+    }
+
+    /// Tears down the committed HEAD (rc-release every container tree). Call at
+    /// store end of life; outstanding snapshots must be released independently.
+    pub fn release(self: &mut MemoryStore) {
+        let n: i64 = self.head.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let e: DirEntry = self.head.at(i);
+            unsafe { tree_release(e.root, e.level); }
+            i = i + 1i64;
+        }
     }
 }
 

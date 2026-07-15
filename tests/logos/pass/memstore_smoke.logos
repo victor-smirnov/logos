@@ -1,42 +1,80 @@
-// memstore_smoke — the hand-written MemoryStore / MemorySnapshot capability
-// (ADR 0020 Track B, container⟂store split, increment 1). Exercises the
-// `Snapshot` contract directly, before the generated container threads through
-// it: fork stamps ids, node_alloc stamps the snapshot + rc=1, rc bump/drop,
-// the u64 child-ref roundtrip (address), and the CoW skip-key discipline.
+// memstore_smoke — the hand-written MemoryStore / MemorySnapshot (ADR 0020 Track
+// B, container⟂store split, increment 2a). Exercises the store machinery the
+// generated container will run on, BEFORE the emitter threads through it: the
+// storage capability, the `ctr_id → root` directory, multi-container
+// fork/commit/release refcounting, and the container-AGNOSTIC recursive tree
+// release over the uniform branch shape (slot 2 = PkdArray<u64> child refs).
 package test;
 
-use logos.mem.bt.memstore;   // MemoryStore, MemorySnapshot
+use logos.mem.bt.memstore;   // MemoryStore, MemorySnapshot, DirEntry
 use logos.mem.bt.map;        // trait Snapshot — brings snapshot_id() into scope
-use logos.mem.bt.node;       // node_snapshot / node_rc — verify the stamp directly
+use logos.mem.bt.node;       // node_snapshot / node_rc / node_pkd — verify stamps directly
+use logos.mem.pkd;           // PkdAlloc, PkdArray — build a branch's slot-2 child column
+use logos.lang.result;       // Result (format/push)
 
 fn main() -> i32 {
+    // ── (1) storage capability ───────────────────────────────────────────
     let mut store: MemoryStore = MemoryStore::new();
-
-    // fork hands out monotonic ids; the snapshot reports its own id.
     let mut s1: MemorySnapshot = store.fork();
     if s1.snapshot_id() != 1u64 { return 1i32; }
 
-    // node_alloc stamps the CREATING snapshot + rc=1, formats a 2-slot region.
     let h: *mut u8 = s1.node_alloc(4096u32, 2u32);
-    if unsafe { node_snapshot(h) } != 1u64 { return 2i32; }
-    if unsafe { node_rc(h) } != 1u32 { return 3i32; }
-
-    // structural-sharing refcount: inc/dec return the new value.
+    if unsafe { node_snapshot(h) } != 1u64 { return 2i32; }   // stamps the skip key
+    if unsafe { node_rc(h) } != 1u32 { return 3i32; }          // alloc = one parent ref
     if s1.inc_rc(h) != 2u32 { return 4i32; }
     if s1.dec_rc(h) != 1u32 { return 5i32; }
+    if s1.child_ref_of(h) != (h as u64) { return 6i32; }       // u64 child ref = address
+    if s1.get_child(s1.child_ref_of(h)) != h { return 7i32; }  // roundtrips
+    if s1.cow_needed(h) { return 8i32; }                       // stamped with s1 → no clone
 
-    // MemoryStore child ref = the raw block address; roundtrips through the store.
-    let cref: u64 = s1.child_ref_of(h);
-    if s1.get_child(cref) != h { return 6i32; }
-
-    // CoW skip key: a node stamped with THIS snapshot needs no clone.
-    if s1.cow_needed(h) { return 7i32; }
-
-    // a later snapshot sees the same node as shared/frozen → must cow-clone.
     let mut s2: MemorySnapshot = store.fork();
-    if s2.snapshot_id() != 2u64 { return 8i32; }
-    if !s2.cow_needed(h) { return 9i32; }
-
+    if s2.snapshot_id() != 2u64 { return 9i32; }
+    if !s2.cow_needed(h) { return 10i32; }                     // h frozen for s2 → must clone
     s1.node_free(h);
+    s1.release();   // s1's (empty) directory — h was never registered
+    s2.release();
+
+    // ── (2) directory + multi-container fork/commit refcounting ───────────
+    let mut s0: MemorySnapshot = store.fork();                 // id 3, empty dir
+    let a: *mut u8 = s0.node_alloc(4096u32, 2u32);             // container 7 root (leaf)
+    let b: *mut u8 = s0.node_alloc(4096u32, 2u32);             // container 9 root (leaf)
+    s0.set_root(7u64, a, 0u32);
+    s0.set_root(9u64, b, 0u32);
+    if !s0.has_ctr(7u64) || !s0.has_ctr(9u64) { return 11i32; }
+    if s0.root_of(7u64).root != a || s0.root_of(9u64).level != 0u32 { return 12i32; }
+
+    store.commit(&s0);                                         // HEAD adopts a,b (inc_rc each)
+    if unsafe { node_rc(a) } != 2u32 { return 13i32; }         // s0 + HEAD
+    if unsafe { node_rc(b) } != 2u32 { return 14i32; }
+
+    let mut sf: MemorySnapshot = store.fork();                 // shares HEAD's a,b (inc_rc)
+    if !sf.has_ctr(7u64) { return 15i32; }                     // directory copied from HEAD
+    if unsafe { node_rc(a) } != 3u32 { return 16i32; }         // s0 + HEAD + sf
+
+    sf.release();                                              // drop sf's share
+    if unsafe { node_rc(a) } != 2u32 { return 17i32; }
+    s0.release();                                              // drop s0's share
+    if unsafe { node_rc(a) } != 1u32 { return 18i32; }         // only HEAD left
+    store.release();                                           // HEAD → a,b freed at rc 0
+
+    // ── (3) container-agnostic recursive tree release (branch → leaf) ─────
+    let mut store2: MemoryStore = MemoryStore::new();
+    let mut s: MemorySnapshot = store2.fork();
+    let leaf: *mut u8 = s.node_alloc(4096u32, 2u32);           // level-0 child (rc 1)
+    let br: *mut u8 = s.node_alloc(4096u32, 3u32);             // level-1 branch (rc 1)
+    unsafe {
+        let pa: *mut PkdAlloc = node_pkd(br);
+        match PkdArray::<u64>::format(pa, 2u32) {              // slot 2 = child refs
+            Result::Ok(_p) => {}
+            Result::Err(_e) => { return 19i32; }
+        }
+        let ch: *mut PkdArray<u64> = pa.get::<PkdArray<u64>>(2u32);
+        match (*ch).push(&(leaf as u64)) {                     // br adopts leaf (leaf's rc 1 = this ref)
+            Result::Ok(_u) => {}
+            Result::Err(_e) => { return 20i32; }
+        }
+    }
+    s.set_root(5u64, br, 1u32);
+    s.release();   // tree_release(br,1): dec br→0 → recurse slot 2 → tree_release(leaf,0) → free both
     return 0i32;
 }
