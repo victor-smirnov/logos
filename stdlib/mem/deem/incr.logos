@@ -19,11 +19,7 @@ use logos.lang.mem;               // replace — FactStore::take_delta move-out
 use logos.lang.cmp;               // DView ordering (container key compare)
 use logos.lang.fabric;            // NodeARC plumbing (data layer)
 use logos.lang.drop;              // container-handle drops (data layer)
-use logos.lang.writ.dview;        // DView — the container's runtime-typed cells
-use logos.std.deem.data.bt.node;  // storage engine (ADR 0017): epoch-history layer
-use logos.std.deem.data.bt.cow;
-use logos.std.deem.data.store;
-use logos.std.deem.data.handle;
+use logos.lang.writ.dview;        // DView — FsCtrCfg/FsJnCfg container-config cell type
 use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
