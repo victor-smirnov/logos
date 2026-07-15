@@ -1,0 +1,106 @@
+// gen_cow_kv — the VOLUME (VLE value) FULL stack, end to end (ADR 0020 Track B,
+// ② P2): a `kind ordered_map` whose value is `str` → Canon leaf policy `volume` →
+// the handler now GENERATES the WHOLE stack for the volume flavor, not just
+// leaf+branch: a volume-split leaf (val_at → &[u8]), the routing branch, the tree
+// assembly, AND the CoW snapshot-versioned map. The value is returned BY VIEW
+// (`get_or(key) -> &[u8]`, borrowing the tree/snapshot; a MISS is an empty slice)
+// — the by-value sentinel of the fast flavor has no view analog. One declaration
+// is the whole source. main() drives the tree (multi-leaf fill, ordered lookup,
+// replace-on-hit) and the CoW-map (snapshot isolation across commits) on str
+// values whose byte-lengths vary, exercising the volume-balanced split.
+package test;
+
+use logos.lcm.canon.container_item;   // the `container` lowering handler
+use logos.mem.pkd;                    // the generated leaf/branch target
+use logos.mem.bt.map;                 // the generated CoW-map impls Store/Snapshot/Ctr
+use logos.lang.str;                   // str_byte_at (byte comparison)
+
+// key:u64 + val:str → a variable-length value column → Canon verdict `volume` →
+// the whole VOLUME stack (leaf/branch/tree/cow-map) from this one declaration.
+container GenVol for u8 { kind ordered_map; entry { key: u64, val: str } measure max(key); }
+
+// str value for key k — lengths cycle [5, 12, 1, 17] so the volume-balanced split
+// is byte-driven, not count-driven.
+fn vstr(k: u64) -> str {
+    let m: u64 = k % 4u64;
+    if m == 0u64 { return "alpha"; }                 // 5
+    if m == 1u64 { return "bravo-charlie"; }         // 13
+    if m == 2u64 { return "d"; }                     // 1
+    return "echo-foxtrot-golf!"; }                    // 18
+
+fn beq(b: &[u8], want: str) -> bool {
+    if b.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    // ── (1) tree assembly over a VLE value column ────────────────────────────
+    let mut t: GenVolTree = GenVolTree::new();
+    let n: u64 = 4000u64;
+    let mut k: u64 = 0u64;
+    while k < n { t.insert(k, vstr(k)); k = k + 1u64; }
+    if t.size() != n { return 1i32; }
+    if t.height() < 1u32 { return 2i32; }            // multi-leaf (branch present)
+    // every key present, value bytes correct (get_or returns a borrowed &[u8])
+    k = 0u64;
+    while k < n {
+        if !beq(t.get_or(k), vstr(k)) { return 3i32; }
+        k = k + 1u64;
+    }
+    if t.get_or(n).len() != 0i64 { return 4i32; }    // absent → empty view (miss)
+    // replace-on-hit (Map MAX): overwrite a key with a longer value, size fixed
+    let bsz: u64 = t.size();
+    t.insert(2000u64, "REPLACEMENT-VALUE-LONGISH");
+    if t.size() != bsz { return 5i32; }
+    if !beq(t.get_or(2000u64), "REPLACEMENT-VALUE-LONGISH") { return 6i32; }
+    if !beq(t.get_or(2001u64), vstr(2001u64)) { return 7i32; }   // neighbour intact
+    t.free();
+
+    // ── (2) CoW snapshot-versioned map over a VLE value column ───────────────
+    let mut store: GenVolStore = GenVolStore::new();
+    let m: u64 = 1500u64;
+    let mut s0: GenVolSnapshot = store.snapshot();
+    if s0.snapshot_id() != 1u64 { return 8i32; }
+    let c0: GenVol = s0.map();
+    k = 0u64;
+    while k < m { c0.insert(k, vstr(k)); k = k + 1u64; }
+    if c0.size() != m { return 9i32; }
+    store.commit(&s0);
+
+    let mut s1: GenVolSnapshot = store.snapshot();
+    let c1: GenVol = s1.map();
+    k = m;
+    while k < 2u64 * m { c1.insert(k, vstr(k)); k = k + 1u64; }
+    store.commit(&s1);
+
+    // ISOLATION: s0 (frozen) sees only [0, m); s1 sees [0, 2m).
+    if s0.size() != m { return 10i32; }
+    if s1.size() != 2u64 * m { return 11i32; }
+    if s0.get_or(m).len() != 0i64 { return 12i32; }              // s1's key absent in s0
+    if !beq(s1.get_or(m), vstr(m)) { return 13i32; }
+    k = 0u64;
+    while k < m {
+        if !beq(s0.get_or(k), vstr(k)) { return 14i32; }
+        k = k + 1u64;
+    }
+
+    // a third version overwrites a spread of keys; s1 untouched.
+    let mut s2: GenVolSnapshot = store.snapshot();
+    let c2: GenVol = s2.map();
+    k = 0u64;
+    while k < 2u64 * m { c2.insert(k, "OVERWRITTEN"); k = k + 300u64; }
+    store.commit(&s2);
+    if !beq(s2.get_or(0u64), "OVERWRITTEN") { return 15i32; }
+    if !beq(s1.get_or(0u64), vstr(0u64)) { return 16i32; }       // s1 lineage intact
+    if !beq(s2.get_or(300u64), "OVERWRITTEN") { return 17i32; }
+    if !beq(s1.get_or(300u64), vstr(300u64)) { return 18i32; }
+    if s2.size() != 2u64 * m { return 19i32; }                    // overwrite, no growth
+
+    s0.free();
+    s1.free();
+    s2.free();
+    store.free();
+    return 0i32;
+}

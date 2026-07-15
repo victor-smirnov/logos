@@ -456,7 +456,8 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     em.push_text("\nuse logos.mem.pkd;\n");
     if cow { em.push_text("use logos.mem.bt.node;\n"); } else { em.push_text("use logos.lang.mem;\n"); }
     em.push_text("use logos.lang.result;\n");
-    if vol { em.push_text("use logos.lang.str;\n"); }   // val.len() on a VLE column
+    if vol { em.push_text("use logos.lang.str;\n"); }     // val.len() on a VLE column
+    if vol { em.push_text("use logos.lang.slice;\n"); }   // str_from_raw / slice for cow_clone
     em.push_text("\n");
     em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
     em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
@@ -576,7 +577,17 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
         em.push_text("    pub fn cow_clone(self: &"); em.push_text(name); em.push_text(", snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
         em.push_text("        let mut c: "); em.push_text(name); em.push_text(" = "); em.push_text(name); em.push_text("::new_in(snp);\n");
         em.push_text("        let n: u32 = self.count();\n        let mut i: u32 = 0u32;\n");
-        em.push_text("        while i < n { let _ = c.try_insert(self.key_at(i), self.val_at(i)); i = i + 1u32; }\n");
+        if vol {
+            // VLE value: val_at yields &[u8]; reconstruct a str view over the
+            // bytes (str ≡ [u8]) to feed the str-typed try_insert.
+            em.push_text("        while i < n {\n");
+            em.push_text("            let v: &[u8] = self.val_at(i);\n");
+            em.push_text("            let vs: str = unsafe { str_from_raw(v.as_ptr(), v.len()) };\n");
+            em.push_text("            let _ = c.try_insert(self.key_at(i), vs);\n");
+            em.push_text("            i = i + 1u32;\n        }\n");
+        } else {
+            em.push_text("        while i < n { let _ = c.try_insert(self.key_at(i), self.val_at(i)); i = i + 1u32; }\n");
+        }
         em.push_text("        return c;\n    }\n");
     }
     em.push_text("}\n");
@@ -733,12 +744,16 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
 // unread `rsep` slot is filled with `key` (any kty value — the parent ignores it
 // when split==false). The branch is child-type-agnostic; the tree binds descent
 // to THIS map's `{N}Leaf` directly (same package, no fn-pointer hook needed).
-// Wave-0 value handling is by-value (fast leaf / FSE val), the validated
-// BTreeU64 scope; a volume (VLE) assembly is a later increment (no template).
-fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str) {
+// Value handling is VERDICT-selected via `vol`: a fast (FSE) leaf returns the
+// value by value (`get_or(key, sentinel: vty) -> vty`); a volume (VLE) leaf
+// returns it by view (`get_or(key) -> &[u8]`, borrowing the tree). The insert
+// cascade is identical either way (the leaf handles its own split; the branch
+// routes by key only).
+fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
+    if vol { em.push_text("\nuse logos.lang.slice;\n"); }   // slice_from_raw (by-view get_or)
     em.push_text("\n");
     // InsertRet — the upward result of a recursive insert (see the template).
     em.push_text("struct "); em.push_text(tname); em.push_text("IR { lsep: "); em.push_text(kty);
@@ -794,12 +809,29 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str) {
     em.push_text("            nr.push_child(r.lsep, r.lsize, self.root);\n");
     em.push_text("            nr.push_child(r.rsep, r.rsize, r.rptr);\n");
     em.push_text("            self.root = nr.block();\n            self.root_level = self.root_level + 1u32;\n        }\n    }\n");
-    em.push_text("    pub fn get_or(self: &"); em.push_text(tname); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+    // get_or — VERDICT-SELECTED value return. fast → by VALUE: `get_or(key,
+    // sentinel: vty) -> vty`. volume → by VIEW: `get_or(key) -> &[u8]`, the
+    // value view BORROWING &self (its block is tree-owned; the borrow-carrying
+    // result of ADR 0020 §3). slice_from_raw re-anchors the leaf handle's byte
+    // view to the &self return (an unbounded lifetime from a raw ptr flows to
+    // the return position), so it outlives the local leaf handle; a MISS is an
+    // empty slice (no by-value sentinel exists for a view — and a second `&[u8]`
+    // sentinel input would make the output lifetime ambiguous).
+    if vol {
+        em.push_text("    pub fn get_or(self: &"); em.push_text(tname); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> &[u8] {\n");
+    } else {
+        em.push_text("    pub fn get_or(self: &"); em.push_text(tname); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+    }
     em.push_text("        let mut node: *mut u8 = self.root;\n        let mut level: u32 = self.root_level;\n");
     em.push_text("        while level > 0u32 { let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node); node = br.child_addr(br.find_child(key)); level = level - 1u32; }\n");
     em.push_text("        let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(node);\n");
     em.push_text("        let p: u32 = lf.lower_bound(key);\n");
-    em.push_text("        if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n        return sentinel;\n    }\n");
+    if vol {
+        em.push_text("        if p < lf.count() && lf.key_at(p) == key { let v: &[u8] = lf.val_at(p); return unsafe { slice_from_raw::<u8>(v.as_ptr(), v.len()) }; }\n");
+        em.push_text("        return unsafe { slice_from_raw::<u8>(self.root as *const u8, 0i64) };\n    }\n");
+    } else {
+        em.push_text("        if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n        return sentinel;\n    }\n");
+    }
     em.push_text("    pub fn free(self: "); em.push_text(tname); em.push_text(") { "); em.push_text(tname); em.push_text("_free(self.root, self.root_level); }\n");
     em.push_text("}\n");
     em.commit();
@@ -814,8 +846,9 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str) {
 // TRAITS are the shared fundamental interfaces from logos.mem.bt.map — the
 // generated structs implement them; `{N}` is the container handle (Ctr).
 //
-// This closes ②: one `container` declaration → the whole CoW-Map stack. Wave-0
-// value handling is by-value (fast leaf), the validated BtStore/MapU64 scope.
+// This closes ②: one `container` declaration → the whole CoW-Map stack. Value
+// handling is VERDICT-selected via `vol`: fast (FSE) returns by value + sentinel;
+// volume (VLE) returns a &[u8] view borrowing &Snapshot (a MISS is an empty slice).
 //
 // Wave-0 unit constraint: the DECLARING unit must `use logos.mem.bt.map;` — the
 // generated `impl Store/Snapshot/Ctr for …` names those traits, and the impl's
@@ -824,12 +857,14 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str) {
 // time, but too late for the collect-phase impl check). A generic `kind map`
 // surface (① / a compiler traits-refresh) removes this later. `logos.mem.bt.node`
 // and `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
-fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str) {
+fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.push_text("\nuse logos.mem.bt.node;\n");        // node_snapshot/inc_rc/dec_rc/free
-    em.push_text("use logos.mem.bt.map;\n\n");          // Store / Snapshot / Ctr traits
+    em.push_text("use logos.mem.bt.map;\n");            // Store / Snapshot / Ctr traits
+    if vol { em.push_text("use logos.lang.slice;\n"); } // slice_from_raw (by-view get_or)
+    em.push_text("\n");
     // CowRet — the upward result of a recursive CoW insert (addr = this subtree's
     // root after the insert; equals the input when written in place, else a copy).
     em.push_text("struct "); em.push_text(name); em.push_text("CowRet { addr: *mut u8, lsep: "); em.push_text(kty);
@@ -887,13 +922,22 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str) {
     em.push_text("    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else { rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr); }\n");
     em.push_text("    return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };\n");
     em.push_text("}\n\n");
-    // descend_get — read path (never copies).
-    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_descend_get(root: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+    // descend_get — read path (never copies). fast returns by value + sentinel;
+    // volume returns a &[u8] view (borrowing the root's storage), miss = empty.
+    if vol {
+        em.push_text("unsafe fn "); em.push_text(name); em.push_text("_descend_get(root: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(") -> &[u8] {\n");
+    } else {
+        em.push_text("unsafe fn "); em.push_text(name); em.push_text("_descend_get(root: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+    }
     em.push_text("    let mut node: *mut u8 = root;\n    let mut lvl: u32 = level;\n");
     em.push_text("    while lvl > 0u32 { let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node); node = br.child_addr(br.find_child(key)); lvl = lvl - 1u32; }\n");
     em.push_text("    let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(node);\n");
     em.push_text("    let p: u32 = lf.lower_bound(key);\n");
-    em.push_text("    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n    return sentinel;\n}\n\n");
+    if vol {
+        em.push_text("    if p < lf.count() && lf.key_at(p) == key { let v: &[u8] = lf.val_at(p); return slice_from_raw::<u8>(v.as_ptr(), v.len()); }\n    return slice_from_raw::<u8>(root as *const u8, 0i64);\n}\n\n");
+    } else {
+        em.push_text("    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n    return sentinel;\n}\n\n");
+    }
     // {N}Snapshot — a version; carries the container root + the CoW skip key.
     em.push_text("pub struct "); em.push_text(name); em.push_text("Snapshot { snp: u64, root: *mut u8, level: u32 }\n");
     em.push_text("impl "); em.push_text(name); em.push_text("Snapshot {\n");
@@ -908,8 +952,13 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str) {
     em.push_text("                nr.push_child(r.lsep, r.lsize, r.addr);\n");
     em.push_text("                nr.push_child(r.rsep, r.rsize, r.rptr);\n");
     em.push_text("                self.root = nr.block();\n                self.level = self.level + 1u32;\n            }\n        }\n    }\n");
-    em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text("Snapshot, key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
-    em.push_text("        return unsafe { "); em.push_text(name); em.push_text("_descend_get(self.root, self.level, key, sentinel) };\n    }\n");
+    if vol {
+        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text("Snapshot, key: "); em.push_text(kty); em.push_text(") -> &[u8] {\n");
+        em.push_text("        return unsafe { "); em.push_text(name); em.push_text("_descend_get(self.root, self.level, key) };\n    }\n");
+    } else {
+        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text("Snapshot, key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+        em.push_text("        return unsafe { "); em.push_text(name); em.push_text("_descend_get(self.root, self.level, key, sentinel) };\n    }\n");
+    }
     em.push_text("    pub fn size(self: &"); em.push_text(name); em.push_text("Snapshot) -> u64 {\n");
     em.push_text("        if self.level == 0u32 { return "); em.push_text(lname); em.push_text("::adopt(self.root).count() as u64; }\n");
     em.push_text("        return "); em.push_text(bname); em.push_text("::adopt(self.root).total_size();\n    }\n");
@@ -921,7 +970,11 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str) {
     em.push_text("pub struct "); em.push_text(name); em.push_text(" { snap: *mut "); em.push_text(name); em.push_text("Snapshot }\n");
     em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
     em.push_text("    pub fn insert(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") { unsafe { (*self.snap).insert(key, val); } }\n");
-    em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" { return unsafe { (*self.snap).get_or(key, sentinel) }; }\n");
+    if vol {
+        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> &[u8] { return unsafe { (*self.snap).get_or(key) }; }\n");
+    } else {
+        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" { return unsafe { (*self.snap).get_or(key, sentinel) }; }\n");
+    }
     em.push_text("}\n");
     em.push_text("impl Ctr for "); em.push_text(name); em.push_text(" {\n");
     em.push_text("    fn size(self: &"); em.push_text(name); em.push_text(") -> u64 { return unsafe { (*self.snap).size() }; }\n}\n\n");
@@ -1160,25 +1213,27 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
             return out;
         }
         // Node flavor is a verdict: versioning=cow ⇒ the nodes carry the CoW node
-        // header (snapshot_id + rc, new_in/cow_clone). Wave-0 realizes the tree +
-        // CoW-map stack for the FAST (by-value/FSE) leaf only — a volume assembly
-        // / cow-map is a later increment, so a volume ordered_map stops after its
-        // (plain) leaf+branch, exactly as in I1.
-        let node_cow: bool = leaf_fast && saw_cow;
+        // header (snapshot_id + rc, new_in/cow_clone). The FULL tree + CoW-map
+        // stack is realized for BOTH leaf policies: a fast (FSE) leaf returns the
+        // value by value; a volume (VLE) leaf returns it BY VIEW (&[u8]). The
+        // `vol` flavor threads that value-return difference through emit_tree /
+        // emit_cow_map (the branch routes by key only — value-agnostic).
+        let vol: bool = !leaf_fast;
+        let node_cow: bool = saw_cow;
         let leaf_policy: str = if leaf_fast { SPLIT_FAST } else { SPLIT_VOLUME };
         let mut ln: String = String::new(); ln.push_str(name); ln.push_str("Leaf");
         let mut bn: String = String::new(); bn.push_str(name); bn.push_str("Branch");
         emit_leaf_node(ln.as_str(), kty, vty, leaf_policy, node_cow);
         emit_branch_node(bn.as_str(), kty, node_cow);
         // assembly=tree → the multi-level b+tree over {N}Leaf / {N}Branch.
-        if leaf_fast && saw_tree {
+        if saw_tree {
             let mut tt: String = String::new(); tt.push_str(name); tt.push_str("Tree");
-            emit_tree(tt.as_str(), ln.as_str(), bn.as_str(), kty, vty);
+            emit_tree(tt.as_str(), ln.as_str(), bn.as_str(), kty, vty, vol);
         }
         // versioning=cow → the CoW snapshot-versioned map ({N}Store/{N}Snapshot/
         // {N}) over the same CoW-flavored nodes. Closes ②: one decl → whole stack.
-        if leaf_fast && saw_cow {
-            emit_cow_map(name, ln.as_str(), bn.as_str(), kty, vty);
+        if saw_cow {
+            emit_cow_map(name, ln.as_str(), bn.as_str(), kty, vty, vol);
         }
         return out;
     }
