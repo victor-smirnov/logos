@@ -10288,6 +10288,7 @@ sym	logos_mem..logos.std.compiler.metaprog.Emitter__tpl1__f__refmut_Emitter__sli
 sym	logos_mem..logos.std.compiler.metaprog.Emitter__tpl2__f__refmut_Emitter__slice_u8__slice_u8__SView__slice_u8__SView
 sym	logos_mem..logos.std.compiler.metaprog.Emitter__tpl3__f__refmut_Emitter__slice_u8__slice_u8__SView__slice_u8__SView__slice_u8__SView
 sym	logos_mem..logos.std.compiler.metaprog.Ident__eq__f__ref_Ident__ref_Ident
+sym	logos_mem..logos.std.compiler.metaprog.Ident__new__f__slice_u8
 sym	logos_mem..logos.std.compiler.metaprog.Item__field__f__ref_Item__ref_OView__u64
 sym	logos_mem..logos.std.compiler.metaprog.Item__field_count__f__ref_Item__ref_OView
 sym	logos_mem..logos.std.compiler.metaprog.Item__name__f__ref_Item__ref_OView
