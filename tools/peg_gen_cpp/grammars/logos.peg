@@ -1327,7 +1327,9 @@
 
     rel_sig  <- IDENT IDENT LPAREN param_list? RPAREN SEMI
              => { CODE: REL_SIG, REL_KW: $1, NAME: $2, PARAMS: $4 }
-    rel_bind <- IDENT IDENT ASSIGN IDENT SEMI
+    rel_bind <- IDENT IDENT ASSIGN HASH IDENT SEMI
+             => { CODE: REL_BIND, REL_KW: $1, NAME: $2, NAME_VAR: $5 }
+              / IDENT IDENT ASSIGN IDENT SEMI
              => { CODE: REL_BIND, REL_KW: $1, NAME: $2, VALUE: $4 }
 
     // The generic form `mapping M<S: Bound>(g: &S) { … }` (ADR 0016 §6 T3) is a
@@ -1577,6 +1579,12 @@
           => { CODE: PARAM, PAT: $1, TYPE: $3 }
            / IDENT COLON type_ref DOTDOTDOT
           => { CODE: PARAM, NAME: $1, TYPE: $3, IS_VARIADIC: true }
+           // Antiquot param name (`#col: T`) — only inside quote_*! bodies; the
+           // generic NAME_VAR walk substitutes it. Used for a rel column name
+           // (`rel row(pos: i64, #col: T)`) or an fn param spliced from a runtime
+           // ident. HASH lead is disjoint from IDENT, so ordering is safe.
+           / HASH IDENT COLON type_ref
+          => { CODE: PARAM, NAME_VAR: $2, TYPE: $4 }
            / IDENT COLON type_ref
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
 

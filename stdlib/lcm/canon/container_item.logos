@@ -341,10 +341,16 @@ fn cv_report_errors(vroot: &WMap<WString, WAny>, name: str) -> i64 {
 // Renders the container's declared generic list with `CanonCol` appended to
 // `bound_param`'s bounds (": CanonCol" when unbounded, " + CanonCol" when
 // bounded). bound_param = "" renders the list verbatim.
-fn emit_generics(em: &mut Emitter, generics: str, bound_param: str) {
-    if generics.len() == 0i64 { return; }
+// Renders the container's declared generic list into a STRING, with `CanonCol`
+// appended to `bound_param`'s bounds (": CanonCol" when unbounded, " + CanonCol"
+// when bounded); bound_param = "" renders the list verbatim; empty generics → "".
+// The string is fed to parse_type_params, which reifies it into a spliceable
+// type_param_list AST (empty string → an empty list that renders no `<...>`).
+fn build_generics(generics: str, bound_param: str) -> String {
+    let mut out: String = String::new();
+    if generics.len() == 0i64 { return out; }
     let inner: str = unsafe { cf_sub(generics, 1i64, generics.len() - 1i64) };
-    em.push_text("<");
+    out.push_str("<");
     let n: i64 = inner.len();
     let mut a: i64 = 0i64;
     let mut first: bool = true;
@@ -355,22 +361,23 @@ fn emit_generics(em: &mut Emitter, generics: str, bound_param: str) {
         let mut e2: i64 = b;
         while e2 > s && str_byte_at(inner, e2 - 1i64) == 32u8 { e2 = e2 - 1i64; }
         let seg: str = unsafe { cf_sub(inner, s, e2) };
-        if !first { em.push_text(", "); }
+        if !first { out.push_str(", "); }
         first = false;
-        em.push_text(seg);
+        out.push_str(seg);
         if bound_param.len() > 0i64 {
             let c: i64 = cf_find(seg, 0i64, 58u8);   // ':'
             let mut ne: i64 = if c >= 0i64 { c } else { seg.len() };
             while ne > 0i64 && str_byte_at(seg, ne - 1i64) == 32u8 { ne = ne - 1i64; }
             let nm: str = unsafe { cf_sub(seg, 0i64, ne) };
             if str_eq(nm, bound_param) {
-                if c >= 0i64 { em.push_text(" + CanonCol"); }
-                else { em.push_text(": CanonCol"); }
+                if c >= 0i64 { out.push_str(" + CanonCol"); }
+                else { out.push_str(": CanonCol"); }
             }
         }
         a = b + 1i64;
     }
-    em.push_text(">");
+    out.push_str(">");
+    return out;
 }
 
 // Emits the SCAN projection for one kind=vector container (design §f): a
@@ -385,52 +392,100 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
     let view: OView = oview_module_ast();
     let mut tp: String = String::new();
     view.module_package_append(&mut tp);
-    let mut em: Emitter = Emitter::new();
-    em.emit_target_pkg(&view);
-    em.push_text("\nuse logos.mem.collections.vec;\n");
-    if !str_eq(tp.as_str(), "logos.lcm.canon.canon") {
-        em.push_text("use logos.lcm.canon.canon;\n");
+
+    // Composite names (Strings kept alive through the emissions below).
+    let mut src_s: String = String::new();
+    src_s.push_str("__CtrSrc_"); src_s.push_str(name);
+    let mut rows_s: String = String::new();
+    rows_s.push_str("__ctr_rows_"); rows_s.push_str(name);
+    let srcnm:  Ident = Ident { ptr: src_s.as_str().as_ptr(),  len: src_s.len() as u64 };
+    let rowsfn: Ident = Ident { ptr: rows_s.as_str().as_ptr(), len: rows_s.len() as u64 };
+    let colnm:  Ident = Ident { ptr: col_name.as_ptr(),        len: col_name.len() as u64 };
+
+    // Optional-import idents: empty ⇒ `use #x?;` drops the line. canon carries
+    // CanonCol + canon_col(); backing_pkg carries the backing type. Both skip a
+    // self-import (declaring package == that package).
+    let canon_pkg: str = if str_eq(tp.as_str(), "logos.lcm.canon.canon") { "" }
+                         else { "logos.lcm.canon.canon" };
+    let canonid: Ident = Ident { ptr: canon_pkg.as_ptr(), len: canon_pkg.len() as u64 };
+    let bpkg: str = if cs.backing_pkg.len() > 0i64 && !str_eq(cs.backing_pkg, tp.as_str())
+                    { cs.backing_pkg } else { "" };
+    let bpkgid: Ident = Ident { ptr: bpkg.as_ptr(), len: bpkg.len() as u64 };
+
+    // Generics header string (verbatim + CanonCol on bound_param; "" = concrete).
+    let gen_s: String = build_generics(cs.generics, bound_param);
+
+    // ── source trait + scan materializer fn (pub axis) ──────────────────────
+    // The generics list, backing type, rel/col types and the push expression are
+    // all reified from runtime strings (parse_type_params / parse_type /
+    // quote_expr!) and spliced into one hygienic template — no push_text.
+    if cs.is_pub {
+        let rt: ExprBlob = parse_type(relty);
+        let gp: ExprBlob = parse_type_params(gen_s.as_str());
+        let bk: ExprBlob = parse_type(cs.backing);
+        let ct: ExprBlob = parse_type(col_ty);
+        let r1: ExprBlob = parse_type(relty);
+        let r2: ExprBlob = parse_type(relty);
+        let r3: ExprBlob = parse_type(relty);
+        let pv: ExprBlob = if direct { quote_expr! { e } } else { quote_expr! { e.canon_col() } };
+        let b: QuoteItemBlob = quote_item! {
+            use logos.mem.collections.vec;
+            use #canonid?;
+            use #bpkgid?;
+            pub trait #srcnm { rel row(pos: i64, #colnm: #(rt)); }
+            pub fn #(rowsfn) #(gp) (c: &#(bk)) -> Vec<(i64, #(r1))> {
+                let mut out: Vec<(i64, #(r2))> = vec_new::<(i64, #(r3))>();
+                let n: i64 = c.count();
+                let mut i: i64 = 0i64;
+                while i < n {
+                    let e: #(ct) = c.get(i);
+                    out.push((i, #(pv)));
+                    i = i + 1i64;
+                }
+                return out;
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&b); }
+    } else {
+        let rt: ExprBlob = parse_type(relty);
+        let gp: ExprBlob = parse_type_params(gen_s.as_str());
+        let bk: ExprBlob = parse_type(cs.backing);
+        let ct: ExprBlob = parse_type(col_ty);
+        let r1: ExprBlob = parse_type(relty);
+        let r2: ExprBlob = parse_type(relty);
+        let r3: ExprBlob = parse_type(relty);
+        let pv: ExprBlob = if direct { quote_expr! { e } } else { quote_expr! { e.canon_col() } };
+        let b: QuoteItemBlob = quote_item! {
+            use logos.mem.collections.vec;
+            use #canonid?;
+            use #bpkgid?;
+            trait #srcnm { rel row(pos: i64, #colnm: #(rt)); }
+            fn #(rowsfn) #(gp) (c: &#(bk)) -> Vec<(i64, #(r1))> {
+                let mut out: Vec<(i64, #(r2))> = vec_new::<(i64, #(r3))>();
+                let n: i64 = c.count();
+                let mut i: i64 = 0i64;
+                while i < n {
+                    let e: #(ct) = c.get(i);
+                    out.push((i, #(pv)));
+                    i = i + 1i64;
+                }
+                return out;
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&b); }
     }
-    if cs.backing_pkg.len() > 0i64 && !str_eq(cs.backing_pkg, tp.as_str()) {
-        em.push_text("use ");
-        em.push_text(cs.backing_pkg);
-        em.push_text(";\n");
+
+    // ── impl rel binding (impls are never pub; generics via #(gp)) ──────────
+    {
+        let gp: ExprBlob = parse_type_params(gen_s.as_str());
+        let bk: ExprBlob = parse_type(cs.backing);
+        let b: QuoteItemBlob = quote_item! {
+            use #canonid?;
+            use #bpkgid?;
+            impl #(gp) #srcnm for #(bk) { rel row = #rowsfn; }
+        };
+        unsafe { logos_emit_item_blob_subst(&b); }
     }
-    if cs.is_pub { em.push_text("pub "); }
-    em.push_text("trait __CtrSrc_");
-    em.push_text(name);
-    em.push_text(" { rel row(pos: i64, ");
-    em.push_text(col_name);
-    em.push_text(": ");
-    em.push_text(relty);
-    em.push_text("); }\n");
-    if cs.is_pub { em.push_text("pub "); }
-    em.push_text("fn __ctr_rows_");
-    em.push_text(name);
-    emit_generics(&mut em, cs.generics, bound_param);
-    em.push_text("(c: &");
-    em.push_text(cs.backing);
-    em.push_text(") -> Vec<(i64, ");
-    em.push_text(relty);
-    em.push_text(")> {\n    let mut out: Vec<(i64, ");
-    em.push_text(relty);
-    em.push_text(")> = vec_new::<(i64, ");
-    em.push_text(relty);
-    em.push_text(")>();\n    let n: i64 = c.count();\n    let mut i: i64 = 0i64;\n    while i < n {\n        let e: ");
-    em.push_text(col_ty);
-    em.push_text(" = c.get(i);\n        out.push((i, ");
-    if direct { em.push_text("e"); } else { em.push_text("e.canon_col()"); }
-    em.push_text("));\n        i = i + 1i64;\n    }\n    return out;\n}\n");
-    em.push_text("impl");
-    emit_generics(&mut em, cs.generics, bound_param);
-    em.push_text(" __CtrSrc_");
-    em.push_text(name);
-    em.push_text(" for ");
-    em.push_text(cs.backing);
-    em.push_text(" { rel row = __ctr_rows_");
-    em.push_text(name);
-    em.push_text("; }\n");
-    em.commit();
 }
 
 // Emits a concrete b+tree LEAF node for one kind=node container (ADR 0020 Track

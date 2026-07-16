@@ -910,6 +910,9 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         int32_t nc = cv.as_value<int32_t>();
                         if (nc == la::LIT_STR.code)          target_slot = la::VALUE.code;
                         else if (nc == la::STATIC_CALL.code) target_slot = la::RECEIVER.code;
+                        // rel_bind `rel r = #fn;` — the materializer fn ident
+                        // lives in VALUE (NAME already holds the literal rel name).
+                        else if (nc == la::REL_BIND.code)    target_slot = la::VALUE.code;
                     }
                 }
                 (void)tom.put(target_slot,
@@ -2136,26 +2139,57 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 // logos_qib_free_blobs after splice, like any runtime ExprBlob).
 extern "C" const uint8_t* logos_parse_as(const uint8_t* s, uint64_t len,
                                          uint32_t rule_id) {
-    if (!s || len == 0) return nullptr;
-    logos::compiler::LogosParser parser(
-        std::string_view(reinterpret_cast<const char*>(s), len));
+    namespace la = logos::compiler::ast;
+    using logos::writ::WritAccess;
+    using logos::writ::arena_offset_t;
+    using logos::writ::AnyVal;
+    using logos::writ::TinyMapView;
     logos::writ::Writ doc;
-    switch (rule_id) {
-        case 0: doc = parser.parse_type_param_list(); break;
-        case 1: doc = parser.parse_type_ref();        break;
-        default:
-            std::fprintf(stderr, "logos_parse_as: unknown rule_id %u\n", rule_id);
+
+    // rule 0 (type_param_list) with empty / whitespace-only input yields an
+    // EMPTY list `{ITEMS: []}` — a concrete container's absent generics. Spliced
+    // at an impl/fn header it renders no `<...>`, so a from-string emitter needs
+    // no separate no-generics variant (and the antiquot-fn grammar, which always
+    // expects a type_param_list, stays satisfied).
+    bool empty_tpl = (rule_id == 0);
+    for (uint64_t i = 0; empty_tpl && i < len; ++i)
+        if (s && s[i] != ' ' && s[i] != '\t') empty_tpl = false;
+
+    if (empty_tpl) {
+        auto de = logos::writ::make_doc(4096);
+        if (!de) return nullptr;
+        doc = std::move(de).get();
+        auto ae = doc.make_array(1);
+        if (!ae) return nullptr;
+        uint32_t aoff = static_cast<uint32_t>(ae->offset().value());
+        auto te = doc.make_tiny_map_view(2);
+        if (!te) return nullptr;
+        uint32_t toff = static_cast<uint32_t>(te->offset().value());
+        (void)TinyMapView(arena_offset_t(toff), doc.holder()).put(
+            la::ITEMS.code,
+            AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(aoff)));
+        doc.set_root(AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(toff)));
+    } else {
+        if (!s || len == 0) return nullptr;
+        logos::compiler::LogosParser parser(
+            std::string_view(reinterpret_cast<const char*>(s), len));
+        switch (rule_id) {
+            case 0: doc = parser.parse_type_param_list(); break;
+            case 1: doc = parser.parse_type_ref();        break;
+            default:
+                std::fprintf(stderr, "logos_parse_as: unknown rule_id %u\n", rule_id);
+                return nullptr;
+        }
+        if (doc.is_null()) {
+            std::fprintf(stderr, "logos_parse_as: parse failed (rule %u)\n", rule_id);
             return nullptr;
-    }
-    if (doc.is_null()) {
-        std::fprintf(stderr, "logos_parse_as: parse failed (rule %u)\n", rule_id);
-        return nullptr;
-    }
-    if (!parser.at_eof()) {
-        std::fprintf(stderr,
-            "logos_parse_as: trailing input after rule %u (near line %u)\n",
-            rule_id, parser.next_line());
-        return nullptr;
+        }
+        if (!parser.at_eof()) {
+            std::fprintf(stderr,
+                "logos_parse_as: trailing input after rule %u (near line %u)\n",
+                rule_id, parser.next_line());
+            return nullptr;
+        }
     }
     auto packed_e = compactify(doc);
     if (!packed_e) {
