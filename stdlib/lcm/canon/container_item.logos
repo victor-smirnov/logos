@@ -837,47 +837,47 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
     em.commit();
 }
 
-// Emits the copy-on-write, snapshot-versioned map (`{N}Store` / `{N}Snapshot` /
-// `{N}`) realizing the container_shape `aspect=versioning value=cow` row (ADR
-// 0020 §5). Reproduces the hand-written logos.mem.bt.map template
-// (BtStore/BtSnapshot/MapU64) with the CoW-flavored {N}Leaf/{N}Branch (node
-// header + new_in/cow_clone) and the key/val types threaded in: cow_insert
-// path-copy, rc-reclaim release, snapshot isolation. The Store/Snapshot/Ctr
-// TRAITS are the shared fundamental interfaces from logos.mem.bt.map — the
-// generated structs implement them; `{N}` is the container handle (Ctr).
+// Emits the copy-on-write map's KEY/VALUE-typed half (`{N}CowRet` + the
+// cow_insert / descend_get functions + the `{N}` Ctr handle) realizing the
+// container_shape `aspect=versioning value=cow` row (ADR 0020 §5), over the
+// CoW-flavored {N}Leaf/{N}Branch (node header + new_in/cow_clone). The
+// STORE/SNAPSHOT half is NOT generated: containers run on the hand-written
+// MemoryStore / MemorySnapshot (logos.mem.bt.memstore) — the container⟂store
+// split. `{N}` is a thin typed view of container `ctr_id` in a snapshot; it
+// finds its root through the snapshot's directory (`root_of`/`set_root`) and
+// releases trees through the store's container-agnostic `tree_release`. One
+// snapshot holds MANY containers and commits them atomically.
 //
-// This closes ②: one `container` declaration → the whole CoW-Map stack. Value
-// handling is VERDICT-selected via `vol`: fast (FSE) returns by value + sentinel;
-// volume (VLE) returns a &[u8] view borrowing &Snapshot (a MISS is an empty slice).
+// This closes ②: one `container` declaration → the whole CoW-Map stack (its
+// typed half + the shared store). Value handling is VERDICT-selected via `vol`:
+// fast (FSE) returns by value + sentinel; volume (VLE) returns a &[u8] view
+// borrowing the handle (a MISS is an empty slice).
 //
 // Wave-0 unit constraint: the DECLARING unit must `use logos.mem.bt.map;` — the
-// generated `impl Store/Snapshot/Ctr for …` names those traits, and the impl's
-// trait-existence check runs at COLLECT time against traits registered from the
-// unit's own imports (an emitted `use` resolves types/functions/bounds at RESOLVE
-// time, but too late for the collect-phase impl check). A generic `kind map`
-// surface (① / a compiler traits-refresh) removes this later. `logos.mem.bt.node`
-// and `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
+// generated `impl Ctr for {N}` names that trait, and the impl's trait-existence
+// check runs at COLLECT time against traits registered from the unit's own
+// imports (an emitted `use` resolves types/functions/bounds at RESOLVE time, but
+// too late for the collect-phase impl check). A generic `kind map` surface (① /
+// a compiler traits-refresh) removes this later. `logos.mem.bt.memstore` (the
+// MemorySnapshot capability + DirEntry + tree_release), `logos.mem.bt.node` and
+// `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
 fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    em.push_text("\nuse logos.mem.bt.node;\n");        // node_snapshot/inc_rc/dec_rc/free
-    em.push_text("use logos.mem.bt.map;\n");            // Store / Snapshot / Ctr traits
+    em.push_text("\nuse logos.mem.bt.node;\n");        // node_snapshot — the CoW skip test
+    em.push_text("use logos.mem.bt.map;\n");            // Ctr trait
+    em.push_text("use logos.mem.bt.memstore;\n");       // MemorySnapshot, DirEntry, tree_release
     if vol { em.push_text("use logos.lang.slice;\n"); } // slice_from_raw (by-view get_or)
     em.push_text("\n");
     // CowRet — the upward result of a recursive CoW insert (addr = this subtree's
     // root after the insert; equals the input when written in place, else a copy).
     em.push_text("struct "); em.push_text(name); em.push_text("CowRet { addr: *mut u8, lsep: "); em.push_text(kty);
     em.push_text(", lsize: u64, split: bool, rsep: "); em.push_text(kty); em.push_text(", rsize: u64, rptr: *mut u8 }\n\n");
-    // release — drop one ref; at zero free the block (recursing into a branch's
-    // children first). The intrusive-rc analog of the oracle's Arc drop.
-    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_release(node: *mut u8, level: u32) {\n");
-    em.push_text("    if node_dec_rc(node) == 0u32 {\n");
-    em.push_text("        if level > 0u32 {\n");
-    em.push_text("            let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node);\n");
-    em.push_text("            let n: u32 = br.child_count();\n            let mut i: u32 = 0u32;\n");
-    em.push_text("            while i < n { "); em.push_text(name); em.push_text("_release(br.child_addr(i), level - 1u32); i = i + 1u32; }\n");
-    em.push_text("        }\n        node_free(node);\n    }\n}\n\n");
+    // release is now the store's CONTAINER-AGNOSTIC `tree_release` (logos.mem.bt
+    // .memstore) — it recurses the uniform branch shape (slot 2 = child refs) +
+    // the rc header from just (root, level), so the generator no longer emits a
+    // per-container release. cow_insert + the {N} handle call it directly.
     // leaf_private / branch_private — a version the writer may mutate in place
     // under snapshot `cur` (the node itself when it belongs to cur, else a copy).
     em.push_text("unsafe fn "); em.push_text(name); em.push_text("_leaf_private(node: *mut u8, cur: u64) -> *mut u8 {\n");
@@ -908,7 +908,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     em.push_text("    br.update_child(ci, r.lsep, r.lsize);\n");
     em.push_text("    if r.addr != old_child {\n");
     em.push_text("        br.set_child_addr(ci, r.addr);\n");
-    em.push_text("        "); em.push_text(name); em.push_text("_release(old_child, level - 1u32);\n    }\n");
+    em.push_text("        tree_release(old_child, level - 1u32);\n    }\n");
     em.push_text("    if !r.split {\n");
     em.push_text("        return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };\n");
     em.push_text("    }\n");
@@ -938,64 +938,60 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     } else {
         em.push_text("    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n    return sentinel;\n}\n\n");
     }
-    // {N}Snapshot — a version; carries the container root + the CoW skip key.
-    em.push_text("pub struct "); em.push_text(name); em.push_text("Snapshot { snp: u64, root: *mut u8, level: u32 }\n");
-    em.push_text("impl "); em.push_text(name); em.push_text("Snapshot {\n");
-    em.push_text("    pub fn map(self: &mut "); em.push_text(name); em.push_text("Snapshot) -> "); em.push_text(name); em.push_text(" { return "); em.push_text(name); em.push_text(" { snap: self as *mut "); em.push_text(name); em.push_text("Snapshot }; }\n");
-    em.push_text("    pub fn insert(self: &mut "); em.push_text(name); em.push_text("Snapshot, key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") {\n");
-    em.push_text("        unsafe {\n");
-    em.push_text("            let old_root: *mut u8 = self.root;\n");
-    em.push_text("            let r: "); em.push_text(name); em.push_text("CowRet = "); em.push_text(name); em.push_text("_cow_insert(self.root, self.level, key, val, self.snp);\n");
-    em.push_text("            if r.addr != old_root { self.root = r.addr; "); em.push_text(name); em.push_text("_release(old_root, self.level); }\n");
-    em.push_text("            if r.split {\n");
-    em.push_text("                let mut nr: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new_in(self.snp);\n");
-    em.push_text("                nr.push_child(r.lsep, r.lsize, r.addr);\n");
-    em.push_text("                nr.push_child(r.rsep, r.rsize, r.rptr);\n");
-    em.push_text("                self.root = nr.block();\n                self.level = self.level + 1u32;\n            }\n        }\n    }\n");
-    if vol {
-        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text("Snapshot, key: "); em.push_text(kty); em.push_text(") -> &[u8] {\n");
-        em.push_text("        return unsafe { "); em.push_text(name); em.push_text("_descend_get(self.root, self.level, key) };\n    }\n");
-    } else {
-        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text("Snapshot, key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
-        em.push_text("        return unsafe { "); em.push_text(name); em.push_text("_descend_get(self.root, self.level, key, sentinel) };\n    }\n");
-    }
-    em.push_text("    pub fn size(self: &"); em.push_text(name); em.push_text("Snapshot) -> u64 {\n");
-    em.push_text("        if self.level == 0u32 { return "); em.push_text(lname); em.push_text("::adopt(self.root).count() as u64; }\n");
-    em.push_text("        return "); em.push_text(bname); em.push_text("::adopt(self.root).total_size();\n    }\n");
-    em.push_text("    pub fn free(self: "); em.push_text(name); em.push_text("Snapshot) { unsafe { "); em.push_text(name); em.push_text("_release(self.root, self.level); } }\n");
-    em.push_text("}\n");
-    em.push_text("impl Snapshot for "); em.push_text(name); em.push_text("Snapshot {\n");
-    em.push_text("    fn snapshot_id(self: &"); em.push_text(name); em.push_text("Snapshot) -> u64 { return self.snp; }\n}\n\n");
-    // {N} — the Ctr handle bound to a snapshot.
-    em.push_text("pub struct "); em.push_text(name); em.push_text(" { snap: *mut "); em.push_text(name); em.push_text("Snapshot }\n");
+    // {N} — the Ctr handle: a typed view of container `ctr_id` in a hand-written
+    // MemorySnapshot (logos.mem.bt.memstore). The snapshot owns versioning + the
+    // directory + the storage capability; this handle carries only the
+    // container's identity and routes every op through the snapshot: reads/writes
+    // find the root via `root_of(ctr_id)`, a CoW insert repoints it via
+    // `set_root`, and node lifecycle rides the generic `tree_release` + the
+    // CoW-flavored node primitives. One snapshot holds MANY such containers and
+    // commits them together — the store no longer generates a per-container
+    // Store/Snapshot pair.
+    em.push_text("pub struct "); em.push_text(name); em.push_text(" { snap: *mut MemorySnapshot, ctr_id: u64 }\n");
     em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
-    em.push_text("    pub fn insert(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") { unsafe { (*self.snap).insert(key, val); } }\n");
-    if vol {
-        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> &[u8] { return unsafe { (*self.snap).get_or(key) }; }\n");
-    } else {
-        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" { return unsafe { (*self.snap).get_or(key, sentinel) }; }\n");
-    }
-    em.push_text("}\n");
-    em.push_text("impl Ctr for "); em.push_text(name); em.push_text(" {\n");
-    em.push_text("    fn size(self: &"); em.push_text(name); em.push_text(") -> u64 { return unsafe { (*self.snap).size() }; }\n}\n\n");
-    // {N}Store — owns the head version + snapshot ids.
-    em.push_text("pub struct "); em.push_text(name); em.push_text("Store { next_snp: u64, head_root: *mut u8, head_level: u32 }\n");
-    em.push_text("impl "); em.push_text(name); em.push_text("Store {\n");
-    em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text("Store {\n");
-    em.push_text("        let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new_in(0u64);\n");
-    em.push_text("        return "); em.push_text(name); em.push_text("Store { next_snp: 1u64, head_root: lf.block(), head_level: 0u32 };\n    }\n");
-    em.push_text("    pub fn snapshot(self: &mut "); em.push_text(name); em.push_text("Store) -> "); em.push_text(name); em.push_text("Snapshot {\n");
-    em.push_text("        let snp: u64 = self.next_snp;\n        self.next_snp = self.next_snp + 1u64;\n");
-    em.push_text("        unsafe { node_inc_rc(self.head_root); }\n");
-    em.push_text("        return "); em.push_text(name); em.push_text("Snapshot { snp: snp, root: self.head_root, level: self.head_level };\n    }\n");
-    em.push_text("    pub fn commit(self: &mut "); em.push_text(name); em.push_text("Store, s: &"); em.push_text(name); em.push_text("Snapshot) {\n");
+    // create — register a fresh empty container (a single empty leaf) under
+    // `ctr_id` in `snap`, returning its handle.
+    em.push_text("    pub static fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> "); em.push_text(name); em.push_text(" {\n");
+    em.push_text("        let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new_in(snap.snapshot_id());\n");
+    em.push_text("        snap.set_root(ctr_id, lf.block(), 0u32);\n");
+    em.push_text("        return "); em.push_text(name); em.push_text(" { snap: snap as *mut MemorySnapshot, ctr_id: ctr_id };\n    }\n");
+    // open — a handle to an already-registered container in `snap`.
+    em.push_text("    pub static fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> "); em.push_text(name); em.push_text(" {\n");
+    em.push_text("        return "); em.push_text(name); em.push_text(" { snap: snap as *mut MemorySnapshot, ctr_id: ctr_id };\n    }\n");
+    // insert — CoW path-copy under the snapshot's skip key; repoint the root (and
+    // release the old one) when it changed, grow a level on a root split.
+    em.push_text("    pub fn insert(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") {\n");
     em.push_text("        unsafe {\n");
-    em.push_text("            "); em.push_text(name); em.push_text("_release(self.head_root, self.head_level);\n");
-    em.push_text("            node_inc_rc(s.root);\n");
-    em.push_text("            self.head_root = s.root;\n            self.head_level = s.level;\n        }\n    }\n");
-    em.push_text("    pub fn free(self: "); em.push_text(name); em.push_text("Store) { unsafe { "); em.push_text(name); em.push_text("_release(self.head_root, self.head_level); } }\n");
+    em.push_text("            let e: DirEntry = (*self.snap).root_of(self.ctr_id);\n");
+    em.push_text("            let cur: u64 = (*self.snap).snapshot_id();\n");
+    em.push_text("            let r: "); em.push_text(name); em.push_text("CowRet = "); em.push_text(name); em.push_text("_cow_insert(e.root, e.level, key, val, cur);\n");
+    em.push_text("            let mut nrt: *mut u8 = e.root;\n            let mut nlv: u32 = e.level;\n");
+    em.push_text("            if r.addr != e.root { nrt = r.addr; tree_release(e.root, e.level); }\n");
+    em.push_text("            if r.split {\n");
+    em.push_text("                let mut top: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new_in(cur);\n");
+    em.push_text("                top.push_child(r.lsep, r.lsize, r.addr);\n");
+    em.push_text("                top.push_child(r.rsep, r.rsize, r.rptr);\n");
+    em.push_text("                nrt = top.block();\n                nlv = e.level + 1u32;\n            }\n");
+    em.push_text("            (*self.snap).set_root(self.ctr_id, nrt, nlv);\n        }\n    }\n");
+    // get_or — read path via the snapshot's current root for this container.
+    if vol {
+        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> &[u8] {\n");
+        em.push_text("        unsafe { let e: DirEntry = (*self.snap).root_of(self.ctr_id); return "); em.push_text(name); em.push_text("_descend_get(e.root, e.level, key); }\n    }\n");
+    } else {
+        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
+        em.push_text("        unsafe { let e: DirEntry = (*self.snap).root_of(self.ctr_id); return "); em.push_text(name); em.push_text("_descend_get(e.root, e.level, key, sentinel); }\n    }\n");
+    }
+    em.push_text("    pub fn size(self: &"); em.push_text(name); em.push_text(") -> u64 { return unsafe { "); em.push_text(name); em.push_text("_size(self.snap, self.ctr_id) }; }\n");
     em.push_text("}\n");
-    em.push_text("impl Store for "); em.push_text(name); em.push_text("Store {}\n");
+    // size — the SUM measure at the container's root (a free fn so the inherent
+    // and the Ctr-trait `size` share one body without a self-recursive call).
+    em.push_text("fn "); em.push_text(name); em.push_text("_size(snap: *mut MemorySnapshot, ctr_id: u64) -> u64 {\n");
+    em.push_text("    unsafe {\n");
+    em.push_text("        let e: DirEntry = (*snap).root_of(ctr_id);\n");
+    em.push_text("        if e.level == 0u32 { return "); em.push_text(lname); em.push_text("::adopt(e.root).count() as u64; }\n");
+    em.push_text("        return "); em.push_text(bname); em.push_text("::adopt(e.root).total_size();\n    }\n}\n");
+    em.push_text("impl Ctr for "); em.push_text(name); em.push_text(" {\n");
+    em.push_text("    fn size(self: &"); em.push_text(name); em.push_text(") -> u64 { return unsafe { "); em.push_text(name); em.push_text("_size(self.snap, self.ctr_id) }; }\n}\n\n");
     em.commit();
 }
 

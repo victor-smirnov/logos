@@ -1,25 +1,30 @@
 // gen_cow_kv — the VOLUME (VLE value) FULL stack, end to end (ADR 0020 Track B,
-// ② P2): a `kind ordered_map` whose value is `str` → Canon leaf policy `volume` →
-// the handler now GENERATES the WHOLE stack for the volume flavor, not just
-// leaf+branch: a volume-split leaf (val_at → &[u8]), the routing branch, the tree
-// assembly, AND the CoW snapshot-versioned map. The value is returned BY VIEW
-// (`get_or(key) -> &[u8]`, borrowing the tree/snapshot; a MISS is an empty slice)
-// — the by-value sentinel of the fast flavor has no view analog. One declaration
-// is the whole source. main() drives the tree (multi-leaf fill, ordered lookup,
-// replace-on-hit) and the CoW-map (snapshot isolation across commits) on str
-// values whose byte-lengths vary, exercising the volume-balanced split.
+// ② P2 + container⟂store split): a `kind ordered_map` whose value is `str` →
+// Canon leaf policy `volume` → the handler generates the volume-flavor typed
+// half — a volume-split leaf (val_at → &[u8]), the routing branch, the tree
+// assembly, and the CoW map's cow_insert/descend_get + the `GenVol` Ctr handle.
+// The STORE/SNAPSHOT half is the hand-written, shared MemoryStore /
+// MemorySnapshot (logos.mem.bt.memstore). The value is returned BY VIEW
+// (`get_or(key) -> &[u8]`, borrowing the handle; a MISS is an empty slice) — the
+// by-value sentinel of the fast flavor has no view analog. main() drives the
+// tree (multi-leaf fill, ordered lookup, replace-on-hit) and the CoW-map
+// (snapshot isolation across commits) on str values whose byte-lengths vary,
+// exercising the volume-balanced split.
 package test;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;                    // the generated leaf/branch target
-use logos.mem.bt.map;                 // the generated CoW-map impls Store/Snapshot/Ctr
+use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
+use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the shared store
 use logos.lang.str;                   // str_byte_at (byte comparison)
 
 // key:u64 + val:str → a variable-length value column → Canon verdict `volume` →
-// the whole VOLUME stack (leaf/branch/tree/cow-map) from this one declaration.
+// the whole VOLUME stack (leaf/branch/tree + cow-map half) from this one decl.
 container GenVol for u8 { kind ordered_map; entry { key: u64, val: str } measure max(key); }
 
-// str value for key k — lengths cycle [5, 12, 1, 17] so the volume-balanced split
+const CTR: u64 = 1u64;
+
+// str value for key k — lengths cycle [5, 13, 1, 18] so the volume-balanced split
 // is byte-driven, not count-driven.
 fn vstr(k: u64) -> str {
     let m: u64 = k % 4u64;
@@ -36,7 +41,7 @@ fn beq(b: &[u8], want: str) -> bool {
 }
 
 fn main() -> i32 {
-    // ── (1) tree assembly over a VLE value column ────────────────────────────
+    // ── (1) tree assembly over a VLE value column (UNCHANGED tree API) ───────
     let mut t: GenVolTree = GenVolTree::new();
     let n: u64 = 4000u64;
     let mut k: u64 = 0u64;
@@ -59,48 +64,51 @@ fn main() -> i32 {
     t.free();
 
     // ── (2) CoW snapshot-versioned map over a VLE value column ───────────────
-    let mut store: GenVolStore = GenVolStore::new();
+    let mut store: MemoryStore = MemoryStore::new();
     let m: u64 = 1500u64;
-    let mut s0: GenVolSnapshot = store.snapshot();
+    let mut s0: MemorySnapshot = store.fork();
     if s0.snapshot_id() != 1u64 { return 8i32; }
-    let c0: GenVol = s0.map();
+    let c0: GenVol = GenVol::create(&mut s0, CTR);
     k = 0u64;
     while k < m { c0.insert(k, vstr(k)); k = k + 1u64; }
     if c0.size() != m { return 9i32; }
     store.commit(&s0);
 
-    let mut s1: GenVolSnapshot = store.snapshot();
-    let c1: GenVol = s1.map();
+    let mut s1: MemorySnapshot = store.fork();
+    let c1: GenVol = GenVol::open(&mut s1, CTR);
     k = m;
     while k < 2u64 * m { c1.insert(k, vstr(k)); k = k + 1u64; }
     store.commit(&s1);
 
     // ISOLATION: s0 (frozen) sees only [0, m); s1 sees [0, 2m).
-    if s0.size() != m { return 10i32; }
-    if s1.size() != 2u64 * m { return 11i32; }
-    if s0.get_or(m).len() != 0i64 { return 12i32; }              // s1's key absent in s0
-    if !beq(s1.get_or(m), vstr(m)) { return 13i32; }
+    let c0b: GenVol = GenVol::open(&mut s0, CTR);
+    if c0b.size() != m { return 10i32; }
+    if c1.size() != 2u64 * m { return 11i32; }
+    if c0b.get_or(m).len() != 0i64 { return 12i32; }            // s1's key absent in s0
+    if !beq(c1.get_or(m), vstr(m)) { return 13i32; }
     k = 0u64;
     while k < m {
-        if !beq(s0.get_or(k), vstr(k)) { return 14i32; }
+        if !beq(c0b.get_or(k), vstr(k)) { return 14i32; }
         k = k + 1u64;
     }
 
     // a third version overwrites a spread of keys; s1 untouched.
-    let mut s2: GenVolSnapshot = store.snapshot();
-    let c2: GenVol = s2.map();
+    let mut s2: MemorySnapshot = store.fork();
+    let c2: GenVol = GenVol::open(&mut s2, CTR);
     k = 0u64;
     while k < 2u64 * m { c2.insert(k, "OVERWRITTEN"); k = k + 300u64; }
     store.commit(&s2);
-    if !beq(s2.get_or(0u64), "OVERWRITTEN") { return 15i32; }
-    if !beq(s1.get_or(0u64), vstr(0u64)) { return 16i32; }       // s1 lineage intact
-    if !beq(s2.get_or(300u64), "OVERWRITTEN") { return 17i32; }
-    if !beq(s1.get_or(300u64), vstr(300u64)) { return 18i32; }
-    if s2.size() != 2u64 * m { return 19i32; }                    // overwrite, no growth
+    let c2b: GenVol = GenVol::open(&mut s2, CTR);
+    let c1b: GenVol = GenVol::open(&mut s1, CTR);
+    if !beq(c2b.get_or(0u64), "OVERWRITTEN") { return 15i32; }
+    if !beq(c1b.get_or(0u64), vstr(0u64)) { return 16i32; }     // s1 lineage intact
+    if !beq(c2b.get_or(300u64), "OVERWRITTEN") { return 17i32; }
+    if !beq(c1b.get_or(300u64), vstr(300u64)) { return 18i32; }
+    if c2b.size() != 2u64 * m { return 19i32; }                  // overwrite, no growth
 
-    s0.free();
-    s1.free();
-    s2.free();
-    store.free();
+    s0.release();
+    s1.release();
+    s2.release();
+    store.release();
     return 0i32;
 }
