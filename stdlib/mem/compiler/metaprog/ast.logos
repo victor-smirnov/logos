@@ -208,6 +208,11 @@ pub struct ExprBlob {
     pub ptr: *const u8,
 }
 
+/// A blob is a borrowed view for splicing: QIB packing memcpy's the bytes and
+/// nothing frees `ptr` (the buffer lives out the metaprog run), so Copy is
+/// sound — one parsed fragment can splice at N sites (`#(rt)` … `#(rt)`).
+impl Copy for ExprBlob {}
+
 impl Item {
     /// Returns the item's name (NAME key) as borrowed identifier bytes.
     pub fn name(self: &Item, view: &OView) -> Ident {

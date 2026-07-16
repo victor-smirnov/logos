@@ -1,0 +1,39 @@
+// Bare `#id` fn-name antiquote — `fn #nm(...)` / `pub fn #nm(...)`, matching
+// the bare-ident forms trait/struct/impl already accept (homoiconic
+// completeness; previously fn required the `#(expr)` form). Covers the
+// ret/no-ret and unsafe variants the grammar mirrors from `#(expr)`.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+static mut SIDE: i64 = 0i64;
+
+#[metaprog_handler("bare_gen")]
+fn bare_gen_hook(target_offset: u32) -> () {
+    let n1: str = "bare_ret";
+    let n2: str = "bare_noret";
+    let n3: str = "bare_unsafe";
+    let f1: Ident = Ident { ptr: n1.as_ptr(), len: n1.len() as u64 };
+    let f2: Ident = Ident { ptr: n2.as_ptr(), len: n2.len() as u64 };
+    let f3: Ident = Ident { ptr: n3.as_ptr(), len: n3.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        pub fn #f1(a: i64) -> i64 { return a + 10i64; }
+        fn #f2() { unsafe { SIDE = 3i64; } return; }
+        unsafe fn #f3() -> i64 { return 4i64; }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[bare_gen]
+struct Marker {}
+
+fn main() -> i32 {
+    bare_noret();
+    let u: i64 = unsafe { bare_unsafe() };
+    // (7+10) + 3 + 4 = 24
+    let side: i64 = unsafe { SIDE };
+    let total: i64 = bare_ret(7i64) + side + u;
+    return total as i32 - 24i32;
+}

@@ -1,0 +1,53 @@
+// `pub(#v)` — visibility antiquote (v: Ident). The ident IS the visibility
+// syntax: "" → private, "pub" → plain pub, "module" → pub(module). One
+// grammar alt (pub_vis) parameterizes visibility for every item kind, so an
+// emitter needs ONE blob instead of a pub/non-pub variant pair.
+// Failure modes without the VIS resolution in the subst walk:
+//   - v=""      → generic walk hard-errors "ident is empty" → nothing emitted;
+//   - v="pub"   → VIS.NAME="pub" → sema "unsupported visibility `pub(pub)`".
+// Also exercises a NESTED vis site (method inside an emitted impl block) and
+// a TRAIT — the regression case: trait actions collect `ITEMS: $...`, which
+// ALIASES the pub_vis node into the trait's ITEMS array, so the generic walk
+// used to reach it through ITEMS (key 2 < VIS key 10) and write the ident
+// into VIS.NAME verbatim (`pub(pub)`). The subst walk now consumes the VIS
+// placeholder BEFORE walking children.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+#[metaprog_handler("vis_gen")]
+fn vis_gen_hook(target_offset: u32) -> () {
+    let s_priv: str = "";
+    let s_pub: str = "pub";
+    let s_mod: str = "module";
+    let vpriv: Ident = Ident { ptr: s_priv.as_ptr(), len: s_priv.len() as u64 };
+    let vpub: Ident = Ident { ptr: s_pub.as_ptr(), len: s_pub.len() as u64 };
+    let vmod: Ident = Ident { ptr: s_mod.as_ptr(), len: s_mod.len() as u64 };
+    let sn: str = "VisGen";
+    let snid: Ident = Ident { ptr: sn.as_ptr(), len: sn.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        pub(#vpriv) fn vis_f_priv() -> i64 { return 1i64; }
+        pub(#vpub) fn vis_f_pub() -> i64 { return 2i64; }
+        pub(#vmod) fn vis_f_mod() -> i64 { return 4i64; }
+        pub(#vpub) struct #snid {}
+        impl #snid {
+            pub(#vpriv) static fn probe() -> i64 { return 8i64; }
+        }
+        pub(#vpub) trait VisTr { fn tag(self: &Self) -> i64; }
+        pub(#vpriv) struct VisS {}
+        impl VisTr for VisS { fn tag(self: &Self) -> i64 { return 16i64; } }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[vis_gen]
+struct Marker {}
+
+fn main() -> i32 {
+    let s: VisS = VisS {};
+    let total: i64 = vis_f_priv() + vis_f_pub() + vis_f_mod() + VisGen::probe()
+                   + s.tag();
+    return total as i32 - 31i32;
+}

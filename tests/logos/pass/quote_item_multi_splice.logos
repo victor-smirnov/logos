@@ -1,0 +1,33 @@
+// ExprBlob is Copy: ONE parsed fragment splices at N sites. Here a single
+// `parse_type("i64")` blob lands in the param, return and let positions, and
+// a single quote_expr! blob lands twice in the body. QIB packing memcpy's
+// each site's bytes, so aliasing is sound. Without Copy the second `#(t)`
+// would be a use-after-move borrow error (the r1/r2/r3 re-parse workaround
+// this test retires).
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+#[metaprog_handler("ms_gen")]
+fn ms_gen_hook(target_offset: u32) -> () {
+    let t: ExprBlob = parse_type("i64");
+    let e: ExprBlob = quote_expr! { 5i64 };
+    let blob: QuoteItemBlob = quote_item! {
+        fn ms_probe(a: #(t)) -> #(t) {
+            let x: #(t) = a + #(e);
+            let y: #(t) = x + #(e);
+            return y;
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[ms_gen]
+struct Marker {}
+
+fn main() -> i32 {
+    // 7 + 5 + 5 = 17
+    return ms_probe(7i64) as i32 - 17i32;
+}

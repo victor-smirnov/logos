@@ -857,6 +857,52 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         return new_arr_off;
     };
 
+    // `pub(#v)` visibility antiquote: a VIS sub-node carrying an int-encoded
+    // Ident placeholder. Resolved from the CHILD LOOP of subst_walk (the only
+    // place that knows the parent item) — works at any depth (top-level items,
+    // impl/trait methods). The generic walk can't handle it: it errors on
+    // empty idents and would route the text into VIS.NAME verbatim. Semantics
+    // (the ident IS the visibility syntax):
+    //   ""       → private   (IS_PUB←0; sema reads IS_PUB by VALUE)
+    //   "pub"    → plain pub (VIS left NAME-less)
+    //   anything → VIS.NAME  (sema validates; "module" → pub(module))
+    auto resolve_vis_child = [&](uint32_t item_off, uint32_t vis_off) {
+        auto vis = [&]() {
+            return logos::writ::TinyMapView(arena_offset_t(vis_off), doc.holder());
+        };
+        if (!vis().has_key(la::NAME_VAR.code)) return;
+        AnyVal idx_av = vis().get(la::NAME_VAR.code);
+        if (!idx_av.is_value()) return;
+        int32_t idx = idx_av.as_value<int32_t>();
+        if (idx < 0 || (idx & 0x400000)
+            || static_cast<uint64_t>(idx) >= idents_count) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: vis placeholder idx %d invalid\n",
+                idx);
+            subst_failed = true; return;
+        }
+        const auto& idp = idents[idx];
+        std::string w;
+        if (idp.ptr && idp.len > 0)
+            w.assign(reinterpret_cast<const char*>(idp.ptr), idp.len);
+        vis().remove(la::NAME_VAR.code);
+        if (w.empty()) {
+            (void)logos::writ::TinyMapView(arena_offset_t(item_off), doc.holder())
+                .put(la::IS_PUB.code, AnyVal::from_value(int32_t(0)));
+            return;
+        }
+        if (w == "pub") return;
+        auto str_e = doc.make_string(std::string_view(w));
+        if (!str_e) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: vis name alloc failed\n");
+            subst_failed = true; return;
+        }
+        uint32_t name_off = static_cast<uint32_t>(str_e->offset().value());
+        (void)vis().put(la::NAME.code,
+            AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(name_off)));
+    };
+
     std::function<void(uint32_t)> subst_walk = [&](uint32_t off) {
         if (subst_failed) return;
         uint8_t* dbase = WritAccess::base(doc);
@@ -920,6 +966,38 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 dbase = WritAccess::base(doc);
                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                 tom.remove(la::NAME_VAR.code);
+            }
+        }
+        // `pub(#v)` visibility antiquote — consume BEFORE walking children.
+        // The parser's `$...` collector ALIASES the pub_vis node into this
+        // node's ITEMS array (systemic junk; consumers skip CODE-less
+        // entries), and ITEMS' key (2) sorts before VIS (10) — the generic
+        // walk would reach the alias first and put the ident into VIS.NAME
+        // verbatim (→ `pub(pub)`). Resolving here empties the node's
+        // NAME_VAR, so both later reachings (VIS slot + ITEMS alias) no-op.
+        // Discriminator vs ELSE (same slot 10): a VIS node is a CODE-less
+        // TOM holding an ident placeholder (idx ≥ 0); an else-branch is a
+        // BLOCK/IF (has CODE).
+        dbase = WritAccess::base(doc);
+        tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
+        if (tom.has_key(la::VIS.code)) {
+            AnyVal vav = tom.get(la::VIS.code);
+            if (!vav.is_null() && vav.is_pointer()) {
+                uint32_t vis_off = static_cast<uint32_t>(
+                    vav.to_offset(WritAccess::base(doc)).value());
+                lh::TypeTag vtag = lh::TypeTag::read_before(dbase + vis_off);
+                if (vtag.type_code() == lh::type_hash::TinyObjectMap) {
+                    auto vtom = logos::writ::TinyMapView(
+                        arena_offset_t(vis_off), doc.holder());
+                    if (!vtom.has_key(la::CODE.code)
+                        && vtom.has_key(la::NAME_VAR.code)) {
+                        AnyVal iv = vtom.get(la::NAME_VAR.code);
+                        if (iv.is_value() && iv.as_value<int32_t>() >= 0) {
+                            resolve_vis_child(off, vis_off);
+                            if (subst_failed) return;
+                        }
+                    }
+                }
             }
         }
         // Snapshot children before recursion (puts above may have rebased).
