@@ -607,128 +607,181 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
 // HOOK fn-pointer — the caller binds it to the concrete leaf type; free_children
 // releases child blocks by raw dealloc (block-id lifecycle, no typed handle).
 fn emit_branch_node(name: str, kty: str, cow: bool) {
+    // Imports still ride the Emitter — `quote_item!` cannot carry a `use` item,
+    // and the blob-spliced struct/impl below resolve their names against these
+    // unit-level uses (the emit inherits the declaring module's imports).
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    // CoW flavor: the branch carries the node header (new_in/cow_clone; cow_clone
-    // bumps every shared child's rc) via logos.mem.bt.node.
     em.push_text("\nuse logos.mem.pkd;\n");
     if cow { em.push_text("use logos.mem.bt.node;\n"); } else { em.push_text("use logos.lang.mem;\n"); }
-    em.push_text("use logos.lang.result;\n\n");
-    em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
-    em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
-    // new / new_in — one owned block, three FSE columns (sep: kty, sz/ptr: u64)
-    if cow {
-        em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" { return "); em.push_text(name); em.push_text("::new_in(0u64); }\n");
-        em.push_text("    pub static fn new_in(snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
-        em.push_text("        unsafe {\n");
-        em.push_text("            let base: *mut u8 = node_alloc(4096u32, 3u32, snp);\n");
-        em.push_text("            let a: *mut PkdAlloc = node_pkd(base);\n");
-    } else {
-        em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" {\n");
-        em.push_text("        unsafe {\n");
-        em.push_text("            let base: *mut u8 = alloc(4096i64);\n");
-        em.push_text("            let a: *mut PkdAlloc = pkd_format(base, 4096u32, 3u32);\n");
-    }
-    em.push_text("            match PkdArray::<"); em.push_text(kty); em.push_text(">::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"sep col\"); } }\n");
-    em.push_text("            match PkdArray::<u64>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"sz col\"); } }\n");
-    em.push_text("            match PkdArray::<u64>::format(a, 2u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"ptr col\"); } }\n");
-    em.push_text("            return "); em.push_text(name); em.push_text(" { mem: base, cap: 4096u32 };\n");
-    em.push_text("        }\n    }\n");
-    // adopt / block
-    em.push_text("    pub static fn adopt(mem: *mut u8) -> "); em.push_text(name);
-    if cow {
-        em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } }; }\n");
-    } else {
-        em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }\n");
-    }
-    em.push_text("    pub fn block(self: &"); em.push_text(name); em.push_text(") -> *mut u8 { return self.mem; }\n");
-    // column accessors
-    em.push_text("    unsafe fn a(self: &"); em.push_text(name); em.push_text(") -> *mut PkdAlloc { return ");
-    if cow { em.push_text("node_pkd(self.mem)"); } else { em.push_text("self.mem as *mut PkdAlloc"); }
-    em.push_text("; }\n");
-    em.push_text("    unsafe fn sep(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(kty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(kty); em.push_text(">>(0u32); }\n");
-    em.push_text("    unsafe fn szc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(1u32); }\n");
-    em.push_text("    unsafe fn ptrc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(2u32); }\n");
-    // child_count / sep_at / size_at / child_addr / set_child_addr
-    em.push_text("    pub fn child_count(self: &"); em.push_text(name); em.push_text(") -> u32 { return unsafe { (*self.sep()).count() }; }\n");
-    em.push_text("    pub fn sep_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(kty); em.push_text(" { return unsafe { (*self.sep()).get(i) }; }\n");
-    em.push_text("    pub fn size_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> u64 { return unsafe { (*self.szc()).get(i) }; }\n");
-    em.push_text("    pub fn child_addr(self: &"); em.push_text(name); em.push_text(", i: u32) -> *mut u8 { return unsafe { (*self.ptrc()).get(i) as *mut u8 }; }\n");
-    em.push_text("    pub fn set_child_addr(self: &mut "); em.push_text(name); em.push_text(", i: u32, ptr: *mut u8) { unsafe { (*self.ptrc()).set(i, ptr as u64); } }\n");
-    // max_sep
-    em.push_text("    pub fn max_sep(self: &"); em.push_text(name); em.push_text(") -> "); em.push_text(kty); em.push_text(" {\n");
-    em.push_text("        let n: u32 = self.child_count();\n");
-    em.push_text("        assert(n > 0u32, \"max_sep: empty branch\");\n");
-    em.push_text("        return self.sep_at(n - 1u32);\n    }\n");
-    // total_size (the SUM measure fold)
-    em.push_text("    pub fn total_size(self: &"); em.push_text(name); em.push_text(") -> u64 {\n");
-    em.push_text("        let n: u32 = self.child_count();\n        let mut s: u64 = 0u64;\n        let mut i: u32 = 0u32;\n");
-    em.push_text("        while i < n { s = s + self.size_at(i); i = i + 1u32; }\n        return s;\n    }\n");
-    // find_child
-    em.push_text("    pub fn find_child(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> u32 {\n");
-    em.push_text("        let n: u32 = self.child_count();\n        let mut i: u32 = 0u32;\n");
-    em.push_text("        while i < n { if self.sep_at(i) >= key { return i; } i = i + 1u32; }\n");
-    em.push_text("        return if n > 0u32 { n - 1u32 } else { 0u32 };\n    }\n");
-    // rank — order statistic via the SUM column; child descent via the hook `lb`
-    em.push_text("    pub fn rank(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", lb: fn(*mut u8, "); em.push_text(kty); em.push_text(") -> u32) -> u64 {\n");
-    em.push_text("        let n: u32 = self.child_count();\n        if n == 0u32 { return 0u64; }\n");
-    em.push_text("        let ci: u32 = self.find_child(key);\n        let mut base: u64 = 0u64;\n        let mut i: u32 = 0u32;\n");
-    em.push_text("        while i < ci { base = base + self.size_at(i); i = i + 1u32; }\n");
-    em.push_text("        return base + (lb(self.child_addr(ci), key) as u64);\n    }\n");
-    // get_or — descend to the covering child, probe via the hook `probe`
-    em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: u64, probe: fn(*mut u8, "); em.push_text(kty); em.push_text(", u64) -> u64) -> u64 {\n");
-    em.push_text("        let n: u32 = self.child_count();\n        if n == 0u32 { return sentinel; }\n");
-    em.push_text("        let ci: u32 = self.find_child(key);\n");
-    em.push_text("        return probe(self.child_addr(ci), key, sentinel);\n    }\n");
-    // push_child / insert_child / update_child
-    em.push_text("    pub fn push_child(self: &mut "); em.push_text(name); em.push_text(", sep: "); em.push_text(kty); em.push_text(", sz: u64, ptr: *mut u8) {\n");
-    em.push_text("        unsafe {\n            let p: u64 = ptr as u64;\n");
-    em.push_text("            let _ = (*self.sep()).push(&sep);\n            let _ = (*self.szc()).push(&sz);\n            let _ = (*self.ptrc()).push(&p);\n        }\n    }\n");
-    em.push_text("    pub fn insert_child(self: &mut "); em.push_text(name); em.push_text(", pos: u32, sep: "); em.push_text(kty); em.push_text(", sz: u64, ptr: *mut u8) {\n");
-    em.push_text("        unsafe {\n            let p: u64 = ptr as u64;\n");
-    em.push_text("            let _ = (*self.sep()).insert(pos, &sep);\n            let _ = (*self.szc()).insert(pos, &sz);\n            let _ = (*self.ptrc()).insert(pos, &p);\n        }\n    }\n");
-    em.push_text("    pub fn update_child(self: &mut "); em.push_text(name); em.push_text(", i: u32, sep: "); em.push_text(kty); em.push_text(", sz: u64) {\n");
-    em.push_text("        unsafe {\n            (*self.sep()).set(i, sep);\n            (*self.szc()).set(i, sz);\n        }\n    }\n");
-    // can_insert_child (24 bytes across the three FSE columns vs free space)
-    em.push_text("    pub fn can_insert_child(self: &"); em.push_text(name); em.push_text(") -> bool {\n");
-    em.push_text("        unsafe {\n");
-    em.push_text("            let d0: u32 = (*self.sep()).estimate_insert(8u32) - self.a().element_size(0u32);\n");
-    em.push_text("            let d1: u32 = (*self.szc()).estimate_insert(8u32) - self.a().element_size(1u32);\n");
-    em.push_text("            let d2: u32 = (*self.ptrc()).estimate_insert(8u32) - self.a().element_size(2u32);\n");
-    em.push_text("            return d0 + d1 + d2 <= self.a().free_space();\n        }\n    }\n");
-    // split_into — count-balanced (all-FSE); returns the promoted separator
-    em.push_text("    pub fn split_into(self: &mut "); em.push_text(name); em.push_text(", dst: &mut "); em.push_text(name); em.push_text(") -> "); em.push_text(kty); em.push_text(" {\n");
-    em.push_text("        let at: u32 = self.child_count() / 2u32;\n");
-    em.push_text("        unsafe {\n");
-    em.push_text("            let _ = (*self.sep()).split_into(&mut *dst.sep(), at);\n");
-    em.push_text("            let _ = (*self.szc()).split_into(&mut *dst.szc(), at);\n");
-    em.push_text("            let _ = (*self.ptrc()).split_into(&mut *dst.ptrc(), at);\n");
-    em.push_text("        }\n        return self.max_sep();\n    }\n");
-    // free_children — release every child block, then this branch's block (a flat
-    // free ignoring rc; the CoW map tears down through the rc-aware release path
-    // instead, so this stays a raw free of unshared nodes).
-    let free1: str = if cow { "node_free" } else { "dealloc" };
-    em.push_text("    pub fn free_children(self: "); em.push_text(name); em.push_text(") {\n");
-    em.push_text("        let n: u32 = self.child_count();\n        let mut i: u32 = 0u32;\n");
-    em.push_text("        while i < n { unsafe { "); em.push_text(free1); em.push_text("(self.child_addr(i)); } i = i + 1u32; }\n");
-    em.push_text("        unsafe { "); em.push_text(free1); em.push_text("(self.mem); }\n    }\n");
-    // free_block — release ONLY this branch's block (children freed elsewhere).
-    em.push_text("    pub fn free_block(self: "); em.push_text(name); em.push_text(") { unsafe { "); em.push_text(free1); em.push_text("(self.mem); } }\n");
-    // cow_clone — a private copy on a fresh block stamped `snp`; copies the child
-    // entries and BUMPS each child's rc (structural sharing). CoW flavor only.
-    if cow {
-        em.push_text("    pub fn cow_clone(self: &"); em.push_text(name); em.push_text(", snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
-        em.push_text("        let mut c: "); em.push_text(name); em.push_text(" = "); em.push_text(name); em.push_text("::new_in(snp);\n");
-        em.push_text("        let n: u32 = self.child_count();\n        let mut i: u32 = 0u32;\n");
-        em.push_text("        while i < n {\n");
-        em.push_text("            let p: *mut u8 = self.child_addr(i);\n");
-        em.push_text("            unsafe { node_inc_rc(p); }\n");
-        em.push_text("            c.push_child(self.sep_at(i), self.size_at(i), p);\n");
-        em.push_text("            i = i + 1u32;\n        }\n        return c;\n    }\n");
-    }
-    em.push_text("}\n");
+    em.push_text("use logos.lang.result;\n");
     em.commit();
+
+    // The type name (`#nm`) and the key type (`#(kid)`) are `#ident` antiquot
+    // placeholders; `name`/`kty` borrow the spec, which outlives this synchronous
+    // emission, so the Idents need no separate backing.
+    let nm:  Ident = Ident { ptr: name.as_ptr(), len: name.len() as u64 };
+    let kid: Ident = Ident { ptr: kty.as_ptr(),  len: kty.len() as u64 };
+
+    // The struct + the cow-INDEPENDENT methods (three FSE columns: sep=kty,
+    // sz/ptr=u64). `self.a()` (the PkdAlloc accessor) lives in the flavor impl
+    // block below — a second `impl #nm` for the same type.
+    let common: QuoteItemBlob = quote_item! {
+        pub struct #nm { mem: *mut u8, cap: u32 }
+        impl #nm {
+            pub fn block(self: &#nm) -> *mut u8 { return self.mem; }
+            unsafe fn sep(self: &#nm) -> *mut PkdArray<#(kid)> { return self.a().get::<PkdArray<#(kid)>>(0u32); }
+            unsafe fn szc(self: &#nm) -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(1u32); }
+            unsafe fn ptrc(self: &#nm) -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(2u32); }
+            pub fn child_count(self: &#nm) -> u32 { return unsafe { (*self.sep()).count() }; }
+            pub fn sep_at(self: &#nm, i: u32) -> #(kid) { return unsafe { (*self.sep()).get(i) }; }
+            pub fn size_at(self: &#nm, i: u32) -> u64 { return unsafe { (*self.szc()).get(i) }; }
+            pub fn child_addr(self: &#nm, i: u32) -> *mut u8 { return unsafe { (*self.ptrc()).get(i) as *mut u8 }; }
+            pub fn set_child_addr(self: &mut #nm, i: u32, ptr: *mut u8) { unsafe { (*self.ptrc()).set(i, ptr as u64); } }
+            pub fn max_sep(self: &#nm) -> #(kid) {
+                let n: u32 = self.child_count();
+                assert(n > 0u32, "max_sep: empty branch");
+                return self.sep_at(n - 1u32);
+            }
+            pub fn total_size(self: &#nm) -> u64 {
+                let n: u32 = self.child_count();
+                let mut s: u64 = 0u64;
+                let mut i: u32 = 0u32;
+                while i < n { s = s + self.size_at(i); i = i + 1u32; }
+                return s;
+            }
+            pub fn find_child(self: &#nm, key: #(kid)) -> u32 {
+                let n: u32 = self.child_count();
+                let mut i: u32 = 0u32;
+                while i < n { if self.sep_at(i) >= key { return i; } i = i + 1u32; }
+                return if n > 0u32 { n - 1u32 } else { 0u32 };
+            }
+            pub fn rank(self: &#nm, key: #(kid), lb: fn(*mut u8, #(kid)) -> u32) -> u64 {
+                let n: u32 = self.child_count();
+                if n == 0u32 { return 0u64; }
+                let ci: u32 = self.find_child(key);
+                let mut base: u64 = 0u64;
+                let mut i: u32 = 0u32;
+                while i < ci { base = base + self.size_at(i); i = i + 1u32; }
+                return base + (lb(self.child_addr(ci), key) as u64);
+            }
+            pub fn get_or(self: &#nm, key: #(kid), sentinel: u64, probe: fn(*mut u8, #(kid), u64) -> u64) -> u64 {
+                let n: u32 = self.child_count();
+                if n == 0u32 { return sentinel; }
+                let ci: u32 = self.find_child(key);
+                return probe(self.child_addr(ci), key, sentinel);
+            }
+            pub fn push_child(self: &mut #nm, sep: #(kid), sz: u64, ptr: *mut u8) {
+                unsafe {
+                    let p: u64 = ptr as u64;
+                    let _ = (*self.sep()).push(&sep);
+                    let _ = (*self.szc()).push(&sz);
+                    let _ = (*self.ptrc()).push(&p);
+                }
+            }
+            pub fn insert_child(self: &mut #nm, pos: u32, sep: #(kid), sz: u64, ptr: *mut u8) {
+                unsafe {
+                    let p: u64 = ptr as u64;
+                    let _ = (*self.sep()).insert(pos, &sep);
+                    let _ = (*self.szc()).insert(pos, &sz);
+                    let _ = (*self.ptrc()).insert(pos, &p);
+                }
+            }
+            pub fn update_child(self: &mut #nm, i: u32, sep: #(kid), sz: u64) {
+                unsafe {
+                    (*self.sep()).set(i, sep);
+                    (*self.szc()).set(i, sz);
+                }
+            }
+            pub fn can_insert_child(self: &#nm) -> bool {
+                unsafe {
+                    let d0: u32 = (*self.sep()).estimate_insert(8u32) - self.a().element_size(0u32);
+                    let d1: u32 = (*self.szc()).estimate_insert(8u32) - self.a().element_size(1u32);
+                    let d2: u32 = (*self.ptrc()).estimate_insert(8u32) - self.a().element_size(2u32);
+                    return d0 + d1 + d2 <= self.a().free_space();
+                }
+            }
+            pub fn split_into(self: &mut #nm, dst: &mut #nm) -> #(kid) {
+                let at: u32 = self.child_count() / 2u32;
+                unsafe {
+                    let _ = (*self.sep()).split_into(&mut *dst.sep(), at);
+                    let _ = (*self.szc()).split_into(&mut *dst.szc(), at);
+                    let _ = (*self.ptrc()).split_into(&mut *dst.ptrc(), at);
+                }
+                return self.max_sep();
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&common); }
+
+    // The FLAVOR-specific impl block (a second `impl #nm`): CoW carries the node
+    // header (node_alloc/node_pkd/node_free + cow_clone bumping each shared
+    // child's rc); PLAIN pkd uses alloc/pkd_format/dealloc and has no cow_clone.
+    if cow {
+        let flavor: QuoteItemBlob = quote_item! {
+            impl #nm {
+                pub static fn new() -> #nm { return #nm::new_in(0u64); }
+                pub static fn new_in(snp: u64) -> #nm {
+                    unsafe {
+                        let base: *mut u8 = node_alloc(4096u32, 3u32, snp);
+                        let a: *mut PkdAlloc = node_pkd(base);
+                        match PkdArray::<#(kid)>::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "sep col"); } }
+                        match PkdArray::<u64>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "sz col"); } }
+                        match PkdArray::<u64>::format(a, 2u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "ptr col"); } }
+                        return #nm { mem: base, cap: 4096u32 };
+                    }
+                }
+                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } }; }
+                unsafe fn a(self: &#nm) -> *mut PkdAlloc { return node_pkd(self.mem); }
+                pub fn free_children(self: #nm) {
+                    let n: u32 = self.child_count();
+                    let mut i: u32 = 0u32;
+                    while i < n { unsafe { node_free(self.child_addr(i)); } i = i + 1u32; }
+                    unsafe { node_free(self.mem); }
+                }
+                pub fn free_block(self: #nm) { unsafe { node_free(self.mem); } }
+                pub fn cow_clone(self: &#nm, snp: u64) -> #nm {
+                    let mut c: #nm = #nm::new_in(snp);
+                    let n: u32 = self.child_count();
+                    let mut i: u32 = 0u32;
+                    while i < n {
+                        let p: *mut u8 = self.child_addr(i);
+                        unsafe { node_inc_rc(p); }
+                        c.push_child(self.sep_at(i), self.size_at(i), p);
+                        i = i + 1u32;
+                    }
+                    return c;
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&flavor); }
+    } else {
+        let flavor: QuoteItemBlob = quote_item! {
+            impl #nm {
+                pub static fn new() -> #nm {
+                    unsafe {
+                        let base: *mut u8 = alloc(4096i64);
+                        let a: *mut PkdAlloc = pkd_format(base, 4096u32, 3u32);
+                        match PkdArray::<#(kid)>::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "sep col"); } }
+                        match PkdArray::<u64>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "sz col"); } }
+                        match PkdArray::<u64>::format(a, 2u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "ptr col"); } }
+                        return #nm { mem: base, cap: 4096u32 };
+                    }
+                }
+                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }
+                unsafe fn a(self: &#nm) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
+                pub fn free_children(self: #nm) {
+                    let n: u32 = self.child_count();
+                    let mut i: u32 = 0u32;
+                    while i < n { unsafe { dealloc(self.child_addr(i)); } i = i + 1u32; }
+                    unsafe { dealloc(self.mem); }
+                }
+                pub fn free_block(self: #nm) { unsafe { dealloc(self.mem); } }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&flavor); }
+    }
 }
 
 // Emits the concrete b+tree ASSEMBLY (`{N}Tree`) over the plan's leaf `lname`

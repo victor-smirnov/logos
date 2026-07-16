@@ -10,7 +10,8 @@ package test;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;
-use logos.mem.bt.map;                 // the generated CoW-map impls Store/Snapshot/Ctr
+use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
+use logos.mem.bt.memstore;            // MemorySnapshot — the generated CoW-map handle references it
 
 // key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the plan's
 // leaf + branch nodes are both emitted from this one declaration.
