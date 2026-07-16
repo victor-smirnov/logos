@@ -7398,19 +7398,25 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                 path.push_back('.');
                 path += *it;
             }
-            // Old value is live (droppable + present) iff the root is an
-            // OWNED value local (not a `&`/`&mut`/`*` reference — ownership
-            // flows through those to the referent's owner) that is
-            // definitely-initialised, and neither the path nor any ANCESTOR
-            // was moved out (a moved-out value is already gone). A moved
+            // Old value is live (droppable + present) iff we have EXCLUSIVE
+            // write access to its place: an OWNED value local, OR a `&mut`
+            // referent. Writing `(*self).f = new` through a unique borrow
+            // overwrites a LIVE field — the owner drops the NEW value at its
+            // scope end, never the old one, so the old must be dropped HERE
+            // (without this, `self.f = x` leaked f's old value). A `&mut`
+            // referent is always fully initialised and cannot have a moved-out
+            // field (you cannot move out of a borrow), so its field is live.
+            // A shared `&` is not assignable; a raw `*mut`/`*const` stays
+            // MANUAL (no implicit drop — writing into uninit memory is the
+            // whole point of a raw pointer). Also require the path/ancestors
+            // not moved out (a moved-out value is already gone). A moved
             // DESCENDANT (`path.x`) still leaves siblings live — but the
-            // whole-field memcpy store overwrites them, so the broad
-            // overlap check stays conservative-correct: skip drop_old when
-            // any overlap exists, lift-then-rely on the move bookkeeping.
+            // whole-field memcpy store overwrites them, so the broad overlap
+            // check stays conservative-correct: skip drop_old when any overlap
+            // exists, lift-then-rely on the move bookkeeping.
             TypeRef root_ty = lookup(root);
             bool root_owned = root_ty &&
                 TypeRef(root_ty).kind() != LogosType::Kind::Ref &&
-                TypeRef(root_ty).kind() != LogosType::Kind::MutRef &&
                 TypeRef(root_ty).kind() != LogosType::Kind::Ptr;
             bool any_overlap = false;
             std::string pre = path + ".";

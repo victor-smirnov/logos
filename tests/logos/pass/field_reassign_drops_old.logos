@@ -1,0 +1,59 @@
+// field_reassign_drops_old — a place assignment `place = new` must DROP the old
+// value before the store (Rust place-assignment semantics). Regression for the
+// leak where a field write through a `&mut` receiver (`self.f = x`) skipped the
+// old value's destructor: sema gated drop-before-replace on an OWNED-local root
+// and excluded `&mut` roots, so `self.f = x` (root `self: &mut T`) leaked f's
+// old value. A `&mut` referent is exclusively borrowed and always live, so the
+// drop is both sound and required. Exact drop counts (heap counter, like
+// b8_uninit_drop_matrix) catch under-drop (leak) AND over-drop (double free).
+package field_reassign_drops_old;
+use logos.lang.mem;
+
+struct Noisy { c: *mut i64 }
+impl Drop for Noisy {
+    fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
+}
+fn mk(c: *mut i64) -> Noisy { return Noisy { c: c }; }
+
+struct Holder { n: Noisy }
+impl Holder {
+    // the &mut field reassignment — the fixed path.
+    fn set(self: &mut Holder, x: Noisy) { self.n = x; }
+}
+
+fn main() -> i32 {
+    unsafe {
+        let c: *mut i64 = alloc(sizeof::<i64>()) as *mut i64;
+
+        // (1) one reassign through &mut: old n dropped at set (+1), current n
+        // dropped at scope end (+1) = 2.
+        c[0] = 0i64;
+        { let mut h: Holder = Holder { n: mk(c) }; h.set(mk(c)); }
+        if c[0] != 2i64 { return 1i32; }
+
+        // (2) two reassigns through &mut: +1, +1, then +1 at scope end = 3.
+        c[0] = 0i64;
+        { let mut h: Holder = Holder { n: mk(c) }; h.set(mk(c)); h.set(mk(c)); }
+        if c[0] != 3i64 { return 2i32; }
+
+        // (3) direct owned-local field reassign (the already-correct path):
+        // old n dropped (+1) + scope end (+1) = 2.
+        c[0] = 0i64;
+        { let mut h: Holder = Holder { n: mk(c) }; h.n = mk(c); }
+        if c[0] != 2i64 { return 3i32; }
+
+        // (4) RHS reads through the same &mut before the drop (`self.n = f(&self.n)`
+        // ordering): the new value is materialised BEFORE the old drops. Here the
+        // new value is independent; just confirm no double-drop across many sets.
+        c[0] = 0i64;
+        {
+            let mut h: Holder = Holder { n: mk(c) };
+            let mut i: i64 = 0i64;
+            while i < 5i64 { h.set(mk(c)); i = i + 1i64; }   // 5 old drops
+        }                                                     // +1 final = 6
+        if c[0] != 6i64 { return 4i32; }
+
+        dealloc(c as *mut u8);
+    }
+    return 0i32;
+}
