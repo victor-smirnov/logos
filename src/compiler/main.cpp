@@ -2062,6 +2062,65 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     return buf + 8;
 }
 
+// parse_as — reify a runtime STRING into a spliceable AST fragment. Parses `s`
+// as one of a small curated set of exported grammar nonterminals (rule_id) and
+// returns an ExprBlob-ABI buffer: `[u64 size][serialized fragment-doc bytes]`,
+// pointer returned PAST the 8-byte size prefix (identical ABI to
+// logos_quote_expr_subst). The fragment splices into a quote_item! template at
+// the matching position through the EXISTING `#(exprblob)` path — try_blob_splice
+// copies the subtree verbatim and is agnostic to node kind, so a `type_param_list`
+// or `type_ref` node drops straight into the generics / receiver-type slot.
+//
+// This is the general "runtime string → AST" primitive that lets emitters keep
+// building fragments as strings (their strength) while splicing them HYGIENICALLY
+// into a structured quote template — instead of raw push_text for the whole item.
+//
+//   rule_id 0 = type_param_list  ("<T: Ord + CanonCol>")
+//   rule_id 1 = type_ref         ("VecCtr<T>", "i64", "&[u8]")
+//
+// The WHOLE string must parse and be consumed (trailing input → error → null).
+// Buffer is malloc'd; ownership transfers to the caller (freed via
+// logos_qib_free_blobs after splice, like any runtime ExprBlob).
+extern "C" const uint8_t* logos_parse_as(const uint8_t* s, uint64_t len,
+                                         uint32_t rule_id) {
+    if (!s || len == 0) return nullptr;
+    logos::compiler::LogosParser parser(
+        std::string_view(reinterpret_cast<const char*>(s), len));
+    logos::writ::Writ doc;
+    switch (rule_id) {
+        case 0: doc = parser.parse_type_param_list(); break;
+        case 1: doc = parser.parse_type_ref();        break;
+        default:
+            std::fprintf(stderr, "logos_parse_as: unknown rule_id %u\n", rule_id);
+            return nullptr;
+    }
+    if (doc.is_null()) {
+        std::fprintf(stderr, "logos_parse_as: parse failed (rule %u)\n", rule_id);
+        return nullptr;
+    }
+    if (!parser.at_eof()) {
+        std::fprintf(stderr,
+            "logos_parse_as: trailing input after rule %u (near line %u)\n",
+            rule_id, parser.next_line());
+        return nullptr;
+    }
+    auto packed_e = compactify(doc);
+    if (!packed_e) {
+        std::fprintf(stderr, "logos_parse_as: compactify failed\n");
+        return nullptr;
+    }
+    auto packed = std::move(packed_e).get();
+    auto& packed_arena = logos::writ::WritAccess::arena(packed);
+    const uint8_t* data = packed_arena.head().data();
+    size_t used = packed_arena.total_used();
+    uint8_t* buf = static_cast<uint8_t*>(std::malloc(8 + used));
+    if (!buf) return nullptr;
+    uint64_t sz = used;
+    std::memcpy(buf, &sz, 8);
+    std::memcpy(buf + 8, data, used);
+    return buf + 8;
+}
+
 // Slice 3 test fixture: parses an inline source string and exposes the
 // resulting Writ arena bytes through out-params. The handler then calls
 // logos_emit_item_blob with those bytes. Goes away once Slice 4's
@@ -2195,6 +2254,7 @@ static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
     return bind("logos_emit_source",               reinterpret_cast<void*>(&logos_emit_source))
         && bind("logos_emit_item_blob",            reinterpret_cast<void*>(&logos_emit_item_blob))
         && bind("logos_emit_item_blob_subst",      reinterpret_cast<void*>(&logos_emit_item_blob_subst))
+        && bind("logos_parse_as",                  reinterpret_cast<void*>(&logos_parse_as))
         && bind("logos_qib_pack_idents",           reinterpret_cast<void*>(&logos_qib_pack_idents))
         && bind("logos_qib_free_idents",           reinterpret_cast<void*>(&logos_qib_free_idents))
         && bind("logos_qib_pack_blobs",            reinterpret_cast<void*>(&logos_qib_pack_blobs))

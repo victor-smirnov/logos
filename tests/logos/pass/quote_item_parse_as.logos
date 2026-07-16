@@ -1,0 +1,40 @@
+// parse_as: reify runtime STRINGS into spliceable AST fragments and splice them
+// into a quote_item! template. `parse_type_params("<T: Bound>")` yields a
+// type_param_list fragment spliced at the impl generics position (`#(gp)`);
+// `parse_type("Box<T>")` yields a type_ref fragment spliced at the receiver
+// position (`#(bk)`). The generics header — including its bound — is thus
+// reified from a string with NO scalar-antiquot variant explosion. Regression
+// for the parse_as primitive + the `type_param_list <- #(expr)` splice alt.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+trait Bound {}
+impl Bound for i32 {}
+trait Show { fn label(self: &Self) -> i64; }
+struct Box<T> { v: T }
+
+#[metaprog_handler("parse_gen")]
+fn parse_gen_hook(target_offset: u32) -> () {
+    let gp: ExprBlob = parse_type_params("<T: Bound>");
+    let bk: ExprBlob = parse_type("Box<T>");
+    let gn: str = "Show";
+    let gid: Ident = Ident { ptr: gn.as_ptr(), len: gn.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        impl #(gp) #gid for #(bk) {
+            fn label(self: &Self) -> i64 { return 9i64; }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[parse_gen]
+struct Trigger {}
+
+fn main() -> i32 {
+    let b: Box<i32> = Box { v: 3i32 };
+    // parse_as reified `impl<T: Bound> Show for Box<T>` supplying label()=9.
+    return b.label() as i32 - 9i32;
+}

@@ -14,7 +14,7 @@
     output:    "logos_parser"
 }
 
-%export { module }
+%export { module type_param_list type_ref }
 
 // ── AST field keys ────────────────────────────────────────────────────────
 %fields {
@@ -3264,6 +3264,17 @@
     // Detection (TypeVar vs concrete) is done in sema, not in the grammar.
     type_param_list <- LT type_param (COMMA type_param)* COMMA? GT
                     => { ITEMS: $... }
+                     // Whole-list splice: `#(blob)` where blob is an ExprBlob
+                     // carrying a serialized `type_param_list` AST (produced by
+                     // parse_as at metaprog runtime). The `{NAME_VAR:expr}`
+                     // placeholder is routed to the blob-splice path by
+                     // lower_quote_item (ExprBlob-typed antiquot) and replaced
+                     // WHOLE by try_blob_splice — so the impl/fn generics header
+                     // can be reified from a runtime string ("<T: Ord + CanonCol>")
+                     // without a scalar-antiquot variant explosion. Only meaningful
+                     // inside quote_item! bodies (sema gates elsewhere).
+                     / HASH LPAREN expr RPAREN
+                    => { NAME_VAR: $3 }
 
     // HRTB: `for<'a (, 'b)*> Trait<...>`. Logos doesn't track
     // lifetimes structurally, so the binder is parsed-then-dropped —
