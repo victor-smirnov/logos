@@ -1229,6 +1229,17 @@ std::string SemaChecker::render_variant_def_src_(TinyMapView node) {
     return s;
 }
 
+std::string SemaChecker::render_vis_prefix_(TinyMapView node) {
+    if (!flag_set(node, la::IS_PUB)) return {};
+    std::string scope;
+    if (node.has_key(la::VIS)) {
+        auto v = map_of(node.get(la::VIS.code));
+        if (!v.is_null() && v.has_key(la::NAME))
+            scope = std::string(str_of(v.get(la::NAME.code)));
+    }
+    return scope.empty() ? std::string("pub ") : "pub(" + scope + ") ";
+}
+
 std::string SemaChecker::render_item_src(TinyMapView node) {
     if (node.is_null()) return "";
     int32_t c = code_of(node);
@@ -1246,8 +1257,7 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
     }
 
     case la::CONST_DEF: {
-        std::string s;
-        if (flag_set(node, la::IS_PUB)) s += "pub ";
+        std::string s = render_vis_prefix_(node);
         s += "const ";
         s += std::string(str_of(node.get(la::NAME.code)));
         if (node.has_key(la::TYPE_PARAMS))
@@ -1267,8 +1277,7 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
     }
 
     case la::TYPE_ALIAS: {
-        std::string s;
-        if (flag_set(node, la::IS_PUB)) s += "pub ";
+        std::string s = render_vis_prefix_(node);
         s += "type ";
         s += std::string(str_of(node.get(la::NAME.code)));
         if (node.has_key(la::TYPE_PARAMS))
@@ -1280,8 +1289,7 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
     }
 
     case la::ENUM: {
-        std::string s;
-        if (flag_set(node, la::IS_PUB)) s += "pub ";
+        std::string s = render_vis_prefix_(node);
         s += "enum ";
         if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
         else if (node.has_key(la::NAME_VAR)) s += "<antiquot>";
@@ -1305,8 +1313,7 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
     }
 
     case la::STRUCT: {
-        std::string s;
-        if (flag_set(node, la::IS_PUB)) s += "pub ";
+        std::string s = render_vis_prefix_(node);
         s += "struct ";
         if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
         else if (node.has_key(la::NAME_VAR)) s += "<antiquot>";
@@ -1325,41 +1332,37 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
             s += render_field_def_src_(map_of(fields.get(i)));
             s += ",\n";
         }
-        s += "}";
-        // Inherent methods stored alongside (ITEMS) — render after the struct
-        // body as `impl Name { ... }` for round-trippable output. The parser
-        // accepts the legacy `struct Foo { fields, fn ... }` form too, but
-        // splitting is clearer.
+        // Inherent methods stored alongside (ITEMS) — render INLINE in the
+        // struct body (the `struct Foo { fields, fn … }` form the parser
+        // accepts). Keeping them inside preserves the item shape across a
+        // render→reparse round-trip (--gen-dir swaps the synth doc for the
+        // reparse; a split-off `impl` would change the top-level census).
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
-            if (items.size() > 0) {
-                s += "\n\nimpl ";
-                if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
-                if (node.has_key(la::TYPE_PARAMS))
-                    s += render_type_param_list_(map_of(node.get(la::TYPE_PARAMS.code)));
-                s += " {\n";
-                for (uint64_t i = 0; i < items.size(); ++i) {
-                    auto sub = render_item_src(map_of(items.get(i)));
-                    // Indent each line.
-                    std::string indented;
-                    size_t start = 0;
-                    while (start < sub.size()) {
-                        size_t nl = sub.find('\n', start);
-                        if (nl == std::string::npos) {
-                            indented += "    ";
-                            indented += sub.substr(start);
-                            break;
-                        }
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto child = map_of(items.get(i));
+                int32_t cc = code_of(child);
+                if (cc < 0) continue;   // `$...` junk
+                auto sub = render_item_src(child);
+                if (sub.empty()) continue;
+                std::string indented;
+                size_t start = 0;
+                while (start < sub.size()) {
+                    size_t nl = sub.find('\n', start);
+                    if (nl == std::string::npos) {
                         indented += "    ";
-                        indented += sub.substr(start, nl - start + 1);
-                        start = nl + 1;
+                        indented += sub.substr(start);
+                        break;
                     }
-                    s += indented;
-                    s += "\n";
+                    indented += "    ";
+                    indented += sub.substr(start, nl - start + 1);
+                    start = nl + 1;
                 }
-                s += "}";
+                s += indented;
+                s += "\n";
             }
         }
+        s += "}";
         return s;
     }
 
@@ -1430,9 +1433,10 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
 
     case la::FN:
     case la::EXTERN_FN:
-    case la::STATIC_FN: {
-        std::string s;
-        if (flag_set(node, la::IS_PUB))    s += "pub ";
+    case la::STATIC_FN:
+    case la::ABSTRACT_FN: {
+        std::string s = render_vis_prefix_(node);
+        if (c == la::STATIC_FN.code)       s += "static ";
         if (flag_set(node, la::IS_UNSAFE)) s += "unsafe ";
         if (c == la::EXTERN_FN.code)       s += "extern ";
         s += "fn ";
@@ -1524,6 +1528,109 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
             : std::string("/* metacall consumed */");
     }
 
+    case la::STATIC_DEF: {
+        std::string s = render_vis_prefix_(node);
+        s += "static ";
+        if (flag_set(node, la::IS_MUT)) s += "mut ";
+        s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::TYPE)) {
+            s += ": ";
+            s += render_type_src(map_of(node.get(la::TYPE.code)));
+        }
+        if (node.has_key(la::VALUE)) {
+            s += " = ";
+            s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        }
+        s += ";";
+        return s;
+    }
+
+    case la::TRAIT_DEF: {
+        std::string s = render_vis_prefix_(node);
+        if (flag_set(node, la::IS_AUTO))   s += "auto ";
+        if (flag_set(node, la::IS_UNSAFE)) s += "unsafe ";
+        s += "trait ";
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        else if (node.has_key(la::NAME_VAR)) s += "<antiquot>";
+        if (node.has_key(la::TYPE_PARAMS))
+            s += render_type_param_list_(map_of(node.get(la::TYPE_PARAMS.code)));
+        if (node.has_key(la::SUPERS)) {
+            auto sup = map_of(node.get(la::SUPERS.code));
+            if (!sup.is_null() && sup.has_key(la::ITEMS)) {
+                auto bs = arr_of(sup.get(la::ITEMS.code));
+                std::string joined;
+                for (uint64_t i = 0; i < bs.size(); ++i) {
+                    auto b = map_of(bs.get(i));
+                    if (code_of(b) != la::TRAIT_BOUND.code) continue;
+                    if (!joined.empty()) joined += " + ";
+                    joined += std::string(str_of(b.get(la::NAME.code)));
+                }
+                if (!joined.empty()) { s += ": "; s += joined; }
+            }
+        }
+        s += " {\n";
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto child = map_of(items.get(i));
+                int32_t cc = code_of(child);
+                // `$...` collector junk (pub_vis / type-param / supers
+                // aliases) is CODE-less or type-positional — skip it, keep
+                // real members (methods, rels, assoc items).
+                if (cc < 0 || cc == la::TRAIT_BOUND.code
+                    || cc == la::TYPE_PARAM.code) continue;
+                auto sub = render_item_src(child);
+                if (sub.empty()) continue;
+                std::string indented;
+                size_t start = 0;
+                while (start < sub.size()) {
+                    size_t nl = sub.find('\n', start);
+                    if (nl == std::string::npos) {
+                        indented += "    ";
+                        indented += sub.substr(start);
+                        break;
+                    }
+                    indented += "    ";
+                    indented += sub.substr(start, nl - start + 1);
+                    start = nl + 1;
+                }
+                s += indented;
+                s += "\n";
+            }
+        }
+        s += "}";
+        return s;
+    }
+
+    case la::REL_SIG:
+    case la::REL_DEF: {
+        // `rel name(col: ty, …);` — a trait-position rel signature (REL_SIG,
+        // no body) or a mapping rel (REL_DEF, RAW_TEXT body verbatim).
+        std::string s;
+        if (flag_set(node, la::IS_PUB)) s += "pub ";
+        s += "rel ";
+        s += std::string(str_of(node.get(la::NAME.code)));
+        s += render_param_list_(map_of(node.get(la::PARAMS.code)));
+        if (node.has_key(la::RAW_TEXT)) {
+            s += " {";
+            s += std::string(str_of(node.get(la::RAW_TEXT.code)));
+            s += "}";
+        } else {
+            s += ";";
+        }
+        return s;
+    }
+
+    case la::REL_BIND: {
+        // `rel name = materializer;` (impl member, ADR 0016 §6).
+        std::string s = "rel ";
+        s += std::string(str_of(node.get(la::NAME.code)));
+        s += " = ";
+        s += std::string(str_of(node.get(la::VALUE.code)));
+        s += ";";
+        return s;
+    }
+
     default:
         return std::format("/* render_item: unsupported AST code {} */", c);
     }
@@ -1609,17 +1716,42 @@ std::string SemaChecker::render_writ_val_inner_(TinyMapView node) {
 std::string SemaChecker::render_module_src(TinyMapView node) {
     // MODULE: NAME, PATH_PARTS, USES, ITEMS.
     if (node.is_null() || code_of(node) != la::MODULE) return "";
-    std::string s = "package ";
-    s += std::string(str_of(node.get(la::NAME.code)));
-    s += render_path_parts_(node);
-    s += ";\n\n";
-    if (node.has_key(la::USES)) {
-        auto uses = arr_of(node.get(la::USES.code));
-        for (uint64_t i = 0; i < uses.size(); ++i) {
-            s += render_item_src(map_of(uses.get(i)));
-            s += "\n";
+    std::string pkg_name = std::string(str_of(node.get(la::NAME.code)))
+                         + render_path_parts_(node);
+    std::string s = "package " + pkg_name + ";\n\n";
+    // Imports: the USES array PLUS any USE nodes aliased into ITEMS by the
+    // `$...` collector. For metaprog synth docs the ITEMS-resident copies are
+    // the SUBSTITUTED ones (quote-carried `use #pkg;` gets its placeholder
+    // index through the ITEMS walk), so both sources must be considered.
+    // Hoisted, text-deduped; empty (unresolved/dropped) and self-package
+    // imports are skipped — a rendered module must reparse cleanly.
+    {
+        std::set<std::string> seen;
+        std::string uses_out;
+        auto add_use = [&](TinyMapView u) {
+            if (u.is_null() || code_of(u) != la::USE.code) return;
+            std::string one = render_item_src(u);
+            if (one == "use ;" || one == "pub use ;") return;      // unresolved
+            if (one == "use " + pkg_name + ";") return;            // self-import
+            if (!seen.insert(one).second) return;
+            uses_out += one;
+            uses_out += "\n";
+        };
+        if (node.has_key(la::USES)) {
+            auto uses = arr_of(node.get(la::USES.code));
+            for (uint64_t i = 0; i < uses.size(); ++i)
+                add_use(map_of(uses.get(i)));
         }
-        if (uses.size() > 0) s += "\n";
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto av = items.get(i);
+                if (av.is_null()) continue;
+                auto item = map_of(av);
+                if (code_of(item) == la::USE.code) add_use(item);
+            }
+        }
+        if (!uses_out.empty()) { s += uses_out; s += "\n"; }
     }
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
@@ -1627,9 +1759,7 @@ std::string SemaChecker::render_module_src(TinyMapView node) {
             auto av = items.get(i);
             if (av.is_null()) continue;  // empty slots from PEG flat-array capture
             auto item = map_of(av);
-            // Module ITEMS may include USE nodes (PEG `$...` capture
-            // pulled them in alongside USES). They were already
-            // rendered above; skip duplicates here.
+            // USE nodes were hoisted into the imports block above.
             int32_t ic = code_of(item);
             if (ic == la::USE.code || ic < 0) continue;
             s += render_item_src(item);

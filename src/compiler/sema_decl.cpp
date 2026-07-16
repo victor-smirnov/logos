@@ -966,7 +966,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // loop can invoke them. The final non-metaprog sema pass lowers
     // everything for real.
     bool is_synth_blob = file_ == "<metaprog-blob-subst>"
-                      || file_ == "<test_main_synth>";
+                      || file_ == "<test_main_synth>"
+                      // --gen-dir: blob-subst chunks renamed to their dump
+                      // file keep the same discovery-pass stub semantics.
+                      || file_.ends_with(".gen.logos");
     // Impl methods on a yet-to-be-derived target struct (e.g. cow.logos's
     // `impl BTreeNode for BranchNode { ... }` where BranchNode is emitted
     // by a #[derive_branch_node] hook on a sibling struct) cascade if

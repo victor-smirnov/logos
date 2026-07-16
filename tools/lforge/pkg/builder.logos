@@ -104,7 +104,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     // ── Generate .module manifest text only when there are Logos files ──
     let mut man_path: String = String::new();
     if n_src > 0 as i64 {
-        let gd: String = gen_dir_for(profile);
+        let gd: String = gensrc_dir_for(profile);
         let gd_view: str = gd.as_str();
         match mkdir_p(gd_view) {
             Result::Err(_) => { println_str(2, "lforge: cannot create _gen dir"); return 1; }
@@ -178,6 +178,13 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
         push_arg(&mut argv, "-o");
         push_string_arg(&mut argv, &prefix);
         profile_compile_flags(profile, &mut argv);
+        // Generated sources: readable dumps + debugger-visible line info
+        // (the dump path IS the DWARF file for quote-emitted code).
+        {
+            let gd: String = gensrc_dir_for(profile);
+            push_arg(&mut argv, "--gen-dir");
+            largv_push_abs(&mut argv, &gd);
+        }
         if dump_dir.len() > 0 as i64 {
             push_arg(&mut argv, "--dump-metaprog");
             push_string_arg(&mut argv, dump_dir);
@@ -505,6 +512,11 @@ pub fn build_bin(t: &Target,
     push_arg(&mut argv, "-o");
     push_string_arg(&mut argv, &obj_path);
     profile_compile_flags(profile, &mut argv);
+    {
+        let gd: String = gensrc_dir_for(profile);
+        push_arg(&mut argv, "--gen-dir");
+        largv_push_abs(&mut argv, &gd);
+    }
     if dump_dir.len() > 0 as i64 {
         push_arg(&mut argv, "--dump-metaprog");
         push_string_arg(&mut argv, dump_dir);

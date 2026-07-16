@@ -5027,6 +5027,9 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
     nf.str_always(dk::NAME,         fn.name());
     nf.str(dk::METHOD_BASE,         fn.method_base());
     nf.str(dk::PKG,                 fn.package());
+    // DWARF: the instance keeps its template's file — without this every
+    // mono'd fn loses SOURCE_FILE and debug info collapses to main_source_.
+    nf.str(dk::SOURCE_FILE,         fn.source_file());
     if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
     // Propagate visibility onto the instance: a `pub` template's instantiation
     // is itself part of the public ABI surface. Nothing in codegen keys on this
@@ -5146,6 +5149,9 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
     nf.str_always(dk::NAME,         fn.name());
     nf.str(dk::METHOD_BASE,         fn.method_base());
     nf.str(dk::PKG,                 fn.package());
+    // DWARF: the instance keeps its template's file — without this every
+    // mono'd fn loses SOURCE_FILE and debug info collapses to main_source_.
+    nf.str(dk::SOURCE_FILE,         fn.source_file());
     if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
     if (fn.is_pub())      nf.flag(dk::IS_PUB, true);  // ABI pub-allowlist — see clone_fn.
     if (fn.is_macro_hook()) nf.flag(dk::IS_MACRO_HOOK, true);  // ABI pub-allowlist — see clone_fn.

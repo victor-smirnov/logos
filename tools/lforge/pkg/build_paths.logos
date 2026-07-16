@@ -107,6 +107,18 @@ pub fn out_dir_for(profile: str) -> String {
     return d;
 }
 
+// Metaprog-generated sources (`logosc --gen-dir`): every quote-emitted module
+// lands here as a readable .gen.logos file, and (debug profile) DWARF points
+// at it — the debugger lists generated code from this directory. Distinct
+// from gen_dir_for (the --dump-metaprog display-dump dir, `/_gen`).
+pub fn gensrc_dir_for(profile: str) -> String {
+    let mut d: String = String::new();
+    d.push_str(".lforge/");
+    d.push_str(profile);
+    d.push_str("/gen");
+    return d;
+}
+
 // Per-profile compiler-version stamp: records the `logosc --version` that
 // produced this profile's outputs. On the next build, a mismatch forces a full
 // rebuild (the toolchain changed → existing .o/.a/bin may be invalid even though

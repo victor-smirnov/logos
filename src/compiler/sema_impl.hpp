@@ -4400,6 +4400,8 @@ private:
     std::string render_param_list_(writ::TinyMapView node);
     std::string render_field_def_src_(writ::TinyMapView node);
     std::string render_variant_def_src_(writ::TinyMapView node);
+    // `pub ` / `pub(module) ` / "" — §4 visibility prefix of an item decl.
+    std::string render_vis_prefix_(writ::TinyMapView node);
     // Syntactic type walk used when dump_syntactic_types_ is on (fresh
     // checker with empty type pool — resolve_type would fail).
     std::string render_type_src_syntactic_(writ::TinyMapView node);

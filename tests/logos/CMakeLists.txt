@@ -793,6 +793,24 @@ set_tests_properties(logos_08_lint_inline_typebuilder PROPERTIES
     LABELS  "logos;lint;suite_lint"
 )
 
+# --gen-dir round-trip gate: quote-emitted modules dump as .gen.logos, the
+# dump reparses cleanly (no fidelity fallback), and DWARF references it —
+# the debugger lists generated code. One representative per corpus axis:
+# vis/trait/impl/struct (vis_antiquote) and dyn/opt uses (opt_use).
+foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse_as)
+    add_test(
+        NAME logos_09_gendir_${GENDIR_CASE}
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run_gendir_test.sh
+                $<TARGET_FILE:logosc>
+                ${CMAKE_CURRENT_SOURCE_DIR}/pass/${GENDIR_CASE}.logos
+    )
+    set_tests_properties(logos_09_gendir_${GENDIR_CASE} PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;pass;suite_semantic_core"
+        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+    )
+endforeach()
+
 # Diagnostics: --diag-format=json + structured exit codes (B0.2).
 add_test(
     NAME logos_09_diag_json_format
