@@ -104,7 +104,7 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
     // ── Generate .module manifest text only when there are Logos files ──
     let mut man_path: String = String::new();
     if n_src > 0 as i64 {
-        let gd: String = gensrc_dir_for(profile);
+        let gd: String = gen_dir_for(profile);
         let gd_view: str = gd.as_str();
         match mkdir_p(gd_view) {
             Result::Err(_) => { println_str(2, "lforge: cannot create _gen dir"); return 1; }

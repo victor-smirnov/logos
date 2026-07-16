@@ -10335,6 +10335,7 @@ sym	logos_mem..logos.std.compiler.metaprog.Type__is_pointer__f__ref_Type
 sym	logos_mem..logos.std.compiler.metaprog.Type__is_primitive__f__ref_Type
 sym	logos_mem..logos.std.compiler.metaprog.Type__is_struct__f__ref_Type
 sym	logos_mem..logos.std.compiler.metaprog.Type__is_void__f__ref_Type
+sym	logos_mem..logos.std.compiler.tokens.Ident__new__f__slice_u8
 sym	logos_mem..logos.std.compiler.tokens.TokenStream__is_empty__f__ref_TokenStream
 sym	logos_mem..logos.std.compiler.tokens.TokenStream__length__f__ref_TokenStream
 sym	logos_mem..logos.std.compiler.tokens.TokenStream__push__f__refmut_TokenStream__TokenTree
