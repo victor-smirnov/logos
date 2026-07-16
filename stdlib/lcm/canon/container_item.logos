@@ -415,76 +415,46 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
     // Generics header string (verbatim + CanonCol on bound_param; "" = concrete).
     let gen_s: String = build_generics(cs.generics, bound_param);
 
-    // ── source trait + scan materializer fn (pub axis) ──────────────────────
-    // The generics list, backing type, rel/col types and the push expression are
-    // all reified from runtime strings (parse_type_params / parse_type /
-    // quote_expr!) and spliced into one hygienic template — no push_text.
-    if cs.is_pub {
-        let rt: ExprBlob = parse_type(relty);
-        let gp: ExprBlob = parse_type_params(gen_s.as_str());
-        let bk: ExprBlob = parse_type(cs.backing);
-        let ct: ExprBlob = parse_type(col_ty);
-        let r1: ExprBlob = parse_type(relty);
-        let r2: ExprBlob = parse_type(relty);
-        let r3: ExprBlob = parse_type(relty);
-        let pv: ExprBlob = if direct { quote_expr! { e } } else { quote_expr! { e.canon_col() } };
-        let b: QuoteItemBlob = quote_item! {
-            use logos.mem.collections.vec;
-            use #canonid?;
-            use #bpkgid?;
-            pub trait #srcnm { rel row(pos: i64, #colnm: #(rt)); }
-            pub fn #(rowsfn) #(gp) (c: &#(bk)) -> Vec<(i64, #(r1))> {
-                let mut out: Vec<(i64, #(r2))> = vec_new::<(i64, #(r3))>();
-                let n: i64 = c.count();
-                let mut i: i64 = 0i64;
-                while i < n {
-                    let e: #(ct) = c.get(i);
-                    out.push((i, #(pv)));
-                    i = i + 1i64;
-                }
-                return out;
+    // ── source trait + scan materializer fn ─────────────────────────────────
+    // ONE template: the generics list, backing type, rel/col types and the push
+    // expression are reified from runtime strings (parse_type_params /
+    // parse_type / quote_expr!) — ExprBlob is Copy, so each fragment splices at
+    // all its sites — and the pub axis is the `pub(#vis)` visibility antiquote
+    // ("pub" / "" = private) instead of a blob-variant pair.
+    let vis_s: str = if cs.is_pub { "pub" } else { "" };
+    let vis: Ident = Ident { ptr: vis_s.as_ptr(), len: vis_s.len() as u64 };
+    let rt: ExprBlob = parse_type(relty);
+    let gp: ExprBlob = parse_type_params(gen_s.as_str());
+    let bk: ExprBlob = parse_type(cs.backing);
+    let ct: ExprBlob = parse_type(col_ty);
+    let pv: ExprBlob = if direct { quote_expr! { e } } else { quote_expr! { e.canon_col() } };
+    let b: QuoteItemBlob = quote_item! {
+        use logos.mem.collections.vec;
+        use #canonid?;
+        use #bpkgid?;
+        pub(#vis) trait #srcnm { rel row(pos: i64, #colnm: #(rt)); }
+        pub(#vis) fn #rowsfn #(gp) (c: &#(bk)) -> Vec<(i64, #(rt))> {
+            let mut out: Vec<(i64, #(rt))> = vec_new::<(i64, #(rt))>();
+            let n: i64 = c.count();
+            let mut i: i64 = 0i64;
+            while i < n {
+                let e: #(ct) = c.get(i);
+                out.push((i, #(pv)));
+                i = i + 1i64;
             }
-        };
-        unsafe { logos_emit_item_blob_subst(&b); }
-    } else {
-        let rt: ExprBlob = parse_type(relty);
-        let gp: ExprBlob = parse_type_params(gen_s.as_str());
-        let bk: ExprBlob = parse_type(cs.backing);
-        let ct: ExprBlob = parse_type(col_ty);
-        let r1: ExprBlob = parse_type(relty);
-        let r2: ExprBlob = parse_type(relty);
-        let r3: ExprBlob = parse_type(relty);
-        let pv: ExprBlob = if direct { quote_expr! { e } } else { quote_expr! { e.canon_col() } };
-        let b: QuoteItemBlob = quote_item! {
-            use logos.mem.collections.vec;
-            use #canonid?;
-            use #bpkgid?;
-            trait #srcnm { rel row(pos: i64, #colnm: #(rt)); }
-            fn #(rowsfn) #(gp) (c: &#(bk)) -> Vec<(i64, #(r1))> {
-                let mut out: Vec<(i64, #(r2))> = vec_new::<(i64, #(r3))>();
-                let n: i64 = c.count();
-                let mut i: i64 = 0i64;
-                while i < n {
-                    let e: #(ct) = c.get(i);
-                    out.push((i, #(pv)));
-                    i = i + 1i64;
-                }
-                return out;
-            }
-        };
-        unsafe { logos_emit_item_blob_subst(&b); }
-    }
+            return out;
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&b); }
 
-    // ── impl rel binding (impls are never pub; generics via #(gp)) ──────────
+    // ── impl rel binding (impls are never pub; gp/bk blobs reused — Copy) ───
     {
-        let gp: ExprBlob = parse_type_params(gen_s.as_str());
-        let bk: ExprBlob = parse_type(cs.backing);
-        let b: QuoteItemBlob = quote_item! {
+        let b2: QuoteItemBlob = quote_item! {
             use #canonid?;
             use #bpkgid?;
             impl #(gp) #srcnm for #(bk) { rel row = #rowsfn; }
         };
-        unsafe { logos_emit_item_blob_subst(&b); }
+        unsafe { logos_emit_item_blob_subst(&b2); }
     }
 }
 
