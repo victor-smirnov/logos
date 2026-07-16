@@ -546,6 +546,14 @@
 
     use_decl :group mod: <- KW_USE IDENT path_dot_ident* IDENT use_module SEMI
              => { CODE: USE, NAME: $2, PATH_PARTS: $3, FROM_KW: $4, FROM_MODULE: $5 }
+                          // Antiquot package path (`use #pkg;`); NAME_VAR holds an
+                          // ident-placeholder resolved at splice time to the FULL
+                          // dotted path string (e.g. "logos.mem.pkd"). The import
+                          // resolver joins NAME + PATH_PARTS into one dotted string,
+                          // so a pre-dotted NAME with no PATH_PARTS resolves whole.
+                          // Only legal inside quote_item! bodies (sema gates).
+                          / KW_USE HASH IDENT SEMI
+             => { CODE: USE, NAME_VAR: $3 }
                           / KW_USE IDENT path_dot_ident* SEMI
              => { CODE: USE, NAME: $2, PATH_PARTS: $3 }
 

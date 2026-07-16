@@ -1,0 +1,41 @@
+// Dynamic package path in a quote_item! `use` — the path comes from a runtime
+// ident (`use #pid;`) rather than a literal (`use logos.mem.collections.vec;`).
+// The NAME_VAR placeholder is resolved at splice time to the FULL dotted path
+// string; the import resolver joins NAME + PATH_PARTS into one dotted string, so
+// a pre-dotted NAME with empty PATH_PARTS resolves whole. Same shape as
+// quote_item_use, but the import is antiquoted. Regression for the
+// `use #pkg;` grammar alt (GAP F).
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+#[metaprog_handler("dyn_use")]
+fn dyn_use_hook(target_offset: u32) -> () {
+    let s: str = "Gen2";
+    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let pkg: str = "logos.mem.collections.vec";
+    let pid: Ident = Ident { ptr: pkg.as_ptr(), len: pkg.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        use #pid;
+        struct #id { }
+        impl #id {
+            pub static fn sum() -> i64 {
+                let mut v: Vec<i64> = vec_new::<i64>();
+                v.push(41i64);
+                v.push(1i64);
+                return v.get(0i64) + v.get(1i64);
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[dyn_use]
+struct Marker2 {}
+
+fn main() -> i32 {
+    // 41 + 1 = 42; Vec resolved via the antiquoted dynamic `use #pid;`.
+    return Gen2::sum() as i32 - 42i32;
+}
