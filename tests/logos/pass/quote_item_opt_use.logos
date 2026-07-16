@@ -13,11 +13,11 @@ use logos.lang.writ.wstatic;
 #[metaprog_handler("opt_use")]
 fn opt_use_hook(target_offset: u32) -> () {
     let s: str = "Gen3";
-    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let id: Ident = Ident::new(s);
     let present: str = "logos.lang.str";
-    let pid: Ident = Ident { ptr: present.as_ptr(), len: present.len() as u64 };
+    let pid: Ident = Ident::new(present);
     let absent: str = "";
-    let aid: Ident = Ident { ptr: absent.as_ptr(), len: absent.len() as u64 };
+    let aid: Ident = Ident::new(absent);
     let blob: QuoteItemBlob = quote_item! {
         use #pid?;
         use #aid?;

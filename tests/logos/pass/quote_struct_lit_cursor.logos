@@ -15,14 +15,14 @@ use logos.lang.writ.wstatic;
 fn struct_lit_cursor_inject_hook(target_offset: u32) -> () {
     let s_a: str = "a";
     let s_b: str = "b";
-    let f_a: Ident = Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 };
-    let f_b: Ident = Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 };
+    let f_a: Ident = Ident::new(s_a);
+    let f_b: Ident = Ident::new(s_b);
     let fnames: [Ident; 2] = [f_a, f_b];
 
     let s_build: str = "build_pair";
-    let id_build: Ident = Ident { ptr: s_build.as_ptr(), len: s_build.len() as u64 };
+    let id_build: Ident = Ident::new(s_build);
     let s_read: str = "read_a";
-    let id_read: Ident = Ident { ptr: s_read.as_ptr(), len: s_read.len() as u64 };
+    let id_read: Ident = Ident::new(s_read);
 
     let body_build: ExprBlob = quote_expr! {
         PairS { #( #fnames: 7i32 ),* }

@@ -13,7 +13,7 @@ use logos.lang.str;
 fn main() -> i32 {
     let mut ts: TokenStream = token_stream_new();
 
-    let nm: Ident = Ident { ptr: "foo".as_ptr(), len: 3u64 };
+    let nm: Ident = Ident::new("foo");
     ts.push(TokenTree::Ident(nm, span_unknown()));
     ts.push(TokenTree::Punct('+', Spacing::Alone, span_unknown()));
     ts.push(TokenTree::Literal(LitKind::Int, String::from("42"), span_unknown()));

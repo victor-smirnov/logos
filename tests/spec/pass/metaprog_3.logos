@@ -54,7 +54,7 @@ fn plat() -> i32 { return 20i32; }
 #[metaprog_handler("emit_single")]
 fn emit_single_hook(_target_offset: u32) -> () {
     let s_fn: str = "handler_single_marker";
-    let id_fn: Ident = Ident { ptr: s_fn.as_ptr(), len: s_fn.len() as u64 };
+    let id_fn: Ident = Ident::new(s_fn);
     let blob: QuoteItemBlob = quote_item! {
         fn #(id_fn)() -> i32 { return 33i32; }
     };
@@ -70,11 +70,11 @@ struct SingleTarget {}
 pub fn emit_pair(args: Vec<ExprBlob>) -> ItemList {
     let mut out: ItemList = item_list_new();
     let s_a: str = "il_alpha";
-    let id_a: Ident = Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 };
+    let id_a: Ident = Ident::new(s_a);
     let b1: QuoteItemBlob = quote_item! { fn #(id_a)() -> i32 { return 4i32; } };
     unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b1); }
     let s_b: str = "il_beta";
-    let id_b: Ident = Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 };
+    let id_b: Ident = Ident::new(s_b);
     let b2: QuoteItemBlob = quote_item! { fn #(id_b)() -> i32 { return 5i32; } };
     unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b2); }
     return out;
@@ -118,7 +118,7 @@ fn quoted_binop() -> ExprBlob {
 //  metaprog.quote-expr.antiquot-carrier-positions: VAR_REF carrier).
 fn quoted_var() -> ExprBlob {
     let s: str = "yy";
-    let foo: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let foo: Ident = Ident::new(s);
     return quote_expr! { #foo };
 }
 

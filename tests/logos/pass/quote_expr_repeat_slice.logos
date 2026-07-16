@@ -18,9 +18,9 @@ fn build_expr() -> ExprBlob {
     let s_c: str = "c";
     let mut xs: Vec<Ident> = Vec::<Ident>::new();
     unsafe {
-        (&mut xs as *mut Vec<Ident>).push(Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 });
-        (&mut xs as *mut Vec<Ident>).push(Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 });
-        (&mut xs as *mut Vec<Ident>).push(Ident { ptr: s_c.as_ptr(), len: s_c.len() as u64 });
+        (&mut xs as *mut Vec<Ident>).push(Ident::new(s_a));
+        (&mut xs as *mut Vec<Ident>).push(Ident::new(s_b));
+        (&mut xs as *mut Vec<Ident>).push(Ident::new(s_c));
     }
     return quote_expr! { add3(#(#xs),*) };
 }

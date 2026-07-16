@@ -20,9 +20,9 @@ fn build_expr() -> ExprBlob {
     let s_b: str = "b";
     let s_c: str = "c";
     let xs: [Ident; 3] = [
-        Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 },
-        Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 },
-        Ident { ptr: s_c.as_ptr(), len: s_c.len() as u64 },
+        Ident::new(s_a),
+        Ident::new(s_b),
+        Ident::new(s_c),
     ];
     return quote_expr! { add3(#(#xs),*) };
 }

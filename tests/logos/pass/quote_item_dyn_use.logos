@@ -13,9 +13,9 @@ use logos.lang.writ.wstatic;
 #[metaprog_handler("dyn_use")]
 fn dyn_use_hook(target_offset: u32) -> () {
     let s: str = "Gen2";
-    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let id: Ident = Ident::new(s);
     let pkg: str = "logos.lang.str";
-    let pid: Ident = Ident { ptr: pkg.as_ptr(), len: pkg.len() as u64 };
+    let pid: Ident = Ident::new(pkg);
     let blob: QuoteItemBlob = quote_item! {
         use #pid;
         struct #id { }

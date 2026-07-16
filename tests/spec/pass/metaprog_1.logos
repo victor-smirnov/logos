@@ -31,7 +31,7 @@ pub fn arr3(elems: Vec<ExprBlob>) -> ExprBlob { return quote_expr! { [#(#elems),
 pub fn emit_marker() -> ItemList {
     let mut out: ItemList = item_list_new();
     let s: str = "FmMarker";
-    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let id: Ident = Ident::new(s);
     let b: QuoteItemBlob = quote_item! { struct #id { v: i32 } };
     unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
     return out;

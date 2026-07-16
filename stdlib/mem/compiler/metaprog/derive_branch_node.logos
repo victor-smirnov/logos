@@ -211,7 +211,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
         Ident { ptr: branch_name_ptr, len: branch_name_len }
     } else {
         let s: str = "BranchNodeMP";
-        Ident { ptr: s.as_ptr(), len: s.len() as u64 }
+        Ident::new(s)
     };
 
     // Op-list discovery. Each op is a WRIT_MAP with keys

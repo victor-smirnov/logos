@@ -14,7 +14,7 @@ use logos.lang.writ.wstatic;
 #[metaprog_handler("antiquot_inject")]
 fn antiquot_inject_hook(target_offset: u32) -> () {
     let s: str = "Synthesised";
-    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let id: Ident = Ident::new(s);
     let blob: QuoteItemBlob = quote_item! {
         struct #id { x: i32 }
     };

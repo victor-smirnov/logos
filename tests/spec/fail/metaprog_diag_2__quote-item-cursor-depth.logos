@@ -9,7 +9,7 @@ use logos.lang.writ.anyval;
 #[metaprog_handler("gen_depth")]
 fn gen_depth_hook(target_offset: u32) -> () {
     let s: str = "a";
-    let nm: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let nm: Ident = Ident::new(s);
     let blob: QuoteItemBlob = quote_item! {
         struct Derived {
             #( #nm: u64 ),*

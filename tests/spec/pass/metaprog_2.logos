@@ -34,7 +34,7 @@ struct Pt { x: i32, y: i32 }
 fn emit_one() -> ItemList {
     let mut out: ItemList = item_list_new();
     let s: str = "Spliced";
-    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let id: Ident = Ident::new(s);
     let b: QuoteItemBlob = quote_item! {
         struct #id { v: i32 }
     };

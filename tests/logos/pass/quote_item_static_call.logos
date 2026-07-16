@@ -13,7 +13,7 @@ use logos.lang.writ.wstatic;
 #[metaprog_handler("static_call_inject")]
 fn static_call_inject_hook(target_offset: u32) -> () {
     let s: str = "Gen";
-    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let id: Ident = Ident::new(s);
     let blob: QuoteItemBlob = quote_item! {
         struct #id { x: i32 }
         impl #id {

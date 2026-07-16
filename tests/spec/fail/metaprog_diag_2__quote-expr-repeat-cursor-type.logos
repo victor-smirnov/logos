@@ -6,7 +6,7 @@ use logos.lang.writ.wstatic;
 
 fn build_expr() -> ExprBlob {
     let s: str = "a";
-    let foo: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let foo: Ident = Ident::new(s);
     return quote_expr! { #( #foo ),* };
 }
 

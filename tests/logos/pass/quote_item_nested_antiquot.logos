@@ -13,8 +13,8 @@ use logos.lang.writ.wstatic;
 fn nested_antiquot_inject_hook(target_offset: u32) -> () {
     let s_struct: str = "Wrapper";
     let s_field: str = "i64";
-    let id_struct: Ident = Ident { ptr: s_struct.as_ptr(), len: s_struct.len() as u64 };
-    let id_field: Ident = Ident { ptr: s_field.as_ptr(), len: s_field.len() as u64 };
+    let id_struct: Ident = Ident::new(s_struct);
+    let id_field: Ident = Ident::new(s_field);
     let blob: QuoteItemBlob = quote_item! {
         struct #id_struct { x: #(id_field) }
     };

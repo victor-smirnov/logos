@@ -102,10 +102,7 @@ impl Type {
 
     /// Returns the type's name as a borrowed `Ident`.
     pub fn ident(&self) -> Ident {
-        return Ident {
-            ptr: self.name.as_ptr(),
-            len: self.name.len() as u64,
-        };
+        return Ident::new(self.name);
     }
 }
 
@@ -233,6 +230,13 @@ impl Item {
 }
 
 impl Ident {
+    /// Borrows `s`'s bytes as an identifier. The caller keeps the backing
+    /// storage (a literal, a `String`, …) alive through the splice/emission
+    /// that consumes the `Ident`.
+    pub static fn new(s: str) -> Ident {
+        return Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    }
+
     /// Returns `true` if the two identifiers have identical byte content.
     pub fn eq(self: &Ident, other: &Ident) -> bool {
         if self.len != other.len { return false; }

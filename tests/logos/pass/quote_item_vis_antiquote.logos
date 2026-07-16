@@ -21,11 +21,11 @@ fn vis_gen_hook(target_offset: u32) -> () {
     let s_priv: str = "";
     let s_pub: str = "pub";
     let s_mod: str = "module";
-    let vpriv: Ident = Ident { ptr: s_priv.as_ptr(), len: s_priv.len() as u64 };
-    let vpub: Ident = Ident { ptr: s_pub.as_ptr(), len: s_pub.len() as u64 };
-    let vmod: Ident = Ident { ptr: s_mod.as_ptr(), len: s_mod.len() as u64 };
+    let vpriv: Ident = Ident::new(s_priv);
+    let vpub: Ident = Ident::new(s_pub);
+    let vmod: Ident = Ident::new(s_mod);
     let sn: str = "VisGen";
-    let snid: Ident = Ident { ptr: sn.as_ptr(), len: sn.len() as u64 };
+    let snid: Ident = Ident::new(sn);
     let blob: QuoteItemBlob = quote_item! {
         pub(#vpriv) fn vis_f_priv() -> i64 { return 1i64; }
         pub(#vpub) fn vis_f_pub() -> i64 { return 2i64; }

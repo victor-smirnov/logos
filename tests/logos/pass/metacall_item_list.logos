@@ -11,14 +11,14 @@ fn emit_pair() -> ItemList {
     let mut out: ItemList = item_list_new();
 
     let s_a: str = "First";
-    let id_a: Ident = Ident { ptr: s_a.as_ptr(), len: s_a.len() as u64 };
+    let id_a: Ident = Ident::new(s_a);
     let b1: QuoteItemBlob = quote_item! {
         struct #id_a { x: i32 }
     };
     unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b1); }
 
     let s_b: str = "Second";
-    let id_b: Ident = Ident { ptr: s_b.as_ptr(), len: s_b.len() as u64 };
+    let id_b: Ident = Ident::new(s_b);
     let b2: QuoteItemBlob = quote_item! {
         struct #id_b { y: i32 }
     };

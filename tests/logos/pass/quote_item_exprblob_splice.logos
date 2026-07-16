@@ -11,7 +11,7 @@ use logos.lang.writ.wstatic;
 #[metaprog_handler("exprblob_splice_inject")]
 fn exprblob_splice_inject_hook(target_offset: u32) -> () {
     let s_fn: str = "compute_blob";
-    let id_fn: Ident = Ident { ptr: s_fn.as_ptr(), len: s_fn.len() as u64 };
+    let id_fn: Ident = Ident::new(s_fn);
     let body_blob: ExprBlob = quote_expr! { 60i32 };
     let blob: QuoteItemBlob = quote_item! {
         fn #(id_fn)() -> i32 { return #(body_blob); }

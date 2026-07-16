@@ -398,19 +398,19 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
     src_s.push_str("__CtrSrc_"); src_s.push_str(name);
     let mut rows_s: String = String::new();
     rows_s.push_str("__ctr_rows_"); rows_s.push_str(name);
-    let srcnm:  Ident = Ident { ptr: src_s.as_str().as_ptr(),  len: src_s.len() as u64 };
-    let rowsfn: Ident = Ident { ptr: rows_s.as_str().as_ptr(), len: rows_s.len() as u64 };
-    let colnm:  Ident = Ident { ptr: col_name.as_ptr(),        len: col_name.len() as u64 };
+    let srcnm:  Ident = Ident::new(src_s.as_str());
+    let rowsfn: Ident = Ident::new(rows_s.as_str());
+    let colnm:  Ident = Ident::new(col_name);
 
     // Optional-import idents: empty ⇒ `use #x?;` drops the line. canon carries
     // CanonCol + canon_col(); backing_pkg carries the backing type. Both skip a
     // self-import (declaring package == that package).
     let canon_pkg: str = if str_eq(tp.as_str(), "logos.lcm.canon.canon") { "" }
                          else { "logos.lcm.canon.canon" };
-    let canonid: Ident = Ident { ptr: canon_pkg.as_ptr(), len: canon_pkg.len() as u64 };
+    let canonid: Ident = Ident::new(canon_pkg);
     let bpkg: str = if cs.backing_pkg.len() > 0i64 && !str_eq(cs.backing_pkg, tp.as_str())
                     { cs.backing_pkg } else { "" };
-    let bpkgid: Ident = Ident { ptr: bpkg.as_ptr(), len: bpkg.len() as u64 };
+    let bpkgid: Ident = Ident::new(bpkg);
 
     // Generics header string (verbatim + CanonCol on bound_param; "" = concrete).
     let gen_s: String = build_generics(cs.generics, bound_param);
@@ -422,7 +422,7 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
     // all its sites — and the pub axis is the `pub(#vis)` visibility antiquote
     // ("pub" / "" = private) instead of a blob-variant pair.
     let vis_s: str = if cs.is_pub { "pub" } else { "" };
-    let vis: Ident = Ident { ptr: vis_s.as_ptr(), len: vis_s.len() as u64 };
+    let vis: Ident = Ident::new(vis_s);
     let rt: ExprBlob = parse_type(relty);
     let gp: ExprBlob = parse_type_params(gen_s.as_str());
     let bk: ExprBlob = parse_type(cs.backing);
@@ -475,9 +475,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     // Each quote blob carries its own `use` imports (no side Emitter pass). CoW
     // flavor carries the 16-byte node header via logos.mem.bt.node; plain uses
     // logos.lang.mem.
-    let nm:  Ident = Ident { ptr: name.as_ptr(), len: name.len() as u64 };
-    let kid: Ident = Ident { ptr: kty.as_ptr(),  len: kty.len() as u64 };
-    let vid: Ident = Ident { ptr: vty.as_ptr(),  len: vty.len() as u64 };
+    let nm:  Ident = Ident::new(name);
+    let kid: Ident = Ident::new(kty);
+    let vid: Ident = Ident::new(vty);
 
     // Struct + cow/vol-INDEPENDENT methods (two columns: key=kty, val=vty; for a
     // volume node vty is `str` — a VLE column). `self.a()` + `split_index` live in
@@ -691,8 +691,8 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
     // placeholders; `name`/`kty` borrow the spec, which outlives this synchronous
     // emission, so the Idents need no separate backing. Each blob carries its own
     // `use` imports (quote_item! bodies do — no side Emitter pass).
-    let nm:  Ident = Ident { ptr: name.as_ptr(), len: name.len() as u64 };
-    let kid: Ident = Ident { ptr: kty.as_ptr(),  len: kty.len() as u64 };
+    let nm:  Ident = Ident::new(name);
+    let kid: Ident = Ident::new(kty);
 
     // The struct + the cow-INDEPENDENT methods (three FSE columns: sep=kty,
     // sz/ptr=u64). `self.a()` (the PkdAlloc accessor) lives in the flavor impl
@@ -889,14 +889,14 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
     let mut s_ir:   String = String::new(); s_ir.push_str(tname);   s_ir.push_str("IR");
     let mut s_ins:  String = String::new(); s_ins.push_str(tname);  s_ins.push_str("_ins");
     let mut s_free: String = String::new(); s_free.push_str(tname); s_free.push_str("_free");
-    let irid:   Ident = Ident { ptr: s_ir.as_ptr(),   len: s_ir.len() as u64 };
-    let insid:  Ident = Ident { ptr: s_ins.as_ptr(),  len: s_ins.len() as u64 };
-    let freeid: Ident = Ident { ptr: s_free.as_ptr(), len: s_free.len() as u64 };
-    let tid: Ident = Ident { ptr: tname.as_ptr(), len: tname.len() as u64 };
-    let lid: Ident = Ident { ptr: lname.as_ptr(), len: lname.len() as u64 };
-    let bid: Ident = Ident { ptr: bname.as_ptr(), len: bname.len() as u64 };
-    let kid: Ident = Ident { ptr: kty.as_ptr(),   len: kty.len() as u64 };
-    let vid: Ident = Ident { ptr: vty.as_ptr(),   len: vty.len() as u64 };
+    let irid:   Ident = Ident::new(s_ir.as_str());
+    let insid:  Ident = Ident::new(s_ins.as_str());
+    let freeid: Ident = Ident::new(s_free.as_str());
+    let tid: Ident = Ident::new(tname);
+    let lid: Ident = Ident::new(lname);
+    let bid: Ident = Ident::new(bname);
+    let kid: Ident = Ident::new(kty);
+    let vid: Ident = Ident::new(vty);
 
     // {N}IR (recursive-insert upward result) + the recursive insert/free free-fns.
     // The insert cascade: descend → try_insert → split leaf → grow up; a parent
@@ -1040,17 +1040,17 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     let mut s_ci:  String = String::new(); s_ci.push_str(name);  s_ci.push_str("_cow_insert");
     let mut s_dg:  String = String::new(); s_dg.push_str(name);  s_dg.push_str("_descend_get");
     let mut s_sz:  String = String::new(); s_sz.push_str(name);  s_sz.push_str("_size");
-    let crid: Ident = Ident { ptr: s_cr.as_ptr(), len: s_cr.len() as u64 };
-    let lpid: Ident = Ident { ptr: s_lp.as_ptr(), len: s_lp.len() as u64 };
-    let bpid: Ident = Ident { ptr: s_bp.as_ptr(), len: s_bp.len() as u64 };
-    let ciid: Ident = Ident { ptr: s_ci.as_ptr(), len: s_ci.len() as u64 };
-    let dgid: Ident = Ident { ptr: s_dg.as_ptr(), len: s_dg.len() as u64 };
-    let szid: Ident = Ident { ptr: s_sz.as_ptr(), len: s_sz.len() as u64 };
-    let nm:  Ident = Ident { ptr: name.as_ptr(),  len: name.len() as u64 };
-    let lid: Ident = Ident { ptr: lname.as_ptr(), len: lname.len() as u64 };
-    let bid: Ident = Ident { ptr: bname.as_ptr(), len: bname.len() as u64 };
-    let kid: Ident = Ident { ptr: kty.as_ptr(),   len: kty.len() as u64 };
-    let vid: Ident = Ident { ptr: vty.as_ptr(),   len: vty.len() as u64 };
+    let crid: Ident = Ident::new(s_cr.as_str());
+    let lpid: Ident = Ident::new(s_lp.as_str());
+    let bpid: Ident = Ident::new(s_bp.as_str());
+    let ciid: Ident = Ident::new(s_ci.as_str());
+    let dgid: Ident = Ident::new(s_dg.as_str());
+    let szid: Ident = Ident::new(s_sz.as_str());
+    let nm:  Ident = Ident::new(name);
+    let lid: Ident = Ident::new(lname);
+    let bid: Ident = Ident::new(bname);
+    let kid: Ident = Ident::new(kty);
+    let vid: Ident = Ident::new(vty);
 
     // {N}CowRet (recursive CoW-insert upward result; addr = this subtree's root
     // after the insert — the input when written in place, else a copy) + the

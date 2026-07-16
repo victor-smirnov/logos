@@ -28,10 +28,10 @@ fn derive_struct_with_cols_hook(target_offset: u32) -> () {
     let mut col_names: Vec<Ident> = Vec::<Ident>::new();
     let mut col_types: Vec<Ident> = Vec::<Ident>::new();
     unsafe {
-        (&mut col_names as *mut Vec<Ident>).push(Ident { ptr: s_a.as_ptr(),   len: s_a.len()   as u64 });
-        (&mut col_types as *mut Vec<Ident>).push(Ident { ptr: s_u64.as_ptr(), len: s_u64.len() as u64 });
-        (&mut col_names as *mut Vec<Ident>).push(Ident { ptr: s_b.as_ptr(),   len: s_b.len()   as u64 });
-        (&mut col_types as *mut Vec<Ident>).push(Ident { ptr: s_i64.as_ptr(), len: s_i64.len() as u64 });
+        (&mut col_names as *mut Vec<Ident>).push(Ident::new(s_a));
+        (&mut col_types as *mut Vec<Ident>).push(Ident::new(s_u64));
+        (&mut col_names as *mut Vec<Ident>).push(Ident::new(s_b));
+        (&mut col_types as *mut Vec<Ident>).push(Ident::new(s_i64));
     }
 
     let blob: QuoteItemBlob = quote_item! {
