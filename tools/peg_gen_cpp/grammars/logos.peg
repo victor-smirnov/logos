@@ -3215,8 +3215,8 @@
     // those items into a fresh Writ module, serialises bytes, and
     // emits a WritStatic literal — the expression value is the byte
     // slice that Slice 3's logos_emit_item_blob consumes.
-    quote_item_expr <- KW_QUOTE_ITEM BANG LBRACE item* RBRACE
-                    => { CODE: QUOTE_ITEM, ITEMS: $4 }
+    quote_item_expr <- KW_QUOTE_ITEM BANG LBRACE any_use_decl* item* RBRACE
+                    => { CODE: QUOTE_ITEM, USES: $4, ITEMS: $5 }
 
     // ── quote_expr! { expr } — typed AST literal (Slice 7) ─────────
     // Body is a single expression. Sema deep-clones the parsed expr

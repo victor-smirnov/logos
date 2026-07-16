@@ -447,19 +447,9 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
 // header) — exactly like the hand-written leaf.logos / leaf_kv.logos templates.
 fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     let vol: bool = str_eq(policy, SPLIT_VOLUME);
-    // Imports ride the Emitter (quote_item! can't carry a `use`); the struct +
-    // impl below are quote blobs. CoW flavor carries the 16-byte node header
-    // (snapshot_id + rc) via logos.mem.bt.node; plain uses logos.lang.mem.
-    let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    em.emit_target_pkg(&view);
-    em.push_text("\nuse logos.mem.pkd;\n");
-    if cow { em.push_text("use logos.mem.bt.node;\n"); } else { em.push_text("use logos.lang.mem;\n"); }
-    em.push_text("use logos.lang.result;\n");
-    if vol { em.push_text("use logos.lang.str;\n"); }     // val.len() on a VLE column
-    if vol { em.push_text("use logos.lang.slice;\n"); }   // str_from_raw for cow_clone
-    em.commit();
-
+    // Each quote blob carries its own `use` imports (no side Emitter pass). CoW
+    // flavor carries the 16-byte node header via logos.mem.bt.node; plain uses
+    // logos.lang.mem.
     let nm:  Ident = Ident { ptr: name.as_ptr(), len: name.len() as u64 };
     let kid: Ident = Ident { ptr: kty.as_ptr(),  len: kty.len() as u64 };
     let vid: Ident = Ident { ptr: vty.as_ptr(),  len: vty.len() as u64 };
@@ -468,6 +458,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     // volume node vty is `str` — a VLE column). `self.a()` + `split_index` live in
     // the flavor blocks below (further `impl #nm`).
     let common: QuoteItemBlob = quote_item! {
+        use logos.mem.pkd;
         pub struct #nm { mem: *mut u8, cap: u32 }
         impl #nm {
             pub fn block(self: &#nm) -> *mut u8 { return self.mem; }
@@ -498,6 +489,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
         // admits on entry bytes with a length-fit check + replace-on-hit via
         // remove+insert (VLE has no set); split_index is byte-volume-balanced.
         let vb: QuoteItemBlob = quote_item! {
+            use logos.mem.pkd;
+            use logos.lang.result;
+            use logos.lang.str;
             impl #nm {
                 pub fn val_at(self: &#nm, i: u32) -> &[u8] { return unsafe { (*self.vc()).get_bytes(i) }; }
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
@@ -548,6 +542,8 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
         // Fast: all-FSE — val_at returns by value; try_insert set-on-hit;
         // split_index is count-balanced.
         let vb: QuoteItemBlob = quote_item! {
+            use logos.mem.pkd;
+            use logos.lang.result;
             impl #nm {
                 pub fn val_at(self: &#nm, i: u32) -> #(vid) { return unsafe { (*self.vc()).get(i) }; }
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
@@ -575,6 +571,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     // volume node, or copies by value for fast.
     if cow {
         let cb: QuoteItemBlob = quote_item! {
+            use logos.mem.pkd;
+            use logos.mem.bt.node;
+            use logos.lang.result;
             impl #nm {
                 pub static fn new() -> #nm { return #nm::new_in(0u64); }
                 pub static fn new_in(snp: u64) -> #nm {
@@ -594,6 +593,8 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
         unsafe { logos_emit_item_blob_subst(&cb); }
         if vol {
             let cc: QuoteItemBlob = quote_item! {
+                use logos.lang.slice;
+                use logos.lang.str;
                 impl #nm {
                     pub fn cow_clone(self: &#nm, snp: u64) -> #nm {
                         let mut c: #nm = #nm::new_in(snp);
@@ -626,6 +627,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
         }
     } else {
         let pb: QuoteItemBlob = quote_item! {
+            use logos.mem.pkd;
+            use logos.lang.mem;
+            use logos.lang.result;
             impl #nm {
                 pub static fn new() -> #nm {
                     unsafe {
@@ -658,20 +662,10 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
 // HOOK fn-pointer — the caller binds it to the concrete leaf type; free_children
 // releases child blocks by raw dealloc (block-id lifecycle, no typed handle).
 fn emit_branch_node(name: str, kty: str, cow: bool) {
-    // Imports still ride the Emitter — `quote_item!` cannot carry a `use` item,
-    // and the blob-spliced struct/impl below resolve their names against these
-    // unit-level uses (the emit inherits the declaring module's imports).
-    let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    em.emit_target_pkg(&view);
-    em.push_text("\nuse logos.mem.pkd;\n");
-    if cow { em.push_text("use logos.mem.bt.node;\n"); } else { em.push_text("use logos.lang.mem;\n"); }
-    em.push_text("use logos.lang.result;\n");
-    em.commit();
-
     // The type name (`#nm`) and the key type (`#(kid)`) are `#ident` antiquot
     // placeholders; `name`/`kty` borrow the spec, which outlives this synchronous
-    // emission, so the Idents need no separate backing.
+    // emission, so the Idents need no separate backing. Each blob carries its own
+    // `use` imports (quote_item! bodies do — no side Emitter pass).
     let nm:  Ident = Ident { ptr: name.as_ptr(), len: name.len() as u64 };
     let kid: Ident = Ident { ptr: kty.as_ptr(),  len: kty.len() as u64 };
 
@@ -679,6 +673,7 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
     // sz/ptr=u64). `self.a()` (the PkdAlloc accessor) lives in the flavor impl
     // block below — a second `impl #nm` for the same type.
     let common: QuoteItemBlob = quote_item! {
+        use logos.mem.pkd;
         pub struct #nm { mem: *mut u8, cap: u32 }
         impl #nm {
             pub fn block(self: &#nm) -> *mut u8 { return self.mem; }
@@ -771,6 +766,9 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
     // child's rc); PLAIN pkd uses alloc/pkd_format/dealloc and has no cow_clone.
     if cow {
         let flavor: QuoteItemBlob = quote_item! {
+            use logos.mem.pkd;
+            use logos.mem.bt.node;
+            use logos.lang.result;
             impl #nm {
                 pub static fn new() -> #nm { return #nm::new_in(0u64); }
                 pub static fn new_in(snp: u64) -> #nm {
@@ -809,6 +807,9 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
         unsafe { logos_emit_item_blob_subst(&flavor); }
     } else {
         let flavor: QuoteItemBlob = quote_item! {
+            use logos.mem.pkd;
+            use logos.lang.mem;
+            use logos.lang.result;
             impl #nm {
                 pub static fn new() -> #nm {
                     unsafe {
@@ -854,13 +855,9 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
 // cascade is identical either way (the leaf handles its own split; the branch
 // routes by key only).
 fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
-    // Imports via the Emitter; the tree items are quote blobs.
-    let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    em.emit_target_pkg(&view);
-    if vol { em.push_text("\nuse logos.lang.slice;\n"); }   // slice_from_raw (by-view get_or)
-    em.commit();
-
+    // The tree items are quote blobs; each carries its own `use` (the leaf/branch
+    // types resolve cross-fragment via the package, so only the volume get_or's
+    // slice_from_raw needs an import).
     // Composite names ({N}IR / {N}_ins / {N}_free) need their own String backing
     // kept alive until emission (the Ident borrows its bytes); the plain names
     // borrow the spec, which outlives this synchronous emit.
@@ -953,6 +950,7 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
     // view to the &self return, a MISS is an empty slice).
     if vol {
         let g: QuoteItemBlob = quote_item! {
+            use logos.lang.slice;
             impl #tid {
                 pub fn get_or(self: &#tid, key: #(kid)) -> &[u8] {
                     let mut node: *mut u8 = self.root;
@@ -1009,16 +1007,7 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
 // MemorySnapshot capability + DirEntry + tree_release), `logos.mem.bt.node` and
 // `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
 fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
-    // Imports via the Emitter; the map items are quote blobs.
-    let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    em.emit_target_pkg(&view);
-    em.push_text("\nuse logos.mem.bt.node;\n");        // node_snapshot — the CoW skip test
-    em.push_text("use logos.mem.bt.map;\n");            // Ctr trait
-    em.push_text("use logos.mem.bt.memstore;\n");       // MemorySnapshot, DirEntry, tree_release
-    if vol { em.push_text("use logos.lang.slice;\n"); } // slice_from_raw (by-view get_or)
-    em.commit();
-
+    // The map items are quote blobs; each carries its own `use` imports.
     // Composite free-item names need String backing kept alive to emission.
     let mut s_cr:  String = String::new(); s_cr.push_str(name);  s_cr.push_str("CowRet");
     let mut s_lp:  String = String::new(); s_lp.push_str(name);  s_lp.push_str("_leaf_private");
@@ -1045,6 +1034,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     // cur, else a cow_clone). cow_insert never releases `node`; the caller
     // repoints + releases via the store's container-agnostic `tree_release`.
     let recs: QuoteItemBlob = quote_item! {
+        use logos.mem.bt.node;
+        use logos.mem.bt.memstore;
         struct #crid { addr: *mut u8, lsep: #(kid), lsize: u64, split: bool, rsep: #(kid), rsize: u64, rptr: *mut u8 }
         unsafe fn #(lpid)(node: *mut u8, cur: u64) -> *mut u8 {
             if node_snapshot(node) == cur { return node; }
@@ -1096,6 +1087,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     // sentinel; volume a &[u8] view (borrowing the root's storage), miss = empty.
     if vol {
         let dg: QuoteItemBlob = quote_item! {
+            use logos.lang.slice;
             unsafe fn #(dgid)(root: *mut u8, level: u32, key: #(kid)) -> &[u8] {
                 let mut node: *mut u8 = root;
                 let mut lvl: u32 = level;
@@ -1128,6 +1120,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     // node lifecycle rides `tree_release` + the CoW node primitives. The `size`
     // free-fn lets the inherent `size` and the Ctr-trait `size` share one body.
     let handle: QuoteItemBlob = quote_item! {
+        use logos.mem.bt.map;
+        use logos.mem.bt.memstore;
         pub struct #nm { snap: *mut MemorySnapshot, ctr_id: u64 }
         impl #nm {
             pub static fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
@@ -1174,6 +1168,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     // get_or on the handle — reads the snapshot's current root for this container.
     if vol {
         let g: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.memstore;
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid)) -> &[u8] {
                     unsafe { let e: DirEntry = (*self.snap).root_of(self.ctr_id); return #(dgid)(e.root, e.level, key); }
@@ -1183,6 +1178,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         unsafe { logos_emit_item_blob_subst(&g); }
     } else {
         let g: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.memstore;
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid), sentinel: #(vid)) -> #(vid) {
                     unsafe { let e: DirEntry = (*self.snap).root_of(self.ctr_id); return #(dgid)(e.root, e.level, key, sentinel); }

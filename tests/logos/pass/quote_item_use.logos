@@ -1,0 +1,38 @@
+// `use` decls inside quote_item! — the emitted module fragment carries its own
+// imports, so generated code resolves against them (no side Emitter pass for
+// imports). Here `Gen` uses Vec/vec_new from logos.mem.collections.vec, which
+// THIS declaring unit does not import; resolution comes solely from the quote's
+// own `use`. Regression for the grammar (any_use_decl* → QUOTE_ITEM.USES) +
+// sema (lower_quote_item merges them into the synth module's USES) fix.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+#[metaprog_handler("use_inject")]
+fn use_inject_hook(target_offset: u32) -> () {
+    let s: str = "Gen";
+    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        use logos.mem.collections.vec;
+        struct #id { }
+        impl #id {
+            pub static fn sum() -> i64 {
+                let mut v: Vec<i64> = vec_new::<i64>();
+                v.push(41i64);
+                v.push(1i64);
+                return v.get(0i64) + v.get(1i64);
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[use_inject]
+struct Marker {}
+
+fn main() -> i32 {
+    // 41 + 1 = 42; Vec resolved via the quote's own `use`, not this unit's imports.
+    return Gen::sum() as i32 - 42i32;
+}

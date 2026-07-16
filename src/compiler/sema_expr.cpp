@@ -16346,6 +16346,13 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     if (node.has_key(la::ITEMS) && !node.get(la::ITEMS.code).is_null()) {
         src_items = arr_of(node.get(la::ITEMS.code));
     }
+    // USES — `use pkg;` decls the quote body carries (quotes reaching 100% of
+    // codegen: emitters no longer need a side Emitter pass for imports). Merged
+    // into the synth module's USES below, after the metafn-inherited ones.
+    ArrayView src_uses;
+    if (node.has_key(la::USES) && !node.get(la::USES.code).is_null()) {
+        src_uses = arr_of(node.get(la::USES.code));
+    }
 
     // ── Pre-scan: collect placeholders, type-check `#name` / `#(expr)` ──
     //
@@ -16718,6 +16725,25 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 AnyVal::from_offset(dst_arena.head().data(), arena_offset_t(pname_off)));
             (void)ArrayView(arena_offset_t(uses_off), doc.holder()).push_back(
                 AnyVal::from_offset(dst_arena.head().data(), arena_offset_t(use_off)));
+        }
+    }
+
+    // Merge the quote body's own `use` decls (deep-copied verbatim — they carry
+    // NAME + PATH_PARTS, which build_import_scope resolves like any module USE).
+    if (!src_uses.is_null()) {
+        for (uint64_t i = 0; i < src_uses.size(); ++i) {
+            AnyVal u_av = src_uses.get(i);
+            if (u_av.is_null() || !u_av.is_pointer()) continue;
+            const void* src_obj = u_av.resolve();
+            auto cp_e = copy_object_into(src_obj, src_base, doc);
+            if (!cp_e) {
+                error("quote_item!: use-decl copy_object_into failed");
+                return error_expr();
+            }
+            uint32_t dst_off = static_cast<uint32_t>(
+                reinterpret_cast<uint8_t*>(cp_e.get()) - WritAccess::base(doc));
+            (void)ArrayView(arena_offset_t(uses_off), doc.holder()).push_back(
+                AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(dst_off)));
         }
     }
 
