@@ -1,0 +1,41 @@
+// quote_item! antiquot in STATIC-CALL path-head position: `#T::method(args)`,
+// `#T::new()`. The type name is a `#ident` placeholder; the splice substitutes
+// it into the STATIC_CALL's RECEIVER (the method name stays literal in NAME).
+// Before this, only free-fn `#f(args)` and struct-lit `#T { … }` antiquotes
+// existed — a `#T::assoc()` call hit a parse error, forcing typed-API emitters
+// (b+tree node construction, derive_graph_source) onto raw push_text. Regression
+// for the grammar + splice (main.cpp NAME_VAR→RECEIVER for STATIC_CALL) fix.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+#[metaprog_handler("static_call_inject")]
+fn static_call_inject_hook(target_offset: u32) -> () {
+    let s: str = "Gen";
+    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        struct #id { x: i32 }
+        impl #id {
+            pub static fn new() -> #id { return #id { x: 100i32 }; }        // struct-lit `#T { … }`
+            pub static fn with(v: i32) -> #id { return #id { x: v }; }
+            pub fn get(self: &#id) -> i32 { return self.x; }
+            // the fixed forms: `#T::new()` (KW_NEW) + `#T::method(args)` (IDENT).
+            pub static fn sum() -> i32 {
+                let a: #id = #id::new();
+                let b: #id = #id::with(41i32);
+                return a.get() + b.get();
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[static_call_inject]
+struct Marker {}
+
+fn main() -> i32 {
+    // 100 + 41 = 141; via the generated `#T::new()` / `#T::with(41)` calls.
+    return Gen::sum() - 141i32;
+}

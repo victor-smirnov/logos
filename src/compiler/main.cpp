@@ -898,17 +898,21 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     str_e->offset().value());
                 dbase = WritAccess::base(doc);
                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
-                // `##name` antiquot parses as a LIT_STR node carrying
-                // NAME_VAR; the substituted ident text is the string's
-                // VALUE (a string-literal label), not its NAME. Plain
-                // `#name` (VAR_REF) takes NAME. (T2-22 str-position antiquot.)
-                bool is_strlit = false;
+                // Where the substituted ident text lands depends on the node:
+                //   • LIT_STR (`##name`) → VALUE (a string-literal label);
+                //   • STATIC_CALL (`#T::method(args)`) → RECEIVER (the receiver
+                //     TYPE — NAME already holds the literal method name);
+                //   • everything else (VAR_REF `#name`, struct/fn/type NAME_VAR) → NAME.
+                uint8_t target_slot = la::NAME.code;
                 if (tom.has_key(la::CODE.code)) {
                     AnyVal cv = tom.get(la::CODE.code);
-                    if (cv.is_value() && cv.as_value<int32_t>() == la::LIT_STR.code)
-                        is_strlit = true;
+                    if (cv.is_value()) {
+                        int32_t nc = cv.as_value<int32_t>();
+                        if (nc == la::LIT_STR.code)          target_slot = la::VALUE.code;
+                        else if (nc == la::STATIC_CALL.code) target_slot = la::RECEIVER.code;
+                    }
                 }
-                (void)tom.put(is_strlit ? la::VALUE.code : la::NAME.code,
+                (void)tom.put(target_slot,
                     AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(name_off)));
                 dbase = WritAccess::base(doc);
                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
