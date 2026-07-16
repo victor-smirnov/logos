@@ -290,8 +290,15 @@ try_gen_dump(logos::writ::Writ& doc) {
                   || ch == '_')) ch = '_';
         return s;
     };
-    std::string stem = sanitize(pkg) + "."
-                     + std::to_string(++g_gen_seq);
+    // Name: <pkg>[.<trigger-file-stem>].<seq>[.<target>].gen.logos — the
+    // trigger file discriminates same-package modules from different compiles
+    // sharing one gen dir (e.g. every lforge test is `package test`).
+    std::string stem = sanitize(pkg);
+    if (g_current_emit_ctx_valid && !g_current_emit_ctx.src_file.empty()) {
+        std::string base = fs::path(g_current_emit_ctx.src_file).stem().string();
+        if (!base.empty() && base != pkg) stem += "." + sanitize(base);
+    }
+    stem += "." + std::to_string(++g_gen_seq);
     if (g_current_emit_ctx_valid && !g_current_emit_ctx.target_name.empty())
         stem += "." + sanitize(g_current_emit_ctx.target_name);
     std::error_code ec;

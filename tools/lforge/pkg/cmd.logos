@@ -17,6 +17,7 @@ use lforge.proc;
 use lforge.lockfile;
 use lforge.topo;
 use lforge.build_paths;
+use lforge.cwd;
 use lforge.builder;
 use lforge.external_build;
 
@@ -470,6 +471,14 @@ fn build_test_bin(test_logos: &String,
     push_string_arg(&mut argv, test_logos);
     push_arg(&mut argv, "-o");
     push_string_arg(&mut argv, &obj_path);
+    // Generated sources of container/metaprog decls in TESTS land in the
+    // project gen dir too (display-only here — tests compile without -g).
+    {
+        let gd: String = gensrc_dir_for(profile);
+        push_arg(&mut argv, "--gen-dir");
+        let ga: String = make_absolute(gd.as_str());
+        argv.push(ga);
+    }
     let lan: i64 = all_lib_archs.length();
     let mut li: i64 = 0 as i64;
     while li < lan {

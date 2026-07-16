@@ -1166,6 +1166,16 @@ private:
     writ::TinyMapView map_of(writ::AnyVal av) noexcept {
         using namespace sema_detail;
         if (av.is_null()) return TinyMapView{};
+        // Type-checked: a non-TOM pointee (string / array — e.g. `$...`
+        // collector junk or antiquot leftovers in post-subst synth docs)
+        // yields the null view instead of a garbage map over foreign bytes.
+        // Callers already handle null; before this, walking an arbitrary
+        // emitted doc (--gen-dir render) could segfault on such elements.
+        if (!av.is_pointer()) return TinyMapView{};
+        const uint8_t* p = av.resolve();
+        if (!p || logos::writ::TypeTag::read_before(p).type_code()
+                      != logos::writ::type_hash::TinyObjectMap)
+            return TinyMapView{};
         return TinyMapView(av, holder_);
     }
 
