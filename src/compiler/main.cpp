@@ -1011,6 +1011,59 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         }
     }
 
+    // Synth USES pass. subst_walk above covers ITEMS only, but a quote body may
+    // carry a dynamic import `use #pkg;` (USE with a NAME_VAR placeholder). Walk
+    // the synth USES array to (a) substitute those placeholders NAME_VAR→NAME
+    // like any other, and (b) DROP an optional import `use #pkg?;` whose package
+    // ident is empty (IS_OPTIONAL marker) — the mechanism that lets an emitter
+    // carry a conditional import without a blob-variant per present/absent case.
+    // Runs BEFORE the user-USES merge below so dedup sees resolved names.
+    {
+        AnyVal uav = root_ptr().get(la::USES.code);
+        if (!uav.is_null() && uav.is_pointer()) {
+            uint32_t uarr_off = static_cast<uint32_t>(
+                uav.to_offset(WritAccess::base(doc)).value());
+            uint64_t un0 = ArrayView(arena_offset_t(uarr_off), doc.holder()).size();
+            std::vector<uint32_t> survivors;
+            bool dropped = false;
+            for (uint64_t i = 0; i < un0; ++i) {
+                AnyVal e = ArrayView(arena_offset_t(uarr_off), doc.holder()).get(i);
+                if (e.is_null() || !e.is_pointer()) continue;
+                uint32_t eoff = static_cast<uint32_t>(
+                    e.to_offset(WritAccess::base(doc)).value());
+                auto etom = logos::writ::TinyMapView(arena_offset_t(eoff), doc.holder());
+                if (etom.has_key(la::NAME_VAR.code)) {
+                    AnyVal nvav = etom.get(la::NAME_VAR.code);
+                    if (nvav.is_value()) {
+                        int32_t nidx = nvav.as_value<int32_t>();
+                        bool optional = etom.has_key(la::IS_OPTIONAL.code);
+                        if (optional && nidx >= 0
+                            && static_cast<uint64_t>(nidx) < idents_count
+                            && (!idents[nidx].ptr || idents[nidx].len == 0)) {
+                            dropped = true;   // `use #pkg?;` with empty pkg → omit
+                            continue;
+                        }
+                    }
+                    subst_walk(eoff);         // NAME_VAR → NAME (dotted path)
+                    if (subst_failed) { blob_seen.erase(key); return 0; }
+                }
+                survivors.push_back(eoff);
+            }
+            if (dropped) {
+                auto na_e = doc.make_array(std::max<uint64_t>(1, survivors.size()));
+                if (na_e) {
+                    uint32_t na_off = static_cast<uint32_t>(na_e->offset().value());
+                    for (uint32_t so : survivors) {
+                        (void)ArrayView(arena_offset_t(na_off), doc.holder()).push_back(
+                            AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(so)));
+                    }
+                    (void)root_ptr().put(la::USES.code,
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(na_off)));
+                }
+            }
+        }
+    }
+
     // Inherit the originating user module's package name + PATH_PARTS
     // onto the synth module's MODULE root. Without this, sema_collect
     // registers emitted items under the empty package, and any non-entry

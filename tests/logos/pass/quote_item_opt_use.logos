@@ -1,0 +1,40 @@
+// Optional dynamic import `use #pkg?;` — dropped at splice when the package
+// ident is EMPTY, resolved normally when present. Lets an emitter carry a
+// conditional import without a blob-variant per present/absent case.
+//   - `use #pid?;`  (pid = "logos.lang.str") → present, imports str_byte_at;
+//   - `use #aid?;`  (aid = "", len 0)        → dropped (no bare `use ;`).
+// If the empty case were NOT dropped the emitted module would carry a malformed
+// `use ;`. Regression for the IS_OPTIONAL drop in the USES substitution pass.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+#[metaprog_handler("opt_use")]
+fn opt_use_hook(target_offset: u32) -> () {
+    let s: str = "Gen3";
+    let id: Ident = Ident { ptr: s.as_ptr(), len: s.len() as u64 };
+    let present: str = "logos.lang.str";
+    let pid: Ident = Ident { ptr: present.as_ptr(), len: present.len() as u64 };
+    let absent: str = "";
+    let aid: Ident = Ident { ptr: absent.as_ptr(), len: absent.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        use #pid?;
+        use #aid?;
+        struct #id { }
+        impl #id {
+            pub static fn probe() -> i64 {
+                return str_byte_at("A", 0i64) as i64;   // 'A' = 65
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[opt_use]
+struct Marker3 {}
+
+fn main() -> i32 {
+    return Gen3::probe() as i32 - 65i32;
+}

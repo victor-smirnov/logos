@@ -76,6 +76,7 @@
     RELAXED        = 39    // `?Trait` relaxed-bound marker on TRAIT_BOUND (Phase 1: only `?Sized` valid). Reuses IS_CONST slot — trait_bound never carries IS_CONST.
     PATH           = 22    // sub-node carrying ITEMS=[str,...] for N-deep chain field write (reuses FIELDS slot — chain stmts never carry struct field defs)
     NAME_VAR       = 38    // antiquot var name for `#ident` placeholder inside quote_*! body (reuses WHERE slot — STRUCT/ENUM/FN never have a where_clause AND a NAME_VAR simultaneously: NAME_VAR exists only inside quote_*! bodies, where where_clause is parsed separately)
+    IS_OPTIONAL    = 25    // `use #pkg?;` optional-import marker inside quote_*! body: if the substituted package ident is EMPTY at splice time the whole use is DROPPED (else resolved normally). Reuses IS_MUT slot — a USE never carries IS_MUT.
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
     REL_KW         = 20    // ADR 0016: contextual lead IDENT of a rel_def inside a mapping item (sema validates text == "rel"; reuses RECEIVER slot — REL_DEF never has a receiver)
     RAW_TEXT       = 7     // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload). Balanced-brace capture (RAW_GROUP_*) additionally honours two escapes in the raw body so LITERAL braces don't break balance: (a) a BACKSLASH before `{`/`}`/`` ` ``/`\` passes that char through WITHOUT counting it (the backslash SURVIVES into the captured text — the handler de-escapes); (b) a BACKTICK-delimited region is skipped whole (no brace counting inside). Both additive: well-formed bodies are unaffected + captured byte-identically.
@@ -552,6 +553,13 @@
                           // resolver joins NAME + PATH_PARTS into one dotted string,
                           // so a pre-dotted NAME with no PATH_PARTS resolves whole.
                           // Only legal inside quote_item! bodies (sema gates).
+                          // Optional antiquot package path (`use #pkg?;`): if the
+                          // substituted path ident is EMPTY at splice time the whole
+                          // use is dropped — lets an emitter carry a conditional import
+                          // (e.g. a backing package known only sometimes) without a
+                          // blob-variant per present/absent combination.
+                          / KW_USE HASH IDENT QUESTION SEMI
+             => { CODE: USE, NAME_VAR: $3, IS_OPTIONAL: 1 }
                           / KW_USE HASH IDENT SEMI
              => { CODE: USE, NAME_VAR: $3 }
                           / KW_USE IDENT path_dot_ident* SEMI
