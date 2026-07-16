@@ -9,7 +9,8 @@ package test;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;                    // the generated leaf/branch target
-use logos.mem.bt.map;                 // the generated CoW-map impls Store/Snapshot/Ctr
+use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
+use logos.mem.bt.memstore;            // MemorySnapshot — the generated CoW-map handle references it
 
 // (A) u32 key, i64 value — full tree + CoW stack.
 container FseA for u8 { kind ordered_map; entry { key: u32, val: i64 } measure max(key); }
@@ -41,26 +42,27 @@ fn main() -> i32 {
     ta.free();
 
     // ── (A) u32 → i64 : CoW-map snapshot isolation ───────────────────────────
-    let mut store: FseAStore = FseAStore::new();
+    let mut store: MemoryStore = MemoryStore::new();
     let m: u32 = 3000u32;
-    let mut s0: FseASnapshot = store.snapshot();
-    let c0: FseA = s0.map();
+    let mut s0: MemorySnapshot = store.fork();
+    let c0: FseA = FseA::create(&mut s0, 1u64);
     let mut k: u32 = 0u32;
     while k < m { c0.insert(k, k as i64 + 5i64); k = k + 1u32; }
     if c0.size() != m as u64 { return 7i32; }
     store.commit(&s0);
-    let mut s1: FseASnapshot = store.snapshot();
-    let c1: FseA = s1.map();
+    let mut s1: MemorySnapshot = store.fork();
+    let c1: FseA = FseA::open(&mut s1, 1u64);
     k = m;
     while k < 2u32 * m { c1.insert(k, k as i64 + 5i64); k = k + 1u32; }
     store.commit(&s1);
-    if s0.size() != m as u64 { return 8i32; }                     // frozen A
-    if s1.size() != 2u64 * m as u64 { return 9i32; }
-    if s0.get_or(m, -42i64) != -42i64 { return 10i32; }          // s1's key absent in s0
-    if s1.get_or(m, -42i64) != m as i64 + 5i64 { return 11i32; }
-    s0.free();
-    s1.free();
-    store.free();
+    let c0b: FseA = FseA::open(&mut s0, 1u64);
+    if c0b.size() != m as u64 { return 8i32; }                    // frozen A
+    if c1.size() != 2u64 * m as u64 { return 9i32; }
+    if c0b.get_or(m, -42i64) != -42i64 { return 10i32; }         // s1's key absent in s0
+    if c1.get_or(m, -42i64) != m as i64 + 5i64 { return 11i32; }
+    s0.release();
+    s1.release();
+    store.release();
 
     // ── (B) i32 → u32 : tree over SIGNED keys spanning negative → positive ───
     let mut tb: FseBTree = FseBTree::new();
@@ -91,16 +93,17 @@ fn main() -> i32 {
     }
     tc.free();
 
-    let mut cstore: FseCStore = FseCStore::new();
-    let mut cs0: FseCSnapshot = cstore.snapshot();
-    let cc0: FseC = cs0.map();
+    let mut cstore: MemoryStore = MemoryStore::new();
+    let mut cs0: MemorySnapshot = cstore.fork();
+    let cc0: FseC = FseC::create(&mut cs0, 1u64);
     c = 0u16;
     while c < 2000u16 { cc0.insert(c, c as u32); c = c + 1u16; }
     if cc0.size() != 2000u64 { return 18i32; }
     cstore.commit(&cs0);
-    if cs0.get_or(1500u16, 0xFFFFu32) != 1500u32 { return 19i32; }
-    cs0.free();
-    cstore.free();
+    let cc0b: FseC = FseC::open(&mut cs0, 1u64);
+    if cc0b.get_or(1500u16, 0xFFFFu32) != 1500u32 { return 19i32; }
+    cs0.release();
+    cstore.release();
 
     return 0i32;
 }

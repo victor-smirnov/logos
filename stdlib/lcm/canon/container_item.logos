@@ -447,151 +447,202 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
 // header) — exactly like the hand-written leaf.logos / leaf_kv.logos templates.
 fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     let vol: bool = str_eq(policy, SPLIT_VOLUME);
+    // Imports ride the Emitter (quote_item! can't carry a `use`); the struct +
+    // impl below are quote blobs. CoW flavor carries the 16-byte node header
+    // (snapshot_id + rc) via logos.mem.bt.node; plain uses logos.lang.mem.
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
-    // CoW flavor (Canon versioning=cow verdict): the node carries the 16-byte
-    // node header (snapshot_id + rc) via logos.mem.bt.node — new_in/cow_clone +
-    // node_alloc/node_pkd/node_free — instead of plain pkd (alloc/pkd_format).
     em.push_text("\nuse logos.mem.pkd;\n");
     if cow { em.push_text("use logos.mem.bt.node;\n"); } else { em.push_text("use logos.lang.mem;\n"); }
     em.push_text("use logos.lang.result;\n");
     if vol { em.push_text("use logos.lang.str;\n"); }     // val.len() on a VLE column
-    if vol { em.push_text("use logos.lang.slice;\n"); }   // str_from_raw / slice for cow_clone
-    em.push_text("\n");
-    em.push_text("pub struct "); em.push_text(name); em.push_text(" { mem: *mut u8, cap: u32 }\n");
-    em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
-    // new / new_in — CoW stamps the block with the creating snapshot id.
-    if cow {
-        em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" { return "); em.push_text(name); em.push_text("::new_in(0u64); }\n");
-        em.push_text("    pub static fn new_in(snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
-        em.push_text("        unsafe {\n");
-        em.push_text("            let base: *mut u8 = node_alloc(4096u32, 2u32, snp);\n");
-        em.push_text("            let a: *mut PkdAlloc = node_pkd(base);\n");
-    } else {
-        em.push_text("    pub static fn new() -> "); em.push_text(name); em.push_text(" {\n");
-        em.push_text("        unsafe {\n");
-        em.push_text("            let base: *mut u8 = alloc(4096i64);\n");
-        em.push_text("            let a: *mut PkdAlloc = pkd_format(base, 4096u32, 2u32);\n");
-    }
-    em.push_text("            match PkdArray::<"); em.push_text(kty); em.push_text(">::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"key col\"); } }\n");
-    em.push_text("            match PkdArray::<"); em.push_text(vty); em.push_text(">::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, \"val col\"); } }\n");
-    em.push_text("            return "); em.push_text(name); em.push_text(" { mem: base, cap: 4096u32 };\n");
-    em.push_text("        }\n    }\n");
-    // adopt / block / free
-    em.push_text("    pub static fn adopt(mem: *mut u8) -> "); em.push_text(name);
-    if cow {
-        em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } }; }\n");
-    } else {
-        em.push_text(" { return "); em.push_text(name); em.push_text(" { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }\n");
-    }
-    em.push_text("    pub fn block(self: &"); em.push_text(name); em.push_text(") -> *mut u8 { return self.mem; }\n");
-    em.push_text("    pub fn free(self: "); em.push_text(name);
-    if cow { em.push_text(") { unsafe { node_free(self.mem); } }\n"); } else { em.push_text(") { unsafe { dealloc(self.mem); } }\n"); }
-    // column accessors
-    em.push_text("    unsafe fn a(self: &"); em.push_text(name); em.push_text(") -> *mut PkdAlloc { return ");
-    if cow { em.push_text("node_pkd(self.mem)"); } else { em.push_text("self.mem as *mut PkdAlloc"); }
-    em.push_text("; }\n");
-    em.push_text("    unsafe fn kc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(kty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(kty); em.push_text(">>(0u32); }\n");
-    em.push_text("    unsafe fn vc(self: &"); em.push_text(name); em.push_text(") -> *mut PkdArray<"); em.push_text(vty); em.push_text("> { return self.a().get::<PkdArray<"); em.push_text(vty); em.push_text(">>(1u32); }\n");
-    // count / key_at / val_at
-    em.push_text("    pub fn count(self: &"); em.push_text(name); em.push_text(") -> u32 { return unsafe { (*self.kc()).count() }; }\n");
-    em.push_text("    pub fn key_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(kty); em.push_text(" { return unsafe { (*self.kc()).get(i) }; }\n");
-    if vol {
-        // VLE value column: borrow the bytes, no owning value type.
-        em.push_text("    pub fn val_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> &[u8] { return unsafe { (*self.vc()).get_bytes(i) }; }\n");
-    } else {
-        em.push_text("    pub fn val_at(self: &"); em.push_text(name); em.push_text(", i: u32) -> "); em.push_text(vty); em.push_text(" { return unsafe { (*self.vc()).get(i) }; }\n");
-    }
-    // lower_bound
-    em.push_text("    pub fn lower_bound(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> u32 {\n");
-    em.push_text("        let n: u32 = self.count();\n        let mut i: u32 = 0u32;\n");
-    em.push_text("        while i < n { if self.key_at(i) >= key { return i; } i = i + 1u32; }\n        return n;\n    }\n");
-    // try_insert (fit-checked, replace-on-hit) — VERDICT-SELECTED body
-    em.push_text("    pub fn try_insert(self: &mut "); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") -> bool {\n");
-    if vol {
-        // VLE value column: admission guard on entry bytes, replace-on-hit via
-        // remove+insert (VLE has no set), fit-checked with the value's length.
-        em.push_text("        let vlen: u32 = val.len() as u32;\n");
-        em.push_text("        if 8u32 + vlen > 1024u32 { return false; }\n");
-        em.push_text("        unsafe {\n");
-        em.push_text("            let pos: u32 = self.lower_bound(key);\n");
-        em.push_text("            let hit: bool = pos < self.count() && self.key_at(pos) == key;\n");
-        em.push_text("            if hit {\n");
-        em.push_text("                let old: u32 = (*self.vc()).volume_upto(pos + 1u32) - (*self.vc()).volume_upto(pos);\n");
-        em.push_text("                let grow: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);\n");
-        em.push_text("                let need: u32 = if grow > old { grow - old } else { 0u32 };\n");
-        em.push_text("                if need > self.a().free_space() { return false; }\n");
-        em.push_text("                (*self.vc()).remove(pos);\n");
-        em.push_text("                match (*self.vc()).insert(pos, val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
-        em.push_text("                return true;\n");
-        em.push_text("            }\n");
-        em.push_text("            let dk: u32 = (*self.kc()).estimate_insert(8u32) - self.a().element_size(0u32);\n");
-        em.push_text("            let dv: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);\n");
-        em.push_text("            if dk + dv > self.a().free_space() { return false; }\n");
-        em.push_text("            match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
-        em.push_text("            match (*self.vc()).insert(pos, val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
-        em.push_text("            return true;\n        }\n    }\n");
-    } else {
-        em.push_text("        unsafe {\n");
-        em.push_text("            let pos: u32 = self.lower_bound(key);\n");
-        em.push_text("            if pos < self.count() && self.key_at(pos) == key { (*self.vc()).set(pos, val); return true; }\n");
-        em.push_text("            let dk: u32 = (*self.kc()).estimate_insert(0u32) - self.a().element_size(0u32);\n");
-        em.push_text("            let dv: u32 = (*self.vc()).estimate_insert(0u32) - self.a().element_size(1u32);\n");
-        em.push_text("            if dk + dv > self.a().free_space() { return false; }\n");
-        em.push_text("            match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
-        em.push_text("            match (*self.vc()).insert(pos, &val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }\n");
-        em.push_text("            return true;\n        }\n    }\n");
-    }
-    // split_index — VERDICT-SELECTED body
-    if vol {
-        em.push_text("    /// Split index: VOLUME-balanced — the Canon verdict for a VLE-column node.\n");
-        em.push_text("    pub fn split_index(self: &"); em.push_text(name); em.push_text(") -> u32 {\n");
-        em.push_text("        let n: u32 = self.count();\n");
-        em.push_text("        if n <= 1u32 { return n; }\n");
-        em.push_text("        unsafe {\n");
-        em.push_text("            let total: u32 = (*self.kc()).volume_upto(n) + (*self.vc()).volume_upto(n);\n");
-        em.push_text("            let half: u32 = total / 2u32;\n");
-        em.push_text("            let mut lo: u32 = 1u32;\n");
-        em.push_text("            let mut hi: u32 = n - 1u32;\n");
-        em.push_text("            let mut at: u32 = 1u32;\n");
-        em.push_text("            while lo <= hi {\n");
-        em.push_text("                let mid: u32 = lo + (hi - lo) / 2u32;\n");
-        em.push_text("                let cv: u32 = (*self.kc()).volume_upto(mid) + (*self.vc()).volume_upto(mid);\n");
-        em.push_text("                if cv <= half { at = mid; lo = mid + 1u32; } else { if mid == 1u32 { break; } hi = mid - 1u32; }\n");
-        em.push_text("            }\n");
-        em.push_text("            return at;\n        }\n    }\n");
-    } else {
-        em.push_text("    /// Split index: FAST (count-balanced) — the Canon verdict for an all-FSE node.\n");
-        em.push_text("    pub fn split_index(self: &"); em.push_text(name); em.push_text(") -> u32 { return self.count() / 2u32; }\n");
-    }
-    em.push_text("    pub fn split_into(self: &mut "); em.push_text(name); em.push_text(", dst: &mut "); em.push_text(name); em.push_text(") {\n");
-    em.push_text("        let at: u32 = self.split_index();\n");
-    em.push_text("        unsafe {\n");
-    em.push_text("            let _ = (*self.kc()).split_into(&mut *dst.kc(), at);\n");
-    em.push_text("            let _ = (*self.vc()).split_into(&mut *dst.vc(), at);\n");
-    em.push_text("        }\n    }\n");
-    // cow_clone — a private copy on a fresh block stamped `snp` (CoW duplication;
-    // a leaf has no children to share). Only emitted for the CoW node flavor.
-    if cow {
-        em.push_text("    pub fn cow_clone(self: &"); em.push_text(name); em.push_text(", snp: u64) -> "); em.push_text(name); em.push_text(" {\n");
-        em.push_text("        let mut c: "); em.push_text(name); em.push_text(" = "); em.push_text(name); em.push_text("::new_in(snp);\n");
-        em.push_text("        let n: u32 = self.count();\n        let mut i: u32 = 0u32;\n");
-        if vol {
-            // VLE value: val_at yields &[u8]; reconstruct a str view over the
-            // bytes (str ≡ [u8]) to feed the str-typed try_insert.
-            em.push_text("        while i < n {\n");
-            em.push_text("            let v: &[u8] = self.val_at(i);\n");
-            em.push_text("            let vs: str = unsafe { str_from_raw(v.as_ptr(), v.len()) };\n");
-            em.push_text("            let _ = c.try_insert(self.key_at(i), vs);\n");
-            em.push_text("            i = i + 1u32;\n        }\n");
-        } else {
-            em.push_text("        while i < n { let _ = c.try_insert(self.key_at(i), self.val_at(i)); i = i + 1u32; }\n");
-        }
-        em.push_text("        return c;\n    }\n");
-    }
-    em.push_text("}\n");
+    if vol { em.push_text("use logos.lang.slice;\n"); }   // str_from_raw for cow_clone
     em.commit();
+
+    let nm:  Ident = Ident { ptr: name.as_ptr(), len: name.len() as u64 };
+    let kid: Ident = Ident { ptr: kty.as_ptr(),  len: kty.len() as u64 };
+    let vid: Ident = Ident { ptr: vty.as_ptr(),  len: vty.len() as u64 };
+
+    // Struct + cow/vol-INDEPENDENT methods (two columns: key=kty, val=vty; for a
+    // volume node vty is `str` — a VLE column). `self.a()` + `split_index` live in
+    // the flavor blocks below (further `impl #nm`).
+    let common: QuoteItemBlob = quote_item! {
+        pub struct #nm { mem: *mut u8, cap: u32 }
+        impl #nm {
+            pub fn block(self: &#nm) -> *mut u8 { return self.mem; }
+            unsafe fn kc(self: &#nm) -> *mut PkdArray<#(kid)> { return self.a().get::<PkdArray<#(kid)>>(0u32); }
+            unsafe fn vc(self: &#nm) -> *mut PkdArray<#(vid)> { return self.a().get::<PkdArray<#(vid)>>(1u32); }
+            pub fn count(self: &#nm) -> u32 { return unsafe { (*self.kc()).count() }; }
+            pub fn key_at(self: &#nm, i: u32) -> #(kid) { return unsafe { (*self.kc()).get(i) }; }
+            pub fn lower_bound(self: &#nm, key: #(kid)) -> u32 {
+                let n: u32 = self.count();
+                let mut i: u32 = 0u32;
+                while i < n { if self.key_at(i) >= key { return i; } i = i + 1u32; }
+                return n;
+            }
+            pub fn split_into(self: &mut #nm, dst: &mut #nm) {
+                let at: u32 = self.split_index();
+                unsafe {
+                    let _ = (*self.kc()).split_into(&mut *dst.kc(), at);
+                    let _ = (*self.vc()).split_into(&mut *dst.vc(), at);
+                }
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&common); }
+
+    // val_at / try_insert / split_index — VERDICT-SELECTED (Canon fast|volume).
+    if vol {
+        // Volume: VLE value column — val_at borrows bytes (&[u8]); try_insert
+        // admits on entry bytes with a length-fit check + replace-on-hit via
+        // remove+insert (VLE has no set); split_index is byte-volume-balanced.
+        let vb: QuoteItemBlob = quote_item! {
+            impl #nm {
+                pub fn val_at(self: &#nm, i: u32) -> &[u8] { return unsafe { (*self.vc()).get_bytes(i) }; }
+                pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
+                    let vlen: u32 = val.len() as u32;
+                    if 8u32 + vlen > 1024u32 { return false; }
+                    unsafe {
+                        let pos: u32 = self.lower_bound(key);
+                        let hit: bool = pos < self.count() && self.key_at(pos) == key;
+                        if hit {
+                            let old: u32 = (*self.vc()).volume_upto(pos + 1u32) - (*self.vc()).volume_upto(pos);
+                            let grow: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);
+                            let need: u32 = if grow > old { grow - old } else { 0u32 };
+                            if need > self.a().free_space() { return false; }
+                            (*self.vc()).remove(pos);
+                            match (*self.vc()).insert(pos, val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
+                            return true;
+                        }
+                        let dk: u32 = (*self.kc()).estimate_insert(8u32) - self.a().element_size(0u32);
+                        let dv: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);
+                        if dk + dv > self.a().free_space() { return false; }
+                        match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
+                        match (*self.vc()).insert(pos, val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
+                        return true;
+                    }
+                }
+                /// Split index: VOLUME-balanced — the Canon verdict for a VLE-column node.
+                pub fn split_index(self: &#nm) -> u32 {
+                    let n: u32 = self.count();
+                    if n <= 1u32 { return n; }
+                    unsafe {
+                        let total: u32 = (*self.kc()).volume_upto(n) + (*self.vc()).volume_upto(n);
+                        let half: u32 = total / 2u32;
+                        let mut lo: u32 = 1u32;
+                        let mut hi: u32 = n - 1u32;
+                        let mut at: u32 = 1u32;
+                        while lo <= hi {
+                            let mid: u32 = lo + (hi - lo) / 2u32;
+                            let cv: u32 = (*self.kc()).volume_upto(mid) + (*self.vc()).volume_upto(mid);
+                            if cv <= half { at = mid; lo = mid + 1u32; } else { if mid == 1u32 { break; } hi = mid - 1u32; }
+                        }
+                        return at;
+                    }
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&vb); }
+    } else {
+        // Fast: all-FSE — val_at returns by value; try_insert set-on-hit;
+        // split_index is count-balanced.
+        let vb: QuoteItemBlob = quote_item! {
+            impl #nm {
+                pub fn val_at(self: &#nm, i: u32) -> #(vid) { return unsafe { (*self.vc()).get(i) }; }
+                pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
+                    unsafe {
+                        let pos: u32 = self.lower_bound(key);
+                        if pos < self.count() && self.key_at(pos) == key { (*self.vc()).set(pos, val); return true; }
+                        let dk: u32 = (*self.kc()).estimate_insert(0u32) - self.a().element_size(0u32);
+                        let dv: u32 = (*self.vc()).estimate_insert(0u32) - self.a().element_size(1u32);
+                        if dk + dv > self.a().free_space() { return false; }
+                        match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
+                        match (*self.vc()).insert(pos, &val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
+                        return true;
+                    }
+                }
+                /// Split index: FAST (count-balanced) — the Canon verdict for an all-FSE node.
+                pub fn split_index(self: &#nm) -> u32 { return self.count() / 2u32; }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&vb); }
+    }
+
+    // new / adopt / free / a — CoW (node header) vs PLAIN pkd. CoW also emits
+    // cow_clone (a private copy on a fresh block stamped `snp`; a leaf shares no
+    // children); its body reconstructs a `str` view over the VLE bytes for a
+    // volume node, or copies by value for fast.
+    if cow {
+        let cb: QuoteItemBlob = quote_item! {
+            impl #nm {
+                pub static fn new() -> #nm { return #nm::new_in(0u64); }
+                pub static fn new_in(snp: u64) -> #nm {
+                    unsafe {
+                        let base: *mut u8 = node_alloc(4096u32, 2u32, snp);
+                        let a: *mut PkdAlloc = node_pkd(base);
+                        match PkdArray::<#(kid)>::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "key col"); } }
+                        match PkdArray::<#(vid)>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "val col"); } }
+                        return #nm { mem: base, cap: 4096u32 };
+                    }
+                }
+                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } }; }
+                unsafe fn a(self: &#nm) -> *mut PkdAlloc { return node_pkd(self.mem); }
+                pub fn free(self: #nm) { unsafe { node_free(self.mem); } }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&cb); }
+        if vol {
+            let cc: QuoteItemBlob = quote_item! {
+                impl #nm {
+                    pub fn cow_clone(self: &#nm, snp: u64) -> #nm {
+                        let mut c: #nm = #nm::new_in(snp);
+                        let n: u32 = self.count();
+                        let mut i: u32 = 0u32;
+                        while i < n {
+                            let v: &[u8] = self.val_at(i);
+                            let vs: str = unsafe { str_from_raw(v.as_ptr(), v.len()) };
+                            let _ = c.try_insert(self.key_at(i), vs);
+                            i = i + 1u32;
+                        }
+                        return c;
+                    }
+                }
+            };
+            unsafe { logos_emit_item_blob_subst(&cc); }
+        } else {
+            let cc: QuoteItemBlob = quote_item! {
+                impl #nm {
+                    pub fn cow_clone(self: &#nm, snp: u64) -> #nm {
+                        let mut c: #nm = #nm::new_in(snp);
+                        let n: u32 = self.count();
+                        let mut i: u32 = 0u32;
+                        while i < n { let _ = c.try_insert(self.key_at(i), self.val_at(i)); i = i + 1u32; }
+                        return c;
+                    }
+                }
+            };
+            unsafe { logos_emit_item_blob_subst(&cc); }
+        }
+    } else {
+        let pb: QuoteItemBlob = quote_item! {
+            impl #nm {
+                pub static fn new() -> #nm {
+                    unsafe {
+                        let base: *mut u8 = alloc(4096i64);
+                        let a: *mut PkdAlloc = pkd_format(base, 4096u32, 2u32);
+                        match PkdArray::<#(kid)>::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "key col"); } }
+                        match PkdArray::<#(vid)>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "val col"); } }
+                        return #nm { mem: base, cap: 4096u32 };
+                    }
+                }
+                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }
+                unsafe fn a(self: &#nm) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
+                pub fn free(self: #nm) { unsafe { dealloc(self.mem); } }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&pb); }
+    }
 }
 
 // Emits a concrete b+tree BRANCH (routing) node for one kind=branch container
@@ -803,91 +854,134 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
 // cascade is identical either way (the leaf handles its own split; the branch
 // routes by key only).
 fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
+    // Imports via the Emitter; the tree items are quote blobs.
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     if vol { em.push_text("\nuse logos.lang.slice;\n"); }   // slice_from_raw (by-view get_or)
-    em.push_text("\n");
-    // InsertRet — the upward result of a recursive insert (see the template).
-    em.push_text("struct "); em.push_text(tname); em.push_text("IR { lsep: "); em.push_text(kty);
-    em.push_text(", lsize: u64, split: bool, rsep: "); em.push_text(kty); em.push_text(", rsize: u64, rptr: *mut u8 }\n\n");
-    // insert_rec
-    em.push_text("fn "); em.push_text(tname); em.push_text("_ins(node: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") -> "); em.push_text(tname); em.push_text("IR {\n");
-    em.push_text("    if level == 0u32 {\n");
-    em.push_text("        let mut lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(node);\n");
-    em.push_text("        if lf.try_insert(key, val) {\n");
-    em.push_text("            return "); em.push_text(tname); em.push_text("IR { lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: node };\n");
-    em.push_text("        }\n");
-    em.push_text("        let mut rt: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new();\n");
-    em.push_text("        lf.split_into(&mut rt);\n");
-    em.push_text("        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }\n");
-    em.push_text("        return "); em.push_text(tname); em.push_text("IR { lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };\n");
-    em.push_text("    }\n");
-    em.push_text("    let mut br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node);\n");
-    em.push_text("    let ci: u32 = br.find_child(key);\n");
-    em.push_text("    let r: "); em.push_text(tname); em.push_text("IR = "); em.push_text(tname); em.push_text("_ins(br.child_addr(ci), level - 1u32, key, val);\n");
-    em.push_text("    br.update_child(ci, r.lsep, r.lsize);\n");
-    em.push_text("    if !r.split {\n");
-    em.push_text("        return "); em.push_text(tname); em.push_text("IR { lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };\n");
-    em.push_text("    }\n");
-    em.push_text("    if br.can_insert_child() {\n");
-    em.push_text("        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);\n");
-    em.push_text("        return "); em.push_text(tname); em.push_text("IR { lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };\n");
-    em.push_text("    }\n");
-    em.push_text("    let mut rb: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new();\n");
-    em.push_text("    let _ = br.split_into(&mut rb);\n");
-    em.push_text("    let lc: u32 = br.child_count();\n");
-    em.push_text("    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else { rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr); }\n");
-    em.push_text("    return "); em.push_text(tname); em.push_text("IR { lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };\n");
-    em.push_text("}\n\n");
-    // free_rec
-    em.push_text("fn "); em.push_text(tname); em.push_text("_free(node: *mut u8, level: u32) {\n");
-    em.push_text("    if level == 0u32 { "); em.push_text(lname); em.push_text("::adopt(node).free(); return; }\n");
-    em.push_text("    let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node);\n");
-    em.push_text("    let n: u32 = br.child_count();\n    let mut i: u32 = 0u32;\n");
-    em.push_text("    while i < n { "); em.push_text(tname); em.push_text("_free(br.child_addr(i), level - 1u32); i = i + 1u32; }\n");
-    em.push_text("    br.free_block();\n}\n\n");
-    // the tree handle
-    em.push_text("pub struct "); em.push_text(tname); em.push_text(" { root: *mut u8, root_level: u32 }\n");
-    em.push_text("impl "); em.push_text(tname); em.push_text(" {\n");
-    em.push_text("    pub static fn new() -> "); em.push_text(tname); em.push_text(" { let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new(); return "); em.push_text(tname); em.push_text(" { root: lf.block(), root_level: 0u32 }; }\n");
-    em.push_text("    pub fn height(self: &"); em.push_text(tname); em.push_text(") -> u32 { return self.root_level; }\n");
-    em.push_text("    pub fn size(self: &"); em.push_text(tname); em.push_text(") -> u64 {\n");
-    em.push_text("        if self.root_level == 0u32 { return "); em.push_text(lname); em.push_text("::adopt(self.root).count() as u64; }\n");
-    em.push_text("        return "); em.push_text(bname); em.push_text("::adopt(self.root).total_size();\n    }\n");
-    em.push_text("    pub fn insert(self: &mut "); em.push_text(tname); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") {\n");
-    em.push_text("        let r: "); em.push_text(tname); em.push_text("IR = "); em.push_text(tname); em.push_text("_ins(self.root, self.root_level, key, val);\n");
-    em.push_text("        if r.split {\n");
-    em.push_text("            let mut nr: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new();\n");
-    em.push_text("            nr.push_child(r.lsep, r.lsize, self.root);\n");
-    em.push_text("            nr.push_child(r.rsep, r.rsize, r.rptr);\n");
-    em.push_text("            self.root = nr.block();\n            self.root_level = self.root_level + 1u32;\n        }\n    }\n");
-    // get_or — VERDICT-SELECTED value return. fast → by VALUE: `get_or(key,
-    // sentinel: vty) -> vty`. volume → by VIEW: `get_or(key) -> &[u8]`, the
-    // value view BORROWING &self (its block is tree-owned; the borrow-carrying
-    // result of ADR 0020 §3). slice_from_raw re-anchors the leaf handle's byte
-    // view to the &self return (an unbounded lifetime from a raw ptr flows to
-    // the return position), so it outlives the local leaf handle; a MISS is an
-    // empty slice (no by-value sentinel exists for a view — and a second `&[u8]`
-    // sentinel input would make the output lifetime ambiguous).
-    if vol {
-        em.push_text("    pub fn get_or(self: &"); em.push_text(tname); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> &[u8] {\n");
-    } else {
-        em.push_text("    pub fn get_or(self: &"); em.push_text(tname); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
-    }
-    em.push_text("        let mut node: *mut u8 = self.root;\n        let mut level: u32 = self.root_level;\n");
-    em.push_text("        while level > 0u32 { let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node); node = br.child_addr(br.find_child(key)); level = level - 1u32; }\n");
-    em.push_text("        let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(node);\n");
-    em.push_text("        let p: u32 = lf.lower_bound(key);\n");
-    if vol {
-        em.push_text("        if p < lf.count() && lf.key_at(p) == key { let v: &[u8] = lf.val_at(p); return unsafe { slice_from_raw::<u8>(v.as_ptr(), v.len()) }; }\n");
-        em.push_text("        return unsafe { slice_from_raw::<u8>(self.root as *const u8, 0i64) };\n    }\n");
-    } else {
-        em.push_text("        if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n        return sentinel;\n    }\n");
-    }
-    em.push_text("    pub fn free(self: "); em.push_text(tname); em.push_text(") { "); em.push_text(tname); em.push_text("_free(self.root, self.root_level); }\n");
-    em.push_text("}\n");
     em.commit();
+
+    // Composite names ({N}IR / {N}_ins / {N}_free) need their own String backing
+    // kept alive until emission (the Ident borrows its bytes); the plain names
+    // borrow the spec, which outlives this synchronous emit.
+    let mut s_ir:   String = String::new(); s_ir.push_str(tname);   s_ir.push_str("IR");
+    let mut s_ins:  String = String::new(); s_ins.push_str(tname);  s_ins.push_str("_ins");
+    let mut s_free: String = String::new(); s_free.push_str(tname); s_free.push_str("_free");
+    let irid:   Ident = Ident { ptr: s_ir.as_ptr(),   len: s_ir.len() as u64 };
+    let insid:  Ident = Ident { ptr: s_ins.as_ptr(),  len: s_ins.len() as u64 };
+    let freeid: Ident = Ident { ptr: s_free.as_ptr(), len: s_free.len() as u64 };
+    let tid: Ident = Ident { ptr: tname.as_ptr(), len: tname.len() as u64 };
+    let lid: Ident = Ident { ptr: lname.as_ptr(), len: lname.len() as u64 };
+    let bid: Ident = Ident { ptr: bname.as_ptr(), len: bname.len() as u64 };
+    let kid: Ident = Ident { ptr: kty.as_ptr(),   len: kty.len() as u64 };
+    let vid: Ident = Ident { ptr: vty.as_ptr(),   len: vty.len() as u64 };
+
+    // {N}IR (recursive-insert upward result) + the recursive insert/free free-fns.
+    // The insert cascade: descend → try_insert → split leaf → grow up; a parent
+    // grafts insert_child → splits the branch → a new root on root split. The
+    // generated leaf has no `max_key`, so a separator is `key_at(count-1)`; a
+    // non-split return's unread `rsep` is any kty (the parent ignores it).
+    let recs: QuoteItemBlob = quote_item! {
+        struct #irid { lsep: #(kid), lsize: u64, split: bool, rsep: #(kid), rsize: u64, rptr: *mut u8 }
+        fn #(insid)(node: *mut u8, level: u32, key: #(kid), val: #(vid)) -> #irid {
+            if level == 0u32 {
+                let mut lf: #lid = #lid::adopt(node);
+                if lf.try_insert(key, val) {
+                    return #irid { lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: node };
+                }
+                let mut rt: #lid = #lid::new();
+                lf.split_into(&mut rt);
+                if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
+                return #irid { lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };
+            }
+            let mut br: #bid = #bid::adopt(node);
+            let ci: u32 = br.find_child(key);
+            let r: #irid = #(insid)(br.child_addr(ci), level - 1u32, key, val);
+            br.update_child(ci, r.lsep, r.lsize);
+            if !r.split {
+                return #irid { lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };
+            }
+            if br.can_insert_child() {
+                br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
+                return #irid { lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };
+            }
+            let mut rb: #bid = #bid::new();
+            let _ = br.split_into(&mut rb);
+            let lc: u32 = br.child_count();
+            if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else { rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr); }
+            return #irid { lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };
+        }
+        fn #(freeid)(node: *mut u8, level: u32) {
+            if level == 0u32 { #lid::adopt(node).free(); return; }
+            let br: #bid = #bid::adopt(node);
+            let n: u32 = br.child_count();
+            let mut i: u32 = 0u32;
+            while i < n { #(freeid)(br.child_addr(i), level - 1u32); i = i + 1u32; }
+            br.free_block();
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&recs); }
+
+    // The tree handle + its cow/vol-independent methods.
+    let handle: QuoteItemBlob = quote_item! {
+        pub struct #tid { root: *mut u8, root_level: u32 }
+        impl #tid {
+            pub static fn new() -> #tid { let lf: #lid = #lid::new(); return #tid { root: lf.block(), root_level: 0u32 }; }
+            pub fn height(self: &#tid) -> u32 { return self.root_level; }
+            pub fn size(self: &#tid) -> u64 {
+                if self.root_level == 0u32 { return #lid::adopt(self.root).count() as u64; }
+                return #bid::adopt(self.root).total_size();
+            }
+            pub fn insert(self: &mut #tid, key: #(kid), val: #(vid)) {
+                let r: #irid = #(insid)(self.root, self.root_level, key, val);
+                if r.split {
+                    let mut nr: #bid = #bid::new();
+                    nr.push_child(r.lsep, r.lsize, self.root);
+                    nr.push_child(r.rsep, r.rsize, r.rptr);
+                    self.root = nr.block();
+                    self.root_level = self.root_level + 1u32;
+                }
+            }
+            pub fn free(self: #tid) { #(freeid)(self.root, self.root_level); }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&handle); }
+
+    // get_or — VERDICT-SELECTED value return. fast → by VALUE (`get_or(key,
+    // sentinel: vty) -> vty`); volume → by VIEW (`get_or(key) -> &[u8]`, borrowing
+    // &self — its block is tree-owned; slice_from_raw re-anchors the leaf byte
+    // view to the &self return, a MISS is an empty slice).
+    if vol {
+        let g: QuoteItemBlob = quote_item! {
+            impl #tid {
+                pub fn get_or(self: &#tid, key: #(kid)) -> &[u8] {
+                    let mut node: *mut u8 = self.root;
+                    let mut level: u32 = self.root_level;
+                    while level > 0u32 { let br: #bid = #bid::adopt(node); node = br.child_addr(br.find_child(key)); level = level - 1u32; }
+                    let lf: #lid = #lid::adopt(node);
+                    let p: u32 = lf.lower_bound(key);
+                    if p < lf.count() && lf.key_at(p) == key { let v: &[u8] = lf.val_at(p); return unsafe { slice_from_raw::<u8>(v.as_ptr(), v.len()) }; }
+                    return unsafe { slice_from_raw::<u8>(self.root as *const u8, 0i64) };
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&g); }
+    } else {
+        let g: QuoteItemBlob = quote_item! {
+            impl #tid {
+                pub fn get_or(self: &#tid, key: #(kid), sentinel: #(vid)) -> #(vid) {
+                    let mut node: *mut u8 = self.root;
+                    let mut level: u32 = self.root_level;
+                    while level > 0u32 { let br: #bid = #bid::adopt(node); node = br.child_addr(br.find_child(key)); level = level - 1u32; }
+                    let lf: #lid = #lid::adopt(node);
+                    let p: u32 = lf.lower_bound(key);
+                    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }
+                    return sentinel;
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&g); }
+    }
 }
 
 // Emits the copy-on-write map's KEY/VALUE-typed half (`{N}CowRet` + the
@@ -915,6 +1009,7 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
 // MemorySnapshot capability + DirEntry + tree_release), `logos.mem.bt.node` and
 // `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
 fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
+    // Imports via the Emitter; the map items are quote blobs.
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
@@ -922,130 +1017,180 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     em.push_text("use logos.mem.bt.map;\n");            // Ctr trait
     em.push_text("use logos.mem.bt.memstore;\n");       // MemorySnapshot, DirEntry, tree_release
     if vol { em.push_text("use logos.lang.slice;\n"); } // slice_from_raw (by-view get_or)
-    em.push_text("\n");
-    // CowRet — the upward result of a recursive CoW insert (addr = this subtree's
-    // root after the insert; equals the input when written in place, else a copy).
-    em.push_text("struct "); em.push_text(name); em.push_text("CowRet { addr: *mut u8, lsep: "); em.push_text(kty);
-    em.push_text(", lsize: u64, split: bool, rsep: "); em.push_text(kty); em.push_text(", rsize: u64, rptr: *mut u8 }\n\n");
-    // release is now the store's CONTAINER-AGNOSTIC `tree_release` (logos.mem.bt
-    // .memstore) — it recurses the uniform branch shape (slot 2 = child refs) +
-    // the rc header from just (root, level), so the generator no longer emits a
-    // per-container release. cow_insert + the {N} handle call it directly.
-    // leaf_private / branch_private — a version the writer may mutate in place
-    // under snapshot `cur` (the node itself when it belongs to cur, else a copy).
-    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_leaf_private(node: *mut u8, cur: u64) -> *mut u8 {\n");
-    em.push_text("    if node_snapshot(node) == cur { return node; }\n");
-    em.push_text("    return "); em.push_text(lname); em.push_text("::adopt(node).cow_clone(cur).block();\n}\n");
-    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_branch_private(node: *mut u8, cur: u64) -> *mut u8 {\n");
-    em.push_text("    if node_snapshot(node) == cur { return node; }\n");
-    em.push_text("    return "); em.push_text(bname); em.push_text("::adopt(node).cow_clone(cur).block();\n}\n\n");
-    // cow_insert — insert (key,val) copying shared nodes on the path. Never
-    // releases `node` itself; the caller repoints + releases when `addr` differs.
-    em.push_text("unsafe fn "); em.push_text(name); em.push_text("_cow_insert(node: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(", cur: u64) -> "); em.push_text(name); em.push_text("CowRet {\n");
-    em.push_text("    if level == 0u32 {\n");
-    em.push_text("        let work: *mut u8 = "); em.push_text(name); em.push_text("_leaf_private(node, cur);\n");
-    em.push_text("        let mut lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(work);\n");
-    em.push_text("        if lf.try_insert(key, val) {\n");
-    em.push_text("            return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: work };\n");
-    em.push_text("        }\n");
-    em.push_text("        let mut rt: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new_in(cur);\n");
-    em.push_text("        lf.split_into(&mut rt);\n");
-    em.push_text("        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }\n");
-    em.push_text("        return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };\n");
-    em.push_text("    }\n");
-    em.push_text("    let work: *mut u8 = "); em.push_text(name); em.push_text("_branch_private(node, cur);\n");
-    em.push_text("    let mut br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(work);\n");
-    em.push_text("    let ci: u32 = br.find_child(key);\n");
-    em.push_text("    let old_child: *mut u8 = br.child_addr(ci);\n");
-    em.push_text("    let r: "); em.push_text(name); em.push_text("CowRet = "); em.push_text(name); em.push_text("_cow_insert(old_child, level - 1u32, key, val, cur);\n");
-    em.push_text("    br.update_child(ci, r.lsep, r.lsize);\n");
-    em.push_text("    if r.addr != old_child {\n");
-    em.push_text("        br.set_child_addr(ci, r.addr);\n");
-    em.push_text("        tree_release(old_child, level - 1u32);\n    }\n");
-    em.push_text("    if !r.split {\n");
-    em.push_text("        return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };\n");
-    em.push_text("    }\n");
-    em.push_text("    if br.can_insert_child() {\n");
-    em.push_text("        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);\n");
-    em.push_text("        return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };\n");
-    em.push_text("    }\n");
-    em.push_text("    let mut rb: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new_in(cur);\n");
-    em.push_text("    let _ = br.split_into(&mut rb);\n");
-    em.push_text("    let lc: u32 = br.child_count();\n");
-    em.push_text("    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else { rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr); }\n");
-    em.push_text("    return "); em.push_text(name); em.push_text("CowRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };\n");
-    em.push_text("}\n\n");
-    // descend_get — read path (never copies). fast returns by value + sentinel;
-    // volume returns a &[u8] view (borrowing the root's storage), miss = empty.
-    if vol {
-        em.push_text("unsafe fn "); em.push_text(name); em.push_text("_descend_get(root: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(") -> &[u8] {\n");
-    } else {
-        em.push_text("unsafe fn "); em.push_text(name); em.push_text("_descend_get(root: *mut u8, level: u32, key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
-    }
-    em.push_text("    let mut node: *mut u8 = root;\n    let mut lvl: u32 = level;\n");
-    em.push_text("    while lvl > 0u32 { let br: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::adopt(node); node = br.child_addr(br.find_child(key)); lvl = lvl - 1u32; }\n");
-    em.push_text("    let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::adopt(node);\n");
-    em.push_text("    let p: u32 = lf.lower_bound(key);\n");
-    if vol {
-        em.push_text("    if p < lf.count() && lf.key_at(p) == key { let v: &[u8] = lf.val_at(p); return slice_from_raw::<u8>(v.as_ptr(), v.len()); }\n    return slice_from_raw::<u8>(root as *const u8, 0i64);\n}\n\n");
-    } else {
-        em.push_text("    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }\n    return sentinel;\n}\n\n");
-    }
-    // {N} — the Ctr handle: a typed view of container `ctr_id` in a hand-written
-    // MemorySnapshot (logos.mem.bt.memstore). The snapshot owns versioning + the
-    // directory + the storage capability; this handle carries only the
-    // container's identity and routes every op through the snapshot: reads/writes
-    // find the root via `root_of(ctr_id)`, a CoW insert repoints it via
-    // `set_root`, and node lifecycle rides the generic `tree_release` + the
-    // CoW-flavored node primitives. One snapshot holds MANY such containers and
-    // commits them together — the store no longer generates a per-container
-    // Store/Snapshot pair.
-    em.push_text("pub struct "); em.push_text(name); em.push_text(" { snap: *mut MemorySnapshot, ctr_id: u64 }\n");
-    em.push_text("impl "); em.push_text(name); em.push_text(" {\n");
-    // create — register a fresh empty container (a single empty leaf) under
-    // `ctr_id` in `snap`, returning its handle.
-    em.push_text("    pub static fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> "); em.push_text(name); em.push_text(" {\n");
-    em.push_text("        let lf: "); em.push_text(lname); em.push_text(" = "); em.push_text(lname); em.push_text("::new_in(snap.snapshot_id());\n");
-    em.push_text("        snap.set_root(ctr_id, lf.block(), 0u32);\n");
-    em.push_text("        return "); em.push_text(name); em.push_text(" { snap: snap as *mut MemorySnapshot, ctr_id: ctr_id };\n    }\n");
-    // open — a handle to an already-registered container in `snap`.
-    em.push_text("    pub static fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> "); em.push_text(name); em.push_text(" {\n");
-    em.push_text("        return "); em.push_text(name); em.push_text(" { snap: snap as *mut MemorySnapshot, ctr_id: ctr_id };\n    }\n");
-    // insert — CoW path-copy under the snapshot's skip key; repoint the root (and
-    // release the old one) when it changed, grow a level on a root split.
-    em.push_text("    pub fn insert(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", val: "); em.push_text(vty); em.push_text(") {\n");
-    em.push_text("        unsafe {\n");
-    em.push_text("            let e: DirEntry = (*self.snap).root_of(self.ctr_id);\n");
-    em.push_text("            let cur: u64 = (*self.snap).snapshot_id();\n");
-    em.push_text("            let r: "); em.push_text(name); em.push_text("CowRet = "); em.push_text(name); em.push_text("_cow_insert(e.root, e.level, key, val, cur);\n");
-    em.push_text("            let mut nrt: *mut u8 = e.root;\n            let mut nlv: u32 = e.level;\n");
-    em.push_text("            if r.addr != e.root { nrt = r.addr; tree_release(e.root, e.level); }\n");
-    em.push_text("            if r.split {\n");
-    em.push_text("                let mut top: "); em.push_text(bname); em.push_text(" = "); em.push_text(bname); em.push_text("::new_in(cur);\n");
-    em.push_text("                top.push_child(r.lsep, r.lsize, r.addr);\n");
-    em.push_text("                top.push_child(r.rsep, r.rsize, r.rptr);\n");
-    em.push_text("                nrt = top.block();\n                nlv = e.level + 1u32;\n            }\n");
-    em.push_text("            (*self.snap).set_root(self.ctr_id, nrt, nlv);\n        }\n    }\n");
-    // get_or — read path via the snapshot's current root for this container.
-    if vol {
-        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(") -> &[u8] {\n");
-        em.push_text("        unsafe { let e: DirEntry = (*self.snap).root_of(self.ctr_id); return "); em.push_text(name); em.push_text("_descend_get(e.root, e.level, key); }\n    }\n");
-    } else {
-        em.push_text("    pub fn get_or(self: &"); em.push_text(name); em.push_text(", key: "); em.push_text(kty); em.push_text(", sentinel: "); em.push_text(vty); em.push_text(") -> "); em.push_text(vty); em.push_text(" {\n");
-        em.push_text("        unsafe { let e: DirEntry = (*self.snap).root_of(self.ctr_id); return "); em.push_text(name); em.push_text("_descend_get(e.root, e.level, key, sentinel); }\n    }\n");
-    }
-    em.push_text("    pub fn size(self: &"); em.push_text(name); em.push_text(") -> u64 { return unsafe { "); em.push_text(name); em.push_text("_size(self.snap, self.ctr_id) }; }\n");
-    em.push_text("}\n");
-    // size — the SUM measure at the container's root (a free fn so the inherent
-    // and the Ctr-trait `size` share one body without a self-recursive call).
-    em.push_text("fn "); em.push_text(name); em.push_text("_size(snap: *mut MemorySnapshot, ctr_id: u64) -> u64 {\n");
-    em.push_text("    unsafe {\n");
-    em.push_text("        let e: DirEntry = (*snap).root_of(ctr_id);\n");
-    em.push_text("        if e.level == 0u32 { return "); em.push_text(lname); em.push_text("::adopt(e.root).count() as u64; }\n");
-    em.push_text("        return "); em.push_text(bname); em.push_text("::adopt(e.root).total_size();\n    }\n}\n");
-    em.push_text("impl Ctr for "); em.push_text(name); em.push_text(" {\n");
-    em.push_text("    fn size(self: &"); em.push_text(name); em.push_text(") -> u64 { return unsafe { "); em.push_text(name); em.push_text("_size(self.snap, self.ctr_id) }; }\n}\n\n");
     em.commit();
+
+    // Composite free-item names need String backing kept alive to emission.
+    let mut s_cr:  String = String::new(); s_cr.push_str(name);  s_cr.push_str("CowRet");
+    let mut s_lp:  String = String::new(); s_lp.push_str(name);  s_lp.push_str("_leaf_private");
+    let mut s_bp:  String = String::new(); s_bp.push_str(name);  s_bp.push_str("_branch_private");
+    let mut s_ci:  String = String::new(); s_ci.push_str(name);  s_ci.push_str("_cow_insert");
+    let mut s_dg:  String = String::new(); s_dg.push_str(name);  s_dg.push_str("_descend_get");
+    let mut s_sz:  String = String::new(); s_sz.push_str(name);  s_sz.push_str("_size");
+    let crid: Ident = Ident { ptr: s_cr.as_ptr(), len: s_cr.len() as u64 };
+    let lpid: Ident = Ident { ptr: s_lp.as_ptr(), len: s_lp.len() as u64 };
+    let bpid: Ident = Ident { ptr: s_bp.as_ptr(), len: s_bp.len() as u64 };
+    let ciid: Ident = Ident { ptr: s_ci.as_ptr(), len: s_ci.len() as u64 };
+    let dgid: Ident = Ident { ptr: s_dg.as_ptr(), len: s_dg.len() as u64 };
+    let szid: Ident = Ident { ptr: s_sz.as_ptr(), len: s_sz.len() as u64 };
+    let nm:  Ident = Ident { ptr: name.as_ptr(),  len: name.len() as u64 };
+    let lid: Ident = Ident { ptr: lname.as_ptr(), len: lname.len() as u64 };
+    let bid: Ident = Ident { ptr: bname.as_ptr(), len: bname.len() as u64 };
+    let kid: Ident = Ident { ptr: kty.as_ptr(),   len: kty.len() as u64 };
+    let vid: Ident = Ident { ptr: vty.as_ptr(),   len: vty.len() as u64 };
+
+    // {N}CowRet (recursive CoW-insert upward result; addr = this subtree's root
+    // after the insert — the input when written in place, else a copy) + the
+    // path-copy machinery. leaf_private/branch_private return a version the writer
+    // may mutate in place under snapshot `cur` (the node itself if it belongs to
+    // cur, else a cow_clone). cow_insert never releases `node`; the caller
+    // repoints + releases via the store's container-agnostic `tree_release`.
+    let recs: QuoteItemBlob = quote_item! {
+        struct #crid { addr: *mut u8, lsep: #(kid), lsize: u64, split: bool, rsep: #(kid), rsize: u64, rptr: *mut u8 }
+        unsafe fn #(lpid)(node: *mut u8, cur: u64) -> *mut u8 {
+            if node_snapshot(node) == cur { return node; }
+            return #lid::adopt(node).cow_clone(cur).block();
+        }
+        unsafe fn #(bpid)(node: *mut u8, cur: u64) -> *mut u8 {
+            if node_snapshot(node) == cur { return node; }
+            return #bid::adopt(node).cow_clone(cur).block();
+        }
+        unsafe fn #(ciid)(node: *mut u8, level: u32, key: #(kid), val: #(vid), cur: u64) -> #crid {
+            if level == 0u32 {
+                let work: *mut u8 = #(lpid)(node, cur);
+                let mut lf: #lid = #lid::adopt(work);
+                if lf.try_insert(key, val) {
+                    return #crid { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: work };
+                }
+                let mut rt: #lid = #lid::new_in(cur);
+                lf.split_into(&mut rt);
+                if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
+                return #crid { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };
+            }
+            let work: *mut u8 = #(bpid)(node, cur);
+            let mut br: #bid = #bid::adopt(work);
+            let ci: u32 = br.find_child(key);
+            let old_child: *mut u8 = br.child_addr(ci);
+            let r: #crid = #(ciid)(old_child, level - 1u32, key, val, cur);
+            br.update_child(ci, r.lsep, r.lsize);
+            if r.addr != old_child {
+                br.set_child_addr(ci, r.addr);
+                tree_release(old_child, level - 1u32);
+            }
+            if !r.split {
+                return #crid { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };
+            }
+            if br.can_insert_child() {
+                br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
+                return #crid { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };
+            }
+            let mut rb: #bid = #bid::new_in(cur);
+            let _ = br.split_into(&mut rb);
+            let lc: u32 = br.child_count();
+            if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else { rb.insert_child(ci + 1u32 - lc, r.rsep, r.rsize, r.rptr); }
+            return #crid { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&recs); }
+
+    // descend_get — read path (never copies). VERDICT-SELECTED: fast by value +
+    // sentinel; volume a &[u8] view (borrowing the root's storage), miss = empty.
+    if vol {
+        let dg: QuoteItemBlob = quote_item! {
+            unsafe fn #(dgid)(root: *mut u8, level: u32, key: #(kid)) -> &[u8] {
+                let mut node: *mut u8 = root;
+                let mut lvl: u32 = level;
+                while lvl > 0u32 { let br: #bid = #bid::adopt(node); node = br.child_addr(br.find_child(key)); lvl = lvl - 1u32; }
+                let lf: #lid = #lid::adopt(node);
+                let p: u32 = lf.lower_bound(key);
+                if p < lf.count() && lf.key_at(p) == key { let v: &[u8] = lf.val_at(p); return slice_from_raw::<u8>(v.as_ptr(), v.len()); }
+                return slice_from_raw::<u8>(root as *const u8, 0i64);
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&dg); }
+    } else {
+        let dg: QuoteItemBlob = quote_item! {
+            unsafe fn #(dgid)(root: *mut u8, level: u32, key: #(kid), sentinel: #(vid)) -> #(vid) {
+                let mut node: *mut u8 = root;
+                let mut lvl: u32 = level;
+                while lvl > 0u32 { let br: #bid = #bid::adopt(node); node = br.child_addr(br.find_child(key)); lvl = lvl - 1u32; }
+                let lf: #lid = #lid::adopt(node);
+                let p: u32 = lf.lower_bound(key);
+                if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }
+                return sentinel;
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&dg); }
+    }
+
+    // {N} — the Ctr handle: a typed view of container `ctr_id` in a hand-written
+    // MemorySnapshot (the snapshot owns versioning + directory + capability). It
+    // finds its root via `root_of(ctr_id)`, a CoW insert repoints via `set_root`,
+    // node lifecycle rides `tree_release` + the CoW node primitives. The `size`
+    // free-fn lets the inherent `size` and the Ctr-trait `size` share one body.
+    let handle: QuoteItemBlob = quote_item! {
+        pub struct #nm { snap: *mut MemorySnapshot, ctr_id: u64 }
+        impl #nm {
+            pub static fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
+                let lf: #lid = #lid::new_in(snap.snapshot_id());
+                snap.set_root(ctr_id, lf.block(), 0u32);
+                return #nm { snap: snap as *mut MemorySnapshot, ctr_id: ctr_id };
+            }
+            pub static fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
+                return #nm { snap: snap as *mut MemorySnapshot, ctr_id: ctr_id };
+            }
+            pub fn insert(self: &#nm, key: #(kid), val: #(vid)) {
+                unsafe {
+                    let e: DirEntry = (*self.snap).root_of(self.ctr_id);
+                    let cur: u64 = (*self.snap).snapshot_id();
+                    let r: #crid = #(ciid)(e.root, e.level, key, val, cur);
+                    let mut nrt: *mut u8 = e.root;
+                    let mut nlv: u32 = e.level;
+                    if r.addr != e.root { nrt = r.addr; tree_release(e.root, e.level); }
+                    if r.split {
+                        let mut top: #bid = #bid::new_in(cur);
+                        top.push_child(r.lsep, r.lsize, r.addr);
+                        top.push_child(r.rsep, r.rsize, r.rptr);
+                        nrt = top.block();
+                        nlv = e.level + 1u32;
+                    }
+                    (*self.snap).set_root(self.ctr_id, nrt, nlv);
+                }
+            }
+            pub fn size(self: &#nm) -> u64 { return unsafe { #(szid)(self.snap, self.ctr_id) }; }
+        }
+        fn #(szid)(snap: *mut MemorySnapshot, ctr_id: u64) -> u64 {
+            unsafe {
+                let e: DirEntry = (*snap).root_of(ctr_id);
+                if e.level == 0u32 { return #lid::adopt(e.root).count() as u64; }
+                return #bid::adopt(e.root).total_size();
+            }
+        }
+        impl Ctr for #nm {
+            fn size(self: &#nm) -> u64 { return unsafe { #(szid)(self.snap, self.ctr_id) }; }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&handle); }
+
+    // get_or on the handle — reads the snapshot's current root for this container.
+    if vol {
+        let g: QuoteItemBlob = quote_item! {
+            impl #nm {
+                pub fn get_or(self: &#nm, key: #(kid)) -> &[u8] {
+                    unsafe { let e: DirEntry = (*self.snap).root_of(self.ctr_id); return #(dgid)(e.root, e.level, key); }
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&g); }
+    } else {
+        let g: QuoteItemBlob = quote_item! {
+            impl #nm {
+                pub fn get_or(self: &#nm, key: #(kid), sentinel: #(vid)) -> #(vid) {
+                    unsafe { let e: DirEntry = (*self.snap).root_of(self.ctr_id); return #(dgid)(e.root, e.level, key, sentinel); }
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&g); }
+    }
 }
 
 /// Lowering handler behind the `container` ITEM (ADR 0020 wave-0). Invoked by
