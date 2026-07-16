@@ -1,0 +1,42 @@
+// Antiquote every name/type position that leads a declaration header:
+//   - trait NAME       `trait #g { ... }`            (TRAIT_DEF.NAME_VAR)
+//   - impl trait-NAME   `impl<..> #g for T { ... }`   (IMPL_BLOCK.NAME_VAR)
+//   - type-param name+bound `#p: Marker`              (TYPE_PARAM.NAME_VAR)
+//   - antiquoted receiver arg `Box<#p>`               (TYPE_REF.NAME_VAR)
+// All are NAME_VAR placeholders resolved by the generic walk in
+// logos_emit_item_blob_subst. Regression for the impl-trait-name antiquot
+// grammar (GAP E) + trait-name antiquot + the pre-existing type-param antiquot.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+trait Marker {}
+impl Marker for i32 {}
+
+struct Box<T> { v: T }
+
+#[metaprog_handler("gen_trait_impl")]
+fn gen_trait_impl_hook(target_offset: u32) -> () {
+    let gn: str = "Show";
+    let gid: Ident = Ident { ptr: gn.as_ptr(), len: gn.len() as u64 };
+    let pn: str = "T";
+    let pid: Ident = Ident { ptr: pn.as_ptr(), len: pn.len() as u64 };
+    let blob: QuoteItemBlob = quote_item! {
+        trait #gid { fn label(self: &Self) -> i64; }
+        impl<#pid: Marker> #gid for Box<#pid> {
+            fn label(self: &Self) -> i64 { return 7i64; }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[gen_trait_impl]
+struct Trigger {}
+
+fn main() -> i32 {
+    let b: Box<i32> = Box { v: 5i32 };
+    // Generated trait Show + impl<T: Marker> Show for Box<T> supply label()=7.
+    return b.label() as i32 - 7i32;
+}

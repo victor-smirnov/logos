@@ -903,6 +903,8 @@
                   => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
                   / pub_vis trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, SUPERS: $4, ITEMS: $... }
+                  / pub_vis trait_kw HASH IDENT LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME_VAR: $4, ITEMS: $... }
                   / pub_vis trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
                   => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, ITEMS: $... }
 
@@ -928,6 +930,8 @@
               => { CODE: TRAIT_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
               / trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, SUPERS: $3, ITEMS: $... }
+              / trait_kw HASH IDENT LBRACE trait_method_or_doc* RBRACE
+              => { CODE: TRAIT_DEF, NAME_VAR: $3, ITEMS: $... }
               / trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, ITEMS: $... }
 
@@ -1068,6 +1072,14 @@
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
                 / KW_IMPL type_param_list IDENT KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME: $3, TYPE: $5, WHERE: $6, ITEMS: $... }
+                // Antiquot trait-name in impl-position (`impl<G> #Trait for T`);
+                // NAME_VAR holds the ident-placeholder resolved at splice time.
+                // Only legal inside quote_item! bodies (sema gates). Placed after
+                // the IDENT alt: the HASH lead is disjoint, ordering is safe.
+                // NAME_VAR shares slot 38 with WHERE, so the antiquot alt OMITS
+                // where_clause (same discipline as struct/enum/fn antiquot alts).
+                / KW_IMPL type_param_list HASH IDENT KW_FOR simple_type LBRACE impl_item_or_doc* RBRACE
+               => { CODE: IMPL_BLOCK, IMPL_TYPE_PARAMS: $2, NAME_VAR: $4, TYPE: $6, ITEMS: $... }
                 // Phase 1B-10: bare unsized self-types — `impl<T> Trait for [T]`
                 // and `impl Trait for dyn Foo`. arr_type matches bare `[T]`
                 // (Phase 1B-1 UNSIZED_SLICE_TYPE node); dyn_type matches bare
@@ -1100,6 +1112,10 @@
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
                 / KW_IMPL IDENT KW_FOR simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, NAME: $2, TYPE: $4, WHERE: $5, ITEMS: $... }
+                // Antiquot trait-name, non-generic impl (`impl #Trait for T`).
+                // where_clause omitted (NAME_VAR shares slot 38 with WHERE).
+                / KW_IMPL HASH IDENT KW_FOR simple_type LBRACE impl_item_or_doc* RBRACE
+               => { CODE: IMPL_BLOCK, NAME_VAR: $3, TYPE: $5, ITEMS: $... }
                 // impl<T> Pair<T> { ... } — standalone impl with own type parameters
                 / KW_IMPL type_param_list simple_type where_clause? LBRACE impl_item_or_doc* RBRACE
                => { CODE: IMPL_BLOCK, TYPE_PARAMS: $2, TYPE: $3, WHERE: $4, ITEMS: $... }
