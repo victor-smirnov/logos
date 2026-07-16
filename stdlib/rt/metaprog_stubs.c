@@ -90,6 +90,12 @@ const uint8_t* logos_quote_expr_subst(const uint8_t* tpl, uint64_t tpl_size,
 }
 
 __attribute__((weak))
+const uint8_t* logos_parse_as(const uint8_t* s, uint64_t len, uint32_t rule_id) {
+    (void)s; (void)len; (void)rule_id;
+    metaprog_unavailable("logos_parse_as");
+}
+
+__attribute__((weak))
 const uint8_t* logos_qib_pack_idents(const void* const* arr, uint64_t n) {
     (void)arr; (void)n;
     metaprog_unavailable("logos_qib_pack_idents");
