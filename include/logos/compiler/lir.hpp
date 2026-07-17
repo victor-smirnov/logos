@@ -879,6 +879,22 @@ struct LProgram {
     // the same instantiation at N sites shares ONE generated stack.
     std::vector<std::string> pending_container_srcs;
 
+    // ADR 0021 §3: MONO-filled metaclass factory demands. Instantiating a
+    // factory-backed marker type (`ContainerType<CFG>`) records the CFG
+    // document's raw content hash here (mangled spellings diverge — hs_ vs
+    // @hs_ — so the key is the u64 itself). The driver drains after the
+    // terminal mono pass: invoke the metaclass factory with the CFG doc,
+    // splice the emitted family, re-dispatch, re-run mono. Symmetric to
+    // pending_container_srcs, but demand-driven from mono instead of
+    // sema-side name resolution.
+    struct FactoryDemand {
+        std::string base;     // marker base name ("ContainerType")
+        std::string pkg;      // marker's package
+        uint64_t    cfg_hash; // WStaticLit content hash of type_args[0]
+        std::string cname;    // qualified concrete name (diagnostics)
+    };
+    std::vector<FactoryDemand> factory_demands;
+
     // Function-style macro arg blobs (slice 1.3b of fn-macros).
     //
     // Keyed by site_id (== index into metacall_sites). Each entry is a

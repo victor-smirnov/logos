@@ -5475,6 +5475,19 @@ int main(int argc, char** argv) {
     if (!prog.ok()) return 1;
     report("mono");
 
+    // ADR 0021 §3 (Phase 2a): metaclass factory demands surfaced by mono —
+    // instantiations of `ContainerType<CFG>` recorded by hash. The full drain
+    // (invoke the metaclass factory metacall with the CFG doc, splice the
+    // emitted family, re-dispatch, re-run the terminal mono — mirroring the
+    // pending_container_srcs harvest loop) is Phase 2b; until then the
+    // channel is proven end-to-end by reporting what mono demanded.
+    for (auto& fd : prog.factory_demands)
+        std::fprintf(stderr,
+            "metaclass: demand %s<@hs_%016llx> (%s) — factory drain pending "
+            "(ADR 0021 Phase 2b)\n",
+            fd.base.c_str(), (unsigned long long)fd.cfg_hash,
+            fd.cname.c_str());
+
     // ── Step 2d: Borrow checking ─────────────────────────────────
     prog = logos::compiler::borrow_check(std::move(prog));
     prog.print_diags(stderr);

@@ -131,6 +131,15 @@ private:
     // mlir-gen forward-declare) then key on one name algebra. The qualified
     // retry can't resurrect the static-assoc-fn false-skip class (gap #2):
     // it only hits when pkg's OWN module defines the exact symbol.
+    // ADR 0021 §3: is this struct type the metaclass demand marker's home?
+    // Pilot scope: the one built-in marker (logos.lcm.canon.metaclass). A
+    // registry (sema-fed, per metaclass) replaces this when a second
+    // metaclass appears.
+    static bool struct_pkg_is_metaclass(TypeRef tr) {
+        return tr.pkg_name() == "logos.lcm.canon.metaclass";
+    }
+    std::unordered_set<uint64_t> factory_demand_hashes_;  // demand dedup (raw CFG hashes)
+
     bool binary_has_link(const std::string& name, std::string_view pkg) const {
         if (in_.binary_symbols.empty()) return false;
         if (in_.binary_symbols.has(name)) return true;

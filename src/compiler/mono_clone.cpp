@@ -6218,6 +6218,26 @@ void Mono::instantiate_struct_templates() {
             const std::string base{TypeRef(struct_t).struct_name()};
             SubstMap subst;
 
+            // ADR 0021 §3: metaclass demand. Instantiating a factory-backed
+            // marker type (ContainerType<CFG>) records a demand for the CFG's
+            // container family, keyed by the WritStatic doc's content hash.
+            // The marker itself IS a real (empty) template — cloning proceeds
+            // normally below; the demand is drained by the driver, which
+            // invokes the metaclass factory and re-enters dispatch. Keyed on
+            // the raw u64 hash (mangled spellings diverge: hs_ vs @hs_).
+            if (base == "ContainerType" &&
+                struct_pkg_is_metaclass(struct_t) &&
+                !TypeRef(struct_t).type_args().empty()) {
+                TypeRef cfg = TypeRef(struct_t).type_args()[0];
+                if (cfg && TypeRef(cfg).kind() == LogosType::Kind::WStaticLit) {
+                    uint64_t h = (uint64_t)TypeRef(cfg).const_val().value_or(0);
+                    if (h && factory_demand_hashes_.insert(h).second)
+                        out_.factory_demands.push_back(
+                            {base, std::string(TypeRef(struct_t).pkg_name()),
+                             h, qcname});
+                }
+            }
+
             const TypePoolImpl* ist_pool = out_.type_pool.impl();
             lir_view::StructView tmpl;
             PackMap packs;
