@@ -178,7 +178,7 @@ pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VO
 // ── size ─────────────────────────────────────────────────────────────────────
 
 /// `(root, level)` shape (not the snapshot/`Ctr` shape) so it composes with
-/// both a bare `GenCowTree`-style handle and a `DirEntry` read out of a
+/// both a bare `GenCowTree`-style handle and a `RootEntry` read out of a
 /// `MemorySnapshot`'s directory. Mirrors `GenCow_size` / `GenCowTree::size`.
 pub fn bt_size<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(root: *mut u8, level: u32) -> u64 {
     if level == 0u32 { return L::adopt(root).count() as u64; }

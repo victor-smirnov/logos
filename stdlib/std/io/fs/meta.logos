@@ -209,6 +209,7 @@ pub fn unlink(path: str) -> Result<i32, i32> {
 pub fn rm_rf(path: str) -> Result<i32, i32> {
     let mut buf: String = String::new();
     buf.push_str(path);
+    buf.push_u8(0 as u8);   // C-string boundary: as_ptr feeds stat/unlink/opendir/rmdir
     let dir: bool = unsafe { logos_path_is_dir(buf.as_ptr()) == 1 };
     if !dir {
         // File or non-existent: try unlink.
@@ -237,6 +238,7 @@ pub fn rm_rf(path: str) -> Result<i32, i32> {
                     if (last as i32) != 47 { child.push_u8(47 as u8); }
                 }
                 child.push_cstr(nb_ptr as *const u8);
+                child.push_u8(0 as u8);   // str_from_cstr scans to NUL
             }
             let cs: str = unsafe { str_from_cstr(child.as_ptr()) };
             match rm_rf(cs) {
@@ -327,6 +329,7 @@ fn walk_dir_into(path: str, out: *mut Vec<DirEntry>) {
     unsafe {
         let mut path_buf: String = String::new();
         path_buf.push_str(path);
+        path_buf.push_u8(0 as u8);   // C-string boundary: as_ptr feeds stat/opendir
         let dir_flag: i32 = logos_path_is_dir(path_buf.as_ptr());
         let mut name: String = String::new();
         name.push_str(path);

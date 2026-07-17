@@ -55,14 +55,14 @@ pub unsafe fn tree_release(root: *mut u8, level: u32) {
 
 /// One container's root in a snapshot's directory. `root`/`level` evolve as the
 /// container is mutated (CoW repoints the root); a fresh container appends a row.
-pub struct DirEntry { pub ctr_id: u64, pub root: *mut u8, pub level: u32 }
+pub struct RootEntry { pub ctr_id: u64, pub root: *mut u8, pub level: u32 }
 
 /// A snapshot's container registry. Few containers per store → a linear-scan
 /// vector is the right shape; a real profile can swap in a map later.
-pub struct Directory { entries: Vec<DirEntry> }
+pub struct Directory { entries: Vec<RootEntry> }
 
 impl Directory {
-    pub static fn new() -> Directory { return Directory { entries: vec_new::<DirEntry>() }; }
+    pub static fn new() -> Directory { return Directory { entries: vec_new::<RootEntry>() }; }
 
     fn find(self: &Directory, ctr_id: u64) -> i64 {
         let n: i64 = self.entries.len();
@@ -74,7 +74,7 @@ impl Directory {
     pub fn has(self: &Directory, ctr_id: u64) -> bool { return self.find(ctr_id) >= 0i64; }
 
     /// (root, level) for `ctr_id`; asserts the container is registered.
-    pub fn root_of(self: &Directory, ctr_id: u64) -> DirEntry {
+    pub fn root_of(self: &Directory, ctr_id: u64) -> RootEntry {
         let i: i64 = self.find(ctr_id);
         assert(i >= 0i64, "directory: unknown container id");
         return self.entries.get(i);
@@ -83,12 +83,12 @@ impl Directory {
     /// Registers a new container's root, or repoints an existing one (CoW).
     pub fn set_root(self: &mut Directory, ctr_id: u64, root: *mut u8, level: u32) {
         let i: i64 = self.find(ctr_id);
-        if i >= 0i64 { self.entries.set(i, DirEntry { ctr_id: ctr_id, root: root, level: level }); return; }
-        self.entries.push(DirEntry { ctr_id: ctr_id, root: root, level: level });
+        if i >= 0i64 { self.entries.set(i, RootEntry { ctr_id: ctr_id, root: root, level: level }); return; }
+        self.entries.push(RootEntry { ctr_id: ctr_id, root: root, level: level });
     }
 
     pub fn len(self: &Directory) -> i64 { return self.entries.len(); }
-    pub fn at(self: &Directory, i: i64) -> DirEntry { return self.entries.get(i); }
+    pub fn at(self: &Directory, i: i64) -> RootEntry { return self.entries.get(i); }
 
     /// A fresh directory with the same rows (block refs copied verbatim — the
     /// caller inc_rc's each root to record the new snapshot's structural share).
@@ -149,7 +149,7 @@ impl MemorySnapshot {
     // — directory: container roots in this version —
 
     pub fn has_ctr(self: &MemorySnapshot, ctr_id: u64) -> bool { return self.dir.has(ctr_id); }
-    pub fn root_of(self: &MemorySnapshot, ctr_id: u64) -> DirEntry { return self.dir.root_of(ctr_id); }
+    pub fn root_of(self: &MemorySnapshot, ctr_id: u64) -> RootEntry { return self.dir.root_of(ctr_id); }
     pub fn set_root(self: &mut MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32) {
         self.dir.set_root(ctr_id, root, level);
     }
@@ -161,7 +161,7 @@ impl MemorySnapshot {
         let n: i64 = self.dir.len();
         let mut i: i64 = 0i64;
         while i < n {
-            let e: DirEntry = self.dir.at(i);
+            let e: RootEntry = self.dir.at(i);
             unsafe { tree_release(e.root, e.level); }
             i = i + 1i64;
         }
@@ -205,7 +205,7 @@ impl MemoryStore {
         let hn: i64 = self.head.len();
         let mut i: i64 = 0i64;
         while i < hn {
-            let e: DirEntry = self.head.at(i);
+            let e: RootEntry = self.head.at(i);
             unsafe { tree_release(e.root, e.level); }
             i = i + 1i64;
         }
@@ -222,7 +222,7 @@ impl MemoryStore {
         let n: i64 = self.head.len();
         let mut i: i64 = 0i64;
         while i < n {
-            let e: DirEntry = self.head.at(i);
+            let e: RootEntry = self.head.at(i);
             unsafe { tree_release(e.root, e.level); }
             i = i + 1i64;
         }
