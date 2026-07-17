@@ -1020,12 +1020,25 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     //
     // Carve-outs: metaprog handlers / metaprog-keep fns can be invoked at
     // compile time and need bodies. Specializations go through lower_spec_fn.
+    // The membership test uses the QUALIFIED link name for method-shaped
+    // symbols: archives define methods as `<module_id>..<pkg>.Owner__m__sig`
+    // (sym::link_name adds the prefix at emission) while the sema-side
+    // fn_name has no module prefix. Testing the qualified form keeps this
+    // gate in LOCKSTEP with mlir_gen's is_binary_skip (same name form, same
+    // set) — the bare-ALIAS bridge this replaces desynced the two: sema
+    // skipped bodies mlir_gen then couldn't match (gap #2, static assoc
+    // fns), and the `$M` guard that "fixed" it matched zero real symbols,
+    // silently disabling skeleton-skip and re-lowering the whole stdlib in
+    // every consumer compile (2x full-suite regression).
     bool skel_skip_body = cur_from_binary_
                        && !is_extern
                        && !fn_is_metaprog_handler(fn_name)
                        && !fn_is_metaprog_keep(fn_name)
                        && binary_symbols_
-                       && binary_symbols_->count(fn_name) > 0;
+                       && (binary_symbols_->count(fn_name) > 0
+                           || (!cur_module_id_.empty()
+                               && binary_symbols_->count(
+                                      cur_module_id_ + ".." + fn_name) > 0));
     if (skel_skip_body) {
         skip_body = true;
         ++skel_skip_count_;
