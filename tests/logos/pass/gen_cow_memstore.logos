@@ -1,7 +1,7 @@
 // gen_cow_memstore — the CoW map generated against the hand-written MemoryStore
 // (ADR 0020 Track B container⟂store split + ADR 0021 Phase 4b demand path).
 // One `kind ordered_map` declaration lowers to a CFG doc + ContainerType
-// alias; `create_ctr::<GenCow>` fires the mono demand and the metaclass
+// alias; `create_ctr::<typeof(GenCow)>` fires the mono demand and the metaclass
 // FACTORY generates the family (@hs-keyed leaf/branch + CoW handle, package
 // logos.gen), which runs on the SHARED MemoryStore / MemorySnapshot. main()
 // mirrors the snapshot-isolation contract: version A fills [0,N), version B
@@ -29,7 +29,7 @@ fn main() -> i32 {
     // ── version A: create container #1, fill [0, N) ──────────────────────
     let mut s0: MemorySnapshot = store.fork();
     if s0.snapshot_id() != 1u64 { return 1i32; }
-    let m0 = create_ctr::<GenCow>(&mut s0, 1u64);
+    let m0 = create_ctr::<typeof(GenCow)>(&mut s0, 1u64);
     let mut k: u64 = 0u64;
     while k < n { m0.insert(k, k + 7u64); k = k + 1u64; }
     if m0.size() != n { return 2i32; }
@@ -38,7 +38,7 @@ fn main() -> i32 {
     // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
     let mut s1: MemorySnapshot = store.fork();
     if s1.snapshot_id() != 2u64 { return 3i32; }
-    let m1 = open_ctr::<GenCow>(&mut s1, 1u64);
+    let m1 = open_ctr::<typeof(GenCow)>(&mut s1, 1u64);
     if m1.get_or(0u64, 0xFFFFu64) != 7u64 { return 4i32; }
     if m1.get_or(n - 1u64, 0xFFFFu64) != (n - 1u64) + 7u64 { return 5i32; }
     k = n;
@@ -46,7 +46,7 @@ fn main() -> i32 {
     store.commit(&s1);
 
     // ── ISOLATION: s0 (frozen) still sees ONLY [0, N); s1 sees [0, 2N) ───
-    let m0b = open_ctr::<GenCow>(&mut s0, 1u64);
+    let m0b = open_ctr::<typeof(GenCow)>(&mut s0, 1u64);
     if m0b.size() != n { return 6i32; }
     if m1.size() != 2u64 * n { return 7i32; }
     k = 0u64;

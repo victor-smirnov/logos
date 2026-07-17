@@ -3663,6 +3663,10 @@ private:
     // arg handler in resolve_type and `pub const X: WritStatic = @{...};`
     // recognition in collect_const.
     TypeRef resolve_wstatic_value(writ::TinyMapView val_node);
+    // Generic compile-time const under CONCRETE args (ADR 0021: shared by the
+    // type-position use site and the typeof(<container-decl>) bridge).
+    TypeRef resolve_generic_wstatic_const(const std::string& name,
+                                          const std::vector<TypeRef>& args);
 
     // ── Collection phase ─────────────────────────────────────────
 
@@ -3738,6 +3742,9 @@ private:
                                  const std::string& concrete_alt,
                                  logos::compiler::StrSet& seen);
     void collect_module(writ::TinyMapView mod, int phase);
+    // ADR 0021: container-decl registration split from collect phase 2 —
+    // also runs for cache-skipped binary holders (containers_ is not cached).
+    void register_container_decls(writ::TinyMapView mod);
     void collect_enum(writ::TinyMapView node);
     void collect_type_alias(writ::TinyMapView node);
     void collect_const(writ::TinyMapView node);

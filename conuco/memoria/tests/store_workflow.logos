@@ -3,7 +3,7 @@
 // create_ctr the container in it, fill, commit, branch, verify isolation —
 // the full CoW store lifecycle over a Canon-shaped container. Each
 // `container` line lowers to a CFG doc + `type <N> = ContainerType<<N>Cfg>`
-// alias; `create_ctr::<N>`/`open_ctr::<N>` fire the mono demand and the
+// alias; `create_ctr::<typeof(N)>`/`open_ctr::<typeof(N)>` fire the mono demand and the
 // metaclass FACTORY generates the family (@hs-keyed, package logos.gen):
 //   Ledger:  fast leaf (u64/u64, count-balanced split) + branch + CoW handle;
 //   Journal: VOLUME leaf (u64/str — VLE column, volume-balanced split),
@@ -48,8 +48,8 @@ fn main() -> i32 {
 
     // ── v1: fork, CREATE both containers in the snapshot, fill, commit ──
     let mut s1: MemorySnapshot = store.fork();
-    let ledger = create_ctr::<Ledger>(&mut s1, LEDGER);
-    let journal = create_ctr::<Journal>(&mut s1, JOURNAL);
+    let ledger = create_ctr::<typeof(Ledger)>(&mut s1, LEDGER);
+    let journal = create_ctr::<typeof(Journal)>(&mut s1, JOURNAL);
     let n: u64 = 5000u64;
     let mut k: u64 = 0u64;
     while k < n { ledger.insert(k, k * 2u64); k = k + 1u64; }
@@ -61,16 +61,16 @@ fn main() -> i32 {
 
     // ── v2: branch, mutate BOTH — CoW copies only the touched paths ──
     let mut s2: MemorySnapshot = store.fork();
-    let l2 = open_ctr::<Ledger>(&mut s2, LEDGER);
-    let j2 = open_ctr::<Journal>(&mut s2, JOURNAL);
+    let l2 = open_ctr::<typeof(Ledger)>(&mut s2, LEDGER);
+    let j2 = open_ctr::<typeof(Journal)>(&mut s2, JOURNAL);
     l2.insert(0u64, 999u64);              // overwrite in v2
     j2.insert(2u64, "frozen");            // VLE replace-on-hit (grows)
     j2.insert(3u64, "closed");
     store.commit(&s2);
 
     // ── isolation: v1 is frozen, v2 sees the new state ──
-    let l1 = open_ctr::<Ledger>(&mut s1, LEDGER);
-    let j1 = open_ctr::<Journal>(&mut s1, JOURNAL);
+    let l1 = open_ctr::<typeof(Ledger)>(&mut s1, LEDGER);
+    let j1 = open_ctr::<typeof(Journal)>(&mut s1, JOURNAL);
     if l1.get_or(0u64, 0xDEADu64) != 0u64 { return 3i32; }
     if l2.get_or(0u64, 0xDEADu64) != 999u64 { return 4i32; }
     if l2.get_or(4999u64, 0xDEADu64) != 9998u64 { return 5i32; }

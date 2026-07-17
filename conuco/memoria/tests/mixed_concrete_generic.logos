@@ -27,27 +27,27 @@ container Gen<V> for u8 {
     measure max(key);
 }
 
-fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
+fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 { return C::family_id(); }
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
     let mut s: MemorySnapshot = store.fork();
-    let c = create_ctr::<Conc>(&mut s, 1u64);
+    let c = create_ctr::<typeof(Conc)>(&mut s, 1u64);
     c.insert(1u64, 7u64);
     if c.get_or(1u64, 0u64) != 7u64 { return 1i32; }
     store.commit(&s);
 
-    let g = create_ctr::<Gen<u64>>(&mut s, 2u64);
+    let g = create_ctr::<typeof(Gen::<u64>)>(&mut s, 2u64);
     g.insert(1u64, 5u64);
     if g.get_or(1u64, 0u64) != 5u64 { return 2i32; }
 
     // coinciding configs UNIFY: Conc and Gen<u64> are ONE family
-    if fid::<Conc>() != fid::<Gen<u64>>() { return 3i32; }
+    if fid::<typeof(Conc)>() != fid::<typeof(Gen::<u64>)>() { return 3i32; }
     // a non-coinciding instantiation gets its OWN family
-    let d = create_ctr::<Gen<u32>>(&mut s, 3u64);
+    let d = create_ctr::<typeof(Gen::<u32>)>(&mut s, 3u64);
     d.insert(1u64, 9u32);
     if d.get_or(1u64, 0u32) != 9u32 { return 4i32; }
-    if fid::<Gen<u32>>() == fid::<Conc>() { return 5i32; }
+    if fid::<typeof(Gen::<u32>)>() == fid::<typeof(Conc)>() { return 5i32; }
 
     s.release();
     store.release();

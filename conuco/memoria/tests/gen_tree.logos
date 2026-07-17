@@ -1,6 +1,6 @@
 // gen_tree — the b+tree assembly under bulk load, end to end (ADR 0020 Track
 // B ② I2 + ADR 0021 Phase 4b demand path): one `kind ordered_map` declaration
-// lowers to a CFG doc + ContainerType alias; `create_ctr::<GenBt>` fires the
+// lowers to a CFG doc + ContainerType alias; `create_ctr::<typeof(GenBt)>` fires the
 // mono demand and the metaclass FACTORY generates the family (@hs-keyed
 // leaf/branch + CoW handle over the shared MemoryStore). main() mirrors the
 // hand-written logos.mem.bt.tree validation (BTreeU64): ascending fill
@@ -27,7 +27,7 @@ container GenBt for u8 {
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
     let mut s0: MemorySnapshot = store.fork();
-    let t = create_ctr::<GenBt>(&mut s0, 1u64);
+    let t = create_ctr::<typeof(GenBt)>(&mut s0, 1u64);
     if t.size() != 0u64 { return 2i32; }
 
     // ── grow: ascending insert forces repeated rightmost splits + root growth
@@ -62,7 +62,7 @@ fn main() -> i32 {
     if t.get_or(778u64, 0u64) != 778u64 + 7u64 { return 11i32; }   // untouched neighbour
 
     // ── a second container with interleaved (non-ascending) key order ────
-    let t2 = create_ctr::<GenBt>(&mut s0, 2u64);
+    let t2 = create_ctr::<typeof(GenBt)>(&mut s0, 2u64);
     let m: u64 = 20000u64;
     let mut i: u64 = 0u64;
     let mut key: u64 = 0u64;

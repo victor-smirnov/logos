@@ -1159,24 +1159,26 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     }
 }
 
-// ── ADR 0021 Phase 4b: the container's CFG document + transparent alias ────
+// ── ADR 0021 Phase 4b: the container's CFG document ───────────────────────
 //
-// The DECL-SITE lowering of a kind=ordered_map container. Synthesize
+// The DECL-SITE lowering of a kind=ordered_map container. Synthesize ONLY
 //
 //   pub const <Name>Cfg<GENERICS?>: WritStatic = @{ … };
-//   pub type  <Name><GNAMES?> = ContainerType<<Name>Cfg<GNAMES?>>;
 //
-// The CFG doc's content hash (@hs) is the container family's identity: two
-// structurally identical declarations produce byte-identical docs → the same
-// @hs → ONE family (twin dedup, no name in the key). The alias makes the
-// declaration a factory-backed marker instance — naming it in create_ctr::<N>
-// fires the mono demand and the metaclass factory generates the family
-// (ADR 0021 §3). The wave-0 handle emission is GONE from the decl site; the
-// factory path (__container_factory) is the only family emitter.
+// A `container Map<K,V> {...}` item is a DECLARATION, not a type, and no
+// type alias is emitted for it: the container's value type depends on the
+// STORE as well as the configuration (per-store emitter specialization), so
+// `Map<i64,i64>` must not name a handle. The declaration-to-type bridge is
+// `typeof(Map::<i64,i64>)` → `ContainerType<@{…}>` (the typed wrapper over
+// the config constant — sema resolves typeof over a registered container
+// declaration through THIS emitted const, so the doc has one source of
+// truth and one hash). Naming the wrapper in create_ctr::<typeof(…)> fires
+// the mono demand; __container_factory is the only family emitter.
 //
-// A GENERIC declaration emits a generic const + generic alias (bounds, if
-// any, stay on the const — the alias header/args ride the bare gnames); the
-// use-site re-resolution of the alias RHS produces the concrete @hs per
+// The CFG doc's content hash (@hs) is the family identity: structurally
+// identical declarations produce byte-identical docs → one family (twin
+// dedup, no name in the key). A GENERIC declaration emits a generic const
+// (bounds verbatim); use-site substitution produces the concrete @hs per
 // instantiation. The key column is always a sized (FSE) type → `<type:K>`;
 // a concrete `str` value column is unsized (VLE) and cannot ride
 // `<type:str>`, so it is recorded as the string tag "str" (the factory reads
@@ -1224,7 +1226,6 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
     let mut em: Emitter = Emitter::new();
     em.emit_into(cs.pkg);                              // "package <pkg>; "
     em.push_text("use logos.lang.writ.wstatic; ");
-    em.push_text("use logos.lcm.canon.metaclass; ");   // ContainerType (alias RHS)
     em.push_text("pub const "); em.push_text(name); em.push_text("Cfg");
     if cs.generics.len() > 0i64 { em.push_text(cs.generics); }  // verbatim, bounds included
     em.push_text(": WritStatic = @{ \"kind\": \"ordered_map\", \"key\": <type:");
@@ -1234,12 +1235,7 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
     } else {
         em.push_text("<type:"); em.push_text(vty); em.push_text(">");
     }
-    em.push_text(" }; ");
-    em.push_text("pub type "); em.push_text(name);
-    if cs.gnames.len() > 0i64 { em.push_text("<"); em.push_text(cs.gnames); em.push_text(">"); }
-    em.push_text(" = ContainerType<"); em.push_text(name); em.push_text("Cfg");
-    if cs.gnames.len() > 0i64 { em.push_text("<"); em.push_text(cs.gnames); em.push_text(">"); }
-    em.push_text(">;");
+    em.push_text(" };");
     em.commit();
     return true;
 }
@@ -1400,7 +1396,7 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     em.emit_into("logos.gen");
     em.push_text("use logos.lcm.canon.metaclass; ");
     em.push_text("use logos.mem.bt.memstore; ");
-    em.push_text("impl CtrFamily for ContainerType<");
+    em.push_text("impl CtrFamily<MemorySnapshot> for ContainerType<");
     em.push_text(cfg_src);
     em.push_text("> { type Handle = ");
     em.push_text(fam.as_str());

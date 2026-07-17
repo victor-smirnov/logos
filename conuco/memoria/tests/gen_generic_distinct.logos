@@ -18,19 +18,19 @@ container Map<K, V> for u8 {
     measure max(key);
 }
 
-fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
+fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 { return C::family_id(); }
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
     let mut s0: MemorySnapshot = store.fork();
 
-    let a = create_ctr::<Map<u64, u64>>(&mut s0, 1u64);          // fast u64/u64
+    let a = create_ctr::<typeof(Map::<u64, u64>)>(&mut s0, 1u64);          // fast u64/u64
     a.insert(1u64, 10u64);
     a.insert(2u64, 20u64);
     if a.size() != 2u64 { return 1i32; }
     if a.get_or(2u64, 0u64) != 20u64 { return 2i32; }
 
-    let b = create_ctr::<Map<i32, bool>>(&mut s0, 2u64);         // DISTINCT fast family
+    let b = create_ctr::<typeof(Map::<i32, bool>)>(&mut s0, 2u64);         // DISTINCT fast family
     b.insert(7i32, true);
     b.insert(9i32, false);
     if b.size() != 2u64 { return 3i32; }
@@ -39,7 +39,7 @@ fn main() -> i32 {
     if b.get_or(100i32, true) != true { return 6i32; }           // absent → sentinel
 
     // distinct configs → distinct family identities
-    if fid::<Map<u64, u64>>() == fid::<Map<i32, bool>>() { return 7i32; }
+    if fid::<typeof(Map::<u64, u64>)>() == fid::<typeof(Map::<i32, bool>)>() { return 7i32; }
 
     s0.release();
     store.release();

@@ -517,7 +517,14 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
             bool is_bin = (from_binary_ && ai < from_binary_->size())
                           ? (*from_binary_)[ai] : false;
             if (is_bin &&
-                collected_holders_.count(asts[ai].holder())) continue;
+                collected_holders_.count(asts[ai].holder())) {
+                // containers_ is per-SemaChecker state the cache does NOT
+                // carry — a cache-skipped binary module must still register
+                // its container declarations (typeof over a library-declared
+                // container resolves through containers_ at entry-body time).
+                register_container_decls(asts[ai].root_object().as_tiny_map());
+                continue;
+            }
         }
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
@@ -1392,6 +1399,29 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
     }
 }
 
+// ADR 0020/0021: register `container` declarations (DEF and DONE) into
+// containers_ from one module root. Split out of collect_module phase 2 so
+// CACHE-SKIPPED binary holders still register: containers_ is per-SemaChecker
+// state NOT carried by the sema cache, and `typeof(Map::<...>)` (the ADR 0021
+// declaration→type bridge) resolves through this registry at entry-body
+// lowering — before the lower_module_items pre-scan reaches the binary module.
+void SemaChecker::register_container_decls(TinyMapView mod) {
+    if (!mod.has_key(la::ITEMS)) return;
+    auto items = arr_of(mod.get(la::ITEMS.code));
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto it = map_of(items.get(i));
+        int32_t mc = code_of(it);
+        if (mc != la::CONTAINER_DEF && mc != la::CONTAINER_DEF_DONE) continue;
+        ContainerInfo ci; std::string cerr;
+        if (reconstruct_container_def(it, ci, cerr)) {
+            ci.pending = (mc == la::CONTAINER_DEF);
+            std::string ckey =
+                (ci.package.empty() ? "" : ci.package + ".") + ci.name;
+            containers_[ckey] = std::move(ci);
+        }
+    }
+}
+
 void SemaChecker::collect_module(TinyMapView mod, int phase) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
@@ -1403,20 +1433,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
     // hook. Idempotent with the lower_module_items pre-scan; reconstruct returns
     // an err string WITHOUT emitting, so a malformed decl is diagnosed there,
     // not double-reported here.
-    if (phase == 2) {
-        for (uint64_t i = 0; i < items.size(); ++i) {
-            auto it = map_of(items.get(i));
-            int32_t mc = code_of(it);
-            if (mc != la::CONTAINER_DEF && mc != la::CONTAINER_DEF_DONE) continue;
-            ContainerInfo ci; std::string cerr;
-            if (reconstruct_container_def(it, ci, cerr)) {
-                ci.pending = (mc == la::CONTAINER_DEF);
-                std::string ckey =
-                    (ci.package.empty() ? "" : ci.package + ".") + ci.name;
-                containers_[ckey] = std::move(ci);
-            }
-        }
-    }
+    if (phase == 2) register_container_decls(mod);
 
     // §6.7: flatten `extern "ABI" { extern_fn_def* }` blocks into a
     // linear worklist. Each block's child EXTERN_FN entries inherit

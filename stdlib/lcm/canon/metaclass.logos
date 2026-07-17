@@ -1,31 +1,37 @@
 // logos.lcm.canon.metaclass — the metaclass base types (ADR 0021).
 //
-// A metaclass is the type of a declaration kind. `container Legend {...}`
-// lowers (handler side) to a WritStatic CFG document plus a transparent alias
+// A `container Map<K, V> {...}` item is a DECLARATION — not a type. The
+// container's value type (the handle a program works with) is whatever the
+// factory machinery produces for a (store, configuration) pair; it is not
+// spelled by the declaration. The bridge from the declaration level to the
+// type level is `typeof`:
 //
-//     type Legend = ContainerType<LegendCfg>
+//     typeof(Map::<i64, i64>)  ==  ContainerType<@{ "kind": "ordered_map",
+//                                                    "key": <type:i64>,
+//                                                    "value": <type:i64> }>
 //
-// so that mono sees `ContainerType<WStaticLit(@hs(CFG))>` and unifies two
-// structurally identical declarations by the CFG document's content hash —
-// twin dedup falls out of ordinary alias resolution, with no name in the key.
-//
-// `ContainerType<CFG>` is the demand marker: its instantiation is what the
-// mono→factory seam (ADR 0021 §3) intercepts to run Canon and emit the
-// container family for that configuration.
+// `ContainerType<CFG>` is nothing deeper than a TYPED WRAPPER over the Writ
+// configuration constant — the tag that says how to process the document
+// (route it to the container factory). Identity comes from the document's
+// content hash; the wrapper supplies dispatch. Instantiating the wrapper is
+// what the mono→factory seam (ADR 0021 §3) intercepts: Canon judges the
+// config, the factory emits the family. A future second metaclass gets its
+// own wrapper over the same WritStatic mechanics.
 package logos.lcm.canon.metaclass;
 
 use logos.lang.writ.wstatic;
-use logos.mem.bt.memstore;   // MemorySnapshot — the CtrFamily fn surface (mem < lcm, tier-legal)
 
-/// The metaclass of a container declaration. `CFG` is the container's
-/// configuration document (kind, element columns, measures); its content hash
-/// is the family identity. Zero-field: the type carries only its CFG identity.
+/// Typed wrapper over a container configuration document. Zero-field: the
+/// type carries only the CFG identity (content hash) + factory routing.
 pub struct ContainerType<const CFG: WritStatic> {}
 
-/// The container-family protocol (ADR 0021 Phase 4a). The metaclass factory
-/// closes each drained demand by emitting
+/// The container-family protocol (ADR 0021 Phase 4a). Parameterized by the
+/// SNAPSHOT type `S`: the actual container type depends on the store as well
+/// as the configuration (the emitters specialize per store — ADR 0020 §9),
+/// so the family binding is per (S, CFG). The metaclass factory closes each
+/// drained demand by emitting
 ///
-///     impl CtrFamily for ContainerType<CFG> {
+///     impl CtrFamily<MemorySnapshot> for ContainerType<CFG> {
 ///         type Handle = Hs<hex>;
 ///         fn family_id() -> u64 { ... }
 ///         fn create(snap, ctr_id) -> Hs<hex> { return Hs<hex>::create(snap, ctr_id); }
@@ -35,32 +41,40 @@ pub struct ContainerType<const CFG: WritStatic> {}
 /// with the demand's CFG document spliced verbatim as the const type-arg —
 /// re-parsing it yields the same content hash, hence the very ContainerType
 /// instance mono demanded. `family_id()` returns that hash; `Handle` is the
-/// generated CoW handle (a thin `{snap, ctr_id}` view of the container inside
-/// one MemorySnapshot); create/open forward to the handle's inherent statics.
+/// generated CoW handle for that store (a thin `{snap, ctr_id}` view). When a
+/// second store lands, the same config gains a second impl (and the factory a
+/// second emitter specialization) — the demand key becomes (store, hash).
 /// All fns are SELF-LESS (the trait grammar has no `static fn`). The impl is
 /// also the drain loop's satisfaction signal (driver-side probe, main.cpp).
-pub trait CtrFamily {
+pub trait CtrFamily<S> {
     type Handle;
     fn family_id() -> u64;
-    fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> Self::Handle;
-    fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> Self::Handle;
+    fn create(snap: &mut S, ctr_id: u64) -> Self::Handle;
+    fn open(snap: &mut S, ctr_id: u64) -> Self::Handle;
 }
 
-/// The single container-instantiation surface (ADR 0021 §4): `C` is a
-/// container alias (`type Legend = ContainerType<LegendCfg>`); naming it here
-/// fires the mono demand, the factory generates the family, and the returned
-/// handle is the family's CoW handle for `ctr_id` inside `snap`.
+/// The single container-instantiation surface (ADR 0021 §4):
+///
+///     let m = create_ctr::<typeof(Map::<u64, u64>)>(&mut snap, ctr_id);
+///
+/// `typeof` over a container declaration yields its `ContainerType<CFG>`
+/// wrapper; naming it here fires the mono demand, the factory generates the
+/// family for `snap`'s store, and the handle type is inferred from the
+/// per-store impl. Naming the handle type explicitly (a struct field, a
+/// signature) is the qualified projection
+/// `<typeof(...) as CtrFamily<MemorySnapshot>>::Handle` — deliberately
+/// verbose until store profiles land (ADR 0020 §9).
 ///
 /// NB (ADR 0021 §5): logos.lcm.deem's ADR-0017 `create_ctr`/`open_ctr` still
 /// exist; these are package-scoped here — a unit importing BOTH modules would
 /// collide (no unit does today; the deem pair retires with the memoria port).
-pub fn create_ctr<C: CtrFamily>(snap: &mut MemorySnapshot, ctr_id: u64) -> C::Handle {
+pub fn create_ctr<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> C::Handle {
     return C::create(snap, ctr_id);
 }
 
 /// Open an existing container `ctr_id` in `snap` through its family handle.
 /// Existence is not checked here (wave-parity with the generated handle's
 /// `open`); the Option-returning form arrives with the deem-pair retirement.
-pub fn open_ctr<C: CtrFamily>(snap: &mut MemorySnapshot, ctr_id: u64) -> C::Handle {
+pub fn open_ctr<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> C::Handle {
     return C::open(snap, ctr_id);
 }

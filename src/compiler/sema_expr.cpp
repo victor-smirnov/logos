@@ -14298,6 +14298,30 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     self_subst["Self"] = current_type_params_.count(cname_str)
                         ? current_type_params_[cname_str] : make_typevar(cname_str);
                     TypeRef ret_t = subst_type_sema(m.ret_type, self_subst);
+                    // G156-1 symmetry (ADR 0021): the trait method's declared
+                    // `Self::H` was collected with a BARE trait_name, while the
+                    // caller's return annotation `C::H` (resolved through the
+                    // bound `C: Fam<S>`) bakes the trait's type-args into
+                    // trait_name — the two spellings then intern differently
+                    // and `return C::mk(s);` fails "C::H != C::H". Rebake the
+                    // suffix from the SAME bound here (the mirror of the
+                    // method-call path's want_tn fixup).
+                    if (ret_t && TypeRef(ret_t).kind() == LogosType::Kind::AssocType) {
+                        for (auto& b : bit->second) {
+                            if (b.trait_name != tn || b.type_args.empty()) continue;
+                            std::string want_tn = tn + trait_targ_suffix(b.type_args);
+                            if (std::string(TypeRef(ret_t).trait_name()) != want_tn) {
+                                LogosTypeBuilder rb;
+                                rb.kind            = LogosType::Kind::AssocType;
+                                rb.assoc_base      = TypeRef(ret_t).assoc_base();
+                                rb.trait_name      = want_tn;
+                                rb.assoc_type_name = std::string(TypeRef(ret_t).assoc_type_name());
+                                for (auto g : TypeRef(ret_t).gat_args()) rb.gat_args.push_back(g);
+                                ret_t = pool_->alloc(std::move(rb));
+                            }
+                            break;
+                        }
+                    }
                     const SemaFuncInfo* mfi = nullptr;
                     {
                         auto cands = find_func_candidates(cname_str + "__" + mname_str);

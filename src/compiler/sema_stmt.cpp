@@ -428,6 +428,17 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                     TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
                     TypeRef(expr_type(inner)).kind() != LogosType::Kind::Error &&
                     !compat(expr_type(inner), ret_type_)) {
+                    if (std::getenv("LOGOS_DEBUG_ASSOC_MISMATCH")) {
+                        auto dump = [](const char* tag, TypeRef t) {
+                            std::fprintf(stderr, "  [%s] kind=%d trait='%s' assoc='%s' base_kind=%d base='%s'\n",
+                                tag, (int)t.kind(),
+                                std::string(t.trait_name()).c_str(),
+                                std::string(t.assoc_type_name()).c_str(),
+                                t.assoc_base() ? (int)TypeRef(t.assoc_base()).kind() : -1,
+                                t.assoc_base() ? std::string(TypeRef(t.assoc_base()).type_var_name()).c_str() : "");
+                        };
+                        dump("expected", ret_type_); dump("got", expr_type(inner));
+                    }
                     auto [es, gs] = type_str_pair(ret_type_, expr_type(inner));
                     error(std::format("return type mismatch — expected {}, got {}",
                           es, gs));
@@ -2862,6 +2873,17 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
                 // Gap-4: normalize a projection `T::A` via an equality bound
                 // `T: Trait<A = V>` before declaring a mismatch.
                 !compat(normalize_assoc_eq(expr_type(val)), ret_type_)) {
+                if (std::getenv("LOGOS_DEBUG_ASSOC_MISMATCH")) {
+                    auto dump = [](const char* tag, TypeRef t) {
+                        std::fprintf(stderr, "  [%s] kind=%d trait='%s' assoc='%s' base_kind=%d base='%s'\n",
+                            tag, (int)t.kind(),
+                            std::string(t.trait_name()).c_str(),
+                            std::string(t.assoc_type_name()).c_str(),
+                            t.assoc_base() ? (int)TypeRef(t.assoc_base()).kind() : -1,
+                            t.assoc_base() ? std::string(TypeRef(t.assoc_base()).type_var_name()).c_str() : "");
+                    };
+                    dump("expected", ret_type_); dump("got", expr_type(val));
+                }
                 auto [es, gs] = type_str_pair(ret_type_, expr_type(val));
                 error(std::format("return type mismatch — expected {}, got {}",
                       es, gs));

@@ -1,7 +1,7 @@
 // gen_cow_kv — the VOLUME (VLE value) stack, end to end (ADR 0020 Track B ②
 // P2 + ADR 0021 Phase 4b demand path): a `kind ordered_map` whose value is
 // `str` lowers to a CFG doc carrying the "str" VLE tag + the ContainerType
-// alias; `create_ctr::<GenVol>` fires the mono demand and the metaclass
+// alias; `create_ctr::<typeof(GenVol)>` fires the mono demand and the metaclass
 // FACTORY generates the volume-flavor family — a volume-split leaf (val_at →
 // &[u8]), the routing branch, and the CoW handle (@hs-keyed, package
 // logos.gen). The STORE/SNAPSHOT half is the hand-written, shared
@@ -51,7 +51,7 @@ fn main() -> i32 {
     // ── (1) multi-leaf volume map: fill / lookup / replace-on-hit ───────────
     let mut tstore: MemoryStore = MemoryStore::new();
     let mut ts: MemorySnapshot = tstore.fork();
-    let t = create_ctr::<GenVol>(&mut ts, CTR);
+    let t = create_ctr::<typeof(GenVol)>(&mut ts, CTR);
     let n: u64 = 4000u64;
     let mut k: u64 = 0u64;
     while k < n { t.insert(k, vstr(k)); k = k + 1u64; }
@@ -77,20 +77,20 @@ fn main() -> i32 {
     let m: u64 = 1500u64;
     let mut s0: MemorySnapshot = store.fork();
     if s0.snapshot_id() != 1u64 { return 8i32; }
-    let c0 = create_ctr::<GenVol>(&mut s0, CTR);
+    let c0 = create_ctr::<typeof(GenVol)>(&mut s0, CTR);
     k = 0u64;
     while k < m { c0.insert(k, vstr(k)); k = k + 1u64; }
     if c0.size() != m { return 9i32; }
     store.commit(&s0);
 
     let mut s1: MemorySnapshot = store.fork();
-    let c1 = open_ctr::<GenVol>(&mut s1, CTR);
+    let c1 = open_ctr::<typeof(GenVol)>(&mut s1, CTR);
     k = m;
     while k < 2u64 * m { c1.insert(k, vstr(k)); k = k + 1u64; }
     store.commit(&s1);
 
     // ISOLATION: s0 (frozen) sees only [0, m); s1 sees [0, 2m).
-    let c0b = open_ctr::<GenVol>(&mut s0, CTR);
+    let c0b = open_ctr::<typeof(GenVol)>(&mut s0, CTR);
     if c0b.size() != m { return 10i32; }
     if c1.size() != 2u64 * m { return 11i32; }
     if c0b.get_or(m).len() != 0i64 { return 12i32; }            // s1's key absent in s0
@@ -103,12 +103,12 @@ fn main() -> i32 {
 
     // a third version overwrites a spread of keys; s1 untouched.
     let mut s2: MemorySnapshot = store.fork();
-    let c2 = open_ctr::<GenVol>(&mut s2, CTR);
+    let c2 = open_ctr::<typeof(GenVol)>(&mut s2, CTR);
     k = 0u64;
     while k < 2u64 * m { c2.insert(k, "OVERWRITTEN"); k = k + 300u64; }
     store.commit(&s2);
-    let c2b = open_ctr::<GenVol>(&mut s2, CTR);
-    let c1b = open_ctr::<GenVol>(&mut s1, CTR);
+    let c2b = open_ctr::<typeof(GenVol)>(&mut s2, CTR);
+    let c1b = open_ctr::<typeof(GenVol)>(&mut s1, CTR);
     if !beq(c2b.get_or(0u64), "OVERWRITTEN") { return 15i32; }
     if !beq(c1b.get_or(0u64), vstr(0u64)) { return 16i32; }     // s1 lineage intact
     if !beq(c2b.get_or(300u64), "OVERWRITTEN") { return 17i32; }

@@ -400,6 +400,30 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                 // Collapse nested associated-type chains fully
                 return subst_type(ait->second, {});
             }
+            // G156-1 substitution-invariance fallback (mirror of sema's
+            // find_assoc_type_entry): the projection's trait_name may carry a
+            // TYPEVAR-baked arg suffix ("Fam$G1$S") — an unrewritten STRING
+            // that can never equal the concrete registration ("Fam$G1$St") —
+            // or be BARE while the registration is suffixed. Scan for suffixed
+            // registrations of the same bare trait + base + assoc name; a
+            // SINGLE candidate is unambiguous. Dual Trait<A>/Trait<B> impls
+            // stay strict (the suffix must decide).
+            {
+                std::string bare(tv.trait_name());
+                if (auto p = bare.find("$G"); p != std::string::npos) bare.resize(p);
+                const std::string pfx  = bare + "$G";
+                const std::string tail = "::" + concrete_base + "::" + std::string(tv.assoc_type_name());
+                const TypeRef* single = nullptr;
+                bool ambiguous = false;
+                for (auto& [k, v] : assoc_impls_) {
+                    if (k.size() <= tail.size() + pfx.size()) continue;
+                    if (k.compare(0, pfx.size(), pfx) != 0) continue;
+                    if (k.compare(k.size() - tail.size(), tail.size(), tail) != 0) continue;
+                    if (single) { ambiguous = true; break; }
+                    single = &v;
+                }
+                if (single && !ambiguous) return subst_type(*single, {});
+            }
             // Blanket fallback: when there's an `impl<T: Bound> Trait for T`
             // and `concrete_base` satisfies Bound, use the blanket's assoc.
             for (auto& bi : blanket_impls_) {

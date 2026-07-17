@@ -3160,7 +3160,29 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
         if (it != assoc_type_impls_.end()) return &it->second;
     }
     auto it = assoc_type_impls_.find(trait_name + "::" + target + "::" + aname);
-    return it != assoc_type_impls_.end() ? &it->second : nullptr;
+    if (it != assoc_type_impls_.end()) return &it->second;
+    // G156-1 substitution-invariance fallback (ADR 0021 metaclass surface): a
+    // projection whose trait_name was baked with TYPEVAR args ("Fam$G1$S", from
+    // a bound `C: Fam<S>`) survives type substitution as an UNREWRITTEN string,
+    // so after S→St it can never equal the concrete registration key
+    // ("Fam$G1$St"); a projection collected BARE (trait-decl `Self::H`) misses
+    // the suffixed key too. When the exact key misses, scan the suffixed
+    // registrations of the same bare trait + target + assoc name; a SINGLE
+    // candidate is unambiguous — use it. Multiple candidates (dual
+    // `Trait<A>`/`Trait<B>` impls for one type — the case the suffix exists to
+    // disambiguate) stay unresolved.
+    const std::string bare = strip_trait_targ_suffix(trait_name);
+    const std::string pfx  = bare + "$G";
+    const std::string tail = "::" + target + "::" + aname;
+    const AssocTypeEntry* single = nullptr;
+    for (auto& [k, v] : assoc_type_impls_) {
+        if (k.size() <= tail.size() + pfx.size()) continue;
+        if (k.compare(0, pfx.size(), pfx) != 0) continue;
+        if (k.compare(k.size() - tail.size(), tail.size(), tail) != 0) continue;
+        if (single) return nullptr;   // ambiguous — the suffix must decide
+        single = &v;
+    }
+    return single;
 }
 
 // P2-15 object-safety (Rust E0038 / dyn-compatibility). A trait coerced to a
@@ -5493,6 +5515,49 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
 
 static bool contains_typevar_sema(TypeRef t);  // fwd (defined below)
 
+// Resolve a generic compile-time const (`pub const X<T1,T2>: WritStatic =
+// @{...};`) under CONCRETE type-args: push the bindings, re-resolve the saved
+// value-AST (resolve_wstatic_value substitutes TypeVar WRIT_TYPE_LIT names
+// through current_type_params_, producing a fresh per-instantiation WStaticLit
+// identity + registering its substituted source), restore. Shared by the
+// type-position use site (resolve_type_generic_inst) and the ADR 0021
+// `typeof(<container-decl>)` bridge.
+TypeRef SemaChecker::resolve_generic_wstatic_const(const std::string& name,
+                                                   const std::vector<TypeRef>& args) {
+    auto git = generic_consts_.find(name);
+    if (git == generic_consts_.end()) {
+        error(std::format("'{}' is not a generic compile-time const", name));
+        return error_t();
+    }
+    if (args.size() != git->second.type_params.size()) {
+        error(std::format("generic const '{}' expects {} type argument(s), got {}",
+                          name, git->second.type_params.size(), args.size()));
+        return error_t();
+    }
+    // Save + push type-param bindings.
+    StrMap<TypeRef> saved_params;
+    for (size_t i = 0; i < args.size(); ++i) {
+        const std::string& pname = git->second.type_params[i].name;
+        auto it = current_type_params_.find(pname);
+        if (it != current_type_params_.end()) saved_params[pname] = it->second;
+        current_type_params_[pname] = args[i];
+    }
+    // Switch holder_ to the const decl's holder so arr_of/map_of
+    // resolve offsets against the correct base. Restored after.
+    auto* saved_holder = holder_;
+    if (git->second.holder) holder_ = git->second.holder;
+    TypeRef result = resolve_wstatic_value(git->second.value_node);
+    holder_ = saved_holder;
+    // Restore type-params.
+    for (size_t i = 0; i < args.size(); ++i) {
+        const std::string& pname = git->second.type_params[i].name;
+        auto sit = saved_params.find(pname);
+        if (sit != saved_params.end()) current_type_params_[pname] = sit->second;
+        else current_type_params_.erase(pname);
+    }
+    return result;
+}
+
 TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     int32_t tc = code_of(node); (void)tc;
     auto name = str_of(node.get(la::NAME.code));
@@ -5512,33 +5577,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 for (uint64_t i = 0; i < items.size(); ++i)
                     args.push_back(resolve_type(map_of(items.get(i))));
             }
-            if (args.size() != git->second.type_params.size()) {
-                error(std::format("generic const '{}' expects {} type argument(s), got {}",
-                                  name, git->second.type_params.size(), args.size()));
-                return error_t();
-            }
-            // Save + push type-param bindings.
-            StrMap<TypeRef> saved_params;
-            for (size_t i = 0; i < args.size(); ++i) {
-                const std::string& pname = git->second.type_params[i].name;
-                auto it = current_type_params_.find(pname);
-                if (it != current_type_params_.end()) saved_params[pname] = it->second;
-                current_type_params_[pname] = args[i];
-            }
-            // Switch holder_ to the const decl's holder so arr_of/map_of
-            // resolve offsets against the correct base. Restored after.
-            auto* saved_holder = holder_;
-            if (git->second.holder) holder_ = git->second.holder;
-            TypeRef result = resolve_wstatic_value(git->second.value_node);
-            holder_ = saved_holder;
-            // Restore type-params.
-            for (size_t i = 0; i < args.size(); ++i) {
-                const std::string& pname = git->second.type_params[i].name;
-                auto sit = saved_params.find(pname);
-                if (sit != saved_params.end()) current_type_params_[pname] = sit->second;
-                else current_type_params_.erase(pname);
-            }
-            return result;
+            return resolve_generic_wstatic_const(std::string(name), args);
         }
     }
 
@@ -5883,10 +5922,84 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     }
 
     if (tc == la::TYPEOF_TYPE) {
+        auto expr_node = map_of(node.get(la::VALUE.code));
+
+        // ADR 0021: `typeof` over a CONTAINER DECLARATION — the declaration→
+        // type-level bridge. `container Map<K,V> {...}` is a DECLARATION, not
+        // a type (the container's value type also depends on the store);
+        // `typeof(Map::<i64,i64>)` / `typeof(Legend)` yield the typed config
+        // wrapper `ContainerType<@{…}>`. Resolution goes through the decl's
+        // emitted `<Name>Cfg` const, so the document has ONE source of truth
+        // (hence one content hash — the family identity).
+        {
+            std::string_view base;
+            int32_t ec = code_of(expr_node);
+            bool has_args = false;
+            if (ec == la::GENERIC_REF.code) {
+                base = str_of(expr_node.get(la::CALLEE.code));
+                has_args = true;
+            } else if (ec == la::VAR_REF.code) {
+                base = str_of(expr_node.get(la::NAME.code));
+            }
+            const ContainerInfo* ci = nullptr;
+            if (!base.empty())
+                for (const auto& [ck, c] : containers_)
+                    if (c.name == base) { ci = &c; break; }
+            if (!ci && !base.empty() && std::getenv("LOGOS_DEBUG_TYPEOF")) {
+                std::fprintf(stderr, "[typeof] base='%s' NOT in containers_ (%zu entries):",
+                             std::string(base).c_str(), containers_.size());
+                for (const auto& [ck, c] : containers_)
+                    std::fprintf(stderr, " %s", ck.c_str());
+                std::fprintf(stderr, "\n");
+            }
+            if (ci) {
+                if (ci->kind != "ordered_map") {
+                    error(std::format(
+                        "typeof over container '{}': kind '{}' carries no "
+                        "config document (wave-0 surface is ordered_map)",
+                        ci->name, ci->kind));
+                    return error_t();
+                }
+                std::vector<TypeRef> args;
+                if (has_args && expr_node.has_key(la::TYPE_PARAMS)) {
+                    // TYPE_PARAMS is the type_arg_list NODE ({ITEMS: [...]}),
+                    // not a bare array (same shape lower_static_call reads).
+                    auto tplist = map_of(expr_node.get(la::TYPE_PARAMS.code));
+                    if (tplist.has_key(la::ITEMS)) {
+                        auto items = arr_of(tplist.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < items.size(); ++i)
+                            args.push_back(resolve_type(map_of(items.get(i))));
+                    }
+                }
+                if (args.size() != ci->generic_names.size()) {
+                    error(std::format(
+                        "typeof(container {}): expected {} type argument(s), got {}",
+                        ci->name, ci->generic_names.size(), args.size()));
+                    return error_t();
+                }
+                std::string cfg_name = ci->name + "Cfg";
+                TypeRef cfg = ci->generic_names.empty()
+                                  ? try_resolve_as_known_type(cfg_name)
+                                  : resolve_generic_wstatic_const(cfg_name, args);
+                if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::WStaticLit) {
+                    error(std::format(
+                        "typeof(container {}): its config const '{}' did not "
+                        "resolve to a WritStatic document (declaration "
+                        "lowering incomplete?)", ci->name, cfg_name));
+                    return error_t();
+                }
+                LogosTypeBuilder wt;
+                wt.kind = LogosType::Kind::Struct;
+                wt.struct_name = "ContainerType";
+                wt.pkg_name = "logos.lcm.canon.metaclass";
+                wt.type_args.push_back(cfg);
+                return pool_->alloc(std::move(wt));
+            }
+        }
+
         // typeof(expr) — lower the inner expression purely for type inference.
         // Expression is not evaluated at runtime; only its sema-computed type
         // is returned.  The LExpr we build is discarded after this call.
-        auto expr_node = map_of(node.get(la::VALUE.code));
         auto lex = lower_expr(expr_node);
         if (!lex || !expr_type(lex)) return error_t();
         return expr_type(lex);
