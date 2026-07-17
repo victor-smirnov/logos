@@ -113,7 +113,32 @@ eval_lit_str(TinyMapView node, MemHolder* h) noexcept {
     // Use Slice as a stand-in for str (Slice<u8>); compiler validates against
     // its actual `&str` / `Slice<u8>` typeref separately.
     out.kind = K::Slice;
-    out.s = std::string(sv);
+    // The parser stores LIT_STR VALUE in SOURCE form — surrounding quotes,
+    // escape sequences undecoded. A CtfeValue is a VALUE: strip + unescape
+    // (same table as sema's WRIT_STR decoding), otherwise every consumer —
+    // metacall str args foremost, whose renderer re-escapes for the thunk
+    // source — sees doubled quoting.
+    if (sv.size() >= 2 && sv.front() == '"' && sv.back() == '"') {
+        std::string_view inner = sv.substr(1, sv.size() - 2);
+        out.s.reserve(inner.size());
+        for (size_t i = 0; i < inner.size(); ++i) {
+            if (inner[i] == '\\' && i + 1 < inner.size()) {
+                switch (inner[++i]) {
+                case 'n':  out.s += '\n'; break;
+                case 't':  out.s += '\t'; break;
+                case 'r':  out.s += '\r'; break;
+                case '\\': out.s += '\\'; break;
+                case '"':  out.s += '"';  break;
+                case '0':  out.s += '\0'; break;
+                default:   out.s += '\\'; out.s += inner[i]; break;
+                }
+            } else {
+                out.s += inner[i];
+            }
+        }
+    } else {
+        out.s = std::string(sv);
+    }
     return out;
 }
 

@@ -93,6 +93,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Phase 7 slice 1+2: AST-emit seam for metaprog hooks.
@@ -5051,7 +5052,27 @@ int main(int argc, char** argv) {
                 int32_t new_code = logos::compiler::ast::LIT_INT;
                 if (is_bool) { lit_text = b_val ? "true" : "false"; new_code = logos::compiler::ast::LIT_BOOL; }
                 else if (is_writ_blob) { lit_text = blob_bytes; new_code = logos::compiler::ast::WRIT_BLOB; }
-                else if (is_str) { lit_text = s_val; new_code = logos::compiler::ast::LIT_STR; }
+                else if (is_str) {
+                    // LIT_STR AST VALUE is SOURCE form (parser convention:
+                    // surrounding quotes, escapes undecoded) — render the
+                    // JIT-returned VALUE back to source so the re-sema/codegen
+                    // decode sees the same shape as parsed text. Same escape
+                    // table as render_ctfe_lit / ctfe eval_lit_str.
+                    lit_text = "\"";
+                    for (char c : s_val) {
+                        switch (c) {
+                        case '\\': lit_text += "\\\\"; break;
+                        case '"':  lit_text += "\\\""; break;
+                        case '\n': lit_text += "\\n";  break;
+                        case '\r': lit_text += "\\r";  break;
+                        case '\t': lit_text += "\\t";  break;
+                        case '\0': lit_text += "\\0";  break;
+                        default:   lit_text += c;      break;
+                        }
+                    }
+                    lit_text += "\"";
+                    new_code = logos::compiler::ast::LIT_STR;
+                }
                 else if (is_float) {
                     char buf[64];
                     std::snprintf(buf, sizeof(buf), "%.17g", f_val);
@@ -5432,6 +5453,47 @@ int main(int argc, char** argv) {
         }
     }
 
+    // ── ADR 0021 §3 (Phase 2b): mono → metaclass-factory demand drain ────
+    // The terminal tail below (hook strip → reflection → pre-mono borrow →
+    // mono) runs in a bounded loop. When the terminal mono surfaces factory
+    // demands (`ContainerType<CFG>` instantiations recorded by CFG content
+    // hash), the driver renders one
+    //   `metacall __container_factory("<016x hash>", "<CFG doc source>");`
+    // chunk per demand into the fresh `logos.gen` package, feeds it through
+    // logos_emit_source, re-enters the metaprog dispatch (which JIT-invokes
+    // the factory through the ordinary metacall-item thunk and splices/emits
+    // its items), re-runs the terminal sema, and loops so the tail re-checks
+    // the enlarged program.
+    //
+    // Driver-side dedup is load-bearing: mono's factory_demand_hashes_ is
+    // per-Mono-instance, so each fresh mono pass re-fires demands for configs
+    // the factory did not SATISFY. The Phase 2b STUB factory emits only a
+    // marker fn — the marker template still instantiates fine — so the
+    // steady state is: round 1 drains N demands, round 2 re-fires them, the
+    // driver sees every hash already drained and exits quietly.
+    // TODO(ADR 0021 Phase 3): the real factory emits
+    // `impl CtrFamily for ContainerType<CFG>`; once its presence is the
+    // satisfaction signal, a re-fired already-drained hash means the factory
+    // FAILED to satisfy the demand and must become a hard diagnostic.
+    std::unordered_set<uint64_t> drained_factory_hashes;
+    constexpr int kMaxFactoryDrainRounds = 3;
+    for (int drain_round = 0; ; ++drain_round) {
+
+    // Factory availability, probed on the post-sema (pre-mono/prune) program:
+    // an emitted `use` cannot LOAD a module, so the drain chunk's
+    // `use logos.lcm.canon.container_item;` resolves only when the program
+    // already pulled the handler module in (any unit declaring containers
+    // does; plain ContainerType users must import it explicitly). Mirrors
+    // lower_container_def's func_overloads_ gate, at driver level: the
+    // factory's bare name must be present among the program's functions.
+    bool factory_available = false;
+    for (const auto& f : prog.functions) {
+        if (f && logos::compiler::bare_fn_name(f.name()) == "__container_factory") {
+            factory_available = true;
+            break;
+        }
+    }
+
     // Phase 7 slice 19: strip metaprog hook fns from the FINAL prog. Their
     // bodies reference host-only symbols (logos_emit_source, etc.) that the
     // user's compiled artifact has no business carrying — they're purely
@@ -5475,21 +5537,129 @@ int main(int argc, char** argv) {
     if (!prog.ok()) return 1;
     report("mono");
 
-    // ADR 0021 §3 (Phase 2a): metaclass factory demands surfaced by mono —
-    // instantiations of `ContainerType<CFG>` recorded by hash. The full drain
-    // (invoke the metaclass factory metacall with the CFG doc, splice the
-    // emitted family, re-dispatch, re-run the terminal mono — mirroring the
-    // pending_container_srcs harvest loop) is Phase 2b; until then the
-    // channel is proven end-to-end by reporting what mono demanded.
-    for (auto& fd : prog.factory_demands) {
-        auto src_it = prog.wstatic_sources.find(fd.cfg_hash);
+    // ── Drain decision ───────────────────────────────────────────
+    if (prog.factory_demands.empty()) break;
+
+    // Deep-copy the fresh (not-yet-drained) demands: `prog` is replaced by
+    // the re-sema below while the chunk loop still reads them.
+    std::vector<logos::compiler::lir::LProgram::FactoryDemand> fresh_demands;
+    for (const auto& fd : prog.factory_demands)
+        if (!drained_factory_hashes.count(fd.cfg_hash)) fresh_demands.push_back(fd);
+    if (fresh_demands.empty()) break;  // stub-factory steady state (see TODO above)
+
+    if (!factory_available) {
+        // Not an error: the ContainerType marker template instantiates fine
+        // on its own (metaclass identity is meaningful without the family).
+        // One note, not one per demand — the condition is program-level.
         std::fprintf(stderr,
-            "metaclass: demand %s<@hs_%016llx> cfg=%s — factory drain pending "
-            "(ADR 0021 Phase 2b)\n",
-            fd.base.c_str(), (unsigned long long)fd.cfg_hash,
-            src_it != prog.wstatic_sources.end() ? src_it->second.c_str()
-                                                 : "<UNCAPTURED>");
+            "metaclass: %zu factory demand(s) pending but "
+            "logos.lcm.canon.container_item is not loaded — drain skipped "
+            "(import the handler module to run the factory; ADR 0021 Phase 2b)\n",
+            fresh_demands.size());
+        break;
     }
+    if (drain_round + 1 >= kMaxFactoryDrainRounds) {
+        std::fprintf(stderr,
+            "logosc: metaclass factory drain did not converge in %d rounds "
+            "(%zu demand(s) still fresh)\n",
+            kMaxFactoryDrainRounds, fresh_demands.size());
+        return 1;
+    }
+
+    // Render + emit one metacall chunk per fresh demand. The emit globals
+    // (g_asts/g_filenames/…) are still wired from the splice phase above;
+    // g_any_emitted pointed at a splice-loop local that is gone — rewire.
+    bool drain_any_emitted = false;
+    g_any_emitted = &drain_any_emitted;
+    bool emitted_chunk = false;
+    for (const auto& fd : fresh_demands) {
+        auto src_it = prog.wstatic_sources.find(fd.cfg_hash);
+        if (src_it == prog.wstatic_sources.end()) {
+            std::fprintf(stderr,
+                "logosc: metaclass: demand %s<@hs_%016llx> (%s) has no captured "
+                "CFG document source (sema wstatic_sources gap)\n",
+                fd.base.c_str(), (unsigned long long)fd.cfg_hash, fd.cname.c_str());
+            return 1;
+        }
+        char hex[17];
+        std::snprintf(hex, sizeof hex, "%016llx", (unsigned long long)fd.cfg_hash);
+        // Escape the CFG source for a Logos string literal (same table as
+        // render_ctfe_lit's str case).
+        std::string esc;
+        esc.reserve(src_it->second.size() + 16);
+        for (char c : src_it->second) {
+            switch (c) {
+            case '\\': esc += "\\\\"; break;
+            case '"':  esc += "\\\""; break;
+            case '\n': esc += "\\n";  break;
+            case '\r': esc += "\\r";  break;
+            case '\t': esc += "\\t";  break;
+            case '\0': esc += "\\0";  break;
+            default:   esc += c;      break;
+            }
+        }
+        std::string chunk;
+        chunk += "package logos.gen;\n";
+        chunk += "use logos.lcm.canon.container_item;\n";
+        chunk += "metacall __container_factory(\"";
+        chunk += hex;
+        chunk += "\", \"";
+        chunk += esc;
+        chunk += "\");\n";
+        if (logos_emit_source(chunk.c_str())) emitted_chunk = true;
+        drained_factory_hashes.insert(fd.cfg_hash);
+        std::fprintf(stderr, "metaclass: factory drained @hs_%s\n", hex);
+    }
+    if (!emitted_chunk) break;  // defensive: emit-seen dedup swallowed everything
+
+    // Re-enter the metaprog dispatch: it discovers the chunks' METACALL_ITEM
+    // sites, JIT-compiles + invokes the factory thunks (splicing/emitting the
+    // factory's items) and marks the sites DONE. Options mirror the Step 2b
+    // discovery-loop wiring.
+    {
+        logos::compiler::MetaprogDispatchOpts dopts;
+        dopts.trace          = trace;
+        dopts.dump_dir       = dump_metaprog_dir;
+        dopts.dump_filter    = dump_metaprog_filter;
+        dopts.archive_paths  = archive_paths;
+        dopts.provenance_out = &ast_provenance;
+        dopts.cfg_flags      = cfg_flags;
+        dopts.binary_symbols = binary_symbols;
+        dopts.stats_out      = stats_flag ? &top_stats : nullptr;
+        dopts.sema_cache     = &sema_cache;
+        dopts.implicit_prelude = implicit_prelude_pkg;
+        dopts.module_ids     = &module_ids;
+        dopts.self_module_id = "";
+        dopts.module_name_to_id = module_name_to_id;
+        if (logos::compiler::run_metaprog_dispatch(
+                asts, filenames, from_binary, pre_dispatch_entry_idx, dopts) != 0)
+            return 1;
+    }
+
+    // Terminal re-sema so the factory-emitted items join the program; the
+    // loop then re-runs the tail (hook strip, reflection, borrow, mono) on
+    // the enlarged program. --test mode re-semas with cache-less options for
+    // the same reason the runner synthesis does (the shared cache's persisted
+    // user-fn tables re-flag re-walked fns as duplicates).
+    {
+        logos::compiler::SemaOptions drain_opts = default_opts;
+        if (test_mode) {
+            drain_opts = logos::compiler::SemaOptions{};
+            drain_opts.cfg_flags = cfg_flags;
+        }
+        prog = logos::compiler::sema_lower(asts, filenames, from_binary,
+                                           drain_opts, is_lazy, module_ids);
+    }
+    prog.print_diags(stderr);
+    if (!prog.ok()) return 1;
+    if (!prog.metacall_sites.empty()) {
+        std::fprintf(stderr,
+            "logosc: metaclass factory drain surfaced new metacall sites; "
+            "unsupported inside the drain loop (ADR 0021 Phase 2b)\n");
+        return 1;
+    }
+
+    }  // factory drain loop
 
     // ── Step 2d: Borrow checking ─────────────────────────────────
     prog = logos::compiler::borrow_check(std::move(prog));

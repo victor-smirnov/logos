@@ -1013,6 +1013,7 @@ std::string SemaChecker::render_ctfe_lit(const ctfe::CtfeValue& v) {
             case '\n': s += "\\n";  break;
             case '\r': s += "\\r";  break;
             case '\t': s += "\\t";  break;
+            case '\0': s += "\\0";  break;
             default:   s += c;      break;
             }
         }

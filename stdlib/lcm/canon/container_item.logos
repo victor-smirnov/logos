@@ -1203,6 +1203,46 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) {
     em.commit();
 }
 
+// ADR 0021 §3 (Phase 2b step 2): the metaclass FACTORY, stub increment. The
+// driver drains mono's `ContainerType<CFG>` demands by rendering one
+//
+//   package logos.gen;
+//   use logos.lcm.canon.container_item;
+//   metacall __container_factory("<016x cfg-hash>", "<CFG doc source>");
+//
+// chunk per demand (main.cpp factory drain loop) and re-entering metaprog
+// dispatch, which JIT-invokes this fn through the ordinary metacall-item
+// thunk. THIS increment does not build the container family: it emits a
+// single marker item `pub fn __mc_family_hs_<hex>() -> u64` into
+// `package logos.gen;`, proving the full cycle demand → metacall → factory →
+// emitted item → re-sema → re-mono. Phase 3 replaces the marker with the real
+// family emission (`impl CtrFamily for ContainerType<CFG>` …) whose presence
+// SATISFIES the demand (stops the re-fire); the marker deliberately does not,
+// so the driver's drained-hash dedup is what terminates the loop today.
+// Emission mirrors emit_cfg_doc (text via the emit-source seam with an
+// explicit package) — rides the same quote-coverage debt tracked for the
+// wave-0 handler.
+pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
+    let out: ItemList = item_list_new();
+    if hash_hex.len() == 0i64 {
+        error("container factory: empty CFG hash (driver drain regression?)");
+        return out;
+    }
+    if cfg_src.len() == 0i64 {
+        error("container factory: empty CFG document source (wstatic_sources gap?)");
+        return out;
+    }
+    let mut em: Emitter = Emitter::new();
+    em.emit_into("logos.gen");
+    em.push_text("pub fn __mc_family_hs_");
+    em.push_text(hash_hex);
+    em.push_text("() -> u64 { return 0x");
+    em.push_text(hash_hex);
+    em.push_text("u64; }");
+    em.commit();
+    return out;
+}
+
 /// Lowering handler behind the `container` ITEM (ADR 0020 wave-0). Invoked by
 /// the COMPILER (sema lower_container_def) through the token-macro item seam
 /// with the serialized spec line. Not a user-facing macro.

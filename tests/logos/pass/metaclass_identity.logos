@@ -11,6 +11,16 @@
 package main;
 
 use logos.lcm.canon.metaclass;   // ContainerType<const CFG: WritStatic>
+// Loads the metaclass FACTORY (__container_factory): the mono→factory drain
+// (ADR 0021 Phase 2b) fires on the ContainerType demands below and can only
+// invoke the factory when the handler module is in the program (an emitted
+// `use` cannot LOAD a module). Drain proof rides stderr:
+//   metaclass: factory drained @hs_<hex>   (once per distinct CFG)
+// The Phase 2b stub factory emits an unreferenced marker fn into logos.gen;
+// calling it from here is impossible (the first sema pass runs before the
+// marker exists) — Phase 3's `impl CtrFamily for ContainerType<CFG>` is the
+// real reachability test.
+use logos.lcm.canon.container_item;
 use logos.lang.writ.wstatic;
 
 pub const LegendCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
