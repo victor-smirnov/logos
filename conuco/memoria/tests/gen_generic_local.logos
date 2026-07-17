@@ -7,6 +7,7 @@ package test;
 use logos.lcm.canon.container_item;
 use logos.mem.pkd;
 use logos.mem.bt.map;
+use logos.mem.bt.memstore;  // MemorySnapshot — the generated handle struct names it (collect-time import gotcha)
 use logos.lang.str;
 
 container Map<K, V> for u8 { kind ordered_map; entry { key: K, val: V } measure max(key); }
