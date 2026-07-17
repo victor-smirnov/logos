@@ -453,11 +453,14 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     }
 
     case la::LIT_WSTATIC: {
-        // Writ literal — out of scope for renderer (would need a full
-        // writ-to-source dump). Leave as a sentinel; capture-detector will
-        // never reach here for value-position consts because module-level
-        // wstatic refs are already inlined elsewhere.
-        return "/* render_expr: LIT_WSTATIC unsupported in metacall block */";
+        // WritStatic literal at type-arg position — VALUE wraps the nested
+        // writ_lit AST (grammar slot 212). Unwrap and render via the writ
+        // cases below (`@{...}` outer form). Needed by the ADR 0021 factory
+        // drain: the driver hands the CFG document to the metaclass factory
+        // as source text keyed by the doc's content hash.
+        if (!node.has_key(la::VALUE))
+            return "/* render_expr: LIT_WSTATIC without VALUE */";
+        return render_expr_src(map_of(node.get(la::VALUE.code)));
     }
 
     // ── Writ literal expressions ──

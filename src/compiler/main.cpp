@@ -5481,12 +5481,15 @@ int main(int argc, char** argv) {
     // emitted family, re-dispatch, re-run the terminal mono — mirroring the
     // pending_container_srcs harvest loop) is Phase 2b; until then the
     // channel is proven end-to-end by reporting what mono demanded.
-    for (auto& fd : prog.factory_demands)
+    for (auto& fd : prog.factory_demands) {
+        auto src_it = prog.wstatic_sources.find(fd.cfg_hash);
         std::fprintf(stderr,
-            "metaclass: demand %s<@hs_%016llx> (%s) — factory drain pending "
+            "metaclass: demand %s<@hs_%016llx> cfg=%s — factory drain pending "
             "(ADR 0021 Phase 2b)\n",
             fd.base.c_str(), (unsigned long long)fd.cfg_hash,
-            fd.cname.c_str());
+            src_it != prog.wstatic_sources.end() ? src_it->second.c_str()
+                                                 : "<UNCAPTURED>");
+    }
 
     // ── Step 2d: Borrow checking ─────────────────────────────────
     prog = logos::compiler::borrow_check(std::move(prog));

@@ -895,6 +895,11 @@ struct LProgram {
     };
     std::vector<FactoryDemand> factory_demands;
 
+    // ADR 0021 §3: WritStatic docs as SOURCE TEXT, keyed by the same content
+    // hash as wstatic_registry_. Sema fills at resolve_wstatic_value; the
+    // factory drain renders `metacall <factory>("@{…}")` chunks from it.
+    std::unordered_map<uint64_t, std::string> wstatic_sources;
+
     // Function-style macro arg blobs (slice 1.3b of fn-macros).
     //
     // Keyed by site_id (== index into metacall_sites). Each entry is a

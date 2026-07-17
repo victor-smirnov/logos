@@ -6679,6 +6679,12 @@ TypeRef SemaChecker::resolve_wstatic_value(TinyMapView val_node) {
             if (lit) lir_mirror_map_put_ref(*cur_prog_, cur_prog_->wstatic_registry_,
                                             std::to_string(hash), lit.addr());
         }
+        // ADR 0021 §3: capture the doc's SOURCE form keyed by the same hash —
+        // the factory drain hands the CFG document to the metaclass factory
+        // as text (the registry's ExprRef is a compiler-internal view; the
+        // factory is a metafunction and wants parseable source).
+        if (cur_prog_ && !cur_prog_->wstatic_sources.count(hash))
+            cur_prog_->wstatic_sources.emplace(hash, render_expr_src(val_node));
         LogosTypeBuilder t; t.kind = LogosType::Kind::WStaticLit;
         t.const_val = (int64_t)hash;  // bit-pattern reuse; mangling reads it as u64
         return pool_->alloc(std::move(t));
