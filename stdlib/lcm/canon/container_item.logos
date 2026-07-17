@@ -549,14 +549,23 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                             let need: u32 = if grow > old { grow - old } else { 0u32 };
                             if need > self.a().free_space() { return false; }
                             (*self.vc()).remove(pos);
-                            match (*self.vc()).insert(pos, val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
+                            match (*self.vc()).insert(pos, val) { 
+                                Result::Ok(_u) => {} 
+                                Result::Err(_e) => { return false; } 
+                            }
                             return true;
                         }
                         let dk: u32 = (*self.kc()).estimate_insert(8u32) - self.a().element_size(0u32);
                         let dv: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);
                         if dk + dv > self.a().free_space() { return false; }
-                        match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
-                        match (*self.vc()).insert(pos, val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
+                        match (*self.kc()).insert(pos, &key) { 
+                            Result::Ok(_u) => {} 
+                            Result::Err(_e) => { return false; } 
+                        }
+                        match (*self.vc()).insert(pos, val) { 
+                            Result::Ok(_u) => {} 
+                            Result::Err(_e) => { return false; } 
+                        }
                         return true;
                     }
                 }
@@ -573,7 +582,14 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         while lo <= hi {
                             let mid: u32 = lo + (hi - lo) / 2u32;
                             let cv: u32 = (*self.kc()).volume_upto(mid) + (*self.vc()).volume_upto(mid);
-                            if cv <= half { at = mid; lo = mid + 1u32; } else { if mid == 1u32 { break; } hi = mid - 1u32; }
+                            if cv <= half { 
+                                at = mid; lo = mid + 1u32; 
+                            } else { 
+                                if mid == 1u32 { 
+                                    break; 
+                                } 
+                                hi = mid - 1u32; 
+                            }
                         }
                         return at;
                     }
@@ -596,8 +612,14 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         let dk: u32 = (*self.kc()).estimate_insert(0u32) - self.a().element_size(0u32);
                         let dv: u32 = (*self.vc()).estimate_insert(0u32) - self.a().element_size(1u32);
                         if dk + dv > self.a().free_space() { return false; }
-                        match (*self.kc()).insert(pos, &key) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
-                        match (*self.vc()).insert(pos, &val) { Result::Ok(_u) => {} Result::Err(_e) => { return false; } }
+                        match (*self.kc()).insert(pos, &key) { 
+                            Result::Ok(_u) => {} 
+                            Result::Err(_e) => { return false; } 
+                        }
+                        match (*self.vc()).insert(pos, &val) { 
+                            Result::Ok(_u) => {} 
+                            Result::Err(_e) => { return false; } 
+                        }
                         return true;
                     }
                 }
@@ -623,14 +645,29 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = node_alloc(4096u32, 2u32, snp);
                         let a: *mut PkdAlloc = node_pkd(base);
-                        match PkdArray::<#(kid)>::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "key col"); } }
-                        match PkdArray::<#(vid)>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "val col"); } }
+                        match PkdArray::<#(kid)>::format(a, 0u32) { 
+                            Result::Ok(_p) => {} 
+                            Result::Err(_e) => { assert(false, "key col"); } 
+                        }
+                        match PkdArray::<#(vid)>::format(a, 1u32) { 
+                            Result::Ok(_p) => {} 
+                            Result::Err(_e) => { assert(false, "val col"); } 
+                        }
                         return #nm { mem: base, cap: 4096u32 };
                     }
                 }
-                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (*node_pkd(mem)).block_size() } }; }
-                unsafe fn a(self: &#nm) -> *mut PkdAlloc { return node_pkd(self.mem); }
-                pub fn free(self: #nm) { unsafe { node_free(self.mem); } }
+                pub static fn adopt(mem: *mut u8) -> #nm { 
+                    return #nm { 
+                        mem: mem, 
+                        cap: unsafe { (*node_pkd(mem)).block_size() } 
+                    }; 
+                }
+                unsafe fn a(self: &#nm) -> *mut PkdAlloc { 
+                    return node_pkd(self.mem); 
+                }
+                pub fn free(self: #nm) { 
+                    unsafe { node_free(self.mem); } 
+                }
             }
         };
         unsafe { logos_emit_item_blob_subst(&cb); }
@@ -661,7 +698,10 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         let mut c: #nm = #nm::new_in(snp);
                         let n: u32 = self.count();
                         let mut i: u32 = 0u32;
-                        while i < n { let _ = c.try_insert(self.key_at(i), self.val_at(i)); i = i + 1u32; }
+                        while i < n { 
+                            let _ = c.try_insert(self.key_at(i), self.val_at(i)); 
+                            i = i + 1u32; 
+                        }
                         return c;
                     }
                 }
