@@ -985,7 +985,15 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     bool skip_body = metaprog_mode_
                   && (cur_ast_idx_ == metaprog_entry_ast_idx_ || is_synth_blob
                       || cur_ast_has_pending_item_mc_)
-                  && (struct_ctx.empty() || impl_target_unresolved)
+                  // Methods too when the impl lives in a SYNTH chunk: a later
+                  // meta-slice compile (harvest re-dispatch) sees generated
+                  // families whose method bodies call sibling FREE fns — and
+                  // stubbed free fns are ERASED from the meta program
+                  // (run_metaprog_dispatch), so a lowered method body would
+                  // hold a dangling func.call. metaprog_keep still exempts
+                  // anything compile-time evaluation actually invokes.
+                  && (struct_ctx.empty() || impl_target_unresolved
+                      || is_synth_blob)
                   && !fn_is_metaprog_handler(fn_name)
                   && !fn_is_metaprog_keep(fn_name);
     if (skip_body) fn.flag(dk::IS_METAPROG_STUB, true);

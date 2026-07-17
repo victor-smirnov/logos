@@ -1,0 +1,31 @@
+// mixed_concrete_generic — a CONCRETE and a GENERIC container in ONE unit.
+// Regression for the harvest-redispatch wall: the meta-slice recompile used
+// to lower generated-family METHOD bodies while their sibling FREE fns
+// (stubbed) were ERASED from the meta program — a dangling func.call killed
+// metaprog MLIR gen ('Conc_descend_get does not reference a valid function').
+// Fixed by stubbing synth-chunk methods too (sema_decl skip_body).
+// NOTE the wave-0 bind asymmetry this test also documents: the CONCRETE
+// declaration binds the CoW store handle (create/open over a snapshot); a
+// GENERIC instantiation binds the STANDALONE tree (new/insert/get_or/free).
+package test;
+use logos.lcm.canon.container_item;
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.lang.str;
+
+container Conc for u8 { kind ordered_map; entry { key: u64, val: str } measure max(key); }
+container Gen<V> for u8 { kind ordered_map; entry { key: u64, val: V } measure max(key); }
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s: MemorySnapshot = store.fork();
+    let c: Conc = Conc::create(&mut s, 1u64);
+    c.insert(1u64, "x");
+    store.commit(&s);
+    let mut g: Gen<u64> = Gen::new();
+    g.insert(1u64, 5u64);
+    if g.get_or(1u64, 0u64) != 5u64 { return 2i32; }
+    g.free();
+    return 0i32;
+}
