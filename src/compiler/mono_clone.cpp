@@ -4371,40 +4371,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
             }
             if (!rewritten) {
-                // A method dispatched on a receiver that MONOMORPHISED to a
-                // concrete generic struct instance (e.g. `(*self.keys()).count()`
-                // inside `impl<K> GLeaf<K>` re-lowered with K=str → receiver
-                // `*mut PkdArray<str>`) keeps its EMethodCall spelling. The method
-                // itself is demanded by the L1.1 scan hook (enqueue_method_inst on
-                // the receiver), but the receiver STRUCT instance is never demanded
-                // otherwise: it is reached only through pointer casts / turbofish,
-                // and its static assoc fns emit as free fns that don't need the
-                // struct — so out_.structs would have no target to attach the
-                // cloned method to, drain drops it, and mlir-gen silently omits the
-                // call → a ret-less body → SIGSEGV. Record the struct as needed so
-                // instantiate_struct_templates materializes it (spec-aware: it
-                // picks the FSE/VLE twin); enqueue_method_inst then defers the
-                // method until the struct is emitted rather than dropping it.
-                if (nm.receiver && nm.receiver.type(out_.type_pool.impl())) {
-                    TypeRef mrt = nm.receiver.type(out_.type_pool.impl());
-                    while (mrt && (TypeRef(mrt).kind() == LogosType::Kind::Ptr ||
-                                   TypeRef(mrt).kind() == LogosType::Kind::Ref ||
-                                   TypeRef(mrt).kind() == LogosType::Kind::MutRef) &&
-                           TypeRef(mrt).pointee())
-                        mrt = TypeRef(mrt).pointee();
-                    if (mrt && (TypeRef(mrt).kind() == LogosType::Kind::Struct ||
-                                TypeRef(mrt).kind() == LogosType::Kind::ZonedStruct) &&
-                        !TypeRef(mrt).type_args().empty()) {
-                        bool all_concrete = true;
-                        for (auto ta : TypeRef(mrt).type_args())
-                            if (!ta || TypeRef(ta).kind() == LogosType::Kind::TypeVar)
-                                { all_concrete = false; break; }
-                        // The dispatched method is demanded by the L1.1 scan hook;
-                        // we only need to guarantee the receiver STRUCT is emitted
-                        // so the (possibly deferred) method enqueue has a target.
-                        if (all_concrete) record_needed_struct(mrt);
-                    }
-                }
+// (Deferred-method receiver structs are recorded as needed at the
+                // enqueue_method_inst DEFER site — recording eagerly here for every
+                // dispatched call receiver tripled mono struct materialization.)
+
                 v.each_arg([&](lir_view::ExprRef ar) {
                     nm.args.push_back(child_husk(subst_child_expr(ar)));
                 });

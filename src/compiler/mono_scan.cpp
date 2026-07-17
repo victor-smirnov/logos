@@ -761,12 +761,18 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     // done_methods_ marker below would then block every retry, silently omitting
     // the call → a ret-less body → SIGSEGV. Defer instead: the deferred drain
     // (also gated on struct_emitted) re-fires enqueue once the struct appears.
-    // (record_needed_struct at the dispatch re-lowering site guarantees it will.)
+    // (record_needed_struct below guarantees it will.)
     if (!struct_emitted(concrete, TypeRef(concrete_struct_t).pkg_name())) {
         // Defer under the PKG-QUALIFIED name: two coexisting same-name structs
         // from different pkgs share the bare cname (concrete_struct_types_'s bare
         // key is last-wins), so a bare deferred key would re-resolve to the wrong
         // twin. The qualified key routes back to THIS exact instance.
+        //
+        // Record the receiver struct as needed HERE — only the deferred case
+        // needs the guarantee. (Recording eagerly at every dispatched
+        // method-call receiver in clone_expr tripled mono's struct
+        // materialization and cost the whole suite ~2×.)
+        record_needed_struct(concrete_struct_t);
         deferred_method_enqueues_.emplace_back(
             qualified_cname(concrete_struct_t), method_name);
         return;
