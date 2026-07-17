@@ -718,8 +718,14 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = alloc(4096i64);
                         let a: *mut PkdAlloc = pkd_format(base, 4096u32, 2u32);
-                        match PkdArray::<#(kid)>::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "key col"); } }
-                        match PkdArray::<#(vid)>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "val col"); } }
+                        match PkdArray::<#(kid)>::format(a, 0u32) { 
+                            Result::Ok(_p) => {} 
+                            Result::Err(_e) => { assert(false, "key col"); } 
+                        }
+                        match PkdArray::<#(vid)>::format(a, 1u32) { 
+                            Result::Ok(_p) => {} 
+                            Result::Err(_e) => { assert(false, "val col"); } 
+                        }
                         return #nm { mem: base, cap: 4096u32 };
                     }
                 }
