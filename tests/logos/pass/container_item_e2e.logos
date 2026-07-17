@@ -4,9 +4,9 @@
 // rows. The backing here is a minimal inline Vec-backed VecCtr honoring the
 // wave-0 scan contract (count/get) + push; the real pkd-backed Vector-v0
 // lives in conuco/memoria (ctr_vec_deem lforge test). MapCtr is intentionally
-// UNDEFINED: an ordered_map container stops at verdicts — its backing
-// resolves only on the emission path (pins wave-0 Map's
-// parse+facts+verdicts-only contract).
+// UNDEFINED: an ordered_map decl lowers to its CFG const + ContainerType
+// alias only (ADR 0021 Phase 4b) — its backing resolves on no decl-site
+// path (pins Map's parse+facts+verdicts+CFG-surface contract).
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 

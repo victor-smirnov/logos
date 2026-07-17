@@ -1,21 +1,22 @@
-// gen_map — Canon container_shape, end to end (ADR 0020 Track B, ② I1):
-// a single `kind ordered_map` declaration → Canon derives a container_shape
-// PLAN (leaf(fast) + branch + tree + cow + subtree_size) → the handler walks
-// that plan and GENERATES the plan's node types: the concrete leaf `GenMapLeaf`
-// and the routing branch `GenMapBranch`. Structure is Canon's verdict; the ONE
-// declaration is the whole source of BOTH types. main() exercises the generated
-// leaf and builds a height-2 structure with the generated branch over generated
-// children (proving the pair composes). Tree-assembly + CoW-map are I2/I3.
+// gen_map — Canon-driven leaf+branch codegen COMPOSITION (ADR 0020 Track B,
+// ② I1, re-based by ADR 0021 Phase 4b): a `kind node` + `kind branch`
+// declaration pair generates the concrete leaf `GenMapLeaf` and the routing
+// branch `GenMapBranch`; main() exercises the generated leaf and builds a
+// height-2 structure with the generated branch over generated children
+// (proving the pair composes). These are compiler-internal codegen fixtures
+// — direct {N} node types, NOT the create_ctr surface. (The former single
+// `kind ordered_map` decl no longer emits nodes at the decl site — the
+// ordered_map family is factory-generated on demand; the store-backed
+// ordered_map path is covered by gen_cow/gen_tree/store_workflow.)
 package test;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;
-use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
-use logos.mem.bt.memstore;            // MemorySnapshot — the generated CoW-map handle references it
 
-// key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the plan's
-// leaf + branch nodes are both emitted from this one declaration.
-container GenMap for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
+// key:u64 + val:u64 → all fixed-size → Canon verdict `fast`; the generated
+// leaf and the child-type-agnostic branch compose below.
+container GenMapLeaf for u8 { kind node; entry { key: u64, val: u64 } }
+container GenMapBranch for u8 { kind branch; entry { key: u64 } }
 
 // Descent hooks binding the child-agnostic GenMapBranch to GenMapLeaf children.
 fn leaf_lb(node: *mut u8, key: u64) -> u32 {

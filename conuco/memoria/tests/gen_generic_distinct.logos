@@ -1,38 +1,43 @@
-// Generic container (ADR 0020 wave-0, S2): two DISTINCT instantiations of one
-// `container Map<K,V>` generate two DISTINCT concrete stacks — a volume
-// (str value) and a fast (bool value) b+tree — each mangled independently.
+// Generic container (ADR 0021 Phase 4b demand path): two DISTINCT
+// instantiations of one `container Map<K,V>` demand two DISTINCT configs →
+// the factory generates two DISTINCT families (@hs-keyed — different CFG
+// docs, different hashes). Asserted at the behavior level (both handles
+// work) AND at the identity level (`CtrFamily::family_id()` differs).
+// FSE-only value types (u64 / bool) — str-generic is the documented gap.
 package test;
 
 use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;        // create_ctr + CtrFamily (family_id probe)
 use logos.mem.pkd;
 use logos.mem.bt.map;
-use logos.mem.bt.memstore;  // MemorySnapshot — the generated handle struct names it (collect-time import gotcha)
-use logos.lang.str;
+use logos.mem.bt.memstore;
 
 container Map<K, V> for u8 { kind ordered_map; entry { key: K, val: V } measure max(key); }
 
-fn beq(b: &[u8], want: str) -> bool {
-    if b.len() != want.len() { return false; }
-    let mut i: i64 = 0i64;
-    while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }
-    return true;
-}
+fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
 
 fn main() -> i32 {
-    let mut a: Map<u64, str> = Map::new();          // volume stack
-    a.insert(1u64, "alpha");
-    a.insert(2u64, "bravo");
-    if a.size() != 2u64 { return 1i32; }
-    if !beq(a.get_or(2u64), "bravo") { return 2i32; }
-    a.free();
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s0: MemorySnapshot = store.fork();
 
-    let mut b: Map<i32, bool> = Map::new();         // DISTINCT fast stack
+    let a = create_ctr::<Map<u64, u64>>(&mut s0, 1u64);          // fast u64/u64
+    a.insert(1u64, 10u64);
+    a.insert(2u64, 20u64);
+    if a.size() != 2u64 { return 1i32; }
+    if a.get_or(2u64, 0u64) != 20u64 { return 2i32; }
+
+    let b = create_ctr::<Map<i32, bool>>(&mut s0, 2u64);         // DISTINCT fast family
     b.insert(7i32, true);
     b.insert(9i32, false);
     if b.size() != 2u64 { return 3i32; }
     if b.get_or(7i32, false) != true { return 4i32; }
     if b.get_or(9i32, true) != false { return 5i32; }
-    if b.get_or(100i32, true) != true { return 6i32; }   // absent → sentinel
-    b.free();
+    if b.get_or(100i32, true) != true { return 6i32; }           // absent → sentinel
+
+    // distinct configs → distinct family identities
+    if fid::<Map<u64, u64>>() == fid::<Map<i32, bool>>() { return 7i32; }
+
+    s0.release();
+    store.release();
     return 0i32;
 }

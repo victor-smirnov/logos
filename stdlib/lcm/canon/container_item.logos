@@ -41,6 +41,12 @@ use logos.mem.bt.ops;             // NOT used here — carries the MODULE-GRAPH 
                                   // unit imports THIS handler module, so bt.ops
                                   // rides into its graph from here. map/memstore
                                   // can't carry it — ops imports both (cycle).
+use logos.lcm.canon.metaclass;    // NOT used here — the same MODULE-GRAPH edge
+                                  // contract for the DECL-SITE emission (ADR 0021
+                                  // Phase 4b): the emitted `type <Name> =
+                                  // ContainerType<<Name>Cfg>` alias names
+                                  // ContainerType, so the metaclass module must
+                                  // ride into every declaring unit's graph.
 
 unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
     let l: i64 = if b > a { b - a } else { 0i64 };
@@ -1153,54 +1159,89 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     }
 }
 
-// ── ADR 0021: the container's CONFIGURATION document ──────────────────────
+// ── ADR 0021 Phase 4b: the container's CFG document + transparent alias ────
 //
-// Synthesize `pub const <Name>Cfg: WritStatic = @{ … }` — the WritStatic doc
-// whose content hash (@hs) is the container family's identity. Two structurally
-// identical declarations produce byte-identical docs → the same @hs → one
-// family (twin dedup, no name in the key). This is the input the mono→factory
-// seam (ADR 0021 §3) will key on; for now it is emitted alongside the wave-0
-// path (additive — `<Name>Cfg` is a fresh name, no collision with the handle).
+// The DECL-SITE lowering of a kind=ordered_map container. Synthesize
 //
-// Wave-0 scope: concrete (non-generic) two-column ordered_map. The key column
-// is always a sized (FSE) type → `<type:K>`; a `str` value column is unsized
-// (VLE) and cannot ride `<type:str>`, so it is recorded as the string tag
-// "str" (the factory reads either the type slot or the tag). Generic
-// declarations and the transparent `type <Name> = ContainerType<<Name>Cfg>`
-// alias (which would collide with the current handle) land in later phases.
-fn emit_cfg_doc(name: str, cs: &ContainerSpec) {
-    if cs.generics.len() != 0i64 { return; }          // concrete only (wave-0)
-    if !str_eq(cs.kind, KIND_ORDERED_MAP) { return; } // two-column map only
-    if cs.pkg.len() == 0i64 { return; }               // need a package to emit into
+//   pub const <Name>Cfg<GENERICS?>: WritStatic = @{ … };
+//   pub type  <Name><GNAMES?> = ContainerType<<Name>Cfg<GNAMES?>>;
+//
+// The CFG doc's content hash (@hs) is the container family's identity: two
+// structurally identical declarations produce byte-identical docs → the same
+// @hs → ONE family (twin dedup, no name in the key). The alias makes the
+// declaration a factory-backed marker instance — naming it in create_ctr::<N>
+// fires the mono demand and the metaclass factory generates the family
+// (ADR 0021 §3). The wave-0 handle emission is GONE from the decl site; the
+// factory path (__container_factory) is the only family emitter.
+//
+// A GENERIC declaration emits a generic const + generic alias (bounds, if
+// any, stay on the const — the alias header/args ride the bare gnames); the
+// use-site re-resolution of the alias RHS produces the concrete @hs per
+// instantiation. The key column is always a sized (FSE) type → `<type:K>`;
+// a concrete `str` value column is unsized (VLE) and cannot ride
+// `<type:str>`, so it is recorded as the string tag "str" (the factory reads
+// either form). KNOWN GAP (documented, accepted): a GENERIC value param
+// instantiated at `str` renders `<type:str>` in the substituted doc and is
+// rejected — str-valued maps need a concrete declaration for now.
+//
+// Returns false after diagnosing a shape violation loudly (the decl path has
+// no other emission left — a silent skip would surface as "unknown type"
+// at every consumer instead of the real error).
+fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
+    if !str_eq(cs.kind, KIND_ORDERED_MAP) { return true; } // map-only surface
+    if cs.pkg.len() == 0i64 {
+        error("container item: ordered_map spec carries no `pkg=` segment (compiler seam regression?)");
+        return false;
+    }
     let ce: i64 = cs.entry.len();
     let nb0: i64 = cf_next_comma(cs.entry, 0i64, ce);
-    if nb0 == ce { return; }                           // not two columns
+    if nb0 == ce {
+        error("container item: a `kind ordered_map` needs two entry columns (`entry { key: K, val: V }`)");
+        return false;
+    }
     let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce);
-    if nb1 != ce { return; }                           // more than two columns
+    if nb1 != ce {
+        error("container item: wave-0 `kind ordered_map` supports exactly two entry columns (key, val)");
+        return false;
+    }
     let k1: i64 = cf_find(cs.entry, 0i64, 58u8);       // ':' of key col
     let mut k2: i64 = nb0 - 1i64;
     while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
-    if k1 < 0i64 || k2 <= k1 { return; }
+    if k1 < 0i64 || k2 <= k1 {
+        error("container item: malformed key column (compiler seam regression?)");
+        return false;
+    }
     let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
     let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);  // ':' of val col
     let mut v2: i64 = nb1 - 1i64;
     while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
-    if v1 < 0i64 || v2 <= v1 { return; }
+    if v1 < 0i64 || v2 <= v1 {
+        error("container item: malformed val column (compiler seam regression?)");
+        return false;
+    }
     let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
 
     let mut em: Emitter = Emitter::new();
     em.emit_into(cs.pkg);                              // "package <pkg>; "
     em.push_text("use logos.lang.writ.wstatic; ");
-    em.push_text("pub const "); em.push_text(name);
-    em.push_text("Cfg: WritStatic = @{ \"kind\": \"ordered_map\", \"key\": <type:");
+    em.push_text("use logos.lcm.canon.metaclass; ");   // ContainerType (alias RHS)
+    em.push_text("pub const "); em.push_text(name); em.push_text("Cfg");
+    if cs.generics.len() > 0i64 { em.push_text(cs.generics); }  // verbatim, bounds included
+    em.push_text(": WritStatic = @{ \"kind\": \"ordered_map\", \"key\": <type:");
     em.push_text(kty); em.push_text(">, \"value\": ");
     if str_eq(vty, "str") {
         em.push_text("\"str\"");                        // VLE tag — str is unsized
     } else {
         em.push_text("<type:"); em.push_text(vty); em.push_text(">");
     }
-    em.push_text(" };");
+    em.push_text(" }; ");
+    em.push_text("pub type "); em.push_text(name);
+    if cs.gnames.len() > 0i64 { em.push_text("<"); em.push_text(cs.gnames); em.push_text(">"); }
+    em.push_text(" = ContainerType<"); em.push_text(name); em.push_text("Cfg");
+    if cs.gnames.len() > 0i64 { em.push_text("<"); em.push_text(cs.gnames); em.push_text(">"); }
+    em.push_text(">;");
     em.commit();
+    return true;
 }
 
 // ── ADR 0021 §3 Phase 3: the metaclass FACTORY — the real container family ──
@@ -1450,10 +1491,10 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         return;
     }
 
-    // ADR 0021: synthesize the container's CONFIGURATION document (the @hs
-    // identity), additive alongside the wave-0 emission below. Skipped on the
-    // factory path — there the CFG doc is the INPUT, not a synthesis target.
-    if emit_cfg { emit_cfg_doc(name, &cs); }
+    // ADR 0021 Phase 4b: the DECL SITE of an ordered_map lowers to the CFG
+    // const + the ContainerType alias ONLY (emit_cfg_doc, below at the kind
+    // branch). Skipped on the factory path — there the CFG doc is the INPUT,
+    // not a synthesis target, and the factory is the family emitter.
 
     // kind=node: emit a concrete b+tree leaf, its value-column encoding and
     // split body chosen by Canon's fast|volume verdict — `fast` = all-FSE,
@@ -1526,11 +1567,15 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
     // walking its rows (never hardcoding leaf+branch). The tree-assembly and
     // CoW-map aspects are read here but realized in later increments (I2/I3).
     if str_eq(cs.kind, KIND_ORDERED_MAP) {
-        // wave-0: only a CONCRETE ordered_map generates its b+tree stack. A
-        // generic `Map<K, V>` has unbound column types (and often an undeclared
-        // backing) — it stops at verdicts, the same parse/facts/verdicts-only
-        // contract as before. The generic-K stack is a later increment (③).
-        if cs.generics.len() > 0i64 { return; }
+        // ADR 0021 Phase 4b: the DECL path stops at CFG + alias — the family
+        // (nodes, trait impls, tree, CoW handle) is generated ONLY by the
+        // factory when mono demands the ContainerType<CFG> instance
+        // (create_ctr::<Name>). Facts + Canon template-validation above stay
+        // (the descriptive facet — a bad decl still fails HERE, loudly).
+        if emit_cfg {
+            let _ok: bool = emit_cfg_doc(name, &cs);
+            return;
+        }
         // Two entry columns (key, val) — same shape as a kind=node leaf.
         let ce2: i64 = cs.entry.len();
         let nb0: i64 = cf_next_comma(cs.entry, 0i64, ce2);

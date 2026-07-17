@@ -1,0 +1,47 @@
+// map_consumer — CONSUMER of the library-declared generic `Map<K, V>`
+// (memoria.ctr.map, the memoria-ctr archive) — the ADR 0021 §4 acceptance
+// gate, UN-PARKED by Phase 4b. The library declaration lowers to
+// `MapCfg<K,V>` (generic WritStatic const) + `Map<K,V> =
+// ContainerType<MapCfg<K,V>>`; this consumer names `Map<u64,u64>` across
+// the archive boundary — the alias RHS re-resolves under the bindings, mono
+// demands the concrete @hs, and the metaclass FACTORY generates the family
+// in THIS unit's compile (package logos.gen). The library ships only the
+// declaration surface, no code.
+//
+// u64/u64 only: a GENERIC value param instantiated at `str` is the
+// documented str-generic gap (the substituted doc renders `<type:str>`,
+// rejected — str is unsized; concrete str decls ride the "str" VLE tag).
+package test;
+
+use memoria.ctr.map;                  // the generic declaration (binary module)
+use logos.lcm.canon.metaclass;        // create_ctr + CtrFamily
+use logos.lcm.canon.container_item;   // loads the factory (an emitted `use` cannot LOAD a module)
+use logos.mem.pkd;                    // generated node substrate
+use logos.mem.bt.map;                 // trait hub for the generated impls
+use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s0: MemorySnapshot = store.fork();
+
+    // fast family (u64/u64), enough inserts to force splits.
+    let m = create_ctr::<Map<u64, u64>>(&mut s0, 1u64);
+    let n: u64 = 4000u64;
+    let mut i: u64 = 0u64;
+    while i < n { m.insert(i, i * 3u64); i = i + 1u64; }
+    if m.size() != n { return 1i32; }
+    if m.get_or(1234u64, 0u64) != 3702u64 { return 2i32; }
+    m.insert(1234u64, 7u64);              // replace-on-hit
+    if m.get_or(1234u64, 0u64) != 7u64 { return 3i32; }
+    if m.size() != n { return 4i32; }
+    store.commit(&s0);
+
+    // open_ctr through the same cross-module alias sees the same container.
+    let m2 = open_ctr::<Map<u64, u64>>(&mut s0, 1u64);
+    if m2.size() != n { return 5i32; }
+    if m2.get_or(4u64, 0u64) != 12u64 { return 6i32; }
+
+    s0.release();
+    store.release();
+    return 0i32;
+}

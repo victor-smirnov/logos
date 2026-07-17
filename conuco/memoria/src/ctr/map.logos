@@ -1,13 +1,14 @@
 // memoria.ctr.map — the GENERIC ordered map as a LIBRARY declaration.
 //
-// Cross-module generic seam probe (the extern-template vs implicit-
-// instantiation boundary): the declaration lives in THIS archive and, being
-// generic, stops at Canon verdicts here — no code is generated on the
-// library side. A consumer compiling against the binary module re-registers
-// the declaration (CONTAINER_DEF_DONE pre-scan) and every CONCRETE
-// instantiation it names (Map<u64,u64>, Map<u64,str>, …) is harvested and
-// generated IN THE CONSUMER'S unit, in the consumer's package, with
-// mangled type names (Map$G2$…Leaf/Branch/Tree + the Ctr handle).
+// Cross-module generic seam (ADR 0021 Phase 4b): the declaration lives in
+// THIS archive and lowers to its demand-path surface — the generic CFG const
+// `MapCfg<K,V>` plus the transparent alias `Map<K,V> =
+// ContainerType<MapCfg<K,V>>`. No code is generated on the library side. A
+// consumer naming a concrete instantiation (`create_ctr::<Map<u64,u64>>`)
+// re-resolves the alias RHS under its bindings; mono demands the concrete
+// @hs and the metaclass factory generates the family in the CONSUMER's
+// compile (package logos.gen, hash-keyed — instantiations of identical
+// config unify across consumers by construction).
 package memoria.ctr.map;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler

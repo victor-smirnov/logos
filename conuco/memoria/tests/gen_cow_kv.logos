@@ -1,25 +1,28 @@
-// gen_cow_kv — the VOLUME (VLE value) FULL stack, end to end (ADR 0020 Track B,
-// ② P2 + container⟂store split): a `kind ordered_map` whose value is `str` →
-// Canon leaf policy `volume` → the handler generates the volume-flavor typed
-// half — a volume-split leaf (val_at → &[u8]), the routing branch, the tree
-// assembly, and the CoW map's cow_insert/descend_get + the `GenVol` Ctr handle.
-// The STORE/SNAPSHOT half is the hand-written, shared MemoryStore /
-// MemorySnapshot (logos.mem.bt.memstore). The value is returned BY VIEW
-// (`get_or(key) -> &[u8]`, borrowing the handle; a MISS is an empty slice) — the
-// by-value sentinel of the fast flavor has no view analog. main() drives the
-// tree (multi-leaf fill, ordered lookup, replace-on-hit) and the CoW-map
-// (snapshot isolation across commits) on str values whose byte-lengths vary,
-// exercising the volume-balanced split.
+// gen_cow_kv — the VOLUME (VLE value) stack, end to end (ADR 0020 Track B ②
+// P2 + ADR 0021 Phase 4b demand path): a `kind ordered_map` whose value is
+// `str` lowers to a CFG doc carrying the "str" VLE tag + the ContainerType
+// alias; `create_ctr::<GenVol>` fires the mono demand and the metaclass
+// FACTORY generates the volume-flavor family — a volume-split leaf (val_at →
+// &[u8]), the routing branch, and the CoW handle (@hs-keyed, package
+// logos.gen). The STORE/SNAPSHOT half is the hand-written, shared
+// MemoryStore / MemorySnapshot (logos.mem.bt.memstore). The value is
+// returned BY VIEW (`get_or(key) -> &[u8]`, borrowing the handle; a MISS is
+// an empty slice). Part (1) drives multi-leaf fill / ordered lookup /
+// replace-on-hit on str values whose byte-lengths vary (the volume-balanced
+// split; formerly the standalone `GenVolTree` half — that surface died with
+// the bind asymmetry, so it runs store-backed with size-based assertions
+// instead of height-based); part (2) drives CoW snapshot isolation.
 package test;
 
-use logos.lcm.canon.container_item;   // the `container` lowering handler
+use logos.lcm.canon.container_item;   // the `container` lowering handler + the factory
+use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
 use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
 use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the shared store
 use logos.lang.str;                   // str_byte_at (byte comparison)
 
 // key:u64 + val:str → a variable-length value column → Canon verdict `volume` →
-// the whole VOLUME stack (leaf/branch/tree + cow-map half) from this one decl.
+// the whole VOLUME stack (leaf/branch + cow handle) from this one decl.
 container GenVol for u8 { kind ordered_map; entry { key: u64, val: str } measure max(key); }
 
 const CTR: u64 = 1u64;
@@ -41,13 +44,14 @@ fn beq(b: &[u8], want: str) -> bool {
 }
 
 fn main() -> i32 {
-    // ── (1) tree assembly over a VLE value column (UNCHANGED tree API) ───────
-    let mut t: GenVolTree = GenVolTree::new();
+    // ── (1) multi-leaf volume map: fill / lookup / replace-on-hit ───────────
+    let mut tstore: MemoryStore = MemoryStore::new();
+    let mut ts: MemorySnapshot = tstore.fork();
+    let t = create_ctr::<GenVol>(&mut ts, CTR);
     let n: u64 = 4000u64;
     let mut k: u64 = 0u64;
     while k < n { t.insert(k, vstr(k)); k = k + 1u64; }
     if t.size() != n { return 1i32; }
-    if t.height() < 1u32 { return 2i32; }            // multi-leaf (branch present)
     // every key present, value bytes correct (get_or returns a borrowed &[u8])
     k = 0u64;
     while k < n {
@@ -61,27 +65,28 @@ fn main() -> i32 {
     if t.size() != bsz { return 5i32; }
     if !beq(t.get_or(2000u64), "REPLACEMENT-VALUE-LONGISH") { return 6i32; }
     if !beq(t.get_or(2001u64), vstr(2001u64)) { return 7i32; }   // neighbour intact
-    t.free();
+    ts.release();
+    tstore.release();
 
     // ── (2) CoW snapshot-versioned map over a VLE value column ───────────────
     let mut store: MemoryStore = MemoryStore::new();
     let m: u64 = 1500u64;
     let mut s0: MemorySnapshot = store.fork();
     if s0.snapshot_id() != 1u64 { return 8i32; }
-    let c0: GenVol = GenVol::create(&mut s0, CTR);
+    let c0 = create_ctr::<GenVol>(&mut s0, CTR);
     k = 0u64;
     while k < m { c0.insert(k, vstr(k)); k = k + 1u64; }
     if c0.size() != m { return 9i32; }
     store.commit(&s0);
 
     let mut s1: MemorySnapshot = store.fork();
-    let c1: GenVol = GenVol::open(&mut s1, CTR);
+    let c1 = open_ctr::<GenVol>(&mut s1, CTR);
     k = m;
     while k < 2u64 * m { c1.insert(k, vstr(k)); k = k + 1u64; }
     store.commit(&s1);
 
     // ISOLATION: s0 (frozen) sees only [0, m); s1 sees [0, 2m).
-    let c0b: GenVol = GenVol::open(&mut s0, CTR);
+    let c0b = open_ctr::<GenVol>(&mut s0, CTR);
     if c0b.size() != m { return 10i32; }
     if c1.size() != 2u64 * m { return 11i32; }
     if c0b.get_or(m).len() != 0i64 { return 12i32; }            // s1's key absent in s0
@@ -94,12 +99,12 @@ fn main() -> i32 {
 
     // a third version overwrites a spread of keys; s1 untouched.
     let mut s2: MemorySnapshot = store.fork();
-    let c2: GenVol = GenVol::open(&mut s2, CTR);
+    let c2 = open_ctr::<GenVol>(&mut s2, CTR);
     k = 0u64;
     while k < 2u64 * m { c2.insert(k, "OVERWRITTEN"); k = k + 300u64; }
     store.commit(&s2);
-    let c2b: GenVol = GenVol::open(&mut s2, CTR);
-    let c1b: GenVol = GenVol::open(&mut s1, CTR);
+    let c2b = open_ctr::<GenVol>(&mut s2, CTR);
+    let c1b = open_ctr::<GenVol>(&mut s1, CTR);
     if !beq(c2b.get_or(0u64), "OVERWRITTEN") { return 15i32; }
     if !beq(c1b.get_or(0u64), vstr(0u64)) { return 16i32; }     // s1 lineage intact
     if !beq(c2b.get_or(300u64), "OVERWRITTEN") { return 17i32; }

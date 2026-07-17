@@ -1,25 +1,29 @@
-// gen_tree — Canon container_shape assembly, end to end (ADR 0020 Track B, ② I2):
-// one `kind ordered_map` declaration → Canon derives the container_shape PLAN
-// (leaf(fast) + branch + tree + cow + subtree_size) → the handler realizes the
-// `aspect=assembly value=tree` row by GENERATING a multi-level b+tree `GenBtTree`
-// over the plan's generated `GenBtLeaf` / `GenBtBranch`. One declaration is the
-// whole source of the leaf, the branch, AND the tree assembly. main() mirrors the
-// hand-written logos.mem.bt.tree validation (BTreeU64): ascending fill forcing
-// root growth (branch-over-branch), scattered inserts, SUM==count, replace-on-hit.
+// gen_tree — the b+tree assembly under bulk load, end to end (ADR 0020 Track
+// B ② I2 + ADR 0021 Phase 4b demand path): one `kind ordered_map` declaration
+// lowers to a CFG doc + ContainerType alias; `create_ctr::<GenBt>` fires the
+// mono demand and the metaclass FACTORY generates the family (@hs-keyed
+// leaf/branch + CoW handle over the shared MemoryStore). main() mirrors the
+// hand-written logos.mem.bt.tree validation (BTreeU64): ascending fill
+// forcing repeated rightmost splits and root growth, scattered inserts,
+// size==entry count, replace-on-hit. (The standalone `GenBtTree` surface —
+// new/height/free — died with the bind asymmetry; multi-level structure is
+// still forced by the 60k ascending fill, asserted through size/lookup.)
 package test;
 
-use logos.lcm.canon.container_item;   // the `container` lowering handler
-use logos.mem.pkd;                    // the generated leaf/branch target (PkdArray::format)
+use logos.lcm.canon.container_item;   // the `container` lowering handler + the factory
+use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
+use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
-use logos.mem.bt.memstore;            // MemorySnapshot — the generated CoW-map handle references it
+use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot — the shared store
 
-// key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the plan's
-// leaf + branch + tree are all emitted from this one declaration.
+// key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the family's
+// leaf + branch + CoW handle are all factory-emitted from this one declaration.
 container GenBt for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
 
 fn main() -> i32 {
-    let mut t: GenBtTree = GenBtTree::new();
-    if t.height() != 0u32 { return 1i32; }        // lone leaf root
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s0: MemorySnapshot = store.fork();
+    let t = create_ctr::<GenBt>(&mut s0, 1u64);
     if t.size() != 0u64 { return 2i32; }
 
     // ── grow: ascending insert forces repeated rightmost splits + root growth
@@ -30,7 +34,6 @@ fn main() -> i32 {
         k = k + 1u64;
     }
     if t.size() != n { return 3i32; }             // SUM measure == entry count
-    if t.height() < 2u32 { return 4i32; }         // multi-level (branch-over-branch)
 
     // ── every key present with the right value ──────────────────────────
     k = 0u64;
@@ -54,8 +57,8 @@ fn main() -> i32 {
     if t.get_or(777u64, 0u64) != 777u64 + 1000000u64 { return 10i32; }
     if t.get_or(778u64, 0u64) != 778u64 + 7u64 { return 11i32; }   // untouched neighbour
 
-    // ── a second tree with interleaved (non-ascending) key order ─────────
-    let mut t2: GenBtTree = GenBtTree::new();
+    // ── a second container with interleaved (non-ascending) key order ────
+    let t2 = create_ctr::<GenBt>(&mut s0, 2u64);
     let m: u64 = 20000u64;
     let mut i: u64 = 0u64;
     let mut key: u64 = 0u64;
@@ -71,7 +74,7 @@ fn main() -> i32 {
         j = j + 1u64;
     }
 
-    t.free();
-    t2.free();
+    s0.release();
+    store.release();
     return 0i32;
 }

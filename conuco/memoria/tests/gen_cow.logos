@@ -1,15 +1,17 @@
-// gen_cow — Canon container_shape versioning, end to end (ADR 0020 Track B, ② I3
-// + container⟂store split): one `kind ordered_map` declaration → Canon derives
-// the shape → the handler emits the map's typed half (CoW-flavored GenCowLeaf /
-// GenCowBranch + cow_insert/descend_get + the `GenCow` Ctr handle). The
-// STORE/SNAPSHOT half is the HAND-WRITTEN, shared MemoryStore / MemorySnapshot
+// gen_cow — Canon container_shape versioning, end to end (ADR 0020 Track B ②
+// I3 + ADR 0021 Phase 4b demand path): one `kind ordered_map` declaration
+// lowers to its CFG doc + ContainerType alias; `create_ctr::<GenCow>` fires
+// the mono demand and the metaclass FACTORY generates the CoW family
+// (@hs-keyed leaf/branch + handle, package logos.gen). The STORE/SNAPSHOT
+// half is the HAND-WRITTEN, shared MemoryStore / MemorySnapshot
 // (logos.mem.bt.memstore) — a container is a typed view of `ctr_id` in a
 // snapshot; one snapshot spans many containers and commits them atomically.
 // main() drives snapshot ISOLATION across commits, size through the handle, and
 // rc reclamation that frees shared structure exactly once (valgrind gate).
 package test;
 
-use logos.lcm.canon.container_item;   // the `container` lowering handler
+use logos.lcm.canon.container_item;   // the `container` lowering handler + the factory
+use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
 use logos.mem.pkd;                    // the generated leaf/branch target (PkdArray::format)
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
 use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the shared store
@@ -27,7 +29,7 @@ fn main() -> i32 {
     let n: u64 = 8000u64;
     let mut s0: MemorySnapshot = store.fork();
     if s0.snapshot_id() != 1u64 { return 1i32; }
-    let m0: GenCow = GenCow::create(&mut s0, CTR);
+    let m0 = create_ctr::<GenCow>(&mut s0, CTR);
     let mut k: u64 = 0u64;
     while k < n { m0.insert(k, k + 7u64); k = k + 1u64; }
     if m0.size() != n { return 2i32; }   // handle sees its snapshot's size
@@ -36,7 +38,7 @@ fn main() -> i32 {
     // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
     let mut s1: MemorySnapshot = store.fork();
     if s1.snapshot_id() != 2u64 { return 3i32; }
-    let m1: GenCow = GenCow::open(&mut s1, CTR);
+    let m1 = open_ctr::<GenCow>(&mut s1, CTR);
     if m1.get_or(0u64, 0xFFFFu64) != 7u64 { return 4i32; }
     if m1.get_or(n - 1u64, 0xFFFFu64) != (n - 1u64) + 7u64 { return 5i32; }
     k = n;
@@ -44,7 +46,7 @@ fn main() -> i32 {
     store.commit(&s1);
 
     // ── ISOLATION: s0 (frozen) still sees ONLY [0, N); s1 sees [0, 2N) ───
-    let m0b: GenCow = GenCow::open(&mut s0, CTR);
+    let m0b = open_ctr::<GenCow>(&mut s0, CTR);
     if m0b.size() != n { return 6i32; }
     if m1.size() != 2u64 * n { return 7i32; }
     k = 0u64;
@@ -62,12 +64,12 @@ fn main() -> i32 {
 
     // ── a third version overwrites a spread of keys in s1's lineage ──────
     let mut s2: MemorySnapshot = store.fork();
-    let m2: GenCow = GenCow::open(&mut s2, CTR);
+    let m2 = open_ctr::<GenCow>(&mut s2, CTR);
     k = 0u64;
     while k < 2u64 * n { m2.insert(k, k + 1000000u64); k = k + 500u64; }
     store.commit(&s2);
-    let m2b: GenCow = GenCow::open(&mut s2, CTR);
-    let m1b: GenCow = GenCow::open(&mut s1, CTR);
+    let m2b = open_ctr::<GenCow>(&mut s2, CTR);
+    let m1b = open_ctr::<GenCow>(&mut s1, CTR);
     if m2b.get_or(0u64, 0u64) != 1000000u64 { return 12i32; }
     if m1b.get_or(0u64, 0u64) != 7u64 { return 13i32; }              // s1 untouched
     if m2b.get_or(500u64, 0u64) != 500u64 + 1000000u64 { return 14i32; }

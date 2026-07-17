@@ -1,38 +1,40 @@
-// Generic container (ADR 0020 wave-0, S2): the SAME instantiation `Map<u64,str>`
-// at two use-sites — a fn SIGNATURE (`fn fill(m: &mut Map<u64,str>)`) and two
-// locals — shares ONE generated stack (deduped by mangled name).
+// Generic container (ADR 0021 Phase 4b demand path): the SAME config demanded
+// through TWO spellings shares ONE family. `Map<u64,u64>` (generic
+// instantiation) and the concrete twin `Fixed` (identical columns) produce
+// byte-identical CFG docs → the same @hs → the factory runs ONCE and both
+// resolve to the same generated family (`family_id()` equality — the twin-
+// dedup/ODR gate; no name enters the identity).
 package test;
 
 use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;        // create_ctr + CtrFamily (family_id probe)
 use logos.mem.pkd;
 use logos.mem.bt.map;
-use logos.mem.bt.memstore;  // MemorySnapshot — the generated handle struct names it (collect-time import gotcha)
-use logos.lang.str;
+use logos.mem.bt.memstore;
 
 container Map<K, V> for u8 { kind ordered_map; entry { key: K, val: V } measure max(key); }
+container Fixed  for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
 
-fn beq(b: &[u8], want: str) -> bool {
-    if b.len() != want.len() { return false; }
-    let mut i: i64 = 0i64;
-    while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }
-    return true;
-}
-
-fn fill(m: &mut Map<u64, str>) {          // Map<u64,str> in a fn SIGNATURE
-    m.insert(1u64, "alpha");
-    m.insert(2u64, "bravo");
-}
+fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
 
 fn main() -> i32 {
-    let mut a: Map<u64, str> = Map::new();   // use-site 1
-    fill(&mut a);
-    if a.size() != 2u64 { return 1i32; }
-    if !beq(a.get_or(1u64), "alpha") { return 2i32; }
-    a.free();
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s0: MemorySnapshot = store.fork();
 
-    let mut b: Map<u64, str> = Map::new();   // use-site 2 (SAME instantiation → shared stack)
-    b.insert(5u64, "echo");
-    if !beq(b.get_or(5u64), "echo") { return 3i32; }
-    b.free();
+    let a = create_ctr::<Map<u64, u64>>(&mut s0, 1u64);   // use-site 1 (generic spelling)
+    a.insert(1u64, 100u64);
+    a.insert(2u64, 200u64);
+    if a.size() != 2u64 { return 1i32; }
+    if a.get_or(1u64, 0u64) != 100u64 { return 2i32; }
+
+    let b = create_ctr::<Fixed>(&mut s0, 2u64);           // use-site 2 (concrete twin)
+    b.insert(5u64, 500u64);
+    if b.get_or(5u64, 0u64) != 500u64 { return 3i32; }
+
+    // same config → ONE family, both spellings resolve to the same identity
+    if fid::<Map<u64, u64>>() != fid::<Fixed>() { return 4i32; }
+
+    s0.release();
+    store.release();
     return 0i32;
 }

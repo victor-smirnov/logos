@@ -1,31 +1,47 @@
-// mixed_concrete_generic — a CONCRETE and a GENERIC container in ONE unit.
-// Regression for the harvest-redispatch wall: the meta-slice recompile used
-// to lower generated-family METHOD bodies while their sibling FREE fns
-// (stubbed) were ERASED from the meta program — a dangling func.call killed
-// metaprog MLIR gen ('Conc_descend_get does not reference a valid function').
-// Fixed by stubbing synth-chunk methods too (sema_decl skip_body).
-// NOTE the wave-0 bind asymmetry this test also documents: the CONCRETE
-// declaration binds the CoW store handle (create/open over a snapshot); a
-// GENERIC instantiation binds the STANDALONE tree (new/insert/get_or/free).
+// mixed_concrete_generic — a CONCRETE and a GENERIC container in ONE unit
+// (ADR 0021 Phase 4b REWRITE). The old premise — the wave-0 bind asymmetry
+// (concrete decl → CoW store handle, generic instantiation → standalone
+// tree) — DISSOLVED with the uniform create_ctr surface: both declarations
+// now lower to CFG+alias and both instantiate through the same demand path.
+// The new premise: when the concrete decl's config COINCIDES with a generic
+// instantiation's config, the two UNIFY — one CFG doc, one @hs, ONE
+// generated family (`family_id()` equality), while a non-coinciding
+// instantiation still gets its own family. Also keeps the historical
+// regression duty: two decls + demand-path emission in one unit compiles
+// through the meta-slice recompile cleanly.
 package test;
 use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;        // create_ctr + CtrFamily (family_id probe)
 use logos.mem.pkd;
 use logos.mem.bt.map;
 use logos.mem.bt.memstore;
-use logos.lang.str;
 
-container Conc for u8 { kind ordered_map; entry { key: u64, val: str } measure max(key); }
+container Conc for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
 container Gen<V> for u8 { kind ordered_map; entry { key: u64, val: V } measure max(key); }
+
+fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
     let mut s: MemorySnapshot = store.fork();
-    let c: Conc = Conc::create(&mut s, 1u64);
-    c.insert(1u64, "x");
+    let c = create_ctr::<Conc>(&mut s, 1u64);
+    c.insert(1u64, 7u64);
+    if c.get_or(1u64, 0u64) != 7u64 { return 1i32; }
     store.commit(&s);
-    let mut g: Gen<u64> = Gen::new();
+
+    let g = create_ctr::<Gen<u64>>(&mut s, 2u64);
     g.insert(1u64, 5u64);
     if g.get_or(1u64, 0u64) != 5u64 { return 2i32; }
-    g.free();
+
+    // coinciding configs UNIFY: Conc and Gen<u64> are ONE family
+    if fid::<Conc>() != fid::<Gen<u64>>() { return 3i32; }
+    // a non-coinciding instantiation gets its OWN family
+    let d = create_ctr::<Gen<u32>>(&mut s, 3u64);
+    d.insert(1u64, 9u32);
+    if d.get_or(1u64, 0u32) != 9u32 { return 4i32; }
+    if fid::<Gen<u32>>() == fid::<Conc>() { return 5i32; }
+
+    s.release();
+    store.release();
     return 0i32;
 }

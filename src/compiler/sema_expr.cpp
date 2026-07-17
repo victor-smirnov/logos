@@ -8680,8 +8680,17 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 defer_factory_backed(TypeRef(rt).assoc_base()))
                 recv_is_deferred_proj = true;
         }
+        // ADR 0021 Phase 4b: a chained call on the RESULT of a deferred
+        // factory-backed call (`create_ctr::<C>(..).get_or(k).len()`) sees an
+        // <error> receiver in round 0 — the primary site already recorded a
+        // REQUIRED factory demand, so this is a cascade, not a new error.
+        // Suppress iff a factory deferral is pending in this very program;
+        // the post-drain re-sema types the whole chain strictly.
+        bool factory_deferral_pending = cur_prog_ &&
+            !cur_prog_->factory_demands.empty();
         if (!recv_is_deferred_proj &&
-            !(metaprog_mode_ && (recv_is_error || recv_pointee_error))) {
+            !(metaprog_mode_ && (recv_is_error || recv_pointee_error)) &&
+            !((recv_is_error || recv_pointee_error) && factory_deferral_pending)) {
             error(std::format("method call: receiver is not a struct (got {})",
                   type_str(expr_type(recv))));
         }
@@ -10188,7 +10197,14 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
              is_ref_like(TypeRef(expr_type(recv)).kind())) &&
             TypeRef(expr_type(recv)).pointee() &&
             TypeRef(TypeRef(expr_type(recv)).pointee()).kind() == LogosType::Kind::Error;
-        if (!(metaprog_mode_ && (recv_is_error || recv_pointee_error))) {
+        // ADR 0021 Phase 4b: same cascade suppression as the method-call
+        // path — an <error> receiver while a REQUIRED factory demand is
+        // pending is a chain off a yet-to-be-generated family; the
+        // post-drain re-sema surfaces any real error.
+        bool factory_deferral_pending = cur_prog_ &&
+            !cur_prog_->factory_demands.empty();
+        if (!(metaprog_mode_ && (recv_is_error || recv_pointee_error)) &&
+            !((recv_is_error || recv_pointee_error) && factory_deferral_pending)) {
             error(std::format("field read: receiver is not a struct or class (got {})",
                   type_str(expr_type(recv))));
         }
