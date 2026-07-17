@@ -1,0 +1,32 @@
+// ADR 0021 metaclass identity foundation: a container declaration will lower
+// to a WritStatic CFG document + `type <Name> = ContainerType<CFG>`. Two
+// structurally identical configs must resolve to the SAME type — twin dedup
+// falls out of ordinary alias resolution keyed by the CFG content hash
+// (@hs(CFG)), with no declaration name in the key.
+//
+// `Legend` and `Ledger` carry byte-identical CFG docs, so `ContainerType<…>`
+// unifies them: passing a `Ledger` value where a `Legend` is expected must
+// typecheck. `Bill` carries a different value type, so it is a DISTINCT type
+// (exercised only by construction here — the negative is a compile-fail case).
+package main;
+
+use logos.lcm.canon.metaclass;   // ContainerType<const CFG: WritStatic>
+use logos.lang.writ.wstatic;
+
+pub const LegendCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
+pub type Legend = ContainerType<LegendCfg>;
+
+pub const LedgerCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
+pub type Ledger = ContainerType<LedgerCfg>;
+
+pub const BillCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u32> };
+pub type Bill = ContainerType<BillCfg>;
+
+// Accepts the Legend family; the twin Ledger must be accepted too.
+fn take_legend(x: Legend) -> i32 { return 42i32; }
+
+fn main() -> i32 {
+    let led: Ledger = Ledger {};   // twin of Legend
+    let _b:  Bill   = Bill {};     // distinct family (value type differs)
+    return take_legend(led);       // compiles iff Ledger ≡ Legend by @hs(CFG)
+}

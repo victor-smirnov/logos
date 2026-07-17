@@ -1,0 +1,24 @@
+// logos.lcm.canon.metaclass — the metaclass base types (ADR 0021).
+//
+// A metaclass is the type of a declaration kind. `container Legend {...}`
+// lowers (handler side) to a WritStatic CFG document plus a transparent alias
+//
+//     type Legend = ContainerType<LegendCfg>
+//
+// so that mono sees `ContainerType<WStaticLit(@hs(CFG))>` and unifies two
+// structurally identical declarations by the CFG document's content hash —
+// twin dedup falls out of ordinary alias resolution, with no name in the key.
+//
+// `ContainerType<CFG>` is the demand marker: its instantiation is what the
+// mono→factory seam (ADR 0021 §3) intercepts to run Canon and emit the
+// container family for that configuration. Until the seam lands it is an
+// inert zero-field marker — declaring the alias and computing identity is
+// already meaningful (and testable) on its own.
+package logos.lcm.canon.metaclass;
+
+use logos.lang.writ.wstatic;
+
+/// The metaclass of a container declaration. `CFG` is the container's
+/// configuration document (kind, element columns, measures); its content hash
+/// is the family identity. Zero-field: the type carries only its CFG identity.
+pub struct ContainerType<const CFG: WritStatic> {}
