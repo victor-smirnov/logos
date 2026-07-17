@@ -57,7 +57,9 @@ fn cf_find(s: str, from: i64, c: u8) -> i64 {
     let n: i64 = s.len();
     let mut i: i64 = from;
     while i < n {
-        if str_byte_at(s, i) == c { return i; }
+        if str_byte_at(s, i) == c {
+            return i;
+        }
         i = i + 1i64;
     }
     return -1i64;
@@ -70,9 +72,15 @@ fn cf_next_comma(s: str, from: i64, end: i64) -> i64 {
     let mut depth: i64 = 0i64;
     while i < end {
         let c: u8 = str_byte_at(s, i);
-        if c == 60u8 || c == 40u8 || c == 91u8 { depth = depth + 1i64; }
-        else if c == 62u8 || c == 41u8 || c == 93u8 { depth = depth - 1i64; }
-        else if c == 44u8 && depth == 0i64 { return i; }
+        if c == 60u8 || c == 40u8 || c == 91u8 {
+            depth = depth + 1i64;
+        }
+        else if c == 62u8 || c == 41u8 || c == 93u8 {
+            depth = depth - 1i64;
+        }
+        else if c == 44u8 && depth == 0i64 {
+            return i;
+        }
         i = i + 1i64;
     }
     return end;
@@ -106,21 +114,45 @@ pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
     let mut seen: i64 = 0i64;
     while pos < n {
         let mut end: i64 = cf_find(spec, pos, 124u8);   // '|'
-        if end < 0i64 { end = n; }
+        if end < 0i64 {
+            end = n;
+        }
         let eq: i64 = cf_find(spec, pos, 61u8);          // '='
-        if eq < 0i64 || eq >= end { return false; }
+        if eq < 0i64 || eq >= end {
+            return false;
+        }
         let key: str = unsafe { cf_sub(spec, pos, eq) };
         let val: str = unsafe { cf_sub(spec, eq + 1i64, end) };
-        if str_eq(key, "pub")              { out.is_pub = str_eq(val, "1"); }
-        else if str_eq(key, "generics")    { out.generics = val; }
-        else if str_eq(key, "gnames")      { out.gnames = val; }
-        else if str_eq(key, "backing")     { out.backing = val; }
-        else if str_eq(key, "backing_pkg") { out.backing_pkg = val; }
-        else if str_eq(key, "kind")        { out.kind = val; }
-        else if str_eq(key, "entry")       { out.entry = val; }
-        else if str_eq(key, "measures")    { out.measures = val; }
-        else if str_eq(key, "pkg")         { out.pkg = val; }
-        else { return false; }
+        if str_eq(key, "pub") {
+            out.is_pub = str_eq(val, "1");
+        }
+        else if str_eq(key, "generics") {
+            out.generics = val;
+        }
+        else if str_eq(key, "gnames") {
+            out.gnames = val;
+        }
+        else if str_eq(key, "backing") {
+            out.backing = val;
+        }
+        else if str_eq(key, "backing_pkg") {
+            out.backing_pkg = val;
+        }
+        else if str_eq(key, "kind") {
+            out.kind = val;
+        }
+        else if str_eq(key, "entry") {
+            out.entry = val;
+        }
+        else if str_eq(key, "measures") {
+            out.measures = val;
+        }
+        else if str_eq(key, "pkg") {
+            out.pkg = val;
+        }
+        else {
+            return false;
+        }
         seen = seen + 1i64;
         pos = end + 1i64;
     }
@@ -142,7 +174,9 @@ pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
 pub fn container_facts(name: str, spec: str) -> Writ {
     let doc: Writ = writ_new(65536i64);
     let mut cs: ContainerSpec = container_spec_new();
-    if !parse_container_spec(spec, &mut cs) { return doc; }
+    if !parse_container_spec(spec, &mut cs) {
+        return doc;
+    }
 
     let root: &mut WMap<WString, WAny> = doc.map(8i64);
 
@@ -170,8 +204,12 @@ pub fn container_facts(name: str, spec: str) -> Writ {
             // occur — hence the depth-aware outer split).
             let c1: i64 = cf_find(cs.entry, a, 58u8);        // ':'
             let mut c2: i64 = b - 1i64;
-            while c2 > a && str_byte_at(cs.entry, c2) != 58u8 { c2 = c2 - 1i64; }
-            if c1 < 0i64 || c1 >= b || c2 <= c1 { return writ_new(64i64); }
+            while c2 > a && str_byte_at(cs.entry, c2) != 58u8 {
+                c2 = c2 - 1i64;
+            }
+            if c1 < 0i64 || c1 >= b || c2 <= c1 {
+                return writ_new(64i64);
+            }
             let r: &mut WMap<WString, WAny> = doc.map(8i64);
             r.set(K_CTR, name);
             r.set(K_IDX, idx);
@@ -222,7 +260,9 @@ pub fn container_facts(name: str, spec: str) -> Writ {
 
 fn cv_has_cap(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> bool {
     let av: WAny = vroot.get(V_CAPS);
-    if !av.is_array() { return false; }
+    if !av.is_array() {
+        return false;
+    }
     let arr: &WArray<WAny> = av.as_array();
     let mut i: i64 = 0i64;
     while i < arr.len() {
@@ -263,8 +303,12 @@ fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
             let a3: WAny = em.get(K_PROJ);
             if a1.is_string() && a2.is_string() && a3.is_string() {
                 if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), col) {
-                    if str_eq(a3.as_wstr(), PROJ_DIRECT) { return 1i64; }
-                    if str_eq(a3.as_wstr(), PROJ_CANON_COL) { return 2i64; }
+                    if str_eq(a3.as_wstr(), PROJ_DIRECT) {
+                        return 1i64;
+                    }
+                    if str_eq(a3.as_wstr(), PROJ_CANON_COL) {
+                        return 2i64;
+                    }
                     error("container item: unknown col_proj verdict (Canon/handler vocabulary skew?)");
                     return 0i64;
                 }
@@ -280,7 +324,9 @@ fn cv_col_proj(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> i64 {
 // reproduces the matching hand-written template.
 fn cv_split_policy(vroot: &WMap<WString, WAny>, ctr: str) -> str {
     let av: WAny = vroot.get(V_SPLIT);
-    if !av.is_array() { return ""; }
+    if !av.is_array() {
+        return "";
+    }
     let arr: &WArray<WAny> = av.as_array();
     let mut i: i64 = 0i64;
     while i < arr.len() {
@@ -301,7 +347,9 @@ fn cv_split_policy(vroot: &WMap<WString, WAny>, ctr: str) -> str {
 // relty of the (ctr, col) col_proj verdict row; "" when absent.
 fn cv_col_relty(vroot: &WMap<WString, WAny>, ctr: str, col: str) -> str {
     let av: WAny = vroot.get(V_COL_PROJS);
-    if !av.is_array() { return ""; }
+    if !av.is_array() {
+        return "";
+    }
     let arr: &WArray<WAny> = av.as_array();
     let mut i: i64 = 0i64;
     while i < arr.len() {
@@ -343,9 +391,13 @@ fn cv_report_errors(vroot: &WMap<WString, WAny>, name: str) -> i64 {
             let em: &WMap<WString, WAny> = e.as_map();
             let cd: WAny = em.get(K_CODE);
             let rs: WAny = em.get(K_REASON);
-            if cd.is_string() { msg.push_str(cd.as_wstr()); }
+            if cd.is_string() {
+                msg.push_str(cd.as_wstr());
+            }
             msg.push_str(": ");
-            if rs.is_string() { msg.push_str(rs.as_wstr()); }
+            if rs.is_string() {
+                msg.push_str(rs.as_wstr());
+            }
         } else {
             msg.push_str("malformed Canon error row");
         }
@@ -366,7 +418,9 @@ fn cv_report_errors(vroot: &WMap<WString, WAny>, name: str) -> i64 {
 // type_param_list AST (empty string → an empty list that renders no `<...>`).
 fn build_generics(generics: str, bound_param: str) -> String {
     let mut out: String = String::new();
-    if generics.len() == 0i64 { return out; }
+    if generics.len() == 0i64 {
+        return out;
+    }
     let inner: str = unsafe { cf_sub(generics, 1i64, generics.len() - 1i64) };
     out.push_str("<");
     let n: i64 = inner.len();
@@ -375,21 +429,33 @@ fn build_generics(generics: str, bound_param: str) -> String {
     while a < n {
         let b: i64 = cf_next_comma(inner, a, n);
         let mut s: i64 = a;
-        while s < b && str_byte_at(inner, s) == 32u8 { s = s + 1i64; }
+        while s < b && str_byte_at(inner, s) == 32u8 {
+            s = s + 1i64;
+        }
         let mut e2: i64 = b;
-        while e2 > s && str_byte_at(inner, e2 - 1i64) == 32u8 { e2 = e2 - 1i64; }
+        while e2 > s && str_byte_at(inner, e2 - 1i64) == 32u8 {
+            e2 = e2 - 1i64;
+        }
         let seg: str = unsafe { cf_sub(inner, s, e2) };
-        if !first { out.push_str(", "); }
+        if !first {
+            out.push_str(", ");
+        }
         first = false;
         out.push_str(seg);
         if bound_param.len() > 0i64 {
             let c: i64 = cf_find(seg, 0i64, 58u8);   // ':'
             let mut ne: i64 = if c >= 0i64 { c } else { seg.len() };
-            while ne > 0i64 && str_byte_at(seg, ne - 1i64) == 32u8 { ne = ne - 1i64; }
+            while ne > 0i64 && str_byte_at(seg, ne - 1i64) == 32u8 {
+                ne = ne - 1i64;
+            }
             let nm: str = unsafe { cf_sub(seg, 0i64, ne) };
             if str_eq(nm, bound_param) {
-                if c >= 0i64 { out.push_str(" + CanonCol"); }
-                else { out.push_str(": CanonCol"); }
+                if c >= 0i64 {
+                    out.push_str(" + CanonCol");
+                }
+                else {
+                    out.push_str(": CanonCol");
+                }
             }
         }
         a = b + 1i64;
@@ -424,7 +490,9 @@ fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
     // CanonCol + canon_col(); backing_pkg carries the backing type. Both skip a
     // self-import (declaring package == that package).
     let canon_pkg: str = if str_eq(tp.as_str(), "logos.lcm.canon.canon") { "" }
-                         else { "logos.lcm.canon.canon" };
+                         else {
+                             "logos.lcm.canon.canon"
+                         } ;
     let canonid: Ident = Ident::new(canon_pkg);
     let bpkg: str = if cs.backing_pkg.len() > 0i64 && !str_eq(cs.backing_pkg, tp.as_str())
                     { cs.backing_pkg } else { "" };
@@ -512,7 +580,11 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             pub fn lower_bound(self: &#nm, key: #(kid)) -> u32 {
                 let n: u32 = self.count();
                 let mut i: u32 = 0u32;
-                while i < n { if self.key_at(i) >= key { return i; } i = i + 1u32; }
+                while i < n {
+                    if self.key_at(i) >= key {
+                        return i;
+                    } i = i + 1u32;
+                }
                 return n;
             }
             pub fn split_into(self: &mut #nm, dst: &mut #nm) {
@@ -539,7 +611,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                 pub fn val_at(self: &#nm, i: u32) -> &[u8] { return unsafe { (*self.vc()).get_bytes(i) }; }
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     let vlen: u32 = val.len() as u32;
-                    if 8u32 + vlen > 1024u32 { return false; }
+                    if 8u32 + vlen > 1024u32 {
+                        return false;
+                    }
                     unsafe {
                         let pos: u32 = self.lower_bound(key);
                         let hit: bool = pos < self.count() && self.key_at(pos) == key;
@@ -547,7 +621,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                             let old: u32 = (*self.vc()).volume_upto(pos + 1u32) - (*self.vc()).volume_upto(pos);
                             let grow: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);
                             let need: u32 = if grow > old { grow - old } else { 0u32 };
-                            if need > self.a().free_space() { return false; }
+                            if need > self.a().free_space() {
+                                return false;
+                            }
                             (*self.vc()).remove(pos);
                             match (*self.vc()).insert(pos, val) { 
                                 Result::Ok(_u) => {} 
@@ -557,7 +633,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         }
                         let dk: u32 = (*self.kc()).estimate_insert(8u32) - self.a().element_size(0u32);
                         let dv: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);
-                        if dk + dv > self.a().free_space() { return false; }
+                        if dk + dv > self.a().free_space() {
+                            return false;
+                        }
                         match (*self.kc()).insert(pos, &key) { 
                             Result::Ok(_u) => {} 
                             Result::Err(_e) => { return false; } 
@@ -572,7 +650,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                 /// Split index: VOLUME-balanced — the Canon verdict for a VLE-column node.
                 pub fn split_index(self: &#nm) -> u32 {
                     let n: u32 = self.count();
-                    if n <= 1u32 { return n; }
+                    if n <= 1u32 {
+                        return n;
+                    }
                     unsafe {
                         let total: u32 = (*self.kc()).volume_upto(n) + (*self.vc()).volume_upto(n);
                         let half: u32 = total / 2u32;
@@ -608,10 +688,15 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     unsafe {
                         let pos: u32 = self.lower_bound(key);
-                        if pos < self.count() && self.key_at(pos) == key { (*self.vc()).set(pos, val); return true; }
+                        if pos < self.count() && self.key_at(pos) == key {
+                            (*self.vc()).set(pos, val);
+                            return true;
+                        }
                         let dk: u32 = (*self.kc()).estimate_insert(0u32) - self.a().element_size(0u32);
                         let dv: u32 = (*self.vc()).estimate_insert(0u32) - self.a().element_size(1u32);
-                        if dk + dv > self.a().free_space() { return false; }
+                        if dk + dv > self.a().free_space() {
+                            return false;
+                        }
                         match (*self.kc()).insert(pos, &key) { 
                             Result::Ok(_u) => {} 
                             Result::Err(_e) => { return false; } 
@@ -713,7 +798,9 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             use logos.mem.pkd;
             use logos.lang.mem;
             use logos.lang.result;
-            impl #nm {
+            impl #nm {> match PkdArray::<#(vid)>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "val col"); } }
+
+
                 pub static fn new() -> #nm {
                     unsafe {
                         let base: *mut u8 = alloc(4096i64);
@@ -783,27 +870,41 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 let n: u32 = self.child_count();
                 let mut s: u64 = 0u64;
                 let mut i: u32 = 0u32;
-                while i < n { s = s + self.size_at(i); i = i + 1u32; }
+                while i < n {
+                    s = s + self.size_at(i);
+                    i = i + 1u32;
+                }
                 return s;
             }
             pub fn find_child(self: &#nm, key: #(kid)) -> u32 {
                 let n: u32 = self.child_count();
                 let mut i: u32 = 0u32;
-                while i < n { if self.sep_at(i) >= key { return i; } i = i + 1u32; }
+                while i < n {
+                    if self.sep_at(i) >= key {
+                        return i;
+                    } i = i + 1u32;
+                }
                 return if n > 0u32 { n - 1u32 } else { 0u32 };
             }
             pub fn rank(self: &#nm, key: #(kid), lb: fn(*mut u8, #(kid)) -> u32) -> u64 {
                 let n: u32 = self.child_count();
-                if n == 0u32 { return 0u64; }
+                if n == 0u32 {
+                    return 0u64;
+                }
                 let ci: u32 = self.find_child(key);
                 let mut base: u64 = 0u64;
                 let mut i: u32 = 0u32;
-                while i < ci { base = base + self.size_at(i); i = i + 1u32; }
+                while i < ci {
+                    base = base + self.size_at(i);
+                    i = i + 1u32;
+                }
                 return base + (lb(self.child_addr(ci), key) as u64);
             }
             pub fn get_or(self: &#nm, key: #(kid), sentinel: u64, probe: fn(*mut u8, #(kid), u64) -> u64) -> u64 {
                 let n: u32 = self.child_count();
-                if n == 0u32 { return sentinel; }
+                if n == 0u32 {
+                    return sentinel;
+                }
                 let ci: u32 = self.find_child(key);
                 return probe(self.child_addr(ci), key, sentinel);
             }
@@ -864,9 +965,18 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = node_alloc(4096u32, 3u32, snp);
                         let a: *mut PkdAlloc = node_pkd(base);
-                        match PkdArray::<#(kid)>::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "sep col"); } }
-                        match PkdArray::<u64>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "sz col"); } }
-                        match PkdArray::<u64>::format(a, 2u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "ptr col"); } }
+                        match PkdArray::<#(kid)>::format(a, 0u32) {
+                            Result::Ok(_p) => {}
+                            Result::Err(_e) => { assert(false, "sep col"); }
+                        }
+                        match PkdArray::<u64>::format(a, 1u32) {
+                            Result::Ok(_p) => {}
+                            Result::Err(_e) => { assert(false, "sz col"); }
+                        }
+                        match PkdArray::<u64>::format(a, 2u32) {
+                            Result::Ok(_p) => {}
+                            Result::Err(_e) => { assert(false, "ptr col"); }
+                        }
                         return #nm { mem: base, cap: 4096u32 };
                     }
                 }
@@ -875,7 +985,9 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 pub fn free_children(self: #nm) {
                     let n: u32 = self.child_count();
                     let mut i: u32 = 0u32;
-                    while i < n { unsafe { node_free(self.child_addr(i)); } i = i + 1u32; }
+                    while i < n {
+                        unsafe { node_free(self.child_addr(i)); } i = i + 1u32;
+                    }
                     unsafe { node_free(self.mem); }
                 }
                 pub fn free_block(self: #nm) { unsafe { node_free(self.mem); } }
@@ -904,9 +1016,18 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = alloc(4096i64);
                         let a: *mut PkdAlloc = pkd_format(base, 4096u32, 3u32);
-                        match PkdArray::<#(kid)>::format(a, 0u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "sep col"); } }
-                        match PkdArray::<u64>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "sz col"); } }
-                        match PkdArray::<u64>::format(a, 2u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "ptr col"); } }
+                        match PkdArray::<#(kid)>::format(a, 0u32) {
+                            Result::Ok(_p) => {}
+                            Result::Err(_e) => { assert(false, "sep col"); }
+                        }
+                        match PkdArray::<u64>::format(a, 1u32) {
+                            Result::Ok(_p) => {}
+                            Result::Err(_e) => { assert(false, "sz col"); }
+                        }
+                        match PkdArray::<u64>::format(a, 2u32) {
+                            Result::Ok(_p) => {}
+                            Result::Err(_e) => { assert(false, "ptr col"); }
+                        }
                         return #nm { mem: base, cap: 4096u32 };
                     }
                 }
@@ -915,7 +1036,9 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 pub fn free_children(self: #nm) {
                     let n: u32 = self.child_count();
                     let mut i: u32 = 0u32;
-                    while i < n { unsafe { dealloc(self.child_addr(i)); } i = i + 1u32; }
+                    while i < n {
+                        unsafe { dealloc(self.child_addr(i)); } i = i + 1u32;
+                    }
                     unsafe { dealloc(self.mem); }
                 }
                 pub fn free_block(self: #nm) { unsafe { dealloc(self.mem); } }
@@ -1141,7 +1264,10 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                     let r: BtInsRet<#(kid)> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, val, cur);
                     let mut nrt: *mut u8 = e.root;
                     let mut nlv: u32 = e.level;
-                    if r.addr != e.root { nrt = r.addr; tree_release(e.root, e.level); }
+                    if r.addr != e.root {
+                        nrt = r.addr;
+                        tree_release(e.root, e.level);
+                    }
                     if r.split {
                         let mut top: #bid = #bid::new_in(cur);
                         top.push_child(r.lsep, r.lsize, r.addr);
@@ -1236,7 +1362,9 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
 // no other emission left — a silent skip would surface as "unknown type"
 // at every consumer instead of the real error).
 fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
-    if !str_eq(cs.kind, KIND_ORDERED_MAP) { return true; } // map-only surface
+    if !str_eq(cs.kind, KIND_ORDERED_MAP) {
+        return true;
+    } // map-only surface
     if cs.pkg.len() == 0i64 {
         error("container item: ordered_map spec carries no `pkg=` segment (compiler seam regression?)");
         return false;
@@ -1254,7 +1382,9 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
     }
     let k1: i64 = cf_find(cs.entry, 0i64, 58u8);       // ':' of key col
     let mut k2: i64 = nb0 - 1i64;
-    while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
+    while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 {
+        k2 = k2 - 1i64;
+    }
     if k1 < 0i64 || k2 <= k1 {
         error("container item: malformed key column (compiler seam regression?)");
         return false;
@@ -1262,7 +1392,9 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
     let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
     let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);  // ':' of val col
     let mut v2: i64 = nb1 - 1i64;
-    while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
+    while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 {
+        v2 = v2 - 1i64;
+    }
     if v1 < 0i64 || v2 <= v1 {
         error("container item: malformed val column (compiler seam regression?)");
         return false;
@@ -1273,7 +1405,9 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
     em.emit_into(cs.pkg);                              // "package <pkg>; "
     em.push_text("\nuse logos.lang.writ.wstatic;\n\n");
     em.push_text("pub const "); em.push_text(name); em.push_text("Cfg");
-    if cs.generics.len() > 0i64 { em.push_text(cs.generics); }  // verbatim, bounds included
+    if cs.generics.len() > 0i64 {
+        em.push_text(cs.generics);
+    } // verbatim, bounds included
     em.push_text(": WritStatic = @{ \"kind\": \"ordered_map\", \"key\": <type:");
     em.push_text(kty); em.push_text(">, \"value\": ");
     if str_eq(vty, "str") {
@@ -1328,8 +1462,12 @@ fn cf_find_sub(s: str, from: i64, pat: str) -> i64 {
     let mut i: i64 = from;
     while i + m <= n {
         let mut j: i64 = 0i64;
-        while j < m && str_byte_at(s, i + j) == str_byte_at(pat, j) { j = j + 1i64; }
-        if j == m { return i; }
+        while j < m && str_byte_at(s, i + j) == str_byte_at(pat, j) {
+            j = j + 1i64;
+        }
+        if j == m {
+            return i;
+        }
         i = i + 1i64;
     }
     return -1i64;
@@ -1340,7 +1478,9 @@ fn cf_skip_ws(s: str, from: i64) -> i64 {
     let mut i: i64 = from;
     while i < n {
         let c: u8 = str_byte_at(s, i);
-        if c != 32u8 && c != 9u8 && c != 10u8 && c != 13u8 { return i; }
+        if c != 32u8 && c != 9u8 && c != 10u8 && c != 13u8 {
+            return i;
+        }
         i = i + 1i64;
     }
     return n;
@@ -1350,35 +1490,51 @@ fn cf_skip_ws(s: str, from: i64) -> i64 {
 // arrives QUOTED (`"kind"`) so a slot name can never match inside a type.
 fn cfg_value_pos(src: str, key: str) -> i64 {
     let k: i64 = cf_find_sub(src, 0i64, key);
-    if k < 0i64 { return -1i64; }
+    if k < 0i64 {
+        return -1i64;
+    }
     let i: i64 = cf_skip_ws(src, k + key.len());
-    if i >= src.len() || str_byte_at(src, i) != 58u8 { return -1i64; }   // ':'
+    if i >= src.len() || str_byte_at(src, i) != 58u8 {
+        return -1i64;
+    } // ':'
     return cf_skip_ws(src, i + 1i64);
 }
 
 // The quoted string starting at `at` (must be '"'); "" = shape violation
 // (an empty slot value never occurs in a well-formed CFG doc).
 fn cfg_read_quoted(src: str, at: i64) -> str {
-    if at < 0i64 || at >= src.len() || str_byte_at(src, at) != 34u8 { return ""; }
+    if at < 0i64 || at >= src.len() || str_byte_at(src, at) != 34u8 {
+        return "";
+    }
     let e: i64 = cf_find(src, at + 1i64, 34u8);
-    if e < 0i64 { return ""; }
+    if e < 0i64 {
+        return "";
+    }
     return unsafe { cf_sub(src, at + 1i64, e) };
 }
 
 // The `<type:T>` slot starting at `at`; returns T ("" = not a type slot).
 // Depth-aware `>` matching so a generic T (`Vec<u8>`) reads whole.
 fn cfg_read_type_slot(src: str, at: i64) -> str {
-    if at < 0i64 || at + 6i64 > src.len() { return ""; }
-    if !str_eq(unsafe { cf_sub(src, at, at + 6i64) }, "<type:") { return ""; }
+    if at < 0i64 || at + 6i64 > src.len() {
+        return "";
+    }
+    if !str_eq(unsafe {
+        cf_sub(src, at, at + 6i64)
+    } , "<type:") { return ""; }
     let n: i64 = src.len();
     let mut i: i64 = at + 6i64;
     let mut depth: i64 = 1i64;
     while i < n {
         let c: u8 = str_byte_at(src, i);
-        if c == 60u8 { depth = depth + 1i64; }
+        if c == 60u8 {
+            depth = depth + 1i64;
+        }
         else if c == 62u8 {
             depth = depth - 1i64;
-            if depth == 0i64 { return unsafe { cf_sub(src, at + 6i64, i) }; }
+            if depth == 0i64 {
+                return unsafe { cf_sub(src, at + 6i64, i) };
+            }
         }
         i = i + 1i64;
     }
@@ -1521,7 +1677,9 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         return;
     }
     let vm: &WMap<WString, WAny> = vr.as_map();
-    if cv_report_errors(vm, name) > 0i64 { return; }
+    if cv_report_errors(vm, name) > 0i64 {
+        return;
+    }
 
     // ── emission (M4): mechanical, capability-gated. Wave-0 emits the scan
     // projection for kind=vector only; ordered_map stops at verdicts (its
@@ -1564,7 +1722,9 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         }
         let k1: i64 = cf_find(cs.entry, 0i64, 58u8);            // ':' of key col
         let mut k2: i64 = nb0 - 1i64;
-        while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
+        while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 {
+            k2 = k2 - 1i64;
+        }
         if k1 < 0i64 || k2 <= k1 {
             error("container item: malformed key column (compiler seam regression?)");
             return;
@@ -1572,7 +1732,9 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
         let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);      // ':' of val col
         let mut v2: i64 = ce2 - 1i64;
-        while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
+        while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 {
+            v2 = v2 - 1i64;
+        }
         if v1 < 0i64 || v2 <= v1 {
             error("container item: malformed val column (compiler seam regression?)");
             return;
@@ -1595,7 +1757,9 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         }
         let bk1: i64 = cf_find(cs.entry, 0i64, 58u8);          // ':' of key col
         let mut bk2: i64 = ceb - 1i64;
-        while bk2 > 0i64 && str_byte_at(cs.entry, bk2) != 58u8 { bk2 = bk2 - 1i64; }
+        while bk2 > 0i64 && str_byte_at(cs.entry, bk2) != 58u8 {
+            bk2 = bk2 - 1i64;
+        }
         if bk1 < 0i64 || bk2 <= bk1 {
             error("container item: malformed key column (compiler seam regression?)");
             return;
@@ -1632,7 +1796,9 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         }
         let k1: i64 = cf_find(cs.entry, 0i64, 58u8);
         let mut k2: i64 = nb0 - 1i64;
-        while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
+        while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 {
+            k2 = k2 - 1i64;
+        }
         if k1 < 0i64 || k2 <= k1 {
             error("container item: malformed key column (compiler seam regression?)");
             return;
@@ -1640,7 +1806,9 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
         let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);
         let mut v2: i64 = ce2 - 1i64;
-        while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
+        while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 {
+            v2 = v2 - 1i64;
+        }
         if v1 < 0i64 || v2 <= v1 {
             error("container item: malformed val column (compiler seam regression?)");
             return;
@@ -1681,10 +1849,14 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
                         }
                     } else if str_eq(asp.as_wstr(), ASPECT_ASSEMBLY) {
                         let val: WAny = em.get(K_VALUE);
-                        if val.is_string() && str_eq(val.as_wstr(), ASM_TREE) { saw_tree = true; }
+                        if val.is_string() && str_eq(val.as_wstr(), ASM_TREE) {
+                            saw_tree = true;
+                        }
                     } else if str_eq(asp.as_wstr(), ASPECT_VERSION) {
                         let val: WAny = em.get(K_VALUE);
-                        if val.is_string() && str_eq(val.as_wstr(), VER_COW) { saw_cow = true; }
+                        if val.is_string() && str_eq(val.as_wstr(), VER_COW) {
+                            saw_cow = true;
+                        }
                     }
                 }
             }
@@ -1726,7 +1898,9 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         }
         return;
     }
-    if !str_eq(cs.kind, KIND_VECTOR) { return; }
+    if !str_eq(cs.kind, KIND_VECTOR) {
+        return;
+    }
     if !cv_has_cap(vm, name, "can_scan") {
         error("container item: Canon granted no can_scan capability for a vector container (Canon seam regression?)");
         return;
@@ -1743,7 +1917,9 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
     }
     let c1: i64 = cf_find(cs.entry, 0i64, 58u8);    // ':'
     let mut c2: i64 = b0 - 1i64;
-    while c2 > 0i64 && str_byte_at(cs.entry, c2) != 58u8 { c2 = c2 - 1i64; }
+    while c2 > 0i64 && str_byte_at(cs.entry, c2) != 58u8 {
+        c2 = c2 - 1i64;
+    }
     if c1 < 0i64 || c2 <= c1 {
         error("container item: malformed entry column (compiler seam regression?)");
         return;
