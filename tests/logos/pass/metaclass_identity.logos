@@ -16,10 +16,11 @@ use logos.lcm.canon.metaclass;   // ContainerType<const CFG: WritStatic>
 // invoke the factory when the handler module is in the program (an emitted
 // `use` cannot LOAD a module). Drain proof rides stderr:
 //   metaclass: factory drained @hs_<hex>   (once per distinct CFG)
-// The Phase 2b stub factory emits an unreferenced marker fn into logos.gen;
-// calling it from here is impossible (the first sema pass runs before the
-// marker exists) — Phase 3's `impl CtrFamily for ContainerType<CFG>` is the
-// real reachability test.
+// The Phase 3 factory generates the real family (Hs<hex>Leaf/Branch/Tree +
+// CoW handle) into logos.gen; naming it from here is impossible (the first
+// sema pass runs before the family exists) — metaclass_factory_family.logos
+// verifies the family out-of-band, Phase 4's create_ctr::<Legend> is the
+// in-language reachability surface.
 use logos.lcm.canon.container_item;
 use logos.lang.writ.wstatic;
 

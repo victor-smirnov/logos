@@ -5467,14 +5467,15 @@ int main(int argc, char** argv) {
     //
     // Driver-side dedup is load-bearing: mono's factory_demand_hashes_ is
     // per-Mono-instance, so each fresh mono pass re-fires demands for configs
-    // the factory did not SATISFY. The Phase 2b STUB factory emits only a
-    // marker fn — the marker template still instantiates fine — so the
-    // steady state is: round 1 drains N demands, round 2 re-fires them, the
-    // driver sees every hash already drained and exits quietly.
-    // TODO(ADR 0021 Phase 3): the real factory emits
-    // `impl CtrFamily for ContainerType<CFG>`; once its presence is the
-    // satisfaction signal, a re-fired already-drained hash means the factory
-    // FAILED to satisfy the demand and must become a hard diagnostic.
+    // whose satisfaction is not yet consulted. The Phase 3 factory emits the
+    // real family (Hs<hex>Leaf/Branch/Tree + the CoW handle Hs<hex>) plus
+    // the satisfaction marker `impl CtrFamily for ContainerType<CFG>`, but
+    // the demand hook does not check it yet — steady state stays: round 1
+    // drains N demands, round 2 re-fires them, the driver sees every hash
+    // already drained and exits quietly.
+    // TODO(ADR 0021 Phase 4): when create_ctr goes live, a re-fired
+    // already-drained hash means the factory FAILED to satisfy the demand
+    // (the CtrFamily impl is the signal) and must become a hard diagnostic.
     std::unordered_set<uint64_t> drained_factory_hashes;
     constexpr int kMaxFactoryDrainRounds = 3;
     for (int drain_round = 0; ; ++drain_round) {
@@ -5545,7 +5546,7 @@ int main(int argc, char** argv) {
     std::vector<logos::compiler::lir::LProgram::FactoryDemand> fresh_demands;
     for (const auto& fd : prog.factory_demands)
         if (!drained_factory_hashes.count(fd.cfg_hash)) fresh_demands.push_back(fd);
-    if (fresh_demands.empty()) break;  // stub-factory steady state (see TODO above)
+    if (fresh_demands.empty()) break;  // quiet-break steady state (see TODO above)
 
     if (!factory_available) {
         // Not an error: the ContainerType marker template instantiates fine
@@ -5601,6 +5602,15 @@ int main(int argc, char** argv) {
         std::string chunk;
         chunk += "package logos.gen;\n";
         chunk += "use logos.lcm.canon.container_item;\n";
+        // The factory's family blobs splice INTO THIS CHUNK's unit, and a
+        // generated `impl BtLeaf/BtBranch/Ctr` is trait-checked at COLLECT
+        // time against the DECLARING unit's imports (a blob-emitted `use`
+        // resolves names too late for that check) — the declaring unit of a
+        // drained family is this chunk itself, so it must import the trait
+        // hub. The module is loaded transitively (container_item → bt.ops →
+        // bt.map) whenever the factory is available, and this `use` rides
+        // the chunk source from parse time.
+        chunk += "use logos.mem.bt.map;\n";
         chunk += "metacall __container_factory(\"";
         chunk += hex;
         chunk += "\", \"";

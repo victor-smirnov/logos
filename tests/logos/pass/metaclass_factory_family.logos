@@ -1,0 +1,32 @@
+// ADR 0021 Phase 3: the mono→factory drain generates the REAL container
+// family. Instantiating `Legend {}` (= `ContainerType<@hs(CFG)>`) fires the
+// mono demand; the driver drains it into a `logos.gen` metacall chunk; the
+// factory parses the CFG doc, reruns the shared container_item machinery on
+// a synthetic (name, spec) pair, and emits the hash-named family
+//
+//   Hs<hex>Leaf / Hs<hex>Branch / Hs<hex>Tree / CoW handle Hs<hex>
+//
+// plus the satisfaction marker `impl CtrFamily for ContainerType<CFG>`
+// (cfg_src spliced verbatim as the const type-arg — re-parses to the same
+// content hash, i.e. the same type mono demanded).
+//
+// The family is NOT source-addressable from here: its names derive from the
+// CFG content hash and exist only after the drain round, while this file is
+// sema'd before the family does (Phase 4's `create_ctr::<Legend>` is the
+// reachability surface). The test therefore gates on a clean compile+run of
+// the whole drain cycle — demand → chunk → factory → family + CtrFamily
+// impl → re-sema → re-mono — with the family's presence verified out-of-band
+// (nm: logos.gen.Hs<hex>* symbols; --gen-dir: the family source).
+package main;
+
+use logos.lcm.canon.metaclass;       // ContainerType + CtrFamily
+use logos.lcm.canon.container_item;  // loads the factory (an emitted `use` cannot LOAD a module)
+use logos.lang.writ.wstatic;
+
+pub const LegendCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
+pub type Legend = ContainerType<LegendCfg>;
+
+fn main() -> i32 {
+    let _l: Legend = Legend {};   // fires the ContainerType<@hs(CFG)> demand
+    return 42i32;
+}

@@ -1203,25 +1203,105 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) {
     em.commit();
 }
 
-// ADR 0021 §3 (Phase 2b step 2): the metaclass FACTORY, stub increment. The
-// driver drains mono's `ContainerType<CFG>` demands by rendering one
+// ── ADR 0021 §3 Phase 3: the metaclass FACTORY — the real container family ──
+//
+// The driver drains mono's `ContainerType<CFG>` demands by rendering one
 //
 //   package logos.gen;
 //   use logos.lcm.canon.container_item;
+//   use logos.mem.bt.map;
 //   metacall __container_factory("<016x cfg-hash>", "<CFG doc source>");
 //
 // chunk per demand (main.cpp factory drain loop) and re-entering metaprog
 // dispatch, which JIT-invokes this fn through the ordinary metacall-item
-// thunk. THIS increment does not build the container family: it emits a
-// single marker item `pub fn __mc_family_hs_<hex>() -> u64` into
-// `package logos.gen;`, proving the full cycle demand → metacall → factory →
-// emitted item → re-sema → re-mono. Phase 3 replaces the marker with the real
-// family emission (`impl CtrFamily for ContainerType<CFG>` …) whose presence
-// SATISFIES the demand (stops the re-fire); the marker deliberately does not,
-// so the driver's drained-hash dedup is what terminates the loop today.
-// Emission mirrors emit_cfg_doc (text via the emit-source seam with an
-// explicit package) — rides the same quote-coverage debt tracked for the
-// wave-0 handler.
+// thunk. The factory parses the CFG document SOURCE — exactly the doc
+// emit_cfg_doc above produces, as re-rendered by sema's wstatic_sources
+// capture (`@{"kind": "ordered_map", "key": <type:K>, "value": <type:V>}`,
+// a `"str"` VLE tag in the value slot for an unsized value) — reconstructs
+// the synthetic (name, spec) pair for the family, and routes it through the
+// SAME container_item_run machinery as a source-level declaration (facts →
+// Canon verdicts → ordered_map family emission), minus the CFG-doc
+// re-emission (the input IS the CFG doc). Family name = `Hs<hex>` (the
+// identifier-safe @hs spelling) → members Hs<hex>Leaf / Hs<hex>Branch /
+// Hs<hex>Tree and the CoW handle Hs<hex>, all in `package logos.gen` (the
+// chunk's unit — the hash-keyed family is package-agnostic by design).
+//
+// Satisfaction signal: the factory also emits
+//
+//   impl CtrFamily for ContainerType<CFG-literal> { fn family_id() -> u64 }
+//
+// splicing cfg_src verbatim as the const type-arg — re-parsing yields the
+// same content hash, hence the very ContainerType instance mono demanded.
+// The drain loop's re-fire semantics stay quiet-break for now; the impl
+// becomes the hard satisfaction gate when create_ctr goes live (Phase 4).
+// Emission of the impl is text via the emit-source seam (a WritStatic
+// literal in type-arg position has no quote_item! coverage yet) — rides the
+// same quote-coverage debt tracked for the wave-0 handler.
+
+// Naive substring search — the CFG doc is one short line, no need for BMH.
+fn cf_find_sub(s: str, from: i64, pat: str) -> i64 {
+    let n: i64 = s.len();
+    let m: i64 = pat.len();
+    let mut i: i64 = from;
+    while i + m <= n {
+        let mut j: i64 = 0i64;
+        while j < m && str_byte_at(s, i + j) == str_byte_at(pat, j) { j = j + 1i64; }
+        if j == m { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn cf_skip_ws(s: str, from: i64) -> i64 {
+    let n: i64 = s.len();
+    let mut i: i64 = from;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c != 32u8 && c != 9u8 && c != 10u8 && c != 13u8 { return i; }
+        i = i + 1i64;
+    }
+    return n;
+}
+
+// Position of the VALUE for `"<key>":` in the CFG doc source, or -1. `key`
+// arrives QUOTED (`"kind"`) so a slot name can never match inside a type.
+fn cfg_value_pos(src: str, key: str) -> i64 {
+    let k: i64 = cf_find_sub(src, 0i64, key);
+    if k < 0i64 { return -1i64; }
+    let i: i64 = cf_skip_ws(src, k + key.len());
+    if i >= src.len() || str_byte_at(src, i) != 58u8 { return -1i64; }   // ':'
+    return cf_skip_ws(src, i + 1i64);
+}
+
+// The quoted string starting at `at` (must be '"'); "" = shape violation
+// (an empty slot value never occurs in a well-formed CFG doc).
+fn cfg_read_quoted(src: str, at: i64) -> str {
+    if at < 0i64 || at >= src.len() || str_byte_at(src, at) != 34u8 { return ""; }
+    let e: i64 = cf_find(src, at + 1i64, 34u8);
+    if e < 0i64 { return ""; }
+    return unsafe { cf_sub(src, at + 1i64, e) };
+}
+
+// The `<type:T>` slot starting at `at`; returns T ("" = not a type slot).
+// Depth-aware `>` matching so a generic T (`Vec<u8>`) reads whole.
+fn cfg_read_type_slot(src: str, at: i64) -> str {
+    if at < 0i64 || at + 6i64 > src.len() { return ""; }
+    if !str_eq(unsafe { cf_sub(src, at, at + 6i64) }, "<type:") { return ""; }
+    let n: i64 = src.len();
+    let mut i: i64 = at + 6i64;
+    let mut depth: i64 = 1i64;
+    while i < n {
+        let c: u8 = str_byte_at(src, i);
+        if c == 60u8 { depth = depth + 1i64; }
+        else if c == 62u8 {
+            depth = depth - 1i64;
+            if depth == 0i64 { return unsafe { cf_sub(src, at + 6i64, i) }; }
+        }
+        i = i + 1i64;
+    }
+    return "";
+}
+
 pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     let out: ItemList = item_list_new();
     if hash_hex.len() == 0i64 {
@@ -1232,13 +1312,54 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         error("container factory: empty CFG document source (wstatic_sources gap?)");
         return out;
     }
+
+    // ── parse the CFG doc (the co-located emit_cfg_doc format, hand-parsed) ──
+    let kind: str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"kind\""));
+    if kind.len() == 0i64 {
+        error("container factory: CFG document has no readable kind (emit_cfg_doc format skew?)");
+        return out;
+    }
+    if !str_eq(kind, KIND_ORDERED_MAP) {
+        error("container factory: unsupported container kind — the wave-0 factory generates `ordered_map` families only");
+        return out;
+    }
+    let kty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
+    if kty.len() == 0i64 {
+        error("container factory: CFG document has no readable `key` type slot (emit_cfg_doc format skew?)");
+        return out;
+    }
+    let vp: i64 = cfg_value_pos(cfg_src, "\"value\"");
+    let mut vty: str = cfg_read_type_slot(cfg_src, vp);
+    if vty.len() == 0i64 {
+        // Not a type slot — must be the `"str"` VLE tag (str is unsized).
+        vty = cfg_read_quoted(cfg_src, vp);
+        if !str_eq(vty, "str") {
+            error("container factory: CFG `value` slot is neither <type:V> nor the \"str\" VLE tag (emit_cfg_doc format skew?)");
+            return out;
+        }
+    }
+
+    // ── synthetic (name, spec) → the shared declaration machinery ──────────
+    let mut fam: String = String::new();
+    fam.push_str("Hs");
+    fam.push_str(hash_hex);
+    let mut sp: String = String::new();
+    sp.push_str("pub=1|generics=|gnames=|backing=u8|backing_pkg=|kind=ordered_map|entry=key:");
+    sp.push_str(kty);
+    sp.push_str(":0,val:");
+    sp.push_str(vty);
+    sp.push_str(":0|measures=max(key)|pkg=logos.gen");
+    container_item_run(fam.as_str(), sp.as_str(), false);
+
+    // ── satisfaction marker: impl CtrFamily for ContainerType<CFG> ─────────
     let mut em: Emitter = Emitter::new();
     em.emit_into("logos.gen");
-    em.push_text("pub fn __mc_family_hs_");
+    em.push_text("use logos.lcm.canon.metaclass; ");
+    em.push_text("impl CtrFamily for ContainerType<");
+    em.push_text(cfg_src);
+    em.push_text("> { fn family_id() -> u64 { return 0x");
     em.push_text(hash_hex);
-    em.push_text("() -> u64 { return 0x");
-    em.push_text(hash_hex);
-    em.push_text("u64; }");
+    em.push_text("u64; } }");
     em.commit();
     return out;
 }
@@ -1253,35 +1374,45 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         error("container item: empty container name (compiler seam regression?)");
         return out;
     }
+    container_item_run(name, spec, true);
+    return out;
+}
+
+// The shared lowering path behind BOTH entries: the compiler's `container`
+// item seam (__container_item, emit_cfg=true) and the mono→factory drain
+// (__container_factory, emit_cfg=false — the factory's input IS the CFG doc,
+// re-emitting it would be circular). facts → Canon verdicts → capability-
+// gated emission; diagnostics ride error() (nothing to thread back).
+fn container_item_run(name: str, spec: str, emit_cfg: bool) {
     let facts: Writ = container_facts(name, spec);
     // Shape gate on the fact mirror — a malformed spec (or a fact-builder
     // regression) must fail the COMPILE, not silently drop the declaration.
     let root: WAny = facts.root();
     if root.is_null() || !root.is_map() {
         error("container item: malformed spec (compiler seam regression?)");
-        return out;
+        return;
     }
     let rm: &WMap<WString, WAny> = root.as_map();
     let ca: WAny = rm.get(SEC_CONTAINERS);
     if !ca.is_array() {
         error("container item: fact doc missing its containers row (seam regression?)");
-        return out;
+        return;
     }
     let caa: &WArray<WAny> = ca.as_array();
     if caa.len() != 1i64 {
         error("container item: fact doc missing its containers row (seam regression?)");
-        return out;
+        return;
     }
     let row: WAny = caa.get(0i64);
     if !row.is_map() {
         error("container item: fact doc missing the container kind (seam regression?)");
-        return out;
+        return;
     }
     let rowm: &WMap<WString, WAny> = row.as_map();
     let kv: WAny = rowm.get(K_KIND);
     if !kv.is_string() {
         error("container item: fact doc missing the container kind (seam regression?)");
-        return out;
+        return;
     }
 
     // ── Canon judges (M3): facts in, verdicts out — the handler never
@@ -1290,10 +1421,10 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
     let vr: WAny = verd.root();
     if vr.is_null() || !vr.is_map() {
         error("container item: Canon verdict engine failure (logos.lcm.canon.canon)");
-        return out;
+        return;
     }
     let vm: &WMap<WString, WAny> = vr.as_map();
-    if cv_report_errors(vm, name) > 0i64 { return out; }
+    if cv_report_errors(vm, name) > 0i64 { return; }
 
     // ── emission (M4): mechanical, capability-gated. Wave-0 emits the scan
     // projection for kind=vector only; ordered_map stops at verdicts (its
@@ -1302,12 +1433,13 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
     if !parse_container_spec(spec, &mut cs) {
         // Unreachable — container_facts gated the same parse above.
         error("container item: malformed spec (compiler seam regression?)");
-        return out;
+        return;
     }
 
     // ADR 0021: synthesize the container's CONFIGURATION document (the @hs
-    // identity), additive alongside the wave-0 emission below.
-    emit_cfg_doc(name, &cs);
+    // identity), additive alongside the wave-0 emission below. Skipped on the
+    // factory path — there the CFG doc is the INPUT, not a synthesis target.
+    if emit_cfg { emit_cfg_doc(name, &cs); }
 
     // kind=node: emit a concrete b+tree leaf, its value-column encoding and
     // split body chosen by Canon's fast|volume verdict — `fast` = all-FSE,
@@ -1316,29 +1448,29 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         let policy: str = cv_split_policy(vm, name);
         if policy.len() == 0i64 {
             error("container item: Canon produced no split_policy verdict for a node (Canon seam regression?)");
-            return out;
+            return;
         }
         if !str_eq(policy, SPLIT_FAST) && !str_eq(policy, SPLIT_VOLUME) {
             error("container item: Canon produced an unknown split_policy verdict for a node (Canon/handler vocabulary skew?)");
-            return out;
+            return;
         }
         let ce2: i64 = cs.entry.len();
         let nb0: i64 = cf_next_comma(cs.entry, 0i64, ce2);
         if nb0 == ce2 {
             error("container item: a `kind node` needs two entry columns (`entry { key: K, val: V }`)");
-            return out;
+            return;
         }
         let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce2);
         if nb1 != ce2 {
             error("container item: wave-0 `kind node` supports exactly two entry columns (key, val)");
-            return out;
+            return;
         }
         let k1: i64 = cf_find(cs.entry, 0i64, 58u8);            // ':' of key col
         let mut k2: i64 = nb0 - 1i64;
         while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
         if k1 < 0i64 || k2 <= k1 {
             error("container item: malformed key column (compiler seam regression?)");
-            return out;
+            return;
         }
         let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
         let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);      // ':' of val col
@@ -1346,13 +1478,13 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
         if v1 < 0i64 || v2 <= v1 {
             error("container item: malformed val column (compiler seam regression?)");
-            return out;
+            return;
         }
         let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
         // A standalone storage node is PLAIN pkd (no CoW header) — the header is a
         // property of a versioned map's stack, not a bare `kind node`.
         emit_leaf_node(name, kty, vty, policy, false);
-        return out;
+        return;
     }
     // kind=branch: emit a concrete b+tree BRANCH (routing node). Always
     // count-balanced (all-FSE), so no split_policy verdict — the single `entry
@@ -1362,18 +1494,18 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         let bb0: i64 = cf_next_comma(cs.entry, 0i64, ceb);
         if bb0 != ceb {
             error("container item: a `kind branch` needs exactly one entry column (`entry { key: K }`)");
-            return out;
+            return;
         }
         let bk1: i64 = cf_find(cs.entry, 0i64, 58u8);          // ':' of key col
         let mut bk2: i64 = ceb - 1i64;
         while bk2 > 0i64 && str_byte_at(cs.entry, bk2) != 58u8 { bk2 = bk2 - 1i64; }
         if bk1 < 0i64 || bk2 <= bk1 {
             error("container item: malformed key column (compiler seam regression?)");
-            return out;
+            return;
         }
         let bkty: str = unsafe { cf_sub(cs.entry, bk1 + 1i64, bk2) };
         emit_branch_node(name, bkty, false);   // standalone branch = plain pkd
-        return out;
+        return;
     }
     // kind=ordered_map: realize Canon's container_shape PLAN. Structure is the
     // verdict — the handler only reproduces the node types the plan names,
@@ -1384,25 +1516,25 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         // generic `Map<K, V>` has unbound column types (and often an undeclared
         // backing) — it stops at verdicts, the same parse/facts/verdicts-only
         // contract as before. The generic-K stack is a later increment (③).
-        if cs.generics.len() > 0i64 { return out; }
+        if cs.generics.len() > 0i64 { return; }
         // Two entry columns (key, val) — same shape as a kind=node leaf.
         let ce2: i64 = cs.entry.len();
         let nb0: i64 = cf_next_comma(cs.entry, 0i64, ce2);
         if nb0 == ce2 {
             error("container item: a `kind ordered_map` needs two entry columns (`entry { key: K, val: V }`)");
-            return out;
+            return;
         }
         let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce2);
         if nb1 != ce2 {
             error("container item: wave-0 `kind ordered_map` supports exactly two entry columns (key, val)");
-            return out;
+            return;
         }
         let k1: i64 = cf_find(cs.entry, 0i64, 58u8);
         let mut k2: i64 = nb0 - 1i64;
         while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
         if k1 < 0i64 || k2 <= k1 {
             error("container item: malformed key column (compiler seam regression?)");
-            return out;
+            return;
         }
         let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
         let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);
@@ -1410,7 +1542,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
         if v1 < 0i64 || v2 <= v1 {
             error("container item: malformed val column (compiler seam regression?)");
-            return out;
+            return;
         }
         let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
 
@@ -1420,7 +1552,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         let sv: WAny = vm.get(V_SHAPE);
         if !sv.is_array() {
             error("container item: Canon produced no container_shape plan for an ordered_map (Canon seam regression?)");
-            return out;
+            return;
         }
         let sa: &WArray<WAny> = sv.as_array();
         let mut saw_leaf: bool = false;
@@ -1459,7 +1591,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         }
         if !saw_leaf || !saw_branch {
             error("container item: incomplete container_shape plan (leaf or branch node missing — Canon seam regression?)");
-            return out;
+            return;
         }
         // Node flavor is a verdict: versioning=cow ⇒ the nodes carry the CoW node
         // header (snapshot_id + rc, new_in/cow_clone). The FULL tree + CoW-map
@@ -1491,12 +1623,12 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         if saw_cow {
             emit_cow_map(name, ln.as_str(), bn.as_str(), kty, vty, vol);
         }
-        return out;
+        return;
     }
-    if !str_eq(cs.kind, KIND_VECTOR) { return out; }
+    if !str_eq(cs.kind, KIND_VECTOR) { return; }
     if !cv_has_cap(vm, name, "can_scan") {
         error("container item: Canon granted no can_scan capability for a vector container (Canon seam regression?)");
-        return out;
+        return;
     }
     // Canon has already judged wave-0 emission limits (multi-entry vector,
     // unprojectable by_view column) as error rows above — a vector reaching
@@ -1506,14 +1638,14 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
     let b0: i64 = cf_next_comma(cs.entry, 0i64, ce);
     if b0 != ce {
         error("container item: multi-entry vector past Canon's verdict (seam regression?)");
-        return out;
+        return;
     }
     let c1: i64 = cf_find(cs.entry, 0i64, 58u8);    // ':'
     let mut c2: i64 = b0 - 1i64;
     while c2 > 0i64 && str_byte_at(cs.entry, c2) != 58u8 { c2 = c2 - 1i64; }
     if c1 < 0i64 || c2 <= c1 {
         error("container item: malformed entry column (compiler seam regression?)");
-        return out;
+        return;
     }
     let col_name: str = unsafe { cf_sub(cs.entry, 0i64, c1) };
     let col_ty: str = unsafe { cf_sub(cs.entry, c1 + 1i64, c2) };
@@ -1525,15 +1657,15 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
     let pj: i64 = cv_col_proj(vm, name, col_name);
     if pj == 0i64 {
         error("container item: no col_proj verdict for the entry column (Canon seam regression?)");
-        return out;
+        return;
     }
     let direct: bool = pj == 1i64;
     let relty: str = cv_col_relty(vm, name, col_name);
     if relty.len() == 0i64 {
         error("container item: col_proj verdict missing relty (Canon seam regression?)");
-        return out;
+        return;
     }
     let bound_param: str = if !direct && col_prm { col_ty } else { "" };
     emit_vector_scan(&cs, name, col_name, col_ty, relty, direct, bound_param);
-    return out;
+    return;
 }

@@ -22,3 +22,18 @@ use logos.lang.writ.wstatic;
 /// configuration document (kind, element columns, measures); its content hash
 /// is the family identity. Zero-field: the type carries only its CFG identity.
 pub struct ContainerType<const CFG: WritStatic> {}
+
+/// The factory-satisfaction marker (ADR 0021 Phase 3). The metaclass factory
+/// closes each drained demand by emitting
+///
+///     impl CtrFamily for ContainerType<CFG> { fn family_id() -> u64 { ... } }
+///
+/// with the demand's CFG document spliced verbatim as the const type-arg —
+/// re-parsing it yields the same content hash, hence the very ContainerType
+/// instance mono demanded. `family_id()` returns that hash. Self-less fn (the
+/// trait grammar has no `static fn`). Phase 4's `create_ctr<C: CtrFamily>`
+/// bounds on this trait; until then the impl is the drain loop's
+/// (not-yet-enforced) satisfaction signal.
+pub trait CtrFamily {
+    fn family_id() -> u64;
+}
