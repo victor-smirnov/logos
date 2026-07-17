@@ -983,12 +983,10 @@ std::string SemaChecker::render_block_src(TinyMapView node) {
         }
     }
     if (stmts.empty()) return "{}";
-    // A short single statement stays inline (`{ return x; }`); anything
-    // longer renders one statement per line, indented — nested blocks
-    // compose recursively via the per-line prefixing below.
-    if (stmts.size() == 1 && stmts[0].size() <= 60
-        && stmts[0].find('\n') == std::string::npos)
-        return "{ " + stmts[0] + " }";
+    // Every non-empty body renders one statement per line, indented — no
+    // inline `{ return x; }` one-liners (user style rule: structure on its
+    // own lines; dumps read like hand-written code). Nested blocks compose
+    // recursively via the per-line prefixing below.
     std::string s = "{\n";
     for (auto& st : stmts) {
         size_t start = 0;
