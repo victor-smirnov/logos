@@ -5988,12 +5988,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                         "lowering incomplete?)", ci->name, cfg_name));
                     return error_t();
                 }
-                LogosTypeBuilder wt;
-                wt.kind = LogosType::Kind::Struct;
-                wt.struct_name = "ContainerType";
-                wt.pkg_name = "logos.lcm.canon.metaclass";
-                wt.type_args.push_back(cfg);
-                return pool_->alloc(std::move(wt));
+                return make_metaclass_wrapper(cfg);
             }
         }
 

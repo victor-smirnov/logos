@@ -3663,6 +3663,16 @@ private:
     // arg handler in resolve_type and `pub const X: WritStatic = @{...};`
     // recognition in collect_const.
     TypeRef resolve_wstatic_value(writ::TinyMapView val_node);
+    // ADR 0021: the metaclass wrapper type over a config document —
+    // `ContainerType<@hs(CFG)>`. Canonical construction site (pkg threaded).
+    TypeRef make_metaclass_wrapper(TypeRef cfg) {
+        LogosTypeBuilder wt;
+        wt.kind = LogosType::Kind::Struct;
+        wt.struct_name = "ContainerType";
+        wt.pkg_name = "logos.lcm.canon.metaclass";
+        wt.type_args.push_back(cfg);
+        return pool_->alloc(std::move(wt));
+    }
     // Generic compile-time const under CONCRETE args (ADR 0021: shared by the
     // type-position use site and the typeof(<container-decl>) bridge).
     TypeRef resolve_generic_wstatic_const(const std::string& name,
