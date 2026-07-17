@@ -190,9 +190,13 @@ void Mono::scan_expr(lir_view::ExprRef e) {
                 auto cit = concrete_struct_types_.find(concrete);
                 if (cit != concrete_struct_types_.end())
                     enqueue_method_inst(cit->second, method_part);
-                else if (concrete.find("$G") != std::string::npos)
+                else if (concrete.find("$G") != std::string::npos) {
+                    ++stats_.defer_pushes;
                     deferred_method_enqueues_.emplace_back(std::move(concrete),
                                                            std::move(method_part));
+                    if (deferred_method_enqueues_.size() > stats_.peak_deferred)
+                        stats_.peak_deferred = deferred_method_enqueues_.size();
+                }
             }
         }
         v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
@@ -751,6 +755,7 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     if (kind != LogosType::Kind::Struct && kind != LogosType::Kind::ZonedStruct)
         return;
     std::string concrete = concrete_struct_name(concrete_struct_t);
+    ++stats_.enqueue_calls;
     // The target struct instance must already be materialized in out_.structs
     // for drain_method_worklist to attach the cloned method to it. When this is
     // called BEFORE emission — the L1.1 dispatch hook fires while scan_fn walks
@@ -773,8 +778,11 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
         // method-call receiver in clone_expr tripled mono's struct
         // materialization and cost the whole suite ~2×.)
         record_needed_struct(concrete_struct_t);
+        ++stats_.defer_pushes;
         deferred_method_enqueues_.emplace_back(
             qualified_cname(concrete_struct_t), method_name);
+        if (deferred_method_enqueues_.size() > stats_.peak_deferred)
+            stats_.peak_deferred = deferred_method_enqueues_.size();
         return;
     }
     std::string base{TypeRef(concrete_struct_t).struct_name()};
@@ -1017,8 +1025,7 @@ void Mono::drain_method_worklist() {
         // Binary-symbol fast path: pre-baked struct-method instance in the
         // archive. Push a signature-only stub so mlir_gen can forward-declare
         // it; skip the deep body clone + scan_fn.
-        if (!in_.binary_symbols.empty() &&
-            in_.binary_symbols.has(dest_name)) {
+        if (binary_has_link(dest_name, item.struct_pkg)) {
             auto stub = clone_fn_signature(tmpl, item.subst, item.packs);
             stub.str_always(lir_schema::decl_keys::NAME, dest_name);
             lir_mirror_struct_append_method(out_, *target, stub.view<lir_view::FunctionView>());

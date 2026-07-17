@@ -113,7 +113,7 @@ void Mono::drain_free_fn_queue() {
         // Binary-symbol fast path (mirrors the eager loop): the body lives in
         // a linked archive, so emit a signature-only stub and skip the scan —
         // the archive is self-contained for this fn's transitive closure.
-        if (!in_.binary_symbols.empty() && in_.binary_symbols.has(std::string(fn.name()))) {
+        if (binary_has_link(std::string(fn.name()), fn.package())) {
             auto stub = clone_fn_signature(fn, {}, {});
             out_.functions.push_back(stub.view<lir_view::FunctionView>());
             if (has_prev_out_) done_.insert(std::string(fn.name()));
@@ -603,7 +603,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // are already pre-baked in the same archive (otherwise the archive
             // wouldn't link), so dropping the scan can't leave the worklist
             // missing a required instantiation.
-            if (!in_.binary_symbols.empty() && in_.binary_symbols.has(std::string(fn.name()))) {
+            if (binary_has_link(std::string(fn.name()), fn.package())) {
                 auto stub = clone_fn_signature(fn, {}, {});
                 out_.functions.push_back(stub.view<lir_view::FunctionView>());
                 if (has_prev_out_) done_.insert(std::string(fn.name()));
@@ -631,8 +631,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // generic instance (stdlib emit_module pre-baked it). Emit a
         // signature-only stub so mlir_gen can forward-declare; skip mirror
         // + scan_fn to save the deep body walk.
-        if (!in_.binary_symbols.empty() &&
-            in_.binary_symbols.has(item.mangled)) {
+        if (binary_has_link(item.mangled, item.tmpl.package())) {
             auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
             stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
             out_.functions.push_back(stub.view<lir_view::FunctionView>());
@@ -702,7 +701,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             auto item = std::move(worklist_.back());
             worklist_.pop_back();
             depth_ = item.depth;
-            if (!in_.binary_symbols.empty() && in_.binary_symbols.has(item.mangled)) {
+            if (binary_has_link(item.mangled, item.tmpl.package())) {
                 auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
                 stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
                 out_.functions.push_back(stub.view<lir_view::FunctionView>());
@@ -786,6 +785,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // the fixpoint loop below. One-shot to avoid the loop spinning on
     // entries whose concrete struct is never produced.
     if (!deferred_method_enqueues_.empty()) {
+        stats_.defer_rescans += deferred_method_enqueues_.size();
         std::vector<std::pair<std::string, std::string>> still;
         for (auto& [cname, mname] : deferred_method_enqueues_) {
             auto cit = concrete_struct_types_.find(cname);
@@ -812,6 +812,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         // Prune mode: method/generic bodies cloned in this fixpoint may call
         // further non-generic free fns — clone those before the rest so their
         // own scan_fn can feed the same iteration's worklists.
+        ++stats_.fixpoint_iters;
         drain_free_fn_queue();
         drain_method_worklist();
         while (!worklist_.empty()) {
@@ -834,6 +835,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         instantiate_enum_templates();
         // Resolve deferred method enqueues whose concrete struct now exists.
         if (!deferred_method_enqueues_.empty()) {
+            stats_.defer_rescans += deferred_method_enqueues_.size();
             std::vector<std::pair<std::string, std::string>> still;
             for (auto& [cname, mname] : deferred_method_enqueues_) {
                 auto cit = concrete_struct_types_.find(cname);
@@ -898,8 +900,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 auto item = std::move(worklist_.back());
                 worklist_.pop_back();
                 depth_ = item.depth;
-                if (!in_.binary_symbols.empty() &&
-                    in_.binary_symbols.has(item.mangled)) {
+                if (binary_has_link(item.mangled, item.tmpl.package())) {
                     auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
                     stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
                     out_.functions.push_back(stub.view<lir_view::FunctionView>());
@@ -1036,7 +1037,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         std::fprintf(stderr,
             "[mono-stats] fn_clones=%llu fn_inst=%llu method_inst=%llu "
             "struct_inst=%llu enum_inst=%llu dispatch=%llu "
-            "peak_fn_wl=%zu peak_method_wl=%zu peak_depth=%d\n",
+            "peak_fn_wl=%zu peak_method_wl=%zu peak_depth=%d "
+            "enqueue=%llu defer=%llu rescans=%llu peak_deferred=%zu "
+            "fixpoint=%llu emitted_checks=%llu\n",
             (unsigned long long)stats_.fn_clones,
             (unsigned long long)stats_.fn_instances,
             (unsigned long long)stats_.method_instances,
@@ -1045,7 +1048,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             (unsigned long long)stats_.dispatch_entries,
             stats_.peak_fn_worklist,
             stats_.peak_method_worklist,
-            stats_.peak_depth);
+            stats_.peak_depth,
+            (unsigned long long)stats_.enqueue_calls,
+            (unsigned long long)stats_.defer_pushes,
+            (unsigned long long)stats_.defer_rescans,
+            stats_.peak_deferred,
+            (unsigned long long)stats_.fixpoint_iters,
+            (unsigned long long)stats_.emitted_checks);
     }
 
     return std::move(out_);

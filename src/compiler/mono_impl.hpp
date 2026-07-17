@@ -65,11 +65,17 @@ public:
         uint64_t struct_instances = 0;  // generic struct instance
         uint64_t enum_instances   = 0;  // generic enum instance
         uint64_t dispatch_entries = 0;  // generic-trait dispatch entries
+        uint64_t enqueue_calls    = 0;  // enqueue_method_inst entries
+        uint64_t defer_pushes     = 0;  // enqueue deferred (struct not emitted)
+        uint64_t defer_rescans    = 0;  // deferred entries re-examined in drains
+        uint64_t fixpoint_iters   = 0;  // run() lazy-drain loop iterations
+        uint64_t emitted_checks   = 0;  // struct_emitted() calls
+        size_t   peak_deferred    = 0;  // deferred_method_enqueues_ high-water
         size_t   peak_fn_worklist     = 0;
         size_t   peak_method_worklist = 0;
         int      peak_depth           = 0;
     };
-    Stats stats_;
+    mutable Stats stats_;
     bool  stats_enabled_ = false;
 
     void note_fn_worklist_size(size_t n) {
@@ -113,6 +119,31 @@ private:
         if (!mid.empty())
             return std::string(mid) + "." + pkg;
         return pkg;
+    }
+
+    // Archive-membership gate for a mono-synthesised symbol. binary_symbols
+    // carries the archives' LINK names (nm output): method-shaped symbols are
+    // `<mid>..<pkg>.Owner__m__sig` while mono synthesises the bare
+    // `<pkg>.Owner__m__sig` — so after the raw-name test (free fns already
+    // carry their module; global-module symbols have no prefix), retry the
+    // `<mid>..`-prefixed form, mirroring sym::link_name and sema_decl's
+    // skel_skip gate. All three body-skip gates (sema skip, mono stub,
+    // mlir-gen forward-declare) then key on one name algebra. The qualified
+    // retry can't resurrect the static-assoc-fn false-skip class (gap #2):
+    // it only hits when pkg's OWN module defines the exact symbol.
+    bool binary_has_link(const std::string& name, std::string_view pkg) const {
+        if (in_.binary_symbols.empty()) return false;
+        if (in_.binary_symbols.has(name)) return true;
+        if (pkg.empty()) return false;
+        std::string_view mid = in_.pkg_module_ids.get_str(pkg);
+        if (mid.empty()) return false;
+        if (name.size() <= pkg.size() || name.compare(0, pkg.size(), pkg) != 0 ||
+            name[pkg.size()] != '.')
+            return false;
+        std::string q;
+        q.reserve(mid.size() + 2 + name.size());
+        q.append(mid); q.append(".."); q.append(name);
+        return in_.binary_symbols.has(q);
     }
 
 protected:
@@ -1172,6 +1203,7 @@ private:
     // enqueue through against the wrong-pkg twin's emission. Amortized O(1): the
     // key index grows incrementally (mono only ever appends structs).
     bool struct_emitted(std::string_view cname, std::string_view pkg) const {
+        ++stats_.emitted_checks;
         for (; emitted_indexed_ < out_.structs.size(); ++emitted_indexed_) {
             auto& sd = out_.structs[emitted_indexed_];
             emitted_names_.insert(emitted_key(sd.name(), sd.pkg()));
