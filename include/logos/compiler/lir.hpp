@@ -866,18 +866,9 @@ struct LProgram {
     // undefined function").
     bool deferred_item_sites = false;
 
-    // ADR 0020 wave-0 (generic containers, S2): concrete `container` DECL
-    // SOURCE strings produced by the type resolver when it meets a generic
-    // container used with fully-concrete args whose family isn't generated
-    // yet (e.g. `let m: Map<u64,str>`). Filled DURING sema (a bare string
-    // push — no logos_emit_source mid-sema, which would realloc the in-flight
-    // Writ&). The dispatch driver (main.cpp) DRAINS these via
-    // logos_emit_source in the reserved-asts region, so the concrete decl
-    // flows through the normal container path → generates the b+tree/CoW
-    // family under its `$`-mangled name, and the next sema resolves the
-    // placeholder to the real struct. Deduped at the emit_source layer, so
-    // the same instantiation at N sites shares ONE generated stack.
-    std::vector<std::string> pending_container_srcs;
+    // (ADR 0020 wave-0's `pending_container_srcs` generic-container harvest
+    // was RETIRED in ADR 0021 Phase 4b — superseded by the demand channel
+    // below.)
 
     // ADR 0021 §3: metaclass factory demands. MONO fills one per factory-
     // backed marker instantiation (`ContainerType<CFG>`); SEMA (Phase 4a)
@@ -888,8 +879,8 @@ struct LProgram {
     // CFG document's raw content hash (mangled spellings diverge — hs_ vs
     // @hs_ — so the key is the u64 itself). The driver drains after the
     // terminal mono pass: invoke the metaclass factory with the CFG doc,
-    // splice the emitted family, re-dispatch, re-run mono. Symmetric to
-    // pending_container_srcs, but demand-driven.
+    // splice the emitted family, re-dispatch, re-run mono. Demand-driven from
+    // mono (vs the retired sema-side generic-container harvest).
     struct FactoryDemand {
         std::string base;     // marker base name ("ContainerType")
         std::string pkg;      // marker's package

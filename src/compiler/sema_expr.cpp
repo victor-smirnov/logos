@@ -21096,42 +21096,9 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
                                IrEntry::None, "", "", "");
 }
 
-std::string SemaChecker::build_concrete_container_src(
-        const ContainerInfo& tpl,
-        const std::vector<std::string>& arg_srcs,
-        const std::string& mangled) {
-    // gname -> concrete source spelling (whole-token substitution; wave-0
-    // entry column types are bare generic names, so an exact-string map covers
-    // `key: K`/`val: V`. Concrete columns pass through verbatim.)
-    StrMap<std::string> sub;
-    for (size_t i = 0; i < tpl.generic_names.size() && i < arg_srcs.size(); ++i)
-        sub[tpl.generic_names[i]] = arg_srcs[i];
-    auto subst_ty = [&](const std::string& ty) -> std::string {
-        if (auto it = sub.find(ty); it != sub.end()) return it->second;
-        return ty;
-    };
-    std::string s;
-    // HOME the family in the container's package so type_module_suffix applies
-    // ONCE (the mangled literal name below carries NO suffix — pkg="" at the
-    // mangle site — and homing supplies it on both def and use).
-    if (!tpl.package.empty()) { s += "package "; s += tpl.package; s += ";\n"; }
-    s += "use logos.lcm.canon.container_item;\n";
-    s += "container "; s += mangled; s += " for u8 { ";
-    s += "kind "; s += tpl.kind; s += "; ";
-    s += "entry { ";
-    for (size_t i = 0; i < tpl.entry.size(); ++i) {
-        if (i) s += ", ";
-        s += tpl.entry[i].name; s += ": "; s += subst_ty(tpl.entry[i].ty);
-    }
-    s += " } ";
-    for (const auto& m : tpl.measures) {
-        s += "measure "; s += m.mfn;
-        if (!m.arg.empty()) { s += "("; s += m.arg; s += ")"; }
-        s += "; ";
-    }
-    s += "}\n";
-    return s;
-}
+// build_concrete_container_src — RETIRED (ADR 0021 Phase 4b): the harvest that
+// consumed it is gone. Generic containers now lower to a CFG const + alias and
+// generate on demand via the mono factory seam.
 
 bool SemaChecker::is_generic_container_base(std::string_view base) const {
     for (const auto& [ck, ci] : containers_)

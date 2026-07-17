@@ -4327,15 +4327,7 @@ private:
     // it through the normal container path (main.cpp driver), and returns the
     // struct type for the mangled family — deferring the fn body until it lands.
 
-    // Build the concrete `container <mangled> for u8 { … }` DECL SOURCE from a
-    // generic container template + per-generic concrete arg SOURCE spellings
-    // (rendered syntactically so `str` stays `str`, not `[u8]`) + the mangled
-    // instance name. generics/gnames dropped; measures + entry-column shape
-    // preserved (generic column types substituted).
-    std::string   build_concrete_container_src(
-                      const ContainerInfo& tpl,
-                      const std::vector<std::string>& arg_srcs,
-                      const std::string& mangled);
+    // build_concrete_container_src — RETIRED (ADR 0021 Phase 4b, harvest gone).
     // True if `base` names a registered GENERIC container (non-empty generics).
     bool          is_generic_container_base(std::string_view base) const;
     // True if `sname` names a not-yet-generated instance of a registered
