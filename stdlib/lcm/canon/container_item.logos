@@ -1225,7 +1225,7 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
 
     let mut em: Emitter = Emitter::new();
     em.emit_into(cs.pkg);                              // "package <pkg>; "
-    em.push_text("use logos.lang.writ.wstatic; ");
+    em.push_text("\nuse logos.lang.writ.wstatic;\n\n");
     em.push_text("pub const "); em.push_text(name); em.push_text("Cfg");
     if cs.generics.len() > 0i64 { em.push_text(cs.generics); }  // verbatim, bounds included
     em.push_text(": WritStatic = @{ \"kind\": \"ordered_map\", \"key\": <type:");
@@ -1394,23 +1394,23 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     // handle, so inherent-vs-trait shadowing cannot bite here).
     let mut em: Emitter = Emitter::new();
     em.emit_into("logos.gen");
-    em.push_text("use logos.lcm.canon.metaclass; ");
-    em.push_text("use logos.mem.bt.memstore; ");
+    em.push_text("\nuse logos.lcm.canon.metaclass;\n");
+    em.push_text("use logos.mem.bt.memstore;\n\n");
     em.push_text("impl CtrFamily<MemorySnapshot> for ContainerType<");
     em.push_text(cfg_src);
-    em.push_text("> { type Handle = ");
+    em.push_text("> {\n    type Handle = ");
     em.push_text(fam.as_str());
-    em.push_text("; fn family_id() -> u64 { return 0x");
+    em.push_text(";\n    fn family_id() -> u64 {\n        return 0x");
     em.push_text(hash_hex);
-    em.push_text("u64; } fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> ");
+    em.push_text("u64;\n    }\n    fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> ");
     em.push_text(fam.as_str());
-    em.push_text(" { return ");
+    em.push_text(" {\n        return ");
     em.push_text(fam.as_str());
-    em.push_text("::create(snap, ctr_id); } fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> ");
+    em.push_text("::create(snap, ctr_id);\n    }\n    fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> ");
     em.push_text(fam.as_str());
-    em.push_text(" { return ");
+    em.push_text(" {\n        return ");
     em.push_text(fam.as_str());
-    em.push_text("::open(snap, ctr_id); } }");
+    em.push_text("::open(snap, ctr_id);\n    }\n}\n");
     em.commit();
     return out;
 }
