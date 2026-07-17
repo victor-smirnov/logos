@@ -294,9 +294,49 @@ try_gen_dump(logos::writ::Writ& doc) {
     // trigger file discriminates same-package modules from different compiles
     // sharing one gen dir (e.g. every lforge test is `package test`).
     std::string stem = sanitize(pkg);
-    if (g_current_emit_ctx_valid && !g_current_emit_ctx.src_file.empty()) {
+    if (g_current_emit_ctx_valid && !g_current_emit_ctx.src_file.empty()
+        && g_current_emit_ctx.src_file[0] != '<') {
         std::string base = fs::path(g_current_emit_ctx.src_file).stem().string();
         if (!base.empty() && base != pkg) stem += "." + sanitize(base);
+    } else {
+        // Pseudo-site trigger (a harvested decl chunk, src_file "<metaprog>"):
+        // the file stem can't discriminate, and the per-process seq collides
+        // across compiles sharing one gen dir. Use the first item's NAME
+        // (e.g. Gen$G1$u64Leaf) — unique per generated family blob set.
+        auto root = logos::writ::TinyMapView(arena_offset_t(root_off.value()),
+                                             doc.holder());
+        if (root.has_key(la::ITEMS.code)) {
+            auto iav = root.get(la::ITEMS.code);
+            if (!iav.is_null() && iav.is_pointer()) {
+                auto arr = logos::writ::as_array(iav, doc.holder());
+                for (uint64_t i = 0; i < arr.size(); ++i) {
+                    auto e = arr.get(i);
+                    if (e.is_null() || !e.is_pointer()) continue;
+                    auto t = logos::writ::as_tinymap(e, doc.holder());
+                    if (t.is_null()) continue;
+                    // Item NAME; an inherent impl has none — use its
+                    // receiver type's name instead.
+                    auto read_nm = [&](logos::writ::TinyMapView m) {
+                        std::string r;
+                        if (!m.is_null() && m.has_key(la::NAME.code)) {
+                            auto nv = m.get(la::NAME.code);
+                            if (!nv.is_null() && nv.is_pointer())
+                                r = std::string(logos::writ::StringView(
+                                        nv, doc.holder()).view());
+                        }
+                        return r;
+                    };
+                    std::string nm = read_nm(t);
+                    if (nm.empty() && t.has_key(la::TYPE.code)) {
+                        auto tv2 = t.get(la::TYPE.code);
+                        if (!tv2.is_null() && tv2.is_pointer())
+                            nm = read_nm(logos::writ::as_tinymap(
+                                     tv2, doc.holder()));
+                    }
+                    if (!nm.empty()) { stem += "." + sanitize(nm); break; }
+                }
+            }
+        }
     }
     stem += "." + std::to_string(++g_gen_seq);
     if (g_current_emit_ctx_valid && !g_current_emit_ctx.target_name.empty())
