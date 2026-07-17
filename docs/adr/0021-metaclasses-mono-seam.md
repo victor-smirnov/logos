@@ -286,6 +286,21 @@ name**: ADR 0017's lives in `logos.lcm.deem` and is still linked/used by
 `facthistory.logos`; the Canon-plane one must be package-scoped (own module),
 not a second bare `create_ctr`.
 
+**The C++ factory chain maps directly onto the three-layer split** (user,
+2026-07-17): the TMP factories become metafunctions, Canon does their
+reasoning, their results become generation visible in `--gen-dir` files.
+
+| C++ Memoria (TMP)                    | Logos                                          |
+|--------------------------------------|------------------------------------------------|
+| `CtrTF` (container type factory)     | metafunction — the factory orchestrator        |
+| `BTTypes` (b+tree type/mixin select) | metafunction                                   |
+| `NodeTF` (packed node struct select) | metafunction                                   |
+| partial-spec / `IfThenElse<FIXED,…>` | **Canon** — verdicts with provenance           |
+| nested type aliases (invisible)      | **generation** — real source in `--gen-dir`    |
+
+What was compile-time reasoning buried in template error spew becomes
+explainable Canon verdicts plus dumped, debuggable generated source.
+
 **TypeFactory oracle checklist** (C++ Memoria `/home/victor/cxx/memoria`, the
 canonical repo — `memoria-core` is unrelated) — the family the factory must
 emit per config, so a hook that produces only "the container class" is
