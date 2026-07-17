@@ -311,6 +311,9 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         return s;
     }
 
+    case la::ADDR_OF_MUT: {
+        return "&mut " + render_expr_src(map_of(node.get(la::VALUE.code)));
+    }
     case la::DEREF: {
         return "(*" + render_expr_src(map_of(node.get(la::VALUE.code))) + ")";
     }
@@ -427,6 +430,9 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto arm = map_of(items.get(i));
+                // `$...` collector junk (the scrutinee alias) sits in ITEMS
+                // alongside the arms — only MATCH_ARM nodes are arms.
+                if (code_of(arm) != la::MATCH_ARM) continue;
                 s += render_pat_src(map_of(arm.get(la::LHS.code)));
                 if (arm.has_key(la::GUARD)) {
                     s += " if ";
@@ -691,6 +697,20 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
 
     switch (c) {
 
+    case la::MATCH: {
+        // match-as-statement: same node shape as the expression form.
+        return render_expr_src(node);
+    }
+
+    case la::PLACE_ASSIGN: {
+        // G163-2 general place write: `a[i][j] = v;` / `(*p).0 = v;` …
+        std::string s = render_expr_src(map_of(node.get(la::RECEIVER.code)));
+        s += " = ";
+        s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        s += ";";
+        return s;
+    }
+
     case la::LET: {
         std::string s = "let ";
         if (node.has_key(la::IS_MUT)) {
@@ -933,15 +953,36 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
 
 std::string SemaChecker::render_block_src(TinyMapView node) {
     if (node.is_null() || code_of(node) != la::BLOCK) return "{}";
-    std::string s = "{ ";
+    std::vector<std::string> stmts;
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < items.size(); ++i) {
-            if (i) s += " ";
-            s += render_stmt_src(map_of(items.get(i)));
+            auto st = map_of(items.get(i));
+            if (st.is_null()) continue;
+            stmts.push_back(render_stmt_src(st));
         }
     }
-    s += " }";
+    if (stmts.empty()) return "{}";
+    // A short single statement stays inline (`{ return x; }`); anything
+    // longer renders one statement per line, indented — nested blocks
+    // compose recursively via the per-line prefixing below.
+    if (stmts.size() == 1 && stmts[0].size() <= 60
+        && stmts[0].find('\n') == std::string::npos)
+        return "{ " + stmts[0] + " }";
+    std::string s = "{\n";
+    for (auto& st : stmts) {
+        size_t start = 0;
+        for (;;) {
+            size_t nl = st.find('\n', start);
+            size_t end = (nl == std::string::npos) ? st.size() : nl;
+            s += "    ";
+            s.append(st, start, end - start);
+            s += "\n";
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+    }
+    s += "}";
     return s;
 }
 
@@ -1517,6 +1558,11 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         }
         s += "]";
         return s;
+    }
+
+    case la::DOC_LINE_LIT: {
+        // `/// text` line inside a quote body — VALUE is the raw token text.
+        return std::string(str_of(node.get(la::VALUE.code)));
     }
 
     case la::METACALL_ITEM:
