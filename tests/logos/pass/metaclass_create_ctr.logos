@@ -8,7 +8,7 @@
 // 1000-key insert / get_or (hit + miss) / size, exit-code proof.
 package main;
 
-use logos.lcm.canon.metaclass;       // ContainerType + CtrFamily + create_ctr/open_ctr
+use logos.lcm.canon.metaclass;       // CtrClass + CtrFamily + create_ctr/open_ctr
 use logos.lcm.canon.container_item;  // loads the factory (an emitted `use` cannot LOAD a module)
 use logos.mem.bt.map;                // trait hub for the generated impls
 use logos.mem.bt.memstore;           // MemoryStore / MemorySnapshot
@@ -16,7 +16,7 @@ use logos.mem.pkd;                   // generated leaf/branch target
 use logos.lang.writ.wstatic;
 
 pub const LegendCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
-pub type Legend = ContainerType<LegendCfg>;
+pub type Legend = CtrClass<LegendCfg>;
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();

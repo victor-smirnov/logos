@@ -44,8 +44,8 @@ use logos.mem.bt.ops;             // NOT used here — carries the MODULE-GRAPH 
 use logos.lcm.canon.metaclass;    // NOT used here — the same MODULE-GRAPH edge
                                   // contract for the DECL-SITE emission (ADR 0021
                                   // Phase 4b): the emitted `type <Name> =
-                                  // ContainerType<<Name>Cfg>` alias names
-                                  // ContainerType, so the metaclass module must
+                                  // CtrClass<<Name>Cfg>` alias names
+                                  // CtrClass, so the metaclass module must
                                   // ride into every declaring unit's graph.
 
 unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
@@ -798,7 +798,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             use logos.mem.pkd;
             use logos.lang.mem;
             use logos.lang.result;
-            impl #nm {> match PkdArray::<#(vid)>::format(a, 1u32) { Result::Ok(_p) => {} Result::Err(_e) => { assert(false, "val col"); } }
+            impl #nm {
 
 
                 pub static fn new() -> #nm {
@@ -1341,7 +1341,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
 // type alias is emitted for it: the container's value type depends on the
 // STORE as well as the configuration (per-store emitter specialization), so
 // `Map<i64,i64>` must not name a handle. The declaration-to-type bridge is
-// `typeof(Map::<i64,i64>)` → `ContainerType<@{…}>` (the typed wrapper over
+// `typeof(Map::<i64,i64>)` → `CtrClass<@{…}>` (the typed wrapper over
 // the config constant — sema resolves typeof over a registered container
 // declaration through THIS emitted const, so the doc has one source of
 // truth and one hash). Naming the wrapper in create_ctr::<typeof(…)> fires
@@ -1422,7 +1422,7 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
 
 // ── ADR 0021 §3 Phase 3: the metaclass FACTORY — the real container family ──
 //
-// The driver drains mono's `ContainerType<CFG>` demands by rendering one
+// The driver drains mono's `CtrClass<CFG>` demands by rendering one
 //
 //   package logos.gen;
 //   use logos.lcm.canon.container_item;
@@ -1445,10 +1445,10 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
 //
 // Satisfaction signal: the factory also emits
 //
-//   impl CtrFamily for ContainerType<CFG-literal> { fn family_id() -> u64 }
+//   impl CtrFamily for CtrClass<CFG-literal> { fn family_id() -> u64 }
 //
 // splicing cfg_src verbatim as the const type-arg — re-parsing yields the
-// same content hash, hence the very ContainerType instance mono demanded.
+// same content hash, hence the very CtrClass instance mono demanded.
 // The drain loop's re-fire semantics stay quiet-break for now; the impl
 // becomes the hard satisfaction gate when create_ctr goes live (Phase 4).
 // Emission of the impl is text via the emit-source seam (a WritStatic
@@ -1592,13 +1592,13 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
 
     // ── satisfaction marker + Phase 4a surface: the full CtrFamily impl ────
     // type Handle = the family's CoW handle; create/open forward to its
-    // inherent statics (the impl target is ContainerType<CFG>, not the
+    // inherent statics (the impl target is CtrClass<CFG>, not the
     // handle, so inherent-vs-trait shadowing cannot bite here).
     let mut em: Emitter = Emitter::new();
     em.emit_into("logos.gen");
     em.push_text("\nuse logos.lcm.canon.metaclass;\n");
     em.push_text("use logos.mem.bt.memstore;\n\n");
-    em.push_text("impl CtrFamily<MemorySnapshot> for ContainerType<");
+    em.push_text("impl CtrFamily<MemorySnapshot> for CtrClass<");
     em.push_text(cfg_src);
     em.push_text("> {\n    type Handle = ");
     em.push_text(fam.as_str());
@@ -1692,7 +1692,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
     }
 
     // ADR 0021 Phase 4b: the DECL SITE of an ordered_map lowers to the CFG
-    // const + the ContainerType alias ONLY (emit_cfg_doc, below at the kind
+    // const + the CtrClass alias ONLY (emit_cfg_doc, below at the kind
     // branch). Skipped on the factory path — there the CFG doc is the INPUT,
     // not a synthesis target, and the factory is the family emitter.
 
@@ -1775,7 +1775,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
     if str_eq(cs.kind, KIND_ORDERED_MAP) {
         // ADR 0021 Phase 4b: the DECL path stops at CFG + alias — the family
         // (nodes, trait impls, tree, CoW handle) is generated ONLY by the
-        // factory when mono demands the ContainerType<CFG> instance
+        // factory when mono demands the CtrClass<CFG> instance
         // (create_ctr::<Name>). Facts + Canon template-validation above stay
         // (the descriptive facet — a bad decl still fails HERE, loudly).
         if emit_cfg {

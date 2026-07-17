@@ -4480,7 +4480,7 @@ int main(int argc, char** argv) {
         // ADR 0021 Phase 4b: the generic-container HARVEST is retired.
         // Its whole job — auto-generating a concrete b+tree family per
         // (K,V) for a `container Map<K,V>` used at a site — is now the
-        // mono factory-demand seam (ContainerType<CFG> → __container_factory,
+        // mono factory-demand seam (CtrClass<CFG> → __container_factory,
         // keyed by @hs(CFG)). Proven dead: pending_container_srcs was filled
         // ZERO times across the full 6647-test suite.
     }
@@ -5389,7 +5389,7 @@ int main(int argc, char** argv) {
     // ── ADR 0021 §3 (Phase 2b): mono → metaclass-factory demand drain ────
     // The terminal tail below (hook strip → reflection → pre-mono borrow →
     // mono) runs in a bounded loop. When the terminal mono surfaces factory
-    // demands (`ContainerType<CFG>` instantiations recorded by CFG content
+    // demands (`CtrClass<CFG>` instantiations recorded by CFG content
     // hash), the driver renders one
     //   `metacall __container_factory("<016x hash>", "<CFG doc source>");`
     // chunk per demand into the fresh `logos.gen` package, feeds it through
@@ -5401,7 +5401,7 @@ int main(int argc, char** argv) {
     // Driver-side dedup is load-bearing: mono's factory_demand_hashes_ is
     // per-Mono-instance, so each fresh mono pass re-fires demands for configs
     // whose satisfaction is not yet consulted. Re-fires of a drained hash are
-    // STRUCTURAL and expected — the ContainerType<CFG> marker struct itself
+    // STRUCTURAL and expected — the CtrClass<CFG> marker struct itself
     // re-instantiates every round (the demand hook fires on marker
     // instantiation, not on an unresolved impl). The satisfaction signal
     // (Phase 4a) is therefore a program-content probe, not the re-fire: after
@@ -5418,7 +5418,7 @@ int main(int argc, char** argv) {
     // an emitted `use` cannot LOAD a module, so the drain chunk's
     // `use logos.lcm.canon.container_item;` resolves only when the program
     // already pulled the handler module in (any unit declaring containers
-    // does; plain ContainerType users must import it explicitly). Mirrors
+    // does; plain CtrClass users must import it explicitly). Mirrors
     // lower_container_def's func_overloads_ gate, at driver level: the
     // factory's bare name must be present among the program's functions.
     bool factory_available = false;
@@ -5531,7 +5531,7 @@ int main(int argc, char** argv) {
         // A REQUIRED demand (sema deferred a create_ctr-style diagnostic
         // against it) cannot proceed without the factory — hard error, with
         // the fix spelled out. Purely structural demands stay a note: the
-        // ContainerType marker template instantiates fine on its own
+        // CtrClass marker template instantiates fine on its own
         // (metaclass identity is meaningful without the family).
         for (const auto& fd : fresh_demands) {
             if (!fd.required) continue;

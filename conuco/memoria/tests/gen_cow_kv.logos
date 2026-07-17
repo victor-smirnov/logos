@@ -1,6 +1,6 @@
 // gen_cow_kv — the VOLUME (VLE value) stack, end to end (ADR 0020 Track B ②
 // P2 + ADR 0021 Phase 4b demand path): a `kind ordered_map` whose value is
-// `str` lowers to a CFG doc carrying the "str" VLE tag + the ContainerType
+// `str` lowers to a CFG doc carrying the "str" VLE tag + the CtrClass
 // alias; `create_ctr::<typeof(GenVol)>` fires the mono demand and the metaclass
 // FACTORY generates the volume-flavor family — a volume-split leaf (val_at →
 // &[u8]), the routing branch, and the CoW handle (@hs-keyed, package

@@ -4,7 +4,7 @@
 // error() anywhere there fails this compile). Vector's backing satisfies the
 // wave-0 scan contract (count/get) so its projection chunk compiles; MapCtr
 // stays intentionally undeclared — an ordered_map decl lowers to its CFG
-// const + ContainerType alias only (ADR 0021 Phase 4b), nothing resolves its
+// const + CtrClass alias only (ADR 0021 Phase 4b), nothing resolves its
 // backing (pins the parse+facts+verdicts+CFG-surface contract for Map).
 package test;
 

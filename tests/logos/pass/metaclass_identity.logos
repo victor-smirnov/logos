@@ -1,18 +1,18 @@
 // ADR 0021 metaclass identity foundation: a container declaration will lower
-// to a WritStatic CFG document + `type <Name> = ContainerType<CFG>`. Two
+// to a WritStatic CFG document + `type <Name> = CtrClass<CFG>`. Two
 // structurally identical configs must resolve to the SAME type — twin dedup
 // falls out of ordinary alias resolution keyed by the CFG content hash
 // (@hs(CFG)), with no declaration name in the key.
 //
-// `Legend` and `Ledger` carry byte-identical CFG docs, so `ContainerType<…>`
+// `Legend` and `Ledger` carry byte-identical CFG docs, so `CtrClass<…>`
 // unifies them: passing a `Ledger` value where a `Legend` is expected must
 // typecheck. `Bill` carries a different value type, so it is a DISTINCT type
 // (exercised only by construction here — the negative is a compile-fail case).
 package main;
 
-use logos.lcm.canon.metaclass;   // ContainerType<const CFG: WritStatic>
+use logos.lcm.canon.metaclass;   // CtrClass<const CFG: WritStatic>
 // Loads the metaclass FACTORY (__container_factory): the mono→factory drain
-// (ADR 0021 Phase 2b) fires on the ContainerType demands below and can only
+// (ADR 0021 Phase 2b) fires on the CtrClass demands below and can only
 // invoke the factory when the handler module is in the program (an emitted
 // `use` cannot LOAD a module). Drain proof rides stderr:
 //   metaclass: factory drained @hs_<hex>   (once per distinct CFG)
@@ -25,13 +25,13 @@ use logos.lcm.canon.container_item;
 use logos.lang.writ.wstatic;
 
 pub const LegendCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
-pub type Legend = ContainerType<LegendCfg>;
+pub type Legend = CtrClass<LegendCfg>;
 
 pub const LedgerCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
-pub type Ledger = ContainerType<LedgerCfg>;
+pub type Ledger = CtrClass<LedgerCfg>;
 
 pub const BillCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u32> };
-pub type Bill = ContainerType<BillCfg>;
+pub type Bill = CtrClass<BillCfg>;
 
 // Accepts the Legend family; the twin Ledger must be accepted too.
 fn take_legend(x: Legend) -> i32 { return 42i32; }

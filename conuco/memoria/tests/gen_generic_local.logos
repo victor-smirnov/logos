@@ -1,6 +1,6 @@
 // Generic container (ADR 0021 Phase 4b demand path): `container Map<K,V>`
 // lowers to a generic CFG const (`MapCfg<K,V>`) + generic alias
-// (`Map<K,V> = ContainerType<MapCfg<K,V>>`); naming a concrete instantiation
+// (`Map<K,V> = CtrClass<MapCfg<K,V>>`); naming a concrete instantiation
 // in `create_ctr::<typeof(Map::<u64,u64>)>` re-resolves the alias RHS under the
 // bindings, mono demands the concrete @hs, and the factory generates the
 // family. u64/u64 columns — a GENERIC value param instantiated at `str` is

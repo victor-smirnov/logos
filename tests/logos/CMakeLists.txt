@@ -233,7 +233,7 @@ add_custom_command(
 add_custom_target(ctr_mod_binary ALL DEPENDS ${CTR_MOD_BIN})
 
 # ADR 0021 Phase 4a crown gate: generic container alias (PMapCfg<K,V> +
-# PMap<K,V> = ContainerType<PMapCfg<K,V>>) declared in a binary module; the
+# PMap<K,V> = CtrClass<PMapCfg<K,V>>) declared in a binary module; the
 # consumer instantiates PMap<u64,u64> cross-module through the mono→factory
 # demand path (the map_consumer wall).
 set(PMAP_MOD_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/pmap_mod)

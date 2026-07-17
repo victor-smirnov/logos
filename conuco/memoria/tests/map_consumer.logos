@@ -2,7 +2,7 @@
 // (memoria.ctr.map, the memoria-ctr archive) — the ADR 0021 §4 acceptance
 // gate, UN-PARKED by Phase 4b. The library declaration lowers to
 // `MapCfg<K,V>` (generic WritStatic const) + `Map<K,V> =
-// ContainerType<MapCfg<K,V>>`; this consumer names `Map<u64,u64>` across
+// CtrClass<MapCfg<K,V>>`; this consumer names `Map<u64,u64>` across
 // the archive boundary — the alias RHS re-resolves under the bindings, mono
 // demands the concrete @hs, and the metaclass FACTORY generates the family
 // in THIS unit's compile (package logos.gen). The library ships only the

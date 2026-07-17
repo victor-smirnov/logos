@@ -130,21 +130,21 @@ identity, (c) knowledge, and (d) an on-demand factory binding.
 ```
 container Legend { kind ordered_map; entry { key: u64, val: str } measure max(key); }
   ⇒ (a) CFG: a WritStatic document lowered from the body
-    (b) type Legend = ContainerType<CFG>      — a plain type ALIAS
+    (b) type Legend = CtrClass<CFG>      — a plain type ALIAS
     (c) decl-time facts (classification + descriptive facet, ADR 0020)
-    (d) instantiation of ContainerType<CFG> demands the factory (metacall)
+    (d) instantiation of CtrClass<CFG> demands the factory (metacall)
 ```
 
 Key properties, each inherited from an existing mechanism rather than built:
 
 - **Aliases are transparent.** `Legend` is a type alias; sema resolves it;
-  mono sees only the canonical `ContainerType<CFG>`. Several aliases of one
+  mono sees only the canonical `CtrClass<CFG>`. Several aliases of one
   configuration are one type — mono unifies them out of the box. Container
   typing is **structural**; distinguishing two containers of the same shape
   is a runtime matter (`ctr_id`). No `typeof` operator, no newtype wrappers.
 - **Identity = the config document.** WritStatic documents already mangle as
   content hashes (`@hs_<64bit>`, ADR 0017 machinery). The mangle of
-  `ContainerType<@hs_X>` is the family key: structural memoization, twin
+  `CtrClass<@hs_X>` is the family key: structural memoization, twin
   deduplication, and cross-archive ODR all come from one place — and the
   generated families enter the same link-name algebra that gates every
   body-skip layer (sema skip / mono stub / mlir-gen forward-declare).
@@ -205,7 +205,7 @@ The one genuinely new compiler mechanism: a **demand edge from mono to the
 metaprog dispatch loop**.
 
 When mono instantiates a type whose base is registered as factory-backed
-(`ContainerType<CFG>`, reached through `create_ctr::<Legend>(&mut snp,
+(`CtrClass<CFG>`, reached through `create_ctr::<Legend>(&mut snp,
 ctr_id)` or any other use), instead of failing on a missing template it:
 
 1. computes the family key = mangle of the canonical type (`@hs(CFG)`),
@@ -319,9 +319,9 @@ Wave-0 stays green while the seam lands; each phase gates on the conuco
 memoria suite + targeted ctest slices; full ctest in background per group.
 
 1. **CFG + alias**: `container` declarations additionally lower to a
-   WritStatic CFG doc + `type <Name> = ContainerType<CFG>`; decl-time facts
+   WritStatic CFG doc + `type <Name> = CtrClass<CFG>`; decl-time facts
    unchanged. (Handler synthesizes the const+alias pair.)
-2. **Demand hook**: mono demand on `ContainerType<CFG>` → factory metacall →
+2. **Demand hook**: mono demand on `CtrClass<CFG>` → factory metacall →
    dispatch round; sema-side harvest replaced by the mono edge.
 3. **Factory re-keying**: identity and memoization by `@hs(CFG)`; Canon
    invoked at demand time (memoized); `blob_seen` and nominal name-threading
@@ -374,7 +374,7 @@ memoria suite + targeted ctest slices; full ctest in background per group.
   `logos.std.memoria`), never a second bare `create_ctr`. ADR 0017's engine
   is nominally superseded (memoria port) but cannot be deleted while linked;
   coexist by package.
-- Naming of the metaclass base type (`ContainerType<CFG>` vs lowercase
+- Naming of the metaclass base type (`CtrClass<CFG>` vs lowercase
   `container<CFG>`); collision with the existing `Ctr` handle trait.
 - `catalog` slot shape (runtime DDL descriptor) — deferred to the DDL arc.
 - When the second metaclass appears (schemas? rel-modules for Nous?), what

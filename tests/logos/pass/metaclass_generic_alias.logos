@@ -22,7 +22,7 @@ use logos.mem.pkd;
 use logos.lang.writ.wstatic;
 
 pub const PMapCfg<K, V>: WritStatic = @{ "kind": "ordered_map", "key": <type:K>, "value": <type:V> };
-pub type PMap<K, V> = ContainerType<PMapCfg<K, V>>;
+pub type PMap<K, V> = CtrClass<PMapCfg<K, V>>;
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();

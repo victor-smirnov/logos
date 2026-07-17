@@ -1,6 +1,6 @@
 // gen_cow — Canon container_shape versioning, end to end (ADR 0020 Track B ②
 // I3 + ADR 0021 Phase 4b demand path): one `kind ordered_map` declaration
-// lowers to its CFG doc + ContainerType alias; `create_ctr::<typeof(GenCow)>` fires
+// lowers to its CFG doc + CtrClass alias; `create_ctr::<typeof(GenCow)>` fires
 // the mono demand and the metaclass FACTORY generates the CoW family
 // (@hs-keyed leaf/branch + handle, package logos.gen). The STORE/SNAPSHOT
 // half is the HAND-WRITTEN, shared MemoryStore / MemorySnapshot

@@ -10205,7 +10205,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
             !cur_prog_->factory_demands.empty();
         if (!(metaprog_mode_ && (recv_is_error || recv_pointee_error)) &&
             !((recv_is_error || recv_pointee_error) && factory_deferral_pending)) {
-            error(std::format("field read: receiver is not a struct or class (got {})",
+            error(std::format("field read: receiver is not a struct (got {})",
                   type_str(expr_type(recv))));
         }
         return builder().field_read(std::move(recv), std::string(field_name), error_t());

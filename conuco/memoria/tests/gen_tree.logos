@@ -1,6 +1,6 @@
 // gen_tree — the b+tree assembly under bulk load, end to end (ADR 0020 Track
 // B ② I2 + ADR 0021 Phase 4b demand path): one `kind ordered_map` declaration
-// lowers to a CFG doc + ContainerType alias; `create_ctr::<typeof(GenBt)>` fires the
+// lowers to a CFG doc + CtrClass alias; `create_ctr::<typeof(GenBt)>` fires the
 // mono demand and the metaclass FACTORY generates the family (@hs-keyed
 // leaf/branch + CoW handle over the shared MemoryStore). main() mirrors the
 // hand-written logos.mem.bt.tree validation (BTreeU64): ascending fill

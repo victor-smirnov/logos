@@ -3,7 +3,7 @@
 // Cross-module generic seam (ADR 0021 Phase 4b): the declaration lives in
 // THIS archive and lowers to its demand-path surface — the generic CFG const
 // `MapCfg<K,V>` plus the transparent alias `Map<K,V> =
-// ContainerType<MapCfg<K,V>>`. No code is generated on the library side. A
+// CtrClass<MapCfg<K,V>>`. No code is generated on the library side. A
 // consumer naming a concrete instantiation (`create_ctr::<Map<u64,u64>>`)
 // re-resolves the alias RHS under its bindings; mono demands the concrete
 // @hs and the metaclass factory generates the family in the CONSUMER's

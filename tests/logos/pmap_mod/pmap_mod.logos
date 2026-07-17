@@ -1,13 +1,13 @@
 // Cross-module GENERIC container alias fixture (ADR 0021 Phase 4a crown
-// gate): the library declares a generic CFG const + the ContainerType alias;
+// gate): the library declares a generic CFG const + the CtrClass alias;
 // a consumer instantiates `PMap<u64, u64>` across the archive boundary —
 // the generic-const CFG resolves to a concrete @hs at the USE site, mono
 // demands, the factory generates, create_ctr resolves. This is the
 // map_consumer wall (ADR 0021 §4 acceptance gate) falling.
 package pmap_mod;
 
-use logos.lcm.canon.metaclass;   // ContainerType (the factory-backed marker)
+use logos.lcm.canon.metaclass;   // CtrClass (the factory-backed marker)
 use logos.lang.writ.wstatic;
 
 pub const PMapCfg<K, V>: WritStatic = @{ "kind": "ordered_map", "key": <type:K>, "value": <type:V> };
-pub type PMap<K, V> = ContainerType<PMapCfg<K, V>>;
+pub type PMap<K, V> = CtrClass<PMapCfg<K, V>>;

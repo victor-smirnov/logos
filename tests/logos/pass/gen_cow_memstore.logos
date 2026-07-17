@@ -1,6 +1,6 @@
 // gen_cow_memstore — the CoW map generated against the hand-written MemoryStore
 // (ADR 0020 Track B container⟂store split + ADR 0021 Phase 4b demand path).
-// One `kind ordered_map` declaration lowers to a CFG doc + ContainerType
+// One `kind ordered_map` declaration lowers to a CFG doc + CtrClass
 // alias; `create_ctr::<typeof(GenCow)>` fires the mono demand and the metaclass
 // FACTORY generates the family (@hs-keyed leaf/branch + CoW handle, package
 // logos.gen), which runs on the SHARED MemoryStore / MemorySnapshot. main()

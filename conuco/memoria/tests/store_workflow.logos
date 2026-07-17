@@ -2,7 +2,7 @@
 // (ADR 0021 Phase 4b surface): create a MemoryStore, fork a snapshot,
 // create_ctr the container in it, fill, commit, branch, verify isolation —
 // the full CoW store lifecycle over a Canon-shaped container. Each
-// `container` line lowers to a CFG doc + `type <N> = ContainerType<<N>Cfg>`
+// `container` line lowers to a CFG doc + `type <N> = CtrClass<<N>Cfg>`
 // alias; `create_ctr::<typeof(N)>`/`open_ctr::<typeof(N)>` fire the mono demand and the
 // metaclass FACTORY generates the family (@hs-keyed, package logos.gen):
 //   Ledger:  fast leaf (u64/u64, count-balanced split) + branch + CoW handle;

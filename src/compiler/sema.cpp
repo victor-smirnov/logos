@@ -5064,7 +5064,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 return subst_type_sema(e->type, make_subst(*e));
             // 1b. Mangled-spelling probe: collect keys a CONCRETE generic impl
             // target (`impl Trait for Foo<i32>`, `impl Trait for
-            // ContainerType<@hs_…>`) under concrete_struct_name
+            // CtrClass<@hs_…>`) under concrete_struct_name
             // (`Foo$G1$i32`), while type_str above spells `Foo<i32>` — the
             // two-spellings landmine (ADR 0021 §3.1). mono's resolver
             // (mono_subst AssocType) already probes the mangled form; mirror
@@ -5609,7 +5609,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 error(std::format("type alias '{}' expects {} lifetime argument(s), got {}",
                                   name, lt_expected, lt_args.size()));
             // ADR 0021 Phase 4a: an alias RHS that instantiates a GENERIC
-            // const (`type PMap<K,V> = ContainerType<PMapCfg<K,V>>`) cannot
+            // const (`type PMap<K,V> = CtrClass<PMapCfg<K,V>>`) cannot
             // ride decl-time resolution — the const already collapsed to ONE
             // WStaticLit whose hash mixed the typevar NAMES, so substitution
             // has nothing left to substitute and every instantiation would
@@ -5724,9 +5724,9 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     }
     // ── Generic container instantiation — RETIRED (ADR 0021 Phase 4b) ─────
     // `container Map<K,V>` now lowers (decl site) to a WritStatic CFG const +
-    // the transparent alias `type Map<K,V> = ContainerType<MapCfg<K,V>>`, so
+    // the transparent alias `type Map<K,V> = CtrClass<MapCfg<K,V>>`, so
     // `Map<u64,u64>` is caught by the generic-type-alias branch above (it
-    // returns before reaching here) and resolves to `ContainerType<@hs>`. The
+    // returns before reaching here) and resolves to `CtrClass<@hs>`. The
     // family is generated on demand by the mono factory seam, not by an
     // eager per-(K,V) harvest. The old auto-generate-and-defer branch here
     // (pending_container_srcs + the `{mangled}Tree` bind asymmetry) fired ZERO
@@ -5928,7 +5928,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // type-level bridge. `container Map<K,V> {...}` is a DECLARATION, not
         // a type (the container's value type also depends on the store);
         // `typeof(Map::<i64,i64>)` / `typeof(Legend)` yield the typed config
-        // wrapper `ContainerType<@{…}>`. Resolution goes through the decl's
+        // wrapper `CtrClass<@{…}>`. Resolution goes through the decl's
         // emitted `<Name>Cfg` const, so the document has ONE source of truth
         // (hence one content hash — the family identity).
         {
@@ -6834,7 +6834,7 @@ std::optional<uint64_t> SemaChecker::factory_backed_marker_hash(TypeRef t) const
         tv.kind() != LogosType::Kind::ZonedStruct) return std::nullopt;
     // Mirrors mono's struct_pkg_is_metaclass gate (registry when a second
     // metaclass appears).
-    if (tv.struct_name() != "ContainerType") return std::nullopt;
+    if (tv.struct_name() != "CtrClass") return std::nullopt;
     if (tv.pkg_name() != "logos.lcm.canon.metaclass") return std::nullopt;
     auto args = tv.type_args();
     if (args.empty() || !args[0] ||
@@ -6851,7 +6851,7 @@ bool SemaChecker::defer_factory_backed(TypeRef t) {
     for (auto& fd : cur_prog_->factory_demands)
         if (fd.cfg_hash == *h) { fd.required = true; return true; }
     cur_prog_->factory_demands.push_back(
-        {"ContainerType", "logos.lcm.canon.metaclass", *h, type_str(t),
+        {"CtrClass", "logos.lcm.canon.metaclass", *h, type_str(t),
          /*required=*/true});
     return true;
 }

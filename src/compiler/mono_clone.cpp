@@ -6219,13 +6219,13 @@ void Mono::instantiate_struct_templates() {
             SubstMap subst;
 
             // ADR 0021 §3: metaclass demand. Instantiating a factory-backed
-            // marker type (ContainerType<CFG>) records a demand for the CFG's
+            // marker type (CtrClass<CFG>) records a demand for the CFG's
             // container family, keyed by the WritStatic doc's content hash.
             // The marker itself IS a real (empty) template — cloning proceeds
             // normally below; the demand is drained by the driver, which
             // invokes the metaclass factory and re-enters dispatch. Keyed on
             // the raw u64 hash (mangled spellings diverge: hs_ vs @hs_).
-            if (base == "ContainerType" &&
+            if (base == "CtrClass" &&
                 struct_pkg_is_metaclass(struct_t) &&
                 !TypeRef(struct_t).type_args().empty()) {
                 TypeRef cfg = TypeRef(struct_t).type_args()[0];
