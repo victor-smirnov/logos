@@ -174,6 +174,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     out_.pkg_module_ids      = in_.pkg_module_ids;
     out_.wstatic_registry_   = std::move(in_.wstatic_registry_);
     out_.wstatic_sources     = std::move(in_.wstatic_sources);
+    // ADR 0021 Phase 4a: sema-filled factory demands (deferred bound /
+    // projection diagnostics against factory-backed markers) ride through to
+    // the driver drain. Seed the dedup set so the marker-instantiation hook
+    // doesn't re-demand a hash sema already recorded.
+    for (auto& fd : in_.factory_demands)
+        if (factory_demand_hashes_.insert(fd.cfg_hash).second)
+            out_.factory_demands.push_back(fd);
     out_.writ_val_pool_    = std::move(in_.writ_val_pool_);
     out_.closure_pool_       = std::move(in_.closure_pool_);
     out_.consts              = std::move(in_.consts);

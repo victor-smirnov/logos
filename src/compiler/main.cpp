@@ -5467,15 +5467,16 @@ int main(int argc, char** argv) {
     //
     // Driver-side dedup is load-bearing: mono's factory_demand_hashes_ is
     // per-Mono-instance, so each fresh mono pass re-fires demands for configs
-    // whose satisfaction is not yet consulted. The Phase 3 factory emits the
-    // real family (Hs<hex>Leaf/Branch/Tree + the CoW handle Hs<hex>) plus
-    // the satisfaction marker `impl CtrFamily for ContainerType<CFG>`, but
-    // the demand hook does not check it yet — steady state stays: round 1
-    // drains N demands, round 2 re-fires them, the driver sees every hash
-    // already drained and exits quietly.
-    // TODO(ADR 0021 Phase 4): when create_ctr goes live, a re-fired
-    // already-drained hash means the factory FAILED to satisfy the demand
-    // (the CtrFamily impl is the signal) and must become a hard diagnostic.
+    // whose satisfaction is not yet consulted. Re-fires of a drained hash are
+    // STRUCTURAL and expected — the ContainerType<CFG> marker struct itself
+    // re-instantiates every round (the demand hook fires on marker
+    // instantiation, not on an unresolved impl). The satisfaction signal
+    // (Phase 4a) is therefore a program-content probe, not the re-fire: after
+    // a drained round the program must actually CONTAIN the generated family
+    // (any `Hs<hex>`-named function — handle statics, node methods, the
+    // CtrFamily impl fns all carry the hash-derived family name). Absence
+    // after a drain round = the factory ran but produced nothing for that
+    // config → hard error instead of a silent create_ctr resolution failure.
     std::unordered_set<uint64_t> drained_factory_hashes;
     constexpr int kMaxFactoryDrainRounds = 3;
     for (int drain_round = 0; ; ++drain_round) {
@@ -5546,12 +5547,69 @@ int main(int argc, char** argv) {
     std::vector<logos::compiler::lir::LProgram::FactoryDemand> fresh_demands;
     for (const auto& fd : prog.factory_demands)
         if (!drained_factory_hashes.count(fd.cfg_hash)) fresh_demands.push_back(fd);
-    if (fresh_demands.empty()) break;  // quiet-break steady state (see TODO above)
+
+    // ── Satisfaction probe (Phase 4a) ────────────────────────────────────
+    // Every re-fired already-drained demand must be backed by its generated
+    // family in THIS program. Probe: any function whose (bare or mangled)
+    // name contains the hash-derived family name `Hs<016x>` — create/open/
+    // insert/get_or/size and the node methods all carry it. Cheap: runs only
+    // for hashes that survived a drain round, and the 16-hex-digit needle
+    // cannot false-positive.
+    for (const auto& fd : prog.factory_demands) {
+        if (!drained_factory_hashes.count(fd.cfg_hash)) continue;
+        char hex[17];
+        std::snprintf(hex, sizeof hex, "%016llx", (unsigned long long)fd.cfg_hash);
+        std::string fam = std::string("Hs") + hex;
+        bool present = false;
+        for (const auto& f : prog.functions) {
+            if (f && std::string_view(f.name()).find(fam) != std::string_view::npos) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) {
+            std::fprintf(stderr,
+                "logosc: metaclass: factory failed to produce the family for "
+                "@hs_%s (demand %s<@hs_%s>, %s — drained, but no %s* function "
+                "exists after the drain round)\n",
+                hex, fd.base.c_str(), hex, fd.cname.c_str(), fam.c_str());
+            return 1;
+        }
+    }
+
+    if (fresh_demands.empty()) {
+        // Steady state: every demand drained + family present. But a demand
+        // sema (re-)marked REQUIRED in THIS round means the post-drain
+        // re-sema still had to defer a diagnostic against the marker — the
+        // factory produced the family yet not the impl the use site needs.
+        for (const auto& fd : prog.factory_demands) {
+            if (!fd.required) continue;
+            std::fprintf(stderr,
+                "logosc: metaclass: factory did not satisfy the deferred "
+                "trait obligation for %s<@hs_%016llx> (%s) — the CtrFamily "
+                "impl is missing after the drain round\n",
+                fd.base.c_str(), (unsigned long long)fd.cfg_hash, fd.cname.c_str());
+            return 1;
+        }
+        break;
+    }
 
     if (!factory_available) {
-        // Not an error: the ContainerType marker template instantiates fine
-        // on its own (metaclass identity is meaningful without the family).
-        // One note, not one per demand — the condition is program-level.
+        // A REQUIRED demand (sema deferred a create_ctr-style diagnostic
+        // against it) cannot proceed without the factory — hard error, with
+        // the fix spelled out. Purely structural demands stay a note: the
+        // ContainerType marker template instantiates fine on its own
+        // (metaclass identity is meaningful without the family).
+        for (const auto& fd : fresh_demands) {
+            if (!fd.required) continue;
+            std::fprintf(stderr,
+                "logosc: metaclass: %s<@hs_%016llx> (%s) requires the "
+                "container factory, but logos.lcm.canon.container_item is "
+                "not loaded — add `use logos.lcm.canon.container_item;` to "
+                "the declaring unit (ADR 0021 Phase 4a)\n",
+                fd.base.c_str(), (unsigned long long)fd.cfg_hash, fd.cname.c_str());
+            return 1;
+        }
         std::fprintf(stderr,
             "metaclass: %zu factory demand(s) pending but "
             "logos.lcm.canon.container_item is not loaded — drain skipped "

@@ -517,9 +517,26 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         return s;
     }
     case la::WRIT_TYPE_LIT: {
-        // `<type:T>` — a Logos type embedded in a Writ literal.
+        // `<type:T>` — a Logos type embedded in a Writ literal. When T is a
+        // type-param BOUND in the current scope (a generic const's value doc
+        // being re-resolved per instantiation, ADR 0021 Phase 4a), render the
+        // SUBSTITUTED type: the captured wstatic_sources text must match the
+        // hash walk, which hashes `type_str(resolve_type(T))` — a raw `K`
+        // under a concrete hash would hand the factory an unresolvable slot.
         std::string s = "<type:";
-        if (node.has_key(la::TYPE)) s += render_type_src(map_of(node.get(la::TYPE.code)));
+        if (node.has_key(la::TYPE)) {
+            auto tnode = map_of(node.get(la::TYPE.code));
+            std::string sub;
+            if (tnode.has_key(la::NAME) && !tnode.has_key(la::ITEMS)) {
+                auto tn = std::string(str_of(tnode.get(la::NAME.code)));
+                auto pit = current_type_params_.find(tn);
+                if (pit != current_type_params_.end() && pit->second &&
+                    TypeRef(pit->second).kind() != LogosType::Kind::TypeVar &&
+                    TypeRef(pit->second).kind() != LogosType::Kind::ConstVar)
+                    sub = type_str(pit->second);
+            }
+            s += sub.empty() ? render_type_src(tnode) : sub;
+        }
         s += ">";
         return s;
     }

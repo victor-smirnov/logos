@@ -1,0 +1,6 @@
+module pmap_mod
+version 0.1
+root tests/logos/pmap_mod/
+depends logos-lang
+depends logos-mem
+depends logos-lcm

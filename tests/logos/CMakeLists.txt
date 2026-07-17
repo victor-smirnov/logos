@@ -232,6 +232,26 @@ add_custom_command(
 )
 add_custom_target(ctr_mod_binary ALL DEPENDS ${CTR_MOD_BIN})
 
+# ADR 0021 Phase 4a crown gate: generic container alias (PMapCfg<K,V> +
+# PMap<K,V> = ContainerType<PMapCfg<K,V>>) declared in a binary module; the
+# consumer instantiates PMap<u64,u64> cross-module through the mono→factory
+# demand path (the map_consumer wall).
+set(PMAP_MOD_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/pmap_mod)
+set(PMAP_MOD_MANIFEST ${PMAP_MOD_DIR}/pmap_mod.module)
+set(PMAP_MOD_BIN      ${CMAKE_CURRENT_BINARY_DIR}/libpmap_mod.a)
+file(GLOB PMAP_MOD_SOURCES ${PMAP_MOD_DIR}/*.logos)
+add_custom_command(
+    OUTPUT  ${PMAP_MOD_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${PMAP_MOD_MANIFEST}
+            -o ${PMAP_MOD_BIN}
+    DEPENDS logosc ${PMAP_MOD_MANIFEST} ${PMAP_MOD_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_LCM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libpmap_mod.a"
+)
+add_custom_target(pmap_mod_binary ALL DEPENDS ${PMAP_MOD_BIN})
+
 # Lazy→lazy chain fixture: liblazy_lower.a + liblazy_upper.a (both lazy).
 # Exercises the case where a lazy module's `use` resolves to another
 # lazy archive — both ASTs must reach the consumer's sema as user-code
@@ -515,6 +535,9 @@ function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_SD_DST_MOD_USERS sd_dst_module_methods)
     # ADR 0020: container declared in a binary module, queried by a consumer.
     set(LOCAL_CTR_MOD_USERS container_item_from_module)
+    # ADR 0021 Phase 4a: generic container alias from a binary module,
+    # instantiated cross-module through the mono→factory demand path.
+    set(LOCAL_PMAP_MOD_USERS metaclass_pmap_from_module)
     # Phase 6 lazy→lazy chain: consumer pulls upper (lazy) which pulls
     # lower (also lazy). Both archives must reach sema as user code.
     set(LOCAL_LAZY_CHAIN_USERS lazy_pkg_chain)
@@ -566,6 +589,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${SD_DST_MOD_BIN})
     elseif (BASE IN_LIST LOCAL_CTR_MOD_USERS)
         set(_extra -l ${CTR_MOD_BIN})
+    elseif (BASE IN_LIST LOCAL_PMAP_MOD_USERS)
+        set(_extra -l ${PMAP_MOD_BIN})
     elseif (BASE IN_LIST LOCAL_LAZY_CHAIN_USERS)
         set(_extra -l ${LAZY_LOWER_BIN} -l ${LAZY_UPPER_BIN})
     elseif (BASE IN_LIST LOCAL_THREE_LAYER_USERS)

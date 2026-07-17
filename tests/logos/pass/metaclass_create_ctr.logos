@@ -1,0 +1,44 @@
+// ADR 0021 Phase 4a: the uniform instantiation surface on a CONCRETE alias.
+// `create_ctr::<Legend>` fires the mono demand through the CtrFamily bound
+// (round-0 sema DEFERS the unmet bound + the unresolved `C::Handle`
+// projection against the factory-backed marker, recording a REQUIRED
+// demand); the drain generates the Hs<hex> family plus the full CtrFamily
+// impl (type Handle + family_id/create/open); the post-drain re-sema
+// resolves create_ctr strictly and the handle drives real b+tree work:
+// 1000-key insert / get_or (hit + miss) / size, exit-code proof.
+package main;
+
+use logos.lcm.canon.metaclass;       // ContainerType + CtrFamily + create_ctr/open_ctr
+use logos.lcm.canon.container_item;  // loads the factory (an emitted `use` cannot LOAD a module)
+use logos.mem.bt.map;                // trait hub for the generated impls
+use logos.mem.bt.memstore;           // MemoryStore / MemorySnapshot
+use logos.mem.pkd;                   // generated leaf/branch target
+use logos.lang.writ.wstatic;
+
+pub const LegendCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
+pub type Legend = ContainerType<LegendCfg>;
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s0: MemorySnapshot = store.fork();
+    let m = create_ctr::<Legend>(&mut s0, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 1000u64 { m.insert(k, k + 7u64); k = k + 1u64; }
+    let mut bad: u64 = 0u64;
+    k = 0u64;
+    while k < 1000u64 {
+        if m.get_or(k, 0xFFFFu64) != k + 7u64 { bad = bad + 1u64; }
+        k = k + 1u64;
+    }
+    if m.get_or(5000u64, 0xDEADu64) != 0xDEADu64 { bad = bad + 1u64; }
+    if m.size() != 1000u64 { bad = bad + 1u64; }
+    store.commit(&s0);
+    // open_ctr on the same snapshot sees the same container.
+    let m2 = open_ctr::<Legend>(&mut s0, 1u64);
+    if m2.size() != 1000u64 { bad = bad + 1u64; }
+    if m2.get_or(999u64, 0u64) != 999u64 + 7u64 { bad = bad + 1u64; }
+    s0.release();
+    store.release();
+    if bad != 0u64 { return 1i32; }
+    return 42i32;
+}

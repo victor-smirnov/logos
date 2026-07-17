@@ -1,0 +1,46 @@
+// ADR 0021 Phase 4a crown gate (same-file half): a GENERIC container alias
+// through the demand path. `PMapCfg<K,V>` is a generic WritStatic const;
+// `PMap<K,V>` a generic alias over the factory-backed marker. At the use
+// site the alias RHS is RE-RESOLVED under K=V=u64 (generic-const
+// instantiation → fresh @hs identity + SUBSTITUTED doc source), mono
+// demands, the factory generates, create_ctr resolves. The drained hash is
+// byte-identical to the concrete u64/u64 CFG's — the generic instantiation
+// and a concrete twin unify structurally, no name in the key.
+//
+// KNOWN GAP (probed, deliberate): `PMap<u64, str>` — the substituted doc
+// renders `<type:str>`, but str is unsized and rejected in `<type:>` slots
+// (concrete str CFGs ride emit_cfg_doc's `"str"` VLE tag, a DIFFERENT doc
+// shape/hash). Canonicalizing str→tag inside generic substitution is a
+// hash-identity change, deferred past 4a.
+package main;
+
+use logos.lcm.canon.metaclass;
+use logos.lcm.canon.container_item;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.pkd;
+use logos.lang.writ.wstatic;
+
+pub const PMapCfg<K, V>: WritStatic = @{ "kind": "ordered_map", "key": <type:K>, "value": <type:V> };
+pub type PMap<K, V> = ContainerType<PMapCfg<K, V>>;
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s0: MemorySnapshot = store.fork();
+    let m = create_ctr::<PMap<u64, u64>>(&mut s0, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 1000u64 { m.insert(k, k * 3u64 + 1u64); k = k + 1u64; }
+    let mut bad: u64 = 0u64;
+    k = 0u64;
+    while k < 1000u64 {
+        if m.get_or(k, 0xFFFFu64) != k * 3u64 + 1u64 { bad = bad + 1u64; }
+        k = k + 1u64;
+    }
+    if m.get_or(7777u64, 0xDEADu64) != 0xDEADu64 { bad = bad + 1u64; }
+    if m.size() != 1000u64 { bad = bad + 1u64; }
+    store.commit(&s0);
+    s0.release();
+    store.release();
+    if bad != 0u64 { return 1i32; }
+    return 42i32;
+}

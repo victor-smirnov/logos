@@ -1,0 +1,38 @@
+// ADR 0021 Phase 4a crown gate (cross-module half): the map_consumer wall.
+// libpmap_mod.a declares the GENERIC container alias (PMapCfg<K,V> +
+// PMap<K,V> over the factory-backed marker); THIS consumer instantiates
+// PMap<u64,u64> across the archive boundary. The generic const's value AST
+// rides the archive, the use-site re-resolution produces the concrete @hs,
+// mono demands, the factory generates the family into logos.gen, and
+// create_ctr resolves against the drained CtrFamily impl. Real b+tree
+// roundtrip (1000 keys) as the exit-code proof.
+package main;
+
+use pmap_mod;                        // PMap<K,V> + PMapCfg<K,V> (the library)
+use logos.lcm.canon.metaclass;       // create_ctr + CtrFamily
+use logos.lcm.canon.container_item;  // loads the factory
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.pkd;
+use logos.lang.writ.wstatic;
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s0: MemorySnapshot = store.fork();
+    let m = create_ctr::<PMap<u64, u64>>(&mut s0, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 1000u64 { m.insert(k, k * 5u64 + 2u64); k = k + 1u64; }
+    let mut bad: u64 = 0u64;
+    k = 0u64;
+    while k < 1000u64 {
+        if m.get_or(k, 0xFFFFu64) != k * 5u64 + 2u64 { bad = bad + 1u64; }
+        k = k + 1u64;
+    }
+    if m.get_or(4242u64, 0xDEADu64) != 0xDEADu64 { bad = bad + 1u64; }
+    if m.size() != 1000u64 { bad = bad + 1u64; }
+    store.commit(&s0);
+    s0.release();
+    store.release();
+    if bad != 0u64 { return 1i32; }
+    return 42i32;
+}

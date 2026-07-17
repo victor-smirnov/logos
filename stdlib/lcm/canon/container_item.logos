@@ -1351,15 +1351,29 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     sp.push_str(":0|measures=max(key)|pkg=logos.gen");
     container_item_run(fam.as_str(), sp.as_str(), false);
 
-    // ── satisfaction marker: impl CtrFamily for ContainerType<CFG> ─────────
+    // ── satisfaction marker + Phase 4a surface: the full CtrFamily impl ────
+    // type Handle = the family's CoW handle; create/open forward to its
+    // inherent statics (the impl target is ContainerType<CFG>, not the
+    // handle, so inherent-vs-trait shadowing cannot bite here).
     let mut em: Emitter = Emitter::new();
     em.emit_into("logos.gen");
     em.push_text("use logos.lcm.canon.metaclass; ");
+    em.push_text("use logos.mem.bt.memstore; ");
     em.push_text("impl CtrFamily for ContainerType<");
     em.push_text(cfg_src);
-    em.push_text("> { fn family_id() -> u64 { return 0x");
+    em.push_text("> { type Handle = ");
+    em.push_text(fam.as_str());
+    em.push_text("; fn family_id() -> u64 { return 0x");
     em.push_text(hash_hex);
-    em.push_text("u64; } }");
+    em.push_text("u64; } fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> ");
+    em.push_text(fam.as_str());
+    em.push_text(" { return ");
+    em.push_text(fam.as_str());
+    em.push_text("::create(snap, ctr_id); } fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> ");
+    em.push_text(fam.as_str());
+    em.push_text(" { return ");
+    em.push_text(fam.as_str());
+    em.push_text("::open(snap, ctr_id); } }");
     em.commit();
     return out;
 }

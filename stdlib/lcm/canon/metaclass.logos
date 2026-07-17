@@ -11,29 +11,56 @@
 //
 // `ContainerType<CFG>` is the demand marker: its instantiation is what the
 // mono→factory seam (ADR 0021 §3) intercepts to run Canon and emit the
-// container family for that configuration. Until the seam lands it is an
-// inert zero-field marker — declaring the alias and computing identity is
-// already meaningful (and testable) on its own.
+// container family for that configuration.
 package logos.lcm.canon.metaclass;
 
 use logos.lang.writ.wstatic;
+use logos.mem.bt.memstore;   // MemorySnapshot — the CtrFamily fn surface (mem < lcm, tier-legal)
 
 /// The metaclass of a container declaration. `CFG` is the container's
 /// configuration document (kind, element columns, measures); its content hash
 /// is the family identity. Zero-field: the type carries only its CFG identity.
 pub struct ContainerType<const CFG: WritStatic> {}
 
-/// The factory-satisfaction marker (ADR 0021 Phase 3). The metaclass factory
+/// The container-family protocol (ADR 0021 Phase 4a). The metaclass factory
 /// closes each drained demand by emitting
 ///
-///     impl CtrFamily for ContainerType<CFG> { fn family_id() -> u64 { ... } }
+///     impl CtrFamily for ContainerType<CFG> {
+///         type Handle = Hs<hex>;
+///         fn family_id() -> u64 { ... }
+///         fn create(snap, ctr_id) -> Hs<hex> { return Hs<hex>::create(snap, ctr_id); }
+///         fn open(snap, ctr_id)   -> Hs<hex> { return Hs<hex>::open(snap, ctr_id); }
+///     }
 ///
 /// with the demand's CFG document spliced verbatim as the const type-arg —
 /// re-parsing it yields the same content hash, hence the very ContainerType
-/// instance mono demanded. `family_id()` returns that hash. Self-less fn (the
-/// trait grammar has no `static fn`). Phase 4's `create_ctr<C: CtrFamily>`
-/// bounds on this trait; until then the impl is the drain loop's
-/// (not-yet-enforced) satisfaction signal.
+/// instance mono demanded. `family_id()` returns that hash; `Handle` is the
+/// generated CoW handle (a thin `{snap, ctr_id}` view of the container inside
+/// one MemorySnapshot); create/open forward to the handle's inherent statics.
+/// All fns are SELF-LESS (the trait grammar has no `static fn`). The impl is
+/// also the drain loop's satisfaction signal (driver-side probe, main.cpp).
 pub trait CtrFamily {
+    type Handle;
     fn family_id() -> u64;
+    fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> Self::Handle;
+    fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> Self::Handle;
+}
+
+/// The single container-instantiation surface (ADR 0021 §4): `C` is a
+/// container alias (`type Legend = ContainerType<LegendCfg>`); naming it here
+/// fires the mono demand, the factory generates the family, and the returned
+/// handle is the family's CoW handle for `ctr_id` inside `snap`.
+///
+/// NB (ADR 0021 §5): logos.lcm.deem's ADR-0017 `create_ctr`/`open_ctr` still
+/// exist; these are package-scoped here — a unit importing BOTH modules would
+/// collide (no unit does today; the deem pair retires with the memoria port).
+pub fn create_ctr<C: CtrFamily>(snap: &mut MemorySnapshot, ctr_id: u64) -> C::Handle {
+    return C::create(snap, ctr_id);
+}
+
+/// Open an existing container `ctr_id` in `snap` through its family handle.
+/// Existence is not checked here (wave-parity with the generated handle's
+/// `open`); the Option-returning form arrives with the deem-pair retirement.
+pub fn open_ctr<C: CtrFamily>(snap: &mut MemorySnapshot, ctr_id: u64) -> C::Handle {
+    return C::open(snap, ctr_id);
 }

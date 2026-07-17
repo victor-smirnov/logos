@@ -1632,6 +1632,26 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
                                                                 size_t n_args) const {
     const SemaFuncInfo* fallback = nullptr;
     const SemaFuncInfo* first_arity = nullptr;
+    // Import-visible preference (mirrors find_func_candidates' filter): when
+    // two packages export a same-name generic (logos.lcm.deem's ADR-0017
+    // `create_ctr` vs logos.lcm.canon.metaclass' Phase-4a `create_ctr`), a
+    // call site must resolve against the overload its OWN unit imports, not
+    // the first registered one. Kept as a preference, not a hard filter —
+    // synthetic phases (metacall item thunks, wql! handler lowering) call
+    // bare names from packages that import nothing and rely on the lenient
+    // program-wide fallback.
+    const SemaFuncInfo* first_visible_arity = nullptr;
+    auto visible = [&](const SemaFuncInfo& fi) {
+        if (fi.package.empty() || fi.package == cur_package_) return true;
+        if (std::find(cur_imports_.wildcard_packages.begin(),
+                      cur_imports_.wildcard_packages.end(),
+                      fi.package) == cur_imports_.wildcard_packages.end())
+            return false;
+        if (auto it = cur_imports_.pkg_from_module_id.find(fi.package);
+            it != cur_imports_.pkg_from_module_id.end() && fi.module_id != it->second)
+            return false;   // imported `from` a different module → not visible
+        return true;
+    };
     if (auto git = generic_overloads_.find(std::string(base_name)); git != generic_overloads_.end()) {
         for (auto& sym : git->second) {
             auto fit = generic_funcs_.find(sym);
@@ -1642,9 +1662,11 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
                                          : fi.param_types.size() == n_args;
             if (!arity_ok) { if (!fallback) fallback = &fi; continue; }
             if (!cur_package_.empty() && fi.package == cur_package_) return &fi;
+            if (!first_visible_arity && visible(fi)) first_visible_arity = &fi;
             if (!first_arity) first_arity = &fi;
         }
     }
+    if (first_visible_arity) return first_visible_arity;
     if (first_arity) return first_arity;
     return fallback;
 }
@@ -5018,6 +5040,20 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             std::string tn(t.trait_name()), an(t.assoc_type_name());
             if (auto* e = find_assoc_type_entry(tn, concrete_name, an))
                 return subst_type_sema(e->type, make_subst(*e));
+            // 1b. Mangled-spelling probe: collect keys a CONCRETE generic impl
+            // target (`impl Trait for Foo<i32>`, `impl Trait for
+            // ContainerType<@hs_…>`) under concrete_struct_name
+            // (`Foo$G1$i32`), while type_str above spells `Foo<i32>` — the
+            // two-spellings landmine (ADR 0021 §3.1). mono's resolver
+            // (mono_subst AssocType) already probes the mangled form; mirror
+            // it here so sema normalizes the projection too.
+            if (TypeRef(concrete).kind() == LogosType::Kind::Struct ||
+                TypeRef(concrete).kind() == LogosType::Kind::ZonedStruct) {
+                std::string mangled = concrete_struct_name(concrete);
+                if (!mangled.empty() && mangled != concrete_name)
+                    if (auto* e = find_assoc_type_entry(tn, mangled, an))
+                        return subst_type_sema(e->type, make_subst(*e));
+            }
             // 2. Base-name fallback (generic impls).
             std::string base_name = (TypeRef(concrete).kind() == LogosType::Kind::Struct)
                                     ? std::string(TypeRef(concrete).struct_name()) : "";
@@ -5533,6 +5569,36 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
             if (lt_args.size() != lt_expected)
                 error(std::format("type alias '{}' expects {} lifetime argument(s), got {}",
                                   name, lt_expected, lt_args.size()));
+            // ADR 0021 Phase 4a: an alias RHS that instantiates a GENERIC
+            // const (`type PMap<K,V> = ContainerType<PMapCfg<K,V>>`) cannot
+            // ride decl-time resolution — the const already collapsed to ONE
+            // WStaticLit whose hash mixed the typevar NAMES, so substitution
+            // has nothing left to substitute and every instantiation would
+            // alias one identity. Re-resolve the saved RHS AST under the
+            // concrete bindings instead (the generic-const branch above then
+            // produces the per-instantiation hash + substituted source).
+            if (!ait->second.rhs_node.is_null() &&
+                type_ast_mentions_generic_const(ait->second.rhs_node)) {
+                auto& tps = ait->second.type_params;
+                StrMap<TypeRef> saved_params;
+                for (size_t i = 0; i < tps.size() && i < args.size(); ++i) {
+                    auto it2 = current_type_params_.find(tps[i].name);
+                    if (it2 != current_type_params_.end())
+                        saved_params[tps[i].name] = it2->second;
+                    current_type_params_[tps[i].name] = args[i];
+                }
+                auto* saved_holder = holder_;
+                if (ait->second.holder) holder_ = ait->second.holder;
+                TypeRef result = resolve_type(ait->second.rhs_node);
+                holder_ = saved_holder;
+                for (size_t i = 0; i < tps.size() && i < args.size(); ++i) {
+                    auto sit = saved_params.find(tps[i].name);
+                    if (sit != saved_params.end())
+                        current_type_params_[tps[i].name] = sit->second;
+                    else current_type_params_.erase(tps[i].name);
+                }
+                return result;
+            }
             SemaSubst s;
             for (size_t i = 0; i < expected && i < args.size(); ++i)
                 s[ait->second.type_params[i].name] = args[i];
@@ -6689,6 +6755,64 @@ TypeRef SemaChecker::resolve_wstatic_value(TinyMapView val_node) {
         t.const_val = (int64_t)hash;  // bit-pattern reuse; mangling reads it as u64
         return pool_->alloc(std::move(t));
     }
+}
+
+// ── ADR 0021 Phase 4a: factory-backed marker deferral ────────────────────────
+
+std::optional<uint64_t> SemaChecker::factory_backed_marker_hash(TypeRef t) const {
+    if (!t) return std::nullopt;
+    TypeRef tv{t};
+    if (tv.kind() != LogosType::Kind::Struct &&
+        tv.kind() != LogosType::Kind::ZonedStruct) return std::nullopt;
+    // Mirrors mono's struct_pkg_is_metaclass gate (registry when a second
+    // metaclass appears).
+    if (tv.struct_name() != "ContainerType") return std::nullopt;
+    if (tv.pkg_name() != "logos.lcm.canon.metaclass") return std::nullopt;
+    auto args = tv.type_args();
+    if (args.empty() || !args[0] ||
+        TypeRef(args[0]).kind() != LogosType::Kind::WStaticLit) return std::nullopt;
+    uint64_t h = (uint64_t)TypeRef(args[0]).const_val().value_or(0);
+    if (!h) return std::nullopt;
+    return h;
+}
+
+bool SemaChecker::defer_factory_backed(TypeRef t) {
+    auto h = factory_backed_marker_hash(t);
+    if (!h) return false;
+    if (!cur_prog_) return false;  // no program to carry the demand — stay strict
+    for (auto& fd : cur_prog_->factory_demands)
+        if (fd.cfg_hash == *h) { fd.required = true; return true; }
+    cur_prog_->factory_demands.push_back(
+        {"ContainerType", "logos.lcm.canon.metaclass", *h, type_str(t),
+         /*required=*/true});
+    return true;
+}
+
+bool SemaChecker::type_ast_mentions_generic_const(TinyMapView n) {
+    if (n.is_null()) return false;
+    if (code_of(n) == la::GENERIC_INST && n.has_key(la::NAME) &&
+        generic_consts_.count(std::string(str_of(n.get(la::NAME.code)))))
+        return true;
+    auto rec_map = [&](uint8_t key) -> bool {
+        if (!n.has_key(key)) return false;
+        AnyVal av = n.get(key);
+        if (av.is_null() || !av.is_pointer()) return false;
+        return type_ast_mentions_generic_const(map_of(av));
+    };
+    if (rec_map((uint8_t)la::TYPE.code) || rec_map((uint8_t)la::VALUE.code)) return true;
+    if (n.has_key(la::ITEMS)) {
+        AnyVal av = n.get(la::ITEMS.code);
+        if (!av.is_null() && av.is_pointer()) {
+            auto items = arr_of(av);
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                AnyVal iv = items.get(i);
+                if (!iv.is_null() && iv.is_pointer() &&
+                    type_ast_mentions_generic_const(map_of(iv)))
+                    return true;
+            }
+        }
+    }
+    return false;
 }
 
 // ── Lowering helpers ─────────────────────────────────────────────────────────
