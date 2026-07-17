@@ -21003,6 +21003,10 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
         if (!info.measures[i].arg.empty())
             spec += std::format("({})", info.measures[i].arg);
     }
+    // Declaring package — the CFG-doc + alias synthesis (ADR 0021) emits a
+    // whole-source chunk via logos_emit_source, which needs an explicit
+    // `package <pkg>;` (unlike the quote-blob emitters, which inherit it).
+    spec += std::format("|pkg={}", info.package);
 
     // Register (idempotent overwrite — the lower_module_items pre-scan
     // already did this for source-level containers; macro-GENERATED ones in

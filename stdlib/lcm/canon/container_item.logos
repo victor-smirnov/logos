@@ -74,12 +74,13 @@ pub struct ContainerSpec {
     pub kind:        str,   // "vector" | "ordered_map"
     pub entry:       str,   // raw "name:ty:p,…" (iterated by the fact builder)
     pub measures:    str,   // raw "count,max(key)"
+    pub pkg:         str,   // declaring package (ADR 0021 CFG-doc emission), "" if absent
 }
 
 pub fn container_spec_new() -> ContainerSpec {
     return ContainerSpec {
         is_pub: false, generics: "", gnames: "", backing: "",
-        backing_pkg: "", kind: "", entry: "", measures: "",
+        backing_pkg: "", kind: "", entry: "", measures: "", pkg: "",
     };
 }
 
@@ -104,11 +105,14 @@ pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
         else if str_eq(key, "kind")        { out.kind = val; }
         else if str_eq(key, "entry")       { out.entry = val; }
         else if str_eq(key, "measures")    { out.measures = val; }
+        else if str_eq(key, "pkg")         { out.pkg = val; }
         else { return false; }
         seen = seen + 1i64;
         pos = end + 1i64;
     }
-    return seen == 8i64 && out.kind.len() > 0i64 && out.entry.len() > 0i64;
+    // 8 = legacy/hand-built spec (canon_container_facts); 9 = compiler seam
+    // with the ADR-0021 `pkg=` segment. kind+entry are the load-bearing fields.
+    return (seen == 8i64 || seen == 9i64) && out.kind.len() > 0i64 && out.entry.len() > 0i64;
 }
 
 /// Builds the FACT Writ doc for ONE container item (wave-0 has no cross-item
@@ -1214,6 +1218,56 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     }
 }
 
+// ── ADR 0021: the container's CONFIGURATION document ──────────────────────
+//
+// Synthesize `pub const <Name>Cfg: WritStatic = @{ … }` — the WritStatic doc
+// whose content hash (@hs) is the container family's identity. Two structurally
+// identical declarations produce byte-identical docs → the same @hs → one
+// family (twin dedup, no name in the key). This is the input the mono→factory
+// seam (ADR 0021 §3) will key on; for now it is emitted alongside the wave-0
+// path (additive — `<Name>Cfg` is a fresh name, no collision with the handle).
+//
+// Wave-0 scope: concrete (non-generic) two-column ordered_map. The key column
+// is always a sized (FSE) type → `<type:K>`; a `str` value column is unsized
+// (VLE) and cannot ride `<type:str>`, so it is recorded as the string tag
+// "str" (the factory reads either the type slot or the tag). Generic
+// declarations and the transparent `type <Name> = ContainerType<<Name>Cfg>`
+// alias (which would collide with the current handle) land in later phases.
+fn emit_cfg_doc(name: str, cs: &ContainerSpec) {
+    if cs.generics.len() != 0i64 { return; }          // concrete only (wave-0)
+    if !str_eq(cs.kind, KIND_ORDERED_MAP) { return; } // two-column map only
+    if cs.pkg.len() == 0i64 { return; }               // need a package to emit into
+    let ce: i64 = cs.entry.len();
+    let nb0: i64 = cf_next_comma(cs.entry, 0i64, ce);
+    if nb0 == ce { return; }                           // not two columns
+    let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce);
+    if nb1 != ce { return; }                           // more than two columns
+    let k1: i64 = cf_find(cs.entry, 0i64, 58u8);       // ':' of key col
+    let mut k2: i64 = nb0 - 1i64;
+    while k2 > 0i64 && str_byte_at(cs.entry, k2) != 58u8 { k2 = k2 - 1i64; }
+    if k1 < 0i64 || k2 <= k1 { return; }
+    let kty: str = unsafe { cf_sub(cs.entry, k1 + 1i64, k2) };
+    let v1: i64 = cf_find(cs.entry, nb0 + 1i64, 58u8);  // ':' of val col
+    let mut v2: i64 = nb1 - 1i64;
+    while v2 > nb0 && str_byte_at(cs.entry, v2) != 58u8 { v2 = v2 - 1i64; }
+    if v1 < 0i64 || v2 <= v1 { return; }
+    let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_into(cs.pkg);                              // "package <pkg>; "
+    em.push_text("use logos.lang.writ.wstatic; ");
+    em.push_text("pub const "); em.push_text(name);
+    em.push_text("Cfg: WritStatic = @{ \"kind\": \"ordered_map\", \"key\": <type:");
+    em.push_text(kty); em.push_text(">, \"value\": ");
+    if str_eq(vty, "str") {
+        em.push_text("\"str\"");                        // VLE tag — str is unsized
+    } else {
+        em.push_text("<type:"); em.push_text(vty); em.push_text(">");
+    }
+    em.push_text(" };");
+    em.commit();
+}
+
 /// Lowering handler behind the `container` ITEM (ADR 0020 wave-0). Invoked by
 /// the COMPILER (sema lower_container_def) through the token-macro item seam
 /// with the serialized spec line. Not a user-facing macro.
@@ -1275,6 +1329,11 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         error("container item: malformed spec (compiler seam regression?)");
         return out;
     }
+
+    // ADR 0021: synthesize the container's CONFIGURATION document (the @hs
+    // identity), additive alongside the wave-0 emission below.
+    emit_cfg_doc(name, &cs);
+
     // kind=node: emit a concrete b+tree leaf, its value-column encoding and
     // split body chosen by Canon's fast|volume verdict — `fast` = all-FSE,
     // count-balanced; `volume` = VLE value column, volume-balanced split.
