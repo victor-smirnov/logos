@@ -1,0 +1,259 @@
+// logos.mem.bt.ops — the generic B+tree OPS library (ADR 0020 Track B follow-on).
+//
+// Replaces the per-config metaprog-GENERATED ops (GenCow_cow_insert, GenCowTree_ins,
+// GenCow_descend_get, GenCowTree_free, …) with ONE set of functions generic over the
+// leaf/branch node shape. Only the node LAYOUT (the PkdArray<K>/PkdArray<V> column
+// mix, block format, `adopt`/`new_in`/`cow_clone`) stays per-config generated; the
+// tree ALGORITHMS (descend, insert-with-split, CoW-insert, free, size) are expressed
+// here exactly once and instantiate over any `L: BtLeaf<K, VIn, VOut>` / `B: BtBranch<K>`.
+//
+// Style/shape verified against a compiled-and-passing spike (trait_spike2.logos):
+// self-less associated fns (`fn adopt(mem: *mut u8) -> Self;`) called as `L::adopt(node)`
+// inside generic fns bounded `<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>`.
+// Algorithms mirror the FAST GenCow family (ref_fast_all.logos) verbatim, field-for-
+// field and branch-for-branch — only node-type names became `L`/`B` type params and
+// `GenCow*` symbols became `bt_*`.
+package logos.mem.bt.ops;
+
+use logos.mem.bt.node;      // node_snapshot — the CoW skip-key read
+use logos.mem.bt.memstore;  // tree_release — container-agnostic recursive rc-release
+
+// ── node contracts ────────────────────────────────────────────────────────────
+//
+// The full leaf/branch surface the per-config generated node types (`GenCowLeaf`,
+// `GenCowBranch`, …) already implement. Each concrete leaf/branch stays generated
+// (its PkdArray column layout is K/V-type-specific) but now IMPLEMENTS these traits
+// instead of duplicating the algorithms below.
+
+/// A leaf node: a sorted `(K, V)` run in one packed block.
+pub trait BtLeaf<K, VIn, VOut> {
+    /// Reinterpret an existing block as `Self` (no allocation).
+    fn adopt(mem: *mut u8) -> Self;
+    /// Allocate + format a fresh empty leaf block, stamped with snapshot id `snp`.
+    fn new_in(snp: u64) -> Self;
+    fn block(self: &Self) -> *mut u8;
+    fn count(self: &Self) -> u32;
+    fn key_at(self: &Self, i: u32) -> K;
+    fn val_at(self: &Self, i: u32) -> VOut;
+    /// First index whose key is `>= key` (or `count()` if none).
+    fn lower_bound(self: &Self, key: K) -> u32;
+    /// Upsert in place; `false` iff there is no room (caller must split).
+    fn try_insert(self: &mut Self, key: K, val: VIn) -> bool;
+    /// Move the upper half of `self`'s entries into `dst` (`dst` starts empty).
+    fn split_into(self: &mut Self, dst: &mut Self);
+    /// A deep copy of `self`'s entries into a fresh block stamped `snp` (CoW).
+    fn cow_clone(self: &Self, snp: u64) -> Self;
+    /// Release the block. Consumes `self` — no further use after this call.
+    fn free(self: Self);
+}
+
+/// A branch node: `child_count()` separator/subtree-size/child-ref triples,
+/// uniformly `(K, u64, *mut u8)` regardless of what K is — every generated
+/// branch keeps its child refs in the same slot (see memstore's
+/// `BRANCH_CHILD_SLOT`), which is what lets `tree_release` stay container-agnostic.
+pub trait BtBranch<K> {
+    fn adopt(mem: *mut u8) -> Self;
+    fn new_in(snp: u64) -> Self;
+    fn block(self: &Self) -> *mut u8;
+    fn child_count(self: &Self) -> u32;
+    fn sep_at(self: &Self, i: u32) -> K;
+    fn child_addr(self: &Self, i: u32) -> *mut u8;
+    fn set_child_addr(self: &mut Self, i: u32, ptr: *mut u8);
+    /// The last (= largest) separator; the branch's own subtree-max key.
+    fn max_sep(self: &Self) -> K;
+    /// Sum of every child's subtree size.
+    fn total_size(self: &Self) -> u64;
+    /// Index of the child whose subtree may contain `key` (clamped to the last
+    /// child when `key` exceeds every separator; `0` when the branch is empty).
+    fn find_child(self: &Self, key: K) -> u32;
+    fn push_child(self: &mut Self, sep: K, sz: u64, ptr: *mut u8);
+    fn insert_child(self: &mut Self, pos: u32, sep: K, sz: u64, ptr: *mut u8);
+    fn update_child(self: &mut Self, i: u32, sep: K, sz: u64);
+    /// `true` iff one more `(sep, size, ptr)` triple fits without a split.
+    fn can_insert_child(self: &Self) -> bool;
+    /// Move the upper half of `self`'s children into `dst`; returns `self`'s new `max_sep()`.
+    fn split_into(self: &mut Self, dst: &mut Self) -> K;
+    /// A shallow copy: fresh block, same children (CoW — caller inc_rc's each child).
+    fn cow_clone(self: &Self, snp: u64) -> Self;
+    /// Release just this block (children are NOT touched — the caller walks them,
+    /// e.g. `bt_tree_free`'s explicit recursion or memstore's `tree_release`).
+    fn free_block(self: Self);
+}
+
+// ── descend (read path) ───────────────────────────────────────────────────────
+
+/// Point lookup from `(root, level)` down to the owning leaf; `sentinel` on miss.
+/// Mirrors `GenCow_descend_get` / `GenCowTree::get_or` (same walk, both used it).
+pub fn bt_descend_get<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(
+    root: *mut u8, level: u32, key: K, sentinel: VOut) -> VOut {
+    let mut node: *mut u8 = root;
+    let mut lvl: u32 = level;
+    while lvl > 0u32 {
+        let br: B = B::adopt(node);
+        node = br.child_addr(br.find_child(key));
+        lvl = lvl - 1u32;
+    }
+    let lf: L = L::adopt(node);
+    let p: u32 = lf.lower_bound(key);
+    if p < lf.count() && lf.key_at(p) == key { return lf.val_at(p); }
+    return sentinel;
+}
+
+// ── insert result (shared by the plain and the CoW insert) ────────────────────
+
+/// The bottom-up insert report: the (possibly still-`node`) left result plus an
+/// optional split's right sibling. `addr` carries the (possibly new, under CoW)
+/// block identity of the LEFT side — `bt_ins` always returns `addr == node`
+/// (in-place mutation, no CoW); `bt_cow_insert` may return a freshly cow-cloned
+/// block, which is how a parent detects "my child's identity changed" and
+/// re-points its child ref (mirrors `GenCowCowRet`; `GenCowTreeIR` is the same
+/// shape minus `addr` because the plain path never needs it — kept here as one
+/// struct rather than two so `bt_ins`/`bt_cow_insert` share one report type).
+pub struct BtInsRet<K> {
+    pub addr: *mut u8,
+    pub lsep: K,
+    pub lsize: u64,
+    pub split: bool,
+    pub rsep: K,
+    pub rsize: u64,
+    pub rptr: *mut u8,
+}
+
+// ── plain insert (no CoW — in-place mutation) ──────────────────────────────────
+
+/// Bottom-up insert-with-split, mutating nodes in place. Mirrors `GenCowTree_ins`.
+pub fn bt_ins<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(
+    node: *mut u8, level: u32, key: K, val: VIn) -> BtInsRet<K> {
+    if level == 0u32 {
+        let mut lf: L = L::adopt(node);
+        if lf.try_insert(key, val) {
+            return BtInsRet { addr: node, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: node };
+        }
+        let mut rt: L = L::new_in(0u64);
+        lf.split_into(&mut rt);
+        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
+        return BtInsRet { addr: node, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };
+    }
+    let mut br: B = B::adopt(node);
+    let ci: u32 = br.find_child(key);
+    let r: BtInsRet<K> = bt_ins::<K, VIn, VOut, L, B>(br.child_addr(ci), level - 1u32, key, val);
+    br.update_child(ci, r.lsep, r.lsize);
+    if !r.split {
+        return BtInsRet { addr: node, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };
+    }
+    if br.can_insert_child() {
+        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
+        return BtInsRet { addr: node, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };
+    }
+    let mut rb: B = B::new_in(0u64);
+    let _ = br.split_into(&mut rb);
+    let lc: u32 = br.child_count();
+    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else {
+        rb.insert_child((ci + 1u32) - lc, r.rsep, r.rsize, r.rptr);
+    }
+    return BtInsRet { addr: node, lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };
+}
+
+/// Recursively releases `(node, level)` — the non-CoW, non-refcounted teardown
+/// (unconditional free, no rc check; use `tree_release` for the rc-aware CoW
+/// teardown). Mirrors `GenCowTree_free`.
+pub fn bt_tree_free<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(node: *mut u8, level: u32) {
+    if level == 0u32 {
+        L::adopt(node).free();
+        return;
+    }
+    let br: B = B::adopt(node);
+    let n: u32 = br.child_count();
+    let mut i: u32 = 0u32;
+    while i < n {
+        bt_tree_free::<K, VIn, VOut, L, B>(br.child_addr(i), level - 1u32);
+        i = i + 1u32;
+    }
+    br.free_block();
+}
+
+// ── CoW insert ───────────────────────────────────────────────────────────────
+
+/// "Make `node` privately writable under snapshot `cur`" — if it's already
+/// stamped `cur` it's already private (return unchanged); otherwise `cow_clone`
+/// it and return the fresh block. Mirrors `GenCow_leaf_private`.
+pub unsafe fn bt_leaf_private<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>>(node: *mut u8, cur: u64) -> *mut u8 {
+    if node_snapshot(node) == cur { return node; }
+    return L::adopt(node).cow_clone(cur).block();
+}
+
+/// The branch analog of `bt_leaf_private`. Mirrors `GenCow_branch_private`.
+pub unsafe fn bt_branch_private<K: Copy, B: BtBranch<K>>(node: *mut u8, cur: u64) -> *mut u8 {
+    if node_snapshot(node) == cur { return node; }
+    return B::adopt(node).cow_clone(cur).block();
+}
+
+/// Bottom-up insert-with-split under copy-on-write: every node on the path is
+/// first made private to `cur` (`bt_leaf_private`/`bt_branch_private`), and a
+/// child whose identity changed underneath a branch has its OLD block released
+/// via `tree_release` (structural-sharing rc-drop, not an unconditional free —
+/// the old block may still be referenced by a frozen sibling snapshot).
+/// Mirrors `GenCow_cow_insert`.
+pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(
+    node: *mut u8, level: u32, key: K, val: VIn, cur: u64) -> BtInsRet<K> {
+    if level == 0u32 {
+        let work: *mut u8 = bt_leaf_private::<K, VIn, VOut, L>(node, cur);
+        let mut lf: L = L::adopt(work);
+        if lf.try_insert(key, val) {
+            return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: work };
+        }
+        let mut rt: L = L::new_in(cur);
+        lf.split_into(&mut rt);
+        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
+        return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };
+    }
+    let work: *mut u8 = bt_branch_private::<K, B>(node, cur);
+    let mut br: B = B::adopt(work);
+    let ci: u32 = br.find_child(key);
+    let old_child: *mut u8 = br.child_addr(ci);
+    let r: BtInsRet<K> = bt_cow_insert::<K, VIn, VOut, L, B>(old_child, level - 1u32, key, val, cur);
+    br.update_child(ci, r.lsep, r.lsize);
+    if r.addr != old_child {
+        br.set_child_addr(ci, r.addr);
+        tree_release(old_child, level - 1u32);
+    }
+    if !r.split {
+        return BtInsRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };
+    }
+    if br.can_insert_child() {
+        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
+        return BtInsRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };
+    }
+    let mut rb: B = B::new_in(cur);
+    let _ = br.split_into(&mut rb);
+    let lc: u32 = br.child_count();
+    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else {
+        rb.insert_child((ci + 1u32) - lc, r.rsep, r.rsize, r.rptr);
+    }
+    return BtInsRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };
+}
+
+// ── size ─────────────────────────────────────────────────────────────────────
+
+/// `(root, level)` shape (not the snapshot/`Ctr` shape) so it composes with
+/// both a bare `GenCowTree`-style handle and a `DirEntry` read out of a
+/// `MemorySnapshot`'s directory. Mirrors `GenCow_size` / `GenCowTree::size`.
+pub fn bt_size<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(root: *mut u8, level: u32) -> u64 {
+    if level == 0u32 { return L::adopt(root).count() as u64; }
+    return B::adopt(root).total_size();
+}
+
+// ── no generic BtTree<K, V, L, B> struct ────────────────────────────────────
+//
+// A `pub struct BtTree<K, V, L: BtLeaf<K,VIn,VOut>, B: BtBranch<K>> { root: *mut u8,
+// root_level: u32 }` was considered and dropped: none of its fields mention
+// K/V/L/B, so all four type params would be UNCONSTRAINED (no PhantomData
+// convention in this codebase to pin them, and adding one just to satisfy the
+// struct's own type-param list is boilerplate with no runtime payoff — the
+// fields are only ever `*mut u8`/`u32`). Every op above already takes `(root,
+// level)` as plain arguments and reads L/B off the CALL's turbofish, which is
+// exactly the shape a per-config generated `Tree { root, root_level }` wrapper
+// (itself concrete, no dangling params) needs to forward into. That thin
+// concrete wrapper — not a generic struct here — is where `insert`/`get_or`/
+// `size`/`free` become one-line calls into `bt_*::<K, V, ConcreteLeaf,
+// ConcreteBranch>`.
