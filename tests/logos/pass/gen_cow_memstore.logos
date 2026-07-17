@@ -16,7 +16,11 @@ use logos.mem.pkd;                    // the generated leaf/branch target (PkdAr
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
 use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the shared store
 
-container GenCow for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
+container GenCow for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();

@@ -7,7 +7,11 @@ package test;
 
 use logos.lcm.canon.container_item;
 
-pub container Map<K, V> for MapCtr<K, V> { kind ordered_map; entry { key: K, val: V } measure count; }
+pub container Map<K, V> for MapCtr<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure count;
+}
 
 fn main() -> i32 {
     return 0i32;

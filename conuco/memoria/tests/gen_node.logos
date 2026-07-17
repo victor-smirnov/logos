@@ -10,7 +10,10 @@ use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;
 
 // key:u64 + val:u64 → all fixed-size → Canon verdict `fast` → generated leaf.
-container GenU64 for u8 { kind node; entry { key: u64, val: u64 } }
+container GenU64 for u8 {
+    kind node;
+    entry { key: u64, val: u64 }
+}
 
 fn main() -> i32 {
     let mut lf: GenU64 = GenU64::new();

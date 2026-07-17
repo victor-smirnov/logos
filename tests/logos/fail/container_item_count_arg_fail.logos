@@ -4,7 +4,11 @@
 // Canon's verdict, a separate diagnostic; this one is pure shape.)
 package test;
 
-pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count(elem); }
+pub container Vector<T> for VecCtr<T> {
+    kind vector;
+    entry { elem: T }
+    measure count(elem);
+}
 
 fn main() -> i32 {
     return 0i32;

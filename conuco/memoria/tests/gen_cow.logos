@@ -18,7 +18,11 @@ use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the sha
 
 // key:u64 + val:u64 → fast leaf → Canon versioning=cow → the CoW-Map typed half
 // (cow nodes + cow_insert + the GenCow handle) is emitted from this one decl.
-container GenCow for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
+container GenCow for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
 
 const CTR: u64 = 1u64;   // this store holds a single container in slot 1
 

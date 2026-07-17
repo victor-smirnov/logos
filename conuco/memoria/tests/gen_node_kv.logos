@@ -14,7 +14,10 @@ use logos.lang.str;
 
 // key:u64 + val:str → a variable-length column → Canon verdict `volume` →
 // generated leaf with a VLE value column and a volume-balanced split.
-container GenKV for u8 { kind node; entry { key: u64, val: str } }
+container GenKV for u8 {
+    kind node;
+    entry { key: u64, val: str }
+}
 
 fn beq(b: &[u8], want: str) -> bool {
     if b.len() != want.len() { return false; }

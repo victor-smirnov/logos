@@ -16,8 +16,16 @@ use logos.mem.pkd;
 use logos.mem.bt.map;
 use logos.mem.bt.memstore;
 
-container Conc for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
-container Gen<V> for u8 { kind ordered_map; entry { key: u64, val: V } measure max(key); }
+container Conc for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+container Gen<V> for u8 {
+    kind ordered_map;
+    entry { key: u64, val: V }
+    measure max(key);
+}
 
 fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
 

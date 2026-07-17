@@ -22,9 +22,18 @@ impl<T> VecCtr<T> {
     }
 }
 
-pub container Vector<T> for VecCtr<T> { kind vector; entry { elem: T } measure count; }
+pub container Vector<T> for VecCtr<T> {
+    kind vector;
+    entry { elem: T }
+    measure count;
+}
 
-pub container Map<K, V> for MapCtr<K, V> { kind ordered_map; entry { key: K, val: V } measure count; measure max(key); }
+pub container Map<K, V> for MapCtr<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure count;
+    measure max(key);
+}
 
 fn main() -> i32 {
     return 0i32;

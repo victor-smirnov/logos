@@ -15,8 +15,14 @@ use logos.mem.pkd;
 
 // key:u64 + val:u64 → all fixed-size → Canon verdict `fast`; the generated
 // leaf and the child-type-agnostic branch compose below.
-container GenMapLeaf for u8 { kind node; entry { key: u64, val: u64 } }
-container GenMapBranch for u8 { kind branch; entry { key: u64 } }
+container GenMapLeaf for u8 {
+    kind node;
+    entry { key: u64, val: u64 }
+}
+container GenMapBranch for u8 {
+    kind branch;
+    entry { key: u64 }
+}
 
 // Descent hooks binding the child-agnostic GenMapBranch to GenMapLeaf children.
 fn leaf_lb(node: *mut u8, key: u64) -> u32 {

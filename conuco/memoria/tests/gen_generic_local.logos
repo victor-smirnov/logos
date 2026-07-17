@@ -14,7 +14,11 @@ use logos.mem.pkd;
 use logos.mem.bt.map;
 use logos.mem.bt.memstore;
 
-container Map<K, V> for u8 { kind ordered_map; entry { key: K, val: V } measure max(key); }
+container Map<K, V> for u8 {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();

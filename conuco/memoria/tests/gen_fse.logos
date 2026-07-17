@@ -18,12 +18,24 @@ use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` nam
 use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot — the shared store
 
 // (A) u32 key, i64 value — fill/lookup + CoW isolation.
-container FseA for u8 { kind ordered_map; entry { key: u32, val: i64 } measure max(key); }
+container FseA for u8 {
+    kind ordered_map;
+    entry { key: u32, val: i64 }
+    measure max(key);
+}
 // (B) i32 key (SIGNED — proves signed key comparison in lower_bound/find_child),
 //     u32 value — negative→positive keys.
-container FseB for u8 { kind ordered_map; entry { key: i32, val: u32 } measure max(key); }
+container FseB for u8 {
+    kind ordered_map;
+    entry { key: i32, val: u32 }
+    measure max(key);
+}
 // (C) u16 key, u32 value — narrow key.
-container FseC for u8 { kind ordered_map; entry { key: u16, val: u32 } measure max(key); }
+container FseC for u8 {
+    kind ordered_map;
+    entry { key: u16, val: u32 }
+    measure max(key);
+}
 
 fn main() -> i32 {
     // ── (A) u32 → i64 : bulk fill forcing multi-level growth ────────────────

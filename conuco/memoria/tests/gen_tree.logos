@@ -18,7 +18,11 @@ use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot — the shar
 
 // key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the family's
 // leaf + branch + CoW handle are all factory-emitted from this one declaration.
-container GenBt for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
+container GenBt for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();

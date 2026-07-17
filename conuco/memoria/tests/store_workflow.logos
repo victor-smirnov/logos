@@ -22,8 +22,16 @@ use logos.lang.str;
 
 // Canon verdicts: all-FSE → split fast; ordered_map → assembly=tree,
 // versioning=cow ⇒ the whole CoW stack is emitted for each declaration.
-container Ledger  for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
-container Journal for u8 { kind ordered_map; entry { key: u64, val: str } measure max(key); }
+container Ledger  for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+container Journal for u8 {
+    kind ordered_map;
+    entry { key: u64, val: str }
+    measure max(key);
+}
 
 const LEDGER:  u64 = 1u64;
 const JOURNAL: u64 = 2u64;

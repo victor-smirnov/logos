@@ -23,7 +23,11 @@ use logos.lang.str;                   // str_byte_at (byte comparison)
 
 // key:u64 + val:str → a variable-length value column → Canon verdict `volume` →
 // the whole VOLUME stack (leaf/branch + cow handle) from this one decl.
-container GenVol for u8 { kind ordered_map; entry { key: u64, val: str } measure max(key); }
+container GenVol for u8 {
+    kind ordered_map;
+    entry { key: u64, val: str }
+    measure max(key);
+}
 
 const CTR: u64 = 1u64;
 
