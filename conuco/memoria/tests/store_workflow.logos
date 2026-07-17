@@ -1,0 +1,73 @@
+// store_workflow — the CONSUMER's-eye view of one container declaration:
+// create a MemoryStore, fork a snapshot, CREATE the container in it, fill,
+// commit, branch, verify isolation — the full CoW store lifecycle over a
+// Canon-shaped container. Everything typed below the two `container` lines
+// is Canon+metaprog OUTPUT (see .lforge/debug/gen/test.store_workflow.*):
+//   Ledger:  fast leaf (u64/u64, count-balanced split) + branch + tree
+//            machinery + CoW path-copy + the `Ledger` Ctr handle;
+//   Journal: VOLUME leaf (u64/str — VLE column, volume-balanced split),
+//            by-view get_or (&[u8]) through the same store.
+// The hand-written half is only the store plane: MemoryStore /
+// MemorySnapshot / Directory / tree_release (logos.mem.bt.memstore) and the
+// Store/Snapshot/Ctr traits (logos.mem.bt.map).
+package test;
+
+use logos.lcm.canon.container_item;   // `container` lowering handler
+use logos.mem.pkd;                    // generated nodes' column substrate
+use logos.mem.bt.map;                 // Ctr trait (generated impl names it)
+use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot (hand-written)
+use logos.lang.str;
+
+// Canon verdicts: all-FSE → split fast; ordered_map → assembly=tree,
+// versioning=cow ⇒ the whole CoW stack is emitted for each declaration.
+container Ledger  for u8 { kind ordered_map; entry { key: u64, val: u64 } measure max(key); }
+container Journal for u8 { kind ordered_map; entry { key: u64, val: str } measure max(key); }
+
+const LEDGER:  u64 = 1u64;
+const JOURNAL: u64 = 2u64;
+
+fn beq(b: &[u8], want: str) -> bool {
+    if b.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < b.len() { if b[i] != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+
+    // ── v1: fork, CREATE both containers in the snapshot, fill, commit ──
+    let mut s1: MemorySnapshot = store.fork();
+    let ledger: Ledger = Ledger::create(&mut s1, LEDGER);
+    let journal: Journal = Journal::create(&mut s1, JOURNAL);
+    let n: u64 = 5000u64;
+    let mut k: u64 = 0u64;
+    while k < n { ledger.insert(k, k * 2u64); k = k + 1u64; }
+    journal.insert(1u64, "opened");
+    journal.insert(2u64, "funded");
+    if ledger.size() != n { return 1i32; }
+    if journal.size() != 2u64 { return 2i32; }
+    store.commit(&s1);
+
+    // ── v2: branch, mutate BOTH — CoW copies only the touched paths ──
+    let mut s2: MemorySnapshot = store.fork();
+    let l2: Ledger = Ledger::open(&mut s2, LEDGER);
+    let j2: Journal = Journal::open(&mut s2, JOURNAL);
+    l2.insert(0u64, 999u64);              // overwrite in v2
+    j2.insert(2u64, "frozen");            // VLE replace-on-hit (grows)
+    j2.insert(3u64, "closed");
+    store.commit(&s2);
+
+    // ── isolation: v1 is frozen, v2 sees the new state ──
+    let l1: Ledger = Ledger::open(&mut s1, LEDGER);
+    let j1: Journal = Journal::open(&mut s1, JOURNAL);
+    if l1.get_or(0u64, 0xDEADu64) != 0u64 { return 3i32; }
+    if l2.get_or(0u64, 0xDEADu64) != 999u64 { return 4i32; }
+    if l2.get_or(4999u64, 0xDEADu64) != 9998u64 { return 5i32; }
+    if !beq(j1.get_or(2u64), "funded") { return 6i32; }
+    if !beq(j2.get_or(2u64), "frozen") { return 7i32; }
+    if !beq(j2.get_or(3u64), "closed") { return 8i32; }
+    if j1.size() != 2u64 { return 9i32; }
+    if j2.size() != 3u64 { return 10i32; }
+    return 0i32;
+}
