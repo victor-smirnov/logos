@@ -94,6 +94,33 @@ is not empirical tuning; it is a *phase* rule, enforced by the language:
 Consequence: mono only substitutes, metafunctions compute, reasoners decide —
 and each layer is *unable* to do its neighbor's job by construction.
 
+### 1.2 The placement rule (where each piece of functionality lives)
+
+Given a piece of container functionality, decide its home by looking at the
+C++ Memoria oracle:
+
+- if it is a **runtime function** in Memoria → it belongs in a **code
+  library** (ordinary generic Logos functions; mono monomorphizes them —
+  `logos.mem.pkd`, `logos.mem.bt`);
+- if it is **held by a type factory / computed at compile time (TMP)** in
+  Memoria → the **computation is a metafunction**, but its **result is
+  generation**. The *form* of that generation is free, chosen per piece for
+  clarity: a type declaration, a generated generic function/struct/trait, a
+  generated WritStatic, or plain monomorphized code.
+
+This dissolves the false dichotomy "the factory emits everything concrete"
+vs "reuse a generic library." A metafunction *computes the shape* (what
+CtrTF/BTTypes computed as nested type aliases) and *emits the cleanest
+representation per piece*: the b+tree ops (runtime methods in Memoria) become
+a generated/library **generic** the mono unrolls; the FSE/VLE node-layout
+selection (a partial-spec TMP in Memoria) is **generated concrete**. A
+container family is therefore a *mix* of forms, not a concrete monolith — and
+this is exactly what ADR 0017's `create_ctr` + generic `ContainerRef` +
+`<type:CFG.slot>` already is (a metafunction result that is a generated
+generic, monomorphized by mono); it merely lacked Canon deciding the node
+specialization. The wave-0 all-concrete emission is one valid output form,
+not the mandatory one.
+
 ## 2. Metaclasses
 
 A **metaclass** is the type of a declaration kind: the classifier that turns
