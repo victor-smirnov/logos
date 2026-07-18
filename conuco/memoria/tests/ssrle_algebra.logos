@@ -1,0 +1,769 @@
+// ssrle_algebra — SSRLE increment-2 gate: the run algebra (split / extract /
+// remove / insert / merge / compactify) and the vector-level splice model +
+// rank/select EQ, against the C++ reference-model semantics (SymbolsRunTools,
+// ssrleseq_test_base.hpp) and the RLE-suite scenarios (ssrleseq_rle_test.hpp).
+//
+// The comparison discipline is FACTORIZATION-TOLERANT (assert_spans_equal
+// semantics): run vectors are equivalent iff their materialized SYMBOL
+// streams agree — the algebra is free to refactor runs. Exact run-vector
+// equality is asserted only where C++ guarantees it (compactify idempotence).
+//
+// Sections (error-code decades):
+//    1..9  fixed C++ RLE-suite scenarios (testCreate/testRank/testSelect)
+//   10..   run split at every boundary class, all Bps
+//   20..   run extract/remove vs naive symbol cuts
+//   30..   run insert vs naive symbol splice (all branch classes)
+//   40..   merge rules: rl budget, pattern-concat budget, Bps=7 plen cap
+//   50..   compactify: stream preservation, idempotence, canonicalization
+//   60..   seq_split at every position
+//   70..   seq_insert/seq_remove round trips (remove(insert(x)) == x)
+//   80..   rank_eq/select_fw_eq vs the naive materialized oracle + inverse laws
+//   90..   codec composition: algebra outputs re-encode and decode to the
+//          same symbol stream (streams, not run vectors)
+package test;
+
+use memoria.ssrle;
+use logos.lang.arith;
+use logos.mem.collections.vec;
+
+// ── deterministic corpus (LCG via wrapping arithmetic) ──────────────────────
+
+fn rnd(st: &mut u64) -> u64 {
+    let next: u64 = wrapping_add(wrapping_mul(*st, 6364136223846793005u64), 1442695040888963407u64);
+    *st = next;
+    return next >> 33u64;
+}
+
+fn rnd_pattern(st: &mut u64) -> u64 {
+    return (rnd(st) << 31u64) | rnd(st);
+}
+
+fn rand_run(bps: u32, st: &mut u64, rl_cap: u64) -> SsrleRun {
+    let cap: u64 = ssrle_encodable_pattern_length(bps) as u64;
+    let plen: u64 = 1u64 + rnd(st) % cap;
+    let mut mrl: u64 = ssrle_max_run_length(bps, plen as u32);
+    if mrl > rl_cap {
+        mrl = rl_cap;
+    }
+    let rl: u64 = 1u64 + rnd(st) % mrl;
+    return ssrle_run_new(bps, plen as u32, rnd_pattern(st), rl);
+}
+
+fn rand_runs(bps: u32, st: &mut u64, n: i64, rl_cap: u64) -> Vec<SsrleRun> {
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.push(rand_run(bps, st, rl_cap));
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// Boundary-class shapes: {rl=1,plen=1}, {rl=1,plen=max}, {rl>1,plen=1},
+// {rl>1,plen>1}, plus random fillers.
+fn shape_runs(bps: u32, st: &mut u64) -> Vec<SsrleRun> {
+    let cap: u64 = ssrle_encodable_pattern_length(bps) as u64;
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    v.push(ssrle_run_new(bps, 1u32, rnd_pattern(st), 1u64));
+    v.push(ssrle_run_new(bps, cap as u32, rnd_pattern(st), 1u64));
+    v.push(ssrle_run_new(bps, 1u32, rnd_pattern(st), 5u64));
+    let mut plen2: u64 = cap / 2u64;
+    if plen2 == 0u64 {
+        plen2 = 1u64;
+    }
+    let mut rl2: u64 = ssrle_max_run_length(bps, plen2 as u32);
+    if rl2 > 9u64 {
+        rl2 = 9u64;
+    }
+    v.push(ssrle_run_new(bps, plen2 as u32, rnd_pattern(st), rl2));
+    let mut i: i64 = 0i64;
+    while i < 4i64 {
+        v.push(rand_run(bps, st, 12u64));
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// ── naive symbol-stream helpers ─────────────────────────────────────────────
+
+fn one_run(run: SsrleRun) -> Vec<SsrleRun> {
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    v.push(run);
+    return v;
+}
+
+fn syms_of_run(bps: u32, run: SsrleRun) -> Vec<u64> {
+    let v: Vec<SsrleRun> = one_run(run);
+    return ssrle_materialize(bps, &v);
+}
+
+fn runs_copy(src: &Vec<SsrleRun>) -> Vec<SsrleRun> {
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    ssrle_runs_append(&mut v, src);
+    return v;
+}
+
+fn syms_eq(a: &Vec<u64>, b: &Vec<u64>) -> bool {
+    if a.length() != b.length() {
+        return false;
+    }
+    let n: i64 = a.length();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if a.get(i) != b.get(i) {
+            return false;
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn syms_concat(a: &Vec<u64>, b: &Vec<u64>) -> Vec<u64> {
+    let mut v: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = 0i64;
+    while i < a.length() {
+        v.push(a.get(i));
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < b.length() {
+        v.push(b.get(i));
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// base[0..at) ++ ins ++ base[at..)
+fn syms_splice(base: &Vec<u64>, at: u64, ins: &Vec<u64>) -> Vec<u64> {
+    let mut v: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = 0i64;
+    while i < at as i64 {
+        v.push(base.get(i));
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < ins.length() {
+        v.push(ins.get(j));
+        j = j + 1i64;
+    }
+    i = at as i64;
+    while i < base.length() {
+        v.push(base.get(i));
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// base without [from, to)
+fn syms_cut(base: &Vec<u64>, from: u64, to: u64) -> Vec<u64> {
+    let mut v: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = 0i64;
+    while i < base.length() {
+        if i < from as i64 || i >= to as i64 {
+            v.push(base.get(i));
+        }
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// ── 1..9: the fixed C++ RLE-suite scenarios (Bps=1, syms {1,0,1,1,0,1,0}) ──
+
+fn rle_suite_scenarios() -> i32 {
+    let bps: u32 = 1u32;
+    // testCreate: ctor masks the pattern to plen*Bps bits
+    let run1: SsrleRun = ssrle_run_new(bps, 3u32, 0xFFFFFFFFFFFFFFFFu64, 1u64);
+    if run1.pattern != 7u64 || run1.pattern_length != 3u32 || run1.run_length != 1u64 {
+        return 1i32;
+    }
+    // the shared run: pattern 1,0,1,1,0,1,0 (LSB-first), run_length 10
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    syms.push(1u64);
+    syms.push(0u64);
+    syms.push(1u64);
+    syms.push(1u64);
+    syms.push(0u64);
+    syms.push(1u64);
+    syms.push(0u64);
+    let run: SsrleRun = ssrle_make_run(bps, &syms, 10u64);
+    if run.pattern_length != 7u32 {
+        return 2i32;
+    }
+    let mut c: i64 = 0i64;
+    while c < 7i64 {
+        if run.symbol(bps, c as u64) != syms.get(c) {
+            return 3i32;
+        }
+        c = c + 1i64;
+    }
+    // testRank: full_rank_eq(0) = 3*10; rank_eq(7*2+4, 0) = 3*2+1
+    if run.full_rank_eq(bps, 0u64) != 30u64 {
+        return 4i32;
+    }
+    if run.full_rank_eq(bps, 1u64) != 40u64 {
+        return 5i32;
+    }
+    if run.rank_eq(bps, 18u64, 0u64) != 7u64 {
+        return 6i32;
+    }
+    if run.rank_eq(bps, 18u64, 1u64) != 11u64 {
+        return 7i32;
+    }
+    // testSelect: select_fw_eq(0,0)=1; select_fw_eq(3*5+1, 0)=7*5+4
+    if run.select_fw_eq(bps, 0u64, 0u64) != 1u64 {
+        return 8i32;
+    }
+    if run.select_fw_eq(bps, 16u64, 0u64) != 39u64 {
+        return 9i32;
+    }
+    return 0i32;
+}
+
+// ── 10..: run split at every position (all boundary classes) ────────────────
+
+fn check_run_split(bps: u32, st: &mut u64) -> i32 {
+    let shapes: Vec<SsrleRun> = shape_runs(bps, st);
+    let mut s: i64 = 0i64;
+    while s < shapes.length() {
+        let run: SsrleRun = shapes.get(s);
+        let whole: Vec<SsrleRun> = one_run(run);
+        let expect: Vec<u64> = ssrle_materialize(bps, &whole);
+        let full: u64 = run.full_run_length();
+        let mut at: u64 = 0u64;
+        while at <= full {
+            let mut left: Vec<SsrleRun> = vec_new::<SsrleRun>();
+            let mut right: Vec<SsrleRun> = vec_new::<SsrleRun>();
+            ssrle_run_split_to(bps, &run, at, &mut left, &mut right);
+            if left.length() > 2i64 || right.length() > 2i64 {
+                return 10i32;
+            }
+            // invalid quirk-runs carry zero symbols, so the raw count works
+            if ssrle_count_symbols(&left) != at {
+                return 11i32;
+            }
+            let ls: Vec<u64> = ssrle_materialize(bps, &left);
+            let rs: Vec<u64> = ssrle_materialize(bps, &right);
+            if (ls.length() as u64) != at {
+                return 12i32;
+            }
+            let cat: Vec<u64> = syms_concat(&ls, &rs);
+            if !syms_eq(&cat, &expect) {
+                return 13i32;
+            }
+            // split never grows a run past the budget
+            let mut k: i64 = 0i64;
+            while k < left.length() {
+                let r: SsrleRun = left.get(k);
+                if r.is_valid() && !ssrle_is_fit(bps, r.pattern_length as u64, r.run_length) {
+                    return 14i32;
+                }
+                k = k + 1i64;
+            }
+            k = 0i64;
+            while k < right.length() {
+                let r: SsrleRun = right.get(k);
+                if r.is_valid() && !ssrle_is_fit(bps, r.pattern_length as u64, r.run_length) {
+                    return 15i32;
+                }
+                k = k + 1i64;
+            }
+            at = at + 1u64;
+        }
+        s = s + 1i64;
+    }
+    return 0i32;
+}
+
+// ── 20..: run extract / remove vs naive cuts ────────────────────────────────
+
+fn check_run_extract_remove(bps: u32, st: &mut u64) -> i32 {
+    let shapes: Vec<SsrleRun> = shape_runs(bps, st);
+    let mut s: i64 = 0i64;
+    while s < shapes.length() {
+        let run: SsrleRun = shapes.get(s);
+        let whole: Vec<SsrleRun> = one_run(run);
+        let expect: Vec<u64> = ssrle_materialize(bps, &whole);
+        let full: u64 = run.full_run_length();
+        let step: u64 = full / 7u64 + 1u64;
+        let mut from: u64 = 0u64;
+        while from <= full {
+            let mut to: u64 = from;
+            while to <= full {
+                // extract [from, to)
+                if to > from {
+                    let mut ext: Vec<SsrleRun> = vec_new::<SsrleRun>();
+                    ssrle_run_extract_to(bps, &run, from, to - from, &mut ext);
+                    let es: Vec<u64> = ssrle_materialize(bps, &ext);
+                    let no_tail: Vec<u64> = syms_cut(&expect, to, full);
+                    let naive_ext: Vec<u64> = syms_cut(&no_tail, 0u64, from);
+                    if !syms_eq(&es, &naive_ext) {
+                        return 20i32;
+                    }
+                }
+                // remove [from, to)
+                let mut rem: Vec<SsrleRun> = vec_new::<SsrleRun>();
+                ssrle_run_remove_to(bps, &run, from, to, &mut rem);
+                let rems: Vec<u64> = ssrle_materialize(bps, &rem);
+                let naive_rem: Vec<u64> = syms_cut(&expect, from, to);
+                if !syms_eq(&rems, &naive_rem) {
+                    return 21i32;
+                }
+                to = to + step;
+            }
+            from = from + step;
+        }
+        s = s + 1i64;
+    }
+    return 0i32;
+}
+
+// ── 30..: run insert vs naive splice ────────────────────────────────────────
+
+fn check_run_insert(bps: u32, st: &mut u64) -> i32 {
+    let shapes: Vec<SsrleRun> = shape_runs(bps, st);
+    let mut s: i64 = 0i64;
+    while s < shapes.length() {
+        let host: SsrleRun = shapes.get(s);
+        let host_syms: Vec<u64> = syms_of_run(bps, host);
+        let full: u64 = host.full_run_length();
+        let step: u64 = full / 9u64 + 1u64;
+        let mut g: i64 = 0i64;
+        while g < shapes.length() {
+            let guest: SsrleRun = shapes.get(g);
+            let guest_syms: Vec<u64> = syms_of_run(bps, guest);
+            let mut at: u64 = 0u64;
+            let mut done: bool = false;
+            while !done {
+                let mut out: Vec<SsrleRun> = vec_new::<SsrleRun>();
+                ssrle_run_insert_to(bps, &host, &guest, at, &mut out);
+                let os: Vec<u64> = ssrle_materialize(bps, &out);
+                let naive: Vec<u64> = syms_splice(&host_syms, at, &guest_syms);
+                if !syms_eq(&os, &naive) {
+                    return 30i32;
+                }
+                if at >= full {
+                    done = true;
+                } else {
+                    at = at + step;
+                    if at > full {
+                        at = full;
+                    }
+                }
+            }
+            g = g + 1i64;
+        }
+        // same-pattern fast paths: insert host into itself at a pattern
+        // boundary and at every position of the first pattern
+        let mut at2: u64 = 0u64;
+        let plen: u64 = host.pattern_length as u64;
+        while at2 <= plen && at2 <= full {
+            let mut out2: Vec<SsrleRun> = vec_new::<SsrleRun>();
+            ssrle_run_insert_to(bps, &host, &host, at2, &mut out2);
+            let os2: Vec<u64> = ssrle_materialize(bps, &out2);
+            let naive2: Vec<u64> = syms_splice(&host_syms, at2, &host_syms);
+            if !syms_eq(&os2, &naive2) {
+                return 31i32;
+            }
+            at2 = at2 + 1u64;
+        }
+        s = s + 1i64;
+    }
+    return 0i32;
+}
+
+// ── 40..: merge rules (rl budget, concat budget, the Bps=7 plen cap) ────────
+
+fn check_merge_rules(bps: u32, st: &mut u64) -> i32 {
+    let cap: u64 = ssrle_encodable_pattern_length(bps) as u64;
+    // (a) same pattern: merged rl must fit max_run_length(plen)
+    let plen: u64 = 1u64;
+    let mrl: u64 = ssrle_max_run_length(bps, plen as u32);
+    let pat: u64 = rnd_pattern(st) & ssrle_make_mask(bps as u64);
+    let mut a1: SsrleRun = ssrle_run_new(bps, plen as u32, pat, mrl - 1u64);
+    let b1: SsrleRun = ssrle_run_new(bps, plen as u32, pat, 1u64);
+    if !ssrle_run_merge(bps, &mut a1, &b1) {
+        return 40i32;
+    }
+    if a1.run_length != mrl {
+        return 41i32;
+    }
+    // now at the budget edge: one more repeat must NOT merge
+    let before: SsrleRun = a1;
+    if ssrle_run_merge(bps, &mut a1, &b1) {
+        return 42i32;
+    }
+    if !a1.eq(&before) {
+        return 43i32;
+    }
+    // (b) two rl=1 runs: pattern concat iff joint plen fits the ENCODABLE cap
+    if cap >= 2u64 {
+        let half: u64 = cap / 2u64;
+        let mut a2: SsrleRun = ssrle_run_new(bps, half as u32, rnd_pattern(st), 1u64);
+        let b2: SsrleRun = ssrle_run_new(bps, (cap - half) as u32, rnd_pattern(st), 1u64);
+        let a2_syms: Vec<u64> = syms_of_run(bps, a2);
+        let b2_syms: Vec<u64> = syms_of_run(bps, b2);
+        if !ssrle_run_merge(bps, &mut a2, &b2) {
+            return 44i32;
+        }
+        let merged: Vec<u64> = syms_of_run(bps, a2);
+        let cat: Vec<u64> = syms_concat(&a2_syms, &b2_syms);
+        if !syms_eq(&merged, &cat) {
+            return 45i32;
+        }
+        // one symbol past the cap must not merge
+        let mut a3: SsrleRun = ssrle_run_new(bps, cap as u32, rnd_pattern(st), 1u64);
+        let b3: SsrleRun = ssrle_run_new(bps, 1u32, rnd_pattern(st), 1u64);
+        if a3.is_same_pattern(&b3) {
+            // can't happen (different plen), but keep the guard readable
+            return 46i32;
+        }
+        if ssrle_run_merge(bps, &mut a3, &b3) {
+            return 47i32;
+        }
+    }
+    // (c) the Bps=7 divergence: is_fit ADMITS plen 8 (56 <= 59 bits) but the
+    // LEN_BITS=3 field cannot encode it — concat must refuse
+    if bps == 7u32 {
+        if !ssrle_is_fit(bps, 8u64, 1u64) {
+            return 48i32;
+        }
+        let mut a4: SsrleRun = ssrle_run_new(bps, 4u32, rnd_pattern(st), 1u64);
+        let mut b4: SsrleRun = ssrle_run_new(bps, 4u32, rnd_pattern(st), 1u64);
+        if a4.is_same_pattern(&b4) {
+            b4.pattern = b4.pattern ^ 1u64;
+        }
+        if ssrle_run_merge(bps, &mut a4, &b4) {
+            return 49i32;
+        }
+    }
+    return 0i32;
+}
+
+// ── 50..: compactify ────────────────────────────────────────────────────────
+
+fn runs_exactly_eq(a: &Vec<SsrleRun>, b: &Vec<SsrleRun>) -> bool {
+    if a.length() != b.length() {
+        return false;
+    }
+    let mut i: i64 = 0i64;
+    while i < a.length() {
+        let x: SsrleRun = a.get(i);
+        if !x.eq(b.borrow(i)) {
+            return false;
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn check_compactify(bps: u32, st: &mut u64) -> i32 {
+    let mut rep: i64 = 0i64;
+    while rep < 4i64 {
+        let x: Vec<SsrleRun> = rand_runs(bps, st, 10i64, 12u64);
+        let expect: Vec<u64> = ssrle_materialize(bps, &x);
+        let mut y: Vec<SsrleRun> = runs_copy(&x);
+        ssrle_compactify(bps, &mut y);
+        // stream preservation
+        let ys: Vec<u64> = ssrle_materialize(bps, &y);
+        if !syms_eq(&ys, &expect) {
+            return 50i32;
+        }
+        // idempotence, EXACT run-vector equality (nulls included)
+        let mut z: Vec<SsrleRun> = runs_copy(&y);
+        ssrle_compactify(bps, &mut z);
+        if !runs_exactly_eq(&z, &y) {
+            return 51i32;
+        }
+        // every surviving run stays encodable
+        let mut k: i64 = 0i64;
+        while k < y.length() {
+            let r: SsrleRun = y.get(k);
+            if r.is_valid() {
+                if !ssrle_is_fit(bps, r.pattern_length as u64, r.run_length) {
+                    return 52i32;
+                }
+                if r.pattern_length > ssrle_encodable_pattern_length(bps) {
+                    return 53i32;
+                }
+            }
+            k = k + 1i64;
+        }
+        rep = rep + 1i64;
+    }
+    // canonicalization: adjacent same-pattern runs within budget MERGE
+    let pat: u64 = rnd_pattern(st) & ssrle_make_mask(bps as u64);
+    let a: SsrleRun = ssrle_run_new(bps, 1u32, pat, 3u64);
+    let b: SsrleRun = ssrle_run_new(bps, 1u32, pat, 4u64);
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    v.push(a);
+    v.push(b);
+    ssrle_compactify(bps, &mut v);
+    let first: SsrleRun = v.get(0i64);
+    let second: SsrleRun = v.get(1i64);
+    if first.run_length != 7u64 || !second.is_null() {
+        return 54i32;
+    }
+    return 0i32;
+}
+
+// ── 60..: seq_split at every position ───────────────────────────────────────
+
+fn check_seq_split(bps: u32, st: &mut u64) -> i32 {
+    let x: Vec<SsrleRun> = rand_runs(bps, st, 6i64, 10u64);
+    let expect: Vec<u64> = ssrle_materialize(bps, &x);
+    let size: u64 = ssrle_count_symbols(&x);
+    let mut pos: u64 = 0u64;
+    while pos <= size {
+        let mut left: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        let mut right: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        ssrle_seq_split(bps, &x, pos, &mut left, &mut right);
+        let ls: Vec<u64> = ssrle_materialize(bps, &left);
+        let rs: Vec<u64> = ssrle_materialize(bps, &right);
+        if (ls.length() as u64) != pos {
+            return 60i32;
+        }
+        let cat: Vec<u64> = syms_concat(&ls, &rs);
+        if !syms_eq(&cat, &expect) {
+            return 61i32;
+        }
+        pos = pos + 1u64;
+    }
+    return 0i32;
+}
+
+// ── 70..: seq insert / remove round trips ───────────────────────────────────
+
+fn check_seq_insert_remove(bps: u32, st: &mut u64) -> i32 {
+    let x: Vec<SsrleRun> = rand_runs(bps, st, 6i64, 10u64);
+    let xs: Vec<u64> = ssrle_materialize(bps, &x);
+    let size: u64 = ssrle_count_symbols(&x);
+    let w: Vec<SsrleRun> = rand_runs(bps, st, 3i64, 6u64);
+    let ws: Vec<u64> = ssrle_materialize(bps, &w);
+    let wlen: u64 = ssrle_count_symbols(&w);
+    let step: u64 = size / 11u64 + 1u64;
+    let mut pos: u64 = 0u64;
+    let mut done: bool = false;
+    while !done {
+        // insert w at pos
+        let y: Vec<SsrleRun> = ssrle_seq_insert(bps, &x, pos, &w);
+        let ys: Vec<u64> = ssrle_materialize(bps, &y);
+        let naive_ins: Vec<u64> = syms_splice(&xs, pos, &ws);
+        if !syms_eq(&ys, &naive_ins) {
+            return 70i32;
+        }
+        // remove(insert(x)) == x — factorization-tolerant
+        let z: Vec<SsrleRun> = ssrle_seq_remove(bps, &y, pos, pos + wlen);
+        let zs: Vec<u64> = ssrle_materialize(bps, &z);
+        if !syms_eq(&zs, &xs) {
+            return 71i32;
+        }
+        if pos >= size {
+            done = true;
+        } else {
+            pos = pos + step;
+            if pos > size {
+                pos = size;
+            }
+        }
+    }
+    // independent remove vs the naive cut, including full-range and edges
+    let mut from: u64 = 0u64;
+    let rstep: u64 = size / 7u64 + 1u64;
+    while from <= size {
+        let mut to: u64 = from;
+        while to <= size {
+            let r: Vec<SsrleRun> = ssrle_seq_remove(bps, &x, from, to);
+            let rs2: Vec<u64> = ssrle_materialize(bps, &r);
+            let naive_rem: Vec<u64> = syms_cut(&xs, from, to);
+            if !syms_eq(&rs2, &naive_rem) {
+                return 72i32;
+            }
+            to = to + rstep;
+        }
+        from = from + rstep;
+    }
+    return 0i32;
+}
+
+// ── 80..: rank / select vs the naive oracle + inverse laws ──────────────────
+
+fn check_rank_select_sym(bps: u32, runs: &Vec<SsrleRun>, syms: &Vec<u64>, sym: u64) -> i32 {
+    let size: u64 = syms.length() as u64;
+    let mut cnt: u64 = 0u64;
+    let mut pos: u64 = 0u64;
+    while pos <= size {
+        // rank_eq == the running naive count
+        if ssrle_rank_eq(bps, runs, pos, sym) != cnt {
+            return 80i32;
+        }
+        if pos < size {
+            let here: u64 = syms.get(pos as i64);
+            if here == sym {
+                // select of the cnt-th occurrence lands exactly here
+                if ssrle_select_fw_eq(bps, runs, cnt, sym) != pos {
+                    return 81i32;
+                }
+                cnt = cnt + 1u64;
+            }
+        }
+        pos = pos + 1u64;
+    }
+    // rank(size) == total occurrences; select past the end == size
+    if ssrle_rank_eq(bps, runs, size, sym) != cnt {
+        return 82i32;
+    }
+    if ssrle_select_fw_eq(bps, runs, cnt, sym) != size {
+        return 83i32;
+    }
+    if ssrle_select_fw_eq(bps, runs, cnt + 5u64, sym) != size {
+        return 84i32;
+    }
+    // inverse law: rank(select(r)) == r for every valid r
+    let mut r: u64 = 0u64;
+    while r < cnt {
+        let p: u64 = ssrle_select_fw_eq(bps, runs, r, sym);
+        if ssrle_rank_eq(bps, runs, p, sym) != r {
+            return 85i32;
+        }
+        r = r + 1u64;
+    }
+    return 0i32;
+}
+
+fn check_rank_select(bps: u32, st: &mut u64) -> i32 {
+    let runs: Vec<SsrleRun> = rand_runs(bps, st, 8i64, 12u64);
+    let syms: Vec<u64> = ssrle_materialize(bps, &runs);
+    let alpha: u64 = 1u64 << (bps as u64);
+    // test symbols: 0, 1, alpha-1, one random (dups just re-run the check)
+    let mut tested: Vec<u64> = vec_new::<u64>();
+    tested.push(0u64);
+    if alpha > 2u64 {
+        tested.push(1u64);
+        tested.push(alpha - 1u64);
+        tested.push(rnd(st) % alpha);
+    } else {
+        tested.push(1u64);
+    }
+    let mut i: i64 = 0i64;
+    while i < tested.length() {
+        let rc: i32 = check_rank_select_sym(bps, &runs, &syms, tested.get(i));
+        if rc != 0i32 {
+            return rc;
+        }
+        i = i + 1i64;
+    }
+    return 0i32;
+}
+
+// ── 90..: codec composition over algebra outputs ────────────────────────────
+
+// encode `runs` (segment writer), decode back, compare SYMBOL streams —
+// factorization-tolerant per assert_spans_equal.
+fn roundtrip_stream_eq(bps: u32, runs: &Vec<SsrleRun>) -> bool {
+    let nunits: u64 = ssrle_compute_size(bps, runs, 0u64);
+    let mut target: Vec<u16> = vec_new::<u16>();
+    let mut j: u64 = 0u64;
+    while j < nunits {
+        target.push(0u16);
+        j = j + 1u64;
+    }
+    let written: u64 = ssrle_write_segments(bps, runs, &mut target, 0u64);
+    if written != nunits {
+        return false;
+    }
+    let decoded: Vec<SsrleRun> = ssrle_decode_runs(bps, &target, written);
+    let ds: Vec<u64> = ssrle_materialize(bps, &decoded);
+    let es: Vec<u64> = ssrle_materialize(bps, runs);
+    return syms_eq(&ds, &es);
+}
+
+fn check_codec_composition(bps: u32, st: &mut u64) -> i32 {
+    let x: Vec<SsrleRun> = rand_runs(bps, st, 8i64, 12u64);
+    let size: u64 = ssrle_count_symbols(&x);
+    if !roundtrip_stream_eq(bps, &x) {
+        return 90i32;
+    }
+    // encode(seq_split(x)) parts decode to the split of decode(encode(x))
+    let step: u64 = size / 5u64 + 1u64;
+    let mut pos: u64 = 0u64;
+    while pos <= size {
+        let mut left: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        let mut right: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        ssrle_seq_split(bps, &x, pos, &mut left, &mut right);
+        if !roundtrip_stream_eq(bps, &left) {
+            return 91i32;
+        }
+        if !roundtrip_stream_eq(bps, &right) {
+            return 92i32;
+        }
+        pos = pos + step;
+    }
+    // insert/remove outputs (nulls inside; the writer must skip them)
+    let w: Vec<SsrleRun> = rand_runs(bps, st, 3i64, 6u64);
+    let y: Vec<SsrleRun> = ssrle_seq_insert(bps, &x, size / 2u64, &w);
+    if !roundtrip_stream_eq(bps, &y) {
+        return 93i32;
+    }
+    let z: Vec<SsrleRun> = ssrle_seq_remove(bps, &x, size / 4u64, size / 2u64);
+    if !roundtrip_stream_eq(bps, &z) {
+        return 94i32;
+    }
+    // compactified vectors re-encode losslessly too
+    let mut cx: Vec<SsrleRun> = runs_copy(&x);
+    ssrle_compactify(bps, &mut cx);
+    if !roundtrip_stream_eq(bps, &cx) {
+        return 95i32;
+    }
+    return 0i32;
+}
+
+// ── main ────────────────────────────────────────────────────────────────────
+
+fn main() -> i32 {
+    let rc0: i32 = rle_suite_scenarios();
+    if rc0 != 0i32 {
+        return rc0;
+    }
+    let mut st: u64 = 0x5eed5eed5eed5eedu64;
+    let mut bps: u32 = 1u32;
+    while bps <= 8u32 {
+        let rc1: i32 = check_run_split(bps, &mut st);
+        if rc1 != 0i32 {
+            return rc1;
+        }
+        let rc2: i32 = check_run_extract_remove(bps, &mut st);
+        if rc2 != 0i32 {
+            return rc2;
+        }
+        let rc3: i32 = check_run_insert(bps, &mut st);
+        if rc3 != 0i32 {
+            return rc3;
+        }
+        let rc4: i32 = check_merge_rules(bps, &mut st);
+        if rc4 != 0i32 {
+            return rc4;
+        }
+        let rc5: i32 = check_compactify(bps, &mut st);
+        if rc5 != 0i32 {
+            return rc5;
+        }
+        let rc6: i32 = check_seq_split(bps, &mut st);
+        if rc6 != 0i32 {
+            return rc6;
+        }
+        let rc7: i32 = check_seq_insert_remove(bps, &mut st);
+        if rc7 != 0i32 {
+            return rc7;
+        }
+        let rc8: i32 = check_rank_select(bps, &mut st);
+        if rc8 != 0i32 {
+            return rc8;
+        }
+        let rc9: i32 = check_codec_composition(bps, &mut st);
+        if rc9 != 0i32 {
+            return rc9;
+        }
+        bps = bps + 1u32;
+    }
+    return 0i32;
+}

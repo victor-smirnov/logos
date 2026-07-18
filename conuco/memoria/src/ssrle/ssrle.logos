@@ -430,3 +430,629 @@ pub fn ssrle_count_symbols(runs: &Vec<SsrleRun>) -> u64 {
     }
     return size;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Increment 2 — the RUN ALGEBRA (C++ RunTraits split/insert/merge/compactify +
+// per-run rank/select, and the vector-level splice model of
+// packed_ssrle_seq_so.hpp split_buffer/remove_block/prepare_insert).
+//
+// DOCUMENTED DIVERGENCE from the C++ oracle: every branch that SYNTHESIZES a
+// longer pattern (pattern concat in merge/insert) additionally caps the new
+// pattern_length at ssrle_encodable_pattern_length = min(DATA_BITS/Bps,
+// 2^LEN_BITS − 1). C++ guards only with is_fit, which for Bps=7 admits a
+// plen-8 pattern (56 ≤ 59 bits) that the codec then encodes CORRUPTLY (LEN
+// field wraps to 0 ⇒ null run — see the increment-1 note above). For every
+// other Bps the cap equals max_pattern_length, so behavior is identical.
+//
+// PRESERVED C++ QUIRKS (bit-for-bit splice semantics):
+//   * split of a {plen=1, rl>1} run pushes BOTH halves unconditionally — at=0
+//     or at=rl yields an INVALID {plen=1, rl=0} run in the output (skipped by
+//     the writer/materializer, repairable by compactify);
+//   * insert's same-pattern fast paths sum run_lengths WITHOUT a budget
+//     check — the result may exceed max_run_length (symbol stream is right;
+//     re-encoding may need a later refactoring);
+//   * compactify NULLS merged-away runs in place; they are not removed.
+//
+// C++ SSRLERun::remove (ssrle_common.hpp:1209) calls Traits::remove which has
+// NO definition anywhere (dead template, never instantiated) — the run-level
+// remove here is DERIVED from extract_to (:123), the machinery that is real.
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Longest pattern that both fits DATA_BITS and is encodable in the LEN_BITS
+/// field: min(max_pattern_length, 2^LEN_BITS − 1). Differs from
+/// max_pattern_length only for Bps=7 (8 vs 7).
+pub fn ssrle_encodable_pattern_length(bps: u32) -> u32 {
+    let cap: u64 = (1u64 << ssrle_len_bits(bps)) - 1u64;
+    let mpl: u64 = ssrle_max_pattern_length(bps) as u64;
+    if mpl < cap {
+        return mpl as u32;
+    }
+    return cap as u32;
+}
+
+/// The fit rule for SYNTHESIZED patterns: the C++ is_fit budget PLUS the
+/// LEN_BITS encodability cap (the divergence documented above).
+pub fn ssrle_is_fit_concat(bps: u32, pattern_length: u64, run_length: u64) -> bool {
+    if pattern_length > ssrle_encodable_pattern_length(bps) as u64 {
+        return false;
+    }
+    return ssrle_is_fit(bps, pattern_length, run_length);
+}
+
+// ── per-run rank / select (EQ; the full op family = increment 7) ────────────
+
+impl SsrleRun {
+    /// Occurrences of `sym` in the whole pattern (C++ pattern_rank :760).
+    pub fn pattern_rank_eq(&self, bps: u32, sym: u64) -> u64 {
+        return self.pattern_rank_eq_up_to(bps, self.pattern_length as u64, sym);
+    }
+
+    /// Occurrences of `sym` in pattern[0..idx) (C++ pattern_rank :771).
+    pub fn pattern_rank_eq_up_to(&self, bps: u32, idx: u64, sym: u64) -> u64 {
+        let mut rank: u64 = 0u64;
+        let mut c: u64 = 0u64;
+        while c < idx {
+            if self.pattern_symbol(bps, c) == sym {
+                rank = rank + 1u64;
+            }
+            c = c + 1u64;
+        }
+        return rank;
+    }
+
+    /// Occurrences of `sym` in the run's first `idx` logical symbols
+    /// (C++ rank_eq :784).
+    pub fn rank_eq(&self, bps: u32, idx: u64, sym: u64) -> u64 {
+        if self.run_length == 1u64 {
+            return self.pattern_rank_eq_up_to(bps, idx, sym);
+        }
+        let plen: u64 = self.pattern_length as u64;
+        let full_rank: u64 = self.pattern_rank_eq(bps, sym);
+        let run_prefix: u64 = idx / plen;
+        let idx_local: u64 = idx - run_prefix * plen;
+        return run_prefix * full_rank + self.pattern_rank_eq_up_to(bps, idx_local, sym);
+    }
+
+    /// Occurrences of `sym` in the entire run (C++ full_rank_eq :1017).
+    pub fn full_rank_eq(&self, bps: u32, sym: u64) -> u64 {
+        return self.pattern_rank_eq(bps, sym) * self.run_length;
+    }
+
+    /// Pattern index of the (rank+1)-th `sym` occurrence, or pattern_length
+    /// when the pattern holds fewer (C++ pattern_select_fw :899).
+    pub fn pattern_select_fw_eq(&self, bps: u32, rank: u64, sym: u64) -> u64 {
+        let target: u64 = rank + 1u64;
+        let plen: u64 = self.pattern_length as u64;
+        let mut rr: u64 = 0u64;
+        let mut c: u64 = 0u64;
+        while c < plen {
+            if self.pattern_symbol(bps, c) == sym {
+                rr = rr + 1u64;
+                if rr == target {
+                    return c;
+                }
+            }
+            c = c + 1u64;
+        }
+        return plen;
+    }
+
+    /// Logical index of the (rank+1)-th `sym` occurrence (C++ select_fw_eq
+    /// :924). GUARD over C++ UB: a pattern with NO `sym` occurrences (C++
+    /// divides by zero) returns full_run_length = "not found".
+    pub fn select_fw_eq(&self, bps: u32, rank: u64, sym: u64) -> u64 {
+        if self.run_length == 1u64 {
+            return self.pattern_select_fw_eq(bps, rank, sym);
+        }
+        let rr: u64 = self.pattern_rank_eq(bps, sym);
+        if rr == 0u64 {
+            return self.full_run_length();
+        }
+        let rank_base: u64 = rank / rr;
+        let rank_local: u64 = rank - rank_base * rr;
+        let idx: u64 = self.pattern_select_fw_eq(bps, rank_local, sym);
+        return idx + (self.pattern_length as u64) * rank_base;
+    }
+}
+
+// ── run split / extract / remove ────────────────────────────────────────────
+
+/// pattern[start .. start+size) as a fresh rl=1 run (C++ sub_pattern :113).
+fn ssrle_sub_pattern(bps: u32, run: &SsrleRun, start: u64, size: u64) -> SsrleRun {
+    return SsrleRun {
+        pattern: (run.pattern >> (start * (bps as u64))) & ssrle_make_mask(size * (bps as u64)),
+        pattern_length: size as u32,
+        run_length: 1u64,
+    };
+}
+
+/// Split `run` at logical position `at`, appending ≤2 runs to each side
+/// (C++ RunTraits::split :179 — branch for branch, including the {plen=1}
+/// unconditional-push quirk).
+pub fn ssrle_run_split_to(
+    bps: u32,
+    run: &SsrleRun,
+    at: u64,
+    left_out: &mut Vec<SsrleRun>,
+    right_out: &mut Vec<SsrleRun>,
+) {
+    assert(at <= run.full_run_length(), "ssrle: split position out of range");
+    assert(run.pattern_length != 0u32, "ssrle: split of an empty run");
+    assert(run.run_length != 0u64, "ssrle: split of a zero-length run");
+    let r: SsrleRun = *run;
+    let plen: u64 = r.pattern_length as u64;
+    let b: u64 = bps as u64;
+    if r.run_length == 1u64 {
+        if at == 0u64 {
+            right_out.push(r);
+        } else {
+            if at == plen {
+                left_out.push(r);
+            } else {
+                let remainder: u64 = plen - at;
+                let mut left: SsrleRun = r;
+                let mut right: SsrleRun = r;
+                left.pattern = left.pattern & ssrle_make_mask(b * at);
+                left.pattern_length = at as u32;
+                right.pattern = (right.pattern >> (b * at)) & ssrle_make_mask(b * remainder);
+                right.pattern_length = remainder as u32;
+                left_out.push(left);
+                right_out.push(right);
+            }
+        }
+        return;
+    }
+    // run_length > 1
+    if plen == 1u64 {
+        // QUIRK PRESERVED: both halves pushed unconditionally (a half with
+        // rl=0 is an invalid run in the output).
+        let mut left: SsrleRun = r;
+        let mut right: SsrleRun = r;
+        left.run_length = at;
+        right.run_length = r.run_length - at;
+        left_out.push(left);
+        right_out.push(right);
+        return;
+    }
+    let at_start: u64 = at % plen;
+    let at_base: u64 = at - at_start;
+    if at_start == 0u64 {
+        let mut left: SsrleRun = r;
+        let mut right: SsrleRun = r;
+        left.run_length = at_base / plen;
+        right.run_length = r.run_length - left.run_length;
+        if left.is_valid() {
+            left_out.push(left);
+        }
+        if right.is_valid() {
+            right_out.push(right);
+        }
+        return;
+    }
+    let mut prefix: SsrleRun = ssrle_make_null();
+    if at_base != 0u64 {
+        prefix = r;
+        prefix.run_length = at_base / plen;
+    }
+    let mut suffix: SsrleRun = ssrle_make_null();
+    let suffix_run_length: u64 = r.run_length - prefix.run_length - 1u64;
+    if suffix_run_length != 0u64 {
+        suffix = r;
+        suffix.run_length = suffix_run_length;
+    }
+    let remainder: u64 = plen - at_start;
+    let mut left: SsrleRun = r;
+    let mut right: SsrleRun = r;
+    left.run_length = 1u64;
+    right.run_length = 1u64;
+    left.pattern = left.pattern & ssrle_make_mask(b * at_start);
+    left.pattern_length = at_start as u32;
+    right.pattern = (right.pattern >> (b * at_start)) & ssrle_make_mask(b * remainder);
+    right.pattern_length = remainder as u32;
+    if prefix.is_valid() {
+        left_out.push(prefix);
+    }
+    if left.is_valid() {
+        left_out.push(left);
+    }
+    if right.is_valid() {
+        right_out.push(right);
+    }
+    if suffix.is_valid() {
+        right_out.push(suffix);
+    }
+}
+
+/// Append the runs covering logical range [start, start+size) of `run`
+/// (C++ extract_to :123, quirks preserved: a zero-size extract of an rl=1 run
+/// emits a {plen=0, rl=1} padding-shaped run, of a plen=1 run an rl=0 run).
+pub fn ssrle_run_extract_to(bps: u32, run: &SsrleRun, start: u64, size: u64, out: &mut Vec<SsrleRun>) {
+    let full_len: u64 = run.full_run_length();
+    assert(start + size <= full_len, "ssrle: extract range out of run");
+    if run.run_length == 1u64 {
+        out.push(ssrle_sub_pattern(bps, run, start, size));
+        return;
+    }
+    let plen: u64 = run.pattern_length as u64;
+    if plen == 1u64 {
+        let mut r_run: SsrleRun = *run;
+        r_run.run_length = size;
+        out.push(r_run);
+        return;
+    }
+    let mut rr_start: u64 = start / plen;
+    let rr_start_base: u64 = rr_start * plen;
+    let rr_start_local_pos: u64 = start - rr_start_base;
+    if rr_start_local_pos + size <= plen {
+        out.push(ssrle_sub_pattern(bps, run, rr_start_local_pos, size));
+        return;
+    }
+    if rr_start_local_pos != 0u64 {
+        out.push(ssrle_sub_pattern(bps, run, rr_start_local_pos, plen - rr_start_local_pos));
+        rr_start = rr_start + 1u64;
+    }
+    let rr_end: u64 = (start + size) / plen;
+    let rr_end_base: u64 = rr_end * plen;
+    let rr_end_local_pos: u64 = (start + size) - rr_end_base;
+    if rr_end > rr_start {
+        let mut m_run: SsrleRun = *run;
+        m_run.run_length = rr_end - rr_start;
+        out.push(m_run);
+    }
+    if rr_end_local_pos != 0u64 {
+        out.push(ssrle_sub_pattern(bps, run, 0u64, rr_end_local_pos));
+    }
+}
+
+/// Remove logical range [from, to) of `run`, appending the survivors
+/// (derived from extract_to — the C++ Traits::remove is dead code, see the
+/// section comment). Zero-size extracts are skipped, so no quirk runs.
+pub fn ssrle_run_remove_to(bps: u32, run: &SsrleRun, from: u64, to: u64, out: &mut Vec<SsrleRun>) {
+    let full_len: u64 = run.full_run_length();
+    assert(from <= to && to <= full_len, "ssrle: remove range out of run");
+    if from > 0u64 {
+        ssrle_run_extract_to(bps, run, 0u64, from, out);
+    }
+    if to < full_len {
+        ssrle_run_extract_to(bps, run, to, full_len - to, out);
+    }
+}
+
+// ── run insert / merge / compactify ─────────────────────────────────────────
+
+/// Insert `run` into `self_run` at logical position `at`, appending the
+/// resulting runs (C++ RunTraits::insert :301, branch for branch; the three
+/// pattern-concat guards use ssrle_is_fit_concat — the documented divergence).
+pub fn ssrle_run_insert_to(
+    bps: u32,
+    self_run: &SsrleRun,
+    run: &SsrleRun,
+    at: u64,
+    out: &mut Vec<SsrleRun>,
+) {
+    assert(at <= self_run.full_run_length(), "ssrle: insert position out of range");
+    assert(self_run.is_valid(), "ssrle: insert into an invalid run");
+    let s: SsrleRun = *self_run;
+    let r: SsrleRun = *run;
+    let s_plen: u64 = s.pattern_length as u64;
+    let r_plen: u64 = r.pattern_length as u64;
+    let b: u64 = bps as u64;
+    // Same-pattern fast paths: rl sum WITHOUT a budget check (C++ :314/:323).
+    if s.pattern_length == 1u32 && r.pattern_length == 1u32 && s.pattern == r.pattern {
+        let mut r_run: SsrleRun = s;
+        r_run.run_length = r_run.run_length + r.run_length;
+        out.push(r_run);
+        return;
+    }
+    if s.is_same_pattern(&r) && at % s_plen == 0u64 {
+        let mut r_run: SsrleRun = s;
+        r_run.run_length = r_run.run_length + r.run_length;
+        out.push(r_run);
+        return;
+    }
+    if at == s.full_run_length() {
+        if s.run_length == 1u64 && r.run_length == 1u64 && ssrle_is_fit_concat(bps, s_plen + r_plen, 1u64) {
+            let mut r_run: SsrleRun = s;
+            r_run.pattern = r_run.pattern | (r.pattern << (s_plen * b));
+            r_run.pattern_length = (s_plen + r_plen) as u32;
+            out.push(r_run);
+        } else {
+            out.push(s);
+            out.push(r);
+        }
+        return;
+    }
+    // The pattern-split branch (C++ :357): same-length different content,
+    // different lengths, or an insertion point inside the pattern.
+    let at_start: u64 = at % s_plen;
+    let at_base: u64 = at - at_start;
+    let mut prefix: SsrleRun = ssrle_make_null();
+    let mut suffix: SsrleRun = ssrle_make_null();
+    if at_base != 0u64 {
+        prefix = s;
+        prefix.run_length = at_base / s_plen;
+        out.push(prefix);
+    }
+    if at_start == 0u64 {
+        // A pattern boundary, patterns differ.
+        if r.run_length == 1u64 && ssrle_is_fit_concat(bps, s_plen + r_plen, 1u64) {
+            let mut r_run: SsrleRun = s;
+            r_run.run_length = 1u64;
+            r_run.pattern = (r_run.pattern << (r_plen * b)) | r.pattern;
+            r_run.pattern_length = (s_plen + r_plen) as u32;
+            out.push(r_run);
+            suffix = s;
+            suffix.run_length = s.run_length - prefix.run_length - 1u64;
+        } else {
+            out.push(r);
+            suffix = s;
+            suffix.run_length = s.run_length - prefix.run_length;
+        }
+    } else {
+        if r.run_length == 1u64 && ssrle_is_fit_concat(bps, s_plen + r_plen, 1u64) {
+            // Splice r's pattern INTO s's pattern.
+            let mut r_run: SsrleRun = s;
+            r_run.run_length = 1u64;
+            let tmp: u64 = r_run.pattern >> (at_start * b);
+            r_run.pattern = r_run.pattern & ssrle_make_mask(at_start * b);
+            r_run.pattern = r_run.pattern | (r.pattern << (at_start * b));
+            r_run.pattern = r_run.pattern | (tmp << ((at_start + r_plen) * b));
+            r_run.pattern_length = (s_plen + r_plen) as u32;
+            out.push(r_run);
+        } else {
+            // Split s's pattern around the insertion point.
+            let mut left: SsrleRun = s;
+            let mut right: SsrleRun = s;
+            left.run_length = 1u64;
+            right.run_length = 1u64;
+            left.pattern = left.pattern & ssrle_make_mask(at_start * b);
+            left.pattern_length = at_start as u32;
+            right.pattern = right.pattern >> (at_start * b);
+            right.pattern_length = (s_plen - at_start) as u32;
+            out.push(left);
+            out.push(r);
+            out.push(right);
+        }
+        let suffix_length: u64 = s.run_length - prefix.run_length - 1u64;
+        if suffix_length != 0u64 {
+            suffix = s;
+            suffix.run_length = suffix_length;
+        }
+    }
+    if suffix.is_valid() {
+        out.push(suffix);
+    }
+}
+
+/// Try to merge `run` into `a` (C++ RunTraits::merge :479). Same pattern:
+/// succeeds iff the summed run_length still fits the budget. Two rl=1 runs:
+/// pattern concat iff the joint pattern fits (with the encodability cap).
+/// `a` is modified only on success.
+pub fn ssrle_run_merge(bps: u32, a: &mut SsrleRun, run: &SsrleRun) -> bool {
+    if a.is_same_pattern(run) {
+        if ssrle_is_fit(bps, a.pattern_length as u64, a.run_length + run.run_length) {
+            a.run_length = a.run_length + run.run_length;
+            return true;
+        }
+        return false;
+    }
+    if a.run_length == 1u64 && run.run_length == 1u64 {
+        let a_plen: u64 = a.pattern_length as u64;
+        let r_plen: u64 = run.pattern_length as u64;
+        if ssrle_is_fit_concat(bps, a_plen + r_plen, 1u64) {
+            a.pattern = a.pattern | (run.pattern << (a_plen * (bps as u64)));
+            a.pattern_length = (a_plen + r_plen) as u32;
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Greedy left-to-right neighbor merging (C++ compactify_runs :724).
+/// Merged-away runs are NULLED IN PLACE, not removed — the writer and the
+/// materializer skip them.
+pub fn ssrle_compactify(bps: u32, runs: &mut Vec<SsrleRun>) {
+    let n: i64 = runs.length();
+    if n <= 1i64 {
+        return;
+    }
+    let mut c: i64 = 0i64;
+    while c < n - 1i64 {
+        let mut acc: SsrleRun = runs.get(c);
+        let mut d: i64 = c + 1i64;
+        let mut going: bool = true;
+        while going && d < n {
+            let cand: SsrleRun = runs.get(d);
+            if ssrle_run_merge(bps, &mut acc, &cand) {
+                runs.set(d, ssrle_make_null());
+                d = d + 1i64;
+            } else {
+                going = false;
+            }
+        }
+        runs.set(c, acc);
+        c = d;
+    }
+}
+
+// ── vector-level algebra (the packed_ssrle_seq_so.hpp splice model) ─────────
+
+/// Locate the run holding logical position `pos` (C++ find_in_syms :1533).
+/// pos == total size ⇒ run_idx == runs.length() ("past the end").
+pub struct SsrleFindRun {
+    pub run_idx: i64,
+    pub local_offset: u64,
+    pub offset: u64,
+}
+
+pub fn ssrle_find_run(runs: &Vec<SsrleRun>, pos: u64) -> SsrleFindRun {
+    let n: i64 = runs.length();
+    let mut offset: u64 = 0u64;
+    let mut c: i64 = 0i64;
+    let mut going: bool = true;
+    while going && c < n {
+        let run: SsrleRun = runs.get(c);
+        let len: u64 = run.full_run_length();
+        if pos < offset + len {
+            going = false;
+        } else {
+            offset = offset + len;
+            c = c + 1i64;
+        }
+    }
+    return SsrleFindRun {
+        run_idx: c,
+        local_offset: pos - offset,
+        offset: offset,
+    };
+}
+
+/// dst ← dst ++ src.
+pub fn ssrle_runs_append(dst: &mut Vec<SsrleRun>, src: &Vec<SsrleRun>) {
+    let n: i64 = src.length();
+    let mut c: i64 = 0i64;
+    while c < n {
+        dst.push(src.get(c));
+        c = c + 1i64;
+    }
+}
+
+/// Split the run vector at logical position `pos` (C++ split_buffer :1465):
+/// the found run is run-split, everything before/after is copied verbatim.
+pub fn ssrle_seq_split(
+    bps: u32,
+    runs: &Vec<SsrleRun>,
+    pos: u64,
+    left: &mut Vec<SsrleRun>,
+    right: &mut Vec<SsrleRun>,
+) {
+    let n: i64 = runs.length();
+    let res: SsrleFindRun = ssrle_find_run(runs, pos);
+    if res.run_idx >= n {
+        ssrle_runs_append(left, runs);
+        return;
+    }
+    let mut c: i64 = 0i64;
+    while c < res.run_idx {
+        left.push(runs.get(c));
+        c = c + 1i64;
+    }
+    let target: SsrleRun = runs.get(res.run_idx);
+    ssrle_run_split_to(bps, &target, res.local_offset, left, right);
+    c = res.run_idx + 1i64;
+    while c < n {
+        right.push(runs.get(c));
+        c = c + 1i64;
+    }
+}
+
+/// Insert `new_runs` at logical position `pos`; splices + compactifies
+/// (C++ prepare_insert :713).
+pub fn ssrle_seq_insert(bps: u32, runs: &Vec<SsrleRun>, pos: u64, new_runs: &Vec<SsrleRun>) -> Vec<SsrleRun> {
+    assert(pos <= ssrle_count_symbols(runs), "ssrle: seq insert position out of range");
+    let mut left: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    let mut right: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    ssrle_seq_split(bps, runs, pos, &mut left, &mut right);
+    ssrle_runs_append(&mut left, new_runs);
+    ssrle_runs_append(&mut left, &right);
+    ssrle_compactify(bps, &mut left);
+    return left;
+}
+
+/// Remove logical range [start, end); double split + splice + compactify
+/// (C++ remove_block :1673 + prepare_remove :818).
+pub fn ssrle_seq_remove(bps: u32, runs: &Vec<SsrleRun>, start: u64, end: u64) -> Vec<SsrleRun> {
+    let size: u64 = ssrle_count_symbols(runs);
+    assert(start <= end && end <= size, "ssrle: seq remove range invalid");
+    let mut dst: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    let mut right: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    if end < size {
+        if start > 0u64 {
+            let mut right1: Vec<SsrleRun> = vec_new::<SsrleRun>();
+            ssrle_seq_split(bps, runs, start, &mut dst, &mut right1);
+            let mut left2: Vec<SsrleRun> = vec_new::<SsrleRun>();
+            ssrle_seq_split(bps, &right1, end - start, &mut left2, &mut right);
+        } else {
+            let mut left: Vec<SsrleRun> = vec_new::<SsrleRun>();
+            ssrle_seq_split(bps, runs, end, &mut left, &mut right);
+        }
+    } else {
+        if start > 0u64 {
+            let mut tail: Vec<SsrleRun> = vec_new::<SsrleRun>();
+            ssrle_seq_split(bps, runs, start, &mut dst, &mut tail);
+        }
+    }
+    ssrle_runs_append(&mut dst, &right);
+    ssrle_compactify(bps, &mut dst);
+    return dst;
+}
+
+/// Occurrences of `sym` in positions [0, pos) of the whole vector — the
+/// reference-model arithmetic (SymbolsRunTools::get_rank_eq, index-free).
+/// pos == total size counts every occurrence.
+pub fn ssrle_rank_eq(bps: u32, runs: &Vec<SsrleRun>, pos: u64, sym: u64) -> u64 {
+    let n: i64 = runs.length();
+    let mut offset: u64 = 0u64;
+    let mut rank: u64 = 0u64;
+    let mut c: i64 = 0i64;
+    let mut going: bool = true;
+    while going && c < n {
+        let run: SsrleRun = runs.get(c);
+        let len: u64 = run.full_run_length();
+        if offset + len <= pos {
+            rank = rank + run.full_rank_eq(bps, sym);
+            offset = offset + len;
+            c = c + 1i64;
+        } else {
+            rank = rank + run.rank_eq(bps, pos - offset, sym);
+            going = false;
+        }
+    }
+    return rank;
+}
+
+/// Logical position of the (rank+1)-th `sym` occurrence, or the total size
+/// when there are fewer (SymbolsRunTools::select_fw_fn, index-free).
+pub fn ssrle_select_fw_eq(bps: u32, runs: &Vec<SsrleRun>, rank: u64, sym: u64) -> u64 {
+    let n: i64 = runs.length();
+    let mut offset: u64 = 0u64;
+    let mut total_rank: u64 = 0u64;
+    let mut c: i64 = 0i64;
+    while c < n {
+        let run: SsrleRun = runs.get(c);
+        let run_rank: u64 = run.full_rank_eq(bps, sym);
+        if rank < total_rank + run_rank {
+            return offset + run.select_fw_eq(bps, rank - total_rank, sym);
+        }
+        offset = offset + run.full_run_length();
+        total_rank = total_rank + run_rank;
+        c = c + 1i64;
+    }
+    return offset;
+}
+
+/// Expand `runs` to the flat symbol stream (invalid runs skipped) — the
+/// factorization-INSENSITIVE view; two run vectors are equivalent iff their
+/// materializations agree (C++ assert_spans_equal semantics).
+pub fn ssrle_materialize(bps: u32, runs: &Vec<SsrleRun>) -> Vec<u64> {
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let n: i64 = runs.length();
+    let mut c: i64 = 0i64;
+    while c < n {
+        let run: SsrleRun = runs.get(c);
+        if run.is_valid() {
+            let plen: u64 = run.pattern_length as u64;
+            let mut rep: u64 = 0u64;
+            while rep < run.run_length {
+                let mut p: u64 = 0u64;
+                while p < plen {
+                    out.push(run.pattern_symbol(bps, p));
+                    p = p + 1u64;
+                }
+                rep = rep + 1u64;
+            }
+        }
+        c = c + 1i64;
+    }
+    return out;
+}
