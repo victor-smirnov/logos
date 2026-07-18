@@ -1,0 +1,49 @@
+// The full ADR 0021 container-factory impl shape through quote_item! — the
+// second of the two forms the factory emitted as raw Emitter text
+// (project_quote_system_gaps). Exercises together: a `@{...}` WritStatic
+// literal spliced VERBATIM into TYPE-ARG position from a runtime string
+// (parse_wstatic → LIT_WSTATIC, rule 3), an impl-level associated-type binding
+// `type Handle = #id;` (ASSOC_TYPE_IMPL renderer), a family-name Ident antiquot
+// at four sites, and a metaprog-time integer literal reified through parse_expr
+// (rule 2). Gates like metaclass_factory_family: a clean compile+run of the
+// emit cycle; the gendir variant (logos_09_gendir_*) pins the render→reparse
+// fidelity of all of the above.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+trait Fam<S> {
+    type Handle;
+    fn fam_id() -> u64;
+    fn make() -> u64;
+}
+struct Cls<const CFG: WritStatic> {}
+struct Hs42 {}
+
+#[metaprog_handler("fam_inject")]
+fn fam_inject_hook(target_offset: u32) -> () {
+    let famid: Ident = Ident::new("Hs42");
+    let cfgty: ExprBlob = parse_wstatic("@{ \"kind\": \"ordered_map\", \"key\": <type:u64>, \"value\": <type:u64> }");
+    let idexpr: ExprBlob = parse_expr("0x42u64");
+    let blob: QuoteItemBlob = quote_item! {
+        impl Fam<i64> for Cls<#(cfgty)> {
+            type Handle = #famid;
+            fn fam_id() -> u64 {
+                return #(idexpr);
+            }
+            fn make() -> u64 {
+                return 0u64;
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[fam_inject]
+struct Marker {}
+
+fn main() -> i32 {
+    return 0i32;
+}

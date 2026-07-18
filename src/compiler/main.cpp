@@ -2581,6 +2581,8 @@ extern "C" const uint8_t* logos_parse_as(const uint8_t* s, uint64_t len,
         switch (rule_id) {
             case 0: doc = parser.parse_type_param_list(); break;
             case 1: doc = parser.parse_type_ref();        break;
+            case 2: doc = parser.parse_expr();            break;
+            case 3: doc = parser.parse_wstatic_lit_type(); break;
             default:
                 std::fprintf(stderr, "logos_parse_as: unknown rule_id %u\n", rule_id);
                 return nullptr;

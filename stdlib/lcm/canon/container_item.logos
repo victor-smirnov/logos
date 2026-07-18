@@ -1608,26 +1608,39 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     // type Handle = the family's CoW handle; create/open forward to its
     // inherent statics (the impl target is CtrClass<CFG>, not the
     // handle, so inherent-vs-trait shadowing cannot bite here).
-    let mut em: Emitter = Emitter::new();
-    em.emit_into("logos.gen");
-    em.push_text("\nuse logos.lcm.canon.metaclass;\n");
-    em.push_text("use logos.mem.bt.memstore;\n\n");
-    em.push_text("impl CtrFamily<MemorySnapshot> for CtrClass<");
-    em.push_text(cfg_src);
-    em.push_text("> {\n    type Handle = ");
-    em.push_text(fam.as_str());
-    em.push_text(";\n    fn family_id() -> u64 {\n        return 0x");
-    em.push_text(hash_hex);
-    em.push_text("u64;\n    }\n    fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> ");
-    em.push_text(fam.as_str());
-    em.push_text(" {\n        return ");
-    em.push_text(fam.as_str());
-    em.push_text("::create(snap, ctr_id);\n    }\n    fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> ");
-    em.push_text(fam.as_str());
-    em.push_text(" {\n        return ");
-    em.push_text(fam.as_str());
-    em.push_text("::open(snap, ctr_id);\n    }\n}\n");
-    em.commit();
+    // The full CtrFamily impl via quote_item! (retires the last text emission on
+    // the factory path). The impl target `CtrClass<@{CFG}>` splices cfg_src
+    // VERBATIM (parse_wstatic → LIT_WSTATIC): re-parsing the exact doc mono
+    // hashed yields the same @hs, i.e. the very CtrClass instance demanded — no
+    // reconstruction, no drift. The family handle `#famid` (`Hs<hex>`) is an
+    // Ident antiquot at all five sites; the family_id literal `0x<hex>u64` is
+    // reified through parse_expr (a metaprog-time integer known only as a hash
+    // string). The fragment emits into `logos.gen` (the hash-keyed family is
+    // package-agnostic — same as container_item_run's synthetic pkg above).
+    let famid: Ident = Ident::new(fam.as_str());
+    let cfgty: ExprBlob = parse_wstatic(cfg_src);
+    let mut hexlit: String = String::new();
+    hexlit.push_str("0x");
+    hexlit.push_str(hash_hex);
+    hexlit.push_str("u64");
+    let idexpr: ExprBlob = parse_expr(hexlit.as_str());
+    let b: QuoteItemBlob = quote_item! {
+        use logos.lcm.canon.metaclass;
+        use logos.mem.bt.memstore;
+        impl CtrFamily<MemorySnapshot> for CtrClass<#(cfgty)> {
+            type Handle = #famid;
+            fn family_id() -> u64 {
+                return #(idexpr);
+            }
+            fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> #famid {
+                return #famid::create(snap, ctr_id);
+            }
+            fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> #famid {
+                return #famid::open(snap, ctr_id);
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&b); }
     return out;
 }
 

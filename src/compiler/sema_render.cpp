@@ -1351,6 +1351,21 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         return s;
     }
 
+    case la::ASSOC_TYPE_IMPL: {
+        // An impl-level associated-type binding `type Name [<params>] = T;`
+        // (grammar slot 120). Like TYPE_ALIAS but never carries a visibility
+        // prefix. Needed to render an impl body emitted through quote_item!
+        // (the ADR 0021 CtrFamily impl's `type Handle = Hs<hex>;`).
+        std::string s = "type ";
+        s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::TYPE_PARAMS))
+            s += render_type_param_list_(map_of(node.get(la::TYPE_PARAMS.code)));
+        s += " = ";
+        s += render_type_src(map_of(node.get(la::TYPE.code)));
+        s += ";";
+        return s;
+    }
+
     case la::ENUM: {
         std::string s = render_vis_prefix_(node);
         s += "enum ";
