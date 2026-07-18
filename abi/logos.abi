@@ -165,10 +165,10 @@ sym	logos.mem.bt.BtCursor__type_id__g__ref_T
 sym	logos.mem.bt.BtTree__type_id__g__ref_T
 sym	logos.mem.bt.FindShuttle__type_id__g__ref_T
 sym	logos.mem.bt.ShuttleRes__type_id__g__ref_T
-sym	logos.mem.bt.memstore.DirEntry__type_id__g__ref_T
 sym	logos.mem.bt.memstore.Directory__type_id__g__ref_T
 sym	logos.mem.bt.memstore.MemorySnapshot__type_id__g__ref_T
 sym	logos.mem.bt.memstore.MemoryStore__type_id__g__ref_T
+sym	logos.mem.bt.memstore.RootEntry__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$String__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$bool__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$i32__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -8712,6 +8712,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Response
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Rng
+sym	logos_lang.logos.lang.any$type_id_of__g__void__RootEntry
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView2
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Scheduler
@@ -9617,13 +9618,10 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__remove__g
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__drop__g__Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__into_iter__g__Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__push__g__refmut_Vec$G1$T__T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$ExprBlob__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$ExprBlob__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$ExprBlob__drop__g__Vec$G1$T
@@ -9685,6 +9683,16 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__index__g__ref_Vec
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__len__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__clear__g__refmut_Vec$G1$T
@@ -10401,6 +10409,7 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Ident
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Json
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__JsonField
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__QuoteItemBlob
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__RootEntry
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__String
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__TokenTree
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__WAny
@@ -11195,10 +11204,10 @@ type	logos.mem.bt.BtCursor	fields=[path:Vec<(u64, u32)>,leaf:u64,pos:u32]
 type	logos.mem.bt.BtTree	fields=[root:u64]
 type	logos.mem.bt.FindShuttle	fields=[key:u64]
 type	logos.mem.bt.ShuttleRes	fields=[pos:u32,found:bool]
-type	logos.mem.bt.memstore.DirEntry	fields=[ctr_id:u64,root:*mut u8,level:u32]
-type	logos.mem.bt.memstore.Directory	fields=[entries:Vec<DirEntry>]
+type	logos.mem.bt.memstore.Directory	fields=[entries:Vec<RootEntry>]
 type	logos.mem.bt.memstore.MemorySnapshot	fields=[id:u64,dir:Directory]
 type	logos.mem.bt.memstore.MemoryStore	fields=[next_id:u64,head:Directory]
+type	logos.mem.bt.memstore.RootEntry	fields=[ctr_id:u64,root:*mut u8,level:u32]
 type	logos.mem.bt.ops.BtInsRet	fields=[addr:*mut u8,lsep:K,lsize:u64,split:bool,rsep:K,rsize:u64,rptr:*mut u8]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]
