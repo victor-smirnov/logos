@@ -1,6 +1,7 @@
 package beta;
 
 use logos.mem.collections.vec;
+use logos.lang.any;
 
 pub fn shared(x: i32) -> i32 { return x + 100; }
 pub fn beta_only() -> i32 { return 11; }
@@ -14,3 +15,5 @@ pub fn beta_ping_sum() -> i64 {
     v.push(Ping { x: 30, y: 40 });
     return v[0].x + v[0].y + v[1].x + v[1].y;   // 100
 }
+// G156-1 sibling (runtime type-UID): distinct from alpha::Ping's.
+pub fn beta_ping_tid() -> u64 { return type_id_of::<Ping>().lo; }

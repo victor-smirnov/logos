@@ -1,0 +1,17 @@
+// G156-1 sibling — cross-package runtime type-UID distinctness. `alpha::Ping`
+// and `beta::Ping` are same-named structs in different packages of one module.
+// type_id_of::<T>() lowers to type_uid -> type_id_canon -> collect_module_tags,
+// which folds the package ($M<hash>) for ambiguous names -- so the two types get
+// DISTINCT TypeIds and a `&dyn Any` downcast can't confuse them at runtime.
+// Pre-fix both hashed the bare `Ping` -> identical UID -> unsound downcast.
+package main;
+
+use alpha;
+use beta;
+
+fn main() -> i32 {
+    let a: u64 = alpha_ping_tid();
+    let b: u64 = beta_ping_tid();
+    if a == b { return 1; }   // identical UID = the collision (unsound)
+    return 42;                // distinct = correct
+}

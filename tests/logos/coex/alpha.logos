@@ -1,6 +1,7 @@
 package alpha;
 
 use logos.mem.collections.vec;
+use logos.lang.any;
 
 pub fn shared(x: i32) -> i32 { return x + 1; }
 pub fn alpha_only() -> i32 { return 7; }
@@ -16,3 +17,7 @@ pub fn alpha_ping_sum() -> i32 {
     v.push(Ping { a: 4 });
     return v[0].a + v[1].a;   // 7
 }
+// G156-1 sibling (runtime type-UID): type_id_of::<Ping>() must be package-
+// DISTINCT from beta::Ping so Any/downcast can't confuse the two (type_id_canon
+// folds the package for ambiguous names via collect_module_tags).
+pub fn alpha_ping_tid() -> u64 { return type_id_of::<Ping>().lo; }
