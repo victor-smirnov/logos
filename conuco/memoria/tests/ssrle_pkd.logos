@@ -21,14 +21,13 @@
 //   60..69  OOM discipline (too-small block → Err, nothing torn)
 //   70..79  format sanity: bps-for-alphabet, sizing, index probes
 //
-// VALGRIND NOTE: the fixture bytes arrive via read_to_string → io_uring;
-// memcheck cannot see kernel-side completion writes, so with full undef
-// tracking every value derived from fixture bytes reports as uninitialised
-// (false-positive taint; the seeded/empty/OOM phases, which run FIRST and
-// exercise the whole packed layer on non-fixture data, are fully clean).
-// The valgrind gate therefore runs with --undef-value-errors=no, which still
-// checks addressability (invalid read/write/free) and leaks: 0 errors,
-// 0 leaks required.
+// VALGRIND NOTE: the fixture bytes arrive via read_to_string → io_uring.
+// memcheck cannot see kernel-side completion writes, but the runtime marks
+// uring read buffers DEFINED via the valgrind client request
+// (stdlib/rt/thread_uring.c), so the gate runs at FULL strictness — no
+// --undef-value-errors=no needed: 0 errors (undef tracking included),
+// 0 leaks required. (Historically the flag existed because fixture-derived
+// values flooded memcheck with ~2M false uninitialised reports.)
 package test;
 
 use memoria.ssrle;

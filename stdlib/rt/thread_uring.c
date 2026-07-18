@@ -7,6 +7,29 @@
 #include <fcntl.h>     // O_* constants
 #include <stddef.h>
 
+// ── Valgrind interop ──────────────────────────────────────────────────────
+// io_uring completions are KERNEL writes into user buffers; memcheck cannot
+// observe them, so every byte a read/recv/readv completion produces stays
+// "uninitialised" and taints everything derived from it (~10M false errors
+// on a fixture-driven test). Mark the destination buffer DEFINED at prep
+// time: the CQE carries no buffer pointer, and between prep and reap nothing
+// else touches the buffer's definedness, so prep-side marking is equivalent
+// to completion-side marking for memcheck — the kernel's write is invisible
+// to it either way. The client request is a no-op outside valgrind (a few
+// cycles), so it runs unconditionally. Only kernel-WRITE targets need this
+// (read/readv/recv/accept); write-side ops don't taint anything.
+#if defined(__has_include)
+# if __has_include(<valgrind/memcheck.h>)
+#  include <valgrind/memcheck.h>
+# endif
+#endif
+#ifdef VALGRIND_MAKE_MEM_DEFINED
+# define LOGOS_VG_MAKE_MEM_DEFINED(buf, len) \
+    ((void)VALGRIND_MAKE_MEM_DEFINED((buf), (len)))
+#else
+# define LOGOS_VG_MAKE_MEM_DEFINED(buf, len) ((void)0)
+#endif
+
 // ── Existing fiber reactor helpers ────────────────────────────────────────
 
 void logos_uring_prep_poll_add(struct io_uring_sqe *sqe, int fd, int mask)
@@ -66,6 +89,7 @@ void logos_io_uring_prep_read(struct io_uring_sqe *sqe,
                                long long offset)
 {
     io_uring_prep_read(sqe, fd, buf, nbytes, (__u64)offset);
+    LOGOS_VG_MAKE_MEM_DEFINED(buf, nbytes);
 }
 
 // Prepare a write SQE.
@@ -129,12 +153,19 @@ void logos_io_uring_prep_accept(struct io_uring_sqe *sqe, int fd,
 {
     io_uring_prep_accept(sqe, fd, (struct sockaddr *)addr,
                          (socklen_t *)addrlen, flags);
+    // The kernel fills addr/addrlen on completion — same invisible-write
+    // class as the read buffers above.
+    if (addr && addrlen)
+        LOGOS_VG_MAKE_MEM_DEFINED(addr, *(socklen_t *)addrlen);
+    if (addrlen)
+        LOGOS_VG_MAKE_MEM_DEFINED(addrlen, sizeof(socklen_t));
 }
 
 void logos_io_uring_prep_recv(struct io_uring_sqe *sqe, int fd,
                                void *buf, unsigned nbytes, int flags)
 {
     io_uring_prep_recv(sqe, fd, buf, nbytes, flags);
+    LOGOS_VG_MAKE_MEM_DEFINED(buf, nbytes);
 }
 
 void logos_io_uring_prep_send(struct io_uring_sqe *sqe, int fd,
@@ -192,6 +223,11 @@ void logos_io_uring_prep_readv(struct io_uring_sqe *sqe, int fd,
 {
     io_uring_prep_readv(sqe, fd, (struct iovec *)iovecs,
                         nr_vecs, (__u64)offset);
+    {
+        const struct iovec *iov = (const struct iovec *)iovecs;
+        for (unsigned i = 0; i < nr_vecs; i++)
+            LOGOS_VG_MAKE_MEM_DEFINED(iov[i].iov_base, iov[i].iov_len);
+    }
 }
 
 // Prepare a timeout SQE.  `ts` points to a struct __kernel_timespec
