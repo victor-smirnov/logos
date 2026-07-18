@@ -522,7 +522,8 @@ pub fn ssrle_is_fit_concat(bps: u32, pattern_length: u64, run_length: u64) -> bo
     return ssrle_is_fit(bps, pattern_length, run_length);
 }
 
-// ── per-run rank / select (EQ; the full op family = increment 7) ────────────
+// ── per-run rank / select (EQ; the op family lives in the increment-7
+//    section at the end of this module) ─────────────────────────────────────
 
 impl SsrleRun {
     /// Occurrences of `sym` in the whole pattern (C++ pattern_rank :760).
@@ -1108,6 +1109,244 @@ pub fn ssrle_runs_from_symbols(bps: u32, syms: &Vec<u64>) -> Vec<SsrleRun> {
         }
         out.push(ssrle_run_new(bps, 1u32, s, (j - i) as u64));
         i = j;
+    }
+    return out;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Increment 7 — the OP FAMILY over runs and run vectors (C++
+// SSRLERunCommonTraitsBase, ssrle_common.hpp: pattern_rank_fn :878/:889,
+// rank_fn :807, full_rank_* :1017-:1039, pattern_select_fw_fn :905,
+// select_fw_fn :1001, pattern_ranks :745/:752, full_ranks :834, ranks :852).
+// The C++ Find{EQ,NEQ,LT,LE,GT,GE}Fn comparator functors (:942-:976) become a
+// runtime op code — the same runtime-parameter move as Bps. Codes mirror
+// SeqOpType (core/types.hpp:289) order.
+//
+// GUARD over C++ UB (generalizing the increment-2 select_fw_eq guard): the
+// rl>1 select path divides by the pattern match count; a pattern with NO
+// matches divides by zero in C++ (select_fw_fn :1008). Here it returns
+// full_run_length = "not found in this run".
+// ════════════════════════════════════════════════════════════════════════════
+
+pub const SSRLE_OP_EQ:  u32 = 0u32;
+pub const SSRLE_OP_NEQ: u32 = 1u32;
+pub const SSRLE_OP_LT:  u32 = 2u32;
+pub const SSRLE_OP_LE:  u32 = 3u32;
+pub const SSRLE_OP_GT:  u32 = 4u32;
+pub const SSRLE_OP_GE:  u32 = 5u32;
+
+/// The comparator family (C++ Find*Fn functors, ssrle_common.hpp:942-:976).
+pub fn ssrle_op_matches(op: u32, run_sym: u64, sym: u64) -> bool {
+    if op == SSRLE_OP_EQ {
+        return run_sym == sym;
+    }
+    if op == SSRLE_OP_NEQ {
+        return run_sym != sym;
+    }
+    if op == SSRLE_OP_LT {
+        return run_sym < sym;
+    }
+    if op == SSRLE_OP_LE {
+        return run_sym <= sym;
+    }
+    if op == SSRLE_OP_GT {
+        return run_sym > sym;
+    }
+    assert(op == SSRLE_OP_GE, "ssrle: unknown op code");
+    return run_sym >= sym;
+}
+
+impl SsrleRun {
+    /// Matches of (sym, op) in pattern[0..idx) (C++ pattern_rank_fn :889).
+    pub fn pattern_rank_op_up_to(&self, bps: u32, idx: u64, sym: u64, op: u32) -> u64 {
+        let mut rank: u64 = 0u64;
+        let mut c: u64 = 0u64;
+        while c < idx {
+            if ssrle_op_matches(op, self.pattern_symbol(bps, c), sym) {
+                rank = rank + 1u64;
+            }
+            c = c + 1u64;
+        }
+        return rank;
+    }
+
+    /// Matches in the whole pattern (C++ pattern_rank_fn :878).
+    pub fn pattern_rank_op(&self, bps: u32, sym: u64, op: u32) -> u64 {
+        return self.pattern_rank_op_up_to(bps, self.pattern_length as u64, sym, op);
+    }
+
+    /// Matches in the run's first `idx` logical symbols (C++ rank_fn :807;
+    /// rank_gt/ge/lt/le/neq :1041-:1059 are its op dispatches).
+    pub fn rank_op(&self, bps: u32, idx: u64, sym: u64, op: u32) -> u64 {
+        if self.run_length == 1u64 {
+            return self.pattern_rank_op_up_to(bps, idx, sym, op);
+        }
+        let plen: u64 = self.pattern_length as u64;
+        let fr: u64 = self.pattern_rank_op(bps, sym, op);
+        let run_prefix: u64 = idx / plen;
+        let idx_local: u64 = idx - run_prefix * plen;
+        return run_prefix * fr + self.pattern_rank_op_up_to(bps, idx_local, sym, op);
+    }
+
+    /// Matches in the entire run (C++ full_rank_* :1017-:1039).
+    pub fn full_rank_op(&self, bps: u32, sym: u64, op: u32) -> u64 {
+        return self.pattern_rank_op(bps, sym, op) * self.run_length;
+    }
+
+    /// Pattern index of the (rank+1)-th match, or pattern_length when the
+    /// pattern holds fewer (C++ pattern_select_fw_fn :905).
+    pub fn pattern_select_fw_op(&self, bps: u32, rank: u64, sym: u64, op: u32) -> u64 {
+        let target: u64 = rank + 1u64;
+        let plen: u64 = self.pattern_length as u64;
+        let mut rr: u64 = 0u64;
+        let mut c: u64 = 0u64;
+        while c < plen {
+            if ssrle_op_matches(op, self.pattern_symbol(bps, c), sym) {
+                rr = rr + 1u64;
+                if rr == target {
+                    return c;
+                }
+            }
+            c = c + 1u64;
+        }
+        return plen;
+    }
+
+    /// Logical index of the (rank+1)-th match (C++ select_fw_fn :1001).
+    /// GUARD over C++ UB (section note): zero pattern matches → full_run_length.
+    pub fn select_fw_op(&self, bps: u32, rank: u64, sym: u64, op: u32) -> u64 {
+        if self.run_length == 1u64 {
+            return self.pattern_select_fw_op(bps, rank, sym, op);
+        }
+        let rr: u64 = self.pattern_rank_op(bps, sym, op);
+        if rr == 0u64 {
+            return self.full_run_length();
+        }
+        let rank_base: u64 = rank / rr;
+        let rank_local: u64 = rank - rank_base * rr;
+        let idx: u64 = self.pattern_select_fw_op(bps, rank_local, sym, op);
+        return idx + (self.pattern_length as u64) * rank_base;
+    }
+
+    // sink[s] += occurrences of s in pattern[0..idx) (C++ pattern_ranks :752).
+    fn pattern_ranks_up_to(&self, bps: u32, idx: u64, sink: &mut Vec<u64>) {
+        let mut c: u64 = 0u64;
+        while c < idx {
+            let ps: i64 = self.pattern_symbol(bps, c) as i64;
+            sink.set(ps, sink.get(ps) + 1u64);
+            c = c + 1u64;
+        }
+    }
+
+    /// sink[s] += occurrences of s in the entire run (C++ full_ranks :834;
+    /// the tmp-buffer×run_length scaling collapses to += run_length per
+    /// pattern position). `sink` must cover every pattern symbol.
+    pub fn full_ranks(&self, bps: u32, sink: &mut Vec<u64>) {
+        if self.run_length == 1u64 {
+            self.pattern_ranks_up_to(bps, self.pattern_length as u64, sink);
+            return;
+        }
+        let plen: u64 = self.pattern_length as u64;
+        let mut c: u64 = 0u64;
+        while c < plen {
+            let ps: i64 = self.pattern_symbol(bps, c) as i64;
+            sink.set(ps, sink.get(ps) + self.run_length);
+            c = c + 1u64;
+        }
+    }
+
+    /// sink[s] += occurrences of s in the run's first `idx` logical symbols
+    /// (C++ ranks :852).
+    pub fn ranks_up_to(&self, bps: u32, idx: u64, sink: &mut Vec<u64>) {
+        if self.run_length == 1u64 {
+            self.pattern_ranks_up_to(bps, idx, sink);
+            return;
+        }
+        let plen: u64 = self.pattern_length as u64;
+        let run_prefix: u64 = idx / plen;
+        let idx_local: u64 = idx - run_prefix * plen;
+        if run_prefix > 0u64 {
+            let mut c: u64 = 0u64;
+            while c < plen {
+                let ps: i64 = self.pattern_symbol(bps, c) as i64;
+                sink.set(ps, sink.get(ps) + run_prefix);
+                c = c + 1u64;
+            }
+        }
+        self.pattern_ranks_up_to(bps, idx_local, sink);
+    }
+}
+
+// ── vector-level op family (the reference-model arithmetic, index-free) ─────
+
+/// Matches of (sym, op) in positions [0, pos) — ssrle_rank_eq generalized.
+/// pos == total size counts every match.
+pub fn ssrle_rank_op(bps: u32, runs: &Vec<SsrleRun>, pos: u64, sym: u64, op: u32) -> u64 {
+    let n: i64 = runs.length();
+    let mut offset: u64 = 0u64;
+    let mut rank: u64 = 0u64;
+    let mut c: i64 = 0i64;
+    let mut going: bool = true;
+    while going && c < n {
+        let run: SsrleRun = runs.get(c);
+        let len: u64 = run.full_run_length();
+        if offset + len <= pos {
+            rank = rank + run.full_rank_op(bps, sym, op);
+            offset = offset + len;
+            c = c + 1i64;
+        } else {
+            rank = rank + run.rank_op(bps, pos - offset, sym, op);
+            going = false;
+        }
+    }
+    return rank;
+}
+
+/// Logical position of the (rank+1)-th match, or the total size when there
+/// are fewer — ssrle_select_fw_eq generalized.
+pub fn ssrle_select_fw_op(bps: u32, runs: &Vec<SsrleRun>, rank: u64, sym: u64, op: u32) -> u64 {
+    let n: i64 = runs.length();
+    let mut offset: u64 = 0u64;
+    let mut total_rank: u64 = 0u64;
+    let mut c: i64 = 0i64;
+    while c < n {
+        let run: SsrleRun = runs.get(c);
+        let run_rank: u64 = run.full_rank_op(bps, sym, op);
+        if rank < total_rank + run_rank {
+            return offset + run.select_fw_op(bps, rank - total_rank, sym, op);
+        }
+        offset = offset + run.full_run_length();
+        total_rank = total_rank + run_rank;
+        c = c + 1i64;
+    }
+    return offset;
+}
+
+/// Per-symbol counts over positions [0, pos): a fresh alphabet-sized vector
+/// (the scan model of C++ SO ranks :322; the packed form adds the index fast
+/// path). Every stream symbol must be < alphabet.
+pub fn ssrle_ranks(bps: u32, runs: &Vec<SsrleRun>, pos: u64, alphabet: u64) -> Vec<u64> {
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let mut a: u64 = 0u64;
+    while a < alphabet {
+        out.push(0u64);
+        a = a + 1u64;
+    }
+    let n: i64 = runs.length();
+    let mut offset: u64 = 0u64;
+    let mut c: i64 = 0i64;
+    let mut going: bool = true;
+    while going && c < n {
+        let run: SsrleRun = runs.get(c);
+        let len: u64 = run.full_run_length();
+        if offset + len <= pos {
+            run.full_ranks(bps, &mut out);
+            offset = offset + len;
+            c = c + 1i64;
+        } else {
+            run.ranks_up_to(bps, pos - offset, &mut out);
+            going = false;
+        }
     }
     return out;
 }

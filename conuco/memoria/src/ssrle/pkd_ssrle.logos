@@ -766,6 +766,340 @@ impl PkdSsrle {
         }
     }
 
+    // ── the op-family queries (increment 7; C++ SO :185-:670) ────────────
+    //
+    // How every op derives from the per-symbol SUM rows (mirroring the C++
+    // Rank*Fn::sum_fn / SelectFw*Fn::sum column loops :1077-:1380):
+    //   EQ = column [sym]            NEQ = all columns − column [sym]
+    //   LT = columns [0, sym)        LE = columns [0, sym]
+    //   GT = columns (sym, alpha)    GE = columns [sym, alpha)
+    // (C++ NEQ loops all columns skipping `sym` — the same sum as the
+    // subtraction here.)
+
+    // Σ over index blocks [b_lo, b_hi) of SUM columns [c_lo, c_hi) — the
+    // flat-array form of the C++ column loops.
+    unsafe fn idx_cols_sum(self: &PkdSsrle, b_lo: u64, b_hi: u64, c_lo: u64, c_hi: u64) -> u64 {
+        let alphabet: u64 = self.alphabet_size() as u64;
+        let sums: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+        let mut acc: u64 = 0u64;
+        let mut b: u64 = b_lo;
+        while b < b_hi {
+            let mut c: u64 = c_lo;
+            while c < c_hi {
+                acc = acc + sums[(b * alphabet + c) as i64];
+                c = c + 1u64;
+            }
+            b = b + 1u64;
+        }
+        return acc;
+    }
+
+    // The op-composed sum over index blocks [b_lo, b_hi) (the derivation
+    // table above).
+    unsafe fn idx_op_sum(self: &PkdSsrle, b_lo: u64, b_hi: u64, sym: u64, op: u32) -> u64 {
+        let alphabet: u64 = self.alphabet_size() as u64;
+        if op == SSRLE_OP_EQ {
+            return self.idx_cols_sum(b_lo, b_hi, sym, sym + 1u64);
+        }
+        if op == SSRLE_OP_NEQ {
+            return self.idx_cols_sum(b_lo, b_hi, 0u64, alphabet)
+                - self.idx_cols_sum(b_lo, b_hi, sym, sym + 1u64);
+        }
+        if op == SSRLE_OP_LT {
+            return self.idx_cols_sum(b_lo, b_hi, 0u64, sym);
+        }
+        if op == SSRLE_OP_LE {
+            return self.idx_cols_sum(b_lo, b_hi, 0u64, sym + 1u64);
+        }
+        if op == SSRLE_OP_GT {
+            return self.idx_cols_sum(b_lo, b_hi, sym + 1u64, alphabet);
+        }
+        assert(op == SSRLE_OP_GE, "pkd_ssrle: unknown op code");
+        return self.idx_cols_sum(b_lo, b_hi, sym, alphabet);
+    }
+
+    /// Matches of (sym, op) in positions [0, pos) — C++ SO rank :185 /
+    /// rank_fn :1194: index fast path + scan fallback. rank_eq above stays
+    /// the EQ specialization (as in C++); the op path must answer
+    /// identically at op=EQ — gate-checked.
+    pub fn rank_op(self: &PkdSsrle, pos: u64, sym: u64, op: u32) -> u64 {
+        if pos == 0u64 {
+            return 0u64;
+        }
+        assert(pos <= self.size(), "pkd_ssrle: rank position out of range");
+        assert(sym < self.alphabet_size() as u64, "pkd_ssrle: rank symbol out of alphabet");
+        let bps: u32 = self.bps();
+        let limit: u64 = self.code_units();
+        unsafe {
+            let mut idx: u64 = 0u64;
+            let mut size_sum: u64 = 0u64;
+            let mut rank_sum: u64 = 0u64;
+            if self.has_index() {
+                if pos < self.size() {
+                    let b: u64 = self.idx_locate_pos(pos, &mut size_sum);
+                    idx = b * ssrle_atoms_per_block(bps);
+                    rank_sum = self.idx_op_sum(0u64, b, sym, op);
+                } else {
+                    return self.idx_op_sum(0u64, self.index_blocks(), sym, op);
+                }
+            }
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let mut run: SsrleRun = ssrle_make_null();
+            let mut going: bool = true;
+            while going && ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
+                let len: u64 = run.full_run_length();
+                if pos < size_sum + len {
+                    rank_sum = rank_sum + run.rank_op(bps, pos - size_sum, sym, op);
+                    going = false;
+                } else {
+                    size_sum = size_sum + len;
+                    rank_sum = rank_sum + run.full_rank_op(bps, sym, op);
+                }
+            }
+            return rank_sum;
+        }
+    }
+
+    /// Matches in [start, end) (C++ SO rank :198 — the difference form).
+    pub fn rank_op_range(self: &PkdSsrle, start: u64, end: u64, sym: u64, op: u32) -> u64 {
+        assert(start <= end, "pkd_ssrle: rank range invalid");
+        return self.rank_op(end, sym, op) - self.rank_op(start, sym, op);
+    }
+
+    /// Matches in the whole sequence (C++ SO rank :211).
+    pub fn rank_op_all(self: &PkdSsrle, sym: u64, op: u32) -> u64 {
+        return self.rank_op(self.size(), sym, op);
+    }
+
+    /// Per-symbol counts over positions [0, pos): a fresh alphabet-sized
+    /// vector (C++ SO ranks :322 — the index seeds every column's block
+    /// prefix, then the scan adds per-run full/partial counts).
+    pub fn ranks(self: &PkdSsrle, pos: u64) -> Vec<u64> {
+        assert(pos <= self.size(), "pkd_ssrle: ranks position out of range");
+        let bps: u32 = self.bps();
+        let alphabet: u64 = self.alphabet_size() as u64;
+        let limit: u64 = self.code_units();
+        let mut out: Vec<u64> = vec_new::<u64>();
+        let mut a: u64 = 0u64;
+        while a < alphabet {
+            out.push(0u64);
+            a = a + 1u64;
+        }
+        unsafe {
+            let mut idx: u64 = 0u64;
+            let mut size_sum: u64 = 0u64;
+            if self.has_index() {
+                if pos == self.size() {
+                    // whole-stream answer straight off the SUM columns (the
+                    // C++ find_fw_gt end-block path degenerates to this)
+                    let blocks: u64 = self.index_blocks();
+                    let mut s: u64 = 0u64;
+                    while s < alphabet {
+                        out.set(s as i64, self.idx_cols_sum(0u64, blocks, s, s + 1u64));
+                        s = s + 1u64;
+                    }
+                    return out;
+                }
+                let b: u64 = self.idx_locate_pos(pos, &mut size_sum);
+                idx = b * ssrle_atoms_per_block(bps);
+                let mut s: u64 = 0u64;
+                while s < alphabet {
+                    out.set(s as i64, self.idx_cols_sum(0u64, b, s, s + 1u64));
+                    s = s + 1u64;
+                }
+            }
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let mut run: SsrleRun = ssrle_make_null();
+            let mut going: bool = true;
+            while going && ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
+                let len: u64 = run.full_run_length();
+                if pos < size_sum + len {
+                    run.ranks_up_to(bps, pos - size_sum, &mut out);
+                    going = false;
+                } else {
+                    size_sum = size_sum + len;
+                    run.full_ranks(bps, &mut out);
+                }
+            }
+            return out;
+        }
+    }
+
+    /// Position of the (rank+1)-th match (C++ SO select_fw :368 /
+    /// select_fw_fn :1383). The index fast path is the SelectFwFnBase walk
+    /// (:1270): first block whose cumulative op-sum passes `rank` (the EQ
+    /// find_fw_ge is the same walk on one column — increment-5 note). Found:
+    /// idx = the position, rank = the rank prefix before the hit run; not
+    /// found: idx = size, rank = the op total.
+    pub fn select_fw_op(self: &PkdSsrle, rank: u64, sym: u64, op: u32) -> SsrleSelect {
+        assert(sym < self.alphabet_size() as u64, "pkd_ssrle: select symbol out of alphabet");
+        let bps: u32 = self.bps();
+        let limit: u64 = self.code_units();
+        unsafe {
+            let mut idx: u64 = 0u64;
+            let mut size_sum: u64 = 0u64;
+            let mut rank_sum: u64 = 0u64;
+            if self.has_index() {
+                let blocks: u64 = self.index_blocks();
+                let mut b: u64 = 0u64;
+                let mut walking: bool = true;
+                while walking && b < blocks {
+                    let v: u64 = self.idx_op_sum(b, b + 1u64, sym, op);
+                    if rank < rank_sum + v {
+                        walking = false;
+                    } else {
+                        rank_sum = rank_sum + v;
+                        b = b + 1u64;
+                    }
+                }
+                if b == blocks {
+                    return SsrleSelect {
+                        idx: self.size(),
+                        rank: rank_sum,
+                    };
+                }
+                let size_cells: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+                let mut i: u64 = 0u64;
+                while i < b {
+                    size_sum = size_sum + size_cells[i as i64];
+                    i = i + 1u64;
+                }
+                idx = b * ssrle_atoms_per_block(bps);
+            }
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let mut run: SsrleRun = ssrle_make_null();
+            while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
+                let run_rank: u64 = run.full_rank_op(bps, sym, op);
+                if rank < rank_sum + run_rank {
+                    let local: u64 = run.select_fw_op(bps, rank - rank_sum, sym, op);
+                    return SsrleSelect {
+                        idx: local + size_sum,
+                        rank: rank_sum,
+                    };
+                }
+                rank_sum = rank_sum + run_rank;
+                size_sum = size_sum + run.full_run_length();
+            }
+            return SsrleSelect {
+                idx: self.size(),
+                rank: rank_sum,
+            };
+        }
+    }
+
+    /// select_fw_op over matches at positions ≥ `idx` only (C++ SO :449-:477
+    /// — rank-rebase + dec_rank). FIXED C++ BUG: dec_rank subtracts the
+    /// rebase from the result rank UNGUARDED (:72); when the found match sits
+    /// in the same run as `idx`, the prefix rank is smaller than the rebase
+    /// and the unsigned subtraction wraps (garbage; the BTFL shuttle only
+    /// consumes the rank of NOT-FOUND results, which never wrap). Port
+    /// clamps to 0 — "no whole matching runs skipped past idx". Not-found
+    /// results are exact: rank = matches in [idx, size).
+    pub fn select_fw_op_from(self: &PkdSsrle, idx: u64, rank: u64, sym: u64, op: u32) -> SsrleSelect {
+        let rank_base: u64 = self.rank_op(idx, sym, op);
+        let res: SsrleSelect = self.select_fw_op(rank + rank_base, sym, op);
+        let mut adj: u64 = 0u64;
+        if res.rank > rank_base {
+            adj = res.rank - rank_base;
+        }
+        return SsrleSelect {
+            idx: res.idx,
+            rank: adj,
+        };
+    }
+
+    /// The BTFL shuttle op (C++ SO select_fw_eq_nlt :494; SeqOpType::EQ_NLT,
+    /// core/types.hpp:289): the (rank+1)-th `sym`, but with a HARD STOP at
+    /// the first symbol of smaller value — whichever comes first wins. For
+    /// sym == 0 there is nothing smaller: plain select_fw_eq.
+    pub fn select_fw_eq_nlt(self: &PkdSsrle, rank: u64, sym: u64) -> SsrleSelect {
+        let res_eq: SsrleSelect = self.select_fw_op(rank, sym, SSRLE_OP_EQ);
+        if sym > 0u64 {
+            let res_lt: SsrleSelect = self.select_fw_op(rank, sym, SSRLE_OP_LT);
+            if res_lt.idx < res_eq.idx {
+                return res_lt;
+            }
+        }
+        return res_eq;
+    }
+
+    /// The from-idx EQ_NLT (C++ SO :480 — the shuttle's leaf call comes
+    /// through select_fw(idx, rank, sym, op), bt_select_shuttle.hpp:114).
+    pub fn select_fw_eq_nlt_from(self: &PkdSsrle, idx: u64, rank: u64, sym: u64) -> SsrleSelect {
+        let res_eq: SsrleSelect = self.select_fw_op_from(idx, rank, sym, SSRLE_OP_EQ);
+        if sym > 0u64 {
+            let res_lt: SsrleSelect = self.select_fw_op_from(idx, rank, sym, SSRLE_OP_LT);
+            if res_lt.idx < res_eq.idx {
+                return res_lt;
+            }
+        }
+        return res_eq;
+    }
+
+    /// Position of the (rank+1)-th match counting FROM THE END (C++ SO
+    /// select_bw_* :509-:579: select_fw over the mirrored rank). Found: idx =
+    /// the position, rank = the select_fw prefix; not found: idx = size,
+    /// rank = the op total. FIXED C++ BUG: select_bw_gt/select_bw_ge (:557/
+    /// :569) compute the total with rank_NEQ — a copy-paste from
+    /// select_bw_neq; the eq/neq/lt/le forms and ALL from-idx forms
+    /// (:604-:646) use the op's own rank. With symbols < sym present, the
+    /// C++ gt-total overshoots and the mirrored select lands on a wrong
+    /// position (or misreports the not-found total). Port uses the op's own
+    /// total for every op — gate-checked by the reversed-stream symmetry law.
+    pub fn select_bw_op(self: &PkdSsrle, rank: u64, sym: u64, op: u32) -> SsrleSelect {
+        let size: u64 = self.size();
+        let full_rank: u64 = self.rank_op(size, sym, op);
+        if rank < full_rank {
+            return self.select_fw_op(full_rank - rank - 1u64, sym, op);
+        }
+        return SsrleSelect {
+            idx: size,
+            rank: full_rank,
+        };
+    }
+
+    /// select_bw over positions ≤ `idx` only (C++ SO :582-:646). Not found:
+    /// idx = idx+1, rank = matches in [0, idx].
+    pub fn select_bw_op_from(self: &PkdSsrle, idx: u64, rank: u64, sym: u64, op: u32) -> SsrleSelect {
+        assert(idx < self.size(), "pkd_ssrle: select_bw position out of range");
+        let full_rank: u64 = self.rank_op(idx + 1u64, sym, op);
+        if rank < full_rank {
+            return self.select_fw_op(full_rank - rank - 1u64, sym, op);
+        }
+        return SsrleSelect {
+            idx: idx + 1u64,
+            rank: full_rank,
+        };
+    }
+
+    /// Consecutive `sym` occurrences starting at `idx` (C++ SO count_fw :653
+    /// — rank_neq/select_fw_neq composition): 0 when seq[idx] ≠ sym; idx may
+    /// equal size (empty tail → 0).
+    pub fn count_fw(self: &PkdSsrle, idx: u64, sym: u64) -> u64 {
+        let nr: u64 = self.rank_op(idx, sym, SSRLE_OP_NEQ);
+        let next: SsrleSelect = self.select_fw_op(nr, sym, SSRLE_OP_NEQ);
+        return next.idx - idx;
+    }
+
+    /// Consecutive `sym` occurrences ENDING at `idx` (inclusive; 0 when
+    /// seq[idx] ≠ sym). FIXED C++ BUG (SO count_bw :660): C++ takes
+    /// rank_neq over [0, idx) — never examining seq[idx] — and returns
+    /// idx+1−next_idx, counting the blocking non-sym itself; its two
+    /// branches disagree by one under any uniform reading (the reference
+    /// model in ssrleseq_test_base.hpp:741 repeats the same composition, so
+    /// the C++ suite cannot see it). Port: rank_neq over [0, idx], then the
+    /// distance to the last non-sym — symmetric to count_fw under stream
+    /// reversal, gate-checked by that law.
+    pub fn count_bw(self: &PkdSsrle, idx: u64, sym: u64) -> u64 {
+        assert(idx < self.size(), "pkd_ssrle: count_bw position out of range");
+        let nr: u64 = self.rank_op(idx + 1u64, sym, SSRLE_OP_NEQ);
+        if nr == 0u64 {
+            return idx + 1u64;
+        }
+        let last: SsrleSelect = self.select_fw_op(nr - 1u64, sym, SSRLE_OP_NEQ);
+        return idx - last.idx;
+    }
+
     // ── two-phase mutations (C++ prepare/commit, SO :713-:979) ───────────
 
     // Price a finished post-op run vector into an update state.

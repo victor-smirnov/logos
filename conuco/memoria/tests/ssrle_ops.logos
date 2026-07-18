@@ -1,0 +1,634 @@
+// ssrle_ops — SSRLE increment-7 gate: the full op family on PkdSsrle.
+//
+// C++ oracle map: packed_ssrle_seq_so.hpp rank :185/:198/:211 (op ∈ EQ/NEQ/
+// LT/LE/GT/GE), ranks :322, select_fw :368/:382 (+ the from-idx rebase
+// :449-:477), select_fw_eq_nlt :480/:494 (the BTFL shuttle op,
+// bt_select_shuttle.hpp:114), select_bw :396/:509-:646, count_fw/count_bw
+// :653/:660. Three-way discipline as the increment-5 gate:
+//
+//   packed queries (indexed above the AtomsPerBlock threshold, scan below)
+//   ↔ the vector algebra ↔ the naive materialized oracle,
+//
+// on threshold-crossing corpora over alphabets 2/3/4/16/256 (bps 1/2/2/4/8;
+// alphabet 3 exercises the non-power-of-two SUM row shape), with corpora
+// whose upper symbols are ABSENT by construction.
+//
+// FIXED C++ BUGS pinned here by laws (see the pkd_ssrle.logos notes):
+//   * select_bw_gt/ge totals (C++ uses rank_NEQ — copy-paste) — the
+//     reversed-stream symmetry law holds for EVERY op only with the op's
+//     own total;
+//   * count_bw (C++ counts the blocking non-sym and never examines
+//     seq[idx]) — pinned by count_bw(i,s) = count_fw at the mirrored
+//     position of the reversed stream (checked against a direct naive
+//     backward count);
+//   * select_fw_op_from found-rank underflow (C++ dec_rank wraps) — the
+//     rank field is non-negative and exact on not-found.
+//
+// Sections (error-code decades):
+//   10..19  rank_op three-way + EQ-specialization agreement + range/all forms
+//   20..29  ranks(pos) vs one-pass naive per-symbol counts + the vector form
+//   30..39  select_fw_op three-way + inverse laws + not-found + EQ agreement
+//   40..49  select_fw_op_from laws (found position, not-found rank exactness)
+//   50..59  select_bw_op reversed-stream symmetry + not-found law
+//   60..69  select_bw_op_from laws
+//   70..79  select_fw_eq_nlt (both forms): the min-position rule, sym=0 pin
+//   80..89  count_fw / count_bw laws (exhaustive on sub-threshold corpora)
+package test;
+
+use memoria.ssrle;
+use logos.mem.pkd;
+use logos.lang.arith;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+// ── deterministic corpus (LCG via wrapping arithmetic) ──────────────────────
+
+fn rnd(st: &mut u64) -> u64 {
+    let next: u64 = wrapping_add(wrapping_mul(*st, 6364136223846793005u64), 1442695040888963407u64);
+    *st = next;
+    return next >> 33u64;
+}
+
+// Runs whose pattern symbols are uniform in [0, sym_bound) — symbols at or
+// above the bound are ABSENT from the stream by construction.
+fn rand_run_alpha(bps: u32, st: &mut u64, rl_cap: u64, sym_bound: u64) -> SsrleRun {
+    let pcap: u64 = ssrle_encodable_pattern_length(bps) as u64;
+    let plen: u64 = 1u64 + rnd(st) % pcap;
+    let mut pattern: u64 = 0u64;
+    let mut c: u64 = 0u64;
+    while c < plen {
+        pattern = pattern | ((rnd(st) % sym_bound) << (c * (bps as u64)));
+        c = c + 1u64;
+    }
+    let mut mrl: u64 = ssrle_max_run_length(bps, plen as u32);
+    if mrl > rl_cap {
+        mrl = rl_cap;
+    }
+    let rl: u64 = 1u64 + rnd(st) % mrl;
+    return ssrle_run_new(bps, plen as u32, pattern, rl);
+}
+
+fn rand_runs_alpha(bps: u32, st: &mut u64, n: i64, rl_cap: u64, sym_bound: u64) -> Vec<SsrleRun> {
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.push(rand_run_alpha(bps, st, rl_cap, sym_bound));
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// Grow a corpus until its encoded stream passes `min_units` code units.
+fn runs_until_units_alpha(bps: u32, st: &mut u64, min_units: u64, rl_cap: u64, sym_bound: u64) -> Vec<SsrleRun> {
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    let mut going: bool = true;
+    while going {
+        v.push(rand_run_alpha(bps, st, rl_cap, sym_bound));
+        if ssrle_compute_size(bps, &v, 0u64) > min_units {
+            going = false;
+        }
+    }
+    return v;
+}
+
+// ── naive oracles over the materialized stream ──────────────────────────────
+
+fn naive_rank(stream: &Vec<u64>, pos: u64, sym: u64, op: u32) -> u64 {
+    let mut cnt: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    while i < pos as i64 {
+        if ssrle_op_matches(op, stream.get(i), sym) {
+            cnt = cnt + 1u64;
+        }
+        i = i + 1i64;
+    }
+    return cnt;
+}
+
+// Position of the (rank+1)-th match, or stream length when there are fewer.
+fn naive_select_fw(stream: &Vec<u64>, rank: u64, sym: u64, op: u32) -> u64 {
+    let n: i64 = stream.length();
+    let mut cnt: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        if ssrle_op_matches(op, stream.get(i), sym) {
+            if cnt == rank {
+                return i as u64;
+            }
+            cnt = cnt + 1u64;
+        }
+        i = i + 1i64;
+    }
+    return n as u64;
+}
+
+// One-pass per-symbol counts over [0, pos).
+fn naive_ranks(stream: &Vec<u64>, pos: u64, alphabet: u64) -> Vec<u64> {
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let mut a: u64 = 0u64;
+    while a < alphabet {
+        out.push(0u64);
+        a = a + 1u64;
+    }
+    let mut i: i64 = 0i64;
+    while i < pos as i64 {
+        let s: i64 = stream.get(i) as i64;
+        out.set(s, out.get(s) + 1u64);
+        i = i + 1i64;
+    }
+    return out;
+}
+
+fn naive_count_fw(stream: &Vec<u64>, idx: u64, sym: u64) -> u64 {
+    let n: i64 = stream.length();
+    let mut j: i64 = idx as i64;
+    while j < n {
+        if stream.get(j) != sym {
+            return (j as u64) - idx;
+        }
+        j = j + 1i64;
+    }
+    return (n as u64) - idx;
+}
+
+fn naive_count_bw(stream: &Vec<u64>, idx: u64, sym: u64) -> u64 {
+    let mut j: i64 = idx as i64;
+    while j >= 0i64 {
+        if stream.get(j) != sym {
+            return idx - (j as u64);
+        }
+        j = j - 1i64;
+    }
+    return idx + 1u64;
+}
+
+fn reverse_stream(stream: &Vec<u64>) -> Vec<u64> {
+    let n: i64 = stream.length();
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = n - 1i64;
+    while i >= 0i64 {
+        out.push(stream.get(i));
+        i = i - 1i64;
+    }
+    return out;
+}
+
+// ── probe sets ──────────────────────────────────────────────────────────────
+
+fn ops_list() -> Vec<u32> {
+    let mut v: Vec<u32> = vec_new::<u32>();
+    v.push(SSRLE_OP_EQ);
+    v.push(SSRLE_OP_NEQ);
+    v.push(SSRLE_OP_LT);
+    v.push(SSRLE_OP_LE);
+    v.push(SSRLE_OP_GT);
+    v.push(SSRLE_OP_GE);
+    return v;
+}
+
+fn test_symbols(alphabet: u64, sym_bound: u64, st: &mut u64) -> Vec<u64> {
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    syms.push(0u64);
+    syms.push(alphabet - 1u64);
+    if alphabet > 2u64 {
+        syms.push(alphabet / 2u64);
+        syms.push(rnd(st) % alphabet);
+    }
+    if sym_bound < alphabet {
+        syms.push(sym_bound);   // absent by construction
+    }
+    return syms;
+}
+
+// Positions worth probing: ends, mid, sampled index-block boundaries ±1,
+// and `extra` random ones.
+fn probe_positions(seq: &PkdSsrle, st: &mut u64, extra: i64) -> Vec<u64> {
+    let size: u64 = seq.size();
+    let mut pos: Vec<u64> = vec_new::<u64>();
+    pos.push(0u64);
+    pos.push(size);
+    if size > 0u64 {
+        pos.push(1u64);
+        pos.push(size / 2u64);
+        pos.push(size - 1u64);
+    }
+    let blocks: u64 = seq.index_blocks();
+    let stride: u64 = blocks / 8u64 + 1u64;
+    let mut prefix: u64 = 0u64;
+    let mut b: u64 = 0u64;
+    while b < blocks {
+        prefix = prefix + seq.index_size_at(b);
+        if (b % stride == 0u64) || b + 1u64 == blocks {
+            if prefix > 0u64 && prefix - 1u64 <= size {
+                pos.push(prefix - 1u64);
+            }
+            if prefix <= size {
+                pos.push(prefix);
+            }
+            if prefix + 1u64 <= size {
+                pos.push(prefix + 1u64);
+            }
+        }
+        b = b + 1u64;
+    }
+    let mut i: i64 = 0i64;
+    while i < extra {
+        pos.push(rnd(st) % (size + 1u64));
+        i = i + 1i64;
+    }
+    return pos;
+}
+
+// ── the per-(op, sym) check over one packed corpus ──────────────────────────
+
+fn check_rank_select(
+    seq: &PkdSsrle,
+    runs: &Vec<SsrleRun>,
+    stream: &Vec<u64>,
+    positions: &Vec<u64>,
+    sym: u64,
+    op: u32,
+    st: &mut u64,
+    extra: i64,
+) -> i32 {
+    let bps: u32 = seq.bps();
+    let size: u64 = stream.length() as u64;
+    let total: u64 = naive_rank(stream, size, sym, op);
+    // 10.. rank_op three-way at every probe position
+    let mut pi: i64 = 0i64;
+    while pi < positions.length() {
+        let p: u64 = positions.get(pi);
+        let rp: u64 = seq.rank_op(p, sym, op);
+        if rp != naive_rank(stream, p, sym, op) {
+            return 10i32;
+        }
+        if rp != ssrle_rank_op(bps, runs, p, sym, op) {
+            return 11i32;
+        }
+        if op == SSRLE_OP_EQ && rp != seq.rank_eq(p, sym) {
+            return 12i32;
+        }
+        pi = pi + 1i64;
+    }
+    // range + all forms
+    if seq.rank_op_all(sym, op) != total {
+        return 13i32;
+    }
+    let mid: u64 = size / 2u64;
+    let want_range: u64 = naive_rank(stream, size, sym, op) - naive_rank(stream, mid, sym, op);
+    if seq.rank_op_range(mid, size, sym, op) != want_range {
+        return 14i32;
+    }
+    // 30.. select_fw_op three-way at sampled ranks
+    let mut rks: Vec<u64> = vec_new::<u64>();
+    rks.push(0u64);
+    rks.push(total);
+    rks.push(total + 3u64);
+    if total > 0u64 {
+        rks.push(1u64);
+        rks.push(total / 2u64);
+        rks.push(total - 1u64);
+    }
+    let mut e: i64 = 0i64;
+    while e < extra {
+        rks.push(rnd(st) % (total + 2u64));
+        e = e + 1i64;
+    }
+    let mut ri: i64 = 0i64;
+    while ri < rks.length() {
+        let r: u64 = rks.get(ri);
+        let got: SsrleSelect = seq.select_fw_op(r, sym, op);
+        let want: u64 = naive_select_fw(stream, r, sym, op);
+        if got.idx != want {
+            return 30i32;
+        }
+        if got.idx != ssrle_select_fw_op(bps, runs, r, sym, op) {
+            return 31i32;
+        }
+        if r < total {
+            if seq.rank_op(got.idx, sym, op) != r {
+                return 32i32;
+            }
+        } else {
+            if got.idx != size || got.rank != total {
+                return 33i32;
+            }
+        }
+        if op == SSRLE_OP_EQ {
+            let geq: SsrleSelect = seq.select_fw_eq(r, sym);
+            if geq.idx != got.idx || geq.rank != got.rank {
+                return 34i32;
+            }
+        }
+        ri = ri + 1i64;
+    }
+    // 50.. select_bw_op: reversed-stream symmetry + not-found law. Holds for
+    // EVERY op only with the op's own total (the C++ gt/ge rank_neq bug pin).
+    let rev: Vec<u64> = reverse_stream(stream);
+    ri = 0i64;
+    while ri < rks.length() {
+        let r: u64 = rks.get(ri);
+        let bwr: SsrleSelect = seq.select_bw_op(r, sym, op);
+        if r < total {
+            let wrev: u64 = naive_select_fw(&rev, r, sym, op);
+            if bwr.idx != size - 1u64 - wrev {
+                return 50i32;
+            }
+        } else {
+            if bwr.idx != size || bwr.rank != total {
+                return 51i32;
+            }
+        }
+        ri = ri + 1i64;
+    }
+    // 40../60.. the from-idx variants at sampled anchor positions
+    let mut ai: i64 = 0i64;
+    while ai < positions.length() {
+        let anchor: u64 = positions.get(ai);
+        let base: u64 = naive_rank(stream, anchor, sym, op);
+        let tail: u64 = total - base;
+        let mut fr: u64 = 0u64;
+        while fr < 3u64 {
+            let fres: SsrleSelect = seq.select_fw_op_from(anchor, fr, sym, op);
+            if fr < tail {
+                // the (fr+1)-th match at a position ≥ anchor
+                if fres.idx != naive_select_fw(stream, base + fr, sym, op) {
+                    return 40i32;
+                }
+            } else {
+                if fres.idx != size || fres.rank != tail {
+                    return 41i32;
+                }
+            }
+            if anchor < size {
+                let cnt_in: u64 = naive_rank(stream, anchor + 1u64, sym, op);
+                let bres: SsrleSelect = seq.select_bw_op_from(anchor, fr, sym, op);
+                if fr < cnt_in {
+                    if bres.idx != naive_select_fw(stream, cnt_in - fr - 1u64, sym, op) {
+                        return 60i32;
+                    }
+                } else {
+                    if bres.idx != anchor + 1u64 || bres.rank != cnt_in {
+                        return 61i32;
+                    }
+                }
+            }
+            fr = fr + 1u64;
+        }
+        ai = ai + 1i64;
+    }
+    return 0i32;
+}
+
+// 70.. select_fw_eq_nlt: the min-position rule between the EQ and LT
+// selects; sym == 0 must equal plain select_fw_eq (idx AND rank).
+fn check_eq_nlt(seq: &PkdSsrle, stream: &Vec<u64>, sym: u64, st: &mut u64, extra: i64) -> i32 {
+    let size: u64 = stream.length() as u64;
+    let tot_eq: u64 = naive_rank(stream, size, sym, SSRLE_OP_EQ);
+    let mut rks: Vec<u64> = vec_new::<u64>();
+    rks.push(0u64);
+    rks.push(tot_eq);
+    rks.push(tot_eq + 2u64);
+    if tot_eq > 0u64 {
+        rks.push(tot_eq / 2u64);
+        rks.push(tot_eq - 1u64);
+    }
+    let mut e: i64 = 0i64;
+    while e < extra {
+        rks.push(rnd(st) % (tot_eq + 2u64));
+        e = e + 1i64;
+    }
+    let mut ri: i64 = 0i64;
+    while ri < rks.length() {
+        let r: u64 = rks.get(ri);
+        let res: SsrleSelect = seq.select_fw_eq_nlt(r, sym);
+        let weq: u64 = naive_select_fw(stream, r, sym, SSRLE_OP_EQ);
+        let mut want: u64 = weq;
+        if sym > 0u64 {
+            let wlt: u64 = naive_select_fw(stream, r, sym, SSRLE_OP_LT);
+            if wlt < weq {
+                want = wlt;
+            }
+        }
+        if res.idx != want {
+            return 70i32;
+        }
+        if sym == 0u64 {
+            let pe: SsrleSelect = seq.select_fw_eq(r, sym);
+            if res.idx != pe.idx || res.rank != pe.rank {
+                return 71i32;
+            }
+        }
+        // the from-idx form, anchored mid-stream
+        let anchor: u64 = size / 2u64;
+        let base_eq: u64 = naive_rank(stream, anchor, sym, SSRLE_OP_EQ);
+        let fres: SsrleSelect = seq.select_fw_eq_nlt_from(anchor, r, sym);
+        let feq: u64 = naive_select_fw(stream, base_eq + r, sym, SSRLE_OP_EQ);
+        let mut fwant: u64 = feq;
+        if sym > 0u64 {
+            let base_lt: u64 = naive_rank(stream, anchor, sym, SSRLE_OP_LT);
+            let flt: u64 = naive_select_fw(stream, base_lt + r, sym, SSRLE_OP_LT);
+            if flt < fwant {
+                fwant = flt;
+            }
+        }
+        if fres.idx != fwant {
+            return 72i32;
+        }
+        ri = ri + 1i64;
+    }
+    return 0i32;
+}
+
+// 80.. count laws. Exhaustive when asked (sub-threshold corpora), else at
+// the probe positions.
+fn check_counts(seq: &PkdSsrle, stream: &Vec<u64>, positions: &Vec<u64>, sym: u64, exhaustive: bool) -> i32 {
+    let size: u64 = stream.length() as u64;
+    if exhaustive {
+        let mut p: u64 = 0u64;
+        while p < size {
+            if seq.count_fw(p, sym) != naive_count_fw(stream, p, sym) {
+                return 80i32;
+            }
+            if seq.count_bw(p, sym) != naive_count_bw(stream, p, sym) {
+                return 81i32;
+            }
+            p = p + 1u64;
+        }
+    } else {
+        let mut pi: i64 = 0i64;
+        while pi < positions.length() {
+            let p: u64 = positions.get(pi);
+            if p < size {
+                if seq.count_fw(p, sym) != naive_count_fw(stream, p, sym) {
+                    return 82i32;
+                }
+                if seq.count_bw(p, sym) != naive_count_bw(stream, p, sym) {
+                    return 83i32;
+                }
+            }
+            pi = pi + 1i64;
+        }
+    }
+    // the empty tail: count_fw at idx == size is 0
+    if seq.count_fw(size, sym) != 0u64 {
+        return 84i32;
+    }
+    return 0i32;
+}
+
+// ── the whole-corpus check ──────────────────────────────────────────────────
+
+fn check_corpus_body(
+    seq: &PkdSsrle,
+    runs: &Vec<SsrleRun>,
+    alphabet: u64,
+    sym_bound: u64,
+    st: &mut u64,
+    extra: i64,
+    exhaustive: bool,
+) -> i32 {
+    let bps: u32 = seq.bps();
+    let stream: Vec<u64> = ssrle_materialize(bps, runs);
+    let size: u64 = stream.length() as u64;
+    if seq.size() != size {
+        return 9i32;
+    }
+    let positions: Vec<u64> = probe_positions(seq, st, extra);
+    let syms: Vec<u64> = test_symbols(alphabet, sym_bound, st);
+    let ops: Vec<u32> = ops_list();
+    let mut oi: i64 = 0i64;
+    while oi < ops.length() {
+        let op: u32 = ops.get(oi);
+        let mut si: i64 = 0i64;
+        while si < syms.length() {
+            let rc: i32 = check_rank_select(seq, runs, &stream, &positions, syms.get(si), op, st, extra);
+            if rc != 0i32 {
+                return rc;
+            }
+            si = si + 1i64;
+        }
+        oi = oi + 1i64;
+    }
+    // 20.. ranks(pos) vs the one-pass naive counts + the vector form
+    let mut pi: i64 = 0i64;
+    while pi < positions.length() {
+        let p: u64 = positions.get(pi);
+        let rv: Vec<u64> = seq.ranks(p);
+        if rv.length() != alphabet as i64 {
+            return 20i32;
+        }
+        let nv: Vec<u64> = naive_ranks(&stream, p, alphabet);
+        let vv: Vec<u64> = ssrle_ranks(bps, runs, p, alphabet);
+        let mut s: i64 = 0i64;
+        while s < alphabet as i64 {
+            if rv.get(s) != nv.get(s) {
+                return 21i32;
+            }
+            if rv.get(s) != vv.get(s) {
+                return 22i32;
+            }
+            s = s + 1i64;
+        }
+        pi = pi + 1i64;
+    }
+    // 70.. eq_nlt + 80.. counts per symbol
+    let mut sj: i64 = 0i64;
+    while sj < syms.length() {
+        let sym: u64 = syms.get(sj);
+        let rcn: i32 = check_eq_nlt(seq, &stream, sym, st, extra);
+        if rcn != 0i32 {
+            return rcn;
+        }
+        let rcc: i32 = check_counts(seq, &stream, &positions, sym, exhaustive);
+        if rcc != 0i32 {
+            return rcc;
+        }
+        sj = sj + 1i64;
+    }
+    return 0i32;
+}
+
+fn check_corpus(
+    alphabet: u64,
+    runs: &Vec<SsrleRun>,
+    sym_bound: u64,
+    st: &mut u64,
+    extra: i64,
+    exhaustive: bool,
+    want_index: bool,
+) -> i32 {
+    let bps: u32 = ssrle_bps_for_alphabet(alphabet as u32);
+    let nunits: u64 = ssrle_compute_size(bps, runs, 0u64);
+    let block_size: u32 = pkd_ssrle_block_size(alphabet as u32, nunits);
+    unsafe {
+        let mem: *mut u8 = alloc(block_size as i64);
+        let seq: PkdSsrle = match pkd_ssrle_create(mem, block_size, alphabet as u32, runs) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 8i32;
+            }
+        };
+        let mut rc: i32 = 0i32;
+        // regime pin: the corpus must actually cross (or stay below) the
+        // index threshold it was built for — no scan-vs-scan vacuity
+        if seq.has_index() != want_index {
+            rc = 7i32;
+        }
+        if rc == 0i32 {
+            rc = check_corpus_body(&seq, runs, alphabet, sym_bound, st, extra, exhaustive);
+        }
+        dealloc(mem);
+        return rc;
+    }
+}
+
+// ── main ────────────────────────────────────────────────────────────────────
+
+fn alpha_list() -> Vec<u64> {
+    let mut v: Vec<u64> = vec_new::<u64>();
+    v.push(2u64);
+    v.push(3u64);
+    v.push(4u64);
+    v.push(16u64);
+    v.push(256u64);
+    return v;
+}
+
+fn main() -> i32 {
+    let mut st: u64 = 0x0b5e55ed0b5e55edu64;
+    let alphas: Vec<u64> = alpha_list();
+    let mut ai: i64 = 0i64;
+    while ai < alphas.length() {
+        let alphabet: u64 = alphas.get(ai);
+        let bps: u32 = ssrle_bps_for_alphabet(alphabet as u32);
+        let apb: u64 = ssrle_atoms_per_block(bps);
+        let tag: i32 = ((ai + 1i64) * 1000i64) as i32;
+        // sub-threshold (scan regime), full alphabet, exhaustive counts
+        let small: Vec<SsrleRun> = rand_runs_alpha(bps, &mut st, 8i64, 6u64, alphabet);
+        let rc1: i32 = check_corpus(alphabet, &small, alphabet, &mut st, 6i64, true, false);
+        if rc1 != 0i32 {
+            return rc1 + tag;
+        }
+        // just past the index threshold, upper symbol(s) ABSENT
+        let mut bound: u64 = alphabet - 1u64;
+        if bound == 0u64 {
+            bound = 1u64;
+        }
+        let edge: Vec<SsrleRun> = runs_until_units_alpha(bps, &mut st, apb, 6u64, bound);
+        let rc2: i32 = check_corpus(alphabet, &edge, bound, &mut st, 6i64, false, true);
+        if rc2 != 0i32 {
+            return rc2 + tag + 100i32;
+        }
+        // several index blocks deep, full alphabet
+        let deep: Vec<SsrleRun> = runs_until_units_alpha(bps, &mut st, apb * 3u64, 12u64, alphabet);
+        let rc3: i32 = check_corpus(alphabet, &deep, alphabet, &mut st, 6i64, false, true);
+        if rc3 != 0i32 {
+            return rc3 + tag + 200i32;
+        }
+        ai = ai + 1i64;
+    }
+    return 0i32;
+}

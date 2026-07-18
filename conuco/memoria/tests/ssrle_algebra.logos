@@ -20,6 +20,10 @@
 //   80..   rank_eq/select_fw_eq vs the naive materialized oracle + inverse laws
 //   90..   codec composition: algebra outputs re-encode and decode to the
 //          same symbol stream (streams, not run vectors)
+//  100..   the OP FAMILY (EQ/NEQ/LT/LE/GT/GE through the generic path):
+//          rank_op/select_fw_op vs the naive oracle + inverse laws, absent
+//          symbols via bounded-pattern corpora, ranks(pos) column laws,
+//          the per-run zero-match select guard (C++ UB carve-out)
 package test;
 
 use memoria.ssrle;
@@ -777,6 +781,211 @@ fn check_codec_composition(bps: u32, st: &mut u64) -> i32 {
     return 0i32;
 }
 
+// ── 100..: the op family vs the naive oracle + inverse laws ─────────────────
+
+// Runs whose pattern symbols are uniform in [0, sym_bound) — symbols at or
+// above the bound are ABSENT from the stream by construction.
+fn rand_run_bounded(bps: u32, st: &mut u64, rl_cap: u64, sym_bound: u64) -> SsrleRun {
+    let pcap: u64 = ssrle_encodable_pattern_length(bps) as u64;
+    let plen: u64 = 1u64 + rnd(st) % pcap;
+    let mut pattern: u64 = 0u64;
+    let mut c: u64 = 0u64;
+    while c < plen {
+        pattern = pattern | ((rnd(st) % sym_bound) << (c * (bps as u64)));
+        c = c + 1u64;
+    }
+    let mut mrl: u64 = ssrle_max_run_length(bps, plen as u32);
+    if mrl > rl_cap {
+        mrl = rl_cap;
+    }
+    let rl: u64 = 1u64 + rnd(st) % mrl;
+    return ssrle_run_new(bps, plen as u32, pattern, rl);
+}
+
+fn rand_runs_bounded(bps: u32, st: &mut u64, n: i64, rl_cap: u64, sym_bound: u64) -> Vec<SsrleRun> {
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.push(rand_run_bounded(bps, st, rl_cap, sym_bound));
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// One (op, sym) pass: exhaustive rank walk against the running naive count,
+// on-match select lands exactly, totals, beyond-total, and rank∘select = id.
+// At op = EQ the generic path must also agree with the specialized EQ
+// machinery at every position.
+fn check_op_sym(bps: u32, runs: &Vec<SsrleRun>, stream: &Vec<u64>, sym: u64, op: u32) -> i32 {
+    let size: u64 = stream.length() as u64;
+    let mut cnt: u64 = 0u64;
+    let mut pos: u64 = 0u64;
+    while pos <= size {
+        if ssrle_rank_op(bps, runs, pos, sym, op) != cnt {
+            return 100i32;
+        }
+        if op == SSRLE_OP_EQ {
+            if ssrle_rank_eq(bps, runs, pos, sym) != cnt {
+                return 101i32;
+            }
+        }
+        if pos < size {
+            if ssrle_op_matches(op, stream.get(pos as i64), sym) {
+                if ssrle_select_fw_op(bps, runs, cnt, sym, op) != pos {
+                    return 102i32;
+                }
+                if op == SSRLE_OP_EQ {
+                    if ssrle_select_fw_eq(bps, runs, cnt, sym) != pos {
+                        return 103i32;
+                    }
+                }
+                cnt = cnt + 1u64;
+            }
+        }
+        pos = pos + 1u64;
+    }
+    // totals; select at/beyond the total = size
+    if ssrle_select_fw_op(bps, runs, cnt, sym, op) != size {
+        return 104i32;
+    }
+    if ssrle_select_fw_op(bps, runs, cnt + 7u64, sym, op) != size {
+        return 105i32;
+    }
+    // inverse law: rank(select(r)) == r for every valid r
+    let mut r: u64 = 0u64;
+    while r < cnt {
+        let p: u64 = ssrle_select_fw_op(bps, runs, r, sym, op);
+        if ssrle_rank_op(bps, runs, p, sym, op) != r {
+            return 106i32;
+        }
+        r = r + 1u64;
+    }
+    return 0i32;
+}
+
+// ranks(pos) column laws at sampled positions: alphabet-sized, every column
+// equals rank_eq at that position, columns sum to pos.
+fn check_ranks_vector(bps: u32, runs: &Vec<SsrleRun>, stream: &Vec<u64>) -> i32 {
+    let size: u64 = stream.length() as u64;
+    let alpha: u64 = 1u64 << (bps as u64);
+    let mut samples: Vec<u64> = vec_new::<u64>();
+    samples.push(0u64);
+    samples.push(size / 3u64);
+    samples.push(size / 2u64);
+    if size > 0u64 {
+        samples.push(size - 1u64);
+    }
+    samples.push(size);
+    let mut i: i64 = 0i64;
+    while i < samples.length() {
+        let pos: u64 = samples.get(i);
+        let rv: Vec<u64> = ssrle_ranks(bps, runs, pos, alpha);
+        if rv.length() != alpha as i64 {
+            return 110i32;
+        }
+        let mut colsum: u64 = 0u64;
+        let mut s: u64 = 0u64;
+        while s < alpha {
+            let col: u64 = rv.get(s as i64);
+            colsum = colsum + col;
+            if col != ssrle_rank_eq(bps, runs, pos, s) {
+                return 111i32;
+            }
+            s = s + 1u64;
+        }
+        if colsum != pos {
+            return 112i32;
+        }
+        i = i + 1i64;
+    }
+    return 0i32;
+}
+
+fn ops_list() -> Vec<u32> {
+    let mut v: Vec<u32> = vec_new::<u32>();
+    v.push(SSRLE_OP_EQ);
+    v.push(SSRLE_OP_NEQ);
+    v.push(SSRLE_OP_LT);
+    v.push(SSRLE_OP_LE);
+    v.push(SSRLE_OP_GT);
+    v.push(SSRLE_OP_GE);
+    return v;
+}
+
+fn check_op_family(bps: u32, st: &mut u64) -> i32 {
+    let alpha: u64 = 1u64 << (bps as u64);
+    let ops: Vec<u32> = ops_list();
+    // full-alphabet corpus
+    let runs: Vec<SsrleRun> = rand_runs(bps, st, 8i64, 12u64);
+    let stream: Vec<u64> = ssrle_materialize(bps, &runs);
+    let mut tested: Vec<u64> = vec_new::<u64>();
+    tested.push(0u64);
+    tested.push(alpha - 1u64);
+    if alpha > 2u64 {
+        tested.push(alpha / 2u64);
+        tested.push(rnd(st) % alpha);
+    }
+    let mut oi: i64 = 0i64;
+    while oi < ops.length() {
+        let mut ti: i64 = 0i64;
+        while ti < tested.length() {
+            let rc: i32 = check_op_sym(bps, &runs, &stream, tested.get(ti), ops.get(oi));
+            if rc != 0i32 {
+                return rc;
+            }
+            ti = ti + 1i64;
+        }
+        oi = oi + 1i64;
+    }
+    let rcr: i32 = check_ranks_vector(bps, &runs, &stream);
+    if rcr != 0i32 {
+        return rcr;
+    }
+    // bounded corpus: symbols ≥ bound ABSENT from the stream
+    let mut bound: u64 = alpha / 2u64;
+    if bound == 0u64 {
+        bound = 1u64;
+    }
+    let bruns: Vec<SsrleRun> = rand_runs_bounded(bps, st, 8i64, 12u64, bound);
+    let bstream: Vec<u64> = ssrle_materialize(bps, &bruns);
+    let mut btested: Vec<u64> = vec_new::<u64>();
+    btested.push(0u64);
+    btested.push(bound);       // absent
+    btested.push(alpha - 1u64); // absent (== bound when alpha == 2)
+    oi = 0i64;
+    while oi < ops.length() {
+        let mut ti: i64 = 0i64;
+        while ti < btested.length() {
+            let rc: i32 = check_op_sym(bps, &bruns, &bstream, btested.get(ti), ops.get(oi));
+            if rc != 0i32 {
+                return rc + 20i32;
+            }
+            ti = ti + 1i64;
+        }
+        oi = oi + 1i64;
+    }
+    let rcb: i32 = check_ranks_vector(bps, &bruns, &bstream);
+    if rcb != 0i32 {
+        return rcb + 20i32;
+    }
+    // the per-run zero-match select guard (C++ divides by zero here): an
+    // rl>1 run whose pattern holds NO matches answers full_run_length
+    let guard_run: SsrleRun = ssrle_run_new(bps, 1u32, 0u64, 5u64);
+    if guard_run.select_fw_op(bps, 0u64, alpha - 1u64, SSRLE_OP_EQ) != 5u64 {
+        return 150i32;
+    }
+    if guard_run.select_fw_op(bps, 0u64, 0u64, SSRLE_OP_GT) != 5u64 {
+        return 151i32;
+    }
+    if guard_run.select_fw_op(bps, 0u64, 0u64, SSRLE_OP_LT) != 5u64 {
+        return 152i32;
+    }
+    if guard_run.rank_op(bps, 5u64, 0u64, SSRLE_OP_GE) != 5u64 {
+        return 153i32;
+    }
+    return 0i32;
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 
 fn main() -> i32 {
@@ -822,6 +1031,10 @@ fn main() -> i32 {
         let rc9: i32 = check_codec_composition(bps, &mut st);
         if rc9 != 0i32 {
             return rc9;
+        }
+        let rc10: i32 = check_op_family(bps, &mut st);
+        if rc10 != 0i32 {
+            return rc10;
         }
         bps = bps + 1u32;
     }
