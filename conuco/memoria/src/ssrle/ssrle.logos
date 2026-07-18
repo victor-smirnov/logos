@@ -471,13 +471,29 @@ pub fn ssrle_count_symbols(runs: &Vec<SsrleRun>) -> u64 {
 // field wraps to 0 ⇒ null run — see the increment-1 note above). For every
 // other Bps the cap equals max_pattern_length, so behavior is identical.
 //
+// FIXED C++ BUGS (the increment-6 fix policy: where C++ produces corrupt or
+// invalid output, the port FIXES it, documents the divergence as an upstream
+// note, and covers the carved cases with law checks — byte parity stays for
+// correct paths):
+//   * split of a {plen=1, rl>1} run pushed BOTH halves unconditionally in
+//     C++ (RunTraits::split :199-:204) — at=0 or at=full emitted an INVALID
+//     {plen=1, rl=0} run. FIXED: the halves are pushed under the same
+//     validity guard every other branch uses. UPSTREAM NOTE: the rl>1
+//     branches below guard with `if (prefix)` etc.; the plen=1 branch is the
+//     one unguarded spot.
+//   * insert's same-pattern fast paths summed run_lengths WITHOUT a budget
+//     check (RunTraits::insert :314/:323) — the merged run could exceed
+//     max_run_length: symbolically right but NOT ENCODABLE (feeding it to
+//     the codec silently truncates the run length). FIXED: the fast paths
+//     take effect only when the summed run_length still fits is_fit; over
+//     budget they fall through to the general machinery, which emits
+//     encodable pieces. UPSTREAM NOTE: merge (:479) guards this very sum —
+//     insert's fast paths skip the same check.
+//   LAW (post-fix, gate-checked): every run any algebra op emits is either
+//   null or encodable — is_fit holds and plen ≤ encodable_pattern_length;
+//   rl=0 runs never appear.
+//
 // PRESERVED C++ QUIRKS (bit-for-bit splice semantics):
-//   * split of a {plen=1, rl>1} run pushes BOTH halves unconditionally — at=0
-//     or at=rl yields an INVALID {plen=1, rl=0} run in the output (skipped by
-//     the writer/materializer, repairable by compactify);
-//   * insert's same-pattern fast paths sum run_lengths WITHOUT a budget
-//     check — the result may exceed max_run_length (symbol stream is right;
-//     re-encoding may need a later refactoring);
 //   * compactify NULLS merged-away runs in place; they are not removed.
 //
 // C++ SSRLERun::remove (ssrle_common.hpp:1209) calls Traits::remove which has
@@ -631,14 +647,19 @@ pub fn ssrle_run_split_to(
     }
     // run_length > 1
     if plen == 1u64 {
-        // QUIRK PRESERVED: both halves pushed unconditionally (a half with
-        // rl=0 is an invalid run in the output).
+        // FIXED C++ BUG (module header): C++ pushes both halves
+        // unconditionally, emitting an invalid {plen=1, rl=0} run at the
+        // at=0 / at=full boundaries; guard like every other branch.
         let mut left: SsrleRun = r;
         let mut right: SsrleRun = r;
         left.run_length = at;
         right.run_length = r.run_length - at;
-        left_out.push(left);
-        right_out.push(right);
+        if left.is_valid() {
+            left_out.push(left);
+        }
+        if right.is_valid() {
+            right_out.push(right);
+        }
         return;
     }
     let at_start: u64 = at % plen;
@@ -764,14 +785,19 @@ pub fn ssrle_run_insert_to(
     let s_plen: u64 = s.pattern_length as u64;
     let r_plen: u64 = r.pattern_length as u64;
     let b: u64 = bps as u64;
-    // Same-pattern fast paths: rl sum WITHOUT a budget check (C++ :314/:323).
-    if s.pattern_length == 1u32 && r.pattern_length == 1u32 && s.pattern == r.pattern {
+    // Same-pattern fast paths (C++ :314/:323). FIXED C++ BUG (module
+    // header): C++ sums the run_lengths with NO budget check and can emit a
+    // non-encodable run; the fast paths here apply only while the sum still
+    // fits — otherwise control falls through to the general machinery, whose
+    // pieces are all encodable.
+    let sum_fits: bool = ssrle_is_fit(bps, s_plen, s.run_length + r.run_length);
+    if s.pattern_length == 1u32 && r.pattern_length == 1u32 && s.pattern == r.pattern && sum_fits {
         let mut r_run: SsrleRun = s;
         r_run.run_length = r_run.run_length + r.run_length;
         out.push(r_run);
         return;
     }
-    if s.is_same_pattern(&r) && at % s_plen == 0u64 {
+    if s.is_same_pattern(&r) && at % s_plen == 0u64 && sum_fits {
         let mut r_run: SsrleRun = s;
         r_run.run_length = r_run.run_length + r.run_length;
         out.push(r_run);
@@ -1056,6 +1082,34 @@ pub fn ssrle_select_fw_eq(bps: u32, runs: &Vec<SsrleRun>, rank: u64, sym: u64) -
         c = c + 1i64;
     }
     return offset;
+}
+
+/// Greedy RLE over a flat symbol vector: maximal same-symbol groups become
+/// {plen=1} runs, capped at max_run_length so every emitted run is encodable
+/// (the insert_symbols building block; C++ builds such runs via make_run at
+/// the IOSSRLEBuffer boundary). Symbols must fit Bps bits.
+pub fn ssrle_runs_from_symbols(bps: u32, syms: &Vec<u64>) -> Vec<SsrleRun> {
+    let cap: u64 = ssrle_max_run_length(bps, 1u32);
+    let mask: u64 = ssrle_make_mask(bps as u64);
+    let mut out: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    let n: i64 = syms.length();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let s: u64 = syms.get(i);
+        assert(s <= mask, "ssrle: symbol out of the Bps range");
+        let mut j: i64 = i + 1i64;
+        let mut going: bool = true;
+        while going && j < n {
+            if syms.get(j) == s && ((j - i) as u64) < cap {
+                j = j + 1i64;
+            } else {
+                going = false;
+            }
+        }
+        out.push(ssrle_run_new(bps, 1u32, s, (j - i) as u64));
+        i = j;
+    }
+    return out;
 }
 
 /// Expand `runs` to the flat symbol stream (invalid runs skipped) — the

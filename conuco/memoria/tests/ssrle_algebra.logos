@@ -250,11 +250,16 @@ fn check_run_split(bps: u32, st: &mut u64) -> i32 {
             if !syms_eq(&cat, &expect) {
                 return 13i32;
             }
-            // split never grows a run past the budget
+            // FIX-POLICY LAW (split rl=0 guard, increment 6): every emitted
+            // run is VALID and encodable — C++ leaked {plen=1, rl=0} runs at
+            // the at=0/at=full boundaries of a {plen=1, rl>1} split.
             let mut k: i64 = 0i64;
             while k < left.length() {
                 let r: SsrleRun = left.get(k);
-                if r.is_valid() && !ssrle_is_fit(bps, r.pattern_length as u64, r.run_length) {
+                if !r.is_valid() {
+                    return 16i32;
+                }
+                if !ssrle_is_fit(bps, r.pattern_length as u64, r.run_length) {
                     return 14i32;
                 }
                 k = k + 1i64;
@@ -262,7 +267,10 @@ fn check_run_split(bps: u32, st: &mut u64) -> i32 {
             k = 0i64;
             while k < right.length() {
                 let r: SsrleRun = right.get(k);
-                if r.is_valid() && !ssrle_is_fit(bps, r.pattern_length as u64, r.run_length) {
+                if !r.is_valid() {
+                    return 17i32;
+                }
+                if !ssrle_is_fit(bps, r.pattern_length as u64, r.run_length) {
                     return 15i32;
                 }
                 k = k + 1i64;
@@ -364,9 +372,61 @@ fn check_run_insert(bps: u32, st: &mut u64) -> i32 {
             if !syms_eq(&os2, &naive2) {
                 return 31i32;
             }
+            // FIX-POLICY LAW (insert budget check, increment 6): every
+            // emitted run is encodable — C++'s fast paths could sum past
+            // max_run_length.
+            let mut k2: i64 = 0i64;
+            while k2 < out2.length() {
+                let rr: SsrleRun = out2.get(k2);
+                if rr.is_valid() && !ssrle_is_fit(bps, rr.pattern_length as u64, rr.run_length) {
+                    return 32i32;
+                }
+                k2 = k2 + 1i64;
+            }
             at2 = at2 + 1u64;
         }
         s = s + 1i64;
+    }
+    // The carved C++ case, targeted: two same-pattern runs at the rl budget
+    // edge — the C++ fast path emits a NON-ENCODABLE {plen=1, rl>max} run;
+    // the fixed path must emit encodable pieces with the same symbol stream.
+    let mrl: u64 = ssrle_max_run_length(bps, 1u32);
+    let pat: u64 = rnd_pattern(st) & ssrle_make_mask(bps as u64);
+    let hostm: SsrleRun = ssrle_run_new(bps, 1u32, pat, mrl);
+    let guestm: SsrleRun = ssrle_run_new(bps, 1u32, pat, mrl);
+    // (mrl can be astronomically large — verify by run arithmetic, never
+    // materialize)
+    let mut at3: u64 = 0u64;
+    while at3 <= mrl {
+        let mut out3: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        ssrle_run_insert_to(bps, &hostm, &guestm, at3, &mut out3);
+        let mut logical: u64 = 0u64;
+        let mut k3: i64 = 0i64;
+        while k3 < out3.length() {
+            let rr: SsrleRun = out3.get(k3);
+            if rr.is_valid() {
+                if !ssrle_is_fit(bps, rr.pattern_length as u64, rr.run_length) {
+                    return 33i32;
+                }
+                if rr.pattern_length > ssrle_encodable_pattern_length(bps) {
+                    return 34i32;
+                }
+                // same single-symbol stream: pattern cells must all be `pat`
+                let mut pp: u64 = 0u64;
+                while pp < rr.pattern_length as u64 {
+                    if rr.pattern_symbol(bps, pp) != pat {
+                        return 35i32;
+                    }
+                    pp = pp + 1u64;
+                }
+                logical = logical + rr.full_run_length();
+            }
+            k3 = k3 + 1i64;
+        }
+        if logical != 2u64 * mrl {
+            return 36i32;
+        }
+        at3 = at3 + mrl / 3u64 + 1u64;
     }
     return 0i32;
 }

@@ -1,11 +1,22 @@
 // memoria.ssrle — PkdSsrle: the packed SSRLE sequence over a PkdAlloc block
-// (BTFL arc, increments 3-5: unindexed regime + the flat size/sum index).
+// (BTFL arc, increments 3-6: create/queries, the flat size/sum index, and
+// two-phase mutations with split_to/merge_from).
 //
 // C++ oracle: containers/include/memoria/core/packed/sseq/packed_ssrle_seq.hpp
 // (layout/init/sizing, compute_block_size :256, number_of_indexes :149) +
 // packed_ssrle_seq_so.hpp (the op surface; access :139/do_access :1529,
 // rank_fn :1194, select_fw_fn :1383 — each with an index fast path and a scan
-// fallback) + ssrleseq/ssrleseq_reindex_fn.hpp (the reindex walk).
+// fallback; prepare/commit_insert :713/:751, prepare/commit_remove :818/:848,
+// split_to :896, prepare/commit_merge_with :946/:962) +
+// ssrleseq/ssrleseq_reindex_fn.hpp (the reindex walk).
+//
+// MUTATION DISCIPLINE (the C++ UpdateState two-phase, recon risk 3): plan_*
+// builds the FULL post-op run vector out of block (decode → splice →
+// compactify, exactly the C++ prepare_* shape) and prices it with
+// pkd_ssrle_block_size; update_fits answers whether commit can succeed
+// (in-block or through the parent chain); commit is INFALLIBLE by contract —
+// its resizes are covered by the pricing (a failure there is a caller bug and
+// asserts, the C++ MMA_PKD_OOM_SAFE assumption made loud).
 //
 // Block layout = the C++ 4-slot PackedAllocator convention (enum :105):
 //
@@ -140,6 +151,16 @@ impl Clone for SsrleSelect {
     fn clone(&self) -> SsrleSelect {
         return *self;
     }
+}
+
+/// The out-of-block update state (C++ InsertStepUS :707 / RemoveStepUS :810 /
+/// MergeWithUS :938 unified — every C++ step carries the same three fields):
+/// the FULL post-op run vector plus its pricing. Produced by plan_*, consumed
+/// by commit.
+pub struct SsrleUpdate {
+    pub runs: Vec<SsrleRun>,
+    pub code_units: u64,
+    pub block_size: u32,
 }
 
 /// Non-owning handle over a formatted PkdSsrle block (the VecCtr idiom:
@@ -743,5 +764,194 @@ impl PkdSsrle {
                 rank: rank_sum,
             };
         }
+    }
+
+    // ── two-phase mutations (C++ prepare/commit, SO :713-:979) ───────────
+
+    // Price a finished post-op run vector into an update state.
+    fn plan_runs(self: &PkdSsrle, runs: Vec<SsrleRun>) -> SsrleUpdate {
+        let code_units: u64 = ssrle_compute_size(self.bps(), &runs, 0u64);
+        let block_size: u32 = pkd_ssrle_block_size(self.alphabet_size(), code_units);
+        return SsrleUpdate {
+            runs: runs,
+            code_units: code_units,
+            block_size: block_size,
+        };
+    }
+
+    /// PLAN inserting `src` at logical position `pos` (C++ prepare_insert
+    /// :713: split_buffer + splice + compactify + compute_size; the range
+    /// check :741 is an assert here).
+    pub fn plan_insert(self: &PkdSsrle, pos: u64, src: &Vec<SsrleRun>) -> SsrleUpdate {
+        assert(pos <= self.size(), "pkd_ssrle: insert position out of range");
+        let cur: Vec<SsrleRun> = self.as_runs();
+        let spliced: Vec<SsrleRun> = ssrle_seq_insert(self.bps(), &cur, pos, src);
+        return self.plan_runs(spliced);
+    }
+
+    /// PLAN removing logical range [start, end) (C++ prepare_remove :818:
+    /// remove_block + compactify + compute_size).
+    pub fn plan_remove(self: &PkdSsrle, start: u64, end: u64) -> SsrleUpdate {
+        assert(start <= end && end <= self.size(), "pkd_ssrle: remove range invalid");
+        let cur: Vec<SsrleRun> = self.as_runs();
+        let cut: Vec<SsrleRun> = ssrle_seq_remove(self.bps(), &cur, start, end);
+        return self.plan_runs(cut);
+    }
+
+    /// PLAN absorbing `other` after self (C++ prepare_merge_with :946 —
+    /// concatenate + compactify. DIRECTION NOTE: C++ merges self INTO other,
+    /// the btree merge direction; the pkd-family convention here is
+    /// merge_from — self ← self ++ other. Same concatenation either way).
+    pub fn plan_merge(self: &PkdSsrle, other: &PkdSsrle) -> SsrleUpdate {
+        assert(self.alphabet_size() == other.alphabet_size(),
+               "pkd_ssrle: merge alphabet mismatch");
+        let mut all: Vec<SsrleRun> = self.as_runs();
+        let tail: Vec<SsrleRun> = other.as_runs();
+        ssrle_runs_append(&mut all, &tail);
+        ssrle_compactify(self.bps(), &mut all);
+        return self.plan_runs(all);
+    }
+
+    /// Can `commit(us)` succeed? True when the priced block size fits the
+    /// current block, or the parent chain can grow it (the C++
+    /// inc_allocated budget answer, asked of the allocator directly).
+    pub fn update_fits(self: &PkdSsrle, us: &SsrleUpdate) -> bool {
+        unsafe {
+            let a: *mut PkdAlloc = self.alc();
+            let bs: u32 = a.block_size();
+            if us.block_size <= bs {
+                return true;
+            }
+            if a.has_allocator() {
+                // headroom of the PARENT chain only (own free space is
+                // already inside bs)
+                let chain: u32 = a.total_free_space() - a.free_space();
+                return chain >= us.block_size - bs;
+            }
+            return false;
+        }
+    }
+
+    /// COMMIT a planned update (C++ commit_insert :751 / commit_remove :848
+    /// / commit_merge_with :962 — rewrite + metadata + reindex, all of which
+    /// set_runs is). Infallible by contract: the caller consulted
+    /// update_fits; a resize failure here is a caller bug.
+    pub fn commit(self: &mut PkdSsrle, us: &SsrleUpdate) {
+        let r: Result<(), PkdError> = self.set_runs(&us.runs);
+        match r {
+            Result::Ok(_) => {}
+            Result::Err(_) => {
+                assert(false, "pkd_ssrle: commit failed — update_fits was not consulted");
+            }
+        }
+    }
+
+    // ── one-call conveniences (plan + fit check + commit) ────────────────
+
+    /// Insert `src` at `pos`; Err(OutOfMem) leaves the sequence UNCHANGED.
+    pub fn insert_runs(self: &mut PkdSsrle, pos: u64, src: &Vec<SsrleRun>) -> Result<(), PkdError> {
+        let us: SsrleUpdate = self.plan_insert(pos, src);
+        if !self.update_fits(&us) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        self.commit(&us);
+        return Result::Ok(());
+    }
+
+    /// Insert a flat symbol vector at `pos` (greedy-RLE packed, then the
+    /// run-insert path).
+    pub fn insert_symbols(self: &mut PkdSsrle, pos: u64, syms: &Vec<u64>) -> Result<(), PkdError> {
+        if syms.length() == 0i64 {
+            return Result::Ok(());
+        }
+        let runs: Vec<SsrleRun> = ssrle_runs_from_symbols(self.bps(), syms);
+        return self.insert_runs(pos, &runs);
+    }
+
+    /// Remove logical range [start, end); Err(OutOfMem) leaves the sequence
+    /// UNCHANGED. (A remove can still GROW the stream: cutting mid-run can
+    /// split one run into pieces costing more units — C++ prepare_remove
+    /// prices it for the same reason.)
+    pub fn remove(self: &mut PkdSsrle, start: u64, end: u64) -> Result<(), PkdError> {
+        if start == end {
+            return Result::Ok(());   // C++ prepare_remove :844 no-step
+        }
+        let us: SsrleUpdate = self.plan_remove(start, end);
+        if !self.update_fits(&us) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        self.commit(&us);
+        return Result::Ok(());
+    }
+
+    /// self ← self ++ other (see the plan_merge direction note);
+    /// Err(OutOfMem) leaves both sequences unchanged. `other` is not
+    /// modified — clearing/freeing it is the caller's (node's) move.
+    pub fn merge_from(self: &mut PkdSsrle, other: &PkdSsrle) -> Result<(), PkdError> {
+        let us: SsrleUpdate = self.plan_merge(other);
+        if !self.update_fits(&us) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        self.commit(&us);
+        return Result::Ok(());
+    }
+
+    /// Move logical range [at, size) into `other` (C++ split_to :896: the
+    /// found run RunTraits::split at the cut; left stays, right + tail go to
+    /// `other`; BOTH sides reindexed with compactify — reindex() :929-:931).
+    /// at == size is a no-op (C++ :900/:933); `other`'s prior content is
+    /// replaced (C++ writes its stream and sets size absolutely). Err leaves
+    /// a partial state only between the two writes — same exposure as the
+    /// C++ mid-way throw; prepare-style pricing by the caller avoids it.
+    pub fn split_to(self: &mut PkdSsrle, other: &mut PkdSsrle, at: u64) -> Result<(), PkdError> {
+        assert(self.alphabet_size() == other.alphabet_size(),
+               "pkd_ssrle: split alphabet mismatch");
+        let size: u64 = self.size();
+        assert(at <= size, "pkd_ssrle: split position out of range");
+        if at == size {
+            return Result::Ok(());
+        }
+        let bps: u32 = self.bps();
+        let cur: Vec<SsrleRun> = self.as_runs();
+        let mut left: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        let mut right: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        ssrle_seq_split(bps, &cur, at, &mut left, &mut right);
+        ssrle_compactify(bps, &mut left);
+        ssrle_compactify(bps, &mut right);
+        // other first: if the right side cannot land, self is untouched
+        let ro: Result<(), PkdError> = other.set_runs(&right);
+        match ro {
+            Result::Ok(_) => {}
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        }
+        // the left rewrite can exceed the old footprint by the split fringe
+        // (one run may become two + padding) — priced Err, not assert
+        let rs: Result<(), PkdError> = self.set_runs(&left);
+        match rs {
+            Result::Ok(_) => {}
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        }
+        return Result::Ok(());
+    }
+
+    // ── pricing for the BTFL leaf (the PkdArray estimate convention) ─────
+
+    /// Block bytes this sequence needs AFTER inserting `src` at `pos` — the
+    /// leaf sums (estimate − current block_size) across columns against its
+    /// free space, like PkdArray::estimate_insert.
+    pub fn estimate_insert(self: &PkdSsrle, pos: u64, src: &Vec<SsrleRun>) -> u32 {
+        let us: SsrleUpdate = self.plan_insert(pos, src);
+        return us.block_size;
+    }
+
+    /// Block bytes needed after absorbing `other` (PkdArray::estimate_merge
+    /// twin).
+    pub fn estimate_merge(self: &PkdSsrle, other: &PkdSsrle) -> u32 {
+        let us: SsrleUpdate = self.plan_merge(other);
+        return us.block_size;
     }
 }
