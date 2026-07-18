@@ -166,10 +166,10 @@ sym	logos.mem.bt.BtCursor__type_id__g__ref_T
 sym	logos.mem.bt.BtTree__type_id__g__ref_T
 sym	logos.mem.bt.FindShuttle__type_id__g__ref_T
 sym	logos.mem.bt.ShuttleRes__type_id__g__ref_T
+sym	logos.mem.bt.memstore.DirEntry__type_id__g__ref_T
 sym	logos.mem.bt.memstore.Directory__type_id__g__ref_T
 sym	logos.mem.bt.memstore.MemorySnapshot__type_id__g__ref_T
 sym	logos.mem.bt.memstore.MemoryStore__type_id__g__ref_T
-sym	logos.mem.bt.memstore.RootEntry__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$String__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$bool__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$i32__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -217,8 +217,8 @@ sym	logos.mem.writ.tag_system.WritTagSystem__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.WritTypeTagSystem__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.Emitter__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.ExprBlob__type_id__g__ref_T
+sym	logos.std.compiler.metaprog.Ident$M2b09c0fe11e753e9__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.IdentSpan__type_id__g__ref_T
-sym	logos.std.compiler.metaprog.Ident__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.ItemList__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.Item__type_id__g__ref_T
 sym	logos.std.compiler.metaprog.OView__type_id__g__ref_T
@@ -239,7 +239,7 @@ sym	logos.std.io.bytes.BytesMut__type_id__g__ref_T
 sym	logos.std.io.error.BorrowedBuf__type_id__g__ref_T
 sym	logos.std.io.error.ErrorKind__type_id__g__ref_T
 sym	logos.std.io.error.IoError__type_id__g__ref_T
-sym	logos.std.io.fs.DirEntry__type_id__g__ref_T
+sym	logos.std.io.fs.DirEntry$M381aa463d44202a8__type_id__g__ref_T
 sym	logos.std.io.fs.File__type_id__g__ref_T
 sym	logos.std.io.fs.ReadDir__type_id__g__ref_T
 sym	logos.std.io.http.ConnTask__type_id__g__ref_T
@@ -1241,21 +1241,21 @@ sym	logos_lang..logos.lang.iter.EnumIter$G2$RangeInclI64$i64__skip_while__g__Enu
 sym	logos_lang..logos.lang.iter.EnumIter$G2$RangeInclI64$i64__step_by__g__EnumIter$G2$I$T__i64__EnumPair$G1$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$RangeInclI64$i64__take__g__EnumIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.EnumIter$G2$RangeInclI64$i64__take_while__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool__EnumPair$G1$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__count__g__EnumIter$G2$I$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__enumerate__g__EnumIter$G2$I$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__filter__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__inspect__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> void__EnumPair$G1$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__last__g__EnumIter$G2$I$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__max_by__g__EnumIter$G2$I$T__fn(EnumPair<T>, EnumPair<T>) -> i32
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__min_by__g__EnumIter$G2$I$T__fn(EnumPair<T>, EnumPair<T>) -> i32
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__next__g__refmut_EnumIter$G2$I$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__nth__g__refmut_EnumIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__peekable__g__EnumIter$G2$I$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__skip__g__EnumIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__skip_while__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool__EnumPair$G1$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__step_by__g__EnumIter$G2$I$T__i64__EnumPair$G1$T
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__take__g__EnumIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry__take_while__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool__EnumPair$G1$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__EnumIter$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__EnumIter$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> void__EnumPair$G1$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__EnumIter$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__EnumIter$G2$I$T__fn(EnumPair<T>, EnumPair<T>) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__EnumIter$G2$I$T__fn(EnumPair<T>, EnumPair<T>) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_EnumIter$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_EnumIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__EnumIter$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__EnumIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool__EnumPair$G1$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__EnumIter$G2$I$T__i64__EnumPair$G1$T
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__EnumIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.EnumIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool__EnumPair$G1$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$RevRangeI32$i32__count__g__EnumIter$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$RevRangeI32$i32__enumerate__g__EnumIter$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$RevRangeI32$i32__filter__g__EnumIter$G2$I$T__fn(EnumPair<T>) -> bool
@@ -1522,21 +1522,21 @@ sym	logos_lang..logos.lang.iter.FilterIter$G2$RangeInclI64$i64__skip_while__g__F
 sym	logos_lang..logos.lang.iter.FilterIter$G2$RangeInclI64$i64__step_by__g__FilterIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.FilterIter$G2$RangeInclI64$i64__take__g__FilterIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.FilterIter$G2$RangeInclI64$i64__take_while__g__FilterIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__count__g__FilterIter$G2$I$T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__enumerate__g__FilterIter$G2$I$T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__filter__g__FilterIter$G2$I$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__inspect__g__FilterIter$G2$I$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__last__g__FilterIter$G2$I$T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__max_by__g__FilterIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__min_by__g__FilterIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__next__g__refmut_FilterIter$G2$I$T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__nth__g__refmut_FilterIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__peekable__g__FilterIter$G2$I$T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__skip__g__FilterIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__skip_while__g__FilterIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__step_by__g__FilterIter$G2$I$T__i64__T
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__take__g__FilterIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry__take_while__g__FilterIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__FilterIter$G2$I$T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__FilterIter$G2$I$T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__FilterIter$G2$I$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__FilterIter$G2$I$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__FilterIter$G2$I$T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__FilterIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__FilterIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_FilterIter$G2$I$T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_FilterIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__FilterIter$G2$I$T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__FilterIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__FilterIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__FilterIter$G2$I$T__i64__T
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__FilterIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.FilterIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__FilterIter$G2$I$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.FilterIter$G2$RevRangeI32$i32__count__g__FilterIter$G2$I$T
 sym	logos_lang..logos.lang.iter.FilterIter$G2$RevRangeI32$i32__enumerate__g__FilterIter$G2$I$T
 sym	logos_lang..logos.lang.iter.FilterIter$G2$RevRangeI32$i32__filter__g__FilterIter$G2$I$T__fn(T) -> bool
@@ -1809,21 +1809,21 @@ sym	logos_lang..logos.lang.iter.InspectIter$G2$RangeInclI64$i64__skip_while__g__
 sym	logos_lang..logos.lang.iter.InspectIter$G2$RangeInclI64$i64__step_by__g__InspectIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.InspectIter$G2$RangeInclI64$i64__take__g__InspectIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.InspectIter$G2$RangeInclI64$i64__take_while__g__InspectIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__count__g__InspectIter$G2$I$T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__enumerate__g__InspectIter$G2$I$T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__filter__g__InspectIter$G2$I$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__inspect__g__InspectIter$G2$I$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__last__g__InspectIter$G2$I$T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__max_by__g__InspectIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__min_by__g__InspectIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__next__g__refmut_InspectIter$G2$I$T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__nth__g__refmut_InspectIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__peekable__g__InspectIter$G2$I$T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__skip__g__InspectIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__skip_while__g__InspectIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__step_by__g__InspectIter$G2$I$T__i64__T
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__take__g__InspectIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry__take_while__g__InspectIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__InspectIter$G2$I$T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__InspectIter$G2$I$T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__InspectIter$G2$I$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__InspectIter$G2$I$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__InspectIter$G2$I$T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__InspectIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__InspectIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_InspectIter$G2$I$T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_InspectIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__InspectIter$G2$I$T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__InspectIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__InspectIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__InspectIter$G2$I$T__i64__T
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__InspectIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.InspectIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__InspectIter$G2$I$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.InspectIter$G2$RevRangeI32$i32__count__g__InspectIter$G2$I$T
 sym	logos_lang..logos.lang.iter.InspectIter$G2$RevRangeI32$i32__enumerate__g__InspectIter$G2$I$T
 sym	logos_lang..logos.lang.iter.InspectIter$G2$RevRangeI32$i32__filter__g__InspectIter$G2$I$T__fn(T) -> bool
@@ -2016,24 +2016,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$DView__skip_while__g__OptionIter$G
 sym	logos_lang..logos.lang.iter.OptionIter$G1$DView__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$DView__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$DView__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__count__g__OptionIter$G1$T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__enumerate__g__OptionIter$G1$T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__filter__g__OptionIter$G1$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__inspect__g__OptionIter$G1$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__last__g__OptionIter$G1$T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__next__g__refmut_OptionIter$G1$T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__next_back__g__refmut_OptionIter$G1$T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__nth__g__refmut_OptionIter$G1$T__i64
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__nth_back__g__refmut_OptionIter$G1$T__i64
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__peekable__g__OptionIter$G1$T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__rev__g__OptionIter$G1$T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__skip__g__OptionIter$G1$T__i64
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__step_by__g__OptionIter$G1$T__i64__T
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__take__g__OptionIter$G1$T__i64
-sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$DirEntry$M381aa463d44202a8__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$File__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$File__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$File__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2878,9 +2878,9 @@ sym	logos_lang..logos.lang.iter.Option__AsciiChar__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__CharIndex__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ConvertError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__DView__into_iter__g__Option
-sym	logos_lang..logos.lang.iter.Option__DirEntry__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__DirEntry$M381aa463d44202a8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$CharIndex__into_iter__g__Option
-sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$DirEntry__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$String__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$Utf8Chunk__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__EnumPair$G1$i32__into_iter__g__Option
@@ -2931,9 +2931,9 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__AsciiChar
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__CharIndex
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ConvertError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__DView
-sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__DirEntry
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$String
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__EnumPair$G1$i32
@@ -3200,21 +3200,21 @@ sym	logos_lang..logos.lang.iter.PeekableIter$G2$RangeInclI64$i64__skip_while__g_
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$RangeInclI64$i64__step_by__g__PeekableIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$RangeInclI64$i64__take__g__PeekableIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$RangeInclI64$i64__take_while__g__PeekableIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__count__g__PeekableIter$G2$I$T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__enumerate__g__PeekableIter$G2$I$T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__filter__g__PeekableIter$G2$I$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__inspect__g__PeekableIter$G2$I$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__last__g__PeekableIter$G2$I$T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__max_by__g__PeekableIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__min_by__g__PeekableIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__next__g__refmut_PeekableIter$G2$I$T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__nth__g__refmut_PeekableIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__peekable__g__PeekableIter$G2$I$T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__skip__g__PeekableIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__skip_while__g__PeekableIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__step_by__g__PeekableIter$G2$I$T__i64__T
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__take__g__PeekableIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry__take_while__g__PeekableIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__PeekableIter$G2$I$T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__PeekableIter$G2$I$T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__PeekableIter$G2$I$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__PeekableIter$G2$I$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__PeekableIter$G2$I$T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__PeekableIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__PeekableIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_PeekableIter$G2$I$T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_PeekableIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__PeekableIter$G2$I$T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__PeekableIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__PeekableIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__PeekableIter$G2$I$T__i64__T
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__PeekableIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.PeekableIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__PeekableIter$G2$I$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$RevRangeI32$i32__count__g__PeekableIter$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$RevRangeI32$i32__enumerate__g__PeekableIter$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$G2$RevRangeI32$i32__filter__g__PeekableIter$G2$I$T__fn(T) -> bool
@@ -4047,21 +4047,21 @@ sym	logos_lang..logos.lang.iter.SkipIter$G2$RangeInclI64$i64__skip_while__g__Ski
 sym	logos_lang..logos.lang.iter.SkipIter$G2$RangeInclI64$i64__step_by__g__SkipIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.SkipIter$G2$RangeInclI64$i64__take__g__SkipIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.SkipIter$G2$RangeInclI64$i64__take_while__g__SkipIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__count__g__SkipIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__enumerate__g__SkipIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__filter__g__SkipIter$G2$I$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__inspect__g__SkipIter$G2$I$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__last__g__SkipIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__max_by__g__SkipIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__min_by__g__SkipIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__next__g__refmut_SkipIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__nth__g__refmut_SkipIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__peekable__g__SkipIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__skip__g__SkipIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__skip_while__g__SkipIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__step_by__g__SkipIter$G2$I$T__i64__T
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__take__g__SkipIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry__take_while__g__SkipIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__SkipIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__SkipIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__SkipIter$G2$I$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__SkipIter$G2$I$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__SkipIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__SkipIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__SkipIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_SkipIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_SkipIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__SkipIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__SkipIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__SkipIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__SkipIter$G2$I$T__i64__T
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__SkipIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.SkipIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__SkipIter$G2$I$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.SkipIter$G2$RevRangeI32$i32__count__g__SkipIter$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipIter$G2$RevRangeI32$i32__enumerate__g__SkipIter$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipIter$G2$RevRangeI32$i32__filter__g__SkipIter$G2$I$T__fn(T) -> bool
@@ -4328,21 +4328,21 @@ sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$RangeInclI64$i64__skip_while__g
 sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$RangeInclI64$i64__step_by__g__SkipWhileIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$RangeInclI64$i64__take__g__SkipWhileIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$RangeInclI64$i64__take_while__g__SkipWhileIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__count__g__SkipWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__enumerate__g__SkipWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__filter__g__SkipWhileIter$G2$I$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__inspect__g__SkipWhileIter$G2$I$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__last__g__SkipWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__max_by__g__SkipWhileIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__min_by__g__SkipWhileIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__next__g__refmut_SkipWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__nth__g__refmut_SkipWhileIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__peekable__g__SkipWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__skip__g__SkipWhileIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__skip_while__g__SkipWhileIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__step_by__g__SkipWhileIter$G2$I$T__i64__T
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__take__g__SkipWhileIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry__take_while__g__SkipWhileIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__SkipWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__SkipWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__SkipWhileIter$G2$I$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__SkipWhileIter$G2$I$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__SkipWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__SkipWhileIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__SkipWhileIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_SkipWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_SkipWhileIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__SkipWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__SkipWhileIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__SkipWhileIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__SkipWhileIter$G2$I$T__i64__T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__SkipWhileIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__SkipWhileIter$G2$I$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$RevRangeI32$i32__count__g__SkipWhileIter$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$RevRangeI32$i32__enumerate__g__SkipWhileIter$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$G2$RevRangeI32$i32__filter__g__SkipWhileIter$G2$I$T__fn(T) -> bool
@@ -4609,21 +4609,21 @@ sym	logos_lang..logos.lang.iter.StepByIter$G2$RangeInclI64$i64__skip_while__g__S
 sym	logos_lang..logos.lang.iter.StepByIter$G2$RangeInclI64$i64__step_by__g__StepByIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.StepByIter$G2$RangeInclI64$i64__take__g__StepByIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.StepByIter$G2$RangeInclI64$i64__take_while__g__StepByIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__count__g__StepByIter$G2$I$T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__enumerate__g__StepByIter$G2$I$T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__filter__g__StepByIter$G2$I$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__inspect__g__StepByIter$G2$I$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__last__g__StepByIter$G2$I$T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__max_by__g__StepByIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__min_by__g__StepByIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__next__g__refmut_StepByIter$G2$I$T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__nth__g__refmut_StepByIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__peekable__g__StepByIter$G2$I$T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__skip__g__StepByIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__skip_while__g__StepByIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__step_by__g__StepByIter$G2$I$T__i64__T
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__take__g__StepByIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry__take_while__g__StepByIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__StepByIter$G2$I$T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__StepByIter$G2$I$T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__StepByIter$G2$I$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__StepByIter$G2$I$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__StepByIter$G2$I$T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__StepByIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__StepByIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_StepByIter$G2$I$T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_StepByIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__StepByIter$G2$I$T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__StepByIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__StepByIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__StepByIter$G2$I$T__i64__T
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__StepByIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.StepByIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__StepByIter$G2$I$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.StepByIter$G2$RevRangeI32$i32__count__g__StepByIter$G2$I$T
 sym	logos_lang..logos.lang.iter.StepByIter$G2$RevRangeI32$i32__enumerate__g__StepByIter$G2$I$T
 sym	logos_lang..logos.lang.iter.StepByIter$G2$RevRangeI32$i32__filter__g__StepByIter$G2$I$T__fn(T) -> bool
@@ -4900,21 +4900,21 @@ sym	logos_lang..logos.lang.iter.TakeIter$G2$RangeInclI64$i64__skip_while__g__Tak
 sym	logos_lang..logos.lang.iter.TakeIter$G2$RangeInclI64$i64__step_by__g__TakeIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.TakeIter$G2$RangeInclI64$i64__take__g__TakeIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.TakeIter$G2$RangeInclI64$i64__take_while__g__TakeIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__count__g__TakeIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__enumerate__g__TakeIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__filter__g__TakeIter$G2$I$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__inspect__g__TakeIter$G2$I$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__last__g__TakeIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__max_by__g__TakeIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__min_by__g__TakeIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__next__g__refmut_TakeIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__nth__g__refmut_TakeIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__peekable__g__TakeIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__skip__g__TakeIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__skip_while__g__TakeIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__step_by__g__TakeIter$G2$I$T__i64__T
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__take__g__TakeIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry__take_while__g__TakeIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__TakeIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__TakeIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__TakeIter$G2$I$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__TakeIter$G2$I$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__TakeIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__TakeIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__TakeIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_TakeIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_TakeIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__TakeIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__TakeIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__TakeIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__TakeIter$G2$I$T__i64__T
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__TakeIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.TakeIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__TakeIter$G2$I$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.TakeIter$G2$RevRangeI32$i32__count__g__TakeIter$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeIter$G2$RevRangeI32$i32__enumerate__g__TakeIter$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeIter$G2$RevRangeI32$i32__filter__g__TakeIter$G2$I$T__fn(T) -> bool
@@ -5181,21 +5181,21 @@ sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$RangeInclI64$i64__skip_while__g
 sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$RangeInclI64$i64__step_by__g__TakeWhileIter$G2$I$T__i64__T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$RangeInclI64$i64__take__g__TakeWhileIter$G2$I$T__i64
 sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$RangeInclI64$i64__take_while__g__TakeWhileIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__count__g__TakeWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__enumerate__g__TakeWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__filter__g__TakeWhileIter$G2$I$T__fn(T) -> bool
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__inspect__g__TakeWhileIter$G2$I$T__fn(T) -> void__T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__last__g__TakeWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__max_by__g__TakeWhileIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__min_by__g__TakeWhileIter$G2$I$T__fn(T, T) -> i32
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__next__g__refmut_TakeWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__nth__g__refmut_TakeWhileIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__peekable__g__TakeWhileIter$G2$I$T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__skip__g__TakeWhileIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__skip_while__g__TakeWhileIter$G2$I$T__fn(T) -> bool__T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__step_by__g__TakeWhileIter$G2$I$T__i64__T
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__take__g__TakeWhileIter$G2$I$T__i64
-sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry__take_while__g__TakeWhileIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__count__g__TakeWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__enumerate__g__TakeWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__filter__g__TakeWhileIter$G2$I$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__inspect__g__TakeWhileIter$G2$I$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__last__g__TakeWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__max_by__g__TakeWhileIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__min_by__g__TakeWhileIter$G2$I$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__next__g__refmut_TakeWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__nth__g__refmut_TakeWhileIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__peekable__g__TakeWhileIter$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip__g__TakeWhileIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__skip_while__g__TakeWhileIter$G2$I$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__step_by__g__TakeWhileIter$G2$I$T__i64__T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take__g__TakeWhileIter$G2$I$T__i64
+sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$ReadDir$DirEntry$M381aa463d44202a8__take_while__g__TakeWhileIter$G2$I$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$RevRangeI32$i32__count__g__TakeWhileIter$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$RevRangeI32$i32__enumerate__g__TakeWhileIter$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$G2$RevRangeI32$i32__filter__g__TakeWhileIter$G2$I$T__fn(T) -> bool
@@ -5458,20 +5458,20 @@ sym	logos_lang..logos.lang.option.Option__DView__unwrap__g__Option
 sym	logos_lang..logos.lang.option.Option__DView__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__DView__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__DView__xor__g__Option__Option
-sym	logos_lang..logos.lang.option.Option__DirEntry__default__g__void
-sym	logos_lang..logos.lang.option.Option__DirEntry__expect__g__Option__slice_u8
-sym	logos_lang..logos.lang.option.Option__DirEntry__filter__g__Option__fn(T) -> bool
-sym	logos_lang..logos.lang.option.Option__DirEntry__is_none__g__ref_Option
-sym	logos_lang..logos.lang.option.Option__DirEntry__is_some__g__ref_Option
-sym	logos_lang..logos.lang.option.Option__DirEntry__is_some_and__g__Option__fn(T) -> bool
-sym	logos_lang..logos.lang.option.Option__DirEntry__or__g__Option__Option
-sym	logos_lang..logos.lang.option.Option__DirEntry__or_else__g__Option__fn() -> Option
-sym	logos_lang..logos.lang.option.Option__DirEntry__replace__g__refmut_Option__T
-sym	logos_lang..logos.lang.option.Option__DirEntry__take__g__refmut_Option
-sym	logos_lang..logos.lang.option.Option__DirEntry__unwrap__g__Option
-sym	logos_lang..logos.lang.option.Option__DirEntry__unwrap_or__g__Option__T
-sym	logos_lang..logos.lang.option.Option__DirEntry__unwrap_or_else__g__Option__fn() -> T
-sym	logos_lang..logos.lang.option.Option__DirEntry__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__default__g__void
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__DirEntry$M381aa463d44202a8__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$CharIndex__default__g__void
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$CharIndex__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$CharIndex__filter__g__Option__fn(T) -> bool
@@ -5486,20 +5486,20 @@ sym	logos_lang..logos.lang.option.Option__EnumPair$G1$CharIndex__unwrap__g__Opti
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$CharIndex__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$CharIndex__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$CharIndex__xor__g__Option__Option
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__default__g__void
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__expect__g__Option__slice_u8
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__filter__g__Option__fn(T) -> bool
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__is_none__g__ref_Option
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__is_some__g__ref_Option
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__is_some_and__g__Option__fn(T) -> bool
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__or__g__Option__Option
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__or_else__g__Option__fn() -> Option
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__replace__g__refmut_Option__T
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__take__g__refmut_Option
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__unwrap__g__Option
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__unwrap_or__g__Option__T
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__unwrap_or_else__g__Option__fn() -> T
-sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__default__g__void
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__EnumPair$G1$DirEntry$M381aa463d44202a8__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$String__default__g__void
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$String__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__EnumPair$G1$String__filter__g__Option__fn(T) -> bool
@@ -5986,9 +5986,9 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__AsciiChar
 sym	logos_lang..logos.lang.option.Option__default__g__void__CharIndex
 sym	logos_lang..logos.lang.option.Option__default__g__void__ConvertError
 sym	logos_lang..logos.lang.option.Option__default__g__void__DView
-sym	logos_lang..logos.lang.option.Option__default__g__void__DirEntry
+sym	logos_lang..logos.lang.option.Option__default__g__void__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__default__g__void__EnumPair$G1$i32
@@ -6049,9 +6049,9 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__AsciiChar
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__CharIndex
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ConvertError
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__DView
-sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__DirEntry
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__EnumPair$G1$i32
@@ -6140,9 +6140,9 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Asci
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__CharIndex
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ConvertError
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__DView
-sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__DirEntry
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__EnumPair$G1$i32
@@ -6259,9 +6259,9 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__AsciiChar
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__CharIndex
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ConvertError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__DView
-sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__DirEntry
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__EnumPair$G1$i32
@@ -6322,9 +6322,9 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__AsciiChar
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__CharIndex
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ConvertError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__DView
-sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__DirEntry
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__EnumPair$G1$i32
@@ -6385,9 +6385,9 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__CharIndex
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ConvertError
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__DView
-sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__DirEntry
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__EnumPair$G1$i32
@@ -6448,9 +6448,9 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__AsciiChar
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__CharIndex
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ConvertError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__DView
-sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__DirEntry
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__EnumPair$G1$i32
@@ -6511,9 +6511,9 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__As
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__CharIndex
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ConvertError
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__DView
-sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__DirEntry
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__EnumPair$G1$i32
@@ -6658,9 +6658,9 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__AsciiCha
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__CharIndex
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ConvertError
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__DView
-sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__DirEntry
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__EnumPair$G1$i32
@@ -6721,9 +6721,9 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__AsciiChar
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__CharIndex
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ConvertError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__DView
-sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__DirEntry
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__EnumPair$G1$i32
@@ -6840,9 +6840,9 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__AsciiChar
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__CharIndex
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ConvertError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__DView
-sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__DirEntry
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__EnumPair$G1$i32
@@ -6903,9 +6903,9 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__AsciiChar
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__CharIndex
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ConvertError
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__DView
-sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__DirEntry
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__EnumPair$G1$i32
@@ -6966,9 +6966,9 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__CharIndex
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ConvertError
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__DView
-sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__DirEntry
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__EnumPair$G1$i32
@@ -7029,9 +7029,9 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__AsciiChar
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__CharIndex
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ConvertError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__DView
-sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__DirEntry
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$CharIndex
-sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$DirEntry
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$String
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__EnumPair$G1$i32
@@ -8626,6 +8626,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__DebugTuple
 sym	logos_lang.logos.lang.any$type_id_of__g__void__DefaultBuildHasher
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Delim
 sym	logos_lang.logos.lang.any$type_id_of__g__void__DirEntry
+sym	logos_lang.logos.lang.any$type_id_of__g__void__DirEntry$M381aa463d44202a8
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Directory
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Duration
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Emitter
@@ -8651,7 +8652,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Header
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Headers
 sym	logos_lang.logos.lang.any$type_id_of__g__void__HeldAny
 sym	logos_lang.logos.lang.any$type_id_of__g__void__HttpError
-sym	logos_lang.logos.lang.any$type_id_of__g__void__Ident
+sym	logos_lang.logos.lang.any$type_id_of__g__void__Ident$M2b09c0fe11e753e9
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Ident$M6b18b555b6cc0d26
 sym	logos_lang.logos.lang.any$type_id_of__g__void__IdentSpan
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Infallible
@@ -8715,7 +8716,6 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Response
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__RevRangeI64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Rng
-sym	logos_lang.logos.lang.any$type_id_of__g__void__RootEntry
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SView2
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Scheduler
@@ -9170,9 +9170,9 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__AsciiChar
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__CharIndex
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ConvertError
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__DView
-sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__DirEntry
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__DirEntry$M381aa463d44202a8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$CharIndex
-sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$DirEntry
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$DirEntry$M381aa463d44202a8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$String
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$Utf8Chunk
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__EnumPair$G1$i32
@@ -9619,13 +9619,23 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__len__g__r
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__pop__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__remove__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry$M381aa463d44202a8__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry$M381aa463d44202a8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry$M381aa463d44202a8__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry$M381aa463d44202a8__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry$M381aa463d44202a8__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry$M381aa463d44202a8__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry$M381aa463d44202a8__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$DirEntry__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$ExprBlob__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$ExprBlob__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$ExprBlob__drop__g__Vec$G1$T
@@ -9663,15 +9673,6 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__index_m
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident$M2b09c0fe11e753e9__push__g__refmut_Vec$G1$T__T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__at_const__g__ref_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__borrow__g__ref_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__borrow_mut__g__refmut_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__drop__g__Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__index__g__ref_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__index_mut__g__refmut_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__into_iter__g__Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__length__g__ref_Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$Ident__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$JsonField__at_const__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$JsonField__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$JsonField__borrow_mut__g__refmut_Vec$G1$T__i64
@@ -9696,16 +9697,6 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__index__g__ref_Vec
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__length__g__ref_Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__borrow__g__ref_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__borrow_mut__g__refmut_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__drop__g__Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__get__g__ref_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__index__g__ref_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__index_mut__g__refmut_Vec$G1$T__i64
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__into_iter__g__Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__len__g__ref_Vec$G1$T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__push__g__refmut_Vec$G1$T__T
-sym	logos_mem..logos.mem.collections.vec.Vec$G1$RootEntry__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__clear__g__refmut_Vec$G1$T
@@ -10415,15 +10406,14 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(i64, i64, i64, i64, i
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(u64, u32)
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Arc$G1$udyn_BTreeNode
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__DirEntry
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__DirEntry$M381aa463d44202a8
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__ExprBlob
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__HashMap$G2$i64$i64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Header
-sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Ident
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Ident$M2b09c0fe11e753e9
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Json
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__JsonField
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__QuoteItemBlob
-sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__RootEntry
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__String
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__TokenTree
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__WAny
@@ -11220,10 +11210,10 @@ type	logos.mem.bt.BtCursor	fields=[path:Vec<(u64, u32)>,leaf:u64,pos:u32]
 type	logos.mem.bt.BtTree	fields=[root:u64]
 type	logos.mem.bt.FindShuttle	fields=[key:u64]
 type	logos.mem.bt.ShuttleRes	fields=[pos:u32,found:bool]
-type	logos.mem.bt.memstore.Directory	fields=[entries:Vec<RootEntry>]
+type	logos.mem.bt.memstore.DirEntry	fields=[ctr_id:u64,root:*mut u8,level:u32]
+type	logos.mem.bt.memstore.Directory	fields=[entries:Vec<DirEntry>]
 type	logos.mem.bt.memstore.MemorySnapshot	fields=[id:u64,dir:Directory]
 type	logos.mem.bt.memstore.MemoryStore	fields=[next_id:u64,head:Directory]
-type	logos.mem.bt.memstore.RootEntry	fields=[ctr_id:u64,root:*mut u8,level:u32]
 type	logos.mem.bt.ops.BtInsRet	fields=[addr:*mut u8,lsep:K,lsize:u64,split:bool,rsep:K,rsize:u64,rptr:*mut u8]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]

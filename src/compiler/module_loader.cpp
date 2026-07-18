@@ -857,7 +857,18 @@ StdlibExportsOpt extract_writ0_exports(const std::vector<uint8_t>& data,
             r.value.concrete_impls.push_back(std::move(ci));
         }
     }
-    // trailer_version > 2: future fields ignored (outer length prefix bounds
+    // v3 additions (G156-1): all-nominal-decls for the ambiguity universe.
+    if (trailer_version >= 3) {
+        if (!rd_vec_pp(r.value.all_struct_decls) ||
+            !rd_vec_pp(r.value.all_enum_decls))
+        {
+            std::fprintf(stderr, "module_loader: %s: exports trailer v3 all-decls malformed\n",
+                         archive_path.c_str());
+            r.value = {};
+            return r;
+        }
+    }
+    // trailer_version > 3: future fields ignored (outer length prefix bounds
     // the scan, so unknown bytes after our last-known field are harmless).
     r.present = true;
     return r;
@@ -938,6 +949,13 @@ StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths
             merged.concrete_impls.insert(merged.concrete_impls.end(),
                 std::make_move_iterator(opt.value.concrete_impls.begin()),
                 std::make_move_iterator(opt.value.concrete_impls.end()));
+            // G156-1 (v3): all-nominal-decls for the ambiguity universe.
+            merged.all_struct_decls.insert(merged.all_struct_decls.end(),
+                std::make_move_iterator(opt.value.all_struct_decls.begin()),
+                std::make_move_iterator(opt.value.all_struct_decls.end()));
+            merged.all_enum_decls.insert(merged.all_enum_decls.end(),
+                std::make_move_iterator(opt.value.all_enum_decls.begin()),
+                std::make_move_iterator(opt.value.all_enum_decls.end()));
         }
     }
     return merged;

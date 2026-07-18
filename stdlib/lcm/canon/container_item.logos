@@ -1227,7 +1227,7 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
 // resolves types/functions/bounds at RESOLVE time, but too late for the
 // collect-phase impl check). A generic `kind map` surface (① / a compiler
 // traits-refresh) removes this later. `logos.mem.bt.memstore` (the
-// MemorySnapshot capability + RootEntry + tree_release), `logos.mem.bt.ops` and
+// MemorySnapshot capability + DirEntry + tree_release), `logos.mem.bt.ops` and
 // `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
 fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
     // The map items are quote blobs; each carries its own `use` imports. No
@@ -1259,7 +1259,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             }
             pub fn insert(self: &#nm, key: #(kid), val: #(vi)) {
                 unsafe {
-                    let e: RootEntry = (*self.snap).root_of(self.ctr_id);
+                    let e: DirEntry = (*self.snap).root_of(self.ctr_id);
                     let cur: u64 = (*self.snap).snapshot_id();
                     let r: BtInsRet<#(kid)> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, val, cur);
                     let mut nrt: *mut u8 = e.root;
@@ -1280,7 +1280,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             }
             pub fn size(self: &#nm) -> u64 {
                 unsafe {
-                    let e: RootEntry = (*self.snap).root_of(self.ctr_id);
+                    let e: DirEntry = (*self.snap).root_of(self.ctr_id);
                     return bt_size::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level);
                 }
             }
@@ -1288,7 +1288,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         impl Ctr for #nm {
             fn size(self: &#nm) -> u64 {
                 unsafe {
-                    let e: RootEntry = (*self.snap).root_of(self.ctr_id);
+                    let e: DirEntry = (*self.snap).root_of(self.ctr_id);
                     return bt_size::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level);
                 }
             }
@@ -1306,7 +1306,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid)) -> &[u8] {
                     unsafe {
-                        let e: RootEntry = (*self.snap).root_of(self.ctr_id);
+                        let e: DirEntry = (*self.snap).root_of(self.ctr_id);
                         let miss: &[u8] = slice_from_raw::<u8>(e.root as *const u8, 0i64);
                         return bt_descend_get::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, miss);
                     }
@@ -1321,7 +1321,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid), sentinel: #(vo)) -> #(vo) {
                     unsafe {
-                        let e: RootEntry = (*self.snap).root_of(self.ctr_id);
+                        let e: DirEntry = (*self.snap).root_of(self.ctr_id);
                         return bt_descend_get::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, sentinel);
                     }
                 }

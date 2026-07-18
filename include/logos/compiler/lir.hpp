@@ -1210,6 +1210,14 @@ struct SemaOptions {
     // the id `find_func_candidates` filters by. Empty → no module is known by
     // name, so a `from` clause cannot resolve (sema errors at the use site).
     std::unordered_map<std::string, std::string> module_name_to_id;
+
+    // G156-1 (trailer v3): nominal type decls (pkg, name) exported by dependency
+    // archives — loaded from their .writ0 all-struct/enum-decls trailer even for
+    // packages whose ASTs are NOT lazily loaded into this build. Folded into the
+    // transitive ambiguous-type-name universe so a higher tier detects a
+    // cross-module same-name clash (e.g. std's fs.DirEntry vs mem's
+    // memstore.DirEntry) that would otherwise be invisible. Owned by the caller.
+    std::vector<std::pair<std::string, std::string>> dep_nominal_decls;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.

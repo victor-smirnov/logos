@@ -149,6 +149,8 @@ public:
     // skips lowering it and the linker resolves the symbol (codegen
     // forward-declares it — same predicate as mlir_gen's is_binary_skip).
     void set_binary_symbols(const logos::compiler::StrSet* s) { binary_symbols_ = s; }
+    // G156-1: dependency-archive nominal decls (pkg,name) for the ambiguity universe.
+    void set_dep_nominal_decls(const std::vector<std::pair<std::string, std::string>>* d) { dep_nominal_decls_ = d; }
     void set_metaprog_keep_fns(std::vector<std::string> names) {
         metaprog_keep_fns_ = std::move(names);
     }
@@ -2002,6 +2004,8 @@ private:
     // from_binary fn's name is in here, lower_fn skips its body (mlir_gen
     // forward-declares it on the same predicate; the linker resolves it).
     const logos::compiler::StrSet* binary_symbols_ = nullptr;
+    // G156-1: dep-archive nominal decls (pkg,name) from the v3 exports trailer.
+    const std::vector<std::pair<std::string, std::string>>* dep_nominal_decls_ = nullptr;
     // How many from_binary fn bodies were skeleton-skipped this run. Surfaced
     // under LOGOS_SEMA_PHASE_TIMING as an observability hook for the skip path.
     size_t skel_skip_count_         = 0;

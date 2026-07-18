@@ -89,6 +89,11 @@ struct MetaprogDispatchOpts {
     // §3/§B-coex: module canonical-NAME → id, for resolving `use pkg from <name>`
     // during the discovery passes (else cross-module same-name types mis-resolve).
     std::unordered_map<std::string, std::string> module_name_to_id;
+    // G156-1: dependency-archive nominal decls (pkg,name) from the v3 exports
+    // trailer, for the ambiguity universe. Threaded into every sema_lower so a
+    // user compile folds a cross-module same-name type (fs.DirEntry) identically
+    // to how the owning stdlib archive folded it. Empty disables (legacy).
+    std::vector<std::pair<std::string, std::string>> dep_nominal_decls;
 };
 
 // Run the metaprog discovery loop:

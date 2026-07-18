@@ -2492,6 +2492,14 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
             ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, bare_of(k), si.package);
         for (auto& [k, ei] : enums_)
             ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, bare_of(k), ei.package);
+        // G156-1 (trailer v3): fold in dependency-archive nominal decls that are
+        // NOT in structs_/enums_ because their package's AST was loaded lazily
+        // (or not at all). Without these, a higher tier can't see a lower
+        // archive's plain-struct decl of the same name → the cross-module clash
+        // (fs.DirEntry vs memstore.DirEntry) goes undetected. (pkg, name) pairs.
+        if (dep_nominal_decls_)
+            for (auto& [pkg, name] : *dep_nominal_decls_)
+                ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, name, pkg);
         set_ambiguous_type_names(&ambiguous_type_names_);
         // Carry the set forward so mono/mlir apply the tag at the SAME names
         // (they see a mono-pruned prog.structs → would recompute a subset).
@@ -9115,6 +9123,7 @@ lir::LProgram sema_lower(const std::vector<logos::writ::Writ>& asts,
     // self-gating — a library build's own not-yet-compiled fns are absent, so
     // their bodies are lowered locally and mono's scan_fn sees their generics.
     checker.set_binary_symbols(&opts.binary_symbols);
+    checker.set_dep_nominal_decls(&opts.dep_nominal_decls);  // G156-1 ambiguity universe
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is
     // the discriminator.

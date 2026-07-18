@@ -203,7 +203,7 @@ static std::string encode_stdlib_exports(const StdlibExports& exp) {
         put_u32(static_cast<uint32_t>(s.size()));
         out.append(s.data(), s.size());
     };
-    put_u16(2);   // trailer_version (writer always emits the latest)
+    put_u16(3);   // trailer_version (writer always emits the latest)
     put_u16(0);   // reserved
     // v1 payload (unchanged)
     put_u32(static_cast<uint32_t>(exp.struct_templates.size()));
@@ -225,6 +225,11 @@ static std::string encode_stdlib_exports(const StdlibExports& exp) {
         put_str(ci.trait_name);
         put_str(ci.target_type);
     }
+    // v3 additions (G156-1): ALL exported nominal decls (name-ambiguity universe).
+    put_u32(static_cast<uint32_t>(exp.all_struct_decls.size()));
+    for (auto& [pkg, name] : exp.all_struct_decls) { put_str(pkg); put_str(name); }
+    put_u32(static_cast<uint32_t>(exp.all_enum_decls.size()));
+    for (auto& [pkg, name] : exp.all_enum_decls)   { put_str(pkg); put_str(name); }
     return out;
 }
 
@@ -777,6 +782,19 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     sema_opts.implicit_prelude = implicit_prelude;
     sema_opts.binary_symbols = dep_symbols;  // skeleton-skip gate
     sema_opts.module_name_to_id = module_name_to_id;  // §3/§B-coex: resolve `use … from`
+    // G156-1: load ALL nominal decls (struct+enum) exported by the dependency
+    // archives' v3 trailer — including packages whose ASTs are loaded lazily (or
+    // not at all) in this build — so a higher tier's ambiguity universe sees a
+    // lower archive's plain-struct decls (memstore.DirEntry) and folds its own
+    // clashing instance (fs.DirEntry). The lower archive's emitted symbols are
+    // untouched → metaprog-JIT unperturbed.
+    {
+        StdlibExports dep_exports = load_archive_exports(dep_archives);
+        auto& dnd = sema_opts.dep_nominal_decls;
+        dnd.reserve(dep_exports.all_struct_decls.size() + dep_exports.all_enum_decls.size());
+        for (auto& pn : dep_exports.all_struct_decls) dnd.push_back(pn);
+        for (auto& pn : dep_exports.all_enum_decls)   dnd.push_back(pn);
+    }
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
@@ -947,6 +965,25 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             if (!ed.type_params_empty())
                 out_exports->enum_templates.push_back(
                     {std::string(ed.pkg()), std::string(ed.name())});
+        // G156-1 (v3): ALL exported nominal decls (plain AND generic) THIS module
+        // owns — a higher tier folds its own instance of an ambiguous name only
+        // if it can see the lower archive's decl of the same name. Own decls
+        // only (deps are re-exported by their own archives; generic-instance
+        // names carry '$' and are skipped — the set is keyed by bare names).
+        for (auto& sd : prog.structs) {
+            if (sd.from_binary_module()) continue;
+            std::string n(sd.name());
+            if (n.find('$') != std::string::npos) continue;
+            out_exports->all_struct_decls.push_back({std::string(sd.pkg()), std::move(n)});
+        }
+        // Enums lack a from_binary marker; include all (a dep enum re-listed
+        // here is deduped by (pkg,name) in the consumer's accumulator — no false
+        // ambiguity, only slight trailer redundancy).
+        for (auto& ed : prog.enums) {
+            std::string n(ed.name());
+            if (n.find('$') != std::string::npos) continue;
+            out_exports->all_enum_decls.push_back({std::string(ed.pkg()), std::move(n)});
+        }
         for (auto& fn : prog.functions)
             if (!fn.type_params_empty())
                 out_exports->fn_templates.push_back(std::string(fn.name()));

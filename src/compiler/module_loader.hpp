@@ -64,6 +64,11 @@ struct ParsedModule {
 //   for each:
 //     u32 trait_len, trait bytes
 //     u32 target_len, target bytes
+//   // v3 additions (absent in v1/v2): G156-1 all-nominal-decls
+//   u32 num_all_struct_decls
+//   for each: u32 pkg_len, pkg bytes, u32 name_len, name bytes
+//   u32 num_all_enum_decls
+//   for each: u32 pkg_len, pkg bytes, u32 name_len, name bytes
 //
 // Forward-compat: v3 readers that don't know about a future trailer_version
 // must skip the section (the outer u64-length prefix lets them do so). The
@@ -74,6 +79,15 @@ struct StdlibExports {
     // (pkg, name) — pkg may be empty for items without a package decl
     std::vector<std::pair<std::string, std::string>> struct_templates;
     std::vector<std::pair<std::string, std::string>> enum_templates;
+    // G156-1 (trailer v3): ALL exported nominal declarations (struct + enum,
+    // plain AND generic) as (pkg, name). struct_templates/enum_templates above
+    // are the generic SUBSET (for mono's fast-path); these carry every exported
+    // nominal so a higher tier's ambiguity universe can see a lower archive's
+    // plain-struct decls (e.g. mem.bt.memstore.DirEntry) that are otherwise
+    // invisible when the dep module is loaded lazily. Consumed by sema's
+    // ambiguous-type-name set. Empty for v1/v2 archives.
+    std::vector<std::pair<std::string, std::string>> all_struct_decls;
+    std::vector<std::pair<std::string, std::string>> all_enum_decls;
     // Mangled name (already pkg-qualified per the unconditional-mangling epic).
     std::vector<std::string> fn_templates;
     // v2: blanket impls — `impl<T: Bound + Extra...> Trait for T`.

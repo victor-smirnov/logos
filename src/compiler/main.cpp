@@ -2963,6 +2963,7 @@ int run_metaprog_dispatch(
     meta_opts.cache     = opts.sema_cache;
     // Skeleton-skip gate: from_binary fns already in a linked archive .o.
     meta_opts.binary_symbols = opts.binary_symbols;
+    meta_opts.dep_nominal_decls = opts.dep_nominal_decls;  // G156-1 ambiguity universe
     // Default-on implicit prelude: discovery-pass sema must resolve unqualified
     // prelude names too (the final pass below does the real type resolution,
     // but metaprog handlers may reference Option/Result/String/etc.).
@@ -4256,6 +4257,14 @@ int main(int argc, char** argv) {
             stdlib_exports.concrete_impls.size(),
             archive_paths.size());
     }
+    // G156-1: dependency-archive nominal decls (pkg,name) for the ambiguity
+    // universe — so a user compile folds a cross-module same-name type
+    // (fs.DirEntry) identically to how its owning stdlib archive folded it.
+    std::vector<std::pair<std::string, std::string>> dep_nominal_decls;
+    dep_nominal_decls.reserve(stdlib_exports.all_struct_decls.size() +
+                              stdlib_exports.all_enum_decls.size());
+    for (auto& pn : stdlib_exports.all_struct_decls) dep_nominal_decls.push_back(pn);
+    for (auto& pn : stdlib_exports.all_enum_decls)   dep_nominal_decls.push_back(pn);
 
     // binary_symbols: mlir_gen consults this set to skip body emission for
     // fns whose pre-baked implementation is already in an archive on the
@@ -4523,6 +4532,7 @@ int main(int argc, char** argv) {
         mopts.provenance_out = &ast_provenance;
         mopts.cfg_flags      = cfg_flags;  // Phase 2-4
         mopts.binary_symbols = binary_symbols;
+        mopts.dep_nominal_decls = dep_nominal_decls;  // G156-1 ambiguity universe
         mopts.stats_out      = stats_flag ? &top_stats : nullptr;
         mopts.sema_cache     = &sema_cache;
         mopts.implicit_prelude = implicit_prelude_pkg;
@@ -4706,6 +4716,7 @@ int main(int argc, char** argv) {
     default_opts.cfg_flags      = cfg_flags;
     default_opts.cache          = &sema_cache;  // M5
     default_opts.binary_symbols = binary_symbols;  // skeleton-skip gate
+    default_opts.dep_nominal_decls = dep_nominal_decls;  // G156-1 ambiguity universe
     default_opts.implicit_prelude = implicit_prelude_pkg;  // default-on prelude
     default_opts.module_name_to_id = module_name_to_id;    // §3: resolve `use … from <name>`
     prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
@@ -5682,6 +5693,7 @@ int main(int argc, char** argv) {
         dopts.provenance_out = &ast_provenance;
         dopts.cfg_flags      = cfg_flags;
         dopts.binary_symbols = binary_symbols;
+        dopts.dep_nominal_decls = dep_nominal_decls;  // G156-1 ambiguity universe
         dopts.stats_out      = stats_flag ? &top_stats : nullptr;
         dopts.sema_cache     = &sema_cache;
         dopts.implicit_prelude = implicit_prelude_pkg;
