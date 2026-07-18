@@ -1994,6 +1994,18 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
         }
         return s;
     }
+    case la::LIT_WSTATIC: {
+        // A `@{...}` WritStatic literal at type-arg position (`Foo<@{...}>`,
+        // grammar slot 212 via type_or_lt_arg's writ_lit alt). VALUE wraps the
+        // nested writ_lit AST. Reuse the expression renderer's writ cases —
+        // they emit the outer `@{...}` form and resolve `<type:T>` slots — so a
+        // quote_item! carrying `impl CtrFamily<S> for CtrClass<@{...}>` round-
+        // trips through the --gen-dir fidelity gate instead of degrading to the
+        // `<ty:212>` marker. (ADR 0021 container factory: the CtrFamily impl.)
+        if (!node.has_key(la::VALUE))
+            return "/* render_type: LIT_WSTATIC without VALUE */";
+        return render_expr_src(map_of(node.get(la::VALUE.code)));
+    }
     default:
         return std::format("<ty:{}>", c);
     }

@@ -1,0 +1,37 @@
+// A `@{...}` WritStatic literal in TYPE-ARG position inside quote_item! — the
+// ADR 0021 container-factory shape `impl CtrFamily<S> for CtrClass<@{CFG}>`.
+// The literal parses (type_or_lt_arg's writ_lit alt → LIT_WSTATIC), splices
+// verbatim through logos_emit_item_blob_subst, and — the regression this test
+// locks — renders back as `@{...}` (not the `<ty:212>` degrade marker) so the
+// emitted item survives the --gen-dir render→reparse fidelity gate. Gates like
+// metaclass_factory_family: a clean compile+run of the whole emit cycle; the
+// gendir variant (logos_09_gendir_*) additionally pins render fidelity.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+trait HasFam<S> {
+    fn fam_id() -> u64;
+}
+struct Reg<const CFG: WritStatic> {}
+
+#[metaprog_handler("reg_inject")]
+fn reg_inject_hook(target_offset: u32) -> () {
+    let blob: QuoteItemBlob = quote_item! {
+        impl HasFam<i64> for Reg<@{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> }> {
+            fn fam_id() -> u64 {
+                return 7u64;
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[reg_inject]
+struct Marker {}
+
+fn main() -> i32 {
+    return 0i32;
+}
