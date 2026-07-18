@@ -187,8 +187,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         type_aliases_[std::string(tav.name())] =
             logos_to_mlir(tav.type(prog.type_pool.impl()));
 
-    for (auto& cv : prog.consts)  // Stage E: ConstView over the Writ mirror
-        module_consts_[std::string(cv.name())] = cv;
+    for (auto& cv : prog.consts) {  // Stage E: ConstView over the Writ mirror
+        // G156-1: key by package-qualified name so same-name cross-package
+        // consts coexist; build the uniqueness index for bare-name resolution.
+        std::string cpkg(cv.pkg()), cname(cv.name());
+        std::string ckey = cpkg.empty() ? cname : cpkg + "::" + cname;
+        module_consts_[ckey] = cv;
+        const_index_add_(cpkg, cname);
+    }
 
     // Declare malloc and free for 'new' and 'delete'.
     ensure_malloc_free(mod);

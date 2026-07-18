@@ -511,6 +511,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
     cur_fn_ret_logos_type_ = fn_ret;
     cur_fn_name_ = link_name(fn);
+    cur_fn_pkg_  = std::string(fn.package());   // G156-1: pkg-scoped const resolution
 
     // B8 drop elaboration: decide which declared-uninit vars need a runtime drop
     // flag (any conditional/loop assignment) BEFORE codegen — a flagged var must

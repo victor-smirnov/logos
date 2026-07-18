@@ -2293,17 +2293,21 @@ void SemaChecker::collect_const(TinyMapView node) {
         t = i32_t();
     }
     if (t) {
-        // Const-def uniqueness (closes B-ca-04)
-        if (module_consts_.count(name) || generic_consts_.count(name)) {
+        // G156-1: package-scoped consts. Key by sema_key(pkg, name); a same-name
+        // const in a DIFFERENT package no longer collides — the duplicate error
+        // fires only on a genuine same-(pkg,name) redefinition (closes B-ca-04).
+        std::string qk = sema_key(cur_package_, name);
+        if (module_consts_.count(qk) || generic_consts_.count(name)) {
             error(std::format("duplicate const '{}'", name));
         }
-        module_consts_[name] = t;
+        module_consts_[qk] = t;
+        const_index_add(cur_package_, name);   // bare-name uniqueness index
         // M5 step 5c: track user-origin keys for snapshot filtering.
-        if (!cur_from_binary_) user_module_const_keys_.insert(std::string(name));
+        if (!cur_from_binary_) user_module_const_keys_.insert(qk);
         if (node.has_key(la::VALUE)) {
             auto val_av = node.get(la::VALUE.code);
             if (val_av.is_pointer())
-                module_const_values_[name] = map_of(val_av);
+                module_const_values_[qk] = map_of(val_av);
         }
     }
 
@@ -2418,7 +2422,7 @@ void SemaChecker::collect_const(TinyMapView node) {
                 // module item — `static R: &i32 = &X;`).
                 if (vc == la::VAR_REF && v.has_key(la::NAME)) {
                     auto vn = std::string(str_of(v.get(la::NAME.code)));
-                    if (module_consts_.count(vn)) return true;
+                    if (const_pkg_of_.count(vn)) return true;   // G156-1: any-pkg const
                     // A bare fn-name in static-init position is a fn
                     // pointer constant (Rust: `static F: fn() -> i32 =
                     // answer;` is well-formed). Accept it when the
@@ -2448,7 +2452,7 @@ void SemaChecker::collect_const(TinyMapView node) {
                     auto inner = map_of(v.get(la::VALUE.code));
                     if (code_of(inner) == la::VAR_REF && inner.has_key(la::NAME)) {
                         auto vn = std::string(str_of(inner.get(la::NAME.code)));
-                        if (module_consts_.count(vn)) return true;
+                        if (const_pkg_of_.count(vn)) return true;   // G156-1: any-pkg const
                     }
                     return is_const_evaluable(inner);
                 }

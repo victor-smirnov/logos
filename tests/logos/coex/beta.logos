@@ -17,3 +17,13 @@ pub fn beta_ping_sum() -> i64 {
 }
 // G156-1 sibling (runtime type-UID): distinct from alpha::Ping's.
 pub fn beta_ping_tid() -> u64 { return type_id_of::<Ping>().lo; }
+
+// G156-1 sibling: beta's LIMIT (distinct value) coexists with alpha's.
+pub const LIMIT: i32 = 20;
+pub fn beta_limit() -> i32 { return LIMIT; }
+pub fn beta_is_limit(x: i32) -> bool {
+    match x {
+        LIMIT => { return true; }
+        _ => { return false; }
+    }
+}

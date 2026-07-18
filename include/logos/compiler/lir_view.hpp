@@ -474,6 +474,11 @@ struct ConstView {
     std::string_view sym() const noexcept {
         return detail::read_string(self, lir_schema::decl_keys::SYM.code);
     }
+    // G156-1: owning package (for package-scoped const resolution). Empty for
+    // package-less compiles.
+    std::string_view pkg() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::PKG.code);
+    }
 };
 
 // LVariant sub-map { V_NAME, V_DISC, V_PAYLOAD_TYPES: Array<RelPtr<LogosType>>,

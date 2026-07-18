@@ -650,6 +650,13 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                     std::vector<std::pair<std::string, lir::LExprPtr>>{}, st);
             }
         }
+        // G156-1: a bare use of a const declared in ≥2 packages (none of them
+        // the current package) is ambiguous — Rust requires qualification.
+        if (const_name_ambiguous_here(name)) {
+            error(std::format("ambiguous const '{}': declared in multiple packages; "
+                              "qualify it (e.g. `pkg::{}`)", name, name));
+            return error_expr();
+        }
         error(std::format("undefined variable '{}'", name));
         return error_expr();
     }
@@ -18420,7 +18427,8 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 auto sv = str_of(n.get(la::NAME.code));
                 std::string name(sv);
                 bool is_ok = defined_inside.count(name) > 0
-                          || module_consts_.contains(name)
+                          || !resolve_const_key(name).empty()   // G156-1: pkg-scoped const
+                          || const_pkg_of_.count(name)          // any-pkg const (ambiguous ok here)
                           || funcs_.contains(name)
                           || generic_funcs_.contains(name);
                 if (!is_ok) {
@@ -18478,20 +18486,19 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // as-patterns (§4.4). Cross-package consts work as long as the
     // const got collected into the map.
     struct SemaConstResolver final : ctfe::ConstResolver {
-        const logos::compiler::StrMap<writ::TinyMapView>& consts;
+        const SemaChecker* chk;
         writ::MemHolder* h;
-        explicit SemaConstResolver(
-            const logos::compiler::StrMap<writ::TinyMapView>& m,
-            writ::MemHolder* holder) : consts(m), h(holder) {}
+        explicit SemaConstResolver(const SemaChecker* c, writ::MemHolder* holder)
+            : chk(c), h(holder) {}
         writ::TinyMapView lookup_const(std::string_view name,
                                          writ::MemHolder** out_holder) override {
-            auto it = consts.find(name);
-            if (it == consts.end()) return writ::TinyMapView{};
+            auto v = chk->resolve_const_value(name);   // G156-1: cur-package first
+            if (!v) return writ::TinyMapView{};
             if (out_holder) *out_holder = h;
-            return it->second;
+            return v;
         }
     };
-    SemaConstResolver resolver_obj(module_const_values_, holder_);
+    SemaConstResolver resolver_obj(this, holder_);
     std::vector<std::string> arg_lits;
     auto eval_args_array = [&](writ::ArrayView args) {
         for (uint64_t i = 0; i < args.size(); ++i) {
@@ -22137,20 +22144,19 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
     // §6.9: same ConstResolver wiring as the expr-position metacall —
     // path-to-const folds in item position too.
     struct ItemMetacallConstResolver final : ctfe::ConstResolver {
-        const logos::compiler::StrMap<writ::TinyMapView>& consts;
+        const SemaChecker* chk;
         writ::MemHolder* h;
-        explicit ItemMetacallConstResolver(
-            const logos::compiler::StrMap<writ::TinyMapView>& m,
-            writ::MemHolder* holder) : consts(m), h(holder) {}
+        explicit ItemMetacallConstResolver(const SemaChecker* c, writ::MemHolder* holder)
+            : chk(c), h(holder) {}
         writ::TinyMapView lookup_const(std::string_view name,
                                          writ::MemHolder** out_holder) override {
-            auto it = consts.find(name);
-            if (it == consts.end()) return writ::TinyMapView{};
+            auto v = chk->resolve_const_value(name);   // G156-1: cur-package first
+            if (!v) return writ::TinyMapView{};
             if (out_holder) *out_holder = h;
-            return it->second;
+            return v;
         }
     };
-    ItemMetacallConstResolver item_resolver(module_const_values_, holder_);
+    ItemMetacallConstResolver item_resolver(this, holder_);
     std::vector<std::string> arg_lits;
     auto eval_args_array = [&](ArrayView args) {
         for (uint64_t i = 0; i < args.size(); ++i) {

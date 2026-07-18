@@ -761,6 +761,18 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     type_aliases_         = std::move(s->type_aliases);
     module_consts_        = std::move(s->module_consts);
     module_const_values_  = std::move(s->module_const_values);
+    // G156-1: rebuild the const uniqueness index from the restored (binary-
+    // origin) keys — cached binary ASTs skip collect, so const_index_add never
+    // fires for them. User consts add incrementally during this call's collect.
+    const_pkg_of_.clear();
+    ambiguous_const_names_.clear();
+    for (auto& [k, _t] : module_consts_) {
+        std::string_view kv(k);
+        auto p = kv.rfind("::");
+        std::string_view pkg = (p == std::string_view::npos) ? std::string_view{} : kv.substr(0, p);
+        std::string_view nm  = (p == std::string_view::npos) ? kv : kv.substr(p + 2);
+        const_index_add(pkg, nm);
+    }
     generic_consts_       = std::move(s->generic_consts);
     traits_               = std::move(s->traits);
     impls_                = std::move(s->impls);
@@ -4602,20 +4614,22 @@ SemaChecker::ctfe_eval_const(writ::TinyMapView node,
                              writ::MemHolder* h) noexcept {
     // ConstResolver over module_const_values_ — a bare-ident const PATH
     // (`metacall { N }`) folds to its RHS value (T2-14 / K10-co-06).
+    // G156-1: resolve current-package-first via the checker so a bare const name
+    // picks this package's const (or a uniquely-named global) — not a same-name
+    // const in a different package.
     struct R final : logos::compiler::ctfe::ConstResolver {
-        const logos::compiler::StrMap<writ::TinyMapView>& consts;
+        const SemaChecker* chk;
         writ::MemHolder* hh;
-        R(const logos::compiler::StrMap<writ::TinyMapView>& m,
-          writ::MemHolder* holder) : consts(m), hh(holder) {}
+        R(const SemaChecker* c, writ::MemHolder* holder) : chk(c), hh(holder) {}
         writ::TinyMapView lookup_const(std::string_view name,
                                          writ::MemHolder** out) override {
-            auto it = consts.find(name);
-            if (it == consts.end()) return writ::TinyMapView{};
+            auto v = chk->resolve_const_value(name);
+            if (!v) return writ::TinyMapView{};
             if (out) *out = hh;
-            return it->second;
+            return v;
         }
     };
-    R r(module_const_values_, h);
+    R r(this, h);
     return logos::compiler::ctfe::eval_expr(node, h, &r);
 }
 

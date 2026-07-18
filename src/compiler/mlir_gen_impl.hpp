@@ -289,7 +289,34 @@ private:
     std::unordered_map<std::string, lir_view::EnumView> enum_types_;
     std::unordered_map<std::string, TaggedEnumInfo>    tagged_enums_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
+    // G156-1: package-scoped consts. module_consts_ is keyed by the
+    // package-qualified `pkg::name` (matches sema). const_pkg_of_ maps a bare
+    // name → its sole owning package; ambiguous_const_names_ holds names in ≥2
+    // packages. A const VarRef (BARE in the LIR) is resolved current-function-
+    // package first, then a uniquely-named const — identical to sema's
+    // resolve_const_key, so both layers pick the SAME const by construction.
     std::unordered_map<std::string, lir_view::ConstView> module_consts_;
+    std::unordered_map<std::string, std::string> const_pkg_of_;
+    std::unordered_set<std::string> ambiguous_const_names_;
+    std::string cur_fn_pkg_;   // owning package of the function being lowered
+    void const_index_add_(std::string_view pkg, std::string_view name) {
+        auto [it, ins] = const_pkg_of_.emplace(std::string(name), std::string(pkg));
+        if (!ins && it->second != pkg) ambiguous_const_names_.insert(std::string(name));
+    }
+    const lir_view::ConstView* resolve_const_(std::string_view name) const {
+        std::string q = cur_fn_pkg_.empty() ? std::string(name)
+                                            : cur_fn_pkg_ + "::" + std::string(name);
+        if (auto it = module_consts_.find(q); it != module_consts_.end()) return &it->second;
+        if (!ambiguous_const_names_.count(std::string(name))) {
+            auto pit = const_pkg_of_.find(std::string(name));
+            if (pit != const_pkg_of_.end()) {
+                std::string k = pit->second.empty() ? std::string(name)
+                                                    : pit->second + "::" + std::string(name);
+                if (auto it = module_consts_.find(k); it != module_consts_.end()) return &it->second;
+            }
+        }
+        return nullptr;
+    }
     // logos_to_mlir cache keyed by TypeRef offset. Same TypeRef
     // value appears in many fn signatures (e.g. `&self` across 50+
     // methods on the same struct); without the cache, make_fn_type

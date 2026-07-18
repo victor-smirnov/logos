@@ -1,0 +1,19 @@
+// G156-1 sibling — package-scoped consts (Rust parity). `alpha::LIMIT` (10) and
+// `beta::LIMIT` (20) are same-named consts in different packages of one module.
+// Pre-fix this tripped `duplicate const 'LIMIT'`; now they coexist and each
+// package's code resolves its OWN LIMIT (current-package-first), for both value
+// reads and const-as-pattern matches (CTFE path).
+package main;
+
+use alpha;
+use beta;
+
+fn main() -> i32 {
+    if alpha_limit() != 10 { return 1; }
+    if beta_limit() != 20 { return 2; }
+    if !alpha_is_limit(10) { return 3; }   // pattern-const in alpha's package
+    if alpha_is_limit(20) { return 4; }
+    if !beta_is_limit(20) { return 5; }    // pattern-const in beta's package
+    if beta_is_limit(10) { return 6; }
+    return 42;
+}

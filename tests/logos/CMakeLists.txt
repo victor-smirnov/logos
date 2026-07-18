@@ -525,7 +525,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     # G156-1 fixture: two packages of the SAME module declare same-named structs
     # (alpha::Ping / beta::Ping, different layouts) each used through Vec<Ping> —
     # the package fingerprint keeps the generic-instance symbols distinct.
-    set(LOCAL_COEX_USERS cross_pkg_coexistence cross_pkg_type_coexistence cross_pkg_type_id_distinct)
+    set(LOCAL_COEX_USERS cross_pkg_coexistence cross_pkg_type_coexistence cross_pkg_type_id_distinct cross_pkg_const_scoped)
     # ADR 0016: cross-module mapping fusion against libwql_map_lib.a
     set(LOCAL_WQLMAP_USERS wql_mapping_cross_module_e2e)
     # Full same-pkg-same-name TYPE coexistence: each consumer `use widgets from
@@ -615,7 +615,7 @@ endfunction()
 function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_PUBLIB_USERS pub_module_cross_module pub_module_type_cross_module pub_call_private pub_private_field_access enum_private_cross_pkg trait_private_cross_pkg)
     set(FAIL_METAPROG_USERS metacall_item_odr_conflict)
-    set(FAIL_COEX_USERS cross_pkg_ambiguous_call)
+    set(FAIL_COEX_USERS cross_pkg_ambiguous_call cross_pkg_const_ambiguous)
     set(FAIL_WQLMAP_USERS wql_mapping_cross_module_priv_fail wql_mapping_cross_module_modvis_fail)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
         set(_extra -l ${PUB_LIB_BIN})

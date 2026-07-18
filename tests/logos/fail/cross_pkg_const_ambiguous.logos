@@ -1,0 +1,10 @@
+// G156-1 sibling — a bare use of a const declared in ≥2 packages (none the
+// current package) is ambiguous; Rust requires qualification.
+package main;
+
+use alpha;
+use beta;
+
+fn main() -> i32 {
+    return LIMIT;   // alpha::LIMIT and beta::LIMIT both exist → ambiguous
+}

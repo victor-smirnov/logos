@@ -1670,7 +1670,13 @@ SemaChecker::lower_const_def(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
     DeclBuilder lc(*cur_prog_, lir_schema::decl::Code::Const, /*cap=*/12);
     lc.str_always(dk::NAME, name);
-    auto cit = module_consts_.find(name);
+    // G156-1: package-scoped consts — carry the owning package so mlir_gen keys
+    // its const table by (pkg, name) and same-name cross-package consts coexist.
+    if (!cur_package_.empty()) lc.str(dk::PKG, cur_package_);
+    // Look up the const's own type under its package-qualified key (matches
+    // collect_const's registration); a same-name const in another package has a
+    // distinct key and no longer overwrites this one.
+    auto cit = module_consts_.find(sema_key(cur_package_, name));
     TypeRef lc_type = (cit != module_consts_.end()) ? cit->second : error_t();
     lc.type(dk::TYPE_REF, lc_type);
     lir_view::ExprRef lc_value;

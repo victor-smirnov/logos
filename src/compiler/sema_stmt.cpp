@@ -4280,7 +4280,7 @@ void SemaChecker::collect_ast_pat_bindings(TinyMapView pat,
             // direction: an exotic binding shadowing a variant name
             // under-reports E0408 rather than false-erroring.
             auto is_variant_or_const = [&](std::string_view nm) -> bool {
-                if (module_consts_.count(std::string(nm))) return true;
+                if (const_pkg_of_.count(std::string(nm))) return true;   // G156-1: any-pkg const
                 for (auto& [ek, ei] : enums_)
                     for (auto& v : ei.variants)
                         if (v.name == nm && v.payload_types.empty())
@@ -5235,9 +5235,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     // scalar pattern. Non-scalar consts (str, writ, struct) stay
     // diagnosed — needs string-pattern codegen, separate slice.
     if (wname != "_") {
-        auto cvit = module_const_values_.find(wname);
-        if (cvit != module_const_values_.end()) {
-            auto r = ctfe::eval_expr(cvit->second, holder_);
+        auto cval = resolve_const_value(wname);   // G156-1: cur-package first
+        if (cval) {
+            auto r = ctfe::eval_expr(cval, holder_);
             if (r) {
                 auto cv = std::move(r).value();
                 using K = LogosType::Kind;
@@ -5275,7 +5275,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                     TypeRef(scrut_type).elem() &&
                     TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8 &&
                     current_pat_refutable_guards_) {
-                    auto cit = module_consts_.find(wname);
+                    auto cit = module_consts_.find(resolve_const_key(wname));  // G156-1
                     if (cit != module_consts_.end() &&
                         TypeRef(cit->second).kind() == LogosType::Kind::Array &&
                         TypeRef(cit->second).elem().kind() == LogosType::Kind::U8 &&

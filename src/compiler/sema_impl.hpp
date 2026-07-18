@@ -2392,8 +2392,12 @@ private:
             auto f = it->vars.find(std::string(name));
             if (f != it->vars.end()) return f->second.type;
         }
-        auto cit = module_consts_.find(std::string(name));
-        if (cit != module_consts_.end()) return cit->second;
+        // G156-1: package-scoped const — resolve current-package first.
+        std::string ck = resolve_const_key(name);
+        if (!ck.empty()) {
+            auto cit = module_consts_.find(ck);
+            if (cit != module_consts_.end()) return cit->second;
+        }
         return nullptr;
     }
 
@@ -2989,12 +2993,57 @@ private:
     // Lifetime substitution map: "'z" → "'a"  (name → name, erased at codegen).
     using SemaLifetimeSubst = logos::compiler::StrMap<std::string>;
     logos::compiler::StrMap<TypeAliasEntry> type_aliases_;
+    // G156-1: package-scoped consts (Rust parity). module_consts_ /
+    // module_const_values_ are keyed by the PACKAGE-QUALIFIED key
+    // sema_key(pkg, name) so two `pub const FOO` in different packages coexist.
+    // Resolution of a bare `FOO` prefers cur_package_ then a uniquely-named
+    // global/imported const; a bare use of a name declared in ≥2 packages (none
+    // in cur_package_) is an "ambiguous const" error. const_pkg_of_ maps a bare
+    // const name → its sole owning package (for the unique-bare fallback);
+    // ambiguous_const_names_ holds names seen in ≥2 packages.
     logos::compiler::StrMap<TypeRef> module_consts_;
     // P4-pm-06: AST node of each module-const initializer, retained so
     // `match x { CONST => … }` can ctfe-eval CONST and lower as a value
     // pattern (PAT_INT/PAT_BOOL/PAT_CHAR) instead of silently binding
     // the scrutinee to a fresh local named CONST.
     logos::compiler::StrMap<writ::TinyMapView> module_const_values_;
+    std::unordered_map<std::string, std::string> const_pkg_of_;   // bare name → sole pkg
+    std::unordered_set<std::string> ambiguous_const_names_;         // bare name in ≥2 pkgs
+
+    // G156-1: register (pkg, name) into the const uniqueness index. Returns true
+    // if this is the FIRST time the bare name is seen (bare fallback available).
+    void const_index_add(std::string_view pkg, std::string_view name) {
+        auto [it, ins] = const_pkg_of_.emplace(std::string(name), std::string(pkg));
+        if (!ins && it->second != pkg) ambiguous_const_names_.insert(std::string(name));
+    }
+    // Resolve a bare const name to its package-qualified map key, current package
+    // first, then a uniquely-named const. Empty ⇒ not a const OR ambiguous.
+    std::string resolve_const_key(std::string_view name) const {
+        std::string q = sema_key(cur_package_, name);
+        if (module_consts_.count(q)) return q;
+        if (!ambiguous_const_names_.count(std::string(name))) {
+            auto it = const_pkg_of_.find(std::string(name));
+            if (it != const_pkg_of_.end()) {
+                std::string k = sema_key(it->second, name);
+                if (module_consts_.count(k)) return k;
+            }
+        }
+        return {};
+    }
+    // True iff a bare use of `name` is ambiguous in cur_package_ (declared in ≥2
+    // packages, none of them cur_package_).
+    bool const_name_ambiguous_here(std::string_view name) const {
+        return ambiguous_const_names_.count(std::string(name))
+            && !module_consts_.count(sema_key(cur_package_, name));
+    }
+    // Resolve a bare const name to its value-initializer AST (current package
+    // first). Null view ⇒ not found / ambiguous.
+    writ::TinyMapView resolve_const_value(std::string_view name) const {
+        std::string k = resolve_const_key(name);
+        if (k.empty()) return {};
+        auto it = module_const_values_.find(k);
+        return it != module_const_values_.end() ? it->second : writ::TinyMapView{};
+    }
     // §6.2: names of `static mut` items declared in this module —
     // var-reads and place-assigns require an enclosing `unsafe` block
     // per Rust spec `items.static.mut.safety`. Populated by

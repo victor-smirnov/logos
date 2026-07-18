@@ -447,9 +447,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
     }
     // Module constant: re-evaluate inline. (Statics are NOT inlined — they have
     // real storage and never reach here as a bare VarRef.)
-    auto cit = module_consts_.find(name);
-    if (cit != module_consts_.end() && !cit->second.is_static())
-        return gen_expr(cit->second.value());
+    // G156-1: resolve current-function-package first (same as sema).
+    if (auto* cv = resolve_const_(name); cv && !cv->is_static())
+        return gen_expr(cv->value());
 
     auto it = scope_.find(name);
     if (it == scope_.end()) {
@@ -1412,9 +1412,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
     if (it == scope_.end()) {
         // B98.2: module-level const — materialize a temporary stack slot
         // and store the const value, then return the slot address.
-        auto cit = module_consts_.find(var_name);
-        if (cit != module_consts_.end()) {
-            auto val = gen_expr(cit->second.value());
+        auto* cv = resolve_const_(var_name);   // G156-1: cur-fn-package first
+        if (cv) {
+            auto val = gen_expr(cv->value());
             if (!val) {
                 std::fprintf(stderr, "mlir_gen: & const '%s' eval failed\n", var_name.c_str());
                 return nullptr;
@@ -2932,10 +2932,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
         // Module constant carrying an array literal — re-materialise the
         // value as a fresh on-stack alloca, walk into it like a normal
         // local. The const's TypeRef is what drives elem_type.
-        if (auto cit = module_consts_.find(name); cit != module_consts_.end()) {
-            arr_ptr = gen_expr(cit->second.value());
+        if (auto* cv = resolve_const_(name)) {   // G156-1: cur-fn-package first
+            arr_ptr = gen_expr(cv->value());
             if (!arr_ptr) return nullptr;
-            TypeRef ct = cit->second.type(pool_impl());
+            TypeRef ct = cv->type(pool_impl());
             if (ct && TypeRef(ct).elem()) {
                 elem_type = logos_to_mlir(TypeRef(ct).elem());
             }
