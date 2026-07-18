@@ -1,0 +1,405 @@
+// memoria.ssrle — PkdSsrle: the packed SSRLE sequence over a PkdAlloc block
+// (BTFL arc, increments 3 + 4: the UNINDEXED regime).
+//
+// C++ oracle: containers/include/memoria/core/packed/sseq/packed_ssrle_seq.hpp
+// (layout/init/sizing) + packed_ssrle_seq_so.hpp (the op surface; access :139,
+// size :135, rank_fn :1194, select_fw_fn :1383 — the scan paths taken when no
+// index exists).
+//
+// Block layout = the C++ 4-slot PackedAllocator convention (enum :105):
+//
+//   slot 0  METADATA    SsrleMeta cell (RAW)
+//   slot 1  SIZE_INDEX  reserved: ALLOCATABLE bitmap bit set, ZERO size
+//   slot 2  SUM_INDEX   reserved: ALLOCATABLE bitmap bit set, ZERO size
+//   slot 3  SYMBOLS     RAW u16 code units (the increment-1 segment stream)
+//
+// C++ materializes the indexes only when code_units > AtomsPerBlock
+// (= 256·Bps / sizeof(u16)); below that threshold the index slots stay empty
+// exactly as here. Increments 3/4 implement ONLY the index-free scan paths —
+// they answer correctly at ANY size (an index is an accelerator, not a
+// semantic layer); index build + reindex = increment 5.
+//
+// PORT DECISIONS (recon §7.2 + increment 1):
+//   * AlphabetSize and Bps are RUNTIME metadata fields (C++ template
+//     parameters); alphabet is primary, bps = BitsPerSymbol(alphabet)
+//     (bitmap.hpp:1025). Use64BitSize=true ⇒ SeqSizeT = u64.
+//   * SsrleMeta = C++ Metadata {size_, code_units_} + the two runtime
+//     fields; the C++ `flags_` slot (write-only in the oracle) is dropped.
+//   * Mutation scratch is OUT-OF-BLOCK (Vec) — the C++ UpdateState decodes
+//     into std::vector too; the segment writer runs on the scratch and the
+//     finished stream is copied into the slot (recon risk 3 discipline:
+//     price first via compute_size, resize, then write — no partial states).
+package memoria.ssrle;
+
+use logos.mem.pkd;             // PkdAlloc, pkd_format, SlotKind, PkdError
+use logos.lang.marker;         // StableLayout (Fst is auto)
+use logos.lang.result;
+use logos.lang.panic;
+use logos.lang.clone;
+use logos.mem.collections.vec;
+
+// ── metadata ────────────────────────────────────────────────────────────────
+
+/// The METADATA cell (C++ PkdSSRLESeq::Metadata :120, Use64BitSize=true).
+/// 24 bytes, no padding, 8-aligned.
+pub struct SsrleMeta {
+    pub size: u64,          // logical symbol count (SeqSizeT)
+    pub code_units: u64,    // used u16 units in SYMBOLS
+    pub bps: u32,           // runtime BitsPerSymbol (C++ template param)
+    pub alphabet_size: u32, // runtime AlphabetSize (C++ template param)
+}
+
+impl Copy for SsrleMeta {}
+
+impl Clone for SsrleMeta {
+    fn clone(&self) -> SsrleMeta {
+        return *self;
+    }
+}
+
+impl StableLayout for SsrleMeta {}
+
+/// C++ BitsPerSymbol (bitmap.hpp:1025): alphabet ≤ 2 → 1, else Log2U(a−1).
+pub fn ssrle_bps_for_alphabet(alphabet_size: u32) -> u32 {
+    assert(alphabet_size >= 2u32 && alphabet_size <= 256u32, "pkd_ssrle: alphabet out of [2,256]");
+    if alphabet_size <= 2u32 {
+        return 1u32;
+    }
+    return (64u64 - (((alphabet_size - 1u32) as u64).leading_zeros() as u64)) as u32;
+}
+
+/// AtomsPerBlock for a runtime Bps (C++ :98-:100: BytesPerBlockBase=256,
+/// BytesPerBlock = 256·Bps, atoms = bytes / sizeof(u16)) — the index
+/// threshold: C++ builds indexes only when code_units exceeds this.
+pub fn ssrle_atoms_per_block(bps: u32) -> u64 {
+    return 256u64 * (bps as u64) / 2u64;
+}
+
+// ── block sizing (compute_size-driven; C++ compute_block_size :256) ─────────
+
+/// Block bytes for an EMPTY sequence: allocator header/layout/bitmap for the
+/// 4 slots + the metadata cell (C++ empty_size :339).
+pub fn pkd_ssrle_empty_size() -> u32 {
+    return PkdAlloc::empty_size_for(PkdSsrle::SLOTS)
+        + round_up_bytes(sizeof::<SsrleMeta>() as u32);
+}
+
+/// Block bytes for a sequence holding `code_units` u16 units — the
+/// compute_size-driven sizing (C++ compute_block_size :256 with the index
+/// lengths = 0: the unindexed regime).
+pub fn pkd_ssrle_block_size(code_units: u64) -> u32 {
+    return pkd_ssrle_empty_size() + round_up_bytes((code_units * 2u64) as u32);
+}
+
+// ── the packed handle ───────────────────────────────────────────────────────
+
+/// Select result: logical index + the rank PREFIX accumulated before the hit
+/// run (C++ SelectResult :68 — on "not found" idx = size, rank = total).
+pub struct SsrleSelect {
+    pub idx: u64,
+    pub rank: u64,
+}
+
+impl Copy for SsrleSelect {}
+
+impl Clone for SsrleSelect {
+    fn clone(&self) -> SsrleSelect {
+        return *self;
+    }
+}
+
+/// Non-owning handle over a formatted PkdSsrle block (the VecCtr idiom:
+/// views re-resolved through the allocator on every call; the block itself
+/// never moves under the resize protocol).
+pub struct PkdSsrle {
+    mem: *mut u8,
+}
+
+impl Copy for PkdSsrle {}
+
+impl Clone for PkdSsrle {
+    fn clone(&self) -> PkdSsrle {
+        return *self;
+    }
+}
+
+/// Formats `mem[0..block_size)` as an EMPTY sequence (C++ init_bs :294):
+/// 4 slots, metadata allocated, index slots stamped ALLOCATABLE at zero size,
+/// SYMBOLS stamped RAW at zero size.
+pub unsafe fn pkd_ssrle_format(mem: *mut u8, block_size: u32, alphabet_size: u32)
+    -> Result<PkdSsrle, PkdError> {
+    let bps: u32 = ssrle_bps_for_alphabet(alphabet_size);
+    let a: *mut PkdAlloc = pkd_format(mem, block_size, PkdSsrle::SLOTS);
+    let meta: SsrleMeta = SsrleMeta {
+        size: 0u64,
+        code_units: 0u64,
+        bps: bps,
+        alphabet_size: alphabet_size,
+    };
+    a.allocate_cell::<SsrleMeta>(PkdSsrle::SLOT_METADATA, meta)?;
+    a.set_block_type(PkdSsrle::SLOT_SIZE_INDEX, SlotKind::Allocatable);
+    a.set_block_type(PkdSsrle::SLOT_SUM_INDEX, SlotKind::Allocatable);
+    a.set_block_type(PkdSsrle::SLOT_SYMBOLS, SlotKind::Raw);
+    return Result::Ok(PkdSsrle { mem: mem });
+}
+
+/// Format + set_runs in one step — create-from-runs over caller memory.
+pub unsafe fn pkd_ssrle_create(
+    mem: *mut u8,
+    block_size: u32,
+    alphabet_size: u32,
+    runs: &Vec<SsrleRun>,
+) -> Result<PkdSsrle, PkdError> {
+    let mut seq: PkdSsrle = pkd_ssrle_format(mem, block_size, alphabet_size)?;
+    seq.set_runs(runs)?;
+    return Result::Ok(seq);
+}
+
+impl PkdSsrle {
+    // The 4-slot convention (C++ enum METADATA..SYMBOLS :105).
+    const SLOT_METADATA:   u32 = 0u32;
+    const SLOT_SIZE_INDEX: u32 = 1u32;
+    const SLOT_SUM_INDEX:  u32 = 2u32;
+    const SLOT_SYMBOLS:    u32 = 3u32;
+    const SLOTS:           u32 = 4u32;
+
+    // ── views (re-resolved per call; never cached) ───────────────────────
+
+    fn alc(self: &PkdSsrle) -> *mut PkdAlloc {
+        return self.mem as *mut PkdAlloc;
+    }
+
+    unsafe fn meta(self: &PkdSsrle) -> *mut SsrleMeta {
+        return self.alc().get::<SsrleMeta>(PkdSsrle::SLOT_METADATA);
+    }
+
+    // ── metadata accessors ───────────────────────────────────────────────
+
+    /// Logical symbol count (C++ SO size :135).
+    pub fn size(self: &PkdSsrle) -> u64 {
+        unsafe {
+            return (*self.meta()).size;
+        }
+    }
+
+    /// Used u16 units in the SYMBOLS slot.
+    pub fn code_units(self: &PkdSsrle) -> u64 {
+        unsafe {
+            return (*self.meta()).code_units;
+        }
+    }
+
+    pub fn bps(self: &PkdSsrle) -> u32 {
+        unsafe {
+            return (*self.meta()).bps;
+        }
+    }
+
+    pub fn alphabet_size(self: &PkdSsrle) -> u32 {
+        unsafe {
+            return (*self.meta()).alphabet_size;
+        }
+    }
+
+    /// SYMBOLS slot capacity in u16 units (C++ symbols_block_size counts
+    /// units too — element_size / sizeof(CodeUnitT)).
+    pub fn symbols_block_units(self: &PkdSsrle) -> u64 {
+        unsafe {
+            return (self.alc().element_size(PkdSsrle::SLOT_SYMBOLS) as u64) / 2u64;
+        }
+    }
+
+    /// Spare units in the SYMBOLS slot (C++ symbols_block_capacity :211).
+    pub fn symbols_block_capacity(self: &PkdSsrle) -> u64 {
+        return self.symbols_block_units() - self.code_units();
+    }
+
+    /// Code unit `i` — the raw stream cell (byte-identity gates read this).
+    pub fn unit_at(self: &PkdSsrle, i: u64) -> u16 {
+        assert(i < self.code_units(), "pkd_ssrle: unit index out of range");
+        unsafe {
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            return units[i as i64];
+        }
+    }
+
+    /// C++ has_size_index/has_sum_index/has_index (:175-:221): element size
+    /// probes. Always false until increment 5 builds indexes.
+    pub fn has_size_index(self: &PkdSsrle) -> bool {
+        unsafe {
+            return self.alc().element_size(PkdSsrle::SLOT_SIZE_INDEX) > 0u32;
+        }
+    }
+
+    pub fn has_sum_index(self: &PkdSsrle) -> bool {
+        unsafe {
+            return self.alc().element_size(PkdSsrle::SLOT_SUM_INDEX) > 0u32;
+        }
+    }
+
+    pub fn has_index(self: &PkdSsrle) -> bool {
+        return self.has_size_index() && self.has_sum_index();
+    }
+
+    /// The C++ index-materialization threshold (reindex_fn): true when the
+    /// stream is long enough that C++ WOULD build indexes. Increment 5.
+    pub fn needs_index(self: &PkdSsrle) -> bool {
+        return self.code_units() > ssrle_atoms_per_block(self.bps());
+    }
+
+    // ── create / rewrite ─────────────────────────────────────────────────
+
+    /// Rewrites the whole sequence from `runs` — the commit_insert shape
+    /// (SO :751) on the unindexed regime: price via compute_size (THE size
+    /// oracle), resize the SYMBOLS slot under the allocator's free_space
+    /// discipline (Err(OutOfMem) when the chain can't provide, nothing
+    /// mutated), encode into out-of-block scratch with the increment-1
+    /// segment writer, copy in, update metadata. Invalid (null/padding)
+    /// source runs are skipped by writer and size oracle alike.
+    pub fn set_runs(self: &mut PkdSsrle, runs: &Vec<SsrleRun>) -> Result<(), PkdError> {
+        let bps: u32 = self.bps();
+        let code_units: u64 = ssrle_compute_size(bps, runs, 0u64);
+        // Resize BEFORE any scratch exists: the fallible step runs while no
+        // droppable local is live (fail cheap, before encoding work; also
+        // sidesteps the `?`-skips-local-drops compiler gap — see the drop
+        // probe in the increment-3 report).
+        unsafe {
+            let a: *mut PkdAlloc = self.alc();
+            a.resize_block_at(PkdSsrle::SLOT_SYMBOLS, (code_units * 2u64) as u32)?;
+        }
+        let mut scratch: Vec<u16> = vec_new::<u16>();
+        let mut i: u64 = 0u64;
+        while i < code_units {
+            scratch.push(0u16);
+            i = i + 1u64;
+        }
+        let written: u64 = ssrle_write_segments(bps, runs, &mut scratch, 0u64);
+        assert(written == code_units, "pkd_ssrle: writer diverged from compute_size");
+        unsafe {
+            let a: *mut PkdAlloc = self.alc();
+            // Fill the WHOLE slot: stream first, zero the 8-align pad tail
+            // (zero units decode as null runs = EOS; also keeps the slot
+            // fully initialized).
+            let cells: &mut [u16] = a.cells_mut::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let ncells: i64 = cells.len();
+            let mut c: i64 = 0i64;
+            while c < ncells {
+                if c < code_units as i64 {
+                    cells[c] = scratch.get(c);
+                } else {
+                    cells[c] = 0u16;
+                }
+                c = c + 1i64;
+            }
+            let m: *mut SsrleMeta = self.meta();
+            (*m).size = ssrle_count_symbols(runs);
+            (*m).code_units = code_units;
+        }
+        return Result::Ok(());
+    }
+
+    // ── reading ──────────────────────────────────────────────────────────
+
+    /// Decode the stream back to its run vector (C++ iterator().as_vector()).
+    pub fn as_runs(self: &PkdSsrle) -> Vec<SsrleRun> {
+        unsafe {
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            return ssrle_decode_runs_units(self.bps(), units, self.code_units());
+        }
+    }
+
+    /// Symbol at logical position `pos` (C++ SO access :139 + do_access
+    /// :1529, the no-index branch: scan runs from unit 0, then
+    /// run.symbol(offset)).
+    pub fn access(self: &PkdSsrle, pos: u64) -> u64 {
+        assert(pos < self.size(), "pkd_ssrle: access out of range");
+        let bps: u32 = self.bps();
+        let limit: u64 = self.code_units();
+        unsafe {
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let mut idx: u64 = 0u64;
+            let mut sum: u64 = 0u64;
+            let mut run: SsrleRun = ssrle_make_null();
+            while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
+                let len: u64 = run.full_run_length();
+                if pos < sum + len {
+                    return run.symbol(bps, pos - sum);
+                }
+                sum = sum + len;
+            }
+        }
+        assert(false, "pkd_ssrle: invalid sequence (size beyond stream)");
+        return 0u64;
+    }
+
+    /// Occurrences of `sym` in positions [0, pos) (C++ rank_fn :1194 with
+    /// RankEqFn, the no-index branch: pos = 0 short-circuits to 0; full runs
+    /// accumulate full_rank_eq, the run holding `pos` contributes a partial
+    /// rank_eq; pos may equal size).
+    pub fn rank_eq(self: &PkdSsrle, pos: u64, sym: u64) -> u64 {
+        if pos == 0u64 {
+            return 0u64;
+        }
+        assert(pos <= self.size(), "pkd_ssrle: rank position out of range");
+        assert(sym < self.alphabet_size() as u64, "pkd_ssrle: rank symbol out of alphabet");
+        let bps: u32 = self.bps();
+        let limit: u64 = self.code_units();
+        unsafe {
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let mut idx: u64 = 0u64;
+            let mut size_sum: u64 = 0u64;
+            let mut rank_sum: u64 = 0u64;
+            let mut run: SsrleRun = ssrle_make_null();
+            let mut going: bool = true;
+            while going && ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
+                let len: u64 = run.full_run_length();
+                if pos < size_sum + len {
+                    rank_sum = rank_sum + run.rank_eq(bps, pos - size_sum, sym);
+                    going = false;
+                } else {
+                    size_sum = size_sum + len;
+                    rank_sum = rank_sum + run.full_rank_eq(bps, sym);
+                }
+            }
+            return rank_sum;
+        }
+    }
+
+    /// Occurrences of `sym` in the whole sequence (C++ rank_eq(symbol) :292).
+    pub fn rank_eq_all(self: &PkdSsrle, sym: u64) -> u64 {
+        return self.rank_eq(self.size(), sym);
+    }
+
+    /// Position of the (rank+1)-th `sym` occurrence (C++ select_fw_fn :1383
+    /// with SelectFwEqFn, the no-index branch). Found: idx = the position,
+    /// rank = the rank PREFIX before the hit run. Not found: idx = size,
+    /// rank = the total `sym` count.
+    pub fn select_fw_eq(self: &PkdSsrle, rank: u64, sym: u64) -> SsrleSelect {
+        assert(sym < self.alphabet_size() as u64, "pkd_ssrle: select symbol out of alphabet");
+        let bps: u32 = self.bps();
+        let limit: u64 = self.code_units();
+        unsafe {
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let mut idx: u64 = 0u64;
+            let mut size_sum: u64 = 0u64;
+            let mut rank_sum: u64 = 0u64;
+            let mut run: SsrleRun = ssrle_make_null();
+            while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
+                let run_rank: u64 = run.full_rank_eq(bps, sym);
+                if rank < rank_sum + run_rank {
+                    let local: u64 = run.select_fw_eq(bps, rank - rank_sum, sym);
+                    return SsrleSelect {
+                        idx: local + size_sum,
+                        rank: rank_sum,
+                    };
+                }
+                rank_sum = rank_sum + run_rank;
+                size_sum = size_sum + run.full_run_length();
+            }
+            return SsrleSelect {
+                idx: self.size(),
+                rank: rank_sum,
+            };
+        }
+    }
+}

@@ -1,0 +1,514 @@
+// ssrle_pkd — SSRLE increments 3+4 gate: PkdSsrle (the packed sequence over
+// a PkdAlloc block, UNINDEXED regime) against three oracles at once:
+//
+//   1. the C++ byte fixtures (tests/ssrle_fixtures.hex): the SYMBOLS slot
+//      content after create-from-runs must be UNIT-IDENTICAL to the
+//      increment-1 fixture streams — the packed layer adds no re-encoding;
+//   2. the increment-2 vector algebra (ssrle_rank_eq / ssrle_select_fw_eq /
+//      ssrle_materialize): the scan paths must agree EXACTLY at sampled and
+//      exhaustive positions;
+//   3. the naive materialized symbol stream (small corpora): access / rank /
+//      select vs direct counting + the inverse laws.
+//
+// Sections (error-code decades):
+//   10..19  fixture pass: format/create/roundtrip, slot byte identity,
+//           metadata, decode roundtrip
+//   20..29  fixture pass: boundary access + rank/select vs the vector
+//           algebra at sampled positions (0, 1, mid, size-1, size)
+//   30..39  seeded corpora, all Bps: exhaustive access vs materialized
+//           oracle, rank/select vs naive + vector impls, inverse laws
+//   50..59  empty sequence
+//   60..69  OOM discipline (too-small block → Err, nothing torn)
+//   70..79  format sanity: bps-for-alphabet, sizing, index probes
+//
+// VALGRIND NOTE: the fixture bytes arrive via read_to_string → io_uring;
+// memcheck cannot see kernel-side completion writes, so with full undef
+// tracking every value derived from fixture bytes reports as uninitialised
+// (false-positive taint; the seeded/empty/OOM phases, which run FIRST and
+// exercise the whole packed layer on non-fixture data, are fully clean).
+// The valgrind gate therefore runs with --undef-value-errors=no, which still
+// checks addressability (invalid read/write/free) and leaks: 0 errors,
+// 0 leaks required.
+package test;
+
+use memoria.ssrle;
+use logos.mem.pkd;
+use logos.lang.arith;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io.fs;
+
+// ── fixture tokenizer (the ssrle_codec.logos discipline) ────────────────────
+
+fn is_ws(b: u8) -> bool {
+    return b == 32u8 || b == 10u8 || b == 13u8 || b == 9u8;
+}
+
+fn hex_val(b: u8) -> u64 {
+    if b >= 48u8 && b <= 57u8 {
+        return (b - 48u8) as u64;
+    }
+    return ((b - 97u8) as u64) + 10u64;
+}
+
+fn next_tok(s: str, pos: &mut i64) -> u64 {
+    let n: i64 = s.len();
+    let mut i: i64 = *pos;
+    while i < n && is_ws(s[i]) {
+        i = i + 1i64;
+    }
+    let mut v: u64 = 0u64;
+    while i < n && !is_ws(s[i]) {
+        v = v * 16u64 + hex_val(s[i]);
+        i = i + 1i64;
+    }
+    *pos = i;
+    return v;
+}
+
+// ── deterministic corpus (LCG via wrapping arithmetic) ──────────────────────
+
+fn rnd(st: &mut u64) -> u64 {
+    let next: u64 = wrapping_add(wrapping_mul(*st, 6364136223846793005u64), 1442695040888963407u64);
+    *st = next;
+    return next >> 33u64;
+}
+
+fn rnd_pattern(st: &mut u64) -> u64 {
+    return (rnd(st) << 31u64) | rnd(st);
+}
+
+fn rand_run(bps: u32, st: &mut u64, rl_cap: u64) -> SsrleRun {
+    let cap: u64 = ssrle_encodable_pattern_length(bps) as u64;
+    let plen: u64 = 1u64 + rnd(st) % cap;
+    let mut mrl: u64 = ssrle_max_run_length(bps, plen as u32);
+    if mrl > rl_cap {
+        mrl = rl_cap;
+    }
+    let rl: u64 = 1u64 + rnd(st) % mrl;
+    return ssrle_run_new(bps, plen as u32, rnd_pattern(st), rl);
+}
+
+fn rand_runs(bps: u32, st: &mut u64, n: i64, rl_cap: u64) -> Vec<SsrleRun> {
+    let mut v: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.push(rand_run(bps, st, rl_cap));
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+// Rank/select agreement between the PACKED scan and the increment-2 vector
+// algebra at one position/rank for one symbol.
+fn check_pkd_vs_vec_at(seq: &PkdSsrle, runs: &Vec<SsrleRun>, pos: u64, sym: u64) -> i32 {
+    let bps: u32 = seq.bps();
+    if seq.rank_eq(pos, sym) != ssrle_rank_eq(bps, runs, pos, sym) {
+        return 1i32;
+    }
+    return 0i32;
+}
+
+fn check_select_vs_vec_at(seq: &PkdSsrle, runs: &Vec<SsrleRun>, rank: u64, sym: u64) -> i32 {
+    let bps: u32 = seq.bps();
+    let got: SsrleSelect = seq.select_fw_eq(rank, sym);
+    if got.idx != ssrle_select_fw_eq(bps, runs, rank, sym) {
+        return 1i32;
+    }
+    return 0i32;
+}
+
+// ── one fixture case ────────────────────────────────────────────────────────
+
+fn check_fixture_case(bps: u32, runs: &Vec<SsrleRun>, nunits: u64, s: str, pos: &mut i64) -> i32 {
+    let alphabet: u32 = 1u32 << bps;
+    let block_size: u32 = pkd_ssrle_block_size(nunits);
+    unsafe {
+        let mem: *mut u8 = alloc(block_size as i64);
+        let seq: PkdSsrle = match pkd_ssrle_create(mem, block_size, alphabet, runs) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 10i32;
+            }
+        };
+        let rc: i32 = check_fixture_body(&seq, bps, runs, nunits, s, pos);
+        dealloc(mem);
+        return rc;
+    }
+}
+
+fn check_fixture_body(seq: &PkdSsrle, bps: u32, runs: &Vec<SsrleRun>, nunits: u64, s: str, pos: &mut i64) -> i32 {
+    // 10.. — metadata + slot byte identity + decode roundtrip
+    if seq.code_units() != nunits {
+        return 11i32;
+    }
+    if seq.bps() != bps {
+        return 12i32;
+    }
+    let size: u64 = ssrle_count_symbols(runs);
+    if seq.size() != size {
+        return 13i32;
+    }
+    let mut u: u64 = 0u64;
+    while u < nunits {
+        let expected: u64 = next_tok(s, pos);
+        if (seq.unit_at(u) as u64) != expected {
+            return 14i32;
+        }
+        u = u + 1u64;
+    }
+    let decoded: Vec<SsrleRun> = seq.as_runs();
+    if decoded.length() != runs.length() {
+        return 15i32;
+    }
+    let mut k: i64 = 0i64;
+    while k < runs.length() {
+        if !decoded.borrow(k).eq(runs.borrow(k)) {
+            return 16i32;
+        }
+        k = k + 1i64;
+    }
+    if seq.has_size_index() || seq.has_sum_index() || seq.has_index() {
+        return 17i32;
+    }
+    // the slot is sized round_up_8 over the stream — pad < 4 units
+    if seq.symbols_block_capacity() >= 4u64 {
+        return 18i32;
+    }
+    // 20.. — boundary access + rank/select vs the vector algebra
+    if size > 0u64 {
+        let first: &SsrleRun = runs.borrow(0i64);
+        if seq.access(0u64) != first.symbol(bps, 0u64) {
+            return 20i32;
+        }
+        let last: &SsrleRun = runs.borrow(runs.length() - 1i64);
+        if seq.access(size - 1u64) != last.symbol(bps, last.full_run_length() - 1u64) {
+            return 21i32;
+        }
+    }
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    syms.push(0u64);
+    syms.push((1u64 << bps) - 1u64);
+    if runs.length() > 0i64 {
+        syms.push(runs.borrow(0i64).symbol(bps, 0u64));
+    }
+    let mut positions: Vec<u64> = vec_new::<u64>();
+    positions.push(0u64);
+    positions.push(size);
+    if size > 0u64 {
+        positions.push(1u64);
+        positions.push(size / 2u64);
+        positions.push(size - 1u64);
+    }
+    let mut si: i64 = 0i64;
+    while si < syms.length() {
+        let sym: u64 = syms.get(si);
+        let mut pi: i64 = 0i64;
+        while pi < positions.length() {
+            if check_pkd_vs_vec_at(seq, runs, positions.get(pi), sym) != 0i32 {
+                return 22i32;
+            }
+            pi = pi + 1i64;
+        }
+        let total: u64 = ssrle_rank_eq(bps, runs, size, sym);
+        if seq.rank_eq_all(sym) != total {
+            return 23i32;
+        }
+        let mut ranks: Vec<u64> = vec_new::<u64>();
+        ranks.push(0u64);
+        if total > 0u64 {
+            ranks.push(total / 2u64);
+            ranks.push(total - 1u64);
+        }
+        let mut ri: i64 = 0i64;
+        while ri < ranks.length() {
+            if check_select_vs_vec_at(seq, runs, ranks.get(ri), sym) != 0i32 {
+                return 24i32;
+            }
+            ri = ri + 1i64;
+        }
+        // beyond-total select = {size, total} (C++ SelectResult not-found)
+        let nf: SsrleSelect = seq.select_fw_eq(total, sym);
+        if nf.idx != size || nf.rank != total {
+            return 25i32;
+        }
+        si = si + 1i64;
+    }
+    return 0i32;
+}
+
+// ── seeded small corpora: exhaustive oracles ────────────────────────────────
+
+fn check_seeded(bps: u32, st: &mut u64) -> i32 {
+    let alphabet: u32 = 1u32 << bps;
+    let runs: Vec<SsrleRun> = rand_runs(bps, st, 16i64, 6u64);
+    let stream: Vec<u64> = ssrle_materialize(bps, &runs);
+    let size: u64 = stream.length() as u64;
+    let nunits: u64 = ssrle_compute_size(bps, &runs, 0u64);
+    let block_size: u32 = pkd_ssrle_block_size(nunits);
+    unsafe {
+        let mem: *mut u8 = alloc(block_size as i64);
+        let seq: PkdSsrle = match pkd_ssrle_create(mem, block_size, alphabet, &runs) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 30i32;
+            }
+        };
+        let rc: i32 = check_seeded_body(&seq, bps, &runs, &stream, size);
+        dealloc(mem);
+        return rc;
+    }
+}
+
+fn check_seeded_body(seq: &PkdSsrle, bps: u32, runs: &Vec<SsrleRun>, stream: &Vec<u64>, size: u64) -> i32 {
+    if seq.size() != size {
+        return 31i32;
+    }
+    // exhaustive access vs the materialized oracle
+    let mut p: u64 = 0u64;
+    while p < size {
+        if seq.access(p) != stream.get(p as i64) {
+            return 32i32;
+        }
+        p = p + 1u64;
+    }
+    // symbols under test: full alphabet for bps <= 3, edges + present else
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    if bps <= 3u32 {
+        let mut sv: u64 = 0u64;
+        while sv < (1u64 << bps) {
+            syms.push(sv);
+            sv = sv + 1u64;
+        }
+    } else {
+        syms.push(0u64);
+        syms.push((1u64 << bps) - 1u64);
+        syms.push(stream.get(0i64));
+        syms.push(stream.get((size as i64) / 2i64));
+    }
+    let mut si: i64 = 0i64;
+    while si < syms.length() {
+        let sym: u64 = syms.get(si);
+        // rank: exhaustive vs naive count AND the vector algebra
+        let mut naive: u64 = 0u64;
+        p = 0u64;
+        while p <= size {
+            if seq.rank_eq(p, sym) != naive {
+                return 33i32;
+            }
+            if seq.rank_eq(p, sym) != ssrle_rank_eq(bps, runs, p, sym) {
+                return 34i32;
+            }
+            if p < size && stream.get(p as i64) == sym {
+                naive = naive + 1u64;
+            }
+            p = p + 1u64;
+        }
+        // select: every occurrence + inverse laws
+        let total: u64 = seq.rank_eq_all(sym);
+        let mut r: u64 = 0u64;
+        let mut expect_pos: u64 = 0u64;
+        p = 0u64;
+        while p < size {
+            if stream.get(p as i64) == sym {
+                let got: SsrleSelect = seq.select_fw_eq(r, sym);
+                if got.idx != p {
+                    return 35i32;
+                }
+                if got.idx != ssrle_select_fw_eq(bps, runs, r, sym) {
+                    return 36i32;
+                }
+                // inverse laws: rank(select(r)) == r; access(select(r)) == sym
+                if seq.rank_eq(got.idx, sym) != r {
+                    return 37i32;
+                }
+                if seq.access(got.idx) != sym {
+                    return 38i32;
+                }
+                r = r + 1u64;
+            }
+            p = p + 1u64;
+        }
+        if r != total {
+            return 39i32;
+        }
+        let nf: SsrleSelect = seq.select_fw_eq(total, sym);
+        if nf.idx != size || nf.rank != total {
+            return 40i32;
+        }
+        let _ = expect_pos;
+        si = si + 1i64;
+    }
+    return 0i32;
+}
+
+// ── empty / OOM / format sanity ─────────────────────────────────────────────
+
+fn check_empty() -> i32 {
+    let block_size: u32 = pkd_ssrle_block_size(0u64);
+    unsafe {
+        let mem: *mut u8 = alloc(block_size as i64);
+        let empty: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        let seq: PkdSsrle = match pkd_ssrle_create(mem, block_size, 4u32, &empty) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 50i32;
+            }
+        };
+        let mut rc: i32 = 0i32;
+        if seq.size() != 0u64 || seq.code_units() != 0u64 {
+            rc = 51i32;
+        }
+        if rc == 0i32 && seq.rank_eq(0u64, 1u64) != 0u64 {
+            rc = 52i32;
+        }
+        if rc == 0i32 {
+            let nf: SsrleSelect = seq.select_fw_eq(0u64, 1u64);
+            if nf.idx != 0u64 || nf.rank != 0u64 {
+                rc = 53i32;
+            }
+        }
+        if rc == 0i32 {
+            // bound, not a temporary receiver: rvalue receivers are never
+            // dropped (compiler drop gap, see the increment-3 report)
+            let rr: Vec<SsrleRun> = seq.as_runs();
+            if rr.length() != 0i64 {
+                rc = 54i32;
+            }
+        }
+        dealloc(mem);
+        return rc;
+    }
+}
+
+fn check_oom() -> i32 {
+    // A block with room for the header + metadata but NOT for the stream:
+    // create must fail cleanly through the resize protocol.
+    let block_size: u32 = pkd_ssrle_empty_size() + 8u32;
+    unsafe {
+        let mem: *mut u8 = alloc(block_size as i64);
+        let mut st: u64 = 7u64;
+        let runs: Vec<SsrleRun> = rand_runs(2u32, &mut st, 64i64, 6u64);
+        let mut rc: i32 = 0i32;
+        match pkd_ssrle_create(mem, block_size, 4u32, &runs) {
+            Result::Ok(_q) => {
+                rc = 60i32;
+            }
+            Result::Err(_) => {}
+        }
+        dealloc(mem);
+        return rc;
+    }
+}
+
+fn check_format_sanity() -> i32 {
+    // C++ BitsPerSymbol: alphabet ≤ 2 → 1, else Log2U(alphabet − 1)
+    if ssrle_bps_for_alphabet(2u32) != 1u32 {
+        return 70i32;
+    }
+    if ssrle_bps_for_alphabet(3u32) != 2u32 {
+        return 71i32;
+    }
+    if ssrle_bps_for_alphabet(4u32) != 2u32 {
+        return 72i32;
+    }
+    if ssrle_bps_for_alphabet(5u32) != 3u32 {
+        return 73i32;
+    }
+    if ssrle_bps_for_alphabet(16u32) != 4u32 {
+        return 74i32;
+    }
+    if ssrle_bps_for_alphabet(256u32) != 8u32 {
+        return 75i32;
+    }
+    // AtomsPerBlock = 256·Bps / 2 (the increment-5 index threshold)
+    if ssrle_atoms_per_block(1u32) != 128u64 {
+        return 76i32;
+    }
+    if ssrle_atoms_per_block(8u32) != 1024u64 {
+        return 77i32;
+    }
+    // sizing: monotone in code_units; empty = block_size(0)
+    if pkd_ssrle_block_size(0u64) != pkd_ssrle_empty_size() {
+        return 78i32;
+    }
+    if pkd_ssrle_block_size(100u64) <= pkd_ssrle_block_size(4u64) {
+        return 79i32;
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let rc1: i32 = check_format_sanity();
+    if rc1 != 0i32 {
+        return rc1;
+    }
+    let rc2: i32 = check_empty();
+    if rc2 != 0i32 {
+        return rc2;
+    }
+    let rc3: i32 = check_oom();
+    if rc3 != 0i32 {
+        return rc3;
+    }
+    // seeded corpora, all Bps, several seeds each
+    let mut bps: u32 = 1u32;
+    while bps <= 8u32 {
+        let mut seed: u64 = 0x5eed0000u64 + (bps as u64);
+        let mut rep: i64 = 0i64;
+        while rep < 3i64 {
+            let rc: i32 = check_seeded(bps, &mut seed);
+            if rc != 0i32 {
+                return rc;
+            }
+            rep = rep + 1i64;
+        }
+        bps = bps + 1u32;
+    }
+    // the full fixture corpus (the byte-identity gate)
+    let content: String = match read_to_string("tests/ssrle_fixtures.hex") {
+        Result::Ok(c) => { c }
+        Result::Err(_) => { return 100i32; }
+    };
+    let s: str = content.as_str();
+    let mut pos: i64 = 0i64;
+    let mut cases: i64 = 0i64;
+    let mut going: bool = true;
+    while going {
+        let bps64: u64 = next_tok(s, &mut pos);
+        if bps64 == 0u64 {
+            going = false;
+        } else {
+            let cbps: u32 = bps64 as u32;
+            let nruns: i64 = next_tok(s, &mut pos) as i64;
+            let nunits: u64 = next_tok(s, &mut pos);
+            let mut runs: Vec<SsrleRun> = vec_new::<SsrleRun>();
+            let mut i: i64 = 0i64;
+            while i < nruns {
+                let plen: u64 = next_tok(s, &mut pos);
+                let pattern: u64 = next_tok(s, &mut pos);
+                let rl: u64 = next_tok(s, &mut pos);
+                runs.push(ssrle_run_new(cbps, plen as u32, pattern, rl));
+                i = i + 1i64;
+            }
+            let rc: i32 = check_fixture_case(cbps, &runs, nunits, s, &mut pos);
+            if rc != 0i32 {
+                return rc;
+            }
+            cases = cases + 1i64;
+        }
+    }
+    // a truncated fixture must not pass (the increment-1 floor)
+    if cases < 400i64 {
+        return 101i32;
+    }
+    return 0i32;
+}

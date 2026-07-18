@@ -24,8 +24,13 @@
 // padding unit itself) + zero-unit null fill to the boundary, then continues.
 // compute_size replays the writer exactly — it is THE size oracle for capacity
 // checks. NOTE the C++ FIXME (ssrle_common.hpp:597): a padding run is always
-// encoded as a single unit, valid only while a segment is < 256 units — the
-// behavior is PRESERVED here bit-for-bit, not fixed.
+// encoded as a single unit, valid only while a segment is < 256 units.
+// ASSESSED (fix-the-C++-bugs policy, increment 3): with SEGMENT_SIZE_UNITS=32
+// the padding remainder is always < 32, and even the tightest residual budget
+// (Bps=1: 16−2−6 = 8 bits → 255) encodes it in one unit — the output is VALID
+// in this regime, so the behavior is kept bit-for-bit and stays inside the
+// byte-identity oracle gate. The FIXME only bites if segments ever grow ≥ 256
+// units — then the writer must emit multi-unit padding (upstream-report note).
 package memoria.ssrle;
 
 use logos.lang.clone;
@@ -261,12 +266,18 @@ pub fn ssrle_encode_run(bps: u32, run: &SsrleRun, target: &mut Vec<u16>, at: u64
 /// Decode the run starting at units[at]; returns the unit count consumed
 /// (C++ decode_unit_to :525/:539). Zero residual bits ⇒ run_length = 1.
 pub fn ssrle_decode_run(bps: u32, units: &Vec<u16>, at: u64, out: &mut SsrleRun) -> u64 {
-    let unit0: u64 = units.get(at as i64) as u64;
+    return ssrle_decode_run_units(bps, units.as_slice(), at, out);
+}
+
+/// The slice-core decoder — the SAME mechanism over any u16 storage (the
+/// packed SYMBOLS slot reads through this; the Vec form above delegates).
+pub fn ssrle_decode_run_units(bps: u32, units: &[u16], at: u64, out: &mut SsrleRun) -> u64 {
+    let unit0: u64 = units[at as i64] as u64;
     let unit_size: u64 = (unit0 & ssrle_make_mask(CODE_WORD_SIZE_BITS)) + 1u64;
     let mut code_word: u64 = 0u64;
     let mut c: u64 = 0u64;
     while c < unit_size {
-        code_word = code_word | ((units.get((at + c) as i64) as u64) << (c * UNIT_BITS));
+        code_word = code_word | ((units[(at + c) as i64] as u64) << (c * UNIT_BITS));
         c = c + 1u64;
     }
     let lb: u64 = ssrle_len_bits(bps);
@@ -310,8 +321,8 @@ fn write_segments_step(
             let units: u64 = ssrle_estimate_size(bps, &run);
             if *tgt_idx + units > *next_limit {
                 // Doesn't fit this segment: 1-unit padding run + null fill.
-                // C++ FIXME preserved: the padding is ALWAYS a single unit
-                // (valid while a segment is < 256 units).
+                // C++ FIXME assessed (module header): the single-unit padding
+                // is VALID while a segment is < 256 units — always true at 32.
                 let remainder: u64 = *next_limit - *tgt_idx;
                 let padding: SsrleRun = ssrle_make_padding(remainder);
                 ssrle_encode_run(bps, &padding, target, *tgt_idx, 1u64);
@@ -393,27 +404,43 @@ pub fn ssrle_compute_size(bps: u32, source: &Vec<SsrleRun>, start: u64) -> u64 {
 
 // ── stream reading ──────────────────────────────────────────────────────────
 
+/// The iterator STEP — one advance of the C++ SymbolsRunIterator loop shape
+/// (ssrleseq_iterator.hpp:81 as_vector / :151 for_each): decodes at *idx,
+/// skips padding runs by their run_length (which covers the padding unit plus
+/// the null fill), stops at a null run (EOS) or at `limit`. On true, `out`
+/// holds the next DATA run and *idx points past it.
+pub fn ssrle_next_run(bps: u32, units: &[u16], limit: u64, idx: &mut u64, out: &mut SsrleRun) -> bool {
+    while *idx < limit {
+        let unit_size: u64 = ssrle_decode_run_units(bps, units, *idx, out);
+        if out.is_valid() {
+            *idx = *idx + unit_size;
+            return true;
+        }
+        if out.is_padding() {
+            *idx = *idx + out.run_length;
+        } else {
+            return false;
+        }
+    }
+    return false;
+}
+
 /// Decode units[0..limit) to the run vector — the C++ iterator::as_vector
 /// semantics (ssrleseq_iterator.hpp:81): data runs collected, padding skipped
 /// by its run_length (which covers its own unit + the null fill), a null run
 /// terminates the stream.
 pub fn ssrle_decode_runs(bps: u32, units: &Vec<u16>, limit: u64) -> Vec<SsrleRun> {
+    return ssrle_decode_runs_units(bps, units.as_slice(), limit);
+}
+
+/// as_vector over any u16 storage (the packed SYMBOLS slot reads through
+/// this; the Vec form above delegates).
+pub fn ssrle_decode_runs_units(bps: u32, units: &[u16], limit: u64) -> Vec<SsrleRun> {
     let mut out: Vec<SsrleRun> = vec_new::<SsrleRun>();
     let mut idx: u64 = 0u64;
-    let mut going: bool = true;
-    while going && idx < limit {
-        let mut run: SsrleRun = ssrle_make_null();
-        let unit_size: u64 = ssrle_decode_run(bps, units, idx, &mut run);
-        if run.is_valid() {
-            out.push(run);
-            idx = idx + unit_size;
-        } else {
-            if run.is_padding() {
-                idx = idx + run.run_length;
-            } else {
-                going = false;
-            }
-        }
+    let mut run: SsrleRun = ssrle_make_null();
+    while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
+        out.push(run);
     }
     return out;
 }
