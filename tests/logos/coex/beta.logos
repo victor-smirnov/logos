@@ -1,4 +1,16 @@
 package beta;
 
+use logos.mem.collections.vec;
+
 pub fn shared(x: i32) -> i32 { return x + 100; }
 pub fn beta_only() -> i32 { return 11; }
+
+// G156-1 regression: DIFFERENT layout than alpha::Ping (two i64 fields vs one
+// i32) so a silent layout-pick corrupts the sum and the test exit diverges.
+pub struct Ping { pub x: i64, pub y: i64 }
+pub fn beta_ping_sum() -> i64 {
+    let mut v: Vec<Ping> = Vec::<Ping>::new();
+    v.push(Ping { x: 10, y: 20 });
+    v.push(Ping { x: 30, y: 40 });
+    return v[0].x + v[0].y + v[1].x + v[1].y;   // 100
+}

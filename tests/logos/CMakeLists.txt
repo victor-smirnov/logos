@@ -522,7 +522,10 @@ function(logos_pass_extra_args BASE OUT_VAR)
         reflect_annotated_auto)
     set(LOCAL_PUBLIB_USERS pub_module_internal_use pub_module_type_internal pub_cross_package pkg_multifile pub_reexport pub_enum_trait_cross_pkg pub_static_cross_module pub_dyn_cross_module wql_wref_field_pkg)
     # B-mv-01 fixture: two packages defining same-base+sig fns coexist.
-    set(LOCAL_COEX_USERS cross_pkg_coexistence)
+    # G156-1 fixture: two packages of the SAME module declare same-named structs
+    # (alpha::Ping / beta::Ping, different layouts) each used through Vec<Ping> —
+    # the package fingerprint keeps the generic-instance symbols distinct.
+    set(LOCAL_COEX_USERS cross_pkg_coexistence cross_pkg_type_coexistence)
     # ADR 0016: cross-module mapping fusion against libwql_map_lib.a
     set(LOCAL_WQLMAP_USERS wql_mapping_cross_module_e2e)
     # Full same-pkg-same-name TYPE coexistence: each consumer `use widgets from

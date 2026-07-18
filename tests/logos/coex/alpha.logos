@@ -1,4 +1,18 @@
 package alpha;
 
+use logos.mem.collections.vec;
+
 pub fn shared(x: i32) -> i32 { return x + 1; }
 pub fn alpha_only() -> i32 { return 7; }
+
+// G156-1 regression: `alpha::Ping` and `beta::Ping` are same-named structs in
+// DIFFERENT packages of the SAME module (identical module_id). Without folding
+// the PACKAGE into the type-arg mangle, both `Vec<Ping>` instances collapse to
+// one symbol `Vec$G1$Ping$Mcoex__*` and the linker silently picks one LAYOUT.
+pub struct Ping { pub a: i32 }
+pub fn alpha_ping_sum() -> i32 {
+    let mut v: Vec<Ping> = Vec::<Ping>::new();
+    v.push(Ping { a: 3 });
+    v.push(Ping { a: 4 });
+    return v[0].a + v[1].a;   // 7
+}

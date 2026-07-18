@@ -52,7 +52,7 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
     if (concrete_pkg.empty())
         for (auto& ed : out_.enums)
             if (ed.name() == concrete) { concrete_pkg = std::string(ed.pkg()); break; }
-    std::string concrete_q = concrete + type_module_suffix(concrete_pkg);
+    std::string concrete_q = concrete + type_module_suffix(concrete, concrete_pkg);
     // Scan only `$blanket$` templates (built once) — not all in_.functions.
     ensure_blanket_tmpl_index();
     for (auto& [tn, tfn] : blanket_tmpl_fns_) {
@@ -135,6 +135,16 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Coexistence: module-qualify type-keyed names consistently with sema/mlir.
     TypeModuleScope _type_module_scope(&in_.pkg_module_ids);
 
+    // G156-1: consume sema's carried ambiguous-type-name set (computed ONCE
+    // from the full unpruned universe). Materialise the ObjectMapRef into a
+    // local set for the thread_local; install for the whole run(). Reading the
+    // carried set (not recomputing from in_.structs) guarantees byte-identical
+    // tagging with sema and mlir even as mono prunes dead defs.
+    std::unordered_set<std::string> ambiguous_type_names;
+    in_.ambiguous_type_names.for_each(
+        [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });
+    set_ambiguous_type_names(&ambiguous_type_names);
+
     // Stage 3g.1: in_.mirror_table is already comprehensive — sema's end-of-
     // run pass emitted every stmt/block/pattern, and LirBuilder mirrored each
     // LExpr at construction. No top-up needed here.
@@ -172,6 +182,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Module system: carry the package→module map forward so metaprog delta
     // iters (which feed out_ back in as the next in_) keep qualifying symbols.
     out_.pkg_module_ids      = in_.pkg_module_ids;
+    out_.ambiguous_type_names = in_.ambiguous_type_names;  // G156-1: carry to mlir
     out_.wstatic_registry_   = std::move(in_.wstatic_registry_);
     out_.wstatic_sources     = std::move(in_.wstatic_sources);
     // ADR 0021 Phase 4a: sema-filled factory demands (deferred bound /

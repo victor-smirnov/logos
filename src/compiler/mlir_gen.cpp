@@ -68,6 +68,16 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // mono insts) consistently with sema/mono so emitted defs match their uses.
     TypeModuleScope _type_module_scope(&prog.pkg_module_ids);
 
+    // G156-1: consume the carried ambiguous-type-name set (computed ONCE in
+    // sema from the full unpruned universe, preserved by mono). Recomputing from
+    // prog.structs here would see mono's PRUNED universe → a smaller set → the
+    // tag would be dropped at a name sema/mono tagged → definition≠use. Read the
+    // carried ObjectMapRef into a local set for the thread_local.
+    std::unordered_set<std::string> ambiguous_type_names;
+    prog.ambiguous_type_names.for_each(
+        [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });
+    set_ambiguous_type_names(&ambiguous_type_names);
+
     // Pass 0: build struct lookup table so register_tagged_enum can compute
     // payload sizes from LogosType field trees (logos_abi_byte_size).
     for (auto& sd : prog.structs) {
@@ -80,11 +90,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         // qualified entry).
         if (!sd_pkg.empty() && !all_struct_defs_.count(sd_name))
             all_struct_defs_[sd_name] = sd;
-        // Coexistence: concrete_struct_name lookups (field access, DST resolve)
-        // now carry the "$M<module_id>" suffix for non-stdlib module types, so
-        // register a matching alias. Generic-instance sd.name already carries it
-        // (built via concrete_struct_name in mono) → suffix is empty, no dup.
-        std::string msuffix = type_module_suffix(sd_pkg);
+        // Coexistence + G156-1: concrete_struct_name lookups (field access, DST
+        // resolve) carry the folded "$M<...>" suffix — "$M<module_id>" for a
+        // module type, or the ambiguous-name package fingerprint (stdlib incl.).
+        // Register a matching alias so those lookups resolve to THIS package's
+        // struct-def (the ambiguous-name distinctness that fixes the ODR class).
+        // Generic-instance sd.name already carries the fold (built via
+        // concrete_struct_name in mono) → suffix empty, no dup.
+        std::string msuffix = type_module_suffix(sd_name, sd_pkg);
         if (!msuffix.empty()) {
             std::string qname = sd_name + msuffix;
             if (!all_struct_defs_.count(qname)) all_struct_defs_[qname] = sd;

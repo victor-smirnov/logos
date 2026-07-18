@@ -1,0 +1,16 @@
+// G156-1 — pkg-less type-argument mangling ODR fix. `alpha::Ping` (i32) and
+// `beta::Ping` (2×i64) are same-named structs in different packages of ONE
+// module; each is used through `Vec<Ping>`. Pre-fix both mangled to the same
+// `Vec$G1$Ping$Mcoex__*` symbol → the linker silently picked one layout and the
+// other package's Vec was type-confused. The package fingerprint keeps them
+// distinct. Correct → 7 + 100 - 65 = 42.
+package main;
+
+use alpha;
+use beta;
+
+fn main() -> i32 {
+    let a: i32 = alpha_ping_sum();          // 7   (Ping = { a: i32 })
+    let b: i64 = beta_ping_sum();           // 100 (Ping = { x: i64, y: i64 })
+    return a + (b as i32) - 65;             // 42
+}

@@ -391,11 +391,12 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
     // concrete_struct_name (which doesn't carry pkg). First-registered wins.
     if (!sd_pkg.empty() && !struct_types_.count(sd_name))
         struct_types_[sd_name] = info;
-    // Coexistence: mlir_struct_key = qualify_pkg(pkg, concrete_struct_name),
-    // and concrete_struct_name now carries "$M<module_id>" for non-stdlib module
-    // types. Register matching aliases — both the pkg-qualified form (the actual
-    // lookup key) and the bare suffixed form (concrete_struct_name-only paths).
-    std::string msuffix = type_module_suffix(sd_pkg);
+    // Coexistence + G156-1: mlir_struct_key = qualify_pkg(pkg, concrete_struct_name),
+    // and concrete_struct_name carries the folded "$M<...>" suffix ("$M<module_id>"
+    // for a module type, or the ambiguous-name package fingerprint). Register
+    // matching aliases — the pkg-qualified form (the actual lookup key) and the
+    // bare folded form (concrete_struct_name-only paths).
+    std::string msuffix = type_module_suffix(sd_name, sd_pkg);
     if (!msuffix.empty()) {
         std::string qbare = sd_name + msuffix;
         std::string qkey  = qualify_pkg(sd_pkg, qbare);

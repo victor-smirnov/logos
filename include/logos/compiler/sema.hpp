@@ -14,6 +14,7 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <unordered_set>
 #include <format>
 #include <string>
 #include <string_view>
@@ -536,30 +537,62 @@ const std::unordered_map<std::string, std::string>* get_type_module_map();
 void set_type_module_map_ref(const lir_view::ObjectMapRef* m);
 const lir_view::ObjectMapRef* get_type_module_map_ref();
 
-// The module suffix appended to a type's mangled name for a given owning
-// package ("$M<module_id>", or "" for stdlib/no-module). Public so struct/enum
-// registration can mint a matching qualified alias for concrete_struct_name
-// lookups.
-std::string type_module_suffix(std::string_view pkg);
+// The canonical package suffix folded into a type's mangled identity for a given
+// (bare name, owning package). For a UNIQUELY-named type: "$M<module_id>" for a
+// non-stdlib module type, "" for stdlib/no-module (legacy). For an AMBIGUOUS name
+// (declared in ≥2 packages across the transitive universe — see the
+// ambiguous-set): "$M<16-hex FNV-1a64(module_id 0x1f pkg)>", stdlib INCLUDED, so
+// two same-named types in different packages get DISTINCT struct-defs/layouts
+// (G156-1). Every producer AND consumer of a struct/enum mangled name MUST route
+// through this so def==use by construction. Takes the name so ambiguity can gate
+// the fold; pass the bare (unmangled) type name.
+std::string type_module_suffix(std::string_view name, std::string_view pkg);
+
+// G156-1 — the phase-scoped ambiguous-type-name set. A bare nominal name is
+// "ambiguous" iff it is declared in ≥2 DISTINCT packages across the current
+// build's full transitive type universe (own + every dependency module's
+// exported struct/enum decls). type_module_suffix folds the package for names in
+// this set. Threaded as a thread_local (mirrors set_type_module_map); null ⇒ no
+// fold (legacy mangle). Built once in sema, carried via LProgram to mono/mlir.
+void set_ambiguous_type_names(const std::unordered_set<std::string>* s);
+const std::unordered_set<std::string>* get_ambiguous_type_names();
+
+// G156-1 — feed one (bare name, owning pkg) declaration into an ambiguity
+// accumulator. `first_pkg` tracks the first package seen per name; the second
+// DISTINCT package for a name inserts it into `out`. `$`-bearing names skipped.
+// Used identically by sema (template tables) and mono/mlir (prog.structs/enums)
+// so the resulting set is byte-identical across phases of one build.
+void ambiguous_set_accumulate(std::unordered_map<std::string, std::string>& first_pkg,
+                              std::unordered_set<std::string>& out,
+                              std::string_view name, std::string_view pkg);
+
 
 // RAII guard: installs `m` as the active type-module map for the current phase
 // (sema run / mono run / mlir generate) and restores the previous on scope exit.
 struct TypeModuleScope {
     const std::unordered_map<std::string, std::string>* prev_;
     const lir_view::ObjectMapRef*                        prev_ref_;
+    // G156-1: also save/restore the ambiguous-type-name set pointer so a nested
+    // phase can't leak its set into the parent. Installed empty here; the phase
+    // populates its own set and calls set_ambiguous_type_names() once complete.
+    const std::unordered_set<std::string>*               prev_amb_;
     // C++-map backing (sema's working pkg_module_ids_).
     explicit TypeModuleScope(const std::unordered_map<std::string, std::string>* m)
-        : prev_(get_type_module_map()), prev_ref_(get_type_module_map_ref()) {
+        : prev_(get_type_module_map()), prev_ref_(get_type_module_map_ref()),
+          prev_amb_(get_ambiguous_type_names()) {
         set_type_module_map(m);
         set_type_module_map_ref(nullptr);
+        set_ambiguous_type_names(nullptr);
     }
     // ObjectMapRef backing (LProgram's heap-free pkg_module_ids; Stage E).
     explicit TypeModuleScope(const lir_view::ObjectMapRef* m)
-        : prev_(get_type_module_map()), prev_ref_(get_type_module_map_ref()) {
+        : prev_(get_type_module_map()), prev_ref_(get_type_module_map_ref()),
+          prev_amb_(get_ambiguous_type_names()) {
         set_type_module_map(nullptr);
         set_type_module_map_ref(m);
+        set_ambiguous_type_names(nullptr);
     }
-    ~TypeModuleScope() { set_type_module_map(prev_); set_type_module_map_ref(prev_ref_); }
+    ~TypeModuleScope() { set_type_module_map(prev_); set_type_module_map_ref(prev_ref_); set_ambiguous_type_names(prev_amb_); }
     TypeModuleScope(const TypeModuleScope&) = delete;
     TypeModuleScope& operator=(const TypeModuleScope&) = delete;
 };

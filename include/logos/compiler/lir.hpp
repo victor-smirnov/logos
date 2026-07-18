@@ -785,6 +785,16 @@ struct LProgram {
     // global module → no module qualification (byte-identical legacy mangle).
     lir_view::ObjectMapRef pkg_module_ids;  // Stage E: heap-free working-state map
 
+    // G156-1: bare nominal type names declared in ≥2 DISTINCT packages across
+    // sema's FULL transitive type universe (own + every binary-dependency
+    // module's exported struct/enum decls). Computed ONCE in sema (from the
+    // unpruned struct/enum tables) and carried here so mono and mlir_gen apply
+    // the type-arg package tag at exactly the same names — mono prunes dead
+    // struct/enum defs, so recomputing from prog.structs at mlir time would see
+    // a SMALLER universe and drop the tag, diverging definition from use. Keys
+    // are the ambiguous bare names; values null. (Stage E: heap-free ObjectMap.)
+    lir_view::ObjectMapRef ambiguous_type_names;
+
     // ADR 0007 slice 1c: pools for WritVal / EClosure. Append-only,
     // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME
     // underlying deque (SemaCache holds a ref so cached raw handles survive past

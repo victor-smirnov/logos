@@ -1090,6 +1090,12 @@ private:
     // can module-qualify synthesised method-call symbols. One package maps to
     // one module in a coherent build.
     std::unordered_map<std::string, std::string> pkg_module_ids_;
+    // G156-1: bare nominal names declared in ≥2 DISTINCT packages across the full
+    // transitive type universe (own + binary deps). Built post-collect from
+    // structs_/enums_ and threaded via set_ambiguous_type_names so the type-arg
+    // manglers tag ONLY genuine cross-package collisions. Lives on the checker so
+    // the installed pointer stays valid through lower_program's mangling.
+    std::unordered_set<std::string> ambiguous_type_names_;
     // §3: module canonical NAME → id (from SemaOptions; resolves `use pkg from
     // <name>`). nullptr/empty → `from` clauses can't resolve.
     const std::unordered_map<std::string, std::string>* module_name_to_id_ = nullptr;

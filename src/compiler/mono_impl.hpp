@@ -785,6 +785,8 @@ public:
         case LogosType::Kind::Array:
             return "arr" + std::to_string(tr.arr_size()) + "_" + mangle_type(tr.elem());
         case LogosType::Kind::Struct:
+            // G156-1: the package fingerprint is folded into concrete_struct_name's
+            // canonical identity (byte-identical to sema's mangle_type_for_name).
             return concrete_struct_name(tr);
         // Nested generic enum: bare `type_str(Option<T>)` returns just "Option",
         // dropping inner type-args. For nested specs like `Option<Option<i32>>`
@@ -803,10 +805,9 @@ public:
                 if (t.elem() && has_tv(t.elem())) return true;
                 return false;
             };
-            // Coexistence: module-qualify the enum name (matches sema's
-            // mangle_type_for_name) so two modules' same-named enums get
-            // distinct generic-symbol type-args.
-            std::string esuf = type_module_suffix(tr.pkg_name());
+            // Coexistence + G156-1: fold module_id (and package, for ambiguous
+            // names) into the enum identity — byte-identical to sema.
+            std::string esuf = type_module_suffix(tr.enum_name(), tr.pkg_name());
             for (auto a : tr.type_args()) if (has_tv(a)) return std::string(tr.enum_name()) + esuf;
             std::string r = std::string(tr.enum_name()) + esuf;
             for (auto a : tr.type_args()) {
@@ -863,12 +864,12 @@ public:
         switch (t.kind()) {
         case LogosType::Kind::Struct:
         case LogosType::Kind::ZonedStruct: {
-            std::string suf = type_module_suffix(t.pkg_name());
+            std::string suf = type_module_suffix(t.struct_name(), t.pkg_name());
             if (!suf.empty()) { out += "|"; out += std::string(t.struct_name()); out += suf; }
             break;
         }
         case LogosType::Kind::Enum: {
-            std::string suf = type_module_suffix(t.pkg_name());
+            std::string suf = type_module_suffix(t.enum_name(), t.pkg_name());
             if (!suf.empty()) { out += "|"; out += std::string(t.enum_name()); out += suf; }
             break;
         }

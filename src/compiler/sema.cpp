@@ -32,6 +32,8 @@
 #include <cstdio>
 #include <format>
 #include <functional>
+#include <algorithm>
+#include <unordered_set>
 
 namespace logos::compiler {
 
@@ -1409,24 +1411,109 @@ const lir_view::ObjectMapRef* get_type_module_map_ref() {
     return g_type_pkg_module_ids_ref;
 }
 
-std::string type_module_suffix(std::string_view pkg) {
-    if (pkg.empty()) return {};
-    if (pkg.size() >= 6 && pkg.substr(0, 6) == "logos.") return {};  // stdlib: globally unique
-    if (g_type_pkg_module_ids_ref) {
-        std::string_view mid = g_type_pkg_module_ids_ref->get_str(pkg);
-        return mid.empty() ? std::string{} : "$M" + std::string(mid);
-    }
-    if (!g_type_pkg_module_ids) return {};
-    auto it = g_type_pkg_module_ids->find(std::string(pkg));
-    if (it == g_type_pkg_module_ids->end() || it->second.empty()) return {};
-    return "$M" + it->second;
+// G156-1 — the active phase's ambiguous-type-name set (bare names declared in
+// ≥2 distinct packages). Null disables the type-arg tag (legacy mangle). Each
+// phase (sema/mono/mlir) builds its OWN set from the same transitive universe
+// and installs it here; TypeModuleScope save/restores the pointer.
+thread_local const std::unordered_set<std::string>* g_ambiguous_type_names = nullptr;
+void set_ambiguous_type_names(const std::unordered_set<std::string>* s) {
+    g_ambiguous_type_names = s;
 }
+const std::unordered_set<std::string>* get_ambiguous_type_names() {
+    return g_ambiguous_type_names;
+}
+
+// The owning module_id for a package, from whichever pkg→module map backing is
+// active (sema's C++ map or mono/mlir's ObjectMapRef). Empty ⇒ no map / package
+// not owned by a module (plain single-package compile).
+static std::string_view pkg_owning_module_id(std::string_view pkg) {
+    if (g_type_pkg_module_ids_ref) return g_type_pkg_module_ids_ref->get_str(pkg);
+    if (g_type_pkg_module_ids) {
+        auto it = g_type_pkg_module_ids->find(std::string(pkg));
+        if (it != g_type_pkg_module_ids->end()) return it->second;
+    }
+    return {};
+}
+
+// G156-1 — the CANONICAL package-fingerprint suffix for a type's mangled
+// identity. THE fix for the pkg-less cross-package mangling ODR class: two
+// same-named types in DIFFERENT packages (`logos.std.io.fs.DirEntry` vs
+// `logos.mem.bt.memstore.DirEntry`, or two packages of one module) otherwise
+// collapse to the SAME `concrete_struct_name` → ONE struct-def / layout →
+// generic instances (`Vec$G1$DirEntry`) and element layout both alias, and the
+// linker silently picks one (the landmine behind fs_meta, fe44e493).
+//
+// ONE mechanism, applied at the IDENTITY site: every producer/consumer of a
+// struct/enum mangled name routes through here (concrete_struct_name,
+// concrete_struct_name_raw, the enum/DstRef type-arg cases, mlir_gen's
+// all_struct_defs_ registration). So the struct DEFINITION, its methods, drop
+// glue, vtable keys, field-layout lookups, AND every type-arg reference share
+// ONE package-distinct spelling → def==use by construction, and type-arg symbol
+// distinctness falls out for free (no separate type-arg tag needed).
+//
+// Fires ONLY for names in the ambiguous-set (a bare name declared in ≥2 distinct
+// packages across the build's full transitive universe). A uniquely-named type
+// (≈ all of stdlib) takes the legacy path → byte-identical mangle, so the abi
+// and the symbol-set-sensitive metaprog-JIT archive load are perturbed only at
+// genuine collisions. The set is byte-identical at every mangle phase
+// (sema/mono/mlir, carried via LProgram) so def==use within a build.
+//
+// For an ambiguous name we fold BOTH the owning module_id AND the full package
+// path (module_id is per-TIER for stdlib — one `logos-mem` spans many packages —
+// so it alone can't separate two packages of a tier), stdlib INCLUDED. Encoding
+// "$M<16-hex>": a single `$`-free token so the suffix strippers (mlir_gen_dyn
+// vtable bare-key, mono_clone strip_mtags) still cut at the next `$`.
+//
+// Uniquely-named legacy path: stdlib (`logos.*`) is globally unique by name → no
+// suffix; a non-stdlib module type takes the plain "$M<module_id>" coexistence
+// suffix (same-package-across-separately-compiled-modules distinctness).
+std::string type_module_suffix(std::string_view name, std::string_view pkg) {
+    if (pkg.empty()) return {};
+    if (g_ambiguous_type_names && !name.empty() &&
+        g_ambiguous_type_names->count(std::string(name))) {
+        std::string_view mid = pkg_owning_module_id(pkg);
+        if (!mid.empty()) {
+            uint64_t h = 1469598103934665603ull;           // FNV-1a 64 offset basis
+            auto mix = [&h](std::string_view s) {
+                for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }  // FNV prime
+            };
+            mix(mid);
+            mix(std::string_view("\x1f", 1));
+            mix(pkg);
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
+            return std::string(buf);
+        }
+        // ambiguous but no owning module_id (plain compile) → legacy below.
+    }
+    if (pkg.size() >= 6 && pkg.substr(0, 6) == "logos.") return {};  // stdlib: unique by name
+    std::string_view mid = pkg_owning_module_id(pkg);
+    return mid.empty() ? std::string{} : "$M" + std::string(mid);
+}
+
+// G156-1 — accumulate the ambiguous-type-name set. Feed every (name, pkg)
+// declaration from the transitive universe; a bare name seen in ≥2 DISTINCT
+// packages is ambiguous. `$`-bearing names (generic instances / already-mangled)
+// are ignored: the tag is queried by BARE nominal names only, and keeping the
+// set to bare names makes it byte-identical whether the source is sema's
+// template tables (bare) or mono/mlir's prog.structs (templates + instances).
+void ambiguous_set_accumulate(std::unordered_map<std::string, std::string>& first_pkg,
+                              std::unordered_set<std::string>& out,
+                              std::string_view name, std::string_view pkg) {
+    if (name.empty() || pkg.empty()) return;
+    if (name.find('$') != std::string_view::npos) return;
+    auto [it, inserted] = first_pkg.emplace(std::string(name), std::string(pkg));
+    if (!inserted && it->second != pkg) out.insert(std::string(name));
+}
+
 
 std::string concrete_struct_name(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return {};
     std::string base(TypeRef(t).struct_name());
-    base += type_module_suffix(TypeRef(t).pkg_name());  // coexistence: module-qualify
+    // Coexistence + G156-1: fold module_id (and, for ambiguous names, the full
+    // package) into the CANONICAL identity — one spelling for def + all refs.
+    base += type_module_suffix(TypeRef(t).struct_name(), TypeRef(t).pkg_name());
     if (!TypeRef(t).type_args().empty()) {
         base += "$G";
         base += std::to_string(TypeRef(t).type_args().size());
@@ -1441,7 +1528,7 @@ std::string concrete_struct_name(TypeRef t) {
 std::string concrete_struct_name_raw(std::string_view base_name,
                                      const std::vector<TypeRef>& type_args,
                                      std::string_view pkg) {
-    std::string suffix = type_module_suffix(pkg);
+    std::string suffix = type_module_suffix(base_name, pkg);
     if (type_args.empty()) return std::string(base_name) + suffix;
     std::string r(base_name);
     r += suffix;
@@ -1464,11 +1551,13 @@ static std::string mangle_type_for_name(TypeRef t) {
         return "arr" + std::to_string(TypeRef(t).arr_size()) + "_" + mangle_type_for_name(TypeRef(t).elem());
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
+        // G156-1: the package fingerprint is folded into concrete_struct_name's
+        // canonical identity (covers def + every type-arg ref consistently).
         return concrete_struct_name(t);
     case LogosType::Kind::Enum:
-        // Coexistence: module-qualify the enum's mangled name (as a type-arg)
-        // so two modules' same-named enums don't collide in generic symbols.
-        return type_str(t) + type_module_suffix(TypeRef(t).pkg_name());
+        // Coexistence + G156-1: fold module_id (and package, for ambiguous names)
+        // into the enum's mangled identity so two same-named enums stay distinct.
+        return type_str(t) + type_module_suffix(TypeRef(t).enum_name(), TypeRef(t).pkg_name());
     case LogosType::Kind::Tuple: {
         std::string r = "tup$" + std::to_string(TypeRef(t).tuple_elems().size());
         for (auto e : TypeRef(t).tuple_elems()) { r += "$"; r += mangle_type_for_name(e); }
@@ -1485,7 +1574,7 @@ static std::string mangle_type_for_name(TypeRef t) {
         // generic args — `dstref_PkdFseArray` for two different modules' (or
         // two instantiations') arrays must not collide in symbols.
         std::string base(TypeRef(t).struct_name());
-        base += type_module_suffix(TypeRef(t).pkg_name());
+        base += type_module_suffix(TypeRef(t).struct_name(), TypeRef(t).pkg_name());  // G156-1 identity
         if (!TypeRef(t).type_args().empty()) {
             base += "$G";
             base += std::to_string(TypeRef(t).type_args().size());
@@ -2384,6 +2473,31 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // method-call qualification. Filled during collect() across all files.
     for (auto& [k, v] : pkg_module_ids_)
         lir_mirror_map_put_str(prog, prog.pkg_module_ids, k, v);
+
+    // G156-1: build the ambiguous-type-name set from the full transitive type
+    // universe collected above (own + binary-dependency struct/enum decls) and
+    // install it for the lower_program mangle phase. structs_/enums_ are keyed
+    // `pkg::name` (or bare); the owning pkg comes from the SemaInfo. Must be
+    // byte-identical to the sets mono/mlir_gen build from prog.structs/enums so
+    // definition==use across phases (and across builds in a dependency chain).
+    {
+        auto bare_of = [](const std::string& key) -> std::string_view {
+            auto p = key.rfind("::");
+            std::string_view sv(key);
+            return p == std::string::npos ? sv : sv.substr(p + 2);
+        };
+        ambiguous_type_names_.clear();  // fresh per run (checker may be reused)
+        std::unordered_map<std::string, std::string> first_pkg;
+        for (auto& [k, si] : structs_)
+            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, bare_of(k), si.package);
+        for (auto& [k, ei] : enums_)
+            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, bare_of(k), ei.package);
+        set_ambiguous_type_names(&ambiguous_type_names_);
+        // Carry the set forward so mono/mlir apply the tag at the SAME names
+        // (they see a mono-pruned prog.structs → would recompute a subset).
+        for (auto& n : ambiguous_type_names_)
+            lir_mirror_map_put_null(prog, prog.ambiguous_type_names, n);
+    }
 
     if (!result_.ok()) {
         prog.diags = std::move(result_);
