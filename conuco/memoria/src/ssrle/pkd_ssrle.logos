@@ -1,34 +1,51 @@
 // memoria.ssrle — PkdSsrle: the packed SSRLE sequence over a PkdAlloc block
-// (BTFL arc, increments 3 + 4: the UNINDEXED regime).
+// (BTFL arc, increments 3-5: unindexed regime + the flat size/sum index).
 //
 // C++ oracle: containers/include/memoria/core/packed/sseq/packed_ssrle_seq.hpp
-// (layout/init/sizing) + packed_ssrle_seq_so.hpp (the op surface; access :139,
-// size :135, rank_fn :1194, select_fw_fn :1383 — the scan paths taken when no
-// index exists).
+// (layout/init/sizing, compute_block_size :256, number_of_indexes :149) +
+// packed_ssrle_seq_so.hpp (the op surface; access :139/do_access :1529,
+// rank_fn :1194, select_fw_fn :1383 — each with an index fast path and a scan
+// fallback) + ssrleseq/ssrleseq_reindex_fn.hpp (the reindex walk).
 //
 // Block layout = the C++ 4-slot PackedAllocator convention (enum :105):
 //
 //   slot 0  METADATA    SsrleMeta cell (RAW)
-//   slot 1  SIZE_INDEX  reserved: ALLOCATABLE bitmap bit set, ZERO size
-//   slot 2  SUM_INDEX   reserved: ALLOCATABLE bitmap bit set, ZERO size
+//   slot 1  SIZE_INDEX  RAW u64[blocks]: per-index-block SYMBOL COUNTS
+//   slot 2  SUM_INDEX   RAW u64[blocks × alphabet], block-major rows:
+//                       cell[b·alphabet + s] = occurrences of symbol s among
+//                       the runs of index block b
 //   slot 3  SYMBOLS     RAW u16 code units (the increment-1 segment stream)
 //
-// C++ materializes the indexes only when code_units > AtomsPerBlock
-// (= 256·Bps / sizeof(u16)); below that threshold the index slots stay empty
-// exactly as here. Increments 3/4 implement ONLY the index-free scan paths —
-// they answer correctly at ANY size (an index is an accelerator, not a
-// semantic layer); index build + reindex = increment 5.
+// An INDEX BLOCK covers AtomsPerBlock code units (= 256·Bps bytes). Runs never
+// straddle a 64-byte segment, AtomsPerBlock is a multiple of the segment size,
+// so every run belongs to exactly one index block and the stream cursor lands
+// on every block boundary exactly (the reindex walk relies on this). Indexes
+// are materialized only when code_units > AtomsPerBlock — below the threshold
+// the slots have zero size and every query takes the scan path (the index is
+// an accelerator, not a semantic layer).
 //
-// PORT DECISIONS (recon §7.2 + increment 1):
+// PORT DECISIONS (recon §7.2 + increments 1/5):
 //   * AlphabetSize and Bps are RUNTIME metadata fields (C++ template
 //     parameters); alphabet is primary, bps = BitsPerSymbol(alphabet)
 //     (bitmap.hpp:1025). Use64BitSize=true ⇒ SeqSizeT = u64.
 //   * SsrleMeta = C++ Metadata {size_, code_units_} + the two runtime
 //     fields; the C++ `flags_` slot (write-only in the oracle) is dropped.
+//   * The indexes are FLAT PREFIX-SEARCHABLE ARRAYS, not a port of the C++
+//     PackedDataTypeBuffer sum-trees: per-block values, linear block locate
+//     (blocks = code_units/AtomsPerBlock stays small at leaf scale). Because
+//     the cells are raw u64 with NO PkdAllocatable header, the index slots
+//     are stamped RAW — the C++ ALLOCATABLE stamp would make element moves
+//     "heal" a back-reference that does not exist (layout divergence).
 //   * Mutation scratch is OUT-OF-BLOCK (Vec) — the C++ UpdateState decodes
-//     into std::vector too; the segment writer runs on the scratch and the
-//     finished stream is copied into the slot (recon risk 3 discipline:
-//     price first via compute_size, resize, then write — no partial states).
+//     into std::vector too. set_runs runs in three phases: (1) encode the
+//     stream and build the index buffers out of block; (2) the FALLIBLE
+//     resize phase over all three slots, shrinks first (a shrink releases
+//     the space the grows need; with the final total priced by
+//     pkd_ssrle_block_size, every grow is then guaranteed); (3) infallible
+//     fill + metadata. On resize failure the sequence is RESET TO EMPTY
+//     (a shrink may already have truncated the old stream — the reset keeps
+//     the block valid instead of torn; C++ just throws mid-way under its
+//     MMA_PKD_OOM_SAFE assumption).
 package memoria.ssrle;
 
 use logos.mem.pkd;             // PkdAlloc, pkd_format, SlotKind, PkdError
@@ -84,11 +101,28 @@ pub fn pkd_ssrle_empty_size() -> u32 {
         + round_up_bytes(sizeof::<SsrleMeta>() as u32);
 }
 
-/// Block bytes for a sequence holding `code_units` u16 units — the
-/// compute_size-driven sizing (C++ compute_block_size :256 with the index
-/// lengths = 0: the unindexed regime).
-pub fn pkd_ssrle_block_size(code_units: u64) -> u32 {
-    return pkd_ssrle_empty_size() + round_up_bytes((code_units * 2u64) as u32);
+/// Index blocks a stream of `code_units` units occupies (C++
+/// number_of_indexes :149 in unit terms): 0 at or below the threshold, else
+/// div_up. The reindex walk provably pushes exactly this many blocks.
+pub fn pkd_ssrle_index_blocks(bps: u32, code_units: u64) -> u64 {
+    let apb: u64 = ssrle_atoms_per_block(bps);
+    if code_units <= apb {
+        return 0u64;
+    }
+    return (code_units + apb - 1u64) / apb;
+}
+
+/// Block bytes for a sequence holding `code_units` u16 units, INCLUDING the
+/// index slots the stream requires at that size (C++ compute_block_size :256:
+/// metadata + size index + sum index + symbols). This is THE pricing function
+/// commit-time resizes are guaranteed against.
+pub fn pkd_ssrle_block_size(alphabet_size: u32, code_units: u64) -> u32 {
+    let bps: u32 = ssrle_bps_for_alphabet(alphabet_size);
+    let blocks: u64 = pkd_ssrle_index_blocks(bps, code_units);
+    return pkd_ssrle_empty_size()
+        + round_up_bytes((code_units * 2u64) as u32)
+        + ((blocks * 8u64) as u32)
+        + ((blocks * (alphabet_size as u64) * 8u64) as u32);
 }
 
 // ── the packed handle ───────────────────────────────────────────────────────
@@ -124,8 +158,11 @@ impl Clone for PkdSsrle {
 }
 
 /// Formats `mem[0..block_size)` as an EMPTY sequence (C++ init_bs :294):
-/// 4 slots, metadata allocated, index slots stamped ALLOCATABLE at zero size,
-/// SYMBOLS stamped RAW at zero size.
+/// 4 slots, metadata allocated, index + SYMBOLS slots stamped RAW at zero
+/// size. DIVERGENCE from C++ (which stamps the index slots ALLOCATABLE for
+/// its PackedDataTypeBuffer structures): the flat index arrays are plain u64
+/// cells with no PkdAllocatable header, so the RAW stamp is the correct one —
+/// an ALLOCATABLE stamp would corrupt cell 0 on every element shift.
 pub unsafe fn pkd_ssrle_format(mem: *mut u8, block_size: u32, alphabet_size: u32)
     -> Result<PkdSsrle, PkdError> {
     let bps: u32 = ssrle_bps_for_alphabet(alphabet_size);
@@ -137,10 +174,100 @@ pub unsafe fn pkd_ssrle_format(mem: *mut u8, block_size: u32, alphabet_size: u32
         alphabet_size: alphabet_size,
     };
     a.allocate_cell::<SsrleMeta>(PkdSsrle::SLOT_METADATA, meta)?;
-    a.set_block_type(PkdSsrle::SLOT_SIZE_INDEX, SlotKind::Allocatable);
-    a.set_block_type(PkdSsrle::SLOT_SUM_INDEX, SlotKind::Allocatable);
+    a.set_block_type(PkdSsrle::SLOT_SIZE_INDEX, SlotKind::Raw);
+    a.set_block_type(PkdSsrle::SLOT_SUM_INDEX, SlotKind::Raw);
     a.set_block_type(PkdSsrle::SLOT_SYMBOLS, SlotKind::Raw);
     return Result::Ok(PkdSsrle { mem: mem });
+}
+
+// ── the reindex walk (C++ ssrleseq_reindex_fn.hpp :53) ──────────────────────
+
+// Close the current index block: push the accumulated size + rank row,
+// reset the accumulators, advance the boundary.
+fn index_push_block(
+    sizes: &mut Vec<u64>,
+    sums: &mut Vec<u64>,
+    acc: &mut Vec<u64>,
+    total: &mut u64,
+    block_cnt: &mut u64,
+    next_block: &mut u64,
+    apb: u64,
+) {
+    sizes.push(*total);
+    let alphabet: i64 = acc.length();
+    let mut c: i64 = 0i64;
+    while c < alphabet {
+        sums.push(acc.get(c));
+        acc.set(c, 0u64);
+        c = c + 1i64;
+    }
+    *total = 0u64;
+    *block_cnt = 0u64;
+    *next_block = *next_block + apb;
+}
+
+/// Build the flat index buffers from an encoded unit stream — the ReindexFn
+/// walk, step for step: data runs accumulate full_run_length into the size
+/// row and run_length per pattern symbol into the rank row (:127-:135);
+/// padding advances by its run_length; a block closes when the cursor lands
+/// on a block boundary (:148) and the tail closes after the walk (:153).
+/// `sizes` gains one u64 per block; `sums` gains `alphabet` u64 per block
+/// (block-major rows).
+fn ssrle_index_build(
+    bps: u32,
+    units: &[u16],
+    limit: u64,
+    alphabet: u64,
+    apb: u64,
+    sizes: &mut Vec<u64>,
+    sums: &mut Vec<u64>,
+) {
+    let mut acc: Vec<u64> = vec_new::<u64>();
+    let mut a: u64 = 0u64;
+    while a < alphabet {
+        acc.push(0u64);
+        a = a + 1u64;
+    }
+    let mut total: u64 = 0u64;
+    let mut block_cnt: u64 = 0u64;
+    let mut next_block: u64 = apb;
+    let mut idx: u64 = 0u64;
+    let mut run: SsrleRun = ssrle_make_null();
+    let mut going: bool = true;
+    while going && idx < limit {
+        let consumed: u64 = ssrle_decode_run_units(bps, units, idx, &mut run);
+        if run.is_valid() {
+            total = total + run.full_run_length();
+            let plen: u64 = run.pattern_length as u64;
+            let mut s: u64 = 0u64;
+            while s < plen {
+                let sym: i64 = run.pattern_symbol(bps, s) as i64;
+                acc.set(sym, acc.get(sym) + run.run_length);
+                s = s + 1u64;
+            }
+            block_cnt = block_cnt + 1u64;
+            idx = idx + consumed;
+        } else {
+            if run.is_padding() {
+                idx = idx + run.run_length;
+            } else {
+                // A null run inside [0, limit) — C++ pushes the open block
+                // unconditionally and stops (:143). Well-formed streams end
+                // exactly at limit and never take this branch.
+                index_push_block(sizes, sums, &mut acc, &mut total,
+                                 &mut block_cnt, &mut next_block, apb);
+                going = false;
+            }
+        }
+        if going && idx == next_block {
+            index_push_block(sizes, sums, &mut acc, &mut total,
+                             &mut block_cnt, &mut next_block, apb);
+        }
+    }
+    if block_cnt > 0u64 {
+        index_push_block(sizes, sums, &mut acc, &mut total,
+                         &mut block_cnt, &mut next_block, apb);
+    }
 }
 
 /// Format + set_runs in one step — create-from-runs over caller memory.
@@ -224,7 +351,7 @@ impl PkdSsrle {
     }
 
     /// C++ has_size_index/has_sum_index/has_index (:175-:221): element size
-    /// probes. Always false until increment 5 builds indexes.
+    /// probes — true once reindex has materialized the flat arrays.
     pub fn has_size_index(self: &PkdSsrle) -> bool {
         unsafe {
             return self.alc().element_size(PkdSsrle::SLOT_SIZE_INDEX) > 0u32;
@@ -242,31 +369,102 @@ impl PkdSsrle {
     }
 
     /// The C++ index-materialization threshold (reindex_fn): true when the
-    /// stream is long enough that C++ WOULD build indexes. Increment 5.
+    /// stream is long enough that reindex builds indexes.
     pub fn needs_index(self: &PkdSsrle) -> bool {
         return self.code_units() > ssrle_atoms_per_block(self.bps());
     }
 
+    /// Materialized index blocks (0 when unindexed) — element-size derived,
+    /// the flat-array analog of C++ size_index()->size().
+    pub fn index_blocks(self: &PkdSsrle) -> u64 {
+        unsafe {
+            return (self.alc().element_size(PkdSsrle::SLOT_SIZE_INDEX) as u64) / 8u64;
+        }
+    }
+
+    /// Symbol count of index block `b` (the SIZE_INDEX cell).
+    pub fn index_size_at(self: &PkdSsrle, b: u64) -> u64 {
+        assert(b < self.index_blocks(), "pkd_ssrle: index block out of range");
+        unsafe {
+            let cells: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+            return cells[b as i64];
+        }
+    }
+
+    /// Occurrences of `sym` within index block `b` (the SUM_INDEX cell).
+    pub fn index_sum_at(self: &PkdSsrle, b: u64, sym: u64) -> u64 {
+        assert(b < self.index_blocks(), "pkd_ssrle: index block out of range");
+        assert(sym < self.alphabet_size() as u64, "pkd_ssrle: index symbol out of alphabet");
+        unsafe {
+            let cells: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+            return cells[(b * (self.alphabet_size() as u64) + sym) as i64];
+        }
+    }
+
     // ── create / rewrite ─────────────────────────────────────────────────
 
-    /// Rewrites the whole sequence from `runs` — the commit_insert shape
-    /// (SO :751) on the unindexed regime: price via compute_size (THE size
-    /// oracle), resize the SYMBOLS slot under the allocator's free_space
-    /// discipline (Err(OutOfMem) when the chain can't provide, nothing
-    /// mutated), encode into out-of-block scratch with the increment-1
-    /// segment writer, copy in, update metadata. Invalid (null/padding)
-    /// source runs are skipped by writer and size oracle alike.
-    pub fn set_runs(self: &mut PkdSsrle, runs: &Vec<SsrleRun>) -> Result<(), PkdError> {
-        let bps: u32 = self.bps();
-        let code_units: u64 = ssrle_compute_size(bps, runs, 0u64);
-        // Resize BEFORE any scratch exists: the fallible step runs while no
-        // droppable local is live (fail cheap, before encoding work; also
-        // sidesteps the `?`-skips-local-drops compiler gap — see the drop
-        // probe in the increment-3 report).
+    // The fallible resize phase of set_runs: sizes all three data slots,
+    // SHRINKS FIRST (releases the space the grows draw on — with the final
+    // total priced by pkd_ssrle_block_size, the grows then cannot fail on an
+    // adequately provisioned chain). No droppable locals live here, so `?`
+    // is safe in this helper.
+    fn resize_slots(self: &mut PkdSsrle, sym_bytes: u32, size_bytes: u32, sum_bytes: u32)
+        -> Result<(), PkdError> {
         unsafe {
             let a: *mut PkdAlloc = self.alc();
-            a.resize_block_at(PkdSsrle::SLOT_SYMBOLS, (code_units * 2u64) as u32)?;
+            // shrink pass
+            if size_bytes < a.element_size(PkdSsrle::SLOT_SIZE_INDEX) {
+                a.resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, size_bytes)?;
+            }
+            if sum_bytes < a.element_size(PkdSsrle::SLOT_SUM_INDEX) {
+                a.resize_block_at(PkdSsrle::SLOT_SUM_INDEX, sum_bytes)?;
+            }
+            if sym_bytes < a.element_size(PkdSsrle::SLOT_SYMBOLS) {
+                a.resize_block_at(PkdSsrle::SLOT_SYMBOLS, sym_bytes)?;
+            }
+            // grow pass
+            if sym_bytes > a.element_size(PkdSsrle::SLOT_SYMBOLS) {
+                a.resize_block_at(PkdSsrle::SLOT_SYMBOLS, sym_bytes)?;
+            }
+            if size_bytes > a.element_size(PkdSsrle::SLOT_SIZE_INDEX) {
+                a.resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, size_bytes)?;
+            }
+            if sum_bytes > a.element_size(PkdSsrle::SLOT_SUM_INDEX) {
+                a.resize_block_at(PkdSsrle::SLOT_SUM_INDEX, sum_bytes)?;
+            }
         }
+        return Result::Ok(());
+    }
+
+    // The on-OOM total-failure reset: a failed grow after a completed shrink
+    // would leave metadata pointing past the slot — reset to the canonical
+    // EMPTY sequence instead (all resizes here are shrinks: infallible).
+    fn reset_empty(self: &mut PkdSsrle) {
+        unsafe {
+            let m: *mut SsrleMeta = self.meta();
+            (*m).size = 0u64;
+            (*m).code_units = 0u64;
+            let a: *mut PkdAlloc = self.alc();
+            let _ = a.resize_block_at(PkdSsrle::SLOT_SYMBOLS, 0u32);
+            let _ = a.resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, 0u32);
+            let _ = a.resize_block_at(PkdSsrle::SLOT_SUM_INDEX, 0u32);
+        }
+    }
+
+    /// Rewrites the whole sequence from `runs` — the commit_insert shape
+    /// (SO :751) followed by the reindex walk. Three phases (module header):
+    /// out-of-block encode + index buffers; the fallible resize phase (on
+    /// Err(OutOfMem) the sequence is reset to empty, never torn); infallible
+    /// fill + metadata. Invalid (null/padding) source runs are skipped by
+    /// writer and size oracle alike.
+    pub fn set_runs(self: &mut PkdSsrle, runs: &Vec<SsrleRun>) -> Result<(), PkdError> {
+        let bps: u32 = self.bps();
+        let alphabet: u64 = self.alphabet_size() as u64;
+        let apb: u64 = ssrle_atoms_per_block(bps);
+        let code_units: u64 = ssrle_compute_size(bps, runs, 0u64);
+        // Phase 1 — out of block: encode the stream, then walk it for the
+        // index buffers (the reindex walk needs UNIT positions, which only
+        // the encoded stream carries — the run vector has no padding info).
         let mut scratch: Vec<u16> = vec_new::<u16>();
         let mut i: u64 = 0u64;
         while i < code_units {
@@ -275,10 +473,35 @@ impl PkdSsrle {
         }
         let written: u64 = ssrle_write_segments(bps, runs, &mut scratch, 0u64);
         assert(written == code_units, "pkd_ssrle: writer diverged from compute_size");
+        let mut sizes: Vec<u64> = vec_new::<u64>();
+        let mut sums: Vec<u64> = vec_new::<u64>();
+        if code_units > apb {
+            ssrle_index_build(bps, scratch.as_slice(), code_units, alphabet, apb,
+                              &mut sizes, &mut sums);
+            assert((sizes.length() as u64) == pkd_ssrle_index_blocks(bps, code_units),
+                   "pkd_ssrle: reindex walk diverged from index pricing");
+        }
+        let blocks: i64 = sizes.length();
+        // Phase 2 — the fallible resizes. Explicit match, not `?`: an early
+        // `?` return skips the drops of the live scratch/index vectors (the
+        // drop-gap probe from the increment-3 report).
+        let rr: Result<(), PkdError> = self.resize_slots(
+            (code_units * 2u64) as u32,
+            (blocks as u64 * 8u64) as u32,
+            (blocks as u64 * alphabet * 8u64) as u32,
+        );
+        match rr {
+            Result::Ok(_) => {}
+            Result::Err(e) => {
+                self.reset_empty();
+                return Result::Err(e);
+            }
+        }
+        // Phase 3 — infallible fill.
         unsafe {
             let a: *mut PkdAlloc = self.alc();
-            // Fill the WHOLE slot: stream first, zero the 8-align pad tail
-            // (zero units decode as null runs = EOS; also keeps the slot
+            // Fill the WHOLE symbols slot: stream first, zero the 8-align pad
+            // tail (zero units decode as null runs = EOS; also keeps the slot
             // fully initialized).
             let cells: &mut [u16] = a.cells_mut::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let ncells: i64 = cells.len();
@@ -291,11 +514,38 @@ impl PkdSsrle {
                 }
                 c = c + 1i64;
             }
+            if blocks > 0i64 {
+                let size_cells: &mut [u64] = a.cells_mut::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+                let mut b: i64 = 0i64;
+                while b < blocks {
+                    size_cells[b] = sizes.get(b);
+                    b = b + 1i64;
+                }
+                let sum_cells: &mut [u64] = a.cells_mut::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+                let nsum: i64 = sums.length();
+                let mut k: i64 = 0i64;
+                while k < nsum {
+                    sum_cells[k] = sums.get(k);
+                    k = k + 1i64;
+                }
+            }
             let m: *mut SsrleMeta = self.meta();
             (*m).size = ssrle_count_symbols(runs);
             (*m).code_units = code_units;
         }
         return Result::Ok(());
+    }
+
+    /// The public reindex (C++ SO reindex :176, compactify=true): decode the
+    /// slot stream, compactify, rewrite + rebuild the indexes. set_runs IS
+    /// the rewrite machinery (the C++ skip-when-code_units-match shortcut is
+    /// dropped: re-encoding an unchanged run vector is byte-identical by
+    /// writer determinism).
+    pub fn reindex(self: &mut PkdSsrle) -> Result<(), PkdError> {
+        let bps: u32 = self.bps();
+        let mut runs: Vec<SsrleRun> = self.as_runs();
+        ssrle_compactify(bps, &mut runs);
+        return self.set_runs(&runs);
     }
 
     // ── reading ──────────────────────────────────────────────────────────
@@ -308,17 +558,64 @@ impl PkdSsrle {
         }
     }
 
+    // ── index locate helpers (the flat-array walkers) ────────────────────
+
+    // First index block b with pos < prefix(b) + sizes[b]; writes the size
+    // prefix of the blocks before b (C++ SizeIndex find_fw_gt semantics as
+    // used by do_access :1539 / rank_fn :1215 / find_run :1600). Requires
+    // pos < size — the block always exists.
+    unsafe fn idx_locate_pos(self: &PkdSsrle, pos: u64, prefix_out: &mut u64) -> u64 {
+        let sizes: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+        let n: i64 = sizes.len();
+        let mut sum: u64 = 0u64;
+        let mut b: i64 = 0i64;
+        let mut going: bool = true;
+        while going && b < n {
+            let v: u64 = sizes[b];
+            if pos < sum + v {
+                going = false;
+            } else {
+                sum = sum + v;
+                b = b + 1i64;
+            }
+        }
+        assert(b < n, "pkd_ssrle: position beyond the size index");
+        *prefix_out = sum;
+        return b as u64;
+    }
+
+    // Σ of the `sym` rank column over index blocks [0, upto) (C++ RankEqFn
+    // sum_fn :1058; upto = index_blocks() gives the whole-column total =
+    // sum_all_fn :1062).
+    unsafe fn idx_rank_prefix(self: &PkdSsrle, upto: u64, sym: u64) -> u64 {
+        let alphabet: u64 = self.alphabet_size() as u64;
+        let sums: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+        let mut acc: u64 = 0u64;
+        let mut b: u64 = 0u64;
+        while b < upto {
+            acc = acc + sums[(b * alphabet + sym) as i64];
+            b = b + 1u64;
+        }
+        return acc;
+    }
+
+    // ── queries (index fast path + scan fallback) ────────────────────────
+
     /// Symbol at logical position `pos` (C++ SO access :139 + do_access
-    /// :1529, the no-index branch: scan runs from unit 0, then
-    /// run.symbol(offset)).
+    /// :1529: the size index narrows the scan to one index block; without an
+    /// index the scan starts at unit 0).
     pub fn access(self: &PkdSsrle, pos: u64) -> u64 {
         assert(pos < self.size(), "pkd_ssrle: access out of range");
         let bps: u32 = self.bps();
         let limit: u64 = self.code_units();
         unsafe {
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut idx: u64 = 0u64;
             let mut sum: u64 = 0u64;
+            if self.has_index() {
+                let b: u64 = self.idx_locate_pos(pos, &mut sum);
+                idx = b * ssrle_atoms_per_block(bps);
+            }
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
                 let len: u64 = run.full_run_length();
@@ -333,9 +630,11 @@ impl PkdSsrle {
     }
 
     /// Occurrences of `sym` in positions [0, pos) (C++ rank_fn :1194 with
-    /// RankEqFn, the no-index branch: pos = 0 short-circuits to 0; full runs
-    /// accumulate full_rank_eq, the run holding `pos` contributes a partial
-    /// rank_eq; pos may equal size).
+    /// RankEqFn). pos = 0 short-circuits to 0; pos may equal size (indexed:
+    /// answered entirely from the sum index, :1222). The index fast path
+    /// locates the block holding `pos` and seeds the scan with the block
+    /// prefixes (:1210); full runs accumulate full_rank_eq, the run holding
+    /// `pos` contributes a partial rank_eq.
     pub fn rank_eq(self: &PkdSsrle, pos: u64, sym: u64) -> u64 {
         if pos == 0u64 {
             return 0u64;
@@ -345,10 +644,19 @@ impl PkdSsrle {
         let bps: u32 = self.bps();
         let limit: u64 = self.code_units();
         unsafe {
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut idx: u64 = 0u64;
             let mut size_sum: u64 = 0u64;
             let mut rank_sum: u64 = 0u64;
+            if self.has_index() {
+                if pos < self.size() {
+                    let b: u64 = self.idx_locate_pos(pos, &mut size_sum);
+                    idx = b * ssrle_atoms_per_block(bps);
+                    rank_sum = self.idx_rank_prefix(b, sym);
+                } else {
+                    return self.idx_rank_prefix(self.index_blocks(), sym);
+                }
+            }
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             let mut going: bool = true;
             while going && ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
@@ -371,18 +679,52 @@ impl PkdSsrle {
     }
 
     /// Position of the (rank+1)-th `sym` occurrence (C++ select_fw_fn :1383
-    /// with SelectFwEqFn, the no-index branch). Found: idx = the position,
-    /// rank = the rank PREFIX before the hit run. Not found: idx = size,
-    /// rank = the total `sym` count.
+    /// with SelectFwEqFn). The index fast path walks the `sym` rank column
+    /// for the block where the cumulative rank passes `rank`, then seeds the
+    /// scan with that block's prefixes (:1391); rank beyond the column total
+    /// short-circuits to not-found (:1404). Found: idx = the position, rank
+    /// = the rank PREFIX before the hit run. Not found: idx = size, rank =
+    /// the total `sym` count.
     pub fn select_fw_eq(self: &PkdSsrle, rank: u64, sym: u64) -> SsrleSelect {
         assert(sym < self.alphabet_size() as u64, "pkd_ssrle: select symbol out of alphabet");
         let bps: u32 = self.bps();
         let limit: u64 = self.code_units();
         unsafe {
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut idx: u64 = 0u64;
             let mut size_sum: u64 = 0u64;
             let mut rank_sum: u64 = 0u64;
+            if self.has_index() {
+                let alphabet: u64 = self.alphabet_size() as u64;
+                let blocks: u64 = self.index_blocks();
+                {
+                    let sums: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+                    let mut b: u64 = 0u64;
+                    let mut going: bool = true;
+                    while going && b < blocks {
+                        let v: u64 = sums[(b * alphabet + sym) as i64];
+                        if rank < rank_sum + v {
+                            going = false;
+                        } else {
+                            rank_sum = rank_sum + v;
+                            b = b + 1u64;
+                        }
+                    }
+                    if b == blocks {
+                        return SsrleSelect {
+                            idx: self.size(),
+                            rank: rank_sum,
+                        };
+                    }
+                    let size_cells: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+                    let mut i: u64 = 0u64;
+                    while i < b {
+                        size_sum = size_sum + size_cells[i as i64];
+                        i = i + 1u64;
+                    }
+                    idx = b * ssrle_atoms_per_block(bps);
+                }
+            }
+            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
                 let run_rank: u64 = run.full_rank_eq(bps, sym);

@@ -127,7 +127,7 @@ fn check_select_vs_vec_at(seq: &PkdSsrle, runs: &Vec<SsrleRun>, rank: u64, sym: 
 
 fn check_fixture_case(bps: u32, runs: &Vec<SsrleRun>, nunits: u64, s: str, pos: &mut i64) -> i32 {
     let alphabet: u32 = 1u32 << bps;
-    let block_size: u32 = pkd_ssrle_block_size(nunits);
+    let block_size: u32 = pkd_ssrle_block_size(alphabet, nunits);
     unsafe {
         let mem: *mut u8 = alloc(block_size as i64);
         let seq: PkdSsrle = match pkd_ssrle_create(mem, block_size, alphabet, runs) {
@@ -174,7 +174,12 @@ fn check_fixture_body(seq: &PkdSsrle, bps: u32, runs: &Vec<SsrleRun>, nunits: u6
         }
         k = k + 1i64;
     }
-    if seq.has_size_index() || seq.has_sum_index() || seq.has_index() {
+    // increment 5: indexes exist exactly when the stream crosses the
+    // threshold, and always as a pair
+    if seq.has_index() != seq.needs_index() {
+        return 17i32;
+    }
+    if seq.has_size_index() != seq.has_sum_index() {
         return 17i32;
     }
     // the slot is sized round_up_8 over the stream — pad < 4 units
@@ -251,7 +256,7 @@ fn check_seeded(bps: u32, st: &mut u64) -> i32 {
     let stream: Vec<u64> = ssrle_materialize(bps, &runs);
     let size: u64 = stream.length() as u64;
     let nunits: u64 = ssrle_compute_size(bps, &runs, 0u64);
-    let block_size: u32 = pkd_ssrle_block_size(nunits);
+    let block_size: u32 = pkd_ssrle_block_size(alphabet, nunits);
     unsafe {
         let mem: *mut u8 = alloc(block_size as i64);
         let seq: PkdSsrle = match pkd_ssrle_create(mem, block_size, alphabet, &runs) {
@@ -352,7 +357,7 @@ fn check_seeded_body(seq: &PkdSsrle, bps: u32, runs: &Vec<SsrleRun>, stream: &Ve
 // ── empty / OOM / format sanity ─────────────────────────────────────────────
 
 fn check_empty() -> i32 {
-    let block_size: u32 = pkd_ssrle_block_size(0u64);
+    let block_size: u32 = pkd_ssrle_block_size(4u32, 0u64);
     unsafe {
         let mem: *mut u8 = alloc(block_size as i64);
         let empty: Vec<SsrleRun> = vec_new::<SsrleRun>();
@@ -436,12 +441,29 @@ fn check_format_sanity() -> i32 {
     if ssrle_atoms_per_block(8u32) != 1024u64 {
         return 77i32;
     }
-    // sizing: monotone in code_units; empty = block_size(0)
-    if pkd_ssrle_block_size(0u64) != pkd_ssrle_empty_size() {
+    // sizing: monotone in code_units; empty = block_size(0); the index term
+    // appears exactly past the threshold
+    if pkd_ssrle_block_size(4u32, 0u64) != pkd_ssrle_empty_size() {
         return 78i32;
     }
-    if pkd_ssrle_block_size(100u64) <= pkd_ssrle_block_size(4u64) {
+    if pkd_ssrle_block_size(4u32, 100u64) <= pkd_ssrle_block_size(4u32, 4u64) {
         return 79i32;
+    }
+    if pkd_ssrle_index_blocks(1u32, 128u64) != 0u64 {
+        return 80i32;
+    }
+    if pkd_ssrle_index_blocks(1u32, 129u64) != 2u64 {
+        return 81i32;
+    }
+    if pkd_ssrle_index_blocks(2u32, 512u64) != 2u64 {
+        return 82i32;
+    }
+    let at_thresh: u32 = pkd_ssrle_block_size(2u32, 128u64);
+    let past_thresh: u32 = pkd_ssrle_block_size(2u32, 129u64);
+    // 129 units: +8 stream bytes (round8(258)−round8(256)... both round to
+    // themselves ±: 256→256, 258→264) + 2 size cells + 2·2 sum cells
+    if past_thresh != at_thresh + 8u32 + 16u32 + 32u32 {
+        return 83i32;
     }
     return 0i32;
 }
