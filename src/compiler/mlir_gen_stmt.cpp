@@ -407,7 +407,30 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefFieldWriteView v) { gen_deref_fi
 void MLIRGenImpl::gen_stmt_kind(lir_view::SChainFieldWriteView v) { gen_chain_field_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldIndexWriteView v) { gen_field_index_write(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { if (v.expr()) gen_expr(v.expr()); }
+void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v) {
+    if (!v.expr()) return;
+    // Silent-drop guard (mlir-gen hardening). An expression evaluated purely
+    // for effect is the ONLY place where a null gen_expr result is discarded
+    // wholesale. That discard silently swallowed two miscompiles this week
+    // (void-Ok `?`, gap C): a composite expression bailed early and its calls /
+    // writes vanished. Invariant: an expression whose TYPE has a value
+    // representation (logos_to_mlir non-null) must either yield that value or
+    // divert control (return/break/panic terminate the block). A null result
+    // with a live block means the lowering produced nothing — fail loudly
+    // rather than drop the statement. Void / Never / zero-width exprs have a
+    // null logos_to_mlir and are legitimately value-less (their effects are
+    // emitted inline, e.g. a void call emits its CallOp then returns null), so
+    // they are excluded — the void COMPOSITE handlers (gen_if / match-expr /
+    // block-expr) are void-safe at the source and emit their effects.
+    TypeRef ety = v.expr().type(pool_impl());
+    auto val = gen_expr(v.expr());
+    if (!val && logos_to_mlir(ety) && !is_terminated(builder_.getBlock())) {
+        std::fprintf(stderr,
+            "mlir_gen: internal: value-typed expression statement lowered to no "
+            "value and did not terminate — its effects were silently dropped\n");
+        std::abort();
+    }
+}
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {

@@ -1,0 +1,153 @@
+// void_effect_positions — mlir-gen silent-drop hardening.
+//
+// A VOID-typed expression carries side effects that must be lowered even
+// though it produces no value. logos_to_mlir(Void) is null, and the composite
+// value-expression handlers used `!result_type` as an early bail — so a void
+// match-EXPRESSION (scrutinee + arms) vanished with no diagnostic. That silent
+// no-op masked two miscompiles (the void-Ok `?` and gap C). gen_if and the
+// block-expr were already void-safe; this locks the same guarantee for the
+// match-expression and exercises void-effectful exprs in every position.
+//
+// Every arm/branch mutates a heap counter; main asserts EXACT totals, so a
+// dropped effect (under-count) OR a duplicated one (over-count) fails.
+package void_effect_positions;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.option;
+
+enum Tag { A, B, C }
+
+fn bump(c: *mut i64, n: i64) {
+    unsafe { c[0] = c[0] + n; }
+}
+
+// (1) Void match EXPRESSION — a `let _: ()` initializer forces the match into
+// expression position (EMatchExpr), not statement position (SMatch). Pre-fix
+// the whole match — scrutinee dispatch AND arm bodies — was dropped.
+fn via_match_expr(c: *mut i64, t: Tag) {
+    let _u: () = match t {
+        Tag::A => { bump(c, 1i64); }
+        Tag::B => { bump(c, 2i64); }
+        Tag::C => { bump(c, 3i64); }
+    };
+}
+
+// (2) Void match expression with payload bindings — the bound value feeds the
+// effect, so a dropped scrutinee would also lose the binding.
+fn via_match_payload(c: *mut i64, r: Result<i64, i64>) {
+    let _u: () = match r {
+        Result::Ok(n)  => { bump(c, n); }
+        Result::Err(e) => { bump(c, 0i64 - e); }
+    };
+}
+
+// (3) Void match nested as the tail of a void block-EXPRESSION in value
+// position — composes the two void-safe handlers.
+fn via_block_then_match(c: *mut i64, t: Tag) {
+    let _u: () = {
+        bump(c, 10i64);
+        match t {
+            Tag::A => { bump(c, 1i64); }
+            _      => { bump(c, 100i64); }
+        }
+    };
+}
+
+// (4) Void match as a branch value of a void if-EXPRESSION (gen_if void path is
+// the sibling that was already fixed — regression canary — with a void match
+// nested inside it).
+fn via_if_branch_match(c: *mut i64, b: bool, t: Tag) {
+    let _u: () = if b {
+        match t {
+            Tag::A => { bump(c, 1i64); }
+            _      => { bump(c, 2i64); }
+        }
+    } else {
+        bump(c, 50i64);
+    };
+}
+
+// (5) Void-Ok `?` used as a statement (the exact casualty the previous fix-arc
+// found in the pkd allocator) — regression canary that void-Ok `?` still runs
+// its scrutinee and threads the effect.
+fn ret_unit(fail: bool) -> Result<(), i64> {
+    if fail { return Result::Err(1i64); }
+    return Result::Ok(());
+}
+fn via_void_try(c: *mut i64, fail: bool) -> Result<(), i64> {
+    bump(c, 1i64);
+    ret_unit(fail)?;
+    bump(c, 1i64);
+    return Result::Ok(());
+}
+
+// (6) Bare `match` STATEMENT (SMatch) with void arms — always was void-safe;
+// canary that the statement form is unchanged.
+fn via_match_stmt(c: *mut i64, t: Tag) {
+    match t {
+        Tag::A => { bump(c, 1i64); }
+        Tag::B => { bump(c, 2i64); }
+        Tag::C => { bump(c, 3i64); }
+    }
+}
+
+fn main() -> i32 {
+    unsafe {
+        let c: *mut i64 = alloc(sizeof::<i64>()) as *mut i64;
+
+        // (1) match-expression dispatch reaches each arm.
+        c[0] = 0i64;
+        via_match_expr(c, Tag::A);
+        if c[0] != 1i64 { return 1i32; }
+        via_match_expr(c, Tag::B);
+        if c[0] != 3i64 { return 2i32; }
+        via_match_expr(c, Tag::C);
+        if c[0] != 6i64 { return 3i32; }
+
+        // (2) payload bindings in a void match-expression.
+        c[0] = 0i64;
+        via_match_payload(c, Result::Ok(7i64));
+        if c[0] != 7i64 { return 4i32; }
+        via_match_payload(c, Result::Err(4i64));
+        if c[0] != 3i64 { return 5i32; }   // 7 + (0 - 4)
+
+        // (3) void block-expr whose tail is a void match-expr.
+        c[0] = 0i64;
+        via_block_then_match(c, Tag::A);
+        if c[0] != 11i64 { return 6i32; }  // 10 + 1
+        via_block_then_match(c, Tag::C);
+        if c[0] != 121i64 { return 7i32; } // +10 +100
+
+        // (4) void match nested in a void if-expr branch.
+        c[0] = 0i64;
+        via_if_branch_match(c, true, Tag::A);
+        if c[0] != 1i64 { return 8i32; }
+        via_if_branch_match(c, true, Tag::B);
+        if c[0] != 3i64 { return 9i32; }   // else-arm of inner match: +2
+        via_if_branch_match(c, false, Tag::A);
+        if c[0] != 53i64 { return 10i32; } // else branch of if: +50
+
+        // (5) void-Ok `?` as a statement runs the pre/post effects on Ok,
+        // and the pre-effect only on Err (early return).
+        c[0] = 0i64;
+        match via_void_try(c, false) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => { return 11i32; }
+        }
+        if c[0] != 2i64 { return 12i32; }  // both bumps ran
+        c[0] = 0i64;
+        match via_void_try(c, true) {
+            Result::Ok(_u) => { return 13i32; }
+            Result::Err(_e) => {}
+        }
+        if c[0] != 1i64 { return 14i32; }  // only the pre-`?` bump ran
+
+        // (6) statement-form match unchanged.
+        c[0] = 0i64;
+        via_match_stmt(c, Tag::B);
+        if c[0] != 2i64 { return 15i32; }
+
+        dealloc(c as *mut u8);
+    }
+    return 0i32;
+}

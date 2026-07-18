@@ -3866,10 +3866,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     std::vector<lir_view::EMatchArmRef> arm_refs;
     v.each_arm([&](lir_view::EMatchArmRef a){ arm_refs.push_back(a); });
     mlir::Type result_type = logos_to_mlir(type);
-    if (!result_type) return nullptr;
+    // Void-typed match (every arm evaluates to `()`): still lower the
+    // scrutinee, the dispatch and every arm body — they carry side effects
+    // (calls, writes, `f()?` early-returns). logos_to_mlir(Void) is null, and
+    // the original `if (!result_type) return nullptr;` short-circuited the
+    // ENTIRE match: the scrutinee call and all arm effects vanished with no
+    // diagnostic. That silent-drop is the class that masked the void-Ok `?`
+    // and gap-C miscompiles. Mirror gen_if's void path — no result slot, emit
+    // everything, return a synthetic unit at the merge.
+    bool void_match = (type && TypeRef(type).kind() == LogosType::Kind::Void);
+    if (!result_type && !void_match) return nullptr;
 
-    // Allocate result slot before the match (entry-block reachable).
-    auto result_alloca = create_entry_alloca(result_type);
+    // Allocate result slot before the match (entry-block reachable). A void
+    // match has no slot — arm values are null (void) and never stored.
+    mlir::Value result_alloca;
+    if (result_type) result_alloca = create_entry_alloca(result_type);
 
     // G161-4: coerce an arm's value to the result-slot type. When the result is
     // a by-pointer aggregate (struct/array → result_type == ptr) but the arm
@@ -3893,6 +3904,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         region->push_back(merge_block);
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
         builder_.setInsertionPointToStart(merge_block);
+        if (!result_type)
+            return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
         return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
     }
 
@@ -4832,6 +4845,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     builder_.create<mlir::cf::BranchOp>(loc_, else_block);
     region->push_back(merge_block);
     builder_.setInsertionPointToStart(merge_block);
+    if (!result_type) {
+        // Void match: synthetic unit value so callers don't deref nullptr
+        // (mirrors gen_if's void merge). All effects were emitted in the arms.
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+    }
     return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
 }
 
