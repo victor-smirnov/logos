@@ -24,6 +24,7 @@ package logos.mem.bt;
 
 use logos.mem.pkd;
 use logos.lang.mem;
+use logos.lang.drop;
 use logos.lang.option;
 use logos.lang.result;
 use logos.mem.collections.vec;
@@ -66,6 +67,22 @@ impl BtArena {
     /// Node block view for `id`.
     pub fn at(self: &BtArena, id: u64) -> *mut PkdAlloc {
         return self.blocks.get((id as i64) - 1i64) as *mut PkdAlloc;
+    }
+}
+
+// The arena OWNS every node block it allocated (alloc_node → alloc). Free them
+// on scope exit; the `blocks` Vec drops itself afterwards. M3 hands ownership
+// to the store instead, at which point the arena no longer allocates.
+impl Drop for BtArena {
+    fn drop(self: BtArena) {
+        let mut i: i64 = 0i64;
+        while i < self.blocks.len() {
+            let p: i64 = self.blocks.get(i);
+            if p != 0i64 {
+                unsafe { dealloc(p as *mut u8); }
+            }
+            i = i + 1i64;
+        }
     }
 }
 
