@@ -1,0 +1,113 @@
+// Gap C (2026-07): same-named locals of DIFFERENT types in sibling / nested
+// scopes of one function miscompiled — mlir-gen's per-var classification maps
+// are keyed by bare name, loop/match/block bodies leaked their entries, and a
+// re-`let` never evicted stale peer shapes, so a later use resolved through
+// the EARLIER binding's shape (stale var_struct_ made a scalar read as a
+// struct pointer → `func.call operand type mismatch` verifier ICE, or silent
+// garbage). Fixed by binder-site shape eviction (evict_var_shapes) + exact
+// lexical snapshot/restore around every scope region (while/for/loop/
+// for-each/match arms/blocks — the mechanism gen_if already used).
+package same_name_sibling_scopes;
+
+struct Thing { a: u64, b: u64 }
+struct Wide { x: i64, y: i64, z: i64 }
+
+fn take(x: u64) -> u64 { return x + 1u64; }
+fn geti(x: i64) -> i64 { return x; }
+
+fn main() -> i32 {
+    let t: Thing = Thing { a: 5u64, b: 6u64 };
+    let w: Wide = Wide { x: 1i64, y: 2i64, z: 3i64 };
+
+    // 1) The ICE shape: `r: &Thing` in a while body, later sibling `r: u64`
+    //    passed as a scalar call arg.
+    let mut acc: u64 = 0u64;
+    let mut k: i64 = 0i64;
+    while k < 2i64 {
+        let r: &Thing = &t;
+        acc = acc + r.a;
+        k = k + 1i64;
+    }
+    let r: u64 = 7u64;
+    acc = acc + take(r);
+    if acc != 18u64 { return 1; }
+
+    // 2) Same-name SAME-TYPE sibling blocks with DIFFERENT values: distinct
+    //    slots, both contribute their own value (no aliasing).
+    let mut s1: i64 = 0i64;
+    {
+        let v: i64 = 100i64;
+        s1 = s1 + v;
+    }
+    {
+        let v: i64 = 23i64;
+        s1 = s1 + v;
+    }
+    if s1 != 123i64 { return 2; }
+
+    // 2b) Same-type NESTED shadow: mutating the inner binding must not write
+    //     the outer slot (would prove slot aliasing).
+    let x: i64 = 50i64;
+    let mut inner_seen: i64 = 0i64;
+    {
+        let mut x: i64 = 60i64;
+        x = x + 1i64;
+        inner_seen = x;
+    }
+    if inner_seen != 61i64 { return 3; }
+    if x != 50i64 { return 4; }
+
+    // 3) Nested shadow, DIFFERENT types (outer scalar, inner ref-to-struct);
+    //    outer must resolve as a scalar again after the block.
+    let n: i64 = 40i64;
+    let mut got: u64 = 0u64;
+    {
+        let n: &Thing = &t;
+        got = n.b;
+    }
+    if got != 6u64 { return 5; }
+    if geti(n) != 40i64 { return 6; }
+
+    // 3b) Reverse direction: outer ref-to-struct, inner scalar. The INNER
+    //     scalar use must not read through the outer's stale struct shape,
+    //     and the outer's shape must be restored after the block.
+    let m: &Wide = &w;
+    let mut mm: i64 = 0i64;
+    {
+        let m: i64 = 1000i64;
+        mm = mm + m;
+    }
+    mm = mm + m.z;
+    if mm != 1003i64 { return 7; }
+
+    // 4) Same-scope re-`let` shadowing (Rust-legal), including an initializer
+    //    that reads the OLD binding through its OLD shape.
+    let p: u64 = 3u64;
+    let p: &Thing = &t;
+    if p.a != 5u64 { return 8; }
+    let p: u64 = p.a + 4u64;
+    if take(p) != 10u64 { return 9; }
+
+    // 5) Loop-body local shadowing an outer ref local; outer usable after.
+    let q: &Wide = &w;
+    let mut zsum: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < 3i64 {
+        let q: i64 = j * 10i64;
+        zsum = zsum + q;
+        j = j + 1i64;
+    }
+    zsum = zsum + q.y;
+    if zsum != 32i64 { return 10; }
+
+    // 5b) `for`-loop var shadowing an outer struct-ref local.
+    let f: &Thing = &t;
+    let mut fsum: u64 = 0u64;
+    for f in 0..3 {
+        fsum = fsum + (f as u64);
+    }
+    fsum = fsum + f.a;
+    if fsum != 8u64 { return 11; }
+
+    return 0;
+}

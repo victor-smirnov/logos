@@ -77,20 +77,9 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
 
     // Peer-shape eviction: the name may be re-bound from an outer
     // different-shape value; every bind path below first clears ALL
-    // shape-tracking sets, then claims its own. (Was done only on the
-    // scalar path — a struct-shaped outer name re-bound as scalar kept a
-    // stale var_struct_ entry in the let-else copy of this loop.)
-    auto evict_shapes = [&](const std::string& n) {
-        var_struct_.erase(n);
-        var_subscript_.erase(n);
-        var_tuple_.erase(n);
-        var_tagged_enum_.erase(n);
-        var_tagged_enum_ptr_.erase(n);
-        var_dyn_trait_.erase(n);
-        var_raw_dyn_.erase(n);
-        var_local_ptrs_.erase(n);
-        var_elem_types_.erase(n);
-    };
+    // shape-tracking sets, then claims its own (gap C foundation — see
+    // evict_var_shapes in mlir_gen_impl.hpp).
+    auto evict_shapes = [&](const std::string& n) { evict_var_shapes(n); };
 
     for (size_t bi = 0; bi < bindings.size() && bi < vp->field_types.size(); ++bi) {
         if (bindings[bi] == "_") continue;
@@ -422,51 +411,48 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { if (v.expr()) gen
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
-    // A destructure-`let` (`let Pair{a,b} = e` / `let (a,b) = e`) lowers to a
-    // TRANSPARENT block: `let __dst = e; let a = __dst.0; …`. Its field bindings
-    // must LEAK into the enclosing scope — INCLUDING shadowing an existing
-    // same-named binding (`let b = 2; let Bar{b,..} = …`). A real `{ }` block
-    // restores shadows on exit (B-st-01); doing that here reverted the shadowing
-    // field binding to the OUTER alloca → the destructured value was lost. The
-    // synthetic `__dst`/`__destruct` temp as the FIRST statement marks the
-    // destructure block; for it, skip the scope-restore (the temp leaking is
-    // harmless — it's a unique compiler name never referenced after).
+    // Sema-synthesized TRANSPARENT blocks: their bindings must LEAK into the
+    // enclosing scope — INCLUDING shadowing an existing same-named binding.
+    // Sema wraps many single STATEMENTS in an SBlock whose FIRST `let` binds a
+    // synthetic `__`-prefixed temp; the wrapped statement's own bindings are
+    // define()'d in the ENCLOSING sema scope and read after the block:
+    //   • destructure-`let` → `{ let __dst = e; let a = __dst.0; … }`
+    //     (B-st-01: restoring shadows here reverted the shadowing field
+    //     binding to the OUTER alloca → the destructured value was lost);
+    //   • statement temp-hoist (gap A, `f().m()` receivers) →
+    //     `{ let __rtmp_0 = f(); <ORIGINAL stmt>; drop __rtmp_0; }` —
+    //     erasing the wrapped let's USER name silently DROPPED every later
+    //     statement using it (the lforge lockfile-pins regression);
+    //   • temporary lifetime extension → `{ let __lit_temp_0 = rv;
+    //     let p = &__lit_temp_0; }` — the temp's SDrop sits at the ENCLOSING
+    //     scope end; erasing it skipped the drop (spec region_3 check 6).
+    // The discriminator is the CLASS marker — a synthetic `__` first-let —
+    // not a producer list (that list drifted twice already). For these, skip
+    // the scope-restore entirely: sema already scoped the contents, and the
+    // synthetic temps are unique names never re-bound.
     {
-        bool first = true, is_destructure = false;
+        bool first = true, is_transparent = false;
         v.body().each_stmt([&](lir_view::StmtRef s) {
             if (!first) return;
             first = false;
             if (s.kind() == lir_schema::stmt::Code::Let) {
                 std::string n(lir_view::SLetView{s}.name());
-                if (n.rfind("__dst", 0) == 0 || n.rfind("__destruct", 0) == 0)
-                    is_destructure = true;
+                if (n.rfind("__", 0) == 0)
+                    is_transparent = true;
             }
         });
-        if (is_destructure) { gen_block(v.body()); return; }
+        if (is_transparent) { gen_block(v.body()); return; }
     }
-    // Sprint 3.1: restore shadowed SSA-name mappings on inner-block exit
-    // (closes B-st-01 — return-after-shadow read inner alloca instead of
-    // outer).  We snapshot only the *previous values* of pre-existing
-    // names, then after the block, write those values back.  New names
-    // introduced inside (e.g. let-destruct's `a`/`b`) survive — sema
-    // legitimately uses inner SBlocks to scope tuple-destruct temporaries.
-    auto saved_scope            = scope_;
-    auto saved_local_ptrs       = var_local_ptrs_;
-    auto saved_tuple            = var_tuple_;
-    auto saved_tagged_enum      = var_tagged_enum_;
-    auto saved_tagged_enum_ptr  = var_tagged_enum_ptr_;
-    auto saved_dyn_trait        = var_dyn_trait_;
-    auto saved_raw_dyn          = var_raw_dyn_;
-    auto saved_struct           = var_struct_;
+    // Sprint 3.1 / gap C: a real `{ }` block is its own lexical scope. Exact
+    // snapshot/restore (same mechanism as gen_if): re-instates shadowed outer
+    // bindings (B-st-01) AND erases names introduced inside, so a later
+    // same-named `let` of a DIFFERENT type can't mis-resolve through a leaked
+    // shape entry. (The old partial merge-back restored shadowed values but
+    // let inner names leak — the sibling-scope miscompile class.) Destructure
+    // blocks, whose bindings MUST leak, took the early-return above.
+    auto block_scope = snapshot_var_scope();
     gen_block(v.body());
-    for (auto& [k, val] : saved_scope)            scope_[k]            = val;
-    for (auto& [k, val] : saved_local_ptrs)       var_local_ptrs_[k]   = val;
-    for (auto& k : saved_tuple)                   var_tuple_.insert(k);
-    for (auto& k : saved_tagged_enum)             var_tagged_enum_.insert(k);
-    for (auto& k : saved_tagged_enum_ptr)         var_tagged_enum_ptr_.insert(k);
-    for (auto& [k, val] : saved_dyn_trait)        var_dyn_trait_[k]    = val;
-    for (auto& k : saved_raw_dyn)                 var_raw_dyn_.insert(k);
-    for (auto& [k, val] : saved_struct)           var_struct_[k]       = val;
+    restore_var_scope(block_scope);
 }
 
 bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
@@ -1444,6 +1430,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         auto mt = ty ? logos_to_mlir(ty) : mlir::Type();
         if (!mt) return;
         auto alloca = create_entry_alloca(mt);
+        evict_var_shapes(nm);
         scope_[nm] = alloca;
         let_vars_.insert(nm);
         var_elem_types_[nm] = mt;
@@ -1483,6 +1470,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         val = coerce_numeric(val, builder_.getI32Type());
         auto alloca = create_entry_alloca(builder_.getI32Type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+        evict_var_shapes(s.name);
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
         var_elem_types_[s.name] = builder_.getI32Type();
@@ -1494,6 +1482,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         lir_view::EStructLitView lit{s.value};
         auto alloca = gen_struct_lit(lit);
         if (!alloca) return;
+        evict_var_shapes(s.name);
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
         var_struct_[s.name] = s.type ? mlir_struct_key(s.type) : std::string(lit.name());
@@ -1515,6 +1504,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         auto alloca = gen_arr_lit(lit, elem_type,
                                   s.type ? TypeRef(s.type).elem() : TypeRef(nullptr));
         if (!alloca) return;
+        evict_var_shapes(s.name);
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
         var_elem_types_[s.name] = elem_type;
@@ -1526,6 +1516,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     if (val_code == lir_schema::expr::Code::TupleLit) {
         auto val = gen_expr(s.value);
         if (!val) return;
+        evict_var_shapes(s.name);
         scope_[s.name] = val;
         let_vars_.insert(s.name);
         var_tuple_.insert(s.name);
@@ -1545,6 +1536,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
             val = alloca;
         }
+        evict_var_shapes(s.name);
         scope_[s.name] = val;
         let_vars_.insert(s.name);
         var_tuple_.insert(s.name);
@@ -1555,6 +1547,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     if (s.type && TypeRef(s.type).kind() == LogosType::Kind::Closure) {
         auto val = gen_expr(s.value);
         if (!val) return;
+        evict_var_shapes(s.name);
         scope_[s.name] = val;
         let_vars_.insert(s.name);
         var_tuple_.insert(s.name);  // return ptr directly
@@ -1570,6 +1563,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         // Store as a let-bound scalar (alloca holding a ptr).
         auto alloca = create_entry_alloca(ptr_type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+        evict_var_shapes(s.name);
         scope_[s.name]          = alloca;
         let_vars_.insert(s.name);
         var_elem_types_[s.name] = ptr_type();
@@ -1603,6 +1597,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
                                                   /*isVolatile=*/false);
             val = fresh;
         }
+        evict_var_shapes(s.name);
         scope_[s.name] = val;
         let_vars_.insert(s.name);
         var_tuple_.insert(s.name);
@@ -1642,6 +1637,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
                 builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, val, size_const(s.type), /*isVolatile=*/false);
                 val = fresh;
             }
+            evict_var_shapes(s.name);
             scope_[s.name] = val;
             let_vars_.insert(s.name);
             var_tagged_enum_.insert(s.name);
@@ -1676,6 +1672,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, val, size_const(s.type), /*isVolatile=*/false);
             val = fresh;
         }
+        evict_var_shapes(s.name);
         scope_[s.name]    = val;
         let_vars_.insert(s.name);
         var_struct_[s.name] = sname;
@@ -1691,6 +1688,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
                          st.pointee().kind() == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(s.value);
         if (!val) return;
+        evict_var_shapes(s.name);
         if (s.is_mut) {
             // `let mut r = &s1; … r = &s2;` — a MUT ref binding needs its
             // own alloca(ptr) slot. Aliasing scope_[r] to the target
@@ -1784,10 +1782,6 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
             alloca = coerce_concrete_source_to_dyn(data_ptr, s_val_ty,
                                                    st.trait_name());
         }
-        scope_[s.name] = alloca;
-        let_vars_.insert(s.name);
-        var_dyn_trait_[s.name] = std::string(st.trait_name());
-        if (is_raw_ptr_dyn) var_raw_dyn_.insert(s.name);
         // Provenance bookkeeping for raw `*const/*mut dyn` (Ptr<TraitObject>):
         // a `*const dyn` returned by a CONTAINER ACCESSOR (`HashMap::get →
         // *const Box<dyn>`) is a pointer-INTO-storage, so a later `*p` must LOAD
@@ -1796,21 +1790,26 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         // type Ptr<TraitObject>; only provenance distinguishes them. Mark the
         // accessor-return case (source is a method call returning `*const dyn`,
         // or a chained copy of such a var) so EDeref takes the LOAD branch.
+        // Computed BEFORE the shape eviction below: the source var may be the
+        // OLD binding of this very name (`let p = p;`).
+        bool src_is_accessor_ret = false;
         if (is_raw_ptr_dyn && s.value) {
             auto sv_ref = s.value;
-            bool src_is_accessor_ret = false;
-            if (sv_ref) {
-                if (sv_ref.kind() == lir_schema::expr::Code::MethodCall) {
-                    src_is_accessor_ret = true;
-                } else if (sv_ref.kind() == lir_schema::expr::Code::VarRef) {
-                    lir_view::EVarRefView vr(sv_ref);
-                    src_is_accessor_ret =
-                        dyn_ptr_to_handle_vars_.count(std::string(vr.name())) > 0;
-                }
+            if (sv_ref.kind() == lir_schema::expr::Code::MethodCall) {
+                src_is_accessor_ret = true;
+            } else if (sv_ref.kind() == lir_schema::expr::Code::VarRef) {
+                lir_view::EVarRefView vr(sv_ref);
+                src_is_accessor_ret =
+                    dyn_ptr_to_handle_vars_.count(std::string(vr.name())) > 0;
             }
-            if (src_is_accessor_ret)
-                dyn_ptr_to_handle_vars_.insert(s.name);
         }
+        evict_var_shapes(s.name);
+        scope_[s.name] = alloca;
+        let_vars_.insert(s.name);
+        var_dyn_trait_[s.name] = std::string(st.trait_name());
+        if (is_raw_ptr_dyn) var_raw_dyn_.insert(s.name);
+        if (src_is_accessor_ret)
+            dyn_ptr_to_handle_vars_.insert(s.name);
         return;
     }
 
@@ -1821,6 +1820,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
          st.pointee().kind() == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(s.value);
         if (!val) return;
+        evict_var_shapes(s.name);
         if (s.is_mut) {
             auto slot = create_entry_alloca(ptr_type());
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
@@ -1877,6 +1877,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
             // r2's own slot holds the address of that slot → `&&P`.
             auto slot = create_entry_alloca(ptr_type());
             builder_.create<mlir::LLVM::StoreOp>(loc_, mid, slot);
+            evict_var_shapes(s.name);
             scope_[s.name] = slot;
             let_vars_.insert(s.name);
             var_elem_types_[s.name] = ptr_type();
@@ -1898,6 +1899,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     if (!val) return;
 
     if (!var_type) {
+        evict_var_shapes(s.name);
         scope_[s.name] = val;
         return;
     }
@@ -1913,6 +1915,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         auto arr_t = mlir::dyn_cast_or_null<mlir::LLVM::LLVMArrayType>(var_type);
         if (arr_t) {
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, alloca, val, size_const(s.type), /*isVolatile=*/false);
+            evict_var_shapes(s.name);
             scope_[s.name] = alloca;
             let_vars_.insert(s.name);
             // Same elem-type bookkeeping as the StoreOp path below.
@@ -1924,6 +1927,7 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     val = coerce_int(val, var_type);
     val = coerce_float(val, var_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+    evict_var_shapes(s.name);
     scope_[s.name] = alloca;
     let_vars_.insert(s.name);
     // For array-typed variables (assigned from expressions, not array literals),
@@ -2386,9 +2390,13 @@ void MLIRGenImpl::gen_while(lir_view::SWhileView v) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 
     builder_.setInsertionPointToStart(body_block);
+    // gap C: the loop body is its own lexical scope — restore on exit so a
+    // body-local `let` can't leak its shape onto a later same-named binding.
+    auto body_scope = snapshot_var_scope();
     loop_stack_.push_back({cond_block, exit_block, {}, label});
     gen_block(v.body());
     loop_stack_.pop_back();
+    restore_var_scope(body_scope);
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
 
@@ -2440,6 +2448,10 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
     else
         lo_coerced = coerce_int(lo, loop_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, lo_coerced, i_alloca);
+    // gap C: loop var + body are their own lexical scope (restored at exit);
+    // evict first — the loop var may shadow an outer name of another shape.
+    auto for_scope = snapshot_var_scope();
+    evict_var_shapes(s.var);
     scope_[s.var] = i_alloca;
     let_vars_.insert(s.var);
     var_elem_types_[s.var] = loop_type;
@@ -2507,9 +2519,7 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
     }
 
     builder_.setInsertionPointToStart(exit_block);
-    scope_.erase(s.var);
-    let_vars_.erase(s.var);
-    var_elem_types_.erase(s.var);
+    restore_var_scope(for_scope);
 }
 
 // ---------------------------------------------------------------------------
@@ -2543,9 +2553,13 @@ void MLIRGenImpl::gen_loop(lir_view::SLoopView v) {
     builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
 
     builder_.setInsertionPointToStart(loop_block);
+    // gap C: body = own lexical scope. Snapshot AFTER the break-slot
+    // registration above so the slot (read after the loop) survives restore.
+    auto body_scope = snapshot_var_scope();
     loop_stack_.push_back({loop_block, exit_block, break_slot, label});
     gen_block(v.body());
     loop_stack_.pop_back();
+    restore_var_scope(body_scope);
     if (!is_terminated(builder_.getBlock()))
         builder_.create<mlir::cf::BranchOp>(loc_, loop_block);
 
@@ -2640,6 +2654,10 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     auto arr_alloca = gen_expr(s.iter);
     if (!arr_alloca) return;
 
+    // gap C: element var + body are their own lexical scope; restored at each
+    // path's exit. Eviction at the bind site clears any outer same-named shape.
+    auto foreach_scope = snapshot_var_scope();
+
     // ── Slice path: &[T] — load data_ptr and len from fat pointer ──
     if (s.is_slice) {
         auto stype = slice_llvm_type();
@@ -2693,6 +2711,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         // inline tuple storage) — bind it directly, like a struct element. (Was
         // a load of an 8-byte stored tuple-ptr under the old by-pointer model.)
         mlir::Value bound = elem_ptr;
+        evict_var_shapes(s.var);
         scope_[s.var]          = bound;
         var_elem_types_[s.var] = elem_mlir;
         var_subscript_[s.var]  = elem_mlir;
@@ -2718,11 +2737,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         }
 
         builder_.setInsertionPointToStart(exit_block);
-        scope_.erase(s.var);
-        let_vars_.erase(s.var);
-        var_elem_types_.erase(s.var);
-        var_subscript_.erase(s.var);
-        ref_param_names_.erase(s.var);
+        restore_var_scope(foreach_scope);
         return;
     }
 
@@ -2754,6 +2769,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     // Load arr[i]: GEP to element, then load.
     mlir::Value i_cur = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), i_alloca);
 
+    evict_var_shapes(s.var);
     bool is_struct_elem = s.elem_type &&
         TypeRef(s.elem_type).kind() == LogosType::Kind::Struct;
 
@@ -2821,10 +2837,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     }
 
     builder_.setInsertionPointToStart(exit_block);
-    scope_.erase(s.var);
-    let_vars_.erase(s.var);
-    var_elem_types_.erase(s.var);
-    var_struct_.erase(s.var);
+    restore_var_scope(foreach_scope);
 }
 
 // ---------------------------------------------------------------------------
@@ -3691,6 +3704,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         auto n = lir_view::PatWildView{pat}.name();
         if (n.empty() || n == "_") return;
         std::string name(n);
+        evict_var_shapes(name);  // gap C: fresh binding drops stale peer shapes
         auto elem_mlir = ty ? logos_to_mlir(ty) : ptr_type();
         if (!elem_mlir) elem_mlir = ptr_type();
         // Aggregate (struct/tuple/enum lowers to a struct/ptr): bind the slot
@@ -3815,6 +3829,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
             if (!em) em = ptr_type();
             auto a = create_entry_alloca(em);
             shared_map[nm] = a;
+            evict_var_shapes(nm);
             scope_[nm] = a; let_vars_.insert(nm); var_elem_types_[nm] = em;
         }
         std::vector<lir_view::PatRef> alts;
@@ -3867,11 +3882,20 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
                 // binding logic: aggregates bind the slot ptr, scalars load+store.
                 auto fmlir = fty ? logos_to_mlir(fty) : ptr_type();
                 if (!fmlir) fmlir = ptr_type();
-                bool aggregate = fty && (TypeRef(fty).kind() == LogosType::Kind::Struct ||
-                    TypeRef(fty).kind() == LogosType::Kind::ZonedStruct ||
-                    TypeRef(fty).kind() == LogosType::Kind::Tuple);
+                bool field_is_struct = fty &&
+                    (TypeRef(fty).kind() == LogosType::Kind::Struct ||
+                     TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
+                bool aggregate = field_is_struct ||
+                    (fty && TypeRef(fty).kind() == LogosType::Kind::Tuple);
+                evict_var_shapes(fname);
                 if (aggregate) {
                     scope_[fname] = fp; let_vars_.insert(fname);
+                    // Track the shape (mirrors the Wild case): without it,
+                    // `x.field` / `x.N` on the shorthand binding mis-resolves —
+                    // pre-eviction it only worked when a same-shaped outer
+                    // binding happened to leak its entry.
+                    if (field_is_struct) var_struct_[fname] = mlir_struct_key(fty);
+                    else                 var_tuple_.insert(fname);
                 } else {
                     auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
                     mlir::Value target;
@@ -3899,6 +3923,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         auto n = lir_view::PatRefBindView{pat}.name();
         if (n.empty() || n == "_") return;
         std::string name(n);
+        evict_var_shapes(name);  // gap C: fresh binding drops stale peer shapes
         bool ref_to_struct = ty &&
             (TypeRef(ty).kind() == LogosType::Kind::Struct ||
              TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
@@ -4165,6 +4190,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 auto bind_struct_field = [&](const std::string& bind_name) {
                     auto fp = gep_field(sptr, sinfo, field_name);
                     if (!fp) return;
+                    evict_var_shapes(bind_name);
                     // A struct-typed field is stored INLINE; bind its GEP ADDRESS
                     // (a place) + track shape — NOT a load/copy. The copy didn't
                     // persist mutation through a `&mut` binding (the change hit a
@@ -4218,6 +4244,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             bool ref_to_struct = fty &&
                                 (TypeRef(fty).kind() == LogosType::Kind::Struct ||
                                  TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
+                            evict_var_shapes(prbn);
                             if (ref_to_struct) {
                                 scope_[prbn] = fp;
                                 let_vars_.insert(prbn);
@@ -4266,6 +4293,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
                             auto alloca = create_entry_alloca(elem_mlir);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                            evict_var_shapes(pwn);
                             scope_[pwn] = alloca;
                             let_vars_.insert(pwn);
                             var_elem_types_[pwn] = elem_mlir;
@@ -4275,6 +4303,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             if (prbn == "_" || prbn.empty()) return;
                             auto alloca = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
+                            evict_var_shapes(prbn);
                             scope_[prbn] = alloca;
                             let_vars_.insert(prbn);
                             var_elem_types_[prbn] = ptr_type();
@@ -4315,6 +4344,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
                             auto a = create_entry_alloca(elem_mlir);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, val, a);
+                            evict_var_shapes(pwn);
                             scope_[pwn] = a; let_vars_.insert(pwn);
                             var_elem_types_[pwn] = elem_mlir;
                         } else if (sp.kind() == pc::Code::RefBind) {
@@ -4322,6 +4352,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             if (prbn == "_" || prbn.empty()) return;
                             auto a = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, ep, a);
+                            evict_var_shapes(prbn);
                             scope_[prbn] = a; let_vars_.insert(prbn);
                             var_elem_types_[prbn] = ptr_type();
                         }
@@ -4362,6 +4393,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             auto slp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
                                 llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
                             builder_.create<mlir::LLVM::StoreOp>(loc_, rlen, slp);
+                            evict_var_shapes(rn);
                             scope_[rn] = sub;
                             var_slice_[rn] = elem_mlir;
                         }
@@ -4378,6 +4410,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             if (!aname.empty() && aname != "_") {
                 auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                evict_var_shapes(aname);
                 scope_[aname] = alloca;
                 let_vars_.insert(aname);
                 var_elem_types_[aname] = sv.getType();
@@ -4407,6 +4440,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 }
                 auto alloca = create_entry_alloca(ptr_type());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, alloca);
+                evict_var_shapes(prbn);
                 scope_[prbn] = alloca;
                 let_vars_.insert(prbn);
                 var_elem_types_[prbn] = ptr_type();
@@ -4447,12 +4481,14 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     // and free a bogus address (SIGSEGV). The scrutinee var is
                     // marked moved in sema (lower_match), so it isn't dropped
                     // a second time.
+                    evict_var_shapes(pwn);
                     scope_[pwn] = sv;
                     var_struct_[pwn] = mlir_struct_key(st);
                     let_vars_.insert(pwn);
                 } else {
                     auto alloca = create_entry_alloca(sv.getType());
                     builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                    evict_var_shapes(pwn);
                     scope_[pwn] = alloca;
                     let_vars_.insert(pwn);
                     var_elem_types_[pwn] = sv.getType();
@@ -4487,6 +4523,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     };
 
     // Build if-else chain from last arm down to first.
+    // gap C: each arm is its own lexical scope (like an if-branch) — its
+    // pattern bindings must not leak into sibling arms or past the match.
+    auto match_scope = snapshot_var_scope();
     for (int i = (int)arm_refs.size() - 1; i >= 0; --i) {
         auto arm_pat   = arm_refs[i].pat();
         auto arm_kind  = arm_pat ? arm_pat.kind() : pc::Code(-1);
@@ -4545,6 +4584,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
             }
         }
+        restore_var_scope(match_scope);
 
         bool is_wild = is_irrefutable(arm_pat);
         if (is_wild) {
@@ -4988,6 +5028,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         if (!name.empty() && name != "_") {
             auto alloca = create_entry_alloca(scrut_val.getType());
             builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
+            evict_var_shapes(name);
             scope_[name]          = alloca;
             let_vars_.insert(name);
             var_elem_types_[name] = scrut_val.getType();
@@ -5154,6 +5195,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
                     auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
                     auto alloca = create_entry_alloca(elem_mlir);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                    evict_var_shapes(bindings[bi]);
                     scope_[bindings[bi]]          = alloca;
                     let_vars_.insert(bindings[bi]);
                     var_elem_types_[bindings[bi]] = elem_mlir;

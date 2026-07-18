@@ -3975,6 +3975,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
                 auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                evict_var_shapes(name);
                 scope_[name] = alloca;
                 let_vars_.insert(name);
                 var_elem_types_[name] = sv.getType();
@@ -4032,6 +4033,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
                             auto alloca = create_entry_alloca(elem_mlir);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                            evict_var_shapes(pwn);
                             scope_[pwn] = alloca;
                             let_vars_.insert(pwn);
                             var_elem_types_[pwn] = elem_mlir;
@@ -4041,6 +4043,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             if (prbn == "_" || prbn.empty()) return;
                             auto alloca = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
+                            evict_var_shapes(prbn);
                             scope_[prbn] = alloca;
                             let_vars_.insert(prbn);
                             var_elem_types_[prbn] = ptr_type();
@@ -4086,6 +4089,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
                             auto alloca = create_entry_alloca(elem_mlir);
                             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                            evict_var_shapes(pwn);
                             scope_[pwn] = alloca;
                             let_vars_.insert(pwn);
                             var_elem_types_[pwn] = elem_mlir;
@@ -4095,6 +4099,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             if (prbn == "_" || prbn.empty()) return;
                             auto alloca = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
+                            evict_var_shapes(prbn);
                             scope_[prbn] = alloca;
                             let_vars_.insert(prbn);
                             var_elem_types_[prbn] = ptr_type();
@@ -4141,6 +4146,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         auto d1 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, desc,
                             llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
                         builder_.create<mlir::LLVM::StoreOp>(loc_, rest_len, d1);
+                        evict_var_shapes(rn);
                         scope_[rn] = desc;
                         var_slice_[rn] = elem_mlir;
                         added.push_back(rn);
@@ -4178,6 +4184,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
                         auto alloca = create_entry_alloca(fmlir);
                         builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                        evict_var_shapes(bind_name);
                         scope_[bind_name] = alloca;
                         let_vars_.insert(bind_name);
                         var_elem_types_[bind_name] = fmlir;
@@ -4204,6 +4211,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                                 bool ref_to_struct = fty &&
                                     (TypeRef(fty).kind() == LogosType::Kind::Struct ||
                                      TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
+                                evict_var_shapes(bn);
                                 if (ref_to_struct) {
                                     scope_[bn] = fp;
                                     let_vars_.insert(bn);
@@ -4258,6 +4266,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 }
                 auto alloca = create_entry_alloca(ptr_type());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, bind_val, alloca);
+                evict_var_shapes(prbn);
                 scope_[prbn] = alloca;
                 let_vars_.insert(prbn);
                 var_elem_types_[prbn] = ptr_type();
@@ -4278,6 +4287,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
                 auto alloca = create_entry_alloca(sv.getType());
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                evict_var_shapes(aname);
                 scope_[aname] = alloca;
                 let_vars_.insert(aname);
                 var_elem_types_[aname] = sv.getType();
@@ -4370,6 +4380,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         }
         else_block = default_block;
     }
+    // gap C: each arm is its own lexical scope. Exact snapshot/restore
+    // replaces the old erase-only cleanup, which forgot the shape maps
+    // (var_struct_ etc.) and never re-instated shadowed outer bindings.
+    auto match_scope = snapshot_var_scope();
     for (int i = (int)arm_refs.size() - 1; i >= 0; --i) {
         auto arm_guard_ref = arm_refs[i].guard();
         auto arm_value_ref = arm_refs[i].value();
@@ -4398,11 +4412,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             // guard_block: extract bindings, evaluate guard, branch to body_block or else_block.
             auto* guard_block = new mlir::Block();
             region->push_back(guard_block);
-            std::vector<std::string> guard_added;
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(guard_block);
-                guard_added = extract_arm_payload(arm_pat_ref);
+                extract_arm_payload(arm_pat_ref);
                 auto gval = arm_guard_ref ? gen_expr(arm_guard_ref) : nullptr;
                 gval = coerce_int(gval, builder_.getI1Type());
                 if (!gval) {
@@ -4421,7 +4434,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(body_block);
                 auto val = arm_value_ref ? gen_expr(arm_value_ref) : nullptr;
-                for (auto& n : guard_added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
+                restore_var_scope(match_scope);
                 if (!is_terminated(builder_.getBlock())) {
                     if (val) {
                         val = store_arm_result(val, result_type);
@@ -4433,9 +4446,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         } else {
             mlir::OpBuilder::InsertionGuard ig(builder_);
             builder_.setInsertionPointToStart(body_block);
-            auto added = extract_arm_payload(arm_pat_ref);
+            extract_arm_payload(arm_pat_ref);
             auto val = arm_value_ref ? gen_expr(arm_value_ref) : nullptr;
-            for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
+            restore_var_scope(match_scope);
             if (!is_terminated(builder_.getBlock())) {
                 if (val) {
                     val = store_arm_result(val, result_type);
@@ -5577,7 +5590,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBlockExprView v, TypeRef) {
         bool in_struct = false;           std::string struct_val;
         bool in_elem = false;             mlir::Type  elem_val;
         bool in_dyn = false;              std::string dyn_val;
+        bool in_subscript = false;        mlir::Type  subscript_val;
+        bool in_slice = false;            mlir::Type  slice_val;
         bool in_tuple = false, in_tenum = false, in_tenum_ptr = false;
+        bool in_raw_dyn = false, in_dyn_ptr_handle = false;
+        bool in_ref_param = false, in_ptr_family = false;
     };
     std::unordered_map<std::string, Saved> saved;
     for (auto& n : shadowed) {
@@ -5587,9 +5604,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBlockExprView v, TypeRef) {
         if (auto it = var_struct_.find(n); it != var_struct_.end())  { sv.in_struct=true; sv.struct_val=it->second; }
         if (auto it = var_elem_types_.find(n); it != var_elem_types_.end()) { sv.in_elem=true; sv.elem_val=it->second; }
         if (auto it = var_dyn_trait_.find(n); it != var_dyn_trait_.end()) { sv.in_dyn=true; sv.dyn_val=it->second; }
-        sv.in_tuple      = var_tuple_.count(n) > 0;
-        sv.in_tenum      = var_tagged_enum_.count(n) > 0;
-        sv.in_tenum_ptr  = var_tagged_enum_ptr_.count(n) > 0;
+        if (auto it = var_subscript_.find(n); it != var_subscript_.end()) { sv.in_subscript=true; sv.subscript_val=it->second; }
+        if (auto it = var_slice_.find(n); it != var_slice_.end())    { sv.in_slice=true; sv.slice_val=it->second; }
+        sv.in_tuple          = var_tuple_.count(n) > 0;
+        sv.in_tenum          = var_tagged_enum_.count(n) > 0;
+        sv.in_tenum_ptr      = var_tagged_enum_ptr_.count(n) > 0;
+        sv.in_raw_dyn        = var_raw_dyn_.count(n) > 0;
+        sv.in_dyn_ptr_handle = dyn_ptr_to_handle_vars_.count(n) > 0;
+        sv.in_ref_param      = ref_param_names_.count(n) > 0;
+        sv.in_ptr_family     = ptr_family_param_.count(n) > 0;
         saved[n] = sv;
     }
     auto restore = [&]() {
@@ -5599,9 +5622,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBlockExprView v, TypeRef) {
             if (sv.in_struct)     var_struct_[n] = sv.struct_val;           else var_struct_.erase(n);
             if (sv.in_elem)       var_elem_types_[n] = sv.elem_val;         else var_elem_types_.erase(n);
             if (sv.in_dyn)        var_dyn_trait_[n] = sv.dyn_val;           else var_dyn_trait_.erase(n);
+            if (sv.in_subscript)  var_subscript_[n] = sv.subscript_val;     else var_subscript_.erase(n);
+            if (sv.in_slice)      var_slice_[n] = sv.slice_val;             else var_slice_.erase(n);
             if (sv.in_tuple)      var_tuple_.insert(n);                     else var_tuple_.erase(n);
             if (sv.in_tenum)      var_tagged_enum_.insert(n);               else var_tagged_enum_.erase(n);
             if (sv.in_tenum_ptr)  var_tagged_enum_ptr_.insert(n);           else var_tagged_enum_ptr_.erase(n);
+            if (sv.in_raw_dyn)    var_raw_dyn_.insert(n);                   else var_raw_dyn_.erase(n);
+            if (sv.in_dyn_ptr_handle) dyn_ptr_to_handle_vars_.insert(n);    else dyn_ptr_to_handle_vars_.erase(n);
+            if (sv.in_ref_param)  ref_param_names_.insert(n);               else ref_param_names_.erase(n);
+            if (sv.in_ptr_family) ptr_family_param_.insert(n);              else ptr_family_param_.erase(n);
         }
     };
     if (auto br = v.block(); br) gen_block(br);

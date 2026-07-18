@@ -388,29 +388,67 @@ private:
         std::unordered_map<std::string, mlir::Type>   elem_types;
         std::unordered_map<std::string, mlir::Type>   subscript;
         std::unordered_map<std::string, mlir::Type>   local_ptrs;
+        std::unordered_map<std::string, mlir::Type>   slice;
         std::unordered_set<std::string>               let_vars;
         std::unordered_set<std::string>               tuple;
         std::unordered_set<std::string>               tagged_enum;
         std::unordered_set<std::string>               tagged_enum_ptr;
+        std::unordered_set<std::string>               raw_dyn;
+        std::unordered_set<std::string>               dyn_ptr_handle;
+        std::unordered_set<std::string>               ref_params;
+        std::unordered_set<std::string>               ptr_family;
     };
     VarScopeSnapshot snapshot_var_scope() const {
         return { scope_, var_dyn_trait_, var_struct_, var_elem_types_, var_subscript_,
-                 var_local_ptrs_, let_vars_, var_tuple_, var_tagged_enum_,
-                 var_tagged_enum_ptr_ };
+                 var_local_ptrs_, var_slice_, let_vars_, var_tuple_, var_tagged_enum_,
+                 var_tagged_enum_ptr_, var_raw_dyn_, dyn_ptr_to_handle_vars_,
+                 ref_param_names_, ptr_family_param_ };
     }
     // Restore by full assignment: erases bindings introduced inside the scope AND
     // re-instates any shadowed outer bindings — exact lexical-scope semantics.
     void restore_var_scope(const VarScopeSnapshot& s) {
-        scope_               = s.scope;
-        var_dyn_trait_       = s.dyn_trait;
-        var_struct_          = s.var_struct;
-        var_elem_types_      = s.elem_types;
-        var_subscript_       = s.subscript;
-        var_local_ptrs_      = s.local_ptrs;
-        let_vars_            = s.let_vars;
-        var_tuple_           = s.tuple;
-        var_tagged_enum_     = s.tagged_enum;
-        var_tagged_enum_ptr_ = s.tagged_enum_ptr;
+        scope_                  = s.scope;
+        var_dyn_trait_          = s.dyn_trait;
+        var_struct_             = s.var_struct;
+        var_elem_types_         = s.elem_types;
+        var_subscript_          = s.subscript;
+        var_local_ptrs_         = s.local_ptrs;
+        var_slice_              = s.slice;
+        let_vars_               = s.let_vars;
+        var_tuple_              = s.tuple;
+        var_tagged_enum_        = s.tagged_enum;
+        var_tagged_enum_ptr_    = s.tagged_enum_ptr;
+        var_raw_dyn_            = s.raw_dyn;
+        dyn_ptr_to_handle_vars_ = s.dyn_ptr_handle;
+        ref_param_names_        = s.ref_params;
+        ptr_family_param_       = s.ptr_family;
+    }
+    // Peer-shape eviction — THE binder foundation (gap C, 2026-07). All the
+    // per-var classification maps above are keyed by BARE name; a fresh binding
+    // of a name (`let`, pattern bind, loop var) must first drop every stale
+    // shape claim a previous same-named binding left behind, else uses of the
+    // NEW binding mis-resolve through the OLD shape (e.g. a stale var_struct_
+    // entry makes a scalar re-let read as a struct pointer → verifier ICE or
+    // silent garbage). Every binder registration site calls this BEFORE
+    // claiming its own shape (and AFTER generating its initializer, which may
+    // legitimately read the OLD binding: `let x: u64 = x.field;`).
+    // Deliberately does NOT touch scope_/let_vars_ (immediately overwritten by
+    // the caller) nor the uninit_* drop-elaboration state (B8 machinery resets
+    // it at declare-without-init sites; SDrop placement depends on it).
+    void evict_var_shapes(const std::string& n) {
+        var_struct_.erase(n);
+        var_subscript_.erase(n);
+        var_tuple_.erase(n);
+        var_tagged_enum_.erase(n);
+        var_tagged_enum_ptr_.erase(n);
+        var_dyn_trait_.erase(n);
+        var_raw_dyn_.erase(n);
+        var_local_ptrs_.erase(n);
+        var_elem_types_.erase(n);
+        var_slice_.erase(n);
+        dyn_ptr_to_handle_vars_.erase(n);
+        ref_param_names_.erase(n);
+        ptr_family_param_.erase(n);
     }
     // Names of fn parameters whose type is Ref/MutRef. `&p` for such a
     // param means "address of param storage" — we must spill the SSA

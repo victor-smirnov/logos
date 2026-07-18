@@ -39,10 +39,21 @@ fn build_argv_buf(argv_strs: &Vec<String>) -> Vec<*const u8> {
     return buf;
 }
 
+// PIPE-DEADLOCK INVARIANT (gap C2, 2026-07): drain at most ONE pipe per child.
+// These helpers read pipes SEQUENTIALLY to EOF, so piping BOTH stdout and
+// stderr deadlocks the moment the un-drained pipe's 64KB buffer fills while we
+// block on the other one (child stuck in write(2), lforge stuck in read(2) —
+// the logosc ICE module-dump flood hung `lforge build` at 0% CPU forever).
+// Anything we would only forward verbatim is therefore INHERITED, not piped:
+// the child writes straight to lforge's own fd, streaming live with no buffer
+// to fill. A compiler crash now surfaces as a failed build with its
+// diagnostics, never a hang. If per-line processing of BOTH streams is ever
+// needed, that requires a concurrent drain (poll/reactor), not a second pipe.
 pub fn run_child(argv_strs: &Vec<String>) -> i32 {
     let argv_buf: Vec<*const u8> = build_argv_buf(argv_strs);
     unsafe {
-        let mut child: Child = spawn(argv_buf.as_ptr() as *const *const u8, false, true, true);
+        // stdout piped (single drained pipe — safe); stderr inherited.
+        let mut child: Child = spawn(argv_buf.as_ptr() as *const *const u8, false, true, false);
         if child.pid() < 0 {
             return 0 - 1;
         }
@@ -51,13 +62,6 @@ pub fn run_child(argv_strs: &Vec<String>) -> i32 {
         loop {
             match lr_out.next() {
                 Option::Some(line) => { println_str(1, line.as_str()); }
-                Option::None       => { break; }
-            }
-        }
-        let mut lr_err: LineReader = child.stderr_lines();
-        loop {
-            match lr_err.next() {
-                Option::Some(line) => { println_str(2, line.as_str()); }
                 Option::None       => { break; }
             }
         }
@@ -74,12 +78,13 @@ fn exit_rc_of(st: &ExitStatus) -> i32 {
     return st.code();
 }
 
-// Spawn `argv` and capture stdout into a String. Stderr is forwarded to the
-// parent's stderr. Used for short-output commands like `git ls-remote`.
+// Spawn `argv` and capture stdout into a String. Stderr is INHERITED (streams
+// straight to the parent's stderr — see the pipe-deadlock invariant above).
+// Used for short-output commands like `git ls-remote`.
 pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
     let argv_buf: Vec<*const u8> = build_argv_buf(argv_strs);
     unsafe {
-        let mut child: Child = spawn(argv_buf.as_ptr() as *const *const u8, false, true, true);
+        let mut child: Child = spawn(argv_buf.as_ptr() as *const *const u8, false, true, false);
         if child.pid() < 0 {
             return (0 - 1, String::new());
         }
@@ -93,13 +98,6 @@ pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
                     out.push_str(line.as_str());
                 }
                 Option::None => { break; }
-            }
-        }
-        let mut lr_err: LineReader = child.stderr_lines();
-        loop {
-            match lr_err.next() {
-                Option::Some(line) => { println_str(2, line.as_str()); }
-                Option::None       => { break; }
             }
         }
         let st: ExitStatus = child.wait();
