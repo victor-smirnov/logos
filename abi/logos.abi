@@ -9513,6 +9513,7 @@ sym	logos_mem..logos.mem.any.TypeInfo__pkg__f__ref_TypeInfo
 sym	logos_mem..logos.mem.any.TypeInfo__type_code__f__ref_TypeInfo
 sym	logos_mem..logos.mem.bt.BtArena__alloc_node__f__refmut_BtArena__bool__u32
 sym	logos_mem..logos.mem.bt.BtArena__at__f__ref_BtArena__u64
+sym	logos_mem..logos.mem.bt.BtArena__drop__f__BtArena
 sym	logos_mem..logos.mem.bt.BtCursor__chunk_remaining__f__ref_BtCursor__ref_BtArena
 sym	logos_mem..logos.mem.bt.BtCursor__key__f__ref_BtCursor__ref_BtArena
 sym	logos_mem..logos.mem.bt.BtCursor__next__f__refmut_BtCursor__ref_BtArena
@@ -10501,8 +10502,10 @@ sym	logos_mem.logos.std.compiler.metaprog$item_list_new__f__void
 sym	logos_mem.logos.std.compiler.metaprog$kind_name__f__u32
 sym	logos_mem.logos.std.compiler.metaprog$name_eq__f__slice_u8__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$oview_module_ast__f__void
+sym	logos_mem.logos.std.compiler.metaprog$parse_expr__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$parse_type__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$parse_type_params__f__slice_u8
+sym	logos_mem.logos.std.compiler.metaprog$parse_wstatic__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$schema_code__g__void__Buffer$G1$DView
 sym	logos_mem.logos.std.compiler.metaprog$schema_code__g__void__Buffer$G1$u64
 sym	logos_mem.logos.std.compiler.metaprog$schema_code__g__void__DViewStore
