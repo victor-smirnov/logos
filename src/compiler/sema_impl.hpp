@@ -3663,6 +3663,19 @@ private:
     // arg handler in resolve_type and `pub const X: WritStatic = @{...};`
     // recognition in collect_const.
     TypeRef resolve_wstatic_value(writ::TinyMapView val_node);
+    // ADR 0021 C1 — canonical CFG value-column representation. A value column
+    // whose type cannot ride `<type:T>` (an unsized / VLE column — `str`, the
+    // Slice<u8> shape, today) is represented in the config document as a bare
+    // string TAG ("str"), identically on BOTH arrival paths: the concrete-decl
+    // path (emit_cfg_doc) emits the literal tag, and a generic `<type:V>`
+    // substituted at V=str must canonicalize to the SAME tag. Without this, a
+    // generic `Map<u64,str>` (WRIT_TYPE_LIT → `<type:&[u8]>`) and a concrete
+    // str-map (WRIT_STR `"str"`) hash to DIFFERENT families — an identity
+    // split. Returns the tag text WITHOUT quotes ("str"), or "" when T is
+    // sized and rides `<type:T>`. ONE definition, consumed by the identity
+    // hash (resolve_wstatic_value) AND the source render (render_writ_val_inner_
+    // / render_expr_src), so a value type has ONE CFG representation.
+    std::string cfg_str_tag_(TypeRef t) const;
     // ADR 0021: the metaclass wrapper type over a config document —
     // `CtrClass<@hs(CFG)>`. Canonical construction site (pkg threaded).
     TypeRef make_metaclass_wrapper(TypeRef cfg) {

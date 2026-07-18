@@ -339,6 +339,60 @@ try_gen_dump(logos::writ::Writ& doc) {
             }
         }
     }
+    // ADR 0021 C3: a metaclass FACTORY family (ADR 0021 §3) is emitted as many
+    // separate blobs (leaf/branch/tree/CoW-handle structs + BtLeaf/BtBranch/Ctr/
+    // CtrFamily impls); the stem above picks each blob's FIRST item name, which
+    // for an impl is its TRAIT ("BtBranch", "Ctr", …) — colliding across every
+    // family. Every family member's name carries the `@hs` tag `Hs<016x>`
+    // (member struct names, impl receiver types). Scan the items for that tag and
+    // fold it into the stem so families are distinguishable at scale. (Non-family
+    // dumps carry no such token → no change.)
+    {
+        auto extract_family_tag = [](std::string_view s) -> std::string {
+            // `Hs` + 16 lowercase-hex — the identifier-safe @hs family spelling.
+            for (size_t i = 0; i + 18 <= s.size(); ++i) {
+                if (s[i] != 'H' || s[i + 1] != 's') continue;
+                bool ok = true;
+                for (int j = 0; j < 16; ++j)
+                    if (!std::isxdigit(static_cast<unsigned char>(s[i + 2 + j]))) {
+                        ok = false; break;
+                    }
+                if (ok) return std::string(s.substr(i, 18));
+            }
+            return "";
+        };
+        std::string fam_tag;
+        auto root = logos::writ::TinyMapView(arena_offset_t(root_off.value()),
+                                             doc.holder());
+        if (root.has_key(la::ITEMS.code)) {
+            auto iav = root.get(la::ITEMS.code);
+            if (!iav.is_null() && iav.is_pointer()) {
+                auto arr = logos::writ::as_array(iav, doc.holder());
+                auto name_of = [&](logos::writ::TinyMapView m) -> std::string {
+                    if (m.is_null() || !m.has_key(la::NAME.code)) return "";
+                    auto nv = m.get(la::NAME.code);
+                    if (nv.is_null() || !nv.is_pointer()) return "";
+                    return std::string(
+                        logos::writ::StringView(nv, doc.holder()).view());
+                };
+                for (uint64_t i = 0; i < arr.size() && fam_tag.empty(); ++i) {
+                    auto e = arr.get(i);
+                    if (e.is_null() || !e.is_pointer()) continue;
+                    auto t = logos::writ::as_tinymap(e, doc.holder());
+                    if (t.is_null()) continue;
+                    fam_tag = extract_family_tag(name_of(t));   // struct/fn NAME
+                    if (fam_tag.empty() && t.has_key(la::TYPE.code)) {
+                        auto tv = t.get(la::TYPE.code);          // impl receiver
+                        if (!tv.is_null() && tv.is_pointer())
+                            fam_tag = extract_family_tag(
+                                name_of(logos::writ::as_tinymap(tv, doc.holder())));
+                    }
+                }
+            }
+        }
+        if (!fam_tag.empty() && stem.find(fam_tag) == std::string::npos)
+            stem += "." + fam_tag;
+    }
     stem += "." + std::to_string(++g_gen_seq);
     if (g_current_emit_ctx_valid && !g_current_emit_ctx.target_name.empty())
         stem += "." + sanitize(g_current_emit_ctx.target_name);

@@ -6709,6 +6709,20 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     return error_t();
 }
 
+std::string SemaChecker::cfg_str_tag_(TypeRef t) const {
+    if (!t) return "";
+    TypeRef tv{t};
+    // `str` lowers to Slice<u8> (sized fat-ptr form, make_slice_type) or
+    // UnsizedSlice<u8> (make_unsized_slice_type), sema.cpp:2616. An unsized /
+    // VLE value column is the str shape today; either lowering maps to tag
+    // "str" — the same token emit_cfg_doc writes on the concrete-decl side.
+    if ((tv.kind() == LogosType::Kind::Slice ||
+         tv.kind() == LogosType::Kind::UnsizedSlice) &&
+        tv.elem() && TypeRef(tv.elem()).kind() == LogosType::Kind::U8)
+        return "str";
+    return "";
+}
+
 TypeRef SemaChecker::resolve_wstatic_value(TinyMapView val_node) {
     // Identity = byte-hash over the AST (content only, position-free) so two
     // identical `@{...}` instances at different sites produce the same TypeRef.
@@ -6733,6 +6747,22 @@ TypeRef SemaChecker::resolve_wstatic_value(TinyMapView val_node) {
         std::function<uint64_t(writ::TinyMapView, uint64_t)> walk;
         walk = [&](writ::TinyMapView n, uint64_t h) -> uint64_t {
             int32_t c = code_of(n);
+            // ADR 0021 C1: canonicalize an unsized/VLE value slot. A `<type:V>`
+            // whose V resolves to `str` (the Slice<u8> shape) is represented in
+            // the CFG document as the string tag "str" — the SAME form the
+            // concrete-decl path (emit_cfg_doc) emits as a WRIT_STR — so a
+            // generic instantiation `Map<u64,str>` and a concrete str-map hash
+            // to ONE family (twin unification across arrival paths, not just for
+            // sized types). Contribute EXACTLY what a WRIT_STR("str") node would
+            // (its code + the quoted token), bypassing the WRIT_TYPE_LIT path.
+            if (c == la::WRIT_TYPE_LIT.code && n.has_key(la::TYPE)) {
+                std::string tag = cfg_str_tag_(resolve_type(map_of(n.get(la::TYPE.code))));
+                if (!tag.empty()) {
+                    h = fnv_u64(h, (uint64_t)(int64_t)la::WRIT_STR.code);
+                    h = fnv_str(h, "\"" + tag + "\"");
+                    return h;
+                }
+            }
             h = fnv_u64(h, (uint64_t)(int64_t)c);
             if (c == la::WRIT_MAP.code || c == la::WRIT_ARRAY.code) {
                 if (n.has_key(la::ITEMS) && !n.get(la::ITEMS.code).is_null()) {

@@ -1,0 +1,23 @@
+// ADR 0021 C2: the metaclass factory hard-error surface. `create_ctr::<Legend>`
+// fires a REQUIRED `CtrClass<@hs>` mono demand, but this unit does NOT import
+// logos.lcm.canon.container_item (the factory metafunction) — and an emitted
+// `use` cannot LOAD a module, so the driver's mono→factory drain has nothing to
+// invoke. Rather than converge silently to an unresolved handle, the driver
+// HARD-ERRORS with the fix spelled out. This is the sibling guard of the drain
+// loop's "factory failed to produce the family for @hs_<hex>" flip: a demand
+// whose family cannot be produced is an error, never a quiet break.
+package main;
+
+use logos.lcm.canon.metaclass;       // CtrClass + create_ctr — but NOT the factory
+use logos.mem.bt.memstore;           // MemoryStore / MemorySnapshot
+use logos.lang.writ.wstatic;
+
+pub const LegendCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
+pub type Legend = CtrClass<LegendCfg>;
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s0: MemorySnapshot = store.fork();
+    let m = create_ctr::<Legend>(&mut s0, 1u64);
+    return m.size() as i32;
+}

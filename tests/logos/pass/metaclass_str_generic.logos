@@ -1,0 +1,95 @@
+// ADR 0021 C1: str-generic identity. A concrete `entry { val: str }`
+// ordered_map lowers its value column to the "str" VLE tag (str is unsized →
+// it cannot ride `<type:str>`); a GENERIC alias `PMap<K,V>` instantiated at
+// V=str substitutes `<type:V>`. Both arrival paths must CANONICALIZE to ONE
+// config document → ONE @hs family, so a container created through the
+// concrete declaration is transparently readable through the generic alias
+// (twin unification across arrival paths, str exactly as for u64), and both
+// drive real VLE (volume) b+tree work end-to-end.
+//
+// Proof: `create_ctr::<typeof(Journal)>` (concrete decl) and
+// `open_ctr::<PMap<u64, str>>` (generic alias, V=str) name the SAME
+// CtrClass<@hs> — the generic handle opens the very container the concrete
+// handle created, sees its writes, and a write through the generic handle is
+// seen by the concrete handle. If the two paths hashed to different families
+// (the pre-C1 identity split), `open_ctr` would open an empty/foreign
+// container and the cross-path reads would fail.
+package test;
+
+use logos.lcm.canon.container_item;   // `container` lowering handler + the factory
+use logos.lcm.canon.metaclass;        // create_ctr/open_ctr + CtrClass
+use logos.mem.pkd;                    // generated volume-leaf substrate
+use logos.mem.bt.map;                 // Ctr trait (generated impl names it)
+use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
+use logos.lang.str;
+use logos.lang.writ.wstatic;
+
+// Concrete str-map: emit_cfg_doc records the value column as the "str" tag.
+container Journal for u8 {
+    kind ordered_map;
+    entry { key: u64, val: str }
+    measure max(key);
+}
+
+// Generic str-map: the value column arrives as `<type:V>`; at the use site
+// `PMap<u64, str>` substitutes V=str, which C1 canonicalizes to the SAME tag.
+pub const PMapCfg<K, V>: WritStatic = @{ "kind": "ordered_map", "key": <type:K>, "value": <type:V> };
+pub type PMap<K, V> = CtrClass<PMapCfg<K, V>>;
+
+const JOURNAL: u64 = 7u64;
+
+fn beq(b: &[u8], want: str) -> bool {
+    if b.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < b.len() {
+        if b[i] != str_byte_at(want, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut s1: MemorySnapshot = store.fork();
+
+    // ── create + fill through the CONCRETE declaration handle ──
+    let jc = create_ctr::<typeof(Journal)>(&mut s1, JOURNAL);
+    jc.insert(1u64, "opened");
+    jc.insert(2u64, "funded");
+    // Scale: 300 keys with a short VLE value — forces volume-leaf splits.
+    let mut k: u64 = 100u64;
+    while k < 400u64 {
+        jc.insert(k, "row");
+        k = k + 1u64;
+    }
+    if jc.size() != 302u64 { return 1i32; }
+
+    // ── read through the GENERIC alias PMap<u64, str> ──
+    // Resolves to the SAME @hs family (C1 unification), so it opens the very
+    // container the concrete decl created — NOT a fresh/foreign one.
+    let jg = open_ctr::<PMap<u64, str>>(&mut s1, JOURNAL);
+    if jg.size() != 302u64 { return 2i32; }
+    if !beq(jg.get_or(1u64), "opened") { return 3i32; }
+    if !beq(jg.get_or(2u64), "funded") { return 4i32; }
+    let mut bad: u64 = 0u64;
+    k = 100u64;
+    while k < 400u64 {
+        if !beq(jg.get_or(k), "row") { bad = bad + 1u64; }
+        k = k + 1u64;
+    }
+    if bad != 0u64 { return 5i32; }
+
+    // ── write through the GENERIC handle; the CONCRETE handle sees it ──
+    jg.insert(3u64, "closed");
+    if jc.size() != 303u64 { return 6i32; }
+    if !beq(jc.get_or(3u64), "closed") { return 7i32; }
+
+    // Miss sentinel = an empty slice, on both handles.
+    if jc.get_or(9999u64).len() != 0i64 { return 8i32; }
+    if jg.get_or(9999u64).len() != 0i64 { return 9i32; }
+
+    store.commit(&s1);
+    s1.release();
+    store.release();
+    return 42i32;
+}

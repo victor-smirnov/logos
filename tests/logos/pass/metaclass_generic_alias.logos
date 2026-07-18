@@ -7,11 +7,10 @@
 // byte-identical to the concrete u64/u64 CFG's — the generic instantiation
 // and a concrete twin unify structurally, no name in the key.
 //
-// KNOWN GAP (probed, deliberate): `PMap<u64, str>` — the substituted doc
-// renders `<type:str>`, but str is unsized and rejected in `<type:>` slots
-// (concrete str CFGs ride emit_cfg_doc's `"str"` VLE tag, a DIFFERENT doc
-// shape/hash). Canonicalizing str→tag inside generic substitution is a
-// hash-identity change, deferred past 4a.
+// str values (`PMap<u64, str>`) unify with a concrete str-map too — ADR 0021
+// C1 canonicalizes an unsized/VLE value column to the `"str"` tag on BOTH
+// arrival paths (concrete emit_cfg_doc AND generic `<type:V>` substitution),
+// so the two hash to ONE family. See pass/metaclass_str_generic.logos.
 package main;
 
 use logos.lcm.canon.metaclass;

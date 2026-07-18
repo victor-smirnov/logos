@@ -523,9 +523,13 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         // SUBSTITUTED type: the captured wstatic_sources text must match the
         // hash walk, which hashes `type_str(resolve_type(T))` — a raw `K`
         // under a concrete hash would hand the factory an unresolvable slot.
-        std::string s = "<type:";
         if (node.has_key(la::TYPE)) {
             auto tnode = map_of(node.get(la::TYPE.code));
+            // ADR 0021 C1: an unsized/VLE value column canonicalizes to the
+            // string tag ("str") — the same representation the concrete-decl
+            // doc carries — so identity holds across arrival paths.
+            std::string tag = cfg_str_tag_(resolve_type(tnode));
+            if (!tag.empty()) return "\"" + tag + "\"";
             std::string sub;
             if (tnode.has_key(la::NAME) && !tnode.has_key(la::ITEMS)) {
                 auto tn = std::string(str_of(tnode.get(la::NAME.code)));
@@ -535,10 +539,9 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
                     TypeRef(pit->second).kind() != LogosType::Kind::ConstVar)
                     sub = type_str(pit->second);
             }
-            s += sub.empty() ? render_type_src(tnode) : sub;
+            return "<type:" + (sub.empty() ? render_type_src(tnode) : sub) + ">";
         }
-        s += ">";
-        return s;
+        return "<type:>";
     }
     case la::CFG_SLOT_TYPE: {
         // `<type:CFG.SLOT>` — extract slot of WritStatic-typed const-generic.
@@ -1752,10 +1755,19 @@ std::string SemaChecker::render_writ_val_inner_(TinyMapView node) {
         return s;
     }
     case la::WRIT_TYPE_LIT: {
-        std::string s = "<type:";
-        if (node.has_key(la::TYPE)) s += render_type_src(map_of(node.get(la::TYPE.code)));
-        s += ">";
-        return s;
+        if (node.has_key(la::TYPE)) {
+            auto tnode = map_of(node.get(la::TYPE.code));
+            TypeRef vt = resolve_type(tnode);
+            // ADR 0021 C1: an unsized/VLE value column canonicalizes to the
+            // string tag ("str"), byte-identical to the concrete-decl doc's
+            // WRIT_STR — so the captured CFG source (wstatic_sources → factory
+            // + CtrFamily impl) is one representation regardless of arrival
+            // path. Sized types keep the `<type:T>` form.
+            std::string tag = cfg_str_tag_(vt);
+            if (!tag.empty()) return "\"" + tag + "\"";
+            return "<type:" + (vt ? type_str(vt) : render_type_src(tnode)) + ">";
+        }
+        return "<type:>";
     }
     case la::CFG_SLOT_TYPE: {
         std::string s = "<type:";
