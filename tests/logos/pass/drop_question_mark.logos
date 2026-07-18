@@ -1,0 +1,145 @@
+// drop_question_mark — the `?` early return must run the SAME scope unwind as
+// an explicit `return` (which is the control here). Regression: the ETry
+// lowering (and the heterogeneous-E match desugar's bare SReturn) emitted the
+// early return WITHOUT collect_all_drops, leaking every live local on the
+// Err/None path. Exact drop counts (heap counter) catch under- AND over-drop.
+package drop_question_mark;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.option;
+
+struct Noisy { c: *mut i64, v: i64 }
+impl Drop for Noisy {
+    fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
+}
+impl Noisy {
+    fn get(self: &Noisy) -> i64 { return self.v; }
+}
+fn mk(c: *mut i64, v: i64) -> Noisy { return Noisy { c: c, v: v }; }
+
+fn r_of(fail: bool) -> Result<u64, i32> {
+    if fail { return Result::Err(5i32); }
+    return Result::Ok(1u64);
+}
+
+// 0 live droppables at the `?` — baseline.
+fn q_zero(fail: bool) -> Result<u64, i32> {
+    let r: Result<u64, i32> = r_of(fail);
+    let v: u64 = r?;
+    return Result::Ok(v);
+}
+// 1 live droppable local.
+fn q_one(c: *mut i64, fail: bool) -> Result<u64, i32> {
+    let scratch: Noisy = mk(c, 9i64);
+    let r: Result<u64, i32> = r_of(fail);
+    let v: u64 = r?;
+    return Result::Ok(v + (scratch.get() as u64));
+}
+// 2 live droppable locals.
+fn q_two(c: *mut i64, fail: bool) -> Result<u64, i32> {
+    let s1: Noisy = mk(c, 1i64);
+    let s2: Noisy = mk(c, 2i64);
+    let r: Result<u64, i32> = r_of(fail);
+    let v: u64 = r?;
+    return Result::Ok(v + ((s1.get() + s2.get()) as u64));
+}
+// explicit-return CONTROL: same shape, explicit early return.
+fn q_control(c: *mut i64, fail: bool) -> Result<u64, i32> {
+    let scratch: Noisy = mk(c, 9i64);
+    if fail { return Result::Err(5i32); }
+    return Result::Ok(scratch.get() as u64);
+}
+// `?` inside a while loop: the iteration's LOCAL drops on the early return.
+fn q_loop(c: *mut i64) -> Result<u64, i32> {
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let inner: Noisy = mk(c, i);
+        let r: Result<u64, i32> = if i == 1i64 { Result::Err(5i32) } else { Result::Ok(1u64) };
+        let v: u64 = r?;
+        let sink: i64 = inner.get() + (v as i64);
+        if sink < -100i64 { return Result::Err(9i32); }
+        i = i + 1i64;
+    }
+    return Result::Ok(0u64);
+}
+// nested scope: `?` inside an inner block; inner AND outer locals drop.
+fn q_nested(c: *mut i64, fail: bool) -> Result<u64, i32> {
+    let outer: Noisy = mk(c, 1i64);
+    {
+        let inner: Noisy = mk(c, 2i64);
+        let r: Result<u64, i32> = r_of(fail);
+        let v: u64 = r?;
+        let sink: i64 = inner.get() + (v as i64);
+        if sink < -100i64 { return Result::Err(9i32); }
+    }
+    return Result::Ok(outer.get() as u64);
+}
+// Option `?` with a live droppable local.
+fn o_of(none: bool) -> Option<u64> {
+    if none { return Option::None; }
+    return Option::Some(3u64);
+}
+fn q_option(c: *mut i64, none: bool) -> Option<u64> {
+    let scratch: Noisy = mk(c, 9i64);
+    let v: u64 = o_of(none)?;
+    return Option::Some(v + (scratch.get() as u64));
+}
+// `?` consumes a DROPPABLE operand (Result<Noisy, _>): exactly one drop on
+// the Ok path (moved payload), zero on the Err path (payload is the error).
+fn mk_res(c: *mut i64, fail: bool) -> Result<Noisy, i32> {
+    if fail { return Result::Err(7i32); }
+    return Result::Ok(mk(c, 5i64));
+}
+fn q_owned(c: *mut i64, fail: bool) -> Result<i64, i32> {
+    let r: Result<Noisy, i32> = mk_res(c, fail);
+    let n: Noisy = r?;
+    return Result::Ok(n.get());
+}
+
+fn main() -> i32 {
+    unsafe {
+        let c: *mut i64 = alloc(sizeof::<i64>()) as *mut i64;
+        c[0] = 0i64;
+        match q_zero(true) { Result::Ok(_v) => { return 1i32; } Result::Err(_e) => {} }
+        match q_zero(false) { Result::Ok(v) => { if v != 1u64 { return 2i32; } } Result::Err(_e) => { return 3i32; } }
+        if c[0] != 0i64 { return 4i32; }
+        c[0] = 0i64;
+        match q_one(c, true) { Result::Ok(_v) => { return 5i32; } Result::Err(_e) => {} }
+        if c[0] != 1i64 { return 6i32; }   // scratch dropped at the `?` return
+        c[0] = 0i64;
+        match q_one(c, false) { Result::Ok(v) => { if v != 10u64 { return 7i32; } } Result::Err(_e) => { return 8i32; } }
+        if c[0] != 1i64 { return 9i32; }   // no double drop on the Ok path
+        c[0] = 0i64;
+        match q_two(c, true) { Result::Ok(_v) => { return 10i32; } Result::Err(_e) => {} }
+        if c[0] != 2i64 { return 11i32; }
+        c[0] = 0i64;
+        match q_two(c, false) { Result::Ok(v) => { if v != 4u64 { return 12i32; } } Result::Err(_e) => { return 13i32; } }
+        if c[0] != 2i64 { return 14i32; }
+        c[0] = 0i64;
+        match q_control(c, true) { Result::Ok(_v) => { return 15i32; } Result::Err(_e) => {} }
+        if c[0] != 1i64 { return 16i32; }  // the explicit-return control
+        c[0] = 0i64;
+        match q_loop(c) { Result::Ok(_v) => { return 17i32; } Result::Err(_e) => {} }
+        if c[0] != 2i64 { return 18i32; }  // iter 0 falls through, iter 1 `?`-returns
+        c[0] = 0i64;
+        match q_nested(c, true) { Result::Ok(_v) => { return 19i32; } Result::Err(_e) => {} }
+        if c[0] != 2i64 { return 20i32; }  // inner + outer both drop
+        c[0] = 0i64;
+        match q_nested(c, false) { Result::Ok(v) => { if v != 1u64 { return 21i32; } } Result::Err(_e) => { return 22i32; } }
+        if c[0] != 2i64 { return 23i32; }
+        c[0] = 0i64;
+        match q_option(c, true) { Option::Some(_v) => { return 24i32; } Option::None => {} }
+        if c[0] != 1i64 { return 25i32; }
+        c[0] = 0i64;
+        match q_option(c, false) { Option::Some(v) => { if v != 12u64 { return 26i32; } } Option::None => { return 27i32; } }
+        if c[0] != 1i64 { return 28i32; }
+        c[0] = 0i64;
+        match q_owned(c, false) { Result::Ok(v) => { if v != 5i64 { return 29i32; } } Result::Err(_e) => { return 30i32; } }
+        if c[0] != 1i64 { return 31i32; }  // moved payload drops exactly once
+        c[0] = 0i64;
+        match q_owned(c, true) { Result::Ok(_v) => { return 32i32; } Result::Err(_e) => {} }
+        if c[0] != 0i64 { return 33i32; }
+        dealloc(c as *mut u8);
+    }
+    return 0i32;
+}

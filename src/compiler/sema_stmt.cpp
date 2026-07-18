@@ -245,49 +245,72 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
     // the recursion below — LABELED_LOOP and loop bodies re-enter lower_stmt).
     std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr, bool>> hoisted;
     auto* saved_hoist = cur_stmt_temp_hoist_;
+    size_t saved_frame = cur_stmt_temp_hoist_frame_;
     cur_stmt_temp_hoist_ = &hoisted;
+    // Temps are define()'d into the ENCLOSING frame (hoist_stmt_temp), making
+    // them real scope-tracked locals for the duration of this statement: an
+    // early exit lowered INSIDE it (`if make().m() { return; }`) drops them via
+    // the standard collect_all_drops / collect_drops_to_loop walks. They are
+    // ERASED from the frame after the fall-through drops below, so the
+    // enclosing block's own scope-exit drops never see them (no double drop).
+    cur_stmt_temp_hoist_frame_ = scope_.empty() ? SIZE_MAX : scope_.size() - 1;
     auto saved_ret_bind = std::move(pending_ret_bind_);
     pending_ret_bind_.reset();
     lir_view::StmtRef s = lower_stmt_inner(stmt);
     cur_stmt_temp_hoist_ = saved_hoist;
+    cur_stmt_temp_hoist_frame_ = saved_frame;
     auto ret_bind = std::move(pending_ret_bind_);
     pending_ret_bind_ = std::move(saved_ret_bind);
     if (hoisted.empty()) return s;
     // Wrap: `{ let __t0 = v0; …; <stmt>; drop __tN; … drop __t0; }`. The hoisted
     // temporaries are bound to fresh locals, the statement runs (borrowing them),
     // then their destructors run at the end of this statement — Rust's temporary
-    // scope. Drops are emitted in REVERSE binding order. (The drop convention is
-    // explicit SDrop statements inserted by sema — mlir-gen does not auto-drop
-    // block-scoped locals — so we must emit them here.)
+    // scope. Drops are emitted in REVERSE binding order, skipping a temp the
+    // statement CONSUMED (moved). (The drop convention is explicit SDrop
+    // statements inserted by sema — mlir-gen does not auto-drop block-scoped
+    // locals — so we must emit them here.)
     std::vector<lir_view::StmtRef> blk;
     std::vector<lir_view::StmtRef> drops;
     for (auto& h : hoisted) {
-        std::string nm = std::move(std::get<0>(h));
+        const std::string& nm = std::get<0>(h);
         TypeRef ty = std::get<1>(h);
         lir::SLet sl;
         sl.name = nm; sl.type = ty; sl.is_mut = std::get<3>(h);
         sl.value = std::move(std::get<2>(h));
         blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        if (auto d = make_drop_stmt(nm, VarInfo{ty, false}))
-            drops.push_back(std::move(*d));
+        if (!moved_vars_.count(nm))
+            if (auto d = make_drop_stmt(nm, VarInfo{ty, false}))
+                drops.push_back(std::move(*d));
     }
     if (ret_bind) {
         // `return <val>` whose value hoisted temps: bind the value (computed
-        // while the temps live), drop the temps, THEN return — so the drops
-        // precede the terminator instead of being dead code past it.
+        // while the temps live), then unwind the WHOLE scope — the temps AND
+        // every outer live local (collect_all_drops; this SBlock wrap hides the
+        // Return from lower_block's statement-level drop insertion, which would
+        // otherwise leak the outer locals) — THEN return.
         lir::SLet rb;
         rb.name = std::get<0>(*ret_bind);
         rb.type = std::get<1>(*ret_bind);
         rb.is_mut = false;
         rb.value = std::get<2>(*ret_bind);
         blk.push_back(make_stmt_emit(node_line_, std::move(rb)));
-        for (auto it = drops.rbegin(); it != drops.rend(); ++it)
-            blk.push_back(std::move(*it));
+        for (auto& d : collect_all_drops())
+            blk.push_back(std::move(d));
         blk.push_back(std::move(s));   // `return __rv` — terminator last
     } else {
         blk.push_back(std::move(s));
         for (auto it = drops.rbegin(); it != drops.rend(); ++it)
             blk.push_back(std::move(*it));
+    }
+    // The temps are dead past this statement — remove them from the frame so
+    // the enclosing block's scope-exit / later early-exit walks skip them.
+    if (!scope_.empty()) {
+        auto& fr = scope_.back();
+        for (auto& h : hoisted) {
+            const std::string& nm = std::get<0>(h);
+            fr.vars.erase(nm);
+            std::erase(fr.var_order, nm);
+        }
     }
     lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
@@ -764,6 +787,36 @@ lir_view::BlockRef SemaChecker::lower_block(TinyMapView block) {
     }
     pop_scope();
     return lir_mirror_block(*cur_prog_, result);
+}
+
+// Emit `return <val>` with the FULL scope unwind — the ONE return-drop
+// sequence, shared with lower_block's Return-statement handling above: bind
+// the value FIRST (it may read/move locals the drops release), then
+// collect_all_drops (innermost frame outward, stopping at a closure
+// boundary), then the terminator. Desugars that synthesize an early return in
+// EXPRESSION position (`?`) must route through this — lower_block's
+// statement-level drop insertion never sees their buried Return.
+std::vector<lir_view::StmtRef> SemaChecker::make_return_with_drops(lir::LExprPtr val) {
+    std::vector<lir_view::StmtRef> out;
+    auto drops = collect_all_drops();
+    if (drops.empty() || !val) {
+        for (auto& d : drops)
+            out.push_back(std::move(d));
+        out.push_back(builder().stmt_return(std::move(val), node_line_));
+        return out;
+    }
+    TypeRef rt = expr_type(val);
+    std::string tmp = "__ret_tmp_" + std::to_string(tmp_var_count_++);
+    lir::SLet sl;
+    sl.name = tmp;
+    sl.type = rt;
+    sl.is_mut = false;
+    sl.value = std::move(val);
+    out.push_back(make_stmt_emit(node_line_, std::move(sl)));
+    for (auto& d : drops)
+        out.push_back(std::move(d));
+    out.push_back(builder().stmt_return(builder().var_ref(tmp, rt), node_line_));
+    return out;
 }
 
 lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
@@ -6161,8 +6214,11 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
         std::string my_label = std::move(pending_loop_label_);
         pending_loop_label_.clear();
 
+        // The while-let scrutinee is re-evaluated EVERY iteration (it becomes
+        // the SMatch scrut inside the desugared SLoop body) — same per-
+        // evaluation temporary scope as the regular while condition above.
         auto scrut = node.has_key(la::VALUE)
-            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+            ? lower_expr_temp_scoped(map_of(node.get(la::VALUE.code))) : error_expr();
         TypeRef scrut_type = expr_type(scrut);
 
         // Same nested-pattern + refutable-guard channels as lower_match / if-let.
@@ -6269,7 +6325,12 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
 
     lir::LExprPtr cond = nullptr;
     if (node.has_key(la::COND)) {
-        cond = lower_expr(map_of(node.get(la::COND.code)));
+        // The condition is re-evaluated EVERY iteration: a droppable rvalue
+        // receiver inside it (`while make().len() > 0`) must materialize +
+        // drop per evaluation, in its own temporary scope. The ambient
+        // statement-level hoist would lift it BEFORE the loop — evaluated
+        // exactly once (an infinite-loop miscompile) and dropped once.
+        cond = lower_expr_temp_scoped(map_of(node.get(la::COND.code)));
         if (TypeRef(expr_type(cond)).kind() != LogosType::Kind::Bool &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Error)
             error(std::format("while condition must be bool, got {}", type_str(expr_type(cond))));
@@ -9759,7 +9820,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             lir::LExprPtr val = nullptr;
             bool arm_diverges = false;   // move/uninit merge below
             if (arm.has_key(la::EXPR)) {
-                val = lower_expr(map_of(arm.get(la::EXPR.code)));
+                // Arm values are CONDITIONALLY evaluated — own temporary scope
+                // (a statement-level hoist of a droppable temp receiver would
+                // evaluate EVERY arm eagerly; see lower_expr_temp_scoped).
+                val = lower_expr_temp_scoped(map_of(arm.get(la::EXPR.code)));
             } else if (arm.has_key(la::BODY)) {
                 auto body_node = map_of(arm.get(la::BODY.code));
                 // B-fn-06: this is a match expression's arm body block; a
@@ -9793,11 +9857,13 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         auto s = map_of(stmts.get(si));
                         if (si == stmts.size() - 1) {
                             int32_t sc = code_of(s);
+                            // Conditionally evaluated arm tail — own temporary
+                            // scope (above).
                             if ((sc == la::EXPR_STMT || sc == la::TAIL_EXPR) && s.has_key(la::VALUE))
-                                last_expr = lower_expr(map_of(s.get(la::VALUE.code)));
+                                last_expr = lower_expr_temp_scoped(map_of(s.get(la::VALUE.code)));
                             else if (sc != la::EXPR_STMT && sc != la::TAIL_EXPR && sc != la::LET &&
                                      sc != la::LET_DESTRUCT && sc != la::RETURN)
-                                last_expr = lower_expr(s);
+                                last_expr = lower_expr_temp_scoped(s);
                             else
                                 blk.push_back(lower_stmt(s));
                         } else {

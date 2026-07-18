@@ -79,6 +79,24 @@ lir::LExprPtr SemaChecker::lower_int_lit(TinyMapView expr) {
     return lit_int_from_text(str_of(expr.get(la::VALUE.code)), /*negate=*/false);
 }
 
+// Hoist a fresh droppable rvalue into the active statement/expression
+// temp-scope. The synth local is BOTH recorded in the collector (the installer
+// prepends the `let`s and emits the fall-through drops) AND define()'d into the
+// collector's scope frame, so an early exit lowered later in the same scope
+// (`return` / `break` / `continue`) drops it via the standard collect_*_drops
+// walks — the fall-through drops are dead code past a terminator.
+lir::LExprPtr SemaChecker::hoist_stmt_temp(lir::LExprPtr v, bool is_mut) {
+    std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+    TypeRef rt = expr_type(v);
+    cur_stmt_temp_hoist_->push_back({nm, rt, std::move(v), is_mut});
+    if (cur_stmt_temp_hoist_frame_ < scope_.size()) {
+        auto& fr = scope_[cur_stmt_temp_hoist_frame_];
+        if (!fr.vars.count(nm)) fr.var_order.push_back(nm);
+        fr.vars[nm] = {rt, is_mut, false, next_slot_++};
+    }
+    return builder().var_ref(nm, rt);
+}
+
 lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
                                                 TypeRef ref_type) {
     // Temporary scope (Rust): a DROPPABLE fresh rvalue receiver auto-ref'd to
@@ -91,12 +109,62 @@ lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
     // keeps the plain addr_of_temp spill (unchanged behaviour).
     if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
         is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
-        std::string nm = std::format("__rtmp_{}", destruct_counter_++);
-        TypeRef rt = expr_type(recv);
-        cur_stmt_temp_hoist_->push_back({nm, rt, std::move(recv), is_mut});
-        recv = builder().var_ref(nm, rt);
+        recv = hoist_stmt_temp(std::move(recv), is_mut);
     }
     return builder().addr_of_temp(std::move(recv), is_mut, ref_type);
+}
+
+// Lower a lazily-/repeatedly-evaluated subexpression in its OWN temporary
+// scope. See the declaration for the rationale (statement-level hoisting of a
+// conditional/loop-condition temp is an eager-eval / eval-once miscompile).
+lir::LExprPtr SemaChecker::lower_expr_temp_scoped(writ::TinyMapView node) {
+    std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr, bool>> temps;
+    auto* saved_hoist = cur_stmt_temp_hoist_;
+    size_t saved_frame = cur_stmt_temp_hoist_frame_;
+    push_scope();
+    cur_stmt_temp_hoist_ = &temps;
+    cur_stmt_temp_hoist_frame_ = scope_.size() - 1;
+    lir::LExprPtr e = lower_expr(node);
+    cur_stmt_temp_hoist_ = saved_hoist;
+    cur_stmt_temp_hoist_frame_ = saved_frame;
+    if (temps.empty()) {
+        pop_scope();
+        return e;
+    }
+    std::vector<lir_view::StmtRef> blk;
+    for (auto& h : temps) {
+        lir::SLet sl;
+        sl.name = std::move(std::get<0>(h));
+        sl.type = std::get<1>(h);
+        sl.is_mut = std::get<3>(h);
+        sl.value = std::move(std::get<2>(h));
+        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+    }
+    TypeRef vt = e ? expr_type(e) : error_t();
+    bool valueful = vt && TypeRef(vt).kind() != LogosType::Kind::Never &&
+                    TypeRef(vt).kind() != LogosType::Kind::Void &&
+                    TypeRef(vt).kind() != LogosType::Kind::Error;
+    if (!valueful) {
+        // Diverging / valueless subexpression: the temps' drops on the live
+        // path were already emitted by the terminator's collect_*_drops walk
+        // (they are scope-tracked); just run the expression after the lets.
+        blk.push_back(builder().stmt_expr(std::move(e), node_line_));
+        for (auto& d : collect_drops()) blk.push_back(std::move(d));
+        pop_scope();
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk), nullptr, vt);
+    }
+    // Bind the value while the temps live, then drop them, then yield it.
+    std::string vn = std::format("__etmp_{}", destruct_counter_++);
+    lir::SLet vl;
+    vl.name = vn;
+    vl.type = vt;
+    vl.is_mut = false;
+    vl.value = std::move(e);
+    blk.push_back(make_stmt_emit(node_line_, std::move(vl)));
+    for (auto& d : collect_drops()) blk.push_back(std::move(d));
+    pop_scope();
+    return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                builder().var_ref(vn, vt), vt);
 }
 
 std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_step(
@@ -1236,6 +1304,14 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         }
         auto ok_type = TypeRef(inner_t).type_args()[0];  // T
 
+        // (gap B) `?` CONSUMES its operand — both arms of the desugar below
+        // move the payload out — so a PLACE operand (`r?` on a named local)
+        // must be marked moved, or its scope-exit drop double-frees the
+        // extracted payload. mark_moved_expr self-gates to places of move
+        // types (a Copy Result / rvalue operand is a no-op).
+        if (inner && inner_t && is_move_type(inner_t))
+            mark_moved_expr(expr_ref_of(inner));
+
         // Heterogeneous-E desugar (Result<T, E_inner> → Result<U, E_outer>).
         // ETry's codegen byte-copies the err payload, which is wrong when E
         // types differ. Desugar to:
@@ -1288,17 +1364,29 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 std::string ok_name_b  = "__try_ok_" + std::to_string(tmp_var_count_++);
                 std::string err_name_b = "__try_err_" + std::to_string(tmp_var_count_++);
 
-                // Ok(__try_ok_v) pattern.
+                // VOID ok payload (`Result<(), E1>? in a Result<(), E2> fn`):
+                // same rule as the homogeneous desugar below — a void-typed
+                // match-EXPRESSION silently no-ops in mlir-gen, so lower to a
+                // match STATEMENT inside a void block-expression instead.
+                bool void_ok = ok_type &&
+                    (TypeRef(ok_type).kind() == LogosType::Kind::Void ||
+                     TypeRef(ok_type).kind() == LogosType::Kind::Never);
+
+                // Ok(__try_ok_v) pattern (bare Ok when the payload is void).
                 lir::Pattern ok_pat;
-                ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                    *cur_prog_, "Result", "Ok", ok_disc, {ok_name_b}, {ok_type});
+                if (void_ok)
+                    ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
+                        *cur_prog_, "Result", "Ok", ok_disc);
+                else
+                    ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
+                        *cur_prog_, "Result", "Ok", ok_disc, {ok_name_b}, {ok_type});
 
                 // Err(__try_err_e) pattern.
                 lir::Pattern err_pat;
                 err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
                     *cur_prog_, "Result", "Err", err_disc, {err_name_b}, {e_inner});
 
-                // Ok arm value: VarRef(__try_ok_v).
+                // Ok arm value: VarRef(__try_ok_v) (unused in the void form).
                 auto ok_arm_val = builder().var_ref(ok_name_b, ok_type);
 
                 // Err arm value: { return Err(<E_outer>::from(__try_err_e)) }.
@@ -1310,9 +1398,25 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 err_payload.push_back(std::move(from_call));
                 auto err_lit = builder().enum_lit_data(
                     "Result", "Err", err_disc, std::move(err_payload), ret_type_);
-                auto err_ret = builder().stmt_return(std::move(err_lit), 0);
-                std::vector<lir_view::StmtRef> err_block;
-                err_block.push_back(std::move(err_ret));
+                // (gap B) route the early return through the shared return-drop
+                // sequence — a bare SReturn here skipped every live local's
+                // drop (leak on the Err path).
+                auto err_block = make_return_with_drops(std::move(err_lit));
+                if (void_ok) {
+                    lir::SMatch sm;
+                    sm.scrut = std::move(inner);
+                    std::vector<lir_view::StmtRef> ok_body;
+                    sm.arms.push_back({std::move(ok_pat),
+                                       lir_mirror_block(*cur_prog_, ok_body),
+                                       std::nullopt});
+                    sm.arms.push_back({std::move(err_pat),
+                                       lir_mirror_block(*cur_prog_, err_block),
+                                       std::nullopt});
+                    std::vector<lir_view::StmtRef> blk;
+                    blk.push_back(make_stmt_emit(node_line_, std::move(sm)));
+                    return builder().block_expr(
+                        lir_mirror_block(*cur_prog_, blk), nullptr, ok_type);
+                }
                 auto err_arm_val = builder().block_expr(
                     lir_mirror_block(*cur_prog_, err_block), nullptr, ok_type);
 
@@ -1323,7 +1427,82 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 return builder().match_expr_v(std::move(me), ok_type);
             }
         }
-        return builder().try_expr(std::move(inner), ok_disc, err_disc, ok_type);
+        // Homogeneous `?` (same E / same Option): desugar to
+        //
+        //   match <inner> {
+        //       Ok(__try_ok_v)   => __try_ok_v,
+        //       Err(__try_err_e) => { <drops>; return Err(__try_err_e) }
+        //   }
+        //
+        // (gap B — replaces the ETry node, whose codegen emitted a BARE early
+        // return: every live local leaked on the Err/None path.) The err arm
+        // routes through make_return_with_drops — the SAME value-first +
+        // collect_all_drops + terminator sequence lower_block emits for an
+        // explicit `return` statement, so `?` and `return` unwind identically.
+        {
+            std::string enum_nm = std::string(TypeRef(inner_t).enum_name());
+            // A VOID ok payload (`Result<(), E>` — the statement-position
+            // `f()?;` shape, or `let _u: () = f()?;`): a void-typed
+            // match-EXPRESSION is a silent no-op in mlir-gen (logos_to_mlir
+            // (void) is null → the whole match, scrutinee call included,
+            // vanishes) and a void payload BINDING is equally meaningless.
+            // Desugar to a match STATEMENT (whose codegen fully supports void
+            // arms + embedded returns) inside a void block-expression: the
+            // expression keeps type `()` for the checker, the block emits the
+            // match unconditionally.
+            bool void_ok = ok_type &&
+                (TypeRef(ok_type).kind() == LogosType::Kind::Void ||
+                 TypeRef(ok_type).kind() == LogosType::Kind::Never);
+            std::string ok_b = "__try_ok_" + std::to_string(tmp_var_count_++);
+            lir::Pattern ok_pat;
+            if (void_ok)
+                ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
+                    *cur_prog_, enum_nm, ok_name, ok_disc);
+            else
+                ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
+                    *cur_prog_, enum_nm, ok_name, ok_disc, {ok_b}, {ok_type});
+            lir::Pattern err_pat;
+            lir::LExprPtr err_lit = nullptr;
+            if (is_result) {
+                TypeRef e_t = TypeRef(inner_t).type_args()[1];
+                std::string err_b = "__try_err_" + std::to_string(tmp_var_count_++);
+                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
+                    *cur_prog_, enum_nm, err_name, err_disc, {err_b}, {e_t});
+                std::vector<lir::LExprPtr> err_payload;
+                err_payload.push_back(builder().var_ref(err_b, e_t));
+                err_lit = builder().enum_lit_data(enum_nm, err_name, err_disc,
+                                                  std::move(err_payload), ret_type_);
+            } else {
+                // Option: None carries no payload.
+                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
+                    *cur_prog_, enum_nm, err_name, err_disc);
+                err_lit = builder().enum_lit(enum_nm, err_name, err_disc, ret_type_);
+            }
+            auto err_block = make_return_with_drops(std::move(err_lit));
+            if (void_ok) {
+                lir::SMatch sm;
+                sm.scrut = std::move(inner);
+                std::vector<lir_view::StmtRef> ok_body;
+                sm.arms.push_back({std::move(ok_pat),
+                                   lir_mirror_block(*cur_prog_, ok_body),
+                                   std::nullopt});
+                sm.arms.push_back({std::move(err_pat),
+                                   lir_mirror_block(*cur_prog_, err_block),
+                                   std::nullopt});
+                std::vector<lir_view::StmtRef> blk;
+                blk.push_back(make_stmt_emit(node_line_, std::move(sm)));
+                return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                            nullptr, ok_type);
+            }
+            auto ok_val = builder().var_ref(ok_b, ok_type);
+            auto err_val = builder().block_expr(
+                lir_mirror_block(*cur_prog_, err_block), nullptr, ok_type);
+            lir::EMatchExpr me;
+            me.scrut = std::move(inner);
+            me.arms.push_back({std::move(ok_pat), std::nullopt, std::move(ok_val)});
+            me.arms.push_back({std::move(err_pat), std::nullopt, std::move(err_val)});
+            return builder().match_expr_v(std::move(me), ok_type);
+        }
     }
 
     case la::RANGE_EXPR: {
@@ -1723,7 +1902,15 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
 lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     auto op  = str_of(node.get(la::OP.code));
     auto lhs = lower_expr(map_of(node.get(la::LHS.code)));
-    auto rhs = lower_expr(map_of(node.get(la::RHS.code)));
+    // The RHS of a short-circuit operator is LAZILY evaluated: a droppable
+    // rvalue receiver inside it must NOT hoist to the enclosing statement (that
+    // evaluates it EAGERLY — side effects run even when the RHS is skipped —
+    // and its end-of-statement drop is skipped by an early return in the taken
+    // branch). Give it its own temporary scope: the temp binds + drops inside
+    // the RHS expression itself.
+    auto rhs = (op == "&&" || op == "||")
+        ? lower_expr_temp_scoped(map_of(node.get(la::RHS.code)))
+        : lower_expr(map_of(node.get(la::RHS.code)));
     auto lt = expr_type(lhs);
     auto rt = expr_type(rhs);
 
@@ -9550,6 +9737,27 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             auto ref_ty = make_ref(is_mut, expr_type(recv));
             recv = materialize_recv_ref(std::move(recv), is_mut, ref_ty);
         }
+    } else if (cur_stmt_temp_hoist_ && !fi.param_types.empty() && recv &&
+               expr_type(recv) &&
+               !is_ref_like(TypeRef(expr_type(recv)).kind()) &&
+               TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr &&
+               is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
+        // Temp-receiver drop for the STRUCT-only-generic path (`Vec::length` on
+        // `make_vec(n).length()`): the receiver stays BY VALUE here (the
+        // downstream auto-ref/spill contract must not change — see the gate
+        // comment above), so materialize_recv_ref never sees it and the fresh
+        // droppable temporary leaked. Hoist it into the statement temp-scope as
+        // a named local and pass the local by value — mlir-gen still takes the
+        // local's address for a `&self`/`&mut self` formal, and the statement
+        // wrap drops it. Only for a ref-like formal (a by-VALUE `self` CONSUMES
+        // the receiver — the callee drops it; hoisting would double-drop).
+        auto formal0 = struct_subst.empty()
+            ? fi.param_types[0]
+            : subst_type_sema(fi.param_types[0], struct_subst);
+        if (formal0 && is_ref_like(TypeRef(formal0).kind())) {
+            bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
+            recv = hoist_stmt_temp(std::move(recv), is_mut);
+        }
     }
     track_args_moved(arg_exprs);
     if (!fi.param_types.empty())
@@ -9820,10 +10028,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // a move type — a place / borrow base is left untouched.
     if (cur_stmt_temp_hoist_ && recv && expr_type(recv) &&
         is_move_type(expr_type(recv)) && is_hoistable_temp_rvalue(recv)) {
-        std::string nm = std::format("__rtmp_{}", destruct_counter_++);
-        TypeRef rt = expr_type(recv);
-        cur_stmt_temp_hoist_->push_back({nm, rt, recv, false});  // field recv = &self
-        recv = builder().var_ref(nm, rt);
+        recv = hoist_stmt_temp(std::move(recv), false);  // field recv = &self
     }
     TypeRef recv_base_t = expr_type(recv);
     // Auto-deref field access: a receiver whose own type lacks `field_name`
@@ -14758,11 +14963,15 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                     auto s = map_of(stmts.get(i));
                     if (i == stmts.size() - 1) {
                         int32_t lc = code_of(s);
+                        // Branch values are CONDITIONALLY evaluated — lower in
+                        // their own temporary scope (a statement-level hoist of
+                        // a droppable temp receiver would evaluate BOTH
+                        // branches eagerly; see lower_expr_temp_scoped).
                         if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
-                            result = lower_expr(map_of(s.get(la::VALUE.code)));
+                            result = lower_expr_temp_scoped(map_of(s.get(la::VALUE.code)));
                         } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET &&
                                    lc != la::LET_DESTRUCT && lc != la::RETURN) {
-                            result = lower_expr(s);
+                            result = lower_expr_temp_scoped(s);
                         } else {
                             block.push_back(lower_stmt(s));
                         }
@@ -14775,7 +14984,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                 then_val = builder().block_expr(lir_mirror_block(*cur_prog_, block),
                     result ? std::move(result) : nullptr, rt);
             } else {
-                then_val = lower_expr(then_node);
+                then_val = lower_expr_temp_scoped(then_node);
             }
         }
         pop_scope();
@@ -14791,11 +15000,12 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                 auto s = map_of(stmts.get(i));
                 if (i == stmts.size() - 1) {
                     int32_t lc = code_of(s);
+                    // Conditionally evaluated — own temporary scope (above).
                     if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE))
-                        result = lower_expr(map_of(s.get(la::VALUE.code)));
+                        result = lower_expr_temp_scoped(map_of(s.get(la::VALUE.code)));
                     else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET &&
                              lc != la::LET_DESTRUCT && lc != la::RETURN)
-                        result = lower_expr(s);
+                        result = lower_expr_temp_scoped(s);
                     else
                         block.push_back(lower_stmt(s));
                 } else {
@@ -14807,7 +15017,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             else_val = builder().block_expr(lir_mirror_block(*cur_prog_, block),
                 result ? std::move(result) : nullptr, rt);
         } else {
-            else_val = lower_expr(else_node);
+            else_val = lower_expr_temp_scoped(else_node);
         }
         // Build match-style expression: arms are [pat→then, _→else]
         TypeRef result_t = expr_type(then_val);
@@ -14869,12 +15079,14 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                         block.push_back(lower_stmt(s));
                         divergent_t = never_t();
                     } else {
-                        result = lower_expr(val_node);
+                        // Conditionally evaluated branch value — own temporary
+                        // scope (see lower_expr_temp_scoped).
+                        result = lower_expr_temp_scoped(val_node);
                     }
                 } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR &&
                            lc != la::LET && lc != la::LET_DESTRUCT &&
                            lc != la::RETURN && lc != la::BREAK && lc != la::CONTINUE) {
-                    result = lower_expr(s);
+                    result = lower_expr_temp_scoped(s);
                 } else {
                     block.push_back(lower_stmt(s));
                     // A branch whose last statement diverges (`return` / `break`
@@ -14906,14 +15118,14 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         if (code_of(then_node) == la::BLOCK)
             then_val = lower_block_last_expr(then_node);
         else
-            then_val = lower_expr(then_node);
+            then_val = lower_expr_temp_scoped(then_node);
     }
 
     auto else_node = map_of(node.get(la::ELSE.code));
     if (code_of(else_node) == la::BLOCK)
         else_val = lower_block_last_expr(else_node);
     else
-        else_val = lower_expr(else_node);
+        else_val = lower_expr_temp_scoped(else_node);
 
     // Determine result type: pick the more concrete type when IntLit vs concrete int.
     // A diverging (Never) branch contributes no type — the if-expression's type
@@ -15205,8 +15417,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     } else if (node.has_key(la::VALUE)) {
         // G147-4: expression-body closure `|y| expr` (no braces). The closure
         // yields the expression — lower it and make the body `return <expr>`
-        // (closure ret-type inference reads the `return`).
-        auto val = lower_expr(map_of(node.get(la::VALUE.code)));
+        // (closure ret-type inference reads the `return`). The body runs PER
+        // CALL: a droppable temp receiver inside it must bind + drop inside
+        // the body's own temporary scope, never hoist to the statement that
+        // CREATES the closure (eager one-shot evaluation — a miscompile).
+        auto val = lower_expr_temp_scoped(map_of(node.get(la::VALUE.code)));
         body.push_back(builder().stmt_return(std::move(val), node_line_));
     }
     // C5-cl-03: prepend `let user = &synth;` for each ref-bound param.

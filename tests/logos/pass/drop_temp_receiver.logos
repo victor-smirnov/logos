@@ -1,0 +1,180 @@
+// drop_temp_receiver — a DROPPABLE temporary produced as a method receiver (or
+// in any lazily-evaluated expression position) must drop exactly once, at the
+// end of its temporary scope, and must be evaluated AT its source position
+// (never hoisted into eager/once evaluation). Exact drop counts (heap counter,
+// like b8_uninit_drop_matrix) catch under-drop (leak) AND over-drop (double
+// free). Regressions covered:
+//  - struct-level-generic method on a fresh rvalue receiver (`mkg().get()`,
+//    the Vec::length shape): the EMethodCall fall-through kept the receiver by
+//    value, bypassing the statement temp-hoist -> leak in EVERY context.
+//  - `&&`/`||` RHS temp: statement-level hoist ran it EAGERLY and the taken
+//    branch's early return skipped the end-of-statement drop -> leak.
+//  - while-CONDITION temp: hoisted before the loop -> evaluated ONCE (an
+//    infinite-loop miscompile) instead of per iteration.
+//  - if-expression branches / match-expression arms / closure expression
+//    bodies: hoist evaluated non-taken branches eagerly (miscompile).
+//  - `return make().m();` with a live outer local: the ret-bind wrap hid the
+//    Return from lower_block's drop insertion -> outer local leaked.
+package drop_temp_receiver;
+use logos.lang.mem;
+
+struct Noisy { c: *mut i64, v: i64 }
+impl Drop for Noisy {
+    fn drop(self: Noisy) { unsafe { self.c[0] = self.c[0] + 1i64; } }
+}
+impl Noisy {
+    fn get(self: &Noisy) -> i64 { return self.v; }
+}
+fn mk(c: *mut i64, v: i64) -> Noisy { return Noisy { c: c, v: v }; }
+
+// The struct-level-generic shape (Vec::length): method from `impl<T>`.
+struct GenBox<T> { c: *mut i64, v: T }
+impl<T> Drop for GenBox<T> {
+    fn drop(self: GenBox<T>) { unsafe { self.c[0] = self.c[0] + 1i64; } }
+}
+impl<T> GenBox<T> {
+    pub fn get(&self) -> i64 { unsafe { return self.c[0]; } }
+}
+fn mkg(c: *mut i64) -> GenBox<u16> { return GenBox::<u16> { c: c, v: 3u16 }; }
+
+fn take(n: Noisy) -> i64 { return n.v; }
+
+// let-RHS receiver.
+fn t_let(c: *mut i64) -> i64 {
+    let n: i64 = mk(c, 7i64).get();
+    return n;
+}
+// plain if-condition receiver.
+fn t_cond(c: *mut i64) -> i64 {
+    if mk(c, 7i64).get() != 7i64 { return 1i64; }
+    return 0i64;
+}
+// && RHS receiver: lazy (skipped when lhs false), dropped when evaluated, and
+// the early return in the taken branch must not skip the drop.
+fn t_and(c: *mut i64, b: bool) -> i64 {
+    if b && mk(c, 7i64).get() == 7i64 { return 0i64; }
+    return 1i64;
+}
+// chained: inner temp is an argument-producing receiver, outer temp receiver.
+fn t_chain(c: *mut i64) -> i64 {
+    let n: i64 = mk(c, mk(c, 5i64).get()).get();
+    return n;
+}
+// temp as call ARG (control — by-value consumption, callee drops).
+fn t_arg(c: *mut i64) -> i64 {
+    return take(mk(c, 7i64));
+}
+// while condition: evaluated (and dropped) EVERY iteration.
+fn t_while(c: *mut i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while mk(c, i).get() < 3i64 { i = i + 1i64; }
+    return i;
+}
+// generic (Vec::length shape) receiver: let / plain condition.
+fn t_gen_let(c: *mut i64) -> i64 {
+    let n: i64 = mkg(c).get();
+    return n;
+}
+fn t_gen_cond(c: *mut i64) -> i64 {
+    if mkg(c).get() < 0i64 { return 1i64; }
+    return 0i64;
+}
+// if-EXPRESSION: only the taken branch's temp is created + dropped.
+fn t_ifexpr(c: *mut i64, b: bool) -> i64 {
+    let n: i64 = if b { mk(c, 1i64).get() } else { mk(c, 2i64).get() };
+    return n;
+}
+// match-EXPRESSION arm values: only the taken arm.
+fn t_matchexpr(c: *mut i64, k: i64) -> i64 {
+    let n: i64 = match k {
+        0i64 => mk(c, 10i64).get(),
+        _    => mk(c, 20i64).get(),
+    };
+    return n;
+}
+// closure with an expression body: temp created + dropped per CALL.
+fn t_closure(c: *mut i64) -> i64 {
+    let f = |x: i64| mk(c, x).get();
+    let a: i64 = f(3i64);
+    let b: i64 = f(4i64);
+    return a + b;
+}
+// return-value receiver with a LIVE outer local: temp AND the local drop.
+fn t_ret_outer(c: *mut i64) -> i64 {
+    let outer: Noisy = mk(c, 40i64);
+    return mk(c, 2i64).get() + outer.get();
+}
+// early return from within the statement (then-branch) — temp still drops.
+fn t_early_ret(c: *mut i64) -> i64 {
+    if mk(c, 7i64).get() == 7i64 { return 5i64; }
+    return 6i64;
+}
+// nested scopes: temp in an inner block statement.
+fn t_nested(c: *mut i64) -> i64 {
+    let mut acc: i64 = 0i64;
+    {
+        let n: i64 = mk(c, 3i64).get();
+        acc = acc + n;
+    }
+    return acc;
+}
+
+fn main() -> i32 {
+    unsafe {
+        let c: *mut i64 = alloc(sizeof::<i64>()) as *mut i64;
+        c[0] = 0i64;
+        if t_let(c) != 7i64 { return 1i32; }
+        if c[0] != 1i64 { return 2i32; }
+        c[0] = 0i64;
+        if t_cond(c) != 0i64 { return 3i32; }
+        if c[0] != 1i64 { return 4i32; }
+        c[0] = 0i64;
+        if t_and(c, true) != 0i64 { return 5i32; }
+        if c[0] != 1i64 { return 6i32; }
+        c[0] = 0i64;
+        if t_and(c, false) != 1i64 { return 7i32; }
+        if c[0] != 0i64 { return 8i32; }   // RHS skipped: no create, no drop
+        c[0] = 0i64;
+        if t_chain(c) != 5i64 { return 9i32; }
+        if c[0] != 2i64 { return 10i32; }
+        c[0] = 0i64;
+        if t_arg(c) != 7i64 { return 11i32; }
+        if c[0] != 1i64 { return 12i32; }
+        c[0] = 0i64;
+        if t_while(c) != 3i64 { return 13i32; }
+        if c[0] != 4i64 { return 14i32; }  // 4 condition evaluations
+        c[0] = 0i64;
+        let g1: i64 = t_gen_let(c);
+        if g1 != 0i64 { return 15i32; }
+        if c[0] != 1i64 { return 16i32; }
+        c[0] = 0i64;
+        if t_gen_cond(c) != 0i64 { return 17i32; }
+        if c[0] != 1i64 { return 18i32; }
+        c[0] = 0i64;
+        if t_ifexpr(c, true) != 1i64 { return 19i32; }
+        if c[0] != 1i64 { return 20i32; }
+        c[0] = 0i64;
+        if t_ifexpr(c, false) != 2i64 { return 21i32; }
+        if c[0] != 1i64 { return 22i32; }
+        c[0] = 0i64;
+        if t_matchexpr(c, 0i64) != 10i64 { return 23i32; }
+        if c[0] != 1i64 { return 24i32; }
+        c[0] = 0i64;
+        if t_matchexpr(c, 9i64) != 20i64 { return 25i32; }
+        if c[0] != 1i64 { return 26i32; }
+        c[0] = 0i64;
+        if t_closure(c) != 7i64 { return 27i32; }
+        if c[0] != 2i64 { return 28i32; }
+        c[0] = 0i64;
+        if t_ret_outer(c) != 42i64 { return 29i32; }
+        if c[0] != 2i64 { return 30i32; }  // temp + outer
+        c[0] = 0i64;
+        if t_early_ret(c) != 5i64 { return 31i32; }
+        if c[0] != 1i64 { return 32i32; }
+        c[0] = 0i64;
+        if t_nested(c) != 3i64 { return 33i32; }
+        if c[0] != 1i64 { return 34i32; }
+        dealloc(c as *mut u8);
+    }
+    return 0i32;
+}

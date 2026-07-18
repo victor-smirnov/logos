@@ -4633,6 +4633,34 @@ private:
     // `&mut self` method call on a temporary — `iter_copied(..).find(..)` —
     // fails borrow-check: "cannot borrow '__rtmp' as mutable").
     std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr, bool>>* cur_stmt_temp_hoist_ = nullptr;
+    // The scope_ frame index the active temp collector belongs to. Every hoisted
+    // temp is ALSO define()'d into this frame (a real scope-tracked local), so an
+    // early exit inside the same statement/expression (`if b && make().m() {
+    // return; }`, `b && return x`) drops it via collect_all_drops /
+    // collect_drops_to_loop — the wrap's fall-through drops are unreachable past
+    // a terminator. SIZE_MAX ⇒ no collector installed.
+    size_t cur_stmt_temp_hoist_frame_ = SIZE_MAX;
+    // Hoist a fresh droppable rvalue into the active statement/expression
+    // temp-scope: appends (name,type,value,is_mut) to the collector, defines the
+    // synth local in the collector's frame, and returns a VarRef to it. The
+    // caller substitutes the VarRef for the rvalue; the installer emits the
+    // `let`s and the scope drops.
+    lir::LExprPtr hoist_stmt_temp(lir::LExprPtr v, bool is_mut);
+    // Lower a LAZILY- or REPEATEDLY-evaluated subexpression (a `&&`/`||` RHS, a
+    // while-loop condition, a while-let scrutinee, an if-expression branch, an
+    // expression-bodied closure) in its OWN temporary scope: droppable rvalue
+    // receivers materialized inside it are bound + dropped WITHIN the resulting
+    // expression (a block-expr), not hoisted to the enclosing statement — the
+    // statement-level hoist would evaluate them EAGERLY (and, for a loop
+    // condition, exactly ONCE — an infinite-loop miscompile). Returns the plain
+    // lowered expression when no temps were materialized.
+    lir::LExprPtr lower_expr_temp_scoped(writ::TinyMapView node);
+    // Emit `return <val>` with the FULL scope unwind, mirroring lower_block's
+    // Return-statement handling (bind the value FIRST — it may read/move locals
+    // the drops release — then collect_all_drops, then the terminator). For use
+    // by desugars that synthesize early returns in EXPRESSION position (`?`),
+    // which lower_block's statement-level drop insertion never sees.
+    std::vector<lir_view::StmtRef> make_return_with_drops(lir::LExprPtr val);
     // Set by lower_return when its value lowering hoisted statement-temporaries:
     // the value must be pre-bound to this local so lower_stmt can emit
     // `let __t…; let __rv = <value>; drop __t…; return __rv;` — the temp drops
