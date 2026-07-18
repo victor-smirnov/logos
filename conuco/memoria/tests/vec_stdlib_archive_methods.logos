@@ -1,0 +1,28 @@
+// Regression: a mono method instance BODY-SKIPPED at compile because some
+// stdlib archive defines it must actually RESOLVE at link. Vec<u64>::clear's
+// instance lives only in liblogos-lcm.a (layer dedup put it there — mem's
+// own build never instantiated it), so lforge's link set must carry ALL
+// stdlib layers logosc nm-scanned for symbol discovery, or clear comes out
+// `undefined reference to ...Vec$G1$u64__clear__g__refmut_Vec$G1$T`.
+// push/len (defined in liblogos-mem.a) and Vec<i64> pin the working
+// spellings alongside.
+package test;
+
+fn main() -> i32 {
+    let mut v: Vec<u64> = Vec::new();
+    v.push(1u64);
+    v.push(2u64);
+    if v.len() != 2i64 { return 1i32; }
+    v.clear();
+    if v.len() != 0i64 { return 2i32; }
+    v.push(7u64);
+    if v.len() != 1i64 { return 3i32; }
+
+    let mut w: Vec<i64> = Vec::new();
+    w.push(-3i64);
+    w.push(4i64);
+    if w.len() != 2i64 { return 4i32; }
+    w.clear();
+    if w.len() != 0i64 { return 5i32; }
+    return 0i32;
+}

@@ -212,18 +212,28 @@ pub fn build_lib(t: &Target, profile: str, logosc: &String,
             push_string_arg(&mut argv, &lb.archive_path);
             ei_lib = ei_lib + 1 as i64;
         }
-        // The three stdlib layers as explicit `-l` archives so emit_module
-        // nm-scans them into the skeleton-skip gate. Without this, a source
-        // that pulls a stdlib METAPROG cone (a `container`/`deem` item drags
-        // in wql_surface_parser) RE-LOWERS those bodies from the archived AST
-        // instead of skipping them — and the comptime `parse_expr` intercept
-        // does not survive re-lowering ("initializer produced no value").
+        // ALL FOUR stdlib layers (lang→mem→lcm→std) as explicit `-l`
+        // archives so emit_module nm-scans them into the skeleton-skip
+        // gate. Without this, a source that pulls a stdlib METAPROG cone
+        // (a `container`/`deem` item drags in wql_surface_parser)
+        // RE-LOWERS those bodies from the archived AST instead of
+        // skipping them — and the comptime `parse_expr` intercept does
+        // not survive re-lowering ("initializer produced no value").
         // The baked -L already RESOLVES stdlib for plain `use`; this makes it
         // SKELETON-SKIPPED, which the metaprog cone needs.
+        // INVARIANT (mirrors run_test.sh): the symbol-discovery set must
+        // equal the link set — every archive scanned here (or via logosc's
+        // baked lib-dir glob) must appear on the link line below, else a
+        // mono instance that only a HIGHER layer's archive happens to carry
+        // (layer dedup, e.g. Vec$G1$u64__clear in liblogos-lcm.a) gets
+        // body-skipped at compile and comes out an undefined reference.
         if lib_dir.len() > 0 as i64 {
             let mut sp: String = String::new();
             sp.push_str(lib_dir.as_str()); append_path(&mut sp, "liblogos-std.a");
             push_arg(&mut argv, "-l"); push_string_arg(&mut argv, &sp);
+            let mut cp: String = String::new();
+            cp.push_str(lib_dir.as_str()); append_path(&mut cp, "liblogos-lcm.a");
+            push_arg(&mut argv, "-l"); push_string_arg(&mut argv, &cp);
             let mut mp: String = String::new();
             mp.push_str(lib_dir.as_str()); append_path(&mut mp, "liblogos-mem.a");
             push_arg(&mut argv, "-l"); push_string_arg(&mut argv, &mp);
@@ -561,19 +571,28 @@ pub fn build_bin(t: &Target,
         k = k + 1 as i64;
     }
     let lib_view: str = lib_dir.as_str();
-    // Three modular stdlib layers, each carrying only its own codegen
-    // (emit_module's layer dedup forward-declares whatever a lower layer
-    // already defines). They cross-reference (std→mem→lang + mono
+    // ALL FOUR modular stdlib layers (lang→mem→lcm→std), each carrying only
+    // its own codegen (emit_module's layer dedup forward-declares whatever a
+    // lower layer already defines). They cross-reference (std→mem→lang + mono
     // instantiations either way), so wrap them in --start-group/--end-group
-    // to let ld resolve in any order.
+    // to let ld resolve in any order. The set MUST match the archives logosc
+    // nm-scanned for symbol discovery (baked lib-dir glob = every layer):
+    // a mono instance carried only by a higher layer (layer dedup) is
+    // body-skipped at compile and needs that layer's archive at link.
+    // --allow-multiple-definition: a layer member pulled for one symbol may
+    // also define instances a project archive cloned locally (run_test.sh
+    // and the test link both carry it already).
     push_arg(&mut largv, "-Wl,--start-group");
     let mut p1: String = String::new();
     p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv.push(p1);
+    let mut p1d: String = String::new();
+    p1d.push_str(lib_view); append_path(&mut p1d, "liblogos-lcm.a"); largv.push(p1d);
     let mut p1b: String = String::new();
     p1b.push_str(lib_view); append_path(&mut p1b, "liblogos-mem.a"); largv.push(p1b);
     let mut p1c: String = String::new();
     p1c.push_str(lib_view); append_path(&mut p1c, "liblogos-lang.a"); largv.push(p1c);
     push_arg(&mut largv, "-Wl,--end-group");
+    push_arg(&mut largv, "-Wl,--allow-multiple-definition");
     let mut p2: String = String::new();
     p2.push_str(lib_view); append_path(&mut p2, "liblstdlib_fibers.a"); largv.push(p2);
     let mut p3: String = String::new();

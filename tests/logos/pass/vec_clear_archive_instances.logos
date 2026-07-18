@@ -1,0 +1,25 @@
+// Regression companion to conuco's vec_stdlib_archive_methods: Vec::clear
+// alongside previously-working methods (push/len) on two instance types.
+// The clear instance for u64 lives only in liblogos-lcm.a (layer dedup);
+// the harness must link every archive logosc nm-scanned for the body-skip
+// gate, or the stubbed method is an undefined reference at link.
+package vec_clear_archive_instances;
+
+fn main() -> i64 {
+    let mut v: Vec<u64> = Vec::new();
+    v.push(10u64);
+    v.push(20u64);
+    if v.len() != 2i64 { return 1i64; }
+    v.clear();
+    if v.len() != 0i64 { return 2i64; }
+    v.push(30u64);
+    if v.get(0i64) != 30u64 { return 3i64; }
+
+    let mut w: Vec<i64> = Vec::new();
+    w.push(-1i64);
+    w.push(2i64);
+    if w.len() != 2i64 { return 4i64; }
+    w.clear();
+    if w.len() != 0i64 { return 5i64; }
+    return 0i64;
+}

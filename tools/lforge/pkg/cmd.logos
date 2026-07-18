@@ -496,10 +496,14 @@ fn build_test_bin(test_logos: &String,
     }
 
     // cc <obj> --start-group [<lib>...] <stdlib_archives> --end-group … -o <bin>
-    // ALL THREE stdlib layers (std+mem+lang) inside one ld group: a test may
-    // reference any layer directly (e.g. logos.lang.mem::alloc), and archive
-    // cross-references make single-pass left-to-right ordering fragile —
-    // the group mirrors the repo ctest harness (run_test.sh).
+    // ALL FOUR stdlib layers (std+lcm+mem+lang) inside one ld group: a test
+    // may reference any layer directly (e.g. logos.lang.mem::alloc), and
+    // archive cross-references make single-pass left-to-right ordering
+    // fragile — the group mirrors the repo ctest harness (run_test.sh).
+    // The set must equal logosc's symbol-discovery glob (all liblogos-*.a):
+    // a mono instance carried only by a higher layer's archive (layer
+    // dedup, e.g. Vec$G1$u64__clear living in liblogos-lcm.a) is
+    // body-skipped at compile and resolves only if that layer is linked.
     let mut largv: Vec<String> = vec_new::<String>();
     push_arg(&mut largv, "cc");
     push_arg(&mut largv, "-Wl,--gc-sections");
@@ -514,6 +518,8 @@ fn build_test_bin(test_logos: &String,
     let lib_view: str = lib_dir.as_str();
     let mut p1: String = String::new();
     p1.push_str(lib_view); append_path(&mut p1, "liblogos-std.a"); largv.push(p1);
+    let mut p1c: String = String::new();
+    p1c.push_str(lib_view); append_path(&mut p1c, "liblogos-lcm.a"); largv.push(p1c);
     let mut p1m: String = String::new();
     p1m.push_str(lib_view); append_path(&mut p1m, "liblogos-mem.a"); largv.push(p1m);
     let mut p1l: String = String::new();
