@@ -765,6 +765,18 @@
               => { CODE: CONST_DEF, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, VALUE: $7 }
                / KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
+            // `const #id [<G>]: T = expr;` — const NAME antiquot (NAME_VAR),
+            // valid only inside quote_item! bodies (sema gates elsewhere). The
+            // `type_param_list?` slot admits a spliced `#(parse_type_params(..))`
+            // header (generic CFG const) or nothing (concrete). NAME_VAR shares
+            // slot 38 with WHERE, but const_def has no where_clause — no clash.
+            // Placed after the plain-IDENT alts (IDENT never matches `#`).
+            // Closes the "WritStatic const item not quotable" gap (the ADR 0021
+            // container CFG const, emit_cfg_doc → quote_item!).
+               / pub_vis KW_CONST HASH IDENT type_param_list? COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, IS_PUB: 1, VIS: $1, NAME_VAR: $4, TYPE_PARAMS: $5, TYPE: $7, VALUE: $9 }
+               / KW_CONST HASH IDENT type_param_list? COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, NAME_VAR: $3, TYPE_PARAMS: $4, TYPE: $6, VALUE: $8 }
                / pub_vis KW_LET IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE: $5, VALUE: $7 }
                / KW_LET IDENT COLON type_ref ASSIGN expr SEMI

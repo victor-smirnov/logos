@@ -1401,22 +1401,36 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
     }
     let vty: str = unsafe { cf_sub(cs.entry, v1 + 1i64, v2) };
 
-    let mut em: Emitter = Emitter::new();
-    em.emit_into(cs.pkg);                              // "package <pkg>; "
-    em.push_text("\nuse logos.lang.writ.wstatic;\n\n");
-    em.push_text("pub const "); em.push_text(name); em.push_text("Cfg");
-    if cs.generics.len() > 0i64 {
-        em.push_text(cs.generics);
-    } // verbatim, bounds included
-    em.push_text(": WritStatic = @{ \"kind\": \"ordered_map\", \"key\": <type:");
-    em.push_text(kty); em.push_text(">, \"value\": ");
+    // The CFG const via quote_item! (retires the last hand-formatted text
+    // emission on the container decl path — the fragment lands in the declaring
+    // package like every other quote emitter here, no explicit `emit_into`).
+    // The name is the composite Ident `<name>Cfg`; the generic header rides
+    // `#(gp)` — parse_type_params of the declared list (empty ⇒ no `<...>`, the
+    // concrete-decl case); the key type slot splices through `<type:#(kt)>`.
+    // The value column keeps its two forms: a sized value rides `<type:#(vt)>`,
+    // an unsized `str` value keeps the `"str"` VLE tag literally (it cannot ride
+    // `<type:str>`). Byte-identical to the former text emission by construction:
+    // both paths reduce to the same CONST_DEF AST before the renderer.
+    let mut cfgnm_s: String = String::new();
+    cfgnm_s.push_str(name);
+    cfgnm_s.push_str("Cfg");
+    let cfgnm: Ident = Ident::new(cfgnm_s.as_str());
+    let gp: ExprBlob = parse_type_params(cs.generics);
+    let kt: ExprBlob = parse_type(kty);
     if str_eq(vty, "str") {
-        em.push_text("\"str\"");                        // VLE tag — str is unsized
+        let b: QuoteItemBlob = quote_item! {
+            use logos.lang.writ.wstatic;
+            pub const #cfgnm #(gp): WritStatic = @{ "kind": "ordered_map", "key": <type:#(kt)>, "value": "str" };
+        };
+        unsafe { logos_emit_item_blob_subst(&b); }
     } else {
-        em.push_text("<type:"); em.push_text(vty); em.push_text(">");
+        let vt: ExprBlob = parse_type(vty);
+        let b: QuoteItemBlob = quote_item! {
+            use logos.lang.writ.wstatic;
+            pub const #cfgnm #(gp): WritStatic = @{ "kind": "ordered_map", "key": <type:#(kt)>, "value": <type:#(vt)> };
+        };
+        unsafe { logos_emit_item_blob_subst(&b); }
     }
-    em.push_text(" };");
-    em.commit();
     return true;
 }
 

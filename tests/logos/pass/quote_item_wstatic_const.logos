@@ -1,0 +1,38 @@
+// A `pub const #id [<G>]: WritStatic = @{...}` WritStatic const with a NAME
+// antiquote inside quote_item! — the ADR 0021 container CFG-const shape
+// (emit_cfg_doc). Exercises: the const NAME_VAR grammar alt (`const #id`), a
+// spliced generic header `#(gp)` (empty here → no `<...>`), and antiquoted
+// type slots `<type:#(kt)>` inside the `@{...}` value. Gates like
+// container_item_e2e: a clean compile+run of the emit cycle; the gendir variant
+// (logos_09_gendir_*) pins the render→reparse fidelity of the emitted const.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.wstatic;
+
+#[metaprog_handler("cfg_inject")]
+fn cfg_inject_hook(target_offset: u32) -> () {
+    let nm: Ident = Ident::new("FooCfg");
+    let gp: ExprBlob = parse_type_params("");
+    let kt: ExprBlob = parse_type("i64");
+    let vt: ExprBlob = parse_type("u64");
+    let blob: QuoteItemBlob = quote_item! {
+        use logos.lang.writ.wstatic;
+        pub const #nm #(gp): WritStatic = @{ "kind": "ordered_map", "key": <type:#(kt)>, "value": <type:#(vt)> };
+        // A carrier fn so the emitted module has DWARF line info referencing the
+        // --gen-dir dump (a bare const emits none); its presence forces the whole
+        // module — CFG const included — through the render→reparse fidelity gate.
+        pub fn foocfg_probe() -> i32 {
+            return 0i32;
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[cfg_inject]
+struct Marker {}
+
+fn main() -> i32 {
+    return 0i32;
+}
