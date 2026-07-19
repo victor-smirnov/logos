@@ -51,6 +51,19 @@
 //               multiplicity, not-found, boundaries
 //  160..169 P2: C++ HEAD backward/from-index behaviour parity (marker-3),
 //               including the recorded #27 divergences
+//  170..194 P3: the op-by-op mutation law sweep — insert 170, update 175,
+//               remove 180, merge 185, split 190; within each base,
+//               +0 prepared != consumed, +1 check(), +2 model, +3 index
+//               parity against a full rebuild
+//  195..199 P3: the MAX-ordering mutation sweep (ordering axis carried
+//               through the mutations; index-free by law)
+//  200..204 P3: a FAILED prepare leaves the block BYTE-IDENTICAL
+//  205..209 P3: remove(insert(x)) == x, byte for byte
+//  210..214 P3: merge(split(x, k)) == x for every cut k, byte for byte
+//  215..218 P3: the capacity-policy budget classification (GAP (b): rows
+//               growing inside a paid-for capacity must cost ZERO)
+//  219..224 P3: incremental-vs-full reindex parity (GAP (a)), depths 1..3
+//  225..239 P3: randomized mutation sequences across the threshold band
 package test;
 
 use logos.mem.pkd.pdtbuf;
@@ -219,6 +232,250 @@ fn model_find_max(m: &Model, c: u32, val: u64, strict: bool) -> u64 {
         i = i + 1u64;
     }
     return m.rows;
+}
+
+// ── the model's MUTATIONS (P3) ──────────────────────────────────────────────
+//
+// Written from the definition of each operation over a plain table, sharing
+// no code with the packed implementation: the port shifts bytes inside slots
+// and repairs a 32-ary index, the model rebuilds a Vec. A common off-by-one
+// cannot cancel out between them.
+
+/// Rows [at, at+count) of a row-major value block become new rows at `at`.
+fn model_insert(m: &Model, at: u64, count: u64, vals: &Vec<u64>) -> Model {
+    let mut r: Model = model_new(m.cols, m.rows + count);
+    let mut c: u32 = 0u32;
+    while c < m.cols {
+        let mut i: u64 = 0u64;
+        while i < at {
+            model_set(&mut r, c, i, model_get(m, c, i));
+            i = i + 1u64;
+        }
+        let mut k: u64 = 0u64;
+        while k < count {
+            model_set(&mut r, c, at + k,
+                      vals.get((k as i64) * (m.cols as i64) + (c as i64)));
+            k = k + 1u64;
+        }
+        let mut j: u64 = at;
+        while j < m.rows {
+            model_set(&mut r, c, j + count, model_get(m, c, j));
+            j = j + 1u64;
+        }
+        c = c + 1u32;
+    }
+    return r;
+}
+
+fn model_update(m: &Model, at: u64, count: u64, vals: &Vec<u64>) -> Model {
+    let mut r: Model = model_new(m.cols, m.rows);
+    let mut c: u32 = 0u32;
+    while c < m.cols {
+        let mut i: u64 = 0u64;
+        while i < m.rows {
+            model_set(&mut r, c, i, model_get(m, c, i));
+            i = i + 1u64;
+        }
+        c = c + 1u32;
+    }
+    let mut k: u64 = 0u64;
+    while k < count {
+        let mut c2: u32 = 0u32;
+        while c2 < m.cols {
+            model_set(&mut r, c2, at + k,
+                      vals.get((k as i64) * (m.cols as i64) + (c2 as i64)));
+            c2 = c2 + 1u32;
+        }
+        k = k + 1u64;
+    }
+    return r;
+}
+
+fn model_remove(m: &Model, start: u64, end: u64) -> Model {
+    let mut r: Model = model_new(m.cols, m.rows - (end - start));
+    let mut c: u32 = 0u32;
+    while c < m.cols {
+        let mut w: u64 = 0u64;
+        let mut i: u64 = 0u64;
+        while i < m.rows {
+            if i < start || i >= end {
+                model_set(&mut r, c, w, model_get(m, c, i));
+                w = w + 1u64;
+            }
+            i = i + 1u64;
+        }
+        c = c + 1u32;
+    }
+    return r;
+}
+
+/// a ++ b — the merge_from direction (self absorbs other after its own rows).
+fn model_concat(a: &Model, b: &Model) -> Model {
+    let mut r: Model = model_new(a.cols, a.rows + b.rows);
+    let mut c: u32 = 0u32;
+    while c < a.cols {
+        let mut i: u64 = 0u64;
+        while i < a.rows {
+            model_set(&mut r, c, i, model_get(a, c, i));
+            i = i + 1u64;
+        }
+        let mut j: u64 = 0u64;
+        while j < b.rows {
+            model_set(&mut r, c, a.rows + j, model_get(b, c, j));
+            j = j + 1u64;
+        }
+        c = c + 1u32;
+    }
+    return r;
+}
+
+/// Rows [0, at) of `m` — the left side of a split.
+fn model_prefix_rows(m: &Model, at: u64) -> Model {
+    return model_remove(m, at, m.rows);
+}
+
+/// Rows [at, rows) of `m` — the suffix a split moves out.
+fn model_suffix_rows(m: &Model, at: u64) -> Model {
+    return model_remove(m, 0u64, at);
+}
+
+// ── comparing a buffer to the model, and to its own full rebuild ────────────
+
+fn buf_matches_model(b: &PdtBuf, m: &Model) -> bool {
+    if b.size() != m.rows {
+        return false;
+    }
+    if b.columns() != m.cols {
+        return false;
+    }
+    let mut c: u32 = 0u32;
+    while c < m.cols {
+        let mut i: u64 = 0u64;
+        while i < m.rows {
+            if b.get(c, i) != model_get(m, c, i) {
+                return false;
+            }
+            i = i + 1u64;
+        }
+        c = c + 1u32;
+    }
+    return true;
+}
+
+/// Index cell identity, LEVEL BY LEVEL and all the way up — the substrate of
+/// the incremental-vs-full-reindex parity law. Anything less (comparing only
+/// query answers) could be satisfied by a stale index whose error happens to
+/// cancel inside the residual scan.
+fn index_cells_identical(a: &PdtBuf, b: &PdtBuf) -> bool {
+    if a.has_index() != b.has_index() {
+        return false;
+    }
+    if !a.has_index() {
+        return true;
+    }
+    let ia: PdtBuf = a.index();
+    let ib: PdtBuf = b.index();
+    if ia.size() != ib.size() {
+        return false;
+    }
+    let cols: u32 = a.columns();
+    let mut c: u32 = 0u32;
+    while c < cols {
+        let mut k: u64 = 0u64;
+        while k < ia.size() {
+            if ia.get(c, k) != ib.get(c, k) {
+                return false;
+            }
+            k = k + 1u64;
+        }
+        c = c + 1u32;
+    }
+    return index_cells_identical(&ia, &ib);
+}
+
+/// A flat byte copy of the whole block — a valid, independent buffer, because
+/// every back-reference in the packed family is self-relative. This IS the
+/// CoW clone of design_zero_copy_mutation_cow, and the gate uses it two ways:
+/// as the full-rebuild twin for reindex parity, and as the "before" snapshot
+/// of the failed-prepare byte-identity law.
+unsafe fn clone_block(src: &PdtBuf) -> *mut u8 {
+    let n: u32 = src.block_bytes();
+    let dst: *mut u8 = alloc(n as i64);
+    let s: *mut u8 = src.block_ptr();
+    let mut i: i64 = 0i64;
+    while i < (n as i64) {
+        *dst.byte_add(i) = *s.byte_add(i);
+        i = i + 1i64;
+    }
+    return dst;
+}
+
+unsafe fn blocks_identical(a: &PdtBuf, b: *mut u8, n: u32) -> bool {
+    let p: *mut u8 = a.block_ptr();
+    let mut i: i64 = 0i64;
+    while i < (n as i64) {
+        if *p.byte_add(i) != *b.byte_add(i) {
+            return false;
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+/// Byte identity over the LIVE region — [0, consumed_bytes()), which is
+/// exactly header + layout + bitmap + every allocated slot payload, in order.
+///
+/// WHY NOT THE WHOLE BLOCK, for the round-trip laws. A shrink
+/// (PkdAlloc::resize_block_at -> move_elements_down) compacts the payloads
+/// and lowers the layout offsets, but does NOT zero the bytes the tail
+/// vacated — a memset on every shrink would be pure cost for memory that is,
+/// by definition, not part of any structure's state. So after
+/// insert-then-remove the free tail legitimately holds residue of the larger
+/// intermediate, and requiring the whole malloc'd region to match would be
+/// asserting something false about the design rather than something true
+/// about the mutation. The live region is the entire state: it is what
+/// consumed_bytes() prices, what check() validates, and what a CoW clone
+/// would carry. (The FAILED-PREPARE law at 200..204 keeps the whole-block
+/// form, and it holds there — a prepare that fails writes nothing at all,
+/// so not even the tail may move.)
+unsafe fn live_bytes_identical(a: &PdtBuf, b: *mut u8, n: u32) -> bool {
+    if a.consumed_bytes() != n {
+        return false;
+    }
+    return blocks_identical(a, b, n);
+}
+
+/// THE law of this rung, in one place, applied after EVERY mutation:
+///   * prepared_bytes == consumed_bytes, EXACTLY (over- and under-pricing
+///     probes both trip this);
+///   * check() passes — so the index is coherent, the slot geometry matches
+///     the descriptor, and consumed == priced independently;
+///   * the buffer equals the independent model, cell for cell;
+///   * the index is cell-identical to a FULL REBUILD of the same content, so
+///     an incremental path that drifts by a single cell is caught here even
+///     when every query still happens to answer correctly.
+/// Returns 0 or the caller's error code, offset by which conjunct failed.
+fn assert_mutation(b: &PdtBuf, m: &Model, prepared: u32, base: i32) -> i32 {
+    if b.consumed_bytes() != prepared {
+        return base;
+    }
+    if b.check() != 0i32 {
+        return base + 1i32;
+    }
+    if !buf_matches_model(b, m) {
+        return base + 2i32;
+    }
+    unsafe {
+        let twin_mem: *mut u8 = clone_block(b);
+        let mut twin: PdtBuf = pdtbuf_adopt(twin_mem);
+        twin.reindex();
+        let same: bool = index_cells_identical(b, &twin);
+        dealloc(twin_mem);
+        if !same {
+            return base + 3i32;
+        }
+    }
+    return 0i32;
 }
 
 // ── corpus generation ───────────────────────────────────────────────────────
@@ -2240,6 +2497,219 @@ fn check_dir_fixture_body(b: &PdtBuf, m: &Model, s: str, pos: &mut i64) -> i32 {
     return 0i32;
 }
 
+// ── 245..255 the C++ HEAD MUTATION TRACES (marker 4, rung P3) ──────────────
+//
+// The port REPLAYS HEAD's scripted op sequence — the same corpus, the same
+// ops with the same parameters, the same inserted values, all read from the
+// fixture — and compares the post-state after EVERY step: the probed rows and
+// the index cells, level by level.
+//
+// The harness self-checks HEAD before emitting, two ways: post-state rows
+// against a naive std::vector model of the op, and index cells against span
+// sums RECOMPUTED FROM HEAD'S OWN ROWS (which is what catches a mutation that
+// forgets to reindex — values right, every cached sum stale). Both verdicts
+// travel with each step. The gate requires row parity unconditionally, and
+// index parity wherever HEAD reports itself coherent; where it does not, the
+// port must still satisfy its OWN check(), so an upstream incoherence is
+// recorded rather than inherited.
+//
+// RESULT AT THIS RUNG, stated because a null result is a result: across all
+// four column counts, all five row counts and all eight steps, HEAD's FSE/SUM
+// mutation paths agree with the definition on both counts — 0 divergences.
+// The catalogued defects in this neighbourhood (`do_prepare_remove`'s
+// `column < 1` loop, the ~10 dead dispatcher targets) are unreachable dead
+// code rather than wrong answers, and `split_to`'s missing budget is a
+// structural gap that a single-threaded harness with a huge block cannot
+// provoke. NO new upstream bug is claimed at P3 — a suspicion that does not
+// survive checking is not a bug, and one of mine did not
+// (do_commit_update_fxd_sum reindexes after all).
+fn check_mut_fixture_case(s: str, pos: &mut i64) -> i32 {
+    let cols: u32 = next_tok(s, pos) as u32;
+    let rows: u64 = next_tok(s, pos);
+    let seed0: u64 = next_tok(s, pos);
+
+    // The corpus is a pure function of (seed, columns, rows) through the same
+    // LCG in the same fill order on both sides — regenerated, not dumped.
+    let mut seed: u64 = seed0;
+    let mut m: Model = model_new(cols, rows);
+    let mut c0: u32 = 0u32;
+    while c0 < cols {
+        let mut i: u64 = 0u64;
+        while i < rows {
+            model_set(&mut m, c0, i, lcg_next(&mut seed) % 23u64);
+            i = i + 1u64;
+        }
+        c0 = c0 + 1u32;
+    }
+
+    let d: PdtDescr = descr_indexed(cols);
+    let block: u32 = pdtbuf_compute_block_size(&d, rows + 256u64);
+    let nsteps: i64 = next_tok(s, pos) as i64;
+
+    unsafe {
+        let mem: *mut u8 = alloc(block as i64);
+        let omem: *mut u8 = alloc(block as i64);
+        let mut b: PdtBuf = match build_filled(mem, block, &d, rows, &m) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                dealloc(omem);
+                return 246i32;
+            }
+        };
+        let mut st: i64 = 0i64;
+        while st < nsteps {
+            let op: u64 = next_tok(s, pos);
+            let a: u64 = next_tok(s, pos);
+            let bb: u64 = next_tok(s, pos);
+            let nin: i64 = next_tok(s, pos) as i64;
+            let mut inputs: Vec<u64> = vec_new::<u64>();
+            let mut k: i64 = 0i64;
+            while k < nin {
+                inputs.push(next_tok(s, pos));
+                k = k + 1i64;
+            }
+
+            if op == 0u64 {
+                match b.insert_rows(a, bb, &inputs) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 247i32;
+                    }
+                }
+                m = model_insert(&m, a, bb, &inputs);
+            } else if op == 1u64 {
+                match b.update_rows(a, bb, &inputs) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 248i32;
+                    }
+                }
+                m = model_update(&m, a, bb, &inputs);
+            } else if op == 2u64 {
+                match b.remove_rows(a, a + bb) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 249i32;
+                    }
+                }
+                m = model_remove(&m, a, a + bb);
+            } else {
+                // SPLIT: HEAD keeps the prefix in the subject buffer, which
+                // is the state the trace follows from here.
+                let empty: Model = model_new(cols, 0u64);
+                let mut ob: PdtBuf = match build_filled(omem, block, &d, 0u64, &empty) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 250i32;
+                    }
+                };
+                match b.split_to(&mut ob, a) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 250i32;
+                    }
+                }
+                m = model_prefix_rows(&m, a);
+            }
+
+            let post: u64 = next_tok(s, pos);
+            let values_ok: u64 = next_tok(s, pos);
+            let index_ok: u64 = next_tok(s, pos);
+            if post != m.rows || b.size() != post {
+                dealloc(mem);
+                dealloc(omem);
+                return 251i32;
+            }
+            // HEAD is expected to agree with the definition on the rows: if
+            // it did not, the divergence would have to be argued, not passed
+            // over. It does, everywhere, so the gate demands it.
+            if values_ok != 1u64 {
+                dealloc(mem);
+                dealloc(omem);
+                return 252i32;
+            }
+            let nprobe: i64 = next_tok(s, pos) as i64;
+            let mut p: i64 = 0i64;
+            while p < nprobe {
+                let r: u64 = next_tok(s, pos);
+                let cc: u32 = next_tok(s, pos) as u32;
+                let v: u64 = next_tok(s, pos);
+                if b.get(cc, r) != v || model_get(&m, cc, r) != v {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 253i32;
+                }
+                p = p + 1i64;
+            }
+
+            // ── the index, level by level ─────────────────────────────────
+            let nlev: i64 = next_tok(s, pos) as i64;
+            let mut ours: PdtBuf = b;
+            let mut lv: i64 = 0i64;
+            while lv < nlev {
+                let lrows: u64 = next_tok(s, pos);
+                let mut cell: i64 = 0i64;
+                let ncell: i64 = (lrows as i64) * (cols as i64);
+                // Our own tree must be at least as deep as HEAD's here.
+                if !ours.has_index() {
+                    // Consume the level and record the structural
+                    // divergence: below the span threshold we key index
+                    // presence on CAPACITY where HEAD keys it on size (the
+                    // P1 divergence), so the trees can legitimately differ
+                    // in existence while agreeing on every answer.
+                    while cell < ncell {
+                        let _ = next_tok(s, pos);
+                        cell = cell + 1i64;
+                    }
+                    lv = lv + 1i64;
+                    continue;
+                }
+                let ix: PdtBuf = ours.index();
+                while cell < ncell {
+                    let want: u64 = next_tok(s, pos);
+                    let r: u64 = (cell / (cols as i64)) as u64;
+                    let cc: u32 = (cell % (cols as i64)) as u32;
+                    if index_ok == 1u64 && r < ix.size() {
+                        if ix.get(cc, r) != want {
+                            dealloc(mem);
+                            dealloc(omem);
+                            return 254i32;
+                        }
+                    }
+                    cell = cell + 1i64;
+                }
+                ours = ix;
+                lv = lv + 1i64;
+            }
+
+            // Whatever HEAD did, OUR post-state must satisfy our own law.
+            // Base 1 rather than 0 so every conjunct reports a NON-ZERO code;
+            // the caller collapses them onto 255 because the marker-4 band is
+            // already at the top of the exit-code range.
+            if assert_mutation(&b, &m, b.consumed_bytes(), 1i32) != 0i32 {
+                dealloc(mem);
+                dealloc(omem);
+                return 255i32;
+            }
+            st = st + 1i64;
+        }
+        dealloc(mem);
+        dealloc(omem);
+    }
+    return 0i32;
+}
+
 fn check_fixtures() -> i32 {
     let content: String = match read_to_string("tests/pdtbuf_fixtures.hex") {
         Result::Ok(c) => { c }
@@ -2250,6 +2720,7 @@ fn check_fixtures() -> i32 {
     let mut cases: i64 = 0i64;
     let mut index_cases: i64 = 0i64;
     let mut dir_cases: i64 = 0i64;
+    let mut mut_cases: i64 = 0i64;
     let mut going: bool = true;
     while going {
         let marker: u64 = next_tok(s, &mut pos);
@@ -2273,6 +2744,12 @@ fn check_fixtures() -> i32 {
                 return rc3;
             }
             dir_cases = dir_cases + 1i64;
+        } else if marker == 4u64 {
+            let rc4: i32 = check_mut_fixture_case(s, &mut pos);
+            if rc4 != 0i32 {
+                return rc4;
+            }
+            mut_cases = mut_cases + 1i64;
         } else {
             return 102i32;   // desynchronized stream
         }
@@ -2287,6 +2764,1108 @@ fn check_fixtures() -> i32 {
     }
     if dir_cases < 70i64 {
         return 104i32;
+    }
+    if mut_cases < 20i64 {
+        return 105i32;
+    }
+    return 0i32;
+}
+
+// ── 170.. P3: the two-phase mutation surface ───────────────────────────────
+//
+// THE LAW of this rung, asserted at EVERY mutation, at every (columns,
+// capacity, size, policy) combination reached below:
+//
+//     us.prepared_bytes == b.consumed_bytes()      exactly, never approximately
+//
+// plus check() (which re-derives consumed == priced independently AND walks
+// the whole index), model equivalence cell by cell, and index parity against
+// a full rebuild. All four live in assert_mutation, so no section can forget
+// one.
+//
+// THE PROBES, and what each one actually trips (measured, not assumed):
+//   over-price the plan by 8 bytes                       -> 134
+//   under-price the plan by 8 bytes                      -> 134
+//   drop the incremental index recursion                 -> 176
+//   perturb one incremental cell by 1                    -> 176
+//   commit an update WITHOUT correcting the index        -> 176
+//   price remove over column 0 only — the shape of C++
+//     do_prepare_remove's `for (column = 0; column < 1)`  -> 134
+// 134 is SIGABRT: the in-module assert_consumed refuses to produce the state
+// at all, which is a stronger outcome than a test verdict and the reason the
+// law lives in the library and not only here. 176 is 175+1, the check()
+// conjunct — check() re-derives every span sum recursively, so it catches an
+// index error before the explicit full-rebuild parity conjunct (178) does.
+// Parity is kept anyway and is NOT redundant: check() and reindex() could in
+// principle share a wrong assumption about what a cell means, and only a
+// comparison against an actual rebuild would separate them.
+
+fn rand_vals(cols: u32, count: u64, seed: &mut u64) -> Vec<u64> {
+    let mut v: Vec<u64> = vec_new::<u64>();
+    let n: i64 = (count as i64) * (cols as i64);
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.push(lcg_next(seed) % 23u64);
+        i = i + 1i64;
+    }
+    return v;
+}
+
+/// Format `mem` as a buffer of `cap` capacity holding `m`'s rows, reindexed.
+/// `cap` is passed apart from `m.rows` on purpose: a buffer with SLACK
+/// (capacity > size) is the only state in which "rows grow inside the
+/// geometry" — GAP (b)'s first case — can be reached at all.
+unsafe fn build_filled(mem: *mut u8, block: u32, d: &PdtDescr, cap: u64, m: &Model)
+    -> Result<PdtBuf, PkdError> {
+    let mut b: PdtBuf = match pdtbuf_format(mem, block, d) {
+        Result::Ok(q) => { q }
+        Result::Err(e) => {
+            return Result::Err(e);
+        }
+    };
+    match b.reserve(cap) {
+        Result::Ok(_) => {}
+        Result::Err(e) => {
+            return Result::Err(e);
+        }
+    }
+    b.set_size(m.rows);
+    fill_from_model(&mut b, m);
+    b.reindex();
+    return Result::Ok(b);
+}
+
+fn descr_indexed_or(cols: u32, ordering: u32) -> PdtDescr {
+    if ordering == PDT_ORD_SUM {
+        return descr_indexed(cols);
+    }
+    return descr_for(cols, ordering);
+}
+
+/// The op-by-op law sweep for one (columns, rows, policy, slack).
+///
+/// `slack` is what makes the two halves of GAP (b) BOTH reachable: at slack 0
+/// every growth repricess the capacity, while at slack > 0 under PDT_CAP_KEEP
+/// a small insert must be recognised as costing NOTHING, and the section
+/// asserts that classification explicitly (215..219) rather than only
+/// asserting that the arithmetic happened to come out right.
+fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) -> i32 {
+    let m0: Model = model_random(cols, rows, false, seed);
+    let d: PdtDescr = descr_indexed(cols);
+    let cap0: u64 = rows + slack;
+    // Headroom for the largest growth any sub-case below asks for.
+    let block: u32 = pdtbuf_compute_block_size(&d, cap0 + 64u64);
+
+    let ats: [u64; 3] = [0u64, rows / 2u64, rows];
+    let counts: [u64; 3] = [1u64, 5u64, 17u64];
+
+    unsafe {
+        let mem: *mut u8 = alloc(block as i64);
+        let omem: *mut u8 = alloc(block as i64);
+
+        // ── 170..174 INSERT ───────────────────────────────────────────────
+        let mut ai: i64 = 0i64;
+        while ai < 3i64 {
+            let mut ci: i64 = 0i64;
+            while ci < 3i64 {
+                let at: u64 = ats[ai];
+                let count: u64 = counts[ci];
+                let mut b: PdtBuf = match build_filled(mem, block, &d, cap0, &m0) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 170i32;
+                    }
+                };
+                let vals: Vec<u64> = rand_vals(cols, count, seed);
+                let us: PdtUpdate = match b.prepare_insert(at, count, policy) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 170i32;
+                    }
+                };
+                // GAP (b), asserted as a CLASSIFICATION and not just as a
+                // number: under KEEP, rows landing inside the reserved
+                // capacity must cost zero bytes; under EXACT, or past the
+                // capacity, the geometry must be repriced.
+                let inside: bool = policy == PDT_CAP_KEEP && rows + count <= cap0;
+                if inside != us.is_free() {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 215i32;
+                }
+                if inside && us.grow_bytes() != 0u32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 216i32;
+                }
+                if inside && us.prepared_bytes != us.before_bytes {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 217i32;
+                }
+                b.commit_insert(&us, &vals);
+                let mm: Model = model_insert(&m0, at, count, &vals);
+                let rc: i32 = assert_mutation(&b, &mm, us.prepared_bytes, 170i32);
+                if rc != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc;
+                }
+                ci = ci + 1i64;
+            }
+            ai = ai + 1i64;
+        }
+
+        // ── 175..179 UPDATE (the targeted-reindex path) ───────────────────
+        if rows > 0u64 {
+            let mut ui: i64 = 0i64;
+            while ui < 2i64 {
+                let at: u64 = ats[ui];
+                let mut count: u64 = 7u64;
+                if at + count > rows {
+                    count = rows - at;
+                }
+                let mut b2: PdtBuf = match build_filled(mem, block, &d, cap0, &m0) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 175i32;
+                    }
+                };
+                let vals2: Vec<u64> = rand_vals(cols, count, seed);
+                let us2: PdtUpdate = match b2.prepare_update(at, count) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 175i32;
+                    }
+                };
+                // An FSE replacement moves no byte boundary — DERIVED, and
+                // the same verdict the C++ dispatcher base reaches by not
+                // looking (:185). Asserted here so that a future dimension
+                // whose update DOES cost bytes cannot slip through silently.
+                if !us2.is_free() || us2.grow_bytes() != 0u32
+                    || us2.prepared_bytes != us2.before_bytes {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 218i32;
+                }
+                b2.commit_update(&us2, &vals2);
+                let mm2: Model = model_update(&m0, at, count, &vals2);
+                let rc2: i32 = assert_mutation(&b2, &mm2, us2.prepared_bytes, 175i32);
+                if rc2 != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc2;
+                }
+                ui = ui + 1i64;
+            }
+        }
+
+        // ── 180..184 REMOVE ───────────────────────────────────────────────
+        if rows > 0u64 {
+            let starts: [u64; 4] = [0u64, rows / 2u64, 0u64, rows / 2u64];
+            let ends: [u64; 4] = [1u64, rows / 2u64 + 1u64, rows, rows];
+            let mut ri: i64 = 0i64;
+            while ri < 4i64 {
+                let s: u64 = starts[ri];
+                let e: u64 = ends[ri];
+                let mut b3: PdtBuf = match build_filled(mem, block, &d, cap0, &m0) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 180i32;
+                    }
+                };
+                let us3: PdtUpdate = match b3.prepare_remove(s, e, policy) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 180i32;
+                    }
+                };
+                b3.commit_remove(&us3);
+                let mm3: Model = model_remove(&m0, s, e);
+                let rc3: i32 = assert_mutation(&b3, &mm3, us3.prepared_bytes, 180i32);
+                if rc3 != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc3;
+                }
+                ri = ri + 1i64;
+            }
+        }
+
+        // ── 185..189 MERGE ────────────────────────────────────────────────
+        let mut mi: i64 = 0i64;
+        while mi < 2i64 {
+            let orows: u64 = if mi == 0i64 { 1u64 } else { 33u64 };
+            let om: Model = model_random(cols, orows, false, seed);
+            let mut b4: PdtBuf = match build_filled(mem, block, &d, cap0, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 185i32;
+                }
+            };
+            let ob: PdtBuf = match build_filled(omem, block, &d, orows, &om) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 185i32;
+                }
+            };
+            let us4: PdtUpdate = match b4.prepare_merge_with(&ob, policy) {
+                Result::Ok(u) => { u }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 185i32;
+                }
+            };
+            b4.commit_merge_with(&us4, &ob);
+            let mm4: Model = model_concat(&m0, &om);
+            let rc4: i32 = assert_mutation(&b4, &mm4, us4.prepared_bytes, 185i32);
+            if rc4 != 0i32 {
+                dealloc(mem);
+                dealloc(omem);
+                return rc4;
+            }
+            // `other` is NOT modified by a merge — the node disposes of it.
+            if !buf_matches_model(&ob, &om) {
+                dealloc(mem);
+                dealloc(omem);
+                return 189i32;
+            }
+            mi = mi + 1i64;
+        }
+
+        // ── 190..194 SPLIT ────────────────────────────────────────────────
+        let mut si: i64 = 0i64;
+        while si < 3i64 {
+            let at: u64 = ats[si];
+            let mut b5: PdtBuf = match build_filled(mem, block, &d, cap0, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 190i32;
+                }
+            };
+            let empty: Model = model_new(cols, 0u64);
+            let mut ob2: PdtBuf = match build_filled(omem, block, &d, 0u64, &empty) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 190i32;
+                }
+            };
+            let sp: PdtSplit = match b5.prepare_split_to(&ob2, at, policy) {
+                Result::Ok(s) => { s }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 190i32;
+                }
+            };
+            b5.commit_split_to(&mut ob2, &sp);
+            let ml: Model = model_prefix_rows(&m0, at);
+            let mr: Model = model_suffix_rows(&m0, at);
+            let rl: i32 = assert_mutation(&b5, &ml, sp.left.prepared_bytes, 190i32);
+            if rl != 0i32 {
+                dealloc(mem);
+                dealloc(omem);
+                return rl;
+            }
+            let rr: i32 = assert_mutation(&ob2, &mr, sp.right.prepared_bytes, 190i32);
+            if rr != 0i32 {
+                dealloc(mem);
+                dealloc(omem);
+                return rr;
+            }
+            si = si + 1i64;
+        }
+
+        dealloc(mem);
+        dealloc(omem);
+    }
+    return 0i32;
+}
+
+// ── 195..199 the MAX-ordering mutation sweep ───────────────────────────────
+//
+// The ordering axis is CARRIED through the mutations, not narrowed to SUM:
+// the row machinery (slot geometry, tail shifting, pricing) is ordering-blind
+// by construction, and this section is what makes that red-testable. A MAX
+// buffer is index-free by law, so the sweep also pins that prepare prices an
+// index-free buffer exactly (index_block_size 0 at every capacity).
+//
+// The corpora are built so every operation PRESERVES the sortedness a MAX
+// column means: removals and splits preserve it for free; an insert
+// duplicates the row at the insertion point in every column at once (the only
+// value that is simultaneously in range for all columns of a multi-column MAX
+// buffer, which is itself the reason MAX branch columns are maintained by the
+// tree rather than by the buffer).
+fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
+    let m0: Model = model_random(cols, rows, true, seed);
+    let d: PdtDescr = descr_for(cols, PDT_ORD_MAX);
+    let block: u32 = pdtbuf_compute_block_size(&d, rows + 64u64);
+    unsafe {
+        let mem: *mut u8 = alloc(block as i64);
+        let omem: *mut u8 = alloc(block as i64);
+
+        // INSERT: duplicate the row at `at` (or the last row when at == rows).
+        let ats: [u64; 3] = [0u64, rows / 2u64, rows];
+        let mut ai: i64 = 0i64;
+        while ai < 3i64 {
+            let at: u64 = ats[ai];
+            if rows > 0u64 {
+                let src: u64 = if at < rows { at } else { rows - 1u64 };
+                let mut vals: Vec<u64> = vec_new::<u64>();
+                let mut c: u32 = 0u32;
+                while c < cols {
+                    vals.push(model_get(&m0, c, src));
+                    c = c + 1u32;
+                }
+                let mut b: PdtBuf = match build_filled(mem, block, &d, rows, &m0) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 195i32;
+                    }
+                };
+                let us: PdtUpdate = match b.prepare_insert(at, 1u64, PDT_CAP_EXACT) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 195i32;
+                    }
+                };
+                b.commit_insert(&us, &vals);
+                let mm: Model = model_insert(&m0, at, 1u64, &vals);
+                let rc: i32 = assert_mutation(&b, &mm, us.prepared_bytes, 195i32);
+                if rc != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc;
+                }
+                // A MAX buffer carries no index at ANY capacity — the law,
+                // and the thing that makes its pricing trivially exact.
+                if b.has_index() {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 199i32;
+                }
+                // ... and its bisection still agrees with the model's linear
+                // bound after the mutation, so the column really is sorted.
+                let mut c2: u32 = 0u32;
+                while c2 < cols {
+                    let mut v: u64 = 0u64;
+                    while v <= 25u64 {
+                        if b.find_ge(c2, v).idx != model_find_max(&mm, c2, v, false) {
+                            dealloc(mem);
+                            dealloc(omem);
+                            return 198i32;
+                        }
+                        if b.find_gt(c2, v).idx != model_find_max(&mm, c2, v, true) {
+                            dealloc(mem);
+                            dealloc(omem);
+                            return 198i32;
+                        }
+                        v = v + 1u64;
+                    }
+                    c2 = c2 + 1u32;
+                }
+            }
+            ai = ai + 1i64;
+        }
+
+        // REMOVE + SPLIT + MERGE, which preserve sortedness by construction.
+        if rows > 1u64 {
+            let mut b3: PdtBuf = match build_filled(mem, block, &d, rows, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 196i32;
+                }
+            };
+            let s: u64 = rows / 3u64;
+            let e: u64 = rows - rows / 3u64;
+            let us3: PdtUpdate = match b3.prepare_remove(s, e, PDT_CAP_EXACT) {
+                Result::Ok(u) => { u }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 196i32;
+                }
+            };
+            b3.commit_remove(&us3);
+            let mm3: Model = model_remove(&m0, s, e);
+            let rc3: i32 = assert_mutation(&b3, &mm3, us3.prepared_bytes, 196i32);
+            if rc3 != 0i32 {
+                dealloc(mem);
+                dealloc(omem);
+                return rc3;
+            }
+
+            // split then merge back: the MAX reading of the roundtrip law.
+            let mut b5: PdtBuf = match build_filled(mem, block, &d, rows, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 197i32;
+                }
+            };
+            let empty: Model = model_new(cols, 0u64);
+            let mut ob: PdtBuf = match build_filled(omem, block, &d, 0u64, &empty) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 197i32;
+                }
+            };
+            let cut: u64 = rows / 2u64;
+            match b5.split_to(&mut ob, cut) {
+                Result::Ok(_) => {}
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 197i32;
+                }
+            }
+            match b5.merge_from(&ob) {
+                Result::Ok(_) => {}
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return 197i32;
+                }
+            }
+            if !buf_matches_model(&b5, &m0) {
+                dealloc(mem);
+                dealloc(omem);
+                return 197i32;
+            }
+            if b5.check() != 0i32 {
+                dealloc(mem);
+                dealloc(omem);
+                return 197i32;
+            }
+        }
+
+        dealloc(mem);
+        dealloc(omem);
+    }
+    return 0i32;
+}
+
+// ── 200..204 FAILED PREPARE leaves the block BYTE-IDENTICAL ────────────────
+//
+// The strongest form of the OOM-untouched discipline: not "the buffer still
+// answers correctly", but "not one byte moved". It holds by CONSTRUCTION here
+// — prepare is const and returns before anything is written — and the section
+// exists to keep it that way, because the C++ shape it replaces (mutate, then
+// restore from a scratch copy of the whole node on packed_oom) is exactly
+// what an inexact prepare would drag back in.
+//
+// The failure is forced the only honest way: a block sized to EXACTLY
+// pdtbuf_compute_block_size(descr, rows), which is the tightest a correct
+// buffer can be, so a single extra row genuinely cannot be paid for.
+fn check_failed_prepare_identity(seed: &mut u64) -> i32 {
+    let mut cols: u32 = 1u32;
+    while cols <= 4u32 {
+        let sizes: [u64; 4] = [1u64, 31u64, 33u64, 100u64];
+        let mut si: i64 = 0i64;
+        while si < 4i64 {
+            let rows: u64 = sizes[si];
+            let m: Model = model_random(cols, rows, false, seed);
+            let d: PdtDescr = descr_indexed(cols);
+            let tight: u32 = pdtbuf_compute_block_size(&d, rows);
+            unsafe {
+                let mem: *mut u8 = alloc(tight as i64);
+                let mut b: PdtBuf = match build_filled(mem, tight, &d, rows, &m) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        return 200i32;
+                    }
+                };
+                // Tight really is tight: nothing is left over.
+                if b.consumed_bytes() != b.block_bytes() {
+                    dealloc(mem);
+                    return 201i32;
+                }
+                let snap: *mut u8 = clone_block(&b);
+                let n: u32 = b.block_bytes();
+
+                // Every growing form must refuse, and refuse without writing.
+                let mut failures: i32 = 0i32;
+                match b.prepare_insert(0u64, 1u64, PDT_CAP_EXACT) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        failures = failures + 1i32;
+                    }
+                }
+                match b.prepare_insert(rows, 64u64, PDT_CAP_EXACT) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        failures = failures + 1i32;
+                    }
+                }
+                match b.prepare_merge_with(&b, PDT_CAP_EXACT) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        failures = failures + 1i32;
+                    }
+                }
+                if failures != 3i32 {
+                    dealloc(snap);
+                    dealloc(mem);
+                    return 202i32;
+                }
+                // BYTE IDENTITY — the whole block, not just the live rows.
+                if !blocks_identical(&b, snap, n) {
+                    dealloc(snap);
+                    dealloc(mem);
+                    return 203i32;
+                }
+                // ... and the buffer is not merely intact, it is USABLE: a
+                // failed prepare is not a state, it is a non-event.
+                if b.check() != 0i32 || !buf_matches_model(&b, &m) {
+                    dealloc(snap);
+                    dealloc(mem);
+                    return 204i32;
+                }
+                // A prepare that FITS still writes nothing until commit.
+                match b.prepare_remove(0u64, 1u64, PDT_CAP_EXACT) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        dealloc(snap);
+                        dealloc(mem);
+                        return 204i32;
+                    }
+                }
+                if !blocks_identical(&b, snap, n) {
+                    dealloc(snap);
+                    dealloc(mem);
+                    return 203i32;
+                }
+                dealloc(snap);
+                dealloc(mem);
+            }
+            si = si + 1i64;
+        }
+        cols = cols + 1u32;
+    }
+    return 0i32;
+}
+
+// ── 205..209 remove(insert(x)) == x, and byte-identically so ───────────────
+//
+// The inversion law. Under PDT_CAP_EXACT the capacity returns to where it
+// started, so the round trip is required to restore the block BYTE FOR BYTE —
+// a far sharper statement than model equality, and one that only holds if the
+// row shifting, the capacity repricing and the index rebuild are each exactly
+// inverse. Every insertion point and several widths, straddling the span
+// boundary in both directions.
+fn check_insert_remove_inverse(seed: &mut u64) -> i32 {
+    let mut cols: u32 = 1u32;
+    while cols <= 4u32 {
+        let sizes: [u64; 5] = [0u64, 1u64, 31u64, 32u64, 33u64];
+        let mut si: i64 = 0i64;
+        while si < 5i64 {
+            let rows: u64 = sizes[si];
+            let m: Model = model_random(cols, rows, false, seed);
+            let d: PdtDescr = descr_indexed(cols);
+            let block: u32 = pdtbuf_compute_block_size(&d, rows + 40u64);
+            unsafe {
+                let mem: *mut u8 = alloc(block as i64);
+                let counts: [u64; 3] = [1u64, 2u64, 33u64];
+                let mut at: u64 = 0u64;
+                while at <= rows {
+                    let mut ci: i64 = 0i64;
+                    while ci < 3i64 {
+                        let count: u64 = counts[ci];
+                        let mut b: PdtBuf = match build_filled(mem, block, &d, rows, &m) {
+                            Result::Ok(q) => { q }
+                            Result::Err(_) => {
+                                dealloc(mem);
+                                return 205i32;
+                            }
+                        };
+                        let snap: *mut u8 = clone_block(&b);
+                        let n: u32 = b.consumed_bytes();
+                        let vals: Vec<u64> = rand_vals(cols, count, seed);
+                        match b.insert_rows(at, count, &vals) {
+                            Result::Ok(_) => {}
+                            Result::Err(_) => {
+                                dealloc(snap);
+                                dealloc(mem);
+                                return 206i32;
+                            }
+                        }
+                        let mm: Model = model_insert(&m, at, count, &vals);
+                        if !buf_matches_model(&b, &mm) {
+                            dealloc(snap);
+                            dealloc(mem);
+                            return 207i32;
+                        }
+                        if b.check() != 0i32 {
+                            dealloc(snap);
+                            dealloc(mem);
+                            return 208i32;
+                        }
+                        match b.remove_rows(at, at + count) {
+                            Result::Ok(_) => {}
+                            Result::Err(_) => {
+                                dealloc(snap);
+                                dealloc(mem);
+                                return 209i32;
+                            }
+                        }
+                        if !buf_matches_model(&b, &m) {
+                            dealloc(snap);
+                            dealloc(mem);
+                            return 244i32;
+                        }
+                        if b.check() != 0i32 {
+                            dealloc(snap);
+                            dealloc(mem);
+                            return 245i32;
+                        }
+                        if b.consumed_bytes() != pdtbuf_compute_block_size(&d, rows) {
+                            dealloc(snap);
+                            dealloc(mem);
+                            return 242i32;
+                        }
+                        if !live_bytes_identical(&b, snap, n) {
+                            dealloc(snap);
+                            dealloc(mem);
+                            return 243i32;
+                        }
+                        dealloc(snap);
+                        ci = ci + 1i64;
+                    }
+                    at = at + 1u64;
+                }
+                dealloc(mem);
+            }
+            si = si + 1i64;
+        }
+        cols = cols + 1u32;
+    }
+    return 0i32;
+}
+
+// ── 210..214 merge(split(x, k)) == x for EVERY cut k ───────────────────────
+//
+// The other inversion law, and the one the btree actually leans on. Every cut
+// point from 0 to size inclusive — including both degenerate ends — and the
+// result must be byte-identical to the original, not merely equal row by row.
+fn check_merge_split_roundtrip(seed: &mut u64) -> i32 {
+    let mut cols: u32 = 1u32;
+    while cols <= 4u32 {
+        let sizes: [u64; 5] = [0u64, 1u64, 32u64, 33u64, 65u64];
+        let mut si: i64 = 0i64;
+        while si < 5i64 {
+            let rows: u64 = sizes[si];
+            let m: Model = model_random(cols, rows, false, seed);
+            let d: PdtDescr = descr_indexed(cols);
+            let block: u32 = pdtbuf_compute_block_size(&d, rows + 8u64);
+            unsafe {
+                let mem: *mut u8 = alloc(block as i64);
+                let omem: *mut u8 = alloc(block as i64);
+                let mut k: u64 = 0u64;
+                while k <= rows {
+                    let mut b: PdtBuf = match build_filled(mem, block, &d, rows, &m) {
+                        Result::Ok(q) => { q }
+                        Result::Err(_) => {
+                            dealloc(mem);
+                            dealloc(omem);
+                            return 210i32;
+                        }
+                    };
+                    let snap: *mut u8 = clone_block(&b);
+                    let n: u32 = b.consumed_bytes();
+                    let empty: Model = model_new(cols, 0u64);
+                    let mut ob: PdtBuf = match build_filled(omem, block, &d, 0u64, &empty) {
+                        Result::Ok(q) => { q }
+                        Result::Err(_) => {
+                            dealloc(snap);
+                            dealloc(mem);
+                            dealloc(omem);
+                            return 210i32;
+                        }
+                    };
+                    match b.split_to(&mut ob, k) {
+                        Result::Ok(_) => {}
+                        Result::Err(_) => {
+                            dealloc(snap);
+                            dealloc(mem);
+                            dealloc(omem);
+                            return 211i32;
+                        }
+                    }
+                    let ml: Model = model_prefix_rows(&m, k);
+                    let mr: Model = model_suffix_rows(&m, k);
+                    if !buf_matches_model(&b, &ml) || b.check() != 0i32 {
+                        dealloc(snap);
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 212i32;
+                    }
+                    if !buf_matches_model(&ob, &mr) || ob.check() != 0i32 {
+                        dealloc(snap);
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 213i32;
+                    }
+                    match b.merge_from(&ob) {
+                        Result::Ok(_) => {}
+                        Result::Err(_) => {
+                            dealloc(snap);
+                            dealloc(mem);
+                            dealloc(omem);
+                            return 214i32;
+                        }
+                    }
+                    if !buf_matches_model(&b, &m) || b.check() != 0i32 {
+                        dealloc(snap);
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 214i32;
+                    }
+                    if !live_bytes_identical(&b, snap, n) {
+                        dealloc(snap);
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 214i32;
+                    }
+                    dealloc(snap);
+                    k = k + 1u64;
+                }
+                dealloc(mem);
+                dealloc(omem);
+            }
+            si = si + 1i64;
+        }
+        cols = cols + 1u32;
+    }
+    return 0i32;
+}
+
+// ── 219..224 INCREMENTAL vs FULL reindex parity (GAP (a)) ──────────────────
+//
+// The targeted index correction must agree with a full rebuild EXACTLY, cell
+// for cell, at every level — after a SEQUENCE of updates, not just one, so a
+// per-update error cannot be masked by the next rebuild. The twin is a flat
+// byte clone of the block that is then fully reindexed, which means the two
+// sides differ ONLY in how the index got its values.
+//
+// Sizes are chosen to reach every depth the recursion has: 33 (one level),
+// 1025 (two), 32769 (three). Depth is asserted, so "the incremental path was
+// exercised against a multi-level tree" is measured rather than assumed.
+fn check_incremental_reindex(seed: &mut u64) -> i32 {
+    let mut cols: u32 = 1u32;
+    while cols <= 4u32 {
+        let sizes: [u64; 5] = [33u64, 64u64, 1025u64, 2000u64, 32769u64];
+        let levels: [u32; 5] = [1u32, 1u32, 2u32, 2u32, 3u32];
+        let mut si: i64 = 0i64;
+        while si < 5i64 {
+            let rows: u64 = sizes[si];
+            let m0: Model = model_random(cols, rows, false, seed);
+            let d: PdtDescr = descr_indexed(cols);
+            let block: u32 = pdtbuf_compute_block_size(&d, rows);
+            unsafe {
+                let mem: *mut u8 = alloc(block as i64);
+                let mut b: PdtBuf = match build_filled(mem, block, &d, rows, &m0) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        return 219i32;
+                    }
+                };
+                if b.index_levels() != levels[si] {
+                    dealloc(mem);
+                    return 220i32;
+                }
+                let mut m: Model = m0;
+                // A run of point updates scattered across the whole row
+                // range, so every span — and every level's cell — is hit,
+                // and the deltas go BOTH ways (values rise and fall), which
+                // is what exercises the wrapping-delta derivation instead of
+                // only its easy half.
+                let mut step: i64 = 0i64;
+                while step < 40i64 {
+                    let at: u64 = lcg_next(seed) % rows;
+                    let mut count: u64 = 1u64 + lcg_next(seed) % 5u64;
+                    if at + count > rows {
+                        count = rows - at;
+                    }
+                    let vals: Vec<u64> = rand_vals(cols, count, seed);
+                    let us: PdtUpdate = match b.prepare_update(at, count) {
+                        Result::Ok(u) => { u }
+                        Result::Err(_) => {
+                            dealloc(mem);
+                            return 221i32;
+                        }
+                    };
+                    b.commit_update(&us, &vals);
+                    m = model_update(&m, at, count, &vals);
+                    // Parity is checked after EVERY step — the incremental
+                    // path is never allowed to be "eventually" right.
+                    let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 221i32);
+                    if rc != 0i32 {
+                        dealloc(mem);
+                        return rc;
+                    }
+                    step = step + 1i64;
+                }
+                // ... and the accelerated queries agree with the model after
+                // the whole run, which is what the cells are FOR.
+                let mut c: u32 = 0u32;
+                while c < cols {
+                    let total: u64 = model_prefix(&m, c, rows);
+                    let mut v: u64 = 0u64;
+                    while v <= total {
+                        let g: PdtFind = b.find_ge(c, v);
+                        let mg: PdtFind = model_find_sum(&m, c, v, false, 0u64);
+                        if g.idx != mg.idx || g.prefix != mg.prefix {
+                            dealloc(mem);
+                            return 224i32;
+                        }
+                        v = v + 1u64 + total / 17u64;
+                    }
+                    if b.sum_all(c) != total {
+                        dealloc(mem);
+                        return 224i32;
+                    }
+                    c = c + 1u32;
+                }
+                dealloc(mem);
+            }
+            si = si + 1i64;
+        }
+        cols = cols + 1u32;
+    }
+    return 0i32;
+}
+
+// ── 225..239 randomized mutation SEQUENCES ─────────────────────────────────
+//
+// Everything above fixes one operation against one starting state. This
+// drives a buffer through LONG sequences of mixed operations, so the states
+// that only arise from history — capacity slack left by a shrink, an index
+// that has been rebuilt and corrected and rebuilt again, a size that crossed
+// 32 downward and then upward again — are reached and asserted at every step.
+// The LCG walks sizes deliberately through the 31/32/33 threshold and up past
+// 1024 into the second index level.
+fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) -> i32 {
+    let d: PdtDescr = descr_indexed(cols);
+    let maxrows: u64 = 1100u64;
+    let block: u32 = pdtbuf_compute_block_size(&d, maxrows);
+    unsafe {
+        let mem: *mut u8 = alloc(block as i64);
+        let omem: *mut u8 = alloc(block as i64);
+        let mut m: Model = model_new(cols, 0u64);
+        let mut b: PdtBuf = match build_filled(mem, block, &d, 0u64, &m) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                dealloc(omem);
+                return 225i32;
+            }
+        };
+        let mut step: i64 = 0i64;
+        while step < steps {
+            let rows: u64 = m.rows;
+            // Bias toward growth while small and toward shrinking while
+            // large, so the walk keeps crossing the threshold band instead
+            // of settling on one side of it.
+            let mut op: u64 = lcg_next(seed) % 5u64;
+            if rows == 0u64 {
+                op = 0u64;
+            }
+            if rows > 900u64 && op == 0u64 {
+                op = 2u64;
+            }
+            if op == 0u64 {
+                // INSERT — widths chosen to land on and around the boundary.
+                let at: u64 = lcg_next(seed) % (rows + 1u64);
+                let count: u64 = 1u64 + lcg_next(seed) % 40u64;
+                if rows + count > maxrows {
+                    step = step + 1i64;
+                    continue;
+                }
+                let vals: Vec<u64> = rand_vals(cols, count, seed);
+                let us: PdtUpdate = match b.prepare_insert(at, count, policy) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 226i32;
+                    }
+                };
+                b.commit_insert(&us, &vals);
+                m = model_insert(&m, at, count, &vals);
+                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 230i32);
+                if rc != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc;
+                }
+            } else if op == 1u64 {
+                // UPDATE — the targeted-index path, inside the sequence.
+                let at: u64 = lcg_next(seed) % rows;
+                let mut count: u64 = 1u64 + lcg_next(seed) % 9u64;
+                if at + count > rows {
+                    count = rows - at;
+                }
+                let vals: Vec<u64> = rand_vals(cols, count, seed);
+                let us: PdtUpdate = match b.prepare_update(at, count) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 227i32;
+                    }
+                };
+                b.commit_update(&us, &vals);
+                m = model_update(&m, at, count, &vals);
+                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 234i32);
+                if rc != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc;
+                }
+            } else if op == 2u64 {
+                // REMOVE
+                let s: u64 = lcg_next(seed) % rows;
+                let mut e: u64 = s + 1u64 + lcg_next(seed) % 40u64;
+                if e > rows {
+                    e = rows;
+                }
+                let us: PdtUpdate = match b.prepare_remove(s, e, policy) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 228i32;
+                    }
+                };
+                b.commit_remove(&us);
+                m = model_remove(&m, s, e);
+                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 238i32);
+                if rc != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc;
+                }
+            } else if op == 3u64 {
+                // SPLIT off a suffix, then MERGE it straight back: the
+                // roundtrip law evaluated on a HISTORY-shaped state rather
+                // than on a freshly built one.
+                let k: u64 = lcg_next(seed) % (rows + 1u64);
+                let empty: Model = model_new(cols, 0u64);
+                let mut ob: PdtBuf = match build_filled(omem, block, &d, 0u64, &empty) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 229i32;
+                    }
+                };
+                let sp: PdtSplit = match b.prepare_split_to(&ob, k, policy) {
+                    Result::Ok(s2) => { s2 }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 229i32;
+                    }
+                };
+                b.commit_split_to(&mut ob, &sp);
+                let ml: Model = model_prefix_rows(&m, k);
+                let mr: Model = model_suffix_rows(&m, k);
+                let rl: i32 = assert_mutation(&b, &ml, sp.left.prepared_bytes, 230i32);
+                if rl != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rl;
+                }
+                let rr: i32 = assert_mutation(&ob, &mr, sp.right.prepared_bytes, 234i32);
+                if rr != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rr;
+                }
+                let us2: PdtUpdate = match b.prepare_merge_with(&ob, policy) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 229i32;
+                    }
+                };
+                b.commit_merge_with(&us2, &ob);
+                let rc2: i32 = assert_mutation(&b, &m, us2.prepared_bytes, 238i32);
+                if rc2 != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc2;
+                }
+            } else {
+                // MERGE a fresh tail on.
+                let orows: u64 = lcg_next(seed) % 40u64;
+                if m.rows + orows > maxrows {
+                    step = step + 1i64;
+                    continue;
+                }
+                let om: Model = model_random(cols, orows, false, seed);
+                let ob: PdtBuf = match build_filled(omem, block, &d, orows, &om) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 229i32;
+                    }
+                };
+                let us: PdtUpdate = match b.prepare_merge_with(&ob, policy) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        dealloc(omem);
+                        return 229i32;
+                    }
+                };
+                b.commit_merge_with(&us, &ob);
+                m = model_concat(&m, &om);
+                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 238i32);
+                if rc != 0i32 {
+                    dealloc(mem);
+                    dealloc(omem);
+                    return rc;
+                }
+            }
+            step = step + 1i64;
+        }
+        dealloc(mem);
+        dealloc(omem);
     }
     return 0i32;
 }
@@ -2395,6 +3974,71 @@ fn main() -> i32 {
     let rc8: i32 = check_under_covering_index(&mut seed);
     if rc8 != 0i32 {
         return rc8;
+    }
+
+    // ── P3: the two-phase mutation surface ────────────────────────────────
+    // The op-by-op law sweep: columns 1..4, sizes straddling the span
+    // boundary and one deep (multi-level) size, BOTH capacity policies, and
+    // — under KEEP — a slack capacity, which is the only state in which rows
+    // can grow inside geometry that is already paid for (GAP (b)).
+    let mut_sizes: [u64; 7] = [0u64, 1u64, 31u64, 32u64, 33u64, 65u64, 1025u64];
+    let mut mc: u32 = 1u32;
+    while mc <= 4u32 {
+        let mut mi: i64 = 0i64;
+        while mi < 7i64 {
+            let rows: u64 = mut_sizes[mi];
+            let e1: i32 = check_mut_ops(mc, rows, PDT_CAP_EXACT, 0u64, &mut seed);
+            if e1 != 0i32 {
+                return e1;
+            }
+            let e2: i32 = check_mut_ops(mc, rows, PDT_CAP_KEEP, 0u64, &mut seed);
+            if e2 != 0i32 {
+                return e2;
+            }
+            let e3: i32 = check_mut_ops(mc, rows, PDT_CAP_KEEP, 20u64, &mut seed);
+            if e3 != 0i32 {
+                return e3;
+            }
+            let e4: i32 = check_mut_ops(mc, rows, PDT_CAP_EXACT, 20u64, &mut seed);
+            if e4 != 0i32 {
+                return e4;
+            }
+            let e5: i32 = check_mut_ops_max(mc, rows, &mut seed);
+            if e5 != 0i32 {
+                return e5;
+            }
+            mi = mi + 1i64;
+        }
+        mc = mc + 1u32;
+    }
+
+    let e6: i32 = check_failed_prepare_identity(&mut seed);
+    if e6 != 0i32 {
+        return e6;
+    }
+    let e7: i32 = check_insert_remove_inverse(&mut seed);
+    if e7 != 0i32 {
+        return e7;
+    }
+    let e8: i32 = check_merge_split_roundtrip(&mut seed);
+    if e8 != 0i32 {
+        return e8;
+    }
+    let e9: i32 = check_incremental_reindex(&mut seed);
+    if e9 != 0i32 {
+        return e9;
+    }
+    let mut sc: u32 = 1u32;
+    while sc <= 4u32 {
+        let ea: i32 = check_mutation_sequences(sc, PDT_CAP_EXACT, 120i64, &mut seed);
+        if ea != 0i32 {
+            return ea;
+        }
+        let eb: i32 = check_mutation_sequences(sc, PDT_CAP_KEEP, 120i64, &mut seed);
+        if eb != 0i32 {
+            return eb;
+        }
+        sc = sc + 1u32;
     }
 
     let rc4: i32 = check_fixtures();

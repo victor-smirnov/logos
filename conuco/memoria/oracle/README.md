@@ -35,11 +35,11 @@ The harness self-checks every case (C++ `compute_size` == units written; C++
 decode roundtrips to the source runs) and prints per-bps case counts to
 stderr; stdout is the fixture stream, `0`-terminated.
 
-## pdtbuf_dump — PackedDataTypeBuffer cross-check reference (PdtBuf rungs P0+P1+P2)
+## pdtbuf_dump — PackedDataTypeBuffer cross-check reference (PdtBuf rungs P0+P1+P2+P3)
 
-Generates `tests/pdtbuf_fixtures.hex`: **208 cases** over
+Generates `tests/pdtbuf_fixtures.hex`: **228 cases** over
 `PackedDataTypeBufferT<BigInt, true, C, DTOrdering::{SUM,MAX}>` for C in
-{1,2,3,4}, in three flavours.
+{1,2,3,4}, in four flavours.
 
 **Marker-1 (88 cases, rung P0)** — row counts {0,1,2,3,5,8,15,16,17,31,32}, at
 or below `IndexSpan` = 32, so HEAD stays on its scan/bisection paths. Each
@@ -126,6 +126,59 @@ sites (the semantics admit exactly one answer: a zero demand is met by the
 first row examined, having accumulated nothing) and guards the complement
 subtraction before evaluating it. Transcribing HEAD's unclamped shape into the
 port aborts the gate: exit 132 for either face.
+
+**Marker-4 (20 cases, rung P3)** — **mutation traces**. A scripted, fully
+deterministic op sequence (insert at the front / straddling a span, update
+inside one span / across spans, remove, split off a suffix) driven through
+HEAD's *own* two-phase surface — `make_update_state()` → `prepare_*` →
+`commit_*` (`so.hpp:533-1060`) plus `split_to` — at row counts {5, 33, 65,
+100, 1025}, i.e. below the span threshold, above it, and deep enough for two
+index levels.
+
+    4 <columns> <rows> <seed>
+    <n_steps>
+      <op> <a> <b>                       op 0=insert 1=update 2=remove 3=split
+      <n_in> <in values ...>             row-major inputs the step consumed
+      <post_rows> <values_ok> <index_ok>
+      <n_probe> (<row> <col> <val>) x n_probe
+      <n_levels> (<level_rows> <cells ...>) x n_levels
+
+The corpus is regenerated from `(seed, columns, rows)` as for markers 2 and 3;
+only the *inserted* values are dumped, because the Logos gate must replay the
+identical script. Rows are probed exhaustively at or below 128 and every 31st
+above, so a 1025-row case stays a few KB while still covering every span.
+
+Two self-checks travel with every step, and the second is the interesting one:
+
+- `values_ok` — HEAD's post-state against a naive `std::vector` model of the
+  operation, written from its definition;
+- `index_ok` — HEAD's index cells, level by level, against span sums
+  **recomputed from HEAD's own post-state rows**, plus a coverage check that
+  the index spans every live row. This is what would catch a mutation that
+  forgets to reindex: the values can be perfectly right while every cached
+  span sum is stale.
+
+**Result — and a null result is reported as a result.** Across all four column
+counts, all five row counts and all eight steps: **0 divergences**. HEAD's
+FSE/SUM mutation paths agree with the definition on both rows and index cells.
+So **no new upstream bug is claimed at P3.** The catalogued defects in this
+neighbourhood are real but not observable here: `prepare_remove`
+(dispatcher base, `:189`) returns SUCCESS unconditionally for every
+FIXED-size buffer, which leaves `do_prepare_remove` (`:614`) — and the
+`for (size_t column = 0; column < 1; column++)` loop inside it that would
+price only column 0 — **dead code**; and `split_to` (`:533`) genuinely has no
+prepare and no budget (it grows and fills `other`, then `commit_remove`s from
+`self`, so an OOM between the two tears both nodes), but a single-threaded
+harness holding a 256 KB block cannot provoke it. One suspicion of mine did
+not survive checking and is therefore **not** recorded as a bug:
+`do_commit_update_fxd_sum` (`:1025`) does call `reindex()` after forwarding to
+the `_max` arm.
+
+The Logos gate (`check_mut_fixture_case`, exit codes 246..255) replays each
+script step for step and requires row parity unconditionally, index-cell
+parity wherever HEAD reports itself coherent, and — whatever HEAD did — that
+its own post-state satisfies `prepared_bytes == consumed_bytes`, `check()`,
+model equivalence and index-vs-full-rebuild parity.
 
 **Role.** Unlike `ssrle_dump`, this harness is NOT an authority. The C++
 PDTBuffer/FQTree family is bug-dense (23 catalogued during the port recon) and

@@ -1,10 +1,13 @@
 // logos.mem.pkd.pdtbuf — PdtBuf: the Logos EQUIVALENT of the C++ Memoria
 // PackedDataTypeBuffer (the successor structure into which Victor folded
-// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rungs P0 + P1 + P2: the
-// runtime core — slot geometry, sizing, cell access, the ordering-dispatched
-// search family — plus the recursive SUM span index that accelerates it, and
-// the start-relative and BACKWARD searches, both obtained as DERIVATIONS over
-// that one forward descent rather than as walks of their own.
+// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rungs P0 + P1 + P2 + P3:
+// the runtime core — slot geometry, sizing, cell access, the
+// ordering-dispatched search family — plus the recursive SUM span index that
+// accelerates it, the start-relative and BACKWARD searches (both obtained as
+// DERIVATIONS over that one forward descent rather than as walks of their
+// own), and the TWO-PHASE MUTATION SURFACE that makes the exact-prepare law
+// executable: prepare prices, commit consumes exactly that, and
+// `prepared_bytes == consumed_bytes` is asserted at every mutation.
 //
 // C++ oracle sites (HEAD, /home/victor/cxx/memoria), mirrored one by one:
 //   containers/include/memoria/core/packed/datatype_buffer/
@@ -150,7 +153,9 @@
 // is asserted by pdtbuf_check() and gated in conuco. P3 inherits it verbatim
 // as `prepared_bytes == consumed_bytes`: an exact prepare makes commit
 // infallible by construction, which is what lets the CoW clone BE the
-// rollback buffer and removes the C++ copy-restore scratch entirely.
+// rollback buffer and removes the C++ copy-restore scratch entirely. The
+// mutation surface that discharges it lives at "P3: the two-phase mutation
+// surface" below, and every commit there ends in assert_consumed.
 //
 // ── LEDGER: axes NARROWED in P0 (recorded PAIR verdicts, not defaults) ──────
 //   * cell width — u64 only (the typed accessors). The slot ARITHMETIC is
@@ -158,11 +163,20 @@
 //   * dimension kind — FSE implemented, VLE (width 2, offsets) is P4. The
 //     descriptor, the width function and all slot math already carry kind,
 //     so a VLE dim slots in without redesign.
-//   * index — MATERIALIZED (P1), recursive and column-general. Still
-//     NARROWED: reindex is a FULL rebuild; the C++ targeted `_add`/`_sub`
-//     incremental update is a recorded deferral (it belongs with the P3
-//     two-phase mutations that would call it). MAX stays index-free BY
+//   * index — MATERIALIZED (P1), recursive and column-general. The P1
+//     deferral of the targeted `_add`/`_sub` incremental update is CLOSED at
+//     P3 (index_delta): a value replacement corrects one cell per level along
+//     one path, while insert/remove/merge/split keep the full rebuild because
+//     they shift the row->span mapping itself. MAX stays index-free BY
 //     DESIGN — that is the has_index law, not a staging decision.
+//   * capacity policy (P3) — CARRIED as an explicit runtime axis
+//     (PDT_CAP_EXACT / PDT_CAP_KEEP), because "rows grew inside the paid-for
+//     geometry" and "the geometry itself grew" are different budget questions
+//     and the C++ FSE dimension cannot even ask the first one.
+//   * mutation over VLE dimensions — NARROWED to P4 and REJECTED LOUDLY
+//     (assert_fse_mutable), not approximated. The payload block prices as 0
+//     today, so any VLE prepare would be inexact, and an inexact prepare with
+//     a safety margin is precisely the copy-restore need coming back.
 //   * optional-value column — a STATIC axis owned by the generator, not a
 //     runtime flag (a runtime flag would be a dead branch on every access).
 //     P0 merely does not preclude it: columns are uniform and addressed
@@ -186,6 +200,7 @@ package logos.mem.pkd.pdtbuf;
 
 use logos.mem.pkd;              // PkdAlloc, pkd_format, SlotKind, PkdError, round_up_bytes
 use logos.lang.marker;          // Fst / StableLayout
+use logos.lang.arith;           // wrapping_add / wrapping_sub (index deltas)
 use logos.lang.result;
 use logos.lang.panic;
 use logos.lang.clone;
@@ -465,6 +480,97 @@ impl Clone for PdtFind {
     }
 }
 
+// ── the update state (P3) ───────────────────────────────────────────────────
+
+/// Which mutation an update state describes. Carried so a commit can assert
+/// it was handed the state its OWN prepare produced — the C++ UpdateState is
+/// op-agnostic and its commits trust the caller (`commit_remove(idx, size,
+/// ss)` at :1138 constructs a default-initialised state on the spot).
+pub const PDT_OP_INSERT: u32 = 0u32;
+pub const PDT_OP_UPDATE: u32 = 1u32;
+pub const PDT_OP_REMOVE: u32 = 2u32;
+pub const PDT_OP_MERGE:  u32 = 3u32;
+pub const PDT_OP_SPLIT:  u32 = 4u32;
+
+/// Capacity policy — the axis that makes GAP (b) expressible (see the P3
+/// contract in PdtBuf). EXACT tracks the row count byte for byte (bytes come
+/// back on a shrink: the btree-node reading); KEEP honours an explicit
+/// reservation, so rows may grow INSIDE the geometry at zero cost.
+pub const PDT_CAP_EXACT: u32 = 0u32;
+pub const PDT_CAP_KEEP:  u32 = 1u32;
+
+/// The planned mutation and its BUDGET — the C++ UpdateState (so.hpp:343,
+/// `PkdStructEmptyUpdate`, which carries only the shared allocator state's
+/// allocated_/available_ pair) plus everything needed to make the commit
+/// infallible AND checkable.
+///
+/// `prepared_bytes` is the whole POINT of the structure: it is
+/// pdtbuf_compute_block_size(descr, new_capacity), evaluated before anything
+/// is touched, and after the commit it must equal consumed_bytes() EXACTLY.
+/// The `before_bytes`/`prepared_bytes` pair also states the budget in the
+/// form the allocator understands, and their difference is what separates
+/// "rows grew inside the capacity" (zero) from "the capacity itself grew".
+pub struct PdtUpdate {
+    pub op: u32,
+    pub policy: u32,
+    pub at: u64,
+    pub count: u64,
+    pub old_size: u64,
+    pub new_size: u64,
+    pub old_capacity: u64,
+    pub new_capacity: u64,
+    pub before_bytes: u32,
+    pub prepared_bytes: u32,
+}
+
+impl Copy for PdtUpdate {}
+
+impl Clone for PdtUpdate {
+    fn clone(&self) -> PdtUpdate {
+        return *self;
+    }
+}
+
+impl PdtUpdate {
+    /// Bytes the commit will ADD to the block (0 when the rows fit the
+    /// capacity already, which is the whole of GAP (b)'s first case).
+    pub fn grow_bytes(self: &PdtUpdate) -> u32 {
+        if self.prepared_bytes <= self.before_bytes {
+            return 0u32;
+        }
+        return self.prepared_bytes - self.before_bytes;
+    }
+
+    /// Bytes the commit will RELEASE back to the allocator.
+    pub fn shrink_bytes(self: &PdtUpdate) -> u32 {
+        if self.before_bytes <= self.prepared_bytes {
+            return 0u32;
+        }
+        return self.before_bytes - self.prepared_bytes;
+    }
+
+    /// Does this plan leave the block geometry alone? True exactly when the
+    /// rows move within the capacity that is already paid for.
+    pub fn is_free(self: &PdtUpdate) -> bool {
+        return self.new_capacity == self.old_capacity;
+    }
+}
+
+/// The two budgets of a split — one verdict over both. `left` shrinks (and so
+/// cannot fail), `right` grows (and so is the one that can).
+pub struct PdtSplit {
+    pub left: PdtUpdate,
+    pub right: PdtUpdate,
+}
+
+impl Copy for PdtSplit {}
+
+impl Clone for PdtSplit {
+    fn clone(&self) -> PdtSplit {
+        return *self;
+    }
+}
+
 // ── the packed handle ───────────────────────────────────────────────────────
 
 /// Non-owning handle over a formatted PdtBuf block (the VecCtr idiom of
@@ -716,6 +822,26 @@ impl PdtBuf {
         unsafe {
             let a: *mut PkdAlloc = self.alc();
             return PkdAlloc::empty_size_for(a.elements()) + a.allocated();
+        }
+    }
+
+    /// The whole block this buffer occupies, byte for byte — the CoW clone's
+    /// unit and, at the gate, the substrate of the failed-prepare
+    /// byte-identity law. `block_bytes` is what the allocator believes it
+    /// owns; everything past `consumed_bytes()` inside it is free tail.
+    ///
+    /// Copying [block_ptr, block_ptr + block_bytes) produces a VALID
+    /// independent buffer: every back-reference in the packed family is
+    /// SELF-RELATIVE (PkdAllocatable::alc_off), so a flat byte copy needs no
+    /// pointer fixing. That is what makes the CoW clone free — and it is the
+    /// same property the store layer will rely on at P7.
+    pub unsafe fn block_ptr(self: &PdtBuf) -> *mut u8 {
+        return self.mem;
+    }
+
+    pub fn block_bytes(self: &PdtBuf) -> u32 {
+        unsafe {
+            return self.alc().block_size();
         }
     }
 
@@ -1368,6 +1494,638 @@ impl PdtBuf {
     pub fn find_bw_gt_from(self: &PdtBuf, column: u32, start: u64, val: u64) -> PdtFind {
         assert(start < self.size(), "PdtBuf::find_bw_gt_from: start past last row");
         return self.find_bw_sum(column, start + 1u64, val, true);
+    }
+
+    // ── P3: the two-phase mutation surface ────────────────────────────────
+    //
+    // Contract (the C++ prepare_*/commit_* protocol, so.hpp:533-1060, WITHOUT
+    // its defects — see the ORACLE note below):
+    //
+    //   prepare_*  is CONST. It computes the post-op geometry, PRICES it, and
+    //              answers whether the allocator chain can supply the
+    //              difference. It never writes a byte, so a FAILED prepare
+    //              leaves the buffer byte-identical by CONSTRUCTION rather
+    //              than by careful unwinding.
+    //   commit_*   is INFALLIBLE by contract. It consumes EXACTLY the bytes
+    //              the prepare priced, and asserts it did (assert_consumed).
+    //
+    // THE LAW — `prepared_bytes == consumed_bytes`, exactly:
+    //
+    //     us.prepared_bytes == pdtbuf_compute_block_size(descr, us.new_capacity)
+    //                       == self.consumed_bytes()   AFTER commit
+    //
+    // This is not bookkeeping, it is the whole point of the rung
+    // (design_zero_copy_mutation_cow). If prepare prices exactly what commit
+    // will consume, commit cannot fail; if commit cannot fail, there is
+    // nothing to roll back; and with nothing to roll back the CoW clone the
+    // write path must take anyway IS the rollback buffer, so the C++
+    // copy-node-to-scratch-and-restore-on-packed_oom machinery disappears
+    // instead of being ported. Every commit below ends in assert_consumed,
+    // and conuco re-asserts it externally after every single mutation; two
+    // probes (price + 8, price - 8) must both fail the gate.
+    //
+    // THE PROBES THAT BITE (conuco tests/pdtbuf_core.logos; exit codes are
+    // the gate's, 134 = the in-module assert firing first, which is stronger
+    // than a test verdict because the library refuses to produce the state at
+    // all):
+    //   over-price the plan by 8 bytes                       -> 134
+    //   under-price the plan by 8 bytes                      -> 134
+    //   drop the incremental index recursion (upper levels)  -> 176
+    //   perturb one incremental cell by 1                    -> 176
+    //   commit an update WITHOUT correcting the index        -> 176
+    //   price remove over column 0 only — the shape of C++
+    //     do_prepare_remove's `for (column = 0; column < 1)`  -> 134
+    //
+    // C++ cannot even STATE this law: its index EXISTENCE keys on `size`
+    // while its index PRICE comes from `capacity` (reindex_sum :1727/:1735 vs
+    // compute_block_size :186), so its block price is a strict over-estimate
+    // and prepared > consumed by design. P1 already diverged toward exactness
+    // for this reason; this rung is what that divergence was for.
+    //
+    // ── ORACLE: the mutation neighbourhood is the most infected of the file ─
+    // Mirrored for SHAPE only; every behaviour re-derived:
+    //   * `prepare_remove` (dispatcher base :189) returns SUCCESS
+    //     unconditionally for every FIXED-size buffer, and the real
+    //     `do_prepare_remove` (:614) is consequently DEAD — which is lucky,
+    //     because it loops `for (size_t column = 0; column < 1; column++)`,
+    //     i.e. it would price column 0 only and under-price every
+    //     multi-column buffer. We price remove for real, over all columns.
+    //   * ~10 further dispatcher targets are dead-if-instantiated.
+    //   * `split_to` (:533) is not two-phase at all: it inserts into `other`
+    //     and only then removes from `self`, with no prepare and no budget —
+    //     an OOM mid-way leaves BOTH nodes torn. Ours prepares both sides
+    //     first and still orders the writes right-then-left, so the original
+    //     is never destroyed before the new home exists.
+    //   * `commit_remove` (:639) reindexes with a FULL rebuild even for a
+    //     single-row delete (:1138), and so does the SUM update arm (:1025) —
+    //     see commit_update, where the cost divergence is argued and gated.
+    // No NEW upstream defect was proved at this rung: the mutation
+    // neighbourhood was re-read site by site against the marker-4 traces and
+    // the suspicions that did not survive checking are NOT recorded as bugs
+    // (do_commit_update_fxd_sum was one — it reindexes after all).
+    //
+    // ── GAP (b), CLOSED: size growth vs CAPACITY growth are priced apart ────
+    // The C++ FSE dimension has no capacity notion at all — `insert_space`
+    // (fse_tools.hpp:100) resizes the data block to exactly `size + extra`
+    // rows every time, so "grow the rows" and "grow the bytes" are the same
+    // event there and the distinction cannot be expressed. We store capacity,
+    // so they are DIFFERENT events and prepare must price both:
+    //
+    //   * rows grow INSIDE the existing capacity — geometry unchanged,
+    //     prepared_bytes == before_bytes, delta ZERO, prepare cannot fail;
+    //   * rows grow PAST the capacity — the data blocks and (recursively) the
+    //     index slot are repriced at the new capacity, and the difference is
+    //     what the allocator chain is asked for.
+    //
+    // Which one happens is the CAPACITY POLICY, an explicit axis rather than
+    // a hidden default, because the two callers genuinely differ:
+    //   PDT_CAP_EXACT — capacity := new_size. Bytes are released on shrink;
+    //     this is the btree-node reading (space must return to the node's
+    //     other streams) and it mirrors what the C++ does implicitly.
+    //   PDT_CAP_KEEP  — capacity := max(capacity, new_size). An explicit
+    //     reservation is honoured, so a fill loop pays for its geometry once.
+    // Both are priced by the SAME formula, so exactness is policy-independent;
+    // conuco runs every law under both.
+    //
+    // ── GAP (a), CLOSED: targeted incremental reindex ───────────────────────
+    // See index_delta. P3 is the first rung with a caller for it.
+    //
+    // VLE payload pricing stays the P4 PAIR flag: pdt_dim_block_size prices a
+    // VLE payload block as 0 (content dependent), so an exact prepare over a
+    // VLE dimension is not expressible yet. The mutation surface REJECTS VLE
+    // loudly (assert_fse_mutable) rather than pricing it approximately — a
+    // safety margin here would silently reintroduce the copy-restore need.
+
+    fn assert_fse_mutable(self: &PdtBuf) {
+        let n: u32 = self.dim_count();
+        let mut i: u32 = 0u32;
+        while i < n {
+            let d: PdtDim = self.dim_at(i);
+            assert(d.kind == PDT_DIM_FSE,
+                   "PdtBuf: two-phase mutation over a VLE dimension is P4 (payload pricing unresolved)");
+            i = i + 1u32;
+        }
+    }
+
+    /// Descriptor agreement between two buffers that are about to exchange
+    /// rows. Checked field by field off the BLOCKS (both are self-describing),
+    /// so a merge across mismatched geometry is a loud assert, never a
+    /// silently misaligned memcpy.
+    fn assert_compatible(self: &PdtBuf, other: &PdtBuf) {
+        assert(self.columns() == other.columns(),
+               "PdtBuf: row exchange between buffers of different column counts");
+        assert(self.ordering() == other.ordering(),
+               "PdtBuf: row exchange between buffers of different ordering");
+        assert(self.dim_count() == other.dim_count(),
+               "PdtBuf: row exchange between buffers of different dimension counts");
+        let n: u32 = self.dim_count();
+        let mut i: u32 = 0u32;
+        while i < n {
+            let a: PdtDim = self.dim_at(i);
+            let b: PdtDim = other.dim_at(i);
+            assert(a.kind == b.kind && a.elem_size == b.elem_size,
+                   "PdtBuf: row exchange between buffers of different dimensions");
+            i = i + 1u32;
+        }
+    }
+
+    /// The capacity the policy asks for at `new_size` — see GAP (b) above.
+    pub fn target_capacity(self: &PdtBuf, new_size: u64, policy: u32) -> u64 {
+        if policy == PDT_CAP_KEEP {
+            let cap: u64 = self.capacity();
+            if cap > new_size {
+                return cap;
+            }
+            return new_size;
+        }
+        assert(policy == PDT_CAP_EXACT, "PdtBuf: unknown capacity policy");
+        return new_size;
+    }
+
+    // THE pricing step, shared by every prepare. It is deliberately the ONE
+    // place a post-op byte total is computed, and it computes it with the
+    // same function that priced the block in the first place — so
+    // "prepared" and "consumed" are the same expression evaluated at two
+    // different times, and they cannot drift apart operation by operation.
+    fn price(self: &PdtBuf, op: u32, policy: u32, at: u64, count: u64, new_size: u64)
+        -> PdtUpdate {
+        let d: PdtDescr = self.descr();
+        let new_cap: u64 = self.target_capacity(new_size, policy);
+        return PdtUpdate {
+            op: op,
+            policy: policy,
+            at: at,
+            count: count,
+            old_size: self.size(),
+            new_size: new_size,
+            old_capacity: self.capacity(),
+            new_capacity: new_cap,
+            before_bytes: self.consumed_bytes(),
+            prepared_bytes: pdtbuf_compute_block_size(&d, new_cap),
+        };
+    }
+
+    /// Can `commit(us)` succeed? The budget question, asked of the allocator
+    /// chain exactly as the sseq precedent asks it (update_fits, sseq:1165):
+    /// the priced total either fits the block we already have, or the PARENT
+    /// chain holds the difference. Const — `total_free_space` walks the chain
+    /// without mutating.
+    ///
+    /// This is sufficient because pdtbuf_reserve — the single fallible phase —
+    /// releases before it acquires (shrinks pass, then grows pass), so its
+    /// PEAK demand is exactly the priced total and never above it.
+    pub fn update_fits(self: &PdtBuf, us: &PdtUpdate) -> bool {
+        unsafe {
+            let a: *mut PkdAlloc = self.alc();
+            let bs: u32 = a.block_size();
+            if us.prepared_bytes <= bs {
+                return true;
+            }
+            if a.has_allocator() {
+                // headroom of the PARENT chain only (our own free space is
+                // already counted inside bs)
+                let chain: u32 = a.total_free_space() - a.free_space();
+                return chain >= us.prepared_bytes - bs;
+            }
+            return false;
+        }
+    }
+
+    /// PLAN inserting `count` rows at row `at` (C++ prepare_insert :898).
+    /// CONST: on Err the buffer is byte-identical, having never been written.
+    pub fn prepare_insert(self: &PdtBuf, at: u64, count: u64, policy: u32)
+        -> Result<PdtUpdate, PkdError> {
+        self.assert_fse_mutable();
+        assert(at <= self.size(), "PdtBuf::prepare_insert: position past end");
+        let us: PdtUpdate = self.price(PDT_OP_INSERT, policy, at, count, self.size() + count);
+        if !self.update_fits(&us) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        return Result::Ok(us);
+    }
+
+    /// PLAN replacing the values of rows [at, at+count) (C++ prepare_update
+    /// :976 — whose FIXED arm is the dispatcher base's unconditional SUCCESS,
+    /// :185). For FSE dimensions that verdict is CORRECT and we derive the
+    /// same one: a fixed-stride replacement moves no byte boundary, so the
+    /// priced total is unchanged and the prepare cannot fail. It is priced
+    /// through the same formula anyway, so the law is asserted here too
+    /// rather than assumed.
+    pub fn prepare_update(self: &PdtBuf, at: u64, count: u64)
+        -> Result<PdtUpdate, PkdError> {
+        self.assert_fse_mutable();
+        assert(at + count <= self.size(), "PdtBuf::prepare_update: range past end");
+        let us: PdtUpdate = self.price(PDT_OP_UPDATE, PDT_CAP_KEEP, at, count, self.size());
+        if !self.update_fits(&us) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        return Result::Ok(us);
+    }
+
+    /// PLAN removing rows [start, end) (C++ prepare_remove :608 — which for
+    /// every FIXED-size buffer returns SUCCESS without looking, leaving
+    /// do_prepare_remove :614 dead with a `column < 1` loop inside it. We
+    /// price it for real, over ALL columns, through the shared formula).
+    pub fn prepare_remove(self: &PdtBuf, start: u64, end: u64, policy: u32)
+        -> Result<PdtUpdate, PkdError> {
+        self.assert_fse_mutable();
+        assert(start <= end, "PdtBuf::prepare_remove: inverted range");
+        assert(end <= self.size(), "PdtBuf::prepare_remove: range past end");
+        let us: PdtUpdate = self.price(PDT_OP_REMOVE, policy, start, end - start,
+                                       self.size() - (end - start));
+        if !self.update_fits(&us) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        return Result::Ok(us);
+    }
+
+    /// PLAN absorbing every row of `other` after our own last row
+    /// (C++ do_prepare_merge_with_fxd :558). DIRECTION NOTE: the C++ merges
+    /// self INTO other; the pkd-family convention here — and in sseq
+    /// (plan_merge, sseq:1148) — is merge_from, self <- self ++ other. The
+    /// concatenation is the same either way; the budget is asked of the
+    /// buffer that GROWS, which is the one that can fail.
+    pub fn prepare_merge_with(self: &PdtBuf, other: &PdtBuf, policy: u32)
+        -> Result<PdtUpdate, PkdError> {
+        self.assert_fse_mutable();
+        self.assert_compatible(other);
+        let n: u64 = other.size();
+        let us: PdtUpdate = self.price(PDT_OP_MERGE, policy, self.size(), n, self.size() + n);
+        if !self.update_fits(&us) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        return Result::Ok(us);
+    }
+
+    /// PLAN moving rows [at, size) out of self and into the FRONT of `other`
+    /// (C++ split_to :533 — which is not two-phase at all: it inserts into
+    /// `other` and then removes from `self` with no budget anywhere, so an
+    /// OOM in the middle tears both nodes).
+    ///
+    /// TWO budgets, one verdict — the atomicity condition of the zero-copy
+    /// design. `other` GROWS and is the side that can fail; self only ever
+    /// shrinks, and a shrink cannot OOM, which is exactly why the commit can
+    /// fill the sibling first and give up the original's rows afterwards.
+    pub fn prepare_split_to(self: &PdtBuf, other: &PdtBuf, at: u64, policy: u32)
+        -> Result<PdtSplit, PkdError> {
+        self.assert_fse_mutable();
+        self.assert_compatible(other);
+        assert(at <= self.size(), "PdtBuf::prepare_split_to: position past end");
+        let n: u64 = self.size() - at;
+        let left: PdtUpdate = self.price(PDT_OP_SPLIT, policy, at, n, at);
+        let right: PdtUpdate = other.price(PDT_OP_SPLIT, policy, 0u64, n, other.size() + n);
+        if !other.update_fits(&right) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        if !self.update_fits(&left) {
+            return Result::Err(PkdError::OutOfMem);
+        }
+        return Result::Ok(PdtSplit { left: left, right: right });
+    }
+
+    // ── commit ────────────────────────────────────────────────────────────
+
+    // THE law, asserted at the end of every commit. Externally re-asserted by
+    // conuco after every mutation, and both mis-pricing probes (+8 / -8) must
+    // trip it.
+    fn assert_consumed(self: &PdtBuf, us: &PdtUpdate) {
+        assert(self.consumed_bytes() == us.prepared_bytes,
+               "PdtBuf: prepared_bytes != consumed_bytes — the exact-prepare law is broken");
+    }
+
+    // The state a commit was planned against must still be the state it finds.
+    fn assert_planned(self: &PdtBuf, us: &PdtUpdate) {
+        assert(us.old_size == self.size() && us.old_capacity == self.capacity(),
+               "PdtBuf: the buffer changed between prepare and commit");
+    }
+
+    // Geometry, infallible BY CONTRACT: prepare already asked the chain the
+    // same question reserve is about to ask it.
+    fn apply_geometry(self: &mut PdtBuf, cap: u64) {
+        match self.reserve(cap) {
+            Result::Ok(_) => {}
+            Result::Err(_) => {
+                assert(false,
+                       "PdtBuf: commit could not reserve — prepare was not consulted");
+            }
+        }
+    }
+
+    // Overlap-safe row move within one buffer, general over columns AND
+    // dimensions: the stride comes from the descriptor, so there is no
+    // per-column and no per-dimension code path here either.
+    unsafe fn move_rows(self: &mut PdtBuf, from: u64, to: u64, n: u64) {
+        if n == 0u64 || from == to {
+            return;
+        }
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut d: u32 = 0u32;
+            while d < dims {
+                let dim: PdtDim = self.dim_at(d);
+                let src: *mut u8 = self.cell_ptr(c, d, from);
+                let dst: *mut u8 = self.cell_ptr(c, d, to);
+                move_bytes(dst, src as *const u8, (n * (dim.elem_size as u64)) as i64);
+                d = d + 1u32;
+            }
+            c = c + 1u32;
+        }
+    }
+
+    // Copy `n` rows out of `other` (C++ copyTo :under split_to/merge). Same
+    // generality; the two blocks are disjoint but move_bytes is used anyway
+    // so the helper has one behaviour, not two.
+    unsafe fn copy_rows_from(self: &mut PdtBuf, other: &PdtBuf,
+                             src_row: u64, dst_row: u64, n: u64) {
+        if n == 0u64 {
+            return;
+        }
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut d: u32 = 0u32;
+            while d < dims {
+                let dim: PdtDim = self.dim_at(d);
+                let src: *mut u8 = other.cell_ptr(c, d, src_row);
+                let dst: *mut u8 = self.cell_ptr(c, d, dst_row);
+                move_bytes(dst, src as *const u8, (n * (dim.elem_size as u64)) as i64);
+                d = d + 1u32;
+            }
+            c = c + 1u32;
+        }
+    }
+
+    // Row-major value block -> rows [at, at+count) across ALL columns.
+    fn write_rows(self: &mut PdtBuf, at: u64, count: u64, vals: &Vec<u64>) {
+        let cols: u32 = self.columns();
+        assert(vals.length() == (count as i64) * (cols as i64),
+               "PdtBuf: value block length != count * columns");
+        let mut r: u64 = 0u64;
+        while r < count {
+            let mut c: u32 = 0u32;
+            while c < cols {
+                self.set(c, at + r, vals.get((r as i64) * (cols as i64) + (c as i64)));
+                c = c + 1u32;
+            }
+            r = r + 1u64;
+        }
+    }
+
+    /// COMMIT an insert. Infallible; consumes exactly `us.prepared_bytes`.
+    ///
+    /// ORDER, and it is not free choice: geometry FIRST (the tail cannot be
+    /// shifted into bytes the block does not own yet), then publish the size,
+    /// then shift, then fill. Reindex is a FULL rebuild here BY NECESSITY —
+    /// an insert shifts the row->span mapping of every row after `at`, so no
+    /// bounded set of cells describes the change (contrast commit_update).
+    pub fn commit_insert(self: &mut PdtBuf, us: &PdtUpdate, vals: &Vec<u64>) {
+        assert(us.op == PDT_OP_INSERT, "PdtBuf::commit_insert: update state is not an insert");
+        self.assert_planned(us);
+        let tail: u64 = us.old_size - us.at;
+        if us.new_capacity != us.old_capacity {
+            self.apply_geometry(us.new_capacity);
+        }
+        self.set_size(us.new_size);
+        unsafe {
+            self.move_rows(us.at, us.at + us.count, tail);
+        }
+        self.write_rows(us.at, us.count, vals);
+        self.reindex();
+        self.assert_consumed(us);
+    }
+
+    /// COMMIT a value replacement — the ONE mutation whose index update is
+    /// TARGETED rather than a rebuild (GAP (a), the P1 deferral, closed here
+    /// because P3 is its first caller).
+    ///
+    /// THE DERIVATION. The index invariant is
+    ///     cell(c, k) = Σ_{r ∈ [32k, min(32(k+1), size))} col_c[r] ,
+    /// a sum over a partition of the rows. Row `r` therefore appears in
+    /// EXACTLY ONE cell of the level above it, namely k = r / 32, and in no
+    /// other cell at that level. Replacing col_c[r] from `old` to `new`
+    /// perturbs that single cell by exactly (new - old) and leaves every
+    /// other cell of the level literally unchanged. The index is itself a
+    /// PdtBuf obeying the same invariant, and its row k has just changed by
+    /// that same delta — so the correction recurses along ONE path,
+    /// r -> r/32 -> r/32² -> …, one cell per level: O(levels), against the
+    /// O(size · levels) of a rebuild.
+    ///
+    /// WHY ONE FUNCTION, NOT `_add` AND `_sub`. The C++ carries a targeted
+    /// pair; a signed delta carried in u64 with WRAPPING add/sub subsumes
+    /// both, because every intermediate is congruent mod 2^64 and the true
+    /// cell sums are representable — so the value that lands is the true one
+    /// for either direction. That removes, rather than guards, the
+    /// unsigned-underflow surface a separate `_sub` would have (`old > new`
+    /// is the ordinary case, not an edge case), which is the same structural
+    /// move P2 made against the backward walks.
+    ///
+    /// WHAT THE C++ DOES HERE, checked rather than assumed. Its SUM arm
+    /// (do_commit_update_fxd_sum :1025) writes the rows through
+    /// do_commit_update_fxd_max and then calls reindex() — a FULL rebuild,
+    /// correct but O(size · levels) for a one-row change; its MAX arm (:1032)
+    /// deliberately does not reindex, which is also correct, MAX being
+    /// index-free. So this is a divergence in COST, not in behaviour, and
+    /// that is exactly what the gate must prove: conuco (219..224) asserts
+    /// the targeted result is CELL-IDENTICAL to a full rebuild at every level
+    /// after every update in a long run, so the cheap path is not merely
+    /// "good enough" but the same answer. A probe that skips the index
+    /// correction — the shape a targeted update degenerates to if the
+    /// recursion is dropped — fails that parity check, not merely a query.
+    pub fn commit_update(self: &mut PdtBuf, us: &PdtUpdate, vals: &Vec<u64>) {
+        assert(us.op == PDT_OP_UPDATE, "PdtBuf::commit_update: update state is not an update");
+        self.assert_planned(us);
+        let cols: u32 = self.columns();
+        assert(vals.length() == (us.count as i64) * (cols as i64),
+               "PdtBuf::commit_update: value block length != count * columns");
+        let mut r: u64 = 0u64;
+        while r < us.count {
+            let row: u64 = us.at + r;
+            let mut c: u32 = 0u32;
+            while c < cols {
+                let nv: u64 = vals.get((r as i64) * (cols as i64) + (c as i64));
+                let ov: u64 = self.get(c, row);
+                if nv != ov {
+                    self.set(c, row, nv);
+                    self.index_delta(c, row, wrapping_sub::<u64>(nv, ov));
+                }
+                c = c + 1u32;
+            }
+            r = r + 1u64;
+        }
+        self.assert_consumed(us);
+    }
+
+    // The targeted correction itself (C++ `_add`/`_sub`, folded into one
+    // wrapping delta — see commit_update's derivation).
+    //
+    // The `k >= ix.size()` guard is the SAME weaker invariant P2 identified
+    // and the queries already rely on: live index cells are complete span
+    // sums of a PREFIX of the rows. A cell that does not exist yet (an index
+    // reserved but not reindexed, or one deliberately covering fewer spans)
+    // must not be conjured here — the rows past the covered prefix are read
+    // by scan, and inventing a cell for them would make the index describe a
+    // set of rows it does not cover. So the correction stops exactly where
+    // the coverage stops, and the state stays coherent under the invariant
+    // that matters.
+    fn index_delta(self: &mut PdtBuf, column: u32, row: u64, delta: u64) {
+        if !self.has_index() {
+            return;
+        }
+        let mut ix: PdtBuf = self.index();
+        let k: u64 = row / PDT_INDEX_SPAN;
+        if k >= ix.size() {
+            return;
+        }
+        let cur: u64 = ix.get(column, k);
+        ix.set(column, k, wrapping_add::<u64>(cur, delta));
+        ix.index_delta(column, k, delta);
+    }
+
+    /// COMMIT a removal. ORDER mirrors the insert, reversed: shift the
+    /// survivors down INSIDE the old geometry, publish the smaller size, and
+    /// only THEN release the bytes. Releasing first would shorten the data
+    /// blocks under the rows still to be moved.
+    pub fn commit_remove(self: &mut PdtBuf, us: &PdtUpdate) {
+        assert(us.op == PDT_OP_REMOVE, "PdtBuf::commit_remove: update state is not a remove");
+        self.assert_planned(us);
+        let end: u64 = us.at + us.count;
+        unsafe {
+            self.move_rows(end, us.at, us.old_size - end);
+        }
+        self.set_size(us.new_size);
+        if us.new_capacity != us.old_capacity {
+            self.apply_geometry(us.new_capacity);
+        }
+        self.reindex();
+        self.assert_consumed(us);
+    }
+
+    /// COMMIT self <- self ++ other (C++ commit_merge_with :591). `other` is
+    /// left untouched; disposing of it is the node's move, as in sseq.
+    pub fn commit_merge_with(self: &mut PdtBuf, us: &PdtUpdate, other: &PdtBuf) {
+        assert(us.op == PDT_OP_MERGE, "PdtBuf::commit_merge_with: update state is not a merge");
+        self.assert_planned(us);
+        self.assert_compatible(other);
+        if us.new_capacity != us.old_capacity {
+            self.apply_geometry(us.new_capacity);
+        }
+        self.set_size(us.new_size);
+        unsafe {
+            self.copy_rows_from(other, 0u64, us.old_size, us.count);
+        }
+        self.reindex();
+        self.assert_consumed(us);
+    }
+
+    /// COMMIT the split: rows [at, size) leave self and are PREPENDED to
+    /// `other` (the btree reading the C++ takes at :533 — the right sibling
+    /// receives our tail ahead of whatever it already holds).
+    ///
+    /// RIGHT SIDE FIRST, and that ordering is the zero-copy discipline itself
+    /// (design_zero_copy_mutation_cow): the new home is fully built before the
+    /// original gives anything up, so at no instant do the rows exist in
+    /// neither buffer. The left side is then a PURE SHRINK, which cannot fail
+    /// — which is why no rollback path is needed on either side and no scratch
+    /// copy of the node is taken anywhere.
+    pub fn commit_split_to(self: &mut PdtBuf, other: &mut PdtBuf, sp: &PdtSplit) {
+        assert(sp.left.op == PDT_OP_SPLIT, "PdtBuf::commit_split_to: update state is not a split");
+        self.assert_planned(&sp.left);
+        other.assert_planned(&sp.right);
+        self.assert_compatible(other);
+        let n: u64 = sp.left.count;
+        // ── the fresh home ────────────────────────────────────────────────
+        if sp.right.new_capacity != sp.right.old_capacity {
+            other.apply_geometry(sp.right.new_capacity);
+        }
+        other.set_size(sp.right.new_size);
+        unsafe {
+            other.move_rows(0u64, n, sp.right.old_size);
+            other.copy_rows_from(self, sp.left.at, 0u64, n);
+        }
+        other.reindex();
+        other.assert_consumed(&sp.right);
+        // ── and only now does the original let go ─────────────────────────
+        self.set_size(sp.left.new_size);
+        if sp.left.new_capacity != sp.left.old_capacity {
+            self.apply_geometry(sp.left.new_capacity);
+        }
+        self.reindex();
+        self.assert_consumed(&sp.left);
+    }
+
+    // ── one-call conveniences (prepare + commit) ──────────────────────────
+    //
+    // PDT_CAP_EXACT is the default here — the btree-node reading, where bytes
+    // released by a shrink must return to the node's other streams. A caller
+    // that has reserved deliberately drives prepare_*/commit_* directly with
+    // PDT_CAP_KEEP. Every one of these leaves the buffer UNCHANGED on Err,
+    // because prepare is const and nothing has run before it fails. `?` is
+    // deliberately not used in these paths (the sseq drop-gap-B discipline).
+
+    /// Insert `count` rows of row-major values at `at`; Err leaves the buffer
+    /// byte-identical.
+    pub fn insert_rows(self: &mut PdtBuf, at: u64, count: u64, vals: &Vec<u64>)
+        -> Result<(), PkdError> {
+        let us: PdtUpdate = match self.prepare_insert(at, count, PDT_CAP_EXACT) {
+            Result::Ok(u) => { u }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        };
+        self.commit_insert(&us, vals);
+        return Result::Ok(());
+    }
+
+    /// Replace the values of rows [at, at+count).
+    pub fn update_rows(self: &mut PdtBuf, at: u64, count: u64, vals: &Vec<u64>)
+        -> Result<(), PkdError> {
+        let us: PdtUpdate = match self.prepare_update(at, count) {
+            Result::Ok(u) => { u }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        };
+        self.commit_update(&us, vals);
+        return Result::Ok(());
+    }
+
+    /// Remove rows [start, end).
+    pub fn remove_rows(self: &mut PdtBuf, start: u64, end: u64) -> Result<(), PkdError> {
+        let us: PdtUpdate = match self.prepare_remove(start, end, PDT_CAP_EXACT) {
+            Result::Ok(u) => { u }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        };
+        self.commit_remove(&us);
+        return Result::Ok(());
+    }
+
+    /// self <- self ++ other.
+    pub fn merge_from(self: &mut PdtBuf, other: &PdtBuf) -> Result<(), PkdError> {
+        let us: PdtUpdate = match self.prepare_merge_with(other, PDT_CAP_EXACT) {
+            Result::Ok(u) => { u }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        };
+        self.commit_merge_with(&us, other);
+        return Result::Ok(());
+    }
+
+    /// Move rows [at, size) into the front of `other`.
+    pub fn split_to(self: &mut PdtBuf, other: &mut PdtBuf, at: u64) -> Result<(), PkdError> {
+        let sp: PdtSplit = match self.prepare_split_to(other, at, PDT_CAP_EXACT) {
+            Result::Ok(s) => { s }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        };
+        self.commit_split_to(other, &sp);
+        return Result::Ok(());
     }
 
     // ── structural check ──────────────────────────────────────────────────

@@ -748,6 +748,279 @@ void dump_dir_case(size_t rows, uint64_t seed, int mode)
     g_cases++;
 }
 
+// ── marker 4: MUTATION TRACES (rung P3) ─────────────────────────────────────
+//
+// Scripted op sequences run against HEAD's OWN two-phase surface
+// (prepare_*/commit_*, so.hpp:533-1060) plus split_to/merge_with, dumping the
+// post-state of every step so the Logos port can replay the identical script
+// and compare.
+//
+// Two self-checks per step, and they are the interesting part:
+//   VALUES  — HEAD's post-state against a naive std::vector model of the same
+//             operation, written from its definition.
+//   INDEX   — HEAD's index cells, level by level, against span sums
+//             RECOMPUTED from HEAD's own post-state rows. This is the check
+//             that catches a mutation which forgets to reindex: the values
+//             can be perfectly right while every cached span sum is stale.
+// Both flags are emitted per step; the Logos gate requires values parity
+// unconditionally and index parity wherever HEAD reports itself coherent.
+//
+//   4 <columns> <rows> <seed>
+//   <n_steps>
+//     <op> <a> <b>                     op 0=insert 1=update 2=remove
+//                                         3=split+merge-back
+//     <n_in> <in values ...>           row-major inputs the step consumed
+//     <post_rows> <values_ok> <index_ok>
+//     <n_probe> (<row> <col> <val>) x n_probe
+//     <n_levels> (<level_rows> <cells ...>) x n_levels
+//
+// Every row is probed at or below 128 rows; above that every 31st, so a
+// 1025-row case stays a few KB while still covering every span.
+const size_t MUT_ROW_SET[] = {5, 33, 65, 100, 1025};
+
+template <size_t Columns>
+void dump_mutation_case(size_t rows, uint64_t seed)
+{
+    using Buf = PackedDataTypeBufferT<BigInt, true, Columns, DTOrdering::SUM>;
+
+    Lcg lcg(seed);
+    std::vector<std::vector<int64_t>> model(Columns);
+    for (size_t c = 0; c < Columns; c++) {
+        for (size_t i = 0; i < rows; i++) {
+            model[c].push_back((int64_t)(lcg.next() % 23));
+        }
+    }
+
+    auto holder = PkdStructHolder<Buf>::make_empty(
+        Buf::compute_block_size(rows + 256) + 256 * 1024);
+    auto so = holder->get_so();
+    so.insert_from_fn(0, rows, [&](size_t column, size_t row) {
+        return model[column][row];
+    });
+
+    // The script: deterministic in (rows, seed), and shaped to cross the span
+    // boundary in both directions rather than to stay on one side of it.
+    struct Step { int op; size_t a; size_t b; };
+    std::vector<Step> script = {
+        {0, 0,           7},                       // insert at the front
+        {0, rows / 2,    33},                      // insert straddling a span
+        {1, rows / 3,    5},                       // update inside one span
+        {1, 0,           40},                      // update across spans
+        {2, 1,           9},                       // remove a small range
+        {0, 0,           1},                       // insert one at the front
+        {2, 0,           3},                       // remove from the front
+        {3, rows / 2,    0},                       // split off the suffix
+        {0, 0,           4},                       // insert into the remainder
+    };
+
+    tok(4);
+    tok(Columns);
+    tok(rows);
+    tok(seed);
+    std::printf("\n");
+    tok(script.size());
+    std::printf("\n");
+
+    for (auto& st: script) {
+        std::vector<int64_t> inputs;
+        size_t cur = so.size();
+
+        if (st.op == 0) {
+            size_t at = std::min(st.a, cur);
+            size_t n  = st.b;
+            for (size_t r = 0; r < n; r++) {
+                for (size_t c = 0; c < Columns; c++) {
+                    inputs.push_back((int64_t)(lcg.next() % 23));
+                }
+            }
+            auto us = so.make_update_state();
+            auto status = so.prepare_insert(at, n, us.first,
+                [&](size_t column, size_t row) {
+                    return inputs[row * Columns + column];
+                });
+            if (!is_success(status)) {
+                std::fprintf(stderr, "SELFCHECK mut prepare_insert refused\n");
+                g_failed_selfchecks++;
+            }
+            so.commit_insert(at, n, us.first, [&](size_t column, size_t row) {
+                return inputs[row * Columns + column];
+            });
+            for (size_t c = 0; c < Columns; c++) {
+                model[c].insert(model[c].begin() + at, n, 0);
+                for (size_t r = 0; r < n; r++) {
+                    model[c][at + r] = inputs[r * Columns + c];
+                }
+            }
+            tok(0); tok(at); tok(n);
+        }
+        else if (st.op == 1) {
+            size_t at = std::min(st.a, cur);
+            size_t n  = std::min(st.b, cur - at);
+            for (size_t r = 0; r < n; r++) {
+                for (size_t c = 0; c < Columns; c++) {
+                    inputs.push_back((int64_t)(lcg.next() % 23));
+                }
+            }
+            auto us = so.make_update_state();
+            auto status = so.prepare_update(at, n, us.first,
+                [&](size_t column, size_t row) {
+                    return inputs[row * Columns + column];
+                });
+            if (!is_success(status)) {
+                std::fprintf(stderr, "SELFCHECK mut prepare_update refused\n");
+                g_failed_selfchecks++;
+            }
+            so.commit_update(at, n, us.first, [&](size_t column, size_t row) {
+                return inputs[row * Columns + column];
+            });
+            for (size_t c = 0; c < Columns; c++) {
+                for (size_t r = 0; r < n; r++) {
+                    model[c][at + r] = inputs[r * Columns + c];
+                }
+            }
+            tok(1); tok(at); tok(n);
+        }
+        else if (st.op == 2) {
+            size_t s = std::min(st.a, cur);
+            size_t e = std::min(s + st.b, cur);
+            auto us = so.make_update_state();
+            so.prepare_remove(s, e, us.first);
+            so.commit_remove(s, e, us.first);
+            for (size_t c = 0; c < Columns; c++) {
+                model[c].erase(model[c].begin() + s, model[c].begin() + e);
+            }
+            tok(2); tok(s); tok(e - s);
+        }
+        else {
+            // SPLIT: the suffix [k, size) leaves for a fresh buffer and the
+            // SUBJECT keeps the prefix, which is what the trace then follows.
+            //
+            // Note what HEAD's split_to (:533) is, because the port
+            // deliberately is not it: no prepare, no budget, `other` grown
+            // and filled and only then `commit_remove` on self — an OOM
+            // between the two leaves both nodes torn, which is precisely the
+            // state the copy-node-to-scratch machinery exists to undo.
+            size_t k = std::min(st.a, cur);
+            auto oh = PkdStructHolder<Buf>::make_empty(
+                Buf::compute_block_size(cur + 64) + 256 * 1024);
+            auto other = oh->get_so();
+            so.split_to(other, k);
+            for (size_t c = 0; c < Columns; c++) {
+                model[c].erase(model[c].begin() + k, model[c].end());
+            }
+            tok(3); tok(k); tok(0);
+        }
+        std::printf("\n");
+
+        tok(inputs.size());
+        for (auto v: inputs) {
+            tok((uint64_t)v);
+        }
+        std::printf("\n");
+
+        // ── self-check 1: the rows ────────────────────────────────────────
+        size_t post = so.size();
+        bool values_ok = (post == model[0].size());
+        if (values_ok) {
+            for (size_t c = 0; c < Columns && values_ok; c++) {
+                for (size_t i = 0; i < post; i++) {
+                    if ((int64_t)so.access(c, i) != model[c][i]) {
+                        values_ok = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // ── self-check 2: the index, recomputed from HEAD's OWN rows ──────
+        std::vector<size_t> level_rows;
+        std::vector<std::vector<uint64_t>> levels;
+        bool index_ok = true;
+        {
+            auto cur_so = so;
+            std::vector<std::vector<int64_t>> below(Columns);
+            for (size_t c = 0; c < Columns; c++) {
+                for (size_t i = 0; i < post; i++) {
+                    below[c].push_back((int64_t)so.access(c, i));
+                }
+            }
+            while (cur_so.data()->has_index()) {
+                auto ix = cur_so.index();
+                size_t n = ix.size();
+                std::vector<uint64_t> cells;
+                std::vector<std::vector<int64_t>> up(Columns);
+                for (size_t r = 0; r < n; r++) {
+                    for (size_t c = 0; c < Columns; c++) {
+                        uint64_t got = (uint64_t)(int64_t)ix.access(c, r);
+                        cells.push_back(got);
+                        int64_t want = 0;
+                        for (size_t i = r * 32;
+                             i < std::min((r + 1) * 32, below[c].size()); i++) {
+                            want += below[c][i];
+                        }
+                        if (got != (uint64_t)want) {
+                            index_ok = false;
+                        }
+                        up[c].push_back(want);
+                    }
+                }
+                // An index that does not cover every live row is itself an
+                // incoherence, and one this family is known to produce.
+                if (n * 32 < below[0].size()) {
+                    index_ok = false;
+                }
+                level_rows.push_back(n);
+                levels.push_back(cells);
+                below = up;
+                cur_so = ix;
+            }
+        }
+
+        if (!values_ok) {
+            std::fprintf(stderr,
+                "DIVERGENCE mut C=%zu rows=%zu: HEAD post-state disagrees with "
+                "the naive model after op %d\n", Columns, rows, st.op);
+        }
+        if (!index_ok) {
+            std::fprintf(stderr,
+                "DIVERGENCE mut C=%zu rows=%zu: HEAD index cells are STALE "
+                "after op %d (recomputed from HEAD's own rows)\n",
+                Columns, rows, st.op);
+        }
+
+        tok(post);
+        tok(values_ok ? 1 : 0);
+        tok(index_ok ? 1 : 0);
+        std::printf("\n");
+
+        size_t stride = post <= 128 ? 1 : 31;
+        std::vector<std::array<uint64_t, 3>> probes;
+        for (size_t i = 0; i < post; i += stride) {
+            for (size_t c = 0; c < Columns; c++) {
+                probes.push_back({(uint64_t)i, (uint64_t)c,
+                                  (uint64_t)(int64_t)so.access(c, i)});
+            }
+        }
+        tok(probes.size());
+        for (auto& p: probes) {
+            tok(p[0]); tok(p[1]); tok(p[2]);
+        }
+        std::printf("\n");
+
+        tok(levels.size());
+        std::printf("\n");
+        for (size_t l = 0; l < levels.size(); l++) {
+            tok(level_rows[l]);
+            for (auto v: levels[l]) {
+                tok(v);
+            }
+            std::printf("\n");
+        }
+    }
+
+    g_cases++;
+}
+
 template <size_t Columns>
 void dump_columns()
 {
@@ -766,6 +1039,10 @@ void dump_columns()
         dump_dir_case<Columns>(rows, seed, 0);
         seed += 7919;
         dump_dir_case<Columns>(rows, seed, 1);
+        seed += 7919;
+    }
+    for (size_t rows: MUT_ROW_SET) {
+        dump_mutation_case<Columns>(rows, seed);
         seed += 7919;
     }
 }
