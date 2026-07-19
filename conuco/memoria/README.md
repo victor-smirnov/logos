@@ -27,7 +27,8 @@ compatibility is kept — formats, layouts and hashes diverge freely.
 Layers that the container FACTORY (stdlib/lcm/canon) generates against have
 been promoted into the stdlib mem tier and live there now (increment 8b):
 PackedAllocator/packed arrays = `logos.mem.pkd`, the SSRLE codec/packed
-sequence = `logos.mem.pkd.ssrle` / `logos.mem.pkd.sseq`, the b+tree layers =
+sequence = `logos.mem.pkd.ssrle` / `logos.mem.pkd.sseq`, the searchable
+multi-column buffer = `logos.mem.pkd.pdtbuf`, the b+tree layers =
 `logos.mem.bt.*` (incl. the multistream `logos.mem.bt.btfl`). The tests here
 remain the canaries for all of them and import the stdlib packages directly.
 

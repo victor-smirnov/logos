@@ -1,0 +1,930 @@
+// logos.mem.pkd.pdtbuf — PdtBuf: the Logos EQUIVALENT of the C++ Memoria
+// PackedDataTypeBuffer (the successor structure into which Victor folded
+// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rung P0: the runtime
+// core — slot geometry, sizing, cell access, and the ordering-dispatched
+// search family, index-free.
+//
+// C++ oracle sites (HEAD, /home/victor/cxx/memoria), mirrored one by one:
+//   containers/include/memoria/core/packed/datatype_buffer/
+//     packed_datatype_buffer.hpp
+//       :33-40   PackedDataTypeBufferT<DataType, Indexed, Columns, Ordering>
+//       :49-58   Dimensions / Columns / IndexSpan=32 / HasIndex
+//       :67      enum {METADATA = 0, INDEX, LAST_HEADER_BLOCK_}
+//       :69-79   DimensionsBlocksTotal + the dimension-struct list
+//       :89-114  Metadata {size_, flags_}
+//       :146-201 empty_size / base_size / compute_index_block_size /
+//                compute_block_size (the RECURSIVE index pricing)
+//       :246-269 index() / has_index() / create_index() / remove_index()
+//     packed_datatype_buffer_fse_tools.hpp
+//       :35      FSE dimension Width = 1
+//       :42-44   data_block_num() = DimensionsStart + Blocks*column + DataBlock
+//                — THE slot formula
+//       :56-67   empty_size_aligned() = 0, data_block_size(capacity)
+//     packed_datatype_buffer_common_tools.hpp
+//       :87-99   DimensionsListWidthBuilder — DimensionsBlocksTotal = Σ width
+//     packed_datatype_buffer_so.hpp
+//       :467-528 size/columns/span/access
+//       :880-894 sum(column) / sum(column,row) / sum(column,start,end)
+//       :1469-1493 find_{gt,ge}_fw_max — upper_bound / lower_bound
+//       :1496-1573 find_{ge,gt}_fw_sum — the prefix-scan descent
+//       :1599-1626 sum_sum — the index-accelerated prefix sum (P1)
+//       :1692-1737 reindex_sum — the recursive span index (P1)
+//   containers/include/memoria/core/packed/tools/packed_allocator.hpp
+//       :170-178 block_size(client_area, blocks) — our PkdAlloc::empty_size_for
+//
+// ── ORACLE DISCIPLINE ───────────────────────────────────────────────────────
+// The C++ is a REFERENCE, NOT ground truth: the family it belongs to is
+// dense with bugs (23 catalogued during recon, several in this very file
+// pair), and the FQTree half of the lineage was deleted upstream WITHOUT
+// ever being exercised by a test suite. Every behaviour below is DERIVED
+// from the operation's semantics and gated by an independent materialized
+// model plus algebraic laws (conuco tests/pdtbuf_core.logos); the C++
+// fixtures are a divergence detector, not the definition of correct.
+// Divergences we took deliberately are named DIVERGENCE below.
+//
+// ── SHAPE (general from line 1; ADR 0021 §1.2 placement rule) ───────────────
+// Everything the C++ carries as TEMPLATE PARAMETERS is carried here as a
+// RUNTIME DESCRIPTOR — `PdtDescr { dims: [PdtDim{kind, elem_size}], columns,
+// ordering, indexed }` — and the descriptor is written INTO the block, so a
+// handle is self-describing. No unrolled per-column fields, no per-config
+// code: every loop runs over `columns` and over `dims`. This is the surface
+// the eventual tier-1 PdtBuf metaprogram will INSTANTIATE (it generates the
+// slot map, the accessor glue and the recursive index type; it does not
+// re-derive these algorithms). The Bps-runtime precedent is logos.mem.pkd.sseq.
+//
+// Block layout (mirror of the C++ enum :67 + the slot formula :42-44):
+//
+//   slot 0                      METADATA  PdtMeta cell + the dims table (RAW)
+//   slot 1                      INDEX     reserved (P1: the recursive self-type)
+//   slot 2 + dbt*col + dimoff   DATA      column-major dimension groups
+//
+//   dbt = dim_blocks_total = Σ pdt_dim_width(dim);  FSE width 1, VLE width 2.
+//
+// ── EXACT-PREPARE CONTRACT (design_zero_copy_mutation_cow) ──────────────────
+// P0 has no two-phase mutations, but its sizing functions ARE the pricing
+// basis every later rung budgets against, so they are written to be exact,
+// not conservative: `pdtbuf_compute_block_size(descr, capacity)` returns the
+// byte total a buffer of that capacity occupies, and `pdtbuf_reserve` — the
+// single fallible phase — consumes EXACTLY that many bytes. The law
+//     pdtbuf_consumed_bytes(buf) == pdtbuf_compute_block_size(descr, capacity)
+// is asserted by pdtbuf_check() and gated in conuco. P3 inherits it verbatim
+// as `prepared_bytes == consumed_bytes`: an exact prepare makes commit
+// infallible by construction, which is what lets the CoW clone BE the
+// rollback buffer and removes the C++ copy-restore scratch entirely.
+//
+// ── LEDGER: axes NARROWED in P0 (recorded PAIR verdicts, not defaults) ──────
+//   * cell width — u64 only (the typed accessors). The slot ARITHMETIC is
+//     general over elem_size; only get/set/span pin 8 bytes.
+//   * dimension kind — FSE implemented, VLE (width 2, offsets) is P4. The
+//     descriptor, the width function and all slot math already carry kind,
+//     so a VLE dim slots in without redesign.
+//   * index — P1. `indexed` + has_index() + the RECURSIVE pricing hook are
+//     present and shaped; with indexed=false the hook returns 0 and every
+//     query takes the scan/binary-search path (which stays the fallback).
+//   * optional-value column — a STATIC axis owned by the generator, not a
+//     runtime flag (a runtime flag would be a dead branch on every access).
+//     P0 merely does not preclude it: columns are uniform and addressed
+//     through the formula, so a presence-bitmap column composes.
+//   * ordering UNORDERED — accepted by the descriptor, search rejects it
+//     (it is PkdArray; no ordering-bearing query is defined).
+package logos.mem.pkd.pdtbuf;
+
+use logos.mem.pkd;              // PkdAlloc, pkd_format, SlotKind, PkdError, round_up_bytes
+use logos.lang.marker;          // Fst / StableLayout
+use logos.lang.result;
+use logos.lang.panic;
+use logos.lang.clone;
+use logos.mem.collections.vec;
+
+// ── the descriptor vocabulary ───────────────────────────────────────────────
+
+/// Ordering policy (C++ `enum class DTOrdering` — core/datatypes/core.hpp:130).
+/// Runtime u32 rather than a Logos enum because the value is STORED in the
+/// block's metadata cell; the SSRLE op-code precedent (SSRLE_OP_*) is the
+/// same choice for the same reason.
+pub const PDT_ORD_SUM:       u32 = 0u32;
+pub const PDT_ORD_MAX:       u32 = 1u32;
+pub const PDT_ORD_UNORDERED: u32 = 2u32;
+
+/// Dimension kind. FSE = one fixed-stride data block (C++ PDTDimension<const
+/// T*> — fse_tools.hpp:27); VLE = data block + psize_t offsets table (P4).
+pub const PDT_DIM_FSE: u32 = 0u32;
+pub const PDT_DIM_VLE: u32 = 1u32;
+
+/// C++ IndexSpan (packed_datatype_buffer.hpp:55): one index cell per 32 rows.
+pub const PDT_INDEX_SPAN: u64 = 32u64;
+
+/// Metadata flag bits (the C++ `flags_` field is write-only in the oracle;
+/// we give it a meaning instead of dropping it — the descriptor has to
+/// survive in-block for a handle to be self-describing).
+pub const PDT_FLAG_INDEXED: u32 = 1u32;
+
+/// One dimension of the datatype's physical decomposition. `elem_size` is
+/// the FSE stride in bytes (VLE: the stride of the offsets' element type is
+/// fixed at 4 — this field then carries the data-block element stride).
+pub struct PdtDim {
+    pub kind: u32,
+    pub elem_size: u32,
+}
+
+impl Copy for PdtDim {}
+
+impl Clone for PdtDim {
+    fn clone(&self) -> PdtDim {
+        return *self;
+    }
+}
+
+/// An FSE dimension of `elem_size`-byte cells.
+pub fn pdt_dim_fse(elem_size: u32) -> PdtDim {
+    return PdtDim { kind: PDT_DIM_FSE, elem_size: elem_size };
+}
+
+/// A VLE dimension (P4): data block + offsets block.
+pub fn pdt_dim_vle(elem_size: u32) -> PdtDim {
+    return PdtDim { kind: PDT_DIM_VLE, elem_size: elem_size };
+}
+
+/// Allocator slots a dimension occupies (C++ PDTDimension::Width —
+/// fse_tools.hpp:35 for FSE=1; the VLE dimension is the {data, offsets} pair).
+pub fn pdt_dim_width(d: &PdtDim) -> u32 {
+    if d.kind == PDT_DIM_VLE {
+        return 2u32;
+    }
+    return 1u32;
+}
+
+/// Bytes the `sub`-th block of dimension `d` needs to hold `capacity` rows
+/// (C++ PDTDimension::data_block_size — fse_tools.hpp:59-66: round_up_bytes
+/// of capacity × sizeof(T)).
+///
+/// VLE (P4 hook, shaped now): sub 0 is the payload — its size is CONTENT
+/// dependent, so it prices as 0 here and the P4 caller adds the encoded byte
+/// count; sub 1 is the offsets table, exactly (capacity+1) psize_t cells.
+pub fn pdt_dim_block_size(d: &PdtDim, sub: u32, capacity: u64) -> u32 {
+    if d.kind == PDT_DIM_VLE {
+        if sub == 0u32 {
+            return 0u32;
+        }
+        return round_up_bytes(((capacity + 1u64) * 4u64) as u32);
+    }
+    return round_up_bytes((capacity * (d.elem_size as u64)) as u32);
+}
+
+/// The runtime descriptor: what the C++ spells as template parameters
+/// `<DataType, Indexed, Columns, Ordering>` plus the datatype's dimension
+/// decomposition. Lives OUT of block (sizing happens before the block
+/// exists) and is written INTO the block by pdtbuf_format.
+pub struct PdtDescr {
+    pub dims: Vec<PdtDim>,
+    pub columns: u32,
+    pub ordering: u32,
+    pub indexed: bool,
+}
+
+/// A descriptor with no dimensions yet — push them in physical order.
+pub fn pdt_descr_new(columns: u32, ordering: u32, indexed: bool) -> PdtDescr {
+    return PdtDescr {
+        dims: vec_new::<PdtDim>(),
+        columns: columns,
+        ordering: ordering,
+        indexed: indexed,
+    };
+}
+
+/// The single-FSE-dimension descriptor: the shape every arithmetic datatype
+/// takes (C++ DataDimensionsList = TL<const T*> — traits.hpp:199).
+pub fn pdt_descr_fse(columns: u32, elem_size: u32, ordering: u32, indexed: bool) -> PdtDescr {
+    let mut d: PdtDescr = pdt_descr_new(columns, ordering, indexed);
+    d.dims.push(pdt_dim_fse(elem_size));
+    return d;
+}
+
+impl PdtDescr {
+    pub fn dim_count(self: &PdtDescr) -> u32 {
+        return self.dims.length() as u32;
+    }
+
+    /// C++ DimensionsBlocksTotal (common_tools.hpp:87-99): Σ of dimension widths.
+    pub fn dim_blocks_total(self: &PdtDescr) -> u32 {
+        let n: i64 = self.dims.length();
+        let mut total: u32 = 0u32;
+        let mut i: i64 = 0i64;
+        while i < n {
+            let d: &PdtDim = self.dims.borrow(i);
+            total = total + pdt_dim_width(d);
+            i = i + 1i64;
+        }
+        return total;
+    }
+
+    /// Allocator slot count: LAST_HEADER_BLOCK_ + dbt × columns
+    /// (packed_datatype_buffer.hpp:162).
+    pub fn slots(self: &PdtDescr) -> u32 {
+        return PDT_LAST_HEADER_BLOCK + self.dim_blocks_total() * self.columns;
+    }
+
+    /// The first allocator slot of dimension `dim` inside a column's group
+    /// (the running `DataBlock` offset the C++ dimension list builder folds
+    /// into each PDTDimension instantiation).
+    pub fn dim_block_offset(self: &PdtDescr, dim: u32) -> u32 {
+        let mut off: u32 = 0u32;
+        let mut i: i64 = 0i64;
+        while i < (dim as i64) {
+            let d: &PdtDim = self.dims.borrow(i);
+            off = off + pdt_dim_width(d);
+            i = i + 1i64;
+        }
+        return off;
+    }
+
+    /// C++ HasIndex (packed_datatype_buffer.hpp:57): an index exists only for
+    /// SUM ordering over an arithmetic datatype. `indexed` is our spelling of
+    /// the arithmetic half (the datatype glue decides it); the ordering half
+    /// is a law, not a configuration.
+    pub fn has_index(self: &PdtDescr) -> bool {
+        return self.indexed && self.ordering == PDT_ORD_SUM;
+    }
+}
+
+/// C++ enum {METADATA = 0, INDEX, LAST_HEADER_BLOCK_} (packed_datatype_buffer.hpp:67).
+pub const PDT_SLOT_METADATA:     u32 = 0u32;
+pub const PDT_SLOT_INDEX:        u32 = 1u32;
+pub const PDT_LAST_HEADER_BLOCK: u32 = 2u32;
+
+// ── in-block metadata ───────────────────────────────────────────────────────
+
+/// The METADATA cell. C++ Metadata (packed_datatype_buffer.hpp:89-114) holds
+/// {size_, flags_} only and re-derives everything else from template
+/// parameters; a runtime-descriptor port must persist the descriptor.
+///
+/// DIVERGENCE (`capacity`): the C++ recovers capacity by dividing a data
+/// block's byte size by sizeof(T). That is LOSSY whenever elem_size does not
+/// divide the 8-byte allocation granule (round_up_bytes(3×4)/4 = 4 ≠ 3), so
+/// capacity is stored. It is also what makes the exact-prepare law checkable.
+pub struct PdtMeta {
+    pub size: u32,
+    pub capacity: u32,
+    pub columns: u32,
+    pub ordering: u32,
+    pub dim_count: u32,
+    pub dim_blocks_total: u32,
+    pub flags: u32,
+    pub pad: u32,
+}
+
+impl Copy for PdtMeta {}
+
+impl Clone for PdtMeta {
+    fn clone(&self) -> PdtMeta {
+        return *self;
+    }
+}
+
+/// Bytes of the METADATA slot: the fixed header followed by the dims table.
+/// (PdtDim is 8 bytes, so the table needs no interior padding.)
+pub fn pdt_meta_bytes(dim_count: u32) -> u32 {
+    return round_up_bytes(sizeof::<PdtMeta>() as u32)
+        + round_up_bytes(dim_count * (sizeof::<PdtDim>() as u32));
+}
+
+// ── sizing (C++ empty_size :146 / base_size :155 / compute_block_size :186) ──
+
+/// Block bytes for an EMPTY buffer: allocator header/layout/bitmap for all
+/// slots plus the metadata cell. (The FSE dimension's empty_size_aligned() is
+/// 0 — fse_tools.hpp:56 — so no data bytes are reserved.)
+pub fn pdtbuf_empty_size(descr: &PdtDescr) -> u32 {
+    return PkdAlloc::empty_size_for(descr.slots()) + pdt_meta_bytes(descr.dim_count());
+}
+
+/// The recursive index pricing hook (C++ compute_block_size :186-201 inlines
+/// exactly this recursion: the index IS a buffer of the same type over
+/// div_up(capacity, IndexSpan) rows).
+///
+/// P0: `has_index()` is false, so this returns 0 and the whole index arm is
+/// inert — but the SHAPE (recursion + threshold + span division) is here, so
+/// P1 lands by flipping `indexed`, not by re-deriving pricing.
+pub fn pdtbuf_index_block_size(descr: &PdtDescr, capacity: u64) -> u32 {
+    if !descr.has_index() {
+        return 0u32;
+    }
+    if capacity <= PDT_INDEX_SPAN {
+        return 0u32;
+    }
+    let spans: u64 = (capacity + PDT_INDEX_SPAN - 1u64) / PDT_INDEX_SPAN;
+    return pdtbuf_compute_block_size(descr, spans);
+}
+
+/// Bytes a buffer holding `capacity` rows occupies, index included — THE
+/// pricing function (C++ compute_block_size :186). Every fallible resize in
+/// pdtbuf_reserve is covered by it EXACTLY, not conservatively; see the
+/// exact-prepare contract in the module header.
+pub fn pdtbuf_compute_block_size(descr: &PdtDescr, capacity: u64) -> u32 {
+    let mut data: u32 = 0u32;
+    let n: i64 = descr.dims.length();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let d: &PdtDim = descr.dims.borrow(i);
+        let w: u32 = pdt_dim_width(d);
+        let mut sub: u32 = 0u32;
+        while sub < w {
+            data = data + pdt_dim_block_size(d, sub, capacity);
+            sub = sub + 1u32;
+        }
+        i = i + 1i64;
+    }
+    return pdtbuf_empty_size(descr)
+        + data * descr.columns
+        + pdtbuf_index_block_size(descr, capacity);
+}
+
+// ── search results ──────────────────────────────────────────────────────────
+
+/// C++ FindResult (packed_datatype_buffer_so.hpp:114-147 for SUM, :65-82 for
+/// MAX). `idx` = the hit row, `prefix` = the exclusive prefix sum accumulated
+/// before it (0 for MAX ordering, which has no prefix notion — the C++ MAX
+/// FindResult::prefix() likewise returns a default-constructed value).
+///
+/// NOT-FOUND convention (DERIVED, and it happens to agree with the C++
+/// :1479/:1492/:1532/:1572): idx = size (one past the last row), prefix =
+/// the total of the scanned column. Deriving it rather than copying matters
+/// because it is exactly the class of convention the deleted-untested half of
+/// this C++ lineage got wrong; the laws in conuco pin it independently
+/// (find_ge(total) is a hit, find_gt(total) is not, and both agree with the
+/// naive model).
+pub struct PdtFind {
+    pub idx: u64,
+    pub prefix: u64,
+}
+
+impl Copy for PdtFind {}
+
+impl Clone for PdtFind {
+    fn clone(&self) -> PdtFind {
+        return *self;
+    }
+}
+
+// ── the packed handle ───────────────────────────────────────────────────────
+
+/// Non-owning handle over a formatted PdtBuf block (the VecCtr idiom of
+/// sseq.logos: views are re-resolved through the allocator on every call —
+/// a nested buffer's payload shifts when sibling slots resize).
+pub struct PdtBuf {
+    mem: *mut u8,
+}
+
+impl Copy for PdtBuf {}
+
+impl Clone for PdtBuf {
+    fn clone(&self) -> PdtBuf {
+        return *self;
+    }
+}
+
+/// Formats `mem[0..block_size)` as an EMPTY buffer carrying `descr`
+/// (C++ init() — packed_datatype_buffer.hpp:207-220). All data slots are
+/// stamped RAW at zero size; INDEX stays empty (C++ has_index() is likewise
+/// `!is_empty(INDEX)` :253, and P1 will stamp it Allocatable when it
+/// allocates the recursive self-type there).
+pub unsafe fn pdtbuf_format(mem: *mut u8, block_size: u32, descr: &PdtDescr)
+    -> Result<PdtBuf, PkdError> {
+    assert(descr.columns > 0u32, "pdtbuf_format: columns must be >= 1");
+    assert(descr.dim_count() > 0u32, "pdtbuf_format: at least one dimension");
+    let slots: u32 = descr.slots();
+    // PkdAlloc's bitmap is one u64 word — the substrate caps slot count at 64.
+    assert(slots <= 64u32, "pdtbuf_format: slot count exceeds the PkdAlloc bitmap word");
+    let a: *mut PkdAlloc = pkd_format(mem, block_size, slots);
+    let dim_count: u32 = descr.dim_count();
+    a.allocate(PDT_SLOT_METADATA, pdt_meta_bytes(dim_count), SlotKind::Raw)?;
+    let mut flags: u32 = 0u32;
+    if descr.indexed {
+        flags = flags | PDT_FLAG_INDEXED;
+    }
+    let m: *mut PdtMeta = a.get::<PdtMeta>(PDT_SLOT_METADATA);
+    *m = PdtMeta {
+        size: 0u32,
+        capacity: 0u32,
+        columns: descr.columns,
+        ordering: descr.ordering,
+        dim_count: dim_count,
+        dim_blocks_total: descr.dim_blocks_total(),
+        flags: flags,
+        pad: 0u32,
+    };
+    let table: *mut PdtDim = pdt_dims_table(a);
+    let mut i: i64 = 0i64;
+    while i < (dim_count as i64) {
+        *table.add(i as u32) = *descr.dims.borrow(i);
+        i = i + 1i64;
+    }
+    a.set_block_type(PDT_SLOT_INDEX, SlotKind::Raw);
+    let mut s: u32 = PDT_LAST_HEADER_BLOCK;
+    while s < slots {
+        a.set_block_type(s, SlotKind::Raw);
+        s = s + 1u32;
+    }
+    return Result::Ok(PdtBuf { mem: mem });
+}
+
+// The dims table lives in the METADATA slot right behind the fixed header.
+unsafe fn pdt_dims_table(a: *mut PkdAlloc) -> *mut PdtDim {
+    let base: *mut u8 = a.get::<u8>(PDT_SLOT_METADATA);
+    return base.byte_add(round_up_bytes(sizeof::<PdtMeta>() as u32)) as *mut PdtDim;
+}
+
+/// Re-adopt an already formatted block as a handle (the sseq
+/// pkd_ssrle_adopt idiom: a consumer embedding a PdtBuf inside a larger
+/// PkdAlloc must re-resolve from the slot address after neighbouring slots
+/// resize, never cache the handle across a mutation).
+pub unsafe fn pdtbuf_adopt(mem: *mut u8) -> PdtBuf {
+    return PdtBuf { mem: mem };
+}
+
+/// format + reserve + set_size in one step: a zero-filled buffer of `rows`
+/// rows, ready for set(). The P0 creation path (P3 replaces the "fill by
+/// set()" half with two-phase insert; the geometry below is unchanged).
+pub unsafe fn pdtbuf_create(mem: *mut u8, block_size: u32, descr: &PdtDescr, rows: u64)
+    -> Result<PdtBuf, PkdError> {
+    let mut b: PdtBuf = pdtbuf_format(mem, block_size, descr)?;
+    match b.reserve(rows) {
+        Result::Ok(_) => {}
+        Result::Err(e) => {
+            return Result::Err(e);
+        }
+    }
+    b.set_size(rows);
+    return Result::Ok(b);
+}
+
+impl PdtBuf {
+    // ── views (re-resolved per call; never cached) ────────────────────────
+
+    fn alc(self: &PdtBuf) -> *mut PkdAlloc {
+        return self.mem as *mut PkdAlloc;
+    }
+
+    unsafe fn meta(self: &PdtBuf) -> *mut PdtMeta {
+        return self.alc().get::<PdtMeta>(PDT_SLOT_METADATA);
+    }
+
+    // ── descriptor read-back (the block is self-describing) ───────────────
+
+    /// Logical row count (C++ SO size() :467).
+    pub fn size(self: &PdtBuf) -> u64 {
+        unsafe {
+            return (*self.meta()).size as u64;
+        }
+    }
+
+    /// Rows the data blocks are sized for (see the PdtMeta capacity divergence).
+    pub fn capacity(self: &PdtBuf) -> u64 {
+        unsafe {
+            return (*self.meta()).capacity as u64;
+        }
+    }
+
+    /// C++ SO columns() :471 — a runtime field here, a template parameter there.
+    pub fn columns(self: &PdtBuf) -> u32 {
+        unsafe {
+            return (*self.meta()).columns;
+        }
+    }
+
+    pub fn ordering(self: &PdtBuf) -> u32 {
+        unsafe {
+            return (*self.meta()).ordering;
+        }
+    }
+
+    pub fn dim_count(self: &PdtBuf) -> u32 {
+        unsafe {
+            return (*self.meta()).dim_count;
+        }
+    }
+
+    pub fn dim_blocks_total(self: &PdtBuf) -> u32 {
+        unsafe {
+            return (*self.meta()).dim_blocks_total;
+        }
+    }
+
+    pub fn dim_at(self: &PdtBuf, dim: u32) -> PdtDim {
+        assert(dim < self.dim_count(), "PdtBuf::dim_at: dimension out of range");
+        unsafe {
+            return *pdt_dims_table(self.alc()).add(dim);
+        }
+    }
+
+    /// Was this buffer configured to carry an index (C++ HasIndex :57)? P0
+    /// never materializes one — has_index() is the LAW's shape: the flag AND
+    /// SUM ordering. P1 makes it also require a non-empty INDEX slot.
+    pub fn has_index(self: &PdtBuf) -> bool {
+        unsafe {
+            let flagged: bool = ((*self.meta()).flags & PDT_FLAG_INDEXED) != 0u32;
+            return flagged && (*self.meta()).ordering == PDT_ORD_SUM;
+        }
+    }
+
+    /// Reconstruct the out-of-block descriptor from the block itself.
+    pub fn descr(self: &PdtBuf) -> PdtDescr {
+        let mut indexed: bool = false;
+        unsafe {
+            indexed = ((*self.meta()).flags & PDT_FLAG_INDEXED) != 0u32;
+        }
+        let mut d: PdtDescr = pdt_descr_new(self.columns(), self.ordering(), indexed);
+        let n: u32 = self.dim_count();
+        let mut i: u32 = 0u32;
+        while i < n {
+            d.dims.push(self.dim_at(i));
+            i = i + 1u32;
+        }
+        return d;
+    }
+
+    // ── slot geometry (C++ data_block_num — fse_tools.hpp:42-44) ──────────
+
+    /// The first slot of dimension `dim` within a column group.
+    pub fn dim_block_offset(self: &PdtBuf, dim: u32) -> u32 {
+        let mut off: u32 = 0u32;
+        let mut i: u32 = 0u32;
+        while i < dim {
+            let d: PdtDim = self.dim_at(i);
+            off = off + pdt_dim_width(&d);
+            i = i + 1u32;
+        }
+        return off;
+    }
+
+    /// THE slot formula, verbatim from the C++:
+    ///     block = LAST_HEADER_BLOCK_ + DimensionsBlocksTotal*column + DataBlock
+    /// General over columns and dimensions — there is no per-column special
+    /// case anywhere in this module, and the ≥3-column canary in conuco
+    /// exists to keep it that way.
+    pub fn block_of(self: &PdtBuf, column: u32, dim: u32, sub: u32) -> u32 {
+        assert(column < self.columns(), "PdtBuf::block_of: column out of range");
+        return PDT_LAST_HEADER_BLOCK
+            + self.dim_blocks_total() * column
+            + self.dim_block_offset(dim)
+            + sub;
+    }
+
+    // ── sizing / capacity ─────────────────────────────────────────────────
+
+    /// Bytes this buffer's allocator has handed out to its slots — the
+    /// CONSUMED side of the exact-prepare law (the PREPARED side is
+    /// pdtbuf_compute_block_size).
+    pub fn consumed_bytes(self: &PdtBuf) -> u32 {
+        unsafe {
+            let a: *mut PkdAlloc = self.alc();
+            return PkdAlloc::empty_size_for(a.elements()) + a.allocated();
+        }
+    }
+
+    /// Sizes every data block for `capacity` rows. THE fallible phase: on
+    /// success the buffer has consumed exactly
+    /// pdtbuf_compute_block_size(descr, capacity) bytes; on failure it is
+    /// left at its previous capacity, untouched (grows are attempted only
+    /// after the whole chain has been probed).
+    pub fn reserve(self: &mut PdtBuf, capacity: u64) -> Result<u32, PkdError> {
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        unsafe {
+            let a: *mut PkdAlloc = self.alc();
+            // Probe first, so a failure never leaves a half-resized block:
+            // the C++ resizes eagerly and unwinds by throwing.
+            let mut c: u32 = 0u32;
+            while c < cols {
+                let mut i: u32 = 0u32;
+                while i < dims {
+                    let d: PdtDim = self.dim_at(i);
+                    let w: u32 = pdt_dim_width(&d);
+                    let mut sub: u32 = 0u32;
+                    while sub < w {
+                        let blk: u32 = self.block_of(c, i, sub);
+                        let want: u32 = pdt_dim_block_size(&d, sub, capacity);
+                        if want > a.element_size(blk) {
+                            if !a.try_allocation(blk, want) {
+                                return Result::Err(PkdError::OutOfMem);
+                            }
+                        }
+                        sub = sub + 1u32;
+                    }
+                    i = i + 1u32;
+                }
+                c = c + 1u32;
+            }
+            // Shrinks first: releasing space before growing keeps the peak
+            // demand at the priced total, never above it.
+            let mut pass: u32 = 0u32;
+            while pass < 2u32 {
+                let mut c2: u32 = 0u32;
+                while c2 < cols {
+                    let mut i2: u32 = 0u32;
+                    while i2 < dims {
+                        let d2: PdtDim = self.dim_at(i2);
+                        let w2: u32 = pdt_dim_width(&d2);
+                        let mut sub2: u32 = 0u32;
+                        while sub2 < w2 {
+                            let blk2: u32 = self.block_of(c2, i2, sub2);
+                            let want2: u32 = pdt_dim_block_size(&d2, sub2, capacity);
+                            let have2: u32 = a.element_size(blk2);
+                            let shrinking: bool = want2 < have2;
+                            if (pass == 0u32) == shrinking && want2 != have2 {
+                                match a.resize_block_at(blk2, want2) {
+                                    Result::Ok(_) => {}
+                                    Result::Err(e) => {
+                                        return Result::Err(e);
+                                    }
+                                }
+                            }
+                            sub2 = sub2 + 1u32;
+                        }
+                        i2 = i2 + 1u32;
+                    }
+                    c2 = c2 + 1u32;
+                }
+                pass = pass + 1u32;
+            }
+            (*self.meta()).capacity = capacity as u32;
+            if (*self.meta()).size > (capacity as u32) {
+                (*self.meta()).size = capacity as u32;
+            }
+        }
+        return Result::Ok(self.consumed_bytes());
+    }
+
+    /// Publishes `n` rows as live. INFALLIBLE by contract — the bytes were
+    /// bought by reserve(); asking for more than capacity is a caller bug.
+    pub fn set_size(self: &mut PdtBuf, n: u64) {
+        assert(n <= self.capacity(), "PdtBuf::set_size: size exceeds reserved capacity");
+        unsafe {
+            (*self.meta()).size = n as u32;
+        }
+    }
+
+    // ── cell access ───────────────────────────────────────────────────────
+
+    /// Byte address of cell (column, row) in dimension `dim`. The GENERAL
+    /// accessor: stride comes from the descriptor, so it is correct for any
+    /// elem_size. The u64 accessors below are the narrowed exercise.
+    pub unsafe fn cell_ptr(self: &PdtBuf, column: u32, dim: u32, row: u64) -> *mut u8 {
+        let d: PdtDim = self.dim_at(dim);
+        assert(d.kind == PDT_DIM_FSE, "PdtBuf::cell_ptr: VLE dimensions are P4");
+        let blk: u32 = self.block_of(column, dim, 0u32);
+        let base: *mut u8 = self.alc().get::<u8>(blk);
+        return base.byte_add((row * (d.elem_size as u64)) as i64);
+    }
+
+    /// Column `column` of dimension 0 as a u64 slice of `size()` cells
+    /// (C++ SO span(column) :480 — the FSE direct view).
+    pub fn values(self: &PdtBuf, column: u32) -> &[u64] {
+        let d: PdtDim = self.dim_at(0u32);
+        assert(d.elem_size == 8u32, "PdtBuf::values: P0 narrows cells to u64");
+        let blk: u32 = self.block_of(column, 0u32, 0u32);
+        unsafe {
+            return self.alc().cells::<u64>(blk);
+        }
+    }
+
+    /// Value at (column, row) (C++ SO access(column,row) :495).
+    pub fn get(self: &PdtBuf, column: u32, row: u64) -> u64 {
+        assert(row < self.size(), "PdtBuf::get: row out of range");
+        return self.values(column)[row as i64];
+    }
+
+    /// Writes (column, row). No resize, no reindex — the P0 fill path.
+    pub fn set(self: &mut PdtBuf, column: u32, row: u64, v: u64) {
+        assert(row < self.size(), "PdtBuf::set: row out of range");
+        let d: PdtDim = self.dim_at(0u32);
+        assert(d.elem_size == 8u32, "PdtBuf::set: P0 narrows cells to u64");
+        let blk: u32 = self.block_of(column, 0u32, 0u32);
+        unsafe {
+            let base: *mut u64 = self.alc().get::<u64>(blk);
+            *base.add(row as u32) = v;
+        }
+    }
+
+    /// Fills row `row` across ALL columns from a per-column callback-free
+    /// vector (the general shape: no per-column unrolling at any call site).
+    pub fn set_row(self: &mut PdtBuf, row: u64, vals: &Vec<u64>) {
+        let cols: u32 = self.columns();
+        assert(vals.length() == (cols as i64), "PdtBuf::set_row: value count != columns");
+        let mut c: u32 = 0u32;
+        while c < cols {
+            self.set(c, row, vals.get(c as i64));
+            c = c + 1u32;
+        }
+    }
+
+    // ── SUM ordering: prefix sums ─────────────────────────────────────────
+
+    /// Exclusive prefix sum over rows [0, row) of `column`
+    /// (C++ SO sum(column, row) :884 → sum_sum :1599).
+    ///
+    /// DIVERGENCE (derived, not copied): the C++ dispatches this through
+    /// PkdDTBufOrderingDispatcher, and its non-SUM arm `sum_gen` (:1577)
+    /// sums [idx, size) — a SUFFIX. That makes the very next function,
+    /// `sum(column, start, end) = sum(end) - sum(start)` (:889), silently
+    /// wrong for MAX/UNORDERED buffers (it computes the negation of the
+    /// range). Prefix semantics are the only reading under which the
+    /// documented identity holds, so prefix is what we implement for EVERY
+    /// ordering. Upstream bug candidate.
+    ///
+    /// P1 inserts the index fast path HERE (skip whole spans, then scan the
+    /// remainder) without touching this signature.
+    pub fn sum_prefix(self: &PdtBuf, column: u32, row: u64) -> u64 {
+        assert(row <= self.size(), "PdtBuf::sum_prefix: row past end");
+        let vals: &[u64] = self.values(column);
+        let mut acc: u64 = 0u64;
+        let mut i: u64 = 0u64;
+        while i < row {
+            acc = acc + vals[i as i64];
+            i = i + 1u64;
+        }
+        return acc;
+    }
+
+    /// Σ of `column` over rows [start, end) (C++ SO sum(column,start,end) :889).
+    pub fn sum(self: &PdtBuf, column: u32, start: u64, end: u64) -> u64 {
+        assert(start <= end, "PdtBuf::sum: inverted range");
+        assert(end <= self.size(), "PdtBuf::sum: range past end");
+        return self.sum_prefix(column, end) - self.sum_prefix(column, start);
+    }
+
+    /// Σ of the whole column (C++ SO sum(column) :880).
+    pub fn sum_all(self: &PdtBuf, column: u32) -> u64 {
+        return self.sum_prefix(column, self.size());
+    }
+
+    // ── the search family ─────────────────────────────────────────────────
+
+    // SUM descent, derived from the definition rather than transcribed:
+    //   find_ge(v) = min { i : prefix(i+1) >= v }
+    //   find_gt(v) = min { i : prefix(i+1) >  v }
+    // with prefix(k) = Σ_{j<k} col[j]. Both return (i, prefix(i)); if no such
+    // i exists the answer is (size, prefix(size)) — the not-found convention.
+    // `strict` selects > over >=.
+    fn find_fw_sum(self: &PdtBuf, column: u32, val: u64, strict: bool) -> PdtFind {
+        let vals: &[u64] = self.values(column);
+        let n: u64 = self.size();
+        let mut prefix: u64 = 0u64;
+        let mut i: u64 = 0u64;
+        while i < n {
+            let incl: u64 = prefix + vals[i as i64];
+            let hit: bool = if strict { incl > val } else { incl >= val };
+            if hit {
+                return PdtFind { idx: i, prefix: prefix };
+            }
+            prefix = incl;
+            i = i + 1u64;
+        }
+        return PdtFind { idx: n, prefix: prefix };
+    }
+
+    // MAX descent over a SORTED column — index-free BY DESIGN (the C++ HEAD
+    // reached the same conclusion: HasIndex excludes MAX, so the search is a
+    // bisection, mirror of fse_lower_bound_u64 in arr.logos:507).
+    //   find_ge = lower_bound = min { i : col[i] >= val }
+    //   find_gt = upper_bound = min { i : col[i] >  val }
+    // `prefix` is meaningless for MAX and is reported as 0.
+    fn find_fw_max(self: &PdtBuf, column: u32, val: u64, strict: bool) -> PdtFind {
+        let vals: &[u64] = self.values(column);
+        let mut lo: u64 = 0u64;
+        let mut hi: u64 = self.size();
+        while lo < hi {
+            let mid: u64 = lo + (hi - lo) / 2u64;
+            let v: u64 = vals[mid as i64];
+            let below: bool = if strict { v <= val } else { v < val };
+            if below {
+                lo = mid + 1u64;
+            } else {
+                hi = mid;
+            }
+        }
+        return PdtFind { idx: lo, prefix: 0u64 };
+    }
+
+    // The ordering dispatch (C++ PkdDTBufOrderingDispatcher, so.hpp:51-170 —
+    // a partial-specialization lattice there, a runtime branch here).
+    fn find_fw(self: &PdtBuf, column: u32, val: u64, strict: bool) -> PdtFind {
+        let ord: u32 = self.ordering();
+        if ord == PDT_ORD_SUM {
+            return self.find_fw_sum(column, val, strict);
+        }
+        assert(ord == PDT_ORD_MAX,
+               "PdtBuf::find: UNORDERED buffers define no ordered search");
+        return self.find_fw_max(column, val, strict);
+    }
+
+    /// First row at which the column reaches `val`
+    /// (SUM: cumulative >= val; MAX: cell >= val, i.e. lower_bound).
+    /// C++ find_fw_ge :810 → find_ge_fw_sum :1496 / find_ge_fw_max :1483.
+    pub fn find_ge(self: &PdtBuf, column: u32, val: u64) -> PdtFind {
+        return self.find_fw(column, val, false);
+    }
+
+    /// First row at which the column EXCEEDS `val`
+    /// (SUM: cumulative > val; MAX: cell > val, i.e. upper_bound).
+    /// C++ find_fw_gt :795 → find_gt_fw_sum :1536 / find_gt_fw_max :1469.
+    pub fn find_gt(self: &PdtBuf, column: u32, val: u64) -> PdtFind {
+        return self.find_fw(column, val, true);
+    }
+
+    /// find_ge from a starting row: search the residual sequence and report
+    /// the answer RELATIVE to `start` (C++ :1408 — target = prefix(start) +
+    /// val, then sub_prefix). Derived here as a direct scan of [start, size)
+    /// so it cannot inherit the C++ family's unsigned-underflow class.
+    /// SUM ordering only — a relative prefix is meaningless otherwise, which
+    /// is precisely why the C++ `start` overloads (:800, :815) hardcode the
+    /// SUM implementations and are nonsense on a MAX buffer.
+    pub fn find_ge_from(self: &PdtBuf, column: u32, start: u64, val: u64) -> PdtFind {
+        return self.find_from(column, start, val, false);
+    }
+
+    /// find_gt from a starting row (see find_ge_from).
+    pub fn find_gt_from(self: &PdtBuf, column: u32, start: u64, val: u64) -> PdtFind {
+        return self.find_from(column, start, val, true);
+    }
+
+    fn find_from(self: &PdtBuf, column: u32, start: u64, val: u64, strict: bool) -> PdtFind {
+        assert(self.ordering() == PDT_ORD_SUM,
+               "PdtBuf::find_*_from: relative-prefix search is SUM-only");
+        assert(start <= self.size(), "PdtBuf::find_*_from: start past end");
+        let vals: &[u64] = self.values(column);
+        let n: u64 = self.size();
+        let mut prefix: u64 = 0u64;
+        let mut i: u64 = start;
+        while i < n {
+            let incl: u64 = prefix + vals[i as i64];
+            let hit: bool = if strict { incl > val } else { incl >= val };
+            if hit {
+                return PdtFind { idx: i, prefix: prefix };
+            }
+            prefix = incl;
+            i = i + 1u64;
+        }
+        return PdtFind { idx: n, prefix: prefix };
+    }
+
+    // ── structural check ──────────────────────────────────────────────────
+
+    /// Structural self-check (C++ SO check() :462). Verifies the slot
+    /// geometry against the descriptor AND the exact-prepare law
+    /// (consumed == priced). Returns 0 when sound, else a code identifying
+    /// the broken invariant — the conuco mutation probe relies on this
+    /// biting when the slot formula is perturbed.
+    pub fn check(self: &PdtBuf) -> i32 {
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        if cols == 0u32 || dims == 0u32 {
+            return 1i32;
+        }
+        if self.size() > self.capacity() {
+            return 2i32;
+        }
+        unsafe {
+            let a: *mut PkdAlloc = self.alc();
+            let mut expect_dbt: u32 = 0u32;
+            let mut i: u32 = 0u32;
+            while i < dims {
+                let d: PdtDim = self.dim_at(i);
+                expect_dbt = expect_dbt + pdt_dim_width(&d);
+                i = i + 1u32;
+            }
+            if expect_dbt != self.dim_blocks_total() {
+                return 3i32;
+            }
+            let mut c: u32 = 0u32;
+            while c < cols {
+                let mut j: u32 = 0u32;
+                while j < dims {
+                    let d2: PdtDim = self.dim_at(j);
+                    let w: u32 = pdt_dim_width(&d2);
+                    let mut sub: u32 = 0u32;
+                    while sub < w {
+                        let blk: u32 = self.block_of(c, j, sub);
+                        if blk < PDT_LAST_HEADER_BLOCK || blk >= a.elements() {
+                            return 4i32;
+                        }
+                        let want: u32 = pdt_dim_block_size(&d2, sub, self.capacity());
+                        if a.element_size(blk) != want {
+                            return 5i32;
+                        }
+                        sub = sub + 1u32;
+                    }
+                    j = j + 1u32;
+                }
+                c = c + 1u32;
+            }
+        }
+        // The exact-prepare law: what the block consumed is exactly what
+        // pdtbuf_compute_block_size priced. P3's `prepared == consumed`
+        // mutation gate is this same assertion, one rung up.
+        let d: PdtDescr = self.descr();
+        if self.consumed_bytes() != pdtbuf_compute_block_size(&d, self.capacity()) {
+            return 6i32;
+        }
+        return 0i32;
+    }
+}
