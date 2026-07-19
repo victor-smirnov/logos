@@ -165,4 +165,18 @@ std::vector<ParsedModule> load_modules(
     std::string_view implicit_prelude = {},
     const std::vector<std::string>& abs_excludes = {}) noexcept;
 
+// Read back the package names an archive ADVERTISES, through the exact same
+// streaming AR reader + `.pkgi` parser that build_binary_index uses when a
+// consumer resolves `use <pkg>;`. One inner vector per `.pkgi` member found.
+//
+// The writer (emit_module) calls this right after `ar` to verify that every
+// package it meant to publish actually reached the archive, and that the
+// archive carries exactly ONE `.pkgi` (more than one means stale members from
+// an earlier build survived — `ar r` inserts, it never truncates). Verifying
+// with the consumer's own reader is the point: a writer that self-attests
+// against its own in-memory list would miss precisely the encode/wrap/ar
+// failures this check exists to catch.
+std::vector<std::vector<std::string>>
+archive_advertised_packages(const std::string& archive_path);
+
 } // namespace logos::compiler

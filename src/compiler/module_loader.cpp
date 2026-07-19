@@ -1226,6 +1226,20 @@ build_binary_index(const std::vector<std::string>& search_paths,
     return idx;
 }
 
+// Writer-side read-back (declared in module_loader.hpp). Deliberately routed
+// through the same ar_read_members_streaming + unwrap_elf_section +
+// parse_pkgi_member chain that build_binary_index above uses, so what the
+// writer verifies is literally what a consumer will later see.
+std::vector<std::vector<std::string>>
+archive_advertised_packages(const std::string& archive_path) {
+    std::vector<std::vector<std::string>> out;
+    for (auto& m : ar_read_members_streaming(archive_path, ".pkgi")) {
+        auto unwrapped = unwrap_elf_section(m, ".lpkgindex");
+        out.push_back(parse_pkgi_member(unwrapped));
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Package → list of .logos file paths (canonical).
 // ---------------------------------------------------------------------------

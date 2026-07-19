@@ -1826,6 +1826,9 @@ bool emit_module(const ModuleManifest& manifest,
     // without touching .wr0 bytes. Member name must stay <=15 chars.
     std::string pkgi_raw_path =
         h0_path.substr(0, h0_path.find_last_of('.')) + ".pkgi.raw";
+    // Every package this archive is meant to publish. Written to the .pkgi
+    // below, then read BACK out of the finished .a to prove it got there.
+    std::set<std::string> owned_packages;
     {
         std::ofstream f(pkgi_raw_path);
         if (!f) {
@@ -1866,14 +1869,28 @@ bool emit_module(const ModuleManifest& manifest,
 #ifdef LOGOS_VERSION_FULL
         f << "@abi " << LOGOS_VERSION_FULL << "\n";
 #endif
-        std::set<std::string> seen;
         for (size_t i = 0; i < modules_for_h0.size(); ++i) {
             auto& m = modules_for_h0[i];
-            if (m.package.empty()) continue;
             // Skip dependency modules embedded from a lower-layer archive.
             if (i < from_binary_module_flags.size() && from_binary_module_flags[i])
                 continue;
-            if (seen.insert(m.package).second) f << m.package << "\n";
+            if (m.package.empty()) {
+                // A module we OWN that names no package can never be reached by
+                // `use` — it would ship its AST in the .wr0 while advertising
+                // nothing, and every consumer would fail with "cannot find
+                // package" against a build that exited 0. Refuse to publish it.
+                //
+                // Synth docs (metaprog-emitted, path "<metaprog>#N") derive
+                // their package from the generated AST root; an empty one there
+                // is a metaprog-dispatch bug, and it is just as fatal.
+                std::fprintf(stderr,
+                    "emit_module: '%s' declares no package — it cannot be "
+                    "published in %s (a package-less module is unreachable by "
+                    "`use`). Add a `package <name>;` declaration.\n",
+                    m.path.c_str(), output_path.c_str());
+                return false;
+            }
+            if (owned_packages.insert(m.package).second) f << m.package << "\n";
         }
     }
     std::string pkgi_obj_path =
@@ -1940,7 +1957,24 @@ bool emit_module(const ModuleManifest& manifest,
 
     // Create .a archive: lazy mode has no .o (codegen skipped), pack just
     // the .wr0 wrapper + pkgi index + import table. Eager mode also packs NAME.o.
+    //
+    // Unlink first: `ar r` INSERTS/replaces, it never truncates. Rebuilding
+    // over an existing archive therefore keeps every member the previous build
+    // wrote under a name this build no longer emits — rename the manifest's
+    // `module`, and the old `<oldname>.{o,wr0,pkgi,imp}` quartet survives
+    // alongside the new one. The loader then sees TWO `.pkgi` members and
+    // indexes packages first-wins by member order, so a stale package set can
+    // shadow the fresh one and stale `.o`/`.wr0` bytes get linked — silently,
+    // with exit 0. The archive must be exactly the members we wrote.
     {
+        std::error_code rm_ec;
+        fs::remove(output_path, rm_ec);
+        if (rm_ec) {
+            std::fprintf(stderr,
+                "emit_module: cannot remove stale archive '%s': %s\n",
+                output_path.c_str(), rm_ec.message().c_str());
+            return false;
+        }
         std::ostringstream cmd;
         cmd << "ar rcs " << output_path;
         if (!manifest.lazy) cmd << " " << obj_path;
@@ -1951,6 +1985,51 @@ bool emit_module(const ModuleManifest& manifest,
         if (std::system(cmd.str().c_str()) != 0) {
             std::fprintf(stderr, "emit_module: ar failed\n");
             return false;
+        }
+    }
+
+    // Read the finished archive back through the CONSUMER's reader and prove
+    // every package we set out to publish is actually there. A package that
+    // silently fails to reach the archive is the worst failure this writer can
+    // have: the build exits 0, and the loss only surfaces much later as
+    // "cannot find package" in some unrelated consumer. Any encode/objcopy/ar
+    // path that drops a package must die HERE, naming it.
+    {
+        auto members = archive_advertised_packages(output_path);
+        if (members.empty()) {
+            std::fprintf(stderr,
+                "emit_module: %s carries no readable .pkgi member after ar — "
+                "the package index did not reach the archive; %zu package(s) "
+                "would have been lost silently.\n",
+                output_path.c_str(), owned_packages.size());
+            return false;
+        }
+        if (members.size() != 1) {
+            std::fprintf(stderr,
+                "emit_module: %s carries %zu .pkgi members (expected 1) — "
+                "stale members from an earlier build survived.\n",
+                output_path.c_str(), members.size());
+            return false;
+        }
+        std::set<std::string> published(members[0].begin(), members[0].end());
+        std::vector<std::string> missing;
+        for (const auto& pkg : owned_packages) {
+            if (!published.count(pkg)) missing.push_back(pkg);
+        }
+        if (!missing.empty()) {
+            std::fprintf(stderr,
+                "emit_module: %zu package(s) did NOT reach %s:\n",
+                missing.size(), output_path.c_str());
+            for (const auto& pkg : missing) {
+                std::fprintf(stderr, "emit_module:   missing package %s\n",
+                             pkg.c_str());
+            }
+            return false;
+        }
+        if (verbose) {
+            std::fprintf(stderr,
+                "emit_module: verified %zu published package(s) in %s\n",
+                published.size(), output_path.c_str());
         }
     }
 

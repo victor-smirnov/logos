@@ -942,6 +942,22 @@ set_tests_properties(logos_15_emit_file PROPERTIES
     LABELS  "logos;lforge;suite_lforge"
 )
 
+# Archive integrity: a package must never vanish from a module archive
+# silently. Covers (1) size is not a publish limit — a ~6000-line single
+# source still publishes and links, (2) `ar r` never truncating no longer
+# leaves stale members from a previous build, (3) emit_module reads the
+# finished .a back through the loader's own reader and fails loudly.
+add_test(
+    NAME logos_15_archive_integrity
+    COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/archive_integrity.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_15_archive_integrity PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;lforge;suite_lforge"
+)
+
 # ADR 0014 slice-1: logosc --emit-docs writes a .docwr doc-facts container.
 add_test(
     NAME logos_15_emit_docs
