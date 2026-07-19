@@ -1,0 +1,1 @@
+op_column_ref: op `scan(nosuch)` references no entry column of stream 'values'

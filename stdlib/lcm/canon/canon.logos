@@ -144,6 +144,139 @@ mapping CanonFacts(g: &Writ) {
     }
 }
 
+// ── BTFL 8b: the stream/ops fact mapping ────────────────────────────────────
+// A SECOND mapping (CanonFacts sits at the engine's 8-rel cap): the
+// streams/ops sections + the stream-qualified col/measure rows, harvested
+// from the SAME fact doc. The decl-time ops-vocabulary axioms consume these:
+//
+//   unknown_op(C,s,v)   ← ops(C,s,v,…), v ∉ {seek,rank,select,range,scan,
+//                          iterate,insert,remove,update,bulk_append}
+//   op_bad_arg(C,s,v)   ← arg shape wrong for the verb class (measure-bound
+//                          verbs need an arg; scan needs a BARE column; the
+//                          rest take none)
+//   op_measure_ref      ← measure-bound verb whose (ahead,ainner) matches no
+//                          measure DECLARED BY THE SAME STREAM
+//   op_column_ref       ← scan whose column is not an entry column of the
+//                          same stream
+//   multimap_streams    ← kind=multimap ∧ ¬∃ stream idx 1 (needs ≥ 2)
+//   multimap_seek       ← kind=multimap ∧ first stream has no max measure
+// TWO mappings, not one: the engine caps a program at 8 rels INCLUDING the
+// consuming deem entry, so the ops-reference axioms and the multimap
+// structural axioms each get their own harvest.
+mapping CanonOpsFacts(g: &Writ) {
+    rel att(sec: str, row: i64, k: str, vs: str, vi: i64) {
+        from g * s [*] r * a select (s.key, r.child, a.key, a.vs, a.vi);
+    }
+    pub rel ops_fact(ctr: str, stream: str, verb: str, ahead: str, ainner: str) {
+        from att c join att s on s.row == c.row
+            join att v on v.row == c.row
+            join att h on h.row == c.row
+            join att n on n.row == c.row
+        where c.sec == SEC_OPS && c.k == K_CTR && s.k == K_STREAM && v.k == K_VERB
+              && h.k == K_AHEAD && n.k == K_AINNER
+        select (c.vs, s.vs, v.vs, h.vs, n.vs);
+    }
+    pub rel smeas_fact(ctr: str, stream: str, mfn: str, arg: str) {
+        from att c join att s on s.row == c.row
+            join att f on f.row == c.row
+            join att a on a.row == c.row
+        where c.sec == SEC_MEASURES && c.k == K_CTR && s.k == K_STREAM
+              && f.k == K_MFN && a.k == K_ARG
+        select (c.vs, s.vs, f.vs, a.vs);
+    }
+    pub rel scol_fact(ctr: str, stream: str, col: str) {
+        from att c join att s on s.row == c.row
+            join att n on n.row == c.row
+        where c.sec == SEC_COLS && c.k == K_CTR && s.k == K_STREAM && n.k == K_NAME
+        select (c.vs, s.vs, n.vs);
+    }
+}
+mapping CanonMmFacts(g: &Writ) {
+    rel att(sec: str, row: i64, k: str, vs: str, vi: i64) {
+        from g * s [*] r * a select (s.key, r.child, a.key, a.vs, a.vi);
+    }
+    pub rel stream_fact(ctr: str, idx: i64, name: str) {
+        from att c join att i on i.row == c.row
+            join att n on n.row == c.row
+        where c.sec == SEC_STREAMS && c.k == K_CTR && i.k == K_IDX && n.k == K_NAME
+        select (c.vs, i.vi, n.vs);
+    }
+    pub rel smeas_fact(ctr: str, stream: str, mfn: str, arg: str) {
+        from att c join att s on s.row == c.row
+            join att f on f.row == c.row
+            join att a on a.row == c.row
+        where c.sec == SEC_MEASURES && c.k == K_CTR && s.k == K_STREAM
+              && f.k == K_MFN && a.k == K_ARG
+        select (c.vs, s.vs, f.vs, a.vs);
+    }
+    // multimap containers (the structural axioms' LHS domain).
+    pub rel mm_ctr(ctr: str) {
+        from att n join att k on k.row == n.row
+        where n.sec == SEC_CONTAINERS && n.k == K_NAME && k.k == K_KIND
+              && k.vs == KIND_MULTIMAP
+        select n.vs;
+    }
+    // RHS rels of the stratified anti joins (the on-clause carries only
+    // column equalities; constants live here).
+    pub rel second_stream(ctr: str) {
+        from stream_fact s where s.idx == 1 select s.ctr;
+    }
+    pub rel smax_stream(ctr: str, stream: str) {
+        from smeas_fact m where m.mfn == MFN_MAX select (m.ctr, m.stream);
+    }
+}
+
+// Ops-vocabulary verdicts (BTFL 8b, decl time — the template moment).
+deem canon_op_unknown(w: CanonOpsFacts) {
+    from ops_fact o
+    where o.verb != OP_SEEK && o.verb != OP_RANK && o.verb != OP_SELECT
+       && o.verb != OP_RANGE && o.verb != OP_SCAN && o.verb != OP_ITERATE
+       && o.verb != OP_INSERT && o.verb != OP_REMOVE && o.verb != OP_UPDATE
+       && o.verb != OP_BULK_APPEND
+    select (o.ctr, o.stream, o.verb)
+}
+deem canon_op_bad_arg(w: CanonOpsFacts) {
+    from ops_fact o
+    where ((o.verb == OP_SEEK || o.verb == OP_RANK || o.verb == OP_SELECT
+            || o.verb == OP_RANGE) && o.ahead == "")
+       || (o.verb == OP_SCAN && (o.ahead == "" || o.ainner != ""))
+       || ((o.verb == OP_ITERATE || o.verb == OP_INSERT || o.verb == OP_REMOVE
+            || o.verb == OP_UPDATE || o.verb == OP_BULK_APPEND) && o.ahead != "")
+    select (o.ctr, o.stream, o.verb)
+}
+deem canon_op_measure_missing(w: CanonOpsFacts) {
+    from ops_fact o
+         anti join smeas_fact m on m.ctr == o.ctr && m.stream == o.stream
+              && m.mfn == o.ahead && m.arg == o.ainner
+    where (o.verb == OP_SEEK || o.verb == OP_RANK || o.verb == OP_SELECT
+           || o.verb == OP_RANGE) && o.ahead != ""
+    select (o.ctr, o.stream, o.verb, o.ahead, o.ainner)
+}
+deem canon_op_scan_missing(w: CanonOpsFacts) {
+    from ops_fact o
+         anti join scol_fact c on c.ctr == o.ctr && c.stream == o.stream
+              && c.col == o.ahead
+    where o.verb == OP_SCAN && o.ahead != "" && o.ainner == ""
+    select (o.ctr, o.stream, o.ahead)
+}
+// kind=multimap structural axioms.
+deem canon_mm_streams(w: CanonMmFacts) {
+    from mm_ctr x anti join second_stream s on s.ctr == x.ctr
+    select x.ctr : str
+}
+deem canon_mm_seek(w: CanonMmFacts) {
+    from stream_fact s join mm_ctr x on x.ctr == s.ctr
+         anti join smax_stream m on m.ctr == s.ctr && m.stream == s.name
+    where s.idx == 0
+    select (s.ctr, s.name)
+}
+// The declared streams — the layout-verdict domain. The v0 layout rule is
+// ALWAYS row and lives in canon_verdicts' assembly (8c flips THAT fn to the
+// scan→column rule over the ops facts recorded above).
+deem canon_streams(w: CanonMmFacts) {
+    from stream_fact s select (s.ctr, s.name)
+}
+
 // Verdict projections — one deem per verdict set (a deem item has one entry;
 // canon_verdicts runs them all and assembles the doc).
 deem canon_can_scan(w: CanonFacts) {
@@ -320,6 +453,21 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
     let mfast: Vec<str> = match canon_map_fast(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    // BTFL 8b: ops-vocabulary + multimap structural verdicts.
+    let opunk: Vec<(str, str, str)> = match canon_op_unknown(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let opbad: Vec<(str, str, str)> = match canon_op_bad_arg(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let opmref: Vec<(str, str, str, str, str)> = match canon_op_measure_missing(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let opcref: Vec<(str, str, str)> = match canon_op_scan_missing(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let mmstr: Vec<str> = match canon_mm_streams(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let mmseek: Vec<(str, str)> = match canon_mm_seek(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let sdom: Vec<(str, str)> = match canon_streams(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
 
     let root: &mut WMap<WString, WAny> = doc.map(8i64);
 
@@ -398,7 +546,25 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     root.set(V_COL_PROJS, &*projs);
 
-    let errs: &mut WArray<WAny> = doc.array(missing.len() + unpr.len() + multi.len());
+    // BTFL 8b: per-stream layout verdicts. v0 rule: ALWAYS row — THIS is the
+    // fn 8c flips to the scan→column rule (the ops facts are already in the
+    // fact doc; nothing else moves).
+    let lays: &mut WArray<WAny> = doc.array(sdom.len() + 1i64);
+    i = 0i64;
+    while i < sdom.len() {
+        let r: (str, str) = sdom.get(i);
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set(K_CTR, r.0);
+        m.set(K_STREAM, r.1);
+        m.set(K_LAYOUT, LAYOUT_ROW);
+        lays.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    root.set(V_LAYOUTS, &*lays);
+
+    let errs: &mut WArray<WAny> = doc.array(missing.len() + unpr.len() + multi.len()
+        + opunk.len() + opbad.len() + opmref.len() + opcref.len()
+        + mmstr.len() + mmseek.len());
     i = 0i64;
     while i < missing.len() {
         let r: (str, str) = missing.get(i);
@@ -449,8 +615,121 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
         errs.push(WAny::from(&*m));
         i = i + 1i64;
     }
+    // ── BTFL 8b decl-time ops/multimap error rows ───────────────────────────
+    i = 0i64;
+    while i < opunk.len() {
+        let r: (str, str, str) = opunk.get(i);
+        let mut detail: String = String::new();
+        detail.push_str(r.1);
+        detail.push_str(".");
+        detail.push_str(r.2);
+        let mut reason: String = String::new();
+        reason.push_str("unknown op `");
+        reason.push_str(r.2);
+        reason.push_str("` in stream '");
+        reason.push_str(r.1);
+        reason.push_str("' — the ops vocabulary is seek/rank/select/range(<measure>), scan(<column>), iterate, insert, remove, update, bulk_append");
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set(K_CTR, r.0);
+        m.set(K_CODE, ERR_UNKNOWN_OP);
+        m.set(K_DETAIL, detail.as_str());
+        m.set(K_REASON, reason.as_str());
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < opbad.len() {
+        let r: (str, str, str) = opbad.get(i);
+        let mut detail: String = String::new();
+        detail.push_str(r.1);
+        detail.push_str(".");
+        detail.push_str(r.2);
+        let mut reason: String = String::new();
+        reason.push_str("op `");
+        reason.push_str(r.2);
+        reason.push_str("` in stream '");
+        reason.push_str(r.1);
+        reason.push_str("' has the wrong argument shape — seek/rank/select/range take a measure reference (`seek(max(key))`), scan takes a bare entry column (`scan(val)`), the rest take none");
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set(K_CTR, r.0);
+        m.set(K_CODE, ERR_OP_BAD_ARG);
+        m.set(K_DETAIL, detail.as_str());
+        m.set(K_REASON, reason.as_str());
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < opmref.len() {
+        let r: (str, str, str, str, str) = opmref.get(i);
+        let mut detail: String = String::new();
+        detail.push_str(r.3);
+        if r.4.len() > 0i64 {
+            detail.push_str("(");
+            detail.push_str(r.4);
+            detail.push_str(")");
+        }
+        let mut reason: String = String::new();
+        reason.push_str("op `");
+        reason.push_str(r.2);
+        reason.push_str("(");
+        reason.push_str(detail.as_str());
+        reason.push_str(")` references no measure declared by stream '");
+        reason.push_str(r.1);
+        reason.push_str("' — measure arguments bind to a `measure` of the SAME stream");
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set(K_CTR, r.0);
+        m.set(K_CODE, ERR_OP_MEASURE_REF);
+        m.set(K_DETAIL, detail.as_str());
+        m.set(K_REASON, reason.as_str());
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < opcref.len() {
+        let r: (str, str, str) = opcref.get(i);
+        let mut reason: String = String::new();
+        reason.push_str("op `scan(");
+        reason.push_str(r.2);
+        reason.push_str(")` references no entry column of stream '");
+        reason.push_str(r.1);
+        reason.push_str("' — scan's argument is a declared entry column of the same stream");
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set(K_CTR, r.0);
+        m.set(K_CODE, ERR_OP_COLUMN_REF);
+        m.set(K_DETAIL, r.2);
+        m.set(K_REASON, reason.as_str());
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < mmstr.len() {
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set(K_CTR, mmstr.get(i));
+        m.set(K_CODE, ERR_MULTIMAP_STREAMS);
+        m.set(K_DETAIL, "streams");
+        m.set(K_REASON, "kind=multimap needs at least two `stream` blocks (the structure stream is derived, never declared)");
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
+    i = 0i64;
+    while i < mmseek.len() {
+        let r: (str, str) = mmseek.get(i);
+        let mut reason: String = String::new();
+        reason.push_str("kind=multimap requires an orderable measure on its first stream '");
+        reason.push_str(r.1);
+        reason.push_str("' (the seek target) — declare `measure max(<key col>);` there");
+        let m: &mut WMap<WString, WAny> = doc.map(4i64);
+        m.set(K_CTR, r.0);
+        m.set(K_CODE, ERR_MULTIMAP_SEEK);
+        m.set(K_DETAIL, r.1);
+        m.set(K_REASON, reason.as_str());
+        errs.push(WAny::from(&*m));
+        i = i + 1i64;
+    }
     root.set(V_ERRORS, &*errs);
-    root.set("ok", missing.len() == 0i64 && unpr.len() == 0i64 && multi.len() == 0i64);
+    root.set("ok", missing.len() == 0i64 && unpr.len() == 0i64 && multi.len() == 0i64
+        && opunk.len() == 0i64 && opbad.len() == 0i64 && opmref.len() == 0i64
+        && opcref.len() == 0i64 && mmstr.len() == 0i64 && mmseek.len() == 0i64);
 
     doc.set_root(WAny::from(&*root));
     return doc;

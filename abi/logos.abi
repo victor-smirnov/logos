@@ -181,9 +181,12 @@ sym	logos.mem.collections.vec.Vec$G1$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Form
 sym	logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$2$u64$u32__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
+sym	logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
+sym	logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$5$i64$i64$i64$i64$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
+sym	logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$6$i64$i64$i64$i64$i64$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$u16__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -478,6 +481,9 @@ sym	logos_lang..logos.lang.cmp.$ref_&i32__cmp__f__ref_ref_i32__ref_ref_i32
 sym	logos_lang..logos.lang.cmp.$ref_&i64__cmp__f__ref_ref_i64__ref_ref_i64
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]__&[u8]
+sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]__&[u8]__&[u8]
+sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]__&[u8]__&[u8]__&[u8]
+sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__i64__&[u8]
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__i64__&[u8]__&[u8]__i64
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__u64__u32
 sym	logos_lang..logos.lang.cmp.Option__&[u8]__eq__g__ref_Option__ref_Option
@@ -1046,6 +1052,9 @@ sym	logos_lang..logos.lang.fabric.string_store.WritStringStorage__storage_set__f
 sym	logos_lang..logos.lang.fabric.u64__cmp_views__g__pcst_DT__DT::Prim__DT::Prim
 sym	logos_lang..logos.lang.hash.$tuple$2__hash__g__ref_tup$2$A$B__refmut_H__&[u8]__&[u8]__FxHasher
 sym	logos_lang..logos.lang.hash.$tuple$3__hash__g__ref_tup$3$A$B$C__refmut_H__&[u8]__&[u8]__&[u8]__FxHasher
+sym	logos_lang..logos.lang.hash.$tuple$3__hash__g__ref_tup$3$A$B$C__refmut_H__&[u8]__i64__&[u8]__FxHasher
+sym	logos_lang..logos.lang.hash.$tuple$4__hash__g__ref_tup$4$A$B$C$D__refmut_H__&[u8]__&[u8]__&[u8]__&[u8]__FxHasher
+sym	logos_lang..logos.lang.hash.$tuple$5__hash__g__ref_tup$5$A$B$C$D$E__refmut_H__&[u8]__&[u8]__&[u8]__&[u8]__&[u8]__FxHasher
 sym	logos_lang..logos.lang.hash.$tuple$5__hash__g__ref_tup$5$A$B$C$D$E__refmut_H__&[u8]__i64__&[u8]__&[u8]__i64__FxHasher
 sym	logos_lang..logos.lang.hash.DefaultBuildHasher__build_hasher__f__ref_DefaultBuildHasher
 sym	logos_lang..logos.lang.hash.FxHasher__finish__f__ref_FxHasher
@@ -2478,6 +2487,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$2$slice_u8$slice_u8__sk
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$2$slice_u8$slice_u8__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$2$slice_u8$slice_u8__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$2$slice_u8$slice_u8__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2496,6 +2523,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$sli
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2514,6 +2559,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$bool__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$bool__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$bool__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2960,8 +3023,11 @@ sym	logos_lang..logos.lang.iter.Option__Url__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Utf8Chunk__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Vec$G1$slice_u8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$2$slice_u8$slice_u8__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__bool__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__char__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__f32__into_iter__g__Option
@@ -3014,8 +3080,11 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Url
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Utf8Chunk
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__bool
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__char
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__f32
@@ -3513,6 +3582,21 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$2$slice_u8$slice_u8__sk
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$2$slice_u8$slice_u8__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$2$slice_u8$slice_u8__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$2$slice_u8$slice_u8__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$i64$slice_u8__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -3528,6 +3612,21 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$sli
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -3543,6 +3642,21 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$bool__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$bool__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$bool__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -6020,6 +6134,20 @@ sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$2$slice_u8$slice_u8__unwrap
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$2$slice_u8$slice_u8__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$2$slice_u8$slice_u8__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$2$slice_u8$slice_u8__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__default__g__void
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__default__g__void
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__filter__g__Option__fn(T) -> bool
@@ -6034,6 +6162,20 @@ sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__default__g__void
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__default__g__void
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__filter__g__Option__fn(T) -> bool
@@ -6048,6 +6190,20 @@ sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$sli
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__default__g__void
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__bool__default__g__void
 sym	logos_lang..logos.lang.option.Option__bool__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__bool__filter__g__Option__fn(T) -> bool
@@ -6120,8 +6276,11 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__Url
 sym	logos_lang..logos.lang.option.Option__default__g__void__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__default__g__void__bool
 sym	logos_lang..logos.lang.option.Option__default__g__void__char
 sym	logos_lang..logos.lang.option.Option__default__g__void__f32
@@ -6185,8 +6344,11 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Url
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__bool
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__char
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__f32
@@ -6278,8 +6440,11 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Url
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__bool
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__char
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__f32
@@ -6399,8 +6564,11 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Url
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__bool
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__char
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__f32
@@ -6464,8 +6632,11 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Url
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__bool
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__char
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__f32
@@ -6529,8 +6700,11 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__bool
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__char
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__f32
@@ -6594,8 +6768,11 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Url
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__bool
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__char
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__f32
@@ -6659,8 +6836,11 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Ur
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__bool
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__char
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__f32
@@ -6822,8 +7002,11 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Url
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__bool
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__char
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__f32
@@ -6887,8 +7070,11 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Url
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__bool
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__char
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__f32
@@ -7008,8 +7194,11 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Url
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__bool
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__char
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__f32
@@ -7073,8 +7262,11 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Url
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__bool
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__char
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__f32
@@ -7138,8 +7330,11 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__bool
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__char
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__f32
@@ -7203,8 +7398,11 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Url
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Utf8Chunk
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$slice_u8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__bool
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__char
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__f32
@@ -9403,8 +9601,11 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Url
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Utf8Chunk
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$slice_u8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__bool
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__char
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__f32
@@ -9772,12 +9973,21 @@ sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$slice_u8$u8__insert__g__
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$2$slice_u8$slice_u8$u8__contains_key__g__pmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$2$slice_u8$slice_u8$u8__drop__g__HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$2$slice_u8$slice_u8$u8__insert__g__pmut_HashMap$G2$K$V__K__V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$3$slice_u8$i64$slice_u8$u8__contains_key__g__pmut_HashMap$G2$K$V__ref_K
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$3$slice_u8$i64$slice_u8$u8__drop__g__HashMap$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$3$slice_u8$i64$slice_u8$u8__insert__g__pmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$3$slice_u8$slice_u8$slice_u8$u8__contains_key__g__pmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$3$slice_u8$slice_u8$slice_u8$u8__drop__g__HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$3$slice_u8$slice_u8$slice_u8$u8__insert__g__pmut_HashMap$G2$K$V__K__V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$4$slice_u8$slice_u8$slice_u8$slice_u8$u8__contains_key__g__pmut_HashMap$G2$K$V__ref_K
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$4$slice_u8$slice_u8$slice_u8$slice_u8$u8__drop__g__HashMap$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$4$slice_u8$slice_u8$slice_u8$slice_u8$u8__insert__g__pmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$5$slice_u8$i64$slice_u8$slice_u8$i64$u8__contains_key__g__pmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$5$slice_u8$i64$slice_u8$slice_u8$i64$u8__drop__g__HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$5$slice_u8$i64$slice_u8$slice_u8$i64$u8__insert__g__pmut_HashMap$G2$K$V__K__V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8$u8__contains_key__g__pmut_HashMap$G2$K$V__ref_K
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8$u8__drop__g__HashMap$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8$u8__insert__g__pmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$Vec$G1$i64__drop__g__HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$Vec$G1$i64__get__g__pmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$Vec$G1$i64__get_or_insert__g__pmut_HashMap$G2$K$V__K__V
@@ -9806,8 +10016,11 @@ sym	logos_mem..logos.mem.collections.hashmap.HashMapKeys$G2$i64$i64__take_while_
 sym	logos_mem..logos.mem.collections.set.HashSet$G1$slice_u8__contains__g__pmut_HashSet$G1$K__ref_K
 sym	logos_mem..logos.mem.collections.set.HashSet$G1$slice_u8__insert__g__pmut_HashSet$G1$K__K
 sym	logos_mem..logos.mem.collections.set.HashSet$G1$tup$2$slice_u8$slice_u8__insert__g__pmut_HashSet$G1$K__K
+sym	logos_mem..logos.mem.collections.set.HashSet$G1$tup$3$slice_u8$i64$slice_u8__insert__g__pmut_HashSet$G1$K__K
 sym	logos_mem..logos.mem.collections.set.HashSet$G1$tup$3$slice_u8$slice_u8$slice_u8__insert__g__pmut_HashSet$G1$K__K
+sym	logos_mem..logos.mem.collections.set.HashSet$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__insert__g__pmut_HashSet$G1$K__K
 sym	logos_mem..logos.mem.collections.set.HashSet$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__insert__g__pmut_HashSet$G1$K__K
+sym	logos_mem..logos.mem.collections.set.HashSet$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__insert__g__pmut_HashSet$G1$K__K
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__at__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__at_const__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$Arc$G1$udyn_BTreeNode__borrow__g__ref_Vec$G1$T__i64
@@ -10035,6 +10248,16 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__index_mut__g_
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$i64$i64$i64__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__as_slice__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__new__g__void
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
@@ -10047,6 +10270,16 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__as_slice__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__new__g__void
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$i64$i64$i64$i64$i64__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$i64$i64$i64$i64$i64__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$i64$i64$i64$i64$i64__drop__g__Vec$G1$T
@@ -10065,6 +10298,18 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slic
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__as_slice__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__len__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__new__g__void
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$6$i64$i64$i64$i64$i64$i64__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$6$i64$i64$i64$i64$i64$i64__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$6$i64$i64$i64$i64$i64$i64__drop__g__Vec$G1$T
@@ -10235,6 +10480,9 @@ sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_str__f__refmut_JsonWrit
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_u64__f__refmut_JsonWriter__u64
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]__&[u8]
+sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]__&[u8]__&[u8]
+sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]__&[u8]__&[u8]__&[u8]
+sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__i64__&[u8]
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__i64__&[u8]__&[u8]__i64
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__&[u8]__i64__i64__&[u8]__i64__i64__&[u8]
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__i64__i64
@@ -10272,8 +10520,11 @@ sym	logos_mem..logos.mem.fmt.Option__Ordering$Macc8979d95601b4b__fmt__g__ref_Opt
 sym	logos_mem..logos.mem.fmt.Option__String__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__Vec$G1$slice_u8__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$2$slice_u8$slice_u8__fmt__g__ref_Option__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$3$slice_u8$i64$slice_u8__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__fmt__g__ref_Option__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__fmt__g__ref_Option__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__bool__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__f32__fmt__g__ref_Option__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.Option__f64__fmt__g__ref_Option__refmut_Formatter
@@ -10283,8 +10534,11 @@ sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Order
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__String
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$slice_u8
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$tup$2$slice_u8$slice_u8
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$tup$3$slice_u8$i64$slice_u8
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__bool
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__f32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option__refmut_Formatter__f64
@@ -10689,6 +10943,9 @@ sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__&[u8]__Vec$G1$
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__&[u8]__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], &[u8])__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], &[u8], &[u8])__u8
+sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], &[u8], &[u8], &[u8])__u8
+sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], &[u8], &[u8], &[u8], &[u8])__u8
+sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], i64, &[u8])__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], i64, &[u8], &[u8], i64)__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__i64__Vec$G1$i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__i64__i64
@@ -10698,6 +10955,9 @@ sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__&[u8]
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__&[u8]__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8], &[u8])__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8], &[u8], &[u8])__u8
+sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8], &[u8], &[u8], &[u8])__u8
+sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8], &[u8], &[u8], &[u8], &[u8])__u8
+sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8], i64, &[u8])__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8], i64, &[u8], &[u8], i64)__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__i64__Vec$G1$i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__i64__i64
@@ -10706,11 +10966,17 @@ sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__u64__
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__&[u8]
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], &[u8])
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], &[u8], &[u8])
+sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], &[u8], &[u8], &[u8])
+sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], &[u8], &[u8], &[u8], &[u8])
+sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], i64, &[u8])
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], i64, &[u8], &[u8], i64)
 sym	logos_mem.logos.mem.collections.vec$vec_contains__g__ref_Vec$G1$T__ref_T__i32
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__&[u8]
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], &[u8])
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], &[u8], &[u8])
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], &[u8], &[u8], &[u8])
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], &[u8], &[u8], &[u8], &[u8])
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], i64, &[u8])
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], i64, &[u8], &[u8], i64)
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(i64, &[u8], i64, i64, &[u8], i64, i64, &[u8])
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(i64, i64, i64)

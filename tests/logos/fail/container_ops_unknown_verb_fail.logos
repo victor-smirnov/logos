@@ -1,0 +1,24 @@
+// BTFL 8b — the ops vocabulary is CLOSED (Canon decl-time verdict): an
+// unknown verb in a stream's `ops { … }` block fails the compile with
+// Canon's unknown_op reason, carried verbatim by the item handler.
+package test;
+
+use logos.lcm.canon.container_item;
+
+pub container BadVerb<K, V> for u8 {
+    kind multimap;
+    stream keys {
+        entry { key: K }
+        measure max(key);
+        ops { seek(max(key)); frobnicate; }
+    }
+    stream values {
+        entry { val: V }
+        measure count;
+        ops { select(count); }
+    }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

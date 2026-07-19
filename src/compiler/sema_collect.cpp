@@ -2496,6 +2496,18 @@ void SemaChecker::collect_const(TinyMapView node) {
             // Easiest: detect bare writ_lit AST codes and route them
             // through the existing LIT_WSTATIC handler in resolve_type by
             // synthesising the same shape.
+            //
+            // BTFL 8b: a quote-emitted const whose value came through
+            // parse_wstatic (`= #(cfg)`) carries the LIT_WSTATIC WRAPPER at
+            // the value slot (the wstatic_lit_type export's shape), where a
+            // source-parsed const carries the bare writ_lit. Normalize by
+            // unwrapping — downstream (resolve_wstatic_value, the generic
+            // per-use instantiation, const lowering) all expect the bare
+            // literal node.
+            if (vc == la::LIT_WSTATIC && val_node.has_key(la::VALUE)) {
+                val_node = map_of(val_node.get(la::VALUE.code));
+                vc = code_of(val_node);
+            }
             (void)vc;
             // Attempt resolve: if VALUE node has LIT_WSTATIC code already,
             // resolve_type accepts it. Otherwise, the value is a primary

@@ -1,0 +1,1 @@
+op_measure_ref: op `select(count)` references no measure declared by stream 'keys'

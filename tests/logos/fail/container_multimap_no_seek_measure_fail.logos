@@ -1,0 +1,23 @@
+// BTFL 8b — a multimap's FIRST stream needs an orderable (max) measure — the
+// seek target (Canon decl-time structural axiom multimap_seek_measure).
+package test;
+
+use logos.lcm.canon.container_item;
+
+pub container NoSeek<K, V> for u8 {
+    kind multimap;
+    stream keys {
+        entry { key: K }
+        measure count;
+        ops { insert; }
+    }
+    stream values {
+        entry { val: V }
+        measure count;
+        ops { select(count); }
+    }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

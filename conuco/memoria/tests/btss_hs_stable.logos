@@ -1,0 +1,47 @@
+// btss_hs_stable — BTFL 8b BTSS-sugar @hs STABILITY pin: the multistream
+// surface must not move the family identity of EXISTING single-stream
+// (BTSS-sugar) declarations. The CFG doc's content hash IS the family
+// identity; a decl structurally identical to gen_cow_kv's GenVol
+// (ordered_map, key u64 / val str) must therefore hash to the SAME family —
+// the u64/str family @hs_3eb3452d18bf3299 — regardless of the declaration's
+// NAME (twin dedup keys on content, never on name) and regardless of any
+// stream/ops machinery added since (sugar spec lines and docs stay
+// byte-identical by construction). If this pin moves, every existing
+// container family in every store rekeys — hard stop, PAIR-MODE.
+package test;
+
+use logos.lcm.canon.container_item;   // handler + factory
+use logos.lcm.canon.metaclass;        // CtrFamily (family_id surface)
+use logos.mem.pkd;                    // generated family substrate
+use logos.mem.bt.map;                 // trait hub
+use logos.mem.bt.memstore;            // MemorySnapshot (the family's store axis)
+
+// Structurally IDENTICAL to gen_cow_kv's GenVol — different name on purpose.
+container HsPin for u8 {
+    kind ordered_map;
+    entry { key: u64, val: str }
+    measure max(key);
+}
+
+// The BTSS-sugar `ops` extension must ALSO leave the doc untouched (ops are
+// decl-time facts, not doc content for sugar decls) — same family again.
+container HsPinOps for u8 {
+    kind ordered_map;
+    entry { key: u64, val: str }
+    measure max(key);
+    ops { seek(max(key)); insert; }
+}
+
+fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 {
+    return C::family_id();
+}
+
+fn main() -> i32 {
+    if fid::<typeof(HsPin)>() != 0x3eb3452d18bf3299u64 {
+        return 1i32;
+    }
+    if fid::<typeof(HsPinOps)>() != 0x3eb3452d18bf3299u64 {
+        return 2i32;
+    }
+    return 0i32;
+}

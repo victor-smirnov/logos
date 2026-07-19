@@ -1,0 +1,29 @@
+// memoria.ctr.multimap — the GENERIC multistream multimap as a LIBRARY
+// declaration (BTFL increment 8b — THE decided stream/ops surface).
+//
+// Same cross-module generic seam as memoria.ctr.map: the declaration lowers
+// to its demand-path surface — the generic multistream CFG const
+// `MultimapCfg<K,V>` (streams / cols / measures / ops facts / layout
+// verdicts) plus the transparent alias `Multimap<K,V> =
+// CtrClass<MultimapCfg<K,V>>`. No code on the library side; a consumer
+// naming a concrete instantiation fires the mono demand and the metaclass
+// factory generates the btfl family (thin glue over logos.mem.bt.btfl) in
+// the consumer's compile.
+package memoria.ctr.multimap;
+
+use logos.lcm.canon.container_item;   // the `container` lowering handler
+use logos.mem.bt.map;                 // trait hub (declaring-unit contract)
+
+pub container Multimap<K, V> for u8 {
+    kind multimap;
+    stream keys {
+        entry { key: K }
+        measure max(key);
+        ops { seek(max(key)); insert; remove; }
+    }
+    stream values {
+        entry { val: V }
+        measure count;
+        ops { select(count); scan(val); bulk_append; }
+    }
+}

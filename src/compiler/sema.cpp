@@ -5450,7 +5450,46 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     // `Trait<T>` impls for one type (each declaring the same assoc type).
     std::vector<TypeRef> trait_args_for_assoc;
 
-    if (TypeRef(base_type).kind() == LogosType::Kind::TypeVar) {
+    // Fully-qualified projection `<T as Trait<Args>>::Assoc` — the grammar
+    // records the trait type in NAME (qualified_assoc_type). Seed the trait
+    // directly instead of re-discovering it from bounds/impls: the explicit
+    // form must work even when NO impl exists yet (BTFL 8b: naming the
+    // metaclass Handle `<typeof(Ctr) as CtrFamily<S>>::Handle` before the
+    // factory drain lands the impl — the projection then defers to mono).
+    if (node.has_key(la::NAME)) {
+        auto tnode = map_of(node.get(la::NAME.code));
+        if (!tnode.is_null() && tnode.has_key(la::NAME)) {
+            std::string qtrait(str_of(tnode.get(la::NAME.code)));
+            auto tit = find_trait_iter_scoped(qtrait);
+            if (tit != traits_.end()) {
+                bool declares = false;
+                for (auto& at : tit->second.assoc_types)
+                    if (at.name == assoc) { declares = true; break; }
+                // Collect-order tolerance: pass-1 (aliases/consts) runs
+                // BEFORE pass-2 fills trait bodies, so an explicit
+                // `<X as Trait>::Assoc` met at alias-collect time may see
+                // only the pass-0 PLACEHOLDER (empty assoc_types). The
+                // qualifier is explicit — trust it and defer; a bogus assoc
+                // name still fails at impl resolution.
+                if (declares || tit->second.predeclared) {
+                    trait_for_assoc = qtrait;
+                    if (tnode.has_key(la::TYPE_PARAMS)) {
+                        auto tplist = map_of(tnode.get(la::TYPE_PARAMS.code));
+                        if (!tplist.is_null() && tplist.has_key(la::ITEMS)) {
+                            auto items = arr_of(tplist.get(la::ITEMS.code));
+                            for (uint64_t i = 0; i < items.size(); ++i)
+                                trait_args_for_assoc.push_back(
+                                    resolve_type(map_of(items.get(i))));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (!trait_for_assoc.empty()) {
+        // explicit trait already seeded — skip discovery
+    } else if (TypeRef(base_type).kind() == LogosType::Kind::TypeVar) {
         auto tp_name = TypeRef(base_type).type_var_name();
         if (tp_name == "Self" && !current_trait_name_.empty()) {
             trait_for_assoc = current_trait_name_;
@@ -6089,10 +6128,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 std::fprintf(stderr, "\n");
             }
             if (ci) {
-                if (ci->kind != "ordered_map") {
+                if (ci->kind != "ordered_map" && ci->kind != "multimap") {
                     error(std::format(
                         "typeof over container '{}': kind '{}' carries no "
-                        "config document (wave-0 surface is ordered_map)",
+                        "config document (ordered_map and multimap do)",
                         ci->name, ci->kind));
                     return error_t();
                 }

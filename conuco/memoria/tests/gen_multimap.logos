@@ -1,0 +1,410 @@
+// gen_multimap — BTFL increment 8b crown gate: the DECLARED multistream
+// container (memoria.ctr.multimap — THE decided stream/ops surface) produces,
+// through the metaclass pipeline (decl → multistream CFG doc → mono demand →
+// __container_factory → generated family), the equivalent of the hand-written
+// 8a code — and passes THE SAME reference-model harness as
+// tests/btfl_multimap.logos: full model equivalence after every mutation,
+// level ≥ 2 splits, the seek/select laws.
+//
+// DRIVE SHAPE: every MUTATION rides the generated handle (h.insert — the
+// generated write path incl. the directory set_root republish), and the
+// generated read surface (h.find/seek/select/access/count/check) is law-
+// checked per round; the FULL model-equivalence check (check_full — verbatim
+// btfl_multimap laws) runs over `h.tree()` (the generated handle's directory
+// view) with the btfl library fns. The handle's concrete type is a factory
+// product (Hs<hash>) and is never named — locals infer it through
+// create_ctr/open_ctr (naming it pre-drain is the qualified-projection
+// surface, deferred).
+//
+// Error-code decades mirror btfl_multimap:
+//   10..19  empty container
+//   20..39  config A: small nodes (512/320 via reformat) — many leaf+branch
+//           splits, full equivalence after every mutation; final level ≥ 2
+//   40..59  config B: default nodes (4096), longer value runs
+//   80..89  pipeline smoke (open / a second container id)
+package test;
+
+use memoria.ctr.multimap;             // the generic declaration (binary module)
+use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
+use logos.lcm.canon.metaclass;        // create_ctr / open_ctr (mono demand surface)
+use logos.mem.bt.btfl;                // Btfl + the runtime law surface
+use logos.mem.bt.map;                 // trait hub (declaring-unit contract)
+use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
+use logos.lang.arith;
+use logos.mem.collections.vec;
+
+// deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
+struct Lcg {
+    s: u64,
+}
+
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 {
+        self.s = wrapping_add::<u64>(
+            wrapping_mul::<u64>(self.s, 6364136223846793005u64),
+            1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+}
+
+// ── the reference model (btfl_multimap's, verbatim) ─────────────────────────
+
+struct Model {
+    mk: Vec<u64>,     // sorted keys
+    mv: Vec<u64>,     // flat values, key order
+    moff: Vec<u64>,   // moff[i] = values before key i; len = keys + 1
+}
+
+fn model_new() -> Model {
+    let mut off: Vec<u64> = vec_new::<u64>();
+    off.push(0u64);
+    return Model {
+        mk: vec_new::<u64>(),
+        mv: vec_new::<u64>(),
+        moff: off,
+    };
+}
+
+fn model_find(md: &Model, k: u64) -> i64 {
+    let n: i64 = md.mk.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if md.mk.get(i) == k {
+            return i;
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn model_insert(md: &mut Model, k: u64, vals: &Vec<u64>) {
+    let n: i64 = md.mk.len();
+    let m: i64 = vals.len();
+    let mut pos: i64 = 0i64;
+    while pos < n && md.mk.get(pos) < k {
+        pos = pos + 1i64;
+    }
+    let cut: u64 = md.moff.get(pos);
+    let mut nk: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = 0i64;
+    while i < pos {
+        nk.push(md.mk.get(i));
+        i = i + 1i64;
+    }
+    nk.push(k);
+    while i < n {
+        nk.push(md.mk.get(i));
+        i = i + 1i64;
+    }
+    let mut nv: Vec<u64> = vec_new::<u64>();
+    let mut j: i64 = 0i64;
+    while j < cut as i64 {
+        nv.push(md.mv.get(j));
+        j = j + 1i64;
+    }
+    let mut q: i64 = 0i64;
+    while q < m {
+        nv.push(vals.get(q));
+        q = q + 1i64;
+    }
+    while j < md.mv.len() {
+        nv.push(md.mv.get(j));
+        j = j + 1i64;
+    }
+    // new offsets: [moff[0..=pos], moff[pos]+m, moff[pos+1]+m, .., moff[n]+m]
+    let mut no: Vec<u64> = vec_new::<u64>();
+    let mut w: i64 = 0i64;
+    while w <= pos {
+        no.push(md.moff.get(w));
+        w = w + 1i64;
+    }
+    no.push(md.moff.get(pos) + (m as u64));
+    while w <= n {
+        no.push(md.moff.get(w) + (m as u64));
+        w = w + 1i64;
+    }
+    md.mk = nk;
+    md.mv = nv;
+    md.moff = no;
+}
+
+// ── the equivalence + laws check (btfl_multimap's check_full, verbatim) ─────
+// Runs over the generated handle's directory view (h.tree()).
+
+fn check_full(t: &Btfl, md: &Model) -> i32 {
+    let n: i64 = md.mk.len();
+    let t0: u64 = btfl_count(t, 0u64);
+    let t1: u64 = btfl_count(t, 1u64);
+    if t0 != n as u64 {
+        return 1i32;
+    }
+    if t1 != md.moff.get(n) {
+        return 2i32;
+    }
+    if !btfl_check(t) {
+        return 3i32;
+    }
+    let mut i: i64 = 0i64;
+    while i < n {
+        let k: u64 = md.mk.get(i);
+        // find → exact value list
+        let mut got: Vec<u64> = vec_new::<u64>();
+        if !btfl_find(t, k, &mut got) {
+            return 4i32;
+        }
+        let lo: u64 = md.moff.get(i);
+        let hi: u64 = md.moff.get(i + 1i64);
+        if got.len() as u64 != hi - lo {
+            return 5i32;
+        }
+        let mut j: u64 = 0u64;
+        while j < hi - lo {
+            if got.get(j as i64) != md.mv.get((lo + j) as i64) {
+                return 6i32;
+            }
+            j = j + 1u64;
+        }
+        // seek → (found, global key rank)
+        let sk: BtflSeek = btfl_seek(t, k);
+        if !sk.found {
+            return 7i32;
+        }
+        if sk.rank != i as u64 {
+            return 8i32;
+        }
+        // select(0, i) → the model symbol position P(i)
+        let sel: BtflLoc = btfl_select(t, 0u64, i as u64);
+        if !sel.found {
+            return 9i32;
+        }
+        if sel.pos != (i as u64) + lo {
+            return 10i32;
+        }
+        // the seek ↔ select law: same leaf, matching local position
+        if sk.leaf != sel.leaf {
+            return 11i32;
+        }
+        if btfl_leaf_key_at(sk.leaf, sk.kidx) != k {
+            return 12i32;
+        }
+        if btfl_leaf_key_sympos(sk.leaf, sk.kidx) != sel.idx {
+            return 13i32;
+        }
+        i = i + 1i64;
+    }
+    // sampled value-stream laws
+    if t1 > 0u64 {
+        let mut s: i64 = 0i64;
+        while s < 3i64 {
+            let mut v: u64 = 0u64;
+            if s == 1i64 {
+                v = t1 / 2u64;
+            }
+            if s == 2i64 {
+                v = t1 - 1u64;
+            }
+            // owner key j: moff[j] ≤ v < moff[j+1]
+            let mut j2: i64 = 0i64;
+            while md.moff.get(j2 + 1i64) <= v {
+                j2 = j2 + 1i64;
+            }
+            let sel1: BtflLoc = btfl_select(t, 1u64, v);
+            if !sel1.found {
+                return 14i32;
+            }
+            if sel1.pos != (j2 as u64) + 1u64 + v {
+                return 15i32;
+            }
+            if btfl_access(t, sel1.pos) != 1u64 {
+                return 16i32;
+            }
+            s = s + 1i64;
+        }
+        // key symbol access inverse at a sampled key
+        let mid: i64 = n / 2i64;
+        if btfl_access(t, (mid as u64) + md.moff.get(mid)) != 0u64 {
+            return 17i32;
+        }
+    }
+    // negatives: not-found selects land at pos = total symbols
+    let selx: BtflLoc = btfl_select(t, 0u64, t0);
+    if selx.found {
+        return 18i32;
+    }
+    if selx.pos != t0 + t1 {
+        return 19i32;
+    }
+    let sely: BtflLoc = btfl_select(t, 1u64, t1);
+    if sely.found {
+        return 20i32;
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut snap: MemorySnapshot = store.fork();
+
+    // ── 10..19: empty container (created through the trait surface) ─────────
+    {
+        let h0 = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 1u64);
+        if h0.count(0u64) != 0u64 {
+            return 10i32;
+        }
+        if h0.count(1u64) != 0u64 {
+            return 11i32;
+        }
+        if !h0.check() {
+            return 12i32;
+        }
+        let sk: BtflSeek = h0.seek(7u64);
+        if sk.found {
+            return 13i32;
+        }
+        if sk.rank != 0u64 {
+            return 14i32;
+        }
+        let sel: BtflLoc = h0.select(0u64, 0u64);
+        if sel.found {
+            return 15i32;
+        }
+        let mut none: Vec<u64> = vec_new::<u64>();
+        if h0.find(7u64, &mut none) {
+            return 16i32;
+        }
+    }
+
+    // ── 80..89: open + a second container id in the same snapshot ───────────
+    {
+        let h0b = open_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 1u64);
+        let mut one: Vec<u64> = vec_new::<u64>();
+        one.push(41u64);
+        one.push(42u64);
+        if !h0b.insert(4u64, &one) {
+            return 80i32;
+        }
+        if h0b.count(0u64) != 1u64 {
+            return 81i32;
+        }
+        let h2 = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 2u64);
+        if h2.count(0u64) != 0u64 {
+            return 82i32;   // container ids are independent
+        }
+        if h0b.count(1u64) != 2u64 {
+            return 83i32;
+        }
+        let mut got: Vec<u64> = vec_new::<u64>();
+        if !h0b.find(4u64, &mut got) {
+            return 84i32;
+        }
+        if got.len() != 2i64 {
+            return 85i32;
+        }
+        if h0b.access(0u64) != 0u64 {
+            return 86i32;   // first symbol is the key entry
+        }
+        if h0b.access(1u64) != 1u64 {
+            return 87i32;   // then its values
+        }
+    }
+
+    // ── 20..39: config A — small nodes (reformat), per-mutation equivalence ─
+    {
+        let mut ha = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 3u64);
+        ha.reformat(512u32, 320u32);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0xB7F1u64 };
+        let mut r: i64 = 0i64;
+        while r < 800i64 {
+            let k: u64 = (lcg.next() % 1200u64) * 2u64;
+            let m: u64 = lcg.next() % 5u64;
+            let mut vals: Vec<u64> = vec_new::<u64>();
+            let mut j: u64 = 0u64;
+            while j < m {
+                vals.push(k * 1000u64 + j);
+                j = j + 1u64;
+            }
+            let existing: i64 = model_find(&md, k);
+            let ok: bool = ha.insert(k, &vals);
+            if existing >= 0i64 {
+                if ok {
+                    return 31i32;   // duplicate must be rejected
+                }
+            } else {
+                if !ok {
+                    return 32i32;   // fresh key must insert
+                }
+                model_insert(&mut md, k, &vals);
+            }
+            // absent keys (odd) always miss — through the GENERATED reads
+            let miss: BtflSeek = ha.seek(k + 1u64);
+            if miss.found {
+                return 33i32;
+            }
+            let mut none: Vec<u64> = vec_new::<u64>();
+            if ha.find(k + 1u64, &mut none) {
+                return 34i32;
+            }
+            // full model equivalence after EVERY mutation
+            let t: Btfl = ha.tree();
+            let c: i32 = check_full(&t, &md);
+            if c != 0i32 {
+                return 20i32 + (c % 10i32);
+            }
+            // generated read surface ≡ library surface (spot laws per round)
+            if ha.count(0u64) != btfl_count(&t, 0u64) {
+                return 35i32;
+            }
+            if !ha.check() {
+                return 36i32;
+            }
+            r = r + 1i64;
+        }
+        if ha.level() < 2u32 {
+            return 38i32;   // the scenario must cross branch-split depth
+        }
+    }
+
+    // ── 40..59: config B — default nodes, longer value runs ─────────────────
+    {
+        let hb = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 4u64);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0xC0FFEEu64 };
+        let mut r: i64 = 0i64;
+        while r < 500i64 {
+            let k: u64 = (lcg.next() % 900u64) * 2u64;
+            let m: u64 = lcg.next() % 41u64;
+            let mut vals: Vec<u64> = vec_new::<u64>();
+            let mut j: u64 = 0u64;
+            while j < m {
+                vals.push(k * 1000u64 + j);
+                j = j + 1u64;
+            }
+            let existing: i64 = model_find(&md, k);
+            let ok: bool = hb.insert(k, &vals);
+            if existing >= 0i64 {
+                if ok {
+                    return 51i32;
+                }
+            } else {
+                if !ok {
+                    return 52i32;
+                }
+                model_insert(&mut md, k, &vals);
+            }
+            let t: Btfl = hb.tree();
+            let c: i32 = check_full(&t, &md);
+            if c != 0i32 {
+                return 40i32 + (c % 10i32);
+            }
+            r = r + 1i64;
+        }
+        if hb.level() < 1u32 {
+            return 58i32;   // must have split at least once
+        }
+    }
+
+    snap.release();
+    store.release();
+    return 0i32;
+}

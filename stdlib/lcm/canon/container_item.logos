@@ -47,6 +47,13 @@ use logos.lcm.canon.metaclass;    // NOT used here — the same MODULE-GRAPH edg
                                   // CtrClass<<Name>Cfg>` alias names
                                   // CtrClass, so the metaclass module must
                                   // ride into every declaring unit's graph.
+use logos.mem.bt.btfl;            // NOT used here — the MODULE-GRAPH edge for
+                                  // the generated multimap family blobs
+                                  // (BTFL 8b): the emitted `use logos.mem.bt.
+                                  // btfl;` resolves Btfl/btfl_* but cannot
+                                  // itself LOAD the module; this edge carries
+                                  // it (and pkd.ssrle/sseq transitively) into
+                                  // every declaring unit's graph.
 
 unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
     let l: i64 = if b > a { b - a } else { 0i64 };
@@ -172,16 +179,34 @@ pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
     return seen >= 8i64 && seen <= 11i64 && out.kind.len() > 0i64 && out.entry.len() > 0i64;
 }
 
+// Index of the '.' splitting a stream-qualified name in s[from, to), or -1
+// (BTFL 8b: `keys.key` / `keys.max` / `keys.seek` spec segments; a BTSS-sugar
+// segment has no qualifier and belongs to the anonymous stream "").
+fn cf_dot(s: str, from: i64, to: i64) -> i64 {
+    let mut i: i64 = from;
+    while i < to {
+        if str_byte_at(s, i) == 46u8 {
+            return i;
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
 /// Builds the FACT Writ doc for ONE container item (wave-0 has no cross-item
-/// accumulation) — the ADR 0020 §5 fact vocabulary restricted to wave-0:
+/// accumulation) — the ADR 0020 §5 fact vocabulary restricted to wave-0 +
+/// the BTFL 8b stream/ops sections:
 ///
 ///   { containers: [ { name, pub, generics, backing, kind } ],
-///     cols:       [ { ctr, idx, name, ty, param } … ],
-///     measures:   [ { ctr, mfn, arg } … ] }
+///     cols:       [ { ctr, idx, name, ty, param, stream } … ],
+///     measures:   [ { ctr, mfn, arg, stream } … ],
+///     streams:    [ { ctr, idx, name } … ],
+///     ops:        [ { ctr, stream, verb, ahead, ainner } … ] }
 ///
-/// Convenience shape for the deem-over-&Writ graph source: top-level WMap,
-/// arrays of FLAT maps, scalar leaves only. A malformed spec yields a doc
-/// with a NULL root — the caller diagnoses.
+/// stream = "" is the anonymous BTSS-sugar stream. Convenience shape for the
+/// deem-over-&Writ graph source: top-level WMap, arrays of FLAT maps, scalar
+/// leaves only. A malformed spec yields a doc with a NULL root — the caller
+/// diagnoses.
 pub fn container_facts(name: str, spec: str) -> Writ {
     let doc: Writ = writ_new(65536i64);
     let mut cs: ContainerSpec = container_spec_new();
@@ -224,7 +249,15 @@ pub fn container_facts(name: str, spec: str) -> Writ {
             let r: &mut WMap<WString, WAny> = doc.map(8i64);
             r.set(K_CTR, name);
             r.set(K_IDX, idx);
-            r.set(K_NAME, unsafe { cf_sub(cs.entry, a, c1) });
+            // `keys.key` = stream-qualified (BTFL 8b); bare = the "" stream.
+            let dot: i64 = cf_dot(cs.entry, a, c1);
+            if dot >= 0i64 {
+                r.set(K_STREAM, unsafe { cf_sub(cs.entry, a, dot) });
+                r.set(K_NAME, unsafe { cf_sub(cs.entry, dot + 1i64, c1) });
+            } else {
+                r.set(K_STREAM, "");
+                r.set(K_NAME, unsafe { cf_sub(cs.entry, a, c1) });
+            }
             r.set(K_TY, unsafe { cf_sub(cs.entry, c1 + 1i64, c2) });
             r.set(K_PARAM, str_eq(unsafe { cf_sub(cs.entry, c2 + 1i64, b) }, "1"));
             cols.push(WAny::from(&*r));
@@ -243,14 +276,22 @@ pub fn container_facts(name: str, spec: str) -> Writ {
             let lp: i64 = cf_find(cs.measures, a, 40u8);     // '('
             let r: &mut WMap<WString, WAny> = doc.map(8i64);
             r.set(K_CTR, name);
+            let head_end: i64 = if lp >= 0i64 && lp < b { lp } else { b };
+            let dot: i64 = cf_dot(cs.measures, a, head_end);
+            let mstart: i64 = if dot >= 0i64 { dot + 1i64 } else { a };
+            if dot >= 0i64 {
+                r.set(K_STREAM, unsafe { cf_sub(cs.measures, a, dot) });
+            } else {
+                r.set(K_STREAM, "");
+            }
             if lp >= 0i64 && lp < b {
                 if str_byte_at(cs.measures, b - 1i64) != 41u8 {   // ')'
                     return writ_new(64i64);
                 }
-                r.set(K_MFN, unsafe { cf_sub(cs.measures, a, lp) });
+                r.set(K_MFN, unsafe { cf_sub(cs.measures, mstart, lp) });
                 r.set(K_ARG, unsafe { cf_sub(cs.measures, lp + 1i64, b - 1i64) });
             } else {
-                r.set(K_MFN, unsafe { cf_sub(cs.measures, a, b) });
+                r.set(K_MFN, unsafe { cf_sub(cs.measures, mstart, b) });
                 r.set(K_ARG, "");
             }
             meas.push(WAny::from(&*r));
@@ -258,6 +299,71 @@ pub fn container_facts(name: str, spec: str) -> Writ {
         }
     }
     root.set(SEC_MEASURES, &*meas);
+
+    // ── BTFL 8b: stream + ops fact rows ─────────────────────────────────────
+    let strs: &mut WArray<WAny> = doc.array(4i64);
+    {
+        let cn: i64 = cs.streams.len();
+        let mut a: i64 = 0i64;
+        let mut idx: i64 = 0i64;
+        while a < cn {
+            let b: i64 = cf_next_comma(cs.streams, a, cn);
+            let r: &mut WMap<WString, WAny> = doc.map(4i64);
+            r.set(K_CTR, name);
+            r.set(K_IDX, idx);
+            r.set(K_NAME, unsafe { cf_sub(cs.streams, a, b) });
+            strs.push(WAny::from(&*r));
+            idx = idx + 1i64;
+            a = b + 1i64;
+        }
+    }
+    root.set(SEC_STREAMS, &*strs);
+
+    let opsa: &mut WArray<WAny> = doc.array(8i64);
+    {
+        // `keys.seek(max(key))` / `keys.insert` / `scan(val)` (unqualified =
+        // the "" stream) → { ctr, stream, verb, ahead, ainner }.
+        let cn: i64 = cs.ops.len();
+        let mut a: i64 = 0i64;
+        while a < cn {
+            let b: i64 = cf_next_comma(cs.ops, a, cn);
+            let lp: i64 = cf_find(cs.ops, a, 40u8);      // '('
+            let head_end: i64 = if lp >= 0i64 && lp < b { lp } else { b };
+            let dot: i64 = cf_dot(cs.ops, a, head_end);
+            let vstart: i64 = if dot >= 0i64 { dot + 1i64 } else { a };
+            let r: &mut WMap<WString, WAny> = doc.map(8i64);
+            r.set(K_CTR, name);
+            if dot >= 0i64 {
+                r.set(K_STREAM, unsafe { cf_sub(cs.ops, a, dot) });
+            } else {
+                r.set(K_STREAM, "");
+            }
+            r.set(K_VERB, unsafe { cf_sub(cs.ops, vstart, head_end) });
+            if lp >= 0i64 && lp < b {
+                if str_byte_at(cs.ops, b - 1i64) != 41u8 {   // ')'
+                    return writ_new(64i64);
+                }
+                // arg = `max(key)` (measure ref) or a bare ident
+                let ilp: i64 = cf_find(cs.ops, lp + 1i64, 40u8);
+                if ilp >= 0i64 && ilp < b - 1i64 {
+                    if str_byte_at(cs.ops, b - 2i64) != 41u8 {   // inner ')'
+                        return writ_new(64i64);
+                    }
+                    r.set(K_AHEAD, unsafe { cf_sub(cs.ops, lp + 1i64, ilp) });
+                    r.set(K_AINNER, unsafe { cf_sub(cs.ops, ilp + 1i64, b - 2i64) });
+                } else {
+                    r.set(K_AHEAD, unsafe { cf_sub(cs.ops, lp + 1i64, b - 1i64) });
+                    r.set(K_AINNER, "");
+                }
+            } else {
+                r.set(K_AHEAD, "");
+                r.set(K_AINNER, "");
+            }
+            opsa.push(WAny::from(&*r));
+            a = b + 1i64;
+        }
+    }
+    root.set(SEC_OPS, &*opsa);
 
     doc.set_root(WAny::from(&*root));
     return doc;
@@ -348,6 +454,32 @@ fn cv_split_policy(vroot: &WMap<WString, WAny>, ctr: str) -> str {
             let a2: WAny = em.get(K_POLICY);
             if a1.is_string() && a2.is_string() && str_eq(a1.as_wstr(), ctr) {
                 return a2.as_wstr();
+            }
+        }
+        i = i + 1i64;
+    }
+    return "";
+}
+
+// BTFL 8b: the (ctr, stream) layout verdict from V_LAYOUTS; "" when absent.
+fn cv_stream_layout(vroot: &WMap<WString, WAny>, ctr: str, stream: str) -> str {
+    let av: WAny = vroot.get(V_LAYOUTS);
+    if !av.is_array() {
+        return "";
+    }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get(K_CTR);
+            let a2: WAny = em.get(K_STREAM);
+            let a3: WAny = em.get(K_LAYOUT);
+            if a1.is_string() && a2.is_string() && a3.is_string() {
+                if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), stream) {
+                    return a3.as_wstr();
+                }
             }
         }
         i = i + 1i64;
@@ -1445,6 +1577,300 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
     return true;
 }
 
+// ── BTFL 8b Phase: the multimap (multistream) CFG document ─────────────────
+//
+// The DECL-SITE lowering of a kind=multimap container. Same contract as the
+// ordered_map emit_cfg_doc: synthesize ONLY the config const — the family is
+// generated by the factory when mono demands CtrClass<CFG>. The doc records
+// the streams list, the per-stream entry columns (type slots — the generic
+// substitution axis), the measure and OPS facts, and the per-stream LAYOUT
+// verdicts (Canon decl-time; v0 = always row). Layout is deliberately part
+// of the doc: the family identity (@hs) includes the layout decision, so
+// when 8c's scan→column rule flips a verdict, the flipped doc is a NEW
+// family. cols come LAST — the factory re-parses them by forward scan.
+//
+//   @{ "kind": "multimap", "streams": "keys,values",
+//      "measures": "keys.max(key),values.count",
+//      "ops": "keys.seek(max(key)),…", "layouts": "keys:row,values:row",
+//      "cols": [ { "stream": "keys", "name": "key", "ty": <type:K> }, … ] }
+//
+// The variable-shape doc cannot ride one static @{…} quote template — the
+// SOURCE is composed and reified through parse_wstatic (the same primitive
+// the factory's CtrFamily impl splices), then spliced into the quoted const.
+fn emit_cfg_doc_multimap(name: str, cs: &ContainerSpec,
+                         vm: &WMap<WString, WAny>) -> bool {
+    if cs.pkg.len() == 0i64 {
+        error("container item: multimap spec carries no `pkg=` segment (compiler seam regression?)");
+        return false;
+    }
+    // Per-stream layout verdicts (decl-time Canon; v0 row).
+    let mut lay: String = String::new();
+    {
+        let cn: i64 = cs.streams.len();
+        let mut a: i64 = 0i64;
+        let mut first: bool = true;
+        while a < cn {
+            let b: i64 = cf_next_comma(cs.streams, a, cn);
+            let sname: str = unsafe { cf_sub(cs.streams, a, b) };
+            let l: str = cv_stream_layout(vm, name, sname);
+            if l.len() == 0i64 {
+                error("container item: Canon produced no layout verdict for a declared stream (Canon seam regression?)");
+                return false;
+            }
+            if !first {
+                lay.push_str(",");
+            }
+            first = false;
+            lay.push_str(sname);
+            lay.push_str(":");
+            lay.push_str(l);
+            a = b + 1i64;
+        }
+    }
+    let mut src: String = String::new();
+    src.push_str("@{ \"kind\": \"multimap\", \"streams\": \"");
+    src.push_str(cs.streams);
+    src.push_str("\", \"measures\": \"");
+    src.push_str(cs.measures);
+    src.push_str("\", \"ops\": \"");
+    src.push_str(cs.ops);
+    src.push_str("\", \"layouts\": \"");
+    src.push_str(lay.as_str());
+    src.push_str("\", \"cols\": [");
+    {
+        let ce: i64 = cs.entry.len();
+        let mut a: i64 = 0i64;
+        let mut first: bool = true;
+        while a < ce {
+            let b: i64 = cf_next_comma(cs.entry, a, ce);
+            let c1: i64 = cf_find(cs.entry, a, 58u8);        // ':'
+            let mut c2: i64 = b - 1i64;
+            while c2 > a && str_byte_at(cs.entry, c2) != 58u8 {
+                c2 = c2 - 1i64;
+            }
+            if c1 < 0i64 || c1 >= b || c2 <= c1 {
+                error("container item: malformed multimap entry column (compiler seam regression?)");
+                return false;
+            }
+            let dot: i64 = cf_dot(cs.entry, a, c1);
+            if dot < 0i64 {
+                error("container item: multimap entry column lacks its stream qualifier (compiler seam regression?)");
+                return false;
+            }
+            if !first {
+                src.push_str(", ");
+            }
+            first = false;
+            src.push_str("{ \"stream\": \"");
+            src.push_str(unsafe { cf_sub(cs.entry, a, dot) });
+            src.push_str("\", \"name\": \"");
+            src.push_str(unsafe { cf_sub(cs.entry, dot + 1i64, c1) });
+            src.push_str("\", \"ty\": <type:");
+            src.push_str(unsafe { cf_sub(cs.entry, c1 + 1i64, c2) });
+            src.push_str("> }");
+            a = b + 1i64;
+        }
+    }
+    src.push_str("] }");
+
+    let mut cfgnm_s: String = String::new();
+    cfgnm_s.push_str(name);
+    cfgnm_s.push_str("Cfg");
+    let cfgnm: Ident = Ident::new(cfgnm_s.as_str());
+    let gp: ExprBlob = parse_type_params(cs.generics);
+    let cfg: ExprBlob = parse_wstatic(src.as_str());
+    let b: QuoteItemBlob = quote_item! {
+        use logos.lang.writ.wstatic;
+        pub const #cfgnm #(gp): WritStatic = #(cfg);
+    };
+    unsafe { logos_emit_item_blob_subst(&b); }
+    return true;
+}
+
+// ── BTFL 8b: the generated multimap FAMILY — thin glue over the btfl
+// runtime library (the placement rule: runtime ops = logos.mem.bt.btfl free
+// fns, generation = the concrete wiring for THIS cfg). v0 limits are
+// VALIDATED here loudly (never silently narrowed):
+//   * exactly TWO streams — the 8a runtime is the 2-stream mechanics
+//     (per-symbol CNT0/CNT1 branch columns; alphabet = stream count
+//     generalizes with 8c);
+//   * one u64 entry column per stream (the runtime's PkdArray<u64> columns);
+//   * row layout on every stream (the v0 Canon verdict — col arrives in 8c).
+// The handle mirrors the CoW map's `{snap, ctr_id}` shape and finds its tree
+// through the snapshot directory; node sizing is per-handle (create_with) —
+// splits allocate siblings of the handle's size.
+fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
+    // ── v0 shape validation ─────────────────────────────────────────────────
+    let sn: i64 = cs.streams.len();
+    let s0e: i64 = cf_next_comma(cs.streams, 0i64, sn);
+    if s0e == sn {
+        error("container factory: multimap cfg carries fewer than two streams (Canon gate regression?)");
+        return;
+    }
+    let s1e: i64 = cf_next_comma(cs.streams, s0e + 1i64, sn);
+    if s1e != sn {
+        error("container factory: BTFL v0 generates exactly TWO-stream multimaps — wider families land with 8c");
+        return;
+    }
+    let s0: str = unsafe { cf_sub(cs.streams, 0i64, s0e) };
+    let s1: str = unsafe { cf_sub(cs.streams, s0e + 1i64, sn) };
+    if !str_eq(cv_stream_layout(vm, name, s0), LAYOUT_ROW)
+            || !str_eq(cv_stream_layout(vm, name, s1), LAYOUT_ROW) {
+        error("container factory: BTFL v0 generates row-layout streams only (the col verdict is 8c surface)");
+        return;
+    }
+    // Columns: exactly one per stream, both u64 (the 8a runtime's column type).
+    let ce: i64 = cs.entry.len();
+    let b0: i64 = cf_next_comma(cs.entry, 0i64, ce);
+    if b0 == ce {
+        error("container factory: multimap cfg carries fewer than two entry columns (seam regression?)");
+        return;
+    }
+    let b1: i64 = cf_next_comma(cs.entry, b0 + 1i64, ce);
+    if b1 != ce {
+        error("container factory: BTFL v0 generates one entry column per stream — multi-column streams land with 8a2/8c");
+        return;
+    }
+    let mut ok_cols: bool = true;
+    {
+        let mut a: i64 = 0i64;
+        let mut which: i64 = 0i64;
+        while which < 2i64 {
+            let b: i64 = cf_next_comma(cs.entry, a, ce);
+            let c1: i64 = cf_find(cs.entry, a, 58u8);
+            let mut c2: i64 = b - 1i64;
+            while c2 > a && str_byte_at(cs.entry, c2) != 58u8 {
+                c2 = c2 - 1i64;
+            }
+            if c1 < 0i64 || c1 >= b || c2 <= c1 {
+                ok_cols = false;
+            } else {
+                let dot: i64 = cf_dot(cs.entry, a, c1);
+                if dot < 0i64 {
+                    ok_cols = false;
+                } else {
+                    let strm: str = unsafe { cf_sub(cs.entry, a, dot) };
+                    let want: str = if which == 0i64 { s0 } else { s1 };
+                    if !str_eq(strm, want) {
+                        ok_cols = false;
+                    }
+                    if !str_eq(unsafe { cf_sub(cs.entry, c1 + 1i64, c2) }, "u64") {
+                        error("container factory: BTFL v0 generates u64 column streams only — generic column types land with 8c");
+                        return;
+                    }
+                }
+            }
+            a = b + 1i64;
+            which = which + 1i64;
+        }
+    }
+    if !ok_cols {
+        error("container factory: multimap cfg columns do not match its stream order (seam regression?)");
+        return;
+    }
+
+    // ── the family: handle struct + thin delegation into logos.mem.bt.btfl ──
+    let nm: Ident = Ident::new(name);
+    let b: QuoteItemBlob = quote_item! {
+        use logos.mem.bt.btfl;
+        use logos.mem.bt.memstore;
+        use logos.mem.collections.vec;
+        use logos.lang.panic;
+        pub struct #nm {
+            snap: *mut MemorySnapshot,
+            ctr_id: u64,
+            leaf_bytes: u32,
+            branch_bytes: u32,
+        }
+        impl #nm {
+            pub static fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
+                return #nm::create_with(snap, ctr_id, 4096u32, 4096u32);
+            }
+            pub static fn create_with(snap: &mut MemorySnapshot, ctr_id: u64,
+                                      leaf_bytes: u32, branch_bytes: u32) -> #nm {
+                let t: Btfl = btfl_create(snap, leaf_bytes, branch_bytes);
+                snap.set_root(ctr_id, t.root, t.level);
+                return #nm {
+                    snap: snap as *mut MemorySnapshot,
+                    ctr_id: ctr_id,
+                    leaf_bytes: leaf_bytes,
+                    branch_bytes: branch_bytes,
+                };
+            }
+            pub static fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
+                return #nm {
+                    snap: snap as *mut MemorySnapshot,
+                    ctr_id: ctr_id,
+                    leaf_bytes: 4096u32,
+                    branch_bytes: 4096u32,
+                };
+            }
+            pub fn tree(self: &#nm) -> Btfl {
+                unsafe {
+                    let e: DirEntry = (*self.snap).root_of(self.ctr_id);
+                    return Btfl {
+                        root: e.root,
+                        level: e.level,
+                        leaf_bytes: self.leaf_bytes,
+                        branch_bytes: self.branch_bytes,
+                    };
+                }
+            }
+            /// Re-creates the (EMPTY — asserted) container with new node
+            /// sizing; splits then allocate siblings of the new size.
+            pub fn reformat(self: &mut #nm, leaf_bytes: u32, branch_bytes: u32) {
+                let t: Btfl = self.tree();
+                assert(btfl_count(&t, 0u64) == 0u64, "reformat: container not empty");
+                btfl_drop(&t);
+                unsafe {
+                    let t2: Btfl = btfl_create(&mut *self.snap, leaf_bytes, branch_bytes);
+                    (*self.snap).set_root(self.ctr_id, t2.root, t2.level);
+                }
+                self.leaf_bytes = leaf_bytes;
+                self.branch_bytes = branch_bytes;
+            }
+            pub fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
+                unsafe {
+                    let mut t: Btfl = self.tree();
+                    let ok: bool = btfl_insert(&mut *self.snap, &mut t, key, vals);
+                    if ok {
+                        (*self.snap).set_root(self.ctr_id, t.root, t.level);
+                    }
+                    return ok;
+                }
+            }
+            pub fn find(self: &#nm, key: u64, out: &mut Vec<u64>) -> bool {
+                let t: Btfl = self.tree();
+                return btfl_find(&t, key, out);
+            }
+            pub fn seek(self: &#nm, key: u64) -> BtflSeek {
+                let t: Btfl = self.tree();
+                return btfl_seek(&t, key);
+            }
+            pub fn select(self: &#nm, sym: u64, rank: u64) -> BtflLoc {
+                let t: Btfl = self.tree();
+                return btfl_select(&t, sym, rank);
+            }
+            pub fn access(self: &#nm, pos: u64) -> u64 {
+                let t: Btfl = self.tree();
+                return btfl_access(&t, pos);
+            }
+            pub fn count(self: &#nm, sym: u64) -> u64 {
+                let t: Btfl = self.tree();
+                return btfl_count(&t, sym);
+            }
+            pub fn check(self: &#nm) -> bool {
+                let t: Btfl = self.tree();
+                return btfl_check(&t);
+            }
+            pub fn level(self: &#nm) -> u32 {
+                return self.tree().level;
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&b); }
+}
+
 // ── ADR 0021 §3 Phase 3: the metaclass FACTORY — the real container family ──
 //
 // The driver drains mono's `CtrClass<CFG>` demands by rendering one
@@ -1511,10 +1937,11 @@ fn cf_skip_ws(s: str, from: i64) -> i64 {
     return n;
 }
 
-// Position of the VALUE for `"<key>":` in the CFG doc source, or -1. `key`
-// arrives QUOTED (`"kind"`) so a slot name can never match inside a type.
-fn cfg_value_pos(src: str, key: str) -> i64 {
-    let k: i64 = cf_find_sub(src, 0i64, key);
+// Position of the VALUE for `"<key>":` in the CFG doc source at/after
+// `from`, or -1. `key` arrives QUOTED (`"kind"`) so a slot name can never
+// match inside a type.
+fn cfg_value_pos_from(src: str, from: i64, key: str) -> i64 {
+    let k: i64 = cf_find_sub(src, from, key);
     if k < 0i64 {
         return -1i64;
     }
@@ -1523,6 +1950,10 @@ fn cfg_value_pos(src: str, key: str) -> i64 {
         return -1i64;
     } // ':'
     return cf_skip_ws(src, i + 1i64);
+}
+
+fn cfg_value_pos(src: str, key: str) -> i64 {
+    return cfg_value_pos_from(src, 0i64, key);
 }
 
 // The quoted string starting at `at` (must be '"'); "" = shape violation
@@ -1583,24 +2014,9 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         error("container factory: CFG document has no readable kind (emit_cfg_doc format skew?)");
         return out;
     }
-    if !str_eq(kind, KIND_ORDERED_MAP) {
-        error("container factory: unsupported container kind — the wave-0 factory generates `ordered_map` families only");
+    if !str_eq(kind, KIND_ORDERED_MAP) && !str_eq(kind, KIND_MULTIMAP) {
+        error("container factory: unsupported container kind — the factory generates `ordered_map` and `multimap` families");
         return out;
-    }
-    let kty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
-    if kty.len() == 0i64 {
-        error("container factory: CFG document has no readable `key` type slot (emit_cfg_doc format skew?)");
-        return out;
-    }
-    let vp: i64 = cfg_value_pos(cfg_src, "\"value\"");
-    let mut vty: str = cfg_read_type_slot(cfg_src, vp);
-    if vty.len() == 0i64 {
-        // Not a type slot — must be the `"str"` VLE tag (str is unsized).
-        vty = cfg_read_quoted(cfg_src, vp);
-        if !str_eq(vty, "str") {
-            error("container factory: CFG `value` slot is neither <type:V> nor the \"str\" VLE tag (emit_cfg_doc format skew?)");
-            return out;
-        }
     }
 
     // ── synthetic (name, spec) → the shared declaration machinery ──────────
@@ -1608,11 +2024,91 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     fam.push_str("Hs");
     fam.push_str(hash_hex);
     let mut sp: String = String::new();
-    sp.push_str("pub=1|generics=|gnames=|backing=u8|backing_pkg=|kind=ordered_map|entry=key:");
-    sp.push_str(kty);
-    sp.push_str(":0,val:");
-    sp.push_str(vty);
-    sp.push_str(":0|measures=max(key)|pkg=logos.gen");
+    if str_eq(kind, KIND_ORDERED_MAP) {
+        let kty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
+        if kty.len() == 0i64 {
+            error("container factory: CFG document has no readable `key` type slot (emit_cfg_doc format skew?)");
+            return out;
+        }
+        let vp: i64 = cfg_value_pos(cfg_src, "\"value\"");
+        let mut vty: str = cfg_read_type_slot(cfg_src, vp);
+        if vty.len() == 0i64 {
+            // Not a type slot — must be the `"str"` VLE tag (str is unsized).
+            vty = cfg_read_quoted(cfg_src, vp);
+            if !str_eq(vty, "str") {
+                error("container factory: CFG `value` slot is neither <type:V> nor the \"str\" VLE tag (emit_cfg_doc format skew?)");
+                return out;
+            }
+        }
+        sp.push_str("pub=1|generics=|gnames=|backing=u8|backing_pkg=|kind=ordered_map|entry=key:");
+        sp.push_str(kty);
+        sp.push_str(":0,val:");
+        sp.push_str(vty);
+        sp.push_str(":0|measures=max(key)|pkg=logos.gen");
+    } else {
+        // BTFL 8b multimap: streams/measures/ops ride the doc as the SAME
+        // compact strings the spec carries — read back verbatim; cols
+        // (stream, name, <type:T>) re-parse by forward scan (they sit LAST
+        // in the doc by construction, emit_cfg_doc_multimap).
+        let streams: str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"streams\""));
+        if streams.len() == 0i64 {
+            error("container factory: multimap CFG document has no readable streams list (emit_cfg_doc format skew?)");
+            return out;
+        }
+        let measures: str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"measures\""));
+        let mmops: str = cfg_read_quoted(cfg_src, cfg_value_pos(cfg_src, "\"ops\""));
+        let cp: i64 = cfg_value_pos(cfg_src, "\"cols\"");
+        if cp < 0i64 {
+            error("container factory: multimap CFG document has no cols array (emit_cfg_doc format skew?)");
+            return out;
+        }
+        let mut entry_s: String = String::new();
+        let mut cur: i64 = cp;
+        let mut first: bool = true;
+        let mut done: bool = false;
+        while !done {
+            let spos: i64 = cfg_value_pos_from(cfg_src, cur, "\"stream\"");
+            if spos < 0i64 {
+                done = true;
+            } else {
+                let sname: str = cfg_read_quoted(cfg_src, spos);
+                let npos: i64 = cfg_value_pos_from(cfg_src, spos, "\"name\"");
+                let colnm: str = cfg_read_quoted(cfg_src, npos);
+                let tpos: i64 = cfg_value_pos_from(cfg_src, npos, "\"ty\"");
+                let tty: str = cfg_read_type_slot(cfg_src, tpos);
+                if sname.len() == 0i64 || colnm.len() == 0i64 || tty.len() == 0i64 {
+                    error("container factory: malformed multimap cols row (emit_cfg_doc format skew?)");
+                    return out;
+                }
+                if !first {
+                    entry_s.push_str(",");
+                }
+                first = false;
+                entry_s.push_str(sname);
+                entry_s.push_str(".");
+                entry_s.push_str(colnm);
+                entry_s.push_str(":");
+                entry_s.push_str(tty);
+                entry_s.push_str(":0");
+                cur = tpos;
+            }
+        }
+        if first {
+            error("container factory: multimap CFG document carries no cols rows (emit_cfg_doc format skew?)");
+            return out;
+        }
+        sp.push_str("pub=1|generics=|gnames=|backing=u8|backing_pkg=|kind=multimap|entry=");
+        sp.push_str(entry_s.as_str());
+        sp.push_str("|measures=");
+        sp.push_str(measures);
+        sp.push_str("|streams=");
+        sp.push_str(streams);
+        if mmops.len() > 0i64 {
+            sp.push_str("|ops=");
+            sp.push_str(mmops);
+        }
+        sp.push_str("|pkg=logos.gen");
+    }
     container_item_run(fam.as_str(), sp.as_str(), false);
 
     // ── satisfaction marker + Phase 4a surface: the full CtrFamily impl ────
@@ -1804,6 +2300,20 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         }
         let bkty: str = unsafe { cf_sub(cs.entry, bk1 + 1i64, bk2) };
         emit_branch_node(name, bkty, false);   // standalone branch = plain pkd
+        return;
+    }
+    // kind=multimap (BTFL 8b): the DECL path stops at the multistream CFG
+    // const (facts + Canon template validation already ran above — a bad ops
+    // vocabulary/reference fails HERE, loudly, with Canon's reason). The
+    // FACTORY path (emit_cfg=false, mono demanded CtrClass<CFG>) generates
+    // the btfl family after the demand-time Canon verdicts (vm) re-judged
+    // the concrete cfg — the two Canon moments.
+    if str_eq(cs.kind, KIND_MULTIMAP) {
+        if emit_cfg {
+            let _ok: bool = emit_cfg_doc_multimap(name, &cs, vm);
+            return;
+        }
+        emit_btfl_family(name, &cs, vm);
         return;
     }
     // kind=ordered_map: realize Canon's container_shape PLAN. Structure is the

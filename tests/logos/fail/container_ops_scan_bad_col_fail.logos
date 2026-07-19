@@ -1,0 +1,24 @@
+// BTFL 8b — scan's argument must be a declared entry column of the SAME
+// stream (Canon decl-time verdict): scanning an unknown column fails the
+// compile with Canon's op_column_ref reason.
+package test;
+
+use logos.lcm.canon.container_item;
+
+pub container BadScan<K, V> for u8 {
+    kind multimap;
+    stream keys {
+        entry { key: K }
+        measure max(key);
+        ops { seek(max(key)); insert; }
+    }
+    stream values {
+        entry { val: V }
+        measure count;
+        ops { scan(nosuch); }
+    }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}
