@@ -730,6 +730,8 @@ sym	logos_lang..logos.lang.cmp.u64__ne__f__ref_u64__ref_u64
 sym	logos_lang..logos.lang.cmp.u64__overflowing_add__f__u64__u64
 sym	logos_lang..logos.lang.cmp.u64__overflowing_mul__f__u64__u64
 sym	logos_lang..logos.lang.cmp.u64__overflowing_sub__f__u64__u64
+sym	logos_lang..logos.lang.cmp.u64__pdep__f__u64__u64
+sym	logos_lang..logos.lang.cmp.u64__pext__f__u64__u64
 sym	logos_lang..logos.lang.cmp.u64__pow__f__u64__u32
 sym	logos_lang..logos.lang.cmp.u64__rotate_left__f__u64__u32
 sym	logos_lang..logos.lang.cmp.u64__rotate_right__f__u64__u32

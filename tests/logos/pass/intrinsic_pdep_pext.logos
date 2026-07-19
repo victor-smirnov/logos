@@ -1,0 +1,185 @@
+package intrinsic_pdep_pext;
+// pdep_u64 / pext_u64 intrinsics: known vectors, algebraic laws, the
+// select-in-word law (tzcnt(pdep(1<<r, w)) = position of the r-th set bit),
+// rt soft-path equivalence (the portable bit-loop must match the dispatched
+// implementation), and the u64 method wrappers.
+extern fn printf(fmt: *const u8, ...) -> i32;
+// rt portable fallbacks, exported from stdlib/rt/bitops.c for exactly this
+// pin-the-fallback test.
+extern fn logos_pdep_u64_soft(x: u64, mask: u64) -> u64;
+extern fn logos_pext_u64_soft(x: u64, mask: u64) -> u64;
+
+fn print_s(s: str) {
+    unsafe {
+        printf(s.as_ptr());
+    }
+}
+
+// Position of the rank-th set bit of w via a naive scan; 64 when absent.
+fn naive_select(w: u64, rank: u64) -> u64 {
+    let mut rr: u64 = 0u64;
+    let mut c: u64 = 0u64;
+    while c < 64u64 {
+        if (w >> c) & 1u64 == 1u64 {
+            if rr == rank {
+                return c;
+            }
+            rr = rr + 1u64;
+        }
+        c = c + 1u64;
+    }
+    return 64u64;
+}
+
+// Low-k-bits mask, safe for k = 64.
+fn mask_low(k: u32) -> u64 {
+    if k >= 64u32 {
+        return 0xFFFFFFFFFFFFFFFFu64;
+    }
+    return (1u64 << k) - 1u64;
+}
+
+unsafe fn main() -> i32 {
+    let mut fails: i32 = 0;
+
+    // ── Known vectors ────────────────────────────────────────────
+    if pdep_u64(0xBu64, 0xF0F0u64) != 0xB0u64 {
+        fails = fails + 1;
+        print_s("FAIL pdep known 1\n");
+    }
+    if pext_u64(0xB0u64, 0xF0F0u64) != 0xBu64 {
+        fails = fails + 1;
+        print_s("FAIL pext known 1\n");
+    }
+    if pext_u64(0x12345678u64, 0xFF00FF00u64) != 0x1256u64 {
+        fails = fails + 1;
+        print_s("FAIL pext known 2\n");
+    }
+    if pdep_u64(0x1256u64, 0xFF00FF00u64) != 0x12005600u64 {
+        fails = fails + 1;
+        print_s("FAIL pdep known 2\n");
+    }
+    if fails == 0 {
+        print_s("known ok\n");
+    }
+
+    let xs: [u64; 7] = [0u64, 1u64, 0xFFu64, 0x1256u64, 0xDEADBEEFu64,
+                        0xFFFFFFFFFFFFFFFFu64, 0x123456789ABCDEF0u64];
+    let ms: [u64; 7] = [0u64, 1u64, 0xF0F0u64, 0xFF00FF00u64,
+                        0xAAAAAAAAAAAAAAAAu64, 0xFFFFFFFFFFFFFFFFu64,
+                        0x8000000000000001u64];
+
+    // ── Algebraic laws over the vector cross-product ─────────────
+    let mut law_fails: i32 = 0;
+    let mut i: i64 = 0;
+    while i < 7i64 {
+        let mut j: i64 = 0;
+        while j < 7i64 {
+            let x: u64 = xs[i];
+            let m: u64 = ms[j];
+            // pdep into the full mask / empty mask.
+            if pdep_u64(x, 0xFFFFFFFFFFFFFFFFu64) != x {
+                law_fails = law_fails + 1;
+            }
+            if pdep_u64(x, 0u64) != 0u64 {
+                law_fails = law_fails + 1;
+            }
+            if pext_u64(x, 0xFFFFFFFFFFFFFFFFu64) != x {
+                law_fails = law_fails + 1;
+            }
+            if pext_u64(x, 0u64) != 0u64 {
+                law_fails = law_fails + 1;
+            }
+            // pdep only produces bits inside the mask.
+            if pdep_u64(x, m) & m != pdep_u64(x, m) {
+                law_fails = law_fails + 1;
+            }
+            // Roundtrips: pext∘pdep truncates to popcount(m) low bits;
+            // pdep∘pext keeps exactly the masked bits.
+            if pext_u64(pdep_u64(x, m), m) != x & mask_low(popcount_u64(m)) {
+                law_fails = law_fails + 1;
+            }
+            if pdep_u64(pext_u64(x, m), m) != x & m {
+                law_fails = law_fails + 1;
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    if law_fails == 0 {
+        print_s("laws ok\n");
+    } else {
+        fails = fails + law_fails;
+        print_s("FAIL laws\n");
+    }
+
+    // ── Select-in-word law vs the naive scan ─────────────────────
+    let ws: [u64; 10] = [0x1u64, 0x8000000000000000u64, 0xFFFFFFFFFFFFFFFFu64,
+                         0xAAAAAAAAAAAAAAAAu64, 0x5555555555555555u64,
+                         0xF0F0F0F0F0F0F0F0u64, 0x0123456789ABCDEFu64,
+                         0x8000000000000001u64, 0x00FF00FF00FF00FFu64,
+                         0xDEADBEEFCAFEBABEu64];
+    let mut sel_fails: i32 = 0;
+    let mut wi: i64 = 0;
+    while wi < 10i64 {
+        let w: u64 = ws[wi];
+        let n: u64 = popcount_u64(w) as u64;
+        let mut r: u64 = 0u64;
+        while r < n {
+            let fast: u64 = trailing_zeros_u64(pdep_u64(1u64 << r, w)) as u64;
+            if fast != naive_select(w, r) {
+                sel_fails = sel_fails + 1;
+            }
+            r = r + 1u64;
+        }
+        wi = wi + 1i64;
+    }
+    if sel_fails == 0 {
+        print_s("select ok\n");
+    } else {
+        fails = fails + sel_fails;
+        print_s("FAIL select\n");
+    }
+
+    // ── Portable rt fallback ≡ dispatched intrinsic ──────────────
+    let mut soft_fails: i32 = 0;
+    let mut si: i64 = 0;
+    while si < 7i64 {
+        let mut sj: i64 = 0;
+        while sj < 7i64 {
+            let x: u64 = xs[si];
+            let m: u64 = ms[sj];
+            if logos_pdep_u64_soft(x, m) != pdep_u64(x, m) {
+                soft_fails = soft_fails + 1;
+            }
+            if logos_pext_u64_soft(x, m) != pext_u64(x, m) {
+                soft_fails = soft_fails + 1;
+            }
+            sj = sj + 1i64;
+        }
+        si = si + 1i64;
+    }
+    if soft_fails == 0 {
+        print_s("soft ok\n");
+    } else {
+        fails = fails + soft_fails;
+        print_s("FAIL soft\n");
+    }
+
+    // ── u64 method wrappers ──────────────────────────────────────
+    let mv: u64 = 0x1256u64;
+    let mm: u64 = 0xFF00FF00u64;
+    let dep: u64 = mv.pdep(mm);
+    if dep != 0x12005600u64 {
+        fails = fails + 1;
+        print_s("FAIL method pdep\n");
+    }
+    if dep.pext(mm) != mv {
+        fails = fails + 1;
+        print_s("FAIL method pext\n");
+    }
+    if fails == 0 {
+        print_s("all ok\n");
+    }
+    return fails;
+}

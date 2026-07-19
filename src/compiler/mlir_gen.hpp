@@ -21,10 +21,17 @@ namespace logos::compiler {
 // carries source-level debug info for gdb/lldb.
 // main_source: primary input source path, used as the DWARF compile-unit file
 // and as a fallback when a function carries no per-file source_file (-g only).
+// target_has_bmi2: the RESOLVED backend target CPU has BMI2 (pdep/pext).
+// Computed by the caller via target_cpu_has_bmi2() (compile_pipeline.hpp) from
+// the SAME resolved cpu string the TargetMachine is created with, so the
+// codegen-time decision (inline llvm.x86.bmi.* vs rt-fallback call) can never
+// diverge from ISel-time reality. Default false → rt-fallback call (correct on
+// every target; the runtime cpuid-dispatches to hardware pdep/pext anyway).
 mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             const lir::LProgram& prog,
                                             bool debug_info = false,
                                             std::string_view main_source = {},
-                                            bool overflow_checks = true) noexcept;
+                                            bool overflow_checks = true,
+                                            bool target_has_bmi2 = false) noexcept;
 
 } // namespace logos::compiler

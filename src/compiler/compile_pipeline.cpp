@@ -39,9 +39,39 @@
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
 
+#include <llvm/MC/MCSubtargetInfo.h>
+
 #include <cstdio>
 
 namespace logos::compiler {
+
+std::string resolve_target_cpu(const std::string& target_cpu)
+{
+    std::string cpu = target_cpu.empty() ? "generic" : target_cpu;
+    if (cpu == "native")
+        cpu = std::string(llvm::sys::getHostCPUName());
+    return cpu;
+}
+
+bool target_cpu_has_bmi2(const std::string& target_cpu)
+{
+    std::string cpu = resolve_target_cpu(target_cpu);
+    if (cpu == "generic")
+        return false;
+    // Query the backend's own feature table for the named CPU so the answer
+    // matches exactly what the TargetMachine created from `cpu` will accept.
+    llvm::InitializeNativeTarget();
+    std::string triple = llvm::sys::getDefaultTargetTriple();
+    std::string err;
+    auto* target = llvm::TargetRegistry::lookupTarget(triple, err);
+    if (!target)
+        return false;
+    std::unique_ptr<llvm::MCSubtargetInfo> sti(
+        target->createMCSubtargetInfo(triple, cpu, ""));
+    if (!sti)
+        return false;
+    return sti->checkFeatures("+bmi2");
+}
 
 int lower_and_emit_object(lir::LProgram& prog,
                            const std::string& output_path,
@@ -56,7 +86,8 @@ int lower_and_emit_object(lir::LProgram& prog,
     mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
 
     auto mlir_module = mlir_gen(mlir_ctx, prog, opts.debug_info, opts.source_path,
-                                opts.overflow_checks);
+                                opts.overflow_checks,
+                                target_cpu_has_bmi2(opts.target_cpu));
     if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
     if (!mlir_module) {
         std::fprintf(stderr, "logosc: MLIR generation failed\n");
@@ -241,8 +272,7 @@ int lower_and_emit_object(lir::LProgram& prog,
     // the host CPU, letting the backend emit AVX/AVX2/AVX-512 (a large win on
     // vectorizable loops; non-portable). The CPU name alone enables that CPU's
     // default feature set in the backend.
-    std::string cpu = opts.target_cpu.empty() ? "generic" : opts.target_cpu;
-    if (cpu == "native") cpu = std::string(llvm::sys::getHostCPUName());
+    std::string cpu = resolve_target_cpu(opts.target_cpu);
     auto target_machine = std::unique_ptr<llvm::TargetMachine>(
         target->createTargetMachine(
             llvm_module->getTargetTriple(), cpu, "",

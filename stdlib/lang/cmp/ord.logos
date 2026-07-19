@@ -169,7 +169,17 @@ impl u64   { pub fn count_ones(self: u64) -> u32 { return popcount_u64(self); }
              /// Returns the number of leading zero bits.
              pub fn leading_zeros(self: u64) -> u32 { return leading_zeros_u64(self); }
              /// Returns the number of trailing zero bits.
-             pub fn trailing_zeros(self: u64) -> u32 { return trailing_zeros_u64(self); } }
+             pub fn trailing_zeros(self: u64) -> u32 { return trailing_zeros_u64(self); }
+             /// Parallel bit deposit (BMI2 pdep): scatters the low bits of `self`
+             /// into the set-bit positions of `mask`. DIVERGENCE (blessed, §A15):
+             /// Rust exposes `_pdep_u64` only in `core::arch::x86_64` behind
+             /// `target_feature(bmi2)`; Logos's `pdep_u64` intrinsic is PORTABLE —
+             /// inline hardware instruction when the compile target has BMI2, else
+             /// a runtime cpuid-dispatched fallback (stdlib/rt/bitops.c).
+             pub fn pdep(self: u64, mask: u64) -> u64 { return pdep_u64(self, mask); }
+             /// Parallel bit extract (BMI2 pext): gathers the bits of `self` at the
+             /// set-bit positions of `mask` into the low bits. Portable — see `pdep`.
+             pub fn pext(self: u64, mask: u64) -> u64 { return pext_u64(self, mask); } }
 impl u32   { pub fn count_ones(self: u32) -> u32 { return popcount_u64(self as u64); }
              /// Returns the number of zero bits.
              pub fn count_zeros(self: u32) -> u32 { return 32u32 - popcount_u64(self as u64); }

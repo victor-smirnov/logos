@@ -1,0 +1,7 @@
+exit: 0
+stdout:
+known ok
+laws ok
+select ok
+soft ok
+all ok

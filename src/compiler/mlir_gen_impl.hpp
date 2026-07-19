@@ -139,6 +139,9 @@ public:
     // rustc release-mode arithmetic. Explicit wrapping_add/sub/mul are
     // unaffected (always unchecked). Set before generate().
     void set_overflow_checks(bool v) { overflow_checks_ = v; }
+    // Resolved backend target CPU has BMI2 → pdep_u64/pext_u64 lower to the
+    // inline hardware intrinsic instead of the rt cpuid-dispatch fallback.
+    void set_target_bmi2(bool v) { target_has_bmi2_ = v; }
     // Primary input source path (DWARF CU file + per-fn fallback). Before generate().
     void set_main_source(std::string_view s) { main_source_.assign(s); }
 
@@ -154,6 +157,7 @@ private:
     // single DISubprogram never leaks onto two LLVM functions.
     bool                              debug_info_ = false;
     bool                              overflow_checks_ = true;  // trap on int +/-/* overflow (off = wrapping)
+    bool                              target_has_bmi2_ = false; // target cpu has BMI2 (pdep/pext inline)
     std::string                       main_source_;      // primary input path (CU file + fallback)
     mlir::LLVM::DICompileUnitAttr     di_cu_;            // one per module (lazy)
     mlir::LLVM::DISubprogramAttr      di_subprogram_;    // current fn (null outside a body)

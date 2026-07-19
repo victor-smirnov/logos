@@ -3431,6 +3431,19 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
         return builder().call_v(std::move(ec), ret);
     }
+    //   pdep_u64(x: u64, mask: u64) -> u64   (BMI2 parallel bit deposit)
+    //   pext_u64(x: u64, mask: u64) -> u64   (BMI2 parallel bit extract)
+    // Codegen dispatches on the TARGET's bmi2 feature: hardware intrinsic
+    // inline when available, else a call to the runtime cpuid-dispatched
+    // `logos_pdep_u64` / `logos_pext_u64` fallback.
+    if (callee == "pdep_u64" || callee == "pext_u64") {
+        if (n_args != 2)
+            error(std::format("{} requires exactly 2 u64 arguments (value, mask)", callee));
+        lir::ECall ec;
+        ec.callee = callee;
+        for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
+        return builder().call_v(std::move(ec), prim(LogosType::Kind::U64));
+    }
 
     bool call_has_pack_expand = false;
     for (auto& a : arg_exprs) {

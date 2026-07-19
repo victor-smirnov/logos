@@ -2293,6 +2293,52 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         }
     }
 
+    // pdep_u64 / pext_u64 — BMI2 parallel bit deposit/extract. ONE
+    // caller-visible name; the TARGET picks the lowering (same discipline as
+    // the sqrt→llvm.sqrt mapping below):
+    //   target cpu has bmi2 → inline hardware intrinsic
+    //                         (llvm.x86.bmi.pdep.64 / llvm.x86.bmi.pext.64)
+    //   else                → call the runtime cpuid-dispatch fallback
+    //                         logos_pdep_u64 / logos_pext_u64 (stdlib/rt/
+    //                         bitops.c) — even "generic"-built binaries use
+    //                         the hardware op on capable hosts.
+    // target_has_bmi2_ is single-sourced with the TargetMachine cpu
+    // (target_cpu_has_bmi2 in compile_pipeline.cpp), so ISel always accepts
+    // what we emit here.
+    if (bare_intrinsic == "pdep_u64" || bare_intrinsic == "pext_u64") {
+        if (arg_les.size() == 2) {
+            const bool is_pdep = bare_intrinsic == "pdep_u64";
+            auto x = gen_expr(arg_les[0]);
+            if (!x) return nullptr;
+            auto m = gen_expr(arg_les[1]);
+            if (!m) return nullptr;
+            auto i64_ty = builder_.getIntegerType(64);
+            x = coerce_int(x, i64_ty);
+            m = coerce_int(m, i64_ty);
+            if (target_has_bmi2_) {
+                auto op = builder_.create<mlir::LLVM::CallIntrinsicOp>(
+                    loc_, i64_ty,
+                    builder_.getStringAttr(is_pdep ? "llvm.x86.bmi.pdep.64"
+                                                   : "llvm.x86.bmi.pext.64"),
+                    mlir::ValueRange{x, m});
+                return op.getResults();
+            }
+            const char* rt_name = is_pdep ? "logos_pdep_u64" : "logos_pext_u64";
+            if (declared_fn_names_.insert(rt_name).second) {
+                auto fn_type = builder_.getFunctionType({i64_ty, i64_ty}, {i64_ty});
+                auto fn = mlir::func::FuncOp::create(loc_, rt_name, fn_type);
+                fn.setPrivate();
+                parent_mod.push_back(fn);
+                mark_funcs_dirty();
+            }
+            auto rt_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rt_name);
+            if (!rt_fn) return nullptr;
+            auto call = builder_.create<mlir::func::CallOp>(
+                loc_, rt_fn, mlir::ValueRange{x, m});
+            return call.getResult(0);
+        }
+    }
+
     // Check if this is a vararg extern fn (declared as llvm.func)
     if (vararg_fns_.count(callee)) {
         auto callee_fn = parent_mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(callee);

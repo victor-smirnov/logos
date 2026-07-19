@@ -42,6 +42,17 @@ struct LowerEmitOpts {
     std::string dump_metaprog_dir;
 };
 
+// Resolve `-C target-cpu=` to the concrete backend CPU name: "" → "generic",
+// "native" → the host CPU (llvm::sys::getHostCPUName). SINGLE SOURCE for both
+// the TargetMachine construction and codegen-time feature decisions — the two
+// must never diverge (mlir_gen emitting an instruction ISel then rejects).
+std::string resolve_target_cpu(const std::string& target_cpu);
+
+// Whether the resolved target CPU enables BMI2 (hardware pdep/pext).
+// "generic" (the default x86-64 SSE2 baseline) → false. Feeds mlir_gen's
+// pdep_u64/pext_u64 lowering choice: inline llvm.x86.bmi.* vs rt-fallback call.
+bool target_cpu_has_bmi2(const std::string& target_cpu);
+
 // Lowers prog → object file at `output_path`. On --jit, returns the JIT'd
 // main()'s exit code instead. Returns 0 on success / non-zero on failure.
 //
