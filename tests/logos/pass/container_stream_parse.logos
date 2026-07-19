@@ -1,0 +1,36 @@
+// BTFL 8b — the multistream container surface: `stream N { entry {…}
+// measure m; ops { … } }` blocks parse, sema-register (streams recorded,
+// spec serialized with the streams=/ops= segments), and round through the
+// token-macro item seam to `__container_item` (facts → Canon verdicts; an
+// error() anywhere there fails this compile). The second decl pins the BTSS
+// sugar contract: top-level entry/measure (one anonymous stream) still
+// parses, and `ops` is legal there too — its spec line gains only the
+// trailing ops= segment, so existing sugar decls stay byte-stable.
+package test;
+
+use logos.lcm.canon.container_item;
+
+pub container MMap<K, V> for u8 {
+    kind multimap;
+    stream keys {
+        entry { key: K }
+        measure max(key);
+        ops { seek(max(key)); insert; remove; }
+    }
+    stream values {
+        entry { val: V }
+        measure count;
+        ops { select(count); scan(val); bulk_append; }
+    }
+}
+
+pub container OMapOps for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+    ops { seek(max(key)); insert; }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

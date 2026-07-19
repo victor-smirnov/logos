@@ -79,6 +79,7 @@
     IS_OPTIONAL    = 25    // `use #pkg?;` optional-import marker inside quote_*! body: if the substituted package ident is EMPTY at splice time the whole use is DROPPED (else resolved normally). Reuses IS_MUT slot — a USE never carries IS_MUT.
     META           = 16    // meta @{...} block on struct/datatype/trait declarations (slot 16; reuses PATH_PARTS slot, mutually exclusive node types)
     REL_KW         = 20    // ADR 0016: contextual lead IDENT of a rel_def inside a mapping item (sema validates text == "rel"; reuses RECEIVER slot — REL_DEF never has a receiver)
+    OP_ARG         = 21    // BTFL 8b: inner ident of a parenthesized measure ref in a CONTAINER_OP (`key` in `seek(max(key))`). Reuses FIELD slot — an ops entry never carries a field access.
     RAW_TEXT       = 7     // raw source text captured from a balanced delim group on FN_MACRO_CALL (reuses VALUE slot — fn-macro nodes never carry a literal payload). Balanced-brace capture (RAW_GROUP_*) additionally honours two escapes in the raw body so LITERAL braces don't break balance: (a) a BACKSLASH before `{`/`}`/`` ` ``/`\` passes that char through WITHOUT counting it (the backslash SURVIVES into the captured text — the handler de-escapes); (b) a BACKTICK-delimited region is skipped whole (no brace counting inside). Both additive: well-formed bodies are unaffected + captured byte-identically.
     DOC            = 50    // doc-comment text on item-level decls (reuses HI_NEG slot — PAT_RANGE never appears at item level)
     TYPE_NAME      = 3     // CP-cm-02: enum-type name in USE_VARIANTS (`use pkg.Path.Type.{V1,…}`). Reuses TYPE slot — USE never carries a type AST node.
@@ -330,7 +331,7 @@
     MAPPING_DEF                 = 259   // ADR 0016: `mapping M(g: &Writ, …) { pub? rel r(col: ty, …) { <rules> } … }` — named, typed rule-module over a source shape. NAME = mapping name; PARAMS = source/scalar param list (PARAM array, same shape as fn params); FIELDS = array of REL_DEF; IS_PUB/VIS as usual. Sema registers a zero-field marker struct (is_mapping=true) + per-rel signatures; rel bodies compile through the deem pipeline.
     REL_DEF                     = 260   // ADR 0016: one rel member of a mapping item. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array); RAW_TEXT = rule body captured token-level (balanced braces); IS_PUB optional.
     CONTAINER_DEF               = 266   // ADR 0020 wave-0: `pub? container C<T…> for BackingTy { kind k; entry { col: ty, … } measure m; measure m(col); … }` — a Memoria container declaration. REL_KW = contextual lead ident (must be "container" — a keyword would break the common identifier, e.g. logos.lang.writ.container); NAME; TYPE_PARAMS? (syntactic generics incl. bounds); TYPE = backing type_ref (the wave-0 `for <Type>` pragmatic binding); FIELDS = array of CONTAINER_CLAUSE; IS_PUB/VIS as usual.
-    CONTAINER_CLAUSE            = 268   // ADR 0020 wave-0: one clause of a container item. REL_KW = contextual lead ident ("kind"|"entry"|"measure", validated in sema); NAME = word (`vector`, `count`, `max`); PARAMS = entry column list (PARAM array, reused param_list); VALUE = measure arg ident (`key` in `max(key)`).
+    CONTAINER_CLAUSE            = 268   // ADR 0020 wave-0: one clause of a container item. REL_KW = contextual lead ident ("kind"|"entry"|"measure", validated in sema); NAME = word (`vector`, `count`, `max`); PARAMS = entry column list (PARAM array, reused param_list); VALUE = measure arg ident (`key` in `max(key)`); FIELDS = nested clause array of a `stream` block (BTFL 8b); ITEMS = CONTAINER_OP array of an `ops { … }` block (BTFL 8b).
 
     // ── Sema-internal codes ───────────────────────────────────────────────
     // Never produced by this parser; synthesised by the compiler after parsing.
@@ -344,6 +345,7 @@
     REL_BIND                    = 263   // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
     DEEM_DEF                    = 264   // ADR 0016: `pub? deem q(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.
     CONTAINER_DEF_DONE          = 267   // ADR 0020 wave-0: a CONSUMED container item. Same convention as MAPPING_DEF_DONE — only CODE flips (driver); NAME/TYPE_PARAMS/TYPE/FIELDS survive so a consumer compiling against the ARCHIVE re-registers the declaration (cross-module Canon reasoning).
+    CONTAINER_OP                = 269   // BTFL 8b: one entry of a container `ops { … }` block. NAME = verb ident (`seek`, `insert`, `scan`, …; the CLOSED vocabulary is validated by Canon, not the grammar); VALUE = optional arg head ident (`max` in `seek(max(key))`, `count` in `select(count)`, `val` in `scan(val)`); OP_ARG (FIELD slot) = optional inner ident of a parenthesized measure ref (`key` in `max(key)`).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1363,11 +1365,33 @@
     // break the very common identifier). The backing type after KW_FOR rides
     // TYPE as an ordinary type_ref. Clauses are grammar-owned (no RAW_TEXT —
     // the body is fully structured). Clause disambiguation is ordered:
-    // container_entry (LBRACE after first IDENT), then container_measure_arg
-    // (parenthesized arg), then container_word (`kind vector;` and
+    // container_stream (two IDENTs then LBRACE), container_ops (an ops body
+    // is verbs/semicolons — a `name: ty` column list fails it), then
+    // container_entry (LBRACE after first IDENT), container_measure_arg
+    // (parenthesized arg), and container_word (`kind vector;` and
     // `measure count;` share this rule — sema dispatches on REL_KW text).
+    //
+    // BTFL 8b: `stream N { entry {…} measure m; ops { v; v(m); v(m(c)); } }`
+    // blocks — the multistream surface. A stream block nests the same clause
+    // set (minus another stream); `ops` lists the closed operation vocabulary
+    // (seek/rank/select/range/scan/iterate/insert/remove/update/bulk_append —
+    // validated by Canon at decl time, never by the grammar).
     container_clause <- doc_line_decl / doc_block_decl
+                      / container_stream / container_ops
                       / container_entry / container_measure_arg / container_word
+    container_stream_clause <- doc_line_decl / doc_block_decl
+                      / container_ops
+                      / container_entry / container_measure_arg / container_word
+    container_stream <- IDENT IDENT LBRACE container_stream_clause* RBRACE
+                     => { CODE: CONTAINER_CLAUSE, REL_KW: $1, NAME: $2, FIELDS: $4 }
+    container_ops    <- IDENT LBRACE container_op* RBRACE
+                     => { CODE: CONTAINER_CLAUSE, REL_KW: $1, ITEMS: $3 }
+    container_op     <- IDENT LPAREN IDENT LPAREN IDENT RPAREN RPAREN SEMI
+                     => { CODE: CONTAINER_OP, NAME: $1, VALUE: $3, OP_ARG: $5 }
+                      / IDENT LPAREN IDENT RPAREN SEMI
+                     => { CODE: CONTAINER_OP, NAME: $1, VALUE: $3 }
+                      / IDENT SEMI
+                     => { CODE: CONTAINER_OP, NAME: $1 }
     container_entry  <- IDENT LBRACE param_list? RBRACE
                      => { CODE: CONTAINER_CLAUSE, REL_KW: $1, PARAMS: $3 }
     container_measure_arg <- IDENT IDENT LPAREN IDENT RPAREN SEMI

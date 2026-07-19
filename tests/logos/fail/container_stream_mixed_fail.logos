@@ -1,0 +1,19 @@
+// BTFL 8b — stream blocks and the top-level (BTSS sugar) entry/measure
+// surface are mutually exclusive: a body with both fails at sema shape
+// validation with a clean diagnostic.
+package test;
+
+use logos.lcm.canon.container_item;
+
+pub container Broken<K, V> for u8 {
+    kind multimap;
+    entry { key: K }
+    stream values {
+        entry { val: V }
+        measure count;
+    }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -1714,9 +1714,117 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         return s;
     }
 
+    case la::CONTAINER_DEF:
+    case la::CONTAINER_DEF_DONE: {
+        // `pub? container C<T…> for Backing { … }` — multi-line, one clause
+        // per line, stream blocks nested + indented (the canonical container
+        // decl style; the reparse of this render must reproduce the node).
+        std::string s = render_vis_prefix_(node);
+        s += "container ";
+        s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::TYPE_PARAMS))
+            s += render_type_param_list_(map_of(node.get(la::TYPE_PARAMS.code)));
+        s += " for ";
+        s += render_type_src_syntactic_(map_of(node.get(la::TYPE.code)));
+        s += " {\n";
+        if (node.has_key(la::FIELDS)) {
+            auto carr = arr_of(node.get(la::FIELDS.code));
+            for (uint64_t i = 0; i < carr.size(); ++i) {
+                auto cl = map_of(carr.get(i));
+                if (cl.is_null() || code_of(cl) != la::CONTAINER_CLAUSE)
+                    continue;
+                s += render_container_clause_src_(cl, 1);
+            }
+        }
+        s += "}";
+        return s;
+    }
+
     default:
         return std::format("/* render_item: unsupported AST code {} */", c);
     }
+}
+
+// One container clause line (BTFL 8b): dispatched on the node's structural
+// keys — FIELDS = a `stream N { … }` block (nested clauses, depth+1), ITEMS =
+// an `ops { … }` block (one line), PARAMS/no-NAME = `entry { col: ty, … }`
+// (one line), NAME [+VALUE] = a word clause (`kind k;` / `measure m;` /
+// `measure m(col);`).
+std::string SemaChecker::render_container_clause_src_(TinyMapView cl,
+                                                      int depth) {
+    std::string ind(static_cast<size_t>(depth) * 4, ' ');
+    std::string lead(str_of(cl.get(la::REL_KW.code)));
+    std::string s = ind + lead;
+    if (cl.has_key(la::FIELDS)) {
+        // stream block
+        s += " ";
+        s += std::string(str_of(cl.get(la::NAME.code)));
+        s += " {\n";
+        auto sarr = arr_of(cl.get(la::FIELDS.code));
+        for (uint64_t i = 0; i < sarr.size(); ++i) {
+            auto sub = map_of(sarr.get(i));
+            if (sub.is_null() || code_of(sub) != la::CONTAINER_CLAUSE)
+                continue;
+            s += render_container_clause_src_(sub, depth + 1);
+        }
+        s += ind;
+        s += "}\n";
+        return s;
+    }
+    if (cl.has_key(la::ITEMS)) {
+        // ops block — `ops { seek(max(key)); insert; … }` on one line
+        s += " {";
+        auto oarr = arr_of(cl.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < oarr.size(); ++i) {
+            auto op = map_of(oarr.get(i));
+            if (op.is_null() || code_of(op) != la::CONTAINER_OP) continue;
+            s += " ";
+            s += std::string(str_of(op.get(la::NAME.code)));
+            if (op.has_key(la::VALUE)) {
+                s += "(";
+                s += std::string(str_of(op.get(la::VALUE.code)));
+                if (op.has_key(la::OP_ARG)) {
+                    s += "(";
+                    s += std::string(str_of(op.get(la::OP_ARG.code)));
+                    s += ")";
+                }
+                s += ")";
+            }
+            s += ";";
+        }
+        s += " }\n";
+        return s;
+    }
+    if (!cl.has_key(la::NAME)) {
+        // entry clause — `entry { col: ty, … }` on one line
+        s += " {";
+        if (cl.has_key(la::PARAMS)) {
+            auto pl = map_of(cl.get(la::PARAMS.code));
+            if (!pl.is_null() && pl.has_key(la::ITEMS)) {
+                auto parr = arr_of(pl.get(la::ITEMS.code));
+                bool first = true;
+                for (uint64_t i = 0; i < parr.size(); ++i) {
+                    auto p = map_of(parr.get(i));
+                    if (p.is_null() || code_of(p) != la::PARAM) continue;
+                    s += first ? " " : ", ";
+                    first = false;
+                    s += render_param_src_(p);
+                }
+            }
+        }
+        s += " }\n";
+        return s;
+    }
+    // word / measure clause
+    s += " ";
+    s += std::string(str_of(cl.get(la::NAME.code)));
+    if (cl.has_key(la::VALUE)) {
+        s += "(";
+        s += std::string(str_of(cl.get(la::VALUE.code)));
+        s += ")";
+    }
+    s += ";\n";
+    return s;
 }
 
 std::string SemaChecker::render_writ_val_inner_(TinyMapView node) {

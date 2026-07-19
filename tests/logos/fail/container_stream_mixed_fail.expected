@@ -1,0 +1,1 @@
+top-level `entry`/`measure`/`ops` clauses cannot mix with `stream` blocks

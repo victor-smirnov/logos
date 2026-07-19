@@ -93,16 +93,19 @@ pub struct ContainerSpec {
     pub gnames:      str,   // "T" / "K,V"
     pub backing:     str,   // "VecCtr<T>" (syntactic)
     pub backing_pkg: str,   // defining package of the backing base type, or ""
-    pub kind:        str,   // "vector" | "ordered_map"
-    pub entry:       str,   // raw "name:ty:p,…" (iterated by the fact builder)
-    pub measures:    str,   // raw "count,max(key)"
+    pub kind:        str,   // "vector" | "ordered_map" | "node" | "branch" | "multimap"
+    pub entry:       str,   // raw "name:ty:p,…"; stream-qualified "keys.key:K:1,…" for a multistream decl
+    pub measures:    str,   // raw "count,max(key)"; stream-qualified "keys.max(key),values.count"
     pub pkg:         str,   // declaring package (ADR 0021 CFG-doc emission), "" if absent
+    pub streams:     str,   // BTFL 8b: "keys,values" in declaration order; "" = BTSS sugar (one anonymous stream)
+    pub ops:         str,   // BTFL 8b: "keys.seek(max(key)),keys.insert,values.scan(val),…"; unqualified for BTSS sugar; "" = none
 }
 
 pub fn container_spec_new() -> ContainerSpec {
     return ContainerSpec {
         is_pub: false, generics: "", gnames: "", backing: "",
         backing_pkg: "", kind: "", entry: "", measures: "", pkg: "",
+        streams: "", ops: "",
     };
 }
 
@@ -150,6 +153,12 @@ pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
         else if str_eq(key, "pkg") {
             out.pkg = val;
         }
+        else if str_eq(key, "streams") {
+            out.streams = val;
+        }
+        else if str_eq(key, "ops") {
+            out.ops = val;
+        }
         else {
             return false;
         }
@@ -157,8 +166,10 @@ pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
         pos = end + 1i64;
     }
     // 8 = legacy/hand-built spec (canon_container_facts); 9 = compiler seam
-    // with the ADR-0021 `pkg=` segment. kind+entry are the load-bearing fields.
-    return (seen == 8i64 || seen == 9i64) && out.kind.len() > 0i64 && out.entry.len() > 0i64;
+    // with the ADR-0021 `pkg=` segment; +streams/+ops = the BTFL 8b
+    // multistream segments (emitted only when present, so BTSS-sugar spec
+    // lines stay byte-identical). kind+entry are the load-bearing fields.
+    return seen >= 8i64 && seen <= 11i64 && out.kind.len() > 0i64 && out.entry.len() > 0i64;
 }
 
 /// Builds the FACT Writ doc for ONE container item (wave-0 has no cross-item

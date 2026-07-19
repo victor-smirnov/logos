@@ -21116,129 +21116,13 @@ bool SemaChecker::reconstruct_container_def(writ::TinyMapView node,
     }
 
     // ── clauses: `kind k;` / `entry { col: ty, … }` / `measure m;` /
-    // `measure m(col);` — leads are contextual idents, dispatched here.
+    // `measure m(col);` / `ops { … }` / `stream N { … }` — leads are
+    // contextual idents, dispatched in reconstruct_container_clauses (the
+    // same walk serves the top-level body and each stream block's body).
     if (node.has_key(la::FIELDS)) {
         auto carr = arr_of(node.get(la::FIELDS.code));
-        for (uint64_t i = 0; i < carr.size(); ++i) {
-            auto cl = map_of(carr.get(i));
-            if (cl.is_null()) continue;
-            int32_t cc = code_of(cl);
-            if (cc == la::DOC_LINE_LIT || cc == la::DOC_BLOCK_LIT) continue;
-            if (cc != la::CONTAINER_CLAUSE) continue;   // $... CODE-filter contract
-            std::string clead(str_of(cl.get(la::REL_KW.code)));
-            if (clead == "kind") {
-                if (!cl.has_key(la::NAME.code) || cl.has_key(la::VALUE.code)
-                        || cl.has_key(la::PARAMS.code)) {
-                    err = std::format(
-                        "container '{}': `kind` takes one bare word "
-                        "(`kind vector;`)", cname);
-                    return false;
-                }
-                if (!out.kind.empty()) {
-                    err = std::format(
-                        "container '{}': duplicate `kind` clause", cname);
-                    return false;
-                }
-                std::string kw(str_of(cl.get(la::NAME.code)));
-                if (kw != "vector" && kw != "ordered_map" && kw != "node"
-                        && kw != "branch") {
-                    err = std::format(
-                        "container '{}': unknown kind '{}' — wave-0 kinds "
-                        "are `vector`, `ordered_map`, `node`, and `branch`",
-                        cname, kw);
-                    return false;
-                }
-                out.kind = kw;
-            } else if (clead == "entry") {
-                if (cl.has_key(la::NAME.code)) {
-                    err = std::format(
-                        "container '{}': `entry` takes a column list "
-                        "(`entry {{ col: ty, … }}`)", cname);
-                    return false;
-                }
-                if (!out.entry.empty()) {
-                    err = std::format(
-                        "container '{}': duplicate `entry` clause", cname);
-                    return false;
-                }
-                if (cl.has_key(la::PARAMS.code)) {
-                    auto pl = map_of(cl.get(la::PARAMS.code));
-                    if (!pl.is_null() && pl.has_key(la::ITEMS.code)) {
-                        auto parr = arr_of(pl.get(la::ITEMS.code));
-                        for (uint64_t j = 0; j < parr.size(); ++j) {
-                            auto p = map_of(parr.get(j));
-                            if (p.is_null() || code_of(p) != la::PARAM) continue;
-                            if (!p.has_key(la::NAME.code)
-                                    || !p.has_key(la::TYPE.code)
-                                    || p.has_key(la::PAT.code)
-                                    || p.has_key(la::NAMES.code)) {
-                                err = std::format(
-                                    "container '{}': entry columns must be "
-                                    "simple `name: type` bindings", cname);
-                                return false;
-                            }
-                            ContainerCol col;
-                            col.name = std::string(str_of(p.get(la::NAME.code)));
-                            col.ty = render_type_src_syntactic_(
-                                map_of(p.get(la::TYPE.code)));
-                            if (col.ty.empty()) {
-                                err = std::format(
-                                    "container '{}': cannot render the type "
-                                    "of entry column '{}'", cname, col.name);
-                                return false;
-                            }
-                            for (const auto& gn : out.generic_names)
-                                if (col.ty == gn) { col.is_param = true; break; }
-                            out.entry.push_back(std::move(col));
-                        }
-                    }
-                }
-                if (out.entry.empty()) {
-                    err = std::format(
-                        "container '{}': `entry` needs at least one typed "
-                        "column", cname);
-                    return false;
-                }
-            } else if (clead == "measure") {
-                if (!cl.has_key(la::NAME.code)) {
-                    err = std::format(
-                        "container '{}': `measure` needs a name "
-                        "(`measure count;` / `measure max(col);`)", cname);
-                    return false;
-                }
-                ContainerMeasure m;
-                m.mfn = std::string(str_of(cl.get(la::NAME.code)));
-                if (cl.has_key(la::VALUE.code))
-                    m.arg = std::string(str_of(cl.get(la::VALUE.code)));
-                if (m.mfn == "count") {
-                    if (!m.arg.empty()) {
-                        err = std::format(
-                            "container '{}': `measure count` takes no "
-                            "argument", cname);
-                        return false;
-                    }
-                } else if (m.mfn == "max") {
-                    if (m.arg.empty()) {
-                        err = std::format(
-                            "container '{}': `measure max` requires a column "
-                            "argument (`measure max(key);`)", cname);
-                        return false;
-                    }
-                } else {
-                    err = std::format(
-                        "container '{}': unknown measure '{}' — wave-0 "
-                        "measures are `count` and `max(col)`", cname, m.mfn);
-                    return false;
-                }
-                out.measures.push_back(std::move(m));
-            } else {
-                err = std::format(
-                    "container '{}': unknown clause `{}` — container bodies "
-                    "contain `kind`, `entry` and `measure` clauses",
-                    cname, clead);
-                return false;
-            }
-        }
+        if (!reconstruct_container_clauses(carr, cname, out, nullptr, err))
+            return false;
     }
     if (out.kind.empty()) {
         err = std::format(
@@ -21246,11 +21130,231 @@ bool SemaChecker::reconstruct_container_def(writ::TinyMapView node,
             "`kind ordered_map;`)", cname);
         return false;
     }
-    if (out.entry.empty()) {
+    // BTFL 8b shape rules: stream blocks and the top-level (BTSS sugar)
+    // entry/measure/ops surface are mutually exclusive; a multi-stream body
+    // needs an entry per stream. Everything vocabulary-shaped beyond this
+    // (ops verbs, measure/column references, per-kind stream arity) is
+    // Canon's decl-time verdict, never sema's.
+    if (!out.streams.empty()) {
+        if (!out.entry.empty() || !out.measures.empty() || !out.ops.empty()) {
+            err = std::format(
+                "container '{}': top-level `entry`/`measure`/`ops` clauses "
+                "cannot mix with `stream` blocks — move them into a stream",
+                cname);
+            return false;
+        }
+        for (const auto& s : out.streams) {
+            if (s.entry.empty()) {
+                err = std::format(
+                    "container '{}': stream '{}' is missing its `entry` "
+                    "clause (`entry {{ col: ty, … }}`)", cname, s.name);
+                return false;
+            }
+        }
+    } else if (out.entry.empty()) {
         err = std::format(
             "container '{}': missing `entry` clause "
             "(`entry {{ col: ty, … }}`)", cname);
         return false;
+    }
+    return true;
+}
+
+// BTFL 8b: one clause array — the container body (strm == null) or a
+// `stream` block's nested body. Fills kind (top only), entry/measures/ops
+// (into the stream when nested), streams (top only, no nesting).
+bool SemaChecker::reconstruct_container_clauses(writ::ArrayView carr,
+                                                const std::string& cname,
+                                                ContainerInfo& out,
+                                                ContainerStream* strm,
+                                                std::string& err) {
+    auto& entry    = strm ? strm->entry    : out.entry;
+    auto& measures = strm ? strm->measures : out.measures;
+    auto& ops      = strm ? strm->ops      : out.ops;
+    for (uint64_t i = 0; i < carr.size(); ++i) {
+        auto cl = map_of(carr.get(i));
+        if (cl.is_null()) continue;
+        int32_t cc = code_of(cl);
+        if (cc == la::DOC_LINE_LIT || cc == la::DOC_BLOCK_LIT) continue;
+        if (cc != la::CONTAINER_CLAUSE) continue;   // $... CODE-filter contract
+        std::string clead(str_of(cl.get(la::REL_KW.code)));
+        if (clead == "kind") {
+            if (strm) {
+                err = std::format(
+                    "container '{}': `kind` belongs to the container body, "
+                    "not to stream '{}'", cname, strm->name);
+                return false;
+            }
+            if (!cl.has_key(la::NAME.code) || cl.has_key(la::VALUE.code)
+                    || cl.has_key(la::PARAMS.code)) {
+                err = std::format(
+                    "container '{}': `kind` takes one bare word "
+                    "(`kind vector;`)", cname);
+                return false;
+            }
+            if (!out.kind.empty()) {
+                err = std::format(
+                    "container '{}': duplicate `kind` clause", cname);
+                return false;
+            }
+            std::string kw(str_of(cl.get(la::NAME.code)));
+            if (kw != "vector" && kw != "ordered_map" && kw != "node"
+                    && kw != "branch" && kw != "multimap") {
+                err = std::format(
+                    "container '{}': unknown kind '{}' — known kinds "
+                    "are `vector`, `ordered_map`, `node`, `branch`, and "
+                    "`multimap`", cname, kw);
+                return false;
+            }
+            out.kind = kw;
+        } else if (clead == "entry") {
+            if (cl.has_key(la::NAME.code)) {
+                err = std::format(
+                    "container '{}': `entry` takes a column list "
+                    "(`entry {{ col: ty, … }}`)", cname);
+                return false;
+            }
+            if (!entry.empty()) {
+                err = std::format(
+                    "container '{}': duplicate `entry` clause", cname);
+                return false;
+            }
+            if (cl.has_key(la::PARAMS.code)) {
+                auto pl = map_of(cl.get(la::PARAMS.code));
+                if (!pl.is_null() && pl.has_key(la::ITEMS.code)) {
+                    auto parr = arr_of(pl.get(la::ITEMS.code));
+                    for (uint64_t j = 0; j < parr.size(); ++j) {
+                        auto p = map_of(parr.get(j));
+                        if (p.is_null() || code_of(p) != la::PARAM) continue;
+                        if (!p.has_key(la::NAME.code)
+                                || !p.has_key(la::TYPE.code)
+                                || p.has_key(la::PAT.code)
+                                || p.has_key(la::NAMES.code)) {
+                            err = std::format(
+                                "container '{}': entry columns must be "
+                                "simple `name: type` bindings", cname);
+                            return false;
+                        }
+                        ContainerCol col;
+                        col.name = std::string(str_of(p.get(la::NAME.code)));
+                        col.ty = render_type_src_syntactic_(
+                            map_of(p.get(la::TYPE.code)));
+                        if (col.ty.empty()) {
+                            err = std::format(
+                                "container '{}': cannot render the type "
+                                "of entry column '{}'", cname, col.name);
+                            return false;
+                        }
+                        for (const auto& gn : out.generic_names)
+                            if (col.ty == gn) { col.is_param = true; break; }
+                        entry.push_back(std::move(col));
+                    }
+                }
+            }
+            if (entry.empty()) {
+                err = std::format(
+                    "container '{}': `entry` needs at least one typed "
+                    "column", cname);
+                return false;
+            }
+        } else if (clead == "measure") {
+            if (!cl.has_key(la::NAME.code)) {
+                err = std::format(
+                    "container '{}': `measure` needs a name "
+                    "(`measure count;` / `measure max(col);`)", cname);
+                return false;
+            }
+            ContainerMeasure m;
+            m.mfn = std::string(str_of(cl.get(la::NAME.code)));
+            if (cl.has_key(la::VALUE.code))
+                m.arg = std::string(str_of(cl.get(la::VALUE.code)));
+            if (m.mfn == "count") {
+                if (!m.arg.empty()) {
+                    err = std::format(
+                        "container '{}': `measure count` takes no "
+                        "argument", cname);
+                    return false;
+                }
+            } else if (m.mfn == "max") {
+                if (m.arg.empty()) {
+                    err = std::format(
+                        "container '{}': `measure max` requires a column "
+                        "argument (`measure max(key);`)", cname);
+                    return false;
+                }
+            } else {
+                err = std::format(
+                    "container '{}': unknown measure '{}' — known "
+                    "measures are `count` and `max(col)`", cname, m.mfn);
+                return false;
+            }
+            measures.push_back(std::move(m));
+        } else if (clead == "ops") {
+            // BTFL 8b: `ops { verb; verb(arg); verb(mfn(col)); … }` — the
+            // verb VOCABULARY and its references are Canon's decl-time
+            // verdict; sema records shape only.
+            if (!ops.empty()) {
+                err = std::format(
+                    "container '{}': duplicate `ops` clause", cname);
+                return false;
+            }
+            if (cl.has_key(la::ITEMS.code)) {
+                auto oarr = arr_of(cl.get(la::ITEMS.code));
+                for (uint64_t j = 0; j < oarr.size(); ++j) {
+                    auto op = map_of(oarr.get(j));
+                    if (op.is_null() || code_of(op) != la::CONTAINER_OP)
+                        continue;
+                    ContainerOp o;
+                    o.verb = std::string(str_of(op.get(la::NAME.code)));
+                    if (op.has_key(la::VALUE.code))
+                        o.arg_head = std::string(str_of(op.get(la::VALUE.code)));
+                    if (op.has_key(la::OP_ARG.code))
+                        o.arg_inner = std::string(str_of(op.get(la::OP_ARG.code)));
+                    ops.push_back(std::move(o));
+                }
+            }
+            if (ops.empty()) {
+                err = std::format(
+                    "container '{}': `ops` needs at least one operation "
+                    "(`ops {{ insert; seek(max(key)); … }}`)", cname);
+                return false;
+            }
+        } else if (clead == "stream") {
+            if (strm) {
+                err = std::format(
+                    "container '{}': stream '{}' cannot nest another "
+                    "`stream` block", cname, strm->name);
+                return false;
+            }
+            if (!cl.has_key(la::NAME.code)) {
+                err = std::format(
+                    "container '{}': `stream` needs a name "
+                    "(`stream keys {{ … }}`)", cname);
+                return false;
+            }
+            ContainerStream s;
+            s.name = std::string(str_of(cl.get(la::NAME.code)));
+            for (const auto& prev : out.streams) {
+                if (prev.name == s.name) {
+                    err = std::format(
+                        "container '{}': duplicate stream '{}'",
+                        cname, s.name);
+                    return false;
+                }
+            }
+            if (cl.has_key(la::FIELDS.code)) {
+                auto sarr = arr_of(cl.get(la::FIELDS.code));
+                if (!reconstruct_container_clauses(sarr, cname, out, &s, err))
+                    return false;
+            }
+            out.streams.push_back(std::move(s));
+        } else {
+            err = std::format(
+                "container '{}': unknown clause `{}` — container bodies "
+                "contain `kind`, `entry`, `measure`, `ops` and `stream` "
+                "clauses", cname, clead);
+            return false;
+        }
     }
     return true;
 }
@@ -21282,17 +21386,79 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
     }
     spec += std::format("|backing={}|backing_pkg={}|kind={}|entry=",
                         info.backing_src, info.backing_pkg, info.kind);
-    for (size_t i = 0; i < info.entry.size(); ++i) {
-        if (i) spec += ",";
-        spec += std::format("{}:{}:{}", info.entry[i].name, info.entry[i].ty,
-                            info.entry[i].is_param ? 1 : 0);
-    }
-    spec += "|measures=";
-    for (size_t i = 0; i < info.measures.size(); ++i) {
-        if (i) spec += ",";
-        spec += info.measures[i].mfn;
-        if (!info.measures[i].arg.empty())
-            spec += std::format("({})", info.measures[i].arg);
+    // BTFL 8b: a multistream body serializes its per-stream clauses into the
+    // SAME entry=/measures= segments with `<stream>.`-qualified names (plus
+    // the streams=/ops= segments below). A BTSS-sugar body (no stream
+    // blocks, no ops) serializes EXACTLY as before — byte-stable spec lines
+    // keep existing CFG docs (and their @hs family identities) unchanged.
+    auto op_text = [](const ContainerOp& o) {
+        std::string t = o.verb;
+        if (!o.arg_head.empty()) {
+            t += "(" + o.arg_head;
+            if (!o.arg_inner.empty()) t += "(" + o.arg_inner + ")";
+            t += ")";
+        }
+        return t;
+    };
+    if (info.streams.empty()) {
+        for (size_t i = 0; i < info.entry.size(); ++i) {
+            if (i) spec += ",";
+            spec += std::format("{}:{}:{}", info.entry[i].name,
+                                info.entry[i].ty,
+                                info.entry[i].is_param ? 1 : 0);
+        }
+        spec += "|measures=";
+        for (size_t i = 0; i < info.measures.size(); ++i) {
+            if (i) spec += ",";
+            spec += info.measures[i].mfn;
+            if (!info.measures[i].arg.empty())
+                spec += std::format("({})", info.measures[i].arg);
+        }
+        if (!info.ops.empty()) {
+            spec += "|ops=";
+            for (size_t i = 0; i < info.ops.size(); ++i) {
+                if (i) spec += ",";
+                spec += op_text(info.ops[i]);
+            }
+        }
+    } else {
+        bool first = true;
+        for (const auto& s : info.streams)
+            for (const auto& c : s.entry) {
+                if (!first) spec += ",";
+                first = false;
+                spec += std::format("{}.{}:{}:{}", s.name, c.name, c.ty,
+                                    c.is_param ? 1 : 0);
+            }
+        spec += "|measures=";
+        first = true;
+        for (const auto& s : info.streams)
+            for (const auto& m : s.measures) {
+                if (!first) spec += ",";
+                first = false;
+                spec += s.name + "." + m.mfn;
+                if (!m.arg.empty()) spec += std::format("({})", m.arg);
+            }
+        spec += "|streams=";
+        first = true;
+        for (const auto& s : info.streams) {
+            if (!first) spec += ",";
+            first = false;
+            spec += s.name;
+        }
+        bool any_ops = false;
+        for (const auto& s : info.streams)
+            if (!s.ops.empty()) any_ops = true;
+        if (any_ops) {
+            spec += "|ops=";
+            first = true;
+            for (const auto& s : info.streams)
+                for (const auto& o : s.ops) {
+                    if (!first) spec += ",";
+                    first = false;
+                    spec += s.name + "." + op_text(o);
+                }
+        }
     }
     // Declaring package — the CFG-doc + alias synthesis (ADR 0021) emits a
     // whole-source chunk via logos_emit_source, which needs an explicit

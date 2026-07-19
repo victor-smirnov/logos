@@ -4374,6 +4374,17 @@ private:
     // rounds.
     struct ContainerCol     { std::string name, ty; bool is_param = false; };  // ty syntactic; is_param: ty ∈ container generics
     struct ContainerMeasure { std::string mfn, arg; };                          // ("count",""), ("max","key")
+    // BTFL 8b: one `ops { … }` entry — verb + optional arg head + optional
+    // inner ident: ("insert","",""), ("select","count",""), ("scan","val",""),
+    // ("seek","max","key"). The verb VOCABULARY is Canon's to judge, not sema's.
+    struct ContainerOp      { std::string verb, arg_head, arg_inner; };
+    // BTFL 8b: one `stream N { entry {…} measure m; ops {…} }` block.
+    struct ContainerStream  {
+        std::string name;
+        std::vector<ContainerCol>     entry;
+        std::vector<ContainerMeasure> measures;
+        std::vector<ContainerOp>      ops;
+    };
     struct ContainerInfo {
         std::string name;  std::string package;  // package-qualified identity
         bool is_pub = false;  bool is_module_only = false;
@@ -4388,9 +4399,11 @@ private:
         std::vector<std::string> generic_names;   // ["T"] / ["K","V"]
         std::string backing_src;                  // "VecCtr<T>" — SYNTACTIC render (mapping precedent; resolved only on the emission path)
         std::string backing_pkg;                  // defining package of the backing base type if resolvable, else ""
-        std::string kind;                         // "vector" | "ordered_map"
-        std::vector<ContainerCol>     entry;
-        std::vector<ContainerMeasure> measures;
+        std::string kind;                         // "vector" | "ordered_map" | "node" | "branch" | "multimap"
+        std::vector<ContainerCol>     entry;      // top-level (BTSS sugar ≡ one anonymous stream)
+        std::vector<ContainerMeasure> measures;   // top-level (BTSS sugar)
+        std::vector<ContainerOp>      ops;        // top-level `ops {…}` (BTSS sugar; optional)
+        std::vector<ContainerStream>  streams;    // BTFL 8b `stream N {…}` blocks (empty = BTSS sugar)
     };
     std::unordered_map<std::string, ContainerInfo> containers_;
     // Reconstructs + validates one CONTAINER_DEF(_DONE) node. Validation here
@@ -4401,6 +4414,15 @@ private:
     bool          reconstruct_container_def(writ::TinyMapView node,
                                             ContainerInfo& out,
                                             std::string& err);
+    // BTFL 8b: parses ONE clause array — the container body or a `stream`
+    // block's nested body (`strm` != null). Fills kind/entry/measures/ops
+    // (+ streams at top level). Shape validation only (Canon judges the ops
+    // vocabulary + references at decl time).
+    bool          reconstruct_container_clauses(writ::ArrayView carr,
+                                                const std::string& cname,
+                                                ContainerInfo& out,
+                                                ContainerStream* strm,
+                                                std::string& err);
     // ADR 0020 wave-0: `container` ITEM lowering — registers the declaration,
     // serializes it to the one-line spec string, and routes (name, spec)
     // through emit_token_macro_item_site to the `__container_item` handler
@@ -4494,6 +4516,9 @@ public:
     std::string render_type_src(writ::TinyMapView node);
     std::string render_pat_src(writ::TinyMapView node);
     std::string render_item_src(writ::TinyMapView node);
+    // BTFL 8b: one container clause line (kind/entry/measure/ops/stream) at
+    // `depth` indent levels — recursion handles nested stream blocks.
+    std::string render_container_clause_src_(writ::TinyMapView cl, int depth);
     std::string render_module_src(writ::TinyMapView node);
 
     // For the --dump-metaprog driver: temporarily point this checker at a
