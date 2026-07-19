@@ -1,0 +1,160 @@
+// ssrle_1bps — targeted law-gate for the bps==1 per-run FAST PATHS
+// (C++ oracle: SSRLERunTraits<1>, ssrle_1bps.hpp):
+//
+//   pattern_rank_eq_up_to → popcount(pattern & mask(idx))   (:101)
+//   pattern_select_fw_eq  → tzcnt(pdep(1<<rank, w))         (:129-:156)
+//
+// Discipline: the fast paths must agree with the generic-loop semantics
+// BIT-FOR-BIT — the naive per-symbol oracles below reimplement the generic
+// loops, and every (pattern, idx/rank, sym) cell is compared, including the
+// not-found clamp (select of a rank the pattern doesn't hold → plen).
+// Exhaustive over all patterns of length 1..=10; randomized at the encodable
+// cap (56 bits) + the repeated-run (run_length > 1) rank/select laws.
+//
+// Error codes:
+//   1  pattern_rank_eq_up_to ≠ naive        (exhaustive corpus)
+//   2  pattern_select_fw_eq ≠ naive          (exhaustive corpus)
+//   3  rank(select(r)) ≠ r inverse law       (exhaustive corpus)
+//   11..13  same three on the random 56-bit corpus
+//   20 select_fw_eq/rank_eq inverse law over a repeated run
+//   21 select_fw_eq lands on a non-sym position
+package test;
+
+use memoria.ssrle;
+use logos.lang.arith;
+
+// ── deterministic corpus (LCG via wrapping arithmetic) ──────────────────────
+
+fn rnd(st: &mut u64) -> u64 {
+    let next: u64 = wrapping_add(wrapping_mul(*st, 6364136223846793005u64), 1442695040888963407u64);
+    *st = next;
+    return next >> 33u64;
+}
+
+// ── naive per-run oracles: the generic-loop semantics, reimplemented ────────
+
+fn naive_pattern_rank_up_to(run: &SsrleRun, idx: u64, sym: u64) -> u64 {
+    let mut rank: u64 = 0u64;
+    let mut c: u64 = 0u64;
+    while c < idx {
+        if run.pattern_symbol(1u32, c) == sym {
+            rank = rank + 1u64;
+        }
+        c = c + 1u64;
+    }
+    return rank;
+}
+
+fn naive_pattern_select(run: &SsrleRun, rank: u64, sym: u64) -> u64 {
+    let plen: u64 = run.pattern_length as u64;
+    let target: u64 = rank + 1u64;
+    let mut rr: u64 = 0u64;
+    let mut c: u64 = 0u64;
+    while c < plen {
+        if run.pattern_symbol(1u32, c) == sym {
+            rr = rr + 1u64;
+            if rr == target {
+                return c;
+            }
+        }
+        c = c + 1u64;
+    }
+    return plen;
+}
+
+// Every (idx/rank, sym) cell of one run, fast vs naive.
+fn check_run(run: &SsrleRun) -> i32 {
+    let plen: u64 = run.pattern_length as u64;
+    let mut sym: u64 = 0u64;
+    while sym < 2u64 {
+        let mut idx: u64 = 0u64;
+        while idx <= plen {
+            if run.pattern_rank_eq_up_to(1u32, idx, sym) != naive_pattern_rank_up_to(run, idx, sym) {
+                return 1;
+            }
+            idx = idx + 1u64;
+        }
+        // Every present rank + one past the last (the not-found clamp).
+        let total: u64 = naive_pattern_rank_up_to(run, plen, sym);
+        let mut r: u64 = 0u64;
+        while r <= total {
+            if run.pattern_select_fw_eq(1u32, r, sym) != naive_pattern_select(run, r, sym) {
+                return 2;
+            }
+            r = r + 1u64;
+        }
+        // Inverse law: rank(select(r)) == r for every present rank.
+        r = 0u64;
+        while r < total {
+            let pos: u64 = run.pattern_select_fw_eq(1u32, r, sym);
+            if run.pattern_rank_eq_up_to(1u32, pos, sym) != r {
+                return 3;
+            }
+            r = r + 1u64;
+        }
+        sym = sym + 1u64;
+    }
+    return 0;
+}
+
+fn mk_run(pattern: u64, plen: u32, rl: u64) -> SsrleRun {
+    return SsrleRun {
+        pattern: pattern & ssrle_make_mask(plen as u64),
+        pattern_length: plen,
+        run_length: rl,
+    };
+}
+
+fn main() -> i32 {
+    // Exhaustive: every bitmap pattern of length 1..=10.
+    let mut plen: u64 = 1u64;
+    while plen <= 10u64 {
+        let lim: u64 = 1u64 << plen;
+        let mut p: u64 = 0u64;
+        while p < lim {
+            let run: SsrleRun = mk_run(p, plen as u32, 1u64);
+            let rc: i32 = check_run(&run);
+            if rc != 0 {
+                return rc;
+            }
+            p = p + 1u64;
+        }
+        plen = plen + 1u64;
+    }
+    // Randomized at the encodable cap (plen ≤ 56) + repeated-run laws.
+    let mut st: u64 = 0x5eed5eed5eedu64;
+    let pcap: u64 = ssrle_encodable_pattern_length(1u32) as u64;
+    let mut i: i32 = 0;
+    while i < 200 {
+        let plen2: u64 = 1u64 + rnd(&mut st) % pcap;
+        let hi: u64 = rnd(&mut st);
+        let lo: u64 = rnd(&mut st);
+        let pat: u64 = (hi << 31u64) | lo;
+        let rl: u64 = 1u64 + rnd(&mut st) % 5u64;
+        let run: SsrleRun = mk_run(pat, plen2 as u32, rl);
+        let rc: i32 = check_run(&run);
+        if rc != 0 {
+            return 10 + rc;
+        }
+        // Repeated-run (run_length ≥ 1) select/rank inverse laws through the
+        // full-run path, both symbols.
+        let mut sym: u64 = 0u64;
+        while sym < 2u64 {
+            let total: u64 = run.full_rank_eq(1u32, sym);
+            let mut r: u64 = 0u64;
+            while r < total {
+                let pos: u64 = run.select_fw_eq(1u32, r, sym);
+                if run.rank_eq(1u32, pos, sym) != r {
+                    return 20;
+                }
+                if run.symbol(1u32, pos) != sym {
+                    return 21;
+                }
+                r = r + 1u64;
+            }
+            sym = sym + 1u64;
+        }
+        i = i + 1;
+    }
+    return 0;
+}

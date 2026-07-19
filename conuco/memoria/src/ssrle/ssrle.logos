@@ -532,7 +532,18 @@ impl SsrleRun {
     }
 
     /// Occurrences of `sym` in pattern[0..idx) (C++ pattern_rank :771).
+    /// bps==1 fast path (C++ SSRLERunTraits<1>::pattern_rank, ssrle_1bps.hpp
+    /// :101): popcount over the masked bitmap replaces the symbol walk.
+    /// Equivalent to the generic loop bit-for-bit: positions ≥ the stored
+    /// pattern read 0 in both forms.
     pub fn pattern_rank_eq_up_to(&self, bps: u32, idx: u64, sym: u64) -> u64 {
+        if bps == 1u32 {
+            let pc: u64 = popcount_u64(self.pattern & ssrle_make_mask(idx)) as u64;
+            if sym != 0u64 {
+                return pc;
+            }
+            return idx - pc;
+        }
         let mut rank: u64 = 0u64;
         let mut c: u64 = 0u64;
         while c < idx {
@@ -564,7 +575,29 @@ impl SsrleRun {
 
     /// Pattern index of the (rank+1)-th `sym` occurrence, or pattern_length
     /// when the pattern holds fewer (C++ pattern_select_fw :899).
+    /// bps==1 fast path (C++ SSRLERunTraits<1>::pattern_select_fw +
+    /// bitmap_select, ssrle_1bps.hpp :129-:156): O(1) select-in-word
+    /// `tzcnt(pdep(1<<rank, w))` — pdep deposits the single bit onto the
+    /// rank-th set position of w, tzcnt reads its index; pdep yields 0 when
+    /// w holds ≤ rank set bits, tzcnt(0) = 64 ≥ plen → the not-found clamp
+    /// preserves the generic loop's `plen` result exactly.
     pub fn pattern_select_fw_eq(&self, bps: u32, rank: u64, sym: u64) -> u64 {
+        if bps == 1u32 {
+            let plen: u64 = self.pattern_length as u64;
+            if rank >= 64u64 {
+                return plen;
+            }
+            let mask: u64 = ssrle_make_mask(plen);
+            let mut w: u64 = self.pattern & mask;
+            if sym == 0u64 {
+                w = (!self.pattern) & mask;
+            }
+            let pos: u64 = trailing_zeros_u64(pdep_u64(1u64 << rank, w)) as u64;
+            if pos >= plen {
+                return plen;
+            }
+            return pos;
+        }
         let target: u64 = rank + 1u64;
         let plen: u64 = self.pattern_length as u64;
         let mut rr: u64 = 0u64;
