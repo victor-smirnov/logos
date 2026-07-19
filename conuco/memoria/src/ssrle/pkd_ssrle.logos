@@ -291,6 +291,16 @@ fn ssrle_index_build(
     }
 }
 
+/// Re-adopt an ALREADY FORMATTED sequence block as a handle (the VecCtr
+/// re-resolution idiom): packed payloads shift when sibling slots of the
+/// containing allocator resize, so a consumer embedding a PkdSsrle inside a
+/// larger PkdAlloc (the BTFL leaf) must re-resolve the handle from the slot
+/// address on every call instead of caching it. `mem` must point at the
+/// block a pkd_ssrle_format once initialized.
+pub unsafe fn pkd_ssrle_adopt(mem: *mut u8) -> PkdSsrle {
+    return PkdSsrle { mem: mem };
+}
+
 /// Format + set_runs in one step — create-from-runs over caller memory.
 pub unsafe fn pkd_ssrle_create(
     mem: *mut u8,

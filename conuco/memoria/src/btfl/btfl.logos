@@ -1,0 +1,982 @@
+// memoria.btfl — BTFL increment 8a: the multistream free-layout btree with a
+// HARDCODED 2-stream Multimap<u64, u64> (ordered multimap key → sequence of
+// values). The factory (8b) generalizes this file; the MECHANICS land here.
+//
+// LOGICAL MODEL: records of 2 streams ordered relative to each other — for
+// each key in key order: one key entry (symbol 0) followed by its value
+// entries (symbol 1). The layout is carried by a SYMBOL SEQUENCE
+// (alphabet = 2, SSRLE) kept as the LAST stream of every leaf; branch nodes
+// carry per-symbol subtree counts + the stream-0 max-key measure.
+//
+// C++ ORACLE SITES MIRRORED (~/cxx/memoria/containers/include/memoria/...):
+//   * structure stream = SSRLE over DataStreams symbols, kept as a dedicated
+//     stream: prototypes/bt_fl/btfl_tools.hpp:28 (StructureStreamTF =
+//     PkdSSRLESeqT<DataStreams, 256, true>); multimap stream list (keys,
+//     values, structure LAST): containers/multimap/multimap_factory.hpp:143-172.
+//   * branch columns for the structure stream = AlphabetSize SUM columns:
+//     core/packed/sseq/packed_ssrle_seq.hpp:452-462 (PackedStructTraits:
+//     Indexes = AlphabetSize, KeySearchType = SUM) routed through
+//     containers/multimap/multimap_tools.hpp:64-77 (SUM/Indexes → sum
+//     buffer); keys column → MAX measure (multimap_tools.hpp:37, :79-84);
+//     values column → UNORDERED → NO branch column (multimap_tools.hpp:49-62).
+//     Here: BtflBranch = MAXKEY (MAX) + CNT0/CNT1 (the two SUM columns; for
+//     2 data streams the per-stream StreamSize sums coincide with them).
+//   * select descent (the shuttle contract): bt/shuttles/
+//     bt_select_shuttle.hpp:71-90 — each BRANCH runs find_for_select_fw over
+//     the per-symbol sum tree with the rank remainder, accumulating the
+//     skipped rank; :106-137 — the LEAF finishes with seq.select_fw. Here:
+//     btfl_select walks CNT<sym> the same way and finishes with
+//     PkdSsrle::select_fw_eq. (select_fw_eq_nlt degenerates to select_fw_eq
+//     for sym = 0 at alphabet 2 — nothing is smaller than 0.)
+//   * rank-projection of a symbol position into per-stream positions (the
+//     multistream Position): containers/multimap/
+//     multimap_keys_chunk_impl.hpp:312-319 — iter_leafrank() = {keys_pos,
+//     rank_eq(sym_idx, 1), sym_idx}; inserts happen at that Position:
+//     prototypes/bt_fl/container/btfl_c_insert.hpp:54-56.
+//   * leaf split = split every substream at its projected position:
+//     bt/container/bt_cw_leaf_common.hpp:41-57 (ctr_split_leaf dispatches
+//     split_to(Position) over the node). Here: btfl_leaf_split picks the
+//     key-aligned symbol position p = select_fw_eq(kmid, 0), projects
+//     (kmid, rank_eq(p, 1), p) and splits keys / vals / symbol stream there
+//     — the rank-projection IS the multistream split.
+//   * key → values navigation: containers/multimap/
+//     multimap_keys_chunk_impl.hpp:241-267 (values_chunk: key's symbol
+//     position via select_fw_eq(idx, 0); span bounded by the NEXT symbol-0
+//     position; first value = rank_eq(sym_idx + 1, 1) — the projection into
+//     the values stream). Here: btfl_find.
+//
+// V0 RESTRICTIONS (lifted by 8a2/8b):
+//   * splits are KEY-ALIGNED (the split position is a key's symbol position)
+//     ⇒ every leaf starts with a symbol-0 entry and a key's values never
+//     straddle leaves. Spanning value runs (and the keyless leaves they
+//     imply — C++ handles those via the OPTIONAL max buffer,
+//     multimap_tools.hpp:82) arrive with the 8a2 batch input provider.
+//   * one entry (key + its values) must fit a leaf after a split — asserted.
+//   * inserting an EXISTING key is rejected (returns false); append/upsert
+//     of values is 8a2 surface.
+//   * bulk build / remove (btfl_c_leaf_common.hpp:43 ctr_remove_range) /
+//     node merge / CoW insert are NOT in 8a.
+//
+// SUBSTRATE: memstore node blocks (logos.mem.bt.node / memstore) — the
+// branch keeps child refs in slot 2 as PkdArray<u64> (BRANCH_CHILD_SLOT), so
+// the container-agnostic tree_release frees any btfl tree from (root, level).
+// The leaf's symbol stream is a NESTED PkdSsrle block inside the leaf's
+// PkdAlloc (Allocatable slot, back-ref healed on sibling shifts; growth
+// through the parent chain) — the C++ nested-PackedAllocator discipline.
+//
+// POINTER DISCIPLINE (the VecCtr idiom): packed payloads shift when sibling
+// slots resize — every PkdArray / PkdSsrle view is re-resolved from the
+// node's PkdAlloc AT THE POINT OF USE, never cached across a mutation.
+package memoria.btfl;
+
+use memoria.ssrle;               // PkdSsrle + the run codec/algebra
+use logos.mem.pkd;               // PkdAlloc, PkdArray, SlotKind, PkdError
+use logos.mem.bt.node;           // node_alloc / node_pkd (via snapshot) — node blocks
+use logos.mem.bt.memstore;       // MemorySnapshot (allocation capability), tree_release
+use logos.lang.panic;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+// ── node geometry ───────────────────────────────────────────────────────────
+
+// Leaf slots: the two data streams row-wise (PkdArray columns), then the
+// symbol stream as the LAST slot-group (the C++ stream order).
+const LF_KEYS: u32 = 0u32;
+const LF_VALS: u32 = 1u32;
+const LF_SYMS: u32 = 2u32;
+const LF_SLOTS: u32 = 3u32;
+
+// Branch slots: max-key measure, per-symbol count columns, child refs.
+// Child refs MUST live in slot 2 (memstore BRANCH_CHILD_SLOT) so the
+// container-agnostic tree_release can walk any btfl tree.
+const BR_MAX:   u32 = 0u32;
+const BR_CNT0:  u32 = 1u32;
+const BR_CHILD: u32 = 2u32;
+const BR_CNT1:  u32 = 3u32;
+const BR_SLOTS: u32 = 4u32;
+
+const BTFL_ALPHABET: u32 = 2u32;
+
+// ── typed slot views (re-resolved per call; never cached) ───────────────────
+
+unsafe fn lf_keys(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
+    return a.get::<PkdArray<u64>>(LF_KEYS);
+}
+
+unsafe fn lf_vals(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
+    return a.get::<PkdArray<u64>>(LF_VALS);
+}
+
+unsafe fn lf_seq(a: *mut PkdAlloc) -> PkdSsrle {
+    return pkd_ssrle_adopt(a.get::<u8>(LF_SYMS));
+}
+
+unsafe fn br_max(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
+    return a.get::<PkdArray<u64>>(BR_MAX);
+}
+
+unsafe fn br_cnt0(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
+    return a.get::<PkdArray<u64>>(BR_CNT0);
+}
+
+unsafe fn br_cnt1(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
+    return a.get::<PkdArray<u64>>(BR_CNT1);
+}
+
+unsafe fn br_child(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
+    return a.get::<PkdArray<u64>>(BR_CHILD);
+}
+
+// Per-symbol count column view — the branch analog of the C++
+// translateLeafIndexToBranchIndex column pick (bt_select_shuttle.hpp:74).
+unsafe fn br_cnt(a: *mut PkdAlloc, sym: u64) -> *mut PkdArray<u64> {
+    if sym == 0u64 {
+        return br_cnt0(a);
+    }
+    return br_cnt1(a);
+}
+
+// ── node creation ───────────────────────────────────────────────────────────
+
+/// Fresh empty leaf: keys/vals columns + the nested SSRLE symbol stream.
+/// The symbol slot is stamped ALLOCATABLE (its payload STARTS with the inner
+/// PkdAlloc's PkdAllocatable back-ref, healed when earlier slots shift) and
+/// wired to the leaf's allocator, so the sequence grows through the parent
+/// chain exactly like the C++ nested PackedAllocator.
+fn btfl_leaf_new(snap: &mut MemorySnapshot, leaf_bytes: u32) -> *mut u8 {
+    unsafe {
+        let node: *mut u8 = snap.node_alloc(leaf_bytes, LF_SLOTS);
+        let a: *mut PkdAlloc = node_pkd(node);
+        match PkdArray::<u64>::format(a, LF_KEYS) {
+            Result::Ok(_p) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl: leaf keys format failed");
+            }
+        }
+        match PkdArray::<u64>::format(a, LF_VALS) {
+            Result::Ok(_p) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl: leaf vals format failed");
+            }
+        }
+        let need: u32 = pkd_ssrle_empty_size();
+        let p: *mut u8 = match a.allocate(LF_SYMS, need, SlotKind::Allocatable) {
+            Result::Ok(q) => q,
+            Result::Err(_e) => {
+                assert(false, "btfl: leaf syms slot allocation failed");
+                return node;
+            }
+        };
+        let bsz: u32 = a.element_size(LF_SYMS);
+        match pkd_ssrle_format(p, bsz, BTFL_ALPHABET) {
+            Result::Ok(_s) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl: leaf syms format failed");
+            }
+        }
+        let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+        inner.set_allocator(a as *const PkdAlloc);
+        return node;
+    }
+}
+
+/// Fresh empty branch: 4 PkdArray<u64> columns.
+fn btfl_branch_new(snap: &mut MemorySnapshot, branch_bytes: u32) -> *mut u8 {
+    unsafe {
+        let node: *mut u8 = snap.node_alloc(branch_bytes, BR_SLOTS);
+        let a: *mut PkdAlloc = node_pkd(node);
+        let mut s: u32 = 0u32;
+        while s < BR_SLOTS {
+            match PkdArray::<u64>::format(a, s) {
+                Result::Ok(_p) => {}
+                Result::Err(_e) => {
+                    assert(false, "btfl: branch column format failed");
+                }
+            }
+            s = s + 1u32;
+        }
+        return node;
+    }
+}
+
+// ── the tree handle ─────────────────────────────────────────────────────────
+
+/// A btfl multimap tree: (root, level) + the node sizing the tree was created
+/// with (splits allocate siblings of the same size). level 0 = root is a leaf.
+pub struct Btfl {
+    pub root: *mut u8,
+    pub level: u32,
+    pub leaf_bytes: u32,
+    pub branch_bytes: u32,
+}
+
+/// Creates an empty multimap (a single empty leaf).
+pub fn btfl_create(snap: &mut MemorySnapshot, leaf_bytes: u32, branch_bytes: u32) -> Btfl {
+    let root: *mut u8 = btfl_leaf_new(snap, leaf_bytes);
+    return Btfl {
+        root: root,
+        level: 0u32,
+        leaf_bytes: leaf_bytes,
+        branch_bytes: branch_bytes,
+    };
+}
+
+/// Releases the tree (rc-aware recursive release; branch child refs ride the
+/// uniform slot 2, so the container-agnostic memstore walk applies).
+pub fn btfl_drop(t: &Btfl) {
+    unsafe {
+        tree_release(t.root, t.level);
+    }
+}
+
+// ── per-symbol totals ───────────────────────────────────────────────────────
+
+/// Total entries of stream `sym` (0 = keys, 1 = values). Branch root answers
+/// from the SUM columns; leaf root from the sequence.
+pub fn btfl_count(t: &Btfl, sym: u64) -> u64 {
+    unsafe {
+        let a: *mut PkdAlloc = node_pkd(t.root);
+        if t.level == 0u32 {
+            return lf_seq(a).rank_eq_all(sym);
+        }
+        let col: *mut PkdArray<u64> = br_cnt(a, sym);
+        let n: u32 = col.count();
+        let mut acc: u64 = 0u64;
+        let mut i: u32 = 0u32;
+        while i < n {
+            acc = acc + col.get(i);
+            i = i + 1u32;
+        }
+        return acc;
+    }
+}
+
+// ── select descent (the shuttle contract) ───────────────────────────────────
+
+/// Where a select landed: the leaf, the LOCAL symbol index in its sequence,
+/// and the GLOBAL symbol position (prefix of skipped subtrees + local).
+/// Not found ⇒ found = false, pos = total symbol count.
+pub struct BtflLoc {
+    pub found: bool,
+    pub leaf: *mut u8,
+    pub idx: u64,
+    pub pos: u64,
+}
+
+/// Position of the (rank+1)-th `sym` entry — the SelectForwardShuttle walk
+/// (bt_select_shuttle.hpp:71-90 branch step, :106-137 leaf finish): each
+/// branch consumes the rank remainder against its per-symbol count column
+/// and the leaf finishes with select_fw_eq.
+pub fn btfl_select(t: &Btfl, sym: u64, rank: u64) -> BtflLoc {
+    unsafe {
+        let mut node: *mut u8 = t.root;
+        let mut lvl: u32 = t.level;
+        let mut rem: u64 = rank;
+        let mut prefix: u64 = 0u64;
+        while lvl > 0u32 {
+            let a: *mut PkdAlloc = node_pkd(node);
+            let col: *mut PkdArray<u64> = br_cnt(a, sym);
+            let c0: *mut PkdArray<u64> = br_cnt0(a);
+            let c1: *mut PkdArray<u64> = br_cnt1(a);
+            let n: u32 = col.count();
+            let mut i: u32 = 0u32;
+            let mut descending: bool = false;
+            while !descending && i < n {
+                let v: u64 = col.get(i);
+                if rem < v {
+                    descending = true;
+                } else {
+                    rem = rem - v;
+                    prefix = prefix + c0.get(i) + c1.get(i);
+                    i = i + 1u32;
+                }
+            }
+            if !descending {
+                return BtflLoc {
+                    found: false,
+                    leaf: node,
+                    idx: 0u64,
+                    pos: prefix,
+                };
+            }
+            node = br_child(a).get(i) as *mut u8;
+            lvl = lvl - 1u32;
+        }
+        let a: *mut PkdAlloc = node_pkd(node);
+        let seq: PkdSsrle = lf_seq(a);
+        let res: SsrleSelect = seq.select_fw_eq(rem, sym);
+        if res.idx >= seq.size() {
+            return BtflLoc {
+                found: false,
+                leaf: node,
+                idx: res.idx,
+                pos: prefix + res.idx,
+            };
+        }
+        return BtflLoc {
+            found: true,
+            leaf: node,
+            idx: res.idx,
+            pos: prefix + res.idx,
+        };
+    }
+}
+
+/// Symbol at GLOBAL position `pos` — descent by total (cnt0+cnt1) counts,
+/// finished with the sequence access.
+pub fn btfl_access(t: &Btfl, pos: u64) -> u64 {
+    unsafe {
+        let mut node: *mut u8 = t.root;
+        let mut lvl: u32 = t.level;
+        let mut rem: u64 = pos;
+        while lvl > 0u32 {
+            let a: *mut PkdAlloc = node_pkd(node);
+            let c0: *mut PkdArray<u64> = br_cnt0(a);
+            let c1: *mut PkdArray<u64> = br_cnt1(a);
+            let n: u32 = c0.count();
+            let mut i: u32 = 0u32;
+            let mut descending: bool = false;
+            while !descending && i < n {
+                let v: u64 = c0.get(i) + c1.get(i);
+                if rem < v {
+                    descending = true;
+                } else {
+                    rem = rem - v;
+                    i = i + 1u32;
+                }
+            }
+            assert(descending, "btfl_access: position beyond the tree");
+            node = br_child(a).get(i) as *mut u8;
+            lvl = lvl - 1u32;
+        }
+        return lf_seq(node_pkd(node)).access(rem);
+    }
+}
+
+// ── seek descent (max-key measure) ──────────────────────────────────────────
+
+/// Where a key seek landed: hit flag, the key's GLOBAL stream-0 rank (= its
+/// index in key order; for a miss, the rank the key WOULD take), the leaf and
+/// the LOCAL key index (lower bound) within it.
+pub struct BtflSeek {
+    pub found: bool,
+    pub rank: u64,
+    pub leaf: *mut u8,
+    pub kidx: u32,
+}
+
+// Child to descend into for `key`: lower bound over the max-key measure,
+// clamped to the last child (the FindShuttle convention).
+unsafe fn btfl_find_child(a: *mut PkdAlloc, key: u64) -> u32 {
+    let mk: *mut PkdArray<u64> = br_max(a);
+    let n: u32 = mk.count();
+    let mut c: u32 = fse_lower_bound_u64(mk, key);
+    if c >= n {
+        c = n - 1u32;
+    }
+    return c;
+}
+
+/// Descend to `key`'s leaf position by the stream-0 max-key measure,
+/// accumulating the global key rank from the CNT0 column prefixes.
+pub fn btfl_seek(t: &Btfl, key: u64) -> BtflSeek {
+    unsafe {
+        let mut node: *mut u8 = t.root;
+        let mut lvl: u32 = t.level;
+        let mut rank: u64 = 0u64;
+        while lvl > 0u32 {
+            let a: *mut PkdAlloc = node_pkd(node);
+            let ci: u32 = btfl_find_child(a, key);
+            let c0: *mut PkdArray<u64> = br_cnt0(a);
+            let mut i: u32 = 0u32;
+            while i < ci {
+                rank = rank + c0.get(i);
+                i = i + 1u32;
+            }
+            node = br_child(a).get(ci) as *mut u8;
+            lvl = lvl - 1u32;
+        }
+        let a: *mut PkdAlloc = node_pkd(node);
+        let ka: *mut PkdArray<u64> = lf_keys(a);
+        let kc: u32 = ka.count();
+        let i0: u32 = fse_lower_bound_u64(ka, key);
+        let mut hit: bool = false;
+        if i0 < kc {
+            if ka.get(i0) == key {
+                hit = true;
+            }
+        }
+        return BtflSeek {
+            found: hit,
+            rank: rank + (i0 as u64),
+            leaf: node,
+            kidx: i0,
+        };
+    }
+}
+
+// ── key → values navigation ─────────────────────────────────────────────────
+
+/// LOCAL symbol position of the leaf's `kidx`-th key (test/introspection
+/// surface; the multimap_keys_chunk select_fw_eq(idx, 0) step).
+pub fn btfl_leaf_key_sympos(leaf: *mut u8, kidx: u32) -> u64 {
+    unsafe {
+        let seq: PkdSsrle = lf_seq(node_pkd(leaf));
+        let res: SsrleSelect = seq.select_fw_eq(kidx as u64, 0u64);
+        assert(res.idx < seq.size(), "btfl: key index beyond the leaf structure");
+        return res.idx;
+    }
+}
+
+pub fn btfl_leaf_key_count(leaf: *mut u8) -> u32 {
+    unsafe {
+        return lf_keys(node_pkd(leaf)).count();
+    }
+}
+
+pub fn btfl_leaf_key_at(leaf: *mut u8, i: u32) -> u64 {
+    unsafe {
+        return lf_keys(node_pkd(leaf)).get(i);
+    }
+}
+
+/// Looks `key` up and appends its value sequence to `out`. The
+/// multimap_keys_chunk_impl.hpp:241-267 navigation: the key's symbol
+/// position p via select_fw_eq(kidx, 0); the values are the symbol-1 run
+/// (p, next symbol-0 position); the first value's index in the values
+/// stream = rank_eq(p + 1, 1) — the rank-projection. Under the v0
+/// key-aligned-split invariant the whole run lives in the key's leaf.
+pub fn btfl_find(t: &Btfl, key: u64, out: &mut Vec<u64>) -> bool {
+    let sk: BtflSeek = btfl_seek(t, key);
+    if !sk.found {
+        return false;
+    }
+    unsafe {
+        let a: *mut PkdAlloc = node_pkd(sk.leaf);
+        let seq: PkdSsrle = lf_seq(a);
+        let ka: *mut PkdArray<u64> = lf_keys(a);
+        let kc: u32 = ka.count();
+        let p: u64 = seq.select_fw_eq(sk.kidx as u64, 0u64).idx;
+        let mut end: u64 = seq.size();
+        if sk.kidx + 1u32 < kc {
+            end = seq.select_fw_eq((sk.kidx as u64) + 1u64, 0u64).idx;
+        }
+        let v0: u64 = seq.rank_eq(p + 1u64, 1u64);
+        let cnt: u64 = end - p - 1u64;
+        let va: *mut PkdArray<u64> = lf_vals(a);
+        let mut j: u64 = 0u64;
+        while j < cnt {
+            out.push(va.get((v0 + j) as u32));
+            j = j + 1u64;
+        }
+        return true;
+    }
+}
+
+// ── insert ──────────────────────────────────────────────────────────────────
+
+// The bottom-up insert report (the bt.ops BtInsRet shape, extended to the
+// multistream summary: per side the stream-0 max + both per-symbol counts).
+// addr = the (possibly new under future CoW; here always unchanged) left
+// node identity.
+struct BtflInsRet {
+    inserted: bool,
+    addr: *mut u8,
+    lmax: u64,
+    lc0: u64,
+    lc1: u64,
+    split: bool,
+    rmax: u64,
+    rc0: u64,
+    rc1: u64,
+    rptr: *mut u8,
+}
+
+// Leaf summary (kc ≥ 1 required — callers only summarize non-empty leaves).
+unsafe fn leaf_summary(node: *mut u8, split: bool, rnode: *mut u8) -> BtflInsRet {
+    let a: *mut PkdAlloc = node_pkd(node);
+    let ka: *mut PkdArray<u64> = lf_keys(a);
+    let kc: u32 = ka.count();
+    let lmax: u64 = ka.get(kc - 1u32);
+    let lc1: u64 = lf_vals(a).count() as u64;
+    let mut ret: BtflInsRet = BtflInsRet {
+        inserted: true,
+        addr: node,
+        lmax: lmax,
+        lc0: kc as u64,
+        lc1: lc1,
+        split: split,
+        rmax: 0u64,
+        rc0: 0u64,
+        rc1: 0u64,
+        rptr: rnode,
+    };
+    if split {
+        let ra: *mut PkdAlloc = node_pkd(rnode);
+        let rka: *mut PkdArray<u64> = lf_keys(ra);
+        let rkc: u32 = rka.count();
+        ret.rmax = rka.get(rkc - 1u32);
+        ret.rc0 = rkc as u64;
+        ret.rc1 = lf_vals(ra).count() as u64;
+    }
+    return ret;
+}
+
+// Branch summary from the columns.
+unsafe fn branch_summary(node: *mut u8, split: bool, rnode: *mut u8) -> BtflInsRet {
+    let a: *mut PkdAlloc = node_pkd(node);
+    let mk: *mut PkdArray<u64> = br_max(a);
+    let c0: *mut PkdArray<u64> = br_cnt0(a);
+    let c1: *mut PkdArray<u64> = br_cnt1(a);
+    let n: u32 = mk.count();
+    let mut s0: u64 = 0u64;
+    let mut s1: u64 = 0u64;
+    let mut i: u32 = 0u32;
+    while i < n {
+        s0 = s0 + c0.get(i);
+        s1 = s1 + c1.get(i);
+        i = i + 1u32;
+    }
+    let mut ret: BtflInsRet = BtflInsRet {
+        inserted: true,
+        addr: node,
+        lmax: mk.get(n - 1u32),
+        lc0: s0,
+        lc1: s1,
+        split: split,
+        rmax: 0u64,
+        rc0: 0u64,
+        rc1: 0u64,
+        rptr: rnode,
+    };
+    if split {
+        let ra: *mut PkdAlloc = node_pkd(rnode);
+        let rmk: *mut PkdArray<u64> = br_max(ra);
+        let rc0: *mut PkdArray<u64> = br_cnt0(ra);
+        let rc1: *mut PkdArray<u64> = br_cnt1(ra);
+        let rn: u32 = rmk.count();
+        let mut r0: u64 = 0u64;
+        let mut r1: u64 = 0u64;
+        let mut j: u32 = 0u32;
+        while j < rn {
+            r0 = r0 + rc0.get(j);
+            r1 = r1 + rc1.get(j);
+            j = j + 1u32;
+        }
+        ret.rmax = rmk.get(rn - 1u32);
+        ret.rc0 = r0;
+        ret.rc1 = r1;
+    }
+    return ret;
+}
+
+fn ret_reject(node: *mut u8) -> BtflInsRet {
+    return BtflInsRet {
+        inserted: false,
+        addr: node,
+        lmax: 0u64,
+        lc0: 0u64,
+        lc1: 0u64,
+        split: false,
+        rmax: 0u64,
+        rc0: 0u64,
+        rc1: 0u64,
+        rptr: node,
+    };
+}
+
+// Try to place (key, vals) into the leaf at key slot i0 — the two-phase
+// discipline: price EVERY column's post-insert size (keys +1, vals +m, the
+// symbol stream via plan_insert) against the leaf block's free space, then
+// commit infallibly. Returns false (leaf untouched) when it does not fit.
+//
+// The insert Position is the iter_leafrank projection (btfl_c_insert.hpp:54,
+// multimap_keys_chunk_impl.hpp:312-319): symbol position p of key i0 (leaf
+// end when i0 == kc), keys position i0, values position rank_eq(p, 1).
+unsafe fn btfl_leaf_try_insert(node: *mut u8, i0: u32, key: u64, vals: &Vec<u64>) -> bool {
+    let a: *mut PkdAlloc = node_pkd(node);
+    let ka: *mut PkdArray<u64> = lf_keys(a);
+    let va: *mut PkdArray<u64> = lf_vals(a);
+    let kc: u32 = ka.count();
+    let m: u64 = vals.length() as u64;
+    let seq: PkdSsrle = lf_seq(a);
+    // the rank-projected insert Position
+    let mut p: u64 = seq.size();
+    if i0 < kc {
+        let res: SsrleSelect = seq.select_fw_eq(i0 as u64, 0u64);
+        p = res.idx;
+    }
+    let v0: u64 = seq.rank_eq(p, 1u64);
+    // the inserted structure run: one key symbol + m value symbols
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    syms.push(0u64);
+    let mut j: u64 = 0u64;
+    while j < m {
+        syms.push(1u64);
+        j = j + 1u64;
+    }
+    let runs: Vec<SsrleRun> = ssrle_runs_from_symbols(seq.bps(), &syms);
+    let us: SsrleUpdate = seq.plan_insert(p, &runs);
+    // pricing: post-op slot sizes vs the leaf block's free space
+    let keys_cur: u32 = a.element_size(LF_KEYS);
+    let vals_cur: u32 = a.element_size(LF_VALS);
+    let syms_cur: u32 = a.element_size(LF_SYMS);
+    let keys_need: u32 = ka.estimate_insert(0u32);
+    let mut vals_need: u32 = vals_cur;
+    if m > 0u64 {
+        vals_need = va.estimate_insert(0u32) + (((m - 1u64) * 8u64) as u32);
+    }
+    let syms_need: u32 = us.block_size;
+    let mut delta: u32 = 0u32;
+    if keys_need > keys_cur {
+        delta = delta + (keys_need - keys_cur);
+    }
+    if vals_need > vals_cur {
+        delta = delta + (vals_need - vals_cur);
+    }
+    if syms_need > syms_cur {
+        delta = delta + (syms_need - syms_cur);
+    }
+    if delta > a.free_space() {
+        return false;
+    }
+    // commit — priced above, so every grow is guaranteed
+    match ka.insert(i0, &(key)) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl: priced keys insert failed");
+        }
+    }
+    let mut k: u64 = 0u64;
+    while k < m {
+        let va2: *mut PkdArray<u64> = lf_vals(a);
+        match va2.insert((v0 + k) as u32, &(vals.get(k as i64))) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl: priced vals insert failed");
+            }
+        }
+        k = k + 1u64;
+    }
+    // the symbol slot shifted while keys/vals grew — re-resolve, then commit
+    let mut seq2: PkdSsrle = lf_seq(a);
+    seq2.commit(&us);
+    return true;
+}
+
+// Split `node` at the KEY-ALIGNED symbol position of its middle key and move
+// the upper part into (empty, freshly formatted) `right`. The rank
+// projection: p = select_fw_eq(kmid, 0) ⇒ keys split at kmid, values at
+// rank_eq(p, 1), the symbol stream at p (the C++ split_to(Position),
+// bt_cw_leaf_common.hpp:41-57 with Position = iter_leafrank of the cut).
+unsafe fn btfl_leaf_split(node: *mut u8, right: *mut u8) {
+    let a: *mut PkdAlloc = node_pkd(node);
+    let ra: *mut PkdAlloc = node_pkd(right);
+    let ka: *mut PkdArray<u64> = lf_keys(a);
+    let kc: u32 = ka.count();
+    let kmid: u32 = kc / 2u32;
+    let seq: PkdSsrle = lf_seq(a);
+    let p: u64 = seq.select_fw_eq(kmid as u64, 0u64).idx;
+    let r1: u64 = seq.rank_eq(p, 1u64);
+    match ka.split_into(lf_keys(ra), kmid) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl: leaf keys split failed");
+        }
+    }
+    let va: *mut PkdArray<u64> = lf_vals(a);
+    match va.split_into(lf_vals(ra), r1 as u32) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl: leaf vals split failed");
+        }
+    }
+    // both symbol slots shifted (left: shrunk siblings; right: grown) —
+    // re-resolve handles and split the structure stream at p
+    let mut sl: PkdSsrle = lf_seq(a);
+    let mut sr: PkdSsrle = lf_seq(ra);
+    match sl.split_to(&mut sr, p) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl: structure stream split failed");
+        }
+    }
+}
+
+// Leaf-level insert: duplicate check, try-in-place, else key-aligned split +
+// retry into the owning half (the bt_ins leaf step).
+unsafe fn btfl_leaf_ins(snap: &mut MemorySnapshot, leaf_bytes: u32, node: *mut u8,
+                        key: u64, vals: &Vec<u64>) -> BtflInsRet {
+    let a: *mut PkdAlloc = node_pkd(node);
+    let ka: *mut PkdArray<u64> = lf_keys(a);
+    let kc: u32 = ka.count();
+    let i0: u32 = fse_lower_bound_u64(ka, key);
+    if i0 < kc {
+        if ka.get(i0) == key {
+            return ret_reject(node);
+        }
+    }
+    if btfl_leaf_try_insert(node, i0, key, vals) {
+        return leaf_summary(node, false, node);
+    }
+    assert(kc >= 2u32, "btfl v0: entry exceeds leaf capacity (spanning inserts land in 8a2)");
+    let right: *mut u8 = btfl_leaf_new(snap, leaf_bytes);
+    btfl_leaf_split(node, right);
+    let la: *mut PkdAlloc = node_pkd(node);
+    let lk: *mut PkdArray<u64> = lf_keys(la);
+    let lmax: u64 = lk.get(lk.count() - 1u32);
+    let mut tgt: *mut u8 = right;
+    if key <= lmax {
+        tgt = node;
+    }
+    let ta: *mut PkdAlloc = node_pkd(tgt);
+    let ti: u32 = fse_lower_bound_u64(lf_keys(ta), key);
+    let ok: bool = btfl_leaf_try_insert(tgt, ti, key, vals);
+    assert(ok, "btfl v0: entry does not fit a half leaf (spanning inserts land in 8a2)");
+    return leaf_summary(node, true, right);
+}
+
+// One more (max, c0, c1, child) column row fits without a split?
+unsafe fn btfl_branch_fits_one(a: *mut PkdAlloc) -> bool {
+    let mut delta: u32 = 0u32;
+    let mut s: u32 = 0u32;
+    while s < BR_SLOTS {
+        let col: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(s);
+        let need: u32 = col.estimate_insert(0u32);
+        let cur: u32 = a.element_size(s);
+        if need > cur {
+            delta = delta + (need - cur);
+        }
+        s = s + 1u32;
+    }
+    return delta <= a.free_space();
+}
+
+// Insert a child row at `pos` (priced by the caller via btfl_branch_fits_one
+// or a fresh half-branch's slack).
+unsafe fn btfl_branch_insert_child(a: *mut PkdAlloc, pos: u32,
+                                   maxk: u64, c0: u64, c1: u64, child: u64) {
+    match br_max(a).insert(pos, &(maxk)) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl: branch max insert failed");
+        }
+    }
+    match br_cnt0(a).insert(pos, &(c0)) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl: branch cnt0 insert failed");
+        }
+    }
+    match br_cnt1(a).insert(pos, &(c1)) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl: branch cnt1 insert failed");
+        }
+    }
+    match br_child(a).insert(pos, &(child)) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl: branch child insert failed");
+        }
+    }
+}
+
+// Split `node`'s child rows at the midpoint into fresh `right`.
+unsafe fn btfl_branch_split(node: *mut u8, right: *mut u8) {
+    let a: *mut PkdAlloc = node_pkd(node);
+    let ra: *mut PkdAlloc = node_pkd(right);
+    let n: u32 = br_max(a).count();
+    let mid: u32 = n / 2u32;
+    let mut s: u32 = 0u32;
+    while s < BR_SLOTS {
+        let col: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(s);
+        match col.split_into(ra.get::<PkdArray<u64>>(s), mid) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl: branch column split failed");
+            }
+        }
+        s = s + 1u32;
+    }
+}
+
+// The recursive bottom-up insert (the bt_ins walk with multistream
+// summaries): descend by the max-key measure, refresh the chosen child's
+// (max, cnt0, cnt1) row on the way back, wire a split's right sibling in —
+// splitting this branch when full.
+unsafe fn btfl_ins_rec(snap: &mut MemorySnapshot, leaf_bytes: u32, branch_bytes: u32,
+                       node: *mut u8, level: u32, key: u64, vals: &Vec<u64>) -> BtflInsRet {
+    if level == 0u32 {
+        return btfl_leaf_ins(snap, leaf_bytes, node, key, vals);
+    }
+    let a: *mut PkdAlloc = node_pkd(node);
+    let ci: u32 = btfl_find_child(a, key);
+    let child: *mut u8 = br_child(a).get(ci) as *mut u8;
+    let r: BtflInsRet = btfl_ins_rec(snap, leaf_bytes, branch_bytes,
+                                     child, level - 1u32, key, vals);
+    if !r.inserted {
+        return ret_reject(node);
+    }
+    br_max(a).set(ci, r.lmax);
+    br_cnt0(a).set(ci, r.lc0);
+    br_cnt1(a).set(ci, r.lc1);
+    if !r.split {
+        return branch_summary(node, false, node);
+    }
+    if btfl_branch_fits_one(a) {
+        btfl_branch_insert_child(a, ci + 1u32, r.rmax, r.rc0, r.rc1, r.rptr as u64);
+        return branch_summary(node, false, node);
+    }
+    let rb: *mut u8 = btfl_branch_new(snap, branch_bytes);
+    btfl_branch_split(node, rb);
+    let lc: u32 = br_child(node_pkd(node)).count();
+    if ci + 1u32 <= lc {
+        btfl_branch_insert_child(node_pkd(node), ci + 1u32, r.rmax, r.rc0, r.rc1, r.rptr as u64);
+    } else {
+        btfl_branch_insert_child(node_pkd(rb), (ci + 1u32) - lc, r.rmax, r.rc0, r.rc1, r.rptr as u64);
+    }
+    return branch_summary(node, true, rb);
+}
+
+/// Inserts `key → vals` (a new key entry followed by its value entries, in
+/// key order). Returns false iff the key already exists (v0: no
+/// append/upsert — 8a2 surface). Splits propagate bottom-up; a root split
+/// grows the tree by one level.
+pub fn btfl_insert(snap: &mut MemorySnapshot, t: &mut Btfl, key: u64, vals: &Vec<u64>) -> bool {
+    unsafe {
+        let r: BtflInsRet = btfl_ins_rec(snap, t.leaf_bytes, t.branch_bytes,
+                                         t.root, t.level, key, vals);
+        if !r.inserted {
+            return false;
+        }
+        if r.split {
+            let nb: *mut u8 = btfl_branch_new(snap, t.branch_bytes);
+            let na: *mut PkdAlloc = node_pkd(nb);
+            btfl_branch_insert_child(na, 0u32, r.lmax, r.lc0, r.lc1, r.addr as u64);
+            btfl_branch_insert_child(na, 1u32, r.rmax, r.rc0, r.rc1, r.rptr as u64);
+            t.root = nb;
+            t.level = t.level + 1u32;
+        }
+        return true;
+    }
+}
+
+// ── structural self-check (the btfl_c_checks mirror) ────────────────────────
+
+struct ChkRes {
+    ok: bool,
+    max: u64,
+    c0: u64,
+    c1: u64,
+}
+
+// Recursive verification: every branch row equals its child's reality; leaf
+// counts agree between the columns and the structure stream; keys strictly
+// increase globally; every non-empty leaf starts with a key symbol (the v0
+// invariant).
+unsafe fn btfl_chk_rec(node: *mut u8, level: u32,
+                       prev: &mut u64, any: &mut bool) -> ChkRes {
+    if level == 0u32 {
+        let a: *mut PkdAlloc = node_pkd(node);
+        let ka: *mut PkdArray<u64> = lf_keys(a);
+        let va: *mut PkdArray<u64> = lf_vals(a);
+        let seq: PkdSsrle = lf_seq(a);
+        let kc: u64 = ka.count() as u64;
+        let vc: u64 = va.count() as u64;
+        let mut ok: bool = true;
+        if seq.rank_eq_all(0u64) != kc {
+            ok = false;
+        }
+        if seq.rank_eq_all(1u64) != vc {
+            ok = false;
+        }
+        if seq.size() != kc + vc {
+            ok = false;
+        }
+        if seq.size() > 0u64 {
+            if seq.access(0u64) != 0u64 {
+                ok = false;
+            }
+        }
+        let mut i: u64 = 0u64;
+        while i < kc {
+            let k: u64 = ka.get(i as u32);
+            if *any {
+                if k <= *prev {
+                    ok = false;
+                }
+            }
+            *prev = k;
+            *any = true;
+            i = i + 1u64;
+        }
+        let mut mx: u64 = 0u64;
+        if kc > 0u64 {
+            mx = ka.get((kc as u32) - 1u32);
+        }
+        return ChkRes {
+            ok: ok,
+            max: mx,
+            c0: kc,
+            c1: vc,
+        };
+    }
+    let a: *mut PkdAlloc = node_pkd(node);
+    let mk: *mut PkdArray<u64> = br_max(a);
+    let c0: *mut PkdArray<u64> = br_cnt0(a);
+    let c1: *mut PkdArray<u64> = br_cnt1(a);
+    let ch: *mut PkdArray<u64> = br_child(a);
+    let n: u32 = mk.count();
+    let mut ok: bool = n > 0u32;
+    if c0.count() != n {
+        ok = false;
+    }
+    if c1.count() != n {
+        ok = false;
+    }
+    if ch.count() != n {
+        ok = false;
+    }
+    let mut s0: u64 = 0u64;
+    let mut s1: u64 = 0u64;
+    let mut mx: u64 = 0u64;
+    let mut i: u32 = 0u32;
+    while i < n {
+        let sub: ChkRes = btfl_chk_rec(ch.get(i) as *mut u8, level - 1u32, prev, any);
+        if !sub.ok {
+            ok = false;
+        }
+        if mk.get(i) != sub.max {
+            ok = false;
+        }
+        if c0.get(i) != sub.c0 {
+            ok = false;
+        }
+        if c1.get(i) != sub.c1 {
+            ok = false;
+        }
+        s0 = s0 + sub.c0;
+        s1 = s1 + sub.c1;
+        mx = sub.max;
+        i = i + 1u32;
+    }
+    return ChkRes {
+        ok: ok,
+        max: mx,
+        c0: s0,
+        c1: s1,
+    };
+}
+
+/// Whole-tree structural check: branch sum/measure columns vs child reality,
+/// leaf column/structure agreement, global key ordering, the v0 leaf-start
+/// invariant (the C++ checks part, btfl_c_checks.hpp).
+pub fn btfl_check(t: &Btfl) -> bool {
+    unsafe {
+        let mut prev: u64 = 0u64;
+        let mut any: bool = false;
+        let res: ChkRes = btfl_chk_rec(t.root, t.level, &mut prev, &mut any);
+        return res.ok;
+    }
+}
