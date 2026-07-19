@@ -423,12 +423,42 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v) {
     // they are excluded — the void COMPOSITE handlers (gen_if / match-expr /
     // block-expr) are void-safe at the source and emit their effects.
     TypeRef ety = v.expr().type(pool_impl());
+    // VOID-CALL half of the same guard. The exclusion above ("void exprs are
+    // legitimately value-less, a void call emits its CallOp then returns null")
+    // assumes the CallOp is emitted. That assumption is exactly what fails when
+    // a callee was never instantiated: the lowering emits NOTHING, returns
+    // null, and — the type being void — the value-witness above cannot see it.
+    // A whole `copy_bytes(dst, src, n)` vanished this way in
+    // logos.mem.pkd.pdtbuf (the payload write of every variable-length row),
+    // silently, with a clean build and a green-looking gate.
+    //
+    // For a call statement the witness is therefore not "produced a value" but
+    // "appended an operation": a call evaluated purely for effect that emits no
+    // op into a live block did not happen.
+    size_t pre_misses = method_lower_misses_;
     auto val = gen_expr(v.expr());
     if (!val && logos_to_mlir(ety) && !is_terminated(builder_.getBlock())) {
         std::fprintf(stderr,
             "mlir_gen: internal: value-typed expression statement lowered to no "
             "value and did not terminate — its effects were silently dropped\n");
         std::abort();
+    }
+    // A void call statement that lowered to NO value AND swallowed a
+    // method-lowering miss on the way is a dropped effect, not a dead
+    // instantiation: the statement exists to be executed, and nothing was
+    // emitted to execute it.
+    if (!val && !logos_to_mlir(ety) && method_lower_misses_ > pre_misses &&
+        !is_terminated(builder_.getBlock())) {
+        auto k = v.expr().kind();
+        if (k == lir_schema::expr::Code::Call ||
+            k == lir_schema::expr::Code::MethodCall) {
+            std::fprintf(stderr,
+                "mlir_gen: internal: void call statement DROPPED — the method "
+                "'%s' had no instantiation, so the whole call was silently "
+                "discarded (mono never demanded the callee)\n",
+                last_method_miss_.c_str());
+            std::abort();
+        }
     }
 }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }

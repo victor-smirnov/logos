@@ -2796,6 +2796,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         // LOGOS_MLIR_DEBUG_UNDEF=1 to re-enable for diagnosis.
         if (std::getenv("LOGOS_MLIR_DEBUG_UNDEF"))
             std::fprintf(stderr, "mlir_gen: method '%s' not found\n", callee_name.c_str());
+        // Account for the miss even while staying quiet: the STATEMENT level
+        // decides whether this was a dead instantiation (harmless) or a live
+        // effect being dropped (a miscompile). See method_lower_misses_.
+        ++method_lower_misses_;
+        last_method_miss_ = callee_name;
         return nullptr;
     }
     llvm::SmallVector<mlir::Value> args;

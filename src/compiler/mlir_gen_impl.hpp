@@ -156,6 +156,17 @@ private:
     // (closures, drop glue, ctors) suspend the scope via DebugScopeSuspend so a
     // single DISubprogram never leaks onto two LLVM functions.
     bool                              debug_info_ = false;
+    // Silent-drop accounting for the method-call lowering. The give-up path in
+    // gen_expr_kind(EMethodCallView) (callee FuncOp missing) is deliberately
+    // quiet, because DEAD generic instantiations legitimately reference
+    // FuncOps mono never synthesized. But the same silence also swallows LIVE
+    // calls whose instantiation mono simply missed — that is how the whole
+    // payload write of logos.mem.pkd.pdtbuf's variable-length rows vanished
+    // with a clean build. The counter lets the STATEMENT level tell the two
+    // apart: a miss that coincides with a statement lowering to nothing is a
+    // dropped effect, not a dead instantiation.
+    size_t                            method_lower_misses_ = 0;
+    std::string                       last_method_miss_;
     bool                              overflow_checks_ = true;  // trap on int +/-/* overflow (off = wrapping)
     bool                              target_has_bmi2_ = false; // target cpu has BMI2 (pdep/pext inline)
     std::string                       main_source_;      // primary input path (CU file + fallback)

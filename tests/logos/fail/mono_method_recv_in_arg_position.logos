@@ -1,0 +1,30 @@
+// mlir-gen silent-drop guard: a GENERIC method used as the RECEIVER of another
+// method call, in ARGUMENT POSITION, is never demanded by mono, so no
+// instantiation exists for it. mlir-gen's method-lowering give-up path is
+// deliberately quiet (dead generic instantiations legitimately reference
+// FuncOps mono never synthesized), which used to mean the ENTIRE enclosing
+// call was discarded with no diagnostic and a clean build.
+//
+// That is not hypothetical: this exact shape silently deleted the payload
+// write of every variable-length row in logos.mem.pkd.pdtbuf — `copy_bytes`
+// emitted nothing, so rows read back as zeroes while offsets, sizing and
+// `check()` all agreed. Binding `v.bytes.as_ptr()` to a local first is enough
+// to make the instantiation demanded, which is what makes the failure so easy
+// to miss.
+//
+// The underlying mono demand gap is still open; this test pins the property
+// that matters — the compiler must never silently emit nothing for a call.
+package test;
+
+use logos.lang.mem;
+use logos.mem.collections.vec;
+
+pub struct Vals { pub bytes: Vec<u8> }
+
+pub unsafe fn write_span(v: &Vals, dst: *mut u8, off: i64, n: i64) {
+    copy_bytes(dst, v.bytes.as_ptr().byte_add(off), n);
+}
+
+fn main() -> i32 {
+    return 0i32;
+}
