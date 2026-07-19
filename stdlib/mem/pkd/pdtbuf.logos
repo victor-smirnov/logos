@@ -1,8 +1,8 @@
 // logos.mem.pkd.pdtbuf — PdtBuf: the Logos EQUIVALENT of the C++ Memoria
 // PackedDataTypeBuffer (the successor structure into which Victor folded
-// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rung P0: the runtime
-// core — slot geometry, sizing, cell access, and the ordering-dispatched
-// search family, index-free.
+// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rungs P0 + P1: the
+// runtime core — slot geometry, sizing, cell access, the ordering-dispatched
+// search family — plus the recursive SUM span index that accelerates it.
 //
 // C++ oracle sites (HEAD, /home/victor/cxx/memoria), mirrored one by one:
 //   containers/include/memoria/core/packed/datatype_buffer/
@@ -14,6 +14,7 @@
 //       :89-114  Metadata {size_, flags_}
 //       :146-201 empty_size / base_size / compute_index_block_size /
 //                compute_block_size (the RECURSIVE index pricing)
+//       :65      using IndexType = MyType — the index is the RECURSIVE SELF-TYPE
 //       :246-269 index() / has_index() / create_index() / remove_index()
 //     packed_datatype_buffer_fse_tools.hpp
 //       :35      FSE dimension Width = 1
@@ -27,20 +28,27 @@
 //       :880-894 sum(column) / sum(column,row) / sum(column,start,end)
 //       :1469-1493 find_{gt,ge}_fw_max — upper_bound / lower_bound
 //       :1496-1573 find_{ge,gt}_fw_sum — the prefix-scan descent
+//       :1496-1573 find_{ge,gt}_fw_sum — the index descent (P1)
 //       :1599-1626 sum_sum — the index-accelerated prefix sum (P1)
+//       :1649-1687 check_sum — index/content agreement (P1)
 //       :1692-1737 reindex_sum — the recursive span index (P1)
 //   containers/include/memoria/core/packed/tools/packed_allocator.hpp
 //       :170-178 block_size(client_area, blocks) — our PkdAlloc::empty_size_for
 //
 // ── ORACLE DISCIPLINE ───────────────────────────────────────────────────────
 // The C++ is a REFERENCE, NOT ground truth: the family it belongs to is
-// dense with bugs (23 catalogued during recon, several in this very file
+// dense with bugs (25 catalogued through rung P0, several in this very file
 // pair), and the FQTree half of the lineage was deleted upstream WITHOUT
 // ever being exercised by a test suite. Every behaviour below is DERIVED
 // from the operation's semantics and gated by an independent materialized
 // model plus algebraic laws (conuco tests/pdtbuf_core.logos); the C++
 // fixtures are a divergence detector, not the definition of correct.
-// Divergences we took deliberately are named DIVERGENCE below.
+// Divergences we took deliberately are named DIVERGENCE below; upstream
+// defects found by deriving rather than transcribing are numbered
+// (#24 sum_gen suffix/prefix and #25 lossy capacity recovery from P0; #26
+// find_*_fw_sum's index-miss short-circuit, found at this rung — see
+// find_fw_sum). Each is pinned by a gate that fails if we adopt the C++
+// behaviour, so an upstream fix reports itself.
 //
 // ── SHAPE (general from line 1; ADR 0021 §1.2 placement rule) ───────────────
 // Everything the C++ carries as TEMPLATE PARAMETERS is carried here as a
@@ -55,10 +63,48 @@
 // Block layout (mirror of the C++ enum :67 + the slot formula :42-44):
 //
 //   slot 0                      METADATA  PdtMeta cell + the dims table (RAW)
-//   slot 1                      INDEX     reserved (P1: the recursive self-type)
+//   slot 1                      INDEX     the recursive self-type (ALLOCATABLE)
 //   slot 2 + dbt*col + dimoff   DATA      column-major dimension groups
 //
 //   dbt = dim_blocks_total = Σ pdt_dim_width(dim);  FSE width 1, VLE width 2.
+//
+// ── THE SPAN INDEX (P1; C++ `using IndexType = MyType` :65) ─────────────────
+// The index is a PdtBuf carrying THE SAME DESCRIPTOR — same columns, same
+// dimensions, same ordering, same `indexed` flag — over div_up(rows, 32)
+// rows, nested in slot INDEX of its parent's own PkdAlloc. Index cell (c, k)
+// holds the PER-SPAN PARTIAL sum Σ column c over rows [k*32, (k+1)*32) — NOT
+// a prefix sum. Prefixes are recovered by summing index cells, which is the
+// SAME query one level up, so the structure recurses until a level fits in a
+// single span: a 32-ary tree of partial sums, general over depth AND over
+// columns (every loop below runs over `columns`; there is no per-column or
+// per-level code anywhere).
+//
+//   32769 rows → 1025 index cells → 33 → 2 → (2 <= 32, stop): 3 index levels.
+//
+// GEOMETRY vs CONTENT — the lockstep discipline. The index slot is sized from
+// CAPACITY, the index CONTENT is keyed on SIZE, and mixing the two is how
+// cells silently misalign. So the two are separated by construction:
+//   * pdtbuf_reserve owns GEOMETRY. It prices the index slot at exactly
+//     pdtbuf_index_block_size(descr, capacity), (re)formats the nested buffer
+//     and reserves it to div_up(capacity, 32) rows — leaving it at SIZE 0.
+//     Every reserve therefore leaves a well-defined EMPTY index, never a
+//     stale one, and consumed == priced still holds byte-for-byte.
+//   * pdtbuf_reindex owns CONTENT. It sets the index size to
+//     div_up(size, 32), fills the cells, and recurses.
+// A size-0 index is not a broken state: every query below degrades to the
+// scan it would have done without an index, so "reserved but not reindexed"
+// is SLOW, never WRONG.
+//
+// DIVERGENCE (index presence). The C++ keys index EXISTENCE on size — its
+// reindex_sum (:1727/:1735) calls create_index()/remove_index() around the
+// `size > IndexSpan` threshold — while compute_block_size (:186) prices the
+// index from CAPACITY. The two disagree by construction, so the C++ block
+// price is an over-estimate of what the block actually consumes, and the
+// exact-prepare law P3 rests on cannot be stated there at all. We key
+// existence on capacity (the same quantity that prices it) and let a
+// below-threshold buffer carry a 0- or 1-cell index; the queries are correct
+// either way (see the derivations at find_fw_sum / sum_prefix), and
+// consumed == priced stays exact.
 //
 // ── EXACT-PREPARE CONTRACT (design_zero_copy_mutation_cow) ──────────────────
 // P0 has no two-phase mutations, but its sizing functions ARE the pricing
@@ -78,9 +124,11 @@
 //   * dimension kind — FSE implemented, VLE (width 2, offsets) is P4. The
 //     descriptor, the width function and all slot math already carry kind,
 //     so a VLE dim slots in without redesign.
-//   * index — P1. `indexed` + has_index() + the RECURSIVE pricing hook are
-//     present and shaped; with indexed=false the hook returns 0 and every
-//     query takes the scan/binary-search path (which stays the fallback).
+//   * index — MATERIALIZED (P1), recursive and column-general. Still
+//     NARROWED: reindex is a FULL rebuild; the C++ targeted `_add`/`_sub`
+//     incremental update is a recorded deferral (it belongs with the P3
+//     two-phase mutations that would call it). MAX stays index-free BY
+//     DESIGN — that is the has_index law, not a staging decision.
 //   * optional-value column — a STATIC axis owned by the generator, not a
 //     runtime flag (a runtime flag would be a dead branch on every access).
 //     P0 merely does not preclude it: columns are uniform and addressed
@@ -297,13 +345,19 @@ pub fn pdtbuf_empty_size(descr: &PdtDescr) -> u32 {
     return PkdAlloc::empty_size_for(descr.slots()) + pdt_meta_bytes(descr.dim_count());
 }
 
+/// Index cells covering `rows` parent rows: one cell per span, last one
+/// partial (C++ div_up(size, IndexSpan) — so.hpp:1660/:1699).
+pub fn pdtbuf_span_count(rows: u64) -> u64 {
+    return (rows + PDT_INDEX_SPAN - 1u64) / PDT_INDEX_SPAN;
+}
+
 /// The recursive index pricing hook (C++ compute_block_size :186-201 inlines
 /// exactly this recursion: the index IS a buffer of the same type over
 /// div_up(capacity, IndexSpan) rows).
 ///
-/// P0: `has_index()` is false, so this returns 0 and the whole index arm is
-/// inert — but the SHAPE (recursion + threshold + span division) is here, so
-/// P1 lands by flipping `indexed`, not by re-deriving pricing.
+/// The recursion terminates because div_up(c, 32) < c for every c >= 2, and
+/// the arm is skipped entirely at c <= 32 — so a buffer of capacity c carries
+/// ceil(log32 c) - 1 index levels above it.
 pub fn pdtbuf_index_block_size(descr: &PdtDescr, capacity: u64) -> u32 {
     if !descr.has_index() {
         return 0u32;
@@ -311,8 +365,7 @@ pub fn pdtbuf_index_block_size(descr: &PdtDescr, capacity: u64) -> u32 {
     if capacity <= PDT_INDEX_SPAN {
         return 0u32;
     }
-    let spans: u64 = (capacity + PDT_INDEX_SPAN - 1u64) / PDT_INDEX_SPAN;
-    return pdtbuf_compute_block_size(descr, spans);
+    return pdtbuf_compute_block_size(descr, pdtbuf_span_count(capacity));
 }
 
 /// Bytes a buffer holding `capacity` rows occupies, index included — THE
@@ -384,9 +437,10 @@ impl Clone for PdtBuf {
 
 /// Formats `mem[0..block_size)` as an EMPTY buffer carrying `descr`
 /// (C++ init() — packed_datatype_buffer.hpp:207-220). All data slots are
-/// stamped RAW at zero size; INDEX stays empty (C++ has_index() is likewise
-/// `!is_empty(INDEX)` :253, and P1 will stamp it Allocatable when it
-/// allocates the recursive self-type there).
+/// stamped RAW at zero size, and so is INDEX: a zero-capacity buffer is below
+/// the span threshold, so it has no index to carry (C++ has_index() is
+/// likewise `!is_empty(INDEX)` :253). reserve() stamps INDEX Allocatable and
+/// materializes the recursive self-type there once capacity exceeds the span.
 pub unsafe fn pdtbuf_format(mem: *mut u8, block_size: u32, descr: &PdtDescr)
     -> Result<PdtBuf, PkdError> {
     assert(descr.columns > 0u32, "pdtbuf_format: columns must be >= 1");
@@ -516,14 +570,51 @@ impl PdtBuf {
         }
     }
 
-    /// Was this buffer configured to carry an index (C++ HasIndex :57)? P0
-    /// never materializes one — has_index() is the LAW's shape: the flag AND
-    /// SUM ordering. P1 makes it also require a non-empty INDEX slot.
+    /// Does this buffer carry a MATERIALIZED span index? Three conjuncts, and
+    /// each is load-bearing:
+    ///   * the descriptor flag — our spelling of the C++ HasIndex's
+    ///     `DataTypeTraits<DataType>::isArithmetic` half (:57), decided by the
+    ///     datatype glue;
+    ///   * SUM ordering — a LAW, not a configuration (the other half of :57).
+    ///     MAX is index-free by design: its column is sorted, so its descent
+    ///     is a bisection and a partial-sum index would answer no question it
+    ///     asks;
+    ///   * a NON-EMPTY index slot — the geometry half, exactly the C++
+    ///     has_index() (`!is_empty(INDEX)`, :253), established by reserve().
     pub fn has_index(self: &PdtBuf) -> bool {
         unsafe {
             let flagged: bool = ((*self.meta()).flags & PDT_FLAG_INDEXED) != 0u32;
-            return flagged && (*self.meta()).ordering == PDT_ORD_SUM;
+            if !flagged {
+                return false;
+            }
+            if (*self.meta()).ordering != PDT_ORD_SUM {
+                return false;
+            }
+            return self.alc().element_size(PDT_SLOT_INDEX) > 0u32;
         }
+    }
+
+    /// The nested span index — the RECURSIVE SELF-TYPE (C++ index() :246).
+    /// RE-RESOLVED from the slot address on every call and never cached: the
+    /// index payload SHIFTS whenever a sibling slot resizes, and the nested
+    /// allocator's back-reference is healed at that moment by the allocator's
+    /// bitmap walk. This is the pkd_ssrle_adopt idiom of sseq.logos, and the
+    /// reason index() returns a fresh handle instead of storing one.
+    pub fn index(self: &PdtBuf) -> PdtBuf {
+        assert(self.has_index(), "PdtBuf::index: no index is materialized");
+        unsafe {
+            return pdtbuf_adopt(self.alc().get::<u8>(PDT_SLOT_INDEX));
+        }
+    }
+
+    /// Index levels above this buffer (0 = index-free). Diagnostic: the gate
+    /// asserts a genuinely MULTI-level tree gets built at deep sizes, so that
+    /// "recursive" is a tested property and not a comment.
+    pub fn index_levels(self: &PdtBuf) -> u32 {
+        if !self.has_index() {
+            return 0u32;
+        }
+        return 1u32 + self.index().index_levels();
     }
 
     /// Reconstruct the out-of-block descriptor from the block itself.
@@ -581,18 +672,36 @@ impl PdtBuf {
         }
     }
 
-    /// Sizes every data block for `capacity` rows. THE fallible phase: on
-    /// success the buffer has consumed exactly
+    /// Sizes every data block AND the index slot for `capacity` rows. THE
+    /// fallible phase: on success the buffer has consumed exactly
     /// pdtbuf_compute_block_size(descr, capacity) bytes; on failure it is
-    /// left at its previous capacity, untouched (grows are attempted only
-    /// after the whole chain has been probed).
+    /// left at its previous capacity, untouched (every byte is probed before
+    /// the first resize).
+    ///
+    /// Owns index GEOMETRY only: the nested index is (re)formatted and
+    /// reserved to div_up(capacity, 32) rows at SIZE 0. Content is
+    /// pdtbuf_reindex's job — see the header's geometry/content split. Every
+    /// query is correct against an empty index, so the intermediate state is
+    /// slow, not wrong.
+    ///
+    /// DERIVED FIX (the probe). P0 probed each block INDEPENDENTLY against
+    /// the same unchanged free space, which answers "does the largest single
+    /// grow fit", not "do all the grows fit". It could not fail in practice
+    /// because every caller allocates exactly pdtbuf_compute_block_size — but
+    /// an under-probe is precisely the defect the exact-prepare law exists to
+    /// forbid, and P3 budgets against this function. The probe is now
+    /// CUMULATIVE: sum the wanted bytes, sum the held bytes, and ask the
+    /// allocator chain once for the difference.
     pub fn reserve(self: &mut PdtBuf, capacity: u64) -> Result<u32, PkdError> {
         let cols: u32 = self.columns();
         let dims: u32 = self.dim_count();
+        let descr: PdtDescr = self.descr();
+        let want_index: u32 = pdtbuf_index_block_size(&descr, capacity);
         unsafe {
             let a: *mut PkdAlloc = self.alc();
-            // Probe first, so a failure never leaves a half-resized block:
-            // the C++ resizes eagerly and unwinds by throwing.
+            // ── probe, cumulatively ───────────────────────────────────────
+            let mut want_total: u32 = want_index;
+            let mut have_total: u32 = a.element_size(PDT_SLOT_INDEX);
             let mut c: u32 = 0u32;
             while c < cols {
                 let mut i: u32 = 0u32;
@@ -602,22 +711,47 @@ impl PdtBuf {
                     let mut sub: u32 = 0u32;
                     while sub < w {
                         let blk: u32 = self.block_of(c, i, sub);
-                        let want: u32 = pdt_dim_block_size(&d, sub, capacity);
-                        if want > a.element_size(blk) {
-                            if !a.try_allocation(blk, want) {
-                                return Result::Err(PkdError::OutOfMem);
-                            }
-                        }
+                        want_total = want_total
+                            + round_up_bytes(pdt_dim_block_size(&d, sub, capacity));
+                        have_total = have_total + a.element_size(blk);
                         sub = sub + 1u32;
                     }
                     i = i + 1u32;
                 }
                 c = c + 1u32;
             }
-            // Shrinks first: releasing space before growing keeps the peak
-            // demand at the priced total, never above it.
+            if want_total > have_total {
+                // Ask the whole parent chain for the WHOLE deficit in one
+                // question, phrased against a real slot (try_allocation walks
+                // the chain without mutating anything).
+                let dlast: PdtDim = self.dim_at(dims - 1u32);
+                let probe: u32 = self.block_of(cols - 1u32, dims - 1u32,
+                                               pdt_dim_width(&dlast) - 1u32);
+                let need: u32 = a.element_size(probe) + (want_total - have_total);
+                if !a.try_allocation(probe, need) {
+                    return Result::Err(PkdError::OutOfMem);
+                }
+            }
+            // ── apply: shrinks first, then grows ──────────────────────────
+            // Releasing space before asking for it keeps the peak demand at
+            // the priced total, never above it. The INDEX slot rides the same
+            // discipline as a data block.
             let mut pass: u32 = 0u32;
             while pass < 2u32 {
+                let have_i: u32 = a.element_size(PDT_SLOT_INDEX);
+                if want_index != have_i && (pass == 0u32) == (want_index < have_i) {
+                    if want_index == 0u32 {
+                        a.free_at(PDT_SLOT_INDEX);
+                        a.set_block_type(PDT_SLOT_INDEX, SlotKind::Raw);
+                    } else {
+                        match a.resize_block_at(PDT_SLOT_INDEX, want_index) {
+                            Result::Ok(_) => {}
+                            Result::Err(e) => {
+                                return Result::Err(e);
+                            }
+                        }
+                    }
+                }
                 let mut c2: u32 = 0u32;
                 while c2 < cols {
                     let mut i2: u32 = 0u32;
@@ -646,12 +780,93 @@ impl PdtBuf {
                 }
                 pass = pass + 1u32;
             }
+            // ── (re)establish the nested index ────────────────────────────
+            // Unconditional re-format: it is the only way to guarantee that a
+            // reserve never leaves index CONTENT that no longer describes the
+            // rows. The slot is stamped ALLOCATABLE first, so a later sibling
+            // resize heals the nested allocator's back-reference (btfl's
+            // leaf-symbol slot is the same idiom, one nesting level up).
+            if want_index > 0u32 {
+                a.set_block_type(PDT_SLOT_INDEX, SlotKind::Allocatable);
+                let p: *mut u8 = a.get::<u8>(PDT_SLOT_INDEX);
+                let bsz: u32 = a.element_size(PDT_SLOT_INDEX);
+                match pdtbuf_format(p, bsz, &descr) {
+                    Result::Ok(_) => {}
+                    Result::Err(e) => {
+                        return Result::Err(e);
+                    }
+                }
+                let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+                inner.set_allocator(a as *const PkdAlloc);
+                let mut ib: PdtBuf = pdtbuf_adopt(p);
+                // Exact by construction: bsz was priced as
+                // pdtbuf_compute_block_size(descr, spans), which is precisely
+                // what a buffer of that capacity consumes — so this recursive
+                // reserve never has to enlarge through the parent, and the
+                // nested block ends with ZERO free space. Any drift here
+                // shows up immediately as check() code 6 or 7.
+                match ib.reserve(pdtbuf_span_count(capacity)) {
+                    Result::Ok(_) => {}
+                    Result::Err(e) => {
+                        return Result::Err(e);
+                    }
+                }
+            }
             (*self.meta()).capacity = capacity as u32;
             if (*self.meta()).size > (capacity as u32) {
                 (*self.meta()).size = capacity as u32;
             }
         }
         return Result::Ok(self.consumed_bytes());
+    }
+
+    // ── the span index: content ───────────────────────────────────────────
+
+    /// Rebuilds the span index from the live rows (C++ reindex_sum :1692).
+    ///
+    /// Index cell (column, k) = Σ column over rows [k*32, min((k+1)*32,
+    /// size)) — PER-SPAN PARTIAL sums, NOT prefix sums. The distinction is
+    /// the whole design: a prefix-sum index would have to be rewritten from
+    /// the mutation point to the end on every insert, and — the reason it
+    /// composes at all — a partial-sum index is ITSELF a sequence whose
+    /// prefix query is the SAME query one level up, which is what makes the
+    /// recursion below a fixed point rather than a special case.
+    ///
+    /// FULL rebuild (a recorded NARROWING). The C++ also carries targeted
+    /// `_add`/`_sub` incremental updates; those belong with the P3 two-phase
+    /// mutations that would drive them, and adding them here would be an
+    /// untested path with no caller.
+    pub fn reindex(self: &mut PdtBuf) {
+        if !self.has_index() {
+            return;
+        }
+        let n: u64 = self.size();
+        let spans: u64 = pdtbuf_span_count(n);
+        let cols: u32 = self.columns();
+        let mut ix: PdtBuf = self.index();
+        // Fits by construction: spans = div_up(size, 32) <= div_up(capacity,
+        // 32) = the index capacity reserve() bought. This is the lockstep the
+        // C++ loses by sizing the index slot from `size` while pricing it
+        // from `capacity`.
+        ix.set_size(spans);
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut s: u64 = 0u64;
+            while s < spans {
+                let base: u64 = s * PDT_INDEX_SPAN;
+                let mut limit: u64 = base + PDT_INDEX_SPAN;
+                if limit > n {
+                    limit = n;
+                }
+                let acc: u64 = self.scan_range(c, base, limit);
+                ix.set(c, s, acc);
+                s = s + 1u64;
+            }
+            c = c + 1u32;
+        }
+        // The index is a PdtBuf: it indexes ITSELF, by the same rule, until a
+        // level fits in one span. That is the 32-ary tree.
+        ix.reindex();
     }
 
     /// Publishes `n` rows as live. INFALLIBLE by contract — the bytes were
@@ -731,14 +946,45 @@ impl PdtBuf {
     /// documented identity holds, so prefix is what we implement for EVERY
     /// ordering. Upstream bug candidate.
     ///
-    /// P1 inserts the index fast path HERE (skip whole spans, then scan the
-    /// remainder) without touching this signature.
+    /// INDEXED (C++ sum_sum :1599): the index's own prefix over whole spans
+    /// carries the answer up to the last span boundary at or below `row`, and
+    /// only the < 32-row remainder is scanned. The index call is the SAME
+    /// function on the index buffer, so the cost is 32 adds per level.
+    ///
+    /// DERIVED GUARD. The C++ computes `span = idx / index_span()` and
+    /// indexes the index with it unchecked. That is safe only for an index
+    /// whose size is exactly div_up(size, 32); against an index that covers
+    /// FEWER spans — which is exactly the state its own create_index() leaves
+    /// behind before insert_from_fn fills it — it reads past the index's live
+    /// rows. Clamping `span` to the index size makes an under-covering index
+    /// cost a longer scan instead of a wrong answer, and is what lets
+    /// reserve() hand out an empty index safely.
     pub fn sum_prefix(self: &PdtBuf, column: u32, row: u64) -> u64 {
         assert(row <= self.size(), "PdtBuf::sum_prefix: row past end");
+        let mut base: u64 = 0u64;
+        let mut acc: u64 = 0u64;
+        if self.has_index() {
+            let ix: PdtBuf = self.index();
+            let mut span: u64 = row / PDT_INDEX_SPAN;
+            if span > ix.size() {
+                span = ix.size();
+            }
+            if span > 0u64 {
+                acc = ix.sum_prefix(column, span);
+                base = span * PDT_INDEX_SPAN;
+            }
+        }
+        return acc + self.scan_range(column, base, row);
+    }
+
+    // The index-FREE range sum: Σ column over [start, end). Ground truth for
+    // both the index that is built from it and the check() that verifies it,
+    // so it must never route through the fast path — that would be circular.
+    fn scan_range(self: &PdtBuf, column: u32, start: u64, end: u64) -> u64 {
         let vals: &[u64] = self.values(column);
         let mut acc: u64 = 0u64;
-        let mut i: u64 = 0u64;
-        while i < row {
+        let mut i: u64 = start;
+        while i < end {
             acc = acc + vals[i as i64];
             i = i + 1u64;
         }
@@ -765,11 +1011,44 @@ impl PdtBuf {
     // with prefix(k) = Σ_{j<k} col[j]. Both return (i, prefix(i)); if no such
     // i exists the answer is (size, prefix(size)) — the not-found convention.
     // `strict` selects > over >=.
+    //
+    // INDEXED DESCENT (C++ find_{ge,gt}_fw_sum :1496/:1536). Run the SAME
+    // query on the index first: the index answer s = min{ s : prefix((s+1)*32)
+    // >= val } brackets the true row, because prefix(s*32) < val (or no
+    // earlier span would have been rejected) and prefix((s+1)*32) >= val. So
+    // the row lies in [s*32, (s+1)*32) and the < 32-row scan from s*32 with
+    // the index's reported prefix finds it. Recursion gives O(32 * levels).
+    //
+    // DERIVED, and it DIVERGES from the C++ (upstream bug candidate #26).
+    // The C++ treats an index MISS as the final answer:
+    //     if (res.local_pos() < index.size()) { idx = ...; prefix = ...; }
+    //     else { res.set_local_pos(this->size()); return res; }
+    // — it returns "not found over the whole buffer" without examining a
+    // single row. That is only accidentally right, and only for an index
+    // whose size is exactly div_up(size, 32): then index.size()*32 >= size,
+    // so there is genuinely nothing left to scan. Against an index that
+    // covers fewer spans it reports not-found over rows it never read.
+    // The correct residual — which subsumes the C++ answer instead of
+    // special-casing it — is "resume the scan at the first row the index does
+    // not cover", i.e. idx = index.size()*32 clamped to size. Written that
+    // way the hit and miss arms COLLAPSE into one expression (on a hit
+    // r.idx < index.size(), on a miss r.idx == index.size()), and an empty
+    // index degrades to the plain P0 scan with no branch at all.
     fn find_fw_sum(self: &PdtBuf, column: u32, val: u64, strict: bool) -> PdtFind {
-        let vals: &[u64] = self.values(column);
         let n: u64 = self.size();
+        let mut start: u64 = 0u64;
         let mut prefix: u64 = 0u64;
-        let mut i: u64 = 0u64;
+        if self.has_index() {
+            let ix: PdtBuf = self.index();
+            let r: PdtFind = ix.find_fw_sum(column, val, strict);
+            start = r.idx * PDT_INDEX_SPAN;
+            prefix = r.prefix;
+            if start > n {
+                start = n;
+            }
+        }
+        let vals: &[u64] = self.values(column);
+        let mut i: u64 = start;
         while i < n {
             let incl: u64 = prefix + vals[i as i64];
             let hit: bool = if strict { incl > val } else { incl >= val };
@@ -924,6 +1203,55 @@ impl PdtBuf {
         let d: PdtDescr = self.descr();
         if self.consumed_bytes() != pdtbuf_compute_block_size(&d, self.capacity()) {
             return 6i32;
+        }
+        // ── the span index (C++ check_sum :1649) ──────────────────────────
+        // GEOMETRY: the slot holds exactly what the capacity prices — this is
+        // the lockstep assertion. A slot sized from `size` while priced from
+        // `capacity` (the C++ arrangement) fails here, which is the point.
+        unsafe {
+            if self.alc().element_size(PDT_SLOT_INDEX)
+                != pdtbuf_index_block_size(&d, self.capacity()) {
+                return 7i32;
+            }
+        }
+        if self.has_index() {
+            let ix: PdtBuf = self.index();
+            if ix.capacity() != pdtbuf_span_count(self.capacity()) {
+                return 8i32;
+            }
+            // Size 0 = reserved but not yet reindexed (a legal, correct-but-
+            // slow state); anything else must cover the live rows EXACTLY.
+            if ix.size() != 0u64 && ix.size() != pdtbuf_span_count(self.size()) {
+                return 8i32;
+            }
+            // CONTENT: every cell is the per-span partial sum of its rows.
+            // Recomputed from the index-free scan, so a fast path that agrees
+            // with a wrong index cannot hide here.
+            let n: u64 = self.size();
+            let ns: u64 = ix.size();
+            let cols2: u32 = self.columns();
+            let mut c3: u32 = 0u32;
+            while c3 < cols2 {
+                let mut s: u64 = 0u64;
+                while s < ns {
+                    let base: u64 = s * PDT_INDEX_SPAN;
+                    let mut limit: u64 = base + PDT_INDEX_SPAN;
+                    if limit > n {
+                        limit = n;
+                    }
+                    if ix.get(c3, s) != self.scan_range(c3, base, limit) {
+                        return 9i32;
+                    }
+                    s = s + 1u64;
+                }
+                c3 = c3 + 1u32;
+            }
+            // ... and the index checks itself, by the same rules, all the way
+            // up the tree. The +10 per level keeps the failing LEVEL visible.
+            let rc: i32 = ix.check();
+            if rc != 0i32 {
+                return 10i32 + rc;
+            }
         }
         return 0i32;
     }

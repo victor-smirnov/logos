@@ -328,6 +328,141 @@ void dump_case(size_t rows, uint64_t seed)
     g_cases++;
 }
 
+// ── index-cell parity cases (marker 2; PdtBuf rung P1) ──────────────────────
+//
+// Row counts ABOVE IndexSpan, where HEAD materializes its recursive index
+// (`using IndexType = MyType` — packed_datatype_buffer.hpp:65). Dumps the
+// index CELLS level by level, walking `so.index()` until has_index() stops:
+// the strict gate for our own levels, cell for cell.
+//
+// The CORPUS is not dumped. It is a pure function of (seed, Columns, rows)
+// through the same LCG, in the same column-major fill order, that the Logos
+// gate runs — so both sides regenerate it identically and a 32769-row case
+// costs a few KB of index cells instead of a megabyte of corpus.
+//
+//   2 <columns> <rows> <seed>
+//   <n_levels>
+//     <level_rows> <cells ...>       x n_levels, cells ROW-MAJOR
+//
+// Self-checked from the DEFINITION before emission: level 1 cell (c,k) is the
+// PARTIAL sum of corpus rows [k*32, min((k+1)*32, rows)) — not a prefix — and
+// level L+1 is the same rule applied to level L's cells.
+const size_t DEEP_ROW_SET[] = {33, 64, 65, 100, 200, 1023, 1024, 1025, 2000, 32769};
+
+const size_t SPAN = 32;
+
+template <size_t Columns>
+void dump_index_case(size_t rows, uint64_t seed)
+{
+    using Buf = PackedDataTypeBufferT<BigInt, true, Columns, DTOrdering::SUM>;
+
+    Lcg lcg(seed);
+    std::vector<std::vector<int64_t>> cols(Columns);
+    for (size_t c = 0; c < Columns; c++) {
+        for (size_t i = 0; i < rows; i++) {
+            cols[c].push_back((int64_t)(lcg.next() % 23));
+        }
+    }
+
+    auto holder = PkdStructHolder<Buf>::make_empty(
+        Buf::compute_block_size(rows) + 64 * 1024);
+    auto so = holder->get_so();
+    so.insert_from_fn(0, rows, [&](size_t column, size_t row) {
+        return cols[column][row];
+    });
+
+    if (so.size() != rows) {
+        std::fprintf(stderr, "SELFCHECK index-case size mismatch\n");
+        g_failed_selfchecks++;
+    }
+    // HEAD's own structural check, which for SUM buffers walks the index and
+    // compares it against a recomputed span sum (so.hpp check_sum :1649).
+    so.check();
+
+    // Walk the levels.
+    std::vector<size_t> level_rows;
+    std::vector<std::vector<uint64_t>> levels;
+    {
+        auto cur = so;
+        while (cur.data()->has_index()) {
+            auto ix = cur.index();
+            size_t n = ix.size();
+            std::vector<uint64_t> cells;
+            for (size_t r = 0; r < n; r++) {
+                for (size_t c = 0; c < Columns; c++) {
+                    cells.push_back((uint64_t)(int64_t)ix.access(c, r));
+                }
+            }
+            level_rows.push_back(n);
+            levels.push_back(std::move(cells));
+            cur = ix;
+        }
+    }
+
+    // Self-check: rebuild every level from the definition.
+    {
+        std::vector<std::vector<int64_t>> below = cols;
+        for (size_t L = 0; L < levels.size(); L++) {
+            size_t n_below = below[0].size();
+            size_t spans = (n_below + SPAN - 1) / SPAN;
+            if (spans != level_rows[L]) {
+                std::fprintf(stderr,
+                    "SELFCHECK index level %zu row count: cpp=%zu naive=%zu\n",
+                    L, level_rows[L], spans);
+                g_failed_selfchecks++;
+            }
+            std::vector<std::vector<int64_t>> up(Columns);
+            for (size_t k = 0; k < spans; k++) {
+                size_t limit = (k + 1) * SPAN < n_below ? (k + 1) * SPAN : n_below;
+                for (size_t c = 0; c < Columns; c++) {
+                    int64_t s = 0;
+                    for (size_t i = k * SPAN; i < limit; i++) {
+                        s += below[c][i];
+                    }
+                    up[c].push_back(s);
+                    if (k < level_rows[L]
+                        && (uint64_t)s != levels[L][k * Columns + c]) {
+                        std::fprintf(stderr,
+                            "SELFCHECK index cell L=%zu c=%zu k=%zu cpp=%llu naive=%lld\n",
+                            L, c, k,
+                            (unsigned long long)levels[L][k * Columns + c],
+                            (long long)s);
+                        g_failed_selfchecks++;
+                    }
+                }
+            }
+            below = up;
+        }
+        // The level count itself: HEAD stops when a level fits in one span.
+        size_t want_levels = 0;
+        for (size_t n = rows; n > SPAN; n = (n + SPAN - 1) / SPAN) {
+            want_levels++;
+        }
+        if (want_levels != levels.size()) {
+            std::fprintf(stderr, "SELFCHECK level count cpp=%zu naive=%zu (rows=%zu)\n",
+                         levels.size(), want_levels, rows);
+            g_failed_selfchecks++;
+        }
+    }
+
+    tok(2);
+    tok(Columns);
+    tok(rows);
+    tok(seed);
+    std::printf("\n");
+    tok(levels.size());
+    std::printf("\n");
+    for (size_t L = 0; L < levels.size(); L++) {
+        tok(level_rows[L]);
+        for (uint64_t v: levels[L]) {
+            tok(v);
+        }
+        std::printf("\n");
+    }
+
+    g_cases++;
+}
+
 template <size_t Columns>
 void dump_columns()
 {
@@ -336,6 +471,10 @@ void dump_columns()
         dump_case<Columns, DTOrdering::SUM>(rows, seed);
         seed += 7919;
         dump_case<Columns, DTOrdering::MAX>(rows, seed);
+        seed += 7919;
+    }
+    for (size_t rows: DEEP_ROW_SET) {
+        dump_index_case<Columns>(rows, seed);
         seed += 7919;
     }
 }

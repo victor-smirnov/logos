@@ -35,16 +35,41 @@ The harness self-checks every case (C++ `compute_size` == units written; C++
 decode roundtrips to the source runs) and prints per-bps case counts to
 stderr; stdout is the fixture stream, `0`-terminated.
 
-## pdtbuf_dump — PackedDataTypeBuffer cross-check reference (PdtBuf rung P0)
+## pdtbuf_dump — PackedDataTypeBuffer cross-check reference (PdtBuf rungs P0+P1)
 
-Generates `tests/pdtbuf_fixtures.hex`: 88 cases over
+Generates `tests/pdtbuf_fixtures.hex`: **128 cases** over
 `PackedDataTypeBufferT<BigInt, true, C, DTOrdering::{SUM,MAX}>` for C in
-{1,2,3,4} and row counts {0,1,2,3,5,8,15,16,17,31,32} (at or below `IndexSpan`
-= 32, so HEAD stays on its scan/bisection paths — the ones P0 implements).
-Each case carries the corpus plus (query → answer) triples for `sum`,
-`find_fw_ge` and `find_fw_gt`, and — for MAX cases — a record of HEAD's
-`sum(column,row)` used as *divergence evidence* (see below). Consumed by
-`tests/pdtbuf_core.logos`.
+{1,2,3,4}, in two flavours.
+
+**Marker-1 (88 cases, rung P0)** — row counts {0,1,2,3,5,8,15,16,17,31,32}, at
+or below `IndexSpan` = 32, so HEAD stays on its scan/bisection paths. Each
+case carries the corpus plus (query → answer) triples for `sum`, `find_fw_ge`
+and `find_fw_gt`, and — for MAX cases — a record of HEAD's `sum(column,row)`
+used as *divergence evidence* (see below).
+
+**Marker-2 (40 cases, rung P1)** — row counts {33, 64, 65, 100, 200, 1023,
+1024, 1025, 2000, 32769}, i.e. above the span threshold, where HEAD
+materializes its index. The case dumps HEAD's index **cells, level by level**,
+walking `so.index()` until `has_index()` stops (the index is HEAD's own
+recursive self-type, `using IndexType = MyType` —
+`packed_datatype_buffer.hpp:65`), and `pdtbuf_core.logos` asserts exact
+numeric identity against our levels, cell for cell. 32769 rows reaches **three
+index levels** (1025 → 33 → 2).
+
+    2 <columns> <rows> <seed>
+    <n_levels>
+      <level_rows> <cells ...>       x n_levels, cells ROW-MAJOR
+
+The **corpus is not dumped** for marker-2 cases: it is a pure function of
+(seed, columns, rows) through the same LCG, in the same column-major fill
+order, that the Logos gate runs — so both sides regenerate byte-identical data
+and a 32769-row case costs a few KB of index cells instead of a megabyte of
+corpus. Self-checked before emission from the *definition*: level 1 cell (c,k)
+is the **partial** sum of rows `[k*32, min((k+1)*32, rows))` — not a prefix —
+and level L+1 is that same rule applied to level L's cells; the level count is
+recomputed independently; and HEAD's own `so.check()` (which for SUM buffers
+walks the index and re-derives every span sum, `so.hpp` `check_sum` :1649) is
+called on every case.
 
 **Role.** Unlike `ssrle_dump`, this harness is NOT an authority. The C++
 PDTBuffer/FQTree family is bug-dense (23 catalogued during the port recon) and
@@ -88,6 +113,19 @@ identity holds); the fixture's `<n_gen>` block records HEAD's behaviour and
 `pdtbuf_core.logos` asserts the divergence explicitly as
 `cpp_gen(c,k) == sum_all(c) - sum_prefix(c,k)`. If upstream ever fixes
 `sum_gen`, that assertion flips and reports it.
+
+**Second recorded divergence (P1, upstream bug candidate #26).** HEAD's
+`find_ge_fw_sum` / `find_gt_fw_sum`
+(`packed_datatype_buffer_so.hpp:1501-1514`, `:1541-1554`) treat an index
+*miss* as the final answer — `res.set_local_pos(this->size()); return res;` —
+returning "not found over the whole buffer" without examining a single row.
+That is correct only for an index whose size is exactly `div_up(size, 32)`;
+against an index covering fewer spans — precisely the state HEAD's own
+`create_index()` leaves behind before `insert_from_fn` fills it — it reports
+not-found over rows it never read. The Logos port derives the residual
+instead ("resume the scan at the first row the index does not cover"), which
+subsumes HEAD's answer rather than special-casing it. Transcribing HEAD's
+short-circuit into the port fails the gate at exit 119.
 
 ## Known edges
 

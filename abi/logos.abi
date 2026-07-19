@@ -10841,7 +10841,10 @@ sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_gt__f__ref_PdtBuf__u32__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_gt_from__f__ref_PdtBuf__u32__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__get__f__ref_PdtBuf__u32__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__has_index__f__ref_PdtBuf
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__index__f__ref_PdtBuf
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__index_levels__f__ref_PdtBuf
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__ordering__f__ref_PdtBuf
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__reindex__f__refmut_PdtBuf
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__reserve__f__refmut_PdtBuf__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__set__f__refmut_PdtBuf__u32__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__set_row__f__refmut_PdtBuf__u64__ref_Vec$G1$u64
@@ -11215,6 +11218,7 @@ sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_create__f__pmut_u8__u32__ref_PdtDescr_
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_empty_size__f__ref_PdtDescr
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_format__f__pmut_u8__u32__ref_PdtDescr
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_index_block_size__f__ref_PdtDescr__u64
+sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_span_count__f__u64
 sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_adopt__f__pmut_u8
 sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_block_size__f__u32__u64
 sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_create__f__pmut_u8__u32__u32__ref_Vec$G1$SsrleRun

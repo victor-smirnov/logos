@@ -38,6 +38,9 @@
 //   80..89  C++ HEAD fixture cross-check
 //   90..99  the C++ sum_gen divergence, asserted as a divergence
 //  100..109 harness failures (fixture unreadable, corpus too small)
+//  110..119 P1: index geometry, reserve/reindex lockstep, empty-index safety
+//  120..129 P1: three-way indexed <-> unindexed scan <-> model, incl. depth
+//  130..139 P1: C++ HEAD recursive index-cell parity (marker-2 fixtures)
 package test;
 
 use logos.mem.pkd.pdtbuf;
@@ -761,7 +764,376 @@ fn check_edges() -> i32 {
     return 0i32;
 }
 
-// ── 80.. / 90.. the C++ HEAD cross-check ───────────────────────────────────
+// ═══ P1: the recursive SUM span index ═══════════════════════════════════════
+//
+// ORACLE STRATEGY, unchanged in kind: correctness is decided by the model and
+// by a THIRD leg the index cannot influence — a twin buffer built with
+// indexed=false over identical data, whose every query is a plain scan. Any
+// index bug shows up as indexed != scan even before the model is consulted,
+// and the model catches a bug that somehow corrupted both.
+//
+// The index's DEFINING property is checked directly rather than inferred:
+// cell (c,k) must be the PARTIAL sum of span k, and section 111 asserts that
+// a PREFIX-sum index would be a different (wrong) structure by exhibiting the
+// difference at k >= 1.
+
+/// The indexed twin of descr_for: the same shape with the index switched on.
+fn descr_indexed(cols: u32) -> PdtDescr {
+    return pdt_descr_fse(cols, 8u32, PDT_ORD_SUM, true);
+}
+
+/// Index levels the geometry MUST produce for `rows`: one per division by the
+/// span until a level fits in a single span. Written from the definition, not
+/// from the implementation's recursion.
+fn model_index_levels(rows: u64) -> u32 {
+    let mut n: u64 = rows;
+    let mut levels: u32 = 0u32;
+    while n > 32u64 {
+        n = (n + 31u64) / 32u64;
+        levels = levels + 1u32;
+    }
+    return levels;
+}
+
+/// Per-span partial sum of the MODEL over span `k` — the definition of an
+/// index cell, computed with no reference to the buffer.
+fn model_span_sum(m: &Model, c: u32, k: u64) -> u64 {
+    let base: u64 = k * 32u64;
+    let mut limit: u64 = base + 32u64;
+    if limit > m.rows {
+        limit = m.rows;
+    }
+    return model_range(m, c, base, limit);
+}
+
+// ── 110.. geometry, lockstep, and empty-index safety ───────────────────────
+
+fn check_index_geometry() -> i32 {
+    let mut cols: u32 = 1u32;
+    while cols <= 4u32 {
+        let d: PdtDescr = descr_indexed(cols);
+        // Capacities straddling the threshold and both deeper boundaries.
+        let caps: [u64; 10] = [0u64, 1u64, 31u64, 32u64, 33u64, 64u64, 1024u64,
+                               1025u64, 100u64, 0u64];
+        let bsmax: u32 = pdtbuf_compute_block_size(&d, 1025u64);
+        unsafe {
+            let mem: *mut u8 = alloc(bsmax as i64);
+            let mut b: PdtBuf = match pdtbuf_format(mem, bsmax, &d) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    return 110i32;
+                }
+            };
+            // A freshly formatted buffer is below the threshold: no index.
+            if b.has_index() {
+                dealloc(mem);
+                return 111i32;
+            }
+            let mut i: i64 = 0i64;
+            while i < 10i64 {
+                let cap: u64 = caps[i];
+                match b.reserve(cap) {
+                    Result::Ok(_) => {}
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        return 112i32;
+                    }
+                }
+                // LOCKSTEP: presence is decided by CAPACITY, and the slot
+                // holds exactly what the capacity prices. A slot sized from
+                // `size` while priced from `capacity` fails right here.
+                if b.has_index() != (cap > 32u64) {
+                    dealloc(mem);
+                    return 113i32;
+                }
+                if b.index_levels() != model_index_levels(cap) {
+                    dealloc(mem);
+                    return 114i32;
+                }
+                if b.consumed_bytes() != pdtbuf_compute_block_size(&d, cap) {
+                    dealloc(mem);
+                    return 115i32;
+                }
+                if b.check() != 0i32 {
+                    dealloc(mem);
+                    return 116i32;
+                }
+                if b.has_index() {
+                    // reserve() leaves the index EMPTY, never stale.
+                    if b.index().size() != 0u64 {
+                        dealloc(mem);
+                        return 117i32;
+                    }
+                    // ... and the index's own capacity is the span count of
+                    // OUR capacity, one level down, recursively.
+                    if b.index().capacity() != (cap + 31u64) / 32u64 {
+                        dealloc(mem);
+                        return 118i32;
+                    }
+                }
+                i = i + 1i64;
+            }
+            dealloc(mem);
+        }
+        cols = cols + 1u32;
+    }
+    return 0i32;
+}
+
+/// The DERIVED-robustness assertion (the C++ divergence at
+/// packed_datatype_buffer_so.hpp:1501-1514, upstream bug candidate #26): a
+/// buffer whose index is materialized but NOT yet filled must answer every
+/// query CORRECTLY — by falling back to the scan it would have done anyway —
+/// not report "not found" over rows it never examined. The C++ short-circuits
+/// on an index miss and would answer (size, 0) here for every query.
+fn check_empty_index_safety(seed: &mut u64) -> i32 {
+    let mut cols: u32 = 1u32;
+    while cols <= 4u32 {
+        let rows: u64 = 100u64;
+        let m: Model = model_random(cols, rows, false, seed);
+        let d: PdtDescr = descr_indexed(cols);
+        let bs: u32 = pdtbuf_compute_block_size(&d, rows);
+        unsafe {
+            let mem: *mut u8 = alloc(bs as i64);
+            let mut b: PdtBuf = match pdtbuf_create(mem, bs, &d, rows) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    return 119i32;
+                }
+            };
+            fill_from_model(&mut b, &m);
+            // NO reindex() — the index slot exists, its size is 0.
+            if !b.has_index() {
+                dealloc(mem);
+                return 119i32;
+            }
+            if b.index().size() != 0u64 {
+                dealloc(mem);
+                return 119i32;
+            }
+            let mut c: u32 = 0u32;
+            while c < cols {
+                let total: u64 = model_prefix(&m, c, rows);
+                let mut k: u64 = 0u64;
+                while k <= rows {
+                    if b.sum_prefix(c, k) != model_prefix(&m, c, k) {
+                        dealloc(mem);
+                        return 119i32;
+                    }
+                    k = k + 1u64;
+                }
+                let mut v: u64 = 0u64;
+                while v <= total + 2u64 {
+                    let ge: PdtFind = b.find_ge(c, v);
+                    let mge: PdtFind = model_find_sum(&m, c, v, false, 0u64);
+                    if ge.idx != mge.idx || ge.prefix != mge.prefix {
+                        dealloc(mem);
+                        return 119i32;
+                    }
+                    v = v + 37u64;
+                }
+                c = c + 1u32;
+            }
+            dealloc(mem);
+        }
+        cols = cols + 1u32;
+    }
+    return 0i32;
+}
+
+// ── 120.. three-way: indexed <-> unindexed scan <-> model ──────────────────
+
+/// Builds the indexed buffer AND its unindexed twin over the same model, then
+/// compares every query three ways. `dense` runs the exhaustive sweeps (small
+/// sizes); otherwise the probes are sampled so deep corpora stay linear.
+fn check_three_way(cols: u32, rows: u64, dense: bool, seed: &mut u64) -> i32 {
+    let m: Model = model_random(cols, rows, false, seed);
+
+    let di: PdtDescr = descr_indexed(cols);
+    let ds: PdtDescr = descr_for(cols, PDT_ORD_SUM);
+    let bsi: u32 = pdtbuf_compute_block_size(&di, rows);
+    let bss: u32 = pdtbuf_compute_block_size(&ds, rows);
+
+    unsafe {
+        let memi: *mut u8 = alloc(bsi as i64);
+        let mems: *mut u8 = alloc(bss as i64);
+        let mut bi: PdtBuf = match pdtbuf_create(memi, bsi, &di, rows) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(memi);
+                dealloc(mems);
+                return 120i32;
+            }
+        };
+        let mut bs2: PdtBuf = match pdtbuf_create(mems, bss, &ds, rows) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(memi);
+                dealloc(mems);
+                return 120i32;
+            }
+        };
+        fill_from_model(&mut bi, &m);
+        fill_from_model(&mut bs2, &m);
+        bi.reindex();
+        let rc: i32 = check_three_way_body(&bi, &bs2, &m, dense);
+        dealloc(memi);
+        dealloc(mems);
+        return rc;
+    }
+}
+
+fn check_three_way_body(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
+    let cols: u32 = m.cols;
+    let rows: u64 = m.rows;
+
+    // The unindexed twin must genuinely have no index — otherwise the third
+    // leg is not independent and the whole comparison is vacuous.
+    if bs2.has_index() {
+        return 121i32;
+    }
+    if bi.has_index() != (rows > 32u64) {
+        return 121i32;
+    }
+    // DEPTH: the tree really is multi-level at deep sizes.
+    if bi.index_levels() != model_index_levels(rows) {
+        return 122i32;
+    }
+    // check() verifies index geometry AND recomputes every cell at every
+    // level from the index-free scan.
+    if bi.check() != 0i32 {
+        return 123i32;
+    }
+
+    // THE DEFINING PROPERTY, asserted directly against the model: level-1
+    // cell (c,k) is the PARTIAL sum of span k. A prefix-sum index would agree
+    // at k = 0 and disagree at every k >= 1 with a non-empty preceding span.
+    if bi.has_index() {
+        let ix: PdtBuf = bi.index();
+        let spans: u64 = (rows + 31u64) / 32u64;
+        if ix.size() != spans {
+            return 124i32;
+        }
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut k: u64 = 0u64;
+            while k < spans {
+                if ix.get(c, k) != model_span_sum(m, c, k) {
+                    return 125i32;
+                }
+                k = k + 1u64;
+            }
+            c = c + 1u32;
+        }
+    }
+
+    // Prefix sums, three ways.
+    let mut c2: u32 = 0u32;
+    while c2 < cols {
+        let step: u64 = if dense { 1u64 } else { rows / 61u64 + 1u64 };
+        let mut k: u64 = 0u64;
+        while k <= rows {
+            let vi: u64 = bi.sum_prefix(c2, k);
+            if vi != bs2.sum_prefix(c2, k) {
+                return 126i32;
+            }
+            if vi != model_prefix(m, c2, k) {
+                return 126i32;
+            }
+            k = k + step;
+        }
+        // The boundary rows the stride may have stepped over: every span
+        // edge and its neighbours, where the descent hands off to the scan.
+        let mut e: u64 = 0u64;
+        while e <= rows {
+            let mut o: u64 = 0u64;
+            while o < 3u64 {
+                let p: u64 = if e + o > 0u64 { e + o - 1u64 } else { 0u64 };
+                if p <= rows {
+                    let vb: u64 = bi.sum_prefix(c2, p);
+                    if vb != bs2.sum_prefix(c2, p) || vb != model_prefix(m, c2, p) {
+                        return 127i32;
+                    }
+                }
+                o = o + 1u64;
+            }
+            e = e + 32u64;
+        }
+        c2 = c2 + 1u32;
+    }
+
+    // Searches, three ways, over the probe set that covers every attainable
+    // answer (dense) or a stride through the value range (deep).
+    let mut c3: u32 = 0u32;
+    while c3 < cols {
+        let total: u64 = model_prefix(m, c3, rows);
+        let mut probes: Vec<u64> = vec_new::<u64>();
+        probes.push(0u64);
+        probes.push(1u64);
+        probes.push(total);
+        probes.push(total + 1u64);
+        if dense {
+            let mut k2: u64 = 0u64;
+            while k2 <= rows {
+                let p: u64 = model_prefix(m, c3, k2);
+                probes.push(p);
+                if p > 0u64 {
+                    probes.push(p - 1u64);
+                }
+                probes.push(p + 1u64);
+                k2 = k2 + 1u64;
+            }
+        } else {
+            // Every span boundary's prefix, plus its neighbours: exactly the
+            // values at which the index descent picks a different span.
+            let mut e2: u64 = 0u64;
+            while e2 <= rows {
+                let p: u64 = model_prefix(m, c3, e2);
+                probes.push(p);
+                if p > 0u64 {
+                    probes.push(p - 1u64);
+                }
+                probes.push(p + 1u64);
+                e2 = e2 + 32u64;
+            }
+        }
+        let np: i64 = probes.length();
+        let mut pi: i64 = 0i64;
+        while pi < np {
+            let v: u64 = probes.get(pi);
+            let ge: PdtFind = bi.find_ge(c3, v);
+            let gt: PdtFind = bi.find_gt(c3, v);
+            let sge: PdtFind = bs2.find_ge(c3, v);
+            let sgt: PdtFind = bs2.find_gt(c3, v);
+            if ge.idx != sge.idx || ge.prefix != sge.prefix {
+                return 128i32;
+            }
+            if gt.idx != sgt.idx || gt.prefix != sgt.prefix {
+                return 128i32;
+            }
+            let mge: PdtFind = model_find_sum(m, c3, v, false, 0u64);
+            let mgt: PdtFind = model_find_sum(m, c3, v, true, 0u64);
+            if ge.idx != mge.idx || ge.prefix != mge.prefix {
+                return 129i32;
+            }
+            if gt.idx != mgt.idx || gt.prefix != mgt.prefix {
+                return 129i32;
+            }
+            // LAW carried over from P0: the reported prefix IS the prefix sum
+            // at the hit row — now computed through the index on both sides.
+            if ge.prefix != bi.sum_prefix(c3, ge.idx) {
+                return 129i32;
+            }
+            pi = pi + 1i64;
+        }
+        c3 = c3 + 1u32;
+    }
+    return 0i32;
+}
+
+// ── 80.. / 90.. / 130.. the C++ HEAD cross-check ───────────────────────────
 
 fn check_fixture_case(s: str, pos: &mut i64) -> i32 {
     let ord_tok: u64 = next_tok(s, pos);
@@ -867,6 +1239,86 @@ fn check_fixture_body(b: &PdtBuf, m: &Model, ordering: u32, s: str, pos: &mut i6
     return 0i32;
 }
 
+// ── 130.. the STRICT index gate: HEAD's recursive index cells, level by level
+//
+// A marker-2 case carries only (columns, rows, seed) plus HEAD's index cells:
+// the corpus is regenerated here from the SAME LCG in the same column-major
+// order, so the two sides are comparing structures built over byte-identical
+// data. Wave-1 recon established that HEAD's recursive nested-buffer index is
+// cell-for-cell the same 32-ary tree the deleted flat-layout FQTree carried,
+// which is what makes this a meaningful equivalence rather than a tautology.
+//
+// This is EQUALITY, not evidence: an index cell has one right value (the
+// partial sum of its span), section 12x already pinned that value against the
+// independent model, and HEAD agrees. Where HEAD and the model disagree the
+// model wins — no such disagreement was observed at this rung.
+fn check_index_fixture_case(s: str, pos: &mut i64) -> i32 {
+    let cols: u32 = next_tok(s, pos) as u32;
+    let rows: u64 = next_tok(s, pos);
+    let mut sd: u64 = next_tok(s, pos);
+    let m: Model = model_random(cols, rows, false, &mut sd);
+
+    let d: PdtDescr = descr_indexed(cols);
+    let bs: u32 = pdtbuf_compute_block_size(&d, rows);
+    unsafe {
+        let mem: *mut u8 = alloc(bs as i64);
+        let mut b: PdtBuf = match pdtbuf_create(mem, bs, &d, rows) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 130i32;
+            }
+        };
+        fill_from_model(&mut b, &m);
+        b.reindex();
+        let rc: i32 = check_index_fixture_body(&b, cols, s, pos);
+        dealloc(mem);
+        return rc;
+    }
+}
+
+fn check_index_fixture_body(b: &PdtBuf, cols: u32, s: str, pos: &mut i64) -> i32 {
+    // Our own structure first: the fixture is consulted only afterwards, so
+    // it can never be what defines correctness here.
+    if b.check() != 0i32 {
+        return 131i32;
+    }
+    let n_levels: u64 = next_tok(s, pos);
+    if (b.index_levels() as u64) != n_levels {
+        return 132i32;
+    }
+    let mut cur: PdtBuf = *b;
+    let mut l: u64 = 0u64;
+    while l < n_levels {
+        if !cur.has_index() {
+            return 133i32;
+        }
+        let ix: PdtBuf = cur.index();
+        let level_rows: u64 = next_tok(s, pos);
+        if ix.size() != level_rows {
+            return 134i32;
+        }
+        let mut r: u64 = 0u64;
+        while r < level_rows {
+            let mut c: u32 = 0u32;
+            while c < cols {
+                if ix.get(c, r) != next_tok(s, pos) {
+                    return 135i32;
+                }
+                c = c + 1u32;
+            }
+            r = r + 1u64;
+        }
+        cur = ix;
+        l = l + 1u64;
+    }
+    // Level count agrees EXACTLY: the recursion stops where HEAD's stops.
+    if cur.has_index() {
+        return 136i32;
+    }
+    return 0i32;
+}
+
 fn check_fixtures() -> i32 {
     let content: String = match read_to_string("tests/pdtbuf_fixtures.hex") {
         Result::Ok(c) => { c }
@@ -875,23 +1327,35 @@ fn check_fixtures() -> i32 {
     let s: str = content.as_str();
     let mut pos: i64 = 0i64;
     let mut cases: i64 = 0i64;
+    let mut index_cases: i64 = 0i64;
     let mut going: bool = true;
     while going {
         let marker: u64 = next_tok(s, &mut pos);
         if marker == 0u64 {
             going = false;
-        } else {
+        } else if marker == 1u64 {
             let rc: i32 = check_fixture_case(s, &mut pos);
             if rc != 0i32 {
                 return rc;
             }
             cases = cases + 1i64;
+        } else if marker == 2u64 {
+            let rc2: i32 = check_index_fixture_case(s, &mut pos);
+            if rc2 != 0i32 {
+                return rc2;
+            }
+            index_cases = index_cases + 1i64;
+        } else {
+            return 102i32;   // desynchronized stream
         }
     }
     // Floor: a truncated or regenerated-to-nothing fixture file must not
     // pass as green (the ssrle_codec discipline).
     if cases < 80i64 {
         return 101i32;
+    }
+    if index_cases < 40i64 {
+        return 103i32;
     }
     return 0i32;
 }
@@ -933,6 +1397,53 @@ fn main() -> i32 {
             si = si + 1i64;
         }
         cols = cols + 1u32;
+    }
+
+    // ── P1: the recursive span index ──────────────────────────────────────
+    let rc5: i32 = check_index_geometry();
+    if rc5 != 0i32 {
+        return rc5;
+    }
+    let rc6: i32 = check_empty_index_safety(&mut seed);
+    if rc6 != 0i32 {
+        return rc6;
+    }
+
+    // Three-way at the THRESHOLD, exhaustively: 31 (no index), 32 (the exact
+    // boundary), 33 (the first indexed size), and the second-level boundaries.
+    let dense_sizes: [u64; 8] = [0u64, 1u64, 31u64, 32u64, 33u64, 34u64,
+                                 64u64, 65u64];
+    let mut dc: u32 = 1u32;
+    while dc <= 4u32 {
+        let mut di: i64 = 0i64;
+        while di < 8i64 {
+            let r: i32 = check_three_way(dc, dense_sizes[di], true, &mut seed);
+            if r != 0i32 {
+                return r;
+            }
+            di = di + 1i64;
+        }
+        dc = dc + 1u32;
+    }
+
+    // ... and DEEP, where the tree is genuinely multi-level: 1024 is the last
+    // 1-level size (its index is exactly 32 cells), 1025 is the first 2-level
+    // size, 32768 the last 2-level one and 32769 the first 3-level one. The
+    // level count is asserted at every size (120..122), so "recursive" is a
+    // measured property.
+    let deep_sizes: [u64; 6] = [1023u64, 1024u64, 1025u64, 2000u64,
+                                32768u64, 32769u64];
+    let mut kc: u32 = 1u32;
+    while kc <= 4u32 {
+        let mut ki: i64 = 0i64;
+        while ki < 6i64 {
+            let r2: i32 = check_three_way(kc, deep_sizes[ki], false, &mut seed);
+            if r2 != 0i32 {
+                return r2;
+            }
+            ki = ki + 1i64;
+        }
+        kc = kc + 1u32;
     }
 
     let rc4: i32 = check_fixtures();
