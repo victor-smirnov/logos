@@ -1,4 +1,4 @@
-// memoria.btfl — BTFL increment 8a: the multistream free-layout btree with a
+// logos.mem.bt.btfl — BTFL increment 8a: the multistream free-layout btree with a
 // HARDCODED 2-stream Multimap<u64, u64> (ordered multimap key → sequence of
 // values). The factory (8b) generalizes this file; the MECHANICS land here.
 //
@@ -67,9 +67,10 @@
 // POINTER DISCIPLINE (the VecCtr idiom): packed payloads shift when sibling
 // slots resize — every PkdArray / PkdSsrle view is re-resolved from the
 // node's PkdAlloc AT THE POINT OF USE, never cached across a mutation.
-package memoria.btfl;
+package logos.mem.bt.btfl;
 
-use memoria.ssrle;               // PkdSsrle + the run codec/algebra
+use logos.mem.pkd.ssrle;         // the run codec/algebra (SsrleRun, ssrle_runs_from_symbols)
+use logos.mem.pkd.sseq;          // PkdSsrle — the packed symbol sequence
 use logos.mem.pkd;               // PkdAlloc, PkdArray, SlotKind, PkdError
 use logos.mem.bt.node;           // node_alloc / node_pkd (via snapshot) — node blocks
 use logos.mem.bt.memstore;       // MemorySnapshot (allocation capability), tree_release

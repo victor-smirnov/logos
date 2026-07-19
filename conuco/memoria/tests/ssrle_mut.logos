@@ -36,7 +36,8 @@
 //          too large to materialize)
 package test;
 
-use memoria.ssrle;
+use logos.mem.pkd.ssrle;
+use logos.mem.pkd.sseq;
 use logos.mem.pkd;
 use logos.lang.arith;
 use logos.lang.mem;

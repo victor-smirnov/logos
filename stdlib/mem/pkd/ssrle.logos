@@ -1,4 +1,8 @@
-// memoria.ssrle — SSRLE run codec + segment writer (BTFL arc, increment 1).
+// logos.mem.pkd.ssrle — SSRLE run codec + segment writer (BTFL arc, increment 1).
+// Promoted from conuco/memoria (memoria.ssrle) in increment 8b: the container
+// factory (stdlib/lcm/canon) generates families over the btfl runtime, so the
+// whole SSRLE/BTFL layer lives in the stdlib mem tier now. conuco tests stay
+// as the canaries and import this package directly.
 //
 // C++ oracle: ~/cxx/memoria/core/include/memoria/core/ssrle/ssrle_common.hpp
 // (+ ssrle_{1..8}bps.hpp for the per-Bps LEN_BITS constants). This module is a
@@ -31,7 +35,7 @@
 // in this regime, so the behavior is kept bit-for-bit and stays inside the
 // byte-identity oracle gate. The FIXME only bites if segments ever grow ≥ 256
 // units — then the writer must emit multi-unit padding (upstream-report note).
-package memoria.ssrle;
+package logos.mem.pkd.ssrle;
 
 use logos.lang.clone;
 use logos.lang.cmp;        // u64::leading_zeros

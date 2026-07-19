@@ -20,7 +20,7 @@
 //   21 select_fw_eq lands on a non-sym position
 package test;
 
-use memoria.ssrle;
+use logos.mem.pkd.ssrle;
 use logos.lang.arith;
 
 // ── deterministic corpus (LCG via wrapping arithmetic) ──────────────────────

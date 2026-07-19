@@ -166,6 +166,9 @@ sym	logos.mem.bt.BtCursor__type_id__g__ref_T
 sym	logos.mem.bt.BtTree__type_id__g__ref_T
 sym	logos.mem.bt.FindShuttle__type_id__g__ref_T
 sym	logos.mem.bt.ShuttleRes__type_id__g__ref_T
+sym	logos.mem.bt.btfl.BtflLoc__type_id__g__ref_T
+sym	logos.mem.bt.btfl.BtflSeek__type_id__g__ref_T
+sym	logos.mem.bt.btfl.Btfl__type_id__g__ref_T
 sym	logos.mem.bt.memstore.DirEntry__type_id__g__ref_T
 sym	logos.mem.bt.memstore.Directory__type_id__g__ref_T
 sym	logos.mem.bt.memstore.MemorySnapshot__type_id__g__ref_T
@@ -183,6 +186,7 @@ sym	logos.mem.collections.vec.Vec$G1$tup$5$i64$i64$i64$i64$i64__fmt__g__ref_Vec$
 sym	logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$6$i64$i64$i64$i64$i64$i64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
+sym	logos.mem.collections.vec.Vec$G1$u16__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$u64__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$u8__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.deem.QEnv__type_id__g__ref_T
@@ -209,6 +213,12 @@ sym	logos.mem.pkd.PkdAlloc__type_id__g__ref_T
 sym	logos.mem.pkd.PkdAllocatable__type_id__g__ref_T
 sym	logos.mem.pkd.PkdError__type_id__g__ref_T
 sym	logos.mem.pkd.SlotKind__type_id__g__ref_T
+sym	logos.mem.pkd.sseq.PkdSsrle__type_id__g__ref_T
+sym	logos.mem.pkd.sseq.SsrleMeta__type_id__g__ref_T
+sym	logos.mem.pkd.sseq.SsrleSelect__type_id__g__ref_T
+sym	logos.mem.pkd.sseq.SsrleUpdate__type_id__g__ref_T
+sym	logos.mem.pkd.ssrle.SsrleFindRun__type_id__g__ref_T
+sym	logos.mem.pkd.ssrle.SsrleRun__type_id__g__ref_T
 sym	logos.mem.string.String__to_string__g__T
 sym	logos.mem.string.String__type_id__g__ref_T
 sym	logos.mem.writ.tag_system.DataTypeTagSystem__type_id__g__ref_T
@@ -2252,6 +2262,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdError__skip_while__g__OptionIte
 sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdError__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdError__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdError__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$PkdSsrle__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$QError__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$QError__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$QError__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2676,6 +2704,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$u64__skip_while__
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$u64__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$u64__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_PkdArray$G1$u64__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_SsrleMeta__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u8__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u8__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$pmut_u8__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -2902,6 +2948,7 @@ sym	logos_lang..logos.lang.iter.Option__ParseBoolError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ParseFloatError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ParseIntError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__PkdError__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__PkdSsrle__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__QError__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__QRows__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Query__into_iter__g__Option
@@ -2955,6 +3002,7 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ParseBoolError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ParseFloatError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ParseIntError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__PkdError
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__PkdSsrle
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__QError
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__QRows
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Query
@@ -2978,6 +3026,7 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__i64
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__i8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_SsrleMeta
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__pmut_u8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ref_i32
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__ref_i64
@@ -2988,6 +3037,7 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__u64
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__u8
 sym	logos_lang..logos.lang.iter.Option__pmut_PkdAlloc__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__pmut_PkdArray$G1$u64__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__pmut_SsrleMeta__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__pmut_u8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ref_i32__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__ref_i64__into_iter__g__Option
@@ -3328,6 +3378,21 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$Json__skip_while__g__ResultIter$G1
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Json__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Json__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Json__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$PkdSsrle__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$QRows__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -3638,6 +3703,21 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$u64__skip_while__
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$u64__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$u64__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_PkdArray$G1$u64__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_SsrleMeta__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u8__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u8__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$pmut_u8__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -3724,6 +3804,7 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$u8__take_while__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.Result__File__i32__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__IoRing__IoUringError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__Json__JsonError__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__PkdSsrle__PkdError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__QRows__QError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__Query__QError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__ReadDir__i32__into_iter__g__Result
@@ -3753,6 +3834,7 @@ sym	logos_lang..logos.lang.iter.Result__i8__ConvertError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__File__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__QRows__QError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__Query__QError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__ReadDir__i32
@@ -3781,6 +3863,7 @@ sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__i64__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__u32__ConvertError
@@ -3791,6 +3874,7 @@ sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__u64__ParseIntError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__u8__ConvertError
 sym	logos_lang..logos.lang.iter.Result__pmut_PkdAlloc__PkdError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__pmut_PkdArray$G1$u64__PkdError__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__pmut_SsrleMeta__PkdError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__pmut_u8__PkdError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__u16__ConvertError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__u32__ConvertError__into_iter__g__Result
@@ -5768,6 +5852,20 @@ sym	logos_lang..logos.lang.option.Option__PkdError__unwrap__g__Option
 sym	logos_lang..logos.lang.option.Option__PkdError__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__PkdError__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__PkdError__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__default__g__void
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__PkdSsrle__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__QError__default__g__void
 sym	logos_lang..logos.lang.option.Option__QError__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__QError__filter__g__Option__fn(T) -> bool
@@ -6010,6 +6108,7 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__default__g__void__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__default__g__void__ParseIntError
 sym	logos_lang..logos.lang.option.Option__default__g__void__PkdError
+sym	logos_lang..logos.lang.option.Option__default__g__void__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__default__g__void__QError
 sym	logos_lang..logos.lang.option.Option__default__g__void__QRows
 sym	logos_lang..logos.lang.option.Option__default__g__void__Query
@@ -6033,6 +6132,7 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__i64
 sym	logos_lang..logos.lang.option.Option__default__g__void__i8
 sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__default__g__void__pmut_u8
 sym	logos_lang..logos.lang.option.Option__default__g__void__ref_i32
 sym	logos_lang..logos.lang.option.Option__default__g__void__ref_i64
@@ -6073,6 +6173,7 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ParseBool
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ParseIntError
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__PkdError
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__QError
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__QRows
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Query
@@ -6096,6 +6197,7 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__i64
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__i8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__pmut_u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ref_i32
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__ref_i64
@@ -6164,6 +6266,7 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Pars
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ParseIntError
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__PkdError
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__QError
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__QRows
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Query
@@ -6187,6 +6290,7 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__i64
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__i8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__pmut_u8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ref_i32
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__ref_i64
@@ -6283,6 +6387,7 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__PkdError
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__QError
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__QRows
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Query
@@ -6306,6 +6411,7 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__i64
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__i8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__ref_i64
@@ -6346,6 +6452,7 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__PkdError
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__QError
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__QRows
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Query
@@ -6369,6 +6476,7 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__i64
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__i8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__ref_i64
@@ -6409,6 +6517,7 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ParseIntError
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__PkdError
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__QError
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__QRows
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Query
@@ -6432,6 +6541,7 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__i8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__pmut_u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ref_i32
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__ref_i64
@@ -6472,6 +6582,7 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__PkdError
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__QError
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__QRows
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Query
@@ -6495,6 +6606,7 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__i64
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__i8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__ref_i64
@@ -6535,6 +6647,7 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Pa
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__PkdError
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__QError
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__QRows
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Query
@@ -6558,6 +6671,7 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__i6
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__i8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__ref_i64
@@ -6594,6 +6708,20 @@ sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$u64__unwrap__g__Optio
 sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$u64__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$u64__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__pmut_PkdArray$G1$u64__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__default__g__void
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__pmut_SsrleMeta__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__pmut_u8__default__g__void
 sym	logos_lang..logos.lang.option.Option__pmut_u8__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__pmut_u8__filter__g__Option__fn(T) -> bool
@@ -6682,6 +6810,7 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ParseBoo
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ParseIntError
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__PkdError
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__QError
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__QRows
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Query
@@ -6705,6 +6834,7 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__i64
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__i8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__pmut_u8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ref_i32
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__ref_i64
@@ -6745,6 +6875,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__PkdError
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__QError
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__QRows
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Query
@@ -6768,6 +6899,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__i64
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__i8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__ref_i64
@@ -6864,6 +6996,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__PkdError
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__QError
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__QRows
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Query
@@ -6887,6 +7020,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__i64
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__i8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__ref_i64
@@ -6927,6 +7061,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ParseBoolErro
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ParseIntError
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__PkdError
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__QError
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__QRows
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Query
@@ -6950,6 +7085,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__i64
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__i8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__pmut_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ref_i32
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__ref_i64
@@ -6990,6 +7126,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ParseIntError
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__PkdError
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__QError
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__QRows
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Query
@@ -7013,6 +7150,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__i8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__pmut_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ref_i32
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__ref_i64
@@ -7053,6 +7191,7 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ParseBoolError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ParseFloatError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ParseIntError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__PkdError
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__PkdSsrle
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__QError
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__QRows
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Query
@@ -7076,6 +7215,7 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__i64
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__i8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_PkdAlloc
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_PkdArray$G1$u64
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_SsrleMeta
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__pmut_u8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ref_i32
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__ref_i64
@@ -7305,6 +7445,18 @@ sym	logos_lang..logos.lang.result.Result__Json__JsonError__unwrap__g__Result
 sym	logos_lang..logos.lang.result.Result__Json__JsonError__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__Json__JsonError__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__Json__JsonError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__err__g__Result
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__PkdSsrle__PkdError__unwrap_or_else__g__Result__fn(E) -> T
 sym	logos_lang..logos.lang.result.Result__QRows__QError__err__g__Result
 sym	logos_lang..logos.lang.result.Result__QRows__QError__expect__g__Result__slice_u8
 sym	logos_lang..logos.lang.result.Result__QRows__QError__expect_err__g__Result__slice_u8
@@ -7452,6 +7604,7 @@ sym	logos_lang..logos.lang.result.Result__char__ConvertError__unwrap_or_else__g_
 sym	logos_lang..logos.lang.result.Result__err__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__err__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__QRows__QError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__ReadDir__i32
@@ -7480,6 +7633,7 @@ sym	logos_lang..logos.lang.result.Result__err__g__Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__u32__ConvertError
@@ -7491,6 +7645,7 @@ sym	logos_lang..logos.lang.result.Result__err__g__Result__u8__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__File__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__QRows__QError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__Query__QError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__ReadDir__i32
@@ -7519,6 +7674,7 @@ sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__i64__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u32__ConvertError
@@ -7530,6 +7686,7 @@ sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__u8__Conve
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__File__i32
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__QRows__QError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Query__QError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__ReadDir__i32
@@ -7558,6 +7715,7 @@ sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__i64__
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__u32__ConvertError
@@ -7737,6 +7895,7 @@ sym	logos_lang..logos.lang.result.Result__i8__ConvertError__unwrap_or_else__g__R
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__File__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__QRows__QError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__ReadDir__i32
@@ -7765,6 +7924,7 @@ sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u32__ConvertError
@@ -7776,6 +7936,7 @@ sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__u8__ConvertErro
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__File__i32
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__QRows__QError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__Query__QError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__ReadDir__i32
@@ -7804,6 +7965,7 @@ sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__u32__ConvertError
@@ -7815,6 +7977,7 @@ sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__File__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__QRows__QError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__ReadDir__i32
@@ -7843,6 +8006,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__u32__ConvertError
@@ -7855,6 +8019,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__void__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__File__i32
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__QRows__QError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__Query__QError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__ReadDir__i32
@@ -7883,6 +8048,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__i
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u32__ConvertError
@@ -7894,6 +8060,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__u
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__QRows__QError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__ReadDir__i32
@@ -7922,6 +8089,7 @@ sym	logos_lang..logos.lang.result.Result__ok__g__Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__u32__ConvertError
@@ -7954,6 +8122,18 @@ sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$u64__PkdError__unwrap
 sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$u64__PkdError__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$u64__PkdError__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__pmut_PkdArray$G1$u64__PkdError__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__err__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__pmut_SsrleMeta__PkdError__unwrap_or_else__g__Result__fn(E) -> T
 sym	logos_lang..logos.lang.result.Result__pmut_u8__PkdError__err__g__Result
 sym	logos_lang..logos.lang.result.Result__pmut_u8__PkdError__expect__g__Result__slice_u8
 sym	logos_lang..logos.lang.result.Result__pmut_u8__PkdError__expect_err__g__Result__slice_u8
@@ -8053,6 +8233,7 @@ sym	logos_lang..logos.lang.result.Result__u8__ConvertError__unwrap_or_else__g__R
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__QRows__QError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__ReadDir__i32
@@ -8081,6 +8262,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u32__ConvertError
@@ -8092,6 +8274,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__u8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__QRows__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__Query__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__ReadDir__i32
@@ -8120,6 +8303,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__i64__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u32__ConvertError
@@ -8131,6 +8315,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__u8__ConvertErro
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__QRows__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__Query__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__ReadDir__i32
@@ -8159,6 +8344,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__i64__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u32__ConvertError
@@ -8170,6 +8356,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__u8__ConvertEr
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__File__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__IoRing__IoUringError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__Json__JsonError
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__PkdSsrle__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__QRows__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__Query__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__ReadDir__i32
@@ -8198,6 +8385,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T_
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__i8__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_PkdAlloc__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_PkdArray$G1$u64__PkdError
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_SsrleMeta__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__pmut_u8__PkdError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__u16__ConvertError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__u32__ConvertError
@@ -8605,6 +8793,9 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowedBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtArena
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtCursor
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtTree
+sym	logos_lang.logos.lang.any$type_id_of__g__void__Btfl
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflLoc
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflSeek
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ByteSplitter
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Bytes
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Bytes$M23c60f9d48390b84
@@ -8695,6 +8886,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Pipe
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PkdAlloc
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PkdAllocatable
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PkdError
+sym	logos_lang.logos.lang.any$type_id_of__g__void__PkdSsrle
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QEnv
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__QRows
@@ -8731,6 +8923,11 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Spacing
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Span
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Splitter
 sym	logos_lang.logos.lang.any$type_id_of__g__void__SpscRing
+sym	logos_lang.logos.lang.any$type_id_of__g__void__SsrleFindRun
+sym	logos_lang.logos.lang.any$type_id_of__g__void__SsrleMeta
+sym	logos_lang.logos.lang.any$type_id_of__g__void__SsrleRun
+sym	logos_lang.logos.lang.any$type_id_of__g__void__SsrleSelect
+sym	logos_lang.logos.lang.any$type_id_of__g__void__SsrleUpdate
 sym	logos_lang.logos.lang.any$type_id_of__g__void__StrDt
 sym	logos_lang.logos.lang.any$type_id_of__g__void__StrMatchIndex
 sym	logos_lang.logos.lang.any$type_id_of__g__void__String
@@ -9194,6 +9391,7 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ParseBoolErro
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ParseFloatError
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ParseIntError
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__PkdError
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__PkdSsrle
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__QError
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__QRows
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Query
@@ -9217,6 +9415,7 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__i64
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__i8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_PkdAlloc
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_PkdArray$G1$u64
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_SsrleMeta
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__pmut_u8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ref_i32
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__ref_i64
@@ -9699,6 +9898,16 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__index__g__ref_Vec
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$QuoteItemBlob__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$SsrleRun__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__clear__g__refmut_Vec$G1$T
@@ -9873,6 +10082,17 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__as_slice__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__borrow__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__drop__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__get__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__index__g__ref_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__index_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__set__g__refmut_Vec$G1$T__i64__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__clear__g__refmut_Vec$G1$T
@@ -10176,11 +10396,16 @@ sym	logos_mem..logos.mem.fmt.void__Display__fmt__f__ref_void__refmut_Formatter
 sym	logos_mem..logos.mem.manually_drop.Alignment__as_u64__f__ref_Alignment
 sym	logos_mem..logos.mem.manually_drop.Alignment__log2__f__ref_Alignment
 sym	logos_mem..logos.mem.pkd.PkdAlloc__allocate__f__dstmutref_PkdAlloc__u32__u32__SlotKind
+sym	logos_mem..logos.mem.pkd.PkdAlloc__allocate_cell__g__dstmutref_PkdAlloc__u32__S__SsrleMeta
 sym	logos_mem..logos.mem.pkd.PkdAlloc__allocate_nested__f__dstmutref_PkdAlloc__u32__u32__u32
 sym	logos_mem..logos.mem.pkd.PkdAlloc__allocated__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__allocator__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__base__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__block_size__f__dstref_PkdAlloc
+sym	logos_mem..logos.mem.pkd.PkdAlloc__cells__g__dstref_PkdAlloc__u32__u16
+sym	logos_mem..logos.mem.pkd.PkdAlloc__cells__g__dstref_PkdAlloc__u32__u64
+sym	logos_mem..logos.mem.pkd.PkdAlloc__cells_mut__g__dstmutref_PkdAlloc__u32__u16
+sym	logos_mem..logos.mem.pkd.PkdAlloc__cells_mut__g__dstmutref_PkdAlloc__u32__u64
 sym	logos_mem..logos.mem.pkd.PkdAlloc__client_area__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__compute_element_offset__f__dstref_PkdAlloc__pcst_u8
 sym	logos_mem..logos.mem.pkd.PkdAlloc__data__f__dstref_PkdAlloc__u32
@@ -10195,7 +10420,10 @@ sym	logos_mem..logos.mem.pkd.PkdAlloc__find_element__f__dstref_PkdAlloc__pcst_u8
 sym	logos_mem..logos.mem.pkd.PkdAlloc__free_at__f__dstmutref_PkdAlloc__u32
 sym	logos_mem..logos.mem.pkd.PkdAlloc__free_space__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__PkdArray$G1$u64
+sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__SsrleMeta
+sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__u16
 sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__u32
+sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__u64
 sym	logos_mem..logos.mem.pkd.PkdAlloc__get__g__dstref_PkdAlloc__u32__u8
 sym	logos_mem..logos.mem.pkd.PkdAlloc__has_allocator__f__dstref_PkdAlloc
 sym	logos_mem..logos.mem.pkd.PkdAlloc__import_block__f__dstmutref_PkdAlloc__u32__pcst_PkdAlloc__u32
@@ -10232,6 +10460,77 @@ sym	logos_mem..logos.mem.pkd.PkdArray$G1$u64__remove__g__refmut_PkdArray$G1$T__u
 sym	logos_mem..logos.mem.pkd.PkdArray$G1$u64__set__g__refmut_PkdArray$G1$T__u32__T$where$Copy$Fst$StableLayout
 sym	logos_mem..logos.mem.pkd.PkdArray$G1$u64__split_into__g__refmut_PkdArray$G1$T__refmut_PkdArray$G1$T__u32$where$Copy$Fst$StableLayout
 sym	logos_mem..logos.mem.pkd.PkdArray$G1$u64__volume_upto__g__ref_PkdArray$G1$T__u32$where$Copy$Fst$StableLayout
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__access__f__ref_PkdSsrle__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__alphabet_size__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__as_runs__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__bps__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__clone__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__code_units__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__commit__f__refmut_PkdSsrle__ref_SsrleUpdate
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__count_bw__f__ref_PkdSsrle__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__count_fw__f__ref_PkdSsrle__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__estimate_insert__f__ref_PkdSsrle__u64__ref_Vec$G1$SsrleRun
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__estimate_merge__f__ref_PkdSsrle__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__has_index__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__has_size_index__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__has_sum_index__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__index_blocks__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__index_size_at__f__ref_PkdSsrle__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__index_sum_at__f__ref_PkdSsrle__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__insert_runs__f__refmut_PkdSsrle__u64__ref_Vec$G1$SsrleRun
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__insert_symbols__f__refmut_PkdSsrle__u64__ref_Vec$G1$u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__merge_from__f__refmut_PkdSsrle__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__needs_index__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__plan_insert__f__ref_PkdSsrle__u64__ref_Vec$G1$SsrleRun
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__plan_merge__f__ref_PkdSsrle__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__plan_remove__f__ref_PkdSsrle__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__rank_eq__f__ref_PkdSsrle__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__rank_eq_all__f__ref_PkdSsrle__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__rank_op__f__ref_PkdSsrle__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__rank_op_all__f__ref_PkdSsrle__u64__u32
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__rank_op_range__f__ref_PkdSsrle__u64__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__ranks__f__ref_PkdSsrle__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__reindex__f__refmut_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__remove__f__refmut_PkdSsrle__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__select_bw_op__f__ref_PkdSsrle__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__select_bw_op_from__f__ref_PkdSsrle__u64__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__select_fw_eq__f__ref_PkdSsrle__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__select_fw_eq_nlt__f__ref_PkdSsrle__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__select_fw_eq_nlt_from__f__ref_PkdSsrle__u64__u64__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__select_fw_op__f__ref_PkdSsrle__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__select_fw_op_from__f__ref_PkdSsrle__u64__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__set_runs__f__refmut_PkdSsrle__ref_Vec$G1$SsrleRun
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__size__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__split_to__f__refmut_PkdSsrle__refmut_PkdSsrle__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__symbols_block_capacity__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__symbols_block_units__f__ref_PkdSsrle
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__unit_at__f__ref_PkdSsrle__u64
+sym	logos_mem..logos.mem.pkd.sseq.PkdSsrle__update_fits__f__ref_PkdSsrle__ref_SsrleUpdate
+sym	logos_mem..logos.mem.pkd.sseq.SsrleMeta__clone__f__ref_SsrleMeta
+sym	logos_mem..logos.mem.pkd.sseq.SsrleSelect__clone__f__ref_SsrleSelect
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__clone__f__ref_SsrleRun
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__eq__f__ref_SsrleRun__ref_SsrleRun
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__full_rank_eq__f__ref_SsrleRun__u32__u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__full_rank_op__f__ref_SsrleRun__u32__u64__u32
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__full_ranks__f__ref_SsrleRun__u32__refmut_Vec$G1$u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__full_run_length__f__ref_SsrleRun
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__is_null__f__ref_SsrleRun
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__is_padding__f__ref_SsrleRun
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__is_same_pattern__f__ref_SsrleRun__ref_SsrleRun
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__is_valid__f__ref_SsrleRun
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__pattern_rank_eq__f__ref_SsrleRun__u32__u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__pattern_rank_eq_up_to__f__ref_SsrleRun__u32__u64__u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__pattern_rank_op__f__ref_SsrleRun__u32__u64__u32
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__pattern_rank_op_up_to__f__ref_SsrleRun__u32__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__pattern_select_fw_eq__f__ref_SsrleRun__u32__u64__u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__pattern_select_fw_op__f__ref_SsrleRun__u32__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__pattern_symbol__f__ref_SsrleRun__u32__u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__rank_eq__f__ref_SsrleRun__u32__u64__u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__rank_op__f__ref_SsrleRun__u32__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__ranks_up_to__f__ref_SsrleRun__u32__u64__refmut_Vec$G1$u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__select_fw_eq__f__ref_SsrleRun__u32__u64__u64
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__select_fw_op__f__ref_SsrleRun__u32__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.ssrle.SsrleRun__symbol__f__ref_SsrleRun__u32__u64
 sym	logos_mem..logos.mem.string.String__advance_len__f__refmut_String__i64
 sym	logos_mem..logos.mem.string.String__as_datum__f__ref_String
 sym	logos_mem..logos.mem.string.String__as_ptr__f__ref_String
@@ -10364,6 +10663,18 @@ sym	logos_mem.logos.mem.bt$bt_remove__f__refmut_BtArena__refmut_BtTree__u64
 sym	logos_mem.logos.mem.bt$bt_ride__f__ref_BtArena__u64__&dyn Shuttle__refmut_Vec$G1$tup$2$u64$u32
 sym	logos_mem.logos.mem.bt$bt_seek__f__ref_BtArena__ref_BtTree__u64
 sym	logos_mem.logos.mem.bt$bt_stage__f__void
+sym	logos_mem.logos.mem.bt.btfl$btfl_access__f__ref_Btfl__u64
+sym	logos_mem.logos.mem.bt.btfl$btfl_check__f__ref_Btfl
+sym	logos_mem.logos.mem.bt.btfl$btfl_count__f__ref_Btfl__u64
+sym	logos_mem.logos.mem.bt.btfl$btfl_create__f__refmut_MemorySnapshot__u32__u32
+sym	logos_mem.logos.mem.bt.btfl$btfl_drop__f__ref_Btfl
+sym	logos_mem.logos.mem.bt.btfl$btfl_find__f__ref_Btfl__u64__refmut_Vec$G1$u64
+sym	logos_mem.logos.mem.bt.btfl$btfl_insert__f__refmut_MemorySnapshot__refmut_Btfl__u64__ref_Vec$G1$u64
+sym	logos_mem.logos.mem.bt.btfl$btfl_leaf_key_at__f__pmut_u8__u32
+sym	logos_mem.logos.mem.bt.btfl$btfl_leaf_key_count__f__pmut_u8
+sym	logos_mem.logos.mem.bt.btfl$btfl_leaf_key_sympos__f__pmut_u8__u32
+sym	logos_mem.logos.mem.bt.btfl$btfl_seek__f__ref_Btfl__u64
+sym	logos_mem.logos.mem.bt.btfl$btfl_select__f__ref_Btfl__u64__u64
 sym	logos_mem.logos.mem.bt.memstore$tree_release__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_alloc__f__u32__u32__u64
 sym	logos_mem.logos.mem.bt.node$node_dec_rc__f__pmut_u8
@@ -10416,12 +10727,14 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Ident$M2b09c0fe11e753e
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__Json
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__JsonField
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__QuoteItemBlob
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__SsrleRun
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__String
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__TokenTree
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__WAny
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__bool
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i32
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__i64
+sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u16
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u8
 sym	logos_mem.logos.mem.deem$fs_jn_row_enc__f__ref_SchemaCatalog__i64__WAny__u64__bool__refmut_String
@@ -10477,6 +10790,59 @@ sym	logos_mem.logos.mem.pkd$move_bytes__f__pmut_u8__pcst_u8__i64
 sym	logos_mem.logos.mem.pkd$pkd_format__f__pmut_u8__u32__u32
 sym	logos_mem.logos.mem.pkd$round_down_bytes__f__u32
 sym	logos_mem.logos.mem.pkd$round_up_bytes__f__u32
+sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_adopt__f__pmut_u8
+sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_block_size__f__u32__u64
+sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_create__f__pmut_u8__u32__u32__ref_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_empty_size__f__void
+sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_format__f__pmut_u8__u32__u32
+sym	logos_mem.logos.mem.pkd.sseq$pkd_ssrle_index_blocks__f__u32__u64
+sym	logos_mem.logos.mem.pkd.sseq$ssrle_atoms_per_block__f__u32
+sym	logos_mem.logos.mem.pkd.sseq$ssrle_bps_for_alphabet__f__u32
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_compactify__f__u32__refmut_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_compute_size__f__u32__ref_Vec$G1$SsrleRun__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_count_symbols__f__ref_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_data_bits__f__u32
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_decode_run__f__u32__ref_Vec$G1$u16__u64__refmut_SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_decode_run_units__f__u32__slice_u16__u64__refmut_SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_decode_runs__f__u32__ref_Vec$G1$u16__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_decode_runs_units__f__u32__slice_u16__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_encodable_pattern_length__f__u32
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_encode_run__f__u32__ref_SsrleRun__refmut_Vec$G1$u16__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_encode_word__f__u32__ref_SsrleRun__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_estimate_size__f__u32__ref_SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_find_run__f__ref_Vec$G1$SsrleRun__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_finish_segment__f__refmut_Vec$G1$u16__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_is_fit__f__u32__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_is_fit_concat__f__u32__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_len_bits__f__u32
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_make_mask__f__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_make_null__f__void
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_make_padding__f__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_make_run__f__u32__ref_Vec$G1$u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_materialize__f__u32__ref_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_max_pattern_length__f__u32
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_max_run_length__f__u32__u32
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_next_run__f__u32__slice_u16__u64__refmut_u64__refmut_SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_op_matches__f__u32__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_rank_eq__f__u32__ref_Vec$G1$SsrleRun__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_rank_op__f__u32__ref_Vec$G1$SsrleRun__u64__u64__u32
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_ranks__f__u32__ref_Vec$G1$SsrleRun__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_run_extract_to__f__u32__ref_SsrleRun__u64__u64__refmut_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_run_insert_to__f__u32__ref_SsrleRun__ref_SsrleRun__u64__refmut_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_run_length_bitsize__f__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_run_merge__f__u32__refmut_SsrleRun__ref_SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_run_new__f__u32__u32__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_run_remove_to__f__u32__ref_SsrleRun__u64__u64__refmut_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_run_split_to__f__u32__ref_SsrleRun__u64__refmut_Vec$G1$SsrleRun__refmut_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_runs_append__f__refmut_Vec$G1$SsrleRun__ref_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_runs_from_symbols__f__u32__ref_Vec$G1$u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_segment_units__f__void
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_select_fw_eq__f__u32__ref_Vec$G1$SsrleRun__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_select_fw_op__f__u32__ref_Vec$G1$SsrleRun__u64__u64__u32
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_seq_insert__f__u32__ref_Vec$G1$SsrleRun__u64__ref_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_seq_remove__f__u32__ref_Vec$G1$SsrleRun__u64__u64
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_seq_split__f__u32__ref_Vec$G1$SsrleRun__u64__refmut_Vec$G1$SsrleRun__refmut_Vec$G1$SsrleRun
+sym	logos_mem.logos.mem.pkd.ssrle$ssrle_write_segments__f__u32__ref_Vec$G1$SsrleRun__refmut_Vec$G1$u16__u64
 sym	logos_mem.logos.mem.writ.check$writ_check__f__WAny
 sym	logos_mem.logos.mem.writ.clone$writ_clone__f__WAny
 sym	logos_mem.logos.mem.writ.clone$writ_clone_into__f__ref_Writ__WAny
@@ -11212,6 +11578,9 @@ type	logos.mem.bt.BtCursor	fields=[path:Vec<(u64, u32)>,leaf:u64,pos:u32]
 type	logos.mem.bt.BtTree	fields=[root:u64]
 type	logos.mem.bt.FindShuttle	fields=[key:u64]
 type	logos.mem.bt.ShuttleRes	fields=[pos:u32,found:bool]
+type	logos.mem.bt.btfl.Btfl	fields=[root:*mut u8,level:u32,leaf_bytes:u32,branch_bytes:u32]
+type	logos.mem.bt.btfl.BtflLoc	fields=[found:bool,leaf:*mut u8,idx:u64,pos:u64]
+type	logos.mem.bt.btfl.BtflSeek	fields=[found:bool,rank:u64,leaf:*mut u8,kidx:u32]
 type	logos.mem.bt.memstore.DirEntry	fields=[ctr_id:u64,root:*mut u8,level:u32]
 type	logos.mem.bt.memstore.Directory	fields=[entries:Vec<DirEntry>]
 type	logos.mem.bt.memstore.MemorySnapshot	fields=[id:u64,dir:Directory]
@@ -11258,6 +11627,12 @@ type	logos.mem.pkd.PkdAllocatable	fields=[alc_off:u32]
 type	logos.mem.pkd.PkdArray	fields=[alc:PkdAlloc]
 type	logos.mem.pkd.PkdError	variants=[OutOfMem]
 type	logos.mem.pkd.SlotKind	variants=[Raw,Allocatable]
+type	logos.mem.pkd.sseq.PkdSsrle	fields=[mem:*mut u8]
+type	logos.mem.pkd.sseq.SsrleMeta	fields=[size:u64,code_units:u64,bps:u32,alphabet_size:u32]
+type	logos.mem.pkd.sseq.SsrleSelect	fields=[idx:u64,rank:u64]
+type	logos.mem.pkd.sseq.SsrleUpdate	fields=[runs:Vec<SsrleRun>,code_units:u64,block_size:u32]
+type	logos.mem.pkd.ssrle.SsrleFindRun	fields=[run_idx:i64,local_offset:u64,offset:u64]
+type	logos.mem.pkd.ssrle.SsrleRun	fields=[pattern:u64,pattern_length:u32,run_length:u64]
 type	logos.mem.string.String	fields=[data:*mut u8,nbytes:i64,cap:i64]
 type	logos.mem.sync.Arc	fields=[inner:*mut ArcInner<T>]
 type	logos.mem.sync.ArcInner	fields=[strong:AtomicI32,weak:AtomicI32,val:T]

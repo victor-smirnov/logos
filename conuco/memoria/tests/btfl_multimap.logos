@@ -30,8 +30,7 @@
 //           every 250 mutations + at the end; final level ≥ 3
 package test;
 
-use memoria.btfl;
-use memoria.ssrle;
+use logos.mem.bt.btfl;
 use logos.mem.pkd;
 use logos.mem.bt.memstore;
 use logos.lang.arith;

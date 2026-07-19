@@ -35,7 +35,8 @@
 //   80..89  count_fw / count_bw laws (exhaustive on sub-threshold corpora)
 package test;
 
-use memoria.ssrle;
+use logos.mem.pkd.ssrle;
+use logos.mem.pkd.sseq;
 use logos.mem.pkd;
 use logos.lang.arith;
 use logos.lang.mem;

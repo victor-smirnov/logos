@@ -26,7 +26,7 @@
 //          the per-run zero-match select guard (C++ UB carve-out)
 package test;
 
-use memoria.ssrle;
+use logos.mem.pkd.ssrle;
 use logos.lang.arith;
 use logos.mem.collections.vec;
 

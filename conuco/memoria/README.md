@@ -21,10 +21,15 @@ compatibility is kept — formats, layouts and hashes diverge freely.
 
 | Target | Contents |
 |---|---|
-| `memoria-pkd` | PackedAllocator, packed columnar buffers (fse/vle) |
-| `memoria-bt` | B+tree algorithms over packed nodes; chunk iterators |
 | `memoria-ctr` | container declarations: Map, Set, Vector, Collection |
 | `memoria-store` | memory CoW store: snapshot DAG, branches, registry, dump/load |
+
+Layers that the container FACTORY (stdlib/lcm/canon) generates against have
+been promoted into the stdlib mem tier and live there now (increment 8b):
+PackedAllocator/packed arrays = `logos.mem.pkd`, the SSRLE codec/packed
+sequence = `logos.mem.pkd.ssrle` / `logos.mem.pkd.sseq`, the b+tree layers =
+`logos.mem.bt.*` (incl. the multistream `logos.mem.bt.btfl`). The tests here
+remain the canaries for all of them and import the stdlib packages directly.
 
 Container configs are `WritStatic` values (profiles included — u64 and UID256
 ID widths are profile axes). Threads-only concurrency for now; the SWMR store

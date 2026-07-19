@@ -1,4 +1,6 @@
-// memoria.ssrle — PkdSsrle: the packed SSRLE sequence over a PkdAlloc block
+// logos.mem.pkd.sseq — PkdSsrle: the packed SSRLE sequence over a PkdAlloc block
+// (promoted from conuco/memoria `memoria.ssrle` in increment 8b — the run
+// codec/algebra half lives in the sibling package logos.mem.pkd.ssrle)
 // (BTFL arc, increments 3-6: create/queries, the flat size/sum index, and
 // two-phase mutations with split_to/merge_from).
 //
@@ -57,8 +59,9 @@
 //     (a shrink may already have truncated the old stream — the reset keeps
 //     the block valid instead of torn; C++ just throws mid-way under its
 //     MMA_PKD_OOM_SAFE assumption).
-package memoria.ssrle;
+package logos.mem.pkd.sseq;
 
+use logos.mem.pkd.ssrle;       // SsrleRun + the run codec/algebra
 use logos.mem.pkd;             // PkdAlloc, pkd_format, SlotKind, PkdError
 use logos.lang.marker;         // StableLayout (Fst is auto)
 use logos.lang.result;
