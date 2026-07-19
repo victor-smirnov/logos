@@ -399,7 +399,29 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         // is never enqueued → mlir-gen forward-decl reference dangles.
         scan_expr(lir_view::EAddrOfTempView{e}.inner());
         break;
-    // Leaf / no-recurse variants.
+    // Pointer arithmetic carries OPERAND sub-expressions. Sema lowers
+    // `p.byte_add(n)` / `p.byte_offset_from(q)` to a dedicated PtrArith /
+    // PtrDiff node instead of an EMethodCall, so grouping these with the
+    // leaves severed the walk: every demand reachable ONLY through a pointer
+    // operand went unregistered. The sharp case is a generic method producing
+    // the base pointer — `v.bytes.as_ptr().byte_add(off)` never demanded
+    // `Vec$G1$u8::as_ptr`, so the instantiation did not exist and the call
+    // vanished from the emitted IR. Position and nesting depth are irrelevant;
+    // being under a pointer-arithmetic operand is the whole condition.
+    case ECode::PtrArith: {
+        lir_view::EPtrArithView v{e};
+        scan_expr(v.ptr());
+        scan_expr(v.offset());
+        break;
+    }
+    case ECode::PtrDiff: {
+        lir_view::EPtrDiffView v{e};
+        scan_expr(v.lhs());
+        scan_expr(v.rhs());
+        break;
+    }
+    // Leaf / no-recurse variants. Every code below reads only scalars, names
+    // or types through its view — none has an ExprRef accessor.
     case ECode::LitInt:
     case ECode::LitFloat:
     case ECode::LitBool:
@@ -412,8 +434,6 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     case ECode::AlignOf:
     case ECode::GenericRef:  // rewritten to VarRef during subst_expr; never reaches here
     case ECode::TypeCodeOf:
-    case ECode::PtrArith:
-    case ECode::PtrDiff:
     case ECode::ReflectOf:
         break;
     }

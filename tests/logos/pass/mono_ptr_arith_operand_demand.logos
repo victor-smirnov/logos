@@ -1,0 +1,80 @@
+// mono demand through POINTER-ARITHMETIC operands.
+//
+// Sema lowers `p.byte_add(n)` / `p.byte_offset_from(q)` to a dedicated
+// EPtrArith / EPtrDiff node rather than an EMethodCall. mono's scan_expr
+// grouped both with the LEAF variants, so the walk stopped there and every
+// demand reachable only through a pointer operand was never registered. A
+// generic method producing the base pointer — `v.bytes.as_ptr()` — therefore
+// had no instantiation, and the call vanished from the emitted IR.
+//
+// That silently deleted the payload write of every variable-length row in
+// logos.mem.pkd.pdtbuf: rows read back as zeroes while offsets, sizing and
+// `check()` all agreed, because those are computed independently of the bytes.
+//
+// The axis is NOT argument position or nesting depth — it is "reachable only
+// through a pointer-arithmetic operand". This test therefore exercises the
+// operand under several enclosing positions, including `let`, which produced
+// NO diagnostic at all before the fix (the mlir-gen silent-drop guard only
+// witnesses VOID call statements, so a value-producing position stayed quiet).
+//
+// Each case asserts the BYTES actually land — a dropped call is observable
+// only in the payload.
+package test;
+
+use logos.lang.mem;
+use logos.mem.collections.vec;
+
+pub struct Vals { pub bytes: Vec<u8> }
+
+fn make(n: i64) -> Vals {
+    let mut v: Vec<u8> = Vec::<u8>::new();
+    let mut i: i64 = 0;
+    while i < n {
+        v.push((i + 1) as u8);
+        i = i + 1;
+    }
+    return Vals { bytes: v };
+}
+
+// The original pdtbuf shape: generic method as the RECEIVER of pointer
+// arithmetic, the whole thing in ARGUMENT position of a void call.
+unsafe fn write_arg(v: &Vals, dst: *mut u8, off: i64, n: i64) {
+    copy_bytes(dst, v.bytes.as_ptr().byte_add(off), n);
+}
+
+// Same operand, but the enclosing position produces a VALUE — this one used
+// to compile clean and silently emit nothing.
+unsafe fn write_let(v: &Vals, dst: *mut u8, off: i64, n: i64) {
+    let src = v.bytes.as_ptr().byte_add(off);
+    copy_bytes(dst, src, n);
+}
+
+// PtrDiff operand.
+unsafe fn span(v: &Vals, off: i64) -> i64 {
+    return v.bytes.as_ptr().byte_add(off).byte_offset_from(v.bytes.as_ptr());
+}
+
+fn main() -> i32 {
+    let v = make(8i64);
+    let mut buf: [u8; 8] = [0u8; 8];
+
+    unsafe {
+        let dst = &mut buf[0] as *mut u8;
+
+        // bytes 2..5 of {1,2,3,4,5,6,7,8} → {3,4,5}
+        write_arg(&v, dst, 2i64, 3i64);
+        if buf[0] != 3u8 { return 1i32; }
+        if buf[1] != 4u8 { return 2i32; }
+        if buf[2] != 5u8 { return 3i32; }
+
+        // bytes 5..8 → {6,7,8}
+        write_let(&v, dst, 5i64, 3i64);
+        if buf[0] != 6u8 { return 4i32; }
+        if buf[1] != 7u8 { return 5i32; }
+        if buf[2] != 8u8 { return 6i32; }
+
+        if span(&v, 4i64) != 4i64 { return 7i32; }
+    }
+
+    return 42i32;
+}
