@@ -8,8 +8,10 @@ package test;
 use logos.mem.pkd;
 use logos.lang.mem;
 use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     unsafe {
         let mem: *mut u8 = alloc(8192i64);
         let a: *mut PkdAlloc = pkd_format(mem, 8192u32, 3u32);
@@ -95,4 +97,19 @@ unsafe fn deep2_push(a: *mut PkdAlloc, v: u64) -> Result<(), PkdError> {
     let inner: *mut PkdAlloc = a.get::<PkdAlloc>(2u32);
     let deep: *mut PkdArray<u64> = inner.get::<PkdArray<u64>>(0u32);
     return deep.push(&(v));
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL pkd_arr: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

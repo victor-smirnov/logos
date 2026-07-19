@@ -75,6 +75,7 @@ use logos.lang.str;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.std.io.fs;
+use logos.std.io;
 
 // ── fixture tokenizer (the ssrle_codec.logos discipline) ────────────────────
 
@@ -3872,7 +3873,7 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
 
 // ── driver ─────────────────────────────────────────────────────────────────
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let rc1: i32 = check_sizing();
     if rc1 != 0i32 {
         return rc1;
@@ -4046,4 +4047,19 @@ fn main() -> i32 {
         return rc4;
     }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL pdtbuf_core: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

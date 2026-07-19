@@ -16,6 +16,8 @@ use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b 
 use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
 use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot — the shared store
+use logos.mem.string;
+use logos.std.io;
 
 // (A) u32 key, i64 value — fill/lookup + CoW isolation.
 container FseA for u8 {
@@ -37,7 +39,7 @@ container FseC for u8 {
     measure max(key);
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     // ── (A) u32 → i64 : bulk fill forcing multi-level growth ────────────────
     let mut astore: MemoryStore = MemoryStore::new();
     let mut as0: MemorySnapshot = astore.fork();
@@ -122,4 +124,19 @@ fn main() -> i32 {
     cstore.release();
 
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL gen_fse: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

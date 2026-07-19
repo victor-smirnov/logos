@@ -9,6 +9,8 @@ use logos.mem.pkd;
 use logos.lang.mem;
 use logos.lang.result;
 use logos.lang.str;
+use logos.mem.string;
+use logos.std.io;
 
 // A two-slot host block: column A in slot 0, column B in slot 1 (siblings —
 // the Node shape). Returns the allocator so tests can read free space.
@@ -109,7 +111,7 @@ unsafe fn vle_case() -> i32 {
     return 0i32;
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     unsafe {
         let f: i32 = fse_case();
         if f != 0i32 { return f; }
@@ -117,4 +119,19 @@ fn main() -> i32 {
         if v != 0i32 { return v; }
     }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL pkd_splitmerge: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

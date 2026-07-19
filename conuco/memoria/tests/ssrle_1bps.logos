@@ -22,6 +22,8 @@ package test;
 
 use logos.mem.pkd.ssrle;
 use logos.lang.arith;
+use logos.mem.string;
+use logos.std.io;
 
 // ── deterministic corpus (LCG via wrapping arithmetic) ──────────────────────
 
@@ -105,7 +107,7 @@ fn mk_run(pattern: u64, plen: u32, rl: u64) -> SsrleRun {
     };
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     // Exhaustive: every bitmap pattern of length 1..=10.
     let mut plen: u64 = 1u64;
     while plen <= 10u64 {
@@ -157,4 +159,19 @@ fn main() -> i32 {
         i = i + 1;
     }
     return 0;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ssrle_1bps: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

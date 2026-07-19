@@ -36,6 +36,8 @@ use logos.mem.bt.memstore;
 use logos.lang.arith;
 use logos.lang.result;
 use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
 
 // deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
 struct Lcg {
@@ -294,7 +296,7 @@ fn drive(snap: &mut MemorySnapshot, t: &mut Btfl, md: &mut Model, lcg: &mut Lcg,
     return check_full(t, md);
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut snap: MemorySnapshot = MemorySnapshot::with_id(1u64);
 
     // ── 10..19: empty tree ──
@@ -377,4 +379,19 @@ fn main() -> i32 {
     }
 
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL btfl_multimap: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

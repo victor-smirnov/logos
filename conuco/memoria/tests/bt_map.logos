@@ -12,6 +12,8 @@ use logos.lang.arith;   // wrapping_mul/add — the LCG wraps BY DESIGN
 use logos.lang.option;
 use logos.lang.result;
 use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
 
 // deterministic LCG (Knuth MMIX)
 struct Lcg { s: u64 }
@@ -24,7 +26,7 @@ impl Lcg {
     }
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut arena: BtArena = arena_new();
     let mut t: BtTree = bt_new(&mut arena);
 
@@ -174,4 +176,19 @@ fn main() -> i32 {
 
     unsafe { dealloc(keys as *mut u8); dealloc(vals as *mut u8); }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL bt_map: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

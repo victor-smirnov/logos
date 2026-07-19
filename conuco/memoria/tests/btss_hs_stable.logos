@@ -15,6 +15,8 @@ use logos.lcm.canon.metaclass;        // CtrFamily (family_id surface)
 use logos.mem.pkd;                    // generated family substrate
 use logos.mem.bt.map;                 // trait hub
 use logos.mem.bt.memstore;            // MemorySnapshot (the family's store axis)
+use logos.mem.string;
+use logos.std.io;
 
 // Structurally IDENTICAL to gen_cow_kv's GenVol — different name on purpose.
 container HsPin for u8 {
@@ -36,7 +38,7 @@ fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 {
     return C::family_id();
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     if fid::<typeof(HsPin)>() != 0x3eb3452d18bf3299u64 {
         return 1i32;
     }
@@ -44,4 +46,19 @@ fn main() -> i32 {
         return 2i32;
     }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL btss_hs_stable: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

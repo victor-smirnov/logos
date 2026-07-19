@@ -25,6 +25,7 @@ use logos.lang.str;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.std.io.fs;
+use logos.std.io;
 
 // ── fixture tokenizer: whitespace-separated lowercase hex, 0-sentinel ───────
 
@@ -170,7 +171,7 @@ fn check_case(bps: u32, runs: &Vec<SsrleRun>, nunits: u64, s: str, pos: &mut i64
     return 0i32;
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let rc0: i32 = edge_checks();
     if rc0 != 0i32 {
         return rc0;
@@ -213,4 +214,19 @@ fn main() -> i32 {
         return 20i32;
     }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ssrle_codec: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

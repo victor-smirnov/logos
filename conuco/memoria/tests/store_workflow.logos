@@ -19,6 +19,8 @@ use logos.mem.pkd;                    // generated nodes' column substrate
 use logos.mem.bt.map;                 // Ctr trait (generated impl names it)
 use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot (hand-written)
 use logos.lang.str;
+use logos.mem.string;
+use logos.std.io;
 
 // Canon verdicts: all-FSE → split fast; ordered_map → assembly=tree,
 // versioning=cow ⇒ the whole CoW stack is emitted for each declaration.
@@ -43,7 +45,7 @@ fn beq(b: &[u8], want: str) -> bool {
     return true;
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
 
     // ── v1: fork, CREATE both containers in the snapshot, fill, commit ──
@@ -80,4 +82,19 @@ fn main() -> i32 {
     if j1.size() != 2u64 { return 9i32; }
     if j2.size() != 3u64 { return 10i32; }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL store_workflow: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

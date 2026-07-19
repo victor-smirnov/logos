@@ -7,8 +7,10 @@
 // push/len (defined in liblogos-mem.a) and Vec<i64> pin the working
 // spellings alongside.
 package test;
+use logos.mem.string;
+use logos.std.io;
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut v: Vec<u64> = Vec::new();
     v.push(1u64);
     v.push(2u64);
@@ -25,4 +27,19 @@ fn main() -> i32 {
     w.clear();
     if w.len() != 0i64 { return 5i32; }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL vec_stdlib_archive_methods: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

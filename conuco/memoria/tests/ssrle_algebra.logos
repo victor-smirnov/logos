@@ -29,6 +29,8 @@ package test;
 use logos.mem.pkd.ssrle;
 use logos.lang.arith;
 use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
 
 // ── deterministic corpus (LCG via wrapping arithmetic) ──────────────────────
 
@@ -988,7 +990,7 @@ fn check_op_family(bps: u32, st: &mut u64) -> i32 {
 
 // ── main ────────────────────────────────────────────────────────────────────
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let rc0: i32 = rle_suite_scenarios();
     if rc0 != 0i32 {
         return rc0;
@@ -1039,4 +1041,19 @@ fn main() -> i32 {
         bps = bps + 1u32;
     }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ssrle_algebra: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

@@ -19,8 +19,10 @@ use logos.lcm.canon.container_item;   // loads the factory (an emitted `use` can
 use logos.mem.pkd;                    // generated node substrate
 use logos.mem.bt.map;                 // trait hub for the generated impls
 use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot
+use logos.mem.string;
+use logos.std.io;
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
     let mut s0: MemorySnapshot = store.fork();
 
@@ -44,4 +46,19 @@ fn main() -> i32 {
     s0.release();
     store.release();
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL map_consumer: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

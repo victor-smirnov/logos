@@ -15,6 +15,8 @@ use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b 
 use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
 use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot — the shared store
+use logos.mem.string;
+use logos.std.io;
 
 // key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the family's
 // leaf + branch + CoW handle are all factory-emitted from this one declaration.
@@ -24,7 +26,7 @@ container GenBt for u8 {
     measure max(key);
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
     let mut s0: MemorySnapshot = store.fork();
     let t = create_ctr::<typeof(GenBt)>(&mut s0, 1u64);
@@ -81,4 +83,19 @@ fn main() -> i32 {
     s0.release();
     store.release();
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL gen_tree: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

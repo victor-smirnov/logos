@@ -12,6 +12,8 @@ package test;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;
+use logos.mem.string;
+use logos.std.io;
 
 // key:u64 + val:u64 → all fixed-size → Canon verdict `fast`; the generated
 // leaf and the child-type-agnostic branch compose below.
@@ -45,7 +47,7 @@ fn fill(lo: u64, hi: u64) -> GenMapLeaf {
     return lf;
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     // (a) the GENERATED leaf works on its own (fill / order / replace-on-hit).
     let mut lf: GenMapLeaf = GenMapLeaf::new();
     let mut k: u64 = 0u64;
@@ -78,4 +80,19 @@ fn main() -> i32 {
 
     br.free_children();   // frees each child block AND the branch's own block
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL gen_map: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

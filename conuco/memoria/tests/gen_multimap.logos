@@ -32,6 +32,8 @@ use logos.mem.bt.map;                 // trait hub (declaring-unit contract)
 use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
 use logos.lang.arith;
 use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
 
 // deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
 struct Lcg {
@@ -241,7 +243,7 @@ fn check_full(t: &Btfl, md: &Model) -> i32 {
     return 0i32;
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
     let mut snap: MemorySnapshot = store.fork();
 
@@ -407,4 +409,19 @@ fn main() -> i32 {
     snap.release();
     store.release();
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL gen_multimap: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

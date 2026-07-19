@@ -3,6 +3,8 @@ use logos.mem.pkd;
 use logos.lang.mem;
 use logos.lang.result;
 use logos.lang.marker;
+use logos.mem.string;
+use logos.std.io;
 
 // Minimal generic columnar wrapper — the shape that dropped the VLE method
 // call. Concrete Node is what we ship; this probe reproduces the compiler gap.
@@ -24,7 +26,7 @@ impl<K: ?Sized> GLeaf<K> {
     pub fn count(self: &GLeaf<K>) -> u32 { return unsafe { (*self.keys()).count() }; }
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     unsafe {
         let m: *mut u8 = alloc(512i64);
         let a: *mut PkdAlloc = pkd_format(m, 512u32, 1u32);
@@ -35,4 +37,19 @@ fn main() -> i32 {
         dealloc(m);
     }
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL gendrop_probe: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

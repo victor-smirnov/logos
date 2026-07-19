@@ -11,6 +11,8 @@ package test;
 use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;
 use logos.lang.str;
+use logos.mem.string;
+use logos.std.io;
 
 // key:u64 + val:str → a variable-length column → Canon verdict `volume` →
 // generated leaf with a VLE value column and a volume-balanced split.
@@ -26,7 +28,7 @@ fn beq(b: &[u8], want: str) -> bool {
     return true;
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut lf: GenKV = GenKV::new();
     if lf.count() != 0u32 { return 1i32; }
 
@@ -80,4 +82,19 @@ fn main() -> i32 {
     lf.free();
     rt.free();
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL gen_node_kv: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

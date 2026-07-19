@@ -8,6 +8,8 @@ package test;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;
+use logos.mem.string;
+use logos.std.io;
 
 // key:u64 + val:u64 → all fixed-size → Canon verdict `fast` → generated leaf.
 container GenU64 for u8 {
@@ -15,7 +17,7 @@ container GenU64 for u8 {
     entry { key: u64, val: u64 }
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let mut lf: GenU64 = GenU64::new();
     if lf.count() != 0u32 { return 1i32; }
 
@@ -49,4 +51,19 @@ fn main() -> i32 {
     lf.free();
     rt.free();
     return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
+// SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL gen_node: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }
