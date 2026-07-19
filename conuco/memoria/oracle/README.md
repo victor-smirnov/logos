@@ -35,11 +35,11 @@ The harness self-checks every case (C++ `compute_size` == units written; C++
 decode roundtrips to the source runs) and prints per-bps case counts to
 stderr; stdout is the fixture stream, `0`-terminated.
 
-## pdtbuf_dump — PackedDataTypeBuffer cross-check reference (PdtBuf rungs P0+P1)
+## pdtbuf_dump — PackedDataTypeBuffer cross-check reference (PdtBuf rungs P0+P1+P2)
 
-Generates `tests/pdtbuf_fixtures.hex`: **128 cases** over
+Generates `tests/pdtbuf_fixtures.hex`: **208 cases** over
 `PackedDataTypeBufferT<BigInt, true, C, DTOrdering::{SUM,MAX}>` for C in
-{1,2,3,4}, in two flavours.
+{1,2,3,4}, in three flavours.
 
 **Marker-1 (88 cases, rung P0)** — row counts {0,1,2,3,5,8,15,16,17,31,32}, at
 or below `IndexSpan` = 32, so HEAD stays on its scan/bisection paths. Each
@@ -71,6 +71,62 @@ recomputed independently; and HEAD's own `so.check()` (which for SUM buffers
 walks the index and re-derives every span sum, `so.hpp` `check_sum` :1649) is
 called on every case.
 
+**Marker-3 (80 cases, rung P2)** — the start-relative and **backward** search
+families, at row counts {0, 1, 5, 31, 32, 33, 64, 65, 100, 1025}, i.e. on both
+sides of the span threshold so HEAD is exercised on its scan path *and* its
+index path, in two corpus **modes**: `0` = LCG values mod 23, `1` = a
+leading-zero **plateau** corpus (a prefix plateau is the only shape under which
+a rebase/complement target is attained by more than one row index, which is
+where bug #27 lives). The corpus is regenerated from `(mode, seed, columns,
+rows)` as for marker 2.
+
+    3 <columns> <rows> <seed> <mode>
+    <n_q>
+      <dir> <op> <col> <start> <val> <idx> <prefix>              x n_q
+    <n_div>
+      <dir> <op> <col> <start> <val> <status> <idx> <prefix>     x n_div
+
+`dir` 0 = `findGE/GTForward(column, start, val)` (`start` in `[0, rows]`),
+1 = `findGE/GTBackward(column, start, val)` (`start` in `[0, rows)`, inclusive),
+2 = `findGE/GTBackward(column, val)`; `op` 0 = GE, 1 = GT.
+
+The two blocks are the whole oracle discipline of this port in miniature.
+`<n_q>` holds the queries where HEAD **agrees** with an implementation derived
+from the definition — cross-check fixtures the Logos gate must match.
+`<n_div>` holds the ones where it does not: the gate asserts the
+**disagreement** and matches the independent model instead. Every emitted
+answer is self-checked against a naive walk before it is classified, and the
+harness prints a per-case divergence breakdown to stderr.
+
+**Third recorded divergence (P2, upstream bug candidate #27).** Every `<n_div>`
+entry — across all four column counts, both corpora, every row count, on both
+the scan and the index path — is the **non-strict** operation at **`val == 0`**,
+exactly the prefix-plateau case the derivation predicted before the harness was
+first run. Three observable faces, one root (a delegated forward search
+resolving a prefix plateau at the wrong end, with nothing clamping its answer
+back into the caller's range):
+
+- `find_ge_fw_sum(column, start, val)` (`so.hpp:1394-1400`) answers with a row
+  **below** `start`, and `FindResult::sub_prefix` then subtracts a larger
+  prefix from a smaller one: for a true answer of `(2, 0)` HEAD returns
+  `(1, 18446744073709551614)`.
+- `find_ge_bw_sum(column, start, val)` (`:1445-1460`) answers with a row
+  **above** `start` — outside the range it was asked to walk — with the same
+  underflowed prefix.
+- both backward forms then call `sum_sum(column, res.local_pos() + 1)` with no
+  bound check; when the delegated answer is `size`, that trips
+  `MEMORIA_ASSERT(idx <= size())` (`:1601`). The assertion macro
+  (`core/tools/assert.hpp:38`) **catches its own throw and calls
+  `std::terminate()`**, so the process dies and the query cannot be observed at
+  all — the harness identifies these independently (`terminates_head`) and
+  reports them unexecuted with `status = 1`.
+
+The Logos port clamps the delegated answer back into the walk's range at both
+sites (the semantics admit exactly one answer: a zero demand is met by the
+first row examined, having accumulated nothing) and guards the complement
+subtraction before evaluating it. Transcribing HEAD's unclamped shape into the
+port aborts the gate: exit 132 for either face.
+
 **Role.** Unlike `ssrle_dump`, this harness is NOT an authority. The C++
 PDTBuffer/FQTree family is bug-dense (23 catalogued during the port recon) and
 the FQTree half was deleted upstream having never been covered by a test
@@ -79,7 +135,8 @@ materialized model + algebraic laws inside `pdtbuf_core.logos`; these fixtures
 exist so that any disagreement with HEAD becomes visible and has to be
 explained. The harness self-checks every emitted answer against a naive
 implementation derived from the operation's *definition* before writing it
-(88/88 cases, 0 failed self-checks at the time of generation).
+(208/208 cases, 0 failed self-checks at the time of generation — the marker-3
+disagreements are *classified*, not counted as self-check failures).
 
 Regenerate (from `conuco/memoria/`):
 

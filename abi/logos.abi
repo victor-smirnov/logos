@@ -10835,6 +10835,10 @@ sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__dim_at__f__ref_PdtBuf__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__dim_block_offset__f__ref_PdtBuf__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__dim_blocks_total__f__ref_PdtBuf
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__dim_count__f__ref_PdtBuf
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_bw_ge__f__ref_PdtBuf__u32__u64
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_bw_ge_from__f__ref_PdtBuf__u32__u64__u64
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_bw_gt__f__ref_PdtBuf__u32__u64
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_bw_gt_from__f__ref_PdtBuf__u32__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_ge__f__ref_PdtBuf__u32__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_ge_from__f__ref_PdtBuf__u32__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__find_gt__f__ref_PdtBuf__u32__u64

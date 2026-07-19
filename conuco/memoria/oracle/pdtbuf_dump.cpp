@@ -1,9 +1,9 @@
 // pdtbuf_dump — C++ PackedDataTypeBuffer cross-check reference for the Logos
-// PdtBuf port (ladder rung P0).
+// PdtBuf port (ladder rungs P0 + P1 + P2).
 //
 // ROLE (read this before trusting a byte of the output): this harness is a
 // DIVERGENCE DETECTOR, not an authority. The C++ PDTBuffer/FQTree family is
-// dense with bugs (23 catalogued during recon; two of them are exercised
+// dense with bugs (26 catalogued through rung P1; three of them are exercised
 // below on purpose), and the FQTree half of the lineage was deleted upstream
 // without ever having been covered by a test suite. Correctness in the Logos
 // port is decided by the independent materialized model plus algebraic laws
@@ -463,6 +463,291 @@ void dump_index_case(size_t rows, uint64_t seed)
     g_cases++;
 }
 
+// ── direction cases (marker 3; PdtBuf rung P2) ──────────────────────────────
+//
+// The start-relative and BACKWARD search families. Like marker 2 the corpus is
+// not dumped — it is a pure function of (mode, seed, Columns, rows) that the
+// Logos gate regenerates — and like marker 2 the row counts straddle the span
+// threshold so HEAD is exercised on BOTH its scan path and its index path.
+//
+//   3 <columns> <rows> <seed> <mode>
+//   <n_q>
+//     <dir> <op> <col> <start> <val> <idx> <prefix>    x n_q
+//   <n_div>
+//     <dir> <op> <col> <start> <val> <status> <idx> <prefix>   x n_div
+//
+//   dir 0 = findGEForward/findGTForward(column, start, val)  (start in [0,rows])
+//   dir 1 = findGEBackward/findGTBackward(column, start, val) (start in [0,rows))
+//   dir 2 = findGEBackward/findGTBackward(column, val)        (start token 0)
+//   op  0 = GE, 1 = GT
+//   mode 0 = LCG values mod 23; mode 1 = a leading-zero PLATEAU corpus
+//   status (divergence block only) 0 = HEAD returned a disagreeing answer,
+//                                  1 = HEAD's own assertion would fire, so
+//                                      the query was NOT executed (idx and
+//                                      prefix are 0 and carry no meaning)
+//
+// Status 1 is not squeamishness. MEMORIA_ASSERT (core/tools/assert.hpp:38)
+// catches its own throw and calls std::terminate(), so a tripped assertion
+// takes the whole process down and cannot be observed any other way; the
+// affected queries are identified by an independent computation (see
+// terminates_head below) and reported rather than run.
+//
+// The <n_q> block holds only the queries where HEAD AGREES with a naive
+// implementation derived from the definition; those are cross-check fixtures.
+// The <n_div> block holds the ones where it does not, and the Logos gate
+// asserts the DISAGREEMENT rather than conforming to it — the same treatment
+// the MAX sum_gen block gets. Every entry of <n_div> is a face of upstream bug
+// candidate #27 (see the divergence note in oracle/README.md).
+
+// mode 1: leading zeros, then a small repeating pattern. A prefix PLATEAU is
+// the only shape under which a rebase/complement target is attained by more
+// than one row index, which is exactly where #27 lives.
+int64_t plateau_value(size_t c, size_t r, size_t rows)
+{
+    if (r >= rows / 3) {
+        return (int64_t)(1 + ((r + c) % 5));
+    }
+    return 0;
+}
+
+const size_t DIR_ROW_SET[] = {0, 1, 5, 31, 32, 33, 64, 65, 100, 1025};
+
+template <size_t Columns>
+void dump_dir_case(size_t rows, uint64_t seed, int mode)
+{
+    using Buf = PackedDataTypeBufferT<BigInt, true, Columns, DTOrdering::SUM>;
+
+    Lcg lcg(seed);
+    std::vector<std::vector<int64_t>> cols(Columns);
+    for (size_t c = 0; c < Columns; c++) {
+        for (size_t i = 0; i < rows; i++) {
+            cols[c].push_back(mode == 0 ? (int64_t)(lcg.next() % 23)
+                                        : plateau_value(c, i, rows));
+        }
+    }
+
+    auto holder = PkdStructHolder<Buf>::make_empty(
+        Buf::compute_block_size(rows ? rows : 1) + 64 * 1024);
+    auto so = holder->get_so();
+    if (rows > 0) {
+        so.insert_from_fn(0, rows, [&](size_t column, size_t row) {
+            return cols[column][row];
+        });
+    }
+    if (so.size() != rows) {
+        std::fprintf(stderr, "SELFCHECK dir-case size mismatch\n");
+        g_failed_selfchecks++;
+    }
+
+    auto range = [&](size_t c, size_t s, size_t e) {
+        int64_t acc = 0;
+        for (size_t i = s; i < e; i++) {
+            acc += cols[c][i];
+        }
+        return acc;
+    };
+
+    // The DEFINITIONS. Written as the walks themselves, not as any identity
+    // the C++ (or the port) uses to compute them.
+    auto naive_from = [&](size_t c, size_t start, uint64_t v, bool strict) {
+        int64_t p = 0;
+        for (size_t i = start; i < rows; i++) {
+            int64_t incl = p + cols[c][i];
+            bool hit = strict ? (incl > (int64_t)v) : (incl >= (int64_t)v);
+            if (hit) {
+                return std::array<uint64_t, 2>{(uint64_t)i, (uint64_t)p};
+            }
+            p = incl;
+        }
+        return std::array<uint64_t, 2>{(uint64_t)rows, (uint64_t)p};
+    };
+    auto naive_bw = [&](size_t c, size_t end, uint64_t v, bool strict) {
+        int64_t acc = 0;
+        for (size_t i = end; i > 0; ) {
+            i--;
+            int64_t incl = acc + cols[c][i];
+            bool hit = strict ? (incl > (int64_t)v) : (incl >= (int64_t)v);
+            if (hit) {
+                return std::array<uint64_t, 2>{(uint64_t)i, (uint64_t)acc};
+            }
+            acc = incl;
+        }
+        return std::array<uint64_t, 2>{(uint64_t)end, (uint64_t)acc};
+    };
+
+    // The global forward walk, from the definition. Used only to PREDICT
+    // which backward queries would take HEAD's process down (below).
+    auto naive_fw = [&](size_t c, uint64_t v, bool strict) {
+        int64_t p = 0;
+        for (size_t i = 0; i < rows; i++) {
+            int64_t incl = p + cols[c][i];
+            bool hit = strict ? (incl > (int64_t)v) : (incl >= (int64_t)v);
+            if (hit) {
+                return i;
+            }
+            p = incl;
+        }
+        return rows;
+    };
+
+    // WOULD HEAD TERMINATE? find_ge_bw_sum (so.hpp:1445-1460) takes the
+    // NON-STRICT branch whenever val <= total, delegates to find_gt_fw_sum,
+    // and then calls sum_sum(column, res.local_pos() + 1) with NO check that
+    // the delegated answer is a row of the buffer. sum_sum opens with
+    // MEMORIA_ASSERT(idx <= size()) (:1601), which terminates the process.
+    // The delegated search overruns exactly when its target sits on the final
+    // prefix plateau — i.e. when the complement target total - val is not
+    // exceeded by any prefix — which for the backward range [0, end) means
+    // val == 0 with no weight after the range. The strict form is immune:
+    // its target is strictly below prefix(end), so its answer is pinned
+    // inside the range. This predicate is computed from the definition here,
+    // not read out of the C++.
+    auto terminates_head = [&](size_t c, size_t end, uint64_t v, bool strict) {
+        if (strict) {
+            return false;
+        }
+        int64_t total_end = range(c, 0, end);
+        if ((int64_t)v > total_end) {
+            return false;      // HEAD returns FindResult(start+1, total)
+        }
+        return naive_fw(c, (uint64_t)(total_end - (int64_t)v), true) >= rows;
+    };
+
+    // Start set: 0, the span edges and their neighbours, the midpoint, the
+    // last row, and the end.
+    std::vector<size_t> starts;
+    for (size_t s: {(size_t)0, (size_t)1, (size_t)31, (size_t)32, (size_t)33,
+                    rows / 2, rows ? rows - 1 : 0, rows}) {
+        if (s <= rows) {
+            starts.push_back(s);
+        }
+    }
+    std::sort(starts.begin(), starts.end());
+    starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
+
+    std::vector<std::array<uint64_t, 7>> qs;
+    std::vector<std::array<uint64_t, 8>> divs;
+
+    for (size_t c = 0; c < Columns; c++) {
+        int64_t total = range(c, 0, rows);
+        // 0 is always probed: it is the plateau value that carries #27.
+        std::vector<uint64_t> probes{0, 1, (uint64_t)total, (uint64_t)(total + 1)};
+        if (total > 0) {
+            probes.push_back((uint64_t)(total - 1));
+        }
+        for (size_t k: starts) {
+            int64_t p = range(c, 0, k);
+            probes.push_back((uint64_t)p);
+            probes.push_back((uint64_t)(p + 1));
+            if (p > 0) {
+                probes.push_back((uint64_t)(p - 1));
+            }
+        }
+        std::sort(probes.begin(), probes.end());
+        probes.erase(std::unique(probes.begin(), probes.end()), probes.end());
+
+        for (int dir = 0; dir < 3; dir++) {
+            for (size_t st: starts) {
+                if (dir == 1 && st >= rows) {
+                    continue;   // backward-from needs a real row
+                }
+                if (dir == 2 && st != starts[0]) {
+                    continue;   // the full form takes no start
+                }
+                for (uint64_t v: probes) {
+                    for (int op = 0; op < 2; op++) {
+                        bool strict = (op == 1);
+                        std::array<uint64_t, 2> want;
+                        if (dir == 0) {
+                            want = naive_from(c, st, v, strict);
+                        } else if (dir == 1) {
+                            want = naive_bw(c, st + 1, v, strict);
+                        } else {
+                            want = naive_bw(c, rows, v, strict);
+                        }
+                        uint64_t tok_start = (dir == 2) ? 0 : (uint64_t)st;
+
+                        if (dir != 0) {
+                            size_t end = (dir == 1) ? st + 1 : rows;
+                            if (terminates_head(c, end, v, strict)) {
+                                divs.push_back({(uint64_t)dir, (uint64_t)op,
+                                                (uint64_t)c, tok_start, v, 1u, 0u, 0u});
+                                continue;
+                            }
+                        }
+
+                        uint64_t idx = 0;
+                        uint64_t pfx = 0;
+                        if (dir == 0) {
+                            auto r = strict ? so.findGTForward(c, st, (int64_t)v)
+                                            : so.findGEForward(c, st, (int64_t)v);
+                            idx = (uint64_t)r.local_pos();
+                            pfx = (uint64_t)(int64_t)r.prefix();
+                        } else if (dir == 1) {
+                            auto r = strict ? so.findGTBackward(c, st, (int64_t)v)
+                                            : so.findGEBackward(c, st, (int64_t)v);
+                            idx = (uint64_t)r.local_pos();
+                            pfx = (uint64_t)(int64_t)r.prefix();
+                        } else {
+                            auto r = strict ? so.findGTBackward(c, (int64_t)v)
+                                            : so.findGEBackward(c, (int64_t)v);
+                            idx = (uint64_t)r.local_pos();
+                            pfx = (uint64_t)(int64_t)r.prefix();
+                        }
+
+                        if (idx == want[0] && pfx == want[1]) {
+                            qs.push_back({(uint64_t)dir, (uint64_t)op, (uint64_t)c,
+                                          tok_start, v, idx, pfx});
+                        } else {
+                            divs.push_back({(uint64_t)dir, (uint64_t)op, (uint64_t)c,
+                                            tok_start, v, 0u, idx, pfx});
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    tok(3);
+    tok(Columns);
+    tok(rows);
+    tok(seed);
+    tok((uint64_t)mode);
+    std::printf("\n");
+    tok(qs.size());
+    std::printf("\n");
+    for (auto& q: qs) {
+        for (uint64_t t: q) {
+            tok(t);
+        }
+        std::printf("\n");
+    }
+    tok(divs.size());
+    std::printf("\n");
+    for (auto& d: divs) {
+        for (uint64_t t: d) {
+            tok(t);
+        }
+        std::printf("\n");
+    }
+
+    if (!divs.empty()) {
+        size_t by[3][2] = {};
+        for (auto& d: divs) {
+            by[d[0]][d[5]]++;
+        }
+        std::fprintf(stderr,
+            "DIVERGENCE dir-case C=%zu rows=%zu mode=%d: %zu of %zu queries "
+            "disagree with the definition (upstream bug candidate #27) "
+            "[fw-from wrong=%zu | bw-from wrong=%zu term=%zu"
+            " | bw-full wrong=%zu term=%zu]\n",
+            Columns, rows, mode, divs.size(), divs.size() + qs.size(),
+            by[0][0], by[1][0], by[1][1], by[2][0], by[2][1]);
+    }
+
+    g_cases++;
+}
+
 template <size_t Columns>
 void dump_columns()
 {
@@ -475,6 +760,12 @@ void dump_columns()
     }
     for (size_t rows: DEEP_ROW_SET) {
         dump_index_case<Columns>(rows, seed);
+        seed += 7919;
+    }
+    for (size_t rows: DIR_ROW_SET) {
+        dump_dir_case<Columns>(rows, seed, 0);
+        seed += 7919;
+        dump_dir_case<Columns>(rows, seed, 1);
         seed += 7919;
     }
 }

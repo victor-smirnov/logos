@@ -1,8 +1,10 @@
 // logos.mem.pkd.pdtbuf — PdtBuf: the Logos EQUIVALENT of the C++ Memoria
 // PackedDataTypeBuffer (the successor structure into which Victor folded
-// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rungs P0 + P1: the
+// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rungs P0 + P1 + P2: the
 // runtime core — slot geometry, sizing, cell access, the ordering-dispatched
-// search family — plus the recursive SUM span index that accelerates it.
+// search family — plus the recursive SUM span index that accelerates it, and
+// the start-relative and BACKWARD searches, both obtained as DERIVATIONS over
+// that one forward descent rather than as walks of their own.
 //
 // C++ oracle sites (HEAD, /home/victor/cxx/memoria), mirrored one by one:
 //   containers/include/memoria/core/packed/datatype_buffer/
@@ -32,12 +34,19 @@
 //       :1599-1626 sum_sum — the index-accelerated prefix sum (P1)
 //       :1649-1687 check_sum — index/content agreement (P1)
 //       :1692-1737 reindex_sum — the recursive span index (P1)
+//       :1387-1400 find_{gt,ge}_fw_sum(column, start, val) — the REBASE
+//                  form: tgt = prefix(start) + val, answer sub_prefix'd (P2)
+//       :1416-1460 find_{gt,ge}_bw_sum — the COMPLEMENT derivation, i.e.
+//                  backward = forward at T - val with the strictness
+//                  flipped. THE shape this rung mirrors (P2); the deleted
+//                  flat-tree walk_index_bw is deliberately NOT mirrored.
+//       :795-834  findGT/GE Forward/Backward — the public surface (P2)
 //   containers/include/memoria/core/packed/tools/packed_allocator.hpp
 //       :170-178 block_size(client_area, blocks) — our PkdAlloc::empty_size_for
 //
 // ── ORACLE DISCIPLINE ───────────────────────────────────────────────────────
 // The C++ is a REFERENCE, NOT ground truth: the family it belongs to is
-// dense with bugs (25 catalogued through rung P0, several in this very file
+// dense with bugs (26 catalogued through rung P1, several in this very file
 // pair), and the FQTree half of the lineage was deleted upstream WITHOUT
 // ever being exercised by a test suite. Every behaviour below is DERIVED
 // from the operation's semantics and gated by an independent materialized
@@ -46,9 +55,34 @@
 // Divergences we took deliberately are named DIVERGENCE below; upstream
 // defects found by deriving rather than transcribing are numbered
 // (#24 sum_gen suffix/prefix and #25 lossy capacity recovery from P0; #26
-// find_*_fw_sum's index-miss short-circuit, found at this rung — see
-// find_fw_sum). Each is pinned by a gate that fails if we adopt the C++
-// behaviour, so an upstream fix reports itself.
+// find_*_fw_sum's index-miss short-circuit from P1 — see find_fw_sum; #27
+// the val == 0 plateau class in the start-relative and backward SUM
+// searches, found at THIS rung — see find_from and find_bw_sum). Each is
+// pinned by a gate that fails if we adopt the C++ behaviour, so an upstream
+// fix reports itself.
+//
+// ── P2: EVERY SEARCH IS THE ONE FORWARD DESCENT ─────────────────────────────
+// The C++ carries four independent SUM search walks (forward, start-relative,
+// backward, backward-from), and the deleted flat-tree half of this lineage
+// carried four more; between them they hold most of the family's catalogued
+// defects, because each walk re-derives boundary arithmetic on unsigned
+// indices. This rung adds the four remaining forms and adds NO new walk:
+// find_from is the forward descent at a SHIFTED target, find_bw_* is the
+// forward descent at the COMPLEMENTED target with the strictness flipped,
+// and the from-index backward form is that same thing over a shorter range.
+// What the ladder buys by insisting on this:
+//   * one loop is index-accelerated, so all six forms are — see hazard (b)
+//     at find_bw_sum;
+//   * there is no descending index walk, so the size_t-underflow class the
+//     C++ backward walks live in (recon bugs #3, #4 — vacuous `start >= 0`
+//     guards, `branch_end = (start & ~Mask) - 1` wrapping for start < 32)
+//     cannot be expressed here at all;
+//   * every not-found and boundary convention is derived once, in
+//     find_fw_sum, and inherited — it cannot drift between directions.
+// The two places the derivations are NOT mechanical are the val == 0 plateau
+// clamps (bug #27, both faces) and the `start / 32` index clamp (bug #26, at
+// a second site — hazard (a)); both are argued at their call sites and
+// probed in conuco.
 //
 // ── SHAPE (general from line 1; ADR 0021 §1.2 placement rule) ───────────────
 // Everything the C++ carries as TEMPLATE PARAMETERS is carried here as a
@@ -135,6 +169,19 @@
 //     through the formula, so a presence-bitmap column composes.
 //   * ordering UNORDERED — accepted by the descriptor, search rejects it
 //     (it is PkdArray; no ordering-bearing query is defined).
+//   * direction (P2) — CARRIED, and carried as a derivation rather than as
+//     an axis of code: forward, start-relative and backward are one descent.
+//     NARROWED, recorded: the start-relative and backward forms are SUM-only.
+//     That is not staging — it is the C++ surface's own reading (its `start`
+//     overloads :800/:815 hardcode the SUM implementations, and its MAX
+//     backward arms call member functions that do not exist, recon bug #9)
+//     and it is what the semantics support: MAX has no accumulation, so
+//     "the row where the running total reaches v, counting from here" is not
+//     a question its ordering can answer. A MAX buffer's backward query IS
+//     its forward bisection, which callers already have.
+//   * op family (rank/select, EQ_NLT) — P5. The direction machinery this
+//     rung lands is what those ops descend on, so they arrive as op-codes
+//     over the same six entry points, not as further walks.
 package logos.mem.pkd.pdtbuf;
 
 use logos.mem.pkd;              // PkdAlloc, pkd_format, SlotKind, PkdError, round_up_bytes
@@ -1110,10 +1157,12 @@ impl PdtBuf {
         return self.find_fw(column, val, true);
     }
 
-    /// find_ge from a starting row: search the residual sequence and report
-    /// the answer RELATIVE to `start` (C++ :1408 — target = prefix(start) +
-    /// val, then sub_prefix). Derived here as a direct scan of [start, size)
-    /// so it cannot inherit the C++ family's unsigned-underflow class.
+    /// find_ge from a starting row: search the residual sequence [start, size)
+    /// and report the answer with the prefix REBASED to `start`
+    /// (C++ find_ge_fw_sum(column, start, val) :1394-1400).
+    ///
+    ///     find_ge_from(s, v) = min { i >= s : Σ_{j∈[s,i]} col[j] >= v }
+    ///
     /// SUM ordering only — a relative prefix is meaningless otherwise, which
     /// is precisely why the C++ `start` overloads (:800, :815) hardcode the
     /// SUM implementations and are nonsense on a MAX buffer.
@@ -1126,24 +1175,199 @@ impl PdtBuf {
         return self.find_from(column, start, val, true);
     }
 
+    // The REBASE derivation (P2), which is what makes the from-index forms
+    // index-accelerated. Let p = prefix(start). Then for i >= start
+    //     Σ_{j∈[start,i]} col[j] = prefix(i+1) - p,
+    // so the residual query is the GLOBAL query at the shifted target
+    //     tgt = p + val
+    // and the reported relative prefix is prefix(i) - p. Both p and the
+    // global descent go through the span index, so the whole form costs
+    // O(32 * levels) instead of the O(size - start) scan P1 left here.
+    //
+    // DERIVED CLAMP — and this is C++ bug candidate #27, first face. The
+    // global answer is only guaranteed to lie at or after `start` when it is
+    // pinned there by p < tgt, i.e. by val > 0. At val == 0 the target lands
+    // exactly ON the prefix plateau boundary p, and a NON-STRICT global
+    // search resolves that plateau at its LEFT end: with leading zero rows
+    // (col = [0,0,5], start = 2, val = 0) min{i : prefix(i+1) >= 0} is 0, and
+    // the C++ returns idx 0 — an index BELOW the row the caller asked it to
+    // start from — because neither find_ge_fw_sum(column,start,val) nor its
+    // FindResult::sub_prefix clamps the delegated answer back into [start,
+    // size]. The semantics admit exactly one answer there (a zero-valued
+    // demand is met by the first row examined, i.e. `start` itself, having
+    // accumulated nothing), so we clamp. The STRICT form needs no clamp —
+    // prefix(i+1) > tgt >= p is unsatisfiable for i < start — but it costs
+    // nothing to state once for both.
+    //
+    // DERIVED GUARD (residual miss). A demand larger than everything the
+    // residual holds cannot be met by any row, so it is answered before the
+    // arithmetic runs. That is a fast path, but it is written for a second
+    // reason: it is what bounds tgt = p + val by the column total and so
+    // makes the rebase addition unable to wrap. An unguarded rebase turns an
+    // absurd query into a WRONG answer instead of a not-found — the same
+    // shape of defect as the underflow class this rung is built to avoid,
+    // one operator away.
+    //
+    // HAZARD (a) — the from-index descent and the index-miss clamp. There is
+    // deliberately NO span arithmetic on `start` here: the only place `start`
+    // meets the index is inside sum_prefix, which clamps `start / 32` against
+    // index.size() (see its DERIVED GUARD). Routing through it is what keeps
+    // C++ bug #26 from being re-imported at a second site — an index that
+    // covers FEWER spans than the live rows (exactly the state C++
+    // create_index() leaves before insert_from_fn fills it) costs a longer
+    // scan here, never a wrong answer. conuco section 141 constructs that
+    // under-covering state explicitly and drives every from-index and
+    // backward form through it.
     fn find_from(self: &PdtBuf, column: u32, start: u64, val: u64, strict: bool) -> PdtFind {
         assert(self.ordering() == PDT_ORD_SUM,
                "PdtBuf::find_*_from: relative-prefix search is SUM-only");
-        assert(start <= self.size(), "PdtBuf::find_*_from: start past end");
-        let vals: &[u64] = self.values(column);
         let n: u64 = self.size();
-        let mut prefix: u64 = 0u64;
-        let mut i: u64 = start;
-        while i < n {
-            let incl: u64 = prefix + vals[i as i64];
-            let hit: bool = if strict { incl > val } else { incl >= val };
-            if hit {
-                return PdtFind { idx: i, prefix: prefix };
-            }
-            prefix = incl;
-            i = i + 1u64;
+        assert(start <= n, "PdtBuf::find_*_from: start past end");
+        let pfx: u64 = self.sum_prefix(column, start);
+        let residual: u64 = self.sum_all(column) - pfx;
+        let miss: bool = if strict { val >= residual } else { val > residual };
+        if miss {
+            return PdtFind { idx: n, prefix: residual };
         }
-        return PdtFind { idx: n, prefix: prefix };
+        let r: PdtFind = self.find_fw_sum(column, pfx + val, strict);
+        if r.idx < start {
+            return PdtFind { idx: start, prefix: 0u64 };
+        }
+        return PdtFind { idx: r.idx, prefix: r.prefix - pfx };
+    }
+
+    // ── the backward family (P2), DERIVED as forward over the complement ──
+    //
+    // A backward search walks rows downward from an exclusive end `e`,
+    // accumulating as it goes, and stops at the FIRST row whose running total
+    // meets the demand. Writing acc(i) = Σ_{j∈[i,e)} col[j] for the
+    // accumulation that INCLUDES row i, the two queries are
+    //
+    //     find_bw_ge(e, v) = max { i < e : acc(i) >= v }
+    //     find_bw_gt(e, v) = max { i < e : acc(i) >  v }
+    //
+    // (acc is non-increasing in i, so "the first row reached going down" and
+    // "the largest qualifying index" are the same row.) The reported
+    // `prefix` mirrors the forward one exactly — the accumulation reached
+    // BEFORE the hit row was added, i.e. acc(idx+1) = Σ rows (idx, e).
+    //
+    // THE DERIVATION (C++ find_{ge,gt}_bw_sum, so.hpp:1416-1460 — HEAD's own
+    // shape, and the reason we take it rather than the deleted flat-tree
+    // walk_index_bw). With T = prefix(e) = acc(0):
+    //
+    //     acc(i) >= v  <=>  T - prefix(i) >= v  <=>  prefix(i) <= T - v
+    //     acc(i) >  v  <=>  T - prefix(i) >  v  <=>  prefix(i) <  T - v
+    //
+    // and, prefix being monotone,
+    //
+    //     max { i : prefix(i) <= w } = find_gt(w).idx
+    //     max { i : prefix(i) <  w } = find_ge(w).idx
+    //
+    // so the backward search IS the forward search at the complement target
+    // T - v, WITH THE STRICTNESS FLIPPED:
+    //
+    //     find_bw_ge(e, v) = find_gt(T - v)   clamped into [0, e)
+    //     find_bw_gt(e, v) = find_ge(T - v)   clamped into [0, e)
+    //
+    // WHY THIS KILLS THE UNDERFLOW CLASS STRUCTURALLY. The deleted
+    // flat-layout family walked backward for real, and that is where its
+    // unsigned-arithmetic bugs live: vacuous `if (start >= 0)` guards on a
+    // size_t, and `branch_end = (start & ~Mask) - 1` wrapping to SIZE_MAX for
+    // start < 32 (recon bugs #3, #4). There is no descending walk here at
+    // all: every step of the backward query is a FORWARD query plus one
+    // subtraction, and that subtraction is guarded by the not-found test
+    // BEFORE it is evaluated, so `T - v` is never reached with v > T.
+    //
+    // HAZARD (b) — this only works because T is cheap. T = sum_prefix(e) and
+    // the complement descent is find_fw_sum, and BOTH route through the span
+    // index, so the whole backward family inherits P1's acceleration with no
+    // backward index machinery of its own: O(32 * levels), same as forward.
+    // If sum_all/sum_prefix ever stopped being index-accelerated, the
+    // backward family would silently degrade to O(size) — the gate asserts
+    // the index-level count is exercised on these paths so that a regression
+    // there is visible; section 150 pins bw against the unindexed twin (which
+    // reaches the same answers by pure scan) and 151 against the model.
+    //
+    // NOT-FOUND, DERIVED (it agrees with the C++ FindResult(start+1, total),
+    // which matters only as a cross-check). The walk travels downward, so the
+    // "one past the last row" marker the forward convention uses would be -1,
+    // which u64 cannot hold — and reaching for a wrapping sentinel here is
+    // precisely how this C++ lineage got into trouble. The defensible marker
+    // is the one past the walk's ORIGIN in the direction that cannot wrap:
+    // the exclusive end `e` itself, which is outside [0, e) and therefore
+    // unambiguous. The reported prefix is everything the walk accumulated,
+    // i.e. T — exactly parallel to the forward (size, total). Both
+    // conventions then coincide at the full-buffer form, where e = size.
+    //
+    // SUM only, same reason as the from-index forms (the C++ MAX arm's
+    // findGT/GEBackward are recon bug #9: they call member functions that are
+    // nowhere defined — the MAX backward path has never been instantiated).
+    fn find_bw_sum(self: &PdtBuf, column: u32, end: u64, val: u64, strict: bool) -> PdtFind {
+        assert(self.ordering() == PDT_ORD_SUM,
+               "PdtBuf::find_bw_*: backward search is SUM-only");
+        assert(end <= self.size(), "PdtBuf::find_bw_*: end past end");
+        if end == 0u64 {
+            // An empty range holds no row, and accumulates nothing. Handled
+            // first so that `end - 1` below is always well defined: the
+            // size-0 buffer is where the C++ full-buffer entry points
+            // (:1416, :1440) compute `size() - 1` and wrap to SIZE_MAX.
+            return PdtFind { idx: 0u64, prefix: 0u64 };
+        }
+        let total: u64 = self.sum_prefix(column, end);
+        let miss: bool = if strict { val >= total } else { val > total };
+        if miss {
+            return PdtFind { idx: end, prefix: total };
+        }
+        // Strictness FLIPS across the complement: >= over acc becomes > over
+        // prefix, and vice versa.
+        let r: PdtFind = self.find_fw_sum(column, total - val, !strict);
+        let mut idx: u64 = r.idx;
+        if idx >= end {
+            // C++ bug candidate #27, second face. This is reachable only for
+            // the NON-STRICT form at val == 0 (the strict one is pinned below
+            // `end` by prefix(end) = total >= tgt), and there the complement
+            // target is the plateau boundary T itself, which find_gt cannot
+            // cross — it answers `size`, an index outside the backward range.
+            // C++ find_ge_bw_sum takes that answer unclamped and then calls
+            // sum_sum(column, res.local_pos() + 1), i.e. sum_sum(column,
+            // size + 1), which trips its own MEMORIA_ASSERT(idx <= size)
+            // (:1601). The semantics are unambiguous: a zero demand is met by
+            // the first row the walk touches, having accumulated nothing.
+            idx = end - 1u64;
+        }
+        return PdtFind {
+            idx: idx,
+            prefix: total - self.sum_prefix(column, idx + 1u64),
+        };
+    }
+
+    /// Last row at which the backward accumulation reaches `val`
+    /// (C++ findGEBackward :824 → find_ge_bw_sum :1440). Not found:
+    /// (size, total) — the same convention as the forward family, which the
+    /// derivation above shows is not a coincidence.
+    pub fn find_bw_ge(self: &PdtBuf, column: u32, val: u64) -> PdtFind {
+        return self.find_bw_sum(column, self.size(), val, false);
+    }
+
+    /// Last row at which the backward accumulation EXCEEDS `val`
+    /// (C++ findGTBackward :814 → find_gt_bw_sum :1416).
+    pub fn find_bw_gt(self: &PdtBuf, column: u32, val: u64) -> PdtFind {
+        return self.find_bw_sum(column, self.size(), val, true);
+    }
+
+    /// find_bw_ge over rows [0, start] — `start` INCLUSIVE, mirroring the C++
+    /// findGEBackward(column, start, val) :829. Not found: (start + 1, Σ rows
+    /// [0, start]). Degenerates to find_bw_ge at start = size - 1, which is
+    /// the backward reading of the from-index consistency law.
+    pub fn find_bw_ge_from(self: &PdtBuf, column: u32, start: u64, val: u64) -> PdtFind {
+        assert(start < self.size(), "PdtBuf::find_bw_ge_from: start past last row");
+        return self.find_bw_sum(column, start + 1u64, val, false);
+    }
+
+    /// find_bw_gt over rows [0, start] — `start` INCLUSIVE (C++ :819).
+    pub fn find_bw_gt_from(self: &PdtBuf, column: u32, start: u64, val: u64) -> PdtFind {
+        assert(start < self.size(), "PdtBuf::find_bw_gt_from: start past last row");
+        return self.find_bw_sum(column, start + 1u64, val, true);
     }
 
     // ── structural check ──────────────────────────────────────────────────
