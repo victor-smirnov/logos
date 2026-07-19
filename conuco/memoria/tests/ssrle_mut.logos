@@ -218,10 +218,10 @@ fn verify_state(seq: &PkdSsrle, expect: &Vec<SsrleRun>, st: &mut u64, extra: i64
             return 6i32;
         }
         if !ssrle_is_fit(bps, rv.pattern_length as u64, rv.run_length) {
-            return 7i32;
+            return 7000i32;
         }
         if rv.pattern_length > ssrle_encodable_pattern_length(bps) {
-            return 7i32;
+            return 7001i32;
         }
         k = k + 1i64;
     }

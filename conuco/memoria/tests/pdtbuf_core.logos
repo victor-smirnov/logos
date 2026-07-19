@@ -545,13 +545,13 @@ fn check_sizing() -> i32 {
         let d: PdtDescr = descr_for(cols, PDT_ORD_SUM);
         // Slot geometry follows the descriptor, not a hardcoded count.
         if d.dim_blocks_total() != 1u32 {
-            return 10i32;
+            return 10000i32;
         }
         if d.slots() != 2u32 + cols {
             return 11i32;
         }
         if d.dim_block_offset(0u32) != 0u32 {
-            return 12i32;
+            return 12000i32;
         }
         // Sizing is monotone in capacity and exact on the 8-byte granule.
         let e0: u32 = pdtbuf_compute_block_size(&d, 0u64);
@@ -591,23 +591,23 @@ fn check_sizing() -> i32 {
         // (C++ HasIndex :57 — ordering is a law, not a configuration).
         let dm: PdtDescr = pdt_descr_fse(cols, 8u32, PDT_ORD_MAX, true);
         if dm.has_index() {
-            return 10i32;
+            return 10001i32;
         }
         if pdtbuf_index_block_size(&dm, 1000u64) != 0u32 {
-            return 10i32;
+            return 10002i32;
         }
         // VLE dimensions are P4, but the WIDTH axis must already be carried.
         let mut dv: PdtDescr = pdt_descr_new(cols, PDT_ORD_SUM, false);
         dv.dims.push(pdt_dim_fse(8u32));
         dv.dims.push(pdt_dim_vle(1u32));
         if dv.dim_blocks_total() != 3u32 {
-            return 12i32;
+            return 12001i32;
         }
         if dv.slots() != 2u32 + 3u32 * cols {
-            return 12i32;
+            return 12002i32;
         }
         if dv.dim_block_offset(1u32) != 1u32 {
-            return 12i32;
+            return 12003i32;
         }
         cols = cols + 1u32;
     }
@@ -854,10 +854,10 @@ fn check_case_body(b: &PdtBuf, m: &Model, ordering: u32) -> i32 {
                 }
                 // LAW: the reported prefix IS the prefix sum at the hit row.
                 if ge.prefix != b.sum_prefix(c4, ge.idx) {
-                    return 29i32;
+                    return 29000i32;
                 }
                 if gt.prefix != b.sum_prefix(c4, gt.idx) {
-                    return 29i32;
+                    return 29001i32;
                 }
                 // LAW: bracketing. For a hit, the cumulative sum crosses `v`
                 // exactly at the returned row.
@@ -996,15 +996,15 @@ fn check_edges() -> i32 {
             while c < cols {
                 if b.sum_all(c) != 0u64 {
                     dealloc(mem);
-                    return 52i32;
+                    return 52000i32;
                 }
                 if b.sum_prefix(c, 0u64) != 0u64 {
                     dealloc(mem);
-                    return 52i32;
+                    return 52001i32;
                 }
                 if b.sum(c, 0u64, 0u64) != 0u64 {
                     dealloc(mem);
-                    return 52i32;
+                    return 52002i32;
                 }
                 let ge: PdtFind = b.find_ge(c, 0u64);
                 if ge.idx != 0u64 || ge.prefix != 0u64 {
@@ -1049,20 +1049,20 @@ fn check_edges() -> i32 {
                     Result::Ok(_) => {}
                     Result::Err(_) => {
                         dealloc(mem2);
-                        return 58i32;
+                        return 58000i32;
                     }
                 }
                 if b2.capacity() != cap {
                     dealloc(mem2);
-                    return 58i32;
+                    return 58001i32;
                 }
                 if b2.consumed_bytes() != pdtbuf_compute_block_size(&d, cap) {
                     dealloc(mem2);
-                    return 59i32;
+                    return 59000i32;
                 }
                 if b2.check() != 0i32 {
                     dealloc(mem2);
-                    return 59i32;
+                    return 59001i32;
                 }
                 i = i + 1i64;
             }
@@ -1209,18 +1209,18 @@ fn check_empty_index_safety(seed: &mut u64) -> i32 {
                 Result::Ok(q) => { q }
                 Result::Err(_) => {
                     dealloc(mem);
-                    return 119i32;
+                    return 119000i32;
                 }
             };
             fill_from_model(&mut b, &m);
             // NO reindex() — the index slot exists, its size is 0.
             if !b.has_index() {
                 dealloc(mem);
-                return 119i32;
+                return 119001i32;
             }
             if b.index().size() != 0u64 {
                 dealloc(mem);
-                return 119i32;
+                return 119002i32;
             }
             let mut c: u32 = 0u32;
             while c < cols {
@@ -1229,7 +1229,7 @@ fn check_empty_index_safety(seed: &mut u64) -> i32 {
                 while k <= rows {
                     if b.sum_prefix(c, k) != model_prefix(&m, c, k) {
                         dealloc(mem);
-                        return 119i32;
+                        return 119003i32;
                     }
                     k = k + 1u64;
                 }
@@ -1239,7 +1239,7 @@ fn check_empty_index_safety(seed: &mut u64) -> i32 {
                     let mge: PdtFind = model_find_sum(&m, c, v, false, 0u64);
                     if ge.idx != mge.idx || ge.prefix != mge.prefix {
                         dealloc(mem);
-                        return 119i32;
+                        return 119004i32;
                     }
                     // P2: the start-relative and backward forms ride the same
                     // clamp. A size-0 index is the state where `start / 32`
@@ -1251,26 +1251,26 @@ fn check_empty_index_safety(seed: &mut u64) -> i32 {
                         let m1: PdtFind = model_find_sum(&m, c, v, false, st);
                         if f1.idx != m1.idx || f1.prefix != m1.prefix {
                             dealloc(mem);
-                            return 119i32;
+                            return 119005i32;
                         }
                         let f2: PdtFind = b.find_gt_from(c, st, v);
                         let m2: PdtFind = model_find_sum(&m, c, v, true, st);
                         if f2.idx != m2.idx || f2.prefix != m2.prefix {
                             dealloc(mem);
-                            return 119i32;
+                            return 119006i32;
                         }
                         if st < rows {
                             let f3: PdtFind = b.find_bw_ge_from(c, st, v);
                             let m3: PdtFind = model_find_bw(&m, c, st + 1u64, v, false);
                             if f3.idx != m3.idx || f3.prefix != m3.prefix {
                                 dealloc(mem);
-                                return 119i32;
+                                return 119007i32;
                             }
                             let f4: PdtFind = b.find_bw_gt_from(c, st, v);
                             let m4: PdtFind = model_find_bw(&m, c, st + 1u64, v, true);
                             if f4.idx != m4.idx || f4.prefix != m4.prefix {
                                 dealloc(mem);
-                                return 119i32;
+                                return 119008i32;
                             }
                         }
                         st = st + 13u64;
@@ -1279,13 +1279,13 @@ fn check_empty_index_safety(seed: &mut u64) -> i32 {
                     let m5: PdtFind = model_find_bw(&m, c, rows, v, false);
                     if f5.idx != m5.idx || f5.prefix != m5.prefix {
                         dealloc(mem);
-                        return 119i32;
+                        return 119009i32;
                     }
                     let f6: PdtFind = b.find_bw_gt(c, v);
                     let m6: PdtFind = model_find_bw(&m, c, rows, v, true);
                     if f6.idx != m6.idx || f6.prefix != m6.prefix {
                         dealloc(mem);
-                        return 119i32;
+                        return 119010i32;
                     }
                     v = v + 37u64;
                 }
@@ -1325,7 +1325,7 @@ fn check_three_way_with(m: &Model, dense: bool) -> i32 {
             Result::Err(_) => {
                 dealloc(memi);
                 dealloc(mems);
-                return 120i32;
+                return 120000i32;
             }
         };
         let mut bs2: PdtBuf = match pdtbuf_create(mems, bss, &ds, rows) {
@@ -1333,7 +1333,7 @@ fn check_three_way_with(m: &Model, dense: bool) -> i32 {
             Result::Err(_) => {
                 dealloc(memi);
                 dealloc(mems);
-                return 120i32;
+                return 120001i32;
             }
         };
         fill_from_model(&mut bi, m);
@@ -1353,10 +1353,10 @@ fn check_three_way_body(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i3
     // The unindexed twin must genuinely have no index — otherwise the third
     // leg is not independent and the whole comparison is vacuous.
     if bs2.has_index() {
-        return 121i32;
+        return 121000i32;
     }
     if bi.has_index() != (rows > 32u64) {
-        return 121i32;
+        return 121001i32;
     }
     // DEPTH: the tree really is multi-level at deep sizes.
     if bi.index_levels() != model_index_levels(rows) {
@@ -1398,10 +1398,10 @@ fn check_three_way_body(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i3
         while k <= rows {
             let vi: u64 = bi.sum_prefix(c2, k);
             if vi != bs2.sum_prefix(c2, k) {
-                return 126i32;
+                return 126000i32;
             }
             if vi != model_prefix(m, c2, k) {
-                return 126i32;
+                return 126001i32;
             }
             k = k + step;
         }
@@ -1469,23 +1469,23 @@ fn check_three_way_body(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i3
             let sge: PdtFind = bs2.find_ge(c3, v);
             let sgt: PdtFind = bs2.find_gt(c3, v);
             if ge.idx != sge.idx || ge.prefix != sge.prefix {
-                return 128i32;
+                return 128000i32;
             }
             if gt.idx != sgt.idx || gt.prefix != sgt.prefix {
-                return 128i32;
+                return 128001i32;
             }
             let mge: PdtFind = model_find_sum(m, c3, v, false, 0u64);
             let mgt: PdtFind = model_find_sum(m, c3, v, true, 0u64);
             if ge.idx != mge.idx || ge.prefix != mge.prefix {
-                return 129i32;
+                return 129000i32;
             }
             if gt.idx != mgt.idx || gt.prefix != mgt.prefix {
-                return 129i32;
+                return 129001i32;
             }
             // LAW carried over from P0: the reported prefix IS the prefix sum
             // at the hit row — now computed through the index on both sides.
             if ge.prefix != bi.sum_prefix(c3, ge.idx) {
-                return 129i32;
+                return 129002i32;
             }
             pi = pi + 1i64;
         }
@@ -1638,19 +1638,19 @@ fn check_from_forms(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
                 let sge: PdtFind = bs2.find_ge_from(c, st, v);
                 let sgt: PdtFind = bs2.find_gt_from(c, st, v);
                 if ge.idx != sge.idx || ge.prefix != sge.prefix {
-                    return 140i32;
+                    return 140000i32;
                 }
                 if gt.idx != sgt.idx || gt.prefix != sgt.prefix {
-                    return 140i32;
+                    return 140001i32;
                 }
                 // Leg 3: the independent walk.
                 let mge: PdtFind = model_find_sum(m, c, v, false, st);
                 let mgt: PdtFind = model_find_sum(m, c, v, true, st);
                 if ge.idx != mge.idx || ge.prefix != mge.prefix {
-                    return 141i32;
+                    return 141000i32;
                 }
                 if gt.idx != mgt.idx || gt.prefix != mgt.prefix {
-                    return 141i32;
+                    return 141001i32;
                 }
                 // LAW (no answer precedes its start). This is C++ bug #27's
                 // first face: its rebase delegates to the global search and
@@ -1663,19 +1663,19 @@ fn check_from_forms(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
                 // sum from the start to the hit, and the hit's inclusive sum
                 // crosses `v` exactly there.
                 if ge.prefix != bi.sum(c, st, ge.idx) {
-                    return 143i32;
+                    return 143000i32;
                 }
                 if gt.prefix != bi.sum(c, st, gt.idx) {
-                    return 143i32;
+                    return 143001i32;
                 }
                 if ge.idx < rows {
                     if v > ge.prefix + bi.get(c, ge.idx) {
-                        return 144i32;
+                        return 144000i32;
                     }
                 }
                 if gt.idx < rows {
                     if v >= gt.prefix + bi.get(c, gt.idx) {
-                        return 144i32;
+                        return 144001i32;
                     }
                 }
                 // LAW (not-found): idx == size iff no row of the residual can
@@ -1688,16 +1688,16 @@ fn check_from_forms(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
                 // the val == 0 clamp in the port; here it is stated from the
                 // model's side, so agreement is not a shared assumption.)
                 if (ge.idx == rows) != (st >= rows || v > residual) {
-                    return 145i32;
+                    return 145000i32;
                 }
                 if (gt.idx == rows) != (v >= residual) {
-                    return 145i32;
+                    return 145001i32;
                 }
                 if ge.idx == rows && ge.prefix != residual {
-                    return 145i32;
+                    return 145002i32;
                 }
                 if gt.idx == rows && gt.prefix != residual {
-                    return 145i32;
+                    return 145003i32;
                 }
                 // LAW (gt never precedes ge).
                 if gt.idx < ge.idx {
@@ -1714,12 +1714,12 @@ fn check_from_forms(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
             let a: PdtFind = bi.find_ge_from(c, 0u64, v2);
             let b: PdtFind = bi.find_ge(c, v2);
             if a.idx != b.idx || a.prefix != b.prefix {
-                return 147i32;
+                return 147000i32;
             }
             let a2: PdtFind = bi.find_gt_from(c, 0u64, v2);
             let b2: PdtFind = bi.find_gt(c, v2);
             if a2.idx != b2.idx || a2.prefix != b2.prefix {
-                return 147i32;
+                return 147001i32;
             }
             pj = pj + 1i64;
         }
@@ -1748,18 +1748,18 @@ fn check_backward(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
             let sge: PdtFind = bs2.find_bw_ge(c, v);
             let sgt: PdtFind = bs2.find_bw_gt(c, v);
             if ge.idx != sge.idx || ge.prefix != sge.prefix {
-                return 150i32;
+                return 150000i32;
             }
             if gt.idx != sgt.idx || gt.prefix != sgt.prefix {
-                return 150i32;
+                return 150001i32;
             }
             let mge: PdtFind = model_find_bw(m, c, rows, v, false);
             let mgt: PdtFind = model_find_bw(m, c, rows, v, true);
             if ge.idx != mge.idx || ge.prefix != mge.prefix {
-                return 151i32;
+                return 151000i32;
             }
             if gt.idx != mgt.idx || gt.prefix != mgt.prefix {
-                return 151i32;
+                return 151001i32;
             }
             // LAW (not-found, DERIVED): the backward walk fails exactly when
             // the whole column cannot meet the demand, and then reports the
@@ -1767,37 +1767,37 @@ fn check_backward(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
             // accumulated. The forward convention (size, total) is the same
             // statement — which is why the two coincide here.
             if (ge.idx == rows) != (rows == 0u64 || v > total) {
-                return 152i32;
+                return 152000i32;
             }
             if (gt.idx == rows) != (v >= total) {
-                return 152i32;
+                return 152001i32;
             }
             if ge.idx == rows && ge.prefix != total {
-                return 152i32;
+                return 152002i32;
             }
             if gt.idx == rows && gt.prefix != total {
-                return 152i32;
+                return 152003i32;
             }
             // LAW (bracketing, mirrored): for a hit, the accumulation before
             // the hit row falls short and including it crosses `v`.
             if ge.idx < rows {
                 if ge.prefix + model_get(m, c, ge.idx) < v {
-                    return 153i32;
+                    return 153000i32;
                 }
                 if ge.prefix >= v && v > 0u64 {
-                    return 153i32;
+                    return 153001i32;
                 }
                 // ... and the reported prefix IS the suffix sum above the hit.
                 if ge.prefix != model_range(m, c, ge.idx + 1u64, rows) {
-                    return 153i32;
+                    return 153002i32;
                 }
             }
             if gt.idx < rows {
                 if gt.prefix + model_get(m, c, gt.idx) <= v {
-                    return 154i32;
+                    return 154000i32;
                 }
                 if gt.prefix != model_range(m, c, gt.idx + 1u64, rows) {
-                    return 154i32;
+                    return 154001i32;
                 }
             }
             // LAW (ge/gt separation, backward reading). ge never precedes gt
@@ -1809,12 +1809,12 @@ fn check_backward(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
             // plateau is resolved at the wrong end.
             if ge.idx < rows && gt.idx < rows {
                 if ge.idx < gt.idx {
-                    return 155i32;
+                    return 155000i32;
                 }
                 let mut z: u64 = gt.idx + 1u64;
                 while z + 1u64 <= ge.idx {
                     if model_get(m, c, z) != 0u64 {
-                        return 155i32;
+                        return 155001i32;
                     }
                     z = z + 1u64;
                 }
@@ -1839,29 +1839,29 @@ fn check_backward(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
                 let fge: PdtFind = model_find_sum(&rev, c, v3, false, 0u64);
                 if bge.idx == rows {
                     if fge.idx != rows {
-                        return 156i32;
+                        return 156000i32;
                     }
                 } else {
                     if bge.idx != rows - 1u64 - fge.idx {
-                        return 156i32;
+                        return 156001i32;
                     }
                 }
                 if bge.prefix != fge.prefix {
-                    return 156i32;
+                    return 156002i32;
                 }
                 let bgt: PdtFind = bi.find_bw_gt(c, v3);
                 let fgt: PdtFind = model_find_sum(&rev, c, v3, true, 0u64);
                 if bgt.idx == rows {
                     if fgt.idx != rows {
-                        return 157i32;
+                        return 157000i32;
                     }
                 } else {
                     if bgt.idx != rows - 1u64 - fgt.idx {
-                        return 157i32;
+                        return 157001i32;
                     }
                 }
                 if bgt.prefix != fgt.prefix {
-                    return 157i32;
+                    return 157002i32;
                 }
                 pk = pk + 1i64;
             }
@@ -1884,30 +1884,30 @@ fn check_backward(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
                 let sge2: PdtFind = bs2.find_bw_ge_from(c, st, v4);
                 let sgt2: PdtFind = bs2.find_bw_gt_from(c, st, v4);
                 if ge2.idx != sge2.idx || ge2.prefix != sge2.prefix {
-                    return 158i32;
+                    return 158000i32;
                 }
                 if gt2.idx != sgt2.idx || gt2.prefix != sgt2.prefix {
-                    return 158i32;
+                    return 158001i32;
                 }
                 let mge2: PdtFind = model_find_bw(m, c, end, v4, false);
                 let mgt2: PdtFind = model_find_bw(m, c, end, v4, true);
                 if ge2.idx != mge2.idx || ge2.prefix != mge2.prefix {
-                    return 159i32;
+                    return 159000i32;
                 }
                 if gt2.idx != mgt2.idx || gt2.prefix != mgt2.prefix {
-                    return 159i32;
+                    return 159001i32;
                 }
                 // LAW (the answer stays inside the walk's range, and the
                 // not-found sentinel is exactly one past its origin). C++ bug
                 // #27's second face is an answer ABOVE `start` at v == 0.
                 if ge2.idx > end || gt2.idx > end {
-                    return 159i32;
+                    return 159002i32;
                 }
                 if (ge2.idx == end) != (v4 > sub) {
-                    return 159i32;
+                    return 159003i32;
                 }
                 if (gt2.idx == end) != (v4 >= sub) {
-                    return 159i32;
+                    return 159004i32;
                 }
                 pm = pm + 1i64;
             }
@@ -1923,12 +1923,12 @@ fn check_backward(bi: &PdtBuf, bs2: &PdtBuf, m: &Model, dense: bool) -> i32 {
                 let a: PdtFind = bi.find_bw_ge_from(c, rows - 1u64, v5);
                 let b: PdtFind = bi.find_bw_ge(c, v5);
                 if a.idx != b.idx || a.prefix != b.prefix {
-                    return 155i32;
+                    return 155002i32;
                 }
                 let a2: PdtFind = bi.find_bw_gt_from(c, rows - 1u64, v5);
                 let b2: PdtFind = bi.find_bw_gt(c, v5);
                 if a2.idx != b2.idx || a2.prefix != b2.prefix {
-                    return 155i32;
+                    return 155003i32;
                 }
                 pn = pn + 1i64;
             }
@@ -2071,7 +2071,7 @@ fn check_under_covering_index(seed: &mut u64) -> i32 {
                     Result::Ok(q) => { q }
                     Result::Err(_) => {
                         dealloc(mem);
-                        return 149i32;
+                        return 149000i32;
                     }
                 };
                 fill_from_model(&mut b, &m);
@@ -2082,11 +2082,11 @@ fn check_under_covering_index(seed: &mut u64) -> i32 {
                 b.set_size(rows);
                 if !b.has_index() {
                     dealloc(mem);
-                    return 149i32;
+                    return 149001i32;
                 }
                 if b.index().size() != (cov + 31u64) / 32u64 {
                     dealloc(mem);
-                    return 149i32;
+                    return 149002i32;
                 }
                 let mut c: u32 = 0u32;
                 while c < cols {
@@ -2096,7 +2096,7 @@ fn check_under_covering_index(seed: &mut u64) -> i32 {
                     while k <= rows {
                         if b.sum_prefix(c, k) != model_prefix(&m, c, k) {
                             dealloc(mem);
-                            return 149i32;
+                            return 149003i32;
                         }
                         k = k + 1u64;
                     }
@@ -2110,26 +2110,26 @@ fn check_under_covering_index(seed: &mut u64) -> i32 {
                             let m1: PdtFind = model_find_sum(&m, c, v, false, st);
                             if f1.idx != m1.idx || f1.prefix != m1.prefix {
                                 dealloc(mem);
-                                return 149i32;
+                                return 149004i32;
                             }
                             let f2: PdtFind = b.find_gt_from(c, st, v);
                             let m2: PdtFind = model_find_sum(&m, c, v, true, st);
                             if f2.idx != m2.idx || f2.prefix != m2.prefix {
                                 dealloc(mem);
-                                return 149i32;
+                                return 149005i32;
                             }
                             if st < rows {
                                 let f3: PdtFind = b.find_bw_ge_from(c, st, v);
                                 let m3: PdtFind = model_find_bw(&m, c, st + 1u64, v, false);
                                 if f3.idx != m3.idx || f3.prefix != m3.prefix {
                                     dealloc(mem);
-                                    return 149i32;
+                                    return 149006i32;
                                 }
                                 let f4: PdtFind = b.find_bw_gt_from(c, st, v);
                                 let m4: PdtFind = model_find_bw(&m, c, st + 1u64, v, true);
                                 if f4.idx != m4.idx || f4.prefix != m4.prefix {
                                     dealloc(mem);
-                                    return 149i32;
+                                    return 149007i32;
                                 }
                             }
                             st = st + 37u64;
@@ -2138,13 +2138,13 @@ fn check_under_covering_index(seed: &mut u64) -> i32 {
                         let m5: PdtFind = model_find_bw(&m, c, rows, v, false);
                         if f5.idx != m5.idx || f5.prefix != m5.prefix {
                             dealloc(mem);
-                            return 149i32;
+                            return 149008i32;
                         }
                         let f6: PdtFind = b.find_bw_gt(c, v);
                         let m6: PdtFind = model_find_bw(&m, c, rows, v, true);
                         if f6.idx != m6.idx || f6.prefix != m6.prefix {
                             dealloc(mem);
-                            return 149i32;
+                            return 149009i32;
                         }
                         v = v + 53u64;
                     }
@@ -2610,7 +2610,7 @@ fn check_mut_fixture_case(s: str, pos: &mut i64) -> i32 {
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 250i32;
+                        return 250000i32;
                     }
                 };
                 match b.split_to(&mut ob, a) {
@@ -2618,7 +2618,7 @@ fn check_mut_fixture_case(s: str, pos: &mut i64) -> i32 {
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 250i32;
+                        return 250001i32;
                     }
                 }
                 m = model_prefix_rows(&m, a);
@@ -2694,14 +2694,15 @@ fn check_mut_fixture_case(s: str, pos: &mut i64) -> i32 {
                 lv = lv + 1i64;
             }
 
-            // Whatever HEAD did, OUR post-state must satisfy our own law.
-            // Base 1 rather than 0 so every conjunct reports a NON-ZERO code;
-            // the caller collapses them onto 255 because the marker-4 band is
-            // already at the top of the exit-code range.
-            if assert_mutation(&b, &m, b.consumed_bytes(), 1i32) != 0i32 {
+            // Whatever HEAD did, OUR post-state must satisfy our own law. The
+            // conjunct's own code propagates verbatim — the diagnostic is
+            // PRINTED, not returned as an exit status, so there is no ceiling
+            // to collapse it against.
+            let am: i32 = assert_mutation(&b, &m, b.consumed_bytes(), 1160i32);
+            if am != 0i32 {
                 dealloc(mem);
                 dealloc(omem);
-                return 255i32;
+                return am;
             }
             st = st + 1i64;
         }
@@ -2876,7 +2877,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 170i32;
+                        return 170000i32;
                     }
                 };
                 let vals: Vec<u64> = rand_vals(cols, count, seed);
@@ -2885,7 +2886,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 170i32;
+                        return 170001i32;
                     }
                 };
                 // GAP (b), asserted as a CLASSIFICATION and not just as a
@@ -2910,7 +2911,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                 }
                 b.commit_insert(&us, &vals);
                 let mm: Model = model_insert(&m0, at, count, &vals);
-                let rc: i32 = assert_mutation(&b, &mm, us.prepared_bytes, 170i32);
+                let rc: i32 = assert_mutation(&b, &mm, us.prepared_bytes, 1000i32);
                 if rc != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -2935,7 +2936,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 175i32;
+                        return 175000i32;
                     }
                 };
                 let vals2: Vec<u64> = rand_vals(cols, count, seed);
@@ -2944,7 +2945,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 175i32;
+                        return 175001i32;
                     }
                 };
                 // An FSE replacement moves no byte boundary — DERIVED, and
@@ -2959,7 +2960,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                 }
                 b2.commit_update(&us2, &vals2);
                 let mm2: Model = model_update(&m0, at, count, &vals2);
-                let rc2: i32 = assert_mutation(&b2, &mm2, us2.prepared_bytes, 175i32);
+                let rc2: i32 = assert_mutation(&b2, &mm2, us2.prepared_bytes, 1010i32);
                 if rc2 != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -2982,7 +2983,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 180i32;
+                        return 180000i32;
                     }
                 };
                 let us3: PdtUpdate = match b3.prepare_remove(s, e, policy) {
@@ -2990,12 +2991,12 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 180i32;
+                        return 180001i32;
                     }
                 };
                 b3.commit_remove(&us3);
                 let mm3: Model = model_remove(&m0, s, e);
-                let rc3: i32 = assert_mutation(&b3, &mm3, us3.prepared_bytes, 180i32);
+                let rc3: i32 = assert_mutation(&b3, &mm3, us3.prepared_bytes, 1020i32);
                 if rc3 != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -3015,7 +3016,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 185i32;
+                    return 185000i32;
                 }
             };
             let ob: PdtBuf = match build_filled(omem, block, &d, orows, &om) {
@@ -3023,7 +3024,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 185i32;
+                    return 185001i32;
                 }
             };
             let us4: PdtUpdate = match b4.prepare_merge_with(&ob, policy) {
@@ -3031,12 +3032,12 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 185i32;
+                    return 185002i32;
                 }
             };
             b4.commit_merge_with(&us4, &ob);
             let mm4: Model = model_concat(&m0, &om);
-            let rc4: i32 = assert_mutation(&b4, &mm4, us4.prepared_bytes, 185i32);
+            let rc4: i32 = assert_mutation(&b4, &mm4, us4.prepared_bytes, 1030i32);
             if rc4 != 0i32 {
                 dealloc(mem);
                 dealloc(omem);
@@ -3060,7 +3061,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 190i32;
+                    return 190000i32;
                 }
             };
             let empty: Model = model_new(cols, 0u64);
@@ -3069,7 +3070,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 190i32;
+                    return 190001i32;
                 }
             };
             let sp: PdtSplit = match b5.prepare_split_to(&ob2, at, policy) {
@@ -3077,19 +3078,19 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 190i32;
+                    return 190002i32;
                 }
             };
             b5.commit_split_to(&mut ob2, &sp);
             let ml: Model = model_prefix_rows(&m0, at);
             let mr: Model = model_suffix_rows(&m0, at);
-            let rl: i32 = assert_mutation(&b5, &ml, sp.left.prepared_bytes, 190i32);
+            let rl: i32 = assert_mutation(&b5, &ml, sp.left.prepared_bytes, 1040i32);
             if rl != 0i32 {
                 dealloc(mem);
                 dealloc(omem);
                 return rl;
             }
-            let rr: i32 = assert_mutation(&ob2, &mr, sp.right.prepared_bytes, 190i32);
+            let rr: i32 = assert_mutation(&ob2, &mr, sp.right.prepared_bytes, 1050i32);
             if rr != 0i32 {
                 dealloc(mem);
                 dealloc(omem);
@@ -3144,7 +3145,7 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 195i32;
+                        return 195000i32;
                     }
                 };
                 let us: PdtUpdate = match b.prepare_insert(at, 1u64, PDT_CAP_EXACT) {
@@ -3152,12 +3153,12 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 195i32;
+                        return 195001i32;
                     }
                 };
                 b.commit_insert(&us, &vals);
                 let mm: Model = model_insert(&m0, at, 1u64, &vals);
-                let rc: i32 = assert_mutation(&b, &mm, us.prepared_bytes, 195i32);
+                let rc: i32 = assert_mutation(&b, &mm, us.prepared_bytes, 1060i32);
                 if rc != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -3179,12 +3180,12 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                         if b.find_ge(c2, v).idx != model_find_max(&mm, c2, v, false) {
                             dealloc(mem);
                             dealloc(omem);
-                            return 198i32;
+                            return 198000i32;
                         }
                         if b.find_gt(c2, v).idx != model_find_max(&mm, c2, v, true) {
                             dealloc(mem);
                             dealloc(omem);
-                            return 198i32;
+                            return 198001i32;
                         }
                         v = v + 1u64;
                     }
@@ -3201,7 +3202,7 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 196i32;
+                    return 196000i32;
                 }
             };
             let s: u64 = rows / 3u64;
@@ -3211,12 +3212,12 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 196i32;
+                    return 196001i32;
                 }
             };
             b3.commit_remove(&us3);
             let mm3: Model = model_remove(&m0, s, e);
-            let rc3: i32 = assert_mutation(&b3, &mm3, us3.prepared_bytes, 196i32);
+            let rc3: i32 = assert_mutation(&b3, &mm3, us3.prepared_bytes, 1070i32);
             if rc3 != 0i32 {
                 dealloc(mem);
                 dealloc(omem);
@@ -3229,7 +3230,7 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 197i32;
+                    return 197000i32;
                 }
             };
             let empty: Model = model_new(cols, 0u64);
@@ -3238,7 +3239,7 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 197i32;
+                    return 197001i32;
                 }
             };
             let cut: u64 = rows / 2u64;
@@ -3247,7 +3248,7 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 197i32;
+                    return 197002i32;
                 }
             }
             match b5.merge_from(&ob) {
@@ -3255,18 +3256,18 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
                 Result::Err(_) => {
                     dealloc(mem);
                     dealloc(omem);
-                    return 197i32;
+                    return 197003i32;
                 }
             }
             if !buf_matches_model(&b5, &m0) {
                 dealloc(mem);
                 dealloc(omem);
-                return 197i32;
+                return 197004i32;
             }
             if b5.check() != 0i32 {
                 dealloc(mem);
                 dealloc(omem);
-                return 197i32;
+                return 197005i32;
             }
         }
 
@@ -3344,14 +3345,14 @@ fn check_failed_prepare_identity(seed: &mut u64) -> i32 {
                 if !blocks_identical(&b, snap, n) {
                     dealloc(snap);
                     dealloc(mem);
-                    return 203i32;
+                    return 203000i32;
                 }
                 // ... and the buffer is not merely intact, it is USABLE: a
                 // failed prepare is not a state, it is a non-event.
                 if b.check() != 0i32 || !buf_matches_model(&b, &m) {
                     dealloc(snap);
                     dealloc(mem);
-                    return 204i32;
+                    return 204000i32;
                 }
                 // A prepare that FITS still writes nothing until commit.
                 match b.prepare_remove(0u64, 1u64, PDT_CAP_EXACT) {
@@ -3359,13 +3360,13 @@ fn check_failed_prepare_identity(seed: &mut u64) -> i32 {
                     Result::Err(_) => {
                         dealloc(snap);
                         dealloc(mem);
-                        return 204i32;
+                        return 204001i32;
                     }
                 }
                 if !blocks_identical(&b, snap, n) {
                     dealloc(snap);
                     dealloc(mem);
-                    return 203i32;
+                    return 203001i32;
                 }
                 dealloc(snap);
                 dealloc(mem);
@@ -3499,7 +3500,7 @@ fn check_merge_split_roundtrip(seed: &mut u64) -> i32 {
                         Result::Err(_) => {
                             dealloc(mem);
                             dealloc(omem);
-                            return 210i32;
+                            return 210000i32;
                         }
                     };
                     let snap: *mut u8 = clone_block(&b);
@@ -3511,7 +3512,7 @@ fn check_merge_split_roundtrip(seed: &mut u64) -> i32 {
                             dealloc(snap);
                             dealloc(mem);
                             dealloc(omem);
-                            return 210i32;
+                            return 210001i32;
                         }
                     };
                     match b.split_to(&mut ob, k) {
@@ -3543,20 +3544,20 @@ fn check_merge_split_roundtrip(seed: &mut u64) -> i32 {
                             dealloc(snap);
                             dealloc(mem);
                             dealloc(omem);
-                            return 214i32;
+                            return 214000i32;
                         }
                     }
                     if !buf_matches_model(&b, &m) || b.check() != 0i32 {
                         dealloc(snap);
                         dealloc(mem);
                         dealloc(omem);
-                        return 214i32;
+                        return 214001i32;
                     }
                     if !live_bytes_identical(&b, snap, n) {
                         dealloc(snap);
                         dealloc(mem);
                         dealloc(omem);
-                        return 214i32;
+                        return 214002i32;
                     }
                     dealloc(snap);
                     k = k + 1u64;
@@ -3631,7 +3632,7 @@ fn check_incremental_reindex(seed: &mut u64) -> i32 {
                     m = model_update(&m, at, count, &vals);
                     // Parity is checked after EVERY step — the incremental
                     // path is never allowed to be "eventually" right.
-                    let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 221i32);
+                    let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 1080i32);
                     if rc != 0i32 {
                         dealloc(mem);
                         return rc;
@@ -3649,13 +3650,13 @@ fn check_incremental_reindex(seed: &mut u64) -> i32 {
                         let mg: PdtFind = model_find_sum(&m, c, v, false, 0u64);
                         if g.idx != mg.idx || g.prefix != mg.prefix {
                             dealloc(mem);
-                            return 224i32;
+                            return 224000i32;
                         }
                         v = v + 1u64 + total / 17u64;
                     }
                     if b.sum_all(c) != total {
                         dealloc(mem);
-                        return 224i32;
+                        return 224001i32;
                     }
                     c = c + 1u32;
                 }
@@ -3725,7 +3726,7 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
                 };
                 b.commit_insert(&us, &vals);
                 m = model_insert(&m, at, count, &vals);
-                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 230i32);
+                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 1090i32);
                 if rc != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -3749,7 +3750,7 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
                 };
                 b.commit_update(&us, &vals);
                 m = model_update(&m, at, count, &vals);
-                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 234i32);
+                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 1100i32);
                 if rc != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -3772,7 +3773,7 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
                 };
                 b.commit_remove(&us);
                 m = model_remove(&m, s, e);
-                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 238i32);
+                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 1110i32);
                 if rc != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -3789,7 +3790,7 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 229i32;
+                        return 229000i32;
                     }
                 };
                 let sp: PdtSplit = match b.prepare_split_to(&ob, k, policy) {
@@ -3797,19 +3798,19 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 229i32;
+                        return 229001i32;
                     }
                 };
                 b.commit_split_to(&mut ob, &sp);
                 let ml: Model = model_prefix_rows(&m, k);
                 let mr: Model = model_suffix_rows(&m, k);
-                let rl: i32 = assert_mutation(&b, &ml, sp.left.prepared_bytes, 230i32);
+                let rl: i32 = assert_mutation(&b, &ml, sp.left.prepared_bytes, 1120i32);
                 if rl != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
                     return rl;
                 }
-                let rr: i32 = assert_mutation(&ob, &mr, sp.right.prepared_bytes, 234i32);
+                let rr: i32 = assert_mutation(&ob, &mr, sp.right.prepared_bytes, 1130i32);
                 if rr != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -3820,11 +3821,11 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 229i32;
+                        return 229002i32;
                     }
                 };
                 b.commit_merge_with(&us2, &ob);
-                let rc2: i32 = assert_mutation(&b, &m, us2.prepared_bytes, 238i32);
+                let rc2: i32 = assert_mutation(&b, &m, us2.prepared_bytes, 1140i32);
                 if rc2 != 0i32 {
                     dealloc(mem);
                     dealloc(omem);
@@ -3843,7 +3844,7 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 229i32;
+                        return 229003i32;
                     }
                 };
                 let us: PdtUpdate = match b.prepare_merge_with(&ob, policy) {
@@ -3851,12 +3852,12 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
                     Result::Err(_) => {
                         dealloc(mem);
                         dealloc(omem);
-                        return 229i32;
+                        return 229004i32;
                     }
                 };
                 b.commit_merge_with(&us, &ob);
                 m = model_concat(&m, &om);
-                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 238i32);
+                let rc: i32 = assert_mutation(&b, &m, us.prepared_bytes, 1150i32);
                 if rc != 0i32 {
                     dealloc(mem);
                     dealloc(omem);

@@ -110,7 +110,7 @@ fn rand_runs(bps: u32, st: &mut u64, n: i64, rl_cap: u64) -> Vec<SsrleRun> {
 fn check_pkd_vs_vec_at(seq: &PkdSsrle, runs: &Vec<SsrleRun>, pos: u64, sym: u64) -> i32 {
     let bps: u32 = seq.bps();
     if seq.rank_eq(pos, sym) != ssrle_rank_eq(bps, runs, pos, sym) {
-        return 1i32;
+        return 1000i32;
     }
     return 0i32;
 }
@@ -119,7 +119,7 @@ fn check_select_vs_vec_at(seq: &PkdSsrle, runs: &Vec<SsrleRun>, rank: u64, sym: 
     let bps: u32 = seq.bps();
     let got: SsrleSelect = seq.select_fw_eq(rank, sym);
     if got.idx != ssrle_select_fw_eq(bps, runs, rank, sym) {
-        return 1i32;
+        return 1001i32;
     }
     return 0i32;
 }
@@ -178,10 +178,10 @@ fn check_fixture_body(seq: &PkdSsrle, bps: u32, runs: &Vec<SsrleRun>, nunits: u6
     // increment 5: indexes exist exactly when the stream crosses the
     // threshold, and always as a pair
     if seq.has_index() != seq.needs_index() {
-        return 17i32;
+        return 17000i32;
     }
     if seq.has_size_index() != seq.has_sum_index() {
-        return 17i32;
+        return 17001i32;
     }
     // the slot is sized round_up_8 over the stream — pad < 4 units
     if seq.symbols_block_capacity() >= 4u64 {
