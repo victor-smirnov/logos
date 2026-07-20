@@ -28,6 +28,7 @@
 // instead of throwing.
 package logos.mem.pkd;
 
+use logos.lang.mem;      // move_bytes — the ONE overlap-safe byte move (dedup 07-20)
 use logos.lang.marker;   // Fst (negative impl below) + SelfDescribing
 use logos.lang.result;   // Result/PkdError plumbing
 use logos.lang.slice;    // slice_from_raw (safe slot views)
@@ -53,23 +54,6 @@ pub enum SlotKind {
 pub fn round_up_bytes(v: u32) -> u32 { return (v + 7u32) & (0xFFFF_FFFFu32 - 7u32); }
 pub fn round_down_bytes(v: u32) -> u32 { return v & (0xFFFF_FFFFu32 - 7u32); }
 
-// Overlap-safe byte move (memmove): picks copy direction by pointer order.
-pub unsafe fn move_bytes(dst: *mut u8, src: *const u8, n: i64) {
-    if (dst as i64) == (src as i64) || n <= 0i64 { return; }
-    if (dst as i64) < (src as i64) {
-        let mut i: i64 = 0i64;
-        while i < n {
-            *dst.byte_add(i) = *src.byte_add(i);
-            i = i + 1i64;
-        }
-    } else {
-        let mut i: i64 = n - 1i64;
-        while i >= 0i64 {
-            *dst.byte_add(i) = *src.byte_add(i);
-            i = i - 1i64;
-        }
-    }
-}
 
 unsafe fn zero_bytes(dst: *mut u8, n: i64) {
     let mut i: i64 = 0i64;

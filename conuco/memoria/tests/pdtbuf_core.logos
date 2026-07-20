@@ -4037,6 +4037,40 @@ fn vm_cell(m: &VModel, r: u64, c: u32) -> u64 {
 /// Append one row, drawing its content from `seed`. Pushes straight into the
 /// model's own Vecs — there is no temporary row object, which is exactly the
 /// allocation the lost gate leaked once per operation.
+/// Deterministic corpus: every span exactly `len` ELEMENTS long. The shrink
+/// laws of check_vle_policy need rows whose payload is GUARANTEED material —
+/// a random corpus can draw short rows and the shrink then vanishes into the
+/// 8-byte alignment slack, failing the law against a correct module (found
+/// 07-20 when new sections shifted the shared seed chain).
+fn vm_fixed_rows(cols: u32, vle: u32, fse: bool, rows: u64, len: u64) -> VModel {
+    let mut m: VModel = vm_new(cols, vle, fse);
+    let mut r: u64 = 0u64;
+    while r < rows {
+        let mut c: u32 = 0u32;
+        while c < cols {
+            if fse {
+                m.cells.push(r * 31u64 + (c as u64));
+            }
+            let mut o: u32 = 0u32;
+            while o < vle {
+                let unit: u64 = vm_unit(o);
+                let n: u64 = len * unit;
+                m.lens.push(n);
+                let mut i: u64 = 0u64;
+                while i < n {
+                    m.bytes.push((65u64 + ((r + (c as u64) + i) % 26u64)) as u8);
+                    i = i + 1u64;
+                }
+                o = o + 1u32;
+            }
+            c = c + 1u32;
+        }
+        m.rows = m.rows + 1u64;
+        r = r + 1u64;
+    }
+    return m;
+}
+
 fn vm_gen_row(m: &mut VModel, maxlen: u64, seed: &mut u64) {
     let mut c: u32 = 0u32;
     while c < m.cols {
@@ -5077,9 +5111,13 @@ fn check_vle_roundtrip(cols: u32, shape: u32, rows: u64, seed: &mut u64) -> i32 
 // up" is satisfied by a policy axis that does nothing at all.
 fn check_vle_policy(cols: u32, shape: u32, seed: &mut u64) -> i32 {
     let d: PdtDescr = descr_vle_shape(cols, shape);
-    // Long rows, so that a replacement by SHORT ones is a real shrink.
-    let m0: VModel = vm_random(cols, shape_vle_dims(shape), shape_has_fse(shape),
-                               6u64, 12u64, seed);
+    // Long rows, so that a replacement by SHORT ones is a real shrink —
+    // DETERMINISTICALLY long (12 elements each), because this section's laws
+    // assert shrink DIRECTIONS, and a shrink smaller than the 8-byte
+    // alignment slack legitimately prices to zero.
+    let _ = seed;
+    let m0: VModel = vm_fixed_rows(cols, shape_vle_dims(shape),
+                                   shape_has_fse(shape), 6u64, 12u64);
     let blk: u32 = vle_block_for(&d, &m0, 16u64, 1024u64);
 
     unsafe {
@@ -5094,8 +5132,8 @@ fn check_vle_policy(cols: u32, shape: u32, seed: &mut u64) -> i32 {
             }
         };
         let before: u32 = b.consumed_bytes();
-        let small: VModel = vm_random(cols, shape_vle_dims(shape), shape_has_fse(shape),
-                                      2u64, 1u64, seed);
+        let small: VModel = vm_fixed_rows(cols, shape_vle_dims(shape),
+                                          shape_has_fse(shape), 2u64, 1u64);
         let vals: PdtVals = vm_to_vals(&small);
         let usk: PdtUpdate = match b.prepare_update_vals(0u64, 2u64, PDT_CAP_KEEP, &vals) {
             Result::Ok(u) => { u }
@@ -5192,8 +5230,11 @@ fn check_vle_policy(cols: u32, shape: u32, seed: &mut u64) -> i32 {
             }
         }
         let reserved: u32 = b3.consumed_bytes();
-        let big: VModel = vm_random(cols, shape_vle_dims(shape), shape_has_fse(shape),
-                                    2u64, 20u64, seed);
+        // 20 elements: longer than m0's 12 (a real growth) and inside the
+        // +256-byte reserve for every unit size, so "free" is a property of
+        // the POLICY and not of a lucky draw.
+        let big: VModel = vm_fixed_rows(cols, shape_vle_dims(shape),
+                                        shape_has_fse(shape), 2u64, 20u64);
         let vals3: PdtVals = vm_to_vals(&big);
         let usg: PdtUpdate = match b3.prepare_update_vals(0u64, 2u64, PDT_CAP_KEEP, &vals3) {
             Result::Ok(u) => { u }
@@ -6132,6 +6173,138 @@ fn check_op_family(cols: u32, rows: u64, dense: bool, seed: &mut u64) -> i32 {
     }
 }
 
+// ── P6a: batch staging + subdivision fill ───────────────────────────────────
+//
+// The holder stages a VModel row by row FROM CAPACITY 1 — so rebuild-and-swap
+// growth runs on every case — and the fill loop then carves the staged buffer
+// into deliberately small leaves. The MAXIMALITY law is what pins the
+// bisection: whenever fill_from stops short of the remaining rows, preparing
+// ONE more row against the same dst must fail. An under-filling
+// implementation dies there; an over-filling one dies on prepared==consumed
+// inside its own commit.
+
+fn p6_code(law: u32, cols: u32) -> i32 {
+    return 800000i32 + (law as i32) * 100i32 + (cols as i32);
+}
+
+fn p6_zero_payload(d: &PdtDescr) -> Vec<u64> {
+    let mut v: Vec<u64> = vec_new::<u64>();
+    let n: i64 = d.payload_len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.push(0u64);
+        i = i + 1i64;
+    }
+    return v;
+}
+
+fn check_fill_and_holder(cols: u32, shape: u32, rows: u64, maxlen: u64,
+                         seed: &mut u64) -> i32 {
+    let d: PdtDescr = descr_vle_shape(cols, shape);
+    let vm: VModel = vm_for_shape(cols, shape, rows, maxlen, seed);
+
+    // ── the holder: stage row by row from capacity 1 ──────────────────────
+    let none: Vec<u64> = p6_zero_payload(&d);
+    let mut h: PdtHolder = pdt_holder_create(&d, 1u64, &none);
+    let mut r: u64 = 0u64;
+    while r < rows {
+        let one: VModel = vm_slice(&vm, r, r + 1u64);
+        let vals: PdtVals = vm_to_vals(&one);
+        h.push_rows(1u64, &vals);
+        r = r + 1u64;
+    }
+    if h.buf.size() != rows {
+        return p6_code(1u32, cols);
+    }
+    if !vbuf_matches_vmodel(&h.buf, &vm, shape) {
+        return p6_code(2u32, cols);
+    }
+    if !vle_offsets_agree(&h.buf, &vm, shape) {
+        return p6_code(3u32, cols);
+    }
+    if h.buf.check() != 0i32 {
+        return p6_code(4u32, cols);
+    }
+
+    // ── subdivision fill into small leaves until exhausted ────────────────
+    // Leaves are priced for roughly a third of the staged content, so the
+    // walk takes several fills and the maximality law gets real k < remaining
+    // stops to bite on.
+    let mut lp: Vec<u64> = p6_zero_payload(&d);
+    let used: Vec<u64> = h.buf.payload_used_all();
+    let mut li: i64 = 0i64;
+    while li < lp.length() {
+        lp.set(li, used.get(li) / 3u64 + 8u64);
+        li = li + 1i64;
+    }
+    let third: u64 = rows / 3u64 + 1u64;
+    let bs: u32 = pdtbuf_compute_block_size(&d, third, &lp);
+    let mut consumed: u64 = 0u64;
+    let mut leaves: u64 = 0u64;
+    while consumed < rows {
+        unsafe {
+            let mem: *mut u8 = alloc(bs as i64);
+            let mut dst: PdtBuf = match pdtbuf_format(mem, bs, &d) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    return p6_code(5u32, cols);
+                }
+            };
+            let k: u64 = pdtbuf_fill_from(&mut dst, &h.buf, consumed,
+                                          PDT_CAP_KEEP);
+            if k == 0u64 {
+                dealloc(mem);
+                return p6_code(6u32, cols);
+            }
+            let want: VModel = vm_slice(&vm, consumed, consumed + k);
+            if !vbuf_matches_vmodel(&dst, &want, shape) {
+                dealloc(mem);
+                return p6_code(7u32, cols);
+            }
+            if !vle_offsets_agree(&dst, &want, shape) {
+                dealloc(mem);
+                return p6_code(8u32, cols);
+            }
+            if dst.check() != 0i32 {
+                dealloc(mem);
+                return p6_code(9u32, cols);
+            }
+            // MAXIMALITY: one more row must NOT fit. The delta is derived
+            // from the MODEL, not the module — the gate stays independent.
+            if consumed + k < rows {
+                let mut add1: Vec<u64> = vec_new::<u64>();
+                let nxt: u64 = consumed + k;
+                let mut ac: u32 = 0u32;
+                while ac < vm.cols {
+                    let mut ao: u32 = 0u32;
+                    while ao < vm.vle {
+                        add1.push(vm_len(&vm, nxt, ac, ao));
+                        ao = ao + 1u32;
+                    }
+                    ac = ac + 1u32;
+                }
+                let fits1: bool = match dst.prepare_insert_bytes(
+                        dst.size(), 1u64, PDT_CAP_KEEP, &add1) {
+                    Result::Ok(_u) => { true }
+                    Result::Err(_e) => { false }
+                };
+                if fits1 {
+                    dealloc(mem);
+                    return p6_code(10u32, cols);
+                }
+            }
+            consumed = consumed + k;
+            leaves = leaves + 1u64;
+            dealloc(mem);
+        }
+    }
+    if leaves < 2u64 {
+        return p6_code(11u32, cols);
+    }
+    return 0i32;
+}
+
 fn run_all() -> i32 {
     let rc1: i32 = check_sizing();
     if rc1 != 0i32 {
@@ -6237,6 +6410,11 @@ fn run_all() -> i32 {
     }
 
     // ── P5: the rank/select op family ─────────────────────────────────────
+    // OWN seed, deliberately: sections share `seed` as a chain, so inserting
+    // one shifts every draw downstream and can silently invalidate a later
+    // section's magnitude preconditions (it did, 07-20 — check_vle_policy's
+    // directional laws). A new section takes its own stream instead.
+    let mut seed5: u64 = 0xD1B54A32D192ED03u64;
     // Dense: every op × symbol × row-boundary rank, threshold-straddling
     // sizes, columns 1..4 (columns ARE the symbol alphabet here, so the
     // >=3-column canary is what makes LT/LE/GT/GE classes non-trivial).
@@ -6245,7 +6423,7 @@ fn run_all() -> i32 {
     while oc <= 4u32 {
         let mut oi: i64 = 0i64;
         while oi < 6i64 {
-            let r5: i32 = check_op_family(oc, op_sizes[oi], true, &mut seed);
+            let r5: i32 = check_op_family(oc, op_sizes[oi], true, &mut seed5);
             if r5 != 0i32 {
                 return r5;
             }
@@ -6255,13 +6433,33 @@ fn run_all() -> i32 {
     }
     // Deep: the descent must run at real index depth (2 and 3 levels),
     // sampled ranks.
-    let r5d1: i32 = check_op_family(2u32, 1025u64, false, &mut seed);
+    let r5d1: i32 = check_op_family(2u32, 1025u64, false, &mut seed5);
     if r5d1 != 0i32 {
         return r5d1;
     }
-    let r5d2: i32 = check_op_family(3u32, 32769u64, false, &mut seed);
+    let r5d2: i32 = check_op_family(3u32, 32769u64, false, &mut seed5);
     if r5d2 != 0i32 {
         return r5d2;
+    }
+
+    // ── P6a: batch staging + subdivision fill ─────────────────────────────
+    let mut seed6: u64 = 0x2545F4914F6CDD1Du64;
+    let mut bc: u32 = 1u32;
+    while bc <= 4u32 {
+        let mut bshape: u32 = 0u32;
+        while bshape <= 2u32 {
+            let b1: i32 = check_fill_and_holder(bc, bshape, 30u64, 7u64,
+                                                &mut seed6);
+            if b1 != 0i32 {
+                return b1;
+            }
+            bshape = bshape + 1u32;
+        }
+        bc = bc + 1u32;
+    }
+    let b2: i32 = check_fill_and_holder(2u32, 1u32, 200u64, 5u64, &mut seed6);
+    if b2 != 0i32 {
+        return b2;
     }
 
     // ── P3: the two-phase mutation surface ────────────────────────────────

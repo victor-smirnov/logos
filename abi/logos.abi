@@ -220,6 +220,7 @@ sym	logos.mem.pkd.pdtbuf.PdtBuf__type_id__g__ref_T
 sym	logos.mem.pkd.pdtbuf.PdtDescr__type_id__g__ref_T
 sym	logos.mem.pkd.pdtbuf.PdtDim__type_id__g__ref_T
 sym	logos.mem.pkd.pdtbuf.PdtFind__type_id__g__ref_T
+sym	logos.mem.pkd.pdtbuf.PdtHolder__type_id__g__ref_T
 sym	logos.mem.pkd.pdtbuf.PdtMeta__type_id__g__ref_T
 sym	logos.mem.pkd.pdtbuf.PdtSplit__type_id__g__ref_T
 sym	logos.mem.pkd.pdtbuf.PdtUpdate__type_id__g__ref_T
@@ -9358,6 +9359,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtDescr
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtDim
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtFind
+sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtHolder
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtMeta
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtSplit
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtUpdate
@@ -11056,6 +11058,7 @@ sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__payload_slot__f__ref_PdtBuf__u32__u3
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__payload_used__f__ref_PdtBuf__u32__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__payload_used_all__f__ref_PdtBuf
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_insert__f__ref_PdtBuf__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_insert_bytes__f__ref_PdtBuf__u64__u64__u32__ref_Vec$G1$u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_insert_vals__f__ref_PdtBuf__u64__u64__u32__ref_PdtVals
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_merge_with__f__ref_PdtBuf__ref_PdtBuf__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_remove__f__ref_PdtBuf__u64__u64__u32
@@ -11089,6 +11092,7 @@ sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__target_payload__f__ref_PdtBuf__ref_V
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__update_fits__f__ref_PdtBuf__ref_PdtUpdate
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__update_rows__f__refmut_PdtBuf__u64__u64__ref_Vec$G1$u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__update_rows_vals__f__refmut_PdtBuf__u64__u64__ref_PdtVals
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__vals_from_range__f__ref_PdtBuf__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__values__f__ref_PdtBuf__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__vle_dim_count__f__ref_PdtBuf
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtDescr__dim_block_offset__f__ref_PdtDescr__u32
@@ -11102,6 +11106,8 @@ sym	logos_mem..logos.mem.pkd.pdtbuf.PdtDescr__vle_dim_count__f__ref_PdtDescr
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtDescr__vle_ordinal__f__ref_PdtDescr__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtDim__clone__f__ref_PdtDim
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtFind__clone__f__ref_PdtFind
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtHolder__drop__f__PdtHolder
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtHolder__push_rows__f__refmut_PdtHolder__u64__ref_PdtVals
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtMeta__clone__f__ref_PdtMeta
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtSplit__clone__f__ref_PdtSplit
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtUpdate__clone__f__ref_PdtUpdate
@@ -11449,7 +11455,6 @@ sym	logos_mem.logos.mem.manually_drop$alignment_new__f__u64
 sym	logos_mem.logos.mem.manually_drop$alignment_new_unchecked__f__u64
 sym	logos_mem.logos.mem.pkd$fse_data_len_u64__f__pmut_PkdArray$G1$u64
 sym	logos_mem.logos.mem.pkd$fse_lower_bound_u64__f__ref_PkdArray$G1$u64__u64
-sym	logos_mem.logos.mem.pkd$move_bytes__f__pmut_u8__pcst_u8__i64
 sym	logos_mem.logos.mem.pkd$pkd_format__f__pmut_u8__u32__u32
 sym	logos_mem.logos.mem.pkd$round_down_bytes__f__u32
 sym	logos_mem.logos.mem.pkd$round_up_bytes__f__u32
@@ -11461,6 +11466,7 @@ sym	logos_mem.logos.mem.pkd.pdtbuf$pdt_dim_block_size__f__ref_PdtDim__u32__u64__
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdt_dim_fse__f__u32
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdt_dim_vle__f__u32
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdt_dim_width__f__ref_PdtDim
+sym	logos_mem.logos.mem.pkd.pdtbuf$pdt_holder_create__f__ref_PdtDescr__u64__ref_Vec$G1$u64
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdt_meta_bytes__f__u32
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdt_payload_zero__f__ref_PdtDescr
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdt_vals_fse__f__ref_Vec$G1$u64
@@ -11471,6 +11477,7 @@ sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_compute_block_size__f__ref_PdtDescr__u
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_compute_block_size_fse__f__ref_PdtDescr__u64
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_create__f__pmut_u8__u32__ref_PdtDescr__u64
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_empty_size__f__ref_PdtDescr
+sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_fill_from__f__refmut_PdtBuf__ref_PdtBuf__u64__u32
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_format__f__pmut_u8__u32__ref_PdtDescr
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_index_block_size__f__ref_PdtDescr__u64
 sym	logos_mem.logos.mem.pkd.pdtbuf$pdtbuf_span_count__f__u64
@@ -12315,6 +12322,7 @@ type	logos.mem.pkd.pdtbuf.PdtBuf	fields=[mem:*mut u8]
 type	logos.mem.pkd.pdtbuf.PdtDescr	fields=[dims:Vec<PdtDim>,columns:u32,ordering:u32,indexed:bool]
 type	logos.mem.pkd.pdtbuf.PdtDim	fields=[kind:u32,elem_size:u32]
 type	logos.mem.pkd.pdtbuf.PdtFind	fields=[idx:u64,prefix:u64]
+type	logos.mem.pkd.pdtbuf.PdtHolder	fields=[mem:*mut u8,block:u32,buf:PdtBuf]
 type	logos.mem.pkd.pdtbuf.PdtMeta	fields=[size:u32,capacity:u32,columns:u32,ordering:u32,dim_count:u32,dim_blocks_total:u32,flags:u32,pad:u32]
 type	logos.mem.pkd.pdtbuf.PdtSplit	fields=[left:PdtUpdate,right:PdtUpdate]
 type	logos.mem.pkd.pdtbuf.PdtUpdate	fields=[op:u32,policy:u32,at:u64,count:u64,old_size:u64,new_size:u64,old_capacity:u64,new_capacity:u64,before_bytes:u32,prepared_bytes:u32]

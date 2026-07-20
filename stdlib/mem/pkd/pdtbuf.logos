@@ -329,6 +329,7 @@
 //     six entry points, not as further walks.
 package logos.mem.pkd.pdtbuf;
 
+use logos.lang.mem;             // alloc / dealloc (PdtHolder owns its block)
 use logos.mem.pkd;              // PkdAlloc, pkd_format, SlotKind, PkdError, round_up_bytes
 use logos.lang.marker;          // Fst / StableLayout
 use logos.lang.slice;           // slice_from_raw (VLE row spans)
@@ -2679,8 +2680,21 @@ impl PdtBuf {
     pub fn prepare_insert_vals(self: &PdtBuf, at: u64, count: u64, policy: u32,
                                vals: &PdtVals)
         -> Result<PdtUpdate, PkdError> {
-        assert(at <= self.size(), "PdtBuf::prepare_insert: position past end");
         let add: Vec<u64> = self.vals_bytes_per_slot(count, vals);
+        return self.prepare_insert_bytes(at, count, policy, &add);
+    }
+
+    /// The pricing core of an insert, taking the per-slot payload byte
+    /// deltas DIRECTLY (P6a). This is what makes a subdivision probe O(#slots):
+    /// the caller reads `add` off the SOURCE buffer's offsets as a range
+    /// difference (payload_range_all), so probing "would k rows fit" needs no
+    /// value materialization at all — only the final commit does.
+    pub fn prepare_insert_bytes(self: &PdtBuf, at: u64, count: u64, policy: u32,
+                                add: &Vec<u64>)
+        -> Result<PdtUpdate, PkdError> {
+        assert(at <= self.size(), "PdtBuf::prepare_insert: position past end");
+        assert(add.length() == self.descr().payload_len(),
+               "PdtBuf::prepare_insert_bytes: payload delta length != columns * VLE dimensions");
         let mut used: Vec<u64> = self.payload_used_all();
         let mut k: i64 = 0i64;
         while k < used.length() {
@@ -2693,6 +2707,38 @@ impl PdtBuf {
             return Result::Err(PkdError::OutOfMem);
         }
         return Result::Ok(us);
+    }
+
+    /// Rows [from, from+count) of THIS buffer as a PdtVals carrier, in
+    /// exactly the order write_rows_vals consumes: row-major cells (dim 0
+    /// when FSE), then per-row (column, VLE-ordinal) spans. The single
+    /// materialization point of the batch path.
+    pub fn vals_from_range(self: &PdtBuf, from: u64, count: u64) -> PdtVals {
+        assert(from + count <= self.size(), "PdtBuf::vals_from_range: range past end");
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let d0: PdtDim = self.dim_at(0u32);
+        let mut v: PdtVals = pdt_vals_new();
+        let mut r: u64 = 0u64;
+        while r < count {
+            let mut c: u32 = 0u32;
+            while c < cols {
+                if d0.kind == PDT_DIM_FSE {
+                    v.cells.push(self.get(c, from + r));
+                }
+                let mut d: u32 = 0u32;
+                while d < dims {
+                    let dim: PdtDim = self.dim_at(d);
+                    if dim.kind == PDT_DIM_VLE {
+                        v.push_span(self.row_span(c, d, from + r));
+                    }
+                    d = d + 1u32;
+                }
+                c = c + 1u32;
+            }
+            r = r + 1u64;
+        }
+        return v;
     }
 
     /// The all-FSE face (P0..P3 signature, unchanged): no variable-length
@@ -3747,5 +3793,173 @@ impl PdtBuf {
             }
         }
         return 0i32;
+    }
+}
+
+
+// ── P6a: the batch staging + subdivision fill ───────────────────────────────
+//
+// C++ shape (btss_batch_input.hpp:422-474): an INCREMENTAL binary search that
+// COMMITS every successful probe, because its tryInsertBuffer's prepare is
+// entangled with buffer state. Our prepare is CONST by the P3 contract, so
+// the search needs no commits at all: bisect for the largest fitting k over
+// prepare alone, then commit ONCE. Fewer commits, and the result carries a
+// checkable MAXIMALITY law — if k < remaining, then k+1 must NOT fit — which
+// the incremental form cannot even state, because its partial commits change
+// the question halfway through.
+//
+// The 5%-free-space stop of the C++ leaf loop is deliberately NOT here: how
+// full is full enough is the CALLER's policy (the leaf-fill loop of P6b);
+// this primitive answers exactly one question — the largest fitting prefix.
+
+/// Move the largest fitting prefix of src's rows [from, size) into the tail
+/// of dst. Returns the number of rows consumed (0 when even one row does not
+/// fit). Fitting is monotone in k — more rows never price smaller — which is
+/// what makes bisection sound.
+pub fn pdtbuf_fill_from(dst: &mut PdtBuf, src: &PdtBuf, from: u64,
+                        policy: u32) -> u64 {
+    let remaining: u64 = src.size() - from;
+    if remaining == 0u64 {
+        return 0u64;
+    }
+    let mut lo: u64 = 0u64;
+    let mut hi: u64 = remaining;
+    while lo < hi {
+        let mid: u64 = lo + (hi - lo + 1u64) / 2u64;
+        let add: Vec<u64> = src.payload_range_all(from, from + mid);
+        let fits: bool = match dst.prepare_insert_bytes(dst.size(), mid, policy, &add) {
+            Result::Ok(_us) => { true }
+            Result::Err(_e) => { false }
+        };
+        if fits {
+            lo = mid;
+        } else {
+            hi = mid - 1u64;
+        }
+    }
+    if lo == 0u64 {
+        return 0u64;
+    }
+    let vals: PdtVals = src.vals_from_range(from, lo);
+    let add: Vec<u64> = src.payload_range_all(from, from + lo);
+    match dst.prepare_insert_bytes(dst.size(), lo, policy, &add) {
+        Result::Ok(us) => {
+            dst.commit_insert_vals(&us, &vals);
+        }
+        Result::Err(_e) => {
+            assert(false, "pdtbuf_fill_from: the bisected k no longer fits (prepare is not const?)");
+        }
+    }
+    return lo;
+}
+
+// ── PdtHolder: the heap-backed staging buffer ───────────────────────────────
+//
+// The PkdStructHolder analog (packed_struct_ptrs.hpp:148-202): a PdtBuf in a
+// malloc'd block OUTSIDE any tree node, in exactly the wire format a node
+// slot would hold. Batch input is staged here first — so the data is packed
+// once, up front — and then subdivision-filled into leaves. The holder OWNS
+// its block: growth is rebuild-and-swap (assignment drops the old holder,
+// whose Drop frees the old block), and dropping the holder frees everything.
+
+pub struct PdtHolder {
+    mem: *mut u8,
+    block: u32,
+    pub buf: PdtBuf,
+}
+
+impl Drop for PdtHolder {
+    fn drop(self: PdtHolder) {
+        unsafe {
+            dealloc(self.mem);
+        }
+    }
+}
+
+/// A fresh holder able to take `capacity` rows and `payload` bytes per slot
+/// before its first growth.
+pub fn pdt_holder_create(descr: &PdtDescr, capacity: u64,
+                         payload: &Vec<u64>) -> PdtHolder {
+    let bs: u32 = pdtbuf_compute_block_size(descr, capacity, payload);
+    unsafe {
+        let mem: *mut u8 = alloc(bs as i64);
+        // EMPTY buffer over a block priced for (capacity, payload) of
+        // HEADROOM — rows arrive through the same two-phase insert every
+        // consumer uses, never as pre-sized zero rows.
+        match pdtbuf_format(mem, bs, descr) {
+            Result::Ok(b) => {
+                return PdtHolder { mem: mem, block: bs, buf: b };
+            }
+            Result::Err(_e) => {
+                dealloc(mem);
+                assert(false, "PdtHolder: pdtbuf_format failed at its own priced size");
+                return pdt_holder_create(descr, capacity, payload);
+            }
+        }
+    }
+}
+
+impl PdtHolder {
+    /// Append `count` rows. The stage never says OutOfMem to its caller: when
+    /// the price does not fit, the holder REBUILDS itself bigger (rows and
+    /// payload both doubled against the exact need) and retries — a realloc,
+    /// not a failure. The prepared==consumed law holds inside each block
+    /// generation exactly as it does inside a node.
+    pub fn push_rows(self: &mut PdtHolder, count: u64, vals: &PdtVals) {
+        let add: Vec<u64> = self.buf.vals_bytes_per_slot(count, vals);
+        let fits: bool = match self.buf.prepare_insert_bytes(
+                self.buf.size(), count, PDT_CAP_KEEP, &add) {
+            Result::Ok(us) => {
+                self.buf.commit_insert_vals(&us, vals);
+                true
+            }
+            Result::Err(_e) => { false }
+        };
+        if fits {
+            return;
+        }
+        self.grow_for(count, &add);
+        match self.buf.prepare_insert_bytes(self.buf.size(), count,
+                                            PDT_CAP_KEEP, &add) {
+            Result::Ok(us) => {
+                self.buf.commit_insert_vals(&us, vals);
+            }
+            Result::Err(_e) => {
+                assert(false, "PdtHolder: still does not fit after growing for the exact need");
+            }
+        }
+    }
+
+    // Rebuild-and-swap: a new holder sized max(2x, exact need) in both rows
+    // and per-slot payload, the old rows transferred through the same
+    // vals_from_range -> commit path every consumer uses, then the swap —
+    // the ASSIGNMENT drops the old holder, and its Drop frees the old block.
+    fn grow_for(self: &mut PdtHolder, count: u64, add: &Vec<u64>) {
+        let size: u64 = self.buf.size();
+        let mut cap: u64 = self.buf.capacity() * 2u64;
+        if cap < size + count {
+            cap = size + count;
+        }
+        if cap < 1u64 {
+            cap = 1u64;
+        }
+        let used: Vec<u64> = self.buf.payload_used_all();
+        let mut target: Vec<u64> = vec_new::<u64>();
+        let mut i: i64 = 0i64;
+        while i < used.length() {
+            let need: u64 = used.get(i) + add.get(i);
+            let doubled: u64 = used.get(i) * 2u64;
+            target.push(if doubled > need { doubled } else { need });
+            i = i + 1i64;
+        }
+        let d: PdtDescr = self.buf.descr();
+        let mut nh: PdtHolder = pdt_holder_create(&d, cap, &target);
+        if size > 0u64 {
+            let moved: u64 = pdtbuf_fill_from(&mut nh.buf, &self.buf, 0u64,
+                                              PDT_CAP_KEEP);
+            assert(moved == size,
+                   "PdtHolder::grow_for: transfer did not move every row");
+        }
+        *self = nh;
     }
 }
