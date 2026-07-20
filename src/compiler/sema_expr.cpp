@@ -12646,6 +12646,29 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
             return error_expr();
         }
         n = r.value().i;
+    } else if (node.has_key(la::NAME)) {
+        // `[v; N]` — the grammar routes a bare identifier length to NAME (the
+        // sizeof...(P) form above is the OP+NAME case and has already
+        // returned). It is a module-level const of THIS package, evaluated
+        // through the same explicit-ctfe surface as the metacall form.
+        //
+        // Package-local on purpose, matching resolve_type's array-length rule:
+        // a global search would let one package's `const N` rebind another
+        // package's `<const N>`. Leaving it unresolved is not an option — it
+        // used to fall through to 0 and build a zero-length array.
+        auto sv = str_of(node.get(la::NAME.code));
+        auto vit = module_const_values_.find(sema_key(cur_package_, sv));
+        if (vit == module_const_values_.end()) {
+            error(std::format("array fill literal: length '{}' is not a "
+                              "module-level const of this package", sv));
+            return error_expr();
+        }
+        auto r = ctfe_eval_const(vit->second, holder_);
+        if (!r) {
+            error(std::format("array fill literal: length '{}': {}", sv, r.error().msg));
+            return error_expr();
+        }
+        n = r.value().i;
     } else {
         auto sv = str_of(node.get(la::SIZE.code));
         n = parse_int_literal(sv);

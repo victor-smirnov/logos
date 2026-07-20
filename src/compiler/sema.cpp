@@ -6698,24 +6698,64 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 }
                 return r;
             };
-            if (av.is_value()) {
-                auto sv = str_of(av);
-                // If sv starts with a digit, it's a literal size.
+            // One resolution path for both encodings of the SIZE token. An
+            // identifier here is either a module-level const (resolved now) or
+            // a const-generic parameter (bound by mono_subst). It must never
+            // be left at 0: a zero-length array field indexes out of bounds
+            // and compiles clean — silent loss, not a type error.
+            auto resolve_size = [&](std::string_view sv) {
                 if (!sv.empty() && std::isdigit(sv[0])) {
                     n = parse_array_size(sv);
-                } else {
-                    // Otherwise, it might be a symbolic constant parameter.
-                    symbolic = std::string(sv);
+                    return;
                 }
-            } else if (av.is_pointer()) {
-                // Safety fallback: if it's somehow a string object
-                auto sv = str_of(av);
-                if (!sv.empty() && std::isdigit(sv[0])) {
-                    n = parse_array_size(sv);
-                } else {
-                    symbolic = std::string(sv);
+                if (sv.empty()) {
+                    error("array length is empty");
+                    return;
                 }
-            }
+                // (1) A const-generic parameter of the enclosing item wins:
+                // it stays symbolic and mono_subst binds it. This MUST be
+                // checked first — otherwise a module-level const of the same
+                // name captures the parameter.
+                auto tpit = current_type_params_.find(std::string(sv));
+                if (tpit != current_type_params_.end()) {
+                    symbolic = std::string(sv);
+                    return;
+                }
+                // (2) A module-level `const` DECLARED IN THIS PACKAGE, through
+                // the same explicit-ctfe surface the metacall length form uses.
+                // This is what used to silently yield 0.
+                //
+                // Deliberately package-local, NOT resolve_const_value's
+                // current-package-then-unique-global search: a const-generic
+                // parameter is not reliably in current_type_params_ at every
+                // point a struct's fields are resolved, so a global search
+                // would let one package's `const N` silently rebind another
+                // package's `<const N>`. Package-local lookup cannot.
+                {
+                    auto k = sema_key(cur_package_, sv);
+                    auto vit = module_const_values_.find(k);
+                    if (vit != module_const_values_.end()) {
+                        auto r = ctfe_eval_const(vit->second, holder_);
+                        if (!r) {
+                            error(std::format("array length '{}': {}", sv, r.error().msg));
+                            return;
+                        }
+                        if (r.value().i <= 0) {
+                            error(std::format("array length '{}' must be positive, got {}",
+                                              sv, r.value().i));
+                            return;
+                        }
+                        n = static_cast<uint64_t>(r.value().i);
+                        return;
+                    }
+                }
+                // (3) Otherwise a const-generic parameter not currently in
+                // scope; bound by mono_subst. That it really does get bound is
+                // enforced at the one place an unresolved name is unambiguously
+                // wrong — code emission (mlir_gen_types.cpp, Kind::Array).
+                symbolic = std::string(sv);
+            };
+            if (av.is_value() || av.is_pointer()) resolve_size(str_of(av));
         }
         return make_array(elem, n, symbolic);
     }

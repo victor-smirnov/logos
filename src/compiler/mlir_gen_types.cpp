@@ -72,6 +72,19 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Ref:    return cache_ret(ptr_type());
     case LogosType::Kind::MutRef: return cache_ret(ptr_type());
     case LogosType::Kind::Array: {
+        // An array whose length is still a NAME has not been bound by
+        // mono_subst. Lowering it would emit `[0 x T]` — a zero-sized field
+        // that every index reads past, compiled without a word of complaint.
+        // Emission is the one place where this is unambiguously wrong (all
+        // substitution is behind us), so it is fatal HERE rather than silent
+        // everywhere.
+        if (!tv.arr_size_var().empty() && tv.arr_size() == 0) {
+            llvm::report_fatal_error(llvm::StringRef(std::string(
+                "array length '" + std::string(tv.arr_size_var()) +
+                "' was never bound to a value; it would lower to a zero-length "
+                "array. Expected a module-level const or a bound const-generic "
+                "parameter.")));
+        }
         TypeRef elem_tv = tv.elem();
         if (elem_tv && (elem_tv.kind() == LogosType::Kind::Struct ||
                         elem_tv.kind() == LogosType::Kind::ZonedStruct) &&

@@ -1,0 +1,75 @@
+// A named module-level `const` in an array-LENGTH position must resolve to its
+// value. It used to resolve to ZERO, in both the type position (`[u64; N]`) and
+// the fill literal (`[0u64; N]`), with no diagnostic at all: the struct field
+// became `[0 x i64]`, every index read past it, and the program compiled clean.
+// Silent loss, so this test asserts the EFFECT — that all N slots exist and
+// hold what was written — not merely that it builds.
+//
+// The lookup is deliberately PACKAGE-LOCAL. A global search would let one
+// package's `const N` rebind another package's `<const N>` type parameter,
+// which is a strictly worse bug than the one being fixed. A const-generic
+// parameter in scope always wins; a name that is neither is caught at code
+// emission, where it is unambiguously wrong.
+package main;
+
+const N: usize = 4usize;
+const WIDE: usize = 9usize;
+
+struct Counts { c: [u64; N] }
+
+struct Two {
+    a: [u64; N],
+    b: [u64; WIDE],
+}
+
+// The const-generic array-length path must keep working alongside the module
+// consts above. (Named K, not N: a module const currently shadows a same-named
+// const-generic parameter in EXPRESSION position — a separate, pre-existing
+// bug that this test deliberately does not entangle itself with.)
+fn sum_arr<const K: i64>(a: [u64; K]) -> u64 {
+    let mut s: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    while i < K {
+        s = s + a[i];
+        i = i + 1i64;
+    }
+    return s;
+}
+
+fn main() -> i32 {
+    // fill literal with a const length
+    let mut x: Counts = Counts { c: [0u64; N] };
+    let mut i: usize = 0usize;
+    while i < N {
+        x.c[i] = (i as u64) + 10u64;
+        i = i + 1usize;
+    }
+    // every slot must be addressable and hold what was written — a zero-length
+    // field would have silently discarded all of it
+    let mut got: u64 = 0u64;
+    let mut j: usize = 0usize;
+    while j < N {
+        got = got + x.c[j];
+        j = j + 1usize;
+    }
+    if got != 46u64 { return 1i32; }   // 10+11+12+13
+
+    // two different consts in one struct: neither collapses onto the other
+    let mut t: Two = Two { a: [1u64; N], b: [2u64; WIDE] };
+    t.a[3] = 7u64;
+    t.b[8] = 5u64;
+    let mut sa: u64 = 0u64;
+    let mut k: usize = 0usize;
+    while k < N { sa = sa + t.a[k]; k = k + 1usize; }
+    if sa != 10u64 { return 2i32; }    // 1+1+1+7
+
+    let mut sb: u64 = 0u64;
+    let mut m: usize = 0usize;
+    while m < WIDE { sb = sb + t.b[m]; m = m + 1usize; }
+    if sb != 21u64 { return 3i32; }    // 2*8 + 5
+
+    // the const-generic array-length path still works
+    if sum_arr::<3>([4u64; 3]) != 12u64 { return 4i32; }
+
+    return 0i32;
+}
