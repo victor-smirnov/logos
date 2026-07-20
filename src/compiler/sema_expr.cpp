@@ -4688,7 +4688,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         LogosTypeBuilder cv; cv.kind = LogosType::Kind::IntLit;
         cv.const_val = (int64_t)pack_len;
         TypeRef pack_size_t = pool_->alloc(std::move(cv));
-        subst[std::string("__sizeof_pack:") + fi.type_params.back().name] = pack_size_t;
+        subst[std::string(ARR_LEN_PACK_PFX) + fi.type_params.back().name] = pack_size_t;
         // Variadic-tuple impl dispatch (Phase 4 step 3): build the
         // "pack as concrete tuple" binding so `Tuple<[TypeVar(A)]>`
         // expands to `(T1, T2, ...)` via subst_type_sema's Tuple
@@ -6263,7 +6263,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         if (targs.size() == 1 && targs[0] &&
             targs[0].kind() == LogosType::Kind::TypeVar) {
             arr_b.arr_size_var =
-                std::string("__sizeof_pack:") + std::string(targs[0].type_var_name());
+                std::string(ARR_LEN_PACK_PFX) + std::string(targs[0].type_var_name());
         }
         TypeRef arr_placeholder = pool_->alloc(std::move(arr_b));
         return builder().call("__type_refs_of__",
@@ -12007,7 +12007,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
         ab.elem = under;
         ab.arr_size = 0;
-        ab.arr_size_var = std::string("__sizeof_pack:") + pack_name;
+        ab.arr_size_var = std::string(ARR_LEN_PACK_PFX) + pack_name;
         TypeRef arr_t = pool_->alloc(std::move(ab));
         return builder().arr_lit(std::move(elems), arr_t);
     }

@@ -4926,22 +4926,17 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     }
     case LogosType::Kind::Array: {
         auto elem = subst_type_sema(t.elem(), s, ls);
-        uint64_t size = t.arr_size();
-        std::string symbolic{t.arr_size_var()};
-        if (!symbolic.empty()) {
-            auto it = s.find(symbolic);
-            if (it != s.end()) {
-                TypeRef sub(it->second);
-                if (auto cv = sub.const_val()) {
-                    size = (uint64_t)*cv;
-                    symbolic = "";
-                } else if (sub.kind() == LogosType::Kind::ConstVar) {
-                    symbolic = std::string(sub.type_var_name());
-                }
-            }
-        }
-        if (elem == t.elem() && size == t.arr_size() && symbolic == t.arr_size_var()) return t;
-        return make_array(elem, size, symbolic);
+        // ONE implementation, shared with mono — see subst_arr_len.
+        auto r = subst_arr_len(
+            t.arr_size(), t.arr_size_var(),
+            [&](const std::string& n) -> TypeRef {
+                auto it = s.find(n);
+                return it != s.end() ? TypeRef(it->second) : TypeRef(nullptr);
+            },
+            [](const std::string&) { return std::pair<bool, uint64_t>{false, 0}; });
+        if (elem == t.elem() && r.size == t.arr_size() && r.symbolic == t.arr_size_var())
+            return t;
+        return make_array(elem, r.size, r.symbolic);
     }
     case LogosType::Kind::Ptr: {
         auto inner = subst_type_sema(t.pointee(), s, ls);
@@ -7184,7 +7179,12 @@ static bool match_type_sema(TypeRef c, TypeRef p,
     case LogosType::Kind::MutRef:
         return match_type_sema(c.pointee(), p.pointee(), bindings);
     case LogosType::Kind::Array:
+        // The length NAME is part of the identity, exactly as in types_equal.
+        // Comparing only arr_size() made every symbolic array match every
+        // other one (both report 0), so `[T; N]` and `[T; M]` were the same
+        // type here and different types there.
         return p.arr_size() == c.arr_size() &&
+               p.arr_size_var() == c.arr_size_var() &&
                match_type_sema(c.elem(), p.elem(), bindings);
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:

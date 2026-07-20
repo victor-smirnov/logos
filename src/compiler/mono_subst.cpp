@@ -32,38 +32,26 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     }
     if (tv.kind() == LogosType::Kind::Array) {
         auto elem = subst_type(tv.elem(), s);
-        uint64_t size = tv.arr_size();
-        std::string symbolic = std::string(tv.arr_size_var());
-        if (!symbolic.empty()) {
-            // [T; sizeof...(P)] sema lowers to arr_size_var "__sizeof_pack:P".
-            // At mono, `cur_packs_` holds the concrete expansion of P — emit
-            // its length as the literal size.
-            constexpr std::string_view PFX = "__sizeof_pack:";
-            if (symbolic.compare(0, PFX.size(), PFX) == 0) {
-                std::string pname = symbolic.substr(PFX.size());
+        // ONE implementation, shared with sema — see subst_arr_len. `cur_packs_`
+        // holds the concrete expansion of a variadic pack at mono; sema has no
+        // such table and passes a lookup that never finds one.
+        auto r = subst_arr_len(
+            tv.arr_size(), tv.arr_size_var(),
+            [&](const std::string& n) -> TypeRef {
+                auto it = s.find(n);
+                return it != s.end() ? TypeRef(it->second) : TypeRef(nullptr);
+            },
+            [&](const std::string& pname) -> std::pair<bool, uint64_t> {
                 auto pit = cur_packs_.find(pname);
-                if (pit != cur_packs_.end()) {
-                    size = (uint64_t)pit->second.size();
-                    symbolic = "";
-                }
-            } else {
-                auto it = s.find(symbolic);
-                if (it != s.end()) {
-                    TypeRef itv{it->second};
-                    if (itv.const_val()) {
-                        size = (uint64_t)*itv.const_val();
-                        symbolic = ""; // Resolved to literal
-                    } else if (itv.kind() == LogosType::Kind::ConstVar) {
-                        symbolic = std::string(itv.type_var_name()); // Still symbolic
-                    }
-                }
-            }
-        }
-        if (elem == tv.elem() && size == tv.arr_size() && symbolic == tv.arr_size_var()) return tv;
+                if (pit == cur_packs_.end()) return {false, 0};
+                return {true, static_cast<uint64_t>(pit->second.size())};
+            });
+        if (elem == tv.elem() && r.size == tv.arr_size() && r.symbolic == tv.arr_size_var())
+            return tv;
         LogosTypeBuilder nt = tv.to_builder();
         nt.elem = elem;
-        nt.arr_size = size;
-        nt.arr_size_var = symbolic;
+        nt.arr_size = r.size;
+        nt.arr_size_var = r.symbolic;
         return out_.type_pool.alloc(nt);
     }
     switch (tv.kind()) {

@@ -379,6 +379,42 @@ public:
     LogosTypeBuilder to_builder() const;
 };
 
+// Resolving a symbolic array length against a substitution was implemented
+// TWICE — once in sema (subst_type_sema) and once in mono (subst_type) — and
+// the two had drifted: mono decoded the pack prefix and consulted the pack
+// table, sema relied on the caller having inserted the PREFIXED name as a key
+// in the substitution map. Both "worked", by different rules. One
+// implementation, parameterized over the two lookups, is what keeps them from
+// drifting again.
+//
+//   lookup(name)     -> TypeRef  (null when the name is not bound)
+//   pack_size(name)  -> a pair<bool,uint64_t>: {found, arity}
+struct ArrLenSubst {
+    uint64_t    size;
+    std::string symbolic;   // empty ⇒ fully resolved
+};
+
+template <class Lookup, class PackSize>
+inline ArrLenSubst subst_arr_len(uint64_t size, std::string_view var,
+                                 Lookup&& lookup, PackSize&& pack_size) {
+    if (var.empty()) return {size, std::string()};
+    std::string sym(var);
+    if (sym.rfind(ARR_LEN_PACK_PFX, 0) == 0) {
+        std::string pname = sym.substr(ARR_LEN_PACK_PFX.size());
+        auto [found, arity] = pack_size(pname);
+        if (found) return {arity, std::string()};
+        // Fall through: the pack may instead be bound under the prefixed name
+        // in the substitution map, which is how the sema side spells it.
+    }
+    auto bound = lookup(sym);
+    if (bound) {
+        if (auto cv = bound.const_val()) return {static_cast<uint64_t>(*cv), std::string()};
+        if (bound.kind() == LogosType::Kind::ConstVar)
+            return {size, std::string(bound.type_var_name())};
+    }
+    return {size, sym};
+}
+
 // ── LogosTypeBuilder ──────────────────────────────────────────────────────
 //
 // Write-side companion to TypeRef. Builder code populates fields freely and

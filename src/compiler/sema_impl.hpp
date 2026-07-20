@@ -1577,6 +1577,19 @@ private:
         for (auto& lt : tr.lifetime_args()) {
             if (!lt.empty()) lt_names.insert(lt);
         }
+        // An array's LENGTH is a use of whatever names it. `fn f<const N: i64>(
+        // a: [T; N])` uses N — the walk did not look here, so N counted as
+        // unused and the lint fired on correct code (and, worse, would have
+        // stayed silent about a genuinely unused one for the wrong reason).
+        if (k == LogosType::Kind::Array) {
+            auto asv = tr.arr_size_var();
+            if (!asv.empty()) {
+                std::string nm(asv);
+                if (nm.rfind(ARR_LEN_PACK_PFX, 0) == 0)
+                    nm = nm.substr(ARR_LEN_PACK_PFX.size());
+                if (!nm.empty()) tv_names.insert(nm);
+            }
+        }
         for (auto a : tr.type_args())   collect_type_var_uses(a, tv_names, lt_names);
         for (auto e : tr.tuple_elems()) collect_type_var_uses(e, tv_names, lt_names);
         if (tr.elem())     collect_type_var_uses(tr.elem(), tv_names, lt_names);

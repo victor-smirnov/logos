@@ -110,7 +110,12 @@ uint64_t Mono::compute_type_hash(TypeRef t, StrSet& seen) noexcept {
         case K::Array: {
             h = th_mix_u64(h, TH_TAG_ARRAY);
             h = th_mix_u64(h, compute_type_hash(t.elem(), seen));
-            return th_mix_u64(h, t.arr_size());
+            h = th_mix_u64(h, t.arr_size());
+            // The length name too — sema's type UID mixes it, and a hash that
+            // does not collides every symbolic array onto every other one.
+            std::string asv(t.arr_size_var());
+            for (char ch : asv) h = th_mix_u64(h, static_cast<uint64_t>(ch));
+            return h;
         }
         case K::Tuple: {
             h = th_mix_u64(h, TH_TAG_TUPLE);
