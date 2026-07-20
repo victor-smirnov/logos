@@ -2723,6 +2723,7 @@ fn check_fixtures() -> i32 {
     let mut index_cases: i64 = 0i64;
     let mut dir_cases: i64 = 0i64;
     let mut mut_cases: i64 = 0i64;
+    let mut vle_cases: i64 = 0i64;
     let mut going: bool = true;
     while going {
         let marker: u64 = next_tok(s, &mut pos);
@@ -2752,6 +2753,12 @@ fn check_fixtures() -> i32 {
                 return rc4;
             }
             mut_cases = mut_cases + 1i64;
+        } else if marker == 5u64 {
+            let rc5: i32 = check_vle_fixture_case(s, &mut pos);
+            if rc5 != 0i32 {
+                return rc5;
+            }
+            vle_cases = vle_cases + 1i64;
         } else {
             return 102i32;   // desynchronized stream
         }
@@ -2769,6 +2776,10 @@ fn check_fixtures() -> i32 {
     }
     if mut_cases < 20i64 {
         return 105i32;
+    }
+    // P4: VLE_ROW_SET {0,1,2,5,9,17} x two maxlens x columns 1..4 = 48.
+    if vle_cases < 40i64 {
+        return 106i32;
     }
     return 0i32;
 }
@@ -5488,6 +5499,262 @@ fn vle_pay_flat(d: &PdtDescr, bytes: u64) -> Vec<u64> {
     return v;
 }
 
+// ── 1330: the C++ HEAD variable-length cross-check (marker 5) ──────────────
+//
+// SECONDARY, as always at this ladder. The marker-5 corpus is the final state
+// of a scripted insert / single-row-update / remove sequence that HEAD ran
+// against its OWN naive model and only emitted when the two agreed, so these
+// fixtures pin the variable-length paths where HEAD is right — which is
+// exactly the value of them: agreement there is evidence our structure holds
+// the same content, and the paths where HEAD is NOT right are pinned
+// separately at 1340 because a fixture of them cannot safely be produced.
+//
+// The corpus shape is HEAD's: PackedDataTypeBufferT<Varchar, false, C,
+// DTOrdering::UNORDERED>, i.e. our shape 0, one VLE dimension, no FSE key.
+// maxlen 0 cases make an ENTIRE corpus of empty spans.
+fn check_vle_fixture_case(s: str, pos: &mut i64) -> i32 {
+    let cols: u32 = next_tok(s, pos) as u32;
+    let rows: u64 = next_tok(s, pos);
+    if cols < 1u32 || cols > 4u32 {
+        return 1335i32;
+    }
+    let d: PdtDescr = descr_vle_shape(cols, 0u32);
+    let mut m: VModel = vm_new(cols, 1u32, false);
+    // ROW-MAJOR, the order the oracle emits: r outer, c inner. That is the
+    // order `lens` is indexed in, so the parse is a straight append.
+    let mut r: u64 = 0u64;
+    while r < rows {
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let n: u64 = next_tok(s, pos);
+            m.lens.push(n);
+            let mut i: u64 = 0u64;
+            while i < n {
+                m.bytes.push(next_tok(s, pos) as u8);
+                i = i + 1u64;
+            }
+            c = c + 1u32;
+        }
+        m.rows = m.rows + 1u64;
+        r = r + 1u64;
+    }
+    if m.rows != rows {
+        return 1336i32;
+    }
+
+    unsafe {
+        let blk: u32 = vle_block_for(&d, &m, 4u64, 128u64);
+        let mem: *mut u8 = alloc(blk as i64);
+        let b: PdtBuf = match build_vle(mem, blk, &d, &m) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 1337i32;
+            }
+        };
+        // The full law, against HEAD's content rather than a generated one.
+        let rc: i32 = assert_vle_mutation(&b, &m, 0u32, b.consumed_bytes(), 1330i32);
+        dealloc(mem);
+        if rc != 0i32 {
+            return rc;
+        }
+    }
+    return 0i32;
+}
+
+// ── 1340: upstream defect #28, pinned as a DIVERGENCE ──────────────────────
+//
+// HEAD's MULTI-ROW update over a variable-length dimension corrupts the block.
+// `do_commit_update_var_max` (so.hpp:1050-1084) corrects only the AGGREGATE
+// length of [at, at+count) — through `resize_block(at, count, Σ new lengths)`
+// — and then writes each row through `replace_row` (vle_tools.hpp:320-325),
+// which memcpy's `value.length()` bytes at `offsets[idx]` and NEVER assigns
+// `offsets[idx + 1]`. Every INTERIOR boundary of the updated range keeps its
+// OLD position. So each updated row but the first reads back truncated or
+// padded, and each write runs for its NEW length from a STALE start,
+// overrunning its neighbour — silent corruption that compounds into a SIGSEGV
+// in a longer run. Single-row updates ARE correct (`resize_block` does fix
+// `offsets[at+1]`), which is exactly what isolates the defect to this path.
+//
+// It is REACHABLE: `commit_update` on the only dispatcher arm a VARIABLE
+// datatype has (so.hpp:249; the SUM/VARIABLE arm is excluded by the
+// static_assert at :349, which is the same SUM => FIXED law we enforce at
+// 1300). This is upstream's most serious defect in the neighbourhood — the
+// other 29 catalogued ones are wrong answers or dead code; this one writes
+// past the end of a live buffer.
+//
+// WHY PROSE AND A LITERAL RATHER THAN A FIXTURE. Emitting HEAD's answer would
+// mean reading back a block HEAD has already corrupted, so the oracle
+// deliberately does not (see "WHY THERE IS NO MARKER 6" in
+// oracle/pdtbuf_dump.cpp). The divergence is pinned here instead, two ways:
+//
+//   (a) THE LAW, generally: after a multi-row update our block satisfies
+//       offs[at+i+1] - offs[at+i] == |v_i| for EVERY i in [0, count) — every
+//       boundary laid down sequentially from offs[at]. This is precisely the
+//       property HEAD violates, so it is the property worth stating, and it is
+//       asserted over a sweep rather than at one point.
+//   (b) THE RECORDED CASE, literally: the minimal corpus from the C++ note,
+//       with HEAD's verified wrong answer written out. We must produce the
+//       right one and must NOT produce HEAD's. Transcribing HEAD's shape into
+//       our commit — correct the aggregate, leave the interior alone — makes
+//       this section fail, which is what makes it a real probe rather than a
+//       restatement.
+fn vm_push_lit(m: &mut VModel, s: str) {
+    let n: i64 = s.len();
+    m.lens.push(n as u64);
+    let mut i: i64 = 0i64;
+    while i < n {
+        m.bytes.push(str_byte_at(s, i));
+        i = i + 1i64;
+    }
+    m.rows = m.rows + 1u64;
+}
+
+fn vle_row_is(b: &PdtBuf, dim: u32, r: u64, want: str) -> bool {
+    let sp: &[u8] = b.row_span(0u32, dim, r);
+    if sp.len() != want.len() {
+        return false;
+    }
+    let mut i: i64 = 0i64;
+    while i < sp.len() {
+        if sp[i] != str_byte_at(want, i) {
+            return false;
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn check_vle_defect28() -> i32 {
+    let d: PdtDescr = descr_vle_shape(1u32, 0u32);
+
+    // (b) the recorded minimal case
+    let mut m: VModel = vm_new(1u32, 1u32, false);
+    vm_push_lit(&mut m, "aaa");
+    vm_push_lit(&mut m, "bbbb");
+    vm_push_lit(&mut m, "ccccc");
+    vm_push_lit(&mut m, "dd");
+    vm_push_lit(&mut m, "e");
+
+    let mut repl: VModel = vm_new(1u32, 1u32, false);
+    vm_push_lit(&mut repl, "bbbb");
+    vm_push_lit(&mut repl, "aaa");
+
+    unsafe {
+        let blk: u32 = vle_block_for(&d, &m, 8u64, 256u64);
+        let mem: *mut u8 = alloc(blk as i64);
+        let mut b: PdtBuf = match build_vle(mem, blk, &d, &m) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 1345i32;
+            }
+        };
+        let vals: PdtVals = vm_to_vals(&repl);
+        match b.update_rows_vals(0u64, 2u64, &vals) {
+            Result::Ok(_) => {}
+            Result::Err(_) => {
+                dealloc(mem);
+                return 1346i32;
+            }
+        }
+        // the CORRECT answer, row by row
+        if !vle_row_is(&b, 0u32, 0u64, "bbbb") {
+            dealloc(mem);
+            return 1340i32;
+        }
+        if !vle_row_is(&b, 0u32, 1u64, "aaa") {
+            dealloc(mem);
+            return 1341i32;
+        }
+        if !vle_row_is(&b, 0u32, 2u64, "ccccc") {
+            dealloc(mem);
+            return 1342i32;
+        }
+        // and NOT HEAD's, which leaves the interior boundary at 3
+        if vle_row_is(&b, 0u32, 0u64, "bbb") || vle_row_is(&b, 0u32, 1u64, "aaab") {
+            dealloc(mem);
+            return 1343i32;
+        }
+        let mm: VModel = vm_update(&m, 0u64, &repl);
+        let rc: i32 = assert_vle_mutation(&b, &mm, 0u32, b.consumed_bytes(), 1340i32);
+        dealloc(mem);
+        if rc != 0i32 {
+            return rc;
+        }
+    }
+
+    // (a) the law, swept: every boundary of a multi-row update is laid down
+    // sequentially, over columns 1..4 and all three descriptor shapes, for
+    // counts >= 2 and for replacements that grow, shrink and stay level.
+    let mut seed: u64 = 0xD1B54A32D192ED03u64;
+    let mut c: u32 = 1u32;
+    while c <= 4u32 {
+        let mut shape: u32 = 0u32;
+        while shape <= 2u32 {
+            let ds: PdtDescr = descr_vle_shape(c, shape);
+            let vle: u32 = shape_vle_dims(shape);
+            let fse: bool = shape_has_fse(shape);
+            let base: VModel = vm_random(c, vle, fse, 7u64, 6u64, &mut seed);
+            let blk2: u32 = vle_block_for(&ds, &base, 8u64, 512u64);
+            let mut ml: u64 = 0u64;
+            while ml <= 12u64 {
+                let cnt: u64 = 2u64 + (ml % 3u64);
+                unsafe {
+                    let mem2: *mut u8 = alloc(blk2 as i64);
+                    let mut b2: PdtBuf = match build_vle(mem2, blk2, &ds, &base) {
+                        Result::Ok(q) => { q }
+                        Result::Err(_) => {
+                            dealloc(mem2);
+                            return 1345i32;
+                        }
+                    };
+                    let rp: VModel = vm_random(c, vle, fse, cnt, ml, &mut seed);
+                    let v2: PdtVals = vm_to_vals(&rp);
+                    match b2.update_rows_vals(1u64, cnt, &v2) {
+                        Result::Ok(_) => {}
+                        Result::Err(_) => {
+                            dealloc(mem2);
+                            return 1346i32;
+                        }
+                    }
+                    // EVERY boundary of the range, not just the aggregate.
+                    let mut cc: u32 = 0u32;
+                    while cc < c {
+                        let mut oo: u32 = 0u32;
+                        while oo < vle {
+                            let dim: u32 = shape_dim_of(shape, oo);
+                            let mut i: u64 = 0u64;
+                            while i < cnt {
+                                let got: u64 = b2.row_offset(cc, dim, 1u64 + i + 1u64)
+                                             - b2.row_offset(cc, dim, 1u64 + i);
+                                if got != vm_len(&rp, i, cc, oo) {
+                                    dealloc(mem2);
+                                    return 1344i32;
+                                }
+                                i = i + 1u64;
+                            }
+                            oo = oo + 1u32;
+                        }
+                        cc = cc + 1u32;
+                    }
+                    let mm2: VModel = vm_update(&base, 1u64, &rp);
+                    let rc2: i32 =
+                        assert_vle_mutation(&b2, &mm2, shape, b2.consumed_bytes(), 1340i32);
+                    dealloc(mem2);
+                    if rc2 != 0i32 {
+                        return rc2;
+                    }
+                }
+                ml = ml + 4u64;
+            }
+            shape = shape + 1u32;
+        }
+        c = c + 1u32;
+    }
+    return 0i32;
+}
+
 fn run_all() -> i32 {
     let rc1: i32 = check_sizing();
     if rc1 != 0i32 {
@@ -5708,6 +5975,10 @@ fn run_all() -> i32 {
     let p4i: i32 = check_vle_descr_laws();
     if p4i != 0i32 {
         return p4i;
+    }
+    let p4j: i32 = check_vle_defect28();
+    if p4j != 0i32 {
+        return p4j;
     }
 
     let rc4: i32 = check_fixtures();
