@@ -166,8 +166,10 @@ sym	logos.mem.bt.BtCursor__type_id__g__ref_T
 sym	logos.mem.bt.BtTree__type_id__g__ref_T
 sym	logos.mem.bt.FindShuttle__type_id__g__ref_T
 sym	logos.mem.bt.ShuttleRes__type_id__g__ref_T
+sym	logos.mem.bt.btfl.BtflCut__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflLoc__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflSeek__type_id__g__ref_T
+sym	logos.mem.bt.btfl.BtflStage__type_id__g__ref_T
 sym	logos.mem.bt.btfl.Btfl__type_id__g__ref_T
 sym	logos.mem.bt.memstore.DirEntry__type_id__g__ref_T
 sym	logos.mem.bt.memstore.Directory__type_id__g__ref_T
@@ -9268,8 +9270,10 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__BtArena
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtCursor
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtTree
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Btfl
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflCut
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflLoc
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflSeek
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflStage
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ByteSplitter
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Bytes
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Bytes$M23c60f9d48390b84
@@ -10216,6 +10220,9 @@ sym	logos_mem..logos.mem.bt.BtCursor__val__f__ref_BtCursor__ref_BtArena
 sym	logos_mem..logos.mem.bt.BtCursor__valid__f__ref_BtCursor
 sym	logos_mem..logos.mem.bt.FindShuttle__on_branch__f__pmut_FindShuttle__pmut_PkdAlloc
 sym	logos_mem..logos.mem.bt.FindShuttle__on_leaf__f__pmut_FindShuttle__pmut_PkdAlloc
+sym	logos_mem..logos.mem.bt.btfl.BtflStage__entries__f__ref_BtflStage
+sym	logos_mem..logos.mem.bt.btfl.BtflStage__push_entry__f__refmut_BtflStage__u64__ref_Vec$G1$u64
+sym	logos_mem..logos.mem.bt.btfl.BtflStage__size__f__ref_BtflStage
 sym	logos_mem..logos.mem.bt.memstore.Directory__at__f__ref_Directory__i64
 sym	logos_mem..logos.mem.bt.memstore.Directory__clone_dir__f__ref_Directory
 sym	logos_mem..logos.mem.bt.memstore.Directory__has__f__ref_Directory__u64
@@ -10223,6 +10230,7 @@ sym	logos_mem..logos.mem.bt.memstore.Directory__len__f__ref_Directory
 sym	logos_mem..logos.mem.bt.memstore.Directory__new__f__void
 sym	logos_mem..logos.mem.bt.memstore.Directory__root_of__f__ref_Directory__u64
 sym	logos_mem..logos.mem.bt.memstore.Directory__set_root__f__refmut_Directory__u64__pmut_u8__u32
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__branch_alloc__f__refmut_MemorySnapshot__u32__u32__u32
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__child_ref_of__f__ref_MemorySnapshot__pmut_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__cow_needed__f__ref_MemorySnapshot__pmut_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__dec_rc__f__refmut_MemorySnapshot__pmut_u8
@@ -11320,9 +11328,11 @@ sym	logos_mem.logos.mem.bt$bt_ride__f__ref_BtArena__u64__&dyn Shuttle__refmut_Ve
 sym	logos_mem.logos.mem.bt$bt_seek__f__ref_BtArena__ref_BtTree__u64
 sym	logos_mem.logos.mem.bt$bt_stage__f__void
 sym	logos_mem.logos.mem.bt.btfl$btfl_access__f__ref_Btfl__u64
+sym	logos_mem.logos.mem.bt.btfl$btfl_bulk_build__f__refmut_MemorySnapshot__ref_BtflStage__u32__u32
 sym	logos_mem.logos.mem.bt.btfl$btfl_check__f__ref_Btfl
 sym	logos_mem.logos.mem.bt.btfl$btfl_count__f__ref_Btfl__u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_create__f__refmut_MemorySnapshot__u32__u32
+sym	logos_mem.logos.mem.bt.btfl$btfl_cut__f__ref_BtflStage__u64__u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_drop__f__ref_Btfl
 sym	logos_mem.logos.mem.bt.btfl$btfl_find__f__ref_Btfl__u64__refmut_Vec$G1$u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_insert__f__refmut_MemorySnapshot__refmut_Btfl__u64__ref_Vec$G1$u64
@@ -11331,13 +11341,16 @@ sym	logos_mem.logos.mem.bt.btfl$btfl_leaf_key_count__f__pmut_u8
 sym	logos_mem.logos.mem.bt.btfl$btfl_leaf_key_sympos__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.btfl$btfl_seek__f__ref_Btfl__u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_select__f__ref_Btfl__u64__u64
+sym	logos_mem.logos.mem.bt.btfl$btfl_stage_new__f__void
 sym	logos_mem.logos.mem.bt.memstore$tree_release__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_alloc__f__u32__u32__u64
+sym	logos_mem.logos.mem.bt.node$node_child_slot__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_dec_rc__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_free__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_inc_rc__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_pkd__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_rc__f__pmut_u8
+sym	logos_mem.logos.mem.bt.node$node_set_child_slot__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_set_rc__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_set_snapshot__f__pmut_u8__u64
 sym	logos_mem.logos.mem.bt.node$node_snapshot__f__pmut_u8
@@ -12092,7 +12105,7 @@ sym	u8__store_set__g__pmut_PrimVec$G1$DT::Prim__u64__DT::Prim
 sym	u8__to_string__g__T
 sym	usize__to_string__g__T
 type	logos.lang.any.TypeId	fields=[lo:u64,hi:u64]
-type	logos.lang.array.ArrayIntoIter	fields=[buf:[T; 0],idx:i64]
+type	logos.lang.array.ArrayIntoIter	fields=[buf:[T; N],idx:i64]
 type	logos.lang.ascii.AsciiChar	fields=[byte:u8]
 type	logos.lang.atomic.AtomicBool	fields=[val:i32]
 type	logos.lang.atomic.AtomicI16	fields=[val:i32]
@@ -12126,7 +12139,7 @@ type	logos.lang.fabric.string_store.WritStringStorage	fields=[bytes:*mut u8,b_le
 type	logos.lang.hash.DefaultBuildHasher	fields=[]
 type	logos.lang.hash.FxHasher	fields=[s:u64]
 type	logos.lang.hash.SipHasher	fields=[v0:u64,v1:u64,v2:u64,v3:u64,length:u64]
-type	logos.lang.iter.ArrayChunksIter	fields=[inner:I,buf:[T; 0],_t:T]
+type	logos.lang.iter.ArrayChunksIter	fields=[inner:I,buf:[T; N],_t:T]
 type	logos.lang.iter.ByRefIter	fields=[p:*mut I,_t:T]
 type	logos.lang.iter.ChainIter	fields=[first:A,second:B,first_done:bool]
 type	logos.lang.iter.CopiedIter	fields=[inner:I,_t_marker:i32]
@@ -12143,7 +12156,7 @@ type	logos.lang.iter.FuseIter	fields=[inner:I,done:bool,_t:T]
 type	logos.lang.iter.InspectIter	fields=[inner:I,visit:fn(T) -> void,_t:T]
 type	logos.lang.iter.IntersperseIter	fields=[inner:I,sep:T,has_peeked:bool,peeked_val:T,emit_sep:bool]
 type	logos.lang.iter.MapIter	fields=[inner:I,f:F]
-type	logos.lang.iter.MapWindowsIter	fields=[inner:I,buf:[T; 0],f:F,primed:bool,_t:T,_r:R]
+type	logos.lang.iter.MapWindowsIter	fields=[inner:I,buf:[T; N],f:F,primed:bool,_t:T,_r:R]
 type	logos.lang.iter.OnceIter	fields=[consumed:bool,val:T]
 type	logos.lang.iter.OnceWithIter	fields=[f:F,fired:bool,_t:T]
 type	logos.lang.iter.OptionIter	fields=[state:Option]
@@ -12270,8 +12283,10 @@ type	logos.mem.bt.BtTree	fields=[root:u64]
 type	logos.mem.bt.FindShuttle	fields=[key:u64]
 type	logos.mem.bt.ShuttleRes	fields=[pos:u32,found:bool]
 type	logos.mem.bt.btfl.Btfl	fields=[root:*mut u8,level:u32,leaf_bytes:u32,branch_bytes:u32]
+type	logos.mem.bt.btfl.BtflCut	fields=[keys:u64,vals:u64,key_at:u64,val_at:u64]
 type	logos.mem.bt.btfl.BtflLoc	fields=[found:bool,leaf:*mut u8,idx:u64,pos:u64]
 type	logos.mem.bt.btfl.BtflSeek	fields=[found:bool,rank:u64,leaf:*mut u8,kidx:u32]
+type	logos.mem.bt.btfl.BtflStage	fields=[keys:Vec<u64>,vals:Vec<u64>,starts:Vec<u64>,total:u64]
 type	logos.mem.bt.memstore.DirEntry	fields=[ctr_id:u64,root:*mut u8,level:u32]
 type	logos.mem.bt.memstore.Directory	fields=[entries:Vec<DirEntry>]
 type	logos.mem.bt.memstore.MemorySnapshot	fields=[id:u64,dir:Directory]
