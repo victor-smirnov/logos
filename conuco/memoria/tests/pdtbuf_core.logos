@@ -4753,6 +4753,741 @@ fn check_vle_mut_ops(cols: u32, shape: u32, rows: u64, policy: u32, seed: &mut u
     return 0i32;
 }
 
+// ── 1280: byte identity over the ADDRESSABLE content ───────────────────────
+//
+// The round-trip laws — remove(insert(x)) == x and merge(split(x, k)) == x —
+// are asserted BYTE for byte, but over the bytes a row can actually address,
+// which is strictly less than the block:
+//
+//   FSE cells    rows [0, size)              size * elem_size bytes
+//   VLE payload  [0, offsets[size])          payload_used bytes
+//   VLE offsets  entries [0, size]           (size + 1) * PDT_OFFSET_BYTES
+//
+// EVERY block is priced through `round_up_bytes`, so each one ends in up to 7
+// bytes that no row, no offset and no cell can name. Those bytes are not
+// state: nothing writes them deliberately and nothing reads them, so requiring
+// them to match would assert something false about the design rather than
+// something true about the mutation. The same goes for the cells and offset
+// entries past `size` — a shrink lowers `size` without scrubbing what was
+// above it, exactly as PkdAlloc's shrink compacts payloads without zeroing the
+// tail it vacates (the honest weakening already recorded at P3).
+//
+// Under PDT_CAP_EXACT — the policy every round-trip law below runs at —
+// capacity equals size afterwards, so these extents coincide with the
+// capacity-based ones the payload pricing itself uses: FSE capacity*elem_size
+// and VLE (capacity+1)*PDT_OFFSET_BYTES. Capacity equality is asserted
+// separately, so the coincidence is checked rather than assumed.
+//
+// This is what catches a rebase error that model equivalence alone would miss:
+// an offsets table rebased to a different base, or a payload compacted to a
+// different origin, still answers every row query correctly while being a
+// different block.
+unsafe fn vle_content_identical(a: &PdtBuf, b: &PdtBuf) -> bool {
+    if a.size() != b.size() || a.capacity() != b.capacity() {
+        return false;
+    }
+    if a.columns() != b.columns() || a.dim_count() != b.dim_count() {
+        return false;
+    }
+    if a.consumed_bytes() != b.consumed_bytes() {
+        return false;
+    }
+    let n: u64 = a.size();
+    let cols: u32 = a.columns();
+    let dims: u32 = a.dim_count();
+    let mut c: u32 = 0u32;
+    while c < cols {
+        let mut j: u32 = 0u32;
+        while j < dims {
+            let d: PdtDim = a.dim_at(j);
+            let e: PdtDim = b.dim_at(j);
+            if d.kind != e.kind || d.elem_size != e.elem_size {
+                return false;
+            }
+            if d.kind == PDT_DIM_VLE {
+                // the offsets table, entry by entry over the live rows
+                let oa: *mut u32 = a.offsets(c, j);
+                let ob: *mut u32 = b.offsets(c, j);
+                let mut k: u64 = 0u64;
+                while k <= n {
+                    if *oa.add(k as u32) != *ob.add(k as u32) {
+                        return false;
+                    }
+                    k = k + 1u64;
+                }
+                // the payload, byte by byte over [0, offsets[size])
+                let used: u64 = a.payload_used(c, j);
+                if used != b.payload_used(c, j) {
+                    return false;
+                }
+                let pa: *mut u8 = a.payload(c, j);
+                let pb: *mut u8 = b.payload(c, j);
+                let mut i: i64 = 0i64;
+                while i < (used as i64) {
+                    if *pa.byte_add(i) != *pb.byte_add(i) {
+                        return false;
+                    }
+                    i = i + 1i64;
+                }
+            } else {
+                let sz: i64 = (n as i64) * (d.elem_size as i64);
+                if sz > 0i64 {
+                    let ca: *mut u8 = a.cell_ptr(c, j, 0u64);
+                    let cb: *mut u8 = b.cell_ptr(c, j, 0u64);
+                    let mut i2: i64 = 0i64;
+                    while i2 < sz {
+                        if *ca.byte_add(i2) != *cb.byte_add(i2) {
+                            return false;
+                        }
+                        i2 = i2 + 1i64;
+                    }
+                }
+            }
+            j = j + 1u32;
+        }
+        c = c + 1u32;
+    }
+    return true;
+}
+
+/// remove(insert(x)) == x and merge(split(x, k)) == x, byte for byte over the
+/// addressable content, for EVERY cut k.
+fn check_vle_roundtrip(cols: u32, shape: u32, rows: u64, seed: &mut u64) -> i32 {
+    let d: PdtDescr = descr_vle_shape(cols, shape);
+    let m0: VModel = vm_for_shape(cols, shape, rows, 7u64, seed);
+    let blk: u32 = vle_block_for(&d, &m0, rows + 8u64, 768u64);
+
+    unsafe {
+        // ── insert then remove the very rows inserted ─────────────────────
+        let mut at: u64 = 0u64;
+        while at <= rows {
+            let mem: *mut u8 = alloc(blk as i64);
+            let refmem: *mut u8 = alloc(blk as i64);
+            let mut b: PdtBuf = match build_vle(mem, blk, &d, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(refmem);
+                    return 1285i32;
+                }
+            };
+            let rb: PdtBuf = match build_vle(refmem, blk, &d, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(refmem);
+                    return 1286i32;
+                }
+            };
+            let ins: VModel = vm_for_shape(cols, shape, 3u64, 9u64, seed);
+            let vals: PdtVals = vm_to_vals(&ins);
+            match b.insert_rows_vals(at, ins.rows, &vals) {
+                Result::Ok(_) => {}
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(refmem);
+                    return 1287i32;
+                }
+            }
+            match b.remove_rows(at, at + ins.rows) {
+                Result::Ok(_) => {}
+                Result::Err(_) => {
+                    dealloc(mem);
+                    dealloc(refmem);
+                    return 1288i32;
+                }
+            }
+            let same: bool = vle_content_identical(&b, &rb);
+            let rc: i32 = assert_vle_mutation(&b, &m0, shape, b.consumed_bytes(), 1280i32);
+            dealloc(mem);
+            dealloc(refmem);
+            if rc != 0i32 {
+                return rc;
+            }
+            if !same {
+                return 1289i32;
+            }
+            at = at + 1u64;
+            if rows > 3u64 && at > 1u64 && at < rows {
+                at = rows;
+            }
+        }
+
+        // ── split at every cut, then merge back ───────────────────────────
+        let mut k: u64 = 0u64;
+        while k <= rows {
+            let mem2: *mut u8 = alloc(blk as i64);
+            let omem2: *mut u8 = alloc(blk as i64);
+            let refm2: *mut u8 = alloc(blk as i64);
+            let mut b2: PdtBuf = match build_vle(mem2, blk, &d, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem2);
+                    dealloc(omem2);
+                    dealloc(refm2);
+                    return 1285i32;
+                }
+            };
+            let empty: VModel = vm_new(cols, shape_vle_dims(shape), shape_has_fse(shape));
+            let mut o2: PdtBuf = match build_vle(omem2, blk, &d, &empty) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem2);
+                    dealloc(omem2);
+                    dealloc(refm2);
+                    return 1286i32;
+                }
+            };
+            let rb2: PdtBuf = match build_vle(refm2, blk, &d, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem2);
+                    dealloc(omem2);
+                    dealloc(refm2);
+                    return 1287i32;
+                }
+            };
+            match b2.split_to(&mut o2, k) {
+                Result::Ok(_) => {}
+                Result::Err(_) => {
+                    dealloc(mem2);
+                    dealloc(omem2);
+                    dealloc(refm2);
+                    return 1288i32;
+                }
+            }
+            match b2.merge_from(&o2) {
+                Result::Ok(_) => {}
+                Result::Err(_) => {
+                    dealloc(mem2);
+                    dealloc(omem2);
+                    dealloc(refm2);
+                    return 1288i32;
+                }
+            }
+            let same2: bool = vle_content_identical(&b2, &rb2);
+            let rc2: i32 = assert_vle_mutation(&b2, &m0, shape, b2.consumed_bytes(), 1280i32);
+            dealloc(mem2);
+            dealloc(omem2);
+            dealloc(refm2);
+            if rc2 != 0i32 {
+                return rc2;
+            }
+            if !same2 {
+                return 1289i32;
+            }
+            k = k + 1u64;
+            if rows > 3u64 && k > 1u64 && k < rows {
+                k = rows;
+            }
+        }
+    }
+    return 0i32;
+}
+
+// ── 1290: the capacity policy, extended to the PAYLOAD coherently ──────────
+//
+// P3 made the row capacity an explicit axis (PDT_CAP_EXACT trims, PDT_CAP_KEEP
+// honours a reservation). P4 has to answer the same question for the payload,
+// and the answer has to be the SAME reading or the axis has two meanings:
+//
+//   KEEP   a replacement that fits inside the payload the block already holds
+//          costs NOTHING — grow_bytes == 0 and the priced total is unchanged.
+//          This is what makes a fill loop that reserved once pay per-row zero.
+//   EXACT  the payload follows the rows in BOTH directions: a shrinking
+//          update hands bytes back to the node, it does not keep them.
+//
+// The classification is asserted, not just the arithmetic — "the numbers add
+// up" is satisfied by a policy axis that does nothing at all.
+fn check_vle_policy(cols: u32, shape: u32, seed: &mut u64) -> i32 {
+    let d: PdtDescr = descr_vle_shape(cols, shape);
+    // Long rows, so that a replacement by SHORT ones is a real shrink.
+    let m0: VModel = vm_random(cols, shape_vle_dims(shape), shape_has_fse(shape),
+                               6u64, 12u64, seed);
+    let blk: u32 = vle_block_for(&d, &m0, 16u64, 1024u64);
+
+    unsafe {
+        // KEEP: shrink the content, and the priced total must NOT move — the
+        // block keeps the payload capacity it already had.
+        let mem: *mut u8 = alloc(blk as i64);
+        let mut b: PdtBuf = match build_vle(mem, blk, &d, &m0) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 1295i32;
+            }
+        };
+        let before: u32 = b.consumed_bytes();
+        let small: VModel = vm_random(cols, shape_vle_dims(shape), shape_has_fse(shape),
+                                      2u64, 1u64, seed);
+        let vals: PdtVals = vm_to_vals(&small);
+        let usk: PdtUpdate = match b.prepare_update_vals(0u64, 2u64, PDT_CAP_KEEP, &vals) {
+            Result::Ok(u) => { u }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 1296i32;
+            }
+        };
+        if usk.prepared_bytes != before {
+            dealloc(mem);
+            return 1290i32;
+        }
+        if usk.grow_bytes() != 0u32 {
+            dealloc(mem);
+            return 1291i32;
+        }
+        if !usk.is_free() {
+            dealloc(mem);
+            return 1292i32;
+        }
+        b.commit_update_vals(&usk, &vals);
+        let mk: VModel = vm_update(&m0, 0u64, &small);
+        let rck: i32 = assert_vle_mutation(&b, &mk, shape, usk.prepared_bytes, 1290i32);
+        dealloc(mem);
+        if rck != 0i32 {
+            return rck;
+        }
+
+        // EXACT: the same shrink must hand bytes BACK.
+        let mem2: *mut u8 = alloc(blk as i64);
+        let mut b2: PdtBuf = match build_vle(mem2, blk, &d, &m0) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem2);
+                return 1295i32;
+            }
+        };
+        let vals2: PdtVals = vm_to_vals(&small);
+        let use2: PdtUpdate = match b2.prepare_update_vals(0u64, 2u64, PDT_CAP_EXACT, &vals2) {
+            Result::Ok(u) => { u }
+            Result::Err(_) => {
+                dealloc(mem2);
+                return 1296i32;
+            }
+        };
+        if use2.shrink_bytes() == 0u32 {
+            dealloc(mem2);
+            return 1293i32;
+        }
+        if use2.prepared_bytes >= use2.before_bytes {
+            dealloc(mem2);
+            return 1294i32;
+        }
+        b2.commit_update_vals(&use2, &vals2);
+        let mk2: VModel = vm_update(&m0, 0u64, &small);
+        let rce: i32 = assert_vle_mutation(&b2, &mk2, shape, use2.prepared_bytes, 1290i32);
+        dealloc(mem2);
+        if rce != 0i32 {
+            return rce;
+        }
+
+        // KEEP again, GROWING inside the reserved payload: still free. This is
+        // the case GAP (b) named for rows, now answered for bytes.
+        let mem3: *mut u8 = alloc(blk as i64);
+        let mut b3: PdtBuf = match build_vle(mem3, blk, &d, &m0) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem3);
+                return 1295i32;
+            }
+        };
+        // Reserve generous payload headroom explicitly, then grow into it.
+        let mut want: Vec<u64> = vec_new::<u64>();
+        let mut z: i64 = 0i64;
+        while z < d.payload_len() {
+            want.push(0u64);
+            z = z + 1i64;
+        }
+        let mut cc: u32 = 0u32;
+        while cc < cols {
+            let mut oo: u32 = 0u32;
+            while oo < shape_vle_dims(shape) {
+                let kk: i64 = (cc as i64) * (shape_vle_dims(shape) as i64) + (oo as i64);
+                want.set(kk, vm_payload_used(&m0, cc, oo) + 256u64);
+                oo = oo + 1u32;
+            }
+            cc = cc + 1u32;
+        }
+        match b3.reserve_geom(m0.rows + 8u64, &want) {
+            Result::Ok(_) => {}
+            Result::Err(_) => {
+                dealloc(mem3);
+                return 1297i32;
+            }
+        }
+        let reserved: u32 = b3.consumed_bytes();
+        let big: VModel = vm_random(cols, shape_vle_dims(shape), shape_has_fse(shape),
+                                    2u64, 20u64, seed);
+        let vals3: PdtVals = vm_to_vals(&big);
+        let usg: PdtUpdate = match b3.prepare_update_vals(0u64, 2u64, PDT_CAP_KEEP, &vals3) {
+            Result::Ok(u) => { u }
+            Result::Err(_) => {
+                dealloc(mem3);
+                return 1296i32;
+            }
+        };
+        if usg.prepared_bytes != reserved {
+            dealloc(mem3);
+            return 1298i32;
+        }
+        if usg.grow_bytes() != 0u32 {
+            dealloc(mem3);
+            return 1299i32;
+        }
+        b3.commit_update_vals(&usg, &vals3);
+        let mg: VModel = vm_update(&m0, 0u64, &big);
+        let rcg: i32 = assert_vle_mutation(&b3, &mg, shape, usg.prepared_bytes, 1290i32);
+        dealloc(mem3);
+        if rcg != 0i32 {
+            return rcg;
+        }
+    }
+    return 0i32;
+}
+
+// ── 1300: SUM => FIXED, as a runtime law with a clean diagnostic ───────────
+//
+// The C++ spells this as a static_assert (so.hpp:349) — a variable-length
+// dimension has no accumulation, so a SUM-ordered VLE buffer is not a thing
+// that can be asked for. Carried as a RUNTIME descriptor, the constraint has
+// to become a runtime law, and a law needs a diagnostic rather than a
+// mis-sized block: `pdt_descr_check` names it, `pdt_assert_descr` refuses at
+// the FIRST use of the descriptor rather than at whichever query later trips
+// over it. The sibling law is the same shape: an ORDERED buffer searches on
+// dimension 0, so dimension 0 must be FSE.
+//
+// Asserted through the checking face, not the asserting one — the assert is a
+// process abort by design, which a gate cannot catch and should not want to.
+fn check_vle_descr_laws() -> i32 {
+    let mut c: u32 = 1u32;
+    while c <= 4u32 {
+        // SUM + VLE anywhere in the dimension list is rejected.
+        let mut d1: PdtDescr = pdt_descr_new(c, PDT_ORD_SUM, false);
+        d1.dims.push(pdt_dim_fse(8u32));
+        d1.dims.push(pdt_dim_vle(1u32));
+        if pdt_descr_check(&d1) != 3i32 {
+            return 1300i32;
+        }
+        // ... including when the VLE dimension is the only one.
+        let mut d2: PdtDescr = pdt_descr_new(c, PDT_ORD_SUM, false);
+        d2.dims.push(pdt_dim_vle(1u32));
+        if pdt_descr_check(&d2) != 3i32 {
+            return 1301i32;
+        }
+        // MAX with a VLE dimension 0 is rejected for the OTHER reason: the
+        // search key is dimension 0.
+        let mut d3: PdtDescr = pdt_descr_new(c, PDT_ORD_MAX, false);
+        d3.dims.push(pdt_dim_vle(1u32));
+        if pdt_descr_check(&d3) != 4i32 {
+            return 1302i32;
+        }
+        // The shapes this rung actually runs are all accepted.
+        let mut s: u32 = 0u32;
+        while s <= 2u32 {
+            let ds: PdtDescr = descr_vle_shape(c, s);
+            if pdt_descr_check(&ds) != 0i32 {
+                return 1303i32;
+            }
+            // and none of them can carry an index, whatever `indexed` says.
+            if ds.has_index() {
+                return 1304i32;
+            }
+            s = s + 1u32;
+        }
+        // Even asking for it explicitly: `indexed` is the arithmetic half, the
+        // ordering half is a law. A VLE descriptor flagged indexed still
+        // reports no index, and is still rejected under SUM.
+        let mut d4: PdtDescr = pdt_descr_new(c, PDT_ORD_MAX, true);
+        d4.dims.push(pdt_dim_fse(8u32));
+        d4.dims.push(pdt_dim_vle(1u32));
+        if pdt_descr_check(&d4) != 0i32 {
+            return 1305i32;
+        }
+        if d4.has_index() {
+            return 1306i32;
+        }
+        c = c + 1u32;
+    }
+    return 0i32;
+}
+
+// ── 1310: the corners ──────────────────────────────────────────────────────
+//
+// Empty spans (length 0), size 0, capacity 0, and a corpus deliberately mixing
+// empty and non-empty rows. A zero-length row is not a degenerate case to be
+// tolerated: it is the case where offs[r] == offs[r+1], which is exactly the
+// state a monotonicity check written with `<` instead of `<=` would reject and
+// a rebase written with an off-by-one would corrupt.
+fn check_vle_corners(cols: u32, shape: u32, seed: &mut u64) -> i32 {
+    let d: PdtDescr = descr_vle_shape(cols, shape);
+    let vle: u32 = shape_vle_dims(shape);
+    let fse: bool = shape_has_fse(shape);
+
+    unsafe {
+        // ── size 0 / capacity 0: a formatted block with no rows at all ────
+        let empty: VModel = vm_new(cols, vle, fse);
+        let blk0: u32 = vle_block_for(&d, &empty, 0u64, 0u64);
+        let mem0: *mut u8 = alloc(blk0 as i64);
+        let b0: PdtBuf = match build_vle(mem0, blk0, &d, &empty) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem0);
+                return 1315i32;
+            }
+        };
+        if b0.size() != 0u64 || b0.capacity() != 0u64 {
+            dealloc(mem0);
+            return 1310i32;
+        }
+        let mut c0: u32 = 0u32;
+        while c0 < cols {
+            let mut o0: u32 = 0u32;
+            while o0 < vle {
+                let dim: u32 = shape_dim_of(shape, o0);
+                // offsets[0] exists and is 0 even with no rows — the
+                // terminator is always addressable.
+                if b0.row_offset(c0, dim, 0u64) != 0u64 {
+                    dealloc(mem0);
+                    return 1311i32;
+                }
+                if b0.payload_used(c0, dim) != 0u64 {
+                    dealloc(mem0);
+                    return 1312i32;
+                }
+                o0 = o0 + 1u32;
+            }
+            c0 = c0 + 1u32;
+        }
+        let rc0: i32 = assert_vle_mutation(&b0, &empty, shape, b0.consumed_bytes(), 1310i32);
+        dealloc(mem0);
+        if rc0 != 0i32 {
+            return rc0;
+        }
+
+        // ── all rows EMPTY: every span length 0 ───────────────────────────
+        let zero: VModel = vm_random(cols, vle, fse, 5u64, 0u64, seed);
+        let blkz: u32 = vle_block_for(&d, &zero, 4u64, 64u64);
+        let memz: *mut u8 = alloc(blkz as i64);
+        let mut bz: PdtBuf = match build_vle(memz, blkz, &d, &zero) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(memz);
+                return 1315i32;
+            }
+        };
+        let rcz: i32 = assert_vle_mutation(&bz, &zero, shape, bz.consumed_bytes(), 1310i32);
+        if rcz != 0i32 {
+            dealloc(memz);
+            return rcz;
+        }
+        // every span reads back empty, and every offset is 0
+        let mut cz: u32 = 0u32;
+        while cz < cols {
+            let mut oz: u32 = 0u32;
+            while oz < vle {
+                let dimz: u32 = shape_dim_of(shape, oz);
+                let mut rz: u64 = 0u64;
+                while rz < zero.rows {
+                    if bz.row_span(cz, dimz, rz).len() != 0i64 {
+                        dealloc(memz);
+                        return 1313i32;
+                    }
+                    if bz.row_offset(cz, dimz, rz) != 0u64 {
+                        dealloc(memz);
+                        return 1314i32;
+                    }
+                    rz = rz + 1u64;
+                }
+                oz = oz + 1u32;
+            }
+            cz = cz + 1u32;
+        }
+        // growing an all-empty buffer, then emptying it again
+        let grow: VModel = vm_random(cols, vle, fse, 2u64, 6u64, seed);
+        let gv: PdtVals = vm_to_vals(&grow);
+        match bz.insert_rows_vals(2u64, grow.rows, &gv) {
+            Result::Ok(_) => {}
+            Result::Err(_) => {
+                dealloc(memz);
+                return 1316i32;
+            }
+        }
+        let mz2: VModel = vm_insert(&zero, 2u64, &grow);
+        let rcz2: i32 = assert_vle_mutation(&bz, &mz2, shape, bz.consumed_bytes(), 1310i32);
+        if rcz2 != 0i32 {
+            dealloc(memz);
+            return rcz2;
+        }
+        // replace them with empty spans again: a shrink to exactly zero
+        let back: VModel = vm_random(cols, vle, fse, 2u64, 0u64, seed);
+        let bv: PdtVals = vm_to_vals(&back);
+        match bz.update_rows_vals(2u64, back.rows, &bv) {
+            Result::Ok(_) => {}
+            Result::Err(_) => {
+                dealloc(memz);
+                return 1317i32;
+            }
+        }
+        let mz3: VModel = vm_update(&mz2, 2u64, &back);
+        let rcz3: i32 = assert_vle_mutation(&bz, &mz3, shape, bz.consumed_bytes(), 1310i32);
+        dealloc(memz);
+        if rcz3 != 0i32 {
+            return rcz3;
+        }
+
+        // ── MIXED empty and non-empty, with the empties at the ends ───────
+        // Built by hand rather than by seed so the shape is guaranteed: the
+        // first and last rows are empty, the middle ones are not.
+        let mut mix: VModel = vm_new(cols, vle, fse);
+        vm_gen_row(&mut mix, 0u64, seed);
+        vm_gen_row(&mut mix, 9u64, seed);
+        vm_gen_row(&mut mix, 0u64, seed);
+        vm_gen_row(&mut mix, 9u64, seed);
+        vm_gen_row(&mut mix, 0u64, seed);
+        let blkm: u32 = vle_block_for(&d, &mix, 6u64, 256u64);
+        let memm: *mut u8 = alloc(blkm as i64);
+        let mut bm: PdtBuf = match build_vle(memm, blkm, &d, &mix) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(memm);
+                return 1315i32;
+            }
+        };
+        let rcm: i32 = assert_vle_mutation(&bm, &mix, shape, bm.consumed_bytes(), 1310i32);
+        if rcm != 0i32 {
+            dealloc(memm);
+            return rcm;
+        }
+        // removing an EMPTY row must move no payload byte and cost no payload
+        let usm: PdtUpdate = match bm.prepare_remove(0u64, 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => { u }
+            Result::Err(_) => {
+                dealloc(memm);
+                return 1318i32;
+            }
+        };
+        bm.commit_remove(&usm);
+        let mm: VModel = vm_remove(&mix, 0u64, 1u64);
+        let rcm2: i32 = assert_vle_mutation(&bm, &mm, shape, usm.prepared_bytes, 1310i32);
+        dealloc(memm);
+        if rcm2 != 0i32 {
+            return rcm2;
+        }
+    }
+    return 0i32;
+}
+
+// ── 1320: randomized mixed sequences ───────────────────────────────────────
+//
+// Scripted sweeps reach the states someone thought of. This reaches the ones
+// nobody did: a long run of insert / update / remove at random positions with
+// random lengths, with the FULL law re-asserted after every single step, so a
+// defect that only appears in a particular ORDER of operations — a stale
+// offset that the next operation happens to overwrite, a payload compaction
+// that is only wrong when it follows a shrink — has somewhere to show up.
+fn check_vle_sequences(cols: u32, shape: u32, policy: u32, steps: i64, seed: &mut u64) -> i32 {
+    let d: PdtDescr = descr_vle_shape(cols, shape);
+    let vle: u32 = shape_vle_dims(shape);
+    let fse: bool = shape_has_fse(shape);
+    let mut m: VModel = vm_random(cols, vle, fse, 4u64, 6u64, seed);
+    // Headroom for the largest state the walk can reach.
+    let cap_rows: u64 = 40u64;
+    let blk: u32 = pdtbuf_compute_block_size(&d, cap_rows, &vle_pay_flat(&d, 4096u64));
+
+    unsafe {
+        let mem: *mut u8 = alloc(blk as i64);
+        let mut b: PdtBuf = match build_vle(mem, blk, &d, &m) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem);
+                return 1325i32;
+            }
+        };
+        let mut st: i64 = 0i64;
+        while st < steps {
+            let op: u64 = lcg_next(seed) % 3u64;
+            if op == 0u64 && m.rows < 24u64 {
+                let at: u64 = lcg_next(seed) % (m.rows + 1u64);
+                let n: u64 = 1u64 + lcg_next(seed) % 3u64;
+                let ins: VModel = vm_random(cols, vle, fse, n, 10u64, seed);
+                let vals: PdtVals = vm_to_vals(&ins);
+                let us: PdtUpdate = match b.prepare_insert_vals(at, n, policy, &vals) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        return 1326i32;
+                    }
+                };
+                b.commit_insert_vals(&us, &vals);
+                let nm: VModel = vm_insert(&m, at, &ins);
+                m = nm;
+                let rc: i32 = assert_vle_mutation(&b, &m, shape, us.prepared_bytes, 1320i32);
+                if rc != 0i32 {
+                    dealloc(mem);
+                    return rc;
+                }
+            } else if op == 1u64 && m.rows > 0u64 {
+                let at2: u64 = lcg_next(seed) % m.rows;
+                let n2: u64 = 1u64 + lcg_next(seed) % 2u64;
+                let cnt: u64 = if at2 + n2 <= m.rows { n2 } else { m.rows - at2 };
+                // maxlen swings wide so both grow and shrink are reached
+                let ml: u64 = lcg_next(seed) % 15u64;
+                let repl: VModel = vm_random(cols, vle, fse, cnt, ml, seed);
+                let vals2: PdtVals = vm_to_vals(&repl);
+                let us2: PdtUpdate = match b.prepare_update_vals(at2, cnt, policy, &vals2) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        return 1327i32;
+                    }
+                };
+                b.commit_update_vals(&us2, &vals2);
+                let nm2: VModel = vm_update(&m, at2, &repl);
+                m = nm2;
+                let rc2: i32 = assert_vle_mutation(&b, &m, shape, us2.prepared_bytes, 1320i32);
+                if rc2 != 0i32 {
+                    dealloc(mem);
+                    return rc2;
+                }
+            } else if m.rows > 0u64 {
+                let s3: u64 = lcg_next(seed) % m.rows;
+                let e3: u64 = s3 + 1u64 + lcg_next(seed) % 2u64;
+                let end: u64 = if e3 <= m.rows { e3 } else { m.rows };
+                let us3: PdtUpdate = match b.prepare_remove(s3, end, policy) {
+                    Result::Ok(u) => { u }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        return 1328i32;
+                    }
+                };
+                b.commit_remove(&us3);
+                let nm3: VModel = vm_remove(&m, s3, end);
+                m = nm3;
+                let rc3: i32 = assert_vle_mutation(&b, &m, shape, us3.prepared_bytes, 1320i32);
+                if rc3 != 0i32 {
+                    dealloc(mem);
+                    return rc3;
+                }
+            }
+            st = st + 1i64;
+        }
+        dealloc(mem);
+    }
+    return 0i32;
+}
+
+/// A flat payload-geometry vector with the same byte budget in every entry.
+fn vle_pay_flat(d: &PdtDescr, bytes: u64) -> Vec<u64> {
+    let mut v: Vec<u64> = vec_new::<u64>();
+    let n: i64 = d.payload_len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.push(bytes);
+        i = i + 1i64;
+    }
+    return v;
+}
+
 fn run_all() -> i32 {
     let rc1: i32 = check_sizing();
     if rc1 != 0i32 {
@@ -4946,9 +5681,33 @@ fn run_all() -> i32 {
                 }
                 vi = vi + 1i64;
             }
+            let p4d: i32 = check_vle_roundtrip(vc, vs, 5u64, &mut seed);
+            if p4d != 0i32 {
+                return p4d;
+            }
+            let p4e: i32 = check_vle_policy(vc, vs, &mut seed);
+            if p4e != 0i32 {
+                return p4e;
+            }
+            let p4f: i32 = check_vle_corners(vc, vs, &mut seed);
+            if p4f != 0i32 {
+                return p4f;
+            }
+            let p4g: i32 = check_vle_sequences(vc, vs, PDT_CAP_EXACT, 60i64, &mut seed);
+            if p4g != 0i32 {
+                return p4g;
+            }
+            let p4h: i32 = check_vle_sequences(vc, vs, PDT_CAP_KEEP, 60i64, &mut seed);
+            if p4h != 0i32 {
+                return p4h;
+            }
             vs = vs + 1u32;
         }
         vc = vc + 1u32;
+    }
+    let p4i: i32 = check_vle_descr_laws();
+    if p4i != 0i32 {
+        return p4i;
     }
 
     let rc4: i32 = check_fixtures();
