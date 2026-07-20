@@ -671,8 +671,28 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         if (val && TypeRef(pt).pointee())
             check_variance(expr_type(val), TypeRef(pt).pointee(),
                            "deref-write '*ptr = …'", /*permissive=*/false);
+        // T1.5 (whole-referent form): `*r = new` through a `&mut` overwrites a
+        // LIVE value exactly as `(*r).f = new` overwrites a live field, and
+        // the old value must drop HERE for the same reason the field arm
+        // gives — the owner drops the NEW value at ITS scope end and never
+        // sees the old one. Without this, rebuild-and-swap through `&mut self`
+        // (`*self = fresh`) leaked the entire previous value, silently, with a
+        // clean build (found 07-20 by PdtHolder's growth path: 45KB across one
+        // gate run).
+        //
+        // The reference/raw split is the convention the field arm already
+        // documents: a `&mut` referent is fully initialised by construction
+        // and cannot be moved out of, so its old value is live; a raw
+        // `*mut`/`*const` stays MANUAL, because writing into uninitialised
+        // memory is the whole point of a raw pointer and an implicit drop of
+        // whatever bytes were there would be wrong.
+        bool drop_old_referent = is_mut_ref && TypeRef(pt).pointee() &&
+            (TypeRef(TypeRef(pt).pointee()).owning_trait_object() ||
+             !drop_fn_for(TypeRef(pt).pointee()).empty() ||
+             has_droppable_fields(TypeRef(pt).pointee()));
         track_write_move(val);
-        return builder().stmt_deref_write(std::move(ptr), std::move(val), node_line_);
+        return builder().stmt_deref_write(std::move(ptr), std::move(val),
+                                          node_line_, drop_old_referent);
     }
     if (c == la::UNSAFE_BLOCK) {
         bool was = inside_unsafe_;

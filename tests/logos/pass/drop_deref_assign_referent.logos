@@ -1,0 +1,72 @@
+// A `&mut` referent's OLD value drops when the whole referent is replaced.
+//
+// `*r = new` overwrites a LIVE value exactly as `(*r).f = new` overwrites a
+// live field: the owner drops the NEW value at its scope end and never sees
+// the old one, so the old must drop at the store. It did not — the deref-write
+// statement path emitted the store with no drop at all, so rebuild-and-swap
+// through `&mut self` (the shape `*self = fresh` takes in any grow-in-place
+// container) leaked the entire previous value, silently, with a clean build.
+// Found 07-20 by valgrind on logos.mem.pkd.pdtbuf's PdtHolder growth: 45KB
+// across one gate run.
+//
+// Asserted by EFFECT (a Drop counter), not by valgrind: the count is the
+// property, and it is the same property whether or not a leak checker runs.
+//
+// The raw-pointer arm is deliberately NOT covered here: a `*mut` write stays
+// MANUAL by convention (writing into uninitialised memory is the point), and
+// an implicit drop there would be wrong.
+package test;
+
+static mut DROPS: i64 = 0;
+
+struct Marked { id: i64 }
+
+impl Drop for Marked {
+    fn drop(self: Marked) {
+        unsafe { DROPS = DROPS + 1; }
+    }
+}
+
+fn replace_through_ref(m: &mut Marked, id: i64) {
+    *m = Marked { id: id };
+}
+
+fn main() -> i32 {
+    // (A) the referent form — the regression.
+    unsafe { DROPS = 0; }
+    {
+        let mut m: Marked = Marked { id: 1 };
+        replace_through_ref(&mut m, 2);
+        // exactly one drop so far: the REPLACED value.
+        unsafe { if DROPS != 1 { return 1i32; } }
+        if m.id != 2 { return 2i32; }
+    }
+    // ...and the scope end drops the new one: two in total.
+    unsafe { if DROPS != 2 { return 3i32; } }
+
+    // (B) assignment to a LOCAL still drops exactly once at replacement
+    // (this half already worked; pinned so neither arm can regress into the
+    // other).
+    unsafe { DROPS = 0; }
+    {
+        let mut k: Marked = Marked { id: 10 };
+        k = Marked { id: 11 };
+        unsafe { if DROPS != 1 { return 4i32; } }
+        if k.id != 11 { return 5i32; }
+    }
+    unsafe { if DROPS != 2 { return 6i32; } }
+
+    // (C) repeated replacement through the same borrow: every old value goes.
+    unsafe { DROPS = 0; }
+    {
+        let mut r: Marked = Marked { id: 0 };
+        let mut i: i64 = 0;
+        while i < 5 {
+            replace_through_ref(&mut r, i);
+            i = i + 1;
+        }
+        unsafe { if DROPS != 5 { return 7i32; } }
+    }
+    unsafe { if DROPS != 6 { return 8i32; } }
+    return 0i32;
+}
