@@ -79,6 +79,107 @@ lir::LExprPtr SemaChecker::lower_int_lit(TinyMapView expr) {
     return lit_int_from_text(str_of(expr.get(la::VALUE.code)), /*negate=*/false);
 }
 
+// ── Rust TEMPORARY LIFETIME EXTENSION ──────────────────────────────────────
+// Reference: `destructors.md`, "Temporary lifetime extension"
+// (r[destructors.scope.lifetime-extension.exprs]).
+//
+// A temporary behind `&` normally dies at the end of its statement. That is
+// what makes a materialized temp actually DROP, and it is the rule the
+// argument-position case obeys — `f(&make_vec())` must not outlive the call
+// statement, and before this was implemented it never dropped at all.
+//
+// In a `let` INITIALIZER, though, certain SYNTACTIC positions extend the
+// temporary to the enclosing block, because the statement scope would be too
+// small for the reference being bound. The reference's own summary: the borrows
+// in `&mut 0`, `(&1, &mut 2)` and `Some(&mut 3)` ARE extending; the borrows in
+// `&0 + &1` and `f(&mut 0)` are NOT.
+//
+//     let x = &temp();                // operand of an extending borrow
+//     let x = &temp() as &dyn Send;   // operand of an extending CAST
+//     let x = (&*&temp(),);           // operand of a tuple expression
+//     let x = Some(&temp());          // argument of an enum-variant ctor
+//
+// An extending expression is: the initializer itself; the operand of an
+// extending borrow; the operand(s) of an extending array / cast / braced-struct
+// / tuple expression; the arguments of an extending tuple-struct or
+// tuple-enum-variant constructor; the final expression of an extending block;
+// the final expression of an extending `if` consequent / `else`; an arm
+// expression of an extending `match`.
+//
+// WHY THE WALK MAY BE GENEROUS. The two failure directions are not symmetric.
+// Over-marking a borrow costs a LEAK — the temp keeps the pre-existing
+// `addr_of_temp` frame slot, which outlives the block, so the reference stays
+// valid and nothing is unsound. Under-marking costs a DANGLE, which borrow-check
+// rejects at compile time with a clear diagnostic. So an imprecise walk fails
+// loudly in the unsafe direction and quietly in the safe one, and we err
+// generous everywhere EXCEPT plain calls — `CALL` arguments are the one form
+// Rust explicitly excludes, and they are exactly the case whose leak this
+// machinery was added to fix.
+void SemaChecker::mark_extending_borrows(TinyMapView e) {
+    if (!e) return;
+    int32_t c = code_of(e);
+    auto kid = [&](const ast::Key& k) {
+        if (e.has_key(k)) mark_extending_borrows(map_of(e.get(k.code)));
+    };
+    auto kids = [&](const ast::Key& k) {
+        if (!e.has_key(k)) return;
+        auto items = arr_of(e.get(k.code));
+        for (uint64_t i = 0; i < items.size(); ++i)
+            mark_extending_borrows(map_of(items.get(i)));
+    };
+    switch (c) {
+        // The borrow itself: mark it, and its operand stays extending.
+        case la::ADDR_OF_MUT:
+            extending_borrow_nodes_.insert(e.ptr());
+            kid(la::VALUE);
+            return;
+        case la::UNARY:
+            if (str_of(e.get(la::OP.code)) == "&" || str_of(e.get(la::OP.code)) == "&&")
+                extending_borrow_nodes_.insert(e.ptr());
+            kid(la::VALUE);
+            return;
+        // Transparent / extending operand carriers.
+        case la::PAREN_EXPR:
+        case la::CAST:
+            kid(la::VALUE);
+            return;
+        // Extending operand LISTS.
+        case la::ARR_LIT:
+        case la::TUPLE_LIT:
+        case la::BLOCK:
+            kids(la::ITEMS);
+            return;
+        case la::STRUCT_LIT:
+            // ITEMS are FIELD_INIT nodes; their VALUE is the operand.
+            kids(la::ITEMS);
+            return;
+        case la::FIELD_INIT:
+            kid(la::VALUE);
+            return;
+        // Tuple-enum-variant constructor arguments.
+        case la::ENUM_LIT_DATA:
+            kids(la::ARGS);
+            kids(la::ITEMS);
+            return;
+        // Extending branch tails.
+        case la::IF:
+            kid(la::THEN);
+            kid(la::ELSE);
+            return;
+        case la::MATCH:
+            kids(la::ITEMS);
+            return;
+        case la::MATCH_ARM:
+            kid(la::BODY);
+            kid(la::VALUE);
+            return;
+        default:
+            // Not an extending form — a plain CALL, a binop, a method call.
+            // Its borrows keep the statement temporary scope.
+            return;
+    }
+}
+
 // Hoist a fresh droppable rvalue into the active statement/expression
 // temp-scope. The synth local is BOTH recorded in the collector (the installer
 // prepends the `let`s and emits the fall-through drops) AND define()'d into the
@@ -1241,7 +1342,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         auto inner = lower_expr(child);
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         auto __ty_inner = make_ref(true, expr_type(inner));
-        // The `&mut` mirror of the temporary-scope hoist above.
+        // The `&mut` mirror of the temporary-scope hoist above, extending
+        // positions included (`let x = &mut 0;` is the reference's own example).
+        if (extending_borrow_nodes_.count(expr.ptr()))
+            return builder().addr_of_temp(std::move(inner), true, __ty_inner);
         return materialize_recv_ref(std::move(inner), true, __ty_inner);
     }
     case la::TRY_EXPR: {
@@ -2822,6 +2926,12 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // none). This is the SAME materialization `materialize_recv_ref`
         // already performs for an auto-ref'd receiver (`W::mk(…).get()`), so it
         // takes the same path rather than a second copy of the rule.
+        //
+        // UNLESS this borrow sits in an EXTENDING position of a `let`
+        // initializer (`let x = &temp() as &dyn Tr`), where Rust extends the
+        // temporary to the enclosing block — see mark_extending_borrows.
+        if (extending_borrow_nodes_.count(node.ptr()))
+            return builder().addr_of_temp(std::move(inner), false, __ty_inner);
         return materialize_recv_ref(std::move(inner), false, __ty_inner);
     }
 

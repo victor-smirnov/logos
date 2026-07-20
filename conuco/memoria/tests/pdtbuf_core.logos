@@ -4473,6 +4473,52 @@ fn check_vle_geometry() -> i32 {
                 z2 = z2 + 1i64;
             }
 
+            // ── the >=3-column canary, at width TWO ───────────────────────
+            // Section 60 pins the slot formula for FSE dimensions. A VLE
+            // dimension occupies TWO slots, so the stride it contributes is 2
+            // and an implementation that assumed width 1 — or that folded the
+            // sub-block index into the column index — would ALIAS one column's
+            // offsets table onto the next column's payload. Content comparison
+            // catches most of that, but only where the aliased bytes happen to
+            // differ; the slot map is the thing actually being claimed, so it
+            // is asserted directly: every (column, dim, sub) triple lands on a
+            // DISTINCT allocator slot, and they exactly fill the data region.
+            let mut slots: Vec<u64> = vec_new::<u64>();
+            let total: u32 = d.slots();
+            let mut zz: u32 = 0u32;
+            while zz < total {
+                slots.push(0u64);
+                zz = zz + 1u32;
+            }
+            let mut c4: u32 = 0u32;
+            while c4 < c {
+                let mut dm: u32 = 0u32;
+                while dm < d.dim_count() {
+                    let dd4: &PdtDim = d.dims.borrow(dm as i64);
+                    let w: u32 = pdt_dim_width(dd4);
+                    let mut sb: u32 = 0u32;
+                    while sb < w {
+                        let blk4: u32 = PDT_LAST_HEADER_BLOCK
+                                      + d.dim_blocks_total() * c4
+                                      + d.dim_block_offset(dm) + sb;
+                        if blk4 < PDT_LAST_HEADER_BLOCK || blk4 >= total {
+                            return 1214i32;
+                        }
+                        slots.set(blk4 as i64, slots.get(blk4 as i64) + 1u64);
+                        sb = sb + 1u32;
+                    }
+                    dm = dm + 1u32;
+                }
+                c4 = c4 + 1u32;
+            }
+            let mut zq: u32 = PDT_LAST_HEADER_BLOCK;
+            while zq < total {
+                if slots.get(zq as i64) != 1u64 {
+                    return 1215i32;
+                }
+                zq = zq + 1u32;
+            }
+
             // A real block: price it, format it, read the geometry back.
             let mut seed: u64 = 0x51ED270Bu64 + (c as u64) * 7u64 + (shape as u64);
             let m: VModel = vm_for_shape(c, shape, 9u64, 6u64, &mut seed);

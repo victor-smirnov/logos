@@ -1,0 +1,99 @@
+// Rust TEMPORARY SCOPE, both directions, asserted by EFFECT rather than by
+// valgrind alone (reference: destructors.md, "Temporary lifetime extension").
+//
+//   A. ARGUMENT position — `f(&make())` — is NOT an extending expression, so
+//      the temporary drops at the end of ITS OWN statement. Before this was
+//      implemented the materialized temp was spilled to a stack slot nobody
+//      owned and NEVER dropped: one leaked allocation per evaluation, silently,
+//      with a clean build. Here the drop is counted, so a regression to the
+//      leaking form fails the test instead of only showing up under valgrind.
+//
+//   B. `let` INITIALIZER in an extending position — `let r = &make();`,
+//      `let d = &make() as &dyn Tr;` — DOES extend: the temporary outlives the
+//      statement, so the reference is still usable afterwards. Over-tightening
+//      A's rule onto B is what broke the imported test
+//      traits/generic-dyn-getter-sugar-object, so both are pinned together.
+//
+// The counter distinguishes them: A's drops must all have happened by the time
+// the loop ends; B's must NOT have happened while the reference is still in use.
+package temp_scope_extend_vs_argument;
+
+static mut DROPS: i32 = 0i32;
+
+trait Drop { fn drop(self: Self); }
+
+struct R {
+    id: i32,
+}
+
+impl Drop for R {
+    fn drop(self: R) {
+        unsafe {
+            DROPS = DROPS + 1i32;
+        }
+    }
+}
+
+fn make(id: i32) -> R {
+    return R { id: id };
+}
+
+fn peek(r: &R) -> i32 {
+    return r.id;
+}
+
+trait Getter {
+    fn get(self: &Self) -> i32;
+}
+
+impl Getter for R {
+    fn get(self: &R) -> i32 {
+        return self.id;
+    }
+}
+
+unsafe fn main() -> i32 {
+    // ── A. argument position: drops at the end of each statement ──────────
+    let mut i: i32 = 0i32;
+    let mut acc: i32 = 0i32;
+    while i < 5i32 {
+        acc = acc + peek(&make(3i32));
+        i = i + 1i32;
+    }
+    if acc != 15i32 {
+        return 1i32;
+    }
+    // All five temporaries are gone: the borrow ended with its statement.
+    if DROPS != 5i32 {
+        return 2i32;
+    }
+
+    // ── B. let initializer, operand of an extending borrow ────────────────
+    DROPS = 0i32;
+    let r: &R = &make(7i32);
+    // A later STATEMENT still reads it — under argument-position rules this
+    // would be a dangling reference (and borrow-check would reject it).
+    if peek(r) != 7i32 {
+        return 3i32;
+    }
+    if r.id != 7i32 {
+        return 4i32;
+    }
+    // ... and it has NOT been dropped yet.
+    if DROPS != 0i32 {
+        return 5i32;
+    }
+
+    // ── B'. let initializer, operand of an extending CAST ─────────────────
+    // This is the shape of the imported rust-lang test that the first,
+    // over-applied version of the statement-scope rule broke.
+    let d: &dyn Getter = &make(9i32) as &dyn Getter;
+    if d.get() != 9i32 {
+        return 6i32;
+    }
+    if DROPS != 0i32 {
+        return 7i32;
+    }
+
+    return 42i32;
+}

@@ -1764,6 +1764,11 @@ lir_view::StmtRef SemaChecker::lower_nested_fn(TinyMapView node) {
 }
 
 lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
+    // Rust temporary lifetime extension: mark the borrows in this initializer
+    // that bind temporaries which must outlive the statement, BEFORE lowering
+    // it (the two unary-& sites consult the mark). See mark_extending_borrows.
+    if (node.has_key(la::VALUE))
+        mark_extending_borrows(map_of(node.get(la::VALUE.code)));
     auto name = str_of(node.get(la::NAME.code));
     bool is_mut = false;
     if (node.has_key(la::IS_MUT)) {

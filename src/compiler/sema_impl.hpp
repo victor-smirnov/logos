@@ -4743,6 +4743,18 @@ private:
     // caller substitutes the VarRef for the rvalue; the installer emits the
     // `let`s and the scope drops.
     lir::LExprPtr hoist_stmt_temp(lir::LExprPtr v, bool is_mut);
+    // Rust temporary LIFETIME EXTENSION (destructors.md,
+    // r[destructors.scope.lifetime-extension.exprs]). Borrow nodes that sit in
+    // an extending position of a `let` initializer — operand of a borrow, of a
+    // cast / array / braced-struct / tuple, an enum-variant ctor argument, a
+    // block or branch tail — bind temporaries that must outlive the STATEMENT,
+    // so they keep the plain addr_of_temp frame slot instead of taking the
+    // statement-scope hoist. Keyed by AST node pointer, which is stable and
+    // position-determined; the set only ever grows. `CALL` arguments are
+    // deliberately NOT extending (Rust excludes them) — that is the leak the
+    // hoist exists to fix.
+    std::unordered_set<const void*> extending_borrow_nodes_;
+    void mark_extending_borrows(writ::TinyMapView e);
     // Lower a LAZILY- or REPEATEDLY-evaluated subexpression (a `&&`/`||` RHS, a
     // while-loop condition, a while-let scrutinee, an if-expression branch, an
     // expression-bodied closure) in its OWN temporary scope: droppable rvalue
