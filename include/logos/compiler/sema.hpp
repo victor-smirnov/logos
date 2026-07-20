@@ -45,6 +45,12 @@ namespace lir_view { struct ObjectMapRef; }
 // can read it directly.
 inline constexpr int g_target_pointer_bits = 64;
 
+// The reserved marker for a length that is a variadic pack's arity
+// (`[T; sizeof...(P)]`). It was respelled as a bare string literal at five
+// write sites and decoded at one; a single constant is what makes the write
+// and the read the same thing.
+inline constexpr std::string_view ARR_LEN_PACK_PFX = "__sizeof_pack:";
+
 struct LogosType {
     enum class Kind {
         Void,                     // no return value
@@ -391,10 +397,15 @@ struct LogosTypeBuilder {
     // Ref / MutRef — lifetime annotation
     std::string lifetime;           // "'a", "'static", "'_", "" = elided
 
-    // Array
+    // Array. INVARIANT: a length is EITHER concrete OR symbolic, never both —
+    // `arr_size_var` non-empty ⇒ `arr_size == 0`. NOT the converse: `[T; 0]`
+    // is a legitimate empty array with no symbolic name. A stale name next to
+    // a resolved size defeats every "is this bound?" check downstream,
+    // including the one at code emission.
     TypeRef     elem;               // non-owning, pool-allocated
     uint64_t    arr_size = 0;
-    std::string arr_size_var;       // for symbolic size 'N'
+    std::string arr_size_var;       // symbolic length: a const-param name, or
+                                    // ARR_LEN_PACK_PFX + pack name
 
     // Struct / Enum
     std::string struct_name;        // base struct name (owned; never mangled)

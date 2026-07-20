@@ -12602,86 +12602,28 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     auto val_node = map_of(node.get(la::VALUE.code));
     auto fill_val = lower_expr(val_node);
     TypeRef elem_type = expr_type(fill_val);
-    // [v; sizeof...(P)] — symbolic length tied to a variadic pack. Emit a
-    // single-element arr_lit + arr_size_var; mono ArrLit clone repeats the
-    // element to match the pack's expanded length.
-    if (node.has_key(la::OP) && node.has_key(la::NAME)) {
-        auto op = std::string(str_of(node.get(la::OP.code)));
-        if (op != "sizeof") {
-            error(std::format("array fill literal: expected 'sizeof...(P)', got '{}...'", op));
-            return error_expr();
-        }
-        std::string pname(str_of(node.get(la::NAME.code)));
-        if (current_type_params_.find(pname) == current_type_params_.end())
-            error(std::format("array fill literal: undefined type parameter '{}'", pname));
-        LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
+    // ONE resolver, shared with the type position — which is what makes
+    // `[v; K]` with a const-generic K work at last: the expression position
+    // used to accept only module consts, so `[u64; K]` compiled as a type and
+    // failed as an expression.
+    auto len = resolve_array_len(node.has_key(la::SIZE)
+                                  ? map_of(node.get(la::SIZE.code))
+                                  : writ::TinyMapView{});
+    if (!len.ok) return error_expr();
+    if (!len.symbolic.empty()) {
+        // A length that is not known yet: emit ONE element carrying the
+        // symbolic size; mono repeats it once the length is bound.
+        LogosTypeBuilder ab;
+        ab.kind = LogosType::Kind::Array;
         ab.elem = elem_type;
         ab.arr_size = 0;
-        ab.arr_size_var = std::string("__sizeof_pack:") + pname;
+        ab.arr_size_var = len.symbolic;
         TypeRef arr_t = pool_->alloc(std::move(ab));
-        std::vector<lir::LExprPtr> elems;
-        elems.push_back(std::move(fill_val));
-        return builder().arr_lit(std::move(elems), arr_t);
+        std::vector<lir::LExprPtr> one;
+        one.push_back(std::move(fill_val));
+        return builder().arr_lit(std::move(one), arr_t);
     }
-    int64_t n = 0;
-    if (node.has_key(la::BODY)) {
-        // MP-mc-01: `[v; metacall { <expr> }]` — array-fill size via
-        // metacall splice. Tail expression in the block is evaluated by
-        // ctfe (mirrors metacall-arg folding) and the integer result
-        // becomes the array length. Logos's replacement for Rust's
-        // const-eval at this position.
-        auto inner = map_of(node.get(la::BODY.code));
-        writ::TinyMapView tail{};
-        bool have_tail = false;
-        if (inner.has_key(la::ITEMS)) {
-            auto items = arr_of(inner.get(la::ITEMS.code));
-            for (uint64_t i = items.size(); i-- > 0; ) {
-                auto s = map_of(items.get(i));
-                int32_t sc = code_of(s);
-                if ((sc == la::TAIL_EXPR || sc == la::EXPR_STMT) && s.has_key(la::VALUE)) {
-                    tail = map_of(s.get(la::VALUE.code));
-                    have_tail = true; break;
-                }
-            }
-        }
-        if (!have_tail) {
-            error("array fill literal: metacall must contain an integer expression");
-            return error_expr();
-        }
-        auto r = ctfe_eval_const(tail, holder_);
-        if (!r) {
-            error(std::format("array fill literal: metacall: {}", r.error().msg));
-            return error_expr();
-        }
-        n = r.value().i;
-    } else if (node.has_key(la::NAME)) {
-        // `[v; N]` — the grammar routes a bare identifier length to NAME (the
-        // sizeof...(P) form above is the OP+NAME case and has already
-        // returned). It is a module-level const of THIS package, evaluated
-        // through the same explicit-ctfe surface as the metacall form.
-        //
-        // Package-local on purpose, matching resolve_type's array-length rule:
-        // a global search would let one package's `const N` rebind another
-        // package's `<const N>`. Leaving it unresolved is not an option — it
-        // used to fall through to 0 and build a zero-length array.
-        auto sv = str_of(node.get(la::NAME.code));
-        auto vit = module_const_values_.find(sema_key(cur_package_, sv));
-        if (vit == module_const_values_.end()) {
-            error(std::format("array fill literal: length '{}' is not a "
-                              "module-level const of this package", sv));
-            return error_expr();
-        }
-        auto r = ctfe_eval_const(vit->second, holder_);
-        if (!r) {
-            error(std::format("array fill literal: length '{}': {}", sv, r.error().msg));
-            return error_expr();
-        }
-        n = r.value().i;
-    } else {
-        auto sv = str_of(node.get(la::SIZE.code));
-        n = parse_int_literal(sv);
-    }
-    if (n <= 0) error(std::format("array fill literal: size must be positive, got {}", n));
+    int64_t n = static_cast<int64_t>(len.value);
     // Keep IntLit unresolved so that struct-literal type inference (hint_struct_type_)
     // can widen the element to the correct concrete type (e.g. i64 for Vec<i64>).
     std::vector<lir::LExprPtr> elems;
@@ -17575,13 +17517,17 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
                 return error_expr();
             }
             int64_t sz = 0;
-            if (inner.has_key(la::SIZE)) {
-                auto sv = str_of(inner.get(la::SIZE.code));
-                bool is_lit = !sv.empty() && std::isdigit((unsigned char)sv[0]);
-                if (!is_lit) {
+            // The length is an ARR_LEN node; the antiquot form still requires
+            // it to be a literal (a quoted type has no enclosing item whose
+            // const params could bind a name).
+            auto lenn = inner.has_key(la::SIZE) ? map_of(inner.get(la::SIZE.code))
+                                               : writ::TinyMapView{};
+            if (!lenn.is_null()) {
+                if (!lenn.has_key(la::SIZE)) {
                     error("quote_ty!: array antiquot requires literal integer size");
                     return error_expr();
                 }
+                auto sv = str_of(lenn.get(la::SIZE.code));
                 for (char c : sv) {
                     if (c >= '0' && c <= '9') sz = sz * 10 + (c - '0');
                     else break;

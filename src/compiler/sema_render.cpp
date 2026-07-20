@@ -2026,21 +2026,22 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
     case la::ARR_TYPE: {
         std::string s = "[";
         s += recur(map_of(node.get(la::TYPE.code)));
-        // The grammar writes SIZE (literal or ident), OP+NAME (sizeof...(P))
-        // or BODY (metacall) — never VALUE. Reading VALUE dropped the length
-        // from EVERY rendered array type, printing `[i64; 8]` as `[i64]`,
-        // indistinguishable from an unsized slice.
+        // The length is ONE node now (ARR_LEN), whichever position it sits in.
         if (node.has_key(la::SIZE)) {
+            auto ln = map_of(node.get(la::SIZE.code));
             s += "; ";
-            s += std::string(str_of(node.get(la::SIZE.code)));
-        } else if (node.has_key(la::OP) && node.has_key(la::NAME)) {
-            s += "; ";
-            s += std::string(str_of(node.get(la::OP.code)));
-            s += "...(";
-            s += std::string(str_of(node.get(la::NAME.code)));
-            s += ")";
-        } else if (node.has_key(la::BODY)) {
-            s += "; metacall { ... }";
+            if (ln.has_key(la::OP) && ln.has_key(la::NAME)) {
+                s += std::string(str_of(ln.get(la::OP.code)));
+                s += "...(";
+                s += std::string(str_of(ln.get(la::NAME.code)));
+                s += ")";
+            } else if (ln.has_key(la::BODY)) {
+                s += "metacall { ... }";
+            } else if (ln.has_key(la::SIZE)) {
+                s += std::string(str_of(ln.get(la::SIZE.code)));
+            } else if (ln.has_key(la::NAME)) {
+                s += std::string(str_of(ln.get(la::NAME.code)));
+            }
         }
         s += "]";
         return s;

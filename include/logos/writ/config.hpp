@@ -15,6 +15,9 @@ enum class ErrCode : uint64_t {
     parse_error    = 0x0001'0001,  // text parser or path parser failure
     template_error = 0x0001'0002,  // template parse / render failure
     out_of_memory  = 0x0001'0003,  // arena allocation failed (OOM)
+    field_dropped  = 0x0001'0004,  // TinyObjectMap::put could not store the field
+                                   // (key past the bitmap, or map at capacity).
+                                   // Previously reported as SUCCESS.
 };
 
 // Strong offset type — kept for SERIALIZATION (a compacted single-segment blob is

@@ -751,6 +751,25 @@ private:
                     logos::compiler::ctfe::CtfeError>
     ctfe_eval_const(writ::TinyMapView node, writ::MemHolder* h) noexcept;
 
+    // ── array length ────────────────────────────────────────────────────
+    // The resolved form of an ARR_LEN node. A length is EITHER concrete OR a
+    // name — never both, and never neither: `ok == false` means it has been
+    // diagnosed and the caller must not build a type from it.
+    struct ArrayLen {
+        bool        ok = true;
+        uint64_t    value = 0;
+        std::string symbolic;
+    };
+    // THE resolver. Every position that can carry a length calls this and
+    // nothing else, so the type position and the expression position cannot
+    // drift apart again.
+    //
+    // Zero is a legal length in EVERY position: `[T; 0]` is an empty array
+    // type and `[v; 0]` is an empty array literal, exactly as in Rust. The
+    // fill position used to reject it — an unregistered divergence that
+    // survived only because the two positions had separate code.
+    ArrayLen resolve_array_len(writ::TinyMapView len_node);
+
     // T2-29: is `t` an UNINHABITED type (no value can exist)? Never; an
     // empty enum or one whose every variant has an uninhabited payload; a
     // struct/tuple with an uninhabited field; `[T; N>0]` with uninhabited

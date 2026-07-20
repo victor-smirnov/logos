@@ -1,7 +1,0 @@
-// @rule expr.arr-fill.repeat-literal
-package expr_diag_3_arr_fill_size;
-
-fn main() -> i32 {
-    let _a: [i32; 0] = [7i32; 0];
-    return 0i32;
-}

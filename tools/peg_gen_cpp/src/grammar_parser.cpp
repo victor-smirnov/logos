@@ -308,7 +308,7 @@ public:
             if      (kw == "%meta")    parse_meta(root);
             else if (kw == "%import")  imports.push_back(parse_import().to_anyval()).get();
             else if (kw == "%export")  parse_export(exports);
-            else if (kw == "%fields")  parse_name_decls(fields);
+            else if (kw == "%fields")  parse_name_decls(fields, /*is_field_keys=*/true);
             else if (kw == "%nodes")   parse_name_decls(nodes);
             else if (kw == "%tokens")  parse_tokens(tokens);
             else if (kw == "%prec")    parse_prec(prec);
@@ -591,7 +591,13 @@ private:
 
     // ── Section: %fields / %nodes ─────────────────────────────────────────
 
-    void parse_name_decls(ArrayView& out) {
+    // `is_field_keys` = this block declares %fields, i.e. TinyObjectMap KEYS
+    // rather than node CODEs. Keys are a bitmap slot, so they are bounded;
+    // codes are plain values and are not. Without this distinction a key past
+    // the bitmap is accepted by the grammar, emitted as a `put` by the
+    // generator, and SILENTLY DISCARDED at runtime — the node simply never
+    // carries the field, with no diagnostic anywhere.
+    void parse_name_decls(ArrayView& out, bool is_field_keys = false) {
         expect(TK::LBrace, "{");
         while (lex_.peek().kind == TK::Ident) {
             Token name = lex_.next();
@@ -602,7 +608,7 @@ private:
                 // The group's doc trails its opening brace, not its name.
                 Token brace = lex_.peek();
                 auto fields_arr = doc_.make_array(8).get();
-                parse_name_decls(fields_arr);  // recursive — inner block
+                parse_name_decls(fields_arr, is_field_keys);  // recursive — inner block
                 auto node = make_tm(5);
                 auto ns   = make_str(gname.text);
                 node.put(ast::CODE,   AnyVal::from_value(ast::GROUP_DECL)).get();
@@ -619,6 +625,17 @@ private:
 
             expect(TK::Equals, "=");
             Token num  = expect(TK::Integer, "integer code");
+            // Must match writ::TinyObjectMap::MAX_KEYS. A key at or past the
+            // bitmap width can never be stored or read back.
+            constexpr int64_t TINY_MAP_MAX_KEYS = 52;
+            if (is_field_keys && parse_int(num.text) >= TINY_MAP_MAX_KEYS) {
+                error(num, std::format(
+                    "field key '{}' = {} is out of range: TinyObjectMap holds keys "
+                    "0..{} (MAX_KEYS = {}). A key past the bitmap is silently "
+                    "dropped at runtime. Reuse a slot via `group` instead.",
+                    name.text, parse_int(num.text), TINY_MAP_MAX_KEYS - 1,
+                    TINY_MAP_MAX_KEYS));
+            }
 
             auto node = make_tm(5);
             auto ns   = make_str(name.text);

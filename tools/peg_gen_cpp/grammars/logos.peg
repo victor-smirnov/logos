@@ -269,6 +269,7 @@
     BLOCK_STMT                  = 197   // bare scoping block { stmts... }; BODY = block
     METACALL                    = 198   // metacall <call_expr>; VALUE = inner call AST
     TEMPLATE_DECL               = 199   // `template <decl>` — declaration-as-data; VALUE = wrapped item AST
+    ARR_LEN                     = 200   // array length, ONE node shape for every position and every form
     QUOTE_ITEM                  = 200   // quote_item! { item* } — typed AST literal; ITEMS = array of item nodes
     QUOTE_EXPR                  = 201   // quote_expr! { expr } — typed AST literal; VALUE = expr node (root carries schema_type_code)
     REPEAT_GROUP                = 202   // #(body)sep* inside quote_*! body; VALUE=body expr, OP=sep code (0=none, 1=comma, 2=&&)
@@ -2029,11 +2030,29 @@
     // Last alt: bare `[T]` is the unsized slice form (Phase 1B). The size-
     // bearing alts come first so `[T; N]` always matches before the unsized
     // fallback. Order matters: PEG tries left-to-right.
-    arr_type <- LBRACKET type_ref SEMI IDENT DOTDOTDOT LPAREN IDENT RPAREN RBRACKET
-              => { CODE: ARR_TYPE, TYPE: $2, OP: $4, NAME: $7 }
-              / LBRACKET type_ref SEMI KW_METACALL block RBRACKET
-              => { CODE: ARR_TYPE, TYPE: $2, BODY: $5 }
-              / LBRACKET type_ref SEMI (INTEGER / IDENT) RBRACKET
+    // ── array LENGTH — ONE rule, ONE node shape, every position ──────────
+    // The length used to be spelled inline in each position, and the two
+    // positions disagreed: the type position packed INTEGER and IDENT into a
+    // single SIZE key, the expression position split them across SIZE and
+    // NAME. That forced a separate resolver per position, and the two drifted
+    // apart (a const-generic param worked as `[T; K]` but not as `[v; K]`).
+    // A length is one concept, so it is one rule producing one node; the
+    // consumers ask WHICH FORM, never WHICH POSITION.
+    // Order matters (PEG is left-to-right): the pack form must precede bare
+    // IDENT, or `sizeof` would match as a plain name.
+    // The parent's SIZE slot carries the ARR_LEN NODE (it used to carry a raw
+    // token). No new field key: the TinyObjectMap bitmap is full at 0..51, and
+    // SIZE is exactly the slot that already meant "this array's length".
+    arr_len <- IDENT DOTDOTDOT LPAREN IDENT RPAREN
+             => { CODE: ARR_LEN, OP: $1, NAME: $4 }
+            / KW_METACALL block
+             => { CODE: ARR_LEN, BODY: $2 }
+            / INTEGER
+             => { CODE: ARR_LEN, SIZE: $1 }
+            / IDENT
+             => { CODE: ARR_LEN, NAME: $1 }
+
+    arr_type <- LBRACKET type_ref SEMI arr_len RBRACKET
               => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }
               / LBRACKET type_ref RBRACKET
               => { CODE: UNSIZED_SLICE_TYPE, TYPE: $2 }
@@ -3128,14 +3147,8 @@
     // ── Array fill literal: [value; N] ───────────────────────────
     // First alt: [v; sizeof...(P)] — size from variadic pack length,
     // mirrors the form admitted by arr_type at the type level.
-    arr_fill_lit <- LBRACKET expr SEMI IDENT DOTDOTDOT LPAREN IDENT RPAREN RBRACKET
-                 => { CODE: ARR_FILL_LIT, VALUE: $2, OP: $4, NAME: $7 }
-                  / LBRACKET expr SEMI KW_METACALL block RBRACKET
-                 => { CODE: ARR_FILL_LIT, VALUE: $2, BODY: $5 }
-                  / LBRACKET expr SEMI INTEGER RBRACKET
+    arr_fill_lit <- LBRACKET expr SEMI arr_len RBRACKET
                  => { CODE: ARR_FILL_LIT, VALUE: $2, SIZE: $4 }
-                  / LBRACKET expr SEMI IDENT RBRACKET
-                 => { CODE: ARR_FILL_LIT, VALUE: $2, NAME: $4 }
 
     // ── List comprehension: [expr for x in iter (if p)?] ─────────
     list_comp <- LBRACKET expr KW_FOR IDENT KW_IN expr KW_IF expr RBRACKET

@@ -3,8 +3,10 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <new>
 
+#include <logos/writ/config.hpp>
 #include <logos/writ/arena.hpp>
 #include <logos/writ/relative_ptr.hpp>
 #include <logos/writ/any_val.hpp>
@@ -27,8 +29,13 @@ namespace logos::writ {
 // so a reader can recognise them without prior knowledge of the schema.
 //
 // NB: the value array is a SEPARATE buffer of
-// at-rest AnyVals, kept in key order; O(1) lookup via popcount. FIXED capacity —
-// `put` of a new key into a full map is a no-op (matches WMap<Wu6,WAny>::set).
+// at-rest AnyVals, kept in key order; O(1) lookup via popcount. FIXED capacity.
+//
+// A `put` that CANNOT be honoured — a key past the bitmap, or a new key into a
+// full map — used to return ok and silently drop the value. That is a bug
+// factory: the node simply never carries the field, and nothing anywhere says
+// so. Both now fail loudly (message on stderr, error returned; `.get()` callers
+// terminate at the call site).
 class TinyObjectMap {
 public:
     static constexpr uint64_t BITMAP_MASK = 0x000FFFFFFFFFFFFFull;  // bits[0:51]
@@ -60,17 +67,32 @@ public:
         return has_key(key) ? &elements()[index_of(key)] : nullptr;
     }
 
-    // Insert or update `key → value`. key ≥ 52, or a new key into a full map, is a
-    // no-op (returns ok). On a new key the value array is kept in key order.
+    // Insert or update `key → value`. On a new key the value array is kept in
+    // key order. A put that cannot be honoured is an ERROR, never a silent
+    // drop — see the class comment.
     [[nodiscard]] logos::expected<void> put(uint8_t key, AnyVal value, Arena& /*arena*/) noexcept {
-        if (key >= MAX_KEYS) return {};
+        if (key >= MAX_KEYS) {
+            std::fprintf(stderr,
+                "logos: TinyObjectMap::put — key %u is past the bitmap (MAX_KEYS = %u); "
+                "the field would be silently dropped. Reuse a key slot instead of "
+                "allocating a new one.\n",
+                static_cast<unsigned>(key), static_cast<unsigned>(MAX_KEYS));
+            return std::unexpected(logos::err(ErrCode::field_dropped));
+        }
         uint64_t bm  = bitmap();
         uint64_t kb  = 1ull << key;
         uint64_t pos = index_of(key);
         AnyVal*  buf = elements();
         if ((bm & kb) == 0) {                 // new key
             uint64_t sz = size(), cap = capacity();
-            if (sz >= cap) return {};          // full — no growth (fixed capacity)
+            if (sz >= cap) {                   // full — fixed capacity, no growth
+                std::fprintf(stderr,
+                    "logos: TinyObjectMap::put — map is full (capacity %llu) and key %u "
+                    "is new; the field would be silently dropped. Give the map a larger "
+                    "capacity at creation.\n",
+                    static_cast<unsigned long long>(cap), static_cast<unsigned>(key));
+                return std::unexpected(logos::err(ErrCode::field_dropped));
+            }
             for (uint64_t i = sz; i > pos; --i) buf[i] = buf[i - 1];  // shift (re-anchors)
             header_ = (bm | kb) | (cap << 52) | ((sz + 1) << 58);
         }

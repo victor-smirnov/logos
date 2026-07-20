@@ -4350,6 +4350,127 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     }
 }
 
+SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
+    ArrayLen r;
+    if (len.is_null()) {
+        error("array length is missing");
+        r.ok = false;
+        return r;
+    }
+    // `sizeof...(P)` — a variadic pack's arity. Stays symbolic under a
+    // reserved prefix that mono decodes once the pack expands.
+    if (len.has_key(la::OP) && len.has_key(la::NAME)) {
+        auto op = std::string(str_of(len.get(la::OP.code)));
+        auto pn = std::string(str_of(len.get(la::NAME.code)));
+        if (op != "sizeof") {
+            error(std::format("array length: expected 'sizeof...(P)', got '{}...(P)'", op));
+            r.ok = false;
+            return r;
+        }
+        if (current_type_params_.find(pn) == current_type_params_.end()) {
+            error(std::format("array length 'sizeof...({})': undefined type parameter", pn));
+            r.ok = false;
+            return r;
+        }
+        r.symbolic = std::string(ARR_LEN_PACK_PFX) + pn;
+        return r;
+    }
+    // `metacall { <expr> }` — the explicit escape hatch for any computed
+    // length. Logos has no general const-eval by design, so arithmetic in a
+    // length position is spelled out here and nowhere else.
+    if (len.has_key(la::BODY)) {
+        auto blk = map_of(len.get(la::BODY.code));
+        writ::TinyMapView tail{};
+        bool have_tail = false;
+        if (blk.has_key(la::ITEMS)) {
+            auto items = arr_of(blk.get(la::ITEMS.code));
+            for (uint64_t i = items.size(); i-- > 0; ) {
+                auto st = map_of(items.get(i));
+                int32_t sc = code_of(st);
+                if ((sc == la::TAIL_EXPR || sc == la::EXPR_STMT) && st.has_key(la::VALUE)) {
+                    tail = map_of(st.get(la::VALUE.code));
+                    have_tail = true;
+                    break;
+                }
+            }
+        }
+        if (!have_tail) {
+            error("array length: metacall must contain a single integer expression");
+            r.ok = false;
+            return r;
+        }
+        auto v = ctfe_eval_const(tail, holder_);
+        if (!v) {
+            error(std::format("array length: metacall: {}", v.error().msg));
+            r.ok = false;
+            return r;
+        }
+        if (v.value().i < 0) {
+            error(std::format("array length cannot be negative, got {}", v.value().i));
+            r.ok = false;
+            return r;
+        }
+        r.value = static_cast<uint64_t>(v.value().i);
+        return r;
+    }
+    // An integer literal.
+    if (len.has_key(la::SIZE)) {
+        auto sv = str_of(len.get(la::SIZE.code));
+        int64_t n = parse_int_literal(sv);
+        if (n < 0) {
+            error(std::format("array length cannot be negative, got {}", n));
+            r.ok = false;
+            return r;
+        }
+        r.value = static_cast<uint64_t>(n);
+        return r;
+    }
+    // A name. ORDER IS LOAD-BEARING: a const-generic parameter of the
+    // enclosing item wins over a module-level const of the same name.
+    // Checking the const first let one package's `const N` capture another
+    // package's `<const N>`, which is worse than the bug it was fixing.
+    if (len.has_key(la::NAME)) {
+        auto sv = str_of(len.get(la::NAME.code));
+        if (sv.empty()) {
+            error("array length is empty");
+            r.ok = false;
+            return r;
+        }
+        if (current_type_params_.find(std::string(sv)) != current_type_params_.end()) {
+            r.symbolic = std::string(sv);
+            return r;
+        }
+        // Package-LOCAL, deliberately: a global search would rebind another
+        // package's const parameter.
+        auto vit = module_const_values_.find(sema_key(cur_package_, sv));
+        if (vit != module_const_values_.end()) {
+            auto v = ctfe_eval_const(vit->second, holder_);
+            if (!v) {
+                error(std::format("array length '{}': {}", sv, v.error().msg));
+                r.ok = false;
+                return r;
+            }
+            if (v.value().i < 0) {
+                error(std::format("array length '{}' cannot be negative, got {}", sv, v.value().i));
+                r.ok = false;
+                return r;
+            }
+            r.value = static_cast<uint64_t>(v.value().i);
+            return r;
+        }
+        // A const-generic parameter that is not in scope at THIS point.
+        // That happens for real — a struct's own const params are not
+        // reliably visible while its fields are resolved — so the name is
+        // carried symbolically and bound by mono. Emission is where an
+        // unbound name is unambiguously wrong, and that is where it dies.
+        r.symbolic = std::string(sv);
+        return r;
+    }
+    error("array length: unrecognized form");
+    r.ok = false;
+    return r;
+}
+
 std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int32_t field_code) {
     std::vector<TypeParam> result;
     AnyVal tpav = node.get(field_code);
@@ -6654,128 +6775,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto elem = node.has_key(la::TYPE)
                      ? resolve_type(map_of(node.get(la::TYPE.code)))
                      : error_t();
-        uint64_t n = 0;
-        std::string symbolic;
-        // MP-mc-01: `[T; metacall { <expr> }]` — array length via metacall
-        // splice. Block tail expression evaluated by ctfe and the integer
-        // result becomes the size. Logos's replacement for Rust's
-        // const-eval at this position.
-        if (node.has_key(la::BODY)) {
-            auto blk = map_of(node.get(la::BODY.code));
-            writ::TinyMapView tail{};
-            bool have_tail = false;
-            if (blk.has_key(la::ITEMS)) {
-                auto items = arr_of(blk.get(la::ITEMS.code));
-                for (uint64_t i = items.size(); i-- > 0; ) {
-                    auto s = map_of(items.get(i));
-                    int32_t sc = code_of(s);
-                    if ((sc == la::TAIL_EXPR || sc == la::EXPR_STMT) && s.has_key(la::VALUE)) {
-                        tail = map_of(s.get(la::VALUE.code));
-                        have_tail = true;
-                        break;
-                    }
-                }
-            }
-            if (!have_tail) {
-                error("metacall in array length must contain a single integer expression");
-                return make_array(elem, 0, symbolic);
-            }
-            auto r = ctfe_eval_const(tail, holder_);
-            if (!r) {
-                error(std::format("metacall in array length: {}", r.error().msg));
-                return make_array(elem, 0, symbolic);
-            }
-            n = static_cast<uint64_t>(r.value().i);
-            return make_array(elem, n, symbolic);
-        }
-        // [T; sizeof...(P)] — grammar's sizeof_pack alt encodes the pack form
-        // as OP="sizeof" + NAME=<pack-ident>. Lower to a symbolic arr_size_var
-        // "__sizeof_pack:P" that mono_subst resolves once P expands.
-        if (node.has_key(la::OP) && node.has_key(la::NAME)) {
-            auto op = std::string(str_of(node.get(la::OP.code)));
-            auto pn = std::string(str_of(node.get(la::NAME.code)));
-            if (op != "sizeof") {
-                error(std::format("expected 'sizeof...(T)' in array size, got '{}...(T)'", op));
-            } else {
-                auto it = current_type_params_.find(pn);
-                if (it == current_type_params_.end()) {
-                    error(std::format("[T; sizeof...({})]: undefined type parameter", pn));
-                } else {
-                    symbolic = std::string("__sizeof_pack:") + pn;
-                }
-            }
-            return make_array(elem, 0, symbolic);
-        }
-        if (node.has_key(la::SIZE)) {
-            auto av = node.get(la::SIZE.code);
-            auto parse_array_size = [](std::string_view sv) -> uint64_t {
-                uint64_t r = 0;
-                for (char c : sv) {
-                    if (c >= '0' && c <= '9') r = r * 10 + (c - '0');
-                    else break;
-                }
-                return r;
-            };
-            // One resolution path for both encodings of the SIZE token. An
-            // identifier here is either a module-level const (resolved now) or
-            // a const-generic parameter (bound by mono_subst). It must never
-            // be left at 0: a zero-length array field indexes out of bounds
-            // and compiles clean — silent loss, not a type error.
-            auto resolve_size = [&](std::string_view sv) {
-                if (!sv.empty() && std::isdigit(sv[0])) {
-                    n = parse_array_size(sv);
-                    return;
-                }
-                if (sv.empty()) {
-                    error("array length is empty");
-                    return;
-                }
-                // (1) A const-generic parameter of the enclosing item wins:
-                // it stays symbolic and mono_subst binds it. This MUST be
-                // checked first — otherwise a module-level const of the same
-                // name captures the parameter.
-                auto tpit = current_type_params_.find(std::string(sv));
-                if (tpit != current_type_params_.end()) {
-                    symbolic = std::string(sv);
-                    return;
-                }
-                // (2) A module-level `const` DECLARED IN THIS PACKAGE, through
-                // the same explicit-ctfe surface the metacall length form uses.
-                // This is what used to silently yield 0.
-                //
-                // Deliberately package-local, NOT resolve_const_value's
-                // current-package-then-unique-global search: a const-generic
-                // parameter is not reliably in current_type_params_ at every
-                // point a struct's fields are resolved, so a global search
-                // would let one package's `const N` silently rebind another
-                // package's `<const N>`. Package-local lookup cannot.
-                {
-                    auto k = sema_key(cur_package_, sv);
-                    auto vit = module_const_values_.find(k);
-                    if (vit != module_const_values_.end()) {
-                        auto r = ctfe_eval_const(vit->second, holder_);
-                        if (!r) {
-                            error(std::format("array length '{}': {}", sv, r.error().msg));
-                            return;
-                        }
-                        if (r.value().i <= 0) {
-                            error(std::format("array length '{}' must be positive, got {}",
-                                              sv, r.value().i));
-                            return;
-                        }
-                        n = static_cast<uint64_t>(r.value().i);
-                        return;
-                    }
-                }
-                // (3) Otherwise a const-generic parameter not currently in
-                // scope; bound by mono_subst. That it really does get bound is
-                // enforced at the one place an unresolved name is unambiguously
-                // wrong — code emission (mlir_gen_types.cpp, Kind::Array).
-                symbolic = std::string(sv);
-            };
-            if (av.is_value() || av.is_pointer()) resolve_size(str_of(av));
-        }
-        return make_array(elem, n, symbolic);
+        // ONE resolver, shared with the expression position. Everything the
+        // old inline code knew — literals, sizeof...(P), metacall, module
+        // consts, const-generic params — lives in resolve_array_len now.
+        auto len = resolve_array_len(node.has_key(la::SIZE)
+                                      ? map_of(node.get(la::SIZE.code))
+                                      : writ::TinyMapView{});
+        if (!len.ok) return make_array(elem, 1, std::string());
+        return make_array(elem, len.value, len.symbolic);
     }
 
     if (tc == la::ASSOC_TYPE_REF) return resolve_type_assoc_ref(node);

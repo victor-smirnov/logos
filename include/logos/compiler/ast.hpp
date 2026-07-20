@@ -241,6 +241,7 @@ inline constexpr Code GENOS_DEF{"GENOS_DEF", 196};  // genos declaration (trait 
 inline constexpr Code BLOCK_STMT{"BLOCK_STMT", 197};  // bare scoping block { stmts... }; BODY = block
 inline constexpr Code METACALL{"METACALL", 198};  // metacall <call_expr>; VALUE = inner call AST
 inline constexpr Code TEMPLATE_DECL{"TEMPLATE_DECL", 199};  // `template <decl>` — declaration-as-data; VALUE = wrapped item AST
+inline constexpr Code ARR_LEN{"ARR_LEN", 200};  // array length, ONE node shape for every position and every form
 inline constexpr Code QUOTE_ITEM{"QUOTE_ITEM", 200};  // quote_item! { item* } — typed AST literal; ITEMS = array of item nodes
 inline constexpr Code QUOTE_EXPR{"QUOTE_EXPR", 201};  // quote_expr! { expr } — typed AST literal; VALUE = expr node (root carries schema_type_code)
 inline constexpr Code REPEAT_GROUP{"REPEAT_GROUP", 202};  // #(body)sep* inside quote_*! body; VALUE=body expr, OP=sep code (0=none, 1=comma, 2=&&)

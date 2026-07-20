@@ -270,7 +270,9 @@ An array literal `[ ... ]` has two forms, tried in this order (fill before list,
 
 ### `expr.arr-fill.repeat-literal` — Array fill literal repeats the element to length N
 
-`[v; N]` produces an array literal of element type T (= type of v) with N copies; the element is re-lowered for each slot. N must be a positive integer; the element IntLit is left unresolved so struct-literal type inference can widen it.
+`[v; N]` produces an array literal of element type T (= type of v) with N copies; the element is re-lowered for each slot. N must be a non-negative integer — `[v; 0]` is the empty array, as in Rust. The element IntLit is left unresolved so struct-literal type inference can widen it.
+
+N is resolved by exactly the same rule as an array TYPE's length: an integer literal, a `sizeof...(P)` pack arity, a `metacall` block, a const-generic parameter of the enclosing item, or a module-level `const` of the current package. The two positions share one resolver and admit the same set of lengths.
 
 *Source:* `src/compiler/sema_expr.cpp#L11461-L11529`, `src/compiler/sema_expr.cpp#L11517-L11528`
 
