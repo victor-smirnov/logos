@@ -479,16 +479,26 @@ pub fn btfl_find(t: &Btfl, key: u64, out: &mut Vec<u64>) -> bool {
 // multistream summary: per side the stream-0 max + both per-symbol counts).
 // addr = the (possibly new under future CoW; here always unchanged) left
 // node identity.
+// One row of per-symbol counts. A bare `[u64; BTFL_ALPHABET]` would say the
+// same thing, but a fixed-size array cannot currently cross a function
+// boundary in either direction: `&row` types as `&[u64]` rather than
+// `&[u64; N]`, and by value it reaches codegen as an array where a pointer is
+// expected. Both are compiler defects, recorded separately; wrapping the row
+// in a struct is not a workaround for the ALPHABET generalization — the row is
+// a value with a name either way — it just avoids depending on a broken path.
+struct BtflCounts { c: [u64; BTFL_ALPHABET] }
+
 struct BtflInsRet {
     inserted: bool,
     addr: *mut u8,
     lmax: u64,
-    lc0: u64,
-    lc1: u64,
+    // Per-symbol subtree counts, one slot per alphabet symbol. This used to be
+    // the pair lc0/lc1 — two streams hardcoded into the shape of the return
+    // value, so widening the alphabet meant editing every construction site.
+    lcnt: BtflCounts,
     split: bool,
     rmax: u64,
-    rc0: u64,
-    rc1: u64,
+    rcnt: BtflCounts,
     rptr: *mut u8,
 }
 
@@ -498,26 +508,27 @@ unsafe fn leaf_summary(node: *mut u8, split: bool, rnode: *mut u8) -> BtflInsRet
     let ka: *mut PkdArray<u64> = lf_keys(a);
     let kc: u32 = ka.count();
     let lmax: u64 = ka.get(kc - 1u32);
-    let lc1: u64 = lf_vals(a).count() as u64;
     let mut ret: BtflInsRet = BtflInsRet {
         inserted: true,
         addr: node,
         lmax: lmax,
-        lc0: kc as u64,
-        lc1: lc1,
+        lcnt: BtflCounts { c: [0u64; BTFL_ALPHABET] },
         split: split,
         rmax: 0u64,
-        rc0: 0u64,
-        rc1: 0u64,
+        rcnt: BtflCounts { c: [0u64; BTFL_ALPHABET] },
         rptr: rnode,
     };
+    // A leaf's per-symbol counts ARE its per-stream row counts: symbol 0 = one
+    // entry per key, symbol 1 = one entry per value.
+    ret.lcnt.c[0] = kc as u64;
+    ret.lcnt.c[1] = lf_vals(a).count() as u64;
     if split {
         let ra: *mut PkdAlloc = node_pkd(rnode);
         let rka: *mut PkdArray<u64> = lf_keys(ra);
         let rkc: u32 = rka.count();
         ret.rmax = rka.get(rkc - 1u32);
-        ret.rc0 = rkc as u64;
-        ret.rc1 = lf_vals(ra).count() as u64;
+        ret.rcnt.c[0] = rkc as u64;
+        ret.rcnt.c[1] = lf_vals(ra).count() as u64;
     }
     return ret;
 }
@@ -526,46 +537,47 @@ unsafe fn leaf_summary(node: *mut u8, split: bool, rnode: *mut u8) -> BtflInsRet
 unsafe fn branch_summary(node: *mut u8, split: bool, rnode: *mut u8) -> BtflInsRet {
     let a: *mut PkdAlloc = node_pkd(node);
     let mk: *mut PkdArray<u64> = br_max(a);
-    let c0: *mut PkdArray<u64> = br_cnt0(a);
-    let c1: *mut PkdArray<u64> = br_cnt1(a);
     let n: u32 = mk.count();
-    let mut s0: u64 = 0u64;
-    let mut s1: u64 = 0u64;
-    let mut i: u32 = 0u32;
-    while i < n {
-        s0 = s0 + c0.get(i);
-        s1 = s1 + c1.get(i);
-        i = i + 1u32;
-    }
     let mut ret: BtflInsRet = BtflInsRet {
         inserted: true,
         addr: node,
         lmax: mk.get(n - 1u32),
-        lc0: s0,
-        lc1: s1,
+        lcnt: BtflCounts { c: [0u64; BTFL_ALPHABET] },
         split: split,
         rmax: 0u64,
-        rc0: 0u64,
-        rc1: 0u64,
+        rcnt: BtflCounts { c: [0u64; BTFL_ALPHABET] },
         rptr: rnode,
     };
+    // Column-wise: each symbol's subtree count is the sum down its own column.
+    let mut sym: u64 = 0u64;
+    while sym < (BTFL_ALPHABET as u64) {
+        let col: *mut PkdArray<u64> = br_cnt(a, sym);
+        let mut acc: u64 = 0u64;
+        let mut i: u32 = 0u32;
+        while i < n {
+            acc = acc + col.get(i);
+            i = i + 1u32;
+        }
+        ret.lcnt.c[sym as i64] = acc;
+        sym = sym + 1u64;
+    }
     if split {
         let ra: *mut PkdAlloc = node_pkd(rnode);
         let rmk: *mut PkdArray<u64> = br_max(ra);
-        let rc0: *mut PkdArray<u64> = br_cnt0(ra);
-        let rc1: *mut PkdArray<u64> = br_cnt1(ra);
         let rn: u32 = rmk.count();
-        let mut r0: u64 = 0u64;
-        let mut r1: u64 = 0u64;
-        let mut j: u32 = 0u32;
-        while j < rn {
-            r0 = r0 + rc0.get(j);
-            r1 = r1 + rc1.get(j);
-            j = j + 1u32;
-        }
         ret.rmax = rmk.get(rn - 1u32);
-        ret.rc0 = r0;
-        ret.rc1 = r1;
+        let mut rsym: u64 = 0u64;
+        while rsym < (BTFL_ALPHABET as u64) {
+            let rcol: *mut PkdArray<u64> = br_cnt(ra, rsym);
+            let mut racc: u64 = 0u64;
+            let mut j: u32 = 0u32;
+            while j < rn {
+                racc = racc + rcol.get(j);
+                j = j + 1u32;
+            }
+            ret.rcnt.c[rsym as i64] = racc;
+            rsym = rsym + 1u64;
+        }
     }
     return ret;
 }
@@ -575,12 +587,10 @@ fn ret_reject(node: *mut u8) -> BtflInsRet {
         inserted: false,
         addr: node,
         lmax: 0u64,
-        lc0: 0u64,
-        lc1: 0u64,
+        lcnt: BtflCounts { c: [0u64; BTFL_ALPHABET] },
         split: false,
         rmax: 0u64,
-        rc0: 0u64,
-        rc1: 0u64,
+        rcnt: BtflCounts { c: [0u64; BTFL_ALPHABET] },
         rptr: node,
     };
 }
@@ -755,24 +765,24 @@ unsafe fn btfl_branch_fits_one(a: *mut PkdAlloc) -> bool {
 // Insert a child row at `pos` (priced by the caller via btfl_branch_fits_one
 // or a fresh half-branch's slack).
 unsafe fn btfl_branch_insert_child(a: *mut PkdAlloc, pos: u32,
-                                   maxk: u64, c0: u64, c1: u64, child: u64) {
+                                   maxk: u64, cnt: &BtflCounts,
+                                   child: u64) {
     match br_max(a).insert(pos, &(maxk)) {
         Result::Ok(_u) => {}
         Result::Err(_e) => {
             assert(false, "btfl: branch max insert failed");
         }
     }
-    match br_cnt0(a).insert(pos, &(c0)) {
-        Result::Ok(_u) => {}
-        Result::Err(_e) => {
-            assert(false, "btfl: branch cnt0 insert failed");
+    // One insert per symbol column — the alphabet's width, not two by name.
+    let mut sym: u64 = 0u64;
+    while sym < (BTFL_ALPHABET as u64) {
+        match br_cnt(a, sym).insert(pos, &(cnt.c[sym as i64])) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl: branch count-column insert failed");
+            }
         }
-    }
-    match br_cnt1(a).insert(pos, &(c1)) {
-        Result::Ok(_u) => {}
-        Result::Err(_e) => {
-            assert(false, "btfl: branch cnt1 insert failed");
-        }
+        sym = sym + 1u64;
     }
     match br_child(a).insert(pos, &(child)) {
         Result::Ok(_u) => {}
@@ -819,22 +829,25 @@ unsafe fn btfl_ins_rec(snap: &mut MemorySnapshot, leaf_bytes: u32, branch_bytes:
         return ret_reject(node);
     }
     br_max(a).set(ci, r.lmax);
-    br_cnt0(a).set(ci, r.lc0);
-    br_cnt1(a).set(ci, r.lc1);
+    let mut usym: u64 = 0u64;
+    while usym < (BTFL_ALPHABET as u64) {
+        br_cnt(a, usym).set(ci, r.lcnt.c[usym as i64]);
+        usym = usym + 1u64;
+    }
     if !r.split {
         return branch_summary(node, false, node);
     }
     if btfl_branch_fits_one(a) {
-        btfl_branch_insert_child(a, ci + 1u32, r.rmax, r.rc0, r.rc1, r.rptr as u64);
+        btfl_branch_insert_child(a, ci + 1u32, r.rmax, &r.rcnt, r.rptr as u64);
         return branch_summary(node, false, node);
     }
     let rb: *mut u8 = btfl_branch_new(snap, branch_bytes);
     btfl_branch_split(node, rb);
     let lc: u32 = br_child(node_pkd(node)).count();
     if ci + 1u32 <= lc {
-        btfl_branch_insert_child(node_pkd(node), ci + 1u32, r.rmax, r.rc0, r.rc1, r.rptr as u64);
+        btfl_branch_insert_child(node_pkd(node), ci + 1u32, r.rmax, &r.rcnt, r.rptr as u64);
     } else {
-        btfl_branch_insert_child(node_pkd(rb), (ci + 1u32) - lc, r.rmax, r.rc0, r.rc1, r.rptr as u64);
+        btfl_branch_insert_child(node_pkd(rb), (ci + 1u32) - lc, r.rmax, &r.rcnt, r.rptr as u64);
     }
     return branch_summary(node, true, rb);
 }
@@ -853,8 +866,8 @@ pub fn btfl_insert(snap: &mut MemorySnapshot, t: &mut Btfl, key: u64, vals: &Vec
         if r.split {
             let nb: *mut u8 = btfl_branch_new(snap, t.branch_bytes);
             let na: *mut PkdAlloc = node_pkd(nb);
-            btfl_branch_insert_child(na, 0u32, r.lmax, r.lc0, r.lc1, r.addr as u64);
-            btfl_branch_insert_child(na, 1u32, r.rmax, r.rc0, r.rc1, r.rptr as u64);
+            btfl_branch_insert_child(na, 0u32, r.lmax, &r.lcnt, r.addr as u64);
+            btfl_branch_insert_child(na, 1u32, r.rmax, &r.rcnt, r.rptr as u64);
             t.root = nb;
             t.level = t.level + 1u32;
         }
@@ -1165,8 +1178,8 @@ pub fn btfl_bulk_build(snap: &mut MemorySnapshot, st: &BtflStage,
                     cur = btfl_branch_new(snap, branch_bytes);
                     cur_n = 0u32;
                 }
-                btfl_branch_insert_child(node_pkd(cur), cur_n, sm.lmax, sm.lc0,
-                                         sm.lc1, child as u64);
+                btfl_branch_insert_child(node_pkd(cur), cur_n, sm.lmax, &sm.lcnt,
+                                         child as u64);
                 cur_n = cur_n + 1u32;
                 idx = idx + 1i64;
             }
