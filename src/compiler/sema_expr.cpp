@@ -1241,8 +1241,8 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         auto inner = lower_expr(child);
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         auto __ty_inner = make_ref(true, expr_type(inner));
-
-        return builder().addr_of_temp(std::move(inner), true, __ty_inner);
+        // The `&mut` mirror of the temporary-scope hoist above.
+        return materialize_recv_ref(std::move(inner), true, __ty_inner);
     }
     case la::TRY_EXPR: {
         // expr? — two flavours:
@@ -2813,8 +2813,16 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                                         make_slice_type(et));
         }
         auto __ty_inner = make_ref(false, expr_type(inner));
-
-        return builder().addr_of_temp(std::move(inner), false, __ty_inner);
+        // Rust temporary scope: `f(&make_vec())` materializes a DROPPABLE
+        // rvalue whose stack slot nothing else owns. Without the statement-scope
+        // hoist it is spilled and never dropped — one leaked allocation per
+        // evaluation, silently, with a clean build (found by the P4 valgrind
+        // gate: `&vle_pay_flat(...)` leaked 24 blocks, and a minimal repro
+        // leaks exactly one per iteration while the `let`-bound form leaks
+        // none). This is the SAME materialization `materialize_recv_ref`
+        // already performs for an auto-ref'd receiver (`W::mk(…).get()`), so it
+        // takes the same path rather than a second copy of the rule.
+        return materialize_recv_ref(std::move(inner), false, __ty_inner);
     }
 
     // Negative integer literal: fold the sign into the literal so a
