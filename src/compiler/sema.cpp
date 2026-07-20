@@ -4413,6 +4413,67 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
         r.value = static_cast<uint64_t>(v.value().i);
         return r;
     }
+    // `Q::N` — an associated const. The qualifier resolves through the same
+    // type-param table as everything else, so `Self::N` inside an impl means
+    // that impl's target.
+    if (len.has_key(la::VALUE) && len.has_key(la::NAME)) {
+        auto qual = std::string(str_of(len.get(la::VALUE.code)));
+        auto cn   = std::string(str_of(len.get(la::NAME.code)));
+        // A qualifier that is still a TYPE PARAMETER (`T::WIDTH`) has no value
+        // until T is bound. That is a mono-time resolution and a separate
+        // increment; refuse it here rather than silently producing a zero.
+        auto qit = current_type_params_.find(qual);
+        std::string target = qual;
+        if (qit != current_type_params_.end() && qit->second) {
+            TypeRef qt(qit->second);
+            if (qt.kind() == LogosType::Kind::TypeVar ||
+                qt.kind() == LogosType::Kind::ConstVar) {
+                error(std::format(
+                    "array length '{}::{}': the qualifier is a type parameter, "
+                    "which is not supported in a length position yet", qual, cn));
+                r.ok = false;
+                return r;
+            }
+            if (qt.kind() == LogosType::Kind::Struct ||
+                qt.kind() == LogosType::Kind::ZonedStruct)
+                target = std::string(qt.struct_name());
+        }
+        // Inherent first (`impl S { const N: ... }`), then any trait impl on
+        // the same target.
+        writ::AnyVal init{};
+        auto iit = assoc_const_impls_.find("inherent::" + target + "::" + cn);
+        if (iit != assoc_const_impls_.end()) {
+            init = iit->second.value_ast;
+        } else {
+            for (auto& [k, e] : assoc_const_impls_) {
+                auto tail = "::" + target + "::" + cn;
+                if (k.size() > tail.size() &&
+                    k.compare(k.size() - tail.size(), tail.size(), tail) == 0) {
+                    init = e.value_ast;
+                    break;
+                }
+            }
+        }
+        if (init.is_null()) {
+            error(std::format("array length '{}::{}': no such associated constant", qual, cn));
+            r.ok = false;
+            return r;
+        }
+        auto v = ctfe_eval_const(map_of(init), holder_);
+        if (!v) {
+            error(std::format("array length '{}::{}': {}", qual, cn, v.error().msg));
+            r.ok = false;
+            return r;
+        }
+        if (v.value().i < 0) {
+            error(std::format("array length '{}::{}' cannot be negative, got {}",
+                              qual, cn, v.value().i));
+            r.ok = false;
+            return r;
+        }
+        r.value = static_cast<uint64_t>(v.value().i);
+        return r;
+    }
     // An integer literal.
     if (len.has_key(la::SIZE)) {
         auto sv = str_of(len.get(la::SIZE.code));

@@ -2038,8 +2038,14 @@
     // apart (a const-generic param worked as `[T; K]` but not as `[v; K]`).
     // A length is one concept, so it is one rule producing one node; the
     // consumers ask WHICH FORM, never WHICH POSITION.
-    // Order matters (PEG is left-to-right): the pack form must precede bare
-    // IDENT, or `sizeof` would match as a plain name.
+    // Order matters (PEG is left-to-right): the pack form and the qualified
+    // form must both precede bare IDENT, or `sizeof` / `Self` would match as
+    // plain names and the rest of the input would be left unconsumed.
+    //
+    // `Q::N` (VALUE = qualifier, NAME = const) covers `Self::N` and `T::WIDTH`.
+    // The qualifier is captured as a bare IDENT rather than a type_ref: a
+    // type_ref would itself swallow `Self::N` as an associated-TYPE reference
+    // and then find no `::` left to match.
     // The parent's SIZE slot carries the ARR_LEN NODE (it used to carry a raw
     // token). No new field key: the TinyObjectMap bitmap is full at 0..51, and
     // SIZE is exactly the slot that already meant "this array's length".
@@ -2047,6 +2053,8 @@
              => { CODE: ARR_LEN, OP: $1, NAME: $4 }
             / KW_METACALL block
              => { CODE: ARR_LEN, BODY: $2 }
+            / IDENT COLONCOLON IDENT
+             => { CODE: ARR_LEN, VALUE: $1, NAME: $3 }
             / INTEGER
              => { CODE: ARR_LEN, SIZE: $1 }
             / IDENT

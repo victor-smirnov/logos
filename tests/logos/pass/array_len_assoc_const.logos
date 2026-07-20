@@ -1,0 +1,40 @@
+// An associated constant in an array-LENGTH position: `[T; Cfg::WIDTH]` and
+// `[T; Self::N]`. This is why the length became a NODE rather than a bare
+// token — a path cannot be spelled as one.
+//
+// Asserts the EFFECT: every slot the constant promises is addressable and
+// holds what was written. A length that resolved to 0 would compile just as
+// cleanly and lose all of it.
+package array_len_assoc_const;
+
+struct Cfg {}
+impl Cfg { const WIDTH: usize = 4usize; }
+
+struct Buf { c: [u64; Cfg::WIDTH] }
+
+impl Buf {
+    const N: usize = 3usize;
+
+    // Self:: resolves through the impl's target, like any other Self use.
+    fn filled() -> [u64; Self::N] { return [5u64; Self::N]; }
+}
+
+fn main() -> i32 {
+    let mut b: Buf = Buf { c: [0u64; Cfg::WIDTH] };
+    let mut i: usize = 0usize;
+    while i < Cfg::WIDTH {
+        b.c[i] = (i as u64) + 1u64;
+        i = i + 1usize;
+    }
+    let mut s: u64 = 0u64;
+    let mut j: usize = 0usize;
+    while j < Cfg::WIDTH {
+        s = s + b.c[j];
+        j = j + 1usize;
+    }
+    if s != 10u64 { return 1i32; }   // 1+2+3+4
+
+    let a: [u64; 3] = Buf::filled();
+    if a[0] + a[1] + a[2] != 15u64 { return 2i32; }
+    return 0i32;
+}

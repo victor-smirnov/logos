@@ -112,11 +112,19 @@ A tuple type is `(T1, T2, ...)` with ≥2 comma-separated element types (optiona
 
 ### `type.array.length-forms` — Array type length forms
 
-`[T; N]` length is determined by: a `metacall { expr }` block whose tail integer is CTFE-evaluated; `sizeof...(P)` over an in-scope type-param pack (symbolic `__sizeof_pack:P`); a literal integer; or a symbolic const parameter name. A missing/empty metacall tail or an unknown pack/op is a hard error.
+`[T; N]` length is determined by, in this order: `sizeof...(P)` over an in-scope type-param pack (symbolic `__sizeof_pack:P`); a `metacall { expr }` block whose tail integer is CTFE-evaluated; a qualified associated constant `Q::N`; a literal integer; a const-generic parameter of the enclosing item (kept symbolic, bound at monomorphization); or a module-level `const` of the current package (CTFE-evaluated).
+
+A const-generic parameter wins over a same-named module const: the reverse order lets one package's `const N` capture another package's `<const N>`. The module-const lookup is package-local for the same reason.
+
+`Q::N` resolves an inherent or trait associated constant on the qualifier — `Self::N` inside an impl means that impl's target. A qualifier that is itself a TYPE PARAMETER (`T::WIDTH`) has no value until the parameter is bound and is rejected in this position.
+
+Length 0 is valid (`[T; 0]` is the empty array); only a negative length is an error. A missing/empty metacall tail, an unknown pack/op, an unknown associated constant, or a name that is neither a const parameter nor a module const is a hard error.
+
+The same rule and the same resolver govern the expression position (`[v; N]`) — see `expr.arr-fill.repeat-literal`.
 
 **Divergence:** Array length via `metacall {..}` replaces Rust const-eval at this position (MP-mc-01).
 
-**Source:** `src/compiler/sema.cpp#L6140-L6226`
+**Source:** `src/compiler/sema.cpp` — `SemaChecker::resolve_array_len` (the single resolver for both positions)
 
 ### `type.array.size-from-metacall` — Array size from metacall block
 
