@@ -758,6 +758,17 @@ pub struct PdtFind {
     pub prefix: u64,
 }
 
+/// A COLUMN CLASS — the P5 op family's representation of "the columns an op
+/// selects": the contiguous range [lo, hi) minus at most one excluded column
+/// (`ex` = columns() when nothing is excluded). Every rank/select op maps to
+/// one of these; every query is then ordinary P0-P2 machinery over the
+/// virtual column Σ_{c∈class} col[c].
+struct PdtColClass {
+    lo: u32,
+    hi: u32,
+    ex: u32,
+}
+
 impl Copy for PdtFind {}
 
 impl Clone for PdtFind {
@@ -784,6 +795,22 @@ pub const PDT_OP_SPLIT:  u32 = 4u32;
 /// reservation, so rows may grow INSIDE the geometry at zero cost.
 pub const PDT_CAP_EXACT: u32 = 0u32;
 pub const PDT_CAP_KEEP:  u32 = 1u32;
+
+// ── the rank/select comparison ops (P5) ─────────────────────────────────────────────
+//
+// COLUMN = SYMBOL. When a SUM buffer's columns carry per-symbol weights (the
+// BTFL branch: column c = subtree count of symbol c), the rank/select op
+// family answers "how much weight of symbols ⟨op⟩ sym lies before this row"
+// and its inverse. The numbering mirrors logos.mem.pkd.ssrle's SSRLE_OP_*
+// (EQ=0 NEQ=1 LT=2 LE=3 GT=4 GE=5 — the C++ SeqOpType order), so the P7
+// bridge from the leaf's symbol sequence to the branch columns is the
+// identity, not a translation table.
+pub const PDT_SEQ_EQ:  u32 = 0u32;
+pub const PDT_SEQ_NEQ: u32 = 1u32;
+pub const PDT_SEQ_LT:  u32 = 2u32;
+pub const PDT_SEQ_LE:  u32 = 3u32;
+pub const PDT_SEQ_GT:  u32 = 4u32;
+pub const PDT_SEQ_GE:  u32 = 5u32;
 
 /// The planned mutation and its BUDGET — the C++ UpdateState (so.hpp:343,
 /// `PkdStructEmptyUpdate`, which carries only the shared allocator state's
@@ -2428,6 +2455,218 @@ impl PdtBuf {
             }
             return false;
         }
+    }
+
+    // ── the rank/select op family (P5) ────────────────────────────────────
+    //
+    // C++ surface: sum_for_rank_* / find_for_select_fw_* / _bw_* / eq_nlt
+    // (packed_datatype_buffer_so.hpp:1145-1394; the OLD deleted family's
+    // versions carried catalogued bugs #1 — select_bw totals via rank_NEQ
+    // copy-paste — and #2 — an infinite unsigned column loop; both are
+    // structurally inexpressible below).
+    //
+    // DERIVATION, not transcription. Every op is a COLUMN CLASS — a
+    // contiguous range [lo, hi) with at most one excluded column:
+    //
+    //     EQ  = [sym, sym+1)          NEQ = [0, cols) \ {sym}
+    //     LT  = [0, sym)              LE  = [0, sym+1)
+    //     GT  = [sym+1, cols)         GE  = [sym, cols)
+    //
+    // and every query is the P0/P1/P2 machinery over the VIRTUAL column
+    // V(i) = Σ_{c∈class} col[c][i]:
+    //   * rank   = class prefix sum (each column's own index-accelerated
+    //              sum_prefix, summed — the class is at most `columns` wide);
+    //   * select = the SAME indexed forward descent as find_fw_sum, with the
+    //              per-row value read through the class (the index shares the
+    //              parent's descriptor, so the class carries over unchanged);
+    //   * select-from = the P2 REBASE identity at the class prefix;
+    //   * select-bw   = the P2 COMPLEMENT identity: the (rank+1)-th unit from
+    //              the END is the (total-1-rank)-th from the FRONT, with the
+    //              total taken over the op's OWN class — which is exactly the
+    //              line the C++ #1 copy-paste got wrong, and here there is no
+    //              per-op total code to mis-copy;
+    //   * EQ_NLT = min(EQ-select at rank, LT-select at 0) — the shuttle
+    //              contract (bt_select_shuttle.hpp:114): stop at the
+    //              (rank+1)-th `sym` OR the first symbol below it, whichever
+    //              row comes first. sym == 0 degenerates to EQ.
+    //
+    // SUM ordering only: the family reads columns as per-symbol WEIGHTS,
+    // which is count semantics — meaningless under MAX/UNORDERED.
+    //
+    // select(r) is find_gt(r) over the virtual column — "cumulative weight
+    // EXCEEDS r" — deliberately NOT find_ge(r+1): the two are identical on
+    // integers, but the +1 form wraps at rank = u64::MAX and the strict form
+    // has no edge at all.
+
+    fn seq_class(self: &PdtBuf, sym: u32, op: u32) -> PdtColClass {
+        let cols: u32 = self.columns();
+        assert(sym < cols, "PdtBuf: symbol out of columns");
+        if op == PDT_SEQ_EQ {
+            return PdtColClass { lo: sym, hi: sym + 1u32, ex: cols };
+        }
+        if op == PDT_SEQ_NEQ {
+            return PdtColClass { lo: 0u32, hi: cols, ex: sym };
+        }
+        if op == PDT_SEQ_LT {
+            return PdtColClass { lo: 0u32, hi: sym, ex: cols };
+        }
+        if op == PDT_SEQ_LE {
+            return PdtColClass { lo: 0u32, hi: sym + 1u32, ex: cols };
+        }
+        if op == PDT_SEQ_GT {
+            return PdtColClass { lo: sym + 1u32, hi: cols, ex: cols };
+        }
+        assert(op == PDT_SEQ_GE, "PdtBuf: unknown rank/select op");
+        return PdtColClass { lo: sym, hi: cols, ex: cols };
+    }
+
+    // Class prefix: Σ over the class of each column's (index-accelerated)
+    // exclusive prefix. The loop is over COLUMNS (≤ alphabet), not rows.
+    fn class_prefix(self: &PdtBuf, cl: &PdtColClass, row: u64) -> u64 {
+        let mut acc: u64 = 0u64;
+        let mut c: u32 = cl.lo;
+        while c < cl.hi {
+            if c != cl.ex {
+                acc = acc + self.sum_prefix(c, row);
+            }
+            c = c + 1u32;
+        }
+        return acc;
+    }
+
+    // One row of the virtual column.
+    fn class_row_sum(self: &PdtBuf, cl: &PdtColClass, row: u64) -> u64 {
+        let mut acc: u64 = 0u64;
+        let mut c: u32 = cl.lo;
+        while c < cl.hi {
+            if c != cl.ex {
+                let vals: &[u64] = self.values(c);
+                acc = acc + vals[row as i64];
+            }
+            c = c + 1u32;
+        }
+        return acc;
+    }
+
+    // find_fw_sum's indexed descent, verbatim in shape, over the virtual
+    // column. The recursion passes the SAME class to the index because the
+    // index is the recursive self-type: same descriptor, same columns. The
+    // span clamp is the P1/P2 discipline (an under-covering index costs a
+    // longer scan, never a wrong answer).
+    fn find_fw_class(self: &PdtBuf, cl: &PdtColClass, val: u64, strict: bool) -> PdtFind {
+        let n: u64 = self.size();
+        let mut start: u64 = 0u64;
+        let mut prefix: u64 = 0u64;
+        if self.has_index() {
+            let ix: PdtBuf = self.index();
+            let r: PdtFind = ix.find_fw_class(cl, val, strict);
+            start = r.idx * PDT_INDEX_SPAN;
+            prefix = r.prefix;
+            if start > n {
+                start = n;
+            }
+        }
+        let mut i: u64 = start;
+        while i < n {
+            let incl: u64 = prefix + self.class_row_sum(cl, i);
+            let hit: bool = if strict { incl > val } else { incl >= val };
+            if hit {
+                return PdtFind { idx: i, prefix: prefix };
+            }
+            prefix = incl;
+            i = i + 1u64;
+        }
+        return PdtFind { idx: n, prefix: prefix };
+    }
+
+    /// Class-weighted rank: Σ of the weights of symbols ⟨op⟩ `sym` over rows
+    /// [0, row). C++ sum_for_rank(0, row, sym, op).
+    pub fn rank_op(self: &PdtBuf, row: u64, sym: u32, op: u32) -> u64 {
+        assert(self.ordering() == PDT_ORD_SUM,
+               "PdtBuf::rank_op: the rank/select family is SUM-only");
+        assert(row <= self.size(), "PdtBuf::rank_op: row past end");
+        let cl: PdtColClass = self.seq_class(sym, op);
+        return self.class_prefix(&cl, row);
+    }
+
+    /// Class-weighted range sum over rows [start, end)
+    /// (C++ sum_for_rank :1198-1250 — the FIXED forms; the deleted family's
+    /// versions summed the wrong column, catalogued bug #1 of wave 1).
+    pub fn sum_for_rank(self: &PdtBuf, start: u64, end: u64, sym: u32, op: u32) -> u64 {
+        assert(start <= end, "PdtBuf::sum_for_rank: inverted range");
+        return self.rank_op(end, sym, op) - self.rank_op(start, sym, op);
+    }
+
+    /// Row containing the (rank+1)-th unit of class weight — the branch step
+    /// of the select shuttle. Returns (idx, class prefix BEFORE idx);
+    /// not-found = (size, class total).
+    pub fn select_fw_op(self: &PdtBuf, rank: u64, sym: u32, op: u32) -> PdtFind {
+        assert(self.ordering() == PDT_ORD_SUM,
+               "PdtBuf::select_fw_op: the rank/select family is SUM-only");
+        let cl: PdtColClass = self.seq_class(sym, op);
+        return self.find_fw_class(&cl, rank, true);
+    }
+
+    /// select_fw_op over the residual rows [start, size), prefix rebased to
+    /// `start` — the P2 rebase identity at the class prefix.
+    pub fn select_fw_op_from(self: &PdtBuf, start: u64, rank: u64, sym: u32,
+                             op: u32) -> PdtFind {
+        assert(self.ordering() == PDT_ORD_SUM,
+               "PdtBuf::select_fw_op_from: the rank/select family is SUM-only");
+        assert(start <= self.size(), "PdtBuf::select_fw_op_from: start past end");
+        let cl: PdtColClass = self.seq_class(sym, op);
+        let p: u64 = self.class_prefix(&cl, start);
+        let r: PdtFind = self.find_fw_class(&cl, p + rank, true);
+        return PdtFind { idx: r.idx, prefix: r.prefix - p };
+    }
+
+    /// The (rank+1)-th unit of class weight counting from the END — the P2
+    /// complement identity: forward select at (total - 1 - rank). The total is
+    /// taken over the op's OWN class; the deleted C++ family took it via
+    /// rank_NEQ for gt/ge (copy-paste, catalogued bug #1 of wave 1) — here
+    /// there is no per-op total to mis-copy. Not-found (rank >= total) =
+    /// (size, total), the derived convention shared with the forward side.
+    pub fn select_bw_op(self: &PdtBuf, rank: u64, sym: u32, op: u32) -> PdtFind {
+        assert(self.ordering() == PDT_ORD_SUM,
+               "PdtBuf::select_bw_op: the rank/select family is SUM-only");
+        let cl: PdtColClass = self.seq_class(sym, op);
+        let total: u64 = self.class_prefix(&cl, self.size());
+        if rank >= total {
+            return PdtFind { idx: self.size(), prefix: total };
+        }
+        return self.find_fw_class(&cl, total - 1u64 - rank, true);
+    }
+
+    /// The shuttle's EQ_NLT: the row of the (rank+1)-th `sym` — unless a
+    /// symbol BELOW `sym` appears first, in which case that row. Returns
+    /// (idx, EQ-count strictly before idx) either way; sym == 0 degenerates
+    /// to plain EQ (nothing is below 0).
+    pub fn select_fw_eq_nlt(self: &PdtBuf, rank: u64, sym: u32) -> PdtFind {
+        let e: PdtFind = self.select_fw_op(rank, sym, PDT_SEQ_EQ);
+        if sym == 0u32 {
+            return e;
+        }
+        let l: PdtFind = self.select_fw_op(0u64, sym, PDT_SEQ_LT);
+        if l.idx < e.idx {
+            return PdtFind { idx: l.idx, prefix: self.rank_op(l.idx, sym, PDT_SEQ_EQ) };
+        }
+        return e;
+    }
+
+    /// EQ_NLT over the residual rows [start, size): both arms rebased.
+    pub fn select_fw_eq_nlt_from(self: &PdtBuf, start: u64, rank: u64,
+                                 sym: u32) -> PdtFind {
+        let e: PdtFind = self.select_fw_op_from(start, rank, sym, PDT_SEQ_EQ);
+        if sym == 0u32 {
+            return e;
+        }
+        let l: PdtFind = self.select_fw_op_from(start, 0u64, sym, PDT_SEQ_LT);
+        if l.idx < e.idx {
+            let eqp: u64 = self.rank_op(l.idx, sym, PDT_SEQ_EQ)
+                         - self.rank_op(start, sym, PDT_SEQ_EQ);
+            return PdtFind { idx: l.idx, prefix: eqp };
+        }
+        return e;
     }
 
     /// PLAN inserting `count` rows at row `at`, whose values are `vals`

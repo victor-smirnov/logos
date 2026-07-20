@@ -11062,6 +11062,7 @@ sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_remove__f__ref_PdtBuf__u64__
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_split_to__f__ref_PdtBuf__ref_PdtBuf__u64__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_update__f__ref_PdtBuf__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__prepare_update_vals__f__ref_PdtBuf__u64__u64__u32__ref_PdtVals
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__rank_op__f__ref_PdtBuf__u64__u32__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__reindex__f__refmut_PdtBuf
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__remove_rows__f__refmut_PdtBuf__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__reserve__f__refmut_PdtBuf__u64
@@ -11069,6 +11070,11 @@ sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__reserve_geom__f__refmut_PdtBuf__u64_
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__row_len__f__ref_PdtBuf__u32__u32__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__row_offset__f__ref_PdtBuf__u32__u32__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__row_span__f__ref_PdtBuf__u32__u32__u64
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__select_bw_op__f__ref_PdtBuf__u64__u32__u32
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__select_fw_eq_nlt__f__ref_PdtBuf__u64__u32
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__select_fw_eq_nlt_from__f__ref_PdtBuf__u64__u64__u32
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__select_fw_op__f__ref_PdtBuf__u64__u32__u32
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__select_fw_op_from__f__ref_PdtBuf__u64__u64__u32__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__set__f__refmut_PdtBuf__u32__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__set_row__f__refmut_PdtBuf__u64__ref_Vec$G1$u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__set_size__f__refmut_PdtBuf__u64
@@ -11076,6 +11082,7 @@ sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__size__f__ref_PdtBuf
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__split_to__f__refmut_PdtBuf__refmut_PdtBuf__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__sum__f__ref_PdtBuf__u32__u64__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__sum_all__f__ref_PdtBuf__u32
+sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__sum_for_rank__f__ref_PdtBuf__u64__u64__u32__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__sum_prefix__f__ref_PdtBuf__u32__u64
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__target_capacity__f__ref_PdtBuf__u64__u32
 sym	logos_mem..logos.mem.pkd.pdtbuf.PdtBuf__target_payload__f__ref_PdtBuf__ref_Vec$G1$u64__u32
