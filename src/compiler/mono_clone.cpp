@@ -2,6 +2,7 @@
 //
 // mono_clone.cpp — Expression/statement substitution and function/type cloning.
 
+#include <cstdio>
 #include "mono_impl.hpp"
 #include "logos/compiler/sha256.hpp"
 #include <logos/compiler/lir_mirror.hpp>
@@ -862,8 +863,19 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // length to N. Repeat the value N times by re-substituting from
             // the original source expr.
             if (src_count == 1 && elems.size() == 1 &&
-                rt_ && rt_.kind() == LogosType::Kind::Array &&
-                rt_.arr_size() > 1) {
+                rt_ && rt_.kind() == LogosType::Kind::Array) {
+                // The length MUST be bound by now. It used to be guarded on
+                // `arr_size() > 1` alone, so an unresolved length — which
+                // reports size 0 — silently emitted a ONE-element array: the
+                // fill quietly produced the wrong number of elements instead
+                // of failing.
+                if (!rt_.arr_size_var().empty()) {
+                    std::fprintf(stderr,
+                        "mono: array fill literal reached emission with an unbound "
+                        "length '%s'; it would silently produce a 1-element array.\n",
+                        std::string(rt_.arr_size_var()).c_str());
+                    std::abort();
+                }
                 uint64_t target = rt_.arr_size();
                 while (elems.size() < target)
                     elems.push_back(subst_child_expr(fill_src));

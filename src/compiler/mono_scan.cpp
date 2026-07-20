@@ -43,6 +43,14 @@ bool Mono::type_contains_error(TypeRef t, int depth) const {
     // (the "struct ''" of downstream diagnostics) — same deferred-emission class.
     if ((k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) &&
         t.struct_name().empty()) return true;
+    // An array whose length is still a NAME is unresolved residue in exactly
+    // the sense this predicate means — and the walk never descended into an
+    // array's ELEMENT either, so `[BrokenType; 4]` read as clean.
+    if (k == LogosType::Kind::Array) {
+        if (!t.arr_size_var().empty()) return true;
+        if (auto el = t.elem(); el && el != t)
+            if (type_contains_error(el, depth + 1)) return true;
+    }
     for (auto a : t.type_args())
         if (type_contains_error(a, depth + 1)) return true;
     if (auto pe = t.pointee(); pe && pe != t)
