@@ -23,23 +23,27 @@
 package logos.mem.bt.memstore;
 
 use logos.mem.pkd;               // PkdAlloc, PkdArray — the uniform slot-2 child column
+use logos.lang.panic;
 use logos.mem.bt.node;           // node_alloc/_free/_inc_rc/_dec_rc/_rc/_snapshot — the rc header
 use logos.mem.bt.map;            // trait Store, trait Snapshot — the capability contract
 use logos.mem.collections.vec;   // Vec — the directory backing (few containers → linear scan)
-
-const BRANCH_CHILD_SLOT: u32 = 2u32;   // every generated branch: slot 2 = PkdArray<u64> child refs
 
 // ── generic tree lifecycle (container-agnostic, over the uniform node shape) ──
 
 /// Recursively drops ONE structural-sharing ref to a subtree. At rc 0 the block
 /// is freed after its children are released (a branch reads slot 2 = child refs;
 /// a leaf, `level == 0`, has none). The intrusive-rc analog of an Arc drop, but
-/// container-agnostic: it needs only `(root, level)` and the uniform node shape.
+/// container-agnostic: a branch DECLARES which slot holds its children in its
+/// own header, so this walk needs only `(root, level)` and never dictates a
+/// container's branch layout.
 pub unsafe fn tree_release(root: *mut u8, level: u32) {
     if node_dec_rc(root) == 0u32 {
         if level > 0u32 {
             let a: *mut PkdAlloc = node_pkd(root);
-            let ch: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(BRANCH_CHILD_SLOT);
+            let cs: u32 = node_child_slot(root);
+            assert(cs != NODE_NO_CHILDREN,
+                   "tree_release: a branch node never declared its child slot");
+            let ch: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(cs);
             let n: u32 = (*ch).count();
             let mut i: u32 = 0u32;
             while i < n {
@@ -121,6 +125,18 @@ impl MemorySnapshot {
     /// `pkd_bytes`, stamped with this snapshot's id (the CoW skip key) and rc=1.
     pub fn node_alloc(self: &mut MemorySnapshot, pkd_bytes: u32, nslots: u32) -> *mut u8 {
         return unsafe { node_alloc(pkd_bytes, nslots, self.id) };
+    }
+
+    /// A BRANCH node: same block, plus the declaration of which slot carries
+    /// its child refs. Every branch must go through this — a branch allocated
+    /// as a plain node trips tree_release's assert rather than leaking.
+    pub fn branch_alloc(self: &mut MemorySnapshot, pkd_bytes: u32, nslots: u32,
+                        child_slot: u32) -> *mut u8 {
+        unsafe {
+            let b: *mut u8 = node_alloc(pkd_bytes, nslots, self.id);
+            node_set_child_slot(b, child_slot);
+            return b;
+        }
     }
     /// Release a node block (its children are released by the caller).
     pub fn node_free(self: &mut MemorySnapshot, h: *mut u8) { unsafe { node_free(h); } }

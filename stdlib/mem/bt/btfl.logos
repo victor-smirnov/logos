@@ -87,13 +87,14 @@ const LF_VALS: u32 = 1u32;
 const LF_SYMS: u32 = 2u32;
 const LF_SLOTS: u32 = 3u32;
 
-// Branch slots: max-key measure, per-symbol count columns, child refs.
-// Child refs MUST live in slot 2 (memstore BRANCH_CHILD_SLOT) so the
-// container-agnostic tree_release can walk any btfl tree.
+// Branch slots: the max-key measure, then the per-symbol SUM columns
+// CONTIGUOUSLY (so a symbol indexes them directly), then the child refs. The
+// count columns are no longer split around a reserved slot 2: the child slot
+// is declared in the node header, so this layout is the container's own.
 const BR_MAX:   u32 = 0u32;
 const BR_CNT0:  u32 = 1u32;
-const BR_CHILD: u32 = 2u32;
-const BR_CNT1:  u32 = 3u32;
+const BR_CNT1:  u32 = 2u32;
+const BR_CHILD: u32 = 3u32;
 const BR_SLOTS: u32 = 4u32;
 
 const BTFL_ALPHABET: u32 = 2u32;
@@ -131,10 +132,8 @@ unsafe fn br_child(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
 // Per-symbol count column view — the branch analog of the C++
 // translateLeafIndexToBranchIndex column pick (bt_select_shuttle.hpp:74).
 unsafe fn br_cnt(a: *mut PkdAlloc, sym: u64) -> *mut PkdArray<u64> {
-    if sym == 0u64 {
-        return br_cnt0(a);
-    }
-    return br_cnt1(a);
+    assert(sym < (BTFL_ALPHABET as u64), "btfl: symbol outside the alphabet");
+    return a.get::<PkdArray<u64>>(BR_CNT0 + (sym as u32));
 }
 
 // ── node creation ───────────────────────────────────────────────────────────
@@ -184,7 +183,7 @@ fn btfl_leaf_new(snap: &mut MemorySnapshot, leaf_bytes: u32) -> *mut u8 {
 /// Fresh empty branch: 4 PkdArray<u64> columns.
 fn btfl_branch_new(snap: &mut MemorySnapshot, branch_bytes: u32) -> *mut u8 {
     unsafe {
-        let node: *mut u8 = snap.node_alloc(branch_bytes, BR_SLOTS);
+        let node: *mut u8 = snap.branch_alloc(branch_bytes, BR_SLOTS, BR_CHILD);
         let a: *mut PkdAlloc = node_pkd(node);
         let mut s: u32 = 0u32;
         while s < BR_SLOTS {

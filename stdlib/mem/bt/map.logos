@@ -88,8 +88,9 @@ pub trait BtLeaf<K, VIn, VOut> {
 
 /// A branch node: `child_count()` separator/subtree-size/child-ref triples,
 /// uniformly `(K, u64, *mut u8)` regardless of what K is — every generated
-/// branch keeps its child refs in the same slot (see memstore's
-/// `BRANCH_CHILD_SLOT`), which is what lets `tree_release` stay container-agnostic.
+/// branch DECLARES which slot holds its child refs in its own node header
+/// (`node_set_child_slot`), which is what lets `tree_release` stay
+/// container-agnostic without constraining any container's branch layout.
 pub trait BtBranch<K> {
     fn adopt(mem: *mut u8) -> Self;
     fn new_in(snp: u64) -> Self;

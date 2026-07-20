@@ -1107,6 +1107,10 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 pub static fn new_in(snp: u64) -> #nm {
                     unsafe {
                         let base: *mut u8 = node_alloc(4096u32, 3u32, snp);
+                        // A BRANCH: declare where its child refs live, so the
+                        // container-agnostic tree walk needs no global slot
+                        // convention.
+                        node_set_child_slot(base, 2u32);
                         let a: *mut PkdAlloc = node_pkd(base);
                         match PkdArray::<#(kid)>::format(a, 0u32) {
                             Result::Ok(_p) => {}

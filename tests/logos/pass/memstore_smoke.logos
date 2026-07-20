@@ -3,13 +3,15 @@
 // generated container will run on, BEFORE the emitter threads through it: the
 // storage capability, the `ctr_id → root` directory, multi-container
 // fork/commit/release refcounting, and the container-AGNOSTIC recursive tree
-// release over the uniform branch shape (slot 2 = PkdArray<u64> child refs).
+// release over the uniform branch shape (a branch DECLARES its child-ref slot
+// in the node header; tree_release reads it from there).
 package test;
 
 use logos.mem.bt.memstore;   // MemoryStore, MemorySnapshot, DirEntry
 use logos.mem.bt.map;        // trait Snapshot — brings snapshot_id() into scope
-use logos.mem.bt.node;       // node_snapshot / node_rc / node_pkd — verify stamps directly
-use logos.mem.pkd;           // PkdAlloc, PkdArray — build a branch's slot-2 child column
+use logos.mem.bt.node;       // node_snapshot / node_rc / node_pkd / node_child_slot —
+                             // verify the header stamps directly
+use logos.mem.pkd;           // PkdAlloc, PkdArray — build a branch's child column
 use logos.lang.result;       // Result (format/push)
 
 fn main() -> i32 {
@@ -61,10 +63,19 @@ fn main() -> i32 {
     let mut store2: MemoryStore = MemoryStore::new();
     let mut s: MemorySnapshot = store2.fork();
     let leaf: *mut u8 = s.node_alloc(4096u32, 2u32);           // level-0 child (rc 1)
-    let br: *mut u8 = s.node_alloc(4096u32, 3u32);             // level-1 branch (rc 1)
+    let br: *mut u8 = s.branch_alloc(4096u32, 3u32, 2u32);     // level-1 branch (rc 1),
+                                                               // children declared in slot 2
+    // The header carries WHERE children live: a leaf declares nothing, a branch
+    // declares its slot. This is what lets tree_release stay container-agnostic
+    // without any container having to bend its branch layout around a global
+    // slot number.
+    unsafe {
+        if node_child_slot(leaf) != NODE_NO_CHILDREN { return 17i32; }
+        if node_child_slot(br) != 2u32 { return 18i32; }
+    }
     unsafe {
         let pa: *mut PkdAlloc = node_pkd(br);
-        match PkdArray::<u64>::format(pa, 2u32) {              // slot 2 = child refs
+        match PkdArray::<u64>::format(pa, 2u32) {              // the declared child slot
             Result::Ok(_p) => {}
             Result::Err(_e) => { return 19i32; }
         }
@@ -75,6 +86,7 @@ fn main() -> i32 {
         }
     }
     s.set_root(5u64, br, 1u32);
-    s.release();   // tree_release(br,1): dec br→0 → recurse slot 2 → tree_release(leaf,0) → free both
+    s.release();   // tree_release(br,1): dec br→0 → recurse the DECLARED child
+                   // slot → tree_release(leaf,0) → free both
     return 0i32;
 }

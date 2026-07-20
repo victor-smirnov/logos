@@ -12,13 +12,24 @@
 //                           parent pointers (across all snapshot versions) reach
 //                           this block. cow_clone bumps a shared child's rc; a
 //                           released pointer decrements it, freeing at zero.
-//   @12 pad         : u32   keeps the PkdAlloc region 8-aligned at base+16.
+//   @12 child_slot  : u32   WHICH PkdAlloc slot holds this node's child refs
+//                           (PkdArray<u64> of block addresses), or
+//                           NODE_NO_CHILDREN for a leaf. Where children live is
+//                           a property OF THE NODE, not a global convention:
+//                           carrying it here lets a container lay its branch
+//                           columns out freely while tree_release stays
+//                           container-agnostic. It also fills what was pure
+//                           padding, so the region stays 8-aligned at base+16.
 package logos.mem.bt.node;
 
 use logos.mem.pkd;          // PkdAlloc, pkd_format
 use logos.lang.mem;       // alloc, dealloc
 
 pub const NODE_HDR: i64 = 16i64;
+
+/// A node with no children — every leaf. Reading a child column off such a
+/// node is a structural error, not a silently empty walk.
+pub const NODE_NO_CHILDREN: u32 = 0xFFFFFFFFu32;
 
 /// Allocates a node block: a 16-byte header + a `pkd_bytes` PkdAlloc region of
 /// `nslots` slots. Stamps snapshot_id = `snp`, rc = 1, formats the region.
@@ -27,6 +38,7 @@ pub unsafe fn node_alloc(pkd_bytes: u32, nslots: u32, snp: u64) -> *mut u8 {
     let base: *mut u8 = alloc(NODE_HDR + (pkd_bytes as i64));
     *(base as *mut u64) = snp;                     // snapshot_id
     *(base.byte_add(8i64) as *mut u32) = 1u32;     // rc
+    *(base.byte_add(12i64) as *mut u32) = NODE_NO_CHILDREN;   // childless until declared
     let _ = pkd_format(base.byte_add(NODE_HDR), pkd_bytes, nslots);
     return base;
 }
@@ -34,6 +46,17 @@ pub unsafe fn node_alloc(pkd_bytes: u32, nslots: u32, snp: u64) -> *mut u8 {
 /// The PkdAlloc column region of a node block.
 pub unsafe fn node_pkd(base: *mut u8) -> *mut PkdAlloc {
     return base.byte_add(NODE_HDR) as *mut PkdAlloc;
+}
+
+/// Which slot holds this node's child refs (NODE_NO_CHILDREN for a leaf).
+pub unsafe fn node_child_slot(base: *mut u8) -> u32 {
+    return *(base.byte_add(12i64) as *mut u32);
+}
+
+/// Declare where this node keeps its child refs. A branch calls this once at
+/// construction; leaves never do.
+pub unsafe fn node_set_child_slot(base: *mut u8, slot: u32) {
+    *(base.byte_add(12i64) as *mut u32) = slot;
 }
 
 pub unsafe fn node_snapshot(base: *mut u8) -> u64 { return *(base as *mut u64); }
