@@ -392,6 +392,14 @@ private:
     // failed while `{ return rc_new(a); }` compiled. One helper, both callers.
     void apply_return_coercions(lir::LExprPtr& val);
 
+    // Every coercion a WRITE to a typed place performs. `let x: T = e` grew
+    // these one at a time; plain assignment, field writes and index/deref
+    // writes grew NONE, so `s.f = &arr` (f: &[T]) was a type error while
+    // `let f: &[T] = &arr` was not. Same target type, same source expression,
+    // different answer depending on the statement form.
+    // Returns true iff `rhs` was rewritten.
+    bool apply_place_coercions(lir::LExprPtr& rhs, TypeRef target);
+
     bool try_coerce_slice_to_array_ref(lir::LExprPtr& arg, TypeRef expected) {
         if (!arg || !expected) return false;
         TypeRef et(expected);

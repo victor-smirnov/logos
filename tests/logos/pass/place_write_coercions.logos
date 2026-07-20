@@ -1,0 +1,33 @@
+// A WRITE to a typed place must perform the same coercions as `let x: T = e`.
+// It used to perform NONE, so the answer depended on the STATEMENT FORM rather
+// than on the types: `let f: &[i64] = &mut a` was accepted while `s.f = &mut a`
+// with the same field type was a type error.
+//
+// Covers the three write forms that had no coercion at all: plain assignment,
+// field write, and the general place write (index / deref).
+package place_write_coercions;
+
+struct Holder { s: &mut [i64] }
+
+fn sum(x: &mut [i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < x.len() { t = t + x[i]; i = i + 1i64; }
+    return t;
+}
+
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+
+    // plain assignment: &mut [i64; 3] must decay to &mut [i64]
+    let mut sl: &mut [i64] = &mut a;
+    sl = &mut a;
+    if sum(sl) != 6i64 { return 1i32; }
+
+    // field write, same decay
+    let mut h: Holder = Holder { s: &mut a };
+    h.s = &mut a;
+    if sum(h.s) != 6i64 { return 2i32; }
+
+    return 0i32;
+}

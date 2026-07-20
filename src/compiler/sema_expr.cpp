@@ -11082,6 +11082,12 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     return false;
                 };
                 bool ft_has_typevar = ft && has_tv(ft);
+                // A field initializer is a write to a typed place, so it gets
+                // the same coercions as one. It used to get only the
+                // closure→fn-ptr rewrite, which is why `S { s: &mut arr }`
+                // with `s: &mut [T]` was a type error while the equivalent
+                // `let s: &mut [T] = &mut arr` was not.
+                if (ft && !ft_has_typevar) apply_place_coercions(fval, ft);
                 if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                     TypeRef(expr_type(fval)).kind() != LogosType::Kind::Error &&
                     !ft_has_typevar &&
@@ -11221,6 +11227,9 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             }
             it->second = true;
             auto ft = field_type_of(std::string(sname), fname);
+            // Same as the generic path above: a field initializer is a write
+            // to a typed place and gets a place write's coercions.
+            if (ft) apply_place_coercions(fval, ft);
             if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                 TypeRef(expr_type(fval)).kind() != LogosType::Kind::Error &&
                 !types_compatible(expr_type(fval), ft) &&

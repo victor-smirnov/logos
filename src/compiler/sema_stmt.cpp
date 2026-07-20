@@ -2727,6 +2727,7 @@ lir_view::StmtRef SemaChecker::lower_assign(TinyMapView node) {
         if (is_enum_lit && incomplete && target_concrete && known_args_match)
             builder().retype_expr(rhs, var_type);
     }
+    apply_place_coercions(rhs, var_type);
     if (TypeRef(var_type).kind() != LogosType::Kind::Error &&
         TypeRef(expr_type(rhs)).kind() != LogosType::Kind::Error &&
         !types_compatible(expr_type(rhs), var_type) &&
@@ -4258,6 +4259,29 @@ lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type
 // PAT_REST{NAME?} (`xs @ ..`). Composites recurse; PAT_OR descends the
 // FIRST alternative only (the nested-Or builder enforces its own
 // consistency).
+// The coercions a WRITE to a typed place performs — shared by assignment,
+// field writes and index/deref writes, and mirroring what `let x: T = e`
+// already did. Order matters and matches the let path: reborrow first (it
+// changes a `&mut` into the shape the others expect), then the rewrites, each
+// tried only while the types still disagree.
+bool SemaChecker::apply_place_coercions(lir::LExprPtr& rhs, TypeRef target) {
+    if (!rhs || !target) return false;
+    if (TypeRef(target).kind() == LogosType::Kind::Error) return false;
+    if (TypeRef(expr_type(rhs)).kind() == LogosType::Kind::Error) return false;
+    bool changed = false;
+    if (TypeRef(target).kind() == LogosType::Kind::MutRef ||
+        TypeRef(target).kind() == LogosType::Kind::Ref ||
+        TypeRef(target).kind() == LogosType::Kind::Ptr) {
+        if (try_implicit_reborrow_mut(rhs, target)) changed = true;
+    }
+    if (types_compatible(expr_type(rhs), target)) return changed;
+    if (try_struct_unsize_coerce(rhs, target))      return true;
+    if (try_coerce_array_ref_to_slice(rhs, target)) return true;
+    if (try_coerce_slice_to_array_ref(rhs, target)) return true;
+    if (try_coerce_closure_to_fnptr(rhs, target))   return true;
+    return changed;
+}
+
 // The RETURN position's coercions, shared by `return e;` and a body's implicit
 // tail expression. Splitting them was not a design choice — the tail path
 // simply never grew them, so it was strictly weaker than the explicit form for
@@ -7320,6 +7344,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_dataref_field_write(
     if (!lookup_is_mut(recv_name))
         error(std::format("field write to immutable DataRef variable '{}'", recv_name));
     lir::LExprPtr val = lower_expr(val_node);
+    apply_place_coercions(val, ft);
     if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
         !types_compatible(expr_type(val), ft)) {
         auto [es, gs] = type_str_pair(ft, expr_type(val));
@@ -7626,6 +7651,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     hint_enum_type_   = saved_enum_hint;
     hint_struct_type_ = saved_struct_hint;
 
+    if (pt) apply_place_coercions(val, pt);
     if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
         val && TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
         !types_compatible(expr_type(val), pt) &&
