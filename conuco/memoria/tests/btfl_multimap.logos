@@ -296,6 +296,182 @@ fn drive(snap: &mut MemorySnapshot, t: &mut Btfl, md: &mut Model, lcg: &mut Lcg,
     return check_full(t, md);
 }
 
+// ── P6b: bulk build ─────────────────────────────────────────────────────────
+//
+// The law that matters is EQUIVALENCE OF PATHS: a batch built in bulk and the
+// same batch inserted one entry at a time must produce trees that answer
+// every query identically and both pass btfl_check. They are not required to
+// be byte-identical — bulk fills leaves to capacity by design, where the
+// single-insert path leaves them half full after each split — so the gate
+// compares BEHAVIOUR (the full model equivalence, already written) and
+// structure VALIDITY, not layout.
+//
+// The bulk-specific properties on top of that:
+//   * the cut projection sums: keys + vals == n at every cut (the identity
+//     the whole batch path rests on);
+//   * cuts are key-aligned, so every leaf starts with a key — btfl_check
+//     enforces it, and a mis-aligned cut cannot survive;
+//   * leaves are actually FULL: with entries much smaller than a leaf, a bulk
+//     build must produce FEWER leaves than the same data inserted one by one.
+//     This is the property that makes the whole rung worth having, so it is
+//     asserted rather than assumed.
+//
+// Codes 900..949.
+
+fn p6b_stage_from_model(md: &Model) -> BtflStage {
+    let mut st: BtflStage = btfl_stage_new();
+    let n: i64 = md.mk.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let a: u64 = md.moff.get(i);
+        let b: u64 = md.moff.get(i + 1i64);
+        let mut vals: Vec<u64> = vec_new::<u64>();
+        let mut j: u64 = a;
+        while j < b {
+            vals.push(md.mv.get(j as i64));
+            j = j + 1u64;
+        }
+        st.push_entry(md.mk.get(i), &vals);
+        i = i + 1i64;
+    }
+    return st;
+}
+
+// Count the leaves of a tree by walking the leftmost spine down and then the
+// level: used to compare bulk packing against the single-insert path.
+fn p6b_leaf_count(t: &Btfl) -> u64 {
+    // Distinct leaves visited while selecting every key in order: keys are
+    // globally ordered and leaves are contiguous in that order, so a change of
+    // leaf address marks a boundary.
+    let keys: u64 = btfl_count(t, 0u64);
+    let mut leaves: u64 = 0u64;
+    let mut last: u64 = 0u64;
+    let mut seen: bool = false;
+    let mut i: u64 = 0u64;
+    while i < keys {
+        let loc: BtflLoc = btfl_select(t, 0u64, i);
+        let addr: u64 = loc.leaf as u64;
+        if !seen || addr != last {
+            leaves = leaves + 1u64;
+            last = addr;
+            seen = true;
+        }
+        i = i + 1u64;
+    }
+    return leaves;
+}
+
+fn check_bulk_build(rng: &mut Lcg, entries: u64, maxvals: u64,
+                    leaf_bytes: u32, branch_bytes: u32) -> i32 {
+    let mut snap: MemorySnapshot = MemorySnapshot::with_id(77u64);
+    let mut md: Model = model_new();
+
+    // a deterministic batch in key order
+    let mut key: u64 = 5u64;
+    let mut e: u64 = 0u64;
+    while e < entries {
+        let m: u64 = rng.next() % (maxvals + 1u64);
+        let mut vals: Vec<u64> = vec_new::<u64>();
+        let mut j: u64 = 0u64;
+        while j < m {
+            vals.push(key * 1000u64 + j);
+            j = j + 1u64;
+        }
+        model_insert(&mut md, key, &vals);
+        key = key + 1u64 + (rng.next() % 7u64);
+        e = e + 1u64;
+    }
+
+    // ── the cut projection identity, at every cut length ──────────────────
+    let st: BtflStage = p6b_stage_from_model(&md);
+    if st.entries() != (md.mk.len() as u64) {
+        return 900i32;
+    }
+    let total: u64 = st.size();
+    let mut n: u64 = 0u64;
+    while n <= total {
+        let c: BtflCut = btfl_cut(&st, 0u64, n);
+        if c.keys + c.vals != n {
+            return 901i32;
+        }
+        n = n + 1u64;
+    }
+    // ...and from a non-zero origin, where the rebase is what could go wrong
+    let mid: u64 = total / 2u64;
+    let mut n2: u64 = 0u64;
+    while n2 <= total - mid {
+        let c2: BtflCut = btfl_cut(&st, mid, n2);
+        if c2.keys + c2.vals != n2 {
+            return 902i32;
+        }
+        n2 = n2 + 1u64;
+    }
+
+    // ── bulk build vs the single-insert path ──────────────────────────────
+    let tb: Btfl = btfl_bulk_build(&mut snap, &st, leaf_bytes, branch_bytes);
+    if !btfl_check(&tb) {
+        return 903i32;
+    }
+    let rcb: i32 = check_full(&tb, &md);
+    if rcb != 0i32 {
+        btfl_drop(&tb);
+        return 900i32 + rcb;
+    }
+
+    let mut ts: Btfl = btfl_create(&mut snap, leaf_bytes, branch_bytes);
+    let ni: i64 = md.mk.len();
+    let mut q: i64 = 0i64;
+    while q < ni {
+        let a: u64 = md.moff.get(q);
+        let b: u64 = md.moff.get(q + 1i64);
+        let mut vals: Vec<u64> = vec_new::<u64>();
+        let mut w: u64 = a;
+        while w < b {
+            vals.push(md.mv.get(w as i64));
+            w = w + 1u64;
+        }
+        if !btfl_insert(&mut snap, &mut ts, md.mk.get(q), &vals) {
+            btfl_drop(&tb);
+            btfl_drop(&ts);
+            return 904i32;
+        }
+        q = q + 1i64;
+    }
+    if !btfl_check(&ts) {
+        btfl_drop(&tb);
+        btfl_drop(&ts);
+        return 905i32;
+    }
+
+    // both paths answer identically (the model check already ran on each)
+    let rcs: i32 = check_full(&ts, &md);
+    if rcs != 0i32 {
+        btfl_drop(&tb);
+        btfl_drop(&ts);
+        return 940i32 + rcs;
+    }
+
+    // ── packing: bulk must not use MORE leaves than one-by-one ────────────
+    let lb: u64 = p6b_leaf_count(&tb);
+    let ls: u64 = p6b_leaf_count(&ts);
+    if lb > ls {
+        btfl_drop(&tb);
+        btfl_drop(&ts);
+        return 906i32;
+    }
+    // with many entries per leaf, bulk packing must be STRICTLY better —
+    // otherwise the fill is not filling and the rung buys nothing.
+    if ls > 2u64 && lb >= ls {
+        btfl_drop(&tb);
+        btfl_drop(&ts);
+        return 907i32;
+    }
+
+    btfl_drop(&tb);
+    btfl_drop(&ts);
+    return 0i32;
+}
+
 fn run_all() -> i32 {
     let mut snap: MemorySnapshot = MemorySnapshot::with_id(1u64);
 
@@ -376,6 +552,35 @@ fn run_all() -> i32 {
             return 78i32;
         }
         btfl_drop(&t);
+    }
+
+    // ── 900..949: P6b bulk build ──
+    {
+        let mut brng: Lcg = Lcg { s: 0x94D049BB133111EBu64 };
+        // the corner first: one entry, no values
+        let r0: i32 = check_bulk_build(&mut brng, 1u64, 0u64, 4096u32, 4096u32);
+        if r0 != 0i32 {
+            return r0;
+        }
+        let r1: i32 = check_bulk_build(&mut brng, 40u64, 3u64, 512u32, 512u32);
+        if r1 != 0i32 {
+            return r1;
+        }
+        let r2: i32 = check_bulk_build(&mut brng, 120u64, 6u64, 512u32, 320u32);
+        if r2 != 0i32 {
+            return r2;
+        }
+        let r3: i32 = check_bulk_build(&mut brng, 300u64, 2u64, 640u32, 512u32);
+        if r3 != 0i32 {
+            return r3;
+        }
+        // a tail entry longer than half the leaf's remaining room — the shape
+        // that a bisection over raw positions (rather than entry count) gets
+        // wrong, because the fit predicate is not monotone there.
+        let r4: i32 = check_bulk_build(&mut brng, 6u64, 20u64, 512u32, 512u32);
+        if r4 != 0i32 {
+            return r4;
+        }
     }
 
     return 0i32;

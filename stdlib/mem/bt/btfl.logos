@@ -863,6 +863,327 @@ pub fn btfl_insert(snap: &mut MemorySnapshot, t: &mut Btfl, key: u64, vals: &Vec
     }
 }
 
+// ── P6b: bulk build ─────────────────────────────────────────────────────────
+//
+// C++ shape (btfl_batch_input_provider.hpp:263-272 + :449-511): stage the
+// input, then fill each leaf by bisecting in SYMBOL space and projecting the
+// cut into per-stream row counts with
+//
+//     rank(idx) = symbols.rank_to(start.sum() + idx) - start
+//
+// THE PROJECTION IS THE IDEA, and it is what generalizes: a cut at structure
+// position n becomes "how many rows of each stream" by ranking the symbol
+// sequence, and the counts sum to n by construction. No arithmetic split of
+// the streams can do this — they interleave arbitrarily, and only the symbol
+// sequence knows how.
+//
+// THREE DERIVED DEPARTURES from the C++, each with its reason:
+//
+//   1. The stage keeps an ENTRY INDEX, not a packed symbol sequence. C++
+//      stages into an IOSSRLEBuffer because its producer streams runs; ours is
+//      built from whole entries, and for an entry-built batch the index IS the
+//      symbol sequence in closed form: entry i starts at starts[i], so
+//      rank(p, KEY) is a binary search, rank(p, VAL) is p minus that, access
+//      is "is p a start", and select is starts[k] outright. Packing the stage
+//      would buy nothing — leaves re-encode the runs on insert anyway — while
+//      costing a size guess (block_size takes CODE UNITS, not symbols) and a
+//      growth path for a block that has no parent allocator to grow through.
+//
+//   2. The fill bisects over a CONST pricing probe and commits ONCE (the P6a
+//      discipline), where the C++ commits every successful probe.
+//
+//   3. Cuts are KEY-ALIGNED. A cut landing inside a value run would leave a
+//      leaf whose first symbol is a value, breaking the v0 invariant that
+//      every leaf starts with a key — which btfl_check enforces, so bulk
+//      output stays shape-identical to what repeated single inserts produce.
+
+/// A staged batch: entries in key order, held as the two data streams flat
+/// plus the entry index that stands in for the symbol sequence.
+pub struct BtflStage {
+    pub keys: Vec<u64>,     // entry keys, strictly increasing
+    pub vals: Vec<u64>,     // every value, entry-major
+    pub starts: Vec<u64>,   // structure position where entry i begins
+    total: u64,             // structure positions staged
+}
+
+pub fn btfl_stage_new() -> BtflStage {
+    return BtflStage {
+        keys: vec_new::<u64>(),
+        vals: vec_new::<u64>(),
+        starts: vec_new::<u64>(),
+        total: 0u64,
+    };
+}
+
+impl BtflStage {
+    /// Append one entry: its key, then its values. Keys must arrive strictly
+    /// increasing — the same contract single inserts hold, checked here so a
+    /// bad producer fails at staging instead of as a corrupt tree.
+    pub fn push_entry(self: &mut BtflStage, key: u64, vals: &Vec<u64>) {
+        let n: i64 = self.keys.length();
+        if n > 0i64 {
+            assert(key > self.keys.get(n - 1i64),
+                   "BtflStage::push_entry: keys must arrive strictly increasing");
+        }
+        self.starts.push(self.total);
+        self.keys.push(key);
+        let m: i64 = vals.length();
+        let mut j: i64 = 0i64;
+        while j < m {
+            self.vals.push(vals.get(j));
+            j = j + 1i64;
+        }
+        self.total = self.total + 1u64 + (m as u64);
+    }
+
+    /// Structure positions staged (keys + values).
+    pub fn size(self: &BtflStage) -> u64 {
+        return self.total;
+    }
+
+    /// Entries staged.
+    pub fn entries(self: &BtflStage) -> u64 {
+        return self.keys.length() as u64;
+    }
+
+    // rank of KEY symbols over [0, p): the number of entry starts below p.
+    // Binary search over `starts`, which is strictly increasing.
+    fn rank_key(self: &BtflStage, p: u64) -> u64 {
+        let mut lo: i64 = 0i64;
+        let mut hi: i64 = self.starts.length();
+        while lo < hi {
+            let mid: i64 = lo + (hi - lo) / 2i64;
+            if self.starts.get(mid) < p {
+                lo = mid + 1i64;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo as u64;
+    }
+
+    // rank of VALUE symbols over [0, p) — the complement, by construction.
+    fn rank_val(self: &BtflStage, p: u64) -> u64 {
+        return p - self.rank_key(p);
+    }
+
+    // Is structure position p a key symbol?
+    fn is_key_at(self: &BtflStage, p: u64) -> bool {
+        let k: u64 = self.rank_key(p);
+        if k >= (self.starts.length() as u64) {
+            return false;
+        }
+        return self.starts.get(k as i64) == p;
+    }
+}
+
+/// The RANK PROJECTION of a cut: per-stream row counts for the `n` structure
+/// positions starting at `from`, and where those rows begin in each stream.
+/// `keys + vals == n` by construction — the property the batch path rests on.
+pub struct BtflCut {
+    pub keys: u64,
+    pub vals: u64,
+    pub key_at: u64,
+    pub val_at: u64,
+}
+
+pub fn btfl_cut(st: &BtflStage, from: u64, n: u64) -> BtflCut {
+    let k0: u64 = st.rank_key(from);
+    let v0: u64 = st.rank_val(from);
+    return BtflCut {
+        keys: st.rank_key(from + n) - k0,
+        vals: st.rank_val(from + n) - v0,
+        key_at: k0,
+        val_at: v0,
+    };
+}
+
+// Align a cut DOWN to a whole number of entries: the length that ends exactly
+// before an entry start (or at the end of the batch). 0 when not even one
+// whole entry fits.
+// Structure length of the first `e` staged entries starting at `from`.
+// `from` is always an entry start, so this is exact: a cut is named by how
+// many WHOLE entries it takes, never by a raw position.
+fn btfl_entry_span(st: &BtflStage, e0: u64, e: u64) -> u64 {
+    let from: u64 = st.starts.get(e0 as i64);
+    if e0 + e >= st.entries() {
+        return st.size() - from;
+    }
+    return st.starts.get((e0 + e) as i64) - from;
+}
+
+// Would a cut of `n` structure positions starting at `from` fit an EMPTY
+// leaf? Priced, never attempted: the bisection asks this many times, and an
+// attempted-and-rolled-back insert would be exactly the copy traffic the
+// exact-prepare discipline exists to remove.
+unsafe fn btfl_cut_fits(st: &BtflStage, from: u64, n: u64, leaf: *mut u8) -> bool {
+    let c: BtflCut = btfl_cut(st, from, n);
+    let a: *mut PkdAlloc = node_pkd(leaf);
+    let ka: *mut PkdArray<u64> = lf_keys(a);
+    let va: *mut PkdArray<u64> = lf_vals(a);
+    let seq: PkdSsrle = lf_seq(a);
+    let syms: Vec<u64> = btfl_cut_symbols(st, from, n);
+    let runs: Vec<SsrleRun> = ssrle_runs_from_symbols(seq.bps(), &syms);
+    let us: SsrleUpdate = seq.plan_insert(0u64, &runs);
+    let keys_cur: u32 = a.element_size(LF_KEYS);
+    let vals_cur: u32 = a.element_size(LF_VALS);
+    let syms_cur: u32 = a.element_size(LF_SYMS);
+    let mut keys_need: u32 = keys_cur;
+    if c.keys > 0u64 {
+        keys_need = ka.estimate_insert(0u32) + (((c.keys - 1u64) * 8u64) as u32);
+    }
+    let mut vals_need: u32 = vals_cur;
+    if c.vals > 0u64 {
+        vals_need = va.estimate_insert(0u32) + (((c.vals - 1u64) * 8u64) as u32);
+    }
+    let mut delta: u32 = 0u32;
+    if keys_need > keys_cur {
+        delta = delta + (keys_need - keys_cur);
+    }
+    if vals_need > vals_cur {
+        delta = delta + (vals_need - vals_cur);
+    }
+    if us.block_size > syms_cur {
+        delta = delta + (us.block_size - syms_cur);
+    }
+    return delta <= a.free_space();
+}
+
+// The symbol run of a cut, materialized from the entry index.
+fn btfl_cut_symbols(st: &BtflStage, from: u64, n: u64) -> Vec<u64> {
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    let mut p: u64 = from;
+    while p < from + n {
+        if st.is_key_at(p) {
+            syms.push(0u64);
+        } else {
+            syms.push(1u64);
+        }
+        p = p + 1u64;
+    }
+    return syms;
+}
+
+// Fill an EMPTY leaf with the largest key-aligned prefix of the staged rows
+// that fits. Returns the structure positions consumed; 0 means not even one
+// entry fits, which is the caller's error to report.
+unsafe fn btfl_fill_leaf(st: &BtflStage, from: u64, leaf: *mut u8) -> u64 {
+    let remaining: u64 = st.size() - from;
+    if remaining == 0u64 {
+        return 0u64;
+    }
+    // BISECT OVER ENTRY COUNT, never over structure positions. `fits` is
+    // monotone in entries — e entries fit ⇒ e-1 entries fit — so bisection is
+    // valid. Over raw positions it is NOT: a position below the first entry's
+    // length aligns to a zero-length cut and reads as "does not fit", so the
+    // predicate is false-then-true-then-false and the search collapses to 0
+    // exactly when the tail holds one entry longer than half of it.
+    let e0: u64 = st.rank_key(from + 1u64) - 1u64;
+    let mut lo: u64 = 0u64;
+    let mut hi: u64 = st.entries() - e0;
+    while lo < hi {
+        let mid: u64 = lo + (hi - lo + 1u64) / 2u64;
+        let span: u64 = btfl_entry_span(st, e0, mid);
+        if btfl_cut_fits(st, from, span, leaf) {
+            lo = mid;
+        } else {
+            hi = mid - 1u64;
+        }
+    }
+    if lo == 0u64 {
+        return 0u64;
+    }
+    let take: u64 = btfl_entry_span(st, e0, lo);
+    let c: BtflCut = btfl_cut(st, from, take);
+    let a: *mut PkdAlloc = node_pkd(leaf);
+    let mut i: u64 = 0u64;
+    while i < c.keys {
+        match lf_keys(a).insert(i as u32, &(st.keys.get((c.key_at + i) as i64))) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl_fill_leaf: priced keys insert failed");
+            }
+        }
+        i = i + 1u64;
+    }
+    let mut j: u64 = 0u64;
+    while j < c.vals {
+        match lf_vals(a).insert(j as u32, &(st.vals.get((c.val_at + j) as i64))) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl_fill_leaf: priced vals insert failed");
+            }
+        }
+        j = j + 1u64;
+    }
+    let syms: Vec<u64> = btfl_cut_symbols(st, from, take);
+    let mut seq2: PkdSsrle = lf_seq(a);
+    match seq2.insert_symbols(0u64, &syms) {
+        Result::Ok(_u) => {}
+        Result::Err(_e) => {
+            assert(false, "btfl_fill_leaf: priced symbol insert failed");
+        }
+    }
+    return take;
+}
+
+/// Build a whole tree from a staged batch, bottom-up: leaves filled by the
+/// aligned bisection above, then branch levels over them until one node
+/// remains. Every leaf but the last is filled to capacity — which is what a
+/// bulk build is FOR: the single-insert path leaves nodes half full after each
+/// split, and replaying a batch through it would too.
+pub fn btfl_bulk_build(snap: &mut MemorySnapshot, st: &BtflStage,
+                       leaf_bytes: u32, branch_bytes: u32) -> Btfl {
+    unsafe {
+        if st.size() == 0u64 {
+            return btfl_create(snap, leaf_bytes, branch_bytes);
+        }
+        let mut nodes: Vec<u64> = vec_new::<u64>();
+        let mut consumed: u64 = 0u64;
+        while consumed < st.size() {
+            let leaf: *mut u8 = btfl_leaf_new(snap, leaf_bytes);
+            let took: u64 = btfl_fill_leaf(st, consumed, leaf);
+            assert(took > 0u64,
+                   "btfl_bulk_build: one entry does not fit a leaf (spanning entries land in 8a2)");
+            nodes.push(leaf as u64);
+            consumed = consumed + took;
+        }
+        let mut level: u32 = 0u32;
+        while nodes.length() > 1i64 {
+            let mut parents: Vec<u64> = vec_new::<u64>();
+            let mut cur: *mut u8 = btfl_branch_new(snap, branch_bytes);
+            let mut cur_n: u32 = 0u32;
+            let mut idx: i64 = 0i64;
+            while idx < nodes.length() {
+                let child: *mut u8 = nodes.get(idx) as *mut u8;
+                let sm: BtflInsRet = if level == 0u32 {
+                    leaf_summary(child, false, child)
+                } else {
+                    branch_summary(child, false, child)
+                };
+                if cur_n > 0u32 && !btfl_branch_fits_one(node_pkd(cur)) {
+                    parents.push(cur as u64);
+                    cur = btfl_branch_new(snap, branch_bytes);
+                    cur_n = 0u32;
+                }
+                btfl_branch_insert_child(node_pkd(cur), cur_n, sm.lmax, sm.lc0,
+                                         sm.lc1, child as u64);
+                cur_n = cur_n + 1u32;
+                idx = idx + 1i64;
+            }
+            parents.push(cur as u64);
+            nodes = parents;
+            level = level + 1u32;
+        }
+        return Btfl {
+            root: nodes.get(0i64) as *mut u8,
+            level: level,
+            leaf_bytes: leaf_bytes,
+            branch_bytes: branch_bytes,
+        };
+    }
+}
+
 // ── structural self-check (the btfl_c_checks mirror) ────────────────────────
 
 struct ChkRes {
