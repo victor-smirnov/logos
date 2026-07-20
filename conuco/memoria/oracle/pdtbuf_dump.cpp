@@ -1027,54 +1027,26 @@ void dump_mutation_case(size_t rows, uint64_t seed)
 }
 
 
-// ── marker 5 + 6: THE VARIABLE-LENGTH DIMENSION (rung P4) ───────────────────
+// ── marker 5: THE VARIABLE-LENGTH DIMENSION (rung P4) ───────────────────────
 //
 // `PackedDataTypeBufferT<Varchar, false, C, DTOrdering::UNORDERED>` — the VLE
 // half of the family (PDTDimension<Span<T0>,…>, vle_tools.hpp), Width 2:
 // a payload block plus a psize_t offsets table.
 //
-// MARKER 5 (behavioural, trustworthy). A scripted sequence of insert / remove /
-// split / merge and SINGLE-ROW update, self-checked at every step against a
-// naive vector<vector<string>> model. Emitted only if HEAD agrees with the
-// model, so these fixtures pin the paths where HEAD is right.
-//
-// MARKER 6 (divergence, DELIBERATE). Multi-row updates, which HEAD gets WRONG —
-// upstream defect #28, found at this rung and reduced to a two-row minimum:
-//
-//   do_commit_update_var_max (so.hpp:1050-1084) corrects only the AGGREGATE
-//   length of the updated range, via resize_block(row_at, size, Sum of the new
-//   lengths), and then writes the rows through replace_row (vle_tools.hpp:320),
-//   which memcpy's value.length() bytes at offsets[idx] and NEVER assigns
-//   offsets[idx + 1]. The interior row boundaries of the range therefore keep
-//   their OLD positions: every row of a multi-row update but the first reads
-//   back truncated or padded, and the unbounded memcpy overruns the neighbour
-//   it no longer fits beside. A minimal case, with no length change at all:
-//
-//       start   = ["aaa", "bbbb", ...]
-//       update rows [0,2) with ["bbbb", "aaa"]
-//       HEAD    -> ["bbb", "aaab", ...]        (boundary still after 3 bytes)
-//       correct -> ["bbbb", "aaa",  ...]
-//
-//   REACHABLE through the public commit_update on the ONLY dispatcher arm a
-//   VARIABLE datatype has (:249; the SUM/VARIABLE arm is excluded by the
-//   static_assert at :349). Silent data corruption, and in a longer randomized
-//   run the payload damage compounds until the process dies.
-//
-//   Restricting the randomized sequence above to single-row updates makes 24
-//   sequences x 60 steps over columns 1..4 pass with ZERO self-check failures,
-//   which is what isolates the defect to this one path.
-//
-// The Logos gate asserts our answers equal the MODEL and differ from HEAD in
-// exactly the recorded way, so an upstream fix reports itself.
+// MARKER 5 (behavioural, trustworthy) is the ONLY marker this rung emits. It
+// carries the final state of a scripted insert / SINGLE-ROW update / remove
+// sequence, self-checked at every step against a naive
+// vector<vector<string>> model and emitted only where HEAD agreed with it —
+// so these fixtures pin the variable-length paths where HEAD is RIGHT.
 //
 //   5 <columns> <rows>
 //     <len> <bytes ...>            x rows*columns, ROW-MAJOR
 //
-//   6 <columns> <rows> <at> <count>
-//     <len> <bytes ...>            x rows*columns   the START corpus
-//     <len> <bytes ...>            x count*columns  the REPLACEMENTS
-//     <len> <bytes ...>            x rows*columns   HEAD's WRONG result
-//     <n_agree>                    rows HEAD still happens to get right
+// There is deliberately NO marker 6. Multi-row updates are upstream defect
+// #28, and emitting HEAD's answer for them would mean reading back a block
+// HEAD has already corrupted; see the full write-up under "WHY THERE IS NO
+// MARKER 6" below, at the end of this section. The divergence is pinned on the
+// Logos side instead — tests/pdtbuf_core.logos section 1340.
 
 template <size_t Columns>
 using VleBufSO = typename PackedDataTypeBufferT<Varchar, false, Columns,

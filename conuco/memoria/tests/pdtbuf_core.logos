@@ -64,6 +64,25 @@
 //               growing inside a paid-for capacity must cost ZERO)
 //  219..224 P3: incremental-vs-full reindex parity (GAP (a)), depths 1..3
 //  225..239 P3: randomized mutation sequences across the threshold band
+//  1000..1160 P3: the mutation law sweep, bases spaced by TEN
+//  1200..1219 P4: VLE geometry — the DERIVED payload capacity, the pricing
+//               fixed point, the slot formula at width 2, descriptor
+//               round-trip including dimension kinds
+//  1220..1279 P4: the mutation law sweep over variable-length rows —
+//               insert 1220, update GROWING 1230, update SHRINKING 1240,
+//               remove 1250, merge 1260, split 1270. Within each base:
+//               +0 prepared != consumed, +1 check(), +2 model equivalence,
+//               +3 the offsets contract re-derived from the model,
+//               +4 index-free (SUM => FIXED, observed)
+//  1280..1289 P4: round-trip byte identity over the ADDRESSABLE content —
+//               remove(insert(x)) == x, merge(split(x, k)) == x for every k
+//  1290..1299 P4: the capacity policy extended to the PAYLOAD (KEEP is free
+//               in both directions, EXACT hands bytes back)
+//  1300..1309 P4: SUM => FIXED and the ordered-key law, as runtime laws
+//  1310..1319 P4: corners — empty spans, size 0, capacity 0, mixed
+//  1320..1329 P4: randomized mixed sequences, both policies
+//  1330..1339 P4: the C++ HEAD variable-length cross-check (marker 5)
+//  1340..1349 P4: upstream defect #28 pinned as a DIVERGENCE
 package test;
 
 use logos.mem.pkd.pdtbuf;
