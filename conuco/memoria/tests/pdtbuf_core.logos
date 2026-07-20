@@ -5422,7 +5422,14 @@ fn check_vle_sequences(cols: u32, shape: u32, policy: u32, steps: i64, seed: &mu
     let mut m: VModel = vm_random(cols, vle, fse, 4u64, 6u64, seed);
     // Headroom for the largest state the walk can reach.
     let cap_rows: u64 = 40u64;
-    let blk: u32 = pdtbuf_compute_block_size(&d, cap_rows, &vle_pay_flat(&d, 4096u64));
+    // BOUND to a local, not passed as `&vle_pay_flat(...)`. A Vec temporary
+    // created in ARGUMENT position is not dropped at the end of the statement
+    // the way Rust would drop it, so the inline form leaks one allocation per
+    // call — 24 blocks / 1536 bytes across this sweep, which is what the
+    // valgrind gate caught. Recorded as a compiler divergence in the P4
+    // handoff; the gate does not work around it silently.
+    let pay: Vec<u64> = vle_pay_flat(&d, 4096u64);
+    let blk: u32 = pdtbuf_compute_block_size(&d, cap_rows, &pay);
 
     unsafe {
         let mem: *mut u8 = alloc(blk as i64);
