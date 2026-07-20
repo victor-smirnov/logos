@@ -3874,6 +3874,885 @@ fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) 
 
 // ── driver ─────────────────────────────────────────────────────────────────
 
+// ════ P4: THE VARIABLE-LENGTH DIMENSION ═════════════════════════════════════
+//
+// What changes at this rung is that a row no longer has a fixed footprint, so
+// the two quantities P0..P3 could keep apart — how many rows a block holds and
+// how many bytes they occupy — stop moving together. The exact-prepare law
+// still has to hold byte for byte, and it is the whole point of the rung that
+// it does so WITHOUT storing the payload geometry anywhere:
+//
+//   payload CAPACITY = element_size(the payload block)     — the allocator's
+//   payload USED     = offsets[size]                       — the block's own
+//
+// Both are already in the block, so `check()` and `consumed_bytes()` read the
+// ACTUAL geometry back, while `pdtbuf_compute_block_size(descr, capacity,
+// payload[])` prices a HYPOTHETICAL one (a prepare must price a state that
+// does not exist yet). Storing a payload capacity would duplicate a fact the
+// allocator already owns and open a drift surface between the two copies; the
+// asymmetry with the FSE row `capacity`, which IS stored, is principled —
+// recovering it as block_bytes/elem_size loses information whenever elem_size
+// does not divide the 8-byte granule (that is upstream defect #25), whereas
+// bytes-to-bytes is the identity.
+//
+// ── WHAT THIS SECTION ASSERTS ──────────────────────────────────────────────
+// The five conjuncts of `assert_vle_mutation`, after EVERY mutation:
+//   +0  prepared == consumed, exactly. The +-8 mis-pricing probes trip this.
+//   +1  check() == 0 — slot geometry, the offsets contract, consumed == priced.
+//   +2  the buffer equals the INDEPENDENT model, cell for cell and byte for
+//       byte, over every column and every VLE dimension.
+//   +3  the offsets invariants re-derived FROM THE MODEL rather than from the
+//       block: offs[0] == 0, monotone, offs[size] == payload_used, and every
+//       row length equal to the model's. check() proves the block is
+//       self-consistent; this proves it agrees with an outside account. The
+//       two could otherwise share a wrong assumption — the same reason P3
+//       keeps index parity alongside check().
+//   +4  the buffer is index-FREE. Not a coincidence to be observed but the
+//       SUM => FIXED law showing its face at every mutation: a variable-length
+//       dimension has no accumulation, so no VLE buffer can be SUM-ordered,
+//       so none can carry a span index (C++ static_assert so.hpp:349, which we
+//       make a runtime law with a diagnostic at pdt_assert_descr).
+//
+// Bases are spaced by TEN, five more than the conjunct count. The original
+// "244 pricing bug" of the lost session was an artifact of bases spaced ONE
+// apart: three distinct failures all printed as 244 and a whole session went
+// into a pricing path that was exact the entire time.
+//
+// ── SHAPE ──────────────────────────────────────────────────────────────────
+// Three descriptor shapes run through every sweep, and the MIXED one is the
+// normal case, not a variant:
+//   * VLE-only          [VLE(1)]                    UNORDERED
+//   * mixed FSE + VLE   [FSE(8), VLE(1)]            MAX
+//   * two VLE dims      [FSE(8), VLE(1), VLE(2)]    MAX
+// The third carries elem_size 2 on its second payload, which is what exercises
+// the "row length is a whole number of payload elements" law (check() code 22)
+// and keeps `vle_dim_count() > 1` off the degenerate path — the payload
+// geometry is a VECTOR indexed by (column, VLE ordinal), and a gate that only
+// ever ran one VLE dimension could not tell that vector from a scalar.
+// Columns run 1..4 throughout, with the >=3-column canary carried from P0.
+
+// ── the independent variable-length model ──────────────────────────────────
+//
+// OWNERSHIP, and it is by construction rather than by repair. Three FLAT Vecs,
+// nothing nested, exactly the shape of the `Model` above — which the P3 gate
+// runs at 124388 allocations with valgrind clean, so the shape is not merely
+// argued but evidenced. The lost gate's model held per-row containers and
+// pushed a fresh one per operation; that run recorded 6356 errors and
+// 1,587,944 bytes definitely lost in 4800 blocks, ALL of it test-side, none of
+// it in the module. A Vec of Vecs is the trap: the outer drop does not run the
+// inner ones. So there is no such type here, and no helper allocates anything
+// that outlives the statement it appears in.
+//
+//   cells[r * cols + c]                 the FSE dimension-0 value
+//   lens [(r * cols + c) * vle + o]     the length of VLE dimension o
+//   bytes                               every payload, concatenated in
+//                                       (row, column, ordinal) order
+//
+// The byte order is (row, column) — ROW-major — while the block stores each
+// column's payload contiguously, COLUMN-major. The model is therefore not a
+// re-spelling of the layout it checks: recovering a row means prefix-summing
+// the lengths, which is the definition of an offsets table rather than a copy
+// of one.
+struct VModel {
+    cols: u32,
+    vle: u32,
+    fse: bool,
+    rows: u64,
+    cells: Vec<u64>,
+    lens: Vec<u64>,
+    bytes: Vec<u8>,
+}
+
+fn vm_new(cols: u32, vle: u32, fse: bool) -> VModel {
+    return VModel {
+        cols: cols,
+        vle: vle,
+        fse: fse,
+        rows: 0u64,
+        cells: vec_new::<u64>(),
+        lens: vec_new::<u64>(),
+        bytes: vec_new::<u8>(),
+    };
+}
+
+/// Slot of (row, column, ordinal) in `lens` — the same indexing
+/// `pdt_vals_span_slot` uses, so the model and the carrier agree by
+/// construction rather than by a conversion that could be got wrong.
+fn vm_slot(m: &VModel, r: u64, c: u32, o: u32) -> i64 {
+    return (((r as i64) * (m.cols as i64)) + (c as i64)) * (m.vle as i64) + (o as i64);
+}
+
+fn vm_len(m: &VModel, r: u64, c: u32, o: u32) -> u64 {
+    return m.lens.get(vm_slot(m, r, c, o));
+}
+
+/// Byte offset of span `k` in `bytes` — the prefix of the lengths. O(k), which
+/// is why the sweeps below stay at corpus sizes where that is free; the deep
+/// sizes are covered by the FSE rungs, and nothing about the VLE laws is
+/// size-dependent past the second index level.
+fn vm_off(m: &VModel, k: i64) -> i64 {
+    let mut off: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < k {
+        off = off + (m.lens.get(i) as i64);
+        i = i + 1i64;
+    }
+    return off;
+}
+
+fn vm_cell(m: &VModel, r: u64, c: u32) -> u64 {
+    return m.cells.get((r as i64) * (m.cols as i64) + (c as i64));
+}
+
+/// Append one row, drawing its content from `seed`. Pushes straight into the
+/// model's own Vecs — there is no temporary row object, which is exactly the
+/// allocation the lost gate leaked once per operation.
+fn vm_gen_row(m: &mut VModel, maxlen: u64, seed: &mut u64) {
+    let mut c: u32 = 0u32;
+    while c < m.cols {
+        if m.fse {
+            m.cells.push(lcg_next(seed) % 23u64);
+        }
+        let mut o: u32 = 0u32;
+        while o < m.vle {
+            // elem_size of VLE ordinal o is 1 for the first, 2 for the second
+            // (see descr_vle_shape) — the length must be a whole number of
+            // elements, and the model is where that is decided.
+            let unit: u64 = vm_unit(o);
+            let n: u64 = (lcg_next(seed) % (maxlen + 1u64)) * unit;
+            m.lens.push(n);
+            let mut i: u64 = 0u64;
+            while i < n {
+                m.bytes.push((97u64 + (lcg_next(seed) % 26u64)) as u8);
+                i = i + 1u64;
+            }
+            o = o + 1u32;
+        }
+        c = c + 1u32;
+    }
+    m.rows = m.rows + 1u64;
+}
+
+/// The payload element size of VLE ordinal `o`. One place, so the model and
+/// the descriptor cannot disagree about it.
+fn vm_unit(o: u32) -> u32 {
+    if o == 1u32 {
+        return 2u32;
+    }
+    return 1u32;
+}
+
+fn vm_random(cols: u32, vle: u32, fse: bool, rows: u64, maxlen: u64, seed: &mut u64)
+    -> VModel {
+    let mut m: VModel = vm_new(cols, vle, fse);
+    let mut r: u64 = 0u64;
+    while r < rows {
+        vm_gen_row(&mut m, maxlen, seed);
+        r = r + 1u64;
+    }
+    return m;
+}
+
+/// Copy row `r` of `src` onto the end of `dst`. The single primitive every
+/// model operation below is built from — insert, update, remove, concat and
+/// the split halves are all "copy these rows, in this order", which is what
+/// makes them obviously right by inspection.
+fn vm_copy_row(dst: &mut VModel, src: &VModel, r: u64) {
+    let mut c: u32 = 0u32;
+    while c < src.cols {
+        if src.fse {
+            dst.cells.push(vm_cell(src, r, c));
+        }
+        let mut o: u32 = 0u32;
+        while o < src.vle {
+            let k: i64 = vm_slot(src, r, c, o);
+            let n: u64 = src.lens.get(k);
+            dst.lens.push(n);
+            let off: i64 = vm_off(src, k);
+            let mut i: i64 = 0i64;
+            while i < (n as i64) {
+                dst.bytes.push(src.bytes.get(off + i));
+                i = i + 1i64;
+            }
+            o = o + 1u32;
+        }
+        c = c + 1u32;
+    }
+    dst.rows = dst.rows + 1u64;
+}
+
+fn vm_rows_range(dst: &mut VModel, src: &VModel, a: u64, b: u64) {
+    let mut r: u64 = a;
+    while r < b {
+        vm_copy_row(dst, src, r);
+        r = r + 1u64;
+    }
+}
+
+fn vm_insert(m: &VModel, at: u64, ins: &VModel) -> VModel {
+    let mut out: VModel = vm_new(m.cols, m.vle, m.fse);
+    vm_rows_range(&mut out, m, 0u64, at);
+    vm_rows_range(&mut out, ins, 0u64, ins.rows);
+    vm_rows_range(&mut out, m, at, m.rows);
+    return out;
+}
+
+fn vm_update(m: &VModel, at: u64, repl: &VModel) -> VModel {
+    let mut out: VModel = vm_new(m.cols, m.vle, m.fse);
+    vm_rows_range(&mut out, m, 0u64, at);
+    vm_rows_range(&mut out, repl, 0u64, repl.rows);
+    vm_rows_range(&mut out, m, at + repl.rows, m.rows);
+    return out;
+}
+
+fn vm_remove(m: &VModel, start: u64, end: u64) -> VModel {
+    let mut out: VModel = vm_new(m.cols, m.vle, m.fse);
+    vm_rows_range(&mut out, m, 0u64, start);
+    vm_rows_range(&mut out, m, end, m.rows);
+    return out;
+}
+
+fn vm_concat(a: &VModel, b: &VModel) -> VModel {
+    let mut out: VModel = vm_new(a.cols, a.vle, a.fse);
+    vm_rows_range(&mut out, a, 0u64, a.rows);
+    vm_rows_range(&mut out, b, 0u64, b.rows);
+    return out;
+}
+
+fn vm_slice(m: &VModel, a: u64, b: u64) -> VModel {
+    let mut out: VModel = vm_new(m.cols, m.vle, m.fse);
+    vm_rows_range(&mut out, m, a, b);
+    return out;
+}
+
+/// Total payload bytes of (column, ordinal) — the model's account of what
+/// `payload_used` must read back out of the block.
+fn vm_payload_used(m: &VModel, c: u32, o: u32) -> u64 {
+    let mut t: u64 = 0u64;
+    let mut r: u64 = 0u64;
+    while r < m.rows {
+        t = t + vm_len(m, r, c, o);
+        r = r + 1u64;
+    }
+    return t;
+}
+
+// ── the model -> carrier bridge ────────────────────────────────────────────
+
+/// Build the `PdtVals` carrier for every row of `m`. The push order is
+/// (row, column, ordinal), which is the order `pdt_vals_span_slot` names, so
+/// this is a transcription and not a translation.
+fn vm_to_vals(m: &VModel) -> PdtVals {
+    let mut v: PdtVals = pdt_vals_new();
+    let mut r: u64 = 0u64;
+    while r < m.rows {
+        let mut c: u32 = 0u32;
+        while c < m.cols {
+            if m.fse {
+                v.cells.push(vm_cell(m, r, c));
+            }
+            let mut o: u32 = 0u32;
+            while o < m.vle {
+                let k: i64 = vm_slot(m, r, c, o);
+                let n: i64 = m.lens.get(k) as i64;
+                let off: i64 = vm_off(m, k);
+                unsafe {
+                    let s: &[u8] = slice_from_raw::<u8>(m.bytes.as_ptr().byte_add(off), n);
+                    v.push_span(s);
+                }
+                o = o + 1u32;
+            }
+            c = c + 1u32;
+        }
+        r = r + 1u64;
+    }
+    return v;
+}
+
+// ── descriptors ────────────────────────────────────────────────────────────
+
+/// shape 0: VLE only, UNORDERED — the C++ marker-5 fixture shape
+///          (PackedDataTypeBufferT<Varchar, false, C, DTOrdering::UNORDERED>).
+/// shape 1: mixed FSE + VLE, MAX — the NORMAL case.
+/// shape 2: FSE + two VLE dimensions of different element sizes, MAX.
+fn descr_vle_shape(cols: u32, shape: u32) -> PdtDescr {
+    if shape == 0u32 {
+        let mut d: PdtDescr = pdt_descr_new(cols, PDT_ORD_UNORDERED, false);
+        d.dims.push(pdt_dim_vle(1u32));
+        return d;
+    }
+    if shape == 1u32 {
+        let mut d1: PdtDescr = pdt_descr_new(cols, PDT_ORD_MAX, false);
+        d1.dims.push(pdt_dim_fse(8u32));
+        d1.dims.push(pdt_dim_vle(1u32));
+        return d1;
+    }
+    let mut d2: PdtDescr = pdt_descr_new(cols, PDT_ORD_MAX, false);
+    d2.dims.push(pdt_dim_fse(8u32));
+    d2.dims.push(pdt_dim_vle(1u32));
+    d2.dims.push(pdt_dim_vle(2u32));
+    return d2;
+}
+
+fn shape_vle_dims(shape: u32) -> u32 {
+    if shape == 2u32 {
+        return 2u32;
+    }
+    return 1u32;
+}
+
+fn shape_has_fse(shape: u32) -> bool {
+    return shape != 0u32;
+}
+
+fn vm_for_shape(cols: u32, shape: u32, rows: u64, maxlen: u64, seed: &mut u64) -> VModel {
+    return vm_random(cols, shape_vle_dims(shape), shape_has_fse(shape), rows, maxlen, seed);
+}
+
+/// The physical dimension index of VLE ordinal `o` under `shape`: shape 0 puts
+/// its only VLE dimension at 0, the others follow the FSE key at 0.
+fn shape_dim_of(shape: u32, o: u32) -> u32 {
+    if shape == 0u32 {
+        return 0u32;
+    }
+    return 1u32 + o;
+}
+
+// ── model equivalence ──────────────────────────────────────────────────────
+
+fn vbuf_matches_vmodel(b: &PdtBuf, m: &VModel, shape: u32) -> bool {
+    if b.size() != m.rows {
+        return false;
+    }
+    if b.columns() != m.cols {
+        return false;
+    }
+    let mut c: u32 = 0u32;
+    while c < m.cols {
+        let mut r: u64 = 0u64;
+        while r < m.rows {
+            if m.fse {
+                if b.get(c, r) != vm_cell(m, r, c) {
+                    return false;
+                }
+            }
+            let mut o: u32 = 0u32;
+            while o < m.vle {
+                let dim: u32 = shape_dim_of(shape, o);
+                let k: i64 = vm_slot(m, r, c, o);
+                let n: u64 = m.lens.get(k);
+                let sp: &[u8] = b.row_span(c, dim, r);
+                if (sp.len() as u64) != n {
+                    return false;
+                }
+                let off: i64 = vm_off(m, k);
+                let mut i: i64 = 0i64;
+                while i < (n as i64) {
+                    if sp[i] != m.bytes.get(off + i) {
+                        return false;
+                    }
+                    i = i + 1i64;
+                }
+                o = o + 1u32;
+            }
+            r = r + 1u64;
+        }
+        c = c + 1u32;
+    }
+    return true;
+}
+
+/// The offsets contract, re-derived from the MODEL. `check()` proves the block
+/// agrees with itself; this proves it agrees with an outside account of what
+/// the rows are. Both are kept, for the reason P3 keeps index parity next to
+/// check(): a single self-consistent structure can be self-consistently wrong.
+fn vle_offsets_agree(b: &PdtBuf, m: &VModel, shape: u32) -> bool {
+    let mut c: u32 = 0u32;
+    while c < m.cols {
+        let mut o: u32 = 0u32;
+        while o < m.vle {
+            let dim: u32 = shape_dim_of(shape, o);
+            if b.row_offset(c, dim, 0u64) != 0u64 {
+                return false;
+            }
+            let mut acc: u64 = 0u64;
+            let mut r: u64 = 0u64;
+            while r < m.rows {
+                let lo: u64 = b.row_offset(c, dim, r);
+                let hi: u64 = b.row_offset(c, dim, r + 1u64);
+                if lo != acc {
+                    return false;
+                }
+                if hi < lo {
+                    return false;
+                }
+                if (hi - lo) != vm_len(m, r, c, o) {
+                    return false;
+                }
+                acc = hi;
+                r = r + 1u64;
+            }
+            // offs[size] == payload_used == the model's total, and the block
+            // never claims to use more than it owns.
+            if b.row_offset(c, dim, m.rows) != acc {
+                return false;
+            }
+            if b.payload_used(c, dim) != acc {
+                return false;
+            }
+            if vm_payload_used(m, c, o) != acc {
+                return false;
+            }
+            if b.payload_used(c, dim) > b.payload_capacity(c, dim) {
+                return false;
+            }
+            o = o + 1u32;
+        }
+        c = c + 1u32;
+    }
+    return true;
+}
+
+/// THE law of this rung, after EVERY mutation. Five conjuncts; bases spaced by
+/// ten.
+fn assert_vle_mutation(b: &PdtBuf, m: &VModel, shape: u32, prepared: u32, base: i32) -> i32 {
+    if b.consumed_bytes() != prepared {
+        return base;
+    }
+    if b.check() != 0i32 {
+        return base + 1i32;
+    }
+    if !vbuf_matches_vmodel(b, m, shape) {
+        return base + 2i32;
+    }
+    if !vle_offsets_agree(b, m, shape) {
+        return base + 3i32;
+    }
+    // SUM => FIXED, observed rather than assumed: a VLE buffer is index-free
+    // because it cannot be SUM-ordered at all.
+    if b.has_index() {
+        return base + 4i32;
+    }
+    return 0i32;
+}
+
+// ── construction ───────────────────────────────────────────────────────────
+
+/// Bytes enough for `m`'s rows plus `slack` rows of headroom, priced through
+/// the module's own function so the gate never invents a size of its own.
+fn vle_block_for(d: &PdtDescr, m: &VModel, slack: u64, extra: u64) -> u32 {
+    let mut pay: Vec<u64> = vec_new::<u64>();
+    let n: i64 = d.payload_len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        pay.push(0u64);
+        i = i + 1i64;
+    }
+    let mut c: u32 = 0u32;
+    while c < m.cols {
+        let mut o: u32 = 0u32;
+        while o < m.vle {
+            let k: i64 = (c as i64) * (m.vle as i64) + (o as i64);
+            pay.set(k, vm_payload_used(m, c, o) + extra);
+            o = o + 1u32;
+        }
+        c = c + 1u32;
+    }
+    return pdtbuf_compute_block_size(d, m.rows + slack, &pay);
+}
+
+/// Format `mem` and fill it with `m`'s rows through the PUBLIC two-phase
+/// insert, so construction is itself gated rather than being a back door that
+/// writes the block by hand.
+unsafe fn build_vle(mem: *mut u8, block: u32, d: &PdtDescr, m: &VModel)
+    -> Result<PdtBuf, PkdError> {
+    let mut b: PdtBuf = match pdtbuf_format(mem, block, d) {
+        Result::Ok(q) => { q }
+        Result::Err(e) => {
+            return Result::Err(e);
+        }
+    };
+    if m.rows > 0u64 {
+        let vals: PdtVals = vm_to_vals(m);
+        match b.insert_rows_vals(0u64, m.rows, &vals) {
+            Result::Ok(_) => {}
+            Result::Err(e2) => {
+                return Result::Err(e2);
+            }
+        }
+    }
+    return Result::Ok(b);
+}
+
+// ── 1200: geometry, the descriptor round-trip, and the derived payload ─────
+//
+// The pricing function is PURE — it takes a hypothetical geometry — while
+// `payload_capacity` reads the actual one back. This section pins that they
+// meet: a block priced at some payload capacity reports exactly that capacity,
+// and re-pricing at the reported value is a FIXED POINT (it must be, because
+// the reported value is already a multiple of 8 while the requested one need
+// not be; a function that did not settle here would make `prepared ==
+// consumed` unprovable after the first round trip).
+fn check_vle_geometry() -> i32 {
+    let mut c: u32 = 1u32;
+    while c <= 4u32 {
+        let mut shape: u32 = 0u32;
+        while shape <= 2u32 {
+            let d: PdtDescr = descr_vle_shape(c, shape);
+            let vle: u32 = shape_vle_dims(shape);
+            if d.vle_dim_count() != vle {
+                return 1200i32;
+            }
+            if d.payload_len() != (c as i64) * (vle as i64) {
+                return 1201i32;
+            }
+            // Slot formula: width 2 per VLE dimension, 1 per FSE.
+            let mut want_dbt: u32 = 0u32;
+            if shape_has_fse(shape) {
+                want_dbt = 1u32;
+            }
+            want_dbt = want_dbt + 2u32 * vle;
+            if d.dim_blocks_total() != want_dbt {
+                return 1202i32;
+            }
+            // payload_slot is COLUMN-major and a bijection onto [0, payload_len).
+            let mut seen: Vec<u64> = vec_new::<u64>();
+            let mut z: i64 = 0i64;
+            while z < d.payload_len() {
+                seen.push(0u64);
+                z = z + 1i64;
+            }
+            let mut cc: u32 = 0u32;
+            while cc < c {
+                let mut o: u32 = 0u32;
+                while o < vle {
+                    let k: i64 = d.payload_slot(cc, shape_dim_of(shape, o));
+                    if k < 0i64 || k >= d.payload_len() {
+                        return 1203i32;
+                    }
+                    seen.set(k, seen.get(k) + 1u64);
+                    o = o + 1u32;
+                }
+                cc = cc + 1u32;
+            }
+            let mut z2: i64 = 0i64;
+            while z2 < d.payload_len() {
+                if seen.get(z2) != 1u64 {
+                    return 1204i32;
+                }
+                z2 = z2 + 1i64;
+            }
+
+            // A real block: price it, format it, read the geometry back.
+            let mut seed: u64 = 0x51ED270Bu64 + (c as u64) * 7u64 + (shape as u64);
+            let m: VModel = vm_for_shape(c, shape, 9u64, 6u64, &mut seed);
+            let blk: u32 = vle_block_for(&d, &m, 0u64, 0u64);
+            unsafe {
+                let mem: *mut u8 = alloc(blk as i64);
+                let b: PdtBuf = match build_vle(mem, blk, &d, &m) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem);
+                        return 1205i32;
+                    }
+                };
+                if b.check() != 0i32 {
+                    dealloc(mem);
+                    return 1206i32;
+                }
+                // The descriptor survives the block round trip, VLE kinds and
+                // element sizes included.
+                let back: PdtDescr = b.descr();
+                if back.dim_count() != d.dim_count() || back.columns != d.columns {
+                    dealloc(mem);
+                    return 1207i32;
+                }
+                let mut di: u32 = 0u32;
+                while di < d.dim_count() {
+                    let a1: PdtDim = b.dim_at(di);
+                    let e1: &PdtDim = d.dims.borrow(di as i64);
+                    if a1.kind != e1.kind || a1.elem_size != e1.elem_size {
+                        dealloc(mem);
+                        return 1208i32;
+                    }
+                    di = di + 1u32;
+                }
+                // payload_used == the model's total; payload_capacity is the
+                // allocator's own element size, and re-pricing at it is a
+                // fixed point.
+                let mut c3: u32 = 0u32;
+                while c3 < c {
+                    let mut o3: u32 = 0u32;
+                    while o3 < vle {
+                        let dim: u32 = shape_dim_of(shape, o3);
+                        let used: u64 = b.payload_used(c3, dim);
+                        if used != vm_payload_used(&m, c3, o3) {
+                            dealloc(mem);
+                            return 1209i32;
+                        }
+                        let cap: u64 = b.payload_capacity(c3, dim);
+                        if cap < used {
+                            dealloc(mem);
+                            return 1210i32;
+                        }
+                        if cap % 8u64 != 0u64 {
+                            dealloc(mem);
+                            return 1211i32;
+                        }
+                        let dd: PdtDim = b.dim_at(dim);
+                        if pdt_dim_block_size(&dd, 0u32, b.capacity(), cap) != (cap as u32) {
+                            dealloc(mem);
+                            return 1212i32;
+                        }
+                        // The offsets table is sized from CAPACITY, in lockstep
+                        // with every other geometry block.
+                        let want_off: u32 =
+                            pdt_dim_block_size(&dd, 1u32, b.capacity(), 0u64);
+                        if want_off < (((b.capacity() + 1u64) * PDT_OFFSET_BYTES) as u32) {
+                            dealloc(mem);
+                            return 1213i32;
+                        }
+                        o3 = o3 + 1u32;
+                    }
+                    c3 = c3 + 1u32;
+                }
+                dealloc(mem);
+            }
+            shape = shape + 1u32;
+        }
+        c = c + 1u32;
+    }
+    return 0i32;
+}
+
+// ── 1220..1279: the mutation law sweep ─────────────────────────────────────
+//
+// One base per operation, ten apart:
+//   1220 insert   1230 update GROWING   1240 update SHRINKING
+//   1250 remove   1260 merge            1270 split
+//
+// The two update bases are separate on purpose. An update is the only
+// operation whose row count does not move, so it is the only one whose prepare
+// can fail for a purely CONTENT reason, and it is the only one that can hand
+// bytes BACK. Both directions run through the one expression in `price_geom`
+// and neither is padded — a margin would be the copy-restore need returning in
+// disguise, which is the whole thing the exact-prepare design removes.
+fn check_vle_mut_ops(cols: u32, shape: u32, rows: u64, policy: u32, seed: &mut u64) -> i32 {
+    let d: PdtDescr = descr_vle_shape(cols, shape);
+    let m0: VModel = vm_for_shape(cols, shape, rows, 7u64, seed);
+    // Room for the largest intermediate any step below reaches.
+    let blk: u32 = vle_block_for(&d, &m0, rows + 8u64, 512u64);
+
+    unsafe {
+        // ── insert ────────────────────────────────────────────────────────
+        let mut ai: u64 = 0u64;
+        while ai <= rows {
+            let mem: *mut u8 = alloc(blk as i64);
+            let mut b: PdtBuf = match build_vle(mem, blk, &d, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    return 1225i32;
+                }
+            };
+            let ins: VModel = vm_for_shape(cols, shape, 3u64, 9u64, seed);
+            let vals: PdtVals = vm_to_vals(&ins);
+            let us: PdtUpdate = match b.prepare_insert_vals(ai, ins.rows, policy, &vals) {
+                Result::Ok(u) => { u }
+                Result::Err(_) => {
+                    dealloc(mem);
+                    return 1226i32;
+                }
+            };
+            b.commit_insert_vals(&us, &vals);
+            let mm: VModel = vm_insert(&m0, ai, &ins);
+            let rc: i32 = assert_vle_mutation(&b, &mm, shape, us.prepared_bytes, 1220i32);
+            if rc != 0i32 {
+                dealloc(mem);
+                return rc;
+            }
+            dealloc(mem);
+            ai = ai + 1u64;
+            if rows > 4u64 && ai > 2u64 && ai < rows {
+                ai = rows;   // ends and one interior position
+            }
+        }
+
+        // ── update, GROWING and SHRINKING ─────────────────────────────────
+        // `grow` picks replacement lengths above the current ones, `shrink`
+        // below, so both signs of the payload delta are reached deliberately
+        // rather than by luck of the seed.
+        let mut gi: u32 = 0u32;
+        while gi < 2u32 {
+            let base: i32 = 1230i32 + 10i32 * (gi as i32);
+            let mut au: u64 = 0u64;
+            while au < rows {
+                let cnt: u64 = if au + 2u64 <= rows { 2u64 } else { 1u64 };
+                let mem2: *mut u8 = alloc(blk as i64);
+                let mut b2: PdtBuf = match build_vle(mem2, blk, &d, &m0) {
+                    Result::Ok(q) => { q }
+                    Result::Err(_) => {
+                        dealloc(mem2);
+                        return base + 5i32;
+                    }
+                };
+                let maxl: u64 = if gi == 0u32 { 14u64 } else { 1u64 };
+                let repl: VModel = vm_for_shape(cols, shape, cnt, maxl, seed);
+                let vals2: PdtVals = vm_to_vals(&repl);
+                let us2: PdtUpdate =
+                    match b2.prepare_update_vals(au, cnt, policy, &vals2) {
+                        Result::Ok(u) => { u }
+                        Result::Err(_) => {
+                            dealloc(mem2);
+                            return base + 6i32;
+                        }
+                    };
+                b2.commit_update_vals(&us2, &vals2);
+                let mm2: VModel = vm_update(&m0, au, &repl);
+                let rc2: i32 =
+                    assert_vle_mutation(&b2, &mm2, shape, us2.prepared_bytes, base);
+                if rc2 != 0i32 {
+                    dealloc(mem2);
+                    return rc2;
+                }
+                dealloc(mem2);
+                au = au + 1u64;
+                if rows > 4u64 && au > 2u64 && au + 1u64 < rows {
+                    au = rows - 1u64;
+                }
+            }
+            gi = gi + 1u32;
+        }
+
+        // ── remove ────────────────────────────────────────────────────────
+        let mut sr: u64 = 0u64;
+        while sr < rows {
+            let er: u64 = if sr + 2u64 <= rows { sr + 2u64 } else { rows };
+            let mem3: *mut u8 = alloc(blk as i64);
+            let mut b3: PdtBuf = match build_vle(mem3, blk, &d, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem3);
+                    return 1255i32;
+                }
+            };
+            let us3: PdtUpdate = match b3.prepare_remove(sr, er, policy) {
+                Result::Ok(u) => { u }
+                Result::Err(_) => {
+                    dealloc(mem3);
+                    return 1256i32;
+                }
+            };
+            b3.commit_remove(&us3);
+            let mm3: VModel = vm_remove(&m0, sr, er);
+            let rc3: i32 = assert_vle_mutation(&b3, &mm3, shape, us3.prepared_bytes, 1250i32);
+            if rc3 != 0i32 {
+                dealloc(mem3);
+                return rc3;
+            }
+            dealloc(mem3);
+            sr = sr + 1u64;
+            if rows > 4u64 && sr > 2u64 && sr + 1u64 < rows {
+                sr = rows - 1u64;
+            }
+        }
+
+        // ── merge ─────────────────────────────────────────────────────────
+        let other: VModel = vm_for_shape(cols, shape, 4u64, 8u64, seed);
+        let blk2: u32 = vle_block_for(&d, &other, 8u64, 512u64);
+        let mem4: *mut u8 = alloc(blk as i64);
+        let omem: *mut u8 = alloc(blk2 as i64);
+        let mut b4: PdtBuf = match build_vle(mem4, blk, &d, &m0) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem4);
+                dealloc(omem);
+                return 1265i32;
+            }
+        };
+        let ob: PdtBuf = match build_vle(omem, blk2, &d, &other) {
+            Result::Ok(q) => { q }
+            Result::Err(_) => {
+                dealloc(mem4);
+                dealloc(omem);
+                return 1266i32;
+            }
+        };
+        let us4: PdtUpdate = match b4.prepare_merge_with(&ob, policy) {
+            Result::Ok(u) => { u }
+            Result::Err(_) => {
+                dealloc(mem4);
+                dealloc(omem);
+                return 1267i32;
+            }
+        };
+        b4.commit_merge_with(&us4, &ob);
+        let mm4: VModel = vm_concat(&m0, &other);
+        let rc4: i32 = assert_vle_mutation(&b4, &mm4, shape, us4.prepared_bytes, 1260i32);
+        dealloc(mem4);
+        dealloc(omem);
+        if rc4 != 0i32 {
+            return rc4;
+        }
+
+        // ── split ─────────────────────────────────────────────────────────
+        // TWO budgets, one verdict: only the receiving side can fail, so both
+        // halves are asserted against their own model after the one commit.
+        let mut sp: u64 = 0u64;
+        while sp <= rows {
+            let mem5: *mut u8 = alloc(blk as i64);
+            let omem5: *mut u8 = alloc(blk as i64);
+            let mut b5: PdtBuf = match build_vle(mem5, blk, &d, &m0) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem5);
+                    dealloc(omem5);
+                    return 1275i32;
+                }
+            };
+            let empty: VModel = vm_new(cols, shape_vle_dims(shape), shape_has_fse(shape));
+            let mut o5: PdtBuf = match build_vle(omem5, blk, &d, &empty) {
+                Result::Ok(q) => { q }
+                Result::Err(_) => {
+                    dealloc(mem5);
+                    dealloc(omem5);
+                    return 1276i32;
+                }
+            };
+            let spl: PdtSplit = match b5.prepare_split_to(&o5, sp, policy) {
+                Result::Ok(s) => { s }
+                Result::Err(_) => {
+                    dealloc(mem5);
+                    dealloc(omem5);
+                    return 1277i32;
+                }
+            };
+            b5.commit_split_to(&mut o5, &spl);
+            let ml: VModel = vm_slice(&m0, 0u64, sp);
+            let mr: VModel = vm_slice(&m0, sp, rows);
+            let rl: i32 = assert_vle_mutation(&b5, &ml, shape, spl.left.prepared_bytes, 1270i32);
+            if rl != 0i32 {
+                dealloc(mem5);
+                dealloc(omem5);
+                return rl;
+            }
+            let rr: i32 = assert_vle_mutation(&o5, &mr, shape, spl.right.prepared_bytes, 1270i32);
+            if rr != 0i32 {
+                dealloc(mem5);
+                dealloc(omem5);
+                return rr;
+            }
+            dealloc(mem5);
+            dealloc(omem5);
+            sp = sp + 1u64;
+            if rows > 4u64 && sp > 2u64 && sp < rows {
+                sp = rows;
+            }
+        }
+    }
+    return 0i32;
+}
+
 fn run_all() -> i32 {
     let rc1: i32 = check_sizing();
     if rc1 != 0i32 {
@@ -4041,6 +4920,35 @@ fn run_all() -> i32 {
             return eb;
         }
         sc = sc + 1u32;
+    }
+
+    // ── P4: the variable-length dimension ─────────────────────────────────
+    let p4a: i32 = check_vle_geometry();
+    if p4a != 0i32 {
+        return p4a;
+    }
+    let mut vc: u32 = 1u32;
+    while vc <= 4u32 {
+        let mut vs: u32 = 0u32;
+        while vs <= 2u32 {
+            let vsizes: [u64; 4] = [1u64, 2u64, 5u64, 9u64];
+            let mut vi: i64 = 0i64;
+            while vi < 4i64 {
+                let p4b: i32 =
+                    check_vle_mut_ops(vc, vs, vsizes[vi], PDT_CAP_EXACT, &mut seed);
+                if p4b != 0i32 {
+                    return p4b;
+                }
+                let p4c: i32 =
+                    check_vle_mut_ops(vc, vs, vsizes[vi], PDT_CAP_KEEP, &mut seed);
+                if p4c != 0i32 {
+                    return p4c;
+                }
+                vi = vi + 1i64;
+            }
+            vs = vs + 1u32;
+        }
+        vc = vc + 1u32;
     }
 
     let rc4: i32 = check_fixtures();
