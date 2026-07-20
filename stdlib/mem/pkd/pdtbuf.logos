@@ -1,13 +1,14 @@
 // logos.mem.pkd.pdtbuf — PdtBuf: the Logos EQUIVALENT of the C++ Memoria
 // PackedDataTypeBuffer (the successor structure into which Victor folded
-// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rungs P0 + P1 + P2 + P3:
-// the runtime core — slot geometry, sizing, cell access, the
+// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rungs P0 + P1 + P2 + P3
+// + P4: the runtime core — slot geometry, sizing, cell access, the
 // ordering-dispatched search family — plus the recursive SUM span index that
 // accelerates it, the start-relative and BACKWARD searches (both obtained as
 // DERIVATIONS over that one forward descent rather than as walks of their
-// own), and the TWO-PHASE MUTATION SURFACE that makes the exact-prepare law
+// own), the TWO-PHASE MUTATION SURFACE that makes the exact-prepare law
 // executable: prepare prices, commit consumes exactly that, and
-// `prepared_bytes == consumed_bytes` is asserted at every mutation.
+// `prepared_bytes == consumed_bytes` is asserted at every mutation — and the
+// VARIABLE-LENGTH DIMENSION, over which that same law still holds exactly.
 //
 // C++ oracle sites (HEAD, /home/victor/cxx/memoria), mirrored one by one:
 //   containers/include/memoria/core/packed/datatype_buffer/
@@ -44,6 +45,19 @@
 //                  flipped. THE shape this rung mirrors (P2); the deleted
 //                  flat-tree walk_index_bw is deliberately NOT mirrored.
 //       :795-834  findGT/GE Forward/Backward — the public surface (P2)
+//     packed_datatype_buffer_vle_tools.hpp                            (P4)
+//       :41      using DataSizeType = psize_t (uint32_t) — PDT_OFFSET_BYTES
+//       :47-52   VLE dimension Width = 2 {DataBlock, OffsetsBlock}
+//       :100-103 data_size(meta) = offsets()[meta.size()] — payload_used
+//       :126     access(row) = Span(data + offs[row], offs[row+1] - offs[row])
+//       :135-145 length(row) / length(row, size) — payload_range_all
+//       :320-325 replace_row — see upstream defect #28 at commit_update_vals
+//       :327-350 copy_to — the rebase our copy_rows_from mirrors
+//       :503     compute_dimension_size_for_update — the CORRECT subtraction
+//       :525-544 compute_dimension_size_for_remove — defect #29, sign flipped
+//     packed_datatype_buffer_so.hpp
+//       :1050-1084 do_commit_update_var_max — defect #28's home
+//       :249     the VARIABLE dispatcher arm; :349 the SUM/VARIABLE assert
 //   containers/include/memoria/core/packed/tools/packed_allocator.hpp
 //       :170-178 block_size(client_area, blocks) — our PkdAlloc::empty_size_for
 //
@@ -60,7 +74,9 @@
 // (#24 sum_gen suffix/prefix and #25 lossy capacity recovery from P0; #26
 // find_*_fw_sum's index-miss short-circuit from P1 — see find_fw_sum; #27
 // the val == 0 plateau class in the start-relative and backward SUM
-// searches, found at THIS rung — see find_from and find_bw_sum). Each is
+// searches, from P2 — see find_from and find_bw_sum; #28 the memory-unsafe
+// multi-row VLE update and #29 the sign-flipped remove pricing, both found
+// at THIS rung and both written up in the P4 section below). Each is
 // pinned by a gate that fails if we adopt the C++ behaviour, so an upstream
 // fix reports itself.
 //
@@ -86,6 +102,105 @@
 // clamps (bug #27, both faces) and the `start / 32` index clamp (bug #26, at
 // a second site — hazard (a)); both are argued at their call sites and
 // probed in conuco.
+//
+// ── P4: THE VARIABLE-LENGTH DIMENSION, PRICED EXACTLY ───────────────────────
+// A VLE dimension occupies TWO allocator slots — a PAYLOAD block of raw bytes
+// and an OFFSETS table of (capacity + 1) psize_t cells — and the whole rung is
+// the question of how a two-phase prepare prices a block whose size depends on
+// its CONTENT. P0 left this as an open PAIR flag and priced the payload as 0;
+// paying that debt is what P4 is.
+//
+// THE VERDICT (PAIR, Victor 07-19): payload geometry is DERIVED, NEVER STORED.
+//
+//     payload_capacity(c, d) == element_size(data block of (c, d))
+//     payload_used(c, d)     == offsets[size]
+//
+// Both quantities are ALREADY in the block. Adding a payload-capacity field to
+// PdtMeta — the shape this agent originally recommended — would duplicate a
+// fact the allocator already holds and open a drift surface between the two
+// copies, and "why store what you can compute?" retires it. Passing the budget
+// as an explicit prepare parameter is worse still: `check()` sees only the
+// block, so a law stated over a parameter is unverifiable from inside, and the
+// same number would have to be handed identically to prepare AND to commit —
+// exactly the drift class the exact-prepare law exists to forbid.
+//
+// THE ASYMMETRY WITH FSE `capacity`, WHICH *IS* STORED, IS PRINCIPLED. Row
+// capacity cannot be recovered from the block, because `block_bytes /
+// elem_size` LOSES information: at elem_size 3 a capacity of 1 prices an
+// 8-byte block, and floor(8 / 3) = 2 reads back an OVERSTATED capacity, which
+// breaks exact pricing outright. (That is upstream defect #25 — the C++ does
+// perform exactly this division.) For the payload the recovery is byte-to-byte
+// — a division by ONE — so it is the identity, and deriving is free.
+//
+// CONSEQUENCES, all of them load-bearing:
+//   * `pdtbuf_compute_block_size(descr, capacity, payload[])` is a PURE
+//     pricing function over a HYPOTHETICAL geometry. It must be: a prepare
+//     prices a state that does not exist yet. `payload` carries one byte count
+//     per (column, VLE dimension), COLUMN-MAJOR — per column, not per
+//     dimension, because two columns of the same dimension hold independent
+//     row sequences and genuinely differ in bytes. The P0 shortcut "price one
+//     column and multiply" is valid only while every dimension is fixed.
+//   * `consumed_bytes()` / `payload_caps()` read the ACTUAL geometry back out,
+//     and `check()` asserts the two agree. The law is closed inside the block.
+//   * `pdtbuf_compute_block_size_fse` is the same expression with an empty
+//     geometry, and it ASSERTS the descriptor is all-FSE rather than defaulting
+//     the payload to zero — a zero payload is a perfectly legal VLE geometry
+//     (every row empty) and would silently under-price a populated buffer.
+//
+// BYTE OFFSETS, NOT ELEMENT COUNTS — a DIVERGENCE, and the one that matters.
+// The C++ stores the offsets table in ELEMENTS and multiplies by sizeof(T) at
+// each use site. Three of its defects live in exactly that multiplication:
+// `estimate_replace_upsize` prices a block without the `* sizeof(T)` factor at
+// all; `compute_dimension_size_for_remove` (#29) adds where it must subtract;
+// and `replace_row` (#28) writes bytes but never updates the boundary that
+// describes them. We store BYTES, so the offsets table needs no multiplication
+// anywhere, and `elem_size` survives as exactly one thing: a DIVISIBILITY law
+// (`check()` code 22, and an assert in write_rows_vals) saying a row's byte
+// length must be a whole number of payload elements. A per-site conversion
+// that exists nowhere cannot be got wrong at a site.
+//
+// WHAT AN UPDATE COSTS, AND WHY IT IS THE INTERESTING CASE. Over FSE
+// dimensions a value replacement moves no byte boundary, so its prepare cannot
+// fail — the C++ dispatcher base reaches that verdict by not looking (:185),
+// and we DERIVE the same one. Over a VLE dimension it is false: a replacement
+// grows or shrinks the payload by `Σ new lens - (offsets[at+count] -
+// offsets[at])`, in EITHER direction. So an update is the one operation whose
+// prepare can genuinely fail on a buffer whose row count never changes. Both
+// directions go through the one expression in `price_geom`; neither is padded,
+// and none may be — a margin is the copy-restore need coming back in disguise.
+// `commit_update_vals` runs its payload resizes in TWO PASSES, releasing before
+// acquiring, so its peak demand is the priced total and never above it.
+//
+// UPSTREAM DEFECT #28 (found at this rung; REACHABLE and MEMORY-UNSAFE).
+// HEAD's MULTI-ROW update over a VLE dimension corrupts the block.
+// `do_commit_update_var_max` (so.hpp:1050-1084) corrects only the AGGREGATE
+// length of [at, at+count) — via `resize_block(at, count, Σ new lengths)` —
+// and then writes each row through `replace_row` (vle_tools.hpp:320-325),
+// which memcpy's `value.length()` bytes at `offsets[idx]` and NEVER assigns
+// `offsets[idx + 1]`. The interior boundaries keep their OLD positions, so
+// every updated row but the first reads back truncated or padded, and each
+// write runs for its NEW length from a STALE start, overrunning its neighbour.
+// Minimal, with no length change at all:
+//     ["aaa","bbbb","ccccc","dd","e"], update [0,2) with ["bbbb","aaa"]
+//     HEAD -> ["bbb","aaab","ccccc","dd","e"]      boundary still at 3
+//     true -> ["bbbb","aaa", "ccccc","dd","e"]
+// Single-row updates ARE correct (`resize_block` does fix `offsets[at+1]`),
+// which is what isolates it. Our `write_rows_vals` lays every offset down
+// SEQUENTIALLY from `offsets[at]` and writes all count boundaries, so the
+// defect is not expressible here; the gate transcribes the C++ SHAPE and
+// asserts it diverges. It is prose and a probe rather than a fixture because
+// emitting HEAD's answer would mean reading a block HEAD has already corrupted.
+//
+// UPSTREAM DEFECT #29 (LATENT). `compute_dimension_size_for_remove`
+// (vle_tools.hpp:525-544) prices the post-remove payload as
+// `round_up_bytes((my_data_size + existing_data_len) * sizeof(T))` where
+// `existing_data_len` is the range being DELETED — the sign is wrong, and its
+// own sibling `compute_dimension_size_for_update` (:503) writes the
+// subtraction correctly. Unreachable for the same reason P3's `column < 1`
+// defect is: the VARIABLE dispatcher never overrides `prepare_remove`, so it
+// inherits the base's unconditional SUCCESS (:189) and `do_prepare_remove`
+// (:614) is dead code. Recorded because it is the function's stated contract;
+// the gate's probe E transcribes the sign and fails the exact-prepare law.
 //
 // ── SHAPE (general from line 1; ADR 0021 §1.2 placement rule) ───────────────
 // Everything the C++ carries as TEMPLATE PARAMETERS is carried here as a
@@ -160,9 +275,21 @@
 // ── LEDGER: axes NARROWED in P0 (recorded PAIR verdicts, not defaults) ──────
 //   * cell width — u64 only (the typed accessors). The slot ARITHMETIC is
 //     general over elem_size; only get/set/span pin 8 bytes.
-//   * dimension kind — FSE implemented, VLE (width 2, offsets) is P4. The
-//     descriptor, the width function and all slot math already carry kind,
-//     so a VLE dim slots in without redesign.
+//   * dimension kind — CARRIED, both kinds, at P4. FSE and VLE are one code
+//     path parameterised by `kind`: every loop runs over `dims`, the width
+//     function answers 1 or 2, and there is no per-kind duplicate of any
+//     algorithm. A MIXED descriptor (fixed key + variable payload) is the
+//     NORMAL shape, not an exception — it is what a Varchar-valued map leaf
+//     looks like — and the gate runs it as the default case rather than as an
+//     edge. Ordered buffers require dimension 0 FSE (pdt_descr_check LAW 4:
+//     the bisection reads the search key); SUM ordering requires ALL-FSE
+//     (LAW 3: there is no accumulation over spans and no index cell that
+//     could hold one). Both are laws, derived from the ordering's meaning,
+//     not staging decisions.
+//   * VLE payload element width — CARRIED. `elem_size` is the payload
+//     ELEMENT width, and a row's byte length must be a whole multiple of it
+//     (1 = the varchar/byte-string reading, 4 = a Span<u32>). It never enters
+//     an offset computation — see the BYTE OFFSETS divergence above.
 //   * index — MATERIALIZED (P1), recursive and column-general. The P1
 //     deferral of the targeted `_add`/`_sub` incremental update is CLOSED at
 //     P3 (index_delta): a value replacement corrects one cell per level along
@@ -173,10 +300,14 @@
 //     (PDT_CAP_EXACT / PDT_CAP_KEEP), because "rows grew inside the paid-for
 //     geometry" and "the geometry itself grew" are different budget questions
 //     and the C++ FSE dimension cannot even ask the first one.
-//   * mutation over VLE dimensions — NARROWED to P4 and REJECTED LOUDLY
-//     (assert_fse_mutable), not approximated. The payload block prices as 0
-//     today, so any VLE prepare would be inexact, and an inexact prepare with
-//     a safety margin is precisely the copy-restore need coming back.
+//   * mutation over VLE dimensions — CARRIED at P4, exactly. The P3 rung
+//     rejected it LOUDLY rather than pricing it with a margin, precisely so
+//     that this rung would have to make it exact instead of inheriting a
+//     fudge; `assert_fse_mutable` is gone, not relaxed. Every prepare derives
+//     the post-op payload from quantities it can see exactly — the lengths it
+//     is about to write, or the offsets difference of the rows it is about to
+//     drop — so `prepared == consumed` holds byte for byte over growing AND
+//     shrinking updates, and the gate probes it at +-8 in both directions.
 //   * optional-value column — a STATIC axis owned by the generator, not a
 //     runtime flag (a runtime flag would be a dead branch on every access).
 //     P0 merely does not preclude it: columns are uniform and addressed
@@ -193,18 +324,20 @@
 //     "the row where the running total reaches v, counting from here" is not
 //     a question its ordering can answer. A MAX buffer's backward query IS
 //     its forward bisection, which callers already have.
-//   * op family (rank/select, EQ_NLT) — P5. The direction machinery this
-//     rung lands is what those ops descend on, so they arrive as op-codes
-//     over the same six entry points, not as further walks.
+//   * op family (rank/select, EQ_NLT) — P5. The direction machinery P2 landed
+//     is what those ops descend on, so they arrive as op-codes over the same
+//     six entry points, not as further walks.
 package logos.mem.pkd.pdtbuf;
 
 use logos.mem.pkd;              // PkdAlloc, pkd_format, SlotKind, PkdError, round_up_bytes
 use logos.lang.marker;          // Fst / StableLayout
+use logos.lang.slice;           // slice_from_raw (VLE row spans)
 use logos.lang.arith;           // wrapping_add / wrapping_sub (index deltas)
 use logos.lang.result;
 use logos.lang.panic;
 use logos.lang.clone;
 use logos.mem.collections.vec;
+
 
 // ── the descriptor vocabulary ───────────────────────────────────────────────
 
@@ -229,9 +362,14 @@ pub const PDT_INDEX_SPAN: u64 = 32u64;
 /// survive in-block for a handle to be self-describing).
 pub const PDT_FLAG_INDEXED: u32 = 1u32;
 
+/// Bytes of one offsets-table cell. C++ `using DataSizeType = psize_t`
+/// (vle_tools.hpp:41) and `using psize_t = uint32_t` (core/types.hpp:44).
+pub const PDT_OFFSET_BYTES: u64 = 4u64;
+
 /// One dimension of the datatype's physical decomposition. `elem_size` is
-/// the FSE stride in bytes (VLE: the stride of the offsets' element type is
-/// fixed at 4 — this field then carries the data-block element stride).
+/// the FSE stride in bytes; for a VLE dimension it is the PAYLOAD ELEMENT
+/// width, and a row's byte length must be a whole multiple of it (elem_size
+/// 1 is the varchar/byte-string reading, 4 would be a Span<u32>).
 pub struct PdtDim {
     pub kind: u32,
     pub elem_size: u32,
@@ -265,18 +403,24 @@ pub fn pdt_dim_width(d: &PdtDim) -> u32 {
 }
 
 /// Bytes the `sub`-th block of dimension `d` needs to hold `capacity` rows
+/// with `payload` bytes of variable-length content
 /// (C++ PDTDimension::data_block_size — fse_tools.hpp:59-66: round_up_bytes
 /// of capacity × sizeof(T)).
 ///
-/// VLE (P4 hook, shaped now): sub 0 is the payload — its size is CONTENT
-/// dependent, so it prices as 0 here and the P4 caller adds the encoded byte
-/// count; sub 1 is the offsets table, exactly (capacity+1) psize_t cells.
-pub fn pdt_dim_block_size(d: &PdtDim, sub: u32, capacity: u64) -> u32 {
+/// VLE (P4): sub 0 is the PAYLOAD block, whose size is content dependent —
+/// `payload` is the byte capacity the caller is pricing, hypothetical during
+/// a prepare and read back from the block afterwards (see
+/// PdtBuf::payload_capacity: it IS the block's element size, so the read-back
+/// is byte-for-byte and not a lossy division). Sub 1 is the offsets table,
+/// exactly (capacity + 1) psize_t cells — sized from CAPACITY, in lockstep
+/// with every other geometry block. `payload` is ignored for every block that
+/// is not a VLE payload.
+pub fn pdt_dim_block_size(d: &PdtDim, sub: u32, capacity: u64, payload: u64) -> u32 {
     if d.kind == PDT_DIM_VLE {
         if sub == 0u32 {
-            return 0u32;
+            return round_up_bytes(payload as u32);
         }
-        return round_up_bytes(((capacity + 1u64) * 4u64) as u32);
+        return round_up_bytes(((capacity + 1u64) * PDT_OFFSET_BYTES) as u32);
     }
     return round_up_bytes((capacity * (d.elem_size as u64)) as u32);
 }
@@ -355,6 +499,109 @@ impl PdtDescr {
     pub fn has_index(self: &PdtDescr) -> bool {
         return self.indexed && self.ordering == PDT_ORD_SUM;
     }
+
+    /// VLE dimensions this descriptor carries.
+    pub fn vle_dim_count(self: &PdtDescr) -> u32 {
+        let n: i64 = self.dims.length();
+        let mut k: u32 = 0u32;
+        let mut i: i64 = 0i64;
+        while i < n {
+            let d: &PdtDim = self.dims.borrow(i);
+            if d.kind == PDT_DIM_VLE {
+                k = k + 1u32;
+            }
+            i = i + 1i64;
+        }
+        return k;
+    }
+
+    /// Position of `dim` among the VLE dimensions — the second coordinate of
+    /// a payload-geometry entry.
+    pub fn vle_ordinal(self: &PdtDescr, dim: u32) -> u32 {
+        let mut k: u32 = 0u32;
+        let mut i: u32 = 0u32;
+        while i < dim {
+            let d: &PdtDim = self.dims.borrow(i as i64);
+            if d.kind == PDT_DIM_VLE {
+                k = k + 1u32;
+            }
+            i = i + 1u32;
+        }
+        return k;
+    }
+
+    /// Entries a payload-geometry vector carries: one byte count per
+    /// (column, VLE dimension) pair. Zero for an all-FSE descriptor, which is
+    /// why every P0..P3 caller keeps working through an empty vector.
+    pub fn payload_len(self: &PdtDescr) -> i64 {
+        return (self.columns as i64) * (self.vle_dim_count() as i64);
+    }
+
+    /// COLUMN-MAJOR, the order the allocator slots themselves run in.
+    pub fn payload_slot(self: &PdtDescr, column: u32, dim: u32) -> i64 {
+        return (column as i64) * (self.vle_dim_count() as i64)
+             + (self.vle_ordinal(dim) as i64);
+    }
+}
+
+/// A payload geometry of all-zero byte counts: the EMPTY buffer's geometry,
+/// and the only one an all-FSE descriptor has (length 0).
+pub fn pdt_payload_zero(descr: &PdtDescr) -> Vec<u64> {
+    let mut v: Vec<u64> = vec_new::<u64>();
+    let n: i64 = descr.payload_len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.push(0u64);
+        i = i + 1i64;
+    }
+    return v;
+}
+
+/// The descriptor's own well-formedness. Returns 0 when sound, else a code.
+///
+/// LAW 3 is the C++ `static_assert(Ordering == DTOrdering::SUM ?
+/// DataTypeSize == PackedDataTypeSize::FIXED : true)` (so.hpp:349) turned
+/// into a runtime verdict, because our dimension kinds are runtime data: a
+/// SUM-ordered buffer accumulates its column, and there is no accumulation
+/// over variable-length spans — nor an index cell that could hold one. A VLE
+/// dimension is therefore MAX/UNORDERED territory, and the mutation and
+/// search paths below stay correctly index-free over it BY THIS LAW rather
+/// than by a runtime check at every site.
+///
+/// LAW 4 is the same argument one step weaker for MAX: the bisection reads
+/// the SEARCH KEY, which is dimension 0, so an ordered buffer's dimension 0
+/// must be fixed-stride. Later dimensions are free to be VLE — that mixed
+/// shape (fixed key + variable payload) is the normal one, not an exception.
+pub fn pdt_descr_check(descr: &PdtDescr) -> i32 {
+    if descr.columns == 0u32 {
+        return 1i32;
+    }
+    if descr.dim_count() == 0u32 {
+        return 2i32;
+    }
+    if descr.ordering == PDT_ORD_SUM && descr.vle_dim_count() > 0u32 {
+        return 3i32;
+    }
+    if descr.ordering != PDT_ORD_UNORDERED {
+        let d0: &PdtDim = descr.dims.borrow(0i64);
+        if d0.kind != PDT_DIM_FSE {
+            return 4i32;
+        }
+    }
+    return 0i32;
+}
+
+/// The law, loudly. Every entry point that can see a descriptor runs it, so a
+/// mis-shaped descriptor is rejected at its FIRST use, not at the first query
+/// that happens to trip over it.
+pub fn pdt_assert_descr(descr: &PdtDescr) {
+    let rc: i32 = pdt_descr_check(descr);
+    assert(rc != 1i32, "PdtDescr: columns must be >= 1");
+    assert(rc != 2i32, "PdtDescr: at least one dimension is required");
+    assert(rc != 3i32,
+           "PdtDescr: SUM ordering requires FIXED-size dimensions — a VLE dimension has no accumulation (C++ static_assert so.hpp:349); use MAX or UNORDERED");
+    assert(rc != 4i32,
+           "PdtDescr: an ordered buffer's search key is dimension 0, which must therefore be FSE");
 }
 
 /// C++ enum {METADATA = 0, INDEX, LAST_HEADER_BLOCK_} (packed_datatype_buffer.hpp:67).
@@ -427,30 +674,69 @@ pub fn pdtbuf_index_block_size(descr: &PdtDescr, capacity: u64) -> u32 {
     if capacity <= PDT_INDEX_SPAN {
         return 0u32;
     }
-    return pdtbuf_compute_block_size(descr, pdtbuf_span_count(capacity));
+    // An indexed buffer is SUM-ordered, and SUM ordering is all-FSE by
+    // pdt_descr_check LAW 3 — so the index is priced through the FSE face and
+    // the recursion never has to carry a payload geometry.
+    return pdtbuf_compute_block_size_fse(descr, pdtbuf_span_count(capacity));
 }
 
-/// Bytes a buffer holding `capacity` rows occupies, index included — THE
-/// pricing function (C++ compute_block_size :186). Every fallible resize in
-/// pdtbuf_reserve is covered by it EXACTLY, not conservatively; see the
-/// exact-prepare contract in the module header.
-pub fn pdtbuf_compute_block_size(descr: &PdtDescr, capacity: u64) -> u32 {
-    let mut data: u32 = 0u32;
+/// Bytes a buffer holding `capacity` rows and `payload` variable-length bytes
+/// occupies, index included — THE pricing function (C++ compute_block_size
+/// :186). Every fallible resize in pdtbuf_reserve is covered by it EXACTLY,
+/// not conservatively; see the exact-prepare contract in the module header.
+///
+/// PURE. It prices a HYPOTHETICAL geometry — that is the whole point, since a
+/// prepare has to price a state that does not exist yet. The ACTUAL geometry
+/// is read back from the block by `payload_caps()` / `consumed_bytes()`, and
+/// the law is that the two agree.
+///
+/// `payload` carries one byte count per (column, VLE dimension), column-major
+/// (PdtDescr::payload_slot). It is EMPTY for an all-FSE descriptor, so
+/// pdtbuf_compute_block_size_fse below is the same expression, not a second
+/// one. The per-column loop is not cosmetic: two columns of the same VLE
+/// dimension hold INDEPENDENT sequences of rows and so genuinely differ in
+/// payload bytes — the P0 "price one column, multiply by columns" shortcut is
+/// only valid while every dimension is fixed-stride.
+pub fn pdtbuf_compute_block_size(descr: &PdtDescr, capacity: u64, payload: &Vec<u64>) -> u32 {
+    pdt_assert_descr(descr);
+    assert(payload.length() == descr.payload_len(),
+           "pdtbuf_compute_block_size: payload geometry length != columns * VLE dimensions");
     let n: i64 = descr.dims.length();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let d: &PdtDim = descr.dims.borrow(i);
-        let w: u32 = pdt_dim_width(d);
-        let mut sub: u32 = 0u32;
-        while sub < w {
-            data = data + pdt_dim_block_size(d, sub, capacity);
-            sub = sub + 1u32;
+    let mut data: u32 = 0u32;
+    let mut c: u32 = 0u32;
+    while c < descr.columns {
+        let mut i: i64 = 0i64;
+        while i < n {
+            let d: &PdtDim = descr.dims.borrow(i);
+            let w: u32 = pdt_dim_width(d);
+            let mut sub: u32 = 0u32;
+            while sub < w {
+                let mut p: u64 = 0u64;
+                if d.kind == PDT_DIM_VLE && sub == 0u32 {
+                    p = payload.get(descr.payload_slot(c, i as u32));
+                }
+                data = data + pdt_dim_block_size(d, sub, capacity, p);
+                sub = sub + 1u32;
+            }
+            i = i + 1i64;
         }
-        i = i + 1i64;
+        c = c + 1u32;
     }
     return pdtbuf_empty_size(descr)
-        + data * descr.columns
+        + data
         + pdtbuf_index_block_size(descr, capacity);
+}
+
+/// The all-FSE face of the pricing function: no VLE dimension means no
+/// payload geometry to supply. It ASSERTS the descriptor is all-FSE rather
+/// than defaulting the payload to zero, because a zero payload is a perfectly
+/// legal VLE geometry (every row empty) and would price a populated buffer
+/// silently short.
+pub fn pdtbuf_compute_block_size_fse(descr: &PdtDescr, capacity: u64) -> u32 {
+    assert(descr.vle_dim_count() == 0u32,
+           "pdtbuf_compute_block_size_fse: descriptor carries VLE dimensions — supply a payload geometry");
+    let empty: Vec<u64> = vec_new::<u64>();
+    return pdtbuf_compute_block_size(descr, capacity, &empty);
 }
 
 // ── search results ──────────────────────────────────────────────────────────
@@ -571,6 +857,80 @@ impl Clone for PdtSplit {
     }
 }
 
+// ── the values a mutation writes (P4) ───────────────────────────────────────
+
+/// The row block handed to an insert or an update, general over dimension
+/// KINDS — the C++ spells this as an `AccessorFn(column, row)` returning a
+/// datatype view (so.hpp:898/:976), which is the same information in callback
+/// form. Three parallel channels, all ROW-MAJOR:
+///
+///   cells — the dimension-0 scalar of each (row, column), i.e. EXACTLY the
+///           `Vec<u64>` P0..P3 passed. Empty when dimension 0 is VLE.
+///   lens  — one byte length per (row, column, VLE ordinal).
+///   bytes — those payloads concatenated, in that same order.
+///
+/// The (row, column, ordinal) order is the one order in which a caller can
+/// stream values without random access, and it is the order every commit
+/// below consumes them in.
+pub struct PdtVals {
+    pub cells: Vec<u64>,
+    pub lens: Vec<u64>,
+    pub bytes: Vec<u8>,
+}
+
+pub fn pdt_vals_new() -> PdtVals {
+    return PdtVals {
+        cells: vec_new::<u64>(),
+        lens: vec_new::<u64>(),
+        bytes: vec_new::<u8>(),
+    };
+}
+
+/// The all-FSE face: dimension-0 scalars only. This is the shim that keeps
+/// every P0..P3 call site working unchanged — it builds the general carrier,
+/// it does not run a second code path.
+pub fn pdt_vals_fse(cells: &Vec<u64>) -> PdtVals {
+    let mut v: PdtVals = pdt_vals_new();
+    let n: i64 = cells.length();
+    let mut i: i64 = 0i64;
+    while i < n {
+        v.cells.push(cells.get(i));
+        i = i + 1i64;
+    }
+    return v;
+}
+
+/// Position of the (row, column, ordinal) span in `lens`.
+pub fn pdt_vals_span_slot(cols: u32, vle_dims: u32, row: u64, column: u32, ord: u32) -> i64 {
+    return (((row as i64) * (cols as i64)) + (column as i64)) * (vle_dims as i64)
+         + (ord as i64);
+}
+
+impl PdtVals {
+    /// Append one variable-length value. Callers push in (row, column,
+    /// ordinal) order; `pdt_vals_span_slot` names the slot each push lands in.
+    pub fn push_span(self: &mut PdtVals, s: &[u8]) {
+        self.lens.push(s.len() as u64);
+        let n: i64 = s.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            self.bytes.push(s[i]);
+            i = i + 1i64;
+        }
+    }
+
+    /// Byte offset of span `k` inside `bytes` — the prefix of the lengths.
+    pub fn span_offset(self: &PdtVals, k: i64) -> i64 {
+        let mut off: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < k {
+            off = off + (self.lens.get(i) as i64);
+            i = i + 1i64;
+        }
+        return off;
+    }
+}
+
 // ── the packed handle ───────────────────────────────────────────────────────
 
 /// Non-owning handle over a formatted PdtBuf block (the VecCtr idiom of
@@ -596,8 +956,7 @@ impl Clone for PdtBuf {
 /// materializes the recursive self-type there once capacity exceeds the span.
 pub unsafe fn pdtbuf_format(mem: *mut u8, block_size: u32, descr: &PdtDescr)
     -> Result<PdtBuf, PkdError> {
-    assert(descr.columns > 0u32, "pdtbuf_format: columns must be >= 1");
-    assert(descr.dim_count() > 0u32, "pdtbuf_format: at least one dimension");
+    pdt_assert_descr(descr);
     let slots: u32 = descr.slots();
     // PkdAlloc's bitmap is one u64 word — the substrate caps slot count at 64.
     assert(slots <= 64u32, "pdtbuf_format: slot count exceeds the PkdAlloc bitmap word");
@@ -631,7 +990,31 @@ pub unsafe fn pdtbuf_format(mem: *mut u8, block_size: u32, descr: &PdtDescr)
         a.set_block_type(s, SlotKind::Raw);
         s = s + 1u32;
     }
-    return Result::Ok(PdtBuf { mem: mem });
+    // A VLE dimension's OFFSETS table is never empty: a buffer of `capacity`
+    // rows carries capacity+1 offsets, so even at capacity 0 the terminating
+    // offsets[0] = 0 has to exist for `payload_used` to be readable
+    // (C++ allocate_empty allocates exactly one psize_t cell —
+    // vle_tools.hpp:83-86 — and empty_size_aligned() :96 prices it). Formatting
+    // therefore lands the buffer in the capacity-0 geometry, byte for byte
+    // what pdtbuf_compute_block_size(descr, 0, zero) prices, so check() is
+    // sound on a freshly formatted block.
+    let b: PdtBuf = PdtBuf { mem: mem };
+    let mut c: u32 = 0u32;
+    while c < descr.columns {
+        let mut i: u32 = 0u32;
+        while i < dim_count {
+            let d: &PdtDim = descr.dims.borrow(i as i64);
+            if d.kind == PDT_DIM_VLE {
+                let blk: u32 = b.block_of(c, i, 1u32);
+                a.allocate(blk, pdt_dim_block_size(d, 1u32, 0u64, 0u64), SlotKind::Raw)?;
+                let offs: *mut u32 = a.get::<u32>(blk);
+                *offs = 0u32;
+            }
+            i = i + 1u32;
+        }
+        c = c + 1u32;
+    }
+    return Result::Ok(b);
 }
 
 // The dims table lives in the METADATA slot right behind the fixed header.
@@ -654,13 +1037,39 @@ pub unsafe fn pdtbuf_adopt(mem: *mut u8) -> PdtBuf {
 pub unsafe fn pdtbuf_create(mem: *mut u8, block_size: u32, descr: &PdtDescr, rows: u64)
     -> Result<PdtBuf, PkdError> {
     let mut b: PdtBuf = pdtbuf_format(mem, block_size, descr)?;
-    match b.reserve(rows) {
+    // The zero payload geometry is not a default standing in for "unknown" —
+    // it is exactly the state this constructor produces: `rows` rows whose
+    // variable-length dimensions are all EMPTY spans (every offset 0).
+    let zero: Vec<u64> = pdt_payload_zero(descr);
+    match b.reserve_geom(rows, &zero) {
         Result::Ok(_) => {}
         Result::Err(e) => {
             return Result::Err(e);
         }
     }
     b.set_size(rows);
+    // Publishing `rows` rows makes offsets[0..rows] LIVE, so they have to mean
+    // something: all-zero = every row an empty span, which is what a zero
+    // payload geometry was priced for.
+    let cols: u32 = descr.columns;
+    let dims: u32 = descr.dim_count();
+    let mut c: u32 = 0u32;
+    while c < cols {
+        let mut i: u32 = 0u32;
+        while i < dims {
+            let d: &PdtDim = descr.dims.borrow(i as i64);
+            if d.kind == PDT_DIM_VLE {
+                let offs: *mut u32 = b.offsets(c, i);
+                let mut r: u64 = 0u64;
+                while r <= rows {
+                    *offs.add(r as u32) = 0u32;
+                    r = r + 1u64;
+                }
+            }
+            i = i + 1u32;
+        }
+        c = c + 1u32;
+    }
     return Result::Ok(b);
 }
 
@@ -813,6 +1222,147 @@ impl PdtBuf {
             + sub;
     }
 
+    // ── the VLE dimension (P4; C++ vle_tools.hpp PDTDimension<Span<T0>,…>) ─
+    //
+    // Width 2: sub 0 is the PAYLOAD block (raw bytes), sub 1 the OFFSETS table
+    // (capacity + 1 psize_t cells). Row `r` of column `c` in dimension `d` is
+    //     bytes [ offsets[r], offsets[r+1] )   of the payload block
+    // exactly as the C++ `set()` reads it (vle_tools.hpp:122-127).
+    //
+    // DIVERGENCE (offsets are BYTE offsets, not ELEMENT counts). The C++
+    // stores element counts and multiplies by sizeof(T) at every sizing site
+    // — which is where three of its defects in this file live (resize_row
+    // :238/:270 resizes the data block to an ELEMENT count, and
+    // estimate_replace_upsize :439 drops the `* sizeof(T)` as well). Byte
+    // offsets make the payload-capacity derivation the IDENTITY the P4 verdict
+    // rests on: capacity is `element_size(payload block)`, used is
+    // `offsets[size]`, both in bytes, so neither needs a division that could
+    // lose information. `elem_size` survives as the payload element width and
+    // is enforced on every span written, so a Span<u32> dimension still cannot
+    // be handed a 3-byte row.
+    //
+    // ── THE PAYLOAD GEOMETRY IS DERIVED, NEVER STORED (PAIR verdict, P4) ────
+    // There is no payload field in PdtMeta and there must not be one: both
+    // quantities are already in the block, and a stored copy would be a second
+    // source of truth for a fact the allocator and the offsets table already
+    // hold. The asymmetry with the FSE row `capacity`, which IS stored, is
+    // principled: recovering rows from bytes divides by elem_size and LOSES
+    // information (elem_size 3, capacity 1 → an 8-byte block → floor(8/3) = 2,
+    // an over-estimate — C++ bug #25), whereas bytes from bytes is identity.
+
+    pub fn vle_dim_count(self: &PdtBuf) -> u32 {
+        let n: u32 = self.dim_count();
+        let mut k: u32 = 0u32;
+        let mut i: u32 = 0u32;
+        while i < n {
+            let d: PdtDim = self.dim_at(i);
+            if d.kind == PDT_DIM_VLE {
+                k = k + 1u32;
+            }
+            i = i + 1u32;
+        }
+        return k;
+    }
+
+    /// Index of (column, dim) in a payload-geometry vector — the block-side
+    /// twin of PdtDescr::payload_slot, so the two orders cannot drift.
+    pub fn payload_slot(self: &PdtBuf, column: u32, dim: u32) -> i64 {
+        let mut ord: u32 = 0u32;
+        let mut i: u32 = 0u32;
+        while i < dim {
+            let d: PdtDim = self.dim_at(i);
+            if d.kind == PDT_DIM_VLE {
+                ord = ord + 1u32;
+            }
+            i = i + 1u32;
+        }
+        return (column as i64) * (self.vle_dim_count() as i64) + (ord as i64);
+    }
+
+    fn assert_vle(self: &PdtBuf, dim: u32) {
+        let d: PdtDim = self.dim_at(dim);
+        assert(d.kind == PDT_DIM_VLE, "PdtBuf: dimension is not variable-length");
+    }
+
+    /// The offsets table of (column, dim): capacity + 1 cells, of which
+    /// [0, size] are live.
+    pub unsafe fn offsets(self: &PdtBuf, column: u32, dim: u32) -> *mut u32 {
+        self.assert_vle(dim);
+        return self.alc().get::<u32>(self.block_of(column, dim, 1u32));
+    }
+
+    /// The payload block of (column, dim).
+    pub unsafe fn payload(self: &PdtBuf, column: u32, dim: u32) -> *mut u8 {
+        self.assert_vle(dim);
+        return self.alc().get::<u8>(self.block_of(column, dim, 0u32));
+    }
+
+    /// Payload byte CAPACITY of (column, dim) — DERIVED, byte for byte, from
+    /// the allocator (see the verdict note above). Always a multiple of 8, so
+    /// re-pricing at this value through pdt_dim_block_size is a fixed point.
+    pub fn payload_capacity(self: &PdtBuf, column: u32, dim: u32) -> u64 {
+        self.assert_vle(dim);
+        unsafe {
+            return self.alc().element_size(self.block_of(column, dim, 0u32)) as u64;
+        }
+    }
+
+    /// Payload bytes USED by the live rows of (column, dim) — the C++
+    /// `data_size(meta) = offsets()[meta.size()]` (vle_tools.hpp:100-103).
+    pub fn payload_used(self: &PdtBuf, column: u32, dim: u32) -> u64 {
+        unsafe {
+            return *self.offsets(column, dim).add(self.size() as u32) as u64;
+        }
+    }
+
+    /// The ACTUAL payload geometry, read back out of the block — the CONSUMED
+    /// side of the exact-prepare law for variable-length dimensions.
+    pub fn payload_caps(self: &PdtBuf) -> Vec<u64> {
+        let mut v: Vec<u64> = vec_new::<u64>();
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut i: u32 = 0u32;
+            while i < dims {
+                let d: PdtDim = self.dim_at(i);
+                if d.kind == PDT_DIM_VLE {
+                    v.push(self.payload_capacity(c, i));
+                }
+                i = i + 1u32;
+            }
+            c = c + 1u32;
+        }
+        return v;
+    }
+
+    /// Byte offset of row `row` in (column, dim). Defined for row in
+    /// [0, size]: offsets[size] is the terminator, i.e. payload_used.
+    pub fn row_offset(self: &PdtBuf, column: u32, dim: u32, row: u64) -> u64 {
+        assert(row <= self.size(), "PdtBuf::row_offset: row past the offsets terminator");
+        unsafe {
+            return *self.offsets(column, dim).add(row as u32) as u64;
+        }
+    }
+
+    /// Byte length of row `row` (C++ `length(row)` — vle_tools.hpp:141-145).
+    pub fn row_len(self: &PdtBuf, column: u32, dim: u32, row: u64) -> u64 {
+        assert(row < self.size(), "PdtBuf::row_len: row out of range");
+        return self.row_offset(column, dim, row + 1u64)
+             - self.row_offset(column, dim, row);
+    }
+
+    /// Row `row` as a byte span — the C++ `Span<const T>(data + offs[row],
+    /// offs[row+1] - offs[row])` (vle_tools.hpp:126), in bytes.
+    pub fn row_span(self: &PdtBuf, column: u32, dim: u32, row: u64) -> &[u8] {
+        let off: u64 = self.row_offset(column, dim, row);
+        let len: u64 = self.row_len(column, dim, row);
+        unsafe {
+            return slice_from_raw::<u8>(self.payload(column, dim).byte_add(off as i64),
+                                        len as i64);
+        }
+    }
+
     // ── sizing / capacity ─────────────────────────────────────────────────
 
     /// Bytes this buffer's allocator has handed out to its slots — the
@@ -866,9 +1416,24 @@ impl PdtBuf {
     /// CUMULATIVE: sum the wanted bytes, sum the held bytes, and ask the
     /// allocator chain once for the difference.
     pub fn reserve(self: &mut PdtBuf, capacity: u64) -> Result<u32, PkdError> {
+        assert(self.vle_dim_count() == 0u32,
+               "PdtBuf::reserve: buffer carries VLE dimensions — use reserve_geom");
+        let empty: Vec<u64> = vec_new::<u64>();
+        return self.reserve_geom(capacity, &empty);
+    }
+
+    /// reserve over the FULL geometry: `capacity` rows AND `payload` bytes per
+    /// (column, VLE dimension). The payload capacity must cover what the live
+    /// rows already use — shrinking a payload block below `offsets[size]`
+    /// would drop bytes the offsets still describe, so it is a caller bug and
+    /// asserted, never silently clamped.
+    pub fn reserve_geom(self: &mut PdtBuf, capacity: u64, payload: &Vec<u64>)
+        -> Result<u32, PkdError> {
         let cols: u32 = self.columns();
         let dims: u32 = self.dim_count();
         let descr: PdtDescr = self.descr();
+        assert(payload.length() == descr.payload_len(),
+               "PdtBuf::reserve_geom: payload geometry length != columns * VLE dimensions");
         let want_index: u32 = pdtbuf_index_block_size(&descr, capacity);
         unsafe {
             let a: *mut PkdAlloc = self.alc();
@@ -884,8 +1449,14 @@ impl PdtBuf {
                     let mut sub: u32 = 0u32;
                     while sub < w {
                         let blk: u32 = self.block_of(c, i, sub);
+                        let mut p: u64 = 0u64;
+                        if d.kind == PDT_DIM_VLE && sub == 0u32 {
+                            p = payload.get(self.payload_slot(c, i));
+                            assert(p >= self.payload_used(c, i),
+                                   "PdtBuf::reserve_geom: payload capacity below the bytes the live rows use");
+                        }
                         want_total = want_total
-                            + round_up_bytes(pdt_dim_block_size(&d, sub, capacity));
+                            + round_up_bytes(pdt_dim_block_size(&d, sub, capacity, p));
                         have_total = have_total + a.element_size(blk);
                         sub = sub + 1u32;
                     }
@@ -934,7 +1505,11 @@ impl PdtBuf {
                         let mut sub2: u32 = 0u32;
                         while sub2 < w2 {
                             let blk2: u32 = self.block_of(c2, i2, sub2);
-                            let want2: u32 = pdt_dim_block_size(&d2, sub2, capacity);
+                            let mut p2: u64 = 0u64;
+                            if d2.kind == PDT_DIM_VLE && sub2 == 0u32 {
+                                p2 = payload.get(self.payload_slot(c2, i2));
+                            }
+                            let want2: u32 = pdt_dim_block_size(&d2, sub2, capacity, p2);
                             let have2: u32 = a.element_size(blk2);
                             let shrinking: bool = want2 < have2;
                             if (pass == 0u32) == shrinking && want2 != have2 {
@@ -1053,21 +1628,37 @@ impl PdtBuf {
 
     // ── cell access ───────────────────────────────────────────────────────
 
-    /// Byte address of cell (column, row) in dimension `dim`. The GENERAL
-    /// accessor: stride comes from the descriptor, so it is correct for any
-    /// elem_size. The u64 accessors below are the narrowed exercise.
+    /// Byte address of cell (column, row) in dimension `dim` — TOTAL over
+    /// dimension kinds since P4. FSE: base + row × elem_size, the stride
+    /// coming from the descriptor so any elem_size is correct. VLE: base +
+    /// offsets[row], the row's payload start; its LENGTH is not implied by the
+    /// pointer, so pair it with `cell_len` (or use `row_span`, which returns
+    /// both). The u64 accessors below are the narrowed exercise.
     pub unsafe fn cell_ptr(self: &PdtBuf, column: u32, dim: u32, row: u64) -> *mut u8 {
         let d: PdtDim = self.dim_at(dim);
-        assert(d.kind == PDT_DIM_FSE, "PdtBuf::cell_ptr: VLE dimensions are P4");
         let blk: u32 = self.block_of(column, dim, 0u32);
         let base: *mut u8 = self.alc().get::<u8>(blk);
+        if d.kind == PDT_DIM_VLE {
+            return base.byte_add(self.row_offset(column, dim, row) as i64);
+        }
         return base.byte_add((row * (d.elem_size as u64)) as i64);
+    }
+
+    /// Bytes cell (column, dim, row) occupies — the constant stride for FSE,
+    /// the offsets difference for VLE.
+    pub fn cell_len(self: &PdtBuf, column: u32, dim: u32, row: u64) -> u64 {
+        let d: PdtDim = self.dim_at(dim);
+        if d.kind == PDT_DIM_VLE {
+            return self.row_len(column, dim, row);
+        }
+        return d.elem_size as u64;
     }
 
     /// Column `column` of dimension 0 as a u64 slice of `size()` cells
     /// (C++ SO span(column) :480 — the FSE direct view).
     pub fn values(self: &PdtBuf, column: u32) -> &[u64] {
         let d: PdtDim = self.dim_at(0u32);
+        assert(d.kind == PDT_DIM_FSE, "PdtBuf::values: dimension 0 is variable-length — use row_span");
         assert(d.elem_size == 8u32, "PdtBuf::values: P0 narrows cells to u64");
         let blk: u32 = self.block_of(column, 0u32, 0u32);
         unsafe {
@@ -1085,6 +1676,7 @@ impl PdtBuf {
     pub fn set(self: &mut PdtBuf, column: u32, row: u64, v: u64) {
         assert(row < self.size(), "PdtBuf::set: row out of range");
         let d: PdtDim = self.dim_at(0u32);
+        assert(d.kind == PDT_DIM_FSE, "PdtBuf::set: dimension 0 is variable-length");
         assert(d.elem_size == 8u32, "PdtBuf::set: P0 narrows cells to u64");
         let blk: u32 = self.block_of(column, 0u32, 0u32);
         unsafe {
@@ -1590,22 +2182,37 @@ impl PdtBuf {
     // ── GAP (a), CLOSED: targeted incremental reindex ───────────────────────
     // See index_delta. P3 is the first rung with a caller for it.
     //
-    // VLE payload pricing stays the P4 PAIR flag: pdt_dim_block_size prices a
-    // VLE payload block as 0 (content dependent), so an exact prepare over a
-    // VLE dimension is not expressible yet. The mutation surface REJECTS VLE
-    // loudly (assert_fse_mutable) rather than pricing it approximately — a
-    // safety margin here would silently reintroduce the copy-restore need.
-
-    fn assert_fse_mutable(self: &PdtBuf) {
-        let n: u32 = self.dim_count();
-        let mut i: u32 = 0u32;
-        while i < n {
-            let d: PdtDim = self.dim_at(i);
-            assert(d.kind == PDT_DIM_FSE,
-                   "PdtBuf: two-phase mutation over a VLE dimension is P4 (payload pricing unresolved)");
-            i = i + 1u32;
-        }
-    }
+    // ── GAP (c), CLOSED AT P4: variable-length payload pricing ──────────────
+    // P3 rejected VLE mutations loudly rather than pricing them with a margin.
+    // The resolution is the PAIR verdict recorded at the top of the VLE
+    // section: the payload geometry is DERIVED, never stored. So a prepare
+    // prices the payload the same way it prices rows — by evaluating the same
+    // pure function on the geometry the operation WILL produce:
+    //
+    //     used_after = used_before ± (the bytes this operation adds/removes)
+    //     target     = capacity policy applied to used_after
+    //     prepared   = pdtbuf_compute_block_size(descr, new_cap, target)
+    //
+    // and the commit reaches that geometry EXACTLY, because it computes it by
+    // calling the SAME function on the SAME pre-state (pinned by
+    // assert_planned) rather than by re-deriving the arithmetic. The bytes an
+    // operation adds are known before it runs: `Σ lens` of the values being
+    // written, `offsets[end] - offsets[start]` for the range being dropped —
+    // never an estimate. An UPDATE is the interesting case, because a
+    // replacement over a VLE dimension can GROW or SHRINK the payload (over an
+    // FSE dimension it is always size-neutral), and both directions are priced
+    // by the same expression with no margin in either.
+    //
+    // ORDER OF OPERATIONS, and it is a budget property, not a style one. The
+    // peak byte demand of a commit must never exceed what the prepare priced,
+    // or `update_fits` would have answered a question nobody asked. So the
+    // payload blocks follow the rule pdtbuf_reserve already follows for the
+    // row blocks: everything that SHRINKS moves its content and releases its
+    // bytes first, everything that GROWS acquires its bytes and then moves.
+    // For insert/merge/split-right that is "geometry, then shift"; for
+    // remove/split-left "shift, then geometry"; for update, which can genuinely
+    // do both at once across different (column, dimension) pairs, it is the
+    // explicit two-pass loop in commit_update_vals.
 
     /// Descriptor agreement between two buffers that are about to exchange
     /// rows. Checked field by field off the BLOCKS (both are self-describing),
@@ -1642,15 +2249,147 @@ impl PdtBuf {
         return new_size;
     }
 
+    /// The payload byte capacity the policy asks for, entry by entry — the
+    /// payload twin of target_capacity, and deliberately the SAME two
+    /// readings: EXACT trims to what the rows actually use (bytes come back
+    /// to the node on a shrink), KEEP honours whatever the block already
+    /// holds, so a fill loop that reserved once pays nothing per row.
+    pub fn target_payload(self: &PdtBuf, used_after: &Vec<u64>, policy: u32) -> Vec<u64> {
+        let mut out: Vec<u64> = vec_new::<u64>();
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut i: u32 = 0u32;
+            while i < dims {
+                let d: PdtDim = self.dim_at(i);
+                if d.kind == PDT_DIM_VLE {
+                    let k: i64 = self.payload_slot(c, i);
+                    let want: u64 = used_after.get(k);
+                    let mut t: u64 = want;
+                    if policy == PDT_CAP_KEEP {
+                        let cur: u64 = self.payload_capacity(c, i);
+                        if cur > want {
+                            t = cur;
+                        }
+                    }
+                    out.push(t);
+                }
+                i = i + 1u32;
+            }
+            c = c + 1u32;
+        }
+        assert(out.length() == (cols as i64) * (self.vle_dim_count() as i64),
+               "PdtBuf::target_payload: geometry length mismatch");
+        return out;
+    }
+
+    /// Payload bytes the live rows use today, entry by entry.
+    pub fn payload_used_all(self: &PdtBuf) -> Vec<u64> {
+        let mut out: Vec<u64> = vec_new::<u64>();
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut i: u32 = 0u32;
+            while i < dims {
+                let d: PdtDim = self.dim_at(i);
+                if d.kind == PDT_DIM_VLE {
+                    out.push(self.payload_used(c, i));
+                }
+                i = i + 1u32;
+            }
+            c = c + 1u32;
+        }
+        return out;
+    }
+
+    /// Σ of the lengths `vals` carries for each (column, VLE dimension) — the
+    /// bytes an insert or an update WRITES. Exact by construction: these are
+    /// the very values the commit will copy, not a bound on them.
+    fn vals_bytes_per_slot(self: &PdtBuf, count: u64, vals: &PdtVals) -> Vec<u64> {
+        let cols: u32 = self.columns();
+        let vle: u32 = self.vle_dim_count();
+        assert(vals.lens.length() == (count as i64) * (cols as i64) * (vle as i64),
+               "PdtVals: span count != rows * columns * VLE dimensions");
+        let mut out: Vec<u64> = vec_new::<u64>();
+        let mut k: i64 = 0i64;
+        while k < (cols as i64) * (vle as i64) {
+            out.push(0u64);
+            k = k + 1i64;
+        }
+        let mut r: u64 = 0u64;
+        while r < count {
+            let mut c: u32 = 0u32;
+            while c < cols {
+                let mut o: u32 = 0u32;
+                while o < vle {
+                    let src: i64 = pdt_vals_span_slot(cols, vle, r, c, o);
+                    let dst: i64 = (c as i64) * (vle as i64) + (o as i64);
+                    out.set(dst, out.get(dst) + vals.lens.get(src));
+                    o = o + 1u32;
+                }
+                c = c + 1u32;
+            }
+            r = r + 1u64;
+        }
+        return out;
+    }
+
+    /// Payload bytes each (column, VLE dimension) covers over rows [a, b) —
+    /// the C++ `length(row, size) = offs[row + size] - offs[row]`
+    /// (vle_tools.hpp:135-139).
+    fn payload_range_all(self: &PdtBuf, a: u64, b: u64) -> Vec<u64> {
+        let mut out: Vec<u64> = vec_new::<u64>();
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut i: u32 = 0u32;
+            while i < dims {
+                let d: PdtDim = self.dim_at(i);
+                if d.kind == PDT_DIM_VLE {
+                    out.push(self.row_offset(c, i, b) - self.row_offset(c, i, a));
+                }
+                i = i + 1u32;
+            }
+            c = c + 1u32;
+        }
+        return out;
+    }
+
     // THE pricing step, shared by every prepare. It is deliberately the ONE
     // place a post-op byte total is computed, and it computes it with the
     // same function that priced the block in the first place — so
     // "prepared" and "consumed" are the same expression evaluated at two
     // different times, and they cannot drift apart operation by operation.
-    fn price(self: &PdtBuf, op: u32, policy: u32, at: u64, count: u64, new_size: u64)
+    //
+    // `used_after` is the payload geometry the operation LEAVES BEHIND, in
+    // bytes per (column, VLE dimension). Every prepare below derives it from
+    // quantities it can see exactly — the lengths of the values it is about to
+    // write, or the offsets difference of the rows it is about to drop — so
+    // there is no margin anywhere in this path, and none may be added: a
+    // margin is the copy-restore need coming back in disguise.
+    fn price(self: &PdtBuf, op: u32, policy: u32, at: u64, count: u64, new_size: u64,
+             used_after: &Vec<u64>)
+        -> PdtUpdate {
+        return self.price_geom(op, policy, at, count, new_size,
+                               self.target_capacity(new_size, policy), used_after);
+    }
+
+    // The same pricing step with the ROW capacity supplied explicitly. An
+    // UPDATE needs it: the row count does not change, so renegotiating the row
+    // geometry is not that operation's business — the capacity policy applies
+    // to the PAYLOAD only there, which is the one geometry an update really
+    // can move. Without this an EXACT update over a buffer holding reserved
+    // slack would price the trimmed row blocks and then not trim them, and
+    // `prepared == consumed` would fail for a reason that has nothing to do
+    // with variable-length content.
+    fn price_geom(self: &PdtBuf, op: u32, policy: u32, at: u64, count: u64,
+                  new_size: u64, new_cap: u64, used_after: &Vec<u64>)
         -> PdtUpdate {
         let d: PdtDescr = self.descr();
-        let new_cap: u64 = self.target_capacity(new_size, policy);
+        let pay: Vec<u64> = self.target_payload(used_after, policy);
         return PdtUpdate {
             op: op,
             policy: policy,
@@ -1661,7 +2400,7 @@ impl PdtBuf {
             old_capacity: self.capacity(),
             new_capacity: new_cap,
             before_bytes: self.consumed_bytes(),
-            prepared_bytes: pdtbuf_compute_block_size(&d, new_cap),
+            prepared_bytes: pdtbuf_compute_block_size(&d, new_cap, &pay),
         };
     }
 
@@ -1691,48 +2430,102 @@ impl PdtBuf {
         }
     }
 
-    /// PLAN inserting `count` rows at row `at` (C++ prepare_insert :898).
-    /// CONST: on Err the buffer is byte-identical, having never been written.
-    pub fn prepare_insert(self: &PdtBuf, at: u64, count: u64, policy: u32)
+    /// PLAN inserting `count` rows at row `at`, whose values are `vals`
+    /// (C++ prepare_insert :898). CONST: on Err the buffer is byte-identical,
+    /// having never been written.
+    ///
+    /// The payload the insert adds is `Σ lens` per (column, VLE dimension) —
+    /// read off the very values the commit will copy, so the price is the
+    /// truth and not a bound on it.
+    pub fn prepare_insert_vals(self: &PdtBuf, at: u64, count: u64, policy: u32,
+                               vals: &PdtVals)
         -> Result<PdtUpdate, PkdError> {
-        self.assert_fse_mutable();
         assert(at <= self.size(), "PdtBuf::prepare_insert: position past end");
-        let us: PdtUpdate = self.price(PDT_OP_INSERT, policy, at, count, self.size() + count);
+        let add: Vec<u64> = self.vals_bytes_per_slot(count, vals);
+        let mut used: Vec<u64> = self.payload_used_all();
+        let mut k: i64 = 0i64;
+        while k < used.length() {
+            used.set(k, used.get(k) + add.get(k));
+            k = k + 1i64;
+        }
+        let us: PdtUpdate = self.price(PDT_OP_INSERT, policy, at, count,
+                                       self.size() + count, &used);
         if !self.update_fits(&us) {
             return Result::Err(PkdError::OutOfMem);
         }
         return Result::Ok(us);
+    }
+
+    /// The all-FSE face (P0..P3 signature, unchanged): no variable-length
+    /// dimension means no payload to price, so the values are not needed yet.
+    pub fn prepare_insert(self: &PdtBuf, at: u64, count: u64, policy: u32)
+        -> Result<PdtUpdate, PkdError> {
+        let none: PdtVals = pdt_vals_new();
+        return self.prepare_insert_vals(at, count, policy, &none);
     }
 
     /// PLAN replacing the values of rows [at, at+count) (C++ prepare_update
     /// :976 — whose FIXED arm is the dispatcher base's unconditional SUCCESS,
     /// :185). For FSE dimensions that verdict is CORRECT and we derive the
     /// same one: a fixed-stride replacement moves no byte boundary, so the
-    /// priced total is unchanged and the prepare cannot fail. It is priced
-    /// through the same formula anyway, so the law is asserted here too
-    /// rather than assumed.
-    pub fn prepare_update(self: &PdtBuf, at: u64, count: u64)
+    /// priced total is unchanged and the prepare cannot fail.
+    ///
+    /// Over a VLE dimension it is NOT unconditional and this is the rung's
+    /// interesting case: a replacement GROWS or SHRINKS the payload by
+    /// `Σ new lens - (offsets[at+count] - offsets[at])`, in either direction,
+    /// so an update is the one operation whose prepare can genuinely fail on a
+    /// buffer whose row count does not change. Both directions go through the
+    /// same expression; neither is padded.
+    pub fn prepare_update_vals(self: &PdtBuf, at: u64, count: u64, policy: u32,
+                               vals: &PdtVals)
         -> Result<PdtUpdate, PkdError> {
-        self.assert_fse_mutable();
         assert(at + count <= self.size(), "PdtBuf::prepare_update: range past end");
-        let us: PdtUpdate = self.price(PDT_OP_UPDATE, PDT_CAP_KEEP, at, count, self.size());
+        let add: Vec<u64> = self.vals_bytes_per_slot(count, vals);
+        let drop: Vec<u64> = self.payload_range_all(at, at + count);
+        let mut used: Vec<u64> = self.payload_used_all();
+        let mut k: i64 = 0i64;
+        while k < used.length() {
+            used.set(k, used.get(k) - drop.get(k) + add.get(k));
+            k = k + 1i64;
+        }
+        let us: PdtUpdate = self.price_geom(PDT_OP_UPDATE, policy, at, count,
+                                            self.size(), self.capacity(), &used);
         if !self.update_fits(&us) {
             return Result::Err(PkdError::OutOfMem);
         }
         return Result::Ok(us);
     }
 
+    /// The all-FSE face. PDT_CAP_KEEP because a value replacement is not the
+    /// moment to renegotiate a reservation the caller made deliberately.
+    pub fn prepare_update(self: &PdtBuf, at: u64, count: u64)
+        -> Result<PdtUpdate, PkdError> {
+        let none: PdtVals = pdt_vals_new();
+        return self.prepare_update_vals(at, count, PDT_CAP_KEEP, &none);
+    }
+
     /// PLAN removing rows [start, end) (C++ prepare_remove :608 — which for
     /// every FIXED-size buffer returns SUCCESS without looking, leaving
     /// do_prepare_remove :614 dead with a `column < 1` loop inside it. We
     /// price it for real, over ALL columns, through the shared formula).
+    ///
+    /// The payload it drops is `offsets[end] - offsets[start]`, exactly — the
+    /// C++ `compute_dimension_size_for_remove` (vle_tools.hpp:525) ADDS that
+    /// quantity where it must subtract it; see the ORACLE note at
+    /// commit_remove (upstream defect #28).
     pub fn prepare_remove(self: &PdtBuf, start: u64, end: u64, policy: u32)
         -> Result<PdtUpdate, PkdError> {
-        self.assert_fse_mutable();
         assert(start <= end, "PdtBuf::prepare_remove: inverted range");
         assert(end <= self.size(), "PdtBuf::prepare_remove: range past end");
+        let drop: Vec<u64> = self.payload_range_all(start, end);
+        let mut used: Vec<u64> = self.payload_used_all();
+        let mut k: i64 = 0i64;
+        while k < used.length() {
+            used.set(k, used.get(k) - drop.get(k));
+            k = k + 1i64;
+        }
         let us: PdtUpdate = self.price(PDT_OP_REMOVE, policy, start, end - start,
-                                       self.size() - (end - start));
+                                       self.size() - (end - start), &used);
         if !self.update_fits(&us) {
             return Result::Err(PkdError::OutOfMem);
         }
@@ -1747,10 +2540,17 @@ impl PdtBuf {
     /// buffer that GROWS, which is the one that can fail.
     pub fn prepare_merge_with(self: &PdtBuf, other: &PdtBuf, policy: u32)
         -> Result<PdtUpdate, PkdError> {
-        self.assert_fse_mutable();
         self.assert_compatible(other);
         let n: u64 = other.size();
-        let us: PdtUpdate = self.price(PDT_OP_MERGE, policy, self.size(), n, self.size() + n);
+        let add: Vec<u64> = other.payload_used_all();
+        let mut used: Vec<u64> = self.payload_used_all();
+        let mut k: i64 = 0i64;
+        while k < used.length() {
+            used.set(k, used.get(k) + add.get(k));
+            k = k + 1i64;
+        }
+        let us: PdtUpdate = self.price(PDT_OP_MERGE, policy, self.size(), n,
+                                       self.size() + n, &used);
         if !self.update_fits(&us) {
             return Result::Err(PkdError::OutOfMem);
         }
@@ -1768,12 +2568,23 @@ impl PdtBuf {
     /// fill the sibling first and give up the original's rows afterwards.
     pub fn prepare_split_to(self: &PdtBuf, other: &PdtBuf, at: u64, policy: u32)
         -> Result<PdtSplit, PkdError> {
-        self.assert_fse_mutable();
         self.assert_compatible(other);
         assert(at <= self.size(), "PdtBuf::prepare_split_to: position past end");
         let n: u64 = self.size() - at;
-        let left: PdtUpdate = self.price(PDT_OP_SPLIT, policy, at, n, at);
-        let right: PdtUpdate = other.price(PDT_OP_SPLIT, policy, 0u64, n, other.size() + n);
+        // The payload splits exactly where the rows do: the left keeps the
+        // prefix [0, at), the right receives [at, size), and the two add up to
+        // what one buffer held — no byte is priced twice and none is lost.
+        let keep: Vec<u64> = self.payload_range_all(0u64, at);
+        let moved: Vec<u64> = self.payload_range_all(at, self.size());
+        let mut rused: Vec<u64> = other.payload_used_all();
+        let mut k: i64 = 0i64;
+        while k < rused.length() {
+            rused.set(k, rused.get(k) + moved.get(k));
+            k = k + 1i64;
+        }
+        let left: PdtUpdate = self.price(PDT_OP_SPLIT, policy, at, n, at, &keep);
+        let right: PdtUpdate = other.price(PDT_OP_SPLIT, policy, 0u64, n,
+                                           other.size() + n, &rused);
         if !other.update_fits(&right) {
             return Result::Err(PkdError::OutOfMem);
         }
@@ -1794,15 +2605,27 @@ impl PdtBuf {
     }
 
     // The state a commit was planned against must still be the state it finds.
+    // `before_bytes` is part of the pin since P4: the payload geometry lives in
+    // the allocator rather than in a metadata field (the derive-not-store
+    // verdict), so the byte total is what pins it, and the KEEP policy reads
+    // the current payload capacity when it prices.
     fn assert_planned(self: &PdtBuf, us: &PdtUpdate) {
         assert(us.old_size == self.size() && us.old_capacity == self.capacity(),
                "PdtBuf: the buffer changed between prepare and commit");
+        assert(us.before_bytes == self.consumed_bytes(),
+               "PdtBuf: the buffer's geometry changed between prepare and commit");
     }
 
     // Geometry, infallible BY CONTRACT: prepare already asked the chain the
     // same question reserve is about to ask it.
-    fn apply_geometry(self: &mut PdtBuf, cap: u64) {
-        match self.reserve(cap) {
+    //
+    // `used_after` is recomputed here from the SAME pre-state the prepare saw
+    // (assert_planned has just pinned it) through the SAME target_payload
+    // function — so this is one expression evaluated twice, never a second
+    // derivation of the arithmetic. assert_consumed is what proves it.
+    fn apply_geometry(self: &mut PdtBuf, cap: u64, used_after: &Vec<u64>, policy: u32) {
+        let pay: Vec<u64> = self.target_payload(used_after, policy);
+        match self.reserve_geom(cap, &pay) {
             Result::Ok(_) => {}
             Result::Err(_) => {
                 assert(false,
@@ -1811,32 +2634,124 @@ impl PdtBuf {
         }
     }
 
-    // Overlap-safe row move within one buffer, general over columns AND
-    // dimensions: the stride comes from the descriptor, so there is no
-    // per-column and no per-dimension code path here either.
-    unsafe fn move_rows(self: &mut PdtBuf, from: u64, to: u64, n: u64) {
-        if n == 0u64 || from == to {
-            return;
-        }
+    // ── the two row-space primitives, total over dimension kinds ───────────
+    //
+    // An FSE dimension shifts by a constant stride and that is the whole
+    // story. A VLE dimension has TWO things to shift and they are coupled: the
+    // payload bytes move by the byte delta, and every offset at or past the
+    // seam must be REBASED by that same delta, or the offsets stop describing
+    // the payload. Forgetting the rebase is the classic failure of this layout
+    // and the gate probes for it directly.
+
+    /// Open a gap of `count` rows at `at`, adding `ins` payload bytes per
+    /// (column, VLE dimension). Called with the size ALREADY published and the
+    /// geometry ALREADY grown, so every byte it touches is owned.
+    ///
+    /// Leaves offsets[at+1 .. at+count] undefined — they are the gap itself,
+    /// filled by write_rows — while offsets[at] keeps its old value and
+    /// offsets[at+count .. new_size] carry the rebased tail.
+    unsafe fn open_row_gap(self: &mut PdtBuf, at: u64, count: u64, old_size: u64,
+                           ins: &Vec<u64>) {
         let cols: u32 = self.columns();
         let dims: u32 = self.dim_count();
+        let tail: u64 = old_size - at;
         let mut c: u32 = 0u32;
         while c < cols {
             let mut d: u32 = 0u32;
             while d < dims {
                 let dim: PdtDim = self.dim_at(d);
-                let src: *mut u8 = self.cell_ptr(c, d, from);
-                let dst: *mut u8 = self.cell_ptr(c, d, to);
-                move_bytes(dst, src as *const u8, (n * (dim.elem_size as u64)) as i64);
+                if dim.kind == PDT_DIM_VLE {
+                    let add: u64 = ins.get(self.payload_slot(c, d));
+                    let offs: *mut u32 = self.offsets(c, d);
+                    let base: u64 = *offs.add(at as u32) as u64;
+                    let used: u64 = *offs.add(old_size as u32) as u64;
+                    if used > base {
+                        let p: *mut u8 = self.payload(c, d);
+                        move_bytes(p.byte_add((base + add) as i64),
+                                   p.byte_add(base as i64) as *const u8,
+                                   (used - base) as i64);
+                    }
+                    if count > 0u64 {
+                        // offsets [at, old_size] -> [at+count, new_size]
+                        move_bytes((offs.add((at + count) as u32)) as *mut u8,
+                                   (offs.add(at as u32)) as *const u8,
+                                   ((tail + 1u64) * PDT_OFFSET_BYTES) as i64);
+                    }
+                    let mut r: u64 = at + count;
+                    while r <= old_size + count {
+                        *offs.add(r as u32) = ((*offs.add(r as u32) as u64) + add) as u32;
+                        r = r + 1u64;
+                    }
+                } else {
+                    if tail > 0u64 && count > 0u64 {
+                        let src: *mut u8 = self.cell_ptr(c, d, at);
+                        let dst: *mut u8 = self.cell_ptr(c, d, at + count);
+                        move_bytes(dst, src as *const u8,
+                                   (tail * (dim.elem_size as u64)) as i64);
+                    }
+                }
                 d = d + 1u32;
             }
             c = c + 1u32;
         }
     }
 
-    // Copy `n` rows out of `other` (C++ copyTo :under split_to/merge). Same
-    // generality; the two blocks are disjoint but move_bytes is used anyway
-    // so the helper has one behaviour, not two.
+    /// Close the gap left by dropping rows [start, end): shift the survivors
+    /// down INSIDE the old geometry, so the bytes released are released after
+    /// nothing needs them. Called with the OLD size still published.
+    unsafe fn close_row_gap(self: &mut PdtBuf, start: u64, end: u64, old_size: u64) {
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let gap: u64 = end - start;
+        let tail: u64 = old_size - end;
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut d: u32 = 0u32;
+            while d < dims {
+                let dim: PdtDim = self.dim_at(d);
+                if dim.kind == PDT_DIM_VLE {
+                    let offs: *mut u32 = self.offsets(c, d);
+                    let lo: u64 = *offs.add(start as u32) as u64;
+                    let hi: u64 = *offs.add(end as u32) as u64;
+                    let used: u64 = *offs.add(old_size as u32) as u64;
+                    let del: u64 = hi - lo;
+                    if used > hi {
+                        let p: *mut u8 = self.payload(c, d);
+                        move_bytes(p.byte_add(lo as i64),
+                                   p.byte_add(hi as i64) as *const u8,
+                                   (used - hi) as i64);
+                    }
+                    if gap > 0u64 {
+                        // offsets [end, old_size] -> [start, new_size]
+                        move_bytes((offs.add(start as u32)) as *mut u8,
+                                   (offs.add(end as u32)) as *const u8,
+                                   ((tail + 1u64) * PDT_OFFSET_BYTES) as i64);
+                    }
+                    let mut r: u64 = start;
+                    while r <= old_size - gap {
+                        *offs.add(r as u32) = ((*offs.add(r as u32) as u64) - del) as u32;
+                        r = r + 1u64;
+                    }
+                } else {
+                    if tail > 0u64 && gap > 0u64 {
+                        let src: *mut u8 = self.cell_ptr(c, d, end);
+                        let dst: *mut u8 = self.cell_ptr(c, d, start);
+                        move_bytes(dst, src as *const u8,
+                                   (tail * (dim.elem_size as u64)) as i64);
+                    }
+                }
+                d = d + 1u32;
+            }
+            c = c + 1u32;
+        }
+    }
+
+    /// Copy `n` rows out of `other` into rows [dst_row, dst_row+n) of self.
+    /// For a VLE dimension the payload lands at self's offsets[dst_row] and
+    /// the offsets are REBASED onto that prefix — the C++ `copy_to`
+    /// (vle_tools.hpp:327-350) does the same rebase but writes only `count`
+    /// offsets, leaving the range's TERMINATOR to whoever calls it; ours
+    /// writes all n+1 so the destination is coherent on its own.
     unsafe fn copy_rows_from(self: &mut PdtBuf, other: &PdtBuf,
                              src_row: u64, dst_row: u64, n: u64) {
         if n == 0u64 {
@@ -1849,25 +2764,100 @@ impl PdtBuf {
             let mut d: u32 = 0u32;
             while d < dims {
                 let dim: PdtDim = self.dim_at(d);
-                let src: *mut u8 = other.cell_ptr(c, d, src_row);
-                let dst: *mut u8 = self.cell_ptr(c, d, dst_row);
-                move_bytes(dst, src as *const u8, (n * (dim.elem_size as u64)) as i64);
+                if dim.kind == PDT_DIM_VLE {
+                    let sofs: *mut u32 = other.offsets(c, d);
+                    let dofs: *mut u32 = self.offsets(c, d);
+                    let sb: u64 = *sofs.add(src_row as u32) as u64;
+                    let se: u64 = *sofs.add((src_row + n) as u32) as u64;
+                    let db: u64 = *dofs.add(dst_row as u32) as u64;
+                    if se > sb {
+                        copy_bytes(self.payload(c, d).byte_add(db as i64),
+                                   other.payload(c, d).byte_add(sb as i64) as *const u8,
+                                   (se - sb) as i64);
+                    }
+                    let mut i: u64 = 1u64;
+                    while i <= n {
+                        let rel: u64 = (*sofs.add((src_row + i) as u32) as u64) - sb;
+                        *dofs.add((dst_row + i) as u32) = (db + rel) as u32;
+                        i = i + 1u64;
+                    }
+                } else {
+                    let src: *mut u8 = other.cell_ptr(c, d, src_row);
+                    let dst: *mut u8 = self.cell_ptr(c, d, dst_row);
+                    move_bytes(dst, src as *const u8,
+                               (n * (dim.elem_size as u64)) as i64);
+                }
                 d = d + 1u32;
             }
             c = c + 1u32;
         }
     }
 
-    // Row-major value block -> rows [at, at+count) across ALL columns.
-    fn write_rows(self: &mut PdtBuf, at: u64, count: u64, vals: &Vec<u64>) {
+    /// Write the values of rows [at, at+count) across ALL columns and ALL
+    /// dimensions. FSE dimension 0 takes the scalar channel; every VLE
+    /// dimension takes its span, and the offsets are laid down SEQUENTIALLY
+    /// from offsets[at], which is what makes the closing assertion below a
+    /// real check rather than a tautology: the gap that open_row_gap reserved
+    /// (offsets[at+count], already rebased) and the gap the values actually
+    /// fill must be the SAME number of bytes, or the price was wrong.
+    fn write_rows_vals(self: &mut PdtBuf, at: u64, count: u64, vals: &PdtVals) {
         let cols: u32 = self.columns();
-        assert(vals.length() == (count as i64) * (cols as i64),
-               "PdtBuf: value block length != count * columns");
+        let dims: u32 = self.dim_count();
+        let vle: u32 = self.vle_dim_count();
+        let d0: PdtDim = self.dim_at(0u32);
+        if d0.kind == PDT_DIM_FSE {
+            assert(vals.cells.length() == (count as i64) * (cols as i64),
+                   "PdtBuf: value block length != count * columns");
+        }
+        assert(vals.lens.length() == (count as i64) * (cols as i64) * (vle as i64),
+               "PdtVals: span count != rows * columns * VLE dimensions");
         let mut r: u64 = 0u64;
         while r < count {
             let mut c: u32 = 0u32;
             while c < cols {
-                self.set(c, at + r, vals.get((r as i64) * (cols as i64) + (c as i64)));
+                if d0.kind == PDT_DIM_FSE {
+                    self.set(c, at + r,
+                             vals.cells.get((r as i64) * (cols as i64) + (c as i64)));
+                }
+                let mut d: u32 = 0u32;
+                while d < dims {
+                    let dim: PdtDim = self.dim_at(d);
+                    if dim.kind == PDT_DIM_VLE {
+                        let ord: u32 = (self.payload_slot(c, d)
+                                        - (c as i64) * (vle as i64)) as u32;
+                        let k: i64 = pdt_vals_span_slot(cols, vle, r, c, ord);
+                        let len: u64 = vals.lens.get(k);
+                        assert(len % (dim.elem_size as u64) == 0u64,
+                               "PdtBuf: span length is not a whole number of payload elements");
+                        let off: i64 = vals.span_offset(k);
+                        unsafe {
+                            let offs: *mut u32 = self.offsets(c, d);
+                            let base: u64 = *offs.add((at + r) as u32) as u64;
+                            if len > 0u64 {
+                                // Written in the NATURAL form. It did not always
+                                // work: `Vec<u8>::as_ptr` used as the receiver of
+                                // another method call in ARGUMENT position was
+                                // never demanded by mono (scan_expr treated
+                                // PtrArith/PtrDiff as leaves, so nothing reachable
+                                // only through a pointer-arithmetic operand was
+                                // ever instantiated), and mlir-gen's
+                                // method-lowering give-up path was silent — the
+                                // whole copy_bytes statement was discarded and
+                                // every variable-length row was written as zeroes
+                                // with a clean build. Both halves are closed on
+                                // main (mono `5879c043` demands the operands;
+                                // mlir-gen `094315f2` makes a void call that
+                                // lowers to nothing a hard error), and this line
+                                // is IR-verified in the gate, not build-verified.
+                                copy_bytes(self.payload(c, d).byte_add(base as i64),
+                                           vals.bytes.as_ptr().byte_add(off),
+                                           len as i64);
+                            }
+                            *offs.add((at + r + 1u64) as u32) = (base + len) as u32;
+                        }
+                    }
+                    d = d + 1u32;
+                }
                 c = c + 1u32;
             }
             r = r + 1u64;
@@ -1881,20 +2871,63 @@ impl PdtBuf {
     /// then shift, then fill. Reindex is a FULL rebuild here BY NECESSITY —
     /// an insert shifts the row->span mapping of every row after `at`, so no
     /// bounded set of cells describes the change (contrast commit_update).
-    pub fn commit_insert(self: &mut PdtBuf, us: &PdtUpdate, vals: &Vec<u64>) {
+    pub fn commit_insert_vals(self: &mut PdtBuf, us: &PdtUpdate, vals: &PdtVals) {
         assert(us.op == PDT_OP_INSERT, "PdtBuf::commit_insert: update state is not an insert");
         self.assert_planned(us);
-        let tail: u64 = us.old_size - us.at;
-        if us.new_capacity != us.old_capacity {
-            self.apply_geometry(us.new_capacity);
+        let add: Vec<u64> = self.vals_bytes_per_slot(us.count, vals);
+        let mut used: Vec<u64> = self.payload_used_all();
+        let mut k: i64 = 0i64;
+        while k < used.length() {
+            used.set(k, used.get(k) + add.get(k));
+            k = k + 1i64;
+        }
+        // An insert only ever GROWS, so geometry comes first and the whole
+        // commit's peak demand is the priced total. The guard is on the
+        // GEOMETRY, not on the row capacity alone: under PDT_CAP_KEEP the rows
+        // can fit the existing capacity while the payload still has to grow.
+        if us.new_capacity != us.old_capacity || used.length() > 0i64 {
+            self.apply_geometry(us.new_capacity, &used, us.policy);
         }
         self.set_size(us.new_size);
         unsafe {
-            self.move_rows(us.at, us.at + us.count, tail);
+            self.open_row_gap(us.at, us.count, us.old_size, &add);
         }
-        self.write_rows(us.at, us.count, vals);
+        self.write_rows_vals(us.at, us.count, vals);
+        self.assert_span_written(us.at, us.count, &add);
         self.reindex();
         self.assert_consumed(us);
+    }
+
+    /// The all-FSE face (P0..P3 signature, unchanged).
+    pub fn commit_insert(self: &mut PdtBuf, us: &PdtUpdate, vals: &Vec<u64>) {
+        let v: PdtVals = pdt_vals_fse(vals);
+        self.commit_insert_vals(us, &v);
+    }
+
+    // THE SEAM. open_row_gap reserved the payload gap from the PRICE (it
+    // rebased the tail by `add`); write_rows_vals filled it from the CONTENT
+    // (it laid offsets down sequentially from the bytes it actually copied).
+    // The two sides are computed independently, so their agreement is a real
+    // statement that the price matched the bytes — and it is the assertion a
+    // mis-priced VLE insert trips FIRST, before assert_consumed even runs.
+    fn assert_span_written(self: &PdtBuf, at: u64, count: u64, add: &Vec<u64>) {
+        let cols: u32 = self.columns();
+        let dims: u32 = self.dim_count();
+        let mut c: u32 = 0u32;
+        while c < cols {
+            let mut d: u32 = 0u32;
+            while d < dims {
+                let dim: PdtDim = self.dim_at(d);
+                if dim.kind == PDT_DIM_VLE {
+                    let got: u64 = self.row_offset(c, d, at + count)
+                                 - self.row_offset(c, d, at);
+                    assert(got == add.get(self.payload_slot(c, d)),
+                           "PdtBuf: the bytes written do not fill the payload gap that was priced");
+                }
+                d = d + 1u32;
+            }
+            c = c + 1u32;
+        }
     }
 
     /// COMMIT a value replacement — the ONE mutation whose index update is
@@ -1934,28 +2967,149 @@ impl PdtBuf {
     /// "good enough" but the same answer. A probe that skips the index
     /// correction — the shape a targeted update degenerates to if the
     /// recursion is dropped — fails that parity check, not merely a query.
-    pub fn commit_update(self: &mut PdtBuf, us: &PdtUpdate, vals: &Vec<u64>) {
+    /// (P4) OVER A VLE DIMENSION a replacement is not size-neutral: it can
+    /// GROW or SHRINK the payload, which makes update the one operation that
+    /// moves bytes without moving a single row. Both directions are handled by
+    /// the SAME code, and the ordering is the budget discipline described at
+    /// GAP (c): every (column, dimension) whose payload block does NOT grow
+    /// moves its content and releases its bytes first; only then do the growing
+    /// ones acquire and move. So the peak byte demand of the whole commit is
+    /// the priced total, exactly as it is for reserve's shrink-then-grow pass —
+    /// and the alternative ("grow everything, then trim") would have a peak
+    /// ABOVE the price, which is a budget the prepare never asked for.
+    pub fn commit_update_vals(self: &mut PdtBuf, us: &PdtUpdate, vals: &PdtVals) {
         assert(us.op == PDT_OP_UPDATE, "PdtBuf::commit_update: update state is not an update");
         self.assert_planned(us);
         let cols: u32 = self.columns();
-        assert(vals.length() == (us.count as i64) * (cols as i64),
-               "PdtBuf::commit_update: value block length != count * columns");
-        let mut r: u64 = 0u64;
-        while r < us.count {
-            let row: u64 = us.at + r;
-            let mut c: u32 = 0u32;
-            while c < cols {
-                let nv: u64 = vals.get((r as i64) * (cols as i64) + (c as i64));
-                let ov: u64 = self.get(c, row);
-                if nv != ov {
-                    self.set(c, row, nv);
-                    self.index_delta(c, row, wrapping_sub::<u64>(nv, ov));
+        let dims: u32 = self.dim_count();
+        let vle: u32 = self.vle_dim_count();
+        let d0: PdtDim = self.dim_at(0u32);
+        // ── the fixed-stride scalar channel (P3, unchanged) ───────────────
+        // A fixed-stride replacement moves no byte boundary, so it needs no
+        // geometry and its index correction is the targeted one derived below.
+        if d0.kind == PDT_DIM_FSE {
+            assert(vals.cells.length() == (us.count as i64) * (cols as i64),
+                   "PdtBuf::commit_update: value block length != count * columns");
+            let mut r: u64 = 0u64;
+            while r < us.count {
+                let row: u64 = us.at + r;
+                let mut c: u32 = 0u32;
+                while c < cols {
+                    let nv: u64 = vals.cells.get((r as i64) * (cols as i64) + (c as i64));
+                    let ov: u64 = self.get(c, row);
+                    if nv != ov {
+                        self.set(c, row, nv);
+                        self.index_delta(c, row, wrapping_sub::<u64>(nv, ov));
+                    }
+                    c = c + 1u32;
                 }
-                c = c + 1u32;
+                r = r + 1u64;
             }
-            r = r + 1u64;
+        }
+        if vle > 0u32 {
+            let add: Vec<u64> = self.vals_bytes_per_slot(us.count, vals);
+            let drop: Vec<u64> = self.payload_range_all(us.at, us.at + us.count);
+            let mut used: Vec<u64> = self.payload_used_all();
+            let mut k: i64 = 0i64;
+            while k < used.length() {
+                used.set(k, used.get(k) - drop.get(k) + add.get(k));
+                k = k + 1i64;
+            }
+            let target: Vec<u64> = self.target_payload(&used, us.policy);
+            // Two passes: release first, acquire second (see above).
+            let mut pass: u32 = 0u32;
+            while pass < 2u32 {
+                let mut c: u32 = 0u32;
+                while c < cols {
+                    let mut d: u32 = 0u32;
+                    while d < dims {
+                        let dim: PdtDim = self.dim_at(d);
+                        if dim.kind == PDT_DIM_VLE {
+                            let slot: i64 = self.payload_slot(c, d);
+                            let blk: u32 = self.block_of(c, d, 0u32);
+                            let want: u32 = pdt_dim_block_size(&dim, 0u32, us.new_capacity,
+                                                               target.get(slot));
+                            let mut have: u32 = 0u32;
+                            unsafe {
+                                have = self.alc().element_size(blk);
+                            }
+                            let growing: bool = want > have;
+                            if (pass == 1u32) == growing {
+                                if growing {
+                                    self.resize_payload(blk, want);
+                                }
+                                self.reflow_vle_row(c, d, us.at, us.count,
+                                                    drop.get(slot), add.get(slot));
+                                if !growing && want != have {
+                                    self.resize_payload(blk, want);
+                                }
+                            }
+                        }
+                        d = d + 1u32;
+                    }
+                    c = c + 1u32;
+                }
+                pass = pass + 1u32;
+            }
+            self.write_rows_vals(us.at, us.count, vals);
+            self.assert_span_written(us.at, us.count, &add);
         }
         self.assert_consumed(us);
+    }
+
+    /// The all-FSE face (P0..P3 signature, unchanged).
+    pub fn commit_update(self: &mut PdtBuf, us: &PdtUpdate, vals: &Vec<u64>) {
+        let v: PdtVals = pdt_vals_fse(vals);
+        self.commit_update_vals(us, &v);
+    }
+
+    // Resize ONE payload block. Infallible by contract for the same reason
+    // apply_geometry is: the prepare already asked the chain for the priced
+    // total, and this pass never exceeds it.
+    fn resize_payload(self: &mut PdtBuf, blk: u32, want: u32) {
+        unsafe {
+            match self.alc().resize_block_at(blk, want) {
+                Result::Ok(_) => {}
+                Result::Err(_) => {
+                    assert(false,
+                           "PdtBuf: commit could not resize a payload block — prepare was not consulted");
+                }
+            }
+        }
+    }
+
+    // Move the payload tail of ONE (column, VLE dimension) so that the rows
+    // [at, at+count) have `add` bytes of room where they had `old_len`, and
+    // rebase every offset at or past the seam. The rows' own offsets are
+    // rewritten afterwards by write_rows_vals; this only relocates what
+    // FOLLOWS them and keeps the offsets consistent with the payload.
+    fn reflow_vle_row(self: &mut PdtBuf, column: u32, dim: u32, at: u64, count: u64,
+                      old_len: u64, add: u64) {
+        if old_len == add {
+            return;
+        }
+        let n: u64 = self.size();
+        unsafe {
+            let offs: *mut u32 = self.offsets(column, dim);
+            let lo: u64 = *offs.add(at as u32) as u64;
+            let hi: u64 = *offs.add((at + count) as u32) as u64;
+            let used: u64 = *offs.add(n as u32) as u64;
+            if used > hi {
+                let p: *mut u8 = self.payload(column, dim);
+                move_bytes(p.byte_add((lo + add) as i64),
+                           p.byte_add(hi as i64) as *const u8,
+                           (used - hi) as i64);
+            }
+            // offsets [at+count, size] shift by (add - old_len); phrased as
+            // "- old_len + add" so the intermediate never underflows, since
+            // every one of them is >= hi >= lo + old_len >= old_len.
+            let mut r: u64 = at + count;
+            while r <= n {
+                let v: u64 = *offs.add(r as u32) as u64;
+                *offs.add(r as u32) = (v - old_len + add) as u32;
+                r = r + 1u64;
+            }
+        }
     }
 
     // The targeted correction itself (C++ `_add`/`_sub`, folded into one
@@ -1988,16 +3142,34 @@ impl PdtBuf {
     /// survivors down INSIDE the old geometry, publish the smaller size, and
     /// only THEN release the bytes. Releasing first would shorten the data
     /// blocks under the rows still to be moved.
+    /// ORACLE (upstream defect #28, found at this rung by deriving the price
+    /// rather than transcribing it). The C++
+    /// `compute_dimension_size_for_remove` (vle_tools.hpp:525-544) prices the
+    /// post-remove payload as
+    ///     round_up_bytes((my_data_size + existing_data_len) * sizeof(T))
+    /// where `existing_data_len = offsets[end] - offsets[start]` is the range
+    /// being DELETED. Removing rows cannot make the payload larger: the sign is
+    /// wrong, and the result over-states the surviving payload by TWICE the
+    /// deleted length. Its own sibling proves the intent —
+    /// `compute_dimension_size_for_update` (:503) writes
+    /// `my_data_size + data_len - existing_data_len` with the subtraction in
+    /// place. The Logos price subtracts (prepare_remove above), and conuco
+    /// carries a probe that transcribes the C++ form and must FAIL the
+    /// exact-prepare law.
     pub fn commit_remove(self: &mut PdtBuf, us: &PdtUpdate) {
         assert(us.op == PDT_OP_REMOVE, "PdtBuf::commit_remove: update state is not a remove");
         self.assert_planned(us);
         let end: u64 = us.at + us.count;
+        // Shift the survivors down INSIDE the old geometry, publish the smaller
+        // size, and only THEN release the bytes. Releasing first would shorten
+        // the blocks under the rows still to be moved.
         unsafe {
-            self.move_rows(end, us.at, us.old_size - end);
+            self.close_row_gap(us.at, end, us.old_size);
         }
         self.set_size(us.new_size);
-        if us.new_capacity != us.old_capacity {
-            self.apply_geometry(us.new_capacity);
+        let used: Vec<u64> = self.payload_used_all();
+        if us.new_capacity != us.old_capacity || used.length() > 0i64 {
+            self.apply_geometry(us.new_capacity, &used, us.policy);
         }
         self.reindex();
         self.assert_consumed(us);
@@ -2009,8 +3181,18 @@ impl PdtBuf {
         assert(us.op == PDT_OP_MERGE, "PdtBuf::commit_merge_with: update state is not a merge");
         self.assert_planned(us);
         self.assert_compatible(other);
-        if us.new_capacity != us.old_capacity {
-            self.apply_geometry(us.new_capacity);
+        let add: Vec<u64> = other.payload_used_all();
+        let mut used: Vec<u64> = self.payload_used_all();
+        let mut k: i64 = 0i64;
+        while k < used.length() {
+            used.set(k, used.get(k) + add.get(k));
+            k = k + 1i64;
+        }
+        // Pure growth, so geometry first — and the destination's own payload
+        // prefix is untouched, which is why copy_rows_from can rebase onto
+        // offsets[old_size] with nothing else to move.
+        if us.new_capacity != us.old_capacity || used.length() > 0i64 {
+            self.apply_geometry(us.new_capacity, &used, us.policy);
         }
         self.set_size(us.new_size);
         unsafe {
@@ -2036,21 +3218,35 @@ impl PdtBuf {
         other.assert_planned(&sp.right);
         self.assert_compatible(other);
         let n: u64 = sp.left.count;
+        // The payload the tail carries with it, per (column, VLE dimension).
+        let moved: Vec<u64> = self.payload_range_all(sp.left.at, sp.left.old_size);
         // ── the fresh home ────────────────────────────────────────────────
-        if sp.right.new_capacity != sp.right.old_capacity {
-            other.apply_geometry(sp.right.new_capacity);
+        let mut rused: Vec<u64> = other.payload_used_all();
+        let mut k: i64 = 0i64;
+        while k < rused.length() {
+            rused.set(k, rused.get(k) + moved.get(k));
+            k = k + 1i64;
+        }
+        if sp.right.new_capacity != sp.right.old_capacity || rused.length() > 0i64 {
+            other.apply_geometry(sp.right.new_capacity, &rused, sp.right.policy);
         }
         other.set_size(sp.right.new_size);
         unsafe {
-            other.move_rows(0u64, n, sp.right.old_size);
+            other.open_row_gap(0u64, n, sp.right.old_size, &moved);
             other.copy_rows_from(self, sp.left.at, 0u64, n);
         }
+        other.assert_span_written(0u64, n, &moved);
         other.reindex();
         other.assert_consumed(&sp.right);
         // ── and only now does the original let go ─────────────────────────
+        // A pure shrink: the surviving rows [0, at) already sit at the front of
+        // every block and their offsets are already the prefix, so nothing has
+        // to move — publishing the smaller size makes offsets[at] the payload
+        // terminator by itself. That is the layout paying for the ordering.
         self.set_size(sp.left.new_size);
-        if sp.left.new_capacity != sp.left.old_capacity {
-            self.apply_geometry(sp.left.new_capacity);
+        let lused: Vec<u64> = self.payload_used_all();
+        if sp.left.new_capacity != sp.left.old_capacity || lused.length() > 0i64 {
+            self.apply_geometry(sp.left.new_capacity, &lused, sp.left.policy);
         }
         self.reindex();
         self.assert_consumed(&sp.left);
@@ -2079,6 +3275,19 @@ impl PdtBuf {
         return Result::Ok(());
     }
 
+    /// Insert `count` rows carrying variable-length values.
+    pub fn insert_rows_vals(self: &mut PdtBuf, at: u64, count: u64, vals: &PdtVals)
+        -> Result<(), PkdError> {
+        let us: PdtUpdate = match self.prepare_insert_vals(at, count, PDT_CAP_EXACT, vals) {
+            Result::Ok(u) => { u }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        };
+        self.commit_insert_vals(&us, vals);
+        return Result::Ok(());
+    }
+
     /// Replace the values of rows [at, at+count).
     pub fn update_rows(self: &mut PdtBuf, at: u64, count: u64, vals: &Vec<u64>)
         -> Result<(), PkdError> {
@@ -2089,6 +3298,21 @@ impl PdtBuf {
             }
         };
         self.commit_update(&us, vals);
+        return Result::Ok(());
+    }
+
+    /// Replace rows [at, at+count) with variable-length values — the payload
+    /// may grow or shrink, and PDT_CAP_EXACT means the block follows it in
+    /// both directions.
+    pub fn update_rows_vals(self: &mut PdtBuf, at: u64, count: u64, vals: &PdtVals)
+        -> Result<(), PkdError> {
+        let us: PdtUpdate = match self.prepare_update_vals(at, count, PDT_CAP_EXACT, vals) {
+            Result::Ok(u) => { u }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        };
+        self.commit_update_vals(&us, vals);
         return Result::Ok(());
     }
 
@@ -2144,6 +3368,7 @@ impl PdtBuf {
         if self.size() > self.capacity() {
             return 2i32;
         }
+        let caps: Vec<u64> = self.payload_caps();
         unsafe {
             let a: *mut PkdAlloc = self.alc();
             let mut expect_dbt: u32 = 0u32;
@@ -2168,7 +3393,11 @@ impl PdtBuf {
                         if blk < PDT_LAST_HEADER_BLOCK || blk >= a.elements() {
                             return 4i32;
                         }
-                        let want: u32 = pdt_dim_block_size(&d2, sub, self.capacity());
+                        let mut p: u64 = 0u64;
+                        if d2.kind == PDT_DIM_VLE && sub == 0u32 {
+                            p = caps.get(self.payload_slot(c, j));
+                        }
+                        let want: u32 = pdt_dim_block_size(&d2, sub, self.capacity(), p);
                         if a.element_size(blk) != want {
                             return 5i32;
                         }
@@ -2179,11 +3408,54 @@ impl PdtBuf {
                 c = c + 1u32;
             }
         }
+        // ── VLE: the offsets discipline (P4) ──────────────────────────────
+        // What is CHECKABLE here, and what is not, follows from the P4 verdict
+        // that the payload geometry is DERIVED. `payload_capacity` IS the
+        // block's element size, so comparing it against the block would be an
+        // identity and prove nothing — the exactness of VLE pricing is proved
+        // where it can be, at `prepared == consumed` across a mutation, since
+        // `prepared` is computed from a HYPOTHETICAL geometry before the block
+        // exists in that shape. What the block alone can still be held to is
+        // the offsets contract, and all of it is checked:
+        //     offsets[0] == 0, offsets[i] <= offsets[i+1] over the live rows,
+        //     offsets[size] == payload used <= payload capacity,
+        //     every row length a whole multiple of the dimension's elem_size.
+        let cols_v: u32 = cols;
+        let mut cv: u32 = 0u32;
+        while cv < cols_v {
+            let mut jv: u32 = 0u32;
+            while jv < dims {
+                let dv: PdtDim = self.dim_at(jv);
+                if dv.kind == PDT_DIM_VLE {
+                    if self.row_offset(cv, jv, 0u64) != 0u64 {
+                        return 20i32;
+                    }
+                    let n: u64 = self.size();
+                    let mut r: u64 = 0u64;
+                    while r < n {
+                        let lo: u64 = self.row_offset(cv, jv, r);
+                        let hi: u64 = self.row_offset(cv, jv, r + 1u64);
+                        if hi < lo {
+                            return 21i32;
+                        }
+                        if (hi - lo) % (dv.elem_size as u64) != 0u64 {
+                            return 22i32;
+                        }
+                        r = r + 1u64;
+                    }
+                    if self.payload_used(cv, jv) > self.payload_capacity(cv, jv) {
+                        return 23i32;
+                    }
+                }
+                jv = jv + 1u32;
+            }
+            cv = cv + 1u32;
+        }
         // The exact-prepare law: what the block consumed is exactly what
         // pdtbuf_compute_block_size priced. P3's `prepared == consumed`
         // mutation gate is this same assertion, one rung up.
         let d: PdtDescr = self.descr();
-        if self.consumed_bytes() != pdtbuf_compute_block_size(&d, self.capacity()) {
+        if self.consumed_bytes() != pdtbuf_compute_block_size(&d, self.capacity(), &caps) {
             return 6i32;
         }
         // ── the span index (C++ check_sum :1649) ──────────────────────────

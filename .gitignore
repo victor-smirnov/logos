@@ -17,6 +17,7 @@ build*
 /vcpkg_installed
 *.o
 output
+output.o*
 /sandbox
 
 # Generated parser (peg_gen output — do not edit, edit logos.peg instead)

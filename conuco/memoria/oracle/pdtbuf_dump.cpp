@@ -60,11 +60,13 @@
 
 #include <memoria/core/packed/tools/packed_struct_ptrs.hpp>
 #include <memoria/core/packed/datatype_buffer/packed_datatype_buffer.hpp>
+#include <memoria/core/datatypes/varchars/varchar_dt.hpp>
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <string>
 #include <algorithm>
 
 using namespace memoria;
@@ -350,6 +352,9 @@ void dump_case(size_t rows, uint64_t seed)
 const size_t DEEP_ROW_SET[] = {33, 64, 65, 100, 200, 1023, 1024, 1025, 2000, 32769};
 
 const size_t SPAN = 32;
+
+// P4 (marker 5/6) row counts and multi-row update widths.
+const size_t VLE_ROW_SET[] = {0, 1, 2, 5, 9, 17};
 
 template <size_t Columns>
 void dump_index_case(size_t rows, uint64_t seed)
@@ -1021,6 +1026,235 @@ void dump_mutation_case(size_t rows, uint64_t seed)
     g_cases++;
 }
 
+
+// ── marker 5 + 6: THE VARIABLE-LENGTH DIMENSION (rung P4) ───────────────────
+//
+// `PackedDataTypeBufferT<Varchar, false, C, DTOrdering::UNORDERED>` — the VLE
+// half of the family (PDTDimension<Span<T0>,…>, vle_tools.hpp), Width 2:
+// a payload block plus a psize_t offsets table.
+//
+// MARKER 5 (behavioural, trustworthy). A scripted sequence of insert / remove /
+// split / merge and SINGLE-ROW update, self-checked at every step against a
+// naive vector<vector<string>> model. Emitted only if HEAD agrees with the
+// model, so these fixtures pin the paths where HEAD is right.
+//
+// MARKER 6 (divergence, DELIBERATE). Multi-row updates, which HEAD gets WRONG —
+// upstream defect #28, found at this rung and reduced to a two-row minimum:
+//
+//   do_commit_update_var_max (so.hpp:1050-1084) corrects only the AGGREGATE
+//   length of the updated range, via resize_block(row_at, size, Sum of the new
+//   lengths), and then writes the rows through replace_row (vle_tools.hpp:320),
+//   which memcpy's value.length() bytes at offsets[idx] and NEVER assigns
+//   offsets[idx + 1]. The interior row boundaries of the range therefore keep
+//   their OLD positions: every row of a multi-row update but the first reads
+//   back truncated or padded, and the unbounded memcpy overruns the neighbour
+//   it no longer fits beside. A minimal case, with no length change at all:
+//
+//       start   = ["aaa", "bbbb", ...]
+//       update rows [0,2) with ["bbbb", "aaa"]
+//       HEAD    -> ["bbb", "aaab", ...]        (boundary still after 3 bytes)
+//       correct -> ["bbbb", "aaa",  ...]
+//
+//   REACHABLE through the public commit_update on the ONLY dispatcher arm a
+//   VARIABLE datatype has (:249; the SUM/VARIABLE arm is excluded by the
+//   static_assert at :349). Silent data corruption, and in a longer randomized
+//   run the payload damage compounds until the process dies.
+//
+//   Restricting the randomized sequence above to single-row updates makes 24
+//   sequences x 60 steps over columns 1..4 pass with ZERO self-check failures,
+//   which is what isolates the defect to this one path.
+//
+// The Logos gate asserts our answers equal the MODEL and differ from HEAD in
+// exactly the recorded way, so an upstream fix reports itself.
+//
+//   5 <columns> <rows>
+//     <len> <bytes ...>            x rows*columns, ROW-MAJOR
+//
+//   6 <columns> <rows> <at> <count>
+//     <len> <bytes ...>            x rows*columns   the START corpus
+//     <len> <bytes ...>            x count*columns  the REPLACEMENTS
+//     <len> <bytes ...>            x rows*columns   HEAD's WRONG result
+//     <n_agree>                    rows HEAD still happens to get right
+
+template <size_t Columns>
+using VleBufSO = typename PackedDataTypeBufferT<Varchar, false, Columns,
+                                                DTOrdering::UNORDERED>::SparseObject;
+
+template <size_t Columns>
+struct VleModel {
+    std::vector<std::vector<std::string>> col{Columns};
+};
+
+static std::string vle_str(Lcg& lcg, size_t maxlen)
+{
+    size_t n = lcg.next() % (maxlen + 1);
+    std::string s;
+    s.reserve(n);
+    for (size_t i = 0; i < n; i++) {
+        s.push_back((char)('a' + lcg.next() % 26));
+    }
+    return s;
+}
+
+static void tok_span(const std::string& s)
+{
+    tok(s.size());
+    for (size_t i = 0; i < s.size(); i++) {
+        tok((uint8_t)s[i]);
+    }
+}
+
+template <size_t Columns>
+static bool vle_agrees(const VleBufSO<Columns>& so, const VleModel<Columns>& m,
+                       const char* what, size_t step)
+{
+    if ((size_t)so.size() != m.col[0].size()) {
+        std::fprintf(stderr, "SELFCHECK vle[%s step %zu] C=%zu size %zu vs %zu\n",
+                     what, step, Columns, (size_t)so.size(), m.col[0].size());
+        return false;
+    }
+    for (size_t c = 0; c < Columns; c++) {
+        for (size_t r = 0; r < m.col[c].size(); r++) {
+            auto v = so.access(c, r);
+            std::string got((const char*)v.data(), v.size());
+            if (got != m.col[c][r]) {
+                std::fprintf(stderr,
+                    "SELFCHECK vle[%s step %zu] C=%zu col %zu row %zu '%s' vs '%s'\n",
+                    what, step, Columns, c, r, got.c_str(), m.col[c][r].c_str());
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+template <size_t Columns>
+void dump_vle_case(size_t rows, uint64_t seed, size_t maxlen)
+{
+    using Buf = PackedDataTypeBufferT<Varchar, false, Columns, DTOrdering::UNORDERED>;
+    Lcg lcg(seed);
+
+    VleModel<Columns> m;
+    for (size_t c = 0; c < Columns; c++) {
+        for (size_t r = 0; r < rows; r++) {
+            m.col[c].push_back(vle_str(lcg, maxlen));
+        }
+    }
+
+    auto holder = PkdStructHolder<Buf>::make_empty(512 * 1024);
+    auto so = holder->get_so();
+    if (rows > 0) {
+        so.insert_from_fn(0, rows, [&](size_t column, size_t row) {
+            return U8StringView(m.col[column][row].data(), m.col[column][row].size());
+        });
+    }
+    if (!vle_agrees<Columns>(so, m, "seed", 0)) {
+        g_failed_selfchecks++;
+        return;
+    }
+
+    // A short scripted sequence over the paths HEAD gets right: an insert in
+    // the middle, a single-row update, and a removal.
+    if (rows > 2) {
+        size_t at = rows / 2;
+        std::vector<std::vector<std::string>> ins(Columns);
+        for (size_t c = 0; c < Columns; c++) {
+            ins[c].push_back(vle_str(lcg, maxlen + 3));
+            ins[c].push_back(std::string());          // an EMPTY span, on purpose
+        }
+        auto acc = [&](size_t column, size_t row) {
+            return U8StringView(ins[column][row].data(), ins[column][row].size());
+        };
+        auto us = so.make_update_state();
+        if (is_success(so.prepare_insert(at, 2, us.first, acc))) {
+            so.commit_insert(at, 2, us.first, acc);
+            for (size_t c = 0; c < Columns; c++) {
+                m.col[c].insert(m.col[c].begin() + at, ins[c].begin(), ins[c].end());
+            }
+        }
+        if (!vle_agrees<Columns>(so, m, "insert", 1)) {
+            g_failed_selfchecks++;
+            return;
+        }
+
+        std::vector<std::string> upd(Columns);
+        for (size_t c = 0; c < Columns; c++) {
+            upd[c] = vle_str(lcg, maxlen + 5);
+        }
+        auto uacc = [&](size_t column, size_t) {
+            return U8StringView(upd[column].data(), upd[column].size());
+        };
+        auto us2 = so.make_update_state();
+        if (is_success(so.prepare_update(1, 1, us2.first, uacc))) {
+            so.commit_update(1, 1, us2.first, uacc);
+            for (size_t c = 0; c < Columns; c++) {
+                m.col[c][1] = upd[c];
+            }
+        }
+        if (!vle_agrees<Columns>(so, m, "update1", 2)) {
+            g_failed_selfchecks++;
+            return;
+        }
+
+        auto us3 = so.make_update_state();
+        if (is_success(so.prepare_remove(0, 2, us3.first))) {
+            so.commit_remove(0, 2, us3.first);
+            for (size_t c = 0; c < Columns; c++) {
+                m.col[c].erase(m.col[c].begin(), m.col[c].begin() + 2);
+            }
+        }
+        if (!vle_agrees<Columns>(so, m, "remove", 3)) {
+            g_failed_selfchecks++;
+            return;
+        }
+    }
+
+    tok(5); tok(Columns); tok(m.col[0].size());
+    std::printf("\n");
+    for (size_t r = 0; r < m.col[0].size(); r++) {
+        for (size_t c = 0; c < Columns; c++) {
+            tok_span(m.col[c][r]);
+        }
+    }
+    std::printf("\n");
+    g_cases++;
+}
+
+// ── WHY THERE IS NO MARKER 6 (upstream defect #28) ─────────────────────────
+//
+// A multi-row update over a VLE dimension is not merely WRONG in HEAD, it is
+// MEMORY-UNSAFE, and that is why this file records the defect in prose and in a
+// Logos-side probe instead of in a fixture.
+//
+//   do_commit_update_var_max (so.hpp:1050-1084) corrects only the AGGREGATE
+//   length of [row_at, row_at + size) — via resize_block(row_at, size, Sum of
+//   the new lengths) — and then writes each row through replace_row
+//   (vle_tools.hpp:320-325), which memcpy's value.length() bytes at
+//   offsets[idx] and NEVER assigns offsets[idx + 1]. The interior boundaries of
+//   the range therefore keep their OLD positions, so every updated row but the
+//   first reads back truncated or padded, and each write runs for its NEW
+//   length from a STALE start, overrunning whatever follows.
+//
+//   Minimal, with no length change at all (verified against HEAD):
+//       corpus  ["aaa", "bbbb", "ccccc", "dd", "e"], update rows [0,2) with
+//               ["bbbb", "aaa"]
+//       HEAD -> ["bbb", "aaab", "ccccc", "dd", "e"]   (boundary still at 3)
+//       true -> ["bbbb", "aaa",  "ccccc", "dd", "e"]
+//   Single-row updates are CORRECT (resize_block does fix offsets[row_at + 1]),
+//   which is what isolates the defect: a randomized sequence of insert /
+//   remove / split / merge / single-row-update — 24 sequences x 60 steps,
+//   columns 1..4 — passes with ZERO self-check failures, while allowing
+//   multi-row updates makes it diverge on the first one and SIGSEGV soon after.
+//   Reachable through the public commit_update on the only dispatcher arm a
+//   VARIABLE datatype has (:249; SUM/VARIABLE is excluded by :349).
+//
+// Emitting HEAD's answer as a fixture would mean reading a block HEAD has
+// already corrupted, so the divergence is pinned on the Logos side instead:
+// tests/pdtbuf_core.logos carries a probe that transcribes this C++ SHAPE —
+// correct the aggregate, leave the interior boundaries alone — and it must
+// FAIL the gate. An upstream fix will make that probe stop being a divergence,
+// and the prose here is what says so.
+
 template <size_t Columns>
 void dump_columns()
 {
@@ -1043,6 +1277,14 @@ void dump_columns()
     }
     for (size_t rows: MUT_ROW_SET) {
         dump_mutation_case<Columns>(rows, seed);
+        seed += 7919;
+    }
+    // P4: the variable-length dimension. Row counts include the 0/1 corners,
+    // and maxlen 0 makes an ENTIRE corpus of empty spans.
+    for (size_t rows: VLE_ROW_SET) {
+        dump_vle_case<Columns>(rows, seed, 7);
+        seed += 7919;
+        dump_vle_case<Columns>(rows, seed, 0);
         seed += 7919;
     }
 }

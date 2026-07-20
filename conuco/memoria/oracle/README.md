@@ -35,11 +35,12 @@ The harness self-checks every case (C++ `compute_size` == units written; C++
 decode roundtrips to the source runs) and prints per-bps case counts to
 stderr; stdout is the fixture stream, `0`-terminated.
 
-## pdtbuf_dump — PackedDataTypeBuffer cross-check reference (PdtBuf rungs P0+P1+P2+P3)
+## pdtbuf_dump — PackedDataTypeBuffer cross-check reference (PdtBuf rungs P0-P4)
 
-Generates `tests/pdtbuf_fixtures.hex`: **228 cases** over
-`PackedDataTypeBufferT<BigInt, true, C, DTOrdering::{SUM,MAX}>` for C in
-{1,2,3,4}, in four flavours.
+Generates `tests/pdtbuf_fixtures.hex`: **276 cases** over
+`PackedDataTypeBufferT<BigInt, true, C, DTOrdering::{SUM,MAX}>` and — for the
+variable-length half — `PackedDataTypeBufferT<Varchar, false, C,
+DTOrdering::UNORDERED>`, for C in {1,2,3,4}, in five flavours.
 
 **Marker-1 (88 cases, rung P0)** — row counts {0,1,2,3,5,8,15,16,17,31,32}, at
 or below `IndexSpan` = 32, so HEAD stays on its scan/bisection paths. Each
@@ -236,6 +237,58 @@ not-found over rows it never read. The Logos port derives the residual
 instead ("resume the scan at the first row the index does not cover"), which
 subsumes HEAD's answer rather than special-casing it. Transcribing HEAD's
 short-circuit into the port fails the gate at exit 119.
+
+**P4 — the variable-length dimension (marker 5).** 48 cases over
+`PackedDataTypeBufferT<Varchar, false, C, DTOrdering::UNORDERED>` for C in
+{1,2,3,4} and row counts {0,1,2,5,9,17}, at two span-length regimes (`maxlen`
+7 and 0 — the second makes an ENTIRE corpus of empty spans). Each case runs a
+short scripted sequence through HEAD's own two-phase VLE surface — an insert in
+the middle carrying an empty span, a SINGLE-row update, a removal — self-checked
+against a naive `vector<vector<string>>` model at every step, and emits the
+resulting corpus:
+
+    5 <columns> <rows>
+      <len> <bytes ...>        x rows*columns, ROW-MAJOR
+
+**Third recorded divergence (P4, upstream bug #28) — and why it is NOT a
+fixture.** HEAD's MULTI-ROW update over a VLE dimension is memory-unsafe.
+`do_commit_update_var_max` (`packed_datatype_buffer_so.hpp:1050-1084`) corrects
+only the AGGREGATE length of `[row_at, row_at + size)` — via
+`resize_block(row_at, size, Σ new lengths)` — and then writes each row through
+`replace_row` (`packed_datatype_buffer_vle_tools.hpp:320-325`), which memcpy's
+`value.length()` bytes at `offsets[idx]` and **never assigns
+`offsets[idx + 1]`**. The interior row boundaries keep their old positions, so
+every updated row but the first reads back truncated or padded, and each write
+runs for its NEW length from a STALE start, overrunning its neighbour. Minimal
+case, with no length change at all:
+
+    corpus ["aaa","bbbb","ccccc","dd","e"], update rows [0,2) with ["bbbb","aaa"]
+    HEAD -> ["bbb", "aaab", "ccccc", "dd", "e"]     boundary still at 3
+    true -> ["bbbb", "aaa",  "ccccc", "dd", "e"]
+
+SINGLE-row updates are correct (`resize_block` does fix `offsets[row_at + 1]`),
+which is what isolates the defect: a randomized sequence of
+insert/remove/split/merge/single-row-update — 24 sequences x 60 steps, columns
+1..4 — passes with ZERO self-check failures, while allowing multi-row updates
+diverges on the first one and SIGSEGVs soon after. Reachable through the public
+`commit_update` on the only dispatcher arm a VARIABLE datatype has (`:249`; the
+SUM/VARIABLE arm is excluded by the `static_assert` at `:349`). Emitting HEAD's
+answer as a fixture would mean reading a block HEAD has already corrupted, so
+the divergence is pinned on the Logos side instead: `pdtbuf_core.logos` 300..303
+transcribes the C++ *shape* — correct the aggregate, leave the interior
+boundaries alone — and asserts it diverges from the definition.
+
+**Fourth (P4, upstream bug #29, LATENT).**
+`compute_dimension_size_for_remove` (`vle_tools.hpp:525-544`) prices the
+post-remove payload as `round_up_bytes((my_data_size + existing_data_len) *
+sizeof(T))` where `existing_data_len` is the range being DELETED — the sign is
+wrong, and its own sibling `compute_dimension_size_for_update` (`:503`) writes
+the subtraction correctly. Not reachable: the VARIABLE dispatcher does not
+override `prepare_remove`, so it inherits the base's unconditional SUCCESS
+(`:189`) and `do_prepare_remove` (`:614`) is dead code — the same reason P3's
+`column < 1` defect there is unobservable. Recorded because it is the
+function's stated contract; `pdtbuf_core.logos` probe E transcribes the sign
+and fails the exact-prepare law.
 
 ## Known edges
 

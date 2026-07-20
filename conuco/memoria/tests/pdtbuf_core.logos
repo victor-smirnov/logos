@@ -554,14 +554,14 @@ fn check_sizing() -> i32 {
             return 12000i32;
         }
         // Sizing is monotone in capacity and exact on the 8-byte granule.
-        let e0: u32 = pdtbuf_compute_block_size(&d, 0u64);
+        let e0: u32 = pdtbuf_compute_block_size_fse(&d, 0u64);
         if e0 != pdtbuf_empty_size(&d) {
             return 13i32;
         }
         let mut cap: u64 = 1u64;
         while cap <= 64u64 {
-            let s1: u32 = pdtbuf_compute_block_size(&d, cap);
-            let s0: u32 = pdtbuf_compute_block_size(&d, cap - 1u64);
+            let s1: u32 = pdtbuf_compute_block_size_fse(&d, cap);
+            let s0: u32 = pdtbuf_compute_block_size_fse(&d, cap - 1u64);
             if s1 < s0 {
                 return 14i32;
             }
@@ -584,7 +584,7 @@ fn check_sizing() -> i32 {
         }
         // ... and the recursion is the SAME pricing function one level down
         // (2 spans of 32 rows) — the shape P1 inherits unchanged.
-        if pdtbuf_index_block_size(&di, 33u64) != pdtbuf_compute_block_size(&di, 2u64) {
+        if pdtbuf_index_block_size(&di, 33u64) != pdtbuf_compute_block_size_fse(&di, 2u64) {
             return 19i32;
         }
         // A MAX descriptor never carries an index, whatever the flag says
@@ -623,7 +623,7 @@ fn check_column_canary() -> i32 {
     let mut cols: u32 = 1u32;
     while cols <= 4u32 {
         let d: PdtDescr = descr_for(cols, PDT_ORD_SUM);
-        let bs: u32 = pdtbuf_compute_block_size(&d, 8u64);
+        let bs: u32 = pdtbuf_compute_block_size_fse(&d, 8u64);
         unsafe {
             let mem: *mut u8 = alloc(bs as i64);
             let mut b: PdtBuf = match pdtbuf_create(mem, bs, &d, 8u64) {
@@ -698,7 +698,7 @@ fn check_case(cols: u32, rows: u64, ordering: u32, seed: &mut u64) -> i32 {
     let sorted: bool = ordering == PDT_ORD_MAX;
     let m: Model = model_random(cols, rows, sorted, seed);
     let d: PdtDescr = descr_for(cols, ordering);
-    let bs: u32 = pdtbuf_compute_block_size(&d, rows);
+    let bs: u32 = pdtbuf_compute_block_size_fse(&d, rows);
     unsafe {
         let mem: *mut u8 = alloc(bs as i64);
         let mut b: PdtBuf = match pdtbuf_create(mem, bs, &d, rows) {
@@ -724,7 +724,7 @@ fn check_case_body(b: &PdtBuf, m: &Model, ordering: u32) -> i32 {
         return 70i32;
     }
     let d: PdtDescr = b.descr();
-    if b.consumed_bytes() != pdtbuf_compute_block_size(&d, rows) {
+    if b.consumed_bytes() != pdtbuf_compute_block_size_fse(&d, rows) {
         return 71i32;
     }
     if b.size() != rows {
@@ -978,7 +978,7 @@ fn check_edges() -> i32 {
         // Empty buffer: no unsigned underflow anywhere (the C++ family's
         // signature failure mode — max_element_idx = size()-1 on empty, and
         // the walk_fw `start >= size-64` guard class).
-        let bs0: u32 = pdtbuf_compute_block_size(&d, 0u64);
+        let bs0: u32 = pdtbuf_compute_block_size_fse(&d, 0u64);
         unsafe {
             let mem: *mut u8 = alloc(bs0 as i64);
             let b: PdtBuf = match pdtbuf_create(mem, bs0, &d, 0u64) {
@@ -1032,7 +1032,7 @@ fn check_edges() -> i32 {
         // reserve() grows and shrinks exactly, and the pricing law holds at
         // every capacity on the way — the P3 exact-prepare basis.
         let caps: [u64; 7] = [0u64, 1u64, 31u64, 32u64, 33u64, 8u64, 0u64];
-        let bsmax: u32 = pdtbuf_compute_block_size(&d, 33u64);
+        let bsmax: u32 = pdtbuf_compute_block_size_fse(&d, 33u64);
         unsafe {
             let mem2: *mut u8 = alloc(bsmax as i64);
             let mut b2: PdtBuf = match pdtbuf_format(mem2, bsmax, &d) {
@@ -1056,7 +1056,7 @@ fn check_edges() -> i32 {
                     dealloc(mem2);
                     return 58001i32;
                 }
-                if b2.consumed_bytes() != pdtbuf_compute_block_size(&d, cap) {
+                if b2.consumed_bytes() != pdtbuf_compute_block_size_fse(&d, cap) {
                     dealloc(mem2);
                     return 59000i32;
                 }
@@ -1124,7 +1124,7 @@ fn check_index_geometry() -> i32 {
         // Capacities straddling the threshold and both deeper boundaries.
         let caps: [u64; 10] = [0u64, 1u64, 31u64, 32u64, 33u64, 64u64, 1024u64,
                                1025u64, 100u64, 0u64];
-        let bsmax: u32 = pdtbuf_compute_block_size(&d, 1025u64);
+        let bsmax: u32 = pdtbuf_compute_block_size_fse(&d, 1025u64);
         unsafe {
             let mem: *mut u8 = alloc(bsmax as i64);
             let mut b: PdtBuf = match pdtbuf_format(mem, bsmax, &d) {
@@ -1160,7 +1160,7 @@ fn check_index_geometry() -> i32 {
                     dealloc(mem);
                     return 114i32;
                 }
-                if b.consumed_bytes() != pdtbuf_compute_block_size(&d, cap) {
+                if b.consumed_bytes() != pdtbuf_compute_block_size_fse(&d, cap) {
                     dealloc(mem);
                     return 115i32;
                 }
@@ -1202,7 +1202,7 @@ fn check_empty_index_safety(seed: &mut u64) -> i32 {
         let rows: u64 = 100u64;
         let m: Model = model_random(cols, rows, false, seed);
         let d: PdtDescr = descr_indexed(cols);
-        let bs: u32 = pdtbuf_compute_block_size(&d, rows);
+        let bs: u32 = pdtbuf_compute_block_size_fse(&d, rows);
         unsafe {
             let mem: *mut u8 = alloc(bs as i64);
             let mut b: PdtBuf = match pdtbuf_create(mem, bs, &d, rows) {
@@ -1314,8 +1314,8 @@ fn check_three_way_with(m: &Model, dense: bool) -> i32 {
 
     let di: PdtDescr = descr_indexed(cols);
     let ds: PdtDescr = descr_for(cols, PDT_ORD_SUM);
-    let bsi: u32 = pdtbuf_compute_block_size(&di, rows);
-    let bss: u32 = pdtbuf_compute_block_size(&ds, rows);
+    let bsi: u32 = pdtbuf_compute_block_size_fse(&di, rows);
+    let bss: u32 = pdtbuf_compute_block_size_fse(&ds, rows);
 
     unsafe {
         let memi: *mut u8 = alloc(bsi as i64);
@@ -2061,7 +2061,7 @@ fn check_under_covering_index(seed: &mut u64) -> i32 {
         let rows: u64 = 200u64;
         let m: Model = model_random(cols, rows, false, seed);
         let d: PdtDescr = descr_indexed(cols);
-        let bs: u32 = pdtbuf_compute_block_size(&d, rows);
+        let bs: u32 = pdtbuf_compute_block_size_fse(&d, rows);
         let mut ci: i64 = 0i64;
         while ci < 4i64 {
             let cov: u64 = covered[ci];
@@ -2179,7 +2179,7 @@ fn check_fixture_case(s: str, pos: &mut i64) -> i32 {
     }
 
     let d: PdtDescr = descr_for(cols, ordering);
-    let bs: u32 = pdtbuf_compute_block_size(&d, rows);
+    let bs: u32 = pdtbuf_compute_block_size_fse(&d, rows);
     unsafe {
         let mem: *mut u8 = alloc(bs as i64);
         let mut b: PdtBuf = match pdtbuf_create(mem, bs, &d, rows) {
@@ -2285,7 +2285,7 @@ fn check_index_fixture_case(s: str, pos: &mut i64) -> i32 {
     let m: Model = model_random(cols, rows, false, &mut sd);
 
     let d: PdtDescr = descr_indexed(cols);
-    let bs: u32 = pdtbuf_compute_block_size(&d, rows);
+    let bs: u32 = pdtbuf_compute_block_size_fse(&d, rows);
     unsafe {
         let mem: *mut u8 = alloc(bs as i64);
         let mut b: PdtBuf = match pdtbuf_create(mem, bs, &d, rows) {
@@ -2386,7 +2386,7 @@ fn check_dir_fixture_case(s: str, pos: &mut i64) -> i32 {
     };
 
     let d: PdtDescr = descr_indexed(cols);
-    let bs: u32 = pdtbuf_compute_block_size(&d, rows);
+    let bs: u32 = pdtbuf_compute_block_size_fse(&d, rows);
     unsafe {
         let mem: *mut u8 = alloc(bs as i64);
         let mut b: PdtBuf = match pdtbuf_create(mem, bs, &d, rows) {
@@ -2544,7 +2544,7 @@ fn check_mut_fixture_case(s: str, pos: &mut i64) -> i32 {
     }
 
     let d: PdtDescr = descr_indexed(cols);
-    let block: u32 = pdtbuf_compute_block_size(&d, rows + 256u64);
+    let block: u32 = pdtbuf_compute_block_size_fse(&d, rows + 256u64);
     let nsteps: i64 = next_tok(s, pos) as i64;
 
     unsafe {
@@ -2856,7 +2856,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
     let d: PdtDescr = descr_indexed(cols);
     let cap0: u64 = rows + slack;
     // Headroom for the largest growth any sub-case below asks for.
-    let block: u32 = pdtbuf_compute_block_size(&d, cap0 + 64u64);
+    let block: u32 = pdtbuf_compute_block_size_fse(&d, cap0 + 64u64);
 
     let ats: [u64; 3] = [0u64, rows / 2u64, rows];
     let counts: [u64; 3] = [1u64, 5u64, 17u64];
@@ -3122,7 +3122,7 @@ fn check_mut_ops(cols: u32, rows: u64, policy: u32, slack: u64, seed: &mut u64) 
 fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
     let m0: Model = model_random(cols, rows, true, seed);
     let d: PdtDescr = descr_for(cols, PDT_ORD_MAX);
-    let block: u32 = pdtbuf_compute_block_size(&d, rows + 64u64);
+    let block: u32 = pdtbuf_compute_block_size_fse(&d, rows + 64u64);
     unsafe {
         let mem: *mut u8 = alloc(block as i64);
         let omem: *mut u8 = alloc(block as i64);
@@ -3287,7 +3287,7 @@ fn check_mut_ops_max(cols: u32, rows: u64, seed: &mut u64) -> i32 {
 // what an inexact prepare would drag back in.
 //
 // The failure is forced the only honest way: a block sized to EXACTLY
-// pdtbuf_compute_block_size(descr, rows), which is the tightest a correct
+// pdtbuf_compute_block_size_fse(descr, rows), which is the tightest a correct
 // buffer can be, so a single extra row genuinely cannot be paid for.
 fn check_failed_prepare_identity(seed: &mut u64) -> i32 {
     let mut cols: u32 = 1u32;
@@ -3298,7 +3298,7 @@ fn check_failed_prepare_identity(seed: &mut u64) -> i32 {
             let rows: u64 = sizes[si];
             let m: Model = model_random(cols, rows, false, seed);
             let d: PdtDescr = descr_indexed(cols);
-            let tight: u32 = pdtbuf_compute_block_size(&d, rows);
+            let tight: u32 = pdtbuf_compute_block_size_fse(&d, rows);
             unsafe {
                 let mem: *mut u8 = alloc(tight as i64);
                 let mut b: PdtBuf = match build_filled(mem, tight, &d, rows, &m) {
@@ -3395,7 +3395,7 @@ fn check_insert_remove_inverse(seed: &mut u64) -> i32 {
             let rows: u64 = sizes[si];
             let m: Model = model_random(cols, rows, false, seed);
             let d: PdtDescr = descr_indexed(cols);
-            let block: u32 = pdtbuf_compute_block_size(&d, rows + 40u64);
+            let block: u32 = pdtbuf_compute_block_size_fse(&d, rows + 40u64);
             unsafe {
                 let mem: *mut u8 = alloc(block as i64);
                 let counts: [u64; 3] = [1u64, 2u64, 33u64];
@@ -3451,7 +3451,7 @@ fn check_insert_remove_inverse(seed: &mut u64) -> i32 {
                             dealloc(mem);
                             return 245i32;
                         }
-                        if b.consumed_bytes() != pdtbuf_compute_block_size(&d, rows) {
+                        if b.consumed_bytes() != pdtbuf_compute_block_size_fse(&d, rows) {
                             dealloc(snap);
                             dealloc(mem);
                             return 242i32;
@@ -3489,7 +3489,7 @@ fn check_merge_split_roundtrip(seed: &mut u64) -> i32 {
             let rows: u64 = sizes[si];
             let m: Model = model_random(cols, rows, false, seed);
             let d: PdtDescr = descr_indexed(cols);
-            let block: u32 = pdtbuf_compute_block_size(&d, rows + 8u64);
+            let block: u32 = pdtbuf_compute_block_size_fse(&d, rows + 8u64);
             unsafe {
                 let mem: *mut u8 = alloc(block as i64);
                 let omem: *mut u8 = alloc(block as i64);
@@ -3593,7 +3593,7 @@ fn check_incremental_reindex(seed: &mut u64) -> i32 {
             let rows: u64 = sizes[si];
             let m0: Model = model_random(cols, rows, false, seed);
             let d: PdtDescr = descr_indexed(cols);
-            let block: u32 = pdtbuf_compute_block_size(&d, rows);
+            let block: u32 = pdtbuf_compute_block_size_fse(&d, rows);
             unsafe {
                 let mem: *mut u8 = alloc(block as i64);
                 let mut b: PdtBuf = match build_filled(mem, block, &d, rows, &m0) {
@@ -3681,7 +3681,7 @@ fn check_incremental_reindex(seed: &mut u64) -> i32 {
 fn check_mutation_sequences(cols: u32, policy: u32, steps: i64, seed: &mut u64) -> i32 {
     let d: PdtDescr = descr_indexed(cols);
     let maxrows: u64 = 1100u64;
-    let block: u32 = pdtbuf_compute_block_size(&d, maxrows);
+    let block: u32 = pdtbuf_compute_block_size_fse(&d, maxrows);
     unsafe {
         let mem: *mut u8 = alloc(block as i64);
         let omem: *mut u8 = alloc(block as i64);
