@@ -15279,8 +15279,23 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             }
         }
         if (!lubbed_to_fnptr) {
-            if (!types_compatible(expr_type(then_val), expr_type(else_val)) &&
+            // Branches that disagree with each other may still both be
+            // coercible to what the surrounding position expects — the merge
+            // used to compare them ONLY against one another, so an expected
+            // type that both could reach was never consulted.
+            if (hint_expected_type_ &&
+                !types_compatible(expr_type(then_val), expr_type(else_val)) &&
                 !types_compatible(expr_type(else_val), expr_type(then_val))) {
+                apply_place_coercions(then_val, hint_expected_type_);
+                apply_place_coercions(else_val, hint_expected_type_);
+                if (types_compatible(expr_type(then_val), hint_expected_type_) &&
+                    types_compatible(expr_type(else_val), hint_expected_type_))
+                    result_type = hint_expected_type_;
+            }
+            if (!types_compatible(expr_type(then_val), expr_type(else_val)) &&
+                !types_compatible(expr_type(else_val), expr_type(then_val)) &&
+                !(result_type && types_compatible(expr_type(then_val), result_type) &&
+                  types_compatible(expr_type(else_val), result_type))) {
                 error(std::format("if-expression branches have incompatible types: {} vs {}",
                       type_str(expr_type(then_val)), type_str(expr_type(else_val))));
             } else {

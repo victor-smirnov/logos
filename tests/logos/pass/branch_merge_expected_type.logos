@@ -1,0 +1,36 @@
+// `if` / `match` arms are unified against EACH OTHER. When they disagree, arms
+// that are both coercible to what the SURROUNDING position expects had nothing
+// to be coerced to — the expected type was never consulted — so this errored
+// with "branches have incompatible types" even though both reach `&mut [i64]`.
+//
+// Arms of DIFFERENT array lengths are the sharp case: mutually incompatible by
+// construction, both perfectly good slices.
+package branch_merge_expected_type;
+
+fn total(x: &mut [i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < x.len() { t = t + x[i]; i = i + 1i64; }
+    return t;
+}
+
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut b: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+
+    let x: &mut [i64] = if true { &mut a } else { &mut b };
+    if x.len() != 3i64 { return 1i32; }
+    if total(x) != 6i64 { return 2i32; }
+
+    let y: &mut [i64] = if false { &mut a } else { &mut b };
+    if y.len() != 5i64 { return 3i32; }
+    if total(y) != 15i64 { return 4i32; }
+
+    let z: &mut [i64] = match true { true => &mut a, false => &mut b };
+    if z.len() != 3i64 { return 5i32; }
+
+    // arms that already agree must keep working
+    let w: &mut [i64] = if true { &mut a } else { &mut a };
+    if w.len() != 3i64 { return 6i32; }
+    return 0i32;
+}

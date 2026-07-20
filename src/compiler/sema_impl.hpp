@@ -3983,6 +3983,13 @@ private:
     // coercing each `&Concrete` to `&dyn Trait` (the unsize coercion done
     // per-element at codegen) instead of rejecting on element-type mismatch.
     TypeRef hint_arr_elem_type_ = nullptr;
+    // The EXPECTED type of the expression currently being lowered, when the
+    // surrounding position knows it (an annotated `let`, a `return`). Branch
+    // merges need it: `if`/`match` arms are unified against EACH OTHER, so
+    // arms that are mutually incompatible but both coercible to the expected
+    // type — `let x: &[T] = if c { &a3 } else { &a5 }` — had nothing to be
+    // coerced TO and simply errored.
+    TypeRef hint_expected_type_ = nullptr;
 
     // T2-28: when a call is written with an explicit package qualifier
     // (`logos.lang.mem::replace(...)`), this holds the dotted package

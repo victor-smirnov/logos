@@ -1837,8 +1837,11 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                 TypeRef(ann).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ann).type_args().empty())
         hint_struct_type_ = ann;
     auto saved_ret_hint = hint_call_return_type_;
-    if (ann && !ann_has_hole && TypeRef(ann).kind() != LogosType::Kind::Error)
+    auto saved_expected  = hint_expected_type_;
+    if (ann && !ann_has_hole && TypeRef(ann).kind() != LogosType::Kind::Error) {
         hint_call_return_type_ = ann;
+        hint_expected_type_    = ann;
+    }
     // G151-3: a fn-ptr/closure-annotated let hints the closure formal so an
     // untyped closure literal (`let f: fn(i64)->i64 = |x| x+1`) infers its
     // param types (was `|<error>|`). Mirrors the call-arg + return paths.
@@ -1951,6 +1954,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         hint_enum_type_ = saved_hint;
                         hint_struct_type_ = saved_struct_hint;
                         hint_call_return_type_ = saved_ret_hint;
+                        hint_expected_type_    = saved_expected;
                         hint_closure_formal_ = saved_closure_hint;
                         hint_tuple_type_ = saved_tuple_hint;
                         return make_stmt_emit(node_line_, std::move(sl));
@@ -1986,6 +1990,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     hint_enum_type_ = saved_hint;
                     hint_struct_type_ = saved_struct_hint;
                     hint_call_return_type_ = saved_ret_hint;
+                        hint_expected_type_    = saved_expected;
                     hint_closure_formal_ = saved_closure_hint;
                     hint_tuple_type_ = saved_tuple_hint;
                     return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)});
@@ -2067,6 +2072,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     hint_enum_type_ = saved_hint;
     hint_struct_type_ = saved_struct_hint;
     hint_call_return_type_ = saved_ret_hint;
+                        hint_expected_type_    = saved_expected;
     hint_closure_formal_ = saved_closure_hint;
     hint_arr_elem_type_ = saved_arr_elem_hint;
     hint_tuple_type_ = saved_tuple_hint;
@@ -9963,6 +9969,17 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 TypeRef vt = expr_type(val);
                 val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(val), vt);
             }
+            // Coerce EVERY arm to the expected type before the merge, not
+            // just one that disagrees with the arms seen so far. Selective
+            // coercion splits TYPE from REPRESENTATION: the merged type becomes
+            // the slice while an already-lowered arm is still a thin
+            // ref-to-array, so the match compiles and then reads a garbage
+            // length. This sits AFTER all arm-body wrapping, so it applies to
+            // every arm shape, not only pattern-binding ones.
+            if (hint_expected_type_ && val &&
+                TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
+                TypeRef(expr_type(val)).kind() != LogosType::Kind::Never)
+                apply_place_coercions(val, hint_expected_type_);
             // A diverging arm (Never = `!`) contributes no type — the match's
             // type is that of the non-diverging arms (Never is a subtype of
             // every type). Treat Never like Error in the accumulator.
