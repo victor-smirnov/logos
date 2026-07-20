@@ -404,14 +404,33 @@ topo_sort_modules(std::vector<ParsedModule> in,
 // Scans the first few non-comment, non-blank lines for `package <dotted>;`.
 // Returns empty string if not found. Matches the grammar loosely — no
 // attempt to validate, only to extract the name.
+//
+// THE BUDGET COUNTS SIGNIFICANT LINES, NOT RAW ONES, and that distinction is
+// load-bearing. `package` must be the first significant item in a file, so the
+// loop below decides on the FIRST such line it reaches — one significant line
+// is all the scan ever needs. Charging comment and blank lines against the
+// budget therefore bounds nothing useful and imposes a limit that is invisible
+// where it bites: a well-documented module whose header comment runs past the
+// cap falls out of the package index entirely, and every consumer then fails
+// with "cannot find package" against a build that compiled it happily.
+//
+// That is not hypothetical. It cost a session: stdlib/mem/pkd/pdtbuf.logos
+// grew a header of ~200 comment lines, three more lines pushed `package` past
+// the old raw cap, and the module vanished from liblogos-mem.a — which was
+// then mis-diagnosed as an archive SIZE threshold, and "the documentation does
+// not fit" was recorded as a property of the build system. There is no size
+// limit; there was a comment-line limit that pretended to be one. The raw
+// guard is kept, generously, purely so a pathological non-Logos file cannot
+// make this scan read gigabytes.
 static std::string scan_package_decl(const std::string& path) {
     std::ifstream f(path);
     if (!f) return {};
     std::string line;
-    int lines_seen = 0;
+    int significant_seen = 0;
+    int raw_seen = 0;
     bool in_block_comment = false;
-    while (std::getline(f, line) && lines_seen < 200) {
-        ++lines_seen;
+    while (std::getline(f, line) && significant_seen < 8 && raw_seen < 100000) {
+        ++raw_seen;
         // Strip leading whitespace.
         size_t i = 0;
         while (i < line.size() && std::isspace(static_cast<unsigned char>(line[i]))) ++i;
@@ -434,6 +453,9 @@ static std::string scan_package_decl(const std::string& path) {
         // single-line skip — true multi-line attrs not supported by
         // this scanner (none currently exist in practice).
         if (i + 1 < line.size() && line[i] == '#' && line[i + 1] == '!') continue;
+        // Everything above this point was skipped as insignificant; only a
+        // line that reaches here spends budget, and the loop resolves on it.
+        ++significant_seen;
         // Look for "package".
         const std::string_view kw = "package";
         if (line.compare(i, kw.size(), kw) != 0) return {};

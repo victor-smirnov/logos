@@ -19,6 +19,16 @@
 #      through the consumer's own reader and fails loudly, naming the package,
 #      if anything it meant to publish did not arrive.
 #
+#   4. DOCUMENTATION IS NOT A LIMIT. scan_package_decl used to give up after 200
+#      RAW lines, charging comments and blanks against that budget — so a module
+#      whose header comment ran long simply had no package name, dropped out of
+#      the index, and every consumer failed with "cannot find package" against a
+#      build that exited 0. This is the bug property 1 was mistakenly written to
+#      describe: the observation "three more comment lines and the package
+#      disappears" was literally true, and it was misread as an archive SIZE
+#      threshold because the experiment that refuted "size" used a file whose
+#      `package` sat on line 1. The budget now counts SIGNIFICANT lines.
+#
 # Args: $1 = logosc path, $2 = LOGOS_LIB_DIR
 
 set -euo pipefail
@@ -106,6 +116,49 @@ if ar p "$PROJ/libbig.a" bigmod2.pkgi 2>/dev/null | strings | grep -qx "bigmod.g
     echo "FAIL: stale package bigmod.grow still advertised after rebuild"
     exit 1
 fi
+
+# ── 4. A long header comment must not hide the package declaration ─────────
+# 400 comment lines before `package` — twice the old 200-raw-line budget.
+cat > "$PROJ/doc.module" <<EOF
+module docmod
+version 0.1
+root $PROJ/docsrc/
+EOF
+mkdir -p "$PROJ/docsrc"
+{
+    for i in $(seq 0 399); do
+        echo "// header line ${i}: modules are allowed to be documented."
+    done
+    echo
+    echo "package docmod.documented;"
+    echo "pub fn answer() -> i64 {"
+    echo "    return 42;"
+    echo "}"
+} > "$PROJ/docsrc/documented.logos"
+
+HDR=$(grep -n "^package" "$PROJ/docsrc/documented.logos" | cut -d: -f1)
+[ "$HDR" -gt 200 ] || { echo "FAIL: fixture puts package on line $HDR, want >200"; exit 1; }
+
+"$LOGOSC" --emit-module "$PROJ/doc.module" -L "$LIB" -o "$PROJ/libdoc.a" >/dev/null 2>&1
+
+ar p "$PROJ/libdoc.a" docmod.pkgi 2>/dev/null | strings | grep -qx "docmod.documented" || {
+    echo "FAIL: docmod.documented (package on line $HDR) missing from package index"
+    ar t "$PROJ/libdoc.a"
+    exit 1
+}
+
+cat > "$PROJ/usedoc.logos" <<'EOF'
+package use_docmod;
+use docmod.documented;
+fn main() -> i32 {
+    return answer() as i32;
+}
+EOF
+
+"$LOGOSC" "$PROJ/usedoc.logos" -l "$PROJ/libdoc.a" -o "$PROJ/usedoc.o" >/dev/null 2>&1
+cc "$PROJ/usedoc.o" "$PROJ/libdoc.a" "$LIB"/lib*.a -lpthread -lm -o "$PROJ/usedoc" 2>/dev/null
+"$PROJ/usedoc" && drc=$? || drc=$?
+[ "$drc" = "42" ] || { echo "FAIL: documented-module consumer returned $drc, want 42"; exit 1; }
 
 # ── 3. The writer's self-verification is wired and reports package counts ──
 LOGOS_EMIT_VERBOSE=1 "$LOGOSC" --emit-module "$PROJ/big.module" -L "$LIB" \
