@@ -1559,8 +1559,15 @@ static std::string mangle_type_for_name(TypeRef t) {
         return "ref_" + mangle_type_for_name(TypeRef(t).pointee());
     case LogosType::Kind::MutRef:
         return "refmut_" + mangle_type_for_name(TypeRef(t).pointee());
-    case LogosType::Kind::Array:
-        return "arr" + std::to_string(TypeRef(t).arr_size()) + "_" + mangle_type_for_name(TypeRef(t).elem());
+    case LogosType::Kind::Array: {
+        // A symbolic length is part of the type's IDENTITY. Mangling it as
+        // arr_size() collapsed every unbound length to "arr0_", so `[T; N]`
+        // and `[T; M]` produced the same symbol — the G156-1 collision shape.
+        auto asv = TypeRef(t).arr_size_var();
+        std::string len = asv.empty() ? std::to_string(TypeRef(t).arr_size())
+                                      : ("v" + std::string(asv));
+        return "arr" + len + "_" + mangle_type_for_name(TypeRef(t).elem());
+    }
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
         // G156-1: the package fingerprint is folded into concrete_struct_name's
@@ -2282,8 +2289,15 @@ std::string type_str(TypeRef t) {
         if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
         return s + "mut " + type_str(TypeRef(t).pointee());
     }
-    case LogosType::Kind::Array:
+    case LogosType::Kind::Array: {
+        // A symbolic length must print as its NAME. Printing arr_size() gave
+        // "[T; 0]" for every unbound length — a diagnostic that describes a
+        // type nobody wrote.
+        auto asv = TypeRef(t).arr_size_var();
+        if (!asv.empty())
+            return std::format("[{}; {}]", type_str(TypeRef(t).elem()), asv);
         return std::format("[{}; {}]", type_str(TypeRef(t).elem()), TypeRef(t).arr_size());
+    }
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
         if (TypeRef(t).type_args().empty() && TypeRef(t).lifetime_args().empty()) return std::string(TypeRef(t).struct_name());
@@ -4755,6 +4769,10 @@ TypeRef SemaChecker::fill_inferred_from_rhs(TypeRef ann, TypeRef rhs) {
         if (rhs.kind() != LogosType::Kind::Array || !ann.elem()) return ann;
         auto ne = fill_inferred_from_rhs(ann.elem(), rhs.elem());
         if (ne == TypeRef(ann.elem())) return ann;
+        // A length is EITHER concrete OR a name, never both: carrying a stale
+        // name next to a resolved size defeats every "is this bound?" check
+        // downstream, including the one at code emission.
+        if (ann.arr_size() > 0) return make_array(ne, ann.arr_size(), std::string());
         return make_array(ne, ann.arr_size(), std::string(ann.arr_size_var()));
     }
     case LogosType::Kind::Ref:

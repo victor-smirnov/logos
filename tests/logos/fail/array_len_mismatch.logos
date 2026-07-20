@@ -1,0 +1,13 @@
+// Two CONCRETE array lengths that disagree must be rejected. Unification used
+// to say nothing at all here: `[i64; 3]` accepted a `[i64; 5]`, and the
+// mismatch surfaced — if it surfaced — as memory behaviour rather than a type
+// error. The expected message also pins the RENDERING: an array type must
+// print its length, not collapse to `[i64]`.
+package array_len_mismatch;
+
+fn take3(a: [i64; 3]) -> i64 { return a[0]; }
+
+fn main() -> i32 {
+    let five: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+    return take3(five) as i32;
+}

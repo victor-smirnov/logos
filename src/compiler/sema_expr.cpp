@@ -4109,6 +4109,14 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
                 lt.kind = LogosType::Kind::IntLit;
                 lt.const_val = static_cast<int64_t>(actual_norm.arr_size());
                 bindings[asv] = pool_->alloc(std::move(lt));
+            } else if (asv.empty() && formal.arr_size() != actual_norm.arr_size()) {
+                // Two CONCRETE lengths that disagree. Unification used to say
+                // nothing here, so `[T; 3]` accepted a `[T; 5]` and the
+                // mismatch surfaced — if at all — as memory behaviour.
+                error(std::format("expected [{}; {}], got [{}; {}]",
+                                  type_str(TypeRef(formal.elem())), formal.arr_size(),
+                                  type_str(TypeRef(actual_norm.elem())),
+                                  actual_norm.arr_size()));
             }
         }
         break;

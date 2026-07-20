@@ -485,6 +485,14 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
     case K::UnsizedSlice: case K::UnsizedDyn:   return {0, 1};
     case K::Array: {
         if (!tv.elem()) return {0, 1};
+        // Same law as the mlir_type path: an unbound length has no layout.
+        // Returning 0 here silently sized every enclosing aggregate wrong,
+        // and did so BEHIND the mlir_type guard rather than through it.
+        if (!tv.arr_size_var().empty()) {
+            llvm::report_fatal_error(llvm::StringRef(std::string(
+                "array length '" + std::string(tv.arr_size_var()) +
+                "' was never bound to a value; it has no layout.")));
+        }
         auto e = aggregate_member_layout(tv.elem(), seen);  // element repr in the array
         return { tv.arr_size() * e.size, e.align };
     }

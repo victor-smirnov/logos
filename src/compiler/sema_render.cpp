@@ -2026,9 +2026,21 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
     case la::ARR_TYPE: {
         std::string s = "[";
         s += recur(map_of(node.get(la::TYPE.code)));
-        if (node.has_key(la::VALUE)) {
+        // The grammar writes SIZE (literal or ident), OP+NAME (sizeof...(P))
+        // or BODY (metacall) — never VALUE. Reading VALUE dropped the length
+        // from EVERY rendered array type, printing `[i64; 8]` as `[i64]`,
+        // indistinguishable from an unsized slice.
+        if (node.has_key(la::SIZE)) {
             s += "; ";
-            s += std::string(str_of(node.get(la::VALUE.code)));
+            s += std::string(str_of(node.get(la::SIZE.code)));
+        } else if (node.has_key(la::OP) && node.has_key(la::NAME)) {
+            s += "; ";
+            s += std::string(str_of(node.get(la::OP.code)));
+            s += "...(";
+            s += std::string(str_of(node.get(la::NAME.code)));
+            s += ")";
+        } else if (node.has_key(la::BODY)) {
+            s += "; metacall { ... }";
         }
         s += "]";
         return s;
