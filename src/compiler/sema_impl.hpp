@@ -386,6 +386,12 @@ private:
     // is an array whose real size == N (else a `[T; M]` var would be retyped
     // to a wrong-length `&[T; N]`). Only the shared `&` case (Kind::Ref / Ptr);
     // a shared slice never satisfies a `&mut [T; N]` param.
+    // Every coercion the RETURN position performs. `return e;` and a function
+    // body's implicit tail expression are the same position of the language,
+    // but only the explicit form ran these — so `fn f() -> Rc<dyn Tr> { rc_new(a) }`
+    // failed while `{ return rc_new(a); }` compiled. One helper, both callers.
+    void apply_return_coercions(lir::LExprPtr& val);
+
     bool try_coerce_slice_to_array_ref(lir::LExprPtr& arg, TypeRef expected) {
         if (!arg || !expected) return false;
         TypeRef et(expected);

@@ -1,0 +1,31 @@
+// A function body's implicit TAIL EXPRESSION is the same position of the
+// language as `return e;`, so it must perform the same coercions. It used to
+// perform NONE: `fn f() -> Box<dyn Tr> { Box::new(c) }` failed while
+// `{ return Box::new(c); }` compiled — a pure inconsistency, not a rule.
+package tail_expr_return_coercions;
+
+use logos.mem.boxed;
+
+trait Speak { fn n(self: &Self) -> i64; }
+
+struct Cat {}
+impl Speak for Cat { fn n(self: &Cat) -> i64 { return 7i64; } }
+
+// Box<Concrete> -> Box<dyn Trait>, in TAIL position
+fn as_dyn_tail() -> Box<dyn Speak> { Box::new(Cat {}) }
+
+// the explicit form, which always worked — kept as the control
+fn as_dyn_return() -> Box<dyn Speak> { return Box::new(Cat {}); }
+
+// non-capturing closure -> fn ptr, in TAIL position
+fn as_fnptr_tail() -> fn() -> i64 { || -> i64 { return 5i64; } }
+
+fn main() -> i32 {
+    let a: Box<dyn Speak> = as_dyn_tail();
+    if a.n() != 7i64 { return 1i32; }
+    let b: Box<dyn Speak> = as_dyn_return();
+    if b.n() != 7i64 { return 2i32; }
+    let f: fn() -> i64 = as_fnptr_tail();
+    if f() != 5i64 { return 3i32; }
+    return 0i32;
+}

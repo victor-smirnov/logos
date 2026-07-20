@@ -447,6 +447,8 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 // Non-void: wrap as implicit return, mirroring the
                 // existing lower_return body but with the already-lowered
                 // value (avoids re-lowering).
+                // Same position, same coercions as `return e;`.
+                if (inner) apply_return_coercions(inner);
                 if (inner && ret_type_ &&
                     TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
                     TypeRef(expr_type(inner)).kind() != LogosType::Kind::Error &&
@@ -2918,28 +2920,7 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
             // type is expected coerces to that fn-ptr — the same coercion the
             // let-annotation and call-arg paths apply. Without this, `fn f() ->
             // fn()->T { return || ... }` errored "expected fn()->T, got ||->T".
-            if (ret_type_ &&
-                LogosType::is_fn_value_kind(TypeRef(ret_type_).kind()))
-                try_coerce_closure_to_fnptr(val, ret_type_);
-            // Implicit CoerceUnsized on return: `-> Rc<dyn Tr> { return rc_new(a) }`
-            // rebuilds the smart-pointer struct, unsizing the inner field (no
-            // explicit `as`). Mirrors the let/arg paths; closes GAP-C.
-            if (ret_type_) try_struct_unsize_coerce(val, ret_type_);
-            // Implicit Box<Concrete> -> Box<dyn Trait> / dyn at return. Box<dyn>
-            // collapses to an OWNING TraitObject (not a struct), so the struct
-            // unsize above can't fire and a bare Box<Concrete> would reach the
-            // codegen return path with a mis-keyed vtable AND its source Box left
-            // un-consumed (double-free). Desugar to the proven `as`-unsize cast
-            // exactly as lower_cast does for the explicit form: consume the
-            // source Box (transfer heap ownership to the owning trait object) and
-            // build the cast (which lowers to the {data,vtable} fat pair + Box
-            // drop-glue). Only fires for a Box<Concrete> value, not an already-
-            // unsized TraitObject (explicit `as` form) or a non-Box return.
-            if (ret_type_ && val && TypeRef(ret_type_).owning_trait_object() &&
-                expr_type(val) && is_stdlib_box(expr_type(val))) {
-                mark_moved_expr(expr_ref_of(val));
-                val = builder().cast(std::move(val), ret_type_);
-            }
+            apply_return_coercions(val);
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
                 // Infer concrete return type from first return expression.
                 if (!impl_ret_type_inferred_ &&
@@ -4277,6 +4258,30 @@ lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type
 // PAT_REST{NAME?} (`xs @ ..`). Composites recurse; PAT_OR descends the
 // FIRST alternative only (the nested-Or builder enforces its own
 // consistency).
+// The RETURN position's coercions, shared by `return e;` and a body's implicit
+// tail expression. Splitting them was not a design choice — the tail path
+// simply never grew them, so it was strictly weaker than the explicit form for
+// the same language position.
+void SemaChecker::apply_return_coercions(lir::LExprPtr& val) {
+    if (!ret_type_ || !val) return;
+    // Non-capturing closure literal → fn-ptr return type.
+    if (LogosType::is_fn_value_kind(TypeRef(ret_type_).kind()))
+        try_coerce_closure_to_fnptr(val, ret_type_);
+    // Implicit CoerceUnsized: `-> Rc<dyn Tr> { rc_new(a) }` rebuilds the
+    // smart-pointer struct, unsizing the inner field (no explicit `as`).
+    try_struct_unsize_coerce(val, ret_type_);
+    // Implicit Box<Concrete> -> Box<dyn Trait>. Box<dyn> collapses to an OWNING
+    // TraitObject (not a struct), so the struct unsize above cannot fire, and a
+    // bare Box<Concrete> would reach codegen with a mis-keyed vtable AND its
+    // source Box left un-consumed (double free). Desugar to the same `as`-unsize
+    // cast the explicit form uses: consume the source Box and build the cast.
+    if (TypeRef(ret_type_).owning_trait_object() &&
+        expr_type(val) && is_stdlib_box(expr_type(val))) {
+        mark_moved_expr(expr_ref_of(val));
+        val = builder().cast(std::move(val), ret_type_);
+    }
+}
+
 void SemaChecker::collect_ast_pat_bindings(TinyMapView pat,
                                            std::vector<std::string>& out) {
     if (pat.is_null()) return;
