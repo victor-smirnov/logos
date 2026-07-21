@@ -13972,6 +13972,72 @@ void SemaChecker::bind_method_receiver(lir::LExprPtr& recv,
     track_recv_moved(recv, formal_self);
 }
 
+// ── expect_type: the one judgment ──────────────────────────────────────────
+// The single table mapping a position to its coercion behaviour. Adding a
+// position = adding a row HERE, not writing per-site code.
+uint32_t SemaChecker::mask_for(CoercePos pos) {
+    switch (pos) {
+    case CoercePos::CallArg:
+    case CoercePos::ClosureArg:
+        return CFLAG_STANDARD;
+    case CoercePos::MethodArg:
+        // Order pinned by the suite (widen-last equivalence argued at the
+        // former inline site).
+        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARG_TO_DYN |
+               CFLAG_ARRAY_TO_SLICE |
+               CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT |
+               CFLAG_CHECK_E0507 | CFLAG_CHECK_DYN_BOUNDS;
+    case CoercePos::LetInit:
+    case CoercePos::PlaceWrite:
+    case CoercePos::TupleElem:
+    case CoercePos::BranchArm:
+        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
+               CFLAG_SLICE_TO_ARRAY | CFLAG_IMPLICIT_REBORROW |
+               CFLAG_WIDEN_INT;
+    case CoercePos::StructLitField:
+        // Rust MOVES into a struct literal: no reborrow. Everything else
+        // applies.
+        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
+               CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT;
+    case CoercePos::ArrayElem:
+        return CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT;
+    case CoercePos::Return:
+        // + the Box→dyn consume, handled in expect_type itself (it rewrites
+        // the expr, not just its type).
+        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
+               CFLAG_WIDEN_INT;
+    case CoercePos::ConstInit:
+        return CFLAG_WIDEN_INT;
+    }
+    return CFLAG_NONE;
+}
+
+bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
+                              std::string_view ctx) {
+    if (!e || !expected) return true;
+    if (TypeRef(expected).kind() == LogosType::Kind::Error) return true;
+    if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Error) return true;
+    coerce_arg_to_param(e, expected, mask_for(pos));
+    if (pos == CoercePos::Return &&
+        TypeRef(expected).owning_trait_object() &&
+        expr_type(e) && is_stdlib_box(expr_type(e))) {
+        // Box<Concrete> → Box<dyn Trait>: consume the source Box and desugar
+        // to the proven `as`-unsize cast, exactly like the explicit form —
+        // else codegen gets a mis-keyed vtable AND an un-consumed Box (a
+        // double free).
+        mark_moved_expr(expr_ref_of(e));
+        e = builder().cast(std::move(e), expected);
+    }
+    if (types_compatible(expr_type(e), expected)) return true;
+    if (ptr_rel_compatible(expr_type(e), expected)) return true;   // #[rel_ptr] ↔ *T
+    auto [es, gs] = type_str_pair(expected, expr_type(e));
+    // ctx carries its own trailing punctuation ("let 'x': type mismatch —",
+    // "field write 'a.b':"), so converted sites stay byte-identical to their
+    // historical messages and no .expected files churn.
+    error(std::format("{} expected {}, got {}", ctx, es, gs));
+    return false;
+}
+
 void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                                        uint32_t flags) {
     if (!arg || !pt) return;
@@ -13999,11 +14065,13 @@ void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
     // Emits a specific diagnostic on failure; the generic
     // "expected X, got Y" upstream fires too (types_compatible may still
     // return true), so users see both lines.
-    check_dyn_auto_bounds_at_coercion(arg, pt);
+    if (flags & CFLAG_CHECK_DYN_BOUNDS)
+        check_dyn_auto_bounds_at_coercion(arg, pt);
     // E0507: passing a move-typed argument BY VALUE that was moved out of a
     // borrowed place (`f(*r)`, `f(v[i])`) — same double-free as let/return. Only
     // when the parameter takes the value by value (not `&`/`&mut`).
-    if (pt && TypeRef(pt).kind() != LogosType::Kind::Ref &&
+    if ((flags & CFLAG_CHECK_E0507) &&
+        pt && TypeRef(pt).kind() != LogosType::Kind::Ref &&
         TypeRef(pt).kind() != LogosType::Kind::MutRef &&
         is_move_type(pt) && is_unowned_move_source(arg))
         error("cannot move out of a value behind a reference / out of an "

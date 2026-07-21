@@ -2733,15 +2733,8 @@ lir_view::StmtRef SemaChecker::lower_assign(TinyMapView node) {
         if (is_enum_lit && incomplete && target_concrete && known_args_match)
             builder().retype_expr(rhs, var_type);
     }
-    apply_place_coercions(rhs, var_type);
-    if (TypeRef(var_type).kind() != LogosType::Kind::Error &&
-        TypeRef(expr_type(rhs)).kind() != LogosType::Kind::Error &&
-        !types_compatible(expr_type(rhs), var_type) &&
-        !ptr_rel_compatible(expr_type(rhs), var_type)) {  // #[rel_ptr] ↔ *T
-        auto [es, gs] = type_str_pair(var_type, expr_type(rhs));
-        error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
-              name, es, gs));
-    }
+    expect_type(rhs, var_type, CoercePos::PlaceWrite,
+                std::format("assignment to '{}': type mismatch —", name));
     // Implicit safe integer widening on assignment.
     if (var_type && is_integer_kind(TypeRef(var_type).kind()) && is_integer_kind(TypeRef(expr_type(rhs)).kind()) &&
         TypeRef(expr_type(rhs)).kind() != LogosType::Kind::IntLit &&
@@ -7353,13 +7346,8 @@ std::optional<lir_view::StmtRef> SemaChecker::try_dataref_field_write(
     if (!lookup_is_mut(recv_name))
         error(std::format("field write to immutable DataRef variable '{}'", recv_name));
     lir::LExprPtr val = lower_expr(val_node);
-    apply_place_coercions(val, ft);
-    if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-        !types_compatible(expr_type(val), ft)) {
-        auto [es, gs] = type_str_pair(ft, expr_type(val));
-        error(std::format("field write '{}.{}': expected {}, got {}",
-              recv_name, field_name, es, gs));
-    }
+    expect_type(val, ft, CoercePos::PlaceWrite,
+                std::format("field write '{}.{}':", recv_name, field_name));
     TypeRef mut_ptr_T = make_ptr(true, T);
     std::string tmp = "__dr_tmp_" + recv_name;
     auto recv_expr = builder().var_ref(recv_name, recv_type);
@@ -7660,13 +7648,10 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     hint_enum_type_   = saved_enum_hint;
     hint_struct_type_ = saved_struct_hint;
 
-    if (pt) apply_place_coercions(val, pt);
-    if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
-        val && TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-        !types_compatible(expr_type(val), pt) &&
-        !ptr_rel_compatible(expr_type(val), pt))  // #[rel_ptr] ↔ *T
-        error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
-              render_place_node(place_node), type_str(pt), type_str(expr_type(val))));
+    if (pt && val)
+        expect_type(val, pt, CoercePos::PlaceWrite,
+                    std::format("assignment to '{}': type mismatch —",
+                                render_place_node(place_node)));
     // Overflow: an int literal RHS must fit the place's integer type (closes the
     // gap where the general place-write path skipped the fit-check).
     if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&

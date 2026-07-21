@@ -517,12 +517,50 @@ private:
         CFLAG_ARG_TO_DYN       = 1u << 5,  // coerce_arg_to_dyn
         CFLAG_IMPLICIT_REBORROW = 1u << 6, // try_implicit_reborrow_mut
         CFLAG_WIDEN_INT        = 1u << 7,
+        // Side CHECKS, not coercions. They were unconditional in the pipeline
+        // executor — argument-position semantics grafted onto every caller.
+        // As flags they are table rows like everything else: an assignment
+        // position must not get E0507 until the checker understands Copy
+        // bounds there (stdlib iter.logos:1842 is the evidence:
+        // `self.buf[j] = self.buf[j+1]` under a Copy-bounded T).
+        CFLAG_CHECK_E0507      = 1u << 8,  // move-out-of-borrowed-place check
+        CFLAG_CHECK_DYN_BOUNDS = 1u << 9,  // dyn auto-trait bound enforcement
         CFLAG_STANDARD = CFLAG_BARE_ENUM | CFLAG_CLOSURE_TO_FNPTR |
                          CFLAG_ARRAY_TO_SLICE | CFLAG_SLICE_TO_ARRAY |
                          CFLAG_DYN_UPCAST | CFLAG_IMPLICIT_REBORROW |
-                         CFLAG_WIDEN_INT,
+                         CFLAG_WIDEN_INT |
+                         CFLAG_CHECK_E0507 | CFLAG_CHECK_DYN_BOUNDS,
         CFLAG_MINIMAL  = CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT,
     };
+    // ── expect_type: the ONE judgment ───────────────────────────────────
+    // WHERE an expression meets an expected type. The position is the only
+    // thing allowed to vary coercion behaviour, and it does so through
+    // mask_for()'s single table — never through per-site code. A syntax node
+    // may CALL this; it may not re-implement any part of it.
+    enum class CoercePos : uint8_t {
+        CallArg,          // plain fn call argument
+        MethodArg,        // struct/trait method argument (order pinned by suite)
+        ClosureArg,       // closure / fn-ptr call argument
+        LetInit,          // let x: T = e
+        PlaceWrite,       // x = e, s.f = e, a[i] = e, *p = e
+        StructLitField,   // S { f: e } — no reborrow: Rust MOVES here
+        TupleElem,        // tuple literal element under a hint
+        ArrayElem,        // array literal element under a hint
+        Return,           // return e / implicit tail (Box→dyn consume here)
+        BranchArm,        // if/match arm against the surrounding expectation
+        ConstInit,        // const/static initializer
+    };
+    static uint32_t mask_for(CoercePos pos);
+
+    // Runs the coercion pipeline for `pos`, then verdicts. On mismatch emits
+    //   "{ctx}: expected {}, got {}"
+    // and returns false. The monopoly on that diagnostic lives HERE: a
+    // position that forgets to route through expect_type cannot reject an
+    // expression at all, so a new syntax node fails loudly in review, not
+    // silently in a user's build.
+    bool expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
+                     std::string_view ctx);
+
     void coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                               uint32_t flags = CFLAG_STANDARD);
 
