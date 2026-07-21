@@ -136,3 +136,7 @@ Two agent-reported gaps (enum-Drop-cast ICE, match-move) did NOT reproduce at mi
 - `Self` not lexically reserved — `let Self = 5`, `struct Self {}` both compile (Rust hard-rejects).
 - trait method `fn m(self: &Unrelated)` accepted — self-param type validity unchecked at decl.
 - HRTB `for<'a> &'a T: Bar` parse-fails on compound LHS (plain-ident LHS works).
+
+### closures + unboxed-closures (182 originals; agent re-verified personally after a delegation false start)
+closures: 6 works, 13 gap, ~26 divergence (unstable feature-gates), ~30 n-a, ~34 capped. unboxed-closures: 6 works, 9 gap, ~30 divergence (genuinely need `#![feature(unboxed_closures,fn_traits)]`), rest n-a/capped.
+**HEADLINE — biggest find of the revision, root VERIFIED in spec traits-generics.md:100**: Fn/FnMut/FnOnce are NOT distinguished — the bound is satisfied intrinsically by any closure regardless of capture/mutation/consumption. Documented, but UNSOUND: `FnOnce` callable twice → confirmed **double-free** (valgrind/SIGABRT); `Fn` closure mutating a capture accepted (E0525). One root explains 8/14 repros. Recorded bug_fn_trait_kind_noop (arc + PAIR — closure-kind inference; documented-wrong ≠ blessed when it double-frees). Plus separate codegen bugs: segfault on `f: &F` called via `f(x)`; MLIR crash on labeled-break-in-closure targeting an enclosing fn.
