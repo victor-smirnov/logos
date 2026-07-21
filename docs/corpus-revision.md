@@ -198,3 +198,33 @@ Totals: 28 divergence · 38 n-a · 88 portable (48 works/GAP mix). **30 distinct
 - **GAP7 — variance holes (root read in source).** `variance_in_type` (sema.cpp:~9059) `switch` has no AssocType/Closure case → `default: return BiVar` (TraitObject was fixed there before from this exact fall-through; Assoc/Closure remain). `subtype.hpp` direct-fn-signature path has no TraitObject case → `default: return true`.
 - **GAP8** — unused lifetime/type param accepted (no E0392; WF-lint gap, not unsafe). **GAP9** — borrow-source not tracked through struct-wrapped return from a helper (`make_guard(&a)->Guard{r:&'a D}` then move-while-borrowed accepted).
 Caps honestly logged: 18/57 moves + 13/36 variance PORTABLE-not-ported (each one-line reason, mostly redundant-with-landed). Weak oracle flagged: `variance-trait-matching` (monomorphizing model may legitimately sidestep — not counted).
+
+### associated-types + impl-trait (262+193 = 454 originals; agent direct; GAP10+GAP05 re-verified by me)
+14 confirmed gaps. Category does NOT fully gate the milestone (much is advanced assoc-type/RPIT surface), but one is a real miscompile:
+- **GAP10 — MISCOMPILE (re-verified, type confusion).** `impl Trait` return-position doesn't enforce one concrete hidden type. `fn pick(f)->impl Speak { if f {A} else {B} }` compiles+runs but silently misdispatches — hidden type fixed from the FIRST return, later returns reinterpreted through its layout/vtable (`pick(false).hi()` ≠ 2, exit 2 verified). Empty structs ⇒ same layout ⇒ no segfault, but wrong dispatch; general case = UB. Rust E0308. Fix before milestone (RPIT is used). (bug_rpit_assoc_type_gaps)
+- **decl-not-enforced class (GAP05 re-verified / GAP07 / GAP11):** assoc-type equality/projection bounds accepted at declaration, never enforced at use. `T: Foo<Y=i32>` called with `S::Y=u32` compiles clean (GAP05). Same root class as cast-blocklist / move-Copy-checker.
+- **normalization/mono incompleteness (GAP03/08/09/13, fail-closed):** `T::Iter::Item` loses subst two levels deep; `<S as Mirror>::It` normalizes as return type but not in a let-annotation; `Option<impl Show>` return breaks ("expected Option got Option"); self-referential impl-through-assoc-type rejected (bound-check not fixpoint/lazy). Block legit code, not unsafe.
+- **parser surface missing (GAP01/02/04/06/12/14, DIVERGENCE-adjacent):** `dyn Trait<Assoc=T>`, `Type::Assoc::method()`, `impl Trait for <T as Tr>::Assoc`, trait-level `where`, `impl for<'a> Fn(...)`, `impl A+B` arg-position. Explicit generic form works for each.
+- **DIVERGENCE01 (not a bug):** stdlib ops traits are single-shape by design (Add has no `type Output` in interface) — whole operator-trait-independent-Output Rust class has no direct port.
+Caps: 125 assoc-types + 65 impl-trait PORTABLE-not-ported under cap. Full per-file verdicts in scratchpad at_verdicts.tsv/it_verdicts.tsv. Weak oracle throughout (judged accept/reject from the .rs `//~ ERROR` annotations, not rustc).
+
+---
+
+## Wave-3 close-out — the milestone-gating tier
+
+Corpus revision complete (31 categories verdicted across 3 waves; ~12% of rustc ui). The soundness findings sort into three bands for Victor's arc-prioritization:
+
+**FIX BEFORE MILESTONE (confirmed unsafe/miscompile, Rust semantics unambiguous → targeted fix, NOT PAIR):**
+1. GAP6 conditional-Copy stdlib Pin aliasing (exit 222, ships in stdlib) — bug_move_copy_checker_holes
+2. Move-tracking holes → double-free (loop back-edge / match-guard / array-ref-pattern, exit 134) — bug_move_copy_checker_holes
+3. borrow-check by-value-param-ref → UAF (exit 104) — bug_borrowck_byval_param_ref_escape
+4. Fn/FnMut/FnOnce no-op bound → double-free — bug_fn_trait_kind_noop
+5. `trait X<Rhs=Self>` miscompiles unrelated stdlib (blocks Add/PartialEq idiom) — bug_trait_coherence_unenforced
+6. GAP10 RPIT multi-hidden-type → type-confusion misdispatch (exit 2) — bug_rpit_assoc_type_gaps
+7. array `==` = identity not value (exit 1) — bug_array_eq_identity
+
+**PAIR (language-surface strictness — the answer changes the language):**
+- cast validity: blocklist → RFC0401 allowlist (how strict is `as`?) — bug_cast_validity_blocklist
+- Fn-kind bound scope; const-array-length overhaul (what's allowed without const-eval) — project_const_array_length_overhaul
+
+**TARGETED (soundness-lint / completeness, lower blast radius):** Drop coherence, trait coherence (orphan/Copy-field/impl-items), pattern-shape typing, Self-ctor, deref-coercion absence, method-resolution gaps, assoc-type normalization (GAP03/08/09/13), decl-not-enforced bounds (GAP05/07/11), variance holes (GAP7/8/9), unused-param WF-lints.
