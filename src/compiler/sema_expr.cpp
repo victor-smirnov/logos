@@ -3302,13 +3302,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                                     CFLAG_STANDARD);
                 auto at = expr_type(arg_exprs[i]);
                 auto pt = TypeRef(callee_type).closure_params()[i];
-                if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    !types_compatible(at, pt)) {
-                    { auto [es, gs] = type_str_pair(pt, at);
-                      error(std::format("{} arg {}: expected {}, got {}",
-                          kind_str, i + 1, es, gs)); }
-                }
+                expect_type(arg_exprs[i], pt, CoercePos::ClosureArg,
+                            std::format("{} arg {}:", kind_str, i + 1));
                 check_variance(at, pt, std::format("{} arg {}", kind_str, i + 1));
             }
         }
@@ -6781,16 +6776,10 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
                 coerce_arg_to_param(arg_exprs[i], TypeRef(rt).closure_params()[i],
                                     CFLAG_STANDARD);
                 auto pt = TypeRef(rt).closure_params()[i];
-                auto at = expr_type(arg_exprs[i]);
-                if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    !types_compatible(at, pt)) {
-                    auto [es, gs] = type_str_pair(pt, at);
-                    error(std::format(
-                        "closure call arg {}: expected {}, got {}",
-                        i + 1, es, gs));
-                }
-                check_variance(at, pt, std::format("closure call arg {}", i + 1));
+                expect_type(arg_exprs[i], pt, CoercePos::ClosureArg,
+                            std::format("closure call arg {}:", i + 1));
+                check_variance(expr_type(arg_exprs[i]), pt,
+                               std::format("closure call arg {}", i + 1));
             }
         }
         auto ret = TypeRef(rt).closure_ret()
@@ -9613,11 +9602,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (pi < fi.param_types.size()) {
                 auto pt = fi.param_types[pi];
                 if (!struct_subst.empty()) pt = subst_type_sema(pt, struct_subst);
-                if (TypeRef(at).kind() != LogosType::Kind::Error && TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    !types_compatible(at, pt))
-                    { auto [es, gs] = type_str_pair(pt, at);
-                      error(std::format("method '{}' arg {}: expected {}, got {}",
-                          mangled, i + 1, es, gs)); }
+                expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
+                            std::format("method '{}' arg {}:", mangled, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
                         if (!intlit_fits(*v, TypeRef(pt).kind()))
