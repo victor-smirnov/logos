@@ -657,6 +657,17 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
         set(_timeout 15)
     endif()
 
+    # The Rust-derived conformance ports (tests/imported/) are 55% of the suite
+    # but survivor-biased and largely duplicate the core-logos coverage. They
+    # carry an extra `imported` label so the everyday loop can exclude them
+    # (`ctest -LE imported`, and test-levels.sh L0-L4) while the full
+    # conformance gate stays one `ctest -L imported` away — reversible, nothing
+    # deleted. See docs/dev-checklist / the corpus-revision decision.
+    set(_labels "logos;${MODE};suite_${SUITE}")
+    if (LOGOS_FILE MATCHES "/tests/imported/")
+        set(_labels "${_labels};imported")
+    endif()
+
     add_test(
         NAME  ${_test_name}
         COMMAND ${TEST_RUNNER} ${MODE} $<TARGET_FILE:logosc>
@@ -664,7 +675,7 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     )
     set_tests_properties(${_test_name} PROPERTIES
         TIMEOUT ${_timeout}
-        LABELS  "logos;${MODE};suite_${SUITE}"
+        LABELS  "${_labels}"
         ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
     )
 endfunction()

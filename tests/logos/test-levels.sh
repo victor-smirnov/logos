@@ -18,18 +18,40 @@
 # Normal work: L0–L2 give broad coverage cheaply. Run L4 only once a whole
 # group/feature is finished.
 #
+# IMPORTED TESTS: the Rust-derived conformance ports (tests/imported/, ~55% of
+# the suite, survivor-biased and largely duplicating the core coverage) are
+# EXCLUDED by default at every level — the everyday loop runs the core-logos +
+# spec net only. Add a trailing `imp` (or set LOGOS_IMPORTED=1) to include them
+# when you want the full conformance gate. Nothing is deleted; this is a
+# `ctest -LE imported` split (see tests/logos/CMakeLists.txt).
+#
 # Examples:
 #   bash ../tests/logos/test-levels.sh L0 nested-by-ref-b167
-#   bash ../tests/logos/test-levels.sh L1            # default variant 1
+#   bash ../tests/logos/test-levels.sh L1            # default variant 1, core only
 #   bash ../tests/logos/test-levels.sh L1 3          # 3rd member of each group
 #   bash ../tests/logos/test-levels.sh L2 2          # 2nd window of 10/group
 #   bash ../tests/logos/test-levels.sh L3 1
-#   bash ../tests/logos/test-levels.sh L4
+#   bash ../tests/logos/test-levels.sh L4            # full core+spec
+#   bash ../tests/logos/test-levels.sh L4 imp        # full incl. imported ports
+#   bash ../tests/logos/test-levels.sh L2 2 imp      # L2, imported groups too
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$SCRIPT_DIR/../.." && pwd)
 SUMMARY="$SCRIPT_DIR/ctest-summary.sh"
+
+# ── HOT groups: the feature prefixes that break most from compiler changes ────
+# L1 and L2 run these groups IN FULL (not just the per-group sample), so a
+# quick tier maximises the chance of catching a regression where regressions
+# actually land. Seeded from the areas that repeatedly tripped during the
+# 2026-07 sema arcs (coercion / const-array-length / cast / drop / borrow /
+# pattern) plus the mangling-sensitive generic/trait family and the diagnostic
+# canaries (spec *_diag_ tests are hot by nature). TUNE THIS as areas stabilise
+# or new fragile ones appear — it is a plain list, no other machinery.
+HOT_TOKENS="coerce coercion cast array arr const slice deref drop borrow move \
+pattern pat match enum generic generics trait traits impl mangling g156 g162 \
+mono nll lt lifetime self assoc closure fn dup diag inferred hole repr variance \
+memstore relptr box unsize dst tuple"
 
 LEVEL=${1:-}
 shift || true
@@ -39,10 +61,25 @@ if [ -z "$LEVEL" ]; then
     exit 2
 fi
 
+# Imported ports are off unless `imp` is passed anywhere in the args or
+# LOGOS_IMPORTED=1 is set. Strip the token so it doesn't disturb VARIANT/name.
+WITH_IMPORTED=${LOGOS_IMPORTED:-0}
+_args=()
+for a in "$@"; do
+    if [ "$a" = "imp" ]; then WITH_IMPORTED=1; else _args+=("$a"); fi
+done
+set -- "${_args[@]:-}"
+[ "${1:-}" = "" ] && shift 2>/dev/null || true
+
 # ── L0 / L4: trivial ────────────────────────────────────────────────────────
 if [ "$LEVEL" = "L4" ]; then
-    echo "[test-levels] L4 — full suite"
-    bash "$SUMMARY"
+    if [ "$WITH_IMPORTED" = "1" ]; then
+        echo "[test-levels] L4 — full suite (incl. imported ports)"
+        bash "$SUMMARY"
+    else
+        echo "[test-levels] L4 — full suite (core+spec; imported excluded, add 'imp' for full)"
+        bash "$SUMMARY" -LE imported
+    fi
     exit $?
 fi
 if [ "$LEVEL" = "L0" ]; then
@@ -59,7 +96,9 @@ VARIANT=${1:-1}
 # Group key: category dir for imported tests, "native_{pass,fail}" otherwise.
 # Emit "<group>\t<base>" lines, then sort so per-group ordering is stable.
 emit_files() {
-    # imported, grouped by category subdir
+    # imported, grouped by category subdir — SKIPPED by default (survivor-biased
+    # conformance ports; `imp`/LOGOS_IMPORTED=1 opts them back in).
+    if [ "$WITH_IMPORTED" = "1" ]; then
     while IFS= read -r f; do
         local cat base
         cat=$(basename "$(dirname "$f")")
@@ -67,17 +106,29 @@ emit_files() {
         printf '%s\t%s\n' "imp_$cat" "$base"
     done < <(find "$REPO/tests/imported/pass" "$REPO/tests/imported/fail" \
                   -name '*.logos' 2>/dev/null)
-    # native pass/fail — each its own group
-    while IFS= read -r f; do
-        printf '%s\t%s\n' "native_pass" "$(basename "$f" .logos)"
-    done < <(find "$REPO/tests/logos/pass" -maxdepth 1 -name '*.logos' 2>/dev/null)
-    while IFS= read -r f; do
-        printf '%s\t%s\n' "native_fail" "$(basename "$f" .logos)"
-    done < <(find "$REPO/tests/logos/fail" -maxdepth 1 -name '*.logos' 2>/dev/null)
+    fi
+    # native pass/fail: the core net is now the everyday default, so it must
+    # sub-sample meaningfully rather than being one flat group. The dir is
+    # flat, but the filenames carry a feature prefix (core_/struct_/trait_/
+    # match_/generic_/nll_/…) — group by that leading token, mirroring how the
+    # imported tests group by category. L1 then samples one per feature-prefix
+    # (broad quick smoke); L2/L3 widen toward the full core+spec set.
+    for mode in pass fail; do
+        while IFS= read -r f; do
+            local base tok
+            base=$(basename "$f" .logos)
+            tok=$(printf '%s' "$base" | sed -E 's/[_-].*//')
+            printf '%s\t%s\n' "n${mode:0:1}_${tok}" "$base"
+        done < <(find "$REPO/tests/logos/$mode" -maxdepth 1 -name '*.logos' 2>/dev/null)
+    done
 }
 
 # Selected base names (one per line) computed per group.
-SELECTED=$(emit_files | sort | awk -F'\t' -v level="$LEVEL" -v variant="$VARIANT" '
+SELECTED=$(emit_files | sort | awk -F'\t' -v level="$LEVEL" -v variant="$VARIANT" \
+    -v hot="$HOT_TOKENS" '
+    BEGIN { nh = split(hot, ha, /[ \t]+/); for (i=1;i<=nh;i++) if (ha[i]!="") HOT[ha[i]]=1 }
+    # A group is hot if its token (the part after the np_/nf_/imp_ prefix) is listed.
+    function is_hot(g,   t) { t = g; sub(/^[a-z]+_/, "", t); return (t in HOT) }
     { group[$1] = group[$1] $2 "\n"; }    # accumulate bases per group (sorted by sort above)
     END {
         for (g in group) {
@@ -85,6 +136,19 @@ SELECTED=$(emit_files | sort | awk -F'\t' -v level="$LEVEL" -v variant="$VARIANT
             # a[n] is empty (trailing newline) — real count is n-1
             cnt = n - 1;
             if (cnt <= 0) continue;
+            # HOT groups get extra weight at the quick tiers — that is where
+            # regressions bite. L2 runs them IN FULL; L1 samples them deeper
+            # than a normal group (up to 6) so it stays quick but fragile-biased.
+            if (level == "L2" && is_hot(g)) {
+                for (k = 1; k <= cnt; k++) print a[k];
+                continue;
+            }
+            if (level == "L1" && is_hot(g)) {
+                lim = (cnt < 6 ? cnt : 6);
+                start = ((variant - 1) * lim) % cnt;
+                for (k = 0; k < lim; k++) print a[((start + k) % cnt) + 1];
+                continue;
+            }
             if (level == "L1") {
                 idx = ((variant - 1) % cnt) + 1;
                 print a[idx];
