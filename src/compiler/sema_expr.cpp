@@ -7517,15 +7517,9 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                         coerce_arg_to_param(arg_exprs[i], pt,
                             CFLAG_ARG_TO_DYN | CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT);
                         auto at = expr_type(arg_exprs[i]);
-                        if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                            TypeRef(pt).kind() != LogosType::Kind::Error &&
-                            TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                            TypeRef(pt).kind() != LogosType::Kind::AssocType &&
-                            !types_compatible(at, pt))
-                            { auto [es, gs] = type_str_pair(pt, at);
-                              error(std::format("method '{}' arg {}: expected {}, got {}",
-                                              std::string(method_name), i + 1,
-                                              es, gs)); }
+                        expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
+                                    std::format("method '{}' arg {}:",
+                                                std::string(method_name), i + 1));
                         if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                             TypeRef(pt).kind() != LogosType::Kind::AssocType)
                             check_variance(at, pt, std::format("method '{}' arg {}",
@@ -8156,15 +8150,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     coerce_arg_to_param(arg_exprs[i], pt,
                         CFLAG_ARG_TO_DYN | CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT);
                     auto at = expr_type(arg_exprs[i]);
-                    if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                        TypeRef(pt).kind() != LogosType::Kind::Error &&
-                        TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                        TypeRef(pt).kind() != LogosType::Kind::AssocType &&
-                        !types_compatible(at, pt))
-                        { auto [es, gs] = type_str_pair(pt, at);
-                          error(std::format("method '{}' arg {}: expected {}, got {}",
-                                          std::string(method_name), i + 1,
-                                          es, gs)); }
+                        expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
+                                    std::format("method '{}' arg {}:",
+                                                std::string(method_name), i + 1));
                     if (TypeRef(at).kind() == LogosType::Kind::IntLit &&
                         TypeRef(pt).kind() != LogosType::Kind::Error &&
                         TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
@@ -13272,9 +13260,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 resolved_payload_types[i] &&
                 TypeRef(resolved_payload_types[i]).kind() != LogosType::Kind::Error &&
                 !types_compatible(expr_type(payload[i]), resolved_payload_types[i]))
-                error(std::format("{}::{} arg {}: expected {}, got {}",
-                      ename, vname, i, type_str(resolved_payload_types[i]),
-                      type_str(expr_type(payload[i]))));
+                expect_type(payload[i], resolved_payload_types[i], CoercePos::Operand,
+                            std::format("{}::{} arg {}:", ename, vname, i));
             // Check IntLit payload value fits in the declared payload type.
             if (resolved_payload_types[i] && TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(payload[i]))
@@ -13356,9 +13343,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 if (TypeRef(expr_type(payload[i])).kind() != LogosType::Kind::Error &&
                     TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     !types_compatible(expr_type(payload[i]), pack_t))
-                    { auto [es, gs] = type_str_pair(pack_t, expr_type(payload[i]));
-                      error(std::format("{}::{} variadic arg {}: expected {}, got {}",
-                          ename, vname, i, es, gs)); }
+                    expect_type(payload[i], pack_t, CoercePos::Operand,
+                                std::format("{}::{} variadic arg {}:", ename, vname, i));
             }
         }
     }
@@ -13628,9 +13614,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 resolved_payload_types[i] &&
                 TypeRef(resolved_payload_types[i]).kind() != LogosType::Kind::Error &&
                 !types_compatible(expr_type(payload[i]), resolved_payload_types[i]))
-                error(std::format("{}::{} arg {}: expected {}, got {}",
-                      ename, vname, i, type_str(resolved_payload_types[i]),
-                      type_str(expr_type(payload[i]))));
+                expect_type(payload[i], resolved_payload_types[i], CoercePos::Operand,
+                            std::format("{}::{} arg {}:", ename, vname, i));
             if (resolved_payload_types[i] &&
                 TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(payload[i]))
@@ -13712,9 +13697,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 if (TypeRef(expr_type(payload[i])).kind() != LogosType::Kind::Error &&
                     TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     !types_compatible(expr_type(payload[i]), pack_t))
-                    { auto [es, gs] = type_str_pair(pack_t, expr_type(payload[i]));
-                      error(std::format("{}::{} variadic arg {}: expected {}, got {}",
-                          ename, vname, i, es, gs)); }
+                    expect_type(payload[i], pack_t, CoercePos::Operand,
+                                std::format("{}::{} variadic arg {}:", ename, vname, i));
                 if (TypeRef(pack_t).kind() != LogosType::Kind::Error &&
                     TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::IntLit)
                     if (auto v = get_intlit_value(payload[i]))
@@ -14953,9 +14937,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::Error &&
                 !types_compatible(at, pt))
-                { auto [es, gs] = type_str_pair(pt, at);
-                  error(std::format("static call '{}' arg {}: expected {}, got {}",
-                      mangled, i + 1, es, gs)); }
+                expect_type(arg_exprs[i], pt, CoercePos::MethodArg,
+                            std::format("static call '{}' arg {}:", mangled, i + 1));
         }
     }
 

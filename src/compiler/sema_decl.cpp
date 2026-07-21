@@ -1714,12 +1714,9 @@ SemaChecker::lower_const_def(TinyMapView node) {
             bool hs_ok = TypeRef(lc_type).kind() == LogosType::Kind::Struct &&
                          is_writ_static(lc_type) &&
                          TypeRef(expr_type(lc_value)).kind() == LogosType::Kind::WStaticLit;
-            if (!hs_ok) {
-                auto [es, gs] = type_str_pair(lc_type, expr_type(lc_value));
-                error(std::format(
-                    "const '{}': initializer type mismatch — expected {}, got {}",
-                    name, es, gs));
-            }
+            if (!hs_ok)
+                expect_type(lc_value, lc_type, CoercePos::ConstInit,
+                            std::format("const '{}': initializer type mismatch —", name));
         }
     } else {
         lc_value = error_expr();
