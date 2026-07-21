@@ -1,0 +1,44 @@
+// `&arr` is `&[T; N]`, and the decay to `&[T]` happens where a slice is
+// EXPECTED — not eagerly at the borrow. Rust semantics.
+//
+// The bug this pins: `&` on an array used to decay EAGERLY, and call sites
+// un-decayed it only when the slice's base was a plain local's AddrOf. So
+// `sum2(&a)` satisfied a `&[u64; 2]` parameter while `sum2(&s.c)` — same
+// type, same expression form — was a type error: the answer depended on
+// WHERE THE ARRAY LIVED, not on the types.
+package array_borrow_is_array_ref;
+
+struct S { c: [u64; 2] }
+
+fn sum2(p: &[u64; 2]) -> u64 { return p[0] + p[1]; }
+fn slen(p: &[u64]) -> i64 { return p.len(); }
+
+fn main() -> i32 {
+    let a: [u64; 2] = [3u64, 4u64];
+    let s: S = S { c: [5u64, 6u64] };
+
+    // &[T; N] parameter: local AND field — the pair that used to disagree
+    if sum2(&a) != 7u64 { return 1i32; }
+    if sum2(&s.c) != 11u64 { return 2i32; }
+
+    // decay still happens where a slice is expected: call args...
+    if slen(&a) != 2i64 { return 3i32; }
+    if slen(&s.c) != 2i64 { return 4i32; }
+
+    // ...let bindings (the fat {ptr,len} must actually be built: len() reads
+    // the second word, so a thin pointer here is a garbage read, not a
+    // type error)...
+    let sl: &[u64] = &a;
+    if sl.len() != 2i64 { return 5i32; }
+    let sf: &[u64] = &s.c;
+    if sf.len() != 2i64 { return 6i32; }
+    if sf[1] != 6u64 { return 7i32; }
+
+    // ...and for-in, through the semantic ref-to-array branch (field case —
+    // the old syntactic peel only recognized a bare variable)
+    let mut t: u64 = 0u64;
+    for x in &s.c { t = t + *x; }
+    if t != 11u64 { return 8i32; }
+
+    return 0i32;
+}

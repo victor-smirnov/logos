@@ -362,7 +362,30 @@ private:
         if (!is_ref_or_ptr) return false;
         TypeRef pointee = at.pointee();
         if (!pointee || pointee.kind() != LogosType::Kind::Array) return false;
-        if (!types_compatible(pointee.elem(), et.elem())) return false;
+        // ELEMENT IDENTITY, not compatibility. types_compatible allows the
+        // scalar widening that is fine for values and fatal for memory:
+        // `&[i32; N]` "compatible with" `&[i64]` would reinterpret the buffer
+        // at the wrong stride and read garbage upper bits (T0-5). A slice
+        // aliases raw memory, so its element type must match EXACTLY.
+        //
+        // A HOLE (`&[_]`) is not a comparison, it is a request: fill it from
+        // the array's element. An IntLit element likewise adopts the hinted
+        // concrete element (the literal has no committed width yet) — that is
+        // value typing, not memory reinterpretation: the array is BUILT at
+        // the adopted width, not viewed at a different one.
+        TypeRef want_elem = et.elem();
+        TypeRef have_elem = pointee.elem();
+        if (want_elem && TypeRef(want_elem).kind() == LogosType::Kind::InferredType) {
+            want_elem = have_elem;
+        } else if (have_elem && want_elem &&
+                   TypeRef(have_elem).kind() == LogosType::Kind::IntLit &&
+                   is_integer_kind(TypeRef(want_elem).kind()) &&
+                   TypeRef(want_elem).kind() != LogosType::Kind::IntLit) {
+            // adopt below via the arg rewrite: the slice takes the hinted
+            // element; codegen already widens IntLit array elements in place.
+        } else if (!types_equal(have_elem, want_elem)) {
+            return false;
+        }
         int64_t n = static_cast<int64_t>(pointee.arr_size());
         // B6/P2-11: carry the source's mutability — `&mut [T;N]` (or `*mut`)
         // decays to a `&mut [T]` slice, `&[T;N]` to a shared `&[T]`. Without
@@ -372,9 +395,10 @@ private:
                        (at.kind() == LogosType::Kind::Ptr && at.mut_ptr());
         // Build a slice_lit using the ref/ptr value as the data ptr and N as
         // the length. arg holds the address expression; reuse it directly.
+        // want_elem: the hole-filled element when expected was `&[_]`.
         auto len = builder().lit_int(n, prim(LogosType::Kind::I64));
         arg = builder().slice_lit(std::move(arg), std::move(len),
-                                  make_slice_type(et.elem(), src_mut));
+                                  make_slice_type(want_elem, src_mut));
         return true;
     }
     // Inverse of the above. `&arr` over an array *variable* is lowered
@@ -5018,6 +5042,22 @@ private:
                                      TypeRef pt) const noexcept {
         if (types_equal(at, pt)) return true;
         if (types_compatible(at, pt)) return true;
+        // A `&[E; N]` argument dispatches against a `&[E]` slice param: the
+        // call site will decay it (CFLAG_ARRAY_TO_SLICE). The selector must
+        // accept what the coercion pipeline can produce, or the candidate is
+        // rejected before the coercion ever runs and the call reports
+        // "no method" instead of coercing.
+        if (at && pt &&
+            (TypeRef(at).kind() == LogosType::Kind::Ref ||
+             TypeRef(at).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(at).pointee() &&
+            TypeRef(TypeRef(at).pointee()).kind() == LogosType::Kind::Array &&
+            TypeRef(pt).kind() == LogosType::Kind::Slice &&
+            (!TypeRef(pt).mut_ptr() ||
+             TypeRef(at).kind() == LogosType::Kind::MutRef) &&
+            types_equal(TypeRef(TypeRef(at).pointee()).elem(),
+                        TypeRef(pt).elem()))
+            return true;
         // An UNSUFFIXED int LITERAL that fits a narrower integer param dispatches
         // (e.g. `push(u8)` with `7`). Gated on `at == IntLit`: a SUFFIXED literal
         // (`9u64`, `5i32`) has a CONCRETE type and must match by type, not flex by

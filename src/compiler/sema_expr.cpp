@@ -891,6 +891,33 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     // the implicit coercion points via try_struct_unsize_coerce.
     if (try_struct_unsize_coerce(inner, target)) return inner;
 
+    // `&arr as *const [T]` / `as &[T]` — a ref-to-array source decays to the
+    // slice BEFORE the cast machinery, which expects a fat value for any
+    // slice-shaped target. `&arr` used to arrive pre-decayed (eager slice), so
+    // this path never saw a thin Ref<Array>; handing it one un-decayed makes
+    // the fat-pointer build read garbage — a segfault, not a type error.
+    if (target && inner) {
+        TypeRef tt(target);
+        bool tgt_slice_ptr =
+            (tt.kind() == LogosType::Kind::Ptr && tt.pointee() &&
+             (TypeRef(tt.pointee()).kind() == LogosType::Kind::UnsizedSlice ||
+              TypeRef(tt.pointee()).kind() == LogosType::Kind::Slice)) ||
+            tt.kind() == LogosType::Kind::Slice ||
+            tt.kind() == LogosType::Kind::UnsizedSlice;
+        TypeRef st(expr_type(inner));
+        bool src_arr_ref =
+            (st.kind() == LogosType::Kind::Ref ||
+             st.kind() == LogosType::Kind::MutRef) &&
+            st.pointee() &&
+            TypeRef(st.pointee()).kind() == LogosType::Kind::Array;
+        if (tgt_slice_ptr && src_arr_ref) {
+            TypeRef arr_t = st.pointee();
+            bool smut = st.kind() == LogosType::Kind::MutRef;
+            try_coerce_array_ref_to_slice(
+                inner, make_slice_type(TypeRef(arr_t).elem(), smut));
+        }
+    }
+
     // ── Writ typed container casts: &[T] as <I32>[] → Writ. ──────
     if (target && TypeRef(target).kind() == LogosType::Kind::Struct &&
         (TypeRef(target).struct_name() == "WritArr" || TypeRef(target).struct_name() == "WritMap")) {
@@ -1919,6 +1946,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // Widen an int-literal element to the expected element type.
             if (i < hint_elems.size() && hint_elems[i])
                 widen_int_expr(e, hint_elems[i], builder());
+            // And coerce like any expected-type position: `(1i64, &arr)`
+            // against `(i64, &[i64])` decays the array-ref element.
+            if (i < hint_elems.size() && hint_elems[i])
+                apply_place_coercions(e, hint_elems[i]);
             // Upgrade IntLit element type to i64 if the literal overflows i32.
             TypeRef et = expr_type(e);
             if (TypeRef(et).kind() == LogosType::Kind::IntLit) {
@@ -2824,12 +2855,11 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 return builder().var_ref(static_addr_name(var_name),
                                          make_ref(smut, vt));
             }
-            // &array → slice: &[T] with len = array size
-            if (TypeRef(vt).kind() == LogosType::Kind::Array) {
-                auto addr = builder().addr_of(std::string(var_name), make_ref(false, TypeRef(vt).elem()));
-                auto len  = builder().lit_int((int64_t)TypeRef(vt).arr_size(), prim(LogosType::Kind::I64));
-                return builder().slice_lit(std::move(addr), std::move(len), make_slice_type(TypeRef(vt).elem()));
-            }
+            // &array → &[T; N] (Rust). The decay to `&[T]` happens where a
+            // slice is EXPECTED (try_coerce_array_ref_to_slice), not here —
+            // eager decay is what made `&a` and `&s.c` answer differently.
+            if (TypeRef(vt).kind() == LogosType::Kind::Array)
+                return builder().addr_of(std::string(var_name), make_ref(false, vt));
             // &Box<[T]> → borrowed &[T] (Deref coercion). An owning slice shares
             // the borrowed slice's {data,len} representation, so the same storage
             // ptr re-typed as a borrowed slice is the view — no copy, no move.
@@ -2900,22 +2930,9 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         if (code_of(child) == la::INDEX_READ &&
             TypeRef(expr_type(inner)).kind() == LogosType::Kind::Slice)
             return inner;
-        // B-as-01 / evec-slice: `&[1,2,3,…]` over a bare array literal
-        // produces a slice value, matching the `&array_var` branch above.
-        // Without this, the user writes `let x: &[T] = &[…]` and gets
-        // back a `&[T; N]` (Ref<Array>) instead — type-mismatch.
-        if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Array &&
-            TypeRef(expr_type(inner)).elem()) {
-            auto et      = TypeRef(expr_type(inner)).elem();
-            auto arr_size = (int64_t)TypeRef(expr_type(inner)).arr_size();
-            // Spill the array rvalue to a stack slot first; the addr-of
-            // result becomes the slice ptr field.
-            auto spilled = builder().addr_of_temp(std::move(inner), false,
-                                                   make_ref(false, et));
-            auto len     = builder().lit_int(arr_size, prim(LogosType::Kind::I64));
-            return builder().slice_lit(std::move(spilled), std::move(len),
-                                        make_slice_type(et));
-        }
+        // `&<array expr>` — a field, a literal, any array place or rvalue —
+        // is `&[T; N]`, like the variable branch above and like Rust. The
+        // decay to `&[T]` happens where a slice is EXPECTED.
         auto __ty_inner = make_ref(false, expr_type(inner));
         // Rust temporary scope: `f(&make_vec())` materializes a DROPPABLE
         // rvalue whose stack slot nothing else owns. Without the statement-scope
@@ -4132,6 +4149,16 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
         if (actual_norm.kind() == LogosType::Kind::Slice ||
             actual_norm.kind() == LogosType::Kind::UnsizedSlice)
             unify_types(formal.elem(), actual_norm.elem(), bindings);
+        // A formal `&[T]` also infers from an actual `&[E; N]`: the argument
+        // will DECAY at the call site (try_coerce_array_ref_to_slice), so
+        // inference must see through the same coercion — otherwise
+        // `iter_over_slice(&arr)` says "could not infer T" now that `&arr`
+        // types as `&[T; N]` rather than eagerly decaying.
+        else if ((actual_norm.kind() == LogosType::Kind::Ref ||
+                  actual_norm.kind() == LogosType::Kind::MutRef) &&
+                 actual_norm.pointee() &&
+                 TypeRef(actual_norm.pointee()).kind() == LogosType::Kind::Array)
+            unify_types(formal.elem(), TypeRef(actual_norm.pointee()).elem(), bindings);
         break;
     case LogosType::Kind::Struct:
         if (actual_norm.kind() == LogosType::Kind::Struct &&
@@ -9628,6 +9655,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // coercion here depends on widen's output, so equivalent.
                 coerce_arg_to_param(arg_exprs[i], pt,
                     CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARG_TO_DYN |
+                    CFLAG_ARRAY_TO_SLICE |
                     CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT);
             }
             auto at = expr_type(arg_exprs[i]);
@@ -11461,6 +11489,20 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
     auto arr_type = expr_type(recv);
 
+    // Rust autoderef at the index position: peel `&&…` chains with REAL
+    // deref-loads until at most one reference remains. A `&&[T; N]` receiver
+    // used to fall into the single-level Ref handling, which takes the
+    // POINTEE as the element — so `rr[1]` typed as the whole `&[T; N]`.
+    while (arr_type &&
+           (TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
+            TypeRef(arr_type).kind() == LogosType::Kind::MutRef) &&
+           TypeRef(arr_type).pointee() &&
+           (TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Ref ||
+            TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::MutRef)) {
+        arr_type = TypeRef(arr_type).pointee();
+        recv = builder().deref(std::move(recv), arr_type);
+    }
+
     // `&[T]` is a fat-pointer SLICE value (Kind::Slice). A reference TO such a
     // slice (`&s` where `s: &[T]`, or a `&[T;N]` array-ref that decayed to a
     // slice and then got `&`-borrowed) arrives as `Ref→Slice`. The slice-index
@@ -11778,6 +11820,24 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 e = builder().cast(std::move(e), hint_arr_elem_type_);
             }
         }
+    }
+    // `[&arr3, &arr5]` under a `[&[T]; N]` annotation: each element decays to
+    // the hinted slice, exactly as it would at any other expected-type
+    // position. Without this the elements keep their per-length types and the
+    // literal is heterogeneous by construction.
+    if (hint_arr_elem_type_ &&
+        (TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::Slice ||
+         TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::UnsizedSlice)) {
+        bool any = false;
+        for (auto& e : elems) {
+            if (!e || TypeRef(expr_type(e)).kind() == LogosType::Kind::Error)
+                continue;
+            if (try_coerce_array_ref_to_slice(e, hint_arr_elem_type_)) any = true;
+        }
+        // elem_type was derived from element 0 BEFORE the decay; recompute it
+        // or the literal keeps the pre-decay per-length type and every other
+        // element mismatches against it.
+        if (any) elem_type = hint_arr_elem_type_;
     }
     // g6b: a `[&dyn Trait; N]` annotation lets a HETEROGENEOUS array of distinct
     // `&Concrete` refs unify to `&dyn Trait`. When the expected element type is

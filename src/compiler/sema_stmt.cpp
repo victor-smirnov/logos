@@ -4300,6 +4300,9 @@ void SemaChecker::apply_return_coercions(lir::LExprPtr& val) {
     // Implicit CoerceUnsized: `-> Rc<dyn Tr> { rc_new(a) }` rebuilds the
     // smart-pointer struct, unsizing the inner field (no explicit `as`).
     try_struct_unsize_coerce(val, ret_type_);
+    // `-> &[T] { &arr }` — the array-ref decays at the return boundary like at
+    // every other expected-type position.
+    try_coerce_array_ref_to_slice(val, ret_type_);
     // Implicit Box<Concrete> -> Box<dyn Trait>. Box<dyn> collapses to an OWNING
     // TraitObject (not a struct), so the struct unsize above cannot fire, and a
     // bare Box<Concrete> would reach codegen with a mis-keyed vtable AND its
@@ -6560,30 +6563,30 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
                                     // else `if (!iter)` below reads an indeterminate
                                     // value and skips lowering the iterable.
     if (node.has_key(la::ITER)) {
-        auto inode = map_of(node.get(la::ITER.code));
-        if (code_of(inode) == la::ADDR_OF_MUT && inode.has_key(la::VALUE)) {
-            auto child = map_of(inode.get(la::VALUE.code));
-            if (code_of(child) == la::VAR_REF) {
-                auto vn = str_of(child.get(la::NAME.code));
-                auto vt = lookup(vn);
-                if (vt && TypeRef(vt).kind() == LogosType::Kind::Array) {
-                    auto addr = builder().addr_of(std::string(vn),
-                                    make_ref(true, TypeRef(vt).elem()));
-                    auto len  = builder().lit_int(
-                                    (int64_t)TypeRef(vt).arr_size(),
-                                    prim(LogosType::Kind::I64));
-                    iter = builder().slice_lit(std::move(addr), std::move(len),
-                                    make_slice_type(TypeRef(vt).elem()));
-                    for_mut_ref = true;
-                }
-            }
-        }
-        if (!iter) iter = lower_expr(inode);
+        iter = lower_expr(map_of(node.get(la::ITER.code)));
     } else {
         iter = error_expr();
     }
 
     TypeRef iter_type = expr_type(iter);
+
+    // `for x in &arr` / `&mut arr` / `&s.field` — a REFERENCE TO AN ARRAY
+    // scrutinee iterates as the slice it borrows. This is the SEMANTIC form of
+    // what used to be a syntactic special case (ADDR_OF_MUT over a VAR_REF
+    // only): keyed on the type, it covers fields, rvalues and locals alike,
+    // and it is what keeps for-in working when `&arr` types as `&[T; N]`.
+    if ((TypeRef(iter_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(iter_type).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(iter_type).pointee() &&
+        TypeRef(TypeRef(iter_type).pointee()).kind() == LogosType::Kind::Array) {
+        TypeRef arr_t = TypeRef(iter_type).pointee();
+        bool src_mut = TypeRef(iter_type).kind() == LogosType::Kind::MutRef;
+        auto slice_t = make_slice_type(TypeRef(arr_t).elem(), src_mut);
+        if (try_coerce_array_ref_to_slice(iter, slice_t)) {
+            iter_type = expr_type(iter);
+            if (src_mut) for_mut_ref = true;
+        }
+    }
 
     // ── array path (original) ────────────────────────────────────
     if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
