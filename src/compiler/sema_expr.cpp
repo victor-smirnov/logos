@@ -1757,13 +1757,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                     hint_enum_type_ = ret_type_;
                 rval = lower_expr(map_of(expr.get(la::VALUE.code)));
                 hint_enum_type_ = _saved_hint;
-                if (rval && ret_type_ &&
-                    TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
-                    TypeRef(expr_type(rval)).kind() != LogosType::Kind::Error &&
-                    !compat(expr_type(rval), ret_type_)) {
-                    auto [es, gs] = type_str_pair(ret_type_, expr_type(rval));
-                    error(std::format("return type mismatch — expected {}, got {}", es, gs));
-                }
+                if (rval && ret_type_)
+                    expect_type(rval, ret_type_, CoercePos::Return,
+                                "return type mismatch —");
             }
             blk.push_back(builder().stmt_return(std::move(rval), node_line_));
         } else if (c == la::CONTINUE_EXPR) {
@@ -3177,18 +3173,13 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
                 auto pt = tsinfo->fields[i].type;
                 if (!subst.empty()) pt = subst_type_sema(pt, subst);
-                widen_int_expr(arg_exprs[i], pt, builder());
-                auto at = expr_type(arg_exprs[i]);
-                if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                    !types_compatible(at, pt)) {
-                    auto [es, gs] = type_str_pair(pt, at);
-                    error(std::format(
-                        "tuple-struct '{}' field {}: expected {}, got {}",
-                        callee, i, es, gs));
-                }
-                check_variance(at, pt, std::format("tuple-struct '{}' field {}", callee, i));
+                if (TypeRef(pt).kind() != LogosType::Kind::TypeVar)
+                    expect_type(arg_exprs[i], pt, CoercePos::StructLitField,
+                                std::format("tuple-struct '{}' field {}:", callee, i));
+                else
+                    widen_int_expr(arg_exprs[i], pt, builder());
+                check_variance(expr_type(arg_exprs[i]), pt,
+                               std::format("tuple-struct '{}' field {}", callee, i));
                 fields.emplace_back(std::to_string(i), std::move(arg_exprs[i]));
             }
             TypeRef lit_type;
@@ -6494,16 +6485,11 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
                 auto pt = tsinfo->fields[i].type;
                 if (!subst.empty()) pt = subst_type_sema(pt, subst);
-                widen_int_expr(arg_exprs[i], pt, builder());
-                auto at = expr_type(arg_exprs[i]);
-                if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                    !types_compatible(at, pt)) {
-                    auto [es, gs] = type_str_pair(pt, at);
-                    error(std::format("tuple-struct '{}' field {}: expected {}, got {}",
-                                      callee, i, es, gs));
-                }
+                if (TypeRef(pt).kind() != LogosType::Kind::TypeVar)
+                    expect_type(arg_exprs[i], pt, CoercePos::StructLitField,
+                                std::format("tuple-struct '{}' field {}:", callee, i));
+                else
+                    widen_int_expr(arg_exprs[i], pt, builder());
                 fields.emplace_back(std::to_string(i), std::move(arg_exprs[i]));
             }
             TypeRef lit_type;
@@ -11057,13 +11043,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         initialized[std::string(f.name)] = true;
                         matched_variadic = true;
                         // Type check against the variadic field's type
-                        if (f.type && TypeRef(f.type).kind() != LogosType::Kind::Error &&
-                            TypeRef(expr_type(fval)).kind() != LogosType::Kind::Error &&
-                            TypeRef(f.type).kind() != LogosType::Kind::TypeVar &&
-                            !types_compatible(expr_type(fval), f.type)) {
-                            error(std::format("struct literal '{}' field '{}': expected {}, got {}",
-                                  sname, fname, type_str(f.type), type_str(expr_type(fval))));
-                        }
+                        if (f.type && TypeRef(f.type).kind() != LogosType::Kind::TypeVar)
+                            expect_type(fval, f.type, CoercePos::StructLitField,
+                                        std::format("struct literal '{}' field '{}':",
+                                                    sname, fname));
                         break;
                     }
                 }
@@ -11119,16 +11102,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // closure→fn-ptr rewrite, which is why `S { s: &mut arr }`
                 // with `s: &mut [T]` was a type error while the equivalent
                 // `let s: &mut [T] = &mut arr` was not.
-                if (ft && !ft_has_typevar) apply_place_coercions(fval, ft);
-                if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
-                    TypeRef(expr_type(fval)).kind() != LogosType::Kind::Error &&
-                    !ft_has_typevar &&
-                    !types_compatible(expr_type(fval), ft) &&
-                    !try_coerce_closure_to_fnptr(fval, ft)) {
-                    { auto [es, gs] = type_str_pair(ft, expr_type(fval));
-                      error(std::format("struct literal '{}' field '{}': expected {}, got {}",
-                          sname, fname, es, gs)); }
-                }
+                if (ft && !ft_has_typevar)
+                    expect_type(fval, ft, CoercePos::StructLitField,
+                                std::format("struct literal '{}' field '{}':",
+                                            sname, fname));
                 // B68.2: variance check at struct-lit field-init. Permissive
                 // mode — the struct's lifetime args are bound at this
                 // construction site (struct-scope), not fn-scope, so caller's
@@ -11234,13 +11211,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     initialized[std::string(f.name)] = true;
                     matched_variadic = true;
                     auto ft = f.type;
-                    if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
-                        TypeRef(expr_type(fval)).kind() != LogosType::Kind::Error &&
-                        !types_compatible(expr_type(fval), ft)) {
-                        { auto [es, gs] = type_str_pair(ft, expr_type(fval));
-                          error(std::format("struct literal '{}' field '{}': expected {}, got {}",
-                              sname, fname, es, gs)); }
-                    }
+                    if (ft)
+                        expect_type(fval, ft, CoercePos::StructLitField,
+                                    std::format("struct literal '{}' field '{}':",
+                                                sname, fname));
                     if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
                         TypeRef(expr_type(fval)).kind() == LogosType::Kind::IntLit)
                         if (auto v = get_intlit_value(fval))
@@ -11261,15 +11235,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             auto ft = field_type_of(std::string(sname), fname);
             // Same as the generic path above: a field initializer is a write
             // to a typed place and gets a place write's coercions.
-            if (ft) apply_place_coercions(fval, ft);
-            if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
-                TypeRef(expr_type(fval)).kind() != LogosType::Kind::Error &&
-                !types_compatible(expr_type(fval), ft) &&
-                !try_coerce_closure_to_fnptr(fval, ft)) {
-                { auto [es, gs] = type_str_pair(ft, expr_type(fval));
-                  error(std::format("struct literal '{}' field '{}': expected {}, got {}",
-                      sname, fname, es, gs)); }
-            }
+            if (ft)
+                expect_type(fval, ft, CoercePos::StructLitField,
+                            std::format("struct literal '{}' field '{}':",
+                                        sname, fname));
             // B68.2: variance check at struct-lit field-init coercion.
             // Permissive — struct's lifetime args are inferred at this site.
             if (ft)
