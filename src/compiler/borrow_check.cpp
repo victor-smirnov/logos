@@ -742,6 +742,12 @@ class BorrowChecker {
     // Phase 4: provenance tracking for reference-typed variables.
     ProvMap                              prov_;
     std::unordered_set<std::string>      param_names_;
+    // Params whose referent OUTLIVES the call — reference params and
+    // borrow-carrying value params (their borrow points at caller data). A
+    // borrow of such a param is safe to return. A BY-VALUE owned param (not in
+    // this set) is dropped at return exactly like a local, so a borrow of it
+    // must NOT escape (else use-after-free).
+    std::unordered_set<std::string>      outliving_params_;
     // Type-param names with an explicit `Copy` bound (per current fn) — a bare
     // TypeVar not in this set is move-classified (Rust generic-body semantics).
     std::unordered_set<std::string>      copy_tvs_;
@@ -1777,8 +1783,18 @@ class BorrowChecker {
         if (cur && cur.kind() == Code::VarRef) {
             std::string rn(EVarRefView{cur}.name());
             uint32_t rn_slot = EVarRefView{cur}.var_slot();  // Phase-1
+            // A value LOCAL root: a borrow of it dangles if returned.
             if (var_has(rn_slot, rn) && !param_names_.count(rn) &&
                 prov_.find(rn) == prov_.end())
+                return rn;
+            // A BY-VALUE OWNED param is call-local storage too — it is dropped at
+            // return, so a borrow into it (`&h.v` where `h: Holder`) dangles.
+            // Reference / raw-pointer / borrow-carrying params (outliving_params_)
+            // point at data that outlives the call and are safe; a raw-pointer
+            // deref earlier in the walk already returned {} for the arena-handle
+            // idiom (`&*(self.p)`), so only genuinely owned param storage reaches
+            // here.
+            if (param_names_.count(rn) && !outliving_params_.count(rn))
                 return rn;
         }
         return {};
@@ -3513,6 +3529,14 @@ public:
             TypeRef ptype = p.type(fn_pool);
             declare_var(pname, p.slot());  // Phase-1
             param_names_.insert(pname);
+            // A reference, borrow-carrying, or RAW-POINTER param points at data
+            // that lives outside this call (a raw pointer is unbounded / caller-
+            // managed), so borrows derived from it are safe to return. Only a
+            // by-value OWNED param (struct/enum/array/scalar) has call-local
+            // storage.
+            if (is_ref_kind(ptype) || is_borrow_carrying_type(ptype) ||
+                TypeRef(ptype).kind() == LogosType::Kind::Ptr)
+                outliving_params_.insert(pname);
             if (is_ref_kind(ptype)) {
                 param_lifetimes_[pname] = std::string(TypeRef(ptype).lifetime());
                 // B86: capture inner-struct lifetime_args.
