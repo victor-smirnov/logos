@@ -107,3 +107,12 @@ regressions, unstable features — gaps expected and cheap to verdict; MIXED = c
 ### cast (58 originals; first triaged category)
 30 PORTABLE (7 works, 13 GAP, 10 capped) · 21 DIVERGENCE (mostly region-variance dyn-ptr cast legality, an NLL-integrated subsystem) · 7 not-applicable.
 **Root-cause finding, verified in sema_expr.cpp:1082**: `as`-cast validity is a BLOCKLIST (aggregate→scalar) not the RFC0401 permitted-cast allowlist, so `()`/`&ref`/`char→float`/`bool→ptr`/`enum→ptr` are accepted; two are memory-unsafe at runtime (`Box<[T;N]> as Box<[T]>` double-frees, `usize as *const [u8]` segfaults). Recorded as an arc-candidate (bug_cast_validity_blocklist) — a positive allowlist rewrite, PAIR (how strict `as` should be is a language-surface question). Plus a small parser ticket: zero-arg tuple variant `Foo()` doesn't parse.
+
+### coercion (63 originals; validates the just-closed coercion arc)
+36 PORTABLE (11 works, 7 distinct GAPs across ~9 files, 16 capped/probed) · 15 DIVERGENCE (mostly unstable `#![feature(coerce_unsized/unsize/type_ascription/never_type)]`, async, HRTB leak-check) · 12 not-applicable (rustc diagnostic-wording, ICE-avoidance, inference internals). All compile-only (weak oracle, flagged).
+Verified gaps (spot-checked personally, not just agent-reported):
+- **GAP2 deref coercion absent** — `f(&b)` for `b: Box<i64>` → "expected &i64, got &Box<i64>"; `String→&str` likewise. RFC-241; explicit `&*b` works. Arc-sized (bug_deref_coercion_absent). The just-closed arc applied EXISTING coercions everywhere; this coercion does not exist at all — orthogonal.
+- **GAP3 array-of-fn-items doesn't LUB to fn-ptr** while if/else and match DO — inconsistent with the branch-merge LUB (arc A3). Adjacent, small.
+- **GAP5 `&(dyn Trait + Send)` is a parse error** (`Box<dyn Trait + Send>` parses). Parser ticket.
+- **GAP7 `impl Unpin for dyn Trait` accepted** — Rust E0321 (auto-trait impl on dyn is unsound). Soundness ticket.
+- GAP1 `dyn Any` lacks Debug impl; GAP6 `&&[i32] as &[i32]` over-permissive `as` (folds into cast blocklist arc).
