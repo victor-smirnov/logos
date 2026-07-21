@@ -116,3 +116,14 @@ Verified gaps (spot-checked personally, not just agent-reported):
 - **GAP5 `&(dyn Trait + Send)` is a parse error** (`Box<dyn Trait + Send>` parses). Parser ticket.
 - **GAP7 `impl Unpin for dyn Trait` accepted** — Rust E0321 (auto-trait impl on dyn is unsound). Soundness ticket.
 - GAP1 `dyn Any` lacks Debug impl; GAP6 `&&[i32] as &[i32]` over-permissive `as` (folds into cast blocklist arc).
+
+### match + enum (107 originals) & drop (78 originals)
+- **match/enum**: verdicts across 107; ~17 agent-reported gap classes. PERSONALLY VERIFIED: `()` pattern is an unchecked wildcard (`[()]` matches `[i64;1]`, no type error); `#[repr(u8)] enum {A=300}` does NOT enforce range while native `enum : i8 {A=223}` correctly rejects (attribute path no-ops the check — doc/impl disagree, items.md says they're identical). NOT REPRODUCED at minimal: enum-with-Drop→int cast "ICE" (my minimal compiles clean — a real gap, accepts what Rust rejects, but not the crash the agent reported). Measurement refinement: 9 "untraced" files are actually imported under other names → the `Original path:` grep UNDERCOUNTS; true coverage is modestly above 12%.
+- **drop** (agent LINKED+RAN — strong effect oracle): VERIFIED accepts-that-should-reject: explicit `x.drop()` (E0040) → double-drop; `impl Drop for Option<A>` foreign type (E0117 orphan). Agent-reported (not personally re-run, need link+run): array-literal-element + `break`-in-loop miscompile (segfault/hang, adjacent to known G167-4); `*box = v` deref-assign unsupported. NOT REPRODUCED at minimal: match-on-place over-moves when arm binds nothing (my minimal compiles clean).
+
+### Two arc-candidate CLUSTERS from this wave
+- **Drop-trait coherence not enforced** (bug_drop_coherence_unenforced): explicit-destructor-call ban + orphan rule for Drop impls; explicit `.drop()` is a double-free class hole.
+- **Pattern/discriminant type-checking is lenient**: `()` pattern hole, literal-suffix-in-pattern unchecked, `#[repr]` range no-op. A pattern-typing pass audit.
+
+### Discipline note
+Two agent-reported gaps (enum-Drop-cast ICE, match-move) did NOT reproduce at minimal — recorded as such, not as confirmed. The "agent is not an oracle; the probe must be able to reproduce" rule caught both.
