@@ -157,3 +157,6 @@ closures: 6 works, 13 gap, ~26 divergence (unstable feature-gates), ~30 n-a, ~34
 - GAP2: ambiguous static `Type::method()` reports "undefined" instead of "ambiguous" (degrades at 2 candidates; self-taking version is caught correctly).
 - Side-note: bare untyped `self` doesn't parse (must write `self: Self`) — doc/grammar mismatch, known convention across the corpus. Diagnostic-precision: wrong-arity method call reports "no method" (generic), not "takes N args".
 - (methods batch B — second sub-agent — pending.)
+
+### methods (batch B, 39 originals) — cluster consolidated as bug_method_resolution_gaps
+9 works · 4 gap · 10 divergence · 16 n-a. Net-new verified beyond batch A: ambiguity NOT detected across differing arities (`name(&self)` vs `name(&self,bool)`, `c.name()` silently picks the 1-arg — Rust collects by name first, E0034); raw-ptr `p.get()` autoderefs under `unsafe` (Rust: always E0599); `impl<T> for *const [T]` fails to register (target prints empty); confirmed array→slice receiver coercion missing (the known receiver-on-slices tail). Combined methods cluster (both batches) → bug_method_resolution_gaps: 7 items, incl. the default-method mangling MLIR crash (#4) and receiver-keyed-on-type-shape-not-self (#1).
