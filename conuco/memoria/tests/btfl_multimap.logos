@@ -554,6 +554,32 @@ fn run_all() -> i32 {
         btfl_drop(&t);
     }
 
+    // ── 80..99: config D (P7.3) — WIDE branch: fanout past the SUM-index
+    // threshold (spans of 32), so the branch pdt's INDEX is load-bearing.
+    // At small fanouts sum() scans raw cells and a stale index is invisible;
+    // this scenario is what makes "update path must reindex" a tested law
+    // rather than a comment (probe P73-4 bites HERE).
+    {
+        let mut t: Btfl = btfl_create(&mut snap, 256u32, 16384u32);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0x9E3779B9u64 };
+        let c: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
+                           700i64, 2000u64, 2u64, 100i64);
+        if c != 0i32 {
+            return 80i32 + (c % 10i32);
+        }
+        unsafe {
+            if t.level < 1u32 {
+                return 98i32;
+            }
+            // the root must actually be WIDE, or the scenario tests nothing
+            if br_pdt_size_for_test(t.root) <= 32u64 {
+                return 99i32;
+            }
+        }
+        btfl_drop(&t);
+    }
+
     // ── 900..949: P6b bulk build ──
     {
         let mut brng: Lcg = Lcg { s: 0x94D049BB133111EBu64 };
