@@ -14007,6 +14007,7 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
                CFLAG_WIDEN_INT;
     case CoercePos::ConstInit:
+    case CoercePos::Operand:
         return CFLAG_WIDEN_INT;
     }
     return CFLAG_NONE;

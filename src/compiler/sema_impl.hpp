@@ -543,6 +543,9 @@ private:
         Return,           // return e / implicit tail (Box→dyn consume here)
         BranchArm,        // if/match arm against the surrounding expectation
         ConstInit,        // const/static initializer
+        Operand,          // an operand of a larger construct (compound-assign
+                          // RHS): verdict + widen only — reborrow/unsize make
+                          // no sense for `place op rhs`
     };
     static uint32_t mask_for(CoercePos pos);
 

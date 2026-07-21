@@ -2423,14 +2423,11 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
         }
     }
 
-    // Type-check: RHS must be compatible with the variable's type.
-    if (TypeRef(var_type).kind() != LogosType::Kind::Error &&
-        TypeRef(expr_type(rhs)).kind() != LogosType::Kind::Error &&
-        !types_compatible(expr_type(rhs), var_type)) {
-        auto [es, gs] = type_str_pair(var_type, expr_type(rhs));
-        error(std::format("compound assignment to '{}': type mismatch — expected {}, got {}",
-              name, es, gs));
-    }
+    // Type-check via the judgment. A compound assign's RHS is an OPERAND of
+    // `place op rhs`, not a full place write — reborrow/unsize make no sense
+    // here — but the verdict and its message are the same one.
+    expect_type(rhs, var_type, CoercePos::Operand,
+                std::format("compound assignment to '{}': type mismatch —", name));
     // Synthesize the binop LIR node
     auto binop = builder().bin_op(base_op, std::move(lhs_ref), std::move(rhs), var_type);
     return builder().stmt_assign(std::string(name), std::move(binop), node_line_);
@@ -2506,11 +2503,9 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                         };
                         auto rhs2 = node.has_key(la::VALUE)
                             ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
-                        if (TypeRef(out_t).kind() != LogosType::Kind::Error &&
-                            TypeRef(expr_type(rhs2)).kind() != LogosType::Kind::Error &&
-                            !types_compatible(expr_type(rhs2), out_t))
-                            error(std::format("compound assignment to '{}[i]': type mismatch — expected {}, got {}",
-                                  arr_name, type_str(out_t), type_str(expr_type(rhs2))));
+                        expect_type(rhs2, out_t, CoercePos::Operand,
+                                    std::format("compound assignment to '{}[i]': type mismatch —",
+                                                arr_name));
                         lir::LExprPtr cur = nullptr;
                         if (fit_rd) {
                             std::vector<lir::LExprPtr> ra;
@@ -2582,13 +2577,10 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
     }
 
     // General: `*(&mut place) = (place) op rhs`.
-    if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
-        rhs && TypeRef(expr_type(rhs)).kind() != LogosType::Kind::Error &&
-        !types_compatible(expr_type(rhs), pt)) {
-        auto [es, gs] = type_str_pair(pt, expr_type(rhs));
-        error(std::format("compound assignment to '{}': type mismatch — expected {}, got {}",
-              render_place_node(place_node), es, gs));
-    }
+    if (pt && rhs)
+        expect_type(rhs, pt, CoercePos::Operand,
+                    std::format("compound assignment to '{}': type mismatch —",
+                                render_place_node(place_node)));
     widen_int_expr(rhs, pt, builder());
     auto newval = builder().bin_op(base_op, std::move(place_read), std::move(rhs),
                                    pt ? pt : error_t());
@@ -7339,12 +7331,8 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     }
 
     lir::LExprPtr val = lower_expr(val_node);
-    if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-        !types_compatible(expr_type(val), ftype)) {
-        auto [es2, gs2] = type_str_pair(ftype, expr_type(val));
-        error(std::format("schema write '{}.{}': expected {}, got {}",
-              recv_name, field_name, es2, gs2));
-    }
+    expect_type(val, ftype, CoercePos::PlaceWrite,
+                std::format("schema write '{}.{}':", recv_name, field_name));
     track_write_move(val);
 
     // Build a WAny from the typed value via `WritField::to_wany(self, z)` — the
