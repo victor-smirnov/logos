@@ -1336,6 +1336,26 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 arr_n, sub_pats.size()));
             return builder().stmt_expr(std::move(rhs), node_line_);
         }
+        // E0507 for the array destructure: `let [_, e, _, _] = *a` where
+        // `a: &[D; N]` binds a move-typed element BY VALUE out of borrowed
+        // memory — the array behind the reference doesn't own the moved slot,
+        // so the move duplicates the owner (double-free at runtime). The scalar
+        // `let s = *r` form is guarded in lower_let; the slice/array destructure
+        // needs its own check. Only fires when the element is a move type AND at
+        // least one element is actually bound (all-`_` moves nothing).
+        if (rhs && is_move_type(elem_t) && is_unowned_move_source(rhs)) {
+            bool binds_by_value = false;
+            for (auto& en : sub_pats)
+                if (code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
+                    std::string(str_of(en.get(la::NAME.code))) != "_") {
+                    binds_by_value = true;
+                    break;
+                }
+            if (binds_by_value)
+                error("cannot move out of a value behind a reference / out of "
+                      "an index (E0507): this destructure moves an element out "
+                      "of a borrowed array");
+        }
         std::vector<lir_view::StmtRef> blk;
         std::string tmp = std::format("__dst_{}", destruct_counter_++);
         define(tmp, rhs_type);

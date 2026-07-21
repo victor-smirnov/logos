@@ -3338,9 +3338,16 @@ class BorrowChecker {
                 std::optional<StateMap> merged_s;
                 std::optional<ProvMap>  merged_p;
                 bool any_arm = false, all_diverged = true;
+                // Guards are evaluated in source order until one matches, so a
+                // value a guard moves is moved for every LATER guard/arm too.
+                // `guard_acc` carries the moves earlier guards made (outer vars
+                // only) into each subsequent arm's start state, so a second arm
+                // whose guard re-moves the value is caught (Rust E0382). Bodies
+                // stay mutually exclusive — only guard-caused moves accumulate.
+                StateMap guard_acc = saved_s;
                 v.each_arm([&](EMatchArmRef arm) {
                     any_arm = true;
-                    states_ = saved_s;
+                    states_ = guard_acc;
                     prov_   = saved_p;
                     ref_borrow_sources_ = saved_rbs;
                     ref_borrow_line_    = saved_rbl;
@@ -3350,7 +3357,16 @@ class BorrowChecker {
                     push_scope();
                     declare_pat_bindings(arm.pat());
                     propagate_pat_sources(arm.pat(), scrut_sources, ln);  // §B6
+                    StateMap before_guard = states_;
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
+                    // Fold this guard's NEW moves of outer bindings into the
+                    // accumulator for the following arms' guards.
+                    if (arm.guard())
+                        states_.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+                            if (!st.moved || !saved_s.has_id(slot, name)) return;
+                            const VarState* bg = before_guard.find(slot, name);
+                            if (!bg || !bg->moved) guard_acc.at_id(slot, name) = st;
+                        });
                     if (auto body = arm.body()) visit_block(body);
                     pop_scope();
                     bool arm_div = cur_diverged_;
