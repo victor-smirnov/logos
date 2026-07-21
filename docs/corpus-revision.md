@@ -174,3 +174,11 @@ Totals: 28 divergence · 38 n-a · 88 portable (48 works/GAP mix). **30 distinct
 - **A10 non-integer const in array-length → SILENT ZERO** — a FRESH instance of the array-length silent-zero class I fixed in the const-array-length arc (bool const → `[i64; 0]`, no diagnostic). A6 (`T::N` generic-param const in length) is exactly the C4 tail I deferred (mono-time).
 - deref-coercion boundary MAP (cross-cutting): works for method-receiver + field-access ONLY; FAILS at argument, let, and now RETURN position (extends bug_deref_coercion_absent); double-indirection call-syntax autoderef fails; `Vec<Box<dyn>>` index loses erasure; `impl Trait<Args> for dyn` doesn't parse.
 - generics: unused type-param (fn/inherent-impl E0207) warning-only not error; nested-default forward-reference produces a dangling type; `#[no_mangle]` on generic accepted; trait-ref arity in impl header unchecked; `trait X<Rhs=Self>` corrupts unrelated stdlib compilation (G9).
+
+## Wave 3 (proposed categories)
+
+### traits (283 originals; agent direct, verified)
+26 ported (12 works, 12 GAP), 52 divergence (nightly features, solver internals), 17 n-a, 188 portable-uncapped. Cluster → bug_trait_coherence_unenforced:
+- **HEADLINE active miscompile**: `trait X<Rhs = Self>` (the Add/PartialEq idiom) breaks UNRELATED stdlib compilation — `error [impl StableLayout for u8]: unknown type 'Self'`. Self-context leaks across items in sema; blocks a common idiom. NOT a missing check.
+- Soundness accepts-should-reject: `impl Copy for X` without Copy fields (Box field → double-free class, E0204); orphan rule unenforced (E0117); `Box<T> as Box<dyn+Send>` doesn't check T:Send (Rc<i64> passed); duplicate negative impls (E0119).
+- Missing-checks: impl blocks accept non-trait items + resolve them via Type::method (E0407); unconstrained impl type-param = warning not E0207; duplicate method name in one trait → MLIR crash on use; principal-less `dyn A+B` silently drops the second trait; runaway generic recursion → runtime SIGILL not compile error.
