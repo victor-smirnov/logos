@@ -13948,7 +13948,7 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     switch (pos) {
     case CoercePos::CallArg:
     case CoercePos::ClosureArg:
-        return CFLAG_STANDARD;
+        return CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN;
     case CoercePos::MethodArg:
         // Order pinned by the suite (widen-last equivalence argued at the
         // former inline site).
@@ -14000,6 +14000,8 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     }
     if (types_compatible(expr_type(e), expected)) return true;
     if (ptr_rel_compatible(expr_type(e), expected)) return true;   // #[rel_ptr] ↔ *T
+    if ((mask_for(pos) & CFLAG_ACCEPT_SD_THIN) &&
+        sd_thin_compatible(expr_type(e), expected)) return true;
     // Gap-4: a projection `T::A` may equal the expected type via an equality
     // bound `T: Trait<A = V>`. Normalization is part of the JUDGMENT, not of
     // any position — the return path had it and the tail path did not, which
