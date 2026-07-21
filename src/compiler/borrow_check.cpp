@@ -822,7 +822,42 @@ class BorrowChecker {
     // COMPOUND statement (its uses extend past its start line).
     uint32_t max_line_seen_ = 0;
 
+    // Loop dataflow: per-enclosing-loop capture of the move-state at each
+    // `break` (flows to AFTER the loop) and `continue` (flows to the loop BACK
+    // EDGE). visit_loop_body consumes these to (a) reject a value moved on one
+    // iteration and reused on the next, and (b) keep such moves live in the
+    // after-loop state — the pre-fix code forgot moves made on a break/continue
+    // path (they were dropped like a `return`). Labeled break/continue target
+    // the matching frame; unlabeled ones target the innermost.
+    struct LoopFrame {
+        std::string           label;
+        std::vector<StateMap> continue_states;
+        std::vector<StateMap> break_states;
+    };
+    std::vector<LoopFrame> loop_stack_;
+    // Set during the loop dataflow's dry-run pass (pass 1), which recomputes the
+    // back-edge move-state and must not emit duplicate diagnostics — the
+    // authoritative pass 2 reports.
+    bool suppress_reports_ = false;
+    LoopFrame* loop_target(std::string_view label) {
+        if (loop_stack_.empty()) return nullptr;
+        if (label.empty()) return &loop_stack_.back();
+        for (auto it = loop_stack_.rbegin(); it != loop_stack_.rend(); ++it)
+            if (it->label == label) return &*it;
+        return &loop_stack_.back();
+    }
+    // Mark in `dst` every outer binding (present in `base`) that is `moved` in
+    // `src`, carrying its move line.
+    void loop_propagate_moves(StateMap& dst, StateMap& src, const StateMap& base) {
+        src.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+            if (st.moved && base.has_id(slot, name)) dst.at_id(slot, name) = st;
+        });
+    }
+
     void report(uint32_t line, std::string msg) {
+        // Loop dataflow pass-1 dry run: state only, no diagnostics (pass 2 is
+        // authoritative — reporting here would duplicate every in-body error).
+        if (suppress_reports_) return;
         // P2-10 exclusivity-only mode (Tier 1, generic templates): drop the
         // WHOLE-VALUE use-after-move diagnostic ("use of moved value") — it is
         // redundant with sema's flow `moved_vars_` check and imprecise on
@@ -2773,24 +2808,79 @@ class BorrowChecker {
     // Analyse a loop body: outer variables moved/borrowed inside are propagated.
     // loop_vars are local to the loop iteration.
     void visit_loop_body(lir_view::BlockRef body,
-                         const std::vector<std::string>& loop_vars = {}) {
+                         const std::vector<std::string>& loop_vars = {},
+                         std::string_view label = {}) {
         auto pre_s = states_;
         auto pre_p = prov_;
+
+        auto pre_rbs  = ref_borrow_sources_;
+        auto pre_rbl  = ref_borrow_line_;
+        auto pre_dang = dangling_;
+
+        // ── Pass 1 (dry run, diagnostics suppressed): recompute the move-state
+        //    that reaches the loop's back edge so pass 2 can seed iteration 2+
+        //    correctly. Reporting here would duplicate every in-body error.
+        loop_stack_.push_back(LoopFrame{std::string(label), {}, {}});
+        bool saved_sup = suppress_reports_;
+        suppress_reports_ = true;
+        push_scope();
+        for (auto& v : loop_vars) declare_var(v);
+        bool saved_div = cur_diverged_;
+        cur_diverged_ = false;
+        body.each_stmt([&](lir_view::StmtRef sr) { visit_stmt(sr); });
+        bool bottom_reachable = !cur_diverged_;  // fall-through reaches the back edge?
+        cur_diverged_ = saved_div;
+        pop_scope();
+        suppress_reports_ = saved_sup;
+        auto post1_s = states_;
+        LoopFrame frame1 = std::move(loop_stack_.back());
+        loop_stack_.pop_back();
+
+        // Back-edge entry state = pre-loop state + moves of OUTER bindings that
+        // reach the back edge (fall-through bottom or a `continue` targeting
+        // this loop). loop_propagate_moves keys off `pre_s`, so loop-locals
+        // (absent from pre_s) are never seeded moved, and an outer binding
+        // re-declared in the body clears naturally when pass 2 re-declares it.
+        StateMap back_edge = pre_s;
+        if (bottom_reachable) loop_propagate_moves(back_edge, post1_s, pre_s);
+        for (auto& cs : frame1.continue_states) loop_propagate_moves(back_edge, cs, pre_s);
+
+        // ── Pass 2 (authoritative): analyse the body from the state that holds
+        //    on entry to EVERY iteration (pre-loop joined with the back edge —
+        //    `back_edge` already subsumes pre_s's moves). A value an outer
+        //    binding was moved into on an earlier iteration is now moved on
+        //    entry, so its reuse fires the normal use-after-move diagnostic
+        //    (Rust E0382, "value moved here, in previous iteration of loop").
+        //    Restore the pre-loop borrow accumulators so pass 1 doesn't leak in.
+        states_ = back_edge;
+        prov_   = pre_p;
+        ref_borrow_sources_ = pre_rbs;
+        ref_borrow_line_    = pre_rbl;
+        dangling_           = pre_dang;
+        loop_stack_.push_back(LoopFrame{std::string(label), {}, {}});
+        cur_diverged_ = false;
         push_scope();
         for (auto& v : loop_vars) declare_var(v);
         body.each_stmt([&](lir_view::StmtRef sr) { visit_stmt(sr); });
+        cur_diverged_ = saved_div;
         pop_scope();
-        // Borrows released by pop_scope; propagate only moves of outer vars.
-        // For provenance, merge conservatively (loop may run 0 or more times).
-        auto post_s = states_;
-        auto post_p = prov_;
+        auto post2_s = states_;
+        auto post2_p = prov_;
+        LoopFrame frame2 = std::move(loop_stack_.back());
+        loop_stack_.pop_back();
+
+        // ── After-loop state: an outer binding moved on ANY path that leaves
+        //    the loop body — fall-through / continue to the back edge, or a
+        //    `break` out — is dead after the loop. The pre-fix code only
+        //    propagated fall-through moves, so a move on a break/continue path
+        //    was forgotten and the value looked live again after the loop.
+        //    Provenance merges conservatively (the loop may run 0+ times).
         states_ = pre_s;
         prov_   = pre_p;
-        post_s.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
-            if (st.moved && pre_s.has_id(slot, name))
-                states_.at_id(slot, name) = st;
-        });
-        merge_provs(prov_, post_p);
+        if (bottom_reachable) loop_propagate_moves(states_, post2_s, pre_s);
+        for (auto& cs : frame2.continue_states) loop_propagate_moves(states_, cs, pre_s);
+        for (auto& bs : frame2.break_states)    loop_propagate_moves(states_, bs, pre_s);
+        merge_provs(prov_, post2_p);
     }
 
     void visit_stmt(lir_view::StmtRef sr) {
@@ -3189,7 +3279,7 @@ class BorrowChecker {
             case Code::While: {
                 SWhileView v{sr};
                 visit(v.cond(), /*consuming=*/true, ln);
-                if (auto b = v.body()) visit_loop_body(b);
+                if (auto b = v.body()) visit_loop_body(b, {}, v.label());
                 break;
             }
 
@@ -3199,14 +3289,16 @@ class BorrowChecker {
                 visit(v.lo(), /*consuming=*/true, ln);
                 visit(v.hi(), /*consuming=*/true, ln);
                 if (auto b = v.body())
-                    visit_loop_body(b, {std::string(v.var())});
+                    visit_loop_body(b, {std::string(v.var())}, v.label());
                 break;
             }
 
             // ── Infinite loop ─────────────────────────────────────────────
-            case Code::Loop:
-                if (auto b = SLoopView{sr}.body()) visit_loop_body(b);
+            case Code::Loop: {
+                SLoopView v{sr};
+                if (auto b = v.body()) visit_loop_body(b, {}, v.label());
                 break;
+            }
 
             // ── Scoping block ─────────────────────────────────────────────
             case Code::Block:
@@ -3218,6 +3310,9 @@ class BorrowChecker {
                 SForEachView v{sr};
                 visit(v.iter(), /*consuming=*/false, ln);
                 if (auto b = v.body())
+                    // SForEachView carries no label accessor; unlabeled
+                    // break/continue (the common case) still target it as the
+                    // innermost frame.
                     visit_loop_body(b, {std::string(v.var())});
                 break;
             }
@@ -3308,10 +3403,18 @@ class BorrowChecker {
                 break;
             }
 
-            // SBreak, SContinue, LetElse — no variable effects in this pass,
-            // but Break/Continue still diverge the current stmt-flow.
+            // SBreak / SContinue: capture the current move-state for the target
+            // loop's dataflow (break → after-loop, continue → back-edge), then
+            // diverge the current stmt-flow. LetElse has no variable effects
+            // here but its `else` also diverges (handled elsewhere).
             case Code::Break:
+                if (auto* lf = loop_target(SBreakView{sr}.label()))
+                    lf->break_states.push_back(states_);
+                cur_diverged_ = true;
+                break;
             case Code::Continue:
+                if (auto* lf = loop_target(SContinueView{sr}.label()))
+                    lf->continue_states.push_back(states_);
                 cur_diverged_ = true;
                 break;
             default:
@@ -3810,9 +3913,24 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             break;
 
         // ── Cast ───────────────────────────────────────────────────────
-        case Code::Cast:
-            visit(ECastView{e}.operand(), consuming, line);
+        case Code::Cast: {
+            ECastView cv{e};
+            auto op = cv.operand();
+            const auto* pool = prog_.type_pool.impl();
+            TypeRef ot = op ? op.type(pool) : TypeRef(nullptr);
+            TypeRef tt = e.type(pool);
+            // `&T as *const T` / `&mut T as *mut T`: a reference→raw-pointer cast
+            // reads the reference's address — it reborrows, it does NOT move the
+            // reference (Rust keeps a `&mut` usable after the cast). Consuming
+            // the operand would kill the reference; harmless when the cast is
+            // its last use, but wrong when the reference is reused afterwards
+            // (e.g. on a loop back edge — `root as *mut T` inside a `while`).
+            bool ref_to_ptr = ot && (ot.kind() == LogosType::Kind::Ref ||
+                                     ot.kind() == LogosType::Kind::MutRef) &&
+                              tt && tt.kind() == LogosType::Kind::Ptr;
+            visit(op, consuming && !ref_to_ptr, line);
             break;
+        }
 
         // ── Struct literal ─────────────────────────────────────────────
         case Code::StructLit:
