@@ -14030,6 +14030,22 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     }
     if (types_compatible(expr_type(e), expected)) return true;
     if (ptr_rel_compatible(expr_type(e), expected)) return true;   // #[rel_ptr] ↔ *T
+    // Gap-4: a projection `T::A` may equal the expected type via an equality
+    // bound `T: Trait<A = V>`. Normalization is part of the JUDGMENT, not of
+    // any position — the return path had it and the tail path did not, which
+    // is exactly the per-site drift this function exists to end.
+    if (types_compatible(normalize_assoc_eq(expr_type(e)), expected)) return true;
+    if (std::getenv("LOGOS_DEBUG_ASSOC_MISMATCH")) {
+        auto dump = [](const char* tag, TypeRef t) {
+            std::fprintf(stderr, "  [%s] kind=%d trait='%s' assoc='%s' base_kind=%d base='%s'\n",
+                tag, (int)t.kind(),
+                std::string(t.trait_name()).c_str(),
+                std::string(t.assoc_type_name()).c_str(),
+                t.assoc_base() ? (int)TypeRef(t.assoc_base()).kind() : -1,
+                t.assoc_base() ? std::string(TypeRef(t.assoc_base()).type_var_name()).c_str() : "");
+        };
+        dump("expected", expected); dump("got", expr_type(e));
+    }
     auto [es, gs] = type_str_pair(expected, expr_type(e));
     // ctx carries its own trailing punctuation ("let 'x': type mismatch —",
     // "field write 'a.b':"), so converted sites stay byte-identical to their

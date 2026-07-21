@@ -447,27 +447,10 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 // Non-void: wrap as implicit return, mirroring the
                 // existing lower_return body but with the already-lowered
                 // value (avoids re-lowering).
-                // Same position, same coercions as `return e;`.
-                if (inner) apply_return_coercions(inner);
-                if (inner && ret_type_ &&
-                    TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
-                    TypeRef(expr_type(inner)).kind() != LogosType::Kind::Error &&
-                    !compat(expr_type(inner), ret_type_)) {
-                    if (std::getenv("LOGOS_DEBUG_ASSOC_MISMATCH")) {
-                        auto dump = [](const char* tag, TypeRef t) {
-                            std::fprintf(stderr, "  [%s] kind=%d trait='%s' assoc='%s' base_kind=%d base='%s'\n",
-                                tag, (int)t.kind(),
-                                std::string(t.trait_name()).c_str(),
-                                std::string(t.assoc_type_name()).c_str(),
-                                t.assoc_base() ? (int)TypeRef(t.assoc_base()).kind() : -1,
-                                t.assoc_base() ? std::string(TypeRef(t.assoc_base()).type_var_name()).c_str() : "");
-                        };
-                        dump("expected", ret_type_); dump("got", expr_type(inner));
-                    }
-                    auto [es, gs] = type_str_pair(ret_type_, expr_type(inner));
-                    error(std::format("return type mismatch — expected {}, got {}",
-                          es, gs));
-                }
+                // Same position, same judgment as `return e;`.
+                if (inner && ret_type_)
+                    expect_type(inner, ret_type_, CoercePos::Return,
+                                "return type mismatch —");
                 // R2 (audit-v2): the TAIL-expr implicit return must run the
                 // same variance gate as the explicit `return` path —
                 // `fn f(a: &[Vec<i32>]) -> &[Vec<i64>] { a }` slipped
@@ -2111,31 +2094,15 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // impl-Trait-returning function is acceptable — treat the variable type as the
         // concrete rhs type so method calls work.
         bool ann_is_impl = TypeRef(ann).kind() == LogosType::Kind::ImplTrait;
-        if (!ann_is_impl &&
+        if (!ann_is_impl && !rhs_is_expr_blob &&
             TypeRef(ann).kind() != LogosType::Kind::Error &&
-            TypeRef(rhs_type).kind() != LogosType::Kind::Error &&
-            !rhs_is_expr_blob &&
-            !types_compatible(rhs_type, ann) &&
-            !ptr_rel_compatible(rhs_type, ann)) {  // #[rel_ptr] ↔ *T
-            // Implicit CoerceUnsized: `let r: Rc<dyn Tr> = rc_new(a)` rebuilds
-            // the smart-pointer struct, unsizing the inner field (no explicit
-            // `as` needed). Mirrors the arg/cast paths; closes GAP-C.
-            if (try_struct_unsize_coerce(rhs, ann)) {
-                rhs_type = expr_type(rhs);
-            } else
-            // `&mut [T;N]` → `&mut [T]` array-ref → slice decay (the shared
-            // `&[T;N]` form already lowers straight to a slice; the `&mut`
-            // form arrives as a ref-to-array and needs the explicit decay).
-            if (try_coerce_array_ref_to_slice(rhs, ann)) {
-                rhs_type = expr_type(rhs);
-            } else
-            // Non-capturing closure literal → fn(...) -> T coercion.
-            if (try_coerce_closure_to_fnptr(rhs, ann)) {
-                rhs_type = expr_type(rhs);
-            } else if (is_writ_static(ann) && is_writ(rhs_type)) {
+            TypeRef(rhs_type).kind() != LogosType::Kind::Error) {
+            if (is_writ_static(ann) && is_writ(rhs_type) &&
+                !types_compatible(rhs_type, ann)) {
                 // B-he-05: WritStatic ← Writ mismatch is almost always
                 // caused by `${capture}` or other runtime-only constructs in
-                // the @-literal. Emit a capture-specific hint.
+                // the @-literal. A capture-specific hint beats the generic
+                // mismatch, so this one PRE-EMPTS expect_type.
                 error(std::format(
                     "let '{}': @-literal evaluated to runtime Writ (likely "
                     "due to `${{capture}}` or other runtime-only construct); "
@@ -2143,9 +2110,9 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     "annotate `{}: Writ` instead",
                     name, name));
             } else {
-                auto [es, gs] = type_str_pair(ann, rhs_type);
-                error(std::format("let '{}': type mismatch — expected {}, got {}",
-                      name, es, gs));
+                expect_type(rhs, ann, CoercePos::LetInit,
+                            std::format("let '{}': type mismatch —", name));
+                rhs_type = expr_type(rhs);
             }
         }
         // B64: variance-aware subtype check at let-init coercion site.
@@ -2920,32 +2887,15 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
             // type is expected coerces to that fn-ptr — the same coercion the
             // let-annotation and call-arg paths apply. Without this, `fn f() ->
             // fn()->T { return || ... }` errored "expected fn()->T, got ||->T".
-            apply_return_coercions(val);
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
                 // Infer concrete return type from first return expression.
                 if (!impl_ret_type_inferred_ &&
                     TypeRef(expr_type(val)).kind() != LogosType::Kind::Error)
                     impl_ret_type_inferred_ = expr_type(val);
-            } else if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
-                TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-                !compat(expr_type(val), ret_type_) &&
-                // Gap-4: normalize a projection `T::A` via an equality bound
-                // `T: Trait<A = V>` before declaring a mismatch.
-                !compat(normalize_assoc_eq(expr_type(val)), ret_type_)) {
-                if (std::getenv("LOGOS_DEBUG_ASSOC_MISMATCH")) {
-                    auto dump = [](const char* tag, TypeRef t) {
-                        std::fprintf(stderr, "  [%s] kind=%d trait='%s' assoc='%s' base_kind=%d base='%s'\n",
-                            tag, (int)t.kind(),
-                            std::string(t.trait_name()).c_str(),
-                            std::string(t.assoc_type_name()).c_str(),
-                            t.assoc_base() ? (int)TypeRef(t.assoc_base()).kind() : -1,
-                            t.assoc_base() ? std::string(TypeRef(t.assoc_base()).type_var_name()).c_str() : "");
-                    };
-                    dump("expected", ret_type_); dump("got", expr_type(val));
-                }
-                auto [es, gs] = type_str_pair(ret_type_, expr_type(val));
-                error(std::format("return type mismatch — expected {}, got {}",
-                      es, gs));
+            } else if (ret_type_ &&
+                       !expect_type(val, ret_type_, CoercePos::Return,
+                                    "return type mismatch —")) {
+                // diagnostic already emitted by the judgment
             } else if (ret_type_) {
                 check_variance(expr_type(val), ret_type_, "return type mismatch",
                                /*permissive=*/false);
@@ -4258,11 +4208,14 @@ lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type
 // PAT_REST{NAME?} (`xs @ ..`). Composites recurse; PAT_OR descends the
 // FIRST alternative only (the nested-Or builder enforces its own
 // consistency).
+
 // The coercions a WRITE to a typed place performs — shared by assignment,
-// field writes and index/deref writes, and mirroring what `let x: T = e`
-// already did. Order matters and matches the let path: reborrow first (it
-// changes a `&mut` into the shape the others expect), then the rewrites, each
-// tried only while the types still disagree.
+// field writes, index/deref writes and the struct-literal field paths, and
+// mirroring what `let x: T = e` did. Order matters and matches the let path:
+// reborrow first (it changes a `&mut` into the shape the rest expect), then
+// the rewrites, each tried only while the types still disagree.
+// NOTE: being folded into expect_type (S1); new positions must call
+// expect_type, not this.
 bool SemaChecker::apply_place_coercions(lir::LExprPtr& rhs, TypeRef target) {
     if (!rhs || !target) return false;
     if (TypeRef(target).kind() == LogosType::Kind::Error) return false;
@@ -4279,33 +4232,6 @@ bool SemaChecker::apply_place_coercions(lir::LExprPtr& rhs, TypeRef target) {
     if (try_coerce_slice_to_array_ref(rhs, target)) return true;
     if (try_coerce_closure_to_fnptr(rhs, target))   return true;
     return changed;
-}
-
-// The RETURN position's coercions, shared by `return e;` and a body's implicit
-// tail expression. Splitting them was not a design choice — the tail path
-// simply never grew them, so it was strictly weaker than the explicit form for
-// the same language position.
-void SemaChecker::apply_return_coercions(lir::LExprPtr& val) {
-    if (!ret_type_ || !val) return;
-    // Non-capturing closure literal → fn-ptr return type.
-    if (LogosType::is_fn_value_kind(TypeRef(ret_type_).kind()))
-        try_coerce_closure_to_fnptr(val, ret_type_);
-    // Implicit CoerceUnsized: `-> Rc<dyn Tr> { rc_new(a) }` rebuilds the
-    // smart-pointer struct, unsizing the inner field (no explicit `as`).
-    try_struct_unsize_coerce(val, ret_type_);
-    // `-> &[T] { &arr }` — the array-ref decays at the return boundary like at
-    // every other expected-type position.
-    try_coerce_array_ref_to_slice(val, ret_type_);
-    // Implicit Box<Concrete> -> Box<dyn Trait>. Box<dyn> collapses to an OWNING
-    // TraitObject (not a struct), so the struct unsize above cannot fire, and a
-    // bare Box<Concrete> would reach codegen with a mis-keyed vtable AND its
-    // source Box left un-consumed (double free). Desugar to the same `as`-unsize
-    // cast the explicit form uses: consume the source Box and build the cast.
-    if (TypeRef(ret_type_).owning_trait_object() &&
-        expr_type(val) && is_stdlib_box(expr_type(val))) {
-        mark_moved_expr(expr_ref_of(val));
-        val = builder().cast(std::move(val), ret_type_);
-    }
 }
 
 void SemaChecker::collect_ast_pat_bindings(TinyMapView pat,
