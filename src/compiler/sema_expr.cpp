@@ -3242,6 +3242,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // ClosureCall op rewrites to FnPtrCall when needed (handled in
     // mono_clone.cpp by inspecting the substituted callee type).
     bool is_fn_bound = false;
+    bool fn_once_consume = false;   // callee is bound ONLY by FnOnce → call consumes it
     TypeRef synth_closure_t = nullptr;
     TypeRef original_typevar_t = nullptr;
     // G158-1: the callee may be `&F` / `&mut F` (a reference to an Fn-bounded
@@ -3261,17 +3262,26 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         std::string tvname(TypeRef(fn_bound_inner).type_var_name());
         auto bit = current_type_bounds_.find(tvname);
         if (bit != current_type_bounds_.end()) {
+            bool has_fn_family = false, has_multi_call = false;
             for (auto& b : bit->second) {
                 if (!b.is_fn_family) continue;
-                std::vector<TypeRef> ps = b.fn_params;
-                TypeRef ret = b.fn_ret ? b.fn_ret : void_t();
-                synth_closure_t = make_closure_type(std::move(ps), ret);
-                // keep F (or &F) for var_ref so mono substitutes to the
-                // concrete closure/fn-ptr (or ref thereof).
-                original_typevar_t = fn_bound_recv_type;
-                is_fn_bound = true;
-                break;
+                if (!is_fn_bound) {
+                    std::vector<TypeRef> ps = b.fn_params;
+                    TypeRef ret = b.fn_ret ? b.fn_ret : void_t();
+                    synth_closure_t = make_closure_type(std::move(ps), ret);
+                    // keep F (or &F) for var_ref so mono substitutes to the
+                    // concrete closure/fn-ptr (or ref thereof).
+                    original_typevar_t = fn_bound_recv_type;
+                    is_fn_bound = true;
+                }
+                has_fn_family = true;
+                // Fn / FnMut can be invoked repeatedly (by &self / &mut self);
+                // FnOnce invokes by-value (call_once(self)) — a lone FnOnce
+                // bound means the call CONSUMES the callable.
+                if (b.trait_name == "Fn" || b.trait_name == "FnMut")
+                    has_multi_call = true;
             }
+            fn_once_consume = has_fn_family && !has_multi_call;
         }
     }
     if (is_fn_bound) {
@@ -3281,6 +3291,15 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     }
 
     if (is_closure || is_fn_ptr) {
+        // The closure-call callee is emitted as a bare var_ref below, bypassing
+        // the normal var-use move check — so verify it here: a callable already
+        // moved (into another binding, or CONSUMED by a prior `FnOnce` call —
+        // see fn_once_consume below) cannot be invoked.
+        if (moved_vars_.count(std::string(callee)))
+            error(std::format(
+                "use of moved value '{}': the callable was already moved or "
+                "consumed (an `FnOnce` is consumed by the call and cannot be "
+                "called again)", callee));
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args = args_array();
@@ -3351,7 +3370,19 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         }
         if (is_fn_ptr)
             return builder().fn_ptr_call(std::move(callee_expr), std::move(arg_exprs), ret);
-        return builder().closure_call(std::move(callee_expr), std::move(arg_exprs), ret);
+        auto closure_call_e =
+            builder().closure_call(std::move(callee_expr), std::move(arg_exprs), ret);
+        // FnOnce single-call: a callable bound ONLY by FnOnce is consumed by the
+        // call (call_once takes self by value). Mark the callee var moved so a
+        // second `f()` is rejected as use-after-move — closing the FnOnce-called-
+        // twice double-free. (Only for a `&F` receiver do we NOT consume: calling
+        // through a reference can't move the referent — but the elided-lifetime
+        // FnOnce-by-ref form isn't a call-consume in Rust either, so skip when
+        // the receiver is a reference.)
+        if (fn_once_consume && !callee_is_ref_fn && !callee_is_box_closure &&
+            TypeRef(fn_bound_recv_type).kind() == LogosType::Kind::TypeVar)
+            mark_moved(std::string(callee));
+        return closure_call_e;
     }
 
     // format() is now a library function in std.fmt (variadic generics + Format trait).
