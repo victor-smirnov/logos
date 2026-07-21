@@ -5074,7 +5074,18 @@ private:
         }
         if (ek == tk) return;
         bool ok = can_widen_int(ek, tk);
-        if (!ok && is_integer_kind(TypeRef(expr_type(e)).kind()) && is_integer_kind(TypeRef(target).kind())) {
+        // A literal may adopt a NARROWER concrete integer it fits — but never
+        // an Enum: `coerce.enum.to-integer-discriminant` allows enum→int, and
+        // FORBIDS int→enum (it would reinterpret the value as the enum's
+        // storage). is_integer_kind includes Enum for other purposes, so the
+        // exclusion must be explicit here, exactly as it already is in
+        // arg_compatible_for_dispatch ("pt is guarded too"). This is how the
+        // refusal pinned by coerce_diag_1__enum-to-integer-discriminant
+        // vanished: the old let path never ran this adoption; the expect_type
+        // pipeline does.
+        if (!ok && ek != LogosType::Kind::Enum &&
+            TypeRef(target).kind() != LogosType::Kind::Enum &&
+            is_integer_kind(ek) && is_integer_kind(TypeRef(target).kind())) {
             if (auto v = get_intlit_value(e))
                 if (intlit_fits(*v, TypeRef(target).kind()))
                     ok = true;
