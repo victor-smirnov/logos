@@ -149,3 +149,11 @@ closures: 6 works, 13 gap, ~26 divergence (unstable feature-gates), ~30 n-a, ~34
 - G6/G7 duplicate binding in a match arm / struct field named twice — accepted ("last wins", no equality check).
 - G1 bare ident shadows a tuple-struct name → fresh catch-all binding. G2 `()` matches any type. G3 literal-suffix unchecked.
 - Refinement: slice-pattern-in-tuple is a CLEAN rejection (baghunt B-pt-13 open), NOT the "silent vanish" the sibling reported — good rigor.
+
+### methods (batch A of 2, 40 originals; sub-agent, verified personally)
+14 works · 3 gap · 15 divergence (arbitrary_self_types, explicit lifetime turbofish on calls — Logos infers lifetimes structurally, tuple structs) · 8 n-a. VERIFIED gaps:
+- **GAP3 (crash): two traits with a same-named DEFAULT method on one struct → MLIR crash** `duplicate function body for symbol S__method__f__ref_S` instead of E0034 ambiguity. The mangling scheme has NO trait-identity component for default-method instantiation → collision. Same class as the G156-1 mangling family, but a backend crash. (Explicit-override collisions ARE caught in sema; only pure-default bodies slip through.)
+- **GAP1: dot-call keys receiver-eligibility on TYPE-SHAPE, not the `self` keyword** — `a.mk(7)` where `mk`'s first param is `rcvr: A` (not named self) resolves and runs. Over-acceptance vs Rust and vs Logos's own documented receiver grammar.
+- GAP2: ambiguous static `Type::method()` reports "undefined" instead of "ambiguous" (degrades at 2 candidates; self-taking version is caught correctly).
+- Side-note: bare untyped `self` doesn't parse (must write `self: Self`) — doc/grammar mismatch, known convention across the corpus. Diagnostic-precision: wrong-arity method call reports "no method" (generic), not "takes N args".
+- (methods batch B — second sub-agent — pending.)
