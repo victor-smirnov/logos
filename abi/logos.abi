@@ -11327,6 +11327,7 @@ sym	logos_mem.logos.mem.bt$bt_remove__f__refmut_BtArena__refmut_BtTree__u64
 sym	logos_mem.logos.mem.bt$bt_ride__f__ref_BtArena__u64__&dyn Shuttle__refmut_Vec$G1$tup$2$u64$u32
 sym	logos_mem.logos.mem.bt$bt_seek__f__ref_BtArena__ref_BtTree__u64
 sym	logos_mem.logos.mem.bt$bt_stage__f__void
+sym	logos_mem.logos.mem.bt.btfl$br_pdt_size_for_test__f__pmut_u8
 sym	logos_mem.logos.mem.bt.btfl$btfl_access__f__ref_Btfl__u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_bulk_build__f__refmut_MemorySnapshot__ref_BtflStage__u32__u32
 sym	logos_mem.logos.mem.bt.btfl$btfl_check__f__ref_Btfl
