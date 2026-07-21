@@ -874,6 +874,13 @@ private:
     // the Closure TypeRef; same-signature literals UNION their captures
     // (conservative-correct). By-ref captures are stored as `&[mut] T`.
     std::unordered_map<std::string, std::vector<TypeRef>> closure_capture_env_;
+    // Inferred Fn-family kind of each closure literal, keyed by the interned
+    // closure type_str (same union-by-signature model as closure_capture_env_):
+    // 0 = Fn (reads captures only), 1 = FnMut (mutates a capture), 2 = FnOnce
+    // (consumes/moves a capture out of the env). Stored as the MAX (most
+    // restrictive) across same-signature literals — conservative-correct: if any
+    // literal of a signature is FnMut, a `F: Fn` bound over that type is refused.
+    std::unordered_map<std::string, int> closure_kind_;
     // Phase 2-3: predicate match against the active cfg-key set + features.
     // Lightweight wrappers around the file-static match_cfg_key_value /
     // match_cfg_flag so sema_collect's cfg_attr handling can call them

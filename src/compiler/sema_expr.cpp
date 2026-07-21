@@ -16290,6 +16290,22 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         }
         if (ec->captures.empty()) (void)env;  // entry exists even if empty
     }
+    // Fn-family kind inference: classify this literal by how its body uses the
+    // captures. FnOnce (2) if it moves a capture OUT of the env (consumes it);
+    // else FnMut (1) if it mutates a capture; else Fn (0, read-only). Stored as
+    // the max over same-signature literals (see closure_kind_). A `move` keyword
+    // alone does NOT raise the kind — a `move` closure that only reads its owned
+    // captures is still Fn (Rust: kind is set by USE, not capture mode).
+    {
+        int kind = 0;
+        for (size_t i = 0; i < ec->captures.size(); ++i) {
+            if (body_moved_outer.count(ec->captures[i])) { kind = 2; break; }
+            if (i < ec->mut_captures.size() && ec->mut_captures[i]) kind = 1;
+        }
+        auto it = closure_kind_.find(type_str(ctype));
+        if (it == closure_kind_.end() || kind > it->second)
+            closure_kind_[type_str(ctype)] = kind;
+    }
     return builder().closure_box(std::move(ec), ctype);
 }
 

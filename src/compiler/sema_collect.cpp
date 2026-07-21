@@ -1317,8 +1317,28 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // the bound). When F resolves to FnPtr at mono time, the
             // ClosureCall LIR op rewrites to FnPtrCall in mono_clone.
             if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
-                                       LogosType::is_fn_value_kind(cv.kind())))
+                                       LogosType::is_fn_value_kind(cv.kind()))) {
+                // Fn-family kind check (Rust E0525): a closure that MUTATES a
+                // capture doesn't implement `Fn`; one that MOVES OUT a capture
+                // implements only `FnOnce`. Fn pointers capture nothing → always
+                // Fn-kind. An unrecorded closure is read-only (Fn). Required
+                // levels: Fn=0, FnMut=1, FnOnce=2; the closure's inferred kind
+                // must not exceed it.
+                if (cv.kind() == LogosType::Kind::Closure) {
+                    int req = (bound.trait_name == "Fn")    ? 0
+                            : (bound.trait_name == "FnMut") ? 1 : 2;
+                    auto kit = closure_kind_.find(type_str(cv));
+                    int ck = (kit == closure_kind_.end()) ? 0 : kit->second;
+                    if (ck > req)
+                        error(std::format(
+                            "closure does not implement `{}`: its body {} a "
+                            "captured variable, so it is `{}`",
+                            bound.trait_name,
+                            ck == 2 ? "moves out (consumes)" : "mutates",
+                            ck == 2 ? "FnOnce" : "FnMut"));
+                }
                 continue;
+            }
             // G158-1: `&F` / `&mut F` satisfies an Fn-family bound when the
             // pointee is itself callable (a closure / fn-ptr, or a TypeVar
             // bounded by Fn that resolves to one at mono). Rust's blanket
