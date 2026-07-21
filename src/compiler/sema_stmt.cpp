@@ -2900,10 +2900,24 @@ lir_view::StmtRef SemaChecker::lower_return(TinyMapView node) {
             // let-annotation and call-arg paths apply. Without this, `fn f() ->
             // fn()->T { return || ... }` errored "expected fn()->T, got ||->T".
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
-                // Infer concrete return type from first return expression.
-                if (!impl_ret_type_inferred_ &&
-                    TypeRef(expr_type(val)).kind() != LogosType::Kind::Error)
-                    impl_ret_type_inferred_ = expr_type(val);
+                // Infer the single concrete hidden type from the FIRST return.
+                // Every LATER return must produce the SAME concrete type — an
+                // `impl Trait` return has exactly one hidden type (Rust E0308).
+                // Without this, a second return of a different concrete type was
+                // silently reinterpreted through the first type's layout/vtable,
+                // a type-confusion misdispatch at runtime (corpus GAP10).
+                TypeRef vt = expr_type(val);
+                if (TypeRef(vt).kind() != LogosType::Kind::Error) {
+                    if (!impl_ret_type_inferred_)
+                        impl_ret_type_inferred_ = vt;
+                    else if (!types_equal(vt, impl_ret_type_inferred_))
+                        error(std::format(
+                            "`impl Trait` return: every return must have the "
+                            "same hidden concrete type — this returns `{}`, but "
+                            "an earlier return produced `{}` (return a boxed "
+                            "`dyn Trait` if the type must vary)",
+                            type_str(vt), type_str(impl_ret_type_inferred_)));
+                }
             } else if (ret_type_ &&
                        !expect_type(val, ret_type_, CoercePos::Return,
                                     "return type mismatch —")) {
