@@ -127,3 +127,12 @@ Verified gaps (spot-checked personally, not just agent-reported):
 
 ### Discipline note
 Two agent-reported gaps (enum-Drop-cast ICE, match-move) did NOT reproduce at minimal — recorded as such, not as confirmed. The "agent is not an oracle; the probe must be able to reproduce" rule caught both.
+
+## Wave 2 (in progress)
+
+### self (84 originals; agent did this half directly)
+46 DIVERGENCE (arbitrary self types — `Box<Self>`/`Rc<Self>`/`Pin<P<Self>>`/raw-ptr/custom Receiver; Logos supports only `self`/`&self`/`&mut self` — a large, coherent divergence) · 9 DIVERGENCE (dispatch_from_dyn/CoercePointee unstable) · 2 DIVERGENCE (no `self::` path prefix, no inline `mod {}`) · 6 n-a · 12 WORKS · 9 GAP in 5 classes. PERSONALLY VERIFIED:
+- **`Self(v)` tuple-struct ctor unresolved** — `call to undefined function 'Self'`. Common Rust idiom; should work. (bug_self_handling)
+- `Self` not lexically reserved — `let Self = 5`, `struct Self {}` both compile (Rust hard-rejects).
+- trait method `fn m(self: &Unrelated)` accepted — self-param type validity unchecked at decl.
+- HRTB `for<'a> &'a T: Bar` parse-fails on compound LHS (plain-ident LHS works).
