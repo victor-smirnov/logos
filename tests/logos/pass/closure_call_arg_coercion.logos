@@ -1,0 +1,23 @@
+// A closure / fn-ptr call is an ordinary call, so its arguments must coerce
+// like any call's — not on the minimal reborrow+widen mask it used to run on.
+// `f(&mut arr)` into an `|s: &mut [T]|` parameter failed while the identical
+// call to a named fn worked.
+package closure_call_arg_coercion;
+
+fn via_fn(s: &mut [i64]) -> i64 { return s.len(); }
+
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+
+    // named fn — the control, always worked
+    if via_fn(&mut a) != 3i64 { return 1i32; }
+
+    // closure with a &mut [T] param — the array-ref must decay
+    let f = |s: &mut [i64]| -> i64 { return s.len(); };
+    if f(&mut a) != 3i64 { return 2i32; }
+
+    // fn pointer likewise
+    let g: fn(&mut [i64]) -> i64 = via_fn;
+    if g(&mut a) != 3i64 { return 3i32; }
+    return 0i32;
+}

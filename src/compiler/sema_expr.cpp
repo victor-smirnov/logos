@@ -3286,8 +3286,12 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error(std::format("{}: expected {} args, got {}", kind_str, n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
+                // A closure / fn-ptr call is an ordinary call: its arguments
+                // coerce like any call's, not on the minimal reborrow+widen
+                // mask. Without this, `f(&arr)` into an `Fn(&[T])` param failed
+                // while the same call to a named fn worked.
                 coerce_arg_to_param(arg_exprs[i], TypeRef(callee_type).closure_params()[i],
-                                    CFLAG_MINIMAL);
+                                    CFLAG_STANDARD);
                 auto at = expr_type(arg_exprs[i]);
                 auto pt = TypeRef(callee_type).closure_params()[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -6797,7 +6801,7 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
                 coerce_arg_to_param(arg_exprs[i], TypeRef(rt).closure_params()[i],
-                                    CFLAG_MINIMAL);
+                                    CFLAG_STANDARD);
                 auto pt = TypeRef(rt).closure_params()[i];
                 auto at = expr_type(arg_exprs[i]);
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
