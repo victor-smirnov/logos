@@ -177,6 +177,12 @@ include_directories(include)
 # Enable testing early so add_test() in subdirectories is effective.
 enable_testing()
 
+# Coercion arc S2: the type-mismatch verdict is emitted by exactly one
+# function (SemaChecker::expect_type). Mechanically enforced — see the script.
+add_test(NAME lint_mismatch_monopoly
+    COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/lint-mismatch-monopoly.sh)
+set_tests_properties(lint_mismatch_monopoly PROPERTIES LABELS "lint")
+
 # Modules
 add_subdirectory(src/verification)
 add_subdirectory(src/core)
