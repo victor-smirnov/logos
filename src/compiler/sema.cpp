@@ -2844,9 +2844,20 @@ bool SemaChecker::struct_type_is_copy(TypeRef x) const {
     if (copy_types_.count(nm)) return true;
     if (auto it = conditional_copy_.find(nm); it != conditional_copy_.end()) {
         auto targs = TypeRef(x).type_args();
-        for (size_t pos : it->second)
-            if (pos >= targs.size() || !targs[pos] || is_move_type(targs[pos]))
+        for (size_t pos : it->second) {
+            if (pos >= targs.size() || !targs[pos]) return false;
+            TypeRef a = targs[pos];
+            // The impl's `P: Copy` bound must actually hold for this argument.
+            // `!is_move_type` is the Copy proxy used elsewhere, but it
+            // misclassifies `&mut T`: a mutable reference owns nothing (not a
+            // move type in the drop-glue sense) yet is NOT Copy — it is affine
+            // (reborrowed, never duplicated). Without the MutRef guard,
+            // `Pin<&mut T>` (the stdlib's `impl<P: Copy> Copy for Pin<P>`) is
+            // silently bitwise-copied into two live &mut aliases. Treat it as
+            // non-Copy so the instance is move-tracked instead.
+            if (is_move_type(a) || TypeRef(a).kind() == LogosType::Kind::MutRef)
                 return false;
+        }
         return true;
     }
     return false;
