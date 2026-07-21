@@ -1009,6 +1009,72 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
         }
     }
 
+    // Array `==` / `!=` — `[T; N]` VALUE equality: GEP each element, load,
+    // compare, AND together. Without this, Kind::Array lowers to a pointer (the
+    // by-pointer ABI for aggregates) and the generic ptr-cmp below compares the
+    // two array SLOT addresses — false for any two distinct arrays even when
+    // their contents match (silent-wrong on a basic op). Primitive element type
+    // only, mirroring the tuple `==` fast-path; `[str;N]` / `[Struct;N]` /
+    // nested-array elements fall through to the historic pointer-cmp (follow-up
+    // will widen, same limitation the tuple path carries).
+    if ((op == "==" || op == "!=") &&
+        lhs_ty && rhs_ty &&
+        TypeRef(lhs_ty).kind() == LogosType::Kind::Array &&
+        TypeRef(rhs_ty).kind() == LogosType::Kind::Array &&
+        TypeRef(lhs_ty).elem() && TypeRef(rhs_ty).elem()) {
+        TypeRef et = TypeRef(lhs_ty).elem();
+        uint64_t n  = (uint64_t)TypeRef(lhs_ty).arr_size();
+        uint64_t rn = (uint64_t)TypeRef(rhs_ty).arr_size();
+        auto is_prim = [](TypeRef t) {
+            if (!t) return false;
+            using K = LogosType::Kind;
+            switch (t.kind()) {
+            case K::I8:  case K::I16: case K::I24: case K::I32:
+            case K::I56: case K::I64: case K::I128:
+            case K::U8:  case K::U16: case K::U24: case K::U32:
+            case K::U56: case K::U64: case K::U128:
+            case K::F32: case K::F64: case K::Bool: case K::Char:
+            case K::Usize: case K::Isize:
+            case K::IntLit: case K::FloatLit: return true;
+            default: return false;
+            }
+        };
+        if (n == rn && n > 0 && is_prim(et)) {
+            mlir::Type arr_ty  = logos_to_mlir(lhs_ty);   // LLVM [N x elem]
+            auto       elem_t  = logos_to_mlir(et);
+            if (arr_ty && elem_t) {
+                mlir::Value lb = lhs, rb = rhs;
+                if (lb.getType() != ptr_type()) lb = spill_to_alloca(lb);
+                if (rb.getType() != ptr_type()) rb = spill_to_alloca(rb);
+                mlir::Value acc;
+                for (uint64_t i = 0; i < n; ++i) {
+                    auto l_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), arr_ty, lb,
+                        llvm::ArrayRef<mlir::LLVM::GEPArg>{0, (int32_t)i});
+                    auto r_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), arr_ty, rb,
+                        llvm::ArrayRef<mlir::LLVM::GEPArg>{0, (int32_t)i});
+                    auto l_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_t, l_ptr);
+                    auto r_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_t, r_ptr);
+                    mlir::Value cmp;
+                    if (mlir::isa<mlir::FloatType>(elem_t))
+                        cmp = builder_.create<mlir::arith::CmpFOp>(
+                            loc_, mlir::arith::CmpFPredicate::OEQ, l_val, r_val);
+                    else
+                        cmp = builder_.create<mlir::arith::CmpIOp>(
+                            loc_, mlir::arith::CmpIPredicate::eq, l_val, r_val);
+                    acc = !acc ? cmp
+                               : builder_.create<mlir::arith::AndIOp>(loc_, acc, cmp).getResult();
+                }
+                if (acc) {
+                    if (op == "==") return acc;
+                    auto true_c = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1LL, 1);
+                    return builder_.create<mlir::arith::XOrIOp>(loc_, acc, true_c);
+                }
+            }
+        }
+    }
+
     // G144-5: tuple lexicographic ordering (`<` / `<=` / `>` / `>=`) on an
     // all-primitive tuple — emit per-element load + compare and fold right-to-
     // left (`lt_i || (eq_i && rest)`), mirroring the `==` fast-path above.
