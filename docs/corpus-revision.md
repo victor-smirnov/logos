@@ -142,3 +142,10 @@ closures: 6 works, 13 gap, ~26 divergence (unstable feature-gates), ~30 n-a, ~34
 **HEADLINE — biggest find of the revision, root VERIFIED in spec traits-generics.md:100**: Fn/FnMut/FnOnce are NOT distinguished — the bound is satisfied intrinsically by any closure regardless of capture/mutation/consumption. Documented, but UNSOUND: `FnOnce` callable twice → confirmed **double-free** (valgrind/SIGABRT); `Fn` closure mutating a capture accepted (E0525). One root explains 8/14 repros. Recorded bug_fn_trait_kind_noop (arc + PAIR — closure-kind inference; documented-wrong ≠ blessed when it double-frees). Plus separate codegen bugs: segfault on `f: &F` called via `f(x)`; MLIR crash on labeled-break-in-closure targeting an enclosing fn.
 
   - *(orphan sub-agent batch, corroborating)*: net-new specific beyond the Fn-kind/deref findings — **drop-coverage LEAK on an escaped-borrow closure capture**: a closure capturing a local by-ref that outlives the local's block both misses the escape/region check AND never runs the capture's Drop (verified via `--emit-mlir`, 0 drop calls). Folds under the escape-check gap + drop-coverage.
+
+### pattern (112 originals; agent cross-checked the live spec suite, refined sibling framing)
+9 confirmed GAP + 2 noted · 33 divergence (const-pattern/structural-match, box_patterns, rust-2024 match-ergonomics, turbofish-in-pattern, static-in-pattern) · 36 n-a · 34 already-covered-live. PERSONALLY VERIFIED cluster (bug_pattern_typing_lenient):
+- **G8 variant-shape not validated** — struct-variant matched as tuple `FooB(a,b)` binds fields POSITIONALLY & silently (correctness hole); unit-as-tuple and tuple-as-bare also accepted.
+- G6/G7 duplicate binding in a match arm / struct field named twice — accepted ("last wins", no equality check).
+- G1 bare ident shadows a tuple-struct name → fresh catch-all binding. G2 `()` matches any type. G3 literal-suffix unchecked.
+- Refinement: slice-pattern-in-tuple is a CLEAN rejection (baghunt B-pt-13 open), NOT the "silent vanish" the sibling reported — good rigor.
