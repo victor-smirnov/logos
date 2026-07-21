@@ -1810,7 +1810,20 @@ DeclBuilder SemaChecker::lower_trait_def(TinyMapView node) {
         }
     }
     if (node.has_key(la::TYPE_PARAMS)) {
+        // A trait always has an implicit `Self`, and a default type argument may
+        // name it — `trait Add<Rhs = Self>` is the canonical operator idiom.
+        // collect_trait registers Self before reading its params; the lower pass
+        // must do the same, otherwise `Rhs = Self`'s default resolves with Self
+        // out of scope → spurious "unknown type 'Self'" (mis-attributed to
+        // whatever impl last set ctx_, e.g. a stdlib `impl StableLayout for u8`).
+        // Save/restore so the outer scope is not perturbed.
+        auto self_it = current_type_params_.find("Self");
+        bool had_self = self_it != current_type_params_.end();
+        TypeRef prev_self = had_self ? self_it->second : TypeRef(nullptr);
+        current_type_params_["Self"] = make_typevar("Self");
         auto tps = read_type_params(node);
+        if (had_self) current_type_params_["Self"] = prev_self;
+        else          current_type_params_.erase("Self");
         auto arr = b.array(tk::TYPE_PARAMS);
         for (auto& tp : tps) arr.push_str(tp.name);
     }
