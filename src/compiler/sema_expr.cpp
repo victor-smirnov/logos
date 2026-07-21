@@ -13883,14 +13883,16 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     switch (pos) {
     case CoercePos::CallArg:
     case CoercePos::ClosureArg:
-        return CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN;
+        return CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
+               CFLAG_SKIP_UNRESOLVED;
     case CoercePos::MethodArg:
         // Order pinned by the suite (widen-last equivalence argued at the
         // former inline site).
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARG_TO_DYN |
                CFLAG_ARRAY_TO_SLICE |
                CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT |
-               CFLAG_CHECK_E0507 | CFLAG_CHECK_DYN_BOUNDS;
+               CFLAG_CHECK_E0507 | CFLAG_CHECK_DYN_BOUNDS |
+               CFLAG_SKIP_UNRESOLVED;
     case CoercePos::LetInit:
     case CoercePos::PlaceWrite:
     case CoercePos::TupleElem:
@@ -13922,9 +13924,12 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     if (!e || !expected) return true;
     if (TypeRef(expected).kind() == LogosType::Kind::Error) return true;
     // An unresolved formal (a type parameter or an un-normalized projection)
-    // cannot be judged here; mono re-checks at the concrete instantiation.
-    if (TypeRef(expected).kind() == LogosType::Kind::TypeVar ||
-        TypeRef(expected).kind() == LogosType::Kind::AssocType) return true;
+    // is skipped only where mono re-judges the concrete instantiation — the
+    // CALL rows. An annotation position judges it here (a GAT bound violation
+    // must not slip through as "unresolved").
+    if ((mask_for(pos) & CFLAG_SKIP_UNRESOLVED) &&
+        (TypeRef(expected).kind() == LogosType::Kind::TypeVar ||
+         TypeRef(expected).kind() == LogosType::Kind::AssocType)) return true;
     if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Error) return true;
     coerce_arg_to_param(e, expected, mask_for(pos));
     if (pos == CoercePos::Return &&
