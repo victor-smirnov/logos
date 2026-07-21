@@ -519,6 +519,7 @@ private:
         // `self.buf[j] = self.buf[j+1]` under a Copy-bounded T).
         CFLAG_CHECK_E0507      = 1u << 8,  // move-out-of-borrowed-place check
         CFLAG_CHECK_DYN_BOUNDS = 1u << 9,  // dyn auto-trait bound enforcement
+        CFLAG_ACCEPT_REF_DYN   = 1u << 11, // accept ref_arg_satisfies_dyn (G158-7)
         CFLAG_ACCEPT_SD_THIN   = 1u << 10, // accept sd_thin_compatible pairs
                                            // (thin one-repr receiver forms) —
                                            // the call family's extra acceptor

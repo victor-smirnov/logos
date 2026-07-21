@@ -3597,13 +3597,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     widen_int_expr(arg_exprs[i], exact_fi->param_types[i], builder());
                     auto at = expr_type(arg_exprs[i]);
                     auto pt = exact_fi->param_types[i];
-                    if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                        TypeRef(pt).kind() != LogosType::Kind::Error &&
-                        !types_compatible(at, pt) &&
-                        !sd_thin_compatible(at, pt))
-                        { auto [es, gs] = type_str_pair(pt, at);
-                          error(std::format("call to '{}' arg {}: expected {}, got {}",
-                              callee, i + 1, es, gs)); }
+                    expect_type(arg_exprs[i], pt, CoercePos::CallArg,
+                                std::format("call to '{}' arg {}:", callee, i + 1));
                     check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
                     if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                         if (auto v = get_intlit_value(arg_exprs[i]))
@@ -3620,14 +3615,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 coerce_arg_to_param(arg_exprs[i], exact_fi->param_types[i]);
                 auto at = expr_type(arg_exprs[i]);
                 auto pt = exact_fi->param_types[i];
-                if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    !types_compatible(at, pt) &&
-                    !sd_thin_compatible(at, pt) &&
-                    !ref_arg_satisfies_dyn(at, pt))   // G158-7
-                    { auto [es, gs] = type_str_pair(pt, at);
-                      error(std::format("call to '{}' arg {}: expected {}, got {}",
-                          callee, i + 1, es, gs)); }
+                expect_type(arg_exprs[i], pt, CoercePos::CallArg,
+                            std::format("call to '{}' arg {}:", callee, i + 1));
                 check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
@@ -3856,13 +3845,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                                     CFLAG_CLOSURE_TO_FNPTR | CFLAG_MINIMAL);
                 auto at = expr_type(arg_exprs[i]);
                 auto pt = fi.param_types[i];
-                if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    !types_compatible(at, pt) &&
-                    !sd_thin_compatible(at, pt))
-                    { auto [es, gs] = type_str_pair(pt, at);
-                      error(std::format("call to '{}' arg {}: expected {}, got {}",
-                          callee, i + 1, es, gs)); }
+                expect_type(arg_exprs[i], pt, CoercePos::CallArg,
+                            std::format("call to '{}' arg {}:", callee, i + 1));
                 check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
                 if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                     if (auto v = get_intlit_value(arg_exprs[i]))
@@ -3879,14 +3863,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             coerce_arg_to_param(arg_exprs[i], fi.param_types[i]);
             auto at = expr_type(arg_exprs[i]);
             auto pt = fi.param_types[i];
-            if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                TypeRef(pt).kind() != LogosType::Kind::Error &&
-                !types_compatible(at, pt) &&
-                !sd_thin_compatible(at, pt) &&
-                !ref_arg_satisfies_dyn(at, pt))   // G158-7
-                { auto [es, gs] = type_str_pair(pt, at);
-                  error(std::format("call to '{}' arg {}: expected {}, got {}",
-                      callee, i + 1, es, gs)); }
+            expect_type(arg_exprs[i], pt, CoercePos::CallArg,
+                        std::format("call to '{}' arg {}:", callee, i + 1));
             check_variance(at, pt, std::format("call to '{}' arg {}", callee, i + 1));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error)
                 if (auto v = get_intlit_value(arg_exprs[i]))
@@ -4822,14 +4800,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             try_struct_unsize_coerce(arg_exprs[i], pt);  // Rc<A> → Rc<dyn Tr>
             widen_int_expr(arg_exprs[i], pt, builder());
             auto at = expr_type(arg_exprs[i]);
-            if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                TypeRef(pt).kind() != LogosType::Kind::Error &&
-                TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                !types_compatible(at, pt) &&
-                !sd_thin_compatible(at, pt))
-                { auto [es, gs] = type_str_pair(pt, at);
-                  error(std::format("call to '{}' arg {}: expected {}, got {}",
-                      callee_diag, i + 1, es, gs)); }
+            expect_type(arg_exprs[i], pt, CoercePos::CallArg,
+                        std::format("call to '{}' arg {}:", callee_diag, i + 1));
             if (TypeRef(pt).kind() != LogosType::Kind::TypeVar)
                 check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
             if (TypeRef(at).kind() == LogosType::Kind::IntLit && TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -4854,15 +4826,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 try_struct_unsize_coerce(arg_exprs[i], pt);  // Rc<A> → Rc<dyn Tr>
                 widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = expr_type(arg_exprs[i]);
-                if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                    TypeRef(pt).kind() != LogosType::Kind::AssocType &&
-                    !types_compatible(at, pt) &&
-                    !sd_thin_compatible(at, pt))
-                    { auto [es, gs] = type_str_pair(pt, at);
-                      error(std::format("call to '{}' arg {}: expected {}, got {}",
-                          callee_diag, i + 1, es, gs)); }
+                expect_type(arg_exprs[i], pt, CoercePos::CallArg,
+                                std::format("call to '{}' arg {}:", callee_diag, i + 1));
                 if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
                     TypeRef(pt).kind() != LogosType::Kind::AssocType)
                     check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
@@ -13948,7 +13913,7 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     switch (pos) {
     case CoercePos::CallArg:
     case CoercePos::ClosureArg:
-        return CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN;
+        return CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN;
     case CoercePos::MethodArg:
         // Order pinned by the suite (widen-last equivalence argued at the
         // former inline site).
@@ -13986,6 +13951,10 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
                               std::string_view ctx) {
     if (!e || !expected) return true;
     if (TypeRef(expected).kind() == LogosType::Kind::Error) return true;
+    // An unresolved formal (a type parameter or an un-normalized projection)
+    // cannot be judged here; mono re-checks at the concrete instantiation.
+    if (TypeRef(expected).kind() == LogosType::Kind::TypeVar ||
+        TypeRef(expected).kind() == LogosType::Kind::AssocType) return true;
     if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Error) return true;
     coerce_arg_to_param(e, expected, mask_for(pos));
     if (pos == CoercePos::Return &&
@@ -14002,6 +13971,8 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     if (ptr_rel_compatible(expr_type(e), expected)) return true;   // #[rel_ptr] ↔ *T
     if ((mask_for(pos) & CFLAG_ACCEPT_SD_THIN) &&
         sd_thin_compatible(expr_type(e), expected)) return true;
+    if ((mask_for(pos) & CFLAG_ACCEPT_REF_DYN) &&
+        ref_arg_satisfies_dyn(expr_type(e), expected)) return true;   // G158-7
     // Gap-4: a projection `T::A` may equal the expected type via an equality
     // bound `T: Trait<A = V>`. Normalization is part of the JUDGMENT, not of
     // any position — the return path had it and the tail path did not, which
