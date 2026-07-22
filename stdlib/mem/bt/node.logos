@@ -87,3 +87,57 @@ pub unsafe fn node_dec_rc(base: *mut u8) -> u32 {
 
 /// Frees a node block (header + region). Children are released by the caller.
 pub unsafe fn node_free(base: *mut u8) { dealloc(base); }
+
+// ── the node PROFILE (ADR 0020 / Memoria profiles) ───────────────────────────
+//
+// The container prototypes (BTFL, BTSS) must not be bound to a concrete node
+// FORM. `NodeProfile` is the node-shape capability — the Memoria `Profile`
+// analog — a set of self-less associated fns (called `P::pkd(node)` etc. over a
+// type parameter, exactly like the BtLeaf/BtBranch node contracts). A prototype
+// generic over `P: NodeProfile` reaches every node through P; the Store binds
+// the concrete profile when it creates a container, so the node form arrives
+// FROM THE STORE CONFIGURATION rather than being hard-wired into the prototype.
+//
+// `CowProfile` is the profile of THIS module's CoW node (MemNode): a zero-sized
+// marker whose methods are the node_* free functions above. It is the only
+// profile today; a second store's node form lands as a second impl.
+pub trait NodeProfile {
+    /// Allocate + stamp a fresh node block (snap, rc = 1, childless), format its
+    /// PkdAlloc region with `nslots` slots. Returns the block base.
+    fn alloc(pkd_bytes: u32, nslots: u32, snap: u64) -> *mut u8;
+    /// The PkdAlloc column region of a node block.
+    fn pkd(node: *mut u8) -> *mut PkdAlloc;
+    /// The CoW skip key (the creating snapshot).
+    fn snapshot(node: *mut u8) -> u64;
+    fn set_snapshot(node: *mut u8, snp: u64);
+    fn rc(node: *mut u8) -> u32;
+    fn inc_rc(node: *mut u8);
+    /// Decrement the refcount; returns the new value (0 = caller must free).
+    fn dec_rc(node: *mut u8) -> u32;
+    /// Which slot holds this node's child refs (no_children() for a leaf).
+    fn child_slot(node: *mut u8) -> u32;
+    fn set_child_slot(node: *mut u8, slot: u32);
+    fn free(node: *mut u8);
+    /// The child-slot sentinel meaning "this node is a leaf".
+    fn no_children() -> u32;
+}
+
+/// The CoW node profile — MemNode. A zero-sized marker used only as a type
+/// argument; its methods are the node_* free functions of this module.
+pub struct CowProfile;
+
+impl NodeProfile for CowProfile {
+    fn alloc(pkd_bytes: u32, nslots: u32, snap: u64) -> *mut u8 {
+        return unsafe { node_alloc(pkd_bytes, nslots, snap) };
+    }
+    fn pkd(node: *mut u8) -> *mut PkdAlloc { return unsafe { node_pkd(node) }; }
+    fn snapshot(node: *mut u8) -> u64 { return unsafe { node_snapshot(node) }; }
+    fn set_snapshot(node: *mut u8, snp: u64) { unsafe { node_set_snapshot(node, snp); } }
+    fn rc(node: *mut u8) -> u32 { return unsafe { node_rc(node) }; }
+    fn inc_rc(node: *mut u8) { unsafe { node_inc_rc(node); } }
+    fn dec_rc(node: *mut u8) -> u32 { return unsafe { node_dec_rc(node) }; }
+    fn child_slot(node: *mut u8) -> u32 { return unsafe { node_child_slot(node) }; }
+    fn set_child_slot(node: *mut u8, slot: u32) { unsafe { node_set_child_slot(node, slot); } }
+    fn free(node: *mut u8) { unsafe { node_free(node); } }
+    fn no_children() -> u32 { return NODE_NO_CHILDREN; }
+}
