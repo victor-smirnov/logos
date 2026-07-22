@@ -1,6 +1,6 @@
 // logos.mem.pkd.pdtbuf — PdtBuf: the Logos EQUIVALENT of the C++ Memoria
 // PackedDataTypeBuffer (the successor structure into which Victor folded
-// PkdArray / PkdFQTree / PkdFMTree upstream). Ladder rungs P0 + P1 + P2 + P3
+// the packed-array/FQTree/FMTree family upstream). Ladder rungs P0 + P1 + P2 + P3
 // + P4: the runtime core — slot geometry, sizing, cell access, the
 // ordering-dispatched search family — plus the recursive SUM span index that
 // accelerates it, the start-relative and BACKWARD searches (both obtained as
@@ -313,7 +313,7 @@
 //     P0 merely does not preclude it: columns are uniform and addressed
 //     through the formula, so a presence-bitmap column composes.
 //   * ordering UNORDERED — accepted by the descriptor, search rejects it
-//     (it is PkdArray; no ordering-bearing query is defined).
+//     (a plain packed array; no ordering-bearing query is defined).
 //   * direction (P2) — CARRIED, and carried as a derivation rather than as
 //     an axis of code: forward, start-relative and backward are one descent.
 //     NARROWED, recorded: the start-relative and backward forms are SUM-only.
@@ -1874,7 +1874,7 @@ impl PdtBuf {
 
     // MAX descent over a SORTED column — index-free BY DESIGN (the C++ HEAD
     // reached the same conclusion: HasIndex excludes MAX, so the search is a
-    // bisection, mirror of fse_lower_bound_u64 in arr.logos:507).
+    // bisection; see pdt_lower_bound_u64 above).
     //   find_ge = lower_bound = min { i : col[i] >= val }
     //   find_gt = upper_bound = min { i : col[i] >  val }
     // `prefix` is meaningless for MAX and is reported as 0.

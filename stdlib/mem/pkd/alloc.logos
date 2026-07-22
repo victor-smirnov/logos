@@ -72,7 +72,7 @@ pub struct PkdAllocatable {
 // not to self — a value carrying it that moves separately from its allocator
 // breaks. The structural Fst derivation sees only a u32, so the exclusion is
 // explicit: packed-allocatable structures never qualify as inert Fst bytes
-// (allocator slots with bitmap-driven back-ref fixups are their home; PkdArray
+// (allocator slots with bitmap-driven back-ref fixups are their home; PdtBuf
 // entries are for plain data).
 impl !Fst for PkdAllocatable {}
 

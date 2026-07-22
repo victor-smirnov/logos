@@ -209,6 +209,84 @@ the S0/S2 target for [../README.md](../README.md).
 - **Samsung SmartSSD / ScaleFlux** — no concrete current dev-kit availability
   surfaced; effectively hard to obtain as a developer.
 
+## Emulators / no-hardware route (verified 2026-07-22)
+
+6 angles, 15 sources, 20 claims confirmed 3-vote (0 killed) + one targeted
+follow-up on the single open question. Answers: what can be developed in
+pure software, and where does it stop.
+
+### QEMU `-device nvme` — host-side controller emulation, mature
+
+Implements **NVMe spec 1.4**, all mandatory features with a few gaps.
+Multi-queue (`max_ioqpairs`, default 64), multiple namespaces via `nvme-ns`,
+**ZNS (TP 4053) fully compliant with one exception** (since QEMU 6.0). Gaps:
+no interrupt coalescing; **zone state doesn't survive a QEMU restart**
+(only guest reboot); **no latency/timing-fidelity modeling** — docs are
+silent on it, meaning none is claimed. This is what runs *inside* a VM as
+"a drive" — the host-driver side, same role real hardware plays toward a
+real host. Doesn't touch controller-side/device-side behavior.
+
+### NVMeVirt (SNU, FAST'23) — closer to controller-firmware development
+
+Kernel module operating at the **PCI layer**, presents as a native NVMe
+device to the whole system (not layered above the host block layer like
+QEMU). Four device personalities via Kbuild: `CONFIG_NVMEVIRT_NVM` (conv.
+NVM), `_SSD` (ZNS SSD... — check repo for exact mapping), `_ZNS`, `_KV`
+(Key-Value SSD) — i.e. it also models **compute/command-set diversity**,
+not just block I/O, closer to what CSD command-set experiments need than
+QEMU is. Setup cost: reserve a **contiguous physical memory region** (e.g.
+64 GiB) via GRUB to back storage; **incompatible with IOMMU** (disable
+Intel VT-d / `intremap=off` or risk kernel panics in `__pci_enable_msix()`).
+
+### SPDK — user-space NVMe-oF target, synthetic backends
+
+`nvmf_tgt` exposes block devices over TCP/RDMA/FC fabrics; **TCP built in,
+no special libs**. Backends can be **synthetic `malloc` bdevs** — no
+physical NVMe needed to exercise the fabric/target path. `vhost-user`
+target itself is host-side, user-space — orthogonal to device-side emulation.
+
+### The actual gap: no software model of the DEVICE side (PCIe endpoint)
+
+This is the decisive finding for our S0 plan. **QEMU has no PCI Endpoint
+Controller (EPC) emulation** — nothing that lets Linux's
+`pci-endpoint-framework` function drivers (the `pci_epf_*` code that
+`rick-heig/nvme_csd` and any Memoria-firmware would be) run against a
+simulated root complex instead of a real board.
+
+- A concrete proposal exists: **Shunsuke Mie (Igel Co.)**, "[RFC] Proposal
+  of QEMU PCI Endpoint test environment," posted **2023-08-18** to
+  qemu-devel — QEMU EPC device + Linux `pcie-qemu-ep.c` driver + EPF-bridge
+  device, TLP-equivalent messaging over Unix sockets between QEMU processes.
+  Manivannan Sadhasivam (Linux PCI-EP maintainer) replied supportively but
+  questioned the design (2023-10). The same *unmerged* proposal resurfaced
+  as a talk — **KVM Forum 2024**, "Virtual device for testing the Linux
+  PCIe endpoint framework" — a year later, still design-stage.
+- **Not merged.** No `hw/misc/qemu-epc.c`, no `epf-bridge.c` in mainline
+  QEMU; no `pcie-qemu-ep.c` in upstream Linux. No newer (2025–2026) patch
+  series found.
+- Linux's own `tools/testing/selftests/pci_endpoint` tests the **host-side**
+  `pci_endpoint_test` driver against a **real** EP-capable board running
+  `pci-epf-test` — it validates the framework, it doesn't emulate the EP.
+
+**Bottom line: as of 2026-07, real PCIe-endpoint-capable hardware (SBC or
+FPGA) is required to develop/test any `pci-endpoint-framework` function
+driver — including an NVMe EPF for Memoria.** No amount of QEMU/NVMeVirt/
+SPDK substitutes for it; those tools only emulate the *other* side (a drive,
+as seen by a host).
+
+### What this means for S0/S1/S2
+
+Revises the plan in [../README.md](../README.md): **S0's "mock NVMe
+queue-pair transport" cannot be a QEMU-side device-emulation trick** — it
+has to be our own userspace/UDS mock of the *command surface* (what a
+Memoria-graph-executor sees), independent of any real PCIe transport, which
+is what was already planned. It's *not* a step that later gets replaced by
+"real QEMU NVMe emulation" — there's no such bridge; S0's mock and S2's real
+SBC endpoint are the only two rungs, nothing fills the middle in software.
+Confirms the SBC route (~$200) is not just the cheap option — for the
+device-side of this problem, **it's the only one, software or hardware,
+short of DaisyPlus or a vendor NDA.**
+
 ### Recommendation for the csd subproject
 
 - **Protocol/firmware spike (S0/S2):** SBC route (~$200). Matches our

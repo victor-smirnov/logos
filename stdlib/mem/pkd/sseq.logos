@@ -1285,17 +1285,17 @@ impl PkdSsrle {
         return Result::Ok(());
     }
 
-    // ── pricing for the BTFL leaf (the PkdArray estimate convention) ─────
+    // ── pricing for the BTFL leaf (the legacy estimate convention) ───────
 
     /// Block bytes this sequence needs AFTER inserting `src` at `pos` — the
     /// leaf sums (estimate − current block_size) across columns against its
-    /// free space, like PkdArray::estimate_insert.
+    /// free space (the legacy estimate convention; PdtBuf paths price exactly).
     pub fn estimate_insert(self: &PkdSsrle, pos: u64, src: &Vec<SsrleRun>) -> u32 {
         let us: SsrleUpdate = self.plan_insert(pos, src);
         return us.block_size;
     }
 
-    /// Block bytes needed after absorbing `other` (PkdArray::estimate_merge
+    /// Block bytes needed after absorbing `other` (the legacy estimate_merge
     /// twin).
     pub fn estimate_merge(self: &PkdSsrle, other: &PkdSsrle) -> u32 {
         let us: SsrleUpdate = self.plan_merge(other);

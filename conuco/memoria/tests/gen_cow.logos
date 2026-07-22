@@ -12,7 +12,7 @@ package test;
 
 use logos.lcm.canon.container_item;   // the `container` lowering handler + the factory
 use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
-use logos.mem.pkd;                    // the generated leaf/branch target (PkdArray::format)
+use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
 use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the shared store
 use logos.mem.string;
