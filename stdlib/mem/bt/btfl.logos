@@ -119,18 +119,23 @@ const BTFL_ALPHABET: u32 = 2u32;
 
 // ── typed slot views (re-resolved per call; never cached) ───────────────────
 
-// Stream s's data column — the slot index is the stream index (runtime; the
-// stream COUNT is the const N, the individual index need not be).
-unsafe fn lf_stream(a: *mut PkdAlloc, s: u32) -> *mut PkdArray<u64> {
-    return a.get::<PkdArray<u64>>(s);
+// Stream s's data column — a SINGLE-COLUMN PdtBuf (8a2.3): the stream's kind
+// (FSE cell width / VLE) is the column's DESCRIPTOR, stored in the block
+// (self-describing — adopt needs no shape argument), and every mutation gets
+// the two-phase prepare/commit with EXACT pricing. The slot index is the
+// stream index (runtime; the stream COUNT is the const N).
+unsafe fn lf_pdt(a: *mut PkdAlloc, s: u32) -> PdtBuf {
+    return pdtbuf_adopt(a.get::<u8>(s));
 }
 
-unsafe fn lf_keys(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
-    return a.get::<PkdArray<u64>>(LF_KEYS);
-}
-
-unsafe fn lf_vals(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
-    return a.get::<PkdArray<u64>>(LF_VALS);
+// The default stream descriptor of the u64 families: one FSE column of 8-byte
+// cells. Stream 0 is the ordered (MAX-measure) stream; the rest are unordered
+// (multimap_tools.hpp:37/:49). No index — leaves answer by scan/binary search.
+fn btfl_stream_descr_fse64(s: u32) -> PdtDescr {
+    if s == 0u32 {
+        return pdt_descr_fse(1u32, 8u32, PDT_ORD_MAX, false);
+    }
+    return pdt_descr_fse(1u32, 8u32, PDT_ORD_UNORDERED, false);
 }
 
 // The symbol stream lives in slot N — the one geometry fact that needs the
@@ -189,12 +194,24 @@ fn btfl_leaf_new<const N: u32>(snap: &mut MemorySnapshot, leaf_bytes: u32) -> *m
         let a: *mut PkdAlloc = node_pkd(node);
         let mut s: u32 = 0u32;
         while s < N {
-            match PkdArray::<u64>::format(a, s) {
-                Result::Ok(_p) => {}
+            let d: PdtDescr = btfl_stream_descr_fse64(s);
+            let dneed: u32 = pdtbuf_empty_size(&d);
+            let dp: *mut u8 = match a.allocate(s, dneed, SlotKind::Allocatable) {
+                Result::Ok(q) => q,
+                Result::Err(_e) => {
+                    assert(false, "btfl: leaf stream slot allocation failed");
+                    return node;
+                }
+            };
+            let dbsz: u32 = a.element_size(s);
+            match pdtbuf_format(dp, dbsz, &d) {
+                Result::Ok(_b) => {}
                 Result::Err(_e) => {
                     assert(false, "btfl: leaf stream column format failed");
                 }
             }
+            let dinner: *mut PkdAlloc = dp as *mut PkdAlloc;
+            dinner.set_allocator(a as *const PkdAlloc);
             s = s + 1u32;
         }
         let need: u32 = pkd_ssrle_empty_size();
@@ -449,12 +466,12 @@ pub fn btfl_seek<const N: u32>(t: &Btfl<N>, key: u64) -> BtflSeek {
             lvl = lvl - 1u32;
         }
         let a: *mut PkdAlloc = node_pkd(node);
-        let ka: *mut PkdArray<u64> = lf_keys(a);
-        let kc: u32 = ka.count();
-        let i0: u32 = fse_lower_bound_u64(ka, key);
+        let kb: PdtBuf = lf_pdt(a, 0u32);
+        let kc: u32 = kb.size() as u32;
+        let i0: u32 = pdt_lower_bound_max(&kb, key);
         let mut hit: bool = false;
         if i0 < kc {
-            if ka.get(i0) == key {
+            if kb.get(0u32, i0 as u64) == key {
                 hit = true;
             }
         }
@@ -482,27 +499,27 @@ pub fn btfl_leaf_key_sympos<const N: u32>(leaf: *mut u8, kidx: u32) -> u64 {
 
 pub fn btfl_leaf_key_count(leaf: *mut u8) -> u32 {
     unsafe {
-        return lf_keys(node_pkd(leaf)).count();
+        return lf_pdt(node_pkd(leaf), 0u32).size() as u32;
     }
 }
 
 pub fn btfl_leaf_key_at(leaf: *mut u8, i: u32) -> u64 {
     unsafe {
-        return lf_keys(node_pkd(leaf)).get(i);
+        return lf_pdt(node_pkd(leaf), 0u32).get(0u32, i as u64);
     }
 }
 
 /// Row count of stream `s` in a leaf (test/introspection surface).
 pub fn btfl_leaf_stream_count<const N: u32>(leaf: *mut u8, s: u32) -> u32 {
     unsafe {
-        return lf_stream(node_pkd(leaf), s).count();
+        return lf_pdt(node_pkd(leaf), s).size() as u32;
     }
 }
 
 /// Stream `s`'s `i`-th row in a leaf (test/introspection surface).
 pub fn btfl_leaf_stream_at<const N: u32>(leaf: *mut u8, s: u32, i: u32) -> u64 {
     unsafe {
-        return lf_stream(node_pkd(leaf), s).get(i);
+        return lf_pdt(node_pkd(leaf), s).get(0u32, i as u64);
     }
 }
 
@@ -528,8 +545,7 @@ pub fn btfl_find(t: &Btfl<2>, key: u64, out: &mut Vec<u64>) -> bool {
     unsafe {
         let a: *mut PkdAlloc = node_pkd(sk.leaf);
         let seq: PkdSsrle = lf_seq(a);
-        let ka: *mut PkdArray<u64> = lf_keys(a);
-        let kc: u32 = ka.count();
+        let kc: u32 = lf_pdt(a, 0u32).size() as u32;
         let p: u64 = seq.select_fw_eq(sk.kidx as u64, 0u64).idx;
         let mut end: u64 = seq.size();
         if sk.kidx + 1u32 < kc {
@@ -537,10 +553,10 @@ pub fn btfl_find(t: &Btfl<2>, key: u64, out: &mut Vec<u64>) -> bool {
         }
         let v0: u64 = seq.rank_eq(p + 1u64, 1u64);
         let cnt: u64 = end - p - 1u64;
-        let va: *mut PkdArray<u64> = lf_vals(a);
+        let vb: PdtBuf = lf_pdt(a, 1u32);
         let mut j: u64 = 0u64;
         while j < cnt {
-            out.push(va.get((v0 + j) as u32));
+            out.push(vb.get(0u32, v0 + j));
             j = j + 1u64;
         }
         return true;
@@ -577,9 +593,9 @@ struct BtflInsRet<const N: u32> {
 // non-empty leaves). A leaf's per-symbol counts ARE its per-stream row counts.
 unsafe fn leaf_summary<const N: u32>(node: *mut u8, split: bool, rnode: *mut u8) -> BtflInsRet<N> {
     let a: *mut PkdAlloc = node_pkd(node);
-    let ka: *mut PkdArray<u64> = lf_stream(a, 0u32);
-    let kc: u32 = ka.count();
-    let lmax: u64 = ka.get(kc - 1u32);
+    let ka: PdtBuf = lf_pdt(a, 0u32);
+    let kc: u64 = ka.size();
+    let lmax: u64 = ka.get(0u32, kc - 1u64);
     let mut ret: BtflInsRet<N> = BtflInsRet::<N> {
         inserted: true,
         addr: node,
@@ -592,17 +608,17 @@ unsafe fn leaf_summary<const N: u32>(node: *mut u8, split: bool, rnode: *mut u8)
     };
     let mut s: u32 = 0u32;
     while s < N {
-        ret.lcnt[s as i64] = lf_stream(a, s).count() as u64;
+        ret.lcnt[s as i64] = lf_pdt(a, s).size();
         s = s + 1u32;
     }
     if split {
         let ra: *mut PkdAlloc = node_pkd(rnode);
-        let rka: *mut PkdArray<u64> = lf_stream(ra, 0u32);
-        let rkc: u32 = rka.count();
-        ret.rmax = rka.get(rkc - 1u32);
+        let rka: PdtBuf = lf_pdt(ra, 0u32);
+        let rkc: u64 = rka.size();
+        ret.rmax = rka.get(0u32, rkc - 1u64);
         let mut rs: u32 = 0u32;
         while rs < N {
-            ret.rcnt[rs as i64] = lf_stream(ra, rs).count() as u64;
+            ret.rcnt[rs as i64] = lf_pdt(ra, rs).size();
             rs = rs + 1u32;
         }
     }
@@ -657,19 +673,20 @@ fn ret_reject<const N: u32>(node: *mut u8) -> BtflInsRet<N> {
 }
 
 // Try to place one ENTRY into the leaf at stream-0 slot i0 — the two-phase
-// discipline generalized to N streams (8a2.2): one stream-0 row (`key`) plus,
-// for each stream s in 1..N, `lens[s-1]` rows taken FLAT from `flat` in
-// stream order (flat encoding — no nested Vec, the 2-stream wrapper passes its
-// vals Vec through without copying). Position: the rank projection of the
-// key's symbol position — stream s inserts at rank_eq(p, s) (iter_leafrank,
-// btfl_c_insert.hpp:54 generalized). Prices EVERY column + the symbol stream
-// against the leaf block's free space, then commits infallibly. Returns false
-// (leaf untouched) when it does not fit.
+// discipline generalized to N streams (8a2.2) and to PdtBuf stream columns
+// (8a2.3): one stream-0 row (`key`) plus, for each stream s in 1..N,
+// `lens[s-1]` rows taken FLAT from `flat` in stream order. Position: the rank
+// projection of the key's symbol position — stream s inserts at rank_eq(p, s).
+// PRICING IS EXACT: each stream is priced by the same two-phase prepare that
+// will commit it (grow_bytes rides the parent chain — the P7 branch law,
+// brought down to the leaf; no estimate formula, no cell-width assumption),
+// plus the symbol stream's plan. Commits are per-stream re-prepared (sibling
+// slots shift as earlier streams grow; the geometry answer is identical).
+// Returns false (leaf untouched) when the total does not fit.
 unsafe fn btfl_leaf_try_insert_n<const N: u32>(node: *mut u8, i0: u32, key: u64,
                                                flat: &Vec<u64>, lens: &Vec<u64>) -> bool {
     let a: *mut PkdAlloc = node_pkd(node);
-    let ka: *mut PkdArray<u64> = lf_stream(a, 0u32);
-    let kc: u32 = ka.count();
+    let kc: u32 = lf_pdt(a, 0u32).size() as u32;
     let seq: PkdSsrle = lf_seq_n::<N>(a);
     // the rank-projected insert Position
     let mut p: u64 = seq.size();
@@ -692,23 +709,31 @@ unsafe fn btfl_leaf_try_insert_n<const N: u32>(node: *mut u8, i0: u32, key: u64,
     }
     let runs: Vec<SsrleRun> = ssrle_runs_from_symbols(seq.bps(), &syms);
     let us: SsrleUpdate = seq.plan_insert(p, &runs);
-    // pricing: post-op slot sizes vs the leaf block's free space
+    // exact pricing
     let mut delta: u32 = 0u32;
-    let cur0: u32 = a.element_size(0u32);
-    let need0: u32 = ka.estimate_insert(0u32);
-    if need0 > cur0 {
-        delta = delta + (need0 - cur0);
+    {
+        let kb: PdtBuf = lf_pdt(a, 0u32);
+        let us0: PdtUpdate = match kb.prepare_insert(i0 as u64, 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                return false;
+            }
+        };
+        delta = delta + us0.grow_bytes();
     }
     let mut s2: u32 = 1u32;
     while s2 < N {
         let m2: u64 = lens.get((s2 - 1u32) as i64);
-        let cur: u32 = a.element_size(s2);
-        let mut need: u32 = cur;
         if m2 > 0u64 {
-            need = lf_stream(a, s2).estimate_insert(0u32) + (((m2 - 1u64) * 8u64) as u32);
-        }
-        if need > cur {
-            delta = delta + (need - cur);
+            let sb: PdtBuf = lf_pdt(a, s2);
+            let v0: u64 = lf_seq_n::<N>(a).rank_eq(p, s2 as u64);
+            let uss: PdtUpdate = match sb.prepare_insert(v0, m2, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    return false;
+                }
+            };
+            delta = delta + uss.grow_bytes();
         }
         s2 = s2 + 1u32;
     }
@@ -720,30 +745,45 @@ unsafe fn btfl_leaf_try_insert_n<const N: u32>(node: *mut u8, i0: u32, key: u64,
         return false;
     }
     // commit — priced above, so every grow is guaranteed
-    match ka.insert(i0, &(key)) {
-        Result::Ok(_u) => {}
-        Result::Err(_e) => {
-            assert(false, "btfl: priced stream-0 insert failed");
-        }
+    {
+        let kb2: PdtBuf = lf_pdt(a, 0u32);
+        let usk: PdtUpdate = match kb2.prepare_insert(i0 as u64, 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                assert(false, "btfl: priced stream-0 prepare failed");
+                return false;
+            }
+        };
+        let mut kb3: PdtBuf = lf_pdt(a, 0u32);
+        let mut krow: Vec<u64> = vec_new::<u64>();
+        krow.push(key);
+        kb3.commit_insert(&usk, &krow);
     }
     let mut off: u64 = 0u64;
     let mut s3: u32 = 1u32;
     while s3 < N {
         let m3: u64 = lens.get((s3 - 1u32) as i64);
-        // stream s3's insert position = the rank projection. The symbol
-        // stream is untouched until the final commit, so the rank is stable;
-        // the VIEW is re-resolved (sibling slots shifted while data grew).
-        let v0: u64 = lf_seq_n::<N>(a).rank_eq(p, s3 as u64);
-        let mut k: u64 = 0u64;
-        while k < m3 {
-            let sa: *mut PkdArray<u64> = lf_stream(a, s3);
-            match sa.insert((v0 + k) as u32, &(flat.get((off + k) as i64))) {
-                Result::Ok(_u) => {}
+        if m3 > 0u64 {
+            // stream s3's insert position = the rank projection. The symbol
+            // stream is untouched until the final commit, so the rank is
+            // stable; every view is re-resolved (sibling slots shifted).
+            let v0b: u64 = lf_seq_n::<N>(a).rank_eq(p, s3 as u64);
+            let sb2: PdtBuf = lf_pdt(a, s3);
+            let uss2: PdtUpdate = match sb2.prepare_insert(v0b, m3, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
                 Result::Err(_e) => {
-                    assert(false, "btfl: priced stream insert failed");
+                    assert(false, "btfl: priced stream prepare failed");
+                    return false;
                 }
+            };
+            let mut cells: Vec<u64> = vec_new::<u64>();
+            let mut k: u64 = 0u64;
+            while k < m3 {
+                cells.push(flat.get((off + k) as i64));
+                k = k + 1u64;
             }
-            k = k + 1u64;
+            let mut sb3: PdtBuf = lf_pdt(a, s3);
+            sb3.commit_insert(&uss2, &cells);
         }
         off = off + m3;
         s3 = s3 + 1u32;
@@ -756,35 +796,45 @@ unsafe fn btfl_leaf_try_insert_n<const N: u32>(node: *mut u8, i0: u32, key: u64,
 
 // Split `node` at the KEY-ALIGNED symbol position of its middle stream-0
 // entry and move the upper part into (empty, freshly formatted) `right`. THE
-// RANK PROJECTION IS THE MULTISTREAM SPLIT (bt_cw_leaf_common.hpp:41-57 with
-// Position = iter_leafrank of the cut): the cut position p projects into
-// EVERY stream as rank_eq(p, s), and each data column splits there; the
+// RANK PROJECTION IS THE MULTISTREAM SPLIT: the cut position p projects into
+// EVERY stream as rank_eq(p, s), and each stream column splits there via its
+// own two-phase prepare_split_to/commit_split_to (the P7 branch discipline —
+// the right side's capacity reserved through ITS OWN nested chain); the
 // symbol stream splits at p itself, last.
 unsafe fn btfl_leaf_split_n<const N: u32>(node: *mut u8, right: *mut u8) {
     let a: *mut PkdAlloc = node_pkd(node);
     let ra: *mut PkdAlloc = node_pkd(right);
-    let ka: *mut PkdArray<u64> = lf_stream(a, 0u32);
-    let kc: u32 = ka.count();
+    let kc: u32 = lf_pdt(a, 0u32).size() as u32;
     let kmid: u32 = kc / 2u32;
     let seq: PkdSsrle = lf_seq_n::<N>(a);
     let p: u64 = seq.select_fw_eq(kmid as u64, 0u64).idx;
-    match ka.split_into(lf_stream(ra, 0u32), kmid) {
-        Result::Ok(_u) => {}
-        Result::Err(_e) => {
-            assert(false, "btfl: leaf stream-0 split failed");
-        }
-    }
-    let mut s: u32 = 1u32;
+    let mut s: u32 = 0u32;
     while s < N {
-        // rank over the (still unsplit) symbol stream; view re-resolved after
-        // the earlier streams moved.
-        let r: u64 = lf_seq_n::<N>(a).rank_eq(p, s as u64);
-        match lf_stream(a, s).split_into(lf_stream(ra, s), r as u32) {
+        // stream 0 cuts at kmid (= rank_eq(p, 0) by construction); the rest at
+        // their projections. Rank over the still-unsplit symbol stream.
+        let mut r: u64 = kmid as u64;
+        if s > 0u32 {
+            r = lf_seq_n::<N>(a).rank_eq(p, s as u64);
+        }
+        let mut lb: PdtBuf = lf_pdt(a, s);
+        let n_s: u64 = lb.size();
+        let mut rb: PdtBuf = lf_pdt(ra, s);
+        match rb.reserve(n_s - r) {
             Result::Ok(_u) => {}
             Result::Err(_e) => {
-                assert(false, "btfl: leaf stream split failed");
+                assert(false, "btfl: right leaf stream reserve failed");
             }
         }
+        let mut lb2: PdtBuf = lf_pdt(a, s);
+        let mut rb2: PdtBuf = lf_pdt(ra, s);
+        let sp: PdtSplit = match lb2.prepare_split_to(&rb2, r, PDT_CAP_KEEP) {
+            Result::Ok(x) => x,
+            Result::Err(_e) => {
+                assert(false, "btfl: leaf stream split prepare failed");
+                return;
+            }
+        };
+        lb2.commit_split_to(&mut rb2, &sp);
         s = s + 1u32;
     }
     // both symbol slots shifted (left: shrunk siblings; right: grown) —
@@ -804,11 +854,11 @@ unsafe fn btfl_leaf_split_n<const N: u32>(node: *mut u8, right: *mut u8) {
 unsafe fn btfl_leaf_ins_n<const N: u32>(snap: &mut MemorySnapshot, leaf_bytes: u32, node: *mut u8,
                                         key: u64, flat: &Vec<u64>, lens: &Vec<u64>) -> BtflInsRet<N> {
     let a: *mut PkdAlloc = node_pkd(node);
-    let ka: *mut PkdArray<u64> = lf_stream(a, 0u32);
-    let kc: u32 = ka.count();
-    let i0: u32 = fse_lower_bound_u64(ka, key);
+    let kb: PdtBuf = lf_pdt(a, 0u32);
+    let kc: u32 = kb.size() as u32;
+    let i0: u32 = pdt_lower_bound_max(&kb, key);
     if i0 < kc {
-        if ka.get(i0) == key {
+        if kb.get(0u32, i0 as u64) == key {
             return ret_reject::<N>(node);
         }
     }
@@ -819,14 +869,15 @@ unsafe fn btfl_leaf_ins_n<const N: u32>(snap: &mut MemorySnapshot, leaf_bytes: u
     let right: *mut u8 = btfl_leaf_new::<N>(snap, leaf_bytes);
     btfl_leaf_split_n::<N>(node, right);
     let la: *mut PkdAlloc = node_pkd(node);
-    let lk: *mut PkdArray<u64> = lf_stream(la, 0u32);
-    let lmax: u64 = lk.get(lk.count() - 1u32);
+    let lk: PdtBuf = lf_pdt(la, 0u32);
+    let lmax: u64 = lk.get(0u32, lk.size() - 1u64);
     let mut tgt: *mut u8 = right;
     if key <= lmax {
         tgt = node;
     }
     let ta: *mut PkdAlloc = node_pkd(tgt);
-    let ti: u32 = fse_lower_bound_u64(lf_stream(ta, 0u32), key);
+    let tkb: PdtBuf = lf_pdt(ta, 0u32);
+    let ti: u32 = pdt_lower_bound_max(&tkb, key);
     let ok: bool = btfl_leaf_try_insert_n::<N>(tgt, ti, key, flat, lens);
     assert(ok, "btfl v0: entry does not fit a half leaf (spanning inserts land later in 8a2)");
     return leaf_summary::<N>(node, true, right);
@@ -1161,30 +1212,34 @@ fn btfl_entry_span(st: &BtflStage, e0: u64, e: u64) -> u64 {
 unsafe fn btfl_cut_fits(st: &BtflStage, from: u64, n: u64, leaf: *mut u8) -> bool {
     let c: BtflCut = btfl_cut(st, from, n);
     let a: *mut PkdAlloc = node_pkd(leaf);
-    let ka: *mut PkdArray<u64> = lf_keys(a);
-    let va: *mut PkdArray<u64> = lf_vals(a);
     let seq: PkdSsrle = lf_seq(a);
     let syms: Vec<u64> = btfl_cut_symbols(st, from, n);
     let runs: Vec<SsrleRun> = ssrle_runs_from_symbols(seq.bps(), &syms);
     let us: SsrleUpdate = seq.plan_insert(0u64, &runs);
-    let keys_cur: u32 = a.element_size(LF_KEYS);
-    let vals_cur: u32 = a.element_size(LF_VALS);
-    let syms_cur: u32 = a.element_size(LF_SYMS);
-    let mut keys_need: u32 = keys_cur;
-    if c.keys > 0u64 {
-        keys_need = ka.estimate_insert(0u32) + (((c.keys - 1u64) * 8u64) as u32);
-    }
-    let mut vals_need: u32 = vals_cur;
-    if c.vals > 0u64 {
-        vals_need = va.estimate_insert(0u32) + (((c.vals - 1u64) * 8u64) as u32);
-    }
+    // exact pricing: each stream priced by the same prepare that would commit
+    // it into the (empty) leaf (8a2.3 — no cell-width formula).
     let mut delta: u32 = 0u32;
-    if keys_need > keys_cur {
-        delta = delta + (keys_need - keys_cur);
+    if c.keys > 0u64 {
+        let kb: PdtBuf = lf_pdt(a, LF_KEYS);
+        let uk: PdtUpdate = match kb.prepare_insert(0u64, c.keys, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                return false;
+            }
+        };
+        delta = delta + uk.grow_bytes();
     }
-    if vals_need > vals_cur {
-        delta = delta + (vals_need - vals_cur);
+    if c.vals > 0u64 {
+        let vb: PdtBuf = lf_pdt(a, LF_VALS);
+        let uv: PdtUpdate = match vb.prepare_insert(0u64, c.vals, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                return false;
+            }
+        };
+        delta = delta + uv.grow_bytes();
     }
+    let syms_cur: u32 = a.element_size(LF_SYMS);
     if us.block_size > syms_cur {
         delta = delta + (us.block_size - syms_cur);
     }
@@ -1238,25 +1293,43 @@ unsafe fn btfl_fill_leaf(st: &BtflStage, from: u64, leaf: *mut u8) -> u64 {
     let take: u64 = btfl_entry_span(st, e0, lo);
     let c: BtflCut = btfl_cut(st, from, take);
     let a: *mut PkdAlloc = node_pkd(leaf);
-    let mut i: u64 = 0u64;
-    while i < c.keys {
-        match lf_keys(a).insert(i as u32, &(st.keys.get((c.key_at + i) as i64))) {
-            Result::Ok(_u) => {}
+    if c.keys > 0u64 {
+        // ONE two-phase bulk insert per stream (8a2.3) — the pricing probe
+        // above ran the same prepare, so the commit is guaranteed.
+        let kb: PdtBuf = lf_pdt(a, LF_KEYS);
+        let uk: PdtUpdate = match kb.prepare_insert(0u64, c.keys, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
             Result::Err(_e) => {
-                assert(false, "btfl_fill_leaf: priced keys insert failed");
+                assert(false, "btfl_fill_leaf: priced keys prepare failed");
+                return 0u64;
             }
+        };
+        let mut cells: Vec<u64> = vec_new::<u64>();
+        let mut i: u64 = 0u64;
+        while i < c.keys {
+            cells.push(st.keys.get((c.key_at + i) as i64));
+            i = i + 1u64;
         }
-        i = i + 1u64;
+        let mut kb2: PdtBuf = lf_pdt(a, LF_KEYS);
+        kb2.commit_insert(&uk, &cells);
     }
-    let mut j: u64 = 0u64;
-    while j < c.vals {
-        match lf_vals(a).insert(j as u32, &(st.vals.get((c.val_at + j) as i64))) {
-            Result::Ok(_u) => {}
+    if c.vals > 0u64 {
+        let vb: PdtBuf = lf_pdt(a, LF_VALS);
+        let uv: PdtUpdate = match vb.prepare_insert(0u64, c.vals, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
             Result::Err(_e) => {
-                assert(false, "btfl_fill_leaf: priced vals insert failed");
+                assert(false, "btfl_fill_leaf: priced vals prepare failed");
+                return 0u64;
             }
+        };
+        let mut vcells: Vec<u64> = vec_new::<u64>();
+        let mut j: u64 = 0u64;
+        while j < c.vals {
+            vcells.push(st.vals.get((c.val_at + j) as i64));
+            j = j + 1u64;
         }
-        j = j + 1u64;
+        let mut vb2: PdtBuf = lf_pdt(a, LF_VALS);
+        vb2.commit_insert(&uv, &vcells);
     }
     let syms: Vec<u64> = btfl_cut_symbols(st, from, take);
     let mut seq2: PkdSsrle = lf_seq(a);
@@ -1342,15 +1415,15 @@ unsafe fn btfl_chk_rec<const N: u32>(node: *mut u8, level: u32,
                                      prev: &mut u64, any: &mut bool) -> ChkRes<N> {
     if level == 0u32 {
         let a: *mut PkdAlloc = node_pkd(node);
-        let ka: *mut PkdArray<u64> = lf_stream(a, 0u32);
+        let ka: PdtBuf = lf_pdt(a, 0u32);
         let seq: PkdSsrle = lf_seq_n::<N>(a);
-        let kc: u64 = ka.count() as u64;
+        let kc: u64 = ka.size();
         let mut ok: bool = true;
         let mut cnt: [u64; N] = [0u64; N];
         let mut tot: u64 = 0u64;
         let mut s: u32 = 0u32;
         while s < N {
-            let sc: u64 = lf_stream(a, s).count() as u64;
+            let sc: u64 = lf_pdt(a, s).size();
             if seq.rank_eq_all(s as u64) != sc {
                 ok = false;
             }
@@ -1368,7 +1441,7 @@ unsafe fn btfl_chk_rec<const N: u32>(node: *mut u8, level: u32,
         }
         let mut i: u64 = 0u64;
         while i < kc {
-            let k: u64 = ka.get(i as u32);
+            let k: u64 = ka.get(0u32, i);
             if *any {
                 if k <= *prev {
                     ok = false;
@@ -1380,7 +1453,7 @@ unsafe fn btfl_chk_rec<const N: u32>(node: *mut u8, level: u32,
         }
         let mut mx: u64 = 0u64;
         if kc > 0u64 {
-            mx = ka.get((kc as u32) - 1u32);
+            mx = ka.get(0u32, kc - 1u64);
         }
         return ChkRes::<N> {
             ok: ok,
