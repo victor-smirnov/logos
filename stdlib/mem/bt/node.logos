@@ -45,11 +45,15 @@ struct MemNode {
     // region). Stored here so the node's extent — and thus its DST length /
     // fat-pointer metadata — is a plain header read, needing neither the
     // allocator to be formatted nor a reach into the tail (Memoria's
-    // Header::memory_block_size()). Typed u64 (not u32) so the fixed header is
-    // 24 bytes = a multiple of 8, which lands the trailing PkdAlloc on an
-    // 8-byte boundary (it is 8-aligned wherever a #[repr(align)] would put it;
-    // a u32 here would size the header at 20 and 4-align the allocator).
-    block_size: u64,
+    // Header::memory_block_size()).
+    block_size: u32,
+    // Explicit alignment padding: keeps the fixed header at 24 bytes (a
+    // multiple of 8) so the trailing PkdAlloc lands on an 8-byte boundary
+    // (without it the header is 20 and the allocator is only 4-aligned — a
+    // silent misalignment for u64 packed data on aarch64). A hand-maintained
+    // invariant: if a field is added/removed here, keep the pre-`alc` size a
+    // multiple of 8. (A real `alignas` on PkdAlloc would remove the need.)
+    _align_pad: u32,
     // The column region — the DST tail (allocator_).
     alc:        PkdAlloc,
 }
@@ -74,7 +78,7 @@ unsafe fn mn(base: *mut u8) -> *mut MemNode { return base as *mut MemNode; }
 pub unsafe fn node_alloc(block_size: u32, nslots: u32, snp: u64) -> *mut u8 {
     let base: *mut u8 = alloc(block_size as i64);
     let n: *mut MemNode = mn(base);
-    (*n).block_size = block_size as u64;
+    (*n).block_size = block_size;
     (*n).snap = snp;
     (*n).rc = 1u32;
     (*n).child_slot = NODE_NO_CHILDREN;   // childless until declared
@@ -84,7 +88,7 @@ pub unsafe fn node_alloc(block_size: u32, nslots: u32, snp: u64) -> *mut u8 {
 }
 
 /// The total block size of a node (Header::memory_block_size()).
-pub unsafe fn node_block_size(base: *mut u8) -> u32 { return (*mn(base)).block_size as u32; }
+pub unsafe fn node_block_size(base: *mut u8) -> u32 { return (*mn(base)).block_size; }
 
 /// The PkdAlloc column region of a node block (the trailing allocator).
 pub unsafe fn node_pkd(base: *mut u8) -> *mut PkdAlloc { return &mut (*mn(base)).alc; }
