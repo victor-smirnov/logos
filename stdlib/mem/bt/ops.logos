@@ -15,7 +15,7 @@
 // `GenCow*` symbols became `bt_*`.
 package logos.mem.bt.ops;
 
-use logos.mem.bt.node;      // node_snapshot — the CoW skip-key read
+use logos.mem.bt.node;      // NodeProfile — the node-form seam (P::snapshot)
 use logos.mem.bt.memstore;  // tree_release — container-agnostic recursive rc-release
 use logos.mem.bt.map;       // BtLeaf / BtBranch — the node contracts (declared in
                             // the import hub so generated `impl BtLeaf<…> for {N}Leaf`
@@ -119,14 +119,14 @@ pub fn bt_tree_free<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: 
 /// "Make `node` privately writable under snapshot `cur`" — if it's already
 /// stamped `cur` it's already private (return unchanged); otherwise `cow_clone`
 /// it and return the fresh block. Mirrors `GenCow_leaf_private`.
-pub unsafe fn bt_leaf_private<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>>(node: *mut u8, cur: u64) -> *mut u8 {
-    if node_snapshot(node) == cur { return node; }
+pub unsafe fn bt_leaf_private<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, P: NodeProfile>(node: *mut u8, cur: u64) -> *mut u8 {
+    if P::snapshot(node) == cur { return node; }
     return L::adopt(node).cow_clone(cur).block();
 }
 
 /// The branch analog of `bt_leaf_private`. Mirrors `GenCow_branch_private`.
-pub unsafe fn bt_branch_private<K: Copy, B: BtBranch<K>>(node: *mut u8, cur: u64) -> *mut u8 {
-    if node_snapshot(node) == cur { return node; }
+pub unsafe fn bt_branch_private<K: Copy, B: BtBranch<K>, P: NodeProfile>(node: *mut u8, cur: u64) -> *mut u8 {
+    if P::snapshot(node) == cur { return node; }
     return B::adopt(node).cow_clone(cur).block();
 }
 
@@ -136,10 +136,10 @@ pub unsafe fn bt_branch_private<K: Copy, B: BtBranch<K>>(node: *mut u8, cur: u64
 /// via `tree_release` (structural-sharing rc-drop, not an unconditional free —
 /// the old block may still be referenced by a frozen sibling snapshot).
 /// Mirrors `GenCow_cow_insert`.
-pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(
+pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>, P: NodeProfile>(
     node: *mut u8, level: u32, key: K, val: VIn, cur: u64) -> BtInsRet<K> {
     if level == 0u32 {
-        let work: *mut u8 = bt_leaf_private::<K, VIn, VOut, L>(node, cur);
+        let work: *mut u8 = bt_leaf_private::<K, VIn, VOut, L, P>(node, cur);
         let mut lf: L = L::adopt(work);
         if lf.try_insert(key, val) {
             return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: work };
@@ -149,11 +149,11 @@ pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VO
         if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
         return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };
     }
-    let work: *mut u8 = bt_branch_private::<K, B>(node, cur);
+    let work: *mut u8 = bt_branch_private::<K, B, P>(node, cur);
     let mut br: B = B::adopt(work);
     let ci: u32 = br.find_child(key);
     let old_child: *mut u8 = br.child_addr(ci);
-    let r: BtInsRet<K> = bt_cow_insert::<K, VIn, VOut, L, B>(old_child, level - 1u32, key, val, cur);
+    let r: BtInsRet<K> = bt_cow_insert::<K, VIn, VOut, L, B, P>(old_child, level - 1u32, key, val, cur);
     br.update_child(ci, r.lsep, r.lsize);
     if r.addr != old_child {
         br.set_child_addr(ci, r.addr);
