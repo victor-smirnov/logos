@@ -1051,6 +1051,24 @@ unsafe fn pdt_dims_table(a: *mut PkdAlloc) -> *mut PdtDim {
     return base.byte_add(round_up_bytes(sizeof::<PdtMeta>() as u32)) as *mut PdtDim;
 }
 
+/// Lower bound of `key` over a NON-DECREASING u64 column: the first row whose
+/// cell is >= key (a plain binary search via get — exact for ordered columns,
+/// no index required). The branch max-key descent and the leaf key search of
+/// every u64-keyed tree share this.
+pub unsafe fn pdt_lower_bound_u64(b: &PdtBuf, column: u32, key: u64) -> u32 {
+    let mut lo: u64 = 0u64;
+    let mut hi: u64 = b.size();
+    while lo < hi {
+        let mid: u64 = lo + (hi - lo) / 2u64;
+        if b.get(column, mid) < key {
+            lo = mid + 1u64;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo as u32;
+}
+
 /// Re-adopt an already formatted block as a handle (the sseq
 /// pkd_ssrle_adopt idiom: a consumer embedding a PdtBuf inside a larger
 /// PkdAlloc must re-resolve from the slot address after neighbouring slots

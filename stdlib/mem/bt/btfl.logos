@@ -209,20 +209,10 @@ fn btfl_branch_descr<const N: u32>() -> PdtDescr {
     return pdt_descr_fse(1u32 + N, 8u32, PDT_ORD_SUM, true);
 }
 
-// Lower bound over the MAXKEY column (values are non-decreasing across
-// children, so a plain binary search over get() is exact).
+// Lower bound over the MAXKEY column — the shared pdtbuf helper (values are
+// non-decreasing across children, so the binary search is exact).
 unsafe fn pdt_lower_bound_max(b: &PdtBuf, key: u64) -> u32 {
-    let mut lo: u64 = 0u64;
-    let mut hi: u64 = b.size();
-    while lo < hi {
-        let mid: u64 = lo + (hi - lo) / 2u64;
-        if b.get(BRC_MAX, mid) < key {
-            lo = mid + 1u64;
-        } else {
-            hi = mid;
-        }
-    }
-    return lo as u32;
+    return pdt_lower_bound_u64(b, BRC_MAX, key);
 }
 
 // ── node creation ───────────────────────────────────────────────────────────

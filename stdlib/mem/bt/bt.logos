@@ -3,9 +3,9 @@
 //
 // A NODE is one PackedAllocator block:
 //   slot 0 — header (u32 pair: is_leaf, level)
-//   leaf:   slot 1 = keys arr<u64> · slot 2 = vals arr<u64>
-//   branch: slot 1 = keys arr<u64> (MAX key of each child — the Memoria
-//           convention) · slot 2 = children arr<u64> (block ids)
+//   leaf:   slot 1 = keys (single-column PdtBuf, MAX-ordered) · slot 2 = vals
+//   branch: slot 1 = keys (MAX key of each child — the Memoria convention) ·
+//           slot 2 = children (block ids) — all single-column FSE64 PdtBufs
 //
 // The M2 ARENA is a flat block table (id → bytes) — the real store replaces
 // it in M3; every algorithm below addresses blocks ONLY by id through it.
@@ -23,6 +23,7 @@
 package logos.mem.bt;
 
 use logos.mem.pkd;
+use logos.mem.pkd.pdtbuf;
 use logos.lang.mem;
 use logos.lang.drop;
 use logos.lang.option;
@@ -58,8 +59,8 @@ impl BtArena {
             };
             *h = if is_leaf { 1u32 } else { 0u32 };
             *h.add(1) = level;
-            if PkdArray::<u64>::format(a, SLOT_KEYS).is_err() { return 0u64; }
-            if PkdArray::<u64>::format(a, SLOT_VALS).is_err() { return 0u64; }
+            if !bt_format_col(a, SLOT_KEYS, true) { return 0u64; }
+            if !bt_format_col(a, SLOT_VALS, false) { return 0u64; }
             self.blocks.push(mem as i64);
             return self.blocks.len() as u64;   // ids are 1-based
         }
@@ -86,9 +87,97 @@ impl Drop for BtArena {
     }
 }
 
-// Typed slot views of a node block.
-unsafe fn nkeys(a: *mut PkdAlloc) -> *mut PkdArray<u64> { return a.get::<PkdArray<u64>>(SLOT_KEYS); }
-unsafe fn nvals(a: *mut PkdAlloc) -> *mut PkdArray<u64> { return a.get::<PkdArray<u64>>(SLOT_VALS); }
+// Format a node column as a single-column FSE64 PdtBuf (capacity-0 geometry,
+// wired to the node's allocator — the nested-block discipline).
+unsafe fn bt_format_col(a: *mut PkdAlloc, slot: u32, ordered: bool) -> bool {
+    let mut ord: u32 = PDT_ORD_UNORDERED;
+    if ordered {
+        ord = PDT_ORD_MAX;
+    }
+    let d: PdtDescr = pdt_descr_fse(1u32, 8u32, ord, false);
+    let zero: Vec<u64> = pdt_payload_zero(&d);
+    let need: u32 = pdtbuf_compute_block_size(&d, 0u64, &zero);
+    let p: *mut u8 = match a.allocate(slot, need, SlotKind::Allocatable) {
+        Result::Ok(q) => q,
+        Result::Err(_e) => { return false; }
+    };
+    let bsz: u32 = a.element_size(slot);
+    match pdtbuf_format(p, bsz, &d) {
+        Result::Ok(_b) => {}
+        Result::Err(_e) => { return false; }
+    }
+    let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+    inner.set_allocator(a as *const PkdAlloc);
+    return true;
+}
+
+// Column views of a node block (re-resolved per call, never cached).
+unsafe fn nkeys(a: *mut PkdAlloc) -> PdtBuf { return pdtbuf_adopt(a.get::<u8>(SLOT_KEYS)); }
+unsafe fn nvals(a: *mut PkdAlloc) -> PdtBuf { return pdtbuf_adopt(a.get::<u8>(SLOT_VALS)); }
+
+// One (key, val) row fits both columns? Priced by the SAME prepares that
+// commit (exact; both grows come from the one node block).
+unsafe fn bt_fits_row(a: *mut PkdAlloc, pos: u32) -> bool {
+    let kb: PdtBuf = nkeys(a);
+    let uk: PdtUpdate = match kb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => { return false; }
+    };
+    let vb: PdtBuf = nvals(a);
+    let uv: PdtUpdate = match vb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => { return false; }
+    };
+    return uk.grow_bytes() + uv.grow_bytes() <= a.free_space();
+}
+
+// Insert one (key, val) row at pos — priced by the caller via bt_fits_row.
+unsafe fn bt_put_row(a: *mut PkdAlloc, pos: u32, key: u64, val: u64) {
+    {
+        let kb: PdtBuf = nkeys(a);
+        let uk: PdtUpdate = match kb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { assert(false, "bt: priced key insert failed"); return; }
+        };
+        let mut kb2: PdtBuf = nkeys(a);
+        let mut kr: Vec<u64> = vec_new::<u64>();
+        kr.push(key);
+        kb2.commit_insert(&uk, &kr);
+    }
+    {
+        let vb: PdtBuf = nvals(a);
+        let uv: PdtUpdate = match vb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { assert(false, "bt: priced val insert failed"); return; }
+        };
+        let mut vb2: PdtBuf = nvals(a);
+        let mut vr: Vec<u64> = vec_new::<u64>();
+        vr.push(val);
+        vb2.commit_insert(&uv, &vr);
+    }
+}
+
+// Remove the row at pos from both columns.
+unsafe fn bt_del_row(a: *mut PkdAlloc, pos: u32) {
+    {
+        let kb: PdtBuf = nkeys(a);
+        let uk: PdtUpdate = match kb.prepare_remove(pos as u64, (pos as u64) + 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { assert(false, "bt: key remove prepare failed"); return; }
+        };
+        let mut kb2: PdtBuf = nkeys(a);
+        kb2.commit_remove(&uk);
+    }
+    {
+        let vb: PdtBuf = nvals(a);
+        let uv: PdtUpdate = match vb.prepare_remove(pos as u64, (pos as u64) + 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { assert(false, "bt: val remove prepare failed"); return; }
+        };
+        let mut vb2: PdtBuf = nvals(a);
+        vb2.commit_remove(&uv);
+    }
+}
 
 unsafe fn node_is_leaf(a: *mut PkdAlloc) -> bool {
     return *(a.get::<u32>(SLOT_HDR)) == 1u32;
@@ -98,10 +187,11 @@ unsafe fn node_level(a: *mut PkdAlloc) -> u32 {
     return *a.get::<u32>(SLOT_HDR).add(1);
 }
 
-unsafe fn keys_count(a: *mut PkdAlloc) -> u32 { return nkeys(a).count(); }
+unsafe fn keys_count(a: *mut PkdAlloc) -> u32 { return nkeys(a).size() as u32; }
 
 unsafe fn max_key(a: *mut PkdAlloc) -> u64 {
-    return nkeys(a).get(nkeys(a).count() - 1u32);
+    let kb: PdtBuf = nkeys(a);
+    return kb.get(0u32, kb.size() - 1u64);
 }
 
 // ── shuttles ─────────────────────────────────────────────────────────────────
@@ -125,19 +215,19 @@ pub struct FindShuttle { pub key: u64 }
 impl Shuttle for FindShuttle {
     fn on_branch(self: *mut FindShuttle, node: *mut PkdAlloc) -> ShuttleRes {
         unsafe {
-            let ks: *mut PkdArray<u64> = nkeys(node);
-            let n: u32 = ks.count();
-            let mut c: u32 = fse_lower_bound_u64(ks, self.key);
+            let ks: PdtBuf = nkeys(node);
+            let n: u32 = ks.size() as u32;
+            let mut c: u32 = pdt_lower_bound_u64(&ks, 0u32, self.key);
             if c >= n { c = n - 1u32; }   // beyond every max → rightmost child
             return ShuttleRes { pos: c, found: true };
         }
     }
     fn on_leaf(self: *mut FindShuttle, node: *mut PkdAlloc) -> ShuttleRes {
         unsafe {
-            let ks: *mut PkdArray<u64> = nkeys(node);
-            let pos: u32 = fse_lower_bound_u64(ks, self.key);
-            let n: u32 = ks.count();
-            let found: bool = pos < n && ks.get(pos) == self.key;
+            let ks: PdtBuf = nkeys(node);
+            let pos: u32 = pdt_lower_bound_u64(&ks, 0u32, self.key);
+            let n: u32 = ks.size() as u32;
+            let found: bool = pos < n && ks.get(0u32, pos as u64) == self.key;
             return ShuttleRes { pos: pos, found: found };
         }
     }
@@ -157,7 +247,7 @@ pub fn bt_ride(arena: &BtArena, root: u64, sh: *mut dyn Shuttle,
             }
             let r: ShuttleRes = sh.on_branch(p);
             path.push((cur, r.pos));
-            cur = nvals(p).get(r.pos);
+            cur = nvals(p).get(0u32, r.pos as u64);
         }
     }
 }
@@ -189,7 +279,7 @@ pub fn bt_find(arena: &BtArena, t: &BtTree, key: u64) -> Option<u64> {
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
         if !r.found { return Option::None; }
-        return Option::Some(nvals(arena.at(leaf)).get(r.pos));
+        return Option::Some(nvals(arena.at(leaf)).get(0u32, r.pos as u64));
     }
 }
 
@@ -200,9 +290,9 @@ unsafe fn fix_maxes(arena: &BtArena, path: &Vec<(u64, u32)>, bottom: u64) {
     let mut i: i64 = path.len() - 1i64;
     while i >= 0i64 {
         let (bid, idx) = path.get(i);
-        let ks: *mut PkdArray<u64> = nkeys(arena.at(bid));
+        let mut ks: PdtBuf = nkeys(arena.at(bid));
         let cm: u64 = max_key(arena.at(child));
-        if ks.get(idx) != cm { ks.set(idx, cm); }
+        if ks.get(0u32, idx as u64) != cm { ks.set(0u32, idx as u64, cm); }
         child = bid;
         i = i - 1i64;
     }
@@ -217,8 +307,26 @@ unsafe fn split_node(arena: &mut BtArena, node: u64) -> u64 {
     let rp: *mut PkdAlloc = arena.at(right);
     let p: *mut PkdAlloc = arena.at(node);
     let mid: u32 = keys_count(p) / 2u32;
-    let _ = nkeys(p).split_into(nkeys(rp), mid);
-    let _ = nvals(p).split_into(nvals(rp), mid);
+    // per-column two-phase split: reserve the right side through ITS OWN
+    // nested chain, then prepare/commit (the btfl branch idiom).
+    let mut c: u32 = SLOT_KEYS;
+    while c <= SLOT_VALS {
+        let mut lb: PdtBuf = pdtbuf_adopt(p.get::<u8>(c));
+        let n_c: u64 = lb.size();
+        let mut rb: PdtBuf = pdtbuf_adopt(rp.get::<u8>(c));
+        match rb.reserve(n_c - (mid as u64)) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => { assert(false, "bt: split reserve failed"); }
+        }
+        let mut lb2: PdtBuf = pdtbuf_adopt(p.get::<u8>(c));
+        let mut rb2: PdtBuf = pdtbuf_adopt(rp.get::<u8>(c));
+        let sp: PdtSplit = match lb2.prepare_split_to(&rb2, mid as u64, PDT_CAP_KEEP) {
+            Result::Ok(x) => x,
+            Result::Err(_e) => { assert(false, "bt: split prepare failed"); return right; }
+        };
+        lb2.commit_split_to(&mut rb2, &sp);
+        c = c + 1u32;
+    }
     return right;
 }
 
@@ -233,20 +341,23 @@ unsafe fn wire_split(arena: &mut BtArena, t: &mut BtTree,
         let lvl: u32 = node_level(arena.at(left));
         let nr: u64 = arena.alloc_node(false, lvl + 1u32);
         let np: *mut PkdAlloc = arena.at(nr);
-        let _ = nkeys(np).push(&(lmax));
-        let _ = nvals(np).push(&(left));
-        let _ = nkeys(np).push(&(rmax));
-        let _ = nvals(np).push(&(right));
+        bt_put_row(np, 0u32, lmax, left);
+        bt_put_row(np, 1u32, rmax, right);
         t.root = nr;
         return;
     }
     let (bid, idx) = path.get(pi);
     let bp: *mut PkdAlloc = arena.at(bid);
-    nkeys(bp).set(idx, lmax);                     // left kept the low half
-    let ok1: bool = nkeys(bp).insert(idx + 1, &(rmax)).is_ok();
-    let ok2: bool = if ok1 { nvals(bp).insert(idx + 1, &(right)).is_ok() } else { false };
-    if ok1 && ok2 { return; }
-    if ok1 && !ok2 { nkeys(bp).remove(idx + 1u32); }
+    {
+        let mut kb: PdtBuf = nkeys(bp);
+        kb.set(0u32, idx as u64, lmax);           // left kept the low half
+    }
+    // Priced up front — no partial-insert recovery states (the two-phase
+    // discipline replaces the try-then-undo PkdArray flow).
+    if bt_fits_row(bp, idx + 1u32) {
+        bt_put_row(bp, idx + 1u32, rmax, right);
+        return;
+    }
     // parent full: split it, wire ITS halves one level up, then place
     // (rmax, right) into whichever half now owns position idx+1
     let bright: u64 = split_node(arena, bid);
@@ -254,13 +365,10 @@ unsafe fn wire_split(arena: &mut BtArena, t: &mut BtTree,
     let bp2: *mut PkdAlloc = arena.at(bid);
     let lcnt: u32 = keys_count(bp2);
     if idx + 1u32 <= lcnt {
-        let _ = nkeys(bp2).insert(idx + 1u32, &(rmax));
-        let _ = nvals(bp2).insert(idx + 1u32, &(right));
+        bt_put_row(bp2, idx + 1u32, rmax, right);
     } else {
         let brp: *mut PkdAlloc = arena.at(bright);
-        let at: u32 = idx + 1u32 - lcnt;
-        let _ = nkeys(brp).insert(at, &(rmax));
-        let _ = nvals(brp).insert(at, &(right));
+        bt_put_row(brp, (idx + 1u32) - lcnt, rmax, right);
     }
 }
 
@@ -272,17 +380,16 @@ pub fn bt_insert(arena: &mut BtArena, t: &mut BtTree, key: u64, val: u64) -> boo
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
         let lp: *mut PkdAlloc = arena.at(leaf);
         if r.found {
-            nvals(lp).set(r.pos, val);
+            let mut vb: PdtBuf = nvals(lp);
+            vb.set(0u32, r.pos as u64, val);
             return true;
         }
         let n0: u32 = keys_count(lp);
-        let ok1: bool = nkeys(lp).insert(r.pos, &(key)).is_ok();
-        let ok2: bool = if ok1 { nvals(lp).insert(r.pos, &(val)).is_ok() } else { false };
-        if ok1 && ok2 {
+        if bt_fits_row(lp, r.pos) {
+            bt_put_row(lp, r.pos, key, val);
             if r.pos == n0 { fix_maxes(arena, &path, leaf); }
             return true;
         }
-        if ok1 && !ok2 { nkeys(lp).remove(r.pos); }
         // leaf full → split, wire the right half in, then retry: the target
         // leaf (either half) now has room
         let right: u64 = split_node(arena, leaf);
@@ -300,8 +407,7 @@ pub fn bt_remove(arena: &mut BtArena, t: &mut BtTree, key: u64) -> bool {
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
         if !r.found { return false; }
         let lp: *mut PkdAlloc = arena.at(leaf);
-        nkeys(lp).remove(r.pos);
-        nvals(lp).remove(r.pos);
+        bt_del_row(lp, r.pos);
         let n: u32 = keys_count(lp);
         if n > 0u32 && r.pos == n {
             fix_maxes(arena, &path, leaf);   // removed the rightmost entry
@@ -327,8 +433,7 @@ pub fn bt_bulk_build(arena: &mut BtArena, keys: *const u64, vals: *const u64,
             let lp: *mut PkdAlloc = arena.at(leaf);
             let mut k: u32 = 0u32;
             while k < per_node && i < n {
-                let _ = nkeys(lp).push(&(*keys.add(i)));
-                let _ = nvals(lp).push(&(*vals.add(i)));
+                bt_put_row(lp, k, *keys.add(i), *vals.add(i));
                 k = k + 1u32;
                 i = i + 1i64;
             }
@@ -344,8 +449,7 @@ pub fn bt_bulk_build(arena: &mut BtArena, keys: *const u64, vals: *const u64,
                 let mut k2: u32 = 0u32;
                 while k2 < per_node && j < level_ids.len() {
                     let cid: u64 = level_ids.get(j);
-                    let _ = nkeys(bp).push(&(max_key(arena.at(cid))));
-                    let _ = nvals(bp).push(&(cid));
+                    bt_put_row(bp, k2, max_key(arena.at(cid)), cid);
                     k2 = k2 + 1u32;
                     j = j + 1i64;
                 }
@@ -375,7 +479,7 @@ pub fn bt_first(arena: &BtArena, t: &BtTree) -> BtCursor {
             let p: *mut PkdAlloc = arena.at(cur);
             if node_is_leaf(p) { break; }
             path.push((cur, 0u32));
-            cur = nvals(p).get(0u32);
+            cur = nvals(p).get(0u32, 0u64);
         }
         if keys_count(arena.at(cur)) == 0u32 {
             return BtCursor { path: path, leaf: 0u64, pos: 0u32 };
@@ -405,10 +509,10 @@ pub fn bt_seek(arena: &BtArena, t: &BtTree, key: u64) -> BtCursor {
 impl BtCursor {
     pub fn valid(self: &BtCursor) -> bool { return self.leaf != 0u64; }
     pub fn key(self: &BtCursor, arena: &BtArena) -> u64 {
-        return unsafe { nkeys(arena.at(self.leaf)).get(self.pos) };
+        return unsafe { nkeys(arena.at(self.leaf)).get(0u32, self.pos as u64) };
     }
     pub fn val(self: &BtCursor, arena: &BtArena) -> u64 {
-        return unsafe { nvals(arena.at(self.leaf)).get(self.pos) };
+        return unsafe { nvals(arena.at(self.leaf)).get(0u32, self.pos as u64) };
     }
     /// Entries remaining in the current chunk (leaf) from the cursor on.
     pub fn chunk_remaining(self: &BtCursor, arena: &BtArena) -> u32 {
@@ -433,12 +537,12 @@ impl BtCursor {
                 let bp: *mut PkdAlloc = arena.at(bid);
                 if idx + 1u32 < keys_count(bp) {
                     self.path.set(self.path.len() - 1i64, (bid, idx + 1u32));
-                    let mut cur: u64 = nvals(bp).get(idx + 1u32);
+                    let mut cur: u64 = nvals(bp).get(0u32, (idx as u64) + 1u64);
                     loop {
                         let p: *mut PkdAlloc = arena.at(cur);
                         if node_is_leaf(p) { break; }
                         self.path.push((cur, 0u32));
-                        cur = nvals(p).get(0u32);
+                        cur = nvals(p).get(0u32, 0u64);
                     }
                     self.leaf = cur;
                     self.pos = 0u32;
@@ -459,13 +563,13 @@ impl BtCursor {
                 if idx > 0u32 {
                     self.path.set(self.path.len() - 1i64, (bid, idx - 1u32));
                     let bp: *mut PkdAlloc = arena.at(bid);
-                    let mut cur: u64 = nvals(bp).get(idx - 1u32);
+                    let mut cur: u64 = nvals(bp).get(0u32, (idx as u64) - 1u64);
                     loop {
                         let p: *mut PkdAlloc = arena.at(cur);
                         if node_is_leaf(p) { break; }
                         let last: u32 = keys_count(p) - 1u32;
                         self.path.push((cur, last));
-                        cur = nvals(p).get(last);
+                        cur = nvals(p).get(0u32, last as u64);
                     }
                     self.leaf = cur;
                     self.pos = keys_count(arena.at(cur)) - 1u32;
