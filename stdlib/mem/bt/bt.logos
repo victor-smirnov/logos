@@ -1,11 +1,20 @@
 // logos.mem.bt — B+tree over packed node blocks (ADR 0018 M2; C++ reference:
 // prototypes/bt/{container,shuttles}, bt_ss).
 //
-// A NODE is one PackedAllocator block:
-//   slot 0 — header (u32 pair: is_leaf, level)
-//   leaf:   slot 1 = keys (single-column PdtBuf, MAX-ordered) · slot 2 = vals
-//   branch: slot 1 = keys (MAX key of each child — the Memoria convention) ·
-//           slot 2 = children (block ids) — all single-column FSE64 PdtBufs
+// A NODE is a fixed HEADER, then a PackedAllocator column region — the layout
+// of Memoria's TreeNodeBase (prototypes/bt/nodes/branch_node.hpp): the id +
+// hot descent fields are POD members BEFORE `allocator_`, read by direct
+// access, never through a metadata element (the header has no business inside
+// the allocator, and keeping it out makes is_leaf/level/id direct reads):
+//   @0  id     : u64   Header::id — the node's own block id
+//   @8  leaf   : u32   leaf_  — 1 = leaf, 0 = branch
+//   @12 level  : u32   level_ — tree level (0 = leaf)
+//   @16 ...    the PackedAllocator region (2 slots):
+//     leaf:   slot 0 = keys (single-column PdtBuf, MAX-ordered) · slot 1 = vals
+//     branch: slot 0 = keys (MAX key of each child — the Memoria convention) ·
+//             slot 1 = children (block ids) — all single-column FSE64 PdtBufs
+// (root_ / next_leaf_id_ join with the store + leaf-sibling chain; bt's
+// path-driven cursor needs neither yet.)
 //
 // The M2 ARENA is a flat block table (id → bytes) — the real store replaces
 // it in M3; every algorithm below addresses blocks ONLY by id through it.
@@ -33,9 +42,11 @@ use logos.mem.collections.vec;
 // ── node geometry ────────────────────────────────────────────────────────────
 
 pub const BT_BLOCK: u32 = 4096u32;
-const SLOT_HDR:  u32 = 0u32;
-const SLOT_KEYS: u32 = 1u32;
-const SLOT_VALS: u32 = 2u32;   // leaf values / branch children
+// The node header: id(u64) + leaf(u32) + level(u32) = 16 bytes, so the region
+// stays 8-aligned at base+16.
+const BT_NODE_HDR: i64 = 16i64;
+const SLOT_KEYS: u32 = 0u32;
+const SLOT_VALS: u32 = 1u32;   // leaf values / branch children
 
 // ── arena: id → block (M3 replaces this with the store) ─────────────────────
 
@@ -51,23 +62,21 @@ impl BtArena {
     /// Allocates + formats a fresh node block; returns its nonzero id.
     pub fn alloc_node(self: &mut BtArena, is_leaf: bool, level: u32) -> u64 {
         unsafe {
-            let mem: *mut u8 = alloc(BT_BLOCK as i64);
-            let a: *mut PkdAlloc = pkd_format(mem, BT_BLOCK, 3);
-            let h: *mut u32 = match a.allocate(SLOT_HDR, 8, SlotKind::Raw) {
-                Result::Ok(p) => p as *mut u32,
-                Result::Err(_) => { return 0u64; }
-            };
-            *h = if is_leaf { 1u32 } else { 0u32 };
-            *h.add(1) = level;
+            let id: u64 = (self.blocks.len() + 1i64) as u64;   // 1-based; stamped in-header
+            let base: *mut u8 = alloc(BT_NODE_HDR + (BT_BLOCK as i64));
+            *(base as *mut u64) = id;
+            *(base.byte_add(8i64) as *mut u32) = if is_leaf { 1u32 } else { 0u32 };
+            *(base.byte_add(12i64) as *mut u32) = level;
+            let a: *mut PkdAlloc = pkd_format(base.byte_add(BT_NODE_HDR), BT_BLOCK, 2);
             if !bt_format_col(a, SLOT_KEYS, true) { return 0u64; }
             if !bt_format_col(a, SLOT_VALS, false) { return 0u64; }
-            self.blocks.push(mem as i64);
-            return self.blocks.len() as u64;   // ids are 1-based
+            self.blocks.push(base as i64);
+            return id;
         }
     }
-    /// Node block view for `id`.
-    pub fn at(self: &BtArena, id: u64) -> *mut PkdAlloc {
-        return self.blocks.get((id as i64) - 1i64) as *mut PkdAlloc;
+    /// Node block base for `id` (the header; reach the columns via bt_pkd).
+    pub fn at(self: &BtArena, id: u64) -> *mut u8 {
+        return self.blocks.get((id as i64) - 1i64) as *mut u8;
     }
 }
 
@@ -179,12 +188,20 @@ unsafe fn bt_del_row(a: *mut PkdAlloc, pos: u32) {
     }
 }
 
-unsafe fn node_is_leaf(a: *mut PkdAlloc) -> bool {
-    return *(a.get::<u32>(SLOT_HDR)) == 1u32;
+// The node header is a fixed prefix; each field is a direct read off the base
+// (never a PkdAlloc slot). `bt_pkd` reaches the column region behind it.
+unsafe fn bt_pkd(base: *mut u8) -> *mut PkdAlloc {
+    return base.byte_add(BT_NODE_HDR) as *mut PkdAlloc;
 }
 
-unsafe fn node_level(a: *mut PkdAlloc) -> u32 {
-    return *a.get::<u32>(SLOT_HDR).add(1);
+unsafe fn node_id(base: *mut u8) -> u64 { return *(base as *mut u64); }
+
+unsafe fn node_is_leaf(base: *mut u8) -> bool {
+    return *(base.byte_add(8i64) as *mut u32) == 1u32;
+}
+
+unsafe fn node_level(base: *mut u8) -> u32 {
+    return *(base.byte_add(12i64) as *mut u32);
 }
 
 unsafe fn keys_count(a: *mut PkdAlloc) -> u32 { return nkeys(a).size() as u32; }
@@ -241,8 +258,9 @@ pub fn bt_ride(arena: &BtArena, root: u64, sh: *mut dyn Shuttle,
     unsafe {
         let mut cur: u64 = root;
         loop {
-            let p: *mut PkdAlloc = arena.at(cur);
-            if node_is_leaf(p) {
+            let base: *mut u8 = arena.at(cur);
+            let p: *mut PkdAlloc = bt_pkd(base);
+            if node_is_leaf(base) {
                 return (cur, sh.on_leaf(p));
             }
             let r: ShuttleRes = sh.on_branch(p);
@@ -279,7 +297,7 @@ pub fn bt_find(arena: &BtArena, t: &BtTree, key: u64) -> Option<u64> {
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
         if !r.found { return Option::None; }
-        return Option::Some(nvals(arena.at(leaf)).get(0u32, r.pos as u64));
+        return Option::Some(nvals(bt_pkd(arena.at(leaf))).get(0u32, r.pos as u64));
     }
 }
 
@@ -290,8 +308,8 @@ unsafe fn fix_maxes(arena: &BtArena, path: &Vec<(u64, u32)>, bottom: u64) {
     let mut i: i64 = path.len() - 1i64;
     while i >= 0i64 {
         let (bid, idx) = path.get(i);
-        let mut ks: PdtBuf = nkeys(arena.at(bid));
-        let cm: u64 = max_key(arena.at(child));
+        let mut ks: PdtBuf = nkeys(bt_pkd(arena.at(bid)));
+        let cm: u64 = max_key(bt_pkd(arena.at(child)));
         if ks.get(0u32, idx as u64) != cm { ks.set(0u32, idx as u64, cm); }
         child = bid;
         i = i - 1i64;
@@ -300,12 +318,12 @@ unsafe fn fix_maxes(arena: &BtArena, path: &Vec<(u64, u32)>, bottom: u64) {
 
 // Split `node` at its midpoint into a fresh right sibling; returns its id.
 unsafe fn split_node(arena: &mut BtArena, node: u64) -> u64 {
-    let p0: *mut PkdAlloc = arena.at(node);
-    let leaf: bool = node_is_leaf(p0);
-    let lvl: u32 = node_level(p0);
+    let nb: *mut u8 = arena.at(node);
+    let leaf: bool = node_is_leaf(nb);
+    let lvl: u32 = node_level(nb);
     let right: u64 = arena.alloc_node(leaf, lvl);
-    let rp: *mut PkdAlloc = arena.at(right);
-    let p: *mut PkdAlloc = arena.at(node);
+    let rp: *mut PkdAlloc = bt_pkd(arena.at(right));
+    let p: *mut PkdAlloc = bt_pkd(arena.at(node));
     let mid: u32 = keys_count(p) / 2u32;
     // per-column two-phase split: reserve the right side through ITS OWN
     // nested chain, then prepare/commit (the btfl branch idiom).
@@ -335,19 +353,19 @@ unsafe fn split_node(arena: &mut BtArena, node: u64) -> u64 {
 // pi indexes the parent within `path` (−1 ⇒ left was the root).
 unsafe fn wire_split(arena: &mut BtArena, t: &mut BtTree,
                      path: &Vec<(u64, u32)>, pi: i64, left: u64, right: u64) {
-    let rmax: u64 = max_key(arena.at(right));
-    let lmax: u64 = max_key(arena.at(left));
+    let rmax: u64 = max_key(bt_pkd(arena.at(right)));
+    let lmax: u64 = max_key(bt_pkd(arena.at(left)));
     if pi < 0i64 {
         let lvl: u32 = node_level(arena.at(left));
         let nr: u64 = arena.alloc_node(false, lvl + 1u32);
-        let np: *mut PkdAlloc = arena.at(nr);
+        let np: *mut PkdAlloc = bt_pkd(arena.at(nr));
         bt_put_row(np, 0u32, lmax, left);
         bt_put_row(np, 1u32, rmax, right);
         t.root = nr;
         return;
     }
     let (bid, idx) = path.get(pi);
-    let bp: *mut PkdAlloc = arena.at(bid);
+    let bp: *mut PkdAlloc = bt_pkd(arena.at(bid));
     {
         let mut kb: PdtBuf = nkeys(bp);
         kb.set(0u32, idx as u64, lmax);           // left kept the low half
@@ -362,12 +380,12 @@ unsafe fn wire_split(arena: &mut BtArena, t: &mut BtTree,
     // (rmax, right) into whichever half now owns position idx+1
     let bright: u64 = split_node(arena, bid);
     wire_split(arena, t, path, pi - 1i64, bid, bright);
-    let bp2: *mut PkdAlloc = arena.at(bid);
+    let bp2: *mut PkdAlloc = bt_pkd(arena.at(bid));
     let lcnt: u32 = keys_count(bp2);
     if idx + 1u32 <= lcnt {
         bt_put_row(bp2, idx + 1u32, rmax, right);
     } else {
-        let brp: *mut PkdAlloc = arena.at(bright);
+        let brp: *mut PkdAlloc = bt_pkd(arena.at(bright));
         bt_put_row(brp, (idx + 1u32) - lcnt, rmax, right);
     }
 }
@@ -378,7 +396,7 @@ pub fn bt_insert(arena: &mut BtArena, t: &mut BtTree, key: u64, val: u64) -> boo
         let mut sh: FindShuttle = FindShuttle { key: key };
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
-        let lp: *mut PkdAlloc = arena.at(leaf);
+        let lp: *mut PkdAlloc = bt_pkd(arena.at(leaf));
         if r.found {
             let mut vb: PdtBuf = nvals(lp);
             vb.set(0u32, r.pos as u64, val);
@@ -406,7 +424,7 @@ pub fn bt_remove(arena: &mut BtArena, t: &mut BtTree, key: u64) -> bool {
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
         if !r.found { return false; }
-        let lp: *mut PkdAlloc = arena.at(leaf);
+        let lp: *mut PkdAlloc = bt_pkd(arena.at(leaf));
         bt_del_row(lp, r.pos);
         let n: u32 = keys_count(lp);
         if n > 0u32 && r.pos == n {
@@ -430,7 +448,7 @@ pub fn bt_bulk_build(arena: &mut BtArena, keys: *const u64, vals: *const u64,
         let mut i: i64 = 0i64;
         while i < n {
             let leaf: u64 = arena.alloc_node(true, 0u32);
-            let lp: *mut PkdAlloc = arena.at(leaf);
+            let lp: *mut PkdAlloc = bt_pkd(arena.at(leaf));
             let mut k: u32 = 0u32;
             while k < per_node && i < n {
                 bt_put_row(lp, k, *keys.add(i), *vals.add(i));
@@ -445,11 +463,11 @@ pub fn bt_bulk_build(arena: &mut BtArena, keys: *const u64, vals: *const u64,
             let mut j: i64 = 0i64;
             while j < level_ids.len() {
                 let br: u64 = arena.alloc_node(false, lvl);
-                let bp: *mut PkdAlloc = arena.at(br);
+                let bp: *mut PkdAlloc = bt_pkd(arena.at(br));
                 let mut k2: u32 = 0u32;
                 while k2 < per_node && j < level_ids.len() {
                     let cid: u64 = level_ids.get(j);
-                    bt_put_row(bp, k2, max_key(arena.at(cid)), cid);
+                    bt_put_row(bp, k2, max_key(bt_pkd(arena.at(cid))), cid);
                     k2 = k2 + 1u32;
                     j = j + 1i64;
                 }
@@ -476,12 +494,12 @@ pub fn bt_first(arena: &BtArena, t: &BtTree) -> BtCursor {
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let mut cur: u64 = t.root;
         loop {
-            let p: *mut PkdAlloc = arena.at(cur);
-            if node_is_leaf(p) { break; }
+            let base: *mut u8 = arena.at(cur);
+            if node_is_leaf(base) { break; }
             path.push((cur, 0u32));
-            cur = nvals(p).get(0u32, 0u64);
+            cur = nvals(bt_pkd(base)).get(0u32, 0u64);
         }
-        if keys_count(arena.at(cur)) == 0u32 {
+        if keys_count(bt_pkd(arena.at(cur))) == 0u32 {
             return BtCursor { path: path, leaf: 0u64, pos: 0u32 };
         }
         return BtCursor { path: path, leaf: cur, pos: 0u32 };
@@ -494,7 +512,7 @@ pub fn bt_seek(arena: &BtArena, t: &BtTree, key: u64) -> BtCursor {
         let mut sh: FindShuttle = FindShuttle { key: key };
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let (leaf, r) = bt_ride(arena, t.root, (&mut sh) as *mut dyn Shuttle, &mut path);
-        let n: u32 = keys_count(arena.at(leaf));
+        let n: u32 = keys_count(bt_pkd(arena.at(leaf)));
         if r.pos >= n {
             // lower bound falls past this leaf → first entry of the next one
             let mut c: BtCursor = BtCursor { path: path, leaf: leaf,
@@ -509,20 +527,20 @@ pub fn bt_seek(arena: &BtArena, t: &BtTree, key: u64) -> BtCursor {
 impl BtCursor {
     pub fn valid(self: &BtCursor) -> bool { return self.leaf != 0u64; }
     pub fn key(self: &BtCursor, arena: &BtArena) -> u64 {
-        return unsafe { nkeys(arena.at(self.leaf)).get(0u32, self.pos as u64) };
+        return unsafe { nkeys(bt_pkd(arena.at(self.leaf))).get(0u32, self.pos as u64) };
     }
     pub fn val(self: &BtCursor, arena: &BtArena) -> u64 {
-        return unsafe { nvals(arena.at(self.leaf)).get(0u32, self.pos as u64) };
+        return unsafe { nvals(bt_pkd(arena.at(self.leaf))).get(0u32, self.pos as u64) };
     }
     /// Entries remaining in the current chunk (leaf) from the cursor on.
     pub fn chunk_remaining(self: &BtCursor, arena: &BtArena) -> u32 {
-        return unsafe { keys_count(arena.at(self.leaf)) - self.pos };
+        return unsafe { keys_count(bt_pkd(arena.at(self.leaf))) - self.pos };
     }
 
     /// Steps one entry forward, hopping leaves through the path.
     pub fn next(self: &mut BtCursor, arena: &BtArena) {
         unsafe {
-            let n: u32 = keys_count(arena.at(self.leaf));
+            let n: u32 = keys_count(bt_pkd(arena.at(self.leaf)));
             if self.pos + 1u32 < n { self.pos = self.pos + 1u32; return; }
             self.next_chunk(arena);
         }
@@ -534,15 +552,15 @@ impl BtCursor {
             loop {
                 if self.path.len() == 0i64 { self.leaf = 0u64; return; }
                 let (bid, idx) = self.path.get(self.path.len() - 1i64);
-                let bp: *mut PkdAlloc = arena.at(bid);
+                let bp: *mut PkdAlloc = bt_pkd(arena.at(bid));
                 if idx + 1u32 < keys_count(bp) {
                     self.path.set(self.path.len() - 1i64, (bid, idx + 1u32));
                     let mut cur: u64 = nvals(bp).get(0u32, (idx as u64) + 1u64);
                     loop {
-                        let p: *mut PkdAlloc = arena.at(cur);
-                        if node_is_leaf(p) { break; }
+                        let base: *mut u8 = arena.at(cur);
+                        if node_is_leaf(base) { break; }
                         self.path.push((cur, 0u32));
-                        cur = nvals(p).get(0u32, 0u64);
+                        cur = nvals(bt_pkd(base)).get(0u32, 0u64);
                     }
                     self.leaf = cur;
                     self.pos = 0u32;
@@ -562,17 +580,18 @@ impl BtCursor {
                 let (bid, idx) = self.path.get(self.path.len() - 1i64);
                 if idx > 0u32 {
                     self.path.set(self.path.len() - 1i64, (bid, idx - 1u32));
-                    let bp: *mut PkdAlloc = arena.at(bid);
+                    let bp: *mut PkdAlloc = bt_pkd(arena.at(bid));
                     let mut cur: u64 = nvals(bp).get(0u32, (idx as u64) - 1u64);
                     loop {
-                        let p: *mut PkdAlloc = arena.at(cur);
-                        if node_is_leaf(p) { break; }
+                        let base: *mut u8 = arena.at(cur);
+                        if node_is_leaf(base) { break; }
+                        let p: *mut PkdAlloc = bt_pkd(base);
                         let last: u32 = keys_count(p) - 1u32;
                         self.path.push((cur, last));
                         cur = nvals(p).get(0u32, last as u64);
                     }
                     self.leaf = cur;
-                    self.pos = keys_count(arena.at(cur)) - 1u32;
+                    self.pos = keys_count(bt_pkd(arena.at(cur))) - 1u32;
                     return;
                 }
                 let _ = self.path.pop();
