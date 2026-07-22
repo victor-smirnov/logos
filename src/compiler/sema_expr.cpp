@@ -4118,8 +4118,13 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
             // const-generic param (carried in arr_size_var) and actual is
             // a concrete `[U; M]`, bind N → IntLit(const_val=M). The
             // substitution path already understands IntLit-as-arr_size.
+            // A deferred length EXPRESSION (`[T; N+1]`, arr_size_var under
+            // ARR_LEN_EXPR_PFX) is NOT a single param name — a general
+            // expression can't be inverted from the actual length, so skip
+            // the bind (N is inferred elsewhere, or inference fails cleanly).
             std::string asv(formal.arr_size_var());
-            if (!asv.empty() && actual_norm.arr_size() > 0
+            if (!asv.empty() && asv.rfind(ARR_LEN_EXPR_PFX, 0) != 0
+                && actual_norm.arr_size() > 0
                 && !bindings.count(asv)) {
                 LogosTypeBuilder lt;
                 lt.kind = LogosType::Kind::IntLit;
@@ -12633,16 +12638,15 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
                                   ? map_of(node.get(la::SIZE.code))
                                   : writ::TinyMapView{});
     if (!len.ok) return error_expr();
-    if (!len.symbolic.empty() || len.len_expr) {
+    if (!len.symbolic.empty()) {
         // A length that is not known yet (a symbolic name, or a deferred const
-        // EXPRESSION): emit ONE element carrying the unresolved size; mono
-        // repeats it once the length is bound / the expression folds.
+        // EXPRESSION postfix-encoded in `symbolic`): emit ONE element carrying
+        // the unresolved size; mono repeats it once the length folds.
         LogosTypeBuilder ab;
         ab.kind = LogosType::Kind::Array;
         ab.elem = elem_type;
         ab.arr_size = 0;
-        if (len.len_expr) ab.arr_len_expr = len.len_expr;
-        else              ab.arr_size_var = len.symbolic;
+        ab.arr_size_var = len.symbolic;
         TypeRef arr_t = pool_->alloc(std::move(ab));
         std::vector<lir::LExprPtr> one;
         one.push_back(std::move(fill_val));

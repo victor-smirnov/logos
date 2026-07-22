@@ -211,7 +211,7 @@ public:
         // invalidate `map`); re-fetch the map pointer before every put via
         // the at(map_off) helper.
         writ::AnyVal v_mut_ptr, v_arr_size, v_const_val;
-        writ::AnyVal v_pointee, v_elem, v_assoc_base, v_closure_ret, v_arr_len_expr;
+        writ::AnyVal v_pointee, v_elem, v_assoc_base, v_closure_ret;
         writ::AnyVal v_lifetime, v_arr_size_var, v_struct_name, v_enum_name;
         writ::AnyVal v_pkg_name, v_trait_name, v_type_var_name, v_assoc_type_name;
         writ::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
@@ -237,11 +237,10 @@ public:
             v_const_val = *av;
         }
 
-        if (t.pointee)      v_pointee      = ptr_to_mirror(t.pointee);
-        if (t.elem)         v_elem         = ptr_to_mirror(t.elem);
-        if (t.assoc_base)   v_assoc_base   = ptr_to_mirror(t.assoc_base);
-        if (t.closure_ret)  v_closure_ret  = ptr_to_mirror(t.closure_ret);
-        if (t.arr_len_expr) v_arr_len_expr = ptr_to_mirror(t.arr_len_expr);
+        if (t.pointee)     v_pointee     = ptr_to_mirror(t.pointee);
+        if (t.elem)        v_elem        = ptr_to_mirror(t.elem);
+        if (t.assoc_base)  v_assoc_base  = ptr_to_mirror(t.assoc_base);
+        if (t.closure_ret) v_closure_ret = ptr_to_mirror(t.closure_ret);
 
         if (!t.lifetime.empty())        v_lifetime        = put_string(t.lifetime);
         if (!t.arr_size_var.empty())    v_arr_size_var    = put_string(t.arr_size_var);
@@ -280,7 +279,6 @@ public:
         put(k::ELEM,             v_elem);
         put(k::ASSOC_BASE,       v_assoc_base);
         put(k::CLOSURE_RET,      v_closure_ret);
-        put(k::ARR_LEN_EXPR,     v_arr_len_expr);
         put(k::LIFETIME,         v_lifetime);
         put(k::ARR_SIZE_VAR,     v_arr_size_var);
         put(k::STRUCT_NAME,      v_struct_name);
@@ -845,19 +843,11 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         break;
     case K::Array:
         put_u64(buf, t.arr_size);
+        // arr_size_var carries a plain symbolic name OR a postfix-encoded
+        // deferred length expression — either way a string, so `[T; N+1]` vs
+        // `[T; N+2]` intern distinctly by their encoded strings.
         put_str(buf, t.arr_size_var);
         put_sub(buf, impl, t.elem);
-        // const-length-overhaul: two arrays with different length EXPRESSIONS
-        // (`[T; N+1]` vs `[T; N+2]`) must intern distinctly even before the
-        // param binds — otherwise the deferred lengths collapse (the same
-        // integer-const-arg collapse class the IntLit case guards below).
-        put_sub(buf, impl, t.arr_len_expr);
-        break;
-    case K::ConstExpr:
-        // Identity = opcode + operands. Operands are themselves interned
-        // (bottom-up), so put_sub over each is exact.
-        put_u64(buf, uint64_t(t.const_val.value_or(0)));
-        for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
     case K::Struct:
     case K::ZonedStruct:
@@ -1025,11 +1015,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::Array:
         return t.arr_size == r.arr_size() &&
                t.arr_size_var == r.arr_size_var() &&
-               t.elem == r.elem() &&
-               t.arr_len_expr == r.arr_len_expr();
-    case K::ConstExpr:
-        return t.const_val == r.const_val() &&
-               vec_ptr_eq(t.type_args, r.type_args());
+               t.elem == r.elem();
     case K::Struct:
     case K::ZonedStruct:
         return t.struct_name == r.struct_name() &&
@@ -1136,11 +1122,10 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
     // mirror as-is by impl_->mirror(), garbling later reads. Localize
     // every child TypeRef before computing the UID + interning so the
     // resulting type is self-consistent.
-    if (t.pointee      && t.pointee.is_external())      t.pointee      = intern_foreign(t.pointee);
-    if (t.elem         && t.elem.is_external())         t.elem         = intern_foreign(t.elem);
-    if (t.assoc_base   && t.assoc_base.is_external())   t.assoc_base   = intern_foreign(t.assoc_base);
-    if (t.closure_ret  && t.closure_ret.is_external())  t.closure_ret  = intern_foreign(t.closure_ret);
-    if (t.arr_len_expr && t.arr_len_expr.is_external()) t.arr_len_expr = intern_foreign(t.arr_len_expr);
+    if (t.pointee     && t.pointee.is_external())     t.pointee     = intern_foreign(t.pointee);
+    if (t.elem        && t.elem.is_external())        t.elem        = intern_foreign(t.elem);
+    if (t.assoc_base  && t.assoc_base.is_external())  t.assoc_base  = intern_foreign(t.assoc_base);
+    if (t.closure_ret && t.closure_ret.is_external()) t.closure_ret = intern_foreign(t.closure_ret);
     for (auto& a : t.type_args)      if (a && a.is_external()) a = intern_foreign(a);
     for (auto& e : t.tuple_elems)    if (e && e.is_external()) e = intern_foreign(e);
     for (auto& p : t.closure_params) if (p && p.is_external()) p = intern_foreign(p);
@@ -1251,11 +1236,10 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
 
 }  // namespace
 
-TypeRef TypeRef::pointee()      const noexcept { return ptr_via_mirror(*this, sema_schema::POINTEE);      }
-TypeRef TypeRef::elem()         const noexcept { return ptr_via_mirror(*this, sema_schema::ELEM);         }
-TypeRef TypeRef::assoc_base()   const noexcept { return ptr_via_mirror(*this, sema_schema::ASSOC_BASE);   }
-TypeRef TypeRef::closure_ret()  const noexcept { return ptr_via_mirror(*this, sema_schema::CLOSURE_RET);  }
-TypeRef TypeRef::arr_len_expr() const noexcept { return ptr_via_mirror(*this, sema_schema::ARR_LEN_EXPR); }
+TypeRef TypeRef::pointee()     const noexcept { return ptr_via_mirror(*this, sema_schema::POINTEE);     }
+TypeRef TypeRef::elem()        const noexcept { return ptr_via_mirror(*this, sema_schema::ELEM);        }
+TypeRef TypeRef::assoc_base()  const noexcept { return ptr_via_mirror(*this, sema_schema::ASSOC_BASE);  }
+TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(*this, sema_schema::CLOSURE_RET); }
 
 // String accessors return realloc-safe owning views. The MemHolder is reached
 // via pool_ for local TypeRefs; for cross-arena TypeRefs (pool_ == nullptr,
@@ -1381,7 +1365,6 @@ LogosTypeBuilder TypeRef::to_builder() const {
     b.assoc_type_name = std::string(assoc_type_name());
     b.gat_args        = gat_args();
     b.const_val       = const_val();
-    b.arr_len_expr    = arr_len_expr();
     return b;
 }
 
@@ -2286,6 +2269,35 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
 
 // ── type_str ─────────────────────────────────────────────────────────────────
 
+// const-length-overhaul: decode a postfix (RPN) deferred-length expression back
+// to a parenthesized infix string for diagnostics (`$N #1 +` → `(N + 1)`).
+static std::string decode_len_expr_infix(std::string_view post) {
+    std::vector<std::string> st;
+    size_t i = 0, n = post.size();
+    while (i < n) {
+        while (i < n && post[i] == ' ') ++i;
+        if (i >= n) break;
+        size_t j = i; while (j < n && post[j] != ' ') ++j;
+        std::string_view tok = post.substr(i, j - i);
+        i = j;
+        if (tok.empty()) continue;
+        char c0 = tok[0];
+        if (c0 == '#' || c0 == '$') {
+            st.emplace_back(tok.substr(1));
+        } else if (tok == "~") {
+            if (st.empty()) return "<expr>";
+            std::string a = st.back(); st.pop_back();
+            st.push_back("(-" + a + ")");
+        } else {
+            if (st.size() < 2) return "<expr>";
+            std::string b = st.back(); st.pop_back();
+            std::string a = st.back(); st.pop_back();
+            st.push_back("(" + a + " " + std::string(tok) + " " + b + ")");
+        }
+    }
+    return st.size() == 1 ? st[0] : "<expr>";
+}
+
 std::string type_str(TypeRef t) {
     if (!t) return "<null>";
     switch (TypeRef(t).kind()) {
@@ -2332,30 +2344,14 @@ std::string type_str(TypeRef t) {
         if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
         return s + "mut " + type_str(TypeRef(t).pointee());
     }
-    case LogosType::Kind::ConstExpr: {
-        // Render the const-expression infix so a diagnostic shows the length
-        // the user wrote (`N + 1`), not an opaque node.
-        auto args = TypeRef(t).type_args();
-        const char* sym = "?";
-        switch (static_cast<ConstOp>(TypeRef(t).const_val().value_or(0))) {
-            case ConstOp::Add: sym = "+"; break;   case ConstOp::Sub: sym = "-"; break;
-            case ConstOp::Mul: sym = "*"; break;   case ConstOp::Div: sym = "/"; break;
-            case ConstOp::Mod: sym = "%"; break;   case ConstOp::Shl: sym = "<<"; break;
-            case ConstOp::Shr: sym = ">>"; break;  case ConstOp::BitAnd: sym = "&"; break;
-            case ConstOp::BitOr: sym = "|"; break;  case ConstOp::BitXor: sym = "^"; break;
-            case ConstOp::Neg: sym = "-"; break;   case ConstOp::BitNot: sym = "~"; break;
-        }
-        if (args.size() == 1) return std::format("({}{})", sym, type_str(args[0]));
-        if (args.size() >= 2) return std::format("({} {} {})", type_str(args[0]), sym, type_str(args[1]));
-        return "<const-expr>";
-    }
     case LogosType::Kind::Array: {
         // A symbolic length must print as its NAME. Printing arr_size() gave
         // "[T; 0]" for every unbound length — a diagnostic that describes a
-        // type nobody wrote.
-        if (auto le = TypeRef(t).arr_len_expr())
-            return std::format("[{}; {}]", type_str(TypeRef(t).elem()), type_str(le));
-        auto asv = TypeRef(t).arr_size_var();
+        // type nobody wrote. A deferred EXPRESSION decodes back to infix.
+        std::string asv(TypeRef(t).arr_size_var());
+        if (asv.rfind(ARR_LEN_EXPR_PFX, 0) == 0)
+            return std::format("[{}; {}]", type_str(TypeRef(t).elem()),
+                               decode_len_expr_infix(std::string_view(asv).substr(ARR_LEN_EXPR_PFX.size())));
         if (!asv.empty())
             return std::format("[{}; {}]", type_str(TypeRef(t).elem()), asv);
         return std::format("[{}; {}]", type_str(TypeRef(t).elem()), TypeRef(t).arr_size());
@@ -4431,72 +4427,64 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
         return r;
     }
     // const-length-overhaul: an ARITHMETIC expression length (`N + 1`,
-    // `C::STREAMS * 2`). The grammar's atom leaves stay legacy ARR_LEN nodes,
-    // so a purely atomic length never reaches here — only a BINOP/UNARY tree
-    // does. Lower it to a Kind::ConstExpr TypeRef (leaves resolved by the SAME
-    // atom paths below, via a recursive resolve_array_len call), then fold:
-    // fully concrete → a value; a symbolic const-param leaf → deferred to mono
-    // as arr_len_expr. This is the ONE path — sema folds now, mono re-folds.
+    // `N * 2 - 1`). The grammar's atom leaves stay legacy ARR_LEN nodes, so a
+    // purely atomic length never reaches here — only a BINOP/UNARY tree does.
+    // Encode it as a postfix (RPN) string, resolving each leaf through the SAME
+    // atom paths below (via a recursive resolve_array_len). A leaf that folds
+    // to a value emits `#value`; a symbolic const-param emits `$name`. Then
+    // evaluate: no symbolic leaf ⇒ a concrete size NOW; a `$name` leaf ⇒ carry
+    // the postfix in arr_size_var (never a type), folded at mono when the param
+    // binds. The array's length is always a number or this pending computation.
     if (int32_t lc = code_of(len); lc == la::BINOP || lc == la::UNARY || lc == la::PAREN_EXPR) {
-        std::function<TypeRef(TinyMapView)> lower = [&](TinyMapView n) -> TypeRef {
+        std::string post;
+        bool ok = true;
+        std::function<void(TinyMapView)> emit = [&](TinyMapView n) {
+            if (!ok) return;
             int32_t c = code_of(n);
-            if (c == la::PAREN_EXPR)
-                return lower(map_of(n.get(la::VALUE.code)));
+            if (c == la::PAREN_EXPR) { emit(map_of(n.get(la::VALUE.code))); return; }
             if (c == la::UNARY) {
                 auto op = std::string(str_of(n.get(la::OP.code)));
                 if (op != "-") {
                     error(std::format("array length: unsupported unary operator '{}' "
                                       "(only '-' is allowed; call a function via metacall)", op));
-                    return {};
+                    ok = false; return;
                 }
-                auto v = lower(map_of(n.get(la::VALUE.code)));
-                if (!v) return {};
-                return make_const_expr(ConstOp::Neg, {v});
+                emit(map_of(n.get(la::VALUE.code)));
+                post += " ~";
+                return;
             }
             if (c == la::BINOP) {
                 auto op = std::string(str_of(n.get(la::OP.code)));
-                ConstOp co;
-                if      (op == "+")  co = ConstOp::Add;
-                else if (op == "-")  co = ConstOp::Sub;
-                else if (op == "*")  co = ConstOp::Mul;
-                else if (op == "/")  co = ConstOp::Div;
-                else if (op == "%")  co = ConstOp::Mod;
-                else if (op == "<<") co = ConstOp::Shl;
-                else if (op == ">>") co = ConstOp::Shr;
-                else if (op == "&")  co = ConstOp::BitAnd;
-                else if (op == "|")  co = ConstOp::BitOr;
-                else if (op == "^")  co = ConstOp::BitXor;
-                else {
+                if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%" &&
+                    op != "<<" && op != ">>" && op != "&" && op != "|" && op != "^") {
                     error(std::format("array length: unsupported operator '{}' in a length "
                                       "expression (arithmetic only; call via metacall)", op));
-                    return {};
+                    ok = false; return;
                 }
-                auto l  = lower(map_of(n.get(la::LHS.code)));
-                auto rr = lower(map_of(n.get(la::RHS.code)));
-                if (!l || !rr) return {};
-                return make_const_expr(co, {l, rr});
+                emit(map_of(n.get(la::LHS.code)));
+                emit(map_of(n.get(la::RHS.code)));
+                post += ' '; post += op;
+                return;
             }
             if (c == la::ARR_LEN) {
-                // A leaf — reuse the whole atom resolution (SIZE / NAME /
-                // Q::N / module-const), then lift the result to a TypeRef.
+                // A leaf — reuse the whole atom resolution (SIZE / NAME / Q::N /
+                // module-const): a concrete value emits `#v`, a symbolic
+                // const-param emits `$name`.
                 ArrayLen leaf = resolve_array_len(n);
-                if (!leaf.ok) return {};
-                if (leaf.len_expr) return leaf.len_expr;       // nested (paren of expr)
-                if (!leaf.symbolic.empty()) {                  // deferred const-param
-                    auto it = current_type_params_.find(leaf.symbolic);
-                    if (it != current_type_params_.end() && it->second)
-                        return TypeRef(it->second);
-                    return make_const_var(leaf.symbolic);
-                }
-                return make_const_int(static_cast<int64_t>(leaf.value));
+                if (!leaf.ok) { ok = false; return; }
+                if (!leaf.symbolic.empty()) { post += " $"; post += leaf.symbolic; }
+                else { post += " #"; post += std::to_string(leaf.value); }
+                return;
             }
             error("array length: unsupported expression form (arithmetic over "
                   "integers, consts and const-generic params only)");
-            return {};
+            ok = false;
         };
-        TypeRef expr = lower(len);
-        if (!expr) { r.ok = false; return r; }
-        if (auto folded = fold_const_expr(expr)) {
+        emit(len);
+        if (!ok) { r.ok = false; return r; }
+        // Try to fold now (empty lookup: only `#` leaves resolve). All concrete
+        // ⇒ a size; any `$name` ⇒ defer, carrying the postfix string.
+        if (auto folded = eval_len_postfix(post, [](std::string_view) { return std::optional<int64_t>{}; })) {
             if (*folded < 0) {
                 error(std::format("array length cannot be negative, got {}", *folded));
                 r.ok = false;
@@ -4505,7 +4493,7 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
             r.value = static_cast<uint64_t>(*folded);
             return r;
         }
-        r.len_expr = expr;   // a const-param leaf is still symbolic — defer to mono
+        r.symbolic = std::string(ARR_LEN_EXPR_PFX) + post;
         return r;
     }
     // `sizeof...(P)` — a variadic pack's arity. Stays symbolic under a
@@ -5138,17 +5126,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     }
     case LogosType::Kind::Array: {
         auto elem = subst_type_sema(t.elem(), s, ls);
-        // const-length-overhaul: a length EXPRESSION substitutes its param
-        // leaves and re-folds. Fully concrete now ⇒ a plain sized array;
-        // still symbolic ⇒ carry the substituted expression forward.
-        if (auto le = t.arr_len_expr()) {
-            TypeRef nle = subst_type_sema(le, s, ls);
-            if (auto folded = fold_const_expr(nle))
-                return make_array(elem, static_cast<uint64_t>(*folded), "");
-            if (elem == t.elem() && nle == le) return t;
-            return make_array_expr(elem, nle);
-        }
-        // ONE implementation, shared with mono — see subst_arr_len.
+        // ONE implementation, shared with mono — see subst_arr_len. It also
+        // evaluates a deferred const-length EXPRESSION (arr_size_var under
+        // ARR_LEN_EXPR_PFX) against the substitution, folding it to a size.
         auto r = subst_arr_len(
             t.arr_size(), t.arr_size_var(),
             [&](const std::string& n) -> TypeRef {
@@ -5159,20 +5139,6 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (elem == t.elem() && r.size == t.arr_size() && r.symbolic == t.arr_size_var())
             return t;
         return make_array(elem, r.size, r.symbolic);
-    }
-    case LogosType::Kind::ConstExpr: {
-        // Substitute each operand; a ConstVar leaf that s binds to a concrete
-        // const-valued type lets the parent fold. Rebuild only on change.
-        auto args = t.type_args();
-        std::vector<TypeRef> na; na.reserve(args.size());
-        bool changed = false;
-        for (auto a : args) {
-            auto s2 = subst_type_sema(a, s, ls);
-            changed |= (s2 != a);
-            na.push_back(s2);
-        }
-        if (!changed) return t;
-        return make_const_expr(static_cast<ConstOp>(t.const_val().value_or(0)), std::move(na));
     }
     case LogosType::Kind::Ptr: {
         auto inner = subst_type_sema(t.pointee(), s, ls);
@@ -7032,7 +6998,6 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                                       ? map_of(node.get(la::SIZE.code))
                                       : writ::TinyMapView{});
         if (!len.ok) return make_array(elem, 1, std::string());
-        if (len.len_expr) return make_array_expr(elem, len.len_expr);
         return make_array(elem, len.value, len.symbolic);
     }
 

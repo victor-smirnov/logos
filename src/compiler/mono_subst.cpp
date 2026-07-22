@@ -30,37 +30,8 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         if (it != s.end()) return it->second;
         return tv;
     }
-    if (tv.kind() == LogosType::Kind::ConstExpr) {
-        // const-length-overhaul: substitute each operand; a ConstVar leaf that
-        // binds to a concrete const-valued type lets the parent length fold.
-        auto args = tv.type_args();
-        std::vector<TypeRef> na; na.reserve(args.size());
-        bool changed = false;
-        for (auto a : args) { auto s2 = subst_type(a, s); changed |= (s2 != a); na.push_back(s2); }
-        if (!changed) return tv;
-        LogosTypeBuilder nt = tv.to_builder();
-        nt.type_args = std::move(na);
-        return out_.type_pool.alloc(nt);
-    }
     if (tv.kind() == LogosType::Kind::Array) {
         auto elem = subst_type(tv.elem(), s);
-        // const-length-overhaul: a length EXPRESSION substitutes its param
-        // leaves and re-folds — concrete ⇒ a plain sized array (drop the expr
-        // carrier), still symbolic ⇒ carry the substituted expression forward.
-        if (auto le = tv.arr_len_expr()) {
-            TypeRef nle = subst_type(le, s);
-            LogosTypeBuilder nt = tv.to_builder();
-            nt.elem = elem;
-            if (auto folded = fold_const_expr(nle)) {
-                nt.arr_size = static_cast<uint64_t>(*folded);
-                nt.arr_len_expr = TypeRef();
-                nt.arr_size_var.clear();
-            } else {
-                nt.arr_len_expr = nle;
-                nt.arr_size = 0;
-            }
-            return out_.type_pool.alloc(nt);
-        }
         // ONE implementation, shared with sema — see subst_arr_len. `cur_packs_`
         // holds the concrete expansion of a variadic pack at mono; sema has no
         // such table and passes a lookup that never finds one.

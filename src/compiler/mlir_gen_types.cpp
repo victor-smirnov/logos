@@ -63,15 +63,6 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Char:   return cache_ret(builder_.getI32Type());
     case LogosType::Kind::IntLit:   return cache_ret(builder_.getI32Type());
     case LogosType::Kind::FloatLit: return cache_ret(builder_.getF64Type());
-    case LogosType::Kind::ConstExpr:
-        // A const-expression node is a length/const-arg carrier, never a value
-        // type. mono_subst folds it into a concrete length before emission; if
-        // one reaches codegen the expression had an unresolved leaf — fatal for
-        // the same reason the unbound-array-length guard below is (all
-        // substitution is behind us).
-        llvm::report_fatal_error(llvm::StringRef(
-            "const-expression type reached codegen with an unresolved leaf; "
-            "a const-generic length/argument was never bound to a value."));
     case LogosType::Kind::Enum: {
         if (resolve_tagged_enum(std::string(tv.enum_name()), tv))
             return cache_ret(ptr_type());
@@ -87,21 +78,16 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
         // Emission is the one place where this is unambiguously wrong (all
         // substitution is behind us), so it is fatal HERE rather than silent
         // everywhere.
+        // A NAME or a deferred const-length EXPRESSION (both ride arr_size_var)
+        // that survives to emission was never bound — it would lower to a
+        // zero-length array. All substitution is behind us, so this is fatal
+        // HERE rather than a silent [0 x T].
         if (!tv.arr_size_var().empty() && tv.arr_size() == 0) {
             llvm::report_fatal_error(llvm::StringRef(std::string(
                 "array length '" + std::string(tv.arr_size_var()) +
                 "' was never bound to a value; it would lower to a zero-length "
                 "array. Expected a module-level const or a bound const-generic "
                 "parameter.")));
-        }
-        // const-length-overhaul: an unfolded length EXPRESSION at emission
-        // means a const-generic leaf was never bound (mono_subst folds it into
-        // arr_size otherwise). Same class as the unbound-name case above.
-        if (tv.arr_len_expr() && tv.arr_size() == 0) {
-            llvm::report_fatal_error(llvm::StringRef(
-                "array length expression was never fully bound to a value; it "
-                "would lower to a zero-length array. A const-generic parameter "
-                "in the length expression was left unresolved."));
         }
         TypeRef elem_tv = tv.elem();
         if (elem_tv && (elem_tv.kind() == LogosType::Kind::Struct ||

@@ -51,6 +51,71 @@ inline constexpr int g_target_pointer_bits = 64;
 // and the read the same thing.
 inline constexpr std::string_view ARR_LEN_PACK_PFX = "__sizeof_pack:";
 
+// const-length-overhaul: the marker for a deferred const-length EXPRESSION
+// (`[T; N + 1]`) carried in the SAME arr_size_var string as a plain symbolic
+// name — so an array's length is always a number or one pending computation,
+// never an expression masquerading as a type. The body after the marker is a
+// postfix (RPN) token stream: `#<int>` literal, `$<name>` const-param, and the
+// operators `+ - * / % << >> & | ^` (binary) / `~` (unary negate). `@` cannot
+// start an identifier, so this never collides with a real length name.
+inline constexpr std::string_view ARR_LEN_EXPR_PFX = "@e:";
+
+// Evaluate a postfix const-length expression against a name lookup. Returns the
+// value, or nullopt if a `$name` leaf is unresolved (still symbolic) or the
+// stream is ill-formed (div/mod by zero, stack under/overflow). Shared by sema
+// (fold-now, empty lookup) and mono (fold-on-bind, substitution lookup).
+template <class Lookup>
+inline std::optional<int64_t> eval_len_postfix(std::string_view s, Lookup&& lookup) {
+    std::vector<int64_t> st;
+    auto pop = [&]() -> std::optional<int64_t> {
+        if (st.empty()) return std::nullopt;
+        int64_t v = st.back(); st.pop_back(); return v;
+    };
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        while (i < n && s[i] == ' ') ++i;
+        if (i >= n) break;
+        size_t j = i; while (j < n && s[j] != ' ') ++j;
+        std::string_view tok = s.substr(i, j - i);
+        i = j;
+        if (tok.empty()) continue;
+        char c0 = tok[0];
+        if (c0 == '#') {
+            int64_t v = 0; size_t k = 1; bool neg = false;
+            if (k < tok.size() && tok[k] == '-') { neg = true; ++k; }
+            for (; k < tok.size(); ++k) {
+                if (tok[k] < '0' || tok[k] > '9') return std::nullopt;
+                v = v * 10 + (tok[k] - '0');
+            }
+            st.push_back(neg ? -v : v);
+        } else if (c0 == '$') {
+            auto v = lookup(tok.substr(1));
+            if (!v) return std::nullopt;
+            st.push_back(*v);
+        } else if (tok == "~") {
+            auto a = pop(); if (!a) return std::nullopt;
+            st.push_back(-*a);
+        } else {
+            auto b = pop(); auto a = pop();
+            if (!a || !b) return std::nullopt;
+            int64_t r;
+            if      (tok == "+")  r = *a + *b;
+            else if (tok == "-")  r = *a - *b;
+            else if (tok == "*")  r = *a * *b;
+            else if (tok == "/")  { if (*b == 0) return std::nullopt; r = *a / *b; }
+            else if (tok == "%")  { if (*b == 0) return std::nullopt; r = *a % *b; }
+            else if (tok == "<<") r = *a << *b;
+            else if (tok == ">>") r = *a >> *b;
+            else if (tok == "&")  r = *a & *b;
+            else if (tok == "|")  r = *a | *b;
+            else if (tok == "^")  r = *a ^ *b;
+            else return std::nullopt;
+            st.push_back(r);
+        }
+    }
+    return st.size() == 1 ? std::optional<int64_t>(st[0]) : std::nullopt;
+}
+
 struct LogosType {
     enum class Kind {
         Void,                     // no return value
@@ -138,20 +203,6 @@ struct LogosType {
                                   // Every Kind::FnPtr check in sema/mono/
                                   // mlir-gen also accepts Kind::FnItem so
                                   // the source-site swap stays transparent.
-        ,
-        ConstExpr                 // const-length-overhaul: a const ARITHMETIC
-                                  // expression node in the type system (an
-                                  // array length or const-generic arg that is
-                                  // `N + 1`, `C::STREAMS * 2`, …). `const_val`
-                                  // carries the ConstOp opcode; `type_args`
-                                  // holds the operands (2 for binary, 1 for
-                                  // unary). Leaves are IntLit (const_val =
-                                  // value) or ConstVar (unresolved param).
-                                  // fold_const_expr() collapses it to an
-                                  // int64 once every leaf is concrete (at
-                                  // sema, or at mono when params bind); it
-                                  // never survives to codegen. Appended last
-                                  // to keep every prior kind ID stable.
     };
     // logos-core 1.4: every site that asks "is this a fn-pointer-like value?"
     // accepts BOTH the bare-FnPtr and the FnItem-distinct shapes — sema/mono/
@@ -288,13 +339,6 @@ public:
     TypeRef elem()         const noexcept;
     TypeRef assoc_base()   const noexcept;
     TypeRef closure_ret()  const noexcept;
-    // const-length-overhaul: an Array's length EXPRESSION (a Kind::ConstExpr
-    // tree), set only when the length is not a bare concrete size or single
-    // symbolic name. Null for the common cases (arr_size / arr_size_var carry
-    // those). When non-null on an Array, arr_size == 0 until the expression
-    // folds. Also the carrier read directly off a ConstExpr node's operands
-    // via type_args().
-    TypeRef arr_len_expr() const noexcept;
 
     bool mut_ptr() const noexcept {
         auto av = mirror()->get(sema_schema::MUT_PTR.code);
@@ -427,6 +471,22 @@ inline ArrLenSubst subst_arr_len(uint64_t size, std::string_view var,
         // Fall through: the pack may instead be bound under the prefixed name
         // in the substitution map, which is how the sema side spells it.
     }
+    // const-length-overhaul: a deferred const EXPRESSION (`N + 1`) rides the
+    // SAME symbolic-length string, postfix-encoded under ARR_LEN_EXPR_PFX. It
+    // is NOT a type — the array's length is always a number (arr_size) or this
+    // pending computation, never an expression-typed node. Evaluate it against
+    // the SAME name lookup; every leaf resolved ⇒ a concrete size, else keep
+    // it symbolic for a later substitution.
+    if (sym.rfind(ARR_LEN_EXPR_PFX, 0) == 0) {
+        std::string_view post = std::string_view(sym).substr(ARR_LEN_EXPR_PFX.size());
+        auto v = eval_len_postfix(post, [&](std::string_view nm) -> std::optional<int64_t> {
+            TypeRef t = lookup(std::string(nm));
+            if (t) { if (auto cv = t.const_val()) return *cv; }
+            return std::nullopt;
+        });
+        if (v && *v >= 0) return {static_cast<uint64_t>(*v), std::string()};
+        return {size, sym};
+    }
     auto bound = lookup(sym);
     if (bound) {
         if (auto cv = bound.const_val()) return {static_cast<uint64_t>(*cv), std::string()};
@@ -434,71 +494,6 @@ inline ArrLenSubst subst_arr_len(uint64_t size, std::string_view var,
             return {size, std::string(bound.type_var_name())};
     }
     return {size, sym};
-}
-
-// ── const-length-overhaul: const-expression trees in the type system ────────
-//
-// A Kind::ConstExpr type node carries an arithmetic const expression that is
-// only reducible once its symbolic leaves (const-generic params) are bound.
-// The opcode rides `const_val`; operands ride `type_args` (2 for binary, 1 for
-// unary). Leaves are IntLit (concrete, const_val = value), any type carrying a
-// concrete const_val (a bound param substitutes to one), or ConstVar (an
-// unresolved param → the whole expression stays deferred). This is the ONE
-// representation the grammar's length/const-arg expressions lower into; the
-// same fold runs at sema (fold now if concrete) and at mono (re-fold after a
-// param binds), so length resolution never drifts between the two.
-enum class ConstOp : int64_t {
-    Add = 1, Sub, Mul, Div, Mod, Shl, Shr, BitAnd, BitOr, BitXor,  // binary
-    Neg = 101, BitNot = 102,                                        // unary
-};
-
-// Fold a const-expression TypeRef to a concrete value, or nullopt if any leaf
-// is still symbolic (an unresolved ConstVar) — the caller then keeps it
-// deferred. Division/modulo by zero also yields nullopt (an ill-formed length
-// is caught downstream with a real diagnostic, never a silent 0).
-inline std::optional<int64_t> fold_const_expr(TypeRef t) noexcept {
-    if (!t) return std::nullopt;
-    using K = LogosType::Kind;
-    if (t.kind() == K::ConstExpr) {
-        auto opv = t.const_val();
-        if (!opv) return std::nullopt;
-        auto args = t.type_args();
-        if (args.empty()) return std::nullopt;
-        auto l = fold_const_expr(args[0]);
-        if (!l) return std::nullopt;
-        ConstOp op = static_cast<ConstOp>(*opv);
-        if (op == ConstOp::Neg)    return -*l;
-        if (op == ConstOp::BitNot) return ~*l;
-        if (args.size() < 2) return std::nullopt;
-        auto r = fold_const_expr(args[1]);
-        if (!r) return std::nullopt;
-        switch (op) {
-            case ConstOp::Add:    return *l + *r;
-            case ConstOp::Sub:    return *l - *r;
-            case ConstOp::Mul:    return *l * *r;
-            case ConstOp::Div:    return *r == 0 ? std::nullopt : std::optional<int64_t>(*l / *r);
-            case ConstOp::Mod:    return *r == 0 ? std::nullopt : std::optional<int64_t>(*l % *r);
-            case ConstOp::Shl:    return *l << *r;
-            case ConstOp::Shr:    return *l >> *r;
-            case ConstOp::BitAnd: return *l & *r;
-            case ConstOp::BitOr:  return *l | *r;
-            case ConstOp::BitXor: return *l ^ *r;
-            default:              return std::nullopt;
-        }
-    }
-    // An unresolved const-param leaf is not foldable; keep it deferred.
-    if (t.kind() == K::ConstVar) return std::nullopt;
-    // Any other leaf that carries a concrete value (IntLit, or a param that a
-    // substitution bound to a const-valued type) folds to it.
-    if (auto cv = t.const_val()) return *cv;
-    return std::nullopt;
-}
-
-// Does a type carry an unresolved const-expression (a ConstExpr whose leaves
-// are not all concrete)? Used by array-length carriers and the mono scan to
-// tell "still generic" from "ready to emit".
-inline bool const_expr_is_symbolic(TypeRef t) noexcept {
-    return t && t.kind() == LogosType::Kind::ConstExpr && !fold_const_expr(t).has_value();
 }
 
 // ── LogosTypeBuilder ──────────────────────────────────────────────────────
@@ -526,16 +521,11 @@ struct LogosTypeBuilder {
     // including the one at code emission.
     TypeRef     elem;               // non-owning, pool-allocated
     uint64_t    arr_size = 0;
-    std::string arr_size_var;       // symbolic length: a const-param name, or
-                                    // ARR_LEN_PACK_PFX + pack name
-    // const-length-overhaul: the length EXPRESSION when it is neither a bare
-    // concrete size nor a single symbolic name — a Kind::ConstExpr tree.
-    // INVARIANT: arr_len_expr non-null ⇒ arr_size == 0 && arr_size_var empty
-    // (the three length carriers are mutually exclusive; the expression is the
-    // most general and folds INTO arr_size once every leaf is concrete). Also
-    // reused as nothing on non-Array kinds — a ConstExpr node keeps its
-    // operands in type_args, not here.
-    TypeRef     arr_len_expr;
+    std::string arr_size_var;       // symbolic length: a const-param name,
+                                    // ARR_LEN_PACK_PFX + pack name, or (const-
+                                    // length-overhaul) a deferred const
+                                    // EXPRESSION postfix-encoded under
+                                    // ARR_LEN_EXPR_PFX. All fold to arr_size.
 
     // Struct / Enum
     std::string struct_name;        // base struct name (owned; never mangled)
