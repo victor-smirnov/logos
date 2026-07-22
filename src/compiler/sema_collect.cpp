@@ -2390,6 +2390,10 @@ void SemaChecker::collect_const(TinyMapView node) {
                     vc == la::WRIT_BOOL.code || vc == la::WRIT_NULL.code)
                     return true;  // WritStatic literal — handled separately
                 if (vc == la::METACALL) return true;
+                // offset_of!(Type, field) lowers to a compile-time i64 const
+                // (the field's byte offset — no fn call is inlined), so it is
+                // a constant just like a LIT_INT.
+                if (vc == la::OFFSET_OF) return true;
                 if (vc == la::CAST) {
                     if (!v.has_key(la::VALUE)) return false;
                     return is_const_evaluable(map_of(v.get(la::VALUE.code)));

@@ -9,7 +9,14 @@ struct P { a: i32, b: i64, c: u8 }       // a@0, b@8 (pad), c@16
 struct Block { count: i64, code: i32, tail: [i64] }  // count@0, code@8, tail@16
 struct GB<T> { hdr: i64, val: T }
 
+// B-ca-03 escape: offset_of! is a compile-time i64 const, valid in const-init
+// (a plain literal-equivalent, no fn-call inlining).
+const BLOCK_HDR: i64 = offset_of!(Block, tail);
+const BLOCK_HDR_X2: i64 = offset_of!(Block, tail) * 2i64;
+
 fn main() -> i32 {
+    if BLOCK_HDR != 16i64    { return 20i32; }
+    if BLOCK_HDR_X2 != 32i64 { return 21i32; }
     if offset_of!(P, a) != 0i64  { return 1i32; }
     if offset_of!(P, b) != 8i64  { return 2i32; }
     if offset_of!(P, c) != 16i64 { return 3i32; }
