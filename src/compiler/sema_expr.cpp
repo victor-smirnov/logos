@@ -12633,14 +12633,16 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
                                   ? map_of(node.get(la::SIZE.code))
                                   : writ::TinyMapView{});
     if (!len.ok) return error_expr();
-    if (!len.symbolic.empty()) {
-        // A length that is not known yet: emit ONE element carrying the
-        // symbolic size; mono repeats it once the length is bound.
+    if (!len.symbolic.empty() || len.len_expr) {
+        // A length that is not known yet (a symbolic name, or a deferred const
+        // EXPRESSION): emit ONE element carrying the unresolved size; mono
+        // repeats it once the length is bound / the expression folds.
         LogosTypeBuilder ab;
         ab.kind = LogosType::Kind::Array;
         ab.elem = elem_type;
         ab.arr_size = 0;
-        ab.arr_size_var = len.symbolic;
+        if (len.len_expr) ab.arr_len_expr = len.len_expr;
+        else              ab.arr_size_var = len.symbolic;
         TypeRef arr_t = pool_->alloc(std::move(ab));
         std::vector<lir::LExprPtr> one;
         one.push_back(std::move(fill_val));

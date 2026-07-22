@@ -1,0 +1,39 @@
+// const-length-overhaul: an ARITHMETIC const expression directly in a length
+// position — `N + 1`, `N * 2 - 1`, `(2 + 2) * 2` — with no `metacall {}`
+// wrapper. Folds at sema when every operand is concrete, and at mono once a
+// const-generic parameter binds. Asserts the EFFECT (every promised slot is
+// addressable and holds what was written), the discipline the whole arc is
+// about: a length that silently resolved to 0 would compile just as cleanly.
+package array_len_const_expr;
+
+// A struct field length that is an expression over a const-generic param.
+struct Buf<const N: u32> { c: [u64; N + 1u32] }
+
+fn make<const N: u32>() -> Buf<N> {
+    // fill-literal length as an expression, and a local with precedence.
+    let mut b: Buf<N> = Buf::<N> { c: [0u64; N + 1u32] };
+    let a: [u64; N * 2u32 - 1u32] = [9u64; N * 2u32 - 1u32];
+    let mut i: u32 = 0u32;
+    while i < N + 1u32 { b.c[i as i64] = i as u64; i = i + 1u32; }
+    let mut s: u64 = 0u64;
+    let mut j: u32 = 0u32;
+    while j < N * 2u32 - 1u32 { s = s + a[j as i64]; j = j + 1u32; }
+    b.c[N as i64] = s;
+    return b;
+}
+
+fn main() -> i32 {
+    let b: Buf<3u32> = make::<3u32>();            // c len 4; a len 5 → s = 9*5 = 45
+    if b.c[0] + b.c[1] + b.c[2] != 3u64 { return 1i32; }   // 0 + 1 + 2
+    if b.c[3] != 45u64 { return 2i32; }
+
+    // literal-only arithmetic + parentheses, folded at sema (no params).
+    let x: [u64; (2u32 + 2u32) * 2u32] = [7u64; (2u32 + 2u32) * 2u32];  // len 8
+    if x[7] != 7u64 { return 3i32; }
+    if x[0] + x[7] != 14u64 { return 4i32; }
+
+    // a second instantiation must get its OWN length (no collapse across N).
+    let b5: Buf<5u32> = make::<5u32>();           // c len 6; a len 9 → s = 9*9 = 81
+    if b5.c[5] != 81u64 { return 5i32; }
+    return 0i32;
+}

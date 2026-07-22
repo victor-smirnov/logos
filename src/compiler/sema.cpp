@@ -4430,6 +4430,84 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
         r.ok = false;
         return r;
     }
+    // const-length-overhaul: an ARITHMETIC expression length (`N + 1`,
+    // `C::STREAMS * 2`). The grammar's atom leaves stay legacy ARR_LEN nodes,
+    // so a purely atomic length never reaches here — only a BINOP/UNARY tree
+    // does. Lower it to a Kind::ConstExpr TypeRef (leaves resolved by the SAME
+    // atom paths below, via a recursive resolve_array_len call), then fold:
+    // fully concrete → a value; a symbolic const-param leaf → deferred to mono
+    // as arr_len_expr. This is the ONE path — sema folds now, mono re-folds.
+    if (int32_t lc = code_of(len); lc == la::BINOP || lc == la::UNARY || lc == la::PAREN_EXPR) {
+        std::function<TypeRef(TinyMapView)> lower = [&](TinyMapView n) -> TypeRef {
+            int32_t c = code_of(n);
+            if (c == la::PAREN_EXPR)
+                return lower(map_of(n.get(la::VALUE.code)));
+            if (c == la::UNARY) {
+                auto op = std::string(str_of(n.get(la::OP.code)));
+                if (op != "-") {
+                    error(std::format("array length: unsupported unary operator '{}' "
+                                      "(only '-' is allowed; call a function via metacall)", op));
+                    return {};
+                }
+                auto v = lower(map_of(n.get(la::VALUE.code)));
+                if (!v) return {};
+                return make_const_expr(ConstOp::Neg, {v});
+            }
+            if (c == la::BINOP) {
+                auto op = std::string(str_of(n.get(la::OP.code)));
+                ConstOp co;
+                if      (op == "+")  co = ConstOp::Add;
+                else if (op == "-")  co = ConstOp::Sub;
+                else if (op == "*")  co = ConstOp::Mul;
+                else if (op == "/")  co = ConstOp::Div;
+                else if (op == "%")  co = ConstOp::Mod;
+                else if (op == "<<") co = ConstOp::Shl;
+                else if (op == ">>") co = ConstOp::Shr;
+                else if (op == "&")  co = ConstOp::BitAnd;
+                else if (op == "|")  co = ConstOp::BitOr;
+                else if (op == "^")  co = ConstOp::BitXor;
+                else {
+                    error(std::format("array length: unsupported operator '{}' in a length "
+                                      "expression (arithmetic only; call via metacall)", op));
+                    return {};
+                }
+                auto l  = lower(map_of(n.get(la::LHS.code)));
+                auto rr = lower(map_of(n.get(la::RHS.code)));
+                if (!l || !rr) return {};
+                return make_const_expr(co, {l, rr});
+            }
+            if (c == la::ARR_LEN) {
+                // A leaf — reuse the whole atom resolution (SIZE / NAME /
+                // Q::N / module-const), then lift the result to a TypeRef.
+                ArrayLen leaf = resolve_array_len(n);
+                if (!leaf.ok) return {};
+                if (leaf.len_expr) return leaf.len_expr;       // nested (paren of expr)
+                if (!leaf.symbolic.empty()) {                  // deferred const-param
+                    auto it = current_type_params_.find(leaf.symbolic);
+                    if (it != current_type_params_.end() && it->second)
+                        return TypeRef(it->second);
+                    return make_const_var(leaf.symbolic);
+                }
+                return make_const_int(static_cast<int64_t>(leaf.value));
+            }
+            error("array length: unsupported expression form (arithmetic over "
+                  "integers, consts and const-generic params only)");
+            return {};
+        };
+        TypeRef expr = lower(len);
+        if (!expr) { r.ok = false; return r; }
+        if (auto folded = fold_const_expr(expr)) {
+            if (*folded < 0) {
+                error(std::format("array length cannot be negative, got {}", *folded));
+                r.ok = false;
+                return r;
+            }
+            r.value = static_cast<uint64_t>(*folded);
+            return r;
+        }
+        r.len_expr = expr;   // a const-param leaf is still symbolic — defer to mono
+        return r;
+    }
     // `sizeof...(P)` — a variadic pack's arity. Stays symbolic under a
     // reserved prefix that mono decodes once the pack expands.
     if (len.has_key(la::OP) && len.has_key(la::NAME)) {
@@ -5060,6 +5138,16 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     }
     case LogosType::Kind::Array: {
         auto elem = subst_type_sema(t.elem(), s, ls);
+        // const-length-overhaul: a length EXPRESSION substitutes its param
+        // leaves and re-folds. Fully concrete now ⇒ a plain sized array;
+        // still symbolic ⇒ carry the substituted expression forward.
+        if (auto le = t.arr_len_expr()) {
+            TypeRef nle = subst_type_sema(le, s, ls);
+            if (auto folded = fold_const_expr(nle))
+                return make_array(elem, static_cast<uint64_t>(*folded), "");
+            if (elem == t.elem() && nle == le) return t;
+            return make_array_expr(elem, nle);
+        }
         // ONE implementation, shared with mono — see subst_arr_len.
         auto r = subst_arr_len(
             t.arr_size(), t.arr_size_var(),
@@ -5071,6 +5159,20 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (elem == t.elem() && r.size == t.arr_size() && r.symbolic == t.arr_size_var())
             return t;
         return make_array(elem, r.size, r.symbolic);
+    }
+    case LogosType::Kind::ConstExpr: {
+        // Substitute each operand; a ConstVar leaf that s binds to a concrete
+        // const-valued type lets the parent fold. Rebuild only on change.
+        auto args = t.type_args();
+        std::vector<TypeRef> na; na.reserve(args.size());
+        bool changed = false;
+        for (auto a : args) {
+            auto s2 = subst_type_sema(a, s, ls);
+            changed |= (s2 != a);
+            na.push_back(s2);
+        }
+        if (!changed) return t;
+        return make_const_expr(static_cast<ConstOp>(t.const_val().value_or(0)), std::move(na));
     }
     case LogosType::Kind::Ptr: {
         auto inner = subst_type_sema(t.pointee(), s, ls);
@@ -6930,6 +7032,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                                       ? map_of(node.get(la::SIZE.code))
                                       : writ::TinyMapView{});
         if (!len.ok) return make_array(elem, 1, std::string());
+        if (len.len_expr) return make_array_expr(elem, len.len_expr);
         return make_array(elem, len.value, len.symbolic);
     }
 

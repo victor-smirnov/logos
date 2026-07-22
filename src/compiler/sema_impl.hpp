@@ -258,6 +258,37 @@ private:
         t.arr_size_var = std::string(symbolic);
         return pool_->alloc(std::move(t));
     }
+    // const-length-overhaul: an array whose length is a (possibly still
+    // deferred) const EXPRESSION — a Kind::ConstExpr tree in arr_len_expr.
+    TypeRef make_array_expr(TypeRef elem, TypeRef len_expr) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::Array;
+        t.elem = elem; t.arr_size = 0; t.arr_len_expr = len_expr;
+        return pool_->alloc(std::move(t));
+    }
+    // An integer-literal LEAF of a const expression: carries its value in
+    // const_val so fold_const_expr reads it directly (IntLit interns by
+    // const_val, so distinct values stay distinct).
+    TypeRef make_const_int(int64_t v) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::IntLit;
+        t.const_val = v;
+        return pool_->alloc(std::move(t));
+    }
+    // A const-expression node: opcode (ConstOp) in const_val, operands (2 for
+    // binary, 1 for unary) in type_args. Operands are interned bottom-up.
+    TypeRef make_const_expr(ConstOp op, std::vector<TypeRef> operands) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::ConstExpr;
+        t.const_val = static_cast<int64_t>(op);
+        t.type_args = std::move(operands);
+        return pool_->alloc(std::move(t));
+    }
+    // A bare const-param LEAF by name (a ConstVar with no bound value yet) —
+    // used when a length expression references a const-generic param that is
+    // not currently in the type-param table (bound later by mono).
+    TypeRef make_const_var(std::string_view name) {
+        LogosTypeBuilder t; t.kind = LogosType::Kind::ConstVar;
+        t.type_var_name = std::string(name);
+        return pool_->alloc(std::move(t));
+    }
     // Resolve a struct/datatype/enum's home package by name. Used by the
     // helpers below to auto-fill pkg_name when the caller doesn't supply it,
     // so types built away from a find_*_by_name call site still hash with
@@ -842,6 +873,11 @@ private:
         bool        ok = true;
         uint64_t    value = 0;
         std::string symbolic;
+        // const-length-overhaul: a deferred const EXPRESSION (Kind::ConstExpr
+        // tree with an unresolved param leaf). Mutually exclusive with value /
+        // symbolic. The caller stores it as the array's arr_len_expr; mono
+        // folds it once the param binds.
+        TypeRef     len_expr;
     };
     // THE resolver. Every position that can carry a length calls this and
     // nothing else, so the type position and the expression position cannot

@@ -2053,12 +2053,29 @@
              => { CODE: ARR_LEN, OP: $1, NAME: $4 }
             / KW_METACALL block
              => { CODE: ARR_LEN, BODY: $2 }
-            / IDENT COLONCOLON IDENT
-             => { CODE: ARR_LEN, VALUE: $1, NAME: $3 }
-            / INTEGER
-             => { CODE: ARR_LEN, SIZE: $1 }
-            / IDENT
-             => { CODE: ARR_LEN, NAME: $1 }
+            / clen_bitor
+
+    // const-length-overhaul: an arithmetic const EXPRESSION in a length
+    // position (`N + 1`, `C::STREAMS * 2`, `(K - 1) / 2`). RESTRICTED —
+    // arithmetic over const ATOMS only, with NO call / index / field syntax: a
+    // compile-time function call is spelled `metacall { ... }` (kept above),
+    // never inline. Each precedence level is a FOLD; with zero operators the
+    // atom passes through UNCHANGED, so a purely atomic length stays the legacy
+    // ARR_LEN node (SIZE / NAME / VALUE) that sema's atom paths already handle,
+    // and only a genuine expression yields a BINOP / UNARY tree (which sema
+    // lowers to a Kind::ConstExpr). Left-associative, Rust operator precedence.
+    clen_bitor  <- clen_bitxor ( PIPE  clen_bitxor => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 } )*
+    clen_bitxor <- clen_bitand ( CARET clen_bitand => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 } )*
+    clen_bitand <- clen_shift  ( AMP   clen_shift  => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 } )*
+    clen_shift  <- clen_add    ( (SHL / SHR)          clen_add   => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 } )*
+    clen_add    <- clen_mul    ( (PLUS / MINUS)       clen_mul   => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 } )*
+    clen_mul    <- clen_unary  ( (STAR / SLASH / PERCENT) clen_unary => { CODE: BINOP, OP: $1, LHS: $0, RHS: $2 } )*
+    clen_unary  <- MINUS clen_unary => { CODE: UNARY, OP: $1, VALUE: $2 }
+                 / clen_primary
+    clen_primary <- LPAREN clen_bitor RPAREN     => { CODE: PAREN_EXPR, VALUE: $2 }
+                  / IDENT COLONCOLON IDENT        => { CODE: ARR_LEN, VALUE: $1, NAME: $3 }
+                  / INTEGER                       => { CODE: ARR_LEN, SIZE: $1 }
+                  / IDENT                         => { CODE: ARR_LEN, NAME: $1 }
 
     arr_type <- LBRACKET type_ref SEMI arr_len RBRACKET
               => { CODE: ARR_TYPE, TYPE: $2, SIZE: $4 }

@@ -1,0 +1,5 @@
+// A const length expression that folds negative is a hard error at sema, not a
+// silently-zero-length array (the whole point of the overhaul).
+package array_len_const_expr_negative;
+struct S { c: [u64; 2u32 - 5u32] }
+fn main() -> i32 { let s: S = S { c: [0u64; 2u32 - 5u32] }; return s.c[0] as i32; }
