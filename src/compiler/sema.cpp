@@ -919,8 +919,18 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_str(buf, t.struct_name);
         break;
     case K::TypeVar:
-    case K::ConstVar:
         put_str(buf, t.type_var_name);
+        break;
+    case K::ConstVar:
+        // The DECLARED TYPE is part of a const-param's identity: `<const N:
+        // u32>` and another decl's `<const N: i64>` must not intern to one
+        // ConstVar. The name-only key made the first-pooled "N" win — every
+        // later same-named const param got its pointee (value-uses of N in a
+        // `<const N: u32>` fn typed i64 because stdlib iter.logos pooled its
+        // own N first). Same intern-key-weaker-than-identity class as the
+        // IntLit case below.
+        put_str(buf, t.type_var_name);
+        put_sub(buf, impl, t.pointee);
         break;
     case K::AssocType:
         put_str(buf, t.trait_name);
