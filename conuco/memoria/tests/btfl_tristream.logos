@@ -1,0 +1,414 @@
+// btfl_tristream — BTFL increment 8a2.2 gate: the N=3 stream family (key →
+// values + tags) against a MATERIALIZED REFERENCE MODEL, driven by randomized
+// (LCG) inserts across leaf- and branch-split boundaries. THE point of the
+// gate: the node layer and the entry/navigation machinery are generic over the
+// stream count — the SAME code that runs the 2-stream multimap must uphold the
+// same laws at N=3, including EMPTY per-stream runs.
+//
+// LOGICAL MODEL: for each key j in key order the structure stream carries
+// [0] ++ [1]*mv(j) ++ [2]*mt(j). With voff[j]/toff[j] = values/tags before
+// key j (n keys; T0 = n, T1 = voff[n], T2 = toff[n]):
+//   sym position of key j:            P(j) = j + voff[j] + toff[j]
+//   sym position of value (j, l):     P(j) + 1 + l
+//   sym position of tag (j, l):       P(j) + 1 + mv(j) + l
+//   global value rank of (j, l)     = voff[j] + l
+//   global tag rank of (j, l)       = toff[j] + l
+// Checked after EVERY mutation:
+//   * btfl_check::<3> (branch rows ≡ child reality per ALL 3 count columns,
+//     leaf column↔structure agreement per symbol, global key order,
+//     leaf-starts-with-key)
+//   * per-symbol totals ≡ model (T0, T1, T2)
+//   * EVERY key: seek → (found, rank = j); select(0, j) → P(j); the
+//     seek↔select law (same leaf; leaf rank projection recovers the local
+//     stream row, whose VALUE matches the model — for stream 1 AND stream 2)
+//   * sampled value/tag ranks: select position laws + access inverses
+//   * negatives: odd keys miss; select(sym, total) = not-found at
+//     pos = T0 + T1 + T2
+//
+// Sections (error-code decades):
+//   10..19  empty tree
+//   20..49  config A: small leaves (512/320) — leaf + branch splits, runs 0..4
+//   50..79  config B: tiny branches (512/288) — deeper trees, runs 0..3
+package test;
+
+use logos.mem.bt.btfl;
+use logos.mem.pkd;
+use logos.mem.bt.memstore;
+use logos.lang.arith;
+use logos.lang.result;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
+
+struct Lcg {
+    s: u64,
+}
+
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 {
+        self.s = wrapping_add::<u64>(
+            wrapping_mul::<u64>(self.s, 6364136223846793005u64),
+            1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+}
+
+// ── the reference model: keys sorted, flat value/tag pools + offsets ────────
+
+struct Model {
+    mk: Vec<u64>,     // keys, strictly increasing
+    mv: Vec<u64>,     // flat values, key order
+    mt: Vec<u64>,     // flat tags, key order
+    voff: Vec<u64>,   // voff[j] = values before key j; len = keys + 1
+    toff: Vec<u64>,   // toff[j] = tags before key j; len = keys + 1
+}
+
+fn model_new() -> Model {
+    let mut vo: Vec<u64> = vec_new::<u64>();
+    vo.push(0u64);
+    let mut to: Vec<u64> = vec_new::<u64>();
+    to.push(0u64);
+    return Model {
+        mk: vec_new::<u64>(),
+        mv: vec_new::<u64>(),
+        mt: vec_new::<u64>(),
+        voff: vo,
+        toff: to,
+    };
+}
+
+fn model_find(md: &Model, k: u64) -> i64 {
+    let n: i64 = md.mk.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if md.mk.get(i) == k {
+            return i;
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+// Rebuild-insert (the btfl_multimap model idiom, one pool per stream).
+fn model_insert(md: &mut Model, k: u64, vals: &Vec<u64>, tags: &Vec<u64>) {
+    let n: i64 = md.mk.len();
+    let m: i64 = vals.len();
+    let tcount: i64 = tags.len();
+    let mut pos: i64 = 0i64;
+    while pos < n && md.mk.get(pos) < k {
+        pos = pos + 1i64;
+    }
+    let vcut: u64 = md.voff.get(pos);
+    let tcut: u64 = md.toff.get(pos);
+    let mut nk: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = 0i64;
+    while i < pos {
+        nk.push(md.mk.get(i));
+        i = i + 1i64;
+    }
+    nk.push(k);
+    while i < n {
+        nk.push(md.mk.get(i));
+        i = i + 1i64;
+    }
+    let mut nv: Vec<u64> = vec_new::<u64>();
+    let mut j: i64 = 0i64;
+    while j < vcut as i64 {
+        nv.push(md.mv.get(j));
+        j = j + 1i64;
+    }
+    let mut q: i64 = 0i64;
+    while q < m {
+        nv.push(vals.get(q));
+        q = q + 1i64;
+    }
+    while j < md.mv.len() {
+        nv.push(md.mv.get(j));
+        j = j + 1i64;
+    }
+    let mut nt: Vec<u64> = vec_new::<u64>();
+    let mut j2: i64 = 0i64;
+    while j2 < tcut as i64 {
+        nt.push(md.mt.get(j2));
+        j2 = j2 + 1i64;
+    }
+    let mut q2: i64 = 0i64;
+    while q2 < tcount {
+        nt.push(tags.get(q2));
+        q2 = q2 + 1i64;
+    }
+    while j2 < md.mt.len() {
+        nt.push(md.mt.get(j2));
+        j2 = j2 + 1i64;
+    }
+    let mut nvo: Vec<u64> = vec_new::<u64>();
+    let mut w: i64 = 0i64;
+    while w <= pos {
+        nvo.push(md.voff.get(w));
+        w = w + 1i64;
+    }
+    nvo.push(md.voff.get(pos) + (m as u64));
+    while w <= n {
+        nvo.push(md.voff.get(w) + (m as u64));
+        w = w + 1i64;
+    }
+    let mut nto: Vec<u64> = vec_new::<u64>();
+    let mut w2: i64 = 0i64;
+    while w2 <= pos {
+        nto.push(md.toff.get(w2));
+        w2 = w2 + 1i64;
+    }
+    nto.push(md.toff.get(pos) + (tcount as u64));
+    while w2 <= n {
+        nto.push(md.toff.get(w2) + (tcount as u64));
+        w2 = w2 + 1i64;
+    }
+    md.mk = nk;
+    md.mv = nv;
+    md.mt = nt;
+    md.voff = nvo;
+    md.toff = nto;
+}
+
+// Structure position of key j under the model.
+fn model_p(md: &Model, j: i64) -> u64 {
+    return (j as u64) + md.voff.get(j) + md.toff.get(j);
+}
+
+// ── the equivalence + laws check (run after EVERY mutation) ─────────────────
+
+fn check_full(t: &Btfl<3>, md: &Model) -> i32 {
+    let n: i64 = md.mk.len();
+    let t0: u64 = btfl_count::<3>(t, 0u64);
+    let t1: u64 = btfl_count::<3>(t, 1u64);
+    let t2: u64 = btfl_count::<3>(t, 2u64);
+    if t0 != (n as u64) {
+        return 1i32;
+    }
+    if t1 != md.voff.get(n) {
+        return 2i32;
+    }
+    if t2 != md.toff.get(n) {
+        return 3i32;
+    }
+    if !btfl_check::<3>(t) {
+        return 4i32;
+    }
+    let total: u64 = t0 + t1 + t2;
+    let mut j: i64 = 0i64;
+    while j < n {
+        let k: u64 = md.mk.get(j);
+        let pj: u64 = model_p(md, j);
+        // seek law: found at global stream-0 rank j
+        let sk: BtflSeek = btfl_seek::<3>(t, k);
+        if !sk.found {
+            return 5i32;
+        }
+        if sk.rank != (j as u64) {
+            return 6i32;
+        }
+        // select(0, j) → P(j), same leaf as the seek
+        let sel: BtflLoc = btfl_select::<3>(t, 0u64, j as u64);
+        if !sel.found {
+            return 7i32;
+        }
+        if sel.pos != pj {
+            return 8i32;
+        }
+        if sel.leaf as u64 != sk.leaf as u64 {
+            return 9i32;
+        }
+        if btfl_leaf_key_at(sk.leaf, sk.kidx) != k {
+            return 10i32;
+        }
+        // value/tag runs: position laws, access inverses, leaf rank
+        // projection recovers each row's VALUE from the leaf stream columns
+        let mv: u64 = md.voff.get(j + 1i64) - md.voff.get(j);
+        let mt: u64 = md.toff.get(j + 1i64) - md.toff.get(j);
+        let mut l: u64 = 0u64;
+        while l < mv {
+            let r: u64 = md.voff.get(j) + l;
+            let s1: BtflLoc = btfl_select::<3>(t, 1u64, r);
+            if !s1.found {
+                return 11i32;
+            }
+            if s1.pos != pj + 1u64 + l {
+                return 12i32;
+            }
+            if btfl_access::<3>(t, s1.pos) != 1u64 {
+                return 13i32;
+            }
+            let row: u64 = btfl_leaf_rank::<3>(s1.leaf, s1.idx, 1u64);
+            if btfl_leaf_stream_at::<3>(s1.leaf, 1u32, row as u32)
+               != md.mv.get(r as i64) {
+                return 14i32;
+            }
+            l = l + 1u64;
+        }
+        let mut l2: u64 = 0u64;
+        while l2 < mt {
+            let r2: u64 = md.toff.get(j) + l2;
+            let s2: BtflLoc = btfl_select::<3>(t, 2u64, r2);
+            if !s2.found {
+                return 15i32;
+            }
+            if s2.pos != pj + 1u64 + mv + l2 {
+                return 16i32;
+            }
+            if btfl_access::<3>(t, s2.pos) != 2u64 {
+                return 17i32;
+            }
+            let row2: u64 = btfl_leaf_rank::<3>(s2.leaf, s2.idx, 2u64);
+            if btfl_leaf_stream_at::<3>(s2.leaf, 2u32, row2 as u32)
+               != md.mt.get(r2 as i64) {
+                return 18i32;
+            }
+            l2 = l2 + 1u64;
+        }
+        // key symbol access inverse
+        if btfl_access::<3>(t, pj) != 0u64 {
+            return 19i32;
+        }
+        j = j + 1i64;
+    }
+    // negatives: select past the end of every stream
+    let sx: BtflLoc = btfl_select::<3>(t, 0u64, t0);
+    if sx.found {
+        return 20i32;
+    }
+    if sx.pos != total {
+        return 21i32;
+    }
+    let sy: BtflLoc = btfl_select::<3>(t, 1u64, t1);
+    if sy.found {
+        return 22i32;
+    }
+    let sz: BtflLoc = btfl_select::<3>(t, 2u64, t2);
+    if sz.found {
+        return 23i32;
+    }
+    return 0i32;
+}
+
+// ── the randomized driver ───────────────────────────────────────────────────
+
+// Inserts `steps` random keys (even, so odd probes always miss) with random
+// value/tag runs of 0..vmax / 0..tmax, checking the FULL law set after every
+// mutation. Returns 0 or the failing law code.
+fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<3>, md: &mut Model, lcg: &mut Lcg,
+         steps: i64, span: u64, vmax: u64, tmax: u64) -> i32 {
+    let mut i: i64 = 0i64;
+    while i < steps {
+        let k: u64 = (lcg.next() % span) * 2u64;
+        let mv: u64 = lcg.next() % (vmax + 1u64);
+        let mt: u64 = lcg.next() % (tmax + 1u64);
+        let mut flat: Vec<u64> = vec_new::<u64>();
+        let mut lens: Vec<u64> = vec_new::<u64>();
+        let mut v: u64 = 0u64;
+        while v < mv {
+            flat.push(k * 1000u64 + v);
+            v = v + 1u64;
+        }
+        let mut w: u64 = 0u64;
+        while w < mt {
+            flat.push(k * 7777u64 + w);
+            w = w + 1u64;
+        }
+        lens.push(mv);
+        lens.push(mt);
+        let ok: bool = btfl_insert_n::<3>(snap, t, k, &flat, &lens);
+        let dup: bool = model_find(md, k) >= 0i64;
+        if ok == dup {
+            return 91i32;   // insert accepted a dup or rejected a fresh key
+        }
+        if ok {
+            let mut vals: Vec<u64> = vec_new::<u64>();
+            let mut tags: Vec<u64> = vec_new::<u64>();
+            let mut v2: u64 = 0u64;
+            while v2 < mv {
+                vals.push(k * 1000u64 + v2);
+                v2 = v2 + 1u64;
+            }
+            let mut w2: u64 = 0u64;
+            while w2 < mt {
+                tags.push(k * 7777u64 + w2);
+                w2 = w2 + 1u64;
+            }
+            model_insert(md, k, &vals, &tags);
+        }
+        let rc: i32 = check_full(t, md);
+        if rc != 0i32 {
+            return rc;
+        }
+        // negative probe: the odd neighbour must miss
+        let miss: BtflSeek = btfl_seek::<3>(t, k + 1u64);
+        if miss.found {
+            return 92i32;
+        }
+        i = i + 1i64;
+    }
+    return 0i32;
+}
+
+fn section(code_base: i32, rc: i32) -> i32 {
+    if rc == 0i32 {
+        return 0i32;
+    }
+    return code_base + rc;
+}
+
+fn main() -> i32 {
+    let mut snap: MemorySnapshot = MemorySnapshot::with_id(77u64);
+
+    // ── 10..19: empty tree ──────────────────────────────────────────────────
+    {
+        let t: Btfl<3> = btfl_create::<3>(&mut snap, 512u32, 320u32);
+        if btfl_count::<3>(&t, 0u64) != 0u64 { return 11i32; }
+        if btfl_count::<3>(&t, 1u64) != 0u64 { return 12i32; }
+        if btfl_count::<3>(&t, 2u64) != 0u64 { return 13i32; }
+        if !btfl_check::<3>(&t) { return 14i32; }
+        let s0: BtflLoc = btfl_select::<3>(&t, 0u64, 0u64);
+        if s0.found { return 15i32; }
+        let sk: BtflSeek = btfl_seek::<3>(&t, 42u64);
+        if sk.found { return 16i32; }
+        btfl_drop::<3>(&t);
+    }
+
+    // ── 20..49: config A — small leaves, leaf + branch splits ───────────────
+    {
+        let mut t: Btfl<3> = btfl_create::<3>(&mut snap, 512u32, 320u32);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0x8a22u64 };
+        let rc: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
+                            120i64, 4000u64, 4u64, 3u64);
+        if rc != 0i32 {
+            btfl_drop::<3>(&t);
+            return section(20i32, rc);
+        }
+        if t.level == 0u32 {
+            btfl_drop::<3>(&t);
+            return 48i32;   // the scenario never split — not a valid gate run
+        }
+        btfl_drop::<3>(&t);
+    }
+
+    // ── 50..79: config B — tiny branches, deeper trees ──────────────────────
+    {
+        let mut t: Btfl<3> = btfl_create::<3>(&mut snap, 512u32, 288u32);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0xb7f1u64 };
+        let rc: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
+                            140i64, 900u64, 3u64, 2u64);
+        if rc != 0i32 {
+            btfl_drop::<3>(&t);
+            return section(50i32, rc);
+        }
+        if t.level < 2u32 {
+            btfl_drop::<3>(&t);
+            return 78i32;   // wanted at least two branch levels
+        }
+        btfl_drop::<3>(&t);
+    }
+
+    return 0i32;
+}

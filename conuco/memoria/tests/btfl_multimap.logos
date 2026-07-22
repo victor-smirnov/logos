@@ -136,17 +136,17 @@ fn model_insert(md: &mut Model, k: u64, vals: &Vec<u64>) {
 
 // ── the equivalence + laws check ────────────────────────────────────────────
 
-fn check_full(t: &Btfl, md: &Model) -> i32 {
+fn check_full(t: &Btfl<2>, md: &Model) -> i32 {
     let n: i64 = md.mk.len();
-    let t0: u64 = btfl_count(t, 0u64);
-    let t1: u64 = btfl_count(t, 1u64);
+    let t0: u64 = btfl_count::<2>(t, 0u64);
+    let t1: u64 = btfl_count::<2>(t, 1u64);
     if t0 != n as u64 {
         return 1i32;
     }
     if t1 != md.moff.get(n) {
         return 2i32;
     }
-    if !btfl_check(t) {
+    if !btfl_check::<2>(t) {
         return 3i32;
     }
     let mut i: i64 = 0i64;
@@ -170,7 +170,7 @@ fn check_full(t: &Btfl, md: &Model) -> i32 {
             j = j + 1u64;
         }
         // seek → (found, global key rank)
-        let sk: BtflSeek = btfl_seek(t, k);
+        let sk: BtflSeek = btfl_seek::<2>(t, k);
         if !sk.found {
             return 7i32;
         }
@@ -178,7 +178,7 @@ fn check_full(t: &Btfl, md: &Model) -> i32 {
             return 8i32;
         }
         // select(0, i) → the model symbol position P(i)
-        let sel: BtflLoc = btfl_select(t, 0u64, i as u64);
+        let sel: BtflLoc = btfl_select::<2>(t, 0u64, i as u64);
         if !sel.found {
             return 9i32;
         }
@@ -192,7 +192,7 @@ fn check_full(t: &Btfl, md: &Model) -> i32 {
         if btfl_leaf_key_at(sk.leaf, sk.kidx) != k {
             return 12i32;
         }
-        if btfl_leaf_key_sympos(sk.leaf, sk.kidx) != sel.idx {
+        if btfl_leaf_key_sympos::<2>(sk.leaf, sk.kidx) != sel.idx {
             return 13i32;
         }
         i = i + 1i64;
@@ -213,33 +213,33 @@ fn check_full(t: &Btfl, md: &Model) -> i32 {
             while md.moff.get(j2 + 1i64) <= v {
                 j2 = j2 + 1i64;
             }
-            let sel1: BtflLoc = btfl_select(t, 1u64, v);
+            let sel1: BtflLoc = btfl_select::<2>(t, 1u64, v);
             if !sel1.found {
                 return 14i32;
             }
             if sel1.pos != (j2 as u64) + 1u64 + v {
                 return 15i32;
             }
-            if btfl_access(t, sel1.pos) != 1u64 {
+            if btfl_access::<2>(t, sel1.pos) != 1u64 {
                 return 16i32;
             }
             s = s + 1i64;
         }
         // key symbol access inverse at a sampled key
         let mid: i64 = n / 2i64;
-        if btfl_access(t, (mid as u64) + md.moff.get(mid)) != 0u64 {
+        if btfl_access::<2>(t, (mid as u64) + md.moff.get(mid)) != 0u64 {
             return 17i32;
         }
     }
     // negatives: not-found selects land at pos = total symbols
-    let selx: BtflLoc = btfl_select(t, 0u64, t0);
+    let selx: BtflLoc = btfl_select::<2>(t, 0u64, t0);
     if selx.found {
         return 18i32;
     }
     if selx.pos != t0 + t1 {
         return 19i32;
     }
-    let sely: BtflLoc = btfl_select(t, 1u64, t1);
+    let sely: BtflLoc = btfl_select::<2>(t, 1u64, t1);
     if sely.found {
         return 20i32;
     }
@@ -252,7 +252,7 @@ fn check_full(t: &Btfl, md: &Model) -> i32 {
 // attempts must be REJECTED with the tree untouched) against `t`, checking
 // model equivalence every `stride` mutations and at the end. Returns 0 or a
 // check code (1..29); 30+x = driver-level failure x.
-fn drive(snap: &mut MemorySnapshot, t: &mut Btfl, md: &mut Model, lcg: &mut Lcg,
+fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<2>, md: &mut Model, lcg: &mut Lcg,
          rounds: i64, keyspace: u64, maxm: u64, stride: i64) -> i32 {
     let mut r: i64 = 0i64;
     while r < rounds {
@@ -277,7 +277,7 @@ fn drive(snap: &mut MemorySnapshot, t: &mut Btfl, md: &mut Model, lcg: &mut Lcg,
             model_insert(md, k, &vals);
         }
         // absent keys (odd) always miss
-        let miss: BtflSeek = btfl_seek(t, k + 1u64);
+        let miss: BtflSeek = btfl_seek::<2>(t, k + 1u64);
         if miss.found {
             return 33i32;
         }
@@ -339,17 +339,17 @@ fn p6b_stage_from_model(md: &Model) -> BtflStage {
 
 // Count the leaves of a tree by walking the leftmost spine down and then the
 // level: used to compare bulk packing against the single-insert path.
-fn p6b_leaf_count(t: &Btfl) -> u64 {
+fn p6b_leaf_count(t: &Btfl<2>) -> u64 {
     // Distinct leaves visited while selecting every key in order: keys are
     // globally ordered and leaves are contiguous in that order, so a change of
     // leaf address marks a boundary.
-    let keys: u64 = btfl_count(t, 0u64);
+    let keys: u64 = btfl_count::<2>(t, 0u64);
     let mut leaves: u64 = 0u64;
     let mut last: u64 = 0u64;
     let mut seen: bool = false;
     let mut i: u64 = 0u64;
     while i < keys {
-        let loc: BtflLoc = btfl_select(t, 0u64, i);
+        let loc: BtflLoc = btfl_select::<2>(t, 0u64, i);
         let addr: u64 = loc.leaf as u64;
         if !seen || addr != last {
             leaves = leaves + 1u64;
@@ -408,17 +408,17 @@ fn check_bulk_build(rng: &mut Lcg, entries: u64, maxvals: u64,
     }
 
     // ── bulk build vs the single-insert path ──────────────────────────────
-    let tb: Btfl = btfl_bulk_build(&mut snap, &st, leaf_bytes, branch_bytes);
-    if !btfl_check(&tb) {
+    let tb: Btfl<2> = btfl_bulk_build(&mut snap, &st, leaf_bytes, branch_bytes);
+    if !btfl_check::<2>(&tb) {
         return 903i32;
     }
     let rcb: i32 = check_full(&tb, &md);
     if rcb != 0i32 {
-        btfl_drop(&tb);
+        btfl_drop::<2>(&tb);
         return 900i32 + rcb;
     }
 
-    let mut ts: Btfl = btfl_create(&mut snap, leaf_bytes, branch_bytes);
+    let mut ts: Btfl<2> = btfl_create::<2>(&mut snap, leaf_bytes, branch_bytes);
     let ni: i64 = md.mk.len();
     let mut q: i64 = 0i64;
     while q < ni {
@@ -431,23 +431,23 @@ fn check_bulk_build(rng: &mut Lcg, entries: u64, maxvals: u64,
             w = w + 1u64;
         }
         if !btfl_insert(&mut snap, &mut ts, md.mk.get(q), &vals) {
-            btfl_drop(&tb);
-            btfl_drop(&ts);
+            btfl_drop::<2>(&tb);
+            btfl_drop::<2>(&ts);
             return 904i32;
         }
         q = q + 1i64;
     }
-    if !btfl_check(&ts) {
-        btfl_drop(&tb);
-        btfl_drop(&ts);
+    if !btfl_check::<2>(&ts) {
+        btfl_drop::<2>(&tb);
+        btfl_drop::<2>(&ts);
         return 905i32;
     }
 
     // both paths answer identically (the model check already ran on each)
     let rcs: i32 = check_full(&ts, &md);
     if rcs != 0i32 {
-        btfl_drop(&tb);
-        btfl_drop(&ts);
+        btfl_drop::<2>(&tb);
+        btfl_drop::<2>(&ts);
         return 940i32 + rcs;
     }
 
@@ -455,20 +455,20 @@ fn check_bulk_build(rng: &mut Lcg, entries: u64, maxvals: u64,
     let lb: u64 = p6b_leaf_count(&tb);
     let ls: u64 = p6b_leaf_count(&ts);
     if lb > ls {
-        btfl_drop(&tb);
-        btfl_drop(&ts);
+        btfl_drop::<2>(&tb);
+        btfl_drop::<2>(&ts);
         return 906i32;
     }
     // with many entries per leaf, bulk packing must be STRICTLY better —
     // otherwise the fill is not filling and the rung buys nothing.
     if ls > 2u64 && lb >= ls {
-        btfl_drop(&tb);
-        btfl_drop(&ts);
+        btfl_drop::<2>(&tb);
+        btfl_drop::<2>(&ts);
         return 907i32;
     }
 
-    btfl_drop(&tb);
-    btfl_drop(&ts);
+    btfl_drop::<2>(&tb);
+    btfl_drop::<2>(&ts);
     return 0i32;
 }
 
@@ -477,24 +477,24 @@ fn run_all() -> i32 {
 
     // ── 10..19: empty tree ──
     {
-        let mut t0: Btfl = btfl_create(&mut snap, 4096u32, 4096u32);
-        if btfl_count(&t0, 0u64) != 0u64 {
+        let mut t0: Btfl<2> = btfl_create::<2>(&mut snap, 4096u32, 4096u32);
+        if btfl_count::<2>(&t0, 0u64) != 0u64 {
             return 10i32;
         }
-        if btfl_count(&t0, 1u64) != 0u64 {
+        if btfl_count::<2>(&t0, 1u64) != 0u64 {
             return 11i32;
         }
-        if !btfl_check(&t0) {
+        if !btfl_check::<2>(&t0) {
             return 12i32;
         }
-        let sk: BtflSeek = btfl_seek(&t0, 7u64);
+        let sk: BtflSeek = btfl_seek::<2>(&t0, 7u64);
         if sk.found {
             return 13i32;
         }
         if sk.rank != 0u64 {
             return 14i32;
         }
-        let sel: BtflLoc = btfl_select(&t0, 0u64, 0u64);
+        let sel: BtflLoc = btfl_select::<2>(&t0, 0u64, 0u64);
         if sel.found {
             return 15i32;
         }
@@ -502,12 +502,12 @@ fn run_all() -> i32 {
         if btfl_find(&t0, 7u64, &mut none) {
             return 16i32;
         }
-        btfl_drop(&t0);
+        btfl_drop::<2>(&t0);
     }
 
     // ── 20..39: config A — small nodes, per-mutation equivalence ──
     {
-        let mut t: Btfl = btfl_create(&mut snap, 512u32, 320u32);
+        let mut t: Btfl<2> = btfl_create::<2>(&mut snap, 512u32, 320u32);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xB7F1u64 };
         let c: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
@@ -518,12 +518,12 @@ fn run_all() -> i32 {
         if t.level < 2u32 {
             return 38i32;   // the scenario must cross branch-split depth
         }
-        btfl_drop(&t);
+        btfl_drop::<2>(&t);
     }
 
     // ── 40..59: config B — default nodes, long value runs ──
     {
-        let mut t: Btfl = btfl_create(&mut snap, 4096u32, 4096u32);
+        let mut t: Btfl<2> = btfl_create::<2>(&mut snap, 4096u32, 4096u32);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xC0FFEEu64 };
         // maxm 40 → value runs up to 40 (long symbol-1 runs inside leaves)
@@ -535,12 +535,12 @@ fn run_all() -> i32 {
         if t.level < 1u32 {
             return 58i32;   // must have split at least once
         }
-        btfl_drop(&t);
+        btfl_drop::<2>(&t);
     }
 
     // ── 60..79: config C — volume run across ≥ 3 levels ──
     {
-        let mut t: Btfl = btfl_create(&mut snap, 512u32, 320u32);
+        let mut t: Btfl<2> = btfl_create::<2>(&mut snap, 512u32, 320u32);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 42u64 };
         let c: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
@@ -551,7 +551,7 @@ fn run_all() -> i32 {
         if t.level < 3u32 {
             return 78i32;
         }
-        btfl_drop(&t);
+        btfl_drop::<2>(&t);
     }
 
     // ── 80..99: config D (P7.3) — WIDE branch: fanout past the SUM-index
@@ -560,7 +560,7 @@ fn run_all() -> i32 {
     // this scenario is what makes "update path must reindex" a tested law
     // rather than a comment (probe P73-4 bites HERE).
     {
-        let mut t: Btfl = btfl_create(&mut snap, 256u32, 16384u32);
+        let mut t: Btfl<2> = btfl_create::<2>(&mut snap, 256u32, 16384u32);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0x9E3779B9u64 };
         let c: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
@@ -577,7 +577,7 @@ fn run_all() -> i32 {
                 return 99i32;
             }
         }
-        btfl_drop(&t);
+        btfl_drop::<2>(&t);
     }
 
     // ── 900..949: P6b bulk build ──
