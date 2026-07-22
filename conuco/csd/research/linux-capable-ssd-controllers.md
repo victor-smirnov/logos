@@ -297,6 +297,68 @@ short of DaisyPlus or a vendor NDA.**
   self-service entry point (eval board by part number; SDK behind
   qualified-customer + EULA).
 
+## ZNS SSD market availability (verified 2026-07-22)
+
+5 angles, 14 sources, 17 claims — 14 confirmed, 3 killed. ZNS matters here
+because it's the one *shipping, standardized* NVMe path that hands the host
+explicit zone/erase-boundary control instead of an opaque FTL — the closest
+market analog to what our own functional-NAND-model direction is reaching
+for, and worth knowing whether it's usable off the shelf.
+
+### Real ZNS product: WD Ultrastar DC ZN540 — now actually buyable
+
+Announced Nov 2020 as *"the world's first ZNS SSD,"* originally
+hyperscaler-sampling only. **Verification killed the "still gated" claim**:
+current listings show real SKUs (0TS2094/2099/2108/2109 for
+1024/2048/4096/8192 GB, ISE/SE/TCG/TCG-FIPS variants) at ordinary enterprise
+IT resellers (HardDiskDirect, Advanced HPC) — "Call for Stock" / "Request a
+Quote," i.e. **enterprise-distributor channel, not hyperscaler-exclusive,
+but also not add-to-cart retail.** Implements the NVMe TP 4053 ZNS command
+set as a production part, not a prototype.
+
+### Samsung PM1731a — real ZNS, but TLC not QLC (correction)
+
+2H2021 mass production, 2 TB / 4 TB. **Verification corrected the NAND
+type**: Samsung's own material states **TLC (6th-gen V-NAND)**, not QLC —
+QLC was announced only as a *future* next-gen ZNS drive, not this part.
+General developer purchasability wasn't established in this pass.
+
+### Kioxia — a dead end in this pass, not a confirmed ZNS product
+
+Both models searched (**CD8P-R**, **CM7-R**) turned out to be **standard,
+non-zoned enterprise NVMe SSDs** — their own product pages make no ZNS
+mention. (CD8P-R *is* however normally distributor-available — CDW, SHI,
+Tech America ~$364/1.92TB — so the "OEM-only" framing on it was refuted too,
+it's just not a ZNS drive.) Kioxia has contributed to the ZNS spec and has
+shipped ZNS SKUs elsewhere in its catalog, but this pass didn't locate the
+actual ZNS part number — open question below.
+
+### Market trajectory: ZNS adoption is stalling, FDP is the industry's answer
+
+Trade press (storagenewsletter.com, 2025-02): ZNS **"faced adoption
+challenges** because it required the host to modify the data pattern and
+software stack" to realize its write-amplification win — unlike other
+placement schemes. **FDP (Flexible Data Placement, newer NVMe TP)** is
+explicitly positioned as capturing *most* of the same WAF benefit **"with
+minimal changes"** to the host stack — i.e. the industry's compromise that
+trades host control for adoption ease.
+
+This cuts directly against our own direction: FDP is *less* host control by
+design (hints, not host-owned zone boundaries) — exactly the opposite of
+what a Memoria-tuned functional NAND/FTL layer wants. **ZNS remains the more
+relevant standardized primitive for us even as the market broadly drifts
+toward FDP** — worth tracking as a divergence, not following the trend.
+
+### Open questions
+
+1. Kioxia's actual shipping ZNS SKU (not CD8P-R/CM7-R) — name and
+   purchasability unconfirmed.
+2. SK Hynix / Solidigm ZNS parts — no claims surfaced at all this pass.
+3. Real end-to-end price for a WD ZN540 unit (only "call for stock"/"quote"
+   surfaced, no number).
+4. Whether any ZN540/PM1731a unit is obtainable in single-unit quantity for
+   a small dev team, vs. minimum-order/qualified-account gating.
+
 ## Bottom line for us
 
 - **Buy-and-run-Linux-on-the-controller today:** only DaisyPlus (FPGA,

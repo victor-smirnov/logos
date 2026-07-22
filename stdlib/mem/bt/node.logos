@@ -3,66 +3,80 @@
 // NodeBase, adapted to raw blocks: the refcount that lives in Arc's control
 // block there is INTRUSIVE here (no Arc over raw blocks).
 //
-// Node block layout — a 16-byte header, then the PkdAlloc column region:
-//   @0  snapshot_id : u64   the CREATING snapshot; the CoW skip key. A mutation
-//                           may write a node in place iff its snapshot_id equals
-//                           the writer's current snapshot; otherwise the node is
-//                           shared with a frozen snapshot and must be copied.
-//   @8  rc          : u32   intrusive refcount for structural sharing: how many
-//                           parent pointers (across all snapshot versions) reach
-//                           this block. cow_clone bumps a shared child's rc; a
-//                           released pointer decrements it, freeing at zero.
-//   @12 child_slot  : u32   WHICH PkdAlloc slot holds this node's child refs
-//                           (a single-column PdtBuf of block addresses), or
-//                           NODE_NO_CHILDREN for a leaf. Where children live is
-//                           a property OF THE NODE, not a global convention:
-//                           carrying it here lets a container lay its branch
-//                           columns out freely while tree_release stays
-//                           container-agnostic. It also fills what was pure
-//                           padding, so the region stays 8-aligned at base+16.
+// The node block IS the DST struct `MemNode` below: the CoW header fields, then
+// `alc` — the [u8]-tailed PkdAlloc column region — as the trailing unsized
+// field. `#[self_describing]` keeps every node pointer THIN (the tail length is
+// in-band via alc). The block HANDLE stays a raw `*mut u8` — the node currency
+// shared across btfl / memstore / the Canon-generated CoW nodes — and each
+// accessor reaches the fields and the allocator through the struct, so there
+// are no hand-counted byte offsets (the header size is offset_of!(MemNode, alc)).
 package logos.mem.bt.node;
 
 use logos.mem.pkd;          // PkdAlloc, pkd_format
-use logos.lang.mem;       // alloc, dealloc
-
-pub const NODE_HDR: i64 = 16i64;
+use logos.lang.marker;      // SelfDescribing — MemNode is a DST ending in PkdAlloc
+use logos.lang.mem;         // alloc, dealloc
 
 /// A node with no children — every leaf. Reading a child column off such a
 /// node is a structural error, not a silently empty walk.
 pub const NODE_NO_CHILDREN: u32 = 0xFFFFFFFFu32;
 
-/// Allocates a node block: a 16-byte header + a `pkd_bytes` PkdAlloc region of
-/// `nslots` slots. Stamps snapshot_id = `snp`, rc = 1, formats the region.
-/// Returns the block base; the caller formats each column slot on node_pkd(base).
+// The node block, laid out as a custom DST (the CoW analog of Memoria's
+// TreeNodeBase — header fields ahead of `PackedAllocator allocator_`):
+#[self_describing]
+struct MemNode {
+    // The CREATING snapshot; the CoW skip key. A mutation may write a node in
+    // place iff its snap equals the writer's current snapshot; otherwise the
+    // node is shared with a frozen snapshot and must be copied.
+    snap:       u64,
+    // Intrusive refcount for structural sharing: how many parent pointers
+    // (across all snapshot versions) reach this block. cow_clone bumps a shared
+    // child's rc; a released pointer decrements it, freeing at zero.
+    rc:         u32,
+    // WHICH PkdAlloc slot holds this node's child refs (a single-column PdtBuf
+    // of block addresses), or NODE_NO_CHILDREN for a leaf. Where children live
+    // is a property OF THE NODE, not a global convention: carrying it here lets
+    // a container lay its branch columns out freely while tree_release stays
+    // container-agnostic.
+    child_slot: u32,
+    // The column region — the DST tail (allocator_).
+    alc:        PkdAlloc,
+}
+
+impl SelfDescribing for MemNode {
+    fn dst_len(self: *const MemNode) -> i64 { return unsafe { (*self).alc.dst_len() }; }
+}
+
+// The block handle as the typed node (the arithmetic is the compiler's, via
+// the struct layout — never a hand-counted offset).
+unsafe fn mn(base: *mut u8) -> *mut MemNode { return base as *mut MemNode; }
+
+/// Allocates a node block: the MemNode header + a `pkd_bytes` PkdAlloc region of
+/// `nslots` slots. Stamps snap = `snp`, rc = 1, formats the region. Returns the
+/// block base; the caller formats each column slot on node_pkd(base).
 pub unsafe fn node_alloc(pkd_bytes: u32, nslots: u32, snp: u64) -> *mut u8 {
-    let base: *mut u8 = alloc(NODE_HDR + (pkd_bytes as i64));
-    *(base as *mut u64) = snp;                     // snapshot_id
-    *(base.byte_add(8i64) as *mut u32) = 1u32;     // rc
-    *(base.byte_add(12i64) as *mut u32) = NODE_NO_CHILDREN;   // childless until declared
-    let _ = pkd_format(base.byte_add(NODE_HDR), pkd_bytes, nslots);
+    let base: *mut u8 = alloc(offset_of!(MemNode, alc) + (pkd_bytes as i64));
+    let n: *mut MemNode = mn(base);
+    (*n).snap = snp;
+    (*n).rc = 1u32;
+    (*n).child_slot = NODE_NO_CHILDREN;   // childless until declared
+    let _ = pkd_format(node_pkd(base) as *mut u8, pkd_bytes, nslots);
     return base;
 }
 
-/// The PkdAlloc column region of a node block.
-pub unsafe fn node_pkd(base: *mut u8) -> *mut PkdAlloc {
-    return base.byte_add(NODE_HDR) as *mut PkdAlloc;
-}
+/// The PkdAlloc column region of a node block (the trailing allocator).
+pub unsafe fn node_pkd(base: *mut u8) -> *mut PkdAlloc { return &mut (*mn(base)).alc; }
 
 /// Which slot holds this node's child refs (NODE_NO_CHILDREN for a leaf).
-pub unsafe fn node_child_slot(base: *mut u8) -> u32 {
-    return *(base.byte_add(12i64) as *mut u32);
-}
+pub unsafe fn node_child_slot(base: *mut u8) -> u32 { return (*mn(base)).child_slot; }
 
 /// Declare where this node keeps its child refs. A branch calls this once at
 /// construction; leaves never do.
-pub unsafe fn node_set_child_slot(base: *mut u8, slot: u32) {
-    *(base.byte_add(12i64) as *mut u32) = slot;
-}
+pub unsafe fn node_set_child_slot(base: *mut u8, slot: u32) { (*mn(base)).child_slot = slot; }
 
-pub unsafe fn node_snapshot(base: *mut u8) -> u64 { return *(base as *mut u64); }
-pub unsafe fn node_set_snapshot(base: *mut u8, snp: u64) { *(base as *mut u64) = snp; }
-pub unsafe fn node_rc(base: *mut u8) -> u32 { return *(base.byte_add(8i64) as *mut u32); }
-pub unsafe fn node_set_rc(base: *mut u8, rc: u32) { *(base.byte_add(8i64) as *mut u32) = rc; }
+pub unsafe fn node_snapshot(base: *mut u8) -> u64 { return (*mn(base)).snap; }
+pub unsafe fn node_set_snapshot(base: *mut u8, snp: u64) { (*mn(base)).snap = snp; }
+pub unsafe fn node_rc(base: *mut u8) -> u32 { return (*mn(base)).rc; }
+pub unsafe fn node_set_rc(base: *mut u8, rc: u32) { (*mn(base)).rc = rc; }
 pub unsafe fn node_inc_rc(base: *mut u8) { node_set_rc(base, node_rc(base) + 1u32); }
 /// Decrements the refcount; returns the new value (0 = the caller must free).
 pub unsafe fn node_dec_rc(base: *mut u8) -> u32 {
