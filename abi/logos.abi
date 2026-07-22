@@ -11331,6 +11331,7 @@ sym	logos_mem.logos.mem.bt.btfl$btfl_create__g__refmut_MemorySnapshot__u32__u32_
 sym	logos_mem.logos.mem.bt.btfl$btfl_cut__f__ref_BtflStage__u64__u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_find__f__ref_Btfl$G1$ic2__u64__refmut_Vec$G1$u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_insert__f__refmut_MemorySnapshot__refmut_Btfl$G1$ic2__u64__ref_Vec$G1$u64
+sym	logos_mem.logos.mem.bt.btfl$btfl_insert_entry__g__refmut_MemorySnapshot__refmut_Btfl$G1$N__u64__ref_Vec$G1$u64__ref_Vec$G1$u64__ref_PdtVals__cN_2
 sym	logos_mem.logos.mem.bt.btfl$btfl_insert_n__g__refmut_MemorySnapshot__refmut_Btfl$G1$N__u64__ref_Vec$G1$u64__ref_Vec$G1$u64__cN_2
 sym	logos_mem.logos.mem.bt.btfl$btfl_leaf_key_at__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.btfl$btfl_leaf_key_count__f__pmut_u8

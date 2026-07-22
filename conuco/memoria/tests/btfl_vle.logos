@@ -1,0 +1,308 @@
+// btfl_vle — BTFL increment 8a2.3 gate: the 2-stream family with a VLE value
+// stream (key u64 → variable-length BYTE STRINGS) against a reference model,
+// randomized inserts across leaf- and branch-split boundaries. THE point: the
+// stream KIND is the column's descriptor — the SAME generic node/entry/
+// navigation code that runs the FSE families must uphold the same laws when
+// stream 1 stores byte spans, including the VLE split (payload geometry moves
+// with the rank-projected cut) and the exact two-phase pricing on VLE paths
+// (a fits==true entry NEVER fails its commit — the prepare that priced it is
+// the prepare that commits it).
+//
+// Values are DETERMINISTIC in (key, l): len = 1 + (k + l) % 6,
+// byte[i] = (k*31 + l*7 + i) & 0xff — the model stores only per-key COUNTS
+// (voff idiom); content checks recompute the expected bytes.
+//
+// Sections (error-code decades):
+//   10..19  empty tree
+//   20..49  config A: small leaves — leaf + branch splits, runs 0..3
+//   50..79  config B: smaller branches — deeper trees, runs 0..2
+package test;
+
+use logos.mem.bt.btfl;
+use logos.mem.pkd;
+use logos.mem.pkd.pdtbuf;
+use logos.mem.bt.memstore;
+use logos.lang.arith;
+use logos.lang.result;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
+
+struct Lcg {
+    s: u64,
+}
+
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 {
+        self.s = wrapping_add::<u64>(
+            wrapping_mul::<u64>(self.s, 6364136223846793005u64),
+            1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+}
+
+// ── the deterministic value shape ───────────────────────────────────────────
+
+fn val_len(k: u64, l: u64) -> u64 {
+    return 1u64 + ((k + l) % 6u64);
+}
+
+fn val_byte(k: u64, l: u64, i: u64) -> u8 {
+    return ((k * 31u64 + l * 7u64 + i) % 256u64) as u8;
+}
+
+// ── the reference model: keys sorted + per-key value counts ─────────────────
+
+struct Model {
+    mk: Vec<u64>,     // keys, strictly increasing
+    voff: Vec<u64>,   // voff[j] = values before key j; len = keys + 1
+}
+
+fn model_new() -> Model {
+    let mut vo: Vec<u64> = vec_new::<u64>();
+    vo.push(0u64);
+    return Model {
+        mk: vec_new::<u64>(),
+        voff: vo,
+    };
+}
+
+fn model_find(md: &Model, k: u64) -> i64 {
+    let n: i64 = md.mk.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if md.mk.get(i) == k {
+            return i;
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn model_insert(md: &mut Model, k: u64, m: u64) {
+    let n: i64 = md.mk.len();
+    let mut pos: i64 = 0i64;
+    while pos < n && md.mk.get(pos) < k {
+        pos = pos + 1i64;
+    }
+    let mut nk: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = 0i64;
+    while i < pos {
+        nk.push(md.mk.get(i));
+        i = i + 1i64;
+    }
+    nk.push(k);
+    while i < n {
+        nk.push(md.mk.get(i));
+        i = i + 1i64;
+    }
+    let mut nvo: Vec<u64> = vec_new::<u64>();
+    let mut w: i64 = 0i64;
+    while w <= pos {
+        nvo.push(md.voff.get(w));
+        w = w + 1i64;
+    }
+    nvo.push(md.voff.get(pos) + m);
+    while w <= n {
+        nvo.push(md.voff.get(w) + m);
+        w = w + 1i64;
+    }
+    md.mk = nk;
+    md.voff = nvo;
+}
+
+// ── the equivalence + laws check (run after EVERY mutation) ─────────────────
+
+fn check_full(t: &Btfl<2>, md: &Model) -> i32 {
+    let n: i64 = md.mk.len();
+    let t0: u64 = btfl_count::<2>(t, 0u64);
+    let t1: u64 = btfl_count::<2>(t, 1u64);
+    if t0 != (n as u64) {
+        return 1i32;
+    }
+    if t1 != md.voff.get(n) {
+        return 2i32;
+    }
+    if !btfl_check::<2>(t) {
+        return 3i32;
+    }
+    let mut j: i64 = 0i64;
+    while j < n {
+        let k: u64 = md.mk.get(j);
+        let pj: u64 = (j as u64) + md.voff.get(j);
+        let sk: BtflSeek = btfl_seek::<2>(t, k);
+        if !sk.found {
+            return 4i32;
+        }
+        if sk.rank != (j as u64) {
+            return 5i32;
+        }
+        let sel: BtflLoc = btfl_select::<2>(t, 0u64, j as u64);
+        if !sel.found {
+            return 6i32;
+        }
+        if sel.pos != pj {
+            return 7i32;
+        }
+        if btfl_leaf_key_at(sk.leaf, sk.kidx) != k {
+            return 8i32;
+        }
+        if btfl_access::<2>(t, pj) != 0u64 {
+            return 9i32;
+        }
+        // every value of key j: select position law, access inverse, and the
+        // BYTE CONTENT recovered through the leaf rank projection
+        let mv: u64 = md.voff.get(j + 1i64) - md.voff.get(j);
+        let mut l: u64 = 0u64;
+        while l < mv {
+            let r: u64 = md.voff.get(j) + l;
+            let s1: BtflLoc = btfl_select::<2>(t, 1u64, r);
+            if !s1.found {
+                return 10i32;
+            }
+            if s1.pos != pj + 1u64 + l {
+                return 11i32;
+            }
+            if btfl_access::<2>(t, s1.pos) != 1u64 {
+                return 12i32;
+            }
+            let row: u64 = btfl_leaf_rank::<2>(s1.leaf, s1.idx, 1u64);
+            let want_len: u64 = val_len(k, l);
+            if btfl_leaf_stream_span_len::<2>(s1.leaf, 1u32, row) != want_len {
+                return 13i32;
+            }
+            let mut b: u64 = 0u64;
+            while b < want_len {
+                if btfl_leaf_stream_span_at::<2>(s1.leaf, 1u32, row, b)
+                   != val_byte(k, l, b) {
+                    return 14i32;
+                }
+                b = b + 1u64;
+            }
+            l = l + 1u64;
+        }
+        j = j + 1i64;
+    }
+    // negatives
+    let sx: BtflLoc = btfl_select::<2>(t, 0u64, t0);
+    if sx.found {
+        return 15i32;
+    }
+    if sx.pos != t0 + t1 {
+        return 16i32;
+    }
+    let sy: BtflLoc = btfl_select::<2>(t, 1u64, t1);
+    if sy.found {
+        return 17i32;
+    }
+    return 0i32;
+}
+
+// ── the randomized driver ───────────────────────────────────────────────────
+
+fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<2>, md: &mut Model, lcg: &mut Lcg,
+         steps: i64, span: u64, vmax: u64) -> i32 {
+    let mut i: i64 = 0i64;
+    while i < steps {
+        let k: u64 = (lcg.next() % span) * 2u64;
+        let m: u64 = lcg.next() % (vmax + 1u64);
+        // the entry: no FSE cells beyond the key; the VLE stream's rows ride
+        // the span carrier in row order
+        let flat: Vec<u64> = vec_new::<u64>();
+        let mut lens: Vec<u64> = vec_new::<u64>();
+        lens.push(m);
+        let mut spans: PdtVals = pdt_vals_new();
+        let mut l: u64 = 0u64;
+        while l < m {
+            let wl: u64 = val_len(k, l);
+            let mut bytes: Vec<u8> = vec_new::<u8>();
+            let mut b: u64 = 0u64;
+            while b < wl {
+                bytes.push(val_byte(k, l, b));
+                b = b + 1u64;
+            }
+            spans.push_span(bytes.as_slice());
+            l = l + 1u64;
+        }
+        let ok: bool = btfl_insert_entry::<2>(snap, t, k, &flat, &lens, &spans);
+        let dup: bool = model_find(md, k) >= 0i64;
+        if ok == dup {
+            return 91i32;
+        }
+        if ok {
+            model_insert(md, k, m);
+        }
+        let rc: i32 = check_full(t, md);
+        if rc != 0i32 {
+            return rc;
+        }
+        let miss: BtflSeek = btfl_seek::<2>(t, k + 1u64);
+        if miss.found {
+            return 92i32;
+        }
+        i = i + 1i64;
+    }
+    return 0i32;
+}
+
+fn section(code_base: i32, rc: i32) -> i32 {
+    if rc == 0i32 {
+        return 0i32;
+    }
+    return code_base + rc;
+}
+
+fn main() -> i32 {
+    let mut snap: MemorySnapshot = MemorySnapshot::with_id(78u64);
+    let mut codes: Vec<u64> = vec_new::<u64>();
+    codes.push(BTFL_KIND_VLE);
+
+    // ── 10..19: empty tree ──────────────────────────────────────────────────
+    {
+        let t: Btfl<2> = btfl_create_shaped::<2>(&mut snap, 832u32, 320u32, &codes);
+        if btfl_count::<2>(&t, 0u64) != 0u64 { return 11i32; }
+        if btfl_count::<2>(&t, 1u64) != 0u64 { return 12i32; }
+        if !btfl_check::<2>(&t) { return 13i32; }
+        let s0: BtflLoc = btfl_select::<2>(&t, 1u64, 0u64);
+        if s0.found { return 14i32; }
+        btfl_drop::<2>(&t);
+    }
+
+    // ── 20..49: config A — small leaves, leaf + branch splits ───────────────
+    {
+        let mut t: Btfl<2> = btfl_create_shaped::<2>(&mut snap, 832u32, 320u32, &codes);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0x8a23u64 };
+        let rc: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
+                            110i64, 3000u64, 3u64);
+        if rc != 0i32 {
+            btfl_drop::<2>(&t);
+            return section(20i32, rc);
+        }
+        if t.level == 0u32 {
+            btfl_drop::<2>(&t);
+            return 48i32;   // never split — not a valid gate run
+        }
+        btfl_drop::<2>(&t);
+    }
+
+    // ── 50..79: config B — smaller branches, deeper trees ───────────────────
+    {
+        let mut t: Btfl<2> = btfl_create_shaped::<2>(&mut snap, 832u32, 288u32, &codes);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0xb1e5u64 };
+        let rc: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
+                            130i64, 800u64, 2u64);
+        if rc != 0i32 {
+            btfl_drop::<2>(&t);
+            return section(50i32, rc);
+        }
+        if t.level < 2u32 {
+            btfl_drop::<2>(&t);
+            return 78i32;   // wanted at least two branch levels
+        }
+        btfl_drop::<2>(&t);
+    }
+
+    return 0i32;
+}

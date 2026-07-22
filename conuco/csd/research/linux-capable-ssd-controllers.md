@@ -93,25 +93,62 @@ gen2 rollout was limited; current purchasability unclear.
   ≠ "Linux-capable"; it's an NVMe front-end framework, not even a full flash
   controller.
 
-## Uncovered / lower-confidence (did not clear 3-vote)
+## Cortex-R82 & RV64 in shipping controllers (verified 2026-07-21, focused pass)
 
-Extracted but not fully verified — treat as leads, not conclusions:
+Second research pass — 6 angles, 14 sources, 18 claims verified 3-vote, 0
+killed. Answers "who ships R82 / RV64 controllers." Key distinction throughout:
+**a 64-bit core in a controller ≠ Linux on the drive.** In every *named*
+product below, the 64-bit cores are real-time/control cores; on-device Linux
+(and even MMU) is **not claimed by the source** for any shipping part.
 
-- **FADU** controller ASIC: *"4 × 64-bit RISC-V cores"* + programmable
-  control plane of parallel PPU blocks (Blocks & Files, 2024-12). 64-bit
-  control cores, but **no MMU/Linux claim** in the source. Next-gen Sierra
-  FC6161 (PCIe Gen6) exists. → RV64 lead, unconfirmed on MMU/Linux.
-- **ScaleFlux** CSD5000 / **FX5016** PCIe 5.0 controller (up to 123 TB phys /
-  256 TB logical, storagenewsletter 2024-08). Alive commercial
-  computational-storage ASIC — but core type/bitness/MMU/on-device-Linux
-  **not established**. The single biggest open gap.
-- **Aldec TySOM-3A-ZU19EG / TySOM-3-ZU7EV** — Zynq US+ MPSoC prototyping
-  boards (A53, Linux-capable) marketed with NVMe reference designs. Viable
-  DIY-storage base, unverified as a controller.
-- **No RV64+MMU SSD-controller with on-device Linux confirmed anywhere.**
-  RISC-V part of the question is open (InnoGrit, Starblaze, academic).
-- No surviving verified claims for: Marvell, Microchip Flashtec, SMI, Phison
-  (beyond E26=R5), InnoGrit, Starblaze.
+### Cortex-R82 — one announcement, zero named shipping parts
+
+- **ScaleFlux announced (2024-03-25)** it is *"integrating the Arm Cortex-R82
+  processor in its forthcoming line of enterprise SSD controllers."* A stated
+  future commitment — **no part number, not shipping.** (design-reuse.com
+  #55937.) This is the closest thing to a commercial Linux-capable controller
+  on the horizon, because R82 *does* carry the optional MMU + "Linux-capable"
+  billing (up to 8 cores, 1 TB, MMU — Blocks & Files 2020-09).
+- **No other vendor confirmed on R82.** Counter-evidence that mainstream is
+  still 32-bit in 2024: Phison **E26** = 4× Cortex-R5 (+1 Andes N25F RISC-V);
+  Silicon Motion **SM2508** = 4× Cortex-R8 + 1 Cortex-M0 (The Register
+  2024-03). R5/R8 = MPU-only, no Linux.
+
+### RV64 — more real activity, several named products
+
+- **T-Head / Alibaba Zhenyue 510** — named PCIe Gen5 SSD controller on
+  T-Head's **XuanTie C910** RISC-V cores (Tom's Hardware). Source does **not**
+  state bit-width/MMU/Linux; the C910 is externally known as an RV64
+  application-class core with MMU, but that's not from this source.
+- **Yingren YRS820** — Gen5 SSD controller *"100% based on RISC-V CPU cores"*
+  (The Register 2024-03). Named product; bit-width/MMU/Linux unspecified.
+- **FADU** — controller ASIC with **4× RV64 RISC-V cores** + PPU control
+  plane (Blocks & Files 2024-12; survived 1 refute vote). Earlier FADU
+  *Annapurna* controller = SiFive **E51** (64-bit) core IP — **but E51 is the
+  E-series real-time core, no MMU, no Linux claimed** (SiFive press). FADU
+  explicitly frames RISC-V as *efficiency/hardware-automation* vs "traditional
+  Arm-firmware FTL," **not** as running Linux on-drive.
+
+### Net
+
+RV64 is quietly displacing 32-bit Cortex-R as the *control* core in new Gen5
+controllers (T-Head, Yingren, FADU) — but for firmware-automation, not for
+Linux. R82 (which would bring MMU + Linux) has exactly **one** public taker,
+ScaleFlux, and only as an unshipped announcement. **Still zero named,
+shipping mainstream controller runs Linux on-device.** The full
+64-bit + MMU + application-class + Linux-userspace chain remains demonstrated
+only by dead NGD Newport and the FPGA research platforms.
+
+### Still uncovered
+
+- **ScaleFlux FX5016 / CSD5000** internals (cores/MMU) — the R82 announcement
+  is about a *forthcoming* line, not these shipping parts.
+- Whether ScaleFlux's R82 controllers, when they ship, enable the MMU + Linux.
+- **Aldec TySOM-3A-ZU19EG / TySOM-3-ZU7EV** — Zynq US+ MPSoC boards (A53,
+  Linux-capable) with NVMe reference designs; viable DIY base, unverified as
+  a controller.
+- No surviving claims for: Marvell Bravera, Microchip Flashtec, Kioxia,
+  Solidigm, InnoGrit, Starblaze.
 
 ## Bottom line for us
 
@@ -122,15 +159,16 @@ Extracted but not fully verified — treat as leads, not conclusions:
   [../README.md](../README.md) SBC-in-PCIe-endpoint-mode approach (RK3588,
   $159, AArch64+MMU, stock mainline Linux). Same programming model
   (device-side Linux + NVMe to host), 40× cheaper, no FPGA, no FTL.
-- **Watch:** which 2024–2026 shipping controllers adopt Cortex-R82 *with*
-  MMU — that's when mainstream SSD silicon becomes Linux-capable and the
-  DIY detour stops being necessary.
+- **Watch ScaleFlux specifically** — their 2024 R82 announcement is the one
+  credible path to a commercial Linux-capable controller. When those parts
+  ship, check whether the MMU is enabled and Linux actually runs on-drive.
 
 ## Open questions (for a follow-up pass)
 
-1. Which shipping 2024–2026 controllers use R82, and do any enable the MMU +
-   run Linux on-device? (candidates: FADU, Phison E-series, Marvell Bravera,
-   Flashtec NVMe 4016+)
-2. ScaleFlux FX5016 internals — cores, bitness, MMU, on-device Linux?
-3. Any RV64+MMU SSD controller / open RISC-V + FTL + Linux platform?
+1. When ScaleFlux's R82 controllers ship: MMU enabled? Linux on-device? Part
+   numbers? (No *other* vendor has publicly committed to R82.)
+2. T-Head Zhenyue 510 / Yingren YRS820 / FADU RV64 parts — do any run an
+   MMU + Linux, or are the RV64 cores strictly control-plane firmware?
+3. Any *open* RISC-V + FTL + Linux storage-controller platform (vs the
+   proprietary T-Head/Yingren/FADU parts)?
 4. DaisyPlus real availability/licensing; SmartSSD gen2 fate post-2022.
