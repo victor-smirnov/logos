@@ -1,0 +1,35 @@
+// A concrete-base associated-type projection (`Self::Item` in a monomorphized
+// default method) normalizes to the impl's binding at EVERY use site — the let
+// annotation AND a turbofish type-argument to a generic hook. This is the CRTP
+// shape: a base trait's default algorithm, typed by the derived impl's
+// associated type, statically dispatched. (GAT projections `T::View<S>` are
+// excluded from the eager normalization — their arg-bounds must be checked, see
+// fail/gat_bounds_violation.)
+package assoc_proj_in_default_method;
+
+trait Elem { fn val(self: &Self) -> i64; }
+struct K { k: i64 }
+impl Elem for K { fn val(self: &K) -> i64 { return self.k; } }
+
+pub trait Bt {
+    type Item: Elem;
+    fn seed(self: &Self) -> Self::Item;                   // hook: returns the assoc type
+    fn measure<E: Elem>(self: &Self, e: &E) -> i64;       // generic hook
+    fn algorithm(self: &Self) -> i64 {                    // BASE default algorithm
+        let it: Self::Item = self.seed();                 // annotation: Self::Item → K
+        return self.measure::<Self::Item>(&it);           // turbofish arg: Self::Item → K
+    }
+}
+
+struct Mm;
+impl Bt for Mm {
+    type Item = K;
+    fn seed(self: &Mm) -> K { return K { k: 4i64 }; }
+    fn measure<E: Elem>(self: &Mm, e: &E) -> i64 { return e.val() + 100i64; }
+}
+
+fn main() -> i32 {
+    let mm: Mm = Mm;
+    if mm.algorithm() != 104i64 { return 1i32; }   // measure(seed())=4+100
+    return 0i32;
+}

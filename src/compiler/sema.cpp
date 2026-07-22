@@ -5914,6 +5914,25 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     // normalize `T::A` directly to V at resolution time (so annotations like
     // `fn f<T: Foo<A=i64>>(…) -> T::A` see the concrete type).
     if (auto norm = normalize_assoc_eq(result); norm != result) return norm;
+    // CONCRETE-base projection (`Mm::Item` in a monomorphized default method):
+    // normalize_assoc_eq only reduces TYPEVAR bases via equality bounds. When
+    // the base resolved to a concrete type, collapse the projection to its impl
+    // binding through the full resolver, so EVERY use site — let annotations,
+    // turbofish type-args, param/return types — sees the same normalized type.
+    // A still-generic (typevar/constvar base) projection is left untouched
+    // (subst_type_sema is a no-op there), and if no impl is registered yet the
+    // projection is returned unchanged. This is the CRTP shape: a base default's
+    // `Self::Item` typed by the derived impl's associated type.
+    // GAT projections (`Foo::View<S>`) are EXCLUDED: subst_type_sema resolves a
+    // GAT impl without re-checking the GAT param's declared bound (`S: Storage`),
+    // so eagerly collapsing one would swallow a bound violation (see
+    // fail/gat_bounds_violation). A plain associated type has no such arg-bound,
+    // so collapsing it is always sound.
+    if (TypeRef(result).gat_args().empty() &&
+        base_type && TypeRef(base_type).kind() != LogosType::Kind::TypeVar &&
+        TypeRef(base_type).kind() != LogosType::Kind::ConstVar) {
+        if (auto norm2 = subst_type_sema(result, {}); norm2 != result) return norm2;
+    }
     return result;
 }
 
