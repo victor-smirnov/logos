@@ -1,6 +1,6 @@
 // memoria.ctr.vec — Vector-v0: the wave-0 backing container for the
 // `container Vector` declaration (ADR 0020; design docs/design/
-// memoria-canon-wave0.md §g). ONE owned block + one FSE PkdArray slot —
+// memoria-canon-wave0.md §g). ONE owned block + one single-column PdtBuf slot —
 // enough substrate to close the item → facts → Canon verdicts → generated
 // rel-source → deem-query loop against real packed storage. The BtArena /
 // store-backed vector replaces this in a later wave.
@@ -11,7 +11,9 @@
 // (the pkd_arr idiom).
 package memoria.ctr.vec;
 
-use logos.mem.pkd;          // pkd_format, PkdAlloc, PkdArray, PkdError
+use logos.mem.pkd;          // pkd_format, PkdAlloc, PkdError
+use logos.mem.pkd.pdtbuf;   // PdtBuf — the element column (PkdArray retirement)
+use logos.mem.collections.vec;  // Vec — the two-phase cell carrier
 use logos.lang.mem;       // alloc / dealloc
 use logos.lang.result;
 use logos.std.wql.wql;               // native-source machinery for the projection
@@ -39,47 +41,82 @@ impl<T: Copy + Fst + StableLayout> VecCtr<T> {
         unsafe {
             let mem: *mut u8 = alloc(cap_bytes as i64);
             let a: *mut PkdAlloc = pkd_format(mem, cap_bytes, 1u32);
-            match PkdArray::<T>::format(a, 0u32) {
-                Result::Ok(_p) => {}
-                Result::Err(_e) => { assert(false, "VecCtr::new: format failed"); }
-            }
+            VecCtr::<T>::fmt_col(a);
             return VecCtr { mem: mem, cap: cap_bytes };
         }
     }
 
-    // Element-array view — re-resolved per call (never cached: block
+    // The element column: a single-column FSE PdtBuf whose cell width is
+    // sizeof::<T>() (T: Fst + StableLayout — a fixed-size cell). The u64
+    // cell↔T bridge reads/writes T through the cell's low bytes.
+    static unsafe fn fmt_col(a: *mut PkdAlloc) {
+        let d: PdtDescr = pdt_descr_fse(1u32, sizeof::<T>() as u32, PDT_ORD_UNORDERED, false);
+        let zero: Vec<u64> = pdt_payload_zero(&d);
+        let need: u32 = pdtbuf_compute_block_size(&d, 0u64, &zero);
+        let p: *mut u8 = match a.allocate(0u32, need, SlotKind::Allocatable) {
+            Result::Ok(q) => q,
+            Result::Err(_e) => { assert(false, "VecCtr: element slot"); return; }
+        };
+        let bsz: u32 = a.element_size(0u32);
+        match pdtbuf_format(p, bsz, &d) {
+            Result::Ok(_b) => {}
+            Result::Err(_e) => { assert(false, "VecCtr: element col format"); }
+        }
+        let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+        inner.set_allocator(a as *const PkdAlloc);
+    }
+
+    // Element-column view — re-resolved per call (never cached: block
     // contents shift on mutation; the block itself never moves).
-    fn arr(self: &VecCtr<T>) -> *mut PkdArray<T> {
+    fn vb(self: &VecCtr<T>) -> PdtBuf {
         unsafe {
             let a: *mut PkdAlloc = self.mem as *mut PkdAlloc;
-            return a.get::<PkdArray<T>>(0u32);
+            return pdtbuf_adopt(a.get::<u8>(0u32));
         }
     }
 
     pub fn count(self: &VecCtr<T>) -> i64 {
-        unsafe { return (*self.arr()).count() as i64; }
+        unsafe { return self.vb().size() as i64; }
     }
 
     pub fn get(self: &VecCtr<T>, i: i64) -> T {
-        unsafe { return (*self.arr()).get(i as u32); }
+        unsafe {
+            let cell: u64 = self.vb().get(0u32, i as u64);
+            return *((&cell) as *const u64 as *const T);
+        }
+    }
+
+    // One-element two-phase append; false when the block cannot take it.
+    fn try_push(self: &mut VecCtr<T>, v: T) -> bool {
+        unsafe {
+            let b: PdtBuf = self.vb();
+            let us: PdtUpdate = match b.prepare_insert(b.size(), 1u64, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => { return false; }
+            };
+            let a: *mut PkdAlloc = self.mem as *mut PkdAlloc;
+            if us.grow_bytes() > a.free_space() {
+                return false;
+            }
+            let mut cell: u64 = 0u64;
+            *((&mut cell) as *mut u64 as *mut T) = v;
+            let mut b2: PdtBuf = self.vb();
+            let mut row: Vec<u64> = vec_new::<u64>();
+            row.push(cell);
+            b2.commit_insert(&us, &row);
+            return true;
+        }
     }
 
     pub fn push(self: &mut VecCtr<T>, v: T) {
-        unsafe {
-            let xs: *mut PkdArray<T> = self.arr();
-            match xs.push(&v) {
-                Result::Ok(_u) => { return; }
-                Result::Err(_e) => {}
-            }
-            // Block full — grow, then retry once (the doubled block always
-            // admits one more element).
-            self.grow();
-            let xs2: *mut PkdArray<T> = self.arr();
-            match xs2.push(&v) {
-                Result::Ok(_u) => {}
-                Result::Err(_e) => { assert(false, "VecCtr::push: retry failed after grow"); }
-            }
+        if self.try_push(v) {
+            return;
         }
+        // Block full — grow, then retry once (the doubled block always
+        // admits one more element).
+        self.grow();
+        let ok: bool = self.try_push(v);
+        assert(ok, "VecCtr::push: retry failed after grow");
     }
 
     // v0 growth = rebuild: fresh 2× block, format, element copy through the
@@ -90,23 +127,24 @@ impl<T: Copy + Fst + StableLayout> VecCtr<T> {
             let new_cap: u32 = self.cap * 2u32;
             let nmem: *mut u8 = alloc(new_cap as i64);
             let na: *mut PkdAlloc = pkd_format(nmem, new_cap, 1u32);
-            let nxs: *mut PkdArray<T> = match PkdArray::<T>::format(na, 0u32) {
-                Result::Ok(p) => p,
-                Result::Err(_e) => {
-                    assert(false, "VecCtr::grow: format failed");
-                    return;
+            VecCtr::<T>::fmt_col(na);
+            // ONE two-phase bulk copy: all old cells into the fresh column.
+            let ob: PdtBuf = self.vb();
+            let n: u64 = ob.size();
+            if n > 0u64 {
+                let nb: PdtBuf = pdtbuf_adopt(na.get::<u8>(0u32));
+                let us: PdtUpdate = match nb.prepare_insert(0u64, n, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => { assert(false, "VecCtr::grow: copy prepare"); return; }
+                };
+                let mut cells: Vec<u64> = vec_new::<u64>();
+                let mut i: u64 = 0u64;
+                while i < n {
+                    cells.push(ob.get(0u32, i));
+                    i = i + 1u64;
                 }
-            };
-            let oxs: *mut PkdArray<T> = self.arr();
-            let n: u32 = (*oxs).count();
-            let mut i: u32 = 0u32;
-            while i < n {
-                let v: T = (*oxs).get(i);
-                match nxs.push(&v) {
-                    Result::Ok(_u) => {}
-                    Result::Err(_e) => { assert(false, "VecCtr::grow: copy overflow"); }
-                }
-                i = i + 1u32;
+                let mut nb2: PdtBuf = pdtbuf_adopt(na.get::<u8>(0u32));
+                nb2.commit_insert(&us, &cells);
             }
             dealloc(self.mem);
             self.mem = nmem;

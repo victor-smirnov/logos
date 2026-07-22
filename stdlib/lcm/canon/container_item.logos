@@ -713,13 +713,75 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     // the flavor blocks below (further `impl #nm`).
     let common: QuoteItemBlob = quote_item! {
         use logos.mem.pkd;
+        use logos.mem.pkd.pdtbuf;
+        use logos.lang.result;
+        use logos.mem.collections.vec;
         pub struct #nm { mem: *mut u8, cap: u32 }
         impl #nm {
             pub fn block(self: &#nm) -> *mut u8 { return self.mem; }
-            unsafe fn kc(self: &#nm) -> *mut PkdArray<#(kid)> { return self.a().get::<PkdArray<#(kid)>>(0u32); }
-            unsafe fn vc(self: &#nm) -> *mut PkdArray<#(vid)> { return self.a().get::<PkdArray<#(vid)>>(1u32); }
-            pub fn count(self: &#nm) -> u32 { return unsafe { (*self.kc()).count() }; }
-            pub fn key_at(self: &#nm, i: u32) -> #(kid) { return unsafe { (*self.kc()).get(i) }; }
+            // Columns are single-column PdtBufs (the PkdArray retirement):
+            // keys MAX-ordered FSE64; vals FSE64 or VLE per the Canon verdict
+            // (the descriptor is stored in the block — self-describing).
+            unsafe fn kc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(0u32)); }
+            unsafe fn vc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(1u32)); }
+            // Format slot `slot` as a single-column PdtBuf at the capacity-0
+            // geometry, wired to the node allocator (nested-block discipline).
+            static unsafe fn fmt_slot(a: *mut PkdAlloc, slot: u32, vle: bool, ordered: bool) {
+                let mut ord: u32 = PDT_ORD_UNORDERED;
+                if ordered {
+                    ord = PDT_ORD_MAX;
+                }
+                let mut d: PdtDescr = pdt_descr_new(1u32, ord, false);
+                if vle {
+                    d.dims.push(pdt_dim_vle(1u32));
+                } else {
+                    d.dims.push(pdt_dim_fse(8u32));
+                }
+                let zero: Vec<u64> = pdt_payload_zero(&d);
+                let need: u32 = pdtbuf_compute_block_size(&d, 0u64, &zero);
+                let p: *mut u8 = match a.allocate(slot, need, SlotKind::Allocatable) {
+                    Result::Ok(q) => q,
+                    Result::Err(_e) => { assert(false, "leaf col slot"); return; }
+                };
+                let bsz: u32 = a.element_size(slot);
+                match pdtbuf_format(p, bsz, &d) {
+                    Result::Ok(_b) => {}
+                    Result::Err(_e) => { assert(false, "leaf col fmt"); }
+                }
+                let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+                inner.set_allocator(a as *const PkdAlloc);
+            }
+            // Two-phase column split at `at` — VLE columns reserve the moving
+            // payload bytes through the right side's own chain.
+            unsafe fn split_col(self: &#nm, dst: &#nm, slot: u32, at: u32) {
+                let mut lb: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
+                let n: u64 = lb.size();
+                let mut rb: PdtBuf = pdtbuf_adopt(dst.a().get::<u8>(slot));
+                if rb.vle_dim_count() > 0u32 {
+                    let moving: u64 = lb.payload_used(0u32, 0u32)
+                                    - lb.row_offset(0u32, 0u32, at as u64);
+                    let mut pay: Vec<u64> = vec_new::<u64>();
+                    pay.push(moving);
+                    match rb.reserve_geom(n - (at as u64), &pay) {
+                        Result::Ok(_u) => {}
+                        Result::Err(_e) => { assert(false, "leaf split reserve"); }
+                    }
+                } else {
+                    match rb.reserve(n - (at as u64)) {
+                        Result::Ok(_u) => {}
+                        Result::Err(_e) => { assert(false, "leaf split reserve"); }
+                    }
+                }
+                let mut lb2: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
+                let mut rb2: PdtBuf = pdtbuf_adopt(dst.a().get::<u8>(slot));
+                let sp: PdtSplit = match lb2.prepare_split_to(&rb2, at as u64, PDT_CAP_KEEP) {
+                    Result::Ok(x) => x,
+                    Result::Err(_e) => { assert(false, "leaf split prepare"); return; }
+                };
+                lb2.commit_split_to(&mut rb2, &sp);
+            }
+            pub fn count(self: &#nm) -> u32 { return unsafe { self.kc().size() as u32 }; }
+            pub fn key_at(self: &#nm, i: u32) -> #(kid) { return unsafe { self.kc().get(0u32, i as u64) as #(kid) }; }
             pub fn lower_bound(self: &#nm, key: #(kid)) -> u32 {
                 let n: u32 = self.count();
                 let mut i: u32 = 0u32;
@@ -733,8 +795,8 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             pub fn split_into(self: &mut #nm, dst: &mut #nm) {
                 let at: u32 = self.split_index();
                 unsafe {
-                    let _ = (*self.kc()).split_into(&mut *dst.kc(), at);
-                    let _ = (*self.vc()).split_into(&mut *dst.vc(), at);
+                    self.split_col(&*dst, 0u32, at);
+                    self.split_col(&*dst, 1u32, at);
                 }
             }
         }
@@ -748,47 +810,109 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
         // remove+insert (VLE has no set); split_index is byte-volume-balanced.
         let vb: QuoteItemBlob = quote_item! {
             use logos.mem.pkd;
+            use logos.mem.pkd.pdtbuf;
             use logos.lang.result;
             use logos.lang.str;
+            use logos.lang.slice;
+            use logos.mem.collections.vec;
             impl #nm {
-                pub fn val_at(self: &#nm, i: u32) -> &[u8] { return unsafe { (*self.vc()).get_bytes(i) }; }
+                pub fn val_at(self: &#nm, i: u32) -> &[u8] {
+                    unsafe {
+                        let b: PdtBuf = self.vc();
+                        let off: u64 = b.row_offset(0u32, 0u32, i as u64);
+                        let len: u64 = b.row_len(0u32, 0u32, i as u64);
+                        return slice_from_raw::<u8>(b.payload(0u32, 0u32).byte_add(off as i64),
+                                                    len as i64);
+                    }
+                }
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     let vlen: u32 = val.len() as u32;
                     if 8u32 + vlen > 1024u32 {
                         return false;
                     }
                     unsafe {
+                        let mut pv: PdtVals = pdt_vals_new();
+                        pv.push_span(slice_from_raw::<u8>(val.as_ptr(), val.len()));
                         let pos: u32 = self.lower_bound(key);
                         let hit: bool = pos < self.count() && self.key_at(pos) == key;
                         if hit {
-                            let old: u32 = (*self.vc()).volume_upto(pos + 1u32) - (*self.vc()).volume_upto(pos);
-                            let grow: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);
-                            let need: u32 = if grow > old { grow - old } else { 0u32 };
-                            if need > self.a().free_space() {
-                                return false;
+                            // Price the replacement on the PRE-remove state —
+                            // conservative (>= the post-remove need), so the
+                            // commit after the remove cannot fail (no
+                            // value-lost partial state).
+                            {
+                                let vb0: PdtBuf = self.vc();
+                                let ui: PdtUpdate = match vb0.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &pv) {
+                                    Result::Ok(u) => u,
+                                    Result::Err(_e) => { return false; }
+                                };
+                                if ui.grow_bytes() > self.a().free_space() {
+                                    return false;
+                                }
                             }
-                            (*self.vc()).remove(pos);
-                            match (*self.vc()).insert(pos, val) { 
-                                Result::Ok(_u) => {} 
-                                Result::Err(_e) => { return false; } 
+                            {
+                                let vb1: PdtBuf = self.vc();
+                                let ur: PdtUpdate = match vb1.prepare_remove(pos as u64, (pos as u64) + 1u64, PDT_CAP_KEEP) {
+                                    Result::Ok(u) => u,
+                                    Result::Err(_e) => { return false; }
+                                };
+                                let mut vb2: PdtBuf = self.vc();
+                                vb2.commit_remove(&ur);
+                            }
+                            {
+                                let vb3: PdtBuf = self.vc();
+                                let ui2: PdtUpdate = match vb3.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &pv) {
+                                    Result::Ok(u) => u,
+                                    Result::Err(_e) => { assert(false, "priced VLE replace failed"); return false; }
+                                };
+                                let mut vb4: PdtBuf = self.vc();
+                                vb4.commit_insert_vals(&ui2, &pv);
                             }
                             return true;
                         }
-                        let dk: u32 = (*self.kc()).estimate_insert(8u32) - self.a().element_size(0u32);
-                        let dv: u32 = (*self.vc()).estimate_insert(vlen) - self.a().element_size(1u32);
+                        // exact two-phase pricing: both grows from the one block
+                        let dk: u32 = {
+                            let kb: PdtBuf = self.kc();
+                            match kb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+                                Result::Ok(u) => u.grow_bytes(),
+                                Result::Err(_e) => { return false; }
+                            }
+                        };
+                        let dv: u32 = {
+                            let vb5: PdtBuf = self.vc();
+                            match vb5.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &pv) {
+                                Result::Ok(u) => u.grow_bytes(),
+                                Result::Err(_e) => { return false; }
+                            }
+                        };
                         if dk + dv > self.a().free_space() {
                             return false;
                         }
-                        match (*self.kc()).insert(pos, &key) { 
-                            Result::Ok(_u) => {} 
-                            Result::Err(_e) => { return false; } 
+                        {
+                            let kb2: PdtBuf = self.kc();
+                            let uk: PdtUpdate = match kb2.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+                                Result::Ok(u) => u,
+                                Result::Err(_e) => { assert(false, "priced key insert failed"); return false; }
+                            };
+                            let mut kb3: PdtBuf = self.kc();
+                            let mut kr: Vec<u64> = vec_new::<u64>();
+                            kr.push(key as u64);
+                            kb3.commit_insert(&uk, &kr);
                         }
-                        match (*self.vc()).insert(pos, val) { 
-                            Result::Ok(_u) => {} 
-                            Result::Err(_e) => { return false; } 
+                        {
+                            let vb6: PdtBuf = self.vc();
+                            let uv: PdtUpdate = match vb6.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &pv) {
+                                Result::Ok(u) => u,
+                                Result::Err(_e) => { assert(false, "priced VLE insert failed"); return false; }
+                            };
+                            let mut vb7: PdtBuf = self.vc();
+                            vb7.commit_insert_vals(&uv, &pv);
                         }
                         return true;
                     }
+                }
+                static unsafe fn fmt_vc(a: *mut PkdAlloc) {
+                    #nm::fmt_slot(a, 1u32, true, false);
                 }
                 /// Split index: VOLUME-balanced — the Canon verdict for a VLE-column node.
                 pub fn split_index(self: &#nm) -> u32 {
@@ -797,14 +921,15 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         return n;
                     }
                     unsafe {
-                        let total: u32 = (*self.kc()).volume_upto(n) + (*self.vc()).volume_upto(n);
+                        let vb8: PdtBuf = self.vc();
+                        let total: u32 = n * 8u32 + (vb8.row_offset(0u32, 0u32, n as u64) as u32);
                         let half: u32 = total / 2u32;
                         let mut lo: u32 = 1u32;
                         let mut hi: u32 = n - 1u32;
                         let mut at: u32 = 1u32;
                         while lo <= hi {
                             let mid: u32 = lo + (hi - lo) / 2u32;
-                            let cv: u32 = (*self.kc()).volume_upto(mid) + (*self.vc()).volume_upto(mid);
+                            let cv: u32 = mid * 8u32 + (vb8.row_offset(0u32, 0u32, mid as u64) as u32);
                             if cv <= half { 
                                 at = mid; lo = mid + 1u32; 
                             } else { 
@@ -825,37 +950,88 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
         // split_index is count-balanced.
         let vb: QuoteItemBlob = quote_item! {
             use logos.mem.pkd;
+            use logos.mem.pkd.pdtbuf;
             use logos.lang.result;
+            use logos.mem.collections.vec;
             impl #nm {
-                pub fn val_at(self: &#nm, i: u32) -> #(vid) { return unsafe { (*self.vc()).get(i) }; }
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     unsafe {
                         let pos: u32 = self.lower_bound(key);
                         if pos < self.count() && self.key_at(pos) == key {
-                            (*self.vc()).set(pos, val);
+                            let mut vbs: PdtBuf = self.vc();
+                            vbs.set(0u32, pos as u64, val as u64);
                             return true;
                         }
-                        let dk: u32 = (*self.kc()).estimate_insert(0u32) - self.a().element_size(0u32);
-                        let dv: u32 = (*self.vc()).estimate_insert(0u32) - self.a().element_size(1u32);
+                        // exact two-phase pricing: both grows from the one block
+                        let dk: u32 = {
+                            let kb: PdtBuf = self.kc();
+                            match kb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+                                Result::Ok(u) => u.grow_bytes(),
+                                Result::Err(_e) => { return false; }
+                            }
+                        };
+                        let dv: u32 = {
+                            let vb0: PdtBuf = self.vc();
+                            match vb0.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+                                Result::Ok(u) => u.grow_bytes(),
+                                Result::Err(_e) => { return false; }
+                            }
+                        };
                         if dk + dv > self.a().free_space() {
                             return false;
                         }
-                        match (*self.kc()).insert(pos, &key) { 
-                            Result::Ok(_u) => {} 
-                            Result::Err(_e) => { return false; } 
+                        {
+                            let kb2: PdtBuf = self.kc();
+                            let uk: PdtUpdate = match kb2.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+                                Result::Ok(u) => u,
+                                Result::Err(_e) => { assert(false, "priced key insert failed"); return false; }
+                            };
+                            let mut kb3: PdtBuf = self.kc();
+                            let mut kr: Vec<u64> = vec_new::<u64>();
+                            kr.push(key as u64);
+                            kb3.commit_insert(&uk, &kr);
                         }
-                        match (*self.vc()).insert(pos, &val) { 
-                            Result::Ok(_u) => {} 
-                            Result::Err(_e) => { return false; } 
+                        {
+                            let vb1: PdtBuf = self.vc();
+                            let uv: PdtUpdate = match vb1.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+                                Result::Ok(u) => u,
+                                Result::Err(_e) => { assert(false, "priced val insert failed"); return false; }
+                            };
+                            let mut vb2: PdtBuf = self.vc();
+                            let mut vr: Vec<u64> = vec_new::<u64>();
+                            vr.push(val as u64);
+                            vb2.commit_insert(&uv, &vr);
                         }
                         return true;
                     }
+                }
+                static unsafe fn fmt_vc(a: *mut PkdAlloc) {
+                    #nm::fmt_slot(a, 1u32, false, false);
                 }
                 /// Split index: FAST (count-balanced) — the Canon verdict for an all-FSE node.
                 pub fn split_index(self: &#nm) -> u32 { return self.count() / 2u32; }
             }
         };
         unsafe { logos_emit_item_blob_subst(&vb); }
+        // val_at: the FSE cell is u64; the read-back depends on the value
+        // TYPE — bool admits no `as` from an integer (read via != 0).
+        if str_eq(vty, "bool") {
+            let vv: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd.pdtbuf;
+                impl #nm {
+                    pub fn val_at(self: &#nm, i: u32) -> #(vid) { return unsafe { self.vc().get(0u32, i as u64) != 0u64 }; }
+                }
+            };
+            unsafe { logos_emit_item_blob_subst(&vv); }
+        } else {
+            let vv: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd.pdtbuf;
+                impl #nm {
+                    pub fn val_at(self: &#nm, i: u32) -> #(vid) { return unsafe { self.vc().get(0u32, i as u64) as #(vid) }; }
+                }
+            };
+            unsafe { logos_emit_item_blob_subst(&vv); }
+        }
     }
 
     // new / adopt / free / a — CoW (node header) vs PLAIN pkd. CoW also emits
@@ -873,14 +1049,8 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = node_alloc(4096u32, 2u32, snp);
                         let a: *mut PkdAlloc = node_pkd(base);
-                        match PkdArray::<#(kid)>::format(a, 0u32) { 
-                            Result::Ok(_p) => {} 
-                            Result::Err(_e) => { assert(false, "key col"); } 
-                        }
-                        match PkdArray::<#(vid)>::format(a, 1u32) { 
-                            Result::Ok(_p) => {} 
-                            Result::Err(_e) => { assert(false, "val col"); } 
-                        }
+                        #nm::fmt_slot(a, 0u32, false, true);
+                        #nm::fmt_vc(a);
                         return #nm { mem: base, cap: 4096u32 };
                     }
                 }
@@ -948,14 +1118,8 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = alloc(4096i64);
                         let a: *mut PkdAlloc = pkd_format(base, 4096u32, 2u32);
-                        match PkdArray::<#(kid)>::format(a, 0u32) { 
-                            Result::Ok(_p) => {} 
-                            Result::Err(_e) => { assert(false, "key col"); } 
-                        }
-                        match PkdArray::<#(vid)>::format(a, 1u32) { 
-                            Result::Ok(_p) => {} 
-                            Result::Err(_e) => { assert(false, "val col"); } 
-                        }
+                        #nm::fmt_slot(a, 0u32, false, true);
+                        #nm::fmt_vc(a);
                         return #nm { mem: base, cap: 4096u32 };
                     }
                 }
@@ -999,14 +1163,62 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
         pub struct #nm { mem: *mut u8, cap: u32 }
         impl #nm {
             pub fn block(self: &#nm) -> *mut u8 { return self.mem; }
-            unsafe fn sep(self: &#nm) -> *mut PkdArray<#(kid)> { return self.a().get::<PkdArray<#(kid)>>(0u32); }
-            unsafe fn szc(self: &#nm) -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(1u32); }
-            // The child-ptr column is a single-column FSE64 PdtBuf — the
-            // uniform release-walk contract (the PkdArray retirement).
+            // All three columns are single-column FSE64 PdtBufs (the PkdArray
+            // retirement); slot 2 is the uniform release-walk child column.
+            unsafe fn sep(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(0u32)); }
+            unsafe fn szc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(1u32)); }
             unsafe fn ptrc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(2u32)); }
-            pub fn child_count(self: &#nm) -> u32 { return unsafe { (*self.sep()).count() }; }
-            pub fn sep_at(self: &#nm, i: u32) -> #(kid) { return unsafe { (*self.sep()).get(i) }; }
-            pub fn size_at(self: &#nm, i: u32) -> u64 { return unsafe { (*self.szc()).get(i) }; }
+            static unsafe fn fmt_col(a: *mut PkdAlloc, slot: u32, ordered: bool) {
+                let mut ord: u32 = PDT_ORD_UNORDERED;
+                if ordered {
+                    ord = PDT_ORD_MAX;
+                }
+                let d: PdtDescr = pdt_descr_fse(1u32, 8u32, ord, false);
+                let zero: Vec<u64> = pdt_payload_zero(&d);
+                let need: u32 = pdtbuf_compute_block_size(&d, 0u64, &zero);
+                let p: *mut u8 = match a.allocate(slot, need, SlotKind::Allocatable) {
+                    Result::Ok(q) => q,
+                    Result::Err(_e) => { assert(false, "branch col slot"); return; }
+                };
+                let bsz: u32 = a.element_size(slot);
+                match pdtbuf_format(p, bsz, &d) {
+                    Result::Ok(_b) => {}
+                    Result::Err(_e) => { assert(false, "branch col fmt"); }
+                }
+                let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+                inner.set_allocator(a as *const PkdAlloc);
+            }
+            // One-cell two-phase append/insert (priced by the caller).
+            unsafe fn put_cell(self: &#nm, slot: u32, pos: u32, v: u64) {
+                let b: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
+                let us: PdtUpdate = match b.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => { assert(false, "branch cell prepare"); return; }
+                };
+                let mut b2: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
+                let mut row: Vec<u64> = vec_new::<u64>();
+                row.push(v);
+                b2.commit_insert(&us, &row);
+            }
+            unsafe fn split_col(self: &#nm, dst: &#nm, slot: u32, at: u32) {
+                let mut lb: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
+                let n: u64 = lb.size();
+                let mut rb: PdtBuf = pdtbuf_adopt(dst.a().get::<u8>(slot));
+                match rb.reserve(n - (at as u64)) {
+                    Result::Ok(_u) => {}
+                    Result::Err(_e) => { assert(false, "branch split reserve"); }
+                }
+                let mut lb2: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
+                let mut rb2: PdtBuf = pdtbuf_adopt(dst.a().get::<u8>(slot));
+                let sp: PdtSplit = match lb2.prepare_split_to(&rb2, at as u64, PDT_CAP_KEEP) {
+                    Result::Ok(x) => x,
+                    Result::Err(_e) => { assert(false, "branch split prepare"); return; }
+                };
+                lb2.commit_split_to(&mut rb2, &sp);
+            }
+            pub fn child_count(self: &#nm) -> u32 { return unsafe { self.sep().size() as u32 }; }
+            pub fn sep_at(self: &#nm, i: u32) -> #(kid) { return unsafe { self.sep().get(0u32, i as u64) as #(kid) }; }
+            pub fn size_at(self: &#nm, i: u32) -> u64 { return unsafe { self.szc().get(0u32, i as u64) }; }
             pub fn child_addr(self: &#nm, i: u32) -> *mut u8 { return unsafe { self.ptrc().get(0u32, i as u64) as *mut u8 }; }
             pub fn set_child_addr(self: &mut #nm, i: u32, ptr: *mut u8) {
                 unsafe {
@@ -1063,79 +1275,50 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
             }
             pub fn push_child(self: &mut #nm, sep: #(kid), sz: u64, ptr: *mut u8) {
                 unsafe {
-                    let p: u64 = ptr as u64;
-                    let _ = (*self.sep()).push(&sep);
-                    let _ = (*self.szc()).push(&sz);
-                    {
-                        let cb: PdtBuf = self.ptrc();
-                        let us: PdtUpdate = match cb.prepare_insert(cb.size(), 1u64, PDT_CAP_KEEP) {
-                            Result::Ok(u) => u,
-                            Result::Err(_e) => { assert(false, "branch ptr push prepare"); return; }
-                        };
-                        let mut cb2: PdtBuf = self.ptrc();
-                        let mut row: Vec<u64> = vec_new::<u64>();
-                        row.push(p);
-                        cb2.commit_insert(&us, &row);
-                    }
+                    let n: u32 = self.child_count();
+                    self.put_cell(0u32, n, sep as u64);
+                    self.put_cell(1u32, n, sz);
+                    self.put_cell(2u32, n, ptr as u64);
                 }
             }
             pub fn insert_child(self: &mut #nm, pos: u32, sep: #(kid), sz: u64, ptr: *mut u8) {
                 unsafe {
-                    let p: u64 = ptr as u64;
-                    let _ = (*self.sep()).insert(pos, &sep);
-                    let _ = (*self.szc()).insert(pos, &sz);
-                    {
-                        let cb: PdtBuf = self.ptrc();
-                        let us: PdtUpdate = match cb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
-                            Result::Ok(u) => u,
-                            Result::Err(_e) => { assert(false, "branch ptr insert prepare"); return; }
-                        };
-                        let mut cb2: PdtBuf = self.ptrc();
-                        let mut row: Vec<u64> = vec_new::<u64>();
-                        row.push(p);
-                        cb2.commit_insert(&us, &row);
-                    }
+                    self.put_cell(0u32, pos, sep as u64);
+                    self.put_cell(1u32, pos, sz);
+                    self.put_cell(2u32, pos, ptr as u64);
                 }
             }
             pub fn update_child(self: &mut #nm, i: u32, sep: #(kid), sz: u64) {
                 unsafe {
-                    (*self.sep()).set(i, sep);
-                    (*self.szc()).set(i, sz);
+                    let mut sb: PdtBuf = self.sep();
+                    sb.set(0u32, i as u64, sep as u64);
+                    let mut zb: PdtBuf = self.szc();
+                    zb.set(0u32, i as u64, sz);
                 }
             }
             pub fn can_insert_child(self: &#nm) -> bool {
                 unsafe {
-                    let d0: u32 = (*self.sep()).estimate_insert(8u32) - self.a().element_size(0u32);
-                    let d1: u32 = (*self.szc()).estimate_insert(8u32) - self.a().element_size(1u32);
-                    let cb: PdtBuf = self.ptrc();
-                    let d2: u32 = match cb.prepare_insert(cb.size(), 1u64, PDT_CAP_KEEP) {
-                        Result::Ok(u) => u.grow_bytes(),
-                        Result::Err(_e) => { return false; }
-                    };
-                    return d0 + d1 + d2 <= self.a().free_space();
+                    // exact: all three grows priced by the prepares that commit
+                    let mut total: u32 = 0u32;
+                    let mut c: u32 = 0u32;
+                    while c < 3u32 {
+                        let b: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(c));
+                        let us: PdtUpdate = match b.prepare_insert(b.size(), 1u64, PDT_CAP_KEEP) {
+                            Result::Ok(u) => u,
+                            Result::Err(_e) => { return false; }
+                        };
+                        total = total + us.grow_bytes();
+                        c = c + 1u32;
+                    }
+                    return total <= self.a().free_space();
                 }
             }
             pub fn split_into(self: &mut #nm, dst: &mut #nm) -> #(kid) {
                 let at: u32 = self.child_count() / 2u32;
                 unsafe {
-                    let _ = (*self.sep()).split_into(&mut *dst.sep(), at);
-                    let _ = (*self.szc()).split_into(&mut *dst.szc(), at);
-                    {
-                        let mut lc: PdtBuf = self.ptrc();
-                        let cn: u64 = lc.size();
-                        let mut rc: PdtBuf = dst.ptrc();
-                        match rc.reserve(cn - (at as u64)) {
-                            Result::Ok(_u) => {}
-                            Result::Err(_e) => { assert(false, "branch ptr split reserve"); }
-                        }
-                        let mut lc2: PdtBuf = self.ptrc();
-                        let mut rc2: PdtBuf = dst.ptrc();
-                        let sp: PdtSplit = match lc2.prepare_split_to(&rc2, at as u64, PDT_CAP_KEEP) {
-                            Result::Ok(x) => x,
-                            Result::Err(_e) => { assert(false, "branch ptr split prepare"); return self.max_sep(); }
-                        };
-                        lc2.commit_split_to(&mut rc2, &sp);
-                    }
+                    self.split_col(&*dst, 0u32, at);
+                    self.split_col(&*dst, 1u32, at);
+                    self.split_col(&*dst, 2u32, at);
                 }
                 return self.max_sep();
             }
@@ -1162,30 +1345,9 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                         // convention.
                         node_set_child_slot(base, 2u32);
                         let a: *mut PkdAlloc = node_pkd(base);
-                        match PkdArray::<#(kid)>::format(a, 0u32) {
-                            Result::Ok(_p) => {}
-                            Result::Err(_e) => { assert(false, "sep col"); }
-                        }
-                        match PkdArray::<u64>::format(a, 1u32) {
-                            Result::Ok(_p) => {}
-                            Result::Err(_e) => { assert(false, "sz col"); }
-                        }
-                        {
-                            let cd: PdtDescr = pdt_descr_fse(1u32, 8u32, PDT_ORD_UNORDERED, false);
-                            let zero: Vec<u64> = pdt_payload_zero(&cd);
-                            let need: u32 = pdtbuf_compute_block_size(&cd, 0u64, &zero);
-                            let cp: *mut u8 = match a.allocate(2u32, need, SlotKind::Allocatable) {
-                                Result::Ok(q) => q,
-                                Result::Err(_e) => { assert(false, "ptr col slot"); return #nm { mem: base, cap: 4096u32 }; }
-                            };
-                            let cbs: u32 = a.element_size(2u32);
-                            match pdtbuf_format(cp, cbs, &cd) {
-                                Result::Ok(_b) => {}
-                                Result::Err(_e) => { assert(false, "ptr col"); }
-                            }
-                            let cin: *mut PkdAlloc = cp as *mut PkdAlloc;
-                            cin.set_allocator(a as *const PkdAlloc);
-                        }
+                        #nm::fmt_col(a, 0u32, true);
+                        #nm::fmt_col(a, 1u32, false);
+                        #nm::fmt_col(a, 2u32, false);
                         return #nm { mem: base, cap: 4096u32 };
                     }
                 }
@@ -1226,30 +1388,9 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                     unsafe {
                         let base: *mut u8 = alloc(4096i64);
                         let a: *mut PkdAlloc = pkd_format(base, 4096u32, 3u32);
-                        match PkdArray::<#(kid)>::format(a, 0u32) {
-                            Result::Ok(_p) => {}
-                            Result::Err(_e) => { assert(false, "sep col"); }
-                        }
-                        match PkdArray::<u64>::format(a, 1u32) {
-                            Result::Ok(_p) => {}
-                            Result::Err(_e) => { assert(false, "sz col"); }
-                        }
-                        {
-                            let cd: PdtDescr = pdt_descr_fse(1u32, 8u32, PDT_ORD_UNORDERED, false);
-                            let zero: Vec<u64> = pdt_payload_zero(&cd);
-                            let need: u32 = pdtbuf_compute_block_size(&cd, 0u64, &zero);
-                            let cp: *mut u8 = match a.allocate(2u32, need, SlotKind::Allocatable) {
-                                Result::Ok(q) => q,
-                                Result::Err(_e) => { assert(false, "ptr col slot"); return #nm { mem: base, cap: 4096u32 }; }
-                            };
-                            let cbs: u32 = a.element_size(2u32);
-                            match pdtbuf_format(cp, cbs, &cd) {
-                                Result::Ok(_b) => {}
-                                Result::Err(_e) => { assert(false, "ptr col"); }
-                            }
-                            let cin: *mut PkdAlloc = cp as *mut PkdAlloc;
-                            cin.set_allocator(a as *const PkdAlloc);
-                        }
+                        #nm::fmt_col(a, 0u32, true);
+                        #nm::fmt_col(a, 1u32, false);
+                        #nm::fmt_col(a, 2u32, false);
                         return #nm { mem: base, cap: 4096u32 };
                     }
                 }

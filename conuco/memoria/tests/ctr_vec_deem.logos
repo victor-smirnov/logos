@@ -21,9 +21,10 @@ pub deem big(v: &VecCtr<u64>) {
 }
 
 fn run_all() -> i32 {
-    // 96-byte block: small enough that 16 u64 pushes force grow() at least
+    // 240-byte block: the PdtBuf element column's empty geometry (~130B)
+    // leaves under 16 cells of room, so 16 u64 pushes force grow() at least
     // once — the deem scan below reads the REBUILT block.
-    let mut c: VecCtr<u64> = VecCtr::new(96u32);
+    let mut c: VecCtr<u64> = VecCtr::new(240u32);
     let mut i: i64 = 0i64;
     while i < 16i64 {
         // values 10,20,…,160 — rows above 100: (10,110)…(15,160)
