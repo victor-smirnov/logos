@@ -4654,10 +4654,21 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     continue;  // explicitly supplied, keep
                 auto it = bindings.find(fi.type_params[i].name);
                 if (it == bindings.end()) {
-                    error(std::format("call to '{}': could not infer type arg '{}' "
-                          "from arguments — supply via turbofish",
-                          callee_diag, fi.type_params[i].name));
-                    return error_expr();
+                    // Default type-argument fallback (Rust parity, matching the
+                    // struct path in resolve_generic_struct): an unsupplied +
+                    // uninferred param that declares a default `<P = Default>`
+                    // uses it, substituting already-bound args (a default may
+                    // reference an earlier param, `<T, U = T>`).
+                    if (fi.type_params[i].default_type) {
+                        bindings[fi.type_params[i].name] =
+                            subst_type_sema(fi.type_params[i].default_type, bindings);
+                        it = bindings.find(fi.type_params[i].name);
+                    } else {
+                        error(std::format("call to '{}': could not infer type arg '{}' "
+                              "from arguments — supply via turbofish",
+                              callee_diag, fi.type_params[i].name));
+                        return error_expr();
+                    }
                 }
                 if (i < type_args.size()) type_args[i] = it->second;  // fill hole
                 else                      type_args.push_back(it->second);  // tail

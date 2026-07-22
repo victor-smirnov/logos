@@ -1,0 +1,22 @@
+// Default type arguments on FUNCTIONS (Rust parity). The struct path already
+// filled trailing params from `<T, U = Default>`; this pins the same for
+// generic fns — an unsupplied + uninferred param falls back to its default,
+// including a default that references an earlier param (`<T, U = T>`).
+package default_type_param_fn;
+
+trait Prof { fn tag() -> i64; }
+struct A;
+struct B;
+impl Prof for A { fn tag() -> i64 { return 1i64; } }
+impl Prof for B { fn tag() -> i64 { return 2i64; } }
+
+fn make<const N: u32, P: Prof = A>() -> i64 { return P::tag() + (N as i64); }
+fn pair<T: Prof, U: Prof = T>() -> i64 { return T::tag() * 10i64 + U::tag(); }
+
+fn main() -> i32 {
+    if make::<5>()    != 6i64  { return 1i32; }   // default P = A → 1 + 5
+    if make::<5, B>() != 7i64  { return 2i32; }   // explicit B    → 2 + 5
+    if pair::<B>()    != 22i64 { return 3i32; }   // U defaults to T = B → 22
+    if pair::<B, A>() != 21i64 { return 4i32; }   // explicit U = A      → 21
+    return 0i32;
+}
