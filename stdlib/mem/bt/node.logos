@@ -3,13 +3,16 @@
 // NodeBase, adapted to raw blocks: the refcount that lives in Arc's control
 // block there is INTRUSIVE here (no Arc over raw blocks).
 //
-// The node block IS the DST struct `MemNode` below: the CoW header fields, then
-// `alc` — the [u8]-tailed PkdAlloc column region — as the trailing unsized
-// field. `#[self_describing]` keeps every node pointer THIN (the tail length is
-// in-band via alc). The block HANDLE stays a raw `*mut u8` — the node currency
-// shared across btfl / memstore / the Canon-generated CoW nodes — and each
-// accessor reaches the fields and the allocator through the struct, so there
-// are no hand-counted byte offsets (the header size is offset_of!(MemNode, alc)).
+// The node block IS the DST struct `MemNode` below: the CoW header fields (incl.
+// the total block_size), then `alc` — the [u8]-tailed PkdAlloc column region —
+// as the trailing unsized field. `#[self_describing]` keeps every node pointer
+// THIN (the tail length is the header's block_size − sizeof — no allocator
+// access). A node is allocated by TOTAL size (`node_alloc(block_size, …)` — you
+// ask for the 4K you want); the header is carved from the front and the
+// allocator region gets the rest. The block HANDLE stays a raw `*mut u8` — the
+// node currency shared across btfl / memstore / the Canon-generated CoW nodes —
+// and each accessor reaches the fields and the allocator through the struct, so
+// there are no hand-counted byte offsets (the header size is offset_of!(MemNode, alc)).
 package logos.mem.bt.node;
 
 use logos.mem.pkd;          // PkdAlloc, pkd_format
@@ -38,30 +41,50 @@ struct MemNode {
     // a container lay its branch columns out freely while tree_release stays
     // container-agnostic.
     child_slot: u32,
+    // The TOTAL node block size (the whole DST footprint, header + allocator
+    // region). Stored here so the node's extent — and thus its DST length /
+    // fat-pointer metadata — is a plain header read, needing neither the
+    // allocator to be formatted nor a reach into the tail (Memoria's
+    // Header::memory_block_size()). Typed u64 (not u32) so the fixed header is
+    // 24 bytes = a multiple of 8, which lands the trailing PkdAlloc on an
+    // 8-byte boundary (it is 8-aligned wherever a #[repr(align)] would put it;
+    // a u32 here would size the header at 20 and 4-align the allocator).
+    block_size: u64,
     // The column region — the DST tail (allocator_).
     alc:        PkdAlloc,
 }
 
 impl SelfDescribing for MemNode {
-    fn dst_len(self: *const MemNode) -> i64 { return unsafe { (*self).alc.dst_len() }; }
+    // The unsized tail spans everything past the fixed header — read straight
+    // off block_size, no allocator access.
+    fn dst_len(self: *const MemNode) -> i64 {
+        return unsafe { ((*self).block_size as i64) - (sizeof::<MemNode>() as i64) };
+    }
 }
 
 // The block handle as the typed node (the arithmetic is the compiler's, via
 // the struct layout — never a hand-counted offset).
 unsafe fn mn(base: *mut u8) -> *mut MemNode { return base as *mut MemNode; }
 
-/// Allocates a node block: the MemNode header + a `pkd_bytes` PkdAlloc region of
-/// `nslots` slots. Stamps snap = `snp`, rc = 1, formats the region. Returns the
-/// block base; the caller formats each column slot on node_pkd(base).
-pub unsafe fn node_alloc(pkd_bytes: u32, nslots: u32, snp: u64) -> *mut u8 {
-    let base: *mut u8 = alloc(offset_of!(MemNode, alc) + (pkd_bytes as i64));
+/// Allocates a node block of `block_size` bytes TOTAL (the whole node — you ask
+/// for the size you want, e.g. 4096). The MemNode header is carved from the
+/// front; the PkdAlloc region gets the rest (`block_size − header`) with
+/// `nslots` slots. Stamps block_size, snap = `snp`, rc = 1, formats the region.
+/// Returns the block base; the caller formats each column slot on node_pkd(base).
+pub unsafe fn node_alloc(block_size: u32, nslots: u32, snp: u64) -> *mut u8 {
+    let base: *mut u8 = alloc(block_size as i64);
     let n: *mut MemNode = mn(base);
+    (*n).block_size = block_size as u64;
     (*n).snap = snp;
     (*n).rc = 1u32;
     (*n).child_slot = NODE_NO_CHILDREN;   // childless until declared
-    let _ = pkd_format(node_pkd(base) as *mut u8, pkd_bytes, nslots);
+    let region: u32 = block_size - (offset_of!(MemNode, alc) as u32);
+    let _ = pkd_format(node_pkd(base) as *mut u8, region, nslots);
     return base;
 }
+
+/// The total block size of a node (Header::memory_block_size()).
+pub unsafe fn node_block_size(base: *mut u8) -> u32 { return (*mn(base)).block_size as u32; }
 
 /// The PkdAlloc column region of a node block (the trailing allocator).
 pub unsafe fn node_pkd(base: *mut u8) -> *mut PkdAlloc { return &mut (*mn(base)).alc; }
@@ -102,9 +125,10 @@ pub unsafe fn node_free(base: *mut u8) { dealloc(base); }
 // marker whose methods are the node_* free functions above. It is the only
 // profile today; a second store's node form lands as a second impl.
 pub trait NodeProfile {
-    /// Allocate + stamp a fresh node block (snap, rc = 1, childless), format its
-    /// PkdAlloc region with `nslots` slots. Returns the block base.
-    fn alloc(pkd_bytes: u32, nslots: u32, snap: u64) -> *mut u8;
+    /// Allocate a node block of `block_size` bytes TOTAL, carve the header,
+    /// format the remaining PkdAlloc region with `nslots` slots (snap, rc = 1,
+    /// childless). Returns the block base.
+    fn alloc(block_size: u32, nslots: u32, snap: u64) -> *mut u8;
     /// The PkdAlloc column region of a node block.
     fn pkd(node: *mut u8) -> *mut PkdAlloc;
     /// The CoW skip key (the creating snapshot).
@@ -127,8 +151,8 @@ pub trait NodeProfile {
 pub struct CowProfile;
 
 impl NodeProfile for CowProfile {
-    fn alloc(pkd_bytes: u32, nslots: u32, snap: u64) -> *mut u8 {
-        return unsafe { node_alloc(pkd_bytes, nslots, snap) };
+    fn alloc(block_size: u32, nslots: u32, snap: u64) -> *mut u8 {
+        return unsafe { node_alloc(block_size, nslots, snap) };
     }
     fn pkd(node: *mut u8) -> *mut PkdAlloc { return unsafe { node_pkd(node) }; }
     fn snapshot(node: *mut u8) -> u64 { return unsafe { node_snapshot(node) }; }

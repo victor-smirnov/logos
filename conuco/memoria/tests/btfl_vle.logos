@@ -260,7 +260,7 @@ fn main() -> i32 {
 
     // ── 10..19: empty tree ──────────────────────────────────────────────────
     {
-        let t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 320u32, &codes);
+        let t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 368u32, &codes);
         if btfl_count::<2, CowProfile>(&t, 0u64) != 0u64 { return 11i32; }
         if btfl_count::<2, CowProfile>(&t, 1u64) != 0u64 { return 12i32; }
         if !btfl_check::<2, CowProfile>(&t) { return 13i32; }
@@ -271,7 +271,7 @@ fn main() -> i32 {
 
     // ── 20..49: config A — small leaves, leaf + branch splits ───────────────
     {
-        let mut t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 320u32, &codes);
+        let mut t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 368u32, &codes);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0x8a23u64 };
         let rc: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
@@ -289,7 +289,7 @@ fn main() -> i32 {
 
     // ── 50..79: config B — smaller branches, deeper trees ───────────────────
     {
-        let mut t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 288u32, &codes);
+        let mut t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 336u32, &codes);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xb1e5u64 };
         let rc: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
