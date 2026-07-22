@@ -993,17 +993,27 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
     // block below — a second `impl #nm` for the same type.
     let common: QuoteItemBlob = quote_item! {
         use logos.mem.pkd;
+        use logos.mem.pkd.pdtbuf;
+        use logos.lang.result;
+        use logos.mem.collections.vec;
         pub struct #nm { mem: *mut u8, cap: u32 }
         impl #nm {
             pub fn block(self: &#nm) -> *mut u8 { return self.mem; }
             unsafe fn sep(self: &#nm) -> *mut PkdArray<#(kid)> { return self.a().get::<PkdArray<#(kid)>>(0u32); }
             unsafe fn szc(self: &#nm) -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(1u32); }
-            unsafe fn ptrc(self: &#nm) -> *mut PkdArray<u64> { return self.a().get::<PkdArray<u64>>(2u32); }
+            // The child-ptr column is a single-column FSE64 PdtBuf — the
+            // uniform release-walk contract (the PkdArray retirement).
+            unsafe fn ptrc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(2u32)); }
             pub fn child_count(self: &#nm) -> u32 { return unsafe { (*self.sep()).count() }; }
             pub fn sep_at(self: &#nm, i: u32) -> #(kid) { return unsafe { (*self.sep()).get(i) }; }
             pub fn size_at(self: &#nm, i: u32) -> u64 { return unsafe { (*self.szc()).get(i) }; }
-            pub fn child_addr(self: &#nm, i: u32) -> *mut u8 { return unsafe { (*self.ptrc()).get(i) as *mut u8 }; }
-            pub fn set_child_addr(self: &mut #nm, i: u32, ptr: *mut u8) { unsafe { (*self.ptrc()).set(i, ptr as u64); } }
+            pub fn child_addr(self: &#nm, i: u32) -> *mut u8 { return unsafe { self.ptrc().get(0u32, i as u64) as *mut u8 }; }
+            pub fn set_child_addr(self: &mut #nm, i: u32, ptr: *mut u8) {
+                unsafe {
+                    let mut c: PdtBuf = self.ptrc();
+                    c.set(0u32, i as u64, ptr as u64);
+                }
+            }
             pub fn max_sep(self: &#nm) -> #(kid) {
                 let n: u32 = self.child_count();
                 assert(n > 0u32, "max_sep: empty branch");
@@ -1056,7 +1066,17 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                     let p: u64 = ptr as u64;
                     let _ = (*self.sep()).push(&sep);
                     let _ = (*self.szc()).push(&sz);
-                    let _ = (*self.ptrc()).push(&p);
+                    {
+                        let cb: PdtBuf = self.ptrc();
+                        let us: PdtUpdate = match cb.prepare_insert(cb.size(), 1u64, PDT_CAP_KEEP) {
+                            Result::Ok(u) => u,
+                            Result::Err(_e) => { assert(false, "branch ptr push prepare"); return; }
+                        };
+                        let mut cb2: PdtBuf = self.ptrc();
+                        let mut row: Vec<u64> = vec_new::<u64>();
+                        row.push(p);
+                        cb2.commit_insert(&us, &row);
+                    }
                 }
             }
             pub fn insert_child(self: &mut #nm, pos: u32, sep: #(kid), sz: u64, ptr: *mut u8) {
@@ -1064,7 +1084,17 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                     let p: u64 = ptr as u64;
                     let _ = (*self.sep()).insert(pos, &sep);
                     let _ = (*self.szc()).insert(pos, &sz);
-                    let _ = (*self.ptrc()).insert(pos, &p);
+                    {
+                        let cb: PdtBuf = self.ptrc();
+                        let us: PdtUpdate = match cb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+                            Result::Ok(u) => u,
+                            Result::Err(_e) => { assert(false, "branch ptr insert prepare"); return; }
+                        };
+                        let mut cb2: PdtBuf = self.ptrc();
+                        let mut row: Vec<u64> = vec_new::<u64>();
+                        row.push(p);
+                        cb2.commit_insert(&us, &row);
+                    }
                 }
             }
             pub fn update_child(self: &mut #nm, i: u32, sep: #(kid), sz: u64) {
@@ -1077,7 +1107,11 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 unsafe {
                     let d0: u32 = (*self.sep()).estimate_insert(8u32) - self.a().element_size(0u32);
                     let d1: u32 = (*self.szc()).estimate_insert(8u32) - self.a().element_size(1u32);
-                    let d2: u32 = (*self.ptrc()).estimate_insert(8u32) - self.a().element_size(2u32);
+                    let cb: PdtBuf = self.ptrc();
+                    let d2: u32 = match cb.prepare_insert(cb.size(), 1u64, PDT_CAP_KEEP) {
+                        Result::Ok(u) => u.grow_bytes(),
+                        Result::Err(_e) => { return false; }
+                    };
                     return d0 + d1 + d2 <= self.a().free_space();
                 }
             }
@@ -1086,7 +1120,22 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 unsafe {
                     let _ = (*self.sep()).split_into(&mut *dst.sep(), at);
                     let _ = (*self.szc()).split_into(&mut *dst.szc(), at);
-                    let _ = (*self.ptrc()).split_into(&mut *dst.ptrc(), at);
+                    {
+                        let mut lc: PdtBuf = self.ptrc();
+                        let cn: u64 = lc.size();
+                        let mut rc: PdtBuf = dst.ptrc();
+                        match rc.reserve(cn - (at as u64)) {
+                            Result::Ok(_u) => {}
+                            Result::Err(_e) => { assert(false, "branch ptr split reserve"); }
+                        }
+                        let mut lc2: PdtBuf = self.ptrc();
+                        let mut rc2: PdtBuf = dst.ptrc();
+                        let sp: PdtSplit = match lc2.prepare_split_to(&rc2, at as u64, PDT_CAP_KEEP) {
+                            Result::Ok(x) => x,
+                            Result::Err(_e) => { assert(false, "branch ptr split prepare"); return self.max_sep(); }
+                        };
+                        lc2.commit_split_to(&mut rc2, &sp);
+                    }
                 }
                 return self.max_sep();
             }
@@ -1100,6 +1149,7 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
     if cow {
         let flavor: QuoteItemBlob = quote_item! {
             use logos.mem.pkd;
+            use logos.mem.pkd.pdtbuf;
             use logos.mem.bt.node;
             use logos.lang.result;
             impl #nm {
@@ -1120,9 +1170,21 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                             Result::Ok(_p) => {}
                             Result::Err(_e) => { assert(false, "sz col"); }
                         }
-                        match PkdArray::<u64>::format(a, 2u32) {
-                            Result::Ok(_p) => {}
-                            Result::Err(_e) => { assert(false, "ptr col"); }
+                        {
+                            let cd: PdtDescr = pdt_descr_fse(1u32, 8u32, PDT_ORD_UNORDERED, false);
+                            let zero: Vec<u64> = pdt_payload_zero(&cd);
+                            let need: u32 = pdtbuf_compute_block_size(&cd, 0u64, &zero);
+                            let cp: *mut u8 = match a.allocate(2u32, need, SlotKind::Allocatable) {
+                                Result::Ok(q) => q,
+                                Result::Err(_e) => { assert(false, "ptr col slot"); return #nm { mem: base, cap: 4096u32 }; }
+                            };
+                            let cbs: u32 = a.element_size(2u32);
+                            match pdtbuf_format(cp, cbs, &cd) {
+                                Result::Ok(_b) => {}
+                                Result::Err(_e) => { assert(false, "ptr col"); }
+                            }
+                            let cin: *mut PkdAlloc = cp as *mut PkdAlloc;
+                            cin.set_allocator(a as *const PkdAlloc);
                         }
                         return #nm { mem: base, cap: 4096u32 };
                     }
@@ -1156,6 +1218,7 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
     } else {
         let flavor: QuoteItemBlob = quote_item! {
             use logos.mem.pkd;
+            use logos.mem.pkd.pdtbuf;
             use logos.lang.mem;
             use logos.lang.result;
             impl #nm {
@@ -1171,9 +1234,21 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                             Result::Ok(_p) => {}
                             Result::Err(_e) => { assert(false, "sz col"); }
                         }
-                        match PkdArray::<u64>::format(a, 2u32) {
-                            Result::Ok(_p) => {}
-                            Result::Err(_e) => { assert(false, "ptr col"); }
+                        {
+                            let cd: PdtDescr = pdt_descr_fse(1u32, 8u32, PDT_ORD_UNORDERED, false);
+                            let zero: Vec<u64> = pdt_payload_zero(&cd);
+                            let need: u32 = pdtbuf_compute_block_size(&cd, 0u64, &zero);
+                            let cp: *mut u8 = match a.allocate(2u32, need, SlotKind::Allocatable) {
+                                Result::Ok(q) => q,
+                                Result::Err(_e) => { assert(false, "ptr col slot"); return #nm { mem: base, cap: 4096u32 }; }
+                            };
+                            let cbs: u32 = a.element_size(2u32);
+                            match pdtbuf_format(cp, cbs, &cd) {
+                                Result::Ok(_b) => {}
+                                Result::Err(_e) => { assert(false, "ptr col"); }
+                            }
+                            let cin: *mut PkdAlloc = cp as *mut PkdAlloc;
+                            cin.set_allocator(a as *const PkdAlloc);
                         }
                         return #nm { mem: base, cap: 4096u32 };
                     }

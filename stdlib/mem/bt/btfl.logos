@@ -58,20 +58,20 @@
 //     node merge / CoW insert are NOT in 8a.
 //
 // SUBSTRATE: memstore node blocks (logos.mem.bt.node / memstore) — the
-// branch keeps child refs in slot 2 as PkdArray<u64> (BRANCH_CHILD_SLOT), so
+// branch keeps child refs in slot 1 as a single-column PdtBuf, so
 // the container-agnostic tree_release frees any btfl tree from (root, level).
 // The leaf's symbol stream is a NESTED PkdSsrle block inside the leaf's
 // PkdAlloc (Allocatable slot, back-ref healed on sibling shifts; growth
 // through the parent chain) — the C++ nested-PackedAllocator discipline.
 //
 // POINTER DISCIPLINE (the VecCtr idiom): packed payloads shift when sibling
-// slots resize — every PkdArray / PkdSsrle view is re-resolved from the
+// slots resize — every PdtBuf / PkdSsrle view is re-resolved from the
 // node's PkdAlloc AT THE POINT OF USE, never cached across a mutation.
 package logos.mem.bt.btfl;
 
 use logos.mem.pkd.ssrle;         // the run codec/algebra (SsrleRun, ssrle_runs_from_symbols)
 use logos.mem.pkd.sseq;          // PkdSsrle — the packed symbol sequence
-use logos.mem.pkd;               // PkdAlloc, PkdArray, SlotKind, PkdError
+use logos.mem.pkd;               // PkdAlloc, SlotKind, PkdError
 use logos.mem.pkd.pdtbuf;        // PdtBuf — the branch measure/count store (P7.3)
 use logos.mem.bt.node;           // node_alloc / node_pkd (via snapshot) — node blocks
 use logos.mem.bt.memstore;       // MemorySnapshot (allocation capability), tree_release
@@ -86,7 +86,7 @@ use logos.mem.collections.vec;
 // 8a2.1: the NODE layer (leaf/branch creation, branch columns, summaries,
 // splits, check) is generic over `const N: u32` — the stream count, a DESIGN
 // constant of the container family. Leaf slots: stream s lives in slot s
-// (0..N-1, row-wise PkdArray columns), the SSRLE symbol stream (alphabet = N)
+// (0..N-1, single-column PdtBufs), the SSRLE symbol stream (alphabet = N)
 // is the LAST slot, N. The FAMILY layer below (the 2-stream multimap: entry
 // construction, key→values navigation, seek's stream-0 choice, the stage) is
 // exercised at N=2 and instantiates the node layer with the literal `::<2>`
@@ -108,7 +108,7 @@ const LF_SLOTS: u32 = 3u32;
 // so branch inserts get the same two-phase prepare/commit and exact pricing
 // as leaves, seek's rank prefix and select's descent become index lookups,
 // and widening the alphabet is a descr change, not a slot-layout change.
-// Child refs stay a plain PkdArray<u64> in slot 1 (the declared child slot).
+// Child refs are a single-column FSE64 PdtBuf in slot 1 (the declared child slot).
 const BR_PDT:   u32 = 0u32;
 const BR_CHILD: u32 = 1u32;
 const BR_SLOTS: u32 = 2u32;
@@ -195,8 +195,11 @@ unsafe fn br_pdt(a: *mut PkdAlloc) -> PdtBuf {
     return pdtbuf_adopt(a.get::<u8>(BR_PDT));
 }
 
-unsafe fn br_child(a: *mut PkdAlloc) -> *mut PkdArray<u64> {
-    return a.get::<PkdArray<u64>>(BR_CHILD);
+// The child-ref column — a single-column FSE64 PdtBuf like every other
+// column (the PkdArray retirement): the uniform release contract reads it
+// the same way (memstore tree_release adopts the declared child slot).
+unsafe fn br_child(a: *mut PkdAlloc) -> PdtBuf {
+    return pdtbuf_adopt(a.get::<u8>(BR_CHILD));
 }
 
 // The branch descriptor: MAXKEY + one SUM column per symbol, FSE u64 cells,
@@ -361,12 +364,8 @@ fn btfl_branch_new<const N: u32>(snap: &mut MemorySnapshot, branch_bytes: u32) -
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
         inner.set_allocator(a as *const PkdAlloc);
-        match PkdArray::<u64>::format(a, BR_CHILD) {
-            Result::Ok(_p) => {}
-            Result::Err(_e) => {
-                assert(false, "btfl: branch child column format failed");
-            }
-        }
+        let cd: PdtDescr = pdt_descr_fse(1u32, 8u32, PDT_ORD_UNORDERED, false);
+        btfl_leaf_format_slot(a, BR_CHILD, &cd);
         return node;
     }
 }
@@ -482,7 +481,7 @@ pub fn btfl_select<const N: u32>(t: &Btfl<N>, sym: u64, rank: u64) -> BtflLoc {
                 prefix = prefix + b.sum(BRC_CNT0 + csym, 0u64, f.idx);
                 csym = csym + 1u32;
             }
-            node = br_child(a).get(f.idx as u32) as *mut u8;
+            node = br_child(a).get(0u32, f.idx) as *mut u8;
             lvl = lvl - 1u32;
         }
         let a: *mut PkdAlloc = node_pkd(node);
@@ -533,7 +532,7 @@ pub fn btfl_access<const N: u32>(t: &Btfl<N>, pos: u64) -> u64 {
                 }
             }
             assert(descending, "btfl_access: position beyond the tree");
-            node = br_child(a).get(i as u32) as *mut u8;
+            node = br_child(a).get(0u32, i) as *mut u8;
             lvl = lvl - 1u32;
         }
         return lf_seq_n::<N>(node_pkd(node)).access(rem);
@@ -576,7 +575,7 @@ pub fn btfl_seek<const N: u32>(t: &Btfl<N>, key: u64) -> BtflSeek {
             let ci: u32 = btfl_find_child(a, key);
             // The key-rank prefix is one SUM-index lookup, not a scan.
             rank = rank + br_pdt(a).sum(BRC_CNT0, 0u64, ci as u64);
-            node = br_child(a).get(ci) as *mut u8;
+            node = br_child(a).get(0u32, ci as u64) as *mut u8;
             lvl = lvl - 1u32;
         }
         let a: *mut PkdAlloc = node_pkd(node);
@@ -1102,14 +1101,17 @@ unsafe fn btfl_branch_fits_one(a: *mut PkdAlloc) -> bool {
     };
     // grow_bytes is what commit will take FROM THE PARENT via the nested
     // chain (update_fits==true means the growth is possible, not absent) —
-    // so it is priced unconditionally.
+    // so it is priced unconditionally. The child half is priced the SAME
+    // exact way — the last estimate died with PkdArray.
     let mut delta: u32 = us.grow_bytes();
-    let ch: *mut PkdArray<u64> = br_child(a);
-    let need: u32 = ch.estimate_insert(0u32);
-    let cur: u32 = a.element_size(BR_CHILD);
-    if need > cur {
-        delta = delta + (need - cur);
-    }
+    let ch: PdtBuf = br_child(a);
+    let uc: PdtUpdate = match ch.prepare_insert(ch.size(), 1u64, PDT_CAP_KEEP) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => {
+            return false;
+        }
+    };
+    delta = delta + uc.grow_bytes();
     return delta <= a.free_space();
 }
 
@@ -1140,11 +1142,19 @@ unsafe fn btfl_branch_insert_child<const N: u32>(a: *mut PkdAlloc, pos: u32,
         }
         b2.commit_insert(&us, &row);
     }
-    match br_child(a).insert(pos, &(child)) {
-        Result::Ok(_u) => {}
-        Result::Err(_e) => {
-            assert(false, "btfl: branch child insert failed");
-        }
+    {
+        let cb: PdtBuf = br_child(a);
+        let uc: PdtUpdate = match cb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                assert(false, "btfl: branch child prepare failed");
+                return;
+            }
+        };
+        let mut cb2: PdtBuf = br_child(a);
+        let mut crow: Vec<u64> = vec_new::<u64>();
+        crow.push(child);
+        cb2.commit_insert(&uc, &crow);
     }
 }
 
@@ -1172,11 +1182,26 @@ unsafe fn btfl_branch_split(node: *mut u8, right: *mut u8) {
         }
     };
     lb.commit_split_to(&mut rb, &sp);
-    match br_child(a).split_into(br_child(ra), mid) {
-        Result::Ok(_u) => {}
-        Result::Err(_e) => {
-            assert(false, "btfl: branch child split failed");
+    {
+        let mut lc: PdtBuf = br_child(a);
+        let cn: u64 = lc.size();
+        let mut rc: PdtBuf = br_child(ra);
+        match rc.reserve(cn - (mid as u64)) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl: right branch child reserve failed");
+            }
         }
+        let mut lc2: PdtBuf = br_child(a);
+        let mut rc2: PdtBuf = br_child(ra);
+        let cp: PdtSplit = match lc2.prepare_split_to(&rc2, mid as u64, PDT_CAP_KEEP) {
+            Result::Ok(x) => x,
+            Result::Err(_e) => {
+                assert(false, "btfl: branch child split prepare failed");
+                return;
+            }
+        };
+        lc2.commit_split_to(&mut rc2, &cp);
     }
 }
 
@@ -1193,7 +1218,7 @@ unsafe fn btfl_ins_rec_n<const N: u32>(snap: &mut MemorySnapshot, leaf_bytes: u3
     }
     let a: *mut PkdAlloc = node_pkd(node);
     let ci: u32 = btfl_find_child(a, key);
-    let child: *mut u8 = br_child(a).get(ci) as *mut u8;
+    let child: *mut u8 = br_child(a).get(0u32, ci as u64) as *mut u8;
     let r: BtflInsRet<N> = btfl_ins_rec_n::<N>(snap, leaf_bytes, branch_bytes,
                                                child, level - 1u32, key, flat, lens, spans);
     if !r.inserted {
@@ -1220,7 +1245,7 @@ unsafe fn btfl_ins_rec_n<const N: u32>(snap: &mut MemorySnapshot, leaf_bytes: u3
     }
     let rb: *mut u8 = btfl_branch_new::<N>(snap, branch_bytes);
     btfl_branch_split(node, rb);
-    let lc: u32 = br_child(node_pkd(node)).count();
+    let lc: u32 = br_child(node_pkd(node)).size() as u32;
     if ci + 1u32 <= lc {
         btfl_branch_insert_child::<N>(node_pkd(node), ci + 1u32, r.rmax, &r.rcnt, r.rptr as u64);
     } else {
@@ -1682,17 +1707,17 @@ unsafe fn btfl_chk_rec<const N: u32>(node: *mut u8, level: u32,
     }
     let a: *mut PkdAlloc = node_pkd(node);
     let bb: PdtBuf = br_pdt(a);
-    let ch: *mut PkdArray<u64> = br_child(a);
+    let ch: PdtBuf = br_child(a);
     let n: u32 = bb.size() as u32;
     let mut ok: bool = n > 0u32;
-    if ch.count() != n {
+    if ch.size() as u32 != n {
         ok = false;
     }
     let mut sum: [u64; N] = [0u64; N];
     let mut mx: u64 = 0u64;
     let mut i: u32 = 0u32;
     while i < n {
-        let sub: ChkRes<N> = btfl_chk_rec::<N>(ch.get(i) as *mut u8, level - 1u32, prev, any);
+        let sub: ChkRes<N> = btfl_chk_rec::<N>(ch.get(0u32, i as u64) as *mut u8, level - 1u32, prev, any);
         if !sub.ok {
             ok = false;
         }

@@ -150,6 +150,75 @@ only by dead NGD Newport and the FPGA research platforms.
 - No surviving claims for: Marvell Bravera, Microchip Flashtec, Kioxia,
   Solidigm, InnoGrit, Starblaze.
 
+## How to actually obtain a dev board / SDK (verified 2026-07-21, 3rd pass)
+
+6 access routes, 15 sources, procurement facts (price/purchasability/
+access-model) verified 3-vote (1 killed: the "no online store, quote-only"
+claim about OpenSSD — refuted, crz-mart.com is a live storefront). Ordered
+cheapest → most gated.
+
+### Open, buy online, no NDA — CRZ Technology / OpenSSD (crz-mart.com)
+
+Sold by CRZ Technology under license from Indilinx + Hanyang Univ ENC Lab.
+FPGA/firmware sources fully open: github.com/CRZ-Technology/OpenSSD-OpenChannelSSD.
+
+| Board | FPGA / cores | Price | NAND | Notes |
+|---|---|---|---|---|
+| **Cosmos+** | XC7Z045 Zynq-7000, dual **A9 (32-bit)** | KRW 3.95M (~$2.9k), **board only** | **separate**, toggle-mode; 64 GB Micron module KRW 670k (~$500); bitstream hard-pinned to NAND vendor+geometry | 1 GB DDR3, dual PCIe Gen2 x8 cabled, JTAG |
+| **Daisy** | Zynq US+ ZU17EG, quad **A53+MMU** | on store (not on spec page) | **emulated in DRAM** (2× DDR4 DIMM as NAND, ≤32 GB/slot) — no physical NAND to source | easiest NAND story |
+| **DaisyPlus** | Zynq US+ ZU17EG, quad **A53@1.5G+MMU** + dual R5 | **USD $6,150** | **1 TB module (CFM-002) included** | all-in; "Buy Now"→crz-mart |
+
+Prereqs (all CRZ boards): **Vivado** matching the project (bulk = 2019.1;
+newest ports = 2025.1) · Digilent USB-JTAG · host with a **cabled-PCIe path**
+(adapter/cable not included) · matching NAND module except Daisy. Only Daisy/
+DaisyPlus have AArch64+MMU (A53) → the ones that can run 64-bit Linux.
+
+### Cheapest — DIY SBC-in-endpoint (~$200, fully open)
+
+FriendlyElec **NanoPC-T6** (RK3588, ~$159) or **CM3588+NAS kit** (~$174) +
+backend NVMe SSD + host PC + `rick-heig/nvme_csd` firmware. **No FPGA, no EDA
+license, no JTAG.** Stock arm64 Linux. Only friction = the cabled-PCIe/M.2
+endpoint path to the host (paper ships open-hardware adapter PCBs). This is
+the S0/S2 target for [../README.md](../README.md).
+
+### FPGA + NVMe IP — open boards, you assemble the stack
+
+- **AMD/Xilinx ZCU106** (EK-U1-ZCU106-G): open purchase via DigiKey, in
+  stock, no NDA (the board the Wertenbroek paper used).
+- **Opsero FPGA Drive FMC Gen4**: FMC card → 2× M.2 NVMe on an FPGA carrier;
+  needs Vivado + a PCIe IP (or the FPGA's hard PCIe block). SSDs not included.
+- **Design Gateway NVMe-IP**: NVMe host IP for Xilinx/Versal; **free eval
+  bitstreams** to benchmark before licensing. (Other IP vendors: Eideticom,
+  IntelliProp, Mobiveil — license, not evaluated here.)
+
+### Vendor SSD-controller kits — gated (real ASIC targets)
+
+- **Microchip Flashtec** — *most accessible vendor.* Eval board orderable by
+  part number: **PM35161-KIT** (Kit 1, 4 TB NAND pre-populated) / **PM35162-KIT**
+  (Kit 2, customer-consigned NAND), around the Flashtec NVMe 5016 Gen5
+  (16-ch). BUT full **design files gated**: "qualified customers" submit a
+  request-access form + accept EULA ("Login for Design Files"). Controller
+  was at *sampling* (not GA). Public tier = brochure + sell sheet only.
+- **Marvell Bravera SC5** (MV-SS1331/1333) — **NDA**, partner extranet, no
+  price, Request-For-Information form only. Fully gated.
+- **Silicon Motion SM8366 / MonTitan RDK** — **sampling to hand-picked
+  partners** (Mar 2025), no public order/price, contact-vendor.
+- **Phison IMAGIN+** — not a board: a **bespoke design-in service**,
+  quote-based, 3-step (concept → estimate → SoW), case-by-case cost.
+- **FADU** — controller vendor selling to SSD makers; no public dev kit.
+- **Samsung SmartSSD / ScaleFlux** — no concrete current dev-kit availability
+  surfaced; effectively hard to obtain as a developer.
+
+### Recommendation for the csd subproject
+
+- **Protocol/firmware spike (S0/S2):** SBC route (~$200). Matches our
+  device-side-Linux + NVMe-endpoint model exactly; zero licensing.
+- **If we want the *real* SSD stack (FTL, NAND, device-side NVMe) on
+  AArch64+MMU:** DaisyPlus ($6,150, all-in). Only open board with A53+MMU.
+- **Production ASIC path later:** Microchip Flashtec is the one vendor with a
+  self-service entry point (eval board by part number; SDK behind
+  qualified-customer + EULA).
+
 ## Bottom line for us
 
 - **Buy-and-run-Linux-on-the-controller today:** only DaisyPlus (FPGA,

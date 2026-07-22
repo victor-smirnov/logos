@@ -11,7 +11,8 @@ use logos.mem.bt.memstore;   // MemoryStore, MemorySnapshot, DirEntry
 use logos.mem.bt.map;        // trait Snapshot — brings snapshot_id() into scope
 use logos.mem.bt.node;       // node_snapshot / node_rc / node_pkd / node_child_slot —
                              // verify the header stamps directly
-use logos.mem.pkd;           // PkdAlloc, PkdArray — build a branch's child column
+use logos.mem.pkd;           // PkdAlloc — the packed substrate
+use logos.mem.pkd.pdtbuf;    // PdtBuf — the uniform child column
 use logos.lang.result;       // Result (format/push)
 
 fn main() -> i32 {
@@ -75,15 +76,31 @@ fn main() -> i32 {
     }
     unsafe {
         let pa: *mut PkdAlloc = node_pkd(br);
-        match PkdArray::<u64>::format(pa, 2u32) {              // the declared child slot
-            Result::Ok(_p) => {}
+        // The declared child slot is a single-column FSE64 PdtBuf (the
+        // uniform release-walk contract after the PkdArray retirement).
+        let cd: PdtDescr = pdt_descr_fse(1u32, 8u32, PDT_ORD_UNORDERED, false);
+        let zero: Vec<u64> = pdt_payload_zero(&cd);
+        let need: u32 = pdtbuf_compute_block_size(&cd, 0u64, &zero);
+        let cp: *mut u8 = match pa.allocate(2u32, need, SlotKind::Allocatable) {
+            Result::Ok(q) => q,
+            Result::Err(_e) => { return 19i32; }
+        };
+        let cbs: u32 = pa.element_size(2u32);
+        match pdtbuf_format(cp, cbs, &cd) {
+            Result::Ok(_b) => {}
             Result::Err(_e) => { return 19i32; }
         }
-        let ch: *mut PkdArray<u64> = pa.get::<PkdArray<u64>>(2u32);
-        match (*ch).push(&(leaf as u64)) {                     // br adopts leaf (leaf's rc 1 = this ref)
-            Result::Ok(_u) => {}
+        let cin: *mut PkdAlloc = cp as *mut PkdAlloc;
+        cin.set_allocator(pa as *const PkdAlloc);
+        let cb: PdtBuf = pdtbuf_adopt(pa.get::<u8>(2u32));
+        let us: PdtUpdate = match cb.prepare_insert(0u64, 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
             Result::Err(_e) => { return 20i32; }
-        }
+        };
+        let mut cb2: PdtBuf = pdtbuf_adopt(pa.get::<u8>(2u32));
+        let mut row: Vec<u64> = vec_new::<u64>();
+        row.push(leaf as u64);                                 // br adopts leaf (leaf's rc 1 = this ref)
+        cb2.commit_insert(&us, &row);
     }
     s.set_root(5u64, br, 1u32);
     s.release();   // tree_release(br,1): dec br→0 → recurse the DECLARED child

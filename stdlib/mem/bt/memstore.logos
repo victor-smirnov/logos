@@ -14,7 +14,7 @@
 //                    containers and commits them atomically (the Memoria model).
 //
 // A key division of labour makes the store CONTAINER-AGNOSTIC: every generated
-// BRANCH has the uniform 3-slot shape (sep, subtree-size, `PkdArray<u64>` child
+// BRANCH has the uniform 3-slot shape (sep, subtree-size, single-column-PdtBuf child
 // refs in slot 2) and every node carries the intrusive-rc header, so the store
 // allocates, refcounts and RECURSIVELY RELEASES any tree from just `(root,
 // level)` — walking slot 2 for children, never touching a leaf's typed columns.
@@ -22,7 +22,8 @@
 // routing, cow_clone) are container-specific and stay in the generated code.
 package logos.mem.bt.memstore;
 
-use logos.mem.pkd;               // PkdAlloc, PkdArray — the uniform slot-2 child column
+use logos.mem.pkd;               // PkdAlloc — the packed node substrate
+use logos.mem.pkd.pdtbuf;        // PdtBuf — the uniform child column (single-column FSE64)
 use logos.lang.panic;
 use logos.mem.bt.node;           // node_alloc/_free/_inc_rc/_dec_rc/_rc/_snapshot — the rc header
 use logos.mem.bt.map;            // trait Store, trait Snapshot — the capability contract
@@ -43,12 +44,12 @@ pub unsafe fn tree_release(root: *mut u8, level: u32) {
             let cs: u32 = node_child_slot(root);
             assert(cs != NODE_NO_CHILDREN,
                    "tree_release: a branch node never declared its child slot");
-            let ch: *mut PkdArray<u64> = a.get::<PkdArray<u64>>(cs);
-            let n: u32 = (*ch).count();
-            let mut i: u32 = 0u32;
+            let ch: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+            let n: u64 = ch.size();
+            let mut i: u64 = 0u64;
             while i < n {
-                tree_release((*ch).get(i) as *mut u8, level - 1u32);
-                i = i + 1u32;
+                tree_release(ch.get(0u32, i) as *mut u8, level - 1u32);
+                i = i + 1u64;
             }
         }
         node_free(root);

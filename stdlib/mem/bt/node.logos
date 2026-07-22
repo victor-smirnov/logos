@@ -13,7 +13,7 @@
 //                           this block. cow_clone bumps a shared child's rc; a
 //                           released pointer decrements it, freeing at zero.
 //   @12 child_slot  : u32   WHICH PkdAlloc slot holds this node's child refs
-//                           (PkdArray<u64> of block addresses), or
+//                           (a single-column PdtBuf of block addresses), or
 //                           NODE_NO_CHILDREN for a leaf. Where children live is
 //                           a property OF THE NODE, not a global convention:
 //                           carrying it here lets a container lay its branch
