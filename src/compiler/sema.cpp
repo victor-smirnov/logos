@@ -1615,6 +1615,19 @@ static std::string mangle_type_for_name(TypeRef t) {
                       (unsigned long long)(uint64_t)(TypeRef(t).const_val().value_or(0)));
         return std::string(buf);
     }
+    case LogosType::Kind::IntLit: {
+        // An INTEGER const-generic argument (`R<2>`): the VALUE is the type's
+        // identity — the pool already interns IntLit by const_val (see the
+        // intern-key comment), and the Array case above spells symbolic
+        // lengths for the same reason. Falling to the default mangled this as
+        // type_str's erased "{integer}", so R<2> and R<3> collapsed to ONE
+        // concrete name → one struct layout / one fn clone — the G156-1
+        // collision shape, integer edition (probe: mk::<3> wrote 3 cells into
+        // R<2>'s 2-cell layout, silent stack corruption). Spell the value,
+        // WStaticLit-style.
+        int64_t v = (int64_t)TypeRef(t).const_val().value_or(0);
+        return v < 0 ? ("icm" + std::to_string(-v)) : ("ic" + std::to_string(v));
+    }
     case LogosType::Kind::FnItem:
     case LogosType::Kind::FnPtr:
         // G149-6: erase fn-ptr Self in a fn-ptr-impl method signature to its
