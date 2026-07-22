@@ -19,6 +19,7 @@
 package test;
 
 use logos.mem.bt.btfl;
+use logos.mem.bt.node;   // CowProfile — the node profile
 use logos.mem.pkd;
 use logos.mem.pkd.pdtbuf;
 use logos.mem.bt.memstore;
@@ -113,41 +114,41 @@ fn model_insert(md: &mut Model, k: u64, m: u64) {
 
 // ── the equivalence + laws check (run after EVERY mutation) ─────────────────
 
-fn check_full(t: &Btfl<2>, md: &Model) -> i32 {
+fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
     let n: i64 = md.mk.len();
-    let t0: u64 = btfl_count::<2>(t, 0u64);
-    let t1: u64 = btfl_count::<2>(t, 1u64);
+    let t0: u64 = btfl_count::<2, CowProfile>(t, 0u64);
+    let t1: u64 = btfl_count::<2, CowProfile>(t, 1u64);
     if t0 != (n as u64) {
         return 1i32;
     }
     if t1 != md.voff.get(n) {
         return 2i32;
     }
-    if !btfl_check::<2>(t) {
+    if !btfl_check::<2, CowProfile>(t) {
         return 3i32;
     }
     let mut j: i64 = 0i64;
     while j < n {
         let k: u64 = md.mk.get(j);
         let pj: u64 = (j as u64) + md.voff.get(j);
-        let sk: BtflSeek = btfl_seek::<2>(t, k);
+        let sk: BtflSeek = btfl_seek::<2, CowProfile>(t, k);
         if !sk.found {
             return 4i32;
         }
         if sk.rank != (j as u64) {
             return 5i32;
         }
-        let sel: BtflLoc = btfl_select::<2>(t, 0u64, j as u64);
+        let sel: BtflLoc = btfl_select::<2, CowProfile>(t, 0u64, j as u64);
         if !sel.found {
             return 6i32;
         }
         if sel.pos != pj {
             return 7i32;
         }
-        if btfl_leaf_key_at(sk.leaf, sk.kidx) != k {
+        if btfl_leaf_key_at::<CowProfile>(sk.leaf, sk.kidx) != k {
             return 8i32;
         }
-        if btfl_access::<2>(t, pj) != 0u64 {
+        if btfl_access::<2, CowProfile>(t, pj) != 0u64 {
             return 9i32;
         }
         // every value of key j: select position law, access inverse, and the
@@ -156,24 +157,24 @@ fn check_full(t: &Btfl<2>, md: &Model) -> i32 {
         let mut l: u64 = 0u64;
         while l < mv {
             let r: u64 = md.voff.get(j) + l;
-            let s1: BtflLoc = btfl_select::<2>(t, 1u64, r);
+            let s1: BtflLoc = btfl_select::<2, CowProfile>(t, 1u64, r);
             if !s1.found {
                 return 10i32;
             }
             if s1.pos != pj + 1u64 + l {
                 return 11i32;
             }
-            if btfl_access::<2>(t, s1.pos) != 1u64 {
+            if btfl_access::<2, CowProfile>(t, s1.pos) != 1u64 {
                 return 12i32;
             }
-            let row: u64 = btfl_leaf_rank::<2>(s1.leaf, s1.idx, 1u64);
+            let row: u64 = btfl_leaf_rank::<2, CowProfile>(s1.leaf, s1.idx, 1u64);
             let want_len: u64 = val_len(k, l);
-            if btfl_leaf_stream_span_len::<2>(s1.leaf, 1u32, row) != want_len {
+            if btfl_leaf_stream_span_len::<2, CowProfile>(s1.leaf, 1u32, row) != want_len {
                 return 13i32;
             }
             let mut b: u64 = 0u64;
             while b < want_len {
-                if btfl_leaf_stream_span_at::<2>(s1.leaf, 1u32, row, b)
+                if btfl_leaf_stream_span_at::<2, CowProfile>(s1.leaf, 1u32, row, b)
                    != val_byte(k, l, b) {
                     return 14i32;
                 }
@@ -184,14 +185,14 @@ fn check_full(t: &Btfl<2>, md: &Model) -> i32 {
         j = j + 1i64;
     }
     // negatives
-    let sx: BtflLoc = btfl_select::<2>(t, 0u64, t0);
+    let sx: BtflLoc = btfl_select::<2, CowProfile>(t, 0u64, t0);
     if sx.found {
         return 15i32;
     }
     if sx.pos != t0 + t1 {
         return 16i32;
     }
-    let sy: BtflLoc = btfl_select::<2>(t, 1u64, t1);
+    let sy: BtflLoc = btfl_select::<2, CowProfile>(t, 1u64, t1);
     if sy.found {
         return 17i32;
     }
@@ -200,7 +201,7 @@ fn check_full(t: &Btfl<2>, md: &Model) -> i32 {
 
 // ── the randomized driver ───────────────────────────────────────────────────
 
-fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<2>, md: &mut Model, lcg: &mut Lcg,
+fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<2, CowProfile>, md: &mut Model, lcg: &mut Lcg,
          steps: i64, span: u64, vmax: u64) -> i32 {
     let mut i: i64 = 0i64;
     while i < steps {
@@ -224,7 +225,7 @@ fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<2>, md: &mut Model, lcg: &mut L
             spans.push_span(bytes.as_slice());
             l = l + 1u64;
         }
-        let ok: bool = btfl_insert_entry::<2>(snap, t, k, &flat, &lens, &spans);
+        let ok: bool = btfl_insert_entry::<2, CowProfile>(snap, t, k, &flat, &lens, &spans);
         let dup: bool = model_find(md, k) >= 0i64;
         if ok == dup {
             return 91i32;
@@ -236,7 +237,7 @@ fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<2>, md: &mut Model, lcg: &mut L
         if rc != 0i32 {
             return rc;
         }
-        let miss: BtflSeek = btfl_seek::<2>(t, k + 1u64);
+        let miss: BtflSeek = btfl_seek::<2, CowProfile>(t, k + 1u64);
         if miss.found {
             return 92i32;
         }
@@ -259,49 +260,49 @@ fn main() -> i32 {
 
     // ── 10..19: empty tree ──────────────────────────────────────────────────
     {
-        let t: Btfl<2> = btfl_create_shaped::<2>(&mut snap, 832u32, 320u32, &codes);
-        if btfl_count::<2>(&t, 0u64) != 0u64 { return 11i32; }
-        if btfl_count::<2>(&t, 1u64) != 0u64 { return 12i32; }
-        if !btfl_check::<2>(&t) { return 13i32; }
-        let s0: BtflLoc = btfl_select::<2>(&t, 1u64, 0u64);
+        let t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 320u32, &codes);
+        if btfl_count::<2, CowProfile>(&t, 0u64) != 0u64 { return 11i32; }
+        if btfl_count::<2, CowProfile>(&t, 1u64) != 0u64 { return 12i32; }
+        if !btfl_check::<2, CowProfile>(&t) { return 13i32; }
+        let s0: BtflLoc = btfl_select::<2, CowProfile>(&t, 1u64, 0u64);
         if s0.found { return 14i32; }
-        btfl_drop::<2>(&t);
+        btfl_drop::<2, CowProfile>(&t);
     }
 
     // ── 20..49: config A — small leaves, leaf + branch splits ───────────────
     {
-        let mut t: Btfl<2> = btfl_create_shaped::<2>(&mut snap, 832u32, 320u32, &codes);
+        let mut t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 320u32, &codes);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0x8a23u64 };
         let rc: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
                             110i64, 3000u64, 3u64);
         if rc != 0i32 {
-            btfl_drop::<2>(&t);
+            btfl_drop::<2, CowProfile>(&t);
             return section(20i32, rc);
         }
         if t.level == 0u32 {
-            btfl_drop::<2>(&t);
+            btfl_drop::<2, CowProfile>(&t);
             return 48i32;   // never split — not a valid gate run
         }
-        btfl_drop::<2>(&t);
+        btfl_drop::<2, CowProfile>(&t);
     }
 
     // ── 50..79: config B — smaller branches, deeper trees ───────────────────
     {
-        let mut t: Btfl<2> = btfl_create_shaped::<2>(&mut snap, 832u32, 288u32, &codes);
+        let mut t: Btfl<2, CowProfile> = btfl_create_shaped::<2, CowProfile>(&mut snap, 832u32, 288u32, &codes);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xb1e5u64 };
         let rc: i32 = drive(&mut snap, &mut t, &mut md, &mut lcg,
                             130i64, 800u64, 2u64);
         if rc != 0i32 {
-            btfl_drop::<2>(&t);
+            btfl_drop::<2, CowProfile>(&t);
             return section(50i32, rc);
         }
         if t.level < 2u32 {
-            btfl_drop::<2>(&t);
+            btfl_drop::<2, CowProfile>(&t);
             return 78i32;   // wanted at least two branch levels
         }
-        btfl_drop::<2>(&t);
+        btfl_drop::<2, CowProfile>(&t);
     }
 
     return 0i32;

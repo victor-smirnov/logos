@@ -50,7 +50,7 @@ use logos.lcm.canon.metaclass;    // NOT used here — the same MODULE-GRAPH edg
 use logos.mem.bt.btfl;            // NOT used here — the MODULE-GRAPH edge for
                                   // the generated multimap family blobs
                                   // (BTFL 8b): the emitted `use logos.mem.bt.
-                                  // btfl;` resolves Btfl<2>/btfl_* but cannot
+                                  // btfl;` resolves Btfl<2, CowProfile>/btfl_* but cannot
                                   // itself LOAD the module; this edge carries
                                   // it (and pkd.ssrle/sseq transitively) into
                                   // every declaring unit's graph.
@@ -1998,6 +1998,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
     let nm: Ident = Ident::new(name);
     let b: QuoteItemBlob = quote_item! {
         use logos.mem.bt.btfl;
+        use logos.mem.bt.node;            // CowProfile — the store's node profile
         use logos.mem.bt.memstore;
         use logos.mem.collections.vec;
         use logos.lang.panic;
@@ -2013,7 +2014,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub static fn create_with(snap: &mut MemorySnapshot, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                let t: Btfl<2> = btfl_create::<2>(snap, leaf_bytes, branch_bytes);
+                let t: Btfl<2, CowProfile> = btfl_create::<2, CowProfile>(snap, leaf_bytes, branch_bytes);
                 snap.set_root(ctr_id, t.root, t.level);
                 return #nm {
                     snap: snap as *mut MemorySnapshot,
@@ -2030,10 +2031,10 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     branch_bytes: 4096u32,
                 };
             }
-            pub fn tree(self: &#nm) -> Btfl<2> {
+            pub fn tree(self: &#nm) -> Btfl<2, CowProfile> {
                 unsafe {
                     let e: DirEntry = (*self.snap).root_of(self.ctr_id);
-                    return Btfl::<2> {
+                    return Btfl::<2, CowProfile> {
                         root: e.root,
                         level: e.level,
                         leaf_bytes: self.leaf_bytes,
@@ -2044,11 +2045,11 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             /// Re-creates the (EMPTY — asserted) container with new node
             /// sizing; splits then allocate siblings of the new size.
             pub fn reformat(self: &mut #nm, leaf_bytes: u32, branch_bytes: u32) {
-                let t: Btfl<2> = self.tree();
-                assert(btfl_count::<2>(&t, 0u64) == 0u64, "reformat: container not empty");
-                btfl_drop::<2>(&t);
+                let t: Btfl<2, CowProfile> = self.tree();
+                assert(btfl_count::<2, CowProfile>(&t, 0u64) == 0u64, "reformat: container not empty");
+                btfl_drop::<2, CowProfile>(&t);
                 unsafe {
-                    let t2: Btfl<2> = btfl_create::<2>(&mut *self.snap, leaf_bytes, branch_bytes);
+                    let t2: Btfl<2, CowProfile> = btfl_create::<2, CowProfile>(&mut *self.snap, leaf_bytes, branch_bytes);
                     (*self.snap).set_root(self.ctr_id, t2.root, t2.level);
                 }
                 self.leaf_bytes = leaf_bytes;
@@ -2056,8 +2057,8 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
                 unsafe {
-                    let mut t: Btfl<2> = self.tree();
-                    let ok: bool = btfl_insert(&mut *self.snap, &mut t, key, vals);
+                    let mut t: Btfl<2, CowProfile> = self.tree();
+                    let ok: bool = btfl_insert::<CowProfile>(&mut *self.snap, &mut t, key, vals);
                     if ok {
                         (*self.snap).set_root(self.ctr_id, t.root, t.level);
                     }
@@ -2065,28 +2066,28 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 }
             }
             pub fn find(self: &#nm, key: u64, out: &mut Vec<u64>) -> bool {
-                let t: Btfl<2> = self.tree();
-                return btfl_find(&t, key, out);
+                let t: Btfl<2, CowProfile> = self.tree();
+                return btfl_find::<CowProfile>(&t, key, out);
             }
             pub fn seek(self: &#nm, key: u64) -> BtflSeek {
-                let t: Btfl<2> = self.tree();
-                return btfl_seek::<2>(&t, key);
+                let t: Btfl<2, CowProfile> = self.tree();
+                return btfl_seek::<2, CowProfile>(&t, key);
             }
             pub fn select(self: &#nm, sym: u64, rank: u64) -> BtflLoc {
-                let t: Btfl<2> = self.tree();
-                return btfl_select::<2>(&t, sym, rank);
+                let t: Btfl<2, CowProfile> = self.tree();
+                return btfl_select::<2, CowProfile>(&t, sym, rank);
             }
             pub fn access(self: &#nm, pos: u64) -> u64 {
-                let t: Btfl<2> = self.tree();
-                return btfl_access::<2>(&t, pos);
+                let t: Btfl<2, CowProfile> = self.tree();
+                return btfl_access::<2, CowProfile>(&t, pos);
             }
             pub fn count(self: &#nm, sym: u64) -> u64 {
-                let t: Btfl<2> = self.tree();
-                return btfl_count::<2>(&t, sym);
+                let t: Btfl<2, CowProfile> = self.tree();
+                return btfl_count::<2, CowProfile>(&t, sym);
             }
             pub fn check(self: &#nm) -> bool {
-                let t: Btfl<2> = self.tree();
-                return btfl_check::<2>(&t);
+                let t: Btfl<2, CowProfile> = self.tree();
+                return btfl_check::<2, CowProfile>(&t);
             }
             pub fn level(self: &#nm) -> u32 {
                 return self.tree().level;
