@@ -259,6 +259,13 @@ deem canon_op_scan_missing(w: CanonOpsFacts) {
     where o.verb == OP_SCAN && o.ahead != "" && o.ainner == ""
     select (o.ctr, o.stream, o.ahead)
 }
+// 8c: streams bearing a WELL-FORMED scan op — the domain of the layout rule
+// (scan → column; everything else stays row).
+deem canon_stream_scan(w: CanonOpsFacts) {
+    from ops_fact o
+    where o.verb == OP_SCAN && o.ahead != "" && o.ainner == ""
+    select (o.ctr, o.stream)
+}
 // kind=multimap structural axioms.
 deem canon_mm_streams(w: CanonMmFacts) {
     from mm_ctr x anti join second_stream s on s.ctr == x.ctr
@@ -468,6 +475,8 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
     let sdom: Vec<(str, str)> = match canon_streams(facts)
     { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
+    let sscan: Vec<(str, str)> = match canon_stream_scan(facts)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return doc; } };
 
     let root: &mut WMap<WString, WAny> = doc.map(8i64);
 
@@ -546,17 +555,30 @@ pub fn canon_verdicts(facts: &Writ) -> Writ {
     }
     root.set(V_COL_PROJS, &*projs);
 
-    // BTFL 8b: per-stream layout verdicts. v0 rule: ALWAYS row — THIS is the
-    // fn 8c flips to the scan→column rule (the ops facts are already in the
-    // fact doc; nothing else moves).
+    // BTFL 8c: per-stream layout verdicts — the scan→column DEFAULT rule
+    // (PAIR decision): a stream with a well-formed scan op lays out
+    // column-wise, the rest stay row. For single-column entries the two
+    // layouts coincide physically; the verdict is the family's recorded
+    // DESIGN DECISION (the cfg carries it), and the physical divergence
+    // engages when multi-column entries arrive. More specialized rules
+    // (density/width thresholds) layer on later.
     let lays: &mut WArray<WAny> = doc.array(sdom.len() + 1i64);
     i = 0i64;
     while i < sdom.len() {
         let r: (str, str) = sdom.get(i);
+        let mut l: str = LAYOUT_ROW;
+        let mut q: i64 = 0i64;
+        while q < sscan.len() {
+            let sc: (str, str) = sscan.get(q);
+            if str_eq(sc.0, r.0) && str_eq(sc.1, r.1) {
+                l = LAYOUT_COL;
+            }
+            q = q + 1i64;
+        }
         let m: &mut WMap<WString, WAny> = doc.map(4i64);
         m.set(K_CTR, r.0);
         m.set(K_STREAM, r.1);
-        m.set(K_LAYOUT, LAYOUT_ROW);
+        m.set(K_LAYOUT, l);
         lays.push(WAny::from(&*m));
         i = i + 1i64;
     }

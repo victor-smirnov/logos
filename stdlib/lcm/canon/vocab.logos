@@ -122,9 +122,9 @@ pub const OP_REMOVE:      str = "remove";
 pub const OP_UPDATE:      str = "update";
 pub const OP_BULK_APPEND: str = "bulk_append";
 
-// ── Per-stream layout verdicts (BTFL 8b): Canon's row/col decision from the
-// stream's OPS facts. v0 rule: ALWAYS row (the scan→column rule is 8c — the
-// facts are recorded now so 8c only flips the verdict fn).
+// ── Per-stream layout verdicts (BTFL 8c): Canon's row/col decision from the
+// stream's OPS facts. Rule (the PAIR default): a stream with a well-formed
+// scan op → col; else row. Specialized rules layer on later.
 pub const V_LAYOUTS:  str = "stream_layouts";
 pub const K_LAYOUT:   str = "layout";
 pub const LAYOUT_ROW: str = "row";

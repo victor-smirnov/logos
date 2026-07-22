@@ -1718,9 +1718,14 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
     }
     let s0: str = unsafe { cf_sub(cs.streams, 0i64, s0e) };
     let s1: str = unsafe { cf_sub(cs.streams, s0e + 1i64, sn) };
-    if !str_eq(cv_stream_layout(vm, name, s0), LAYOUT_ROW)
-            || !str_eq(cv_stream_layout(vm, name, s1), LAYOUT_ROW) {
-        error("container factory: BTFL v0 generates row-layout streams only (the col verdict is 8c surface)");
+    // 8c: the layout verdict (scan→column default) is ACCEPTED and recorded
+    // in the generated cfg. For single-column entries — everything the v0
+    // factory generates — row and col coincide physically; the runtime is
+    // layout-agnostic until multi-column entries arrive. The verdict must
+    // still EXIST for every stream (the Canon seam contract).
+    if cv_stream_layout(vm, name, s0).len() == 0i64
+            || cv_stream_layout(vm, name, s1).len() == 0i64 {
+        error("container factory: Canon produced no layout verdict for a declared stream (Canon seam regression?)");
         return;
     }
     // Columns: exactly one per stream, both u64 (the 8a runtime's column type).

@@ -48,6 +48,54 @@ fn fact_meas(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, mfn: str, arg: str) {
     arr.push(WAny::from(&*m));
 }
 
+// BTFL 8c: stream + ops fact rows (the SEC_STREAMS / SEC_OPS shapes).
+fn fact_stream(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, idx: i64, name: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(8i64);
+    m.set("ctr", ctr);
+    m.set("idx", idx);
+    m.set("name", name);
+    arr.push(WAny::from(&*m));
+}
+
+fn fact_op(doc: &Writ, arr: &mut WArray<WAny>, ctr: str, stream: str, verb: str,
+           ahead: str, ainner: str) {
+    let m: &mut WMap<WString, WAny> = doc.map(8i64);
+    m.set("ctr", ctr);
+    m.set("stream", stream);
+    m.set("verb", verb);
+    m.set("ahead", ahead);
+    m.set("ainner", ainner);
+    arr.push(WAny::from(&*m));
+}
+
+// layout verdict probe: (ctr, stream) row carries exactly this layout.
+fn has_layout(vd: &Writ, ctr: str, stream: str, layout: str) -> bool {
+    let root: WAny = vd.root();
+    if !root.is_map() { return false; }
+    let rm: &WMap<WString, WAny> = root.as_map();
+    let av: WAny = rm.get("stream_layouts");
+    if !av.is_array() { return false; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get("ctr");
+            let a2: WAny = em.get("stream");
+            let a3: WAny = em.get("layout");
+            if a1.is_string() && a2.is_string() && a3.is_string() {
+                if str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), stream)
+                   && str_eq(a3.as_wstr(), layout) {
+                    return true;
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
 // Row count of a top-level verdict array; −1 = shape violation.
 fn vd_count(vd: &Writ, key: str) -> i64 {
     let root: WAny = vd.root();
@@ -316,6 +364,32 @@ fn main() -> i32 {
     if !has_err(&vd_, "VecM", "wave0_vector_multi_entry",
                 "exactly one entry column") { return 43i32; }
     if vd_count(&vd_, "errors") != 2i64 { return 44i32; }
+
+    // ── doc E (8c): the scan→column layout rule ─────────────────────────
+    // A multimap-shaped fact doc: keys (seek, no scan) → row; values
+    // (scan(val)) → col; a third stream with a MALFORMED scan (inner arg)
+    // stays row — the rule keys on WELL-FORMED scan ops only.
+    let de: Writ = writ_new(65536i64);
+    {
+        let root: &mut WMap<WString, WAny> = de.map(6i64);
+        let strs: &mut WArray<WAny> = de.array(3i64);
+        fact_stream(&de, strs, "MM", 0i64, "keys");
+        fact_stream(&de, strs, "MM", 1i64, "values");
+        fact_stream(&de, strs, "MM", 2i64, "tags");
+        root.set("streams", &*strs);
+        let ops: &mut WArray<WAny> = de.array(4i64);
+        fact_op(&de, ops, "MM", "keys", "seek", "max", "key");
+        fact_op(&de, ops, "MM", "values", "scan", "val", "");
+        fact_op(&de, ops, "MM", "values", "select", "count", "");
+        fact_op(&de, ops, "MM", "tags", "scan", "t", "bad");
+        root.set("ops", &*ops);
+        de.set_root(WAny::from(&*root));
+    }
+    let ve: Writ = canon_verdicts(&de);
+    if vd_count(&ve, "stream_layouts") != 3i64 { return 50i32; }
+    if !has_layout(&ve, "MM", "keys", "row") { return 51i32; }
+    if !has_layout(&ve, "MM", "values", "col") { return 52i32; }
+    if !has_layout(&ve, "MM", "tags", "row") { return 53i32; }
 
     return 0i32;
 }
