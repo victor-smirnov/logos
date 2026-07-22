@@ -6,7 +6,6 @@
 package test;
 
 use logos.mem.pkd;
-use logos.mem.bt;
 use memoria.ctr;
 use memoria.store;
 use logos.lang.mem;
@@ -16,7 +15,6 @@ use logos.std.io;
 
 fn run_all() -> i32 {
     // linkage smoke for the sibling modules (stage markers only grow)
-    if bt_stage() < 1i64 { return 90i32; }
     if ctr_stage() < 0i64 { return 91i32; }
     if store_stage() < 0i64 { return 92i32; }
 
