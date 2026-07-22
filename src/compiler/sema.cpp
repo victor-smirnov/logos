@@ -211,7 +211,7 @@ public:
         // invalidate `map`); re-fetch the map pointer before every put via
         // the at(map_off) helper.
         writ::AnyVal v_mut_ptr, v_arr_size, v_const_val;
-        writ::AnyVal v_pointee, v_elem, v_assoc_base, v_closure_ret;
+        writ::AnyVal v_pointee, v_elem, v_assoc_base, v_closure_ret, v_arr_len_expr;
         writ::AnyVal v_lifetime, v_arr_size_var, v_struct_name, v_enum_name;
         writ::AnyVal v_pkg_name, v_trait_name, v_type_var_name, v_assoc_type_name;
         writ::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
@@ -237,10 +237,11 @@ public:
             v_const_val = *av;
         }
 
-        if (t.pointee)     v_pointee     = ptr_to_mirror(t.pointee);
-        if (t.elem)        v_elem        = ptr_to_mirror(t.elem);
-        if (t.assoc_base)  v_assoc_base  = ptr_to_mirror(t.assoc_base);
-        if (t.closure_ret) v_closure_ret = ptr_to_mirror(t.closure_ret);
+        if (t.pointee)      v_pointee      = ptr_to_mirror(t.pointee);
+        if (t.elem)         v_elem         = ptr_to_mirror(t.elem);
+        if (t.assoc_base)   v_assoc_base   = ptr_to_mirror(t.assoc_base);
+        if (t.closure_ret)  v_closure_ret  = ptr_to_mirror(t.closure_ret);
+        if (t.arr_len_expr) v_arr_len_expr = ptr_to_mirror(t.arr_len_expr);
 
         if (!t.lifetime.empty())        v_lifetime        = put_string(t.lifetime);
         if (!t.arr_size_var.empty())    v_arr_size_var    = put_string(t.arr_size_var);
@@ -279,6 +280,7 @@ public:
         put(k::ELEM,             v_elem);
         put(k::ASSOC_BASE,       v_assoc_base);
         put(k::CLOSURE_RET,      v_closure_ret);
+        put(k::ARR_LEN_EXPR,     v_arr_len_expr);
         put(k::LIFETIME,         v_lifetime);
         put(k::ARR_SIZE_VAR,     v_arr_size_var);
         put(k::STRUCT_NAME,      v_struct_name);
@@ -845,6 +847,17 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_u64(buf, t.arr_size);
         put_str(buf, t.arr_size_var);
         put_sub(buf, impl, t.elem);
+        // const-length-overhaul: two arrays with different length EXPRESSIONS
+        // (`[T; N+1]` vs `[T; N+2]`) must intern distinctly even before the
+        // param binds — otherwise the deferred lengths collapse (the same
+        // integer-const-arg collapse class the IntLit case guards below).
+        put_sub(buf, impl, t.arr_len_expr);
+        break;
+    case K::ConstExpr:
+        // Identity = opcode + operands. Operands are themselves interned
+        // (bottom-up), so put_sub over each is exact.
+        put_u64(buf, uint64_t(t.const_val.value_or(0)));
+        for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
     case K::Struct:
     case K::ZonedStruct:
@@ -1012,7 +1025,11 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::Array:
         return t.arr_size == r.arr_size() &&
                t.arr_size_var == r.arr_size_var() &&
-               t.elem == r.elem();
+               t.elem == r.elem() &&
+               t.arr_len_expr == r.arr_len_expr();
+    case K::ConstExpr:
+        return t.const_val == r.const_val() &&
+               vec_ptr_eq(t.type_args, r.type_args());
     case K::Struct:
     case K::ZonedStruct:
         return t.struct_name == r.struct_name() &&
@@ -1119,10 +1136,11 @@ TypeRef TypePool::alloc(LogosTypeBuilder t) {
     // mirror as-is by impl_->mirror(), garbling later reads. Localize
     // every child TypeRef before computing the UID + interning so the
     // resulting type is self-consistent.
-    if (t.pointee     && t.pointee.is_external())     t.pointee     = intern_foreign(t.pointee);
-    if (t.elem        && t.elem.is_external())        t.elem        = intern_foreign(t.elem);
-    if (t.assoc_base  && t.assoc_base.is_external())  t.assoc_base  = intern_foreign(t.assoc_base);
-    if (t.closure_ret && t.closure_ret.is_external()) t.closure_ret = intern_foreign(t.closure_ret);
+    if (t.pointee      && t.pointee.is_external())      t.pointee      = intern_foreign(t.pointee);
+    if (t.elem         && t.elem.is_external())         t.elem         = intern_foreign(t.elem);
+    if (t.assoc_base   && t.assoc_base.is_external())   t.assoc_base   = intern_foreign(t.assoc_base);
+    if (t.closure_ret  && t.closure_ret.is_external())  t.closure_ret  = intern_foreign(t.closure_ret);
+    if (t.arr_len_expr && t.arr_len_expr.is_external()) t.arr_len_expr = intern_foreign(t.arr_len_expr);
     for (auto& a : t.type_args)      if (a && a.is_external()) a = intern_foreign(a);
     for (auto& e : t.tuple_elems)    if (e && e.is_external()) e = intern_foreign(e);
     for (auto& p : t.closure_params) if (p && p.is_external()) p = intern_foreign(p);
@@ -1233,10 +1251,11 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
 
 }  // namespace
 
-TypeRef TypeRef::pointee()     const noexcept { return ptr_via_mirror(*this, sema_schema::POINTEE);     }
-TypeRef TypeRef::elem()        const noexcept { return ptr_via_mirror(*this, sema_schema::ELEM);        }
-TypeRef TypeRef::assoc_base()  const noexcept { return ptr_via_mirror(*this, sema_schema::ASSOC_BASE);  }
-TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(*this, sema_schema::CLOSURE_RET); }
+TypeRef TypeRef::pointee()      const noexcept { return ptr_via_mirror(*this, sema_schema::POINTEE);      }
+TypeRef TypeRef::elem()         const noexcept { return ptr_via_mirror(*this, sema_schema::ELEM);         }
+TypeRef TypeRef::assoc_base()   const noexcept { return ptr_via_mirror(*this, sema_schema::ASSOC_BASE);   }
+TypeRef TypeRef::closure_ret()  const noexcept { return ptr_via_mirror(*this, sema_schema::CLOSURE_RET);  }
+TypeRef TypeRef::arr_len_expr() const noexcept { return ptr_via_mirror(*this, sema_schema::ARR_LEN_EXPR); }
 
 // String accessors return realloc-safe owning views. The MemHolder is reached
 // via pool_ for local TypeRefs; for cross-arena TypeRefs (pool_ == nullptr,
@@ -1362,6 +1381,7 @@ LogosTypeBuilder TypeRef::to_builder() const {
     b.assoc_type_name = std::string(assoc_type_name());
     b.gat_args        = gat_args();
     b.const_val       = const_val();
+    b.arr_len_expr    = arr_len_expr();
     return b;
 }
 
@@ -2312,10 +2332,29 @@ std::string type_str(TypeRef t) {
         if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
         return s + "mut " + type_str(TypeRef(t).pointee());
     }
+    case LogosType::Kind::ConstExpr: {
+        // Render the const-expression infix so a diagnostic shows the length
+        // the user wrote (`N + 1`), not an opaque node.
+        auto args = TypeRef(t).type_args();
+        const char* sym = "?";
+        switch (static_cast<ConstOp>(TypeRef(t).const_val().value_or(0))) {
+            case ConstOp::Add: sym = "+"; break;   case ConstOp::Sub: sym = "-"; break;
+            case ConstOp::Mul: sym = "*"; break;   case ConstOp::Div: sym = "/"; break;
+            case ConstOp::Mod: sym = "%"; break;   case ConstOp::Shl: sym = "<<"; break;
+            case ConstOp::Shr: sym = ">>"; break;  case ConstOp::BitAnd: sym = "&"; break;
+            case ConstOp::BitOr: sym = "|"; break;  case ConstOp::BitXor: sym = "^"; break;
+            case ConstOp::Neg: sym = "-"; break;   case ConstOp::BitNot: sym = "~"; break;
+        }
+        if (args.size() == 1) return std::format("({}{})", sym, type_str(args[0]));
+        if (args.size() >= 2) return std::format("({} {} {})", type_str(args[0]), sym, type_str(args[1]));
+        return "<const-expr>";
+    }
     case LogosType::Kind::Array: {
         // A symbolic length must print as its NAME. Printing arr_size() gave
         // "[T; 0]" for every unbound length — a diagnostic that describes a
         // type nobody wrote.
+        if (auto le = TypeRef(t).arr_len_expr())
+            return std::format("[{}; {}]", type_str(TypeRef(t).elem()), type_str(le));
         auto asv = TypeRef(t).arr_size_var();
         if (!asv.empty())
             return std::format("[{}; {}]", type_str(TypeRef(t).elem()), asv);

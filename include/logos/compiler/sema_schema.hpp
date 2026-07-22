@@ -65,6 +65,12 @@ inline constexpr Key CONST_VAL         {"CONST_VAL",       19}; // i64 (std::opt
 // Cached TypeUID (32-byte datatype, filled lazily on first request)
 inline constexpr Key TYPE_UID          {"TYPE_UID",        20}; // TypeUID datatype
 
+// const-length-overhaul: an Array's length EXPRESSION (Kind::ConstExpr tree).
+// RelPtr<LogosType>, present only when the length is neither a bare size nor a
+// single symbolic name. ConstExpr nodes keep their operands in TYPE_ARGS and
+// their opcode in CONST_VAL — no dedicated key needed for those.
+inline constexpr Key ARR_LEN_EXPR      {"ARR_LEN_EXPR",    21}; // RelPtr<LogosType>
+
 // ── TraitBound keys ────────────────────────────────────────────────────────
 //
 // TraitBound lives in its own TinyObjectMap with schema_type_code derived from

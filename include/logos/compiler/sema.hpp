@@ -138,6 +138,20 @@ struct LogosType {
                                   // Every Kind::FnPtr check in sema/mono/
                                   // mlir-gen also accepts Kind::FnItem so
                                   // the source-site swap stays transparent.
+        ,
+        ConstExpr                 // const-length-overhaul: a const ARITHMETIC
+                                  // expression node in the type system (an
+                                  // array length or const-generic arg that is
+                                  // `N + 1`, `C::STREAMS * 2`, …). `const_val`
+                                  // carries the ConstOp opcode; `type_args`
+                                  // holds the operands (2 for binary, 1 for
+                                  // unary). Leaves are IntLit (const_val =
+                                  // value) or ConstVar (unresolved param).
+                                  // fold_const_expr() collapses it to an
+                                  // int64 once every leaf is concrete (at
+                                  // sema, or at mono when params bind); it
+                                  // never survives to codegen. Appended last
+                                  // to keep every prior kind ID stable.
     };
     // logos-core 1.4: every site that asks "is this a fn-pointer-like value?"
     // accepts BOTH the bare-FnPtr and the FnItem-distinct shapes — sema/mono/
@@ -274,6 +288,13 @@ public:
     TypeRef elem()         const noexcept;
     TypeRef assoc_base()   const noexcept;
     TypeRef closure_ret()  const noexcept;
+    // const-length-overhaul: an Array's length EXPRESSION (a Kind::ConstExpr
+    // tree), set only when the length is not a bare concrete size or single
+    // symbolic name. Null for the common cases (arr_size / arr_size_var carry
+    // those). When non-null on an Array, arr_size == 0 until the expression
+    // folds. Also the carrier read directly off a ConstExpr node's operands
+    // via type_args().
+    TypeRef arr_len_expr() const noexcept;
 
     bool mut_ptr() const noexcept {
         auto av = mirror()->get(sema_schema::MUT_PTR.code);
@@ -415,6 +436,71 @@ inline ArrLenSubst subst_arr_len(uint64_t size, std::string_view var,
     return {size, sym};
 }
 
+// ── const-length-overhaul: const-expression trees in the type system ────────
+//
+// A Kind::ConstExpr type node carries an arithmetic const expression that is
+// only reducible once its symbolic leaves (const-generic params) are bound.
+// The opcode rides `const_val`; operands ride `type_args` (2 for binary, 1 for
+// unary). Leaves are IntLit (concrete, const_val = value), any type carrying a
+// concrete const_val (a bound param substitutes to one), or ConstVar (an
+// unresolved param → the whole expression stays deferred). This is the ONE
+// representation the grammar's length/const-arg expressions lower into; the
+// same fold runs at sema (fold now if concrete) and at mono (re-fold after a
+// param binds), so length resolution never drifts between the two.
+enum class ConstOp : int64_t {
+    Add = 1, Sub, Mul, Div, Mod, Shl, Shr, BitAnd, BitOr, BitXor,  // binary
+    Neg = 101, BitNot = 102,                                        // unary
+};
+
+// Fold a const-expression TypeRef to a concrete value, or nullopt if any leaf
+// is still symbolic (an unresolved ConstVar) — the caller then keeps it
+// deferred. Division/modulo by zero also yields nullopt (an ill-formed length
+// is caught downstream with a real diagnostic, never a silent 0).
+inline std::optional<int64_t> fold_const_expr(TypeRef t) noexcept {
+    if (!t) return std::nullopt;
+    using K = LogosType::Kind;
+    if (t.kind() == K::ConstExpr) {
+        auto opv = t.const_val();
+        if (!opv) return std::nullopt;
+        auto args = t.type_args();
+        if (args.empty()) return std::nullopt;
+        auto l = fold_const_expr(args[0]);
+        if (!l) return std::nullopt;
+        ConstOp op = static_cast<ConstOp>(*opv);
+        if (op == ConstOp::Neg)    return -*l;
+        if (op == ConstOp::BitNot) return ~*l;
+        if (args.size() < 2) return std::nullopt;
+        auto r = fold_const_expr(args[1]);
+        if (!r) return std::nullopt;
+        switch (op) {
+            case ConstOp::Add:    return *l + *r;
+            case ConstOp::Sub:    return *l - *r;
+            case ConstOp::Mul:    return *l * *r;
+            case ConstOp::Div:    return *r == 0 ? std::nullopt : std::optional<int64_t>(*l / *r);
+            case ConstOp::Mod:    return *r == 0 ? std::nullopt : std::optional<int64_t>(*l % *r);
+            case ConstOp::Shl:    return *l << *r;
+            case ConstOp::Shr:    return *l >> *r;
+            case ConstOp::BitAnd: return *l & *r;
+            case ConstOp::BitOr:  return *l | *r;
+            case ConstOp::BitXor: return *l ^ *r;
+            default:              return std::nullopt;
+        }
+    }
+    // An unresolved const-param leaf is not foldable; keep it deferred.
+    if (t.kind() == K::ConstVar) return std::nullopt;
+    // Any other leaf that carries a concrete value (IntLit, or a param that a
+    // substitution bound to a const-valued type) folds to it.
+    if (auto cv = t.const_val()) return *cv;
+    return std::nullopt;
+}
+
+// Does a type carry an unresolved const-expression (a ConstExpr whose leaves
+// are not all concrete)? Used by array-length carriers and the mono scan to
+// tell "still generic" from "ready to emit".
+inline bool const_expr_is_symbolic(TypeRef t) noexcept {
+    return t && t.kind() == LogosType::Kind::ConstExpr && !fold_const_expr(t).has_value();
+}
+
 // ── LogosTypeBuilder ──────────────────────────────────────────────────────
 //
 // Write-side companion to TypeRef. Builder code populates fields freely and
@@ -442,6 +528,14 @@ struct LogosTypeBuilder {
     uint64_t    arr_size = 0;
     std::string arr_size_var;       // symbolic length: a const-param name, or
                                     // ARR_LEN_PACK_PFX + pack name
+    // const-length-overhaul: the length EXPRESSION when it is neither a bare
+    // concrete size nor a single symbolic name — a Kind::ConstExpr tree.
+    // INVARIANT: arr_len_expr non-null ⇒ arr_size == 0 && arr_size_var empty
+    // (the three length carriers are mutually exclusive; the expression is the
+    // most general and folds INTO arr_size once every leaf is concrete). Also
+    // reused as nothing on non-Array kinds — a ConstExpr node keeps its
+    // operands in type_args, not here.
+    TypeRef     arr_len_expr;
 
     // Struct / Enum
     std::string struct_name;        // base struct name (owned; never mangled)
