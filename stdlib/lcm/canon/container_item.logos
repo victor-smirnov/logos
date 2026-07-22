@@ -2059,7 +2059,10 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             pub fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
                 unsafe {
                     let mut t: Btfl<2, CowProfile> = self.tree();
-                    let ok: bool = btfl_insert::<CowProfile>(&mut *self.snap, &mut t, key, vals);
+                    // multimap container: one key entry + `vals` as stream 1
+                    let mut lens: Vec<u64> = vec_new::<u64>();
+                    lens.push(vals.length() as u64);
+                    let ok: bool = btfl_insert_n::<2, CowProfile>(&mut *self.snap, &mut t, key, vals, &lens);
                     if ok {
                         (*self.snap).set_root(self.ctr_id, t.root, t.level);
                     }
@@ -2068,7 +2071,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn find(self: &#nm, key: u64, out: &mut Vec<u64>) -> bool {
                 let t: Btfl<2, CowProfile> = self.tree();
-                return btfl_find::<CowProfile>(&t, key, out);
+                return btfl_key_stream::<2, CowProfile>(&t, key, 1u32, out);
             }
             pub fn seek(self: &#nm, key: u64) -> BtflSeek {
                 let t: Btfl<2, CowProfile> = self.tree();

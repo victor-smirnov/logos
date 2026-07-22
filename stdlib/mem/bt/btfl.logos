@@ -1,12 +1,22 @@
-// logos.mem.bt.btfl — BTFL increment 8a: the multistream free-layout btree with a
-// HARDCODED 2-stream Multimap<u64, u64> (ordered multimap key → sequence of
-// values). The factory (8b) generalizes this file; the MECHANICS land here.
+// logos.mem.bt.btfl — the N-DataStream FREE-LAYOUT B+tree PROTOTYPE (Memoria
+// bt_fl): `DataStreams` typed columns + a STRUCTURE stream that orders them
+// relative to each other. This file is the PROTOTYPE only — generic ordered-bt
+// mechanics over N streams (seek / select / rank / access / insert-entry /
+// split / bulk / the key_stream projection). It carries NO container-level
+// value semantics: the Multimap container (K → value sequences) is a THIN
+// layer on top — the Canon-generated family, and, in tests, `btfl_key_stream`
+// (find) + `btfl_insert_n` (insert). Just as in Memoria, multimap is bt_fl's
+// only client today; bt_fl stays the reusable substrate (vector-of-structs,
+// queue, table-rows sit on the same prototype without multimap baggage).
 //
-// LOGICAL MODEL: records of 2 streams ordered relative to each other — for
-// each key in key order: one key entry (symbol 0) followed by its value
-// entries (symbol 1). The layout is carried by a SYMBOL SEQUENCE
-// (alphabet = 2, SSRLE) kept as the LAST stream of every leaf; branch nodes
-// carry per-symbol subtree counts + the stream-0 max-key measure.
+// LOGICAL MODEL: records of N streams ordered relative to each other. Stream 0
+// is the ORDERED navigation key (MAX measure in branches — the B+tree key);
+// streams 1..N-1 are unordered data. For each key in key order: one symbol-0
+// entry followed by its associated per-stream runs. The layout is carried by a
+// SYMBOL SEQUENCE (alphabet = N, SSRLE) kept as the LAST stream of every leaf;
+// branch nodes carry per-symbol subtree counts + the stream-0 max-key measure.
+// A cut at any structure position projects into each stream via rank_eq — THE
+// rank projection is the whole trick.
 //
 // C++ ORACLE SITES MIRRORED (~/cxx/memoria/containers/include/memoria/...):
 //   * structure stream = SSRLE over DataStreams symbols, kept as a dedicated
@@ -43,7 +53,7 @@
 //     multimap_keys_chunk_impl.hpp:241-267 (values_chunk: key's symbol
 //     position via select_fw_eq(idx, 0); span bounded by the NEXT symbol-0
 //     position; first value = rank_eq(sym_idx + 1, 1) — the projection into
-//     the values stream). Here: btfl_find.
+//     the values stream). Here: btfl_key_stream (find).
 //
 // V0 RESTRICTIONS (lifted by 8a2/8b):
 //   * splits are KEY-ALIGNED (the split position is a key's symbol position)
@@ -658,23 +668,30 @@ pub fn btfl_leaf_rank<const N: u32, P: NodeProfile>(leaf: *mut u8, upto: u64, sy
 /// (p, next symbol-0 position); the first value's index in the values
 /// stream = rank_eq(p + 1, 1) — the rank-projection. Under the v0
 /// key-aligned-split invariant the whole run lives in the key's leaf.
-pub fn btfl_find<P: NodeProfile>(t: &Btfl<2, P>, key: u64, out: &mut Vec<u64>) -> bool {
-    let sk: BtflSeek = btfl_seek::<2, P>(t, key);
+// Append the run of FSE stream `stream` associated with the entry keyed `key`
+// (`key`'s symbol-0 structure slot, projected into `stream` via rank). A pure
+// bt_fl PROTOTYPE op — generic over N and the stream index; the multimap
+// container's `find(k)` is exactly this with stream = 1. (For a VLE stream use
+// the span introspection instead — this yields u64 cells.)
+pub fn btfl_key_stream<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, key: u64, stream: u32, out: &mut Vec<u64>) -> bool {
+    let sk: BtflSeek = btfl_seek::<N, P>(t, key);
     if !sk.found {
         return false;
     }
     unsafe {
         let a: *mut PkdAlloc = P::pkd(sk.leaf);
-        let seq: PkdSsrle = lf_seq(a);
+        let seq: PkdSsrle = lf_seq_n::<N>(a);
         let kc: u32 = lf_pdt(a, 0u32).size() as u32;
         let p: u64 = seq.select_fw_eq(sk.kidx as u64, 0u64).idx;
         let mut end: u64 = seq.size();
         if sk.kidx + 1u32 < kc {
             end = seq.select_fw_eq((sk.kidx as u64) + 1u64, 0u64).idx;
         }
-        let v0: u64 = seq.rank_eq(p + 1u64, 1u64);
-        let cnt: u64 = end - p - 1u64;
-        let vb: PdtBuf = lf_pdt(a, 1u32);
+        // rank projection: `stream`'s first entry of the run, and its count in
+        // the run (the general form — counts only `stream`, for any N).
+        let v0: u64 = seq.rank_eq(p + 1u64, stream as u64);
+        let cnt: u64 = seq.rank_eq(end, stream as u64) - v0;
+        let vb: PdtBuf = lf_pdt(a, stream);
         let mut j: u64 = 0u64;
         while j < cnt {
             out.push(vb.get(0u32, v0 + j));
@@ -1286,12 +1303,6 @@ pub fn btfl_insert_n<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, t:
 /// The 2-stream multimap entry insert: `key → vals` (a key entry followed by
 /// its value entries). A thin wrapper over the N-generic core — vals pass
 /// through as the flat stream-1 run, no copy.
-pub fn btfl_insert<P: NodeProfile>(snap: &mut MemorySnapshot, t: &mut Btfl<2, P>, key: u64, vals: &Vec<u64>) -> bool {
-    let mut lens: Vec<u64> = vec_new::<u64>();
-    lens.push(vals.length() as u64);
-    return btfl_insert_n::<2, P>(snap, t, key, vals, &lens);
-}
-
 // ── P6b: bulk build ─────────────────────────────────────────────────────────
 //
 // C++ shape (btfl_batch_input_provider.hpp:263-272 + :449-511): stage the

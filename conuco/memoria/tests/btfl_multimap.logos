@@ -155,7 +155,7 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
         let k: u64 = md.mk.get(i);
         // find → exact value list
         let mut got: Vec<u64> = vec_new::<u64>();
-        if !btfl_find::<CowProfile>(t, k, &mut got) {
+        if !btfl_key_stream::<2, CowProfile>(t, k, 1u32, &mut got) {
             return 4i32;
         }
         let lo: u64 = md.moff.get(i);
@@ -266,7 +266,7 @@ fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<2, CowProfile>, md: &mut Model,
             j = j + 1u64;
         }
         let existing: i64 = model_find(md, k);
-        let ok: bool = btfl_insert::<CowProfile>(snap, t, k, &vals);
+        let ok: bool = mm_insert(snap, t, k, &vals);
         if existing >= 0i64 {
             if ok {
                 return 31i32;   // duplicate must be rejected
@@ -283,7 +283,7 @@ fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<2, CowProfile>, md: &mut Model,
             return 33i32;
         }
         let mut none: Vec<u64> = vec_new::<u64>();
-        if btfl_find::<CowProfile>(t, k + 1u64, &mut none) {
+        if btfl_key_stream::<2, CowProfile>(t, k + 1u64, 1u32, &mut none) {
             return 34i32;
         }
         if (r + 1i64) % stride == 0i64 {
@@ -431,7 +431,7 @@ fn check_bulk_build(rng: &mut Lcg, entries: u64, maxvals: u64,
             vals.push(md.mv.get(w as i64));
             w = w + 1u64;
         }
-        if !btfl_insert::<CowProfile>(&mut snap, &mut ts, md.mk.get(q), &vals) {
+        if !mm_insert(&mut snap, &mut ts, md.mk.get(q), &vals) {
             btfl_drop::<2, CowProfile>(&tb);
             btfl_drop::<2, CowProfile>(&ts);
             return 904i32;
@@ -500,7 +500,7 @@ fn run_all() -> i32 {
             return 15i32;
         }
         let mut none: Vec<u64> = vec_new::<u64>();
-        if btfl_find::<CowProfile>(&t0, 7u64, &mut none) {
+        if btfl_key_stream::<2, CowProfile>(&t0, 7u64, 1u32, &mut none) {
             return 16i32;
         }
         btfl_drop::<2, CowProfile>(&t0);
@@ -616,6 +616,14 @@ fn run_all() -> i32 {
 // The diagnostic code is PRINTED, never returned: a process exit status is an
 // 8-bit channel, so any code >= 256 would wrap (256 & 0xFF == 0) and report
 // SUCCESS. The status is a fixed non-zero byte; the code carries the detail.
+// The multimap container's insert, expressed over the btfl prototype (one key
+// entry + `vals` as stream 1) — the container layer btfl itself no longer carries.
+fn mm_insert(snap: &mut MemorySnapshot, t: &mut Btfl<2, CowProfile>, key: u64, vals: &Vec<u64>) -> bool {
+    let mut lens: Vec<u64> = vec_new::<u64>();
+    lens.push(vals.length() as u64);
+    return btfl_insert_n::<2, CowProfile>(snap, t, key, vals, &lens);
+}
+
 fn main() -> i32 {
     let code: i32 = run_all();
     if code == 0i32 {

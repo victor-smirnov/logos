@@ -152,7 +152,7 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
         let k: u64 = md.mk.get(i);
         // find → exact value list
         let mut got: Vec<u64> = vec_new::<u64>();
-        if !btfl_find::<CowProfile>(t, k, &mut got) {
+        if !btfl_key_stream::<2, CowProfile>(t, k, 1u32, &mut got) {
             return 4i32;
         }
         let lo: u64 = md.moff.get(i);

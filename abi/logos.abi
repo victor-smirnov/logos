@@ -11127,6 +11127,7 @@ sym	logos_mem.logos.mem.bt.btfl$btfl_cut__f__ref_BtflStage__u64__u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_stage_new__f__void
 sym	logos_mem.logos.mem.bt.memstore$tree_release__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_alloc__f__u32__u32__u64
+sym	logos_mem.logos.mem.bt.node$node_block_size__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_child_slot__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_dec_rc__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_free__f__pmut_u8
