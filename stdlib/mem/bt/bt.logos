@@ -1,18 +1,15 @@
 // logos.mem.bt — B+tree over packed node blocks (ADR 0018 M2; C++ reference:
 // prototypes/bt/{container,shuttles}, bt_ss).
 //
-// A NODE is a fixed HEADER, then a PackedAllocator column region — the layout
-// of Memoria's TreeNodeBase (prototypes/bt/nodes/branch_node.hpp): the id +
-// hot descent fields are POD members BEFORE `allocator_`, read by direct
-// access, never through a metadata element (the header has no business inside
-// the allocator, and keeping it out makes is_leaf/level/id direct reads):
-//   @0  id     : u64   Header::id — the node's own block id
-//   @8  leaf   : u32   leaf_  — 1 = leaf, 0 = branch
-//   @12 level  : u32   level_ — tree level (0 = leaf)
-//   @16 ...    the PackedAllocator region (2 slots):
-//     leaf:   slot 0 = keys (single-column PdtBuf, MAX-ordered) · slot 1 = vals
-//     branch: slot 0 = keys (MAX key of each child — the Memoria convention) ·
-//             slot 1 = children (block ids) — all single-column FSE64 PdtBufs
+// A NODE block IS the DST struct `BtNode` (below): the id + hot descent fields,
+// then the PkdAlloc column region as the trailing unsized field — exactly
+// Memoria's TreeNodeBase { ...; PackedAllocator allocator_; }
+// (prototypes/bt/nodes/branch_node.hpp). The header fields are reached by
+// struct-field access; the allocator is `&node.alc` (node->allocator()); the
+// header size is offset_of!(BtNode, alc). Columns:
+//   leaf:   slot 0 = keys (single-column PdtBuf, MAX-ordered) · slot 1 = vals
+//   branch: slot 0 = keys (MAX key of each child — the Memoria convention) ·
+//           slot 1 = children (block ids) — all single-column FSE64 PdtBufs
 // (root_ / next_leaf_id_ join with the store + leaf-sibling chain; bt's
 // path-driven cursor needs neither yet.)
 //
@@ -33,6 +30,7 @@ package logos.mem.bt;
 
 use logos.mem.pkd;
 use logos.mem.pkd.pdtbuf;
+use logos.lang.marker;   // SelfDescribing — BtNode is a DST ending in PkdAlloc
 use logos.lang.mem;
 use logos.lang.drop;
 use logos.lang.option;
@@ -42,11 +40,25 @@ use logos.mem.collections.vec;
 // ── node geometry ────────────────────────────────────────────────────────────
 
 pub const BT_BLOCK: u32 = 4096u32;
-// The node header: id(u64) + leaf(u32) + level(u32) = 16 bytes, so the region
-// stays 8-aligned at base+16.
-const BT_NODE_HDR: i64 = 16i64;
 const SLOT_KEYS: u32 = 0u32;
 const SLOT_VALS: u32 = 1u32;   // leaf values / branch children
+
+// The node block as a custom DST: the fixed header fields, then `alc` — the
+// [u8]-tailed PkdAlloc — as the trailing unsized field. Mirrors Memoria's
+// TreeNodeBase (id/leaf/level POD fields ahead of `PackedAllocator allocator_`).
+// `#[self_describing]` keeps every `*mut BtNode` THIN (the tail length is
+// in-band, via alc), so the arena stores a plain pointer; the allocator region
+// starts at offset_of!(BtNode, alc).
+#[self_describing]
+struct BtNode {
+    id:    u64,        // Header::id — the node's own block id
+    leaf:  u32,        // leaf_  — 1 = leaf, 0 = branch
+    level: u32,        // level_ — tree level (0 = leaf)
+    alc:   PkdAlloc,   // allocator_ — the column region (the DST tail)
+}
+impl SelfDescribing for BtNode {
+    fn dst_len(self: *const BtNode) -> i64 { return unsafe { (*self).alc.dst_len() }; }
+}
 
 // ── arena: id → block (M3 replaces this with the store) ─────────────────────
 
@@ -63,20 +75,21 @@ impl BtArena {
     pub fn alloc_node(self: &mut BtArena, is_leaf: bool, level: u32) -> u64 {
         unsafe {
             let id: u64 = (self.blocks.len() + 1i64) as u64;   // 1-based; stamped in-header
-            let base: *mut u8 = alloc(BT_NODE_HDR + (BT_BLOCK as i64));
-            *(base as *mut u64) = id;
-            *(base.byte_add(8i64) as *mut u32) = if is_leaf { 1u32 } else { 0u32 };
-            *(base.byte_add(12i64) as *mut u32) = level;
-            let a: *mut PkdAlloc = pkd_format(base.byte_add(BT_NODE_HDR), BT_BLOCK, 2);
+            let base: *mut u8 = alloc(offset_of!(BtNode, alc) + (BT_BLOCK as i64));
+            let node: *mut BtNode = base as *mut BtNode;
+            (*node).id = id;
+            (*node).leaf = if is_leaf { 1u32 } else { 0u32 };
+            (*node).level = level;
+            let a: *mut PkdAlloc = pkd_format(bt_pkd(node) as *mut u8, BT_BLOCK, 2);
             if !bt_format_col(a, SLOT_KEYS, true) { return 0u64; }
             if !bt_format_col(a, SLOT_VALS, false) { return 0u64; }
-            self.blocks.push(base as i64);
+            self.blocks.push(node as i64);
             return id;
         }
     }
-    /// Node block base for `id` (the header; reach the columns via bt_pkd).
-    pub fn at(self: &BtArena, id: u64) -> *mut u8 {
-        return self.blocks.get((id as i64) - 1i64) as *mut u8;
+    /// Node handle for `id` (the DST struct; reach the columns via bt_pkd).
+    pub fn at(self: &BtArena, id: u64) -> *mut BtNode {
+        return self.blocks.get((id as i64) - 1i64) as *mut BtNode;
     }
 }
 
@@ -188,21 +201,12 @@ unsafe fn bt_del_row(a: *mut PkdAlloc, pos: u32) {
     }
 }
 
-// The node header is a fixed prefix; each field is a direct read off the base
-// (never a PkdAlloc slot). `bt_pkd` reaches the column region behind it.
-unsafe fn bt_pkd(base: *mut u8) -> *mut PkdAlloc {
-    return base.byte_add(BT_NODE_HDR) as *mut PkdAlloc;
-}
-
-unsafe fn node_id(base: *mut u8) -> u64 { return *(base as *mut u64); }
-
-unsafe fn node_is_leaf(base: *mut u8) -> bool {
-    return *(base.byte_add(8i64) as *mut u32) == 1u32;
-}
-
-unsafe fn node_level(base: *mut u8) -> u32 {
-    return *(base.byte_add(12i64) as *mut u32);
-}
+// Header access is now plain struct-field reads (no byte offsets); `bt_pkd`
+// returns the trailing allocator — Memoria's node->allocator().
+unsafe fn bt_pkd(node: *mut BtNode) -> *mut PkdAlloc { return &mut (*node).alc; }
+unsafe fn node_id(node: *mut BtNode) -> u64 { return (*node).id; }
+unsafe fn node_is_leaf(node: *mut BtNode) -> bool { return (*node).leaf == 1u32; }
+unsafe fn node_level(node: *mut BtNode) -> u32 { return (*node).level; }
 
 unsafe fn keys_count(a: *mut PkdAlloc) -> u32 { return nkeys(a).size() as u32; }
 
@@ -258,7 +262,7 @@ pub fn bt_ride(arena: &BtArena, root: u64, sh: *mut dyn Shuttle,
     unsafe {
         let mut cur: u64 = root;
         loop {
-            let base: *mut u8 = arena.at(cur);
+            let base: *mut BtNode = arena.at(cur);
             let p: *mut PkdAlloc = bt_pkd(base);
             if node_is_leaf(base) {
                 return (cur, sh.on_leaf(p));
@@ -318,7 +322,7 @@ unsafe fn fix_maxes(arena: &BtArena, path: &Vec<(u64, u32)>, bottom: u64) {
 
 // Split `node` at its midpoint into a fresh right sibling; returns its id.
 unsafe fn split_node(arena: &mut BtArena, node: u64) -> u64 {
-    let nb: *mut u8 = arena.at(node);
+    let nb: *mut BtNode = arena.at(node);
     let leaf: bool = node_is_leaf(nb);
     let lvl: u32 = node_level(nb);
     let right: u64 = arena.alloc_node(leaf, lvl);
@@ -494,7 +498,7 @@ pub fn bt_first(arena: &BtArena, t: &BtTree) -> BtCursor {
         let mut path: Vec<(u64, u32)> = vec_new::<(u64, u32)>();
         let mut cur: u64 = t.root;
         loop {
-            let base: *mut u8 = arena.at(cur);
+            let base: *mut BtNode = arena.at(cur);
             if node_is_leaf(base) { break; }
             path.push((cur, 0u32));
             cur = nvals(bt_pkd(base)).get(0u32, 0u64);
@@ -557,7 +561,7 @@ impl BtCursor {
                     self.path.set(self.path.len() - 1i64, (bid, idx + 1u32));
                     let mut cur: u64 = nvals(bp).get(0u32, (idx as u64) + 1u64);
                     loop {
-                        let base: *mut u8 = arena.at(cur);
+                        let base: *mut BtNode = arena.at(cur);
                         if node_is_leaf(base) { break; }
                         self.path.push((cur, 0u32));
                         cur = nvals(bt_pkd(base)).get(0u32, 0u64);
@@ -583,7 +587,7 @@ impl BtCursor {
                     let bp: *mut PkdAlloc = bt_pkd(arena.at(bid));
                     let mut cur: u64 = nvals(bp).get(0u32, (idx as u64) - 1u64);
                     loop {
-                        let base: *mut u8 = arena.at(cur);
+                        let base: *mut BtNode = arena.at(cur);
                         if node_is_leaf(base) { break; }
                         let p: *mut PkdAlloc = bt_pkd(base);
                         let last: u32 = keys_count(p) - 1u32;
