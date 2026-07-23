@@ -147,6 +147,12 @@ pub struct MemorySnapshot {
     // shared_from_this in snp_make_shared_init). None = store-less (with_id
     // library tests). Guarantees store Drop runs only after every wrapper
     // closed — its history drain never races a live wrapper.
+    //
+    // POOL RULE (symmetric with the Ctr handle's `snap` field): a wrapper is
+    // either OWNED BY USER CODE or sits in the STORE's pool (when one lands).
+    // Pooled, this hold would cycle Store→pool→Snapshot→Store — so return-
+    // to-pool RESETS it to None (the Option IS the reset mechanism) and
+    // take-from-pool re-sets it in the instance's init.
     store: Option<Arc<MemoryStore>>,
 }
 
