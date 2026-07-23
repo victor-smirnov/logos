@@ -1,0 +1,139 @@
+package test;
+// ═══════════════════════════════════════════════════════════════════════════
+// example_map — THE worked example of the Memoria/Logos container stack over
+// the single-stream ordered MAP (the btss family). A living document: it runs
+// in the conuco gate, so every layer it demonstrates stays green as the stack
+// evolves. Iterate HERE.
+//
+// The stack, top to bottom (what each § below exercises):
+//
+//   Deem/app code            §4 dyn plane (&dyn Ctr), §2 Rc handles
+//   ── boundary ─────────    map.logos: Ctr (+family traits), Uid256
+//   metaclass factory        §1 create_ctr_rc — decl → CFG doc → mono demand
+//                            → generated family (package logos.gen)
+//   BT protocol              ops.logos: bt_ins_rec / bt_cow_insert skeletons
+//   BTSS substrate           btss.logos: column mechanics (fmt/split/upsert/
+//                            lower_bound variants) — ONE body per algorithm
+//   node / store             node.logos MemNode (CoW header) + memstore
+//   configuration            storecfg.logos: WritStatic docs — the store's
+//                            node form + geometry BAKED at generation
+//
+// THREADING RULE (the a3bbba05 design): Store/Snapshot are CROSS-THREAD and
+// ride Arc; a Ctr handle is STRICTLY THREAD-LOCAL and rides Rc. v1 allocates
+// plainly; the destination is pools of ready instances (snapshots in the
+// store, handles in the snapshot) with Drop returning to the pool.
+//
+// OPEN SLOTS this example will grow into (iterate here):
+//   * `trait OrderedMap: Ctr` — the map family's dyn surface (get/insert
+//     through `&dyn`, like Multimap for btfl) + the generated impl;
+//   * open_dyn(family_id, snap, ctr) -> Box<dyn Ctr> — the opener REGISTRY
+//     (Memoria store->find analog; registration mechanics = open PAIR fork);
+//   * a second StoreCfg (non-4K geometry / a second store) driven through
+//     THE SAME compiled example code — the S4 payoff.
+// ═══════════════════════════════════════════════════════════════════════════
+
+use memoria.ctr.map;                  // §0 the LIBRARY declaration (below)
+use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
+use logos.lcm.canon.metaclass;        // create_ctr_rc / open_ctr — the demand surface
+use logos.mem.bt.map;                 // Ctr / Uid256 — the boundary plane
+use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
+use logos.mem.sync;                   // Arc — the cross-thread snapshot plane
+use logos.lang.rc;                    // Rc — the thread-local handle plane
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
+use logos.lang.panic;
+
+// ── §0 THE DECLARATION (lives in memoria.ctr.map, quoted for the reader) ────
+//
+//     pub container Map<K, V> for u8 {
+//         kind ordered_map;
+//         entry { key: K, val: V }
+//         measure max(key);
+//     }
+//
+// No code exists on the library side. Naming `Map::<u64, u64>` here makes
+// mono DEMAND the concrete configuration hash; the metaclass factory answers
+// by generating the whole family (leaf/branch/tree/CoW-map + the handle) in
+// THIS compile — with the store's node form (#nd = CowProfile) and geometry
+// (4096/4096) baked from the composed StoreCfg. Identical configs unify
+// across consumers by the content hash.
+
+// ── §4 the dyn plane: a consumer that knows ONLY the boundary ───────────────
+// One compiled body for EVERY container implementation — the reason the
+// hybrid static/dynamic design exists. (The map's typed ops go through the
+// generated handle below; a family dyn trait is an open slot, see header.)
+fn report(c: &dyn Ctr) -> u64 {
+    return c.size();
+}
+
+// The PINNED entry shape (see project_storecfg_plane): a dyn coercion cannot
+// happen on the pre-drain factory projection (`CtrClass<...>::Handle`), so
+// the rim is a thin GENERIC whose factory-backed bound defers until the
+// drain; the generic→dyn coercion happens INSIDE, over the bound param.
+// "Generic at the rim, dyn inside."
+fn report_via<C: Ctr>(c: &C) -> u64 {
+    return report(c);
+}
+
+fn run_all() -> i32 {
+    // ── §1 store → snapshot (Arc plane) → container (Rc plane) ──────────────
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut snap: Arc<MemorySnapshot> = store.fork_arc();
+
+    let mut m = create_ctr_rc::<typeof(Map::<u64, u64>)>(&mut *snap, 1u64);
+
+    // ── §2 the typed surface (through the Rc, auto-deref) ───────────────────
+    // upsert semantics: insert-new + replace-on-hit; ordered by key (the
+    // MAX-measure verdict from the declaration drives branch separators).
+    let n: u64 = 4000u64;                 // enough to force leaf+branch splits
+    let mut i: u64 = 0u64;
+    while i < n {
+        m.insert(i, i * 3u64);
+        i = i + 1u64;
+    }
+    if m.size() != n { return 1i32; }
+    if m.get_or(1234u64, 0u64) != 3702u64 { return 2i32; }
+    m.insert(1234u64, 7u64);              // replace-on-hit
+    if m.get_or(1234u64, 0u64) != 7u64 { return 3i32; }
+    if m.size() != n { return 4i32; }
+    if m.get_or(999_999u64, 11u64) != 11u64 { return 5i32; }   // miss → sentinel
+
+    // an Rc CLONE is the same thread-local view — writes through the clone
+    // are visible through the original (shared-view semantics).
+    let mut m_clone = m.clone_ref();
+    m_clone.insert(500_000u64, 42u64);
+    if m.get_or(500_000u64, 0u64) != 42u64 { return 6i32; }
+    if m.size() != n + 1u64 { return 7i32; }
+
+    // ── §3 snapshot lifecycle: commit publishes, open sees the same trees ───
+    store.commit(&*snap);
+    let m2 = open_ctr::<typeof(Map::<u64, u64>)>(&mut *snap, 1u64);
+    if m2.size() != n + 1u64 { return 8i32; }
+    if m2.get_or(4u64, 0u64) != 12u64 { return 9i32; }
+
+    // ── §4 the dyn plane in action ──────────────────────────────────────────
+    if report_via(&*m) != n + 1u64 { return 10i32; }
+
+    // ── §5 the boundary id plane: Uid256 through &dyn Snapshot ──────────────
+    let uid: Uid256 = (&*snap as &dyn Snapshot).snapshot_uid();
+    if !uid256_eq(&uid, &uid256_from_u64(snap.snapshot_id())) { return 11i32; }
+
+    snap.release();
+    store.release();
+    return 0i32;
+}
+
+// Exit status is an 8-bit channel: print the diagnostic code, return a fixed
+// non-zero byte (a code >= 256 would wrap to 0 and lie SUCCESS).
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL example_map: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
