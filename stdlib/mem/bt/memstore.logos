@@ -144,16 +144,16 @@ pub struct SnapDesc {
 pub struct MemorySnapshot {
     desc: *mut SnapDesc,
     // The PARENT HOLD: every wrapper keeps the store alive (the C++
-    // shared_from_this in snp_make_shared_init). None = store-less (with_id
-    // library tests). Guarantees store Drop runs only after every wrapper
-    // closed — its history drain never races a live wrapper.
+    // shared_from_this in snp_make_shared_init). EVERY snapshot belongs to a
+    // store — with_id mints a private one. Guarantees store Drop runs only
+    // after every wrapper closed — its history drain never races a live
+    // wrapper.
     //
     // POOL RULE (symmetric with the Ctr handle's `snap` field): a wrapper is
-    // either OWNED BY USER CODE or sits in the STORE's pool (when one lands).
-    // Pooled, this hold would cycle Store→pool→Snapshot→Store — so return-
-    // to-pool RESETS it to None (the Option IS the reset mechanism) and
-    // take-from-pool re-sets it in the instance's init.
-    store: Option<Arc<MemoryStore>>,
+    // either OWNED BY USER CODE or sits in the STORE's pool (when one lands);
+    // pooled, this hold would cycle Store→pool→Snapshot→Store — the pool
+    // design carries the reset mechanism.
+    store: Arc<MemoryStore>,
 }
 
 // The STORAGE CAPABILITY — inherent methods the generated container reaches
@@ -162,15 +162,17 @@ pub struct MemorySnapshot {
 impl MemorySnapshot {
     unsafe fn d(self: &MemorySnapshot) -> *mut SnapDesc { return self.desc; }
 
-    /// A STORE-LESS snapshot (library tests drive btfl/bt directly, no
-    /// history): its descriptor is owned by the wrapper alone — the last
-    /// wrapper close releases the trees AND frees the descriptor.
+    /// A snapshot with a PRIVATE store (library tests drive btfl/bt directly
+    /// and only need an id + a directory): every snapshot belongs to a store —
+    /// this one simply isn't shared. The wrapper's Drop releases the entry;
+    /// the implicit store dies with the hold.
     pub static fn with_id(id: u64) -> MemorySnapshot {
-        let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
-            id: id, dir: Directory::new(), status: SNAP_ACTIVE,
-            wrappers: atomic_i32_new(1),
-        }));
-        return MemorySnapshot { desc: d, store: Option::None };
+        let mut st: Arc<MemoryStore> = store_new();
+        {
+            let g: &mut MemoryStore = &mut *st;
+            g.next_id = id;
+        }
+        return store_fork(&mut st);
     }
 
     // — capability: node storage —
@@ -266,10 +268,8 @@ impl Drop for MemorySnapshot {
                 i = i + 1i64;
             }
             // LOCK POINT (v1): descriptor unlink vs concurrent find().
-            match &mut self.store {
-                Option::Some(st) => { let g: &mut MemoryStore = &mut **st; g.forget(self.desc); }
-                Option::None => { let _ = box_from_raw(self.desc); }   // store-less
-            }
+            let g: &mut MemoryStore = &mut *self.store;
+            g.forget(self.desc);
         }
     }
 }
@@ -436,7 +436,7 @@ pub fn store_fork(st: &mut Arc<MemoryStore>) -> MemorySnapshot {
     let hold: Arc<MemoryStore> = st.clone_ref();
     let g: &mut MemoryStore = &mut **st;
     let d: *mut SnapDesc = g.fork_desc();
-    return MemorySnapshot { desc: d, store: Option::Some(hold) };
+    return MemorySnapshot { desc: d, store: hold };
 }
 
 /// The cross-thread form: the wrapper itself rides an Arc.
@@ -453,7 +453,7 @@ pub fn store_find(st: &mut Arc<MemoryStore>, id: u64) -> Option<MemorySnapshot> 
         return Option::None;
     }
     let hold: Arc<MemoryStore> = st.clone_ref();
-    return Option::Some(MemorySnapshot { desc: d, store: Option::Some(hold) });
+    return Option::Some(MemorySnapshot { desc: d, store: hold });
 }
 
 impl Store for MemoryStore {}
