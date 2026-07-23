@@ -318,3 +318,40 @@ pub unsafe fn btss_lower_bound_i64(a: *mut PkdAlloc, key: i64) -> u32 {
     }
     return n;
 }
+
+/// A one-cell two-phase append/insert into column `slot` (priced by the
+/// caller — branch rows are inserted only after a fits check).
+pub unsafe fn btss_put_cell(a: *mut PkdAlloc, slot: u32, pos: u32, v: u64) {
+    let b: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
+    let us: PdtUpdate = match b.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => {
+            assert(false, "btss: branch cell prepare");
+            return;
+        }
+    };
+    let mut b2: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
+    let mut row: Vec<u64> = vec_new::<u64>();
+    row.push(v);
+    b2.commit_insert(&us, &row);
+}
+
+/// EXACT one-more-row admission over the first `slots` columns: every grow
+/// priced by the same prepare that would commit it, summed against the one
+/// block's free space (the estimate-free discipline).
+pub unsafe fn btss_fits_row(a: *mut PkdAlloc, slots: u32) -> bool {
+    let mut total: u32 = 0u32;
+    let mut c: u32 = 0u32;
+    while c < slots {
+        let b: PdtBuf = pdtbuf_adopt(a.get::<u8>(c));
+        let us: PdtUpdate = match b.prepare_insert(b.size(), 1u64, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                return false;
+            }
+        };
+        total = total + us.grow_bytes();
+        c = c + 1u32;
+    }
+    return total <= a.free_space();
+}

@@ -996,6 +996,7 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
     // sz/ptr=u64). `self.a()` (the PkdAlloc accessor) lives in the flavor impl
     // block below — a second `impl #nm` for the same type.
     let common: QuoteItemBlob = quote_item! {
+        use logos.mem.bt.btss;      // the shared column mechanics (S2b/B slice 5)
         use logos.mem.pkd;
         use logos.mem.pkd.pdtbuf;
         use logos.lang.result;
@@ -1009,52 +1010,14 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
             unsafe fn szc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(1u32)); }
             unsafe fn ptrc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(2u32)); }
             static unsafe fn fmt_col(a: *mut PkdAlloc, slot: u32, ordered: bool) {
-                let mut ord: u32 = PDT_ORD_UNORDERED;
-                if ordered {
-                    ord = PDT_ORD_MAX;
-                }
-                let d: PdtDescr = pdt_descr_fse(1u32, 8u32, ord, false);
-                let zero: Vec<u64> = pdt_payload_zero(&d);
-                let need: u32 = pdtbuf_compute_block_size(&d, 0u64, &zero);
-                let p: *mut u8 = match a.allocate(slot, need, SlotKind::Allocatable) {
-                    Result::Ok(q) => q,
-                    Result::Err(_e) => { assert(false, "branch col slot"); return; }
-                };
-                let bsz: u32 = a.element_size(slot);
-                match pdtbuf_format(p, bsz, &d) {
-                    Result::Ok(_b) => {}
-                    Result::Err(_e) => { assert(false, "branch col fmt"); }
-                }
-                let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-                inner.set_allocator(a as *const PkdAlloc);
+                btss_fmt_slot(a, slot, false, ordered);
             }
             // One-cell two-phase append/insert (priced by the caller).
             unsafe fn put_cell(self: &#nm, slot: u32, pos: u32, v: u64) {
-                let b: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
-                let us: PdtUpdate = match b.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
-                    Result::Ok(u) => u,
-                    Result::Err(_e) => { assert(false, "branch cell prepare"); return; }
-                };
-                let mut b2: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
-                let mut row: Vec<u64> = vec_new::<u64>();
-                row.push(v);
-                b2.commit_insert(&us, &row);
+                btss_put_cell(self.a(), slot, pos, v);
             }
             unsafe fn split_col(self: &#nm, dst: &#nm, slot: u32, at: u32) {
-                let mut lb: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
-                let n: u64 = lb.size();
-                let mut rb: PdtBuf = pdtbuf_adopt(dst.a().get::<u8>(slot));
-                match rb.reserve(n - (at as u64)) {
-                    Result::Ok(_u) => {}
-                    Result::Err(_e) => { assert(false, "branch split reserve"); }
-                }
-                let mut lb2: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(slot));
-                let mut rb2: PdtBuf = pdtbuf_adopt(dst.a().get::<u8>(slot));
-                let sp: PdtSplit = match lb2.prepare_split_to(&rb2, at as u64, PDT_CAP_KEEP) {
-                    Result::Ok(x) => x,
-                    Result::Err(_e) => { assert(false, "branch split prepare"); return; }
-                };
-                lb2.commit_split_to(&mut rb2, &sp);
+                btss_split_col(self.a(), dst.a(), slot, at);
             }
             pub fn child_count(self: &#nm) -> u32 { return unsafe { self.sep().size() as u32 }; }
             pub fn sep_at(self: &#nm, i: u32) -> #(kid) { return unsafe { self.sep().get(0u32, i as u64) as #(kid) }; }
@@ -1137,21 +1100,7 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 }
             }
             pub fn can_insert_child(self: &#nm) -> bool {
-                unsafe {
-                    // exact: all three grows priced by the prepares that commit
-                    let mut total: u32 = 0u32;
-                    let mut c: u32 = 0u32;
-                    while c < 3u32 {
-                        let b: PdtBuf = pdtbuf_adopt(self.a().get::<u8>(c));
-                        let us: PdtUpdate = match b.prepare_insert(b.size(), 1u64, PDT_CAP_KEEP) {
-                            Result::Ok(u) => u,
-                            Result::Err(_e) => { return false; }
-                        };
-                        total = total + us.grow_bytes();
-                        c = c + 1u32;
-                    }
-                    return total <= self.a().free_space();
-                }
+                return unsafe { btss_fits_row(self.a(), 3u32) };
             }
             pub fn split_into(self: &mut #nm, dst: &mut #nm) -> #(kid) {
                 let at: u32 = self.child_count() / 2u32;
