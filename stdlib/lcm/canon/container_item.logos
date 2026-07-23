@@ -803,112 +803,18 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         pv.push_span(slice_from_raw::<u8>(val.as_ptr(), val.len()));
                         let pos: u32 = self.lower_bound(key);
                         let hit: bool = pos < self.count() && self.key_at(pos) == key;
-                        if hit {
-                            // Price the replacement on the PRE-remove state —
-                            // conservative (>= the post-remove need), so the
-                            // commit after the remove cannot fail (no
-                            // value-lost partial state).
-                            {
-                                let vb0: PdtBuf = self.vc();
-                                let ui: PdtUpdate = match vb0.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &pv) {
-                                    Result::Ok(u) => u,
-                                    Result::Err(_e) => { return false; }
-                                };
-                                if ui.grow_bytes() > self.a().free_space() {
-                                    return false;
-                                }
-                            }
-                            {
-                                let vb1: PdtBuf = self.vc();
-                                let ur: PdtUpdate = match vb1.prepare_remove(pos as u64, (pos as u64) + 1u64, PDT_CAP_KEEP) {
-                                    Result::Ok(u) => u,
-                                    Result::Err(_e) => { return false; }
-                                };
-                                let mut vb2: PdtBuf = self.vc();
-                                vb2.commit_remove(&ur);
-                            }
-                            {
-                                let vb3: PdtBuf = self.vc();
-                                let ui2: PdtUpdate = match vb3.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &pv) {
-                                    Result::Ok(u) => u,
-                                    Result::Err(_e) => { assert(false, "priced VLE replace failed"); return false; }
-                                };
-                                let mut vb4: PdtBuf = self.vc();
-                                vb4.commit_insert_vals(&ui2, &pv);
-                            }
-                            return true;
-                        }
-                        // exact two-phase pricing: both grows from the one block
-                        let dk: u32 = {
-                            let kb: PdtBuf = self.kc();
-                            match kb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
-                                Result::Ok(u) => u.grow_bytes(),
-                                Result::Err(_e) => { return false; }
-                            }
-                        };
-                        let dv: u32 = {
-                            let vb5: PdtBuf = self.vc();
-                            match vb5.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &pv) {
-                                Result::Ok(u) => u.grow_bytes(),
-                                Result::Err(_e) => { return false; }
-                            }
-                        };
-                        if dk + dv > self.a().free_space() {
-                            return false;
-                        }
-                        {
-                            let kb2: PdtBuf = self.kc();
-                            let uk: PdtUpdate = match kb2.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
-                                Result::Ok(u) => u,
-                                Result::Err(_e) => { assert(false, "priced key insert failed"); return false; }
-                            };
-                            let mut kb3: PdtBuf = self.kc();
-                            let mut kr: Vec<u64> = vec_new::<u64>();
-                            kr.push(key as u64);
-                            kb3.commit_insert(&uk, &kr);
-                        }
-                        {
-                            let vb6: PdtBuf = self.vc();
-                            let uv: PdtUpdate = match vb6.prepare_insert_vals(pos as u64, 1u64, PDT_CAP_KEEP, &pv) {
-                                Result::Ok(u) => u,
-                                Result::Err(_e) => { assert(false, "priced VLE insert failed"); return false; }
-                            };
-                            let mut vb7: PdtBuf = self.vc();
-                            vb7.commit_insert_vals(&uv, &pv);
-                        }
-                        return true;
+                        // K-domain comparison above; the VLE mechanics
+                        // (replace-on-hit pricing, two-phase pair insert)
+                        // live in btss_upsert_vals_at.
+                        return btss_upsert_vals_at(self.a(), pos, hit, key as u64, &pv);
                     }
                 }
-                static unsafe fn fmt_vc(a: *mut PkdAlloc) {
+                                static unsafe fn fmt_vc(a: *mut PkdAlloc) {
                     #nm::fmt_slot(a, 1u32, true, false);
                 }
                 /// Split index: VOLUME-balanced — the Canon verdict for a VLE-column node.
                 pub fn split_index(self: &#nm) -> u32 {
-                    let n: u32 = self.count();
-                    if n <= 1u32 {
-                        return n;
-                    }
-                    unsafe {
-                        let vb8: PdtBuf = self.vc();
-                        let total: u32 = n * 8u32 + (vb8.row_offset(0u32, 0u32, n as u64) as u32);
-                        let half: u32 = total / 2u32;
-                        let mut lo: u32 = 1u32;
-                        let mut hi: u32 = n - 1u32;
-                        let mut at: u32 = 1u32;
-                        while lo <= hi {
-                            let mid: u32 = lo + (hi - lo) / 2u32;
-                            let cv: u32 = mid * 8u32 + (vb8.row_offset(0u32, 0u32, mid as u64) as u32);
-                            if cv <= half { 
-                                at = mid; lo = mid + 1u32; 
-                            } else { 
-                                if mid == 1u32 { 
-                                    break; 
-                                } 
-                                hi = mid - 1u32; 
-                            }
-                        }
-                        return at;
-                    }
+                    return unsafe { btss_split_index_volume(self.a()) };
                 }
             }
         };
