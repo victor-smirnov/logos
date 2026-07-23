@@ -44,10 +44,11 @@ first be closed into an ALGEBRA so ONE generator implements all of it
   2. **BranchDatum** — the branch row form (sep, counts[N], child ref).
      ONE carrier serves both branch batch ops and branch INDIVIDUAL ops.
   3. **Individual ops (leaf)** — a SEPARATE execution path from batches:
-     the input is a **Datatype View** (the logical schema's typed view,
-     DTView in C++ terms) and that view IS the leaf datum — no columnar
-     carrier in between. This is the path WITH_ENTRY/UPD ride and where
-     user-fn kernel fusion happens. Branch individual ops ride carrier 2.
+     the datum is the TUPLE of the logical schema's Datatype Views — for
+     `Map<K, V>` the pair (K-View, V-View); nothing more structured than an
+     explicit or implicit tuple, no columnar carrier in between. This is
+     the path WITH_ENTRY/UPD ride and where user-fn kernel fusion happens.
+     Branch individual ops ride carrier 2.
 
   Shared requirements: read side is zero-copy views over block bytes; write
   side carries enough geometry to PRICE (lengths for VLE, run shapes for
