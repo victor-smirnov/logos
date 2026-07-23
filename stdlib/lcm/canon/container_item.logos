@@ -917,6 +917,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
         // Fast: all-FSE — val_at returns by value; try_insert set-on-hit;
         // split_index is count-balanced.
         let vb: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.btss;      // btss_upsert_at — the u64 cell mechanics
             use logos.mem.pkd;
             use logos.mem.pkd.pdtbuf;
             use logos.lang.result;
@@ -924,53 +925,11 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             impl #nm {
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     unsafe {
+                        // K-domain comparison stays HERE (signedness); the
+                        // u64 cell mechanics live in btss_upsert_at.
                         let pos: u32 = self.lower_bound(key);
-                        if pos < self.count() && self.key_at(pos) == key {
-                            let mut vbs: PdtBuf = self.vc();
-                            vbs.set(0u32, pos as u64, val as u64);
-                            return true;
-                        }
-                        // exact two-phase pricing: both grows from the one block
-                        let dk: u32 = {
-                            let kb: PdtBuf = self.kc();
-                            match kb.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
-                                Result::Ok(u) => u.grow_bytes(),
-                                Result::Err(_e) => { return false; }
-                            }
-                        };
-                        let dv: u32 = {
-                            let vb0: PdtBuf = self.vc();
-                            match vb0.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
-                                Result::Ok(u) => u.grow_bytes(),
-                                Result::Err(_e) => { return false; }
-                            }
-                        };
-                        if dk + dv > self.a().free_space() {
-                            return false;
-                        }
-                        {
-                            let kb2: PdtBuf = self.kc();
-                            let uk: PdtUpdate = match kb2.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
-                                Result::Ok(u) => u,
-                                Result::Err(_e) => { assert(false, "priced key insert failed"); return false; }
-                            };
-                            let mut kb3: PdtBuf = self.kc();
-                            let mut kr: Vec<u64> = vec_new::<u64>();
-                            kr.push(key as u64);
-                            kb3.commit_insert(&uk, &kr);
-                        }
-                        {
-                            let vb1: PdtBuf = self.vc();
-                            let uv: PdtUpdate = match vb1.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
-                                Result::Ok(u) => u,
-                                Result::Err(_e) => { assert(false, "priced val insert failed"); return false; }
-                            };
-                            let mut vb2: PdtBuf = self.vc();
-                            let mut vr: Vec<u64> = vec_new::<u64>();
-                            vr.push(val as u64);
-                            vb2.commit_insert(&uv, &vr);
-                        }
-                        return true;
+                        let hit: bool = pos < self.count() && self.key_at(pos) == key;
+                        return btss_upsert_at(self.a(), pos, hit, key as u64, val as u64);
                     }
                 }
                 static unsafe fn fmt_vc(a: *mut PkdAlloc) {
