@@ -1,0 +1,97 @@
+// logos.mem.bt.btss — the SINGLE-STREAM leaf substrate (Memoria bt_ss, S2b/B).
+//
+// The algorithms every Canon-generated single-stream leaf shares, extracted
+// from the emitter blobs into ONE set of functions over the leaf's PkdAlloc:
+// a leaf is two single-column PdtBufs (slot 0 = MAX-ordered FSE64 keys,
+// slot 1 = FSE64 or VLE values; blocks self-describe). The generated node
+// keeps only its TYPED surface (K/V casts at the boundary) and its header
+// flavor; the algorithm bodies live here exactly once.
+//
+// SIGN DISCIPLINE: cells are u64 at rest. Functions here are either
+// sign-AGNOSTIC (formatting, splitting, counting — byte/row moves) or come in
+// signedness variants chosen by the emitter from the key type's verdict.
+// Nothing in this module compares keys through a blind u64 cast.
+package logos.mem.bt.btss;
+
+use logos.mem.pkd;               // PkdAlloc, SlotKind
+use logos.mem.pkd.pdtbuf;        // PdtBuf — the column store
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.panic;
+
+/// Format slot `slot` of a leaf as a single-column PdtBuf at the capacity-0
+/// geometry, wired to the node allocator (the nested-block discipline).
+/// `vle` picks the value shape; `ordered` marks the MAX-measure key column.
+pub unsafe fn btss_fmt_slot(a: *mut PkdAlloc, slot: u32, vle: bool, ordered: bool) {
+    let mut ord: u32 = PDT_ORD_UNORDERED;
+    if ordered {
+        ord = PDT_ORD_MAX;
+    }
+    let mut d: PdtDescr = pdt_descr_new(1u32, ord, false);
+    if vle {
+        d.dims.push(pdt_dim_vle(1u32));
+    } else {
+        d.dims.push(pdt_dim_fse(8u32));
+    }
+    let zero: Vec<u64> = pdt_payload_zero(&d);
+    let need: u32 = pdtbuf_compute_block_size(&d, 0u64, &zero);
+    let p: *mut u8 = match a.allocate(slot, need, SlotKind::Allocatable) {
+        Result::Ok(q) => q,
+        Result::Err(_e) => {
+            assert(false, "btss: leaf col slot");
+            return;
+        }
+    };
+    let bsz: u32 = a.element_size(slot);
+    match pdtbuf_format(p, bsz, &d) {
+        Result::Ok(_b) => {}
+        Result::Err(_e) => {
+            assert(false, "btss: leaf col fmt");
+        }
+    }
+    let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+    inner.set_allocator(a as *const PkdAlloc);
+}
+
+/// Two-phase split of column `slot` at row `at` into the (freshly formatted)
+/// right leaf — a VLE column reserves the moving payload bytes through the
+/// right side's own nested chain first (the P7 discipline).
+pub unsafe fn btss_split_col(a: *mut PkdAlloc, ra: *mut PkdAlloc, slot: u32, at: u32) {
+    let mut lb: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
+    let n: u64 = lb.size();
+    let mut rb: PdtBuf = pdtbuf_adopt(ra.get::<u8>(slot));
+    if rb.vle_dim_count() > 0u32 {
+        let moving: u64 = lb.payload_used(0u32, 0u32)
+                        - lb.row_offset(0u32, 0u32, at as u64);
+        let mut pay: Vec<u64> = vec_new::<u64>();
+        pay.push(moving);
+        match rb.reserve_geom(n - (at as u64), &pay) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btss: leaf split reserve");
+            }
+        }
+    } else {
+        match rb.reserve(n - (at as u64)) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btss: leaf split reserve");
+            }
+        }
+    }
+    let mut lb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
+    let mut rb2: PdtBuf = pdtbuf_adopt(ra.get::<u8>(slot));
+    let sp: PdtSplit = match lb2.prepare_split_to(&rb2, at as u64, PDT_CAP_KEEP) {
+        Result::Ok(x) => x,
+        Result::Err(_e) => {
+            assert(false, "btss: leaf split prepare");
+            return;
+        }
+    };
+    lb2.commit_split_to(&mut rb2, &sp);
+}
+
+/// Entry count of a leaf (its key column's row count).
+pub unsafe fn btss_count(a: *mut PkdAlloc) -> u32 {
+    return pdtbuf_adopt(a.get::<u8>(0u32)).size() as u32;
+}

@@ -20,6 +20,11 @@ package logos.mem.bt.map;
 // `use logos.mem.bt.map;` transitively brings logos.mem.bt.node into the
 // generated unit's module graph.
 use logos.mem.bt.node;
+// S2b/B: the generated leaves call the btss single-stream substrate
+// (btss_fmt_slot / btss_split_col / btss_count). Same hub rule as node above —
+// a metaprog-emitted `use` cannot itself load a module, so this import
+// carries the edge into every generated unit's module graph.
+use logos.mem.bt.btss;
 
 /// Owns blocks and the snapshot lifecycle. The concrete factory methods
 /// (`fork`, `commit`, …) live on the implementor — stores are FEW and very
