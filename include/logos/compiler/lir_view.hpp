@@ -1236,6 +1236,20 @@ struct AssocEntryView {
     }
 };
 
+// assoc_const sub-map view { AC_NAME, AC_VALUE: i64 } — an impl's ctfe'd
+// assoc-const value, read by mono to fold a compile-time `C::CONST` projection.
+struct AssocConstView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::assoc_const_keys::AC_NAME.code);
+    }
+    int64_t value() const noexcept {
+        auto av = self.mirror()->get(lir_schema::assoc_const_keys::AC_VALUE.code);
+        if (av.is_null()) return 0;
+        return *av.as_ptr<const int64_t>();
+    }
+};
+
 // extra_eq sub-map view { EE_TRAIT, EE_EQS: Array<assoc_entry> }.
 struct ExtraEqView {
     DeclRef self;
@@ -1331,6 +1345,17 @@ struct ImplView {
             auto el = arr->get(i);
             if (el.is_null()) continue;
             f(AssocEntryView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
+    template <class F>
+    void each_assoc_const(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::impl_keys::ASSOC_CONSTS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) continue;
+            f(AssocConstView{detail::make_sub_ref<DeclRef>(self, el)});
         }
     }
     // Linear scan over assoc_types; returns the first matching type, else null.

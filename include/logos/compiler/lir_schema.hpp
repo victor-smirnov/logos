@@ -674,6 +674,12 @@ inline constexpr Key EXTRA_ASSOC_EQS      {"EXTRA_ASSOC_EQS",      11}; // Array
 inline constexpr Key IMPL_TYPE_PARAMS     {"IMPL_TYPE_PARAMS",     12}; // Array<RelPtr<fn_tparam sub-map>>
 inline constexpr Key IMPL_LIFETIME_PARAMS {"IMPL_LIFETIME_PARAMS", 13}; // Array<Varchar>
 inline constexpr Key LIFETIME_OUTLIVES    {"LIFETIME_OUTLIVES",    14}; // Array<Varchar> flat pairs (2i=long, 2i+1=short)
+// const-length-overhaul: this impl's ASSOC-CONST VALUES (name → ctfe'd i64),
+// so mono can resolve a compile-time `C::CONST` projection in a length /
+// const-arg once C binds to a concrete type. The value-position projection uses
+// the `__kassoc_` accessor FUNCTION; a length needs the raw number, which mono
+// has no other way to reach (module/assoc const values live only in sema).
+inline constexpr Key ASSOC_CONSTS         {"ASSOC_CONSTS",         15}; // Array<RelPtr<assoc_const sub-map>>
 } // namespace impl_keys
 
 // assoc_entry sub-map keys (own space — element of ASSOC_TYPES / PRIMARY_ASSOC_EQS
@@ -688,6 +694,13 @@ namespace extra_eq_keys {
 inline constexpr Key EE_TRAIT {"EE_TRAIT", 1};  // Varchar
 inline constexpr Key EE_EQS   {"EE_EQS",   2};  // Array<RelPtr<assoc_entry sub-map>>
 } // namespace extra_eq_keys
+
+// assoc_const sub-map keys (own space — element of impl_keys::ASSOC_CONSTS).
+// Maps an assoc-const NAME → its ctfe'd i64 VALUE. Schema code Count+17.
+namespace assoc_const_keys {
+inline constexpr Key AC_NAME  {"AC_NAME",  1};  // Varchar
+inline constexpr Key AC_VALUE {"AC_VALUE", 2};  // i64
+} // namespace assoc_const_keys
 
 // ── Pattern sparse keys ───────────────────────────────────────────────────
 

@@ -88,8 +88,11 @@ inline std::optional<int64_t> eval_len_postfix(std::string_view s, Lookup&& look
                 v = v * 10 + (tok[k] - '0');
             }
             st.push_back(neg ? -v : v);
-        } else if (c0 == '$') {
-            auto v = lookup(tok.substr(1));
+        } else if (c0 == '$' || c0 == '%') {
+            // `$param` (const-generic param) or `%C.CONST` (assoc-const
+            // projection through a type-param). The full token, sigil and all,
+            // goes to the resolver, which knows how to reach each.
+            auto v = lookup(tok);
             if (!v) return std::nullopt;
             st.push_back(*v);
         } else if (tok == "~") {
@@ -459,9 +462,42 @@ struct ArrLenSubst {
     std::string symbolic;   // empty ⇒ fully resolved
 };
 
-template <class Lookup, class PackSize>
+// Build the eval_len_postfix leaf resolver from two lookups:
+//   nl(name)          → TypeRef bound to a const-param / type-param (or null)
+//   al(type, const)   → i64 value of `type::const` assoc-const (or nullopt)
+// Handles `$param` (read nl's bound value) and `%C.CONST` (resolve C via nl to
+// a concrete struct/enum, then al on its name). Shared by subst_arr_len and the
+// encoded-ConstVar folds (sema + mono), each supplying its own lookups.
+template <class NameLookup, class AssocLookup>
+inline auto make_len_leaf_resolver(NameLookup nl, AssocLookup al) {
+    return [nl, al](std::string_view tok) -> std::optional<int64_t> {
+        if (tok.empty()) return std::nullopt;
+        std::string_view body = tok.substr(1);
+        if (tok[0] == '$') {
+            TypeRef t = nl(std::string(body));
+            if (t) { if (auto cv = t.const_val()) return *cv; }
+            return std::nullopt;
+        }
+        // `%C.CONST` — resolve the type-param, then its assoc-const value.
+        auto dot = body.find('.');
+        if (dot == std::string_view::npos) return std::nullopt;
+        TypeRef ct = nl(std::string(body.substr(0, dot)));
+        if (!ct) return std::nullopt;
+        std::string tn;
+        auto k = ct.kind();
+        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+            tn = std::string(ct.struct_name());
+        else if (k == LogosType::Kind::Enum)
+            tn = std::string(ct.enum_name());
+        else return std::nullopt;
+        return al(tn, std::string(body.substr(dot + 1)));
+    };
+}
+
+template <class Lookup, class PackSize, class AssocLookup>
 inline ArrLenSubst subst_arr_len(uint64_t size, std::string_view var,
-                                 Lookup&& lookup, PackSize&& pack_size) {
+                                 Lookup&& lookup, PackSize&& pack_size,
+                                 AssocLookup&& assoc_lookup) {
     if (var.empty()) return {size, std::string()};
     std::string sym(var);
     if (sym.rfind(ARR_LEN_PACK_PFX, 0) == 0) {
@@ -471,19 +507,17 @@ inline ArrLenSubst subst_arr_len(uint64_t size, std::string_view var,
         // Fall through: the pack may instead be bound under the prefixed name
         // in the substitution map, which is how the sema side spells it.
     }
-    // const-length-overhaul: a deferred const EXPRESSION (`N + 1`) rides the
-    // SAME symbolic-length string, postfix-encoded under ARR_LEN_EXPR_PFX. It
-    // is NOT a type — the array's length is always a number (arr_size) or this
-    // pending computation, never an expression-typed node. Evaluate it against
-    // the SAME name lookup; every leaf resolved ⇒ a concrete size, else keep
-    // it symbolic for a later substitution.
+    // const-length-overhaul: a deferred const EXPRESSION (`N + 1`,
+    // `C::STREAMS + 1`) rides the SAME symbolic-length string, postfix-encoded
+    // under ARR_LEN_EXPR_PFX. It is NOT a type — the array's length is always a
+    // number (arr_size) or this pending computation, never an expression-typed
+    // node. Evaluate against the name + assoc-const lookups; every leaf
+    // resolved ⇒ a concrete size, else keep it symbolic for a later subst.
     if (sym.rfind(ARR_LEN_EXPR_PFX, 0) == 0) {
         std::string_view post = std::string_view(sym).substr(ARR_LEN_EXPR_PFX.size());
-        auto v = eval_len_postfix(post, [&](std::string_view nm) -> std::optional<int64_t> {
-            TypeRef t = lookup(std::string(nm));
-            if (t) { if (auto cv = t.const_val()) return *cv; }
-            return std::nullopt;
-        });
+        auto v = eval_len_postfix(post, make_len_leaf_resolver(
+            [&](const std::string& n) -> TypeRef { return lookup(n); },
+            assoc_lookup));
         if (v && *v >= 0) return {static_cast<uint64_t>(*v), std::string()};
         return {size, sym};
     }

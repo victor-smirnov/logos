@@ -1,0 +1,34 @@
+package const_assoc_proj_length;
+
+trait BtCfg { const STREAMS: u32; }
+
+struct Mm2;
+impl BtCfg for Mm2 { const STREAMS: u32 = 2u32; }
+struct Mm3;
+impl BtCfg for Mm3 { const STREAMS: u32 = 3u32; }
+
+// C::STREAMS as a struct field length — the config-trait pattern
+struct Ret<C: BtCfg> { cnt: [u64; C::STREAMS] }
+
+fn make<C: BtCfg>() -> Ret<C> {
+    let mut r: Ret<C> = Ret::<C> { cnt: [0u64; C::STREAMS] };  // fill-literal length
+    let mut i: u32 = 0u32;
+    while i < C::STREAMS { r.cnt[i as i64] = (i as u64) + 1u64; i = i + 1u32; }
+    return r;
+}
+
+// C::STREAMS combined with arithmetic in a length
+fn plus1<C: BtCfg>() -> u64 {
+    let a: [u64; C::STREAMS + 1u32] = [7u64; C::STREAMS + 1u32];
+    return a[C::STREAMS as i64];   // last slot
+}
+
+fn main() -> i32 {
+    let r2: Ret<Mm2> = make::<Mm2>();
+    if r2.cnt[0] + r2.cnt[1] != 3u64 { return 1i32; }             // 1+2, len 2
+    let r3: Ret<Mm3> = make::<Mm3>();
+    if r3.cnt[0] + r3.cnt[1] + r3.cnt[2] != 6u64 { return 2i32; } // 1+2+3, len 3
+    if plus1::<Mm2>() != 7u64 { return 3i32; }                    // len 3, a[2]=7
+    if plus1::<Mm3>() != 7u64 { return 4i32; }                    // len 4, a[3]=7
+    return 0i32;
+}

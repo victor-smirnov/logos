@@ -1,0 +1,19 @@
+package const_assoc_proj_arg;
+trait BtCfg { const STREAMS: u32; }
+struct Mm2;
+impl BtCfg for Mm2 { const STREAMS: u32 = 2u32; }
+struct Mm4;
+impl BtCfg for Mm4 { const STREAMS: u32 = 4u32; }
+
+fn seq<const N: u32>() -> u32 { return N; }
+// C::STREAMS in a const-ARG position (turbofish + projection composed)
+fn nstreams<C: BtCfg>() -> u32 { return seq::<{ C::STREAMS }>(); }
+fn nplus<C: BtCfg>() -> u32 { return seq::<{ C::STREAMS * 2u32 }>(); }
+
+fn main() -> i32 {
+    if nstreams::<Mm2>() != 2u32 { return 1i32; }
+    if nstreams::<Mm4>() != 4u32 { return 2i32; }
+    if nplus::<Mm2>() != 4u32 { return 3i32; }   // 2*2
+    if nplus::<Mm4>() != 8u32 { return 4i32; }   // 4*2
+    return 0i32;
+}

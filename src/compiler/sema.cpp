@@ -4426,6 +4426,21 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     }
 }
 
+std::optional<int64_t> SemaChecker::sema_assoc_const_value(const std::string& type_name,
+                                                           const std::string& const_name) {
+    // assoc_const_impls_ is keyed "<trait|inherent>::<target>::<name>"; match
+    // any entry for THIS target+name and ctfe its initializer.
+    std::string tail = "::" + type_name + "::" + const_name;
+    for (auto& [k, e] : assoc_const_impls_) {
+        if (k.size() <= tail.size()) continue;
+        if (k.compare(k.size() - tail.size(), tail.size(), tail) != 0) continue;
+        if (e.value_ast.is_null()) continue;
+        auto v = ctfe_eval_const(map_of(e.value_ast), holder_);
+        if (v) return v.value().i;
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> SemaChecker::build_const_expr_postfix(TinyMapView node) {
     std::string post;
     bool ok = true;
@@ -4460,11 +4475,18 @@ std::optional<std::string> SemaChecker::build_const_expr_postfix(TinyMapView nod
         if (c == la::ARR_LEN) {
             // A leaf — reuse the whole atom resolution (SIZE / NAME / Q::N /
             // module-const): a concrete value emits `#v`, a symbolic const-param
-            // emits `$name`.
+            // emits `$name`, and a deferred `C::CONST` projection (which
+            // resolve_array_len returns as a `@e: %C.CONST` postfix) is spliced
+            // in as its `%C.CONST` token.
             ArrayLen leaf = resolve_array_len(n);
             if (!leaf.ok) { ok = false; return; }
-            if (!leaf.symbolic.empty()) { post += " $"; post += leaf.symbolic; }
-            else { post += " #"; post += std::to_string(leaf.value); }
+            if (leaf.symbolic.rfind(ARR_LEN_EXPR_PFX, 0) == 0) {
+                post += leaf.symbolic.substr(ARR_LEN_EXPR_PFX.size());
+            } else if (!leaf.symbolic.empty()) {
+                post += " $"; post += leaf.symbolic;
+            } else {
+                post += " #"; post += std::to_string(leaf.value);
+            }
             return;
         }
         error("const expression: unsupported form (arithmetic over integers, "
@@ -4578,11 +4600,18 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
         std::string target = qual;
         if (qit != current_type_params_.end() && qit->second) {
             TypeRef qt(qit->second);
-            if (qt.kind() == LogosType::Kind::TypeVar ||
-                qt.kind() == LogosType::Kind::ConstVar) {
+            if (qt.kind() == LogosType::Kind::TypeVar) {
+                // const-length-overhaul: `C::CONST` through a TYPE parameter has
+                // no value until C binds. DEFER it as a `%C.CONST` postfix leaf
+                // (never a type), folded at mono once C is a concrete type whose
+                // impl's assoc-const value was emitted for the walk to read.
+                r.symbolic = std::string(ARR_LEN_EXPR_PFX) + " %" + qual + "." + cn;
+                return r;
+            }
+            if (qt.kind() == LogosType::Kind::ConstVar) {
                 error(std::format(
-                    "array length '{}::{}': the qualifier is a type parameter, "
-                    "which is not supported in a length position yet", qual, cn));
+                    "array length '{}::{}': the qualifier is a const parameter, "
+                    "which has no associated constants", qual, cn));
                 r.ok = false;
                 return r;
             }
@@ -5140,14 +5169,14 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (nm.rfind(ARR_LEN_EXPR_PFX, 0) == 0) {
             auto v = eval_len_postfix(
                 std::string_view(nm).substr(ARR_LEN_EXPR_PFX.size()),
-                [&](std::string_view p) -> std::optional<int64_t> {
-                    auto pit = s.find(std::string(p));
-                    if (pit != s.end()) {
-                        TypeRef bt(pit->second);
-                        if (auto cv = bt.const_val()) return *cv;
-                    }
-                    return std::nullopt;
-                });
+                make_len_leaf_resolver(
+                    [&](const std::string& p) -> TypeRef {
+                        auto pit = s.find(p);
+                        return pit != s.end() ? TypeRef(pit->second) : TypeRef(nullptr);
+                    },
+                    [&](const std::string& tn, const std::string& cn) {
+                        return sema_assoc_const_value(tn, cn);
+                    }));
             if (v) {
                 LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = *v;
                 return pool_->alloc(std::move(lt));
@@ -5165,14 +5194,18 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         auto elem = subst_type_sema(t.elem(), s, ls);
         // ONE implementation, shared with mono — see subst_arr_len. It also
         // evaluates a deferred const-length EXPRESSION (arr_size_var under
-        // ARR_LEN_EXPR_PFX) against the substitution, folding it to a size.
+        // ARR_LEN_EXPR_PFX) against the substitution, folding it to a size —
+        // including `C::CONST` assoc-const projections.
         auto r = subst_arr_len(
             t.arr_size(), t.arr_size_var(),
             [&](const std::string& n) -> TypeRef {
                 auto it = s.find(n);
                 return it != s.end() ? TypeRef(it->second) : TypeRef(nullptr);
             },
-            [](const std::string&) { return std::pair<bool, uint64_t>{false, 0}; });
+            [](const std::string&) { return std::pair<bool, uint64_t>{false, 0}; },
+            [&](const std::string& tn, const std::string& cn) {
+                return sema_assoc_const_value(tn, cn);
+            });
         if (elem == t.elem() && r.size == t.arr_size() && r.symbolic == t.arr_size_var())
             return t;
         return make_array(elem, r.size, r.symbolic);

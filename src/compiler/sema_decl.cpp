@@ -2799,6 +2799,24 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 e.type(aek::AE_TYPE, entry.type);
             }
         }
+        // const-length-overhaul: emit this impl's ASSOC-CONST VALUES so mono can
+        // fold a compile-time `C::CONST` projection once C binds. assoc_const_impls_
+        // is keyed "<trait>::<target>::<name>" (no trait-arg suffix). Each value
+        // is ctfe'd to an i64 here (sema is the only place that can).
+        namespace ack = lir_schema::assoc_const_keys;
+        constexpr uint64_t ASSOC_CONST_SCHEMA = lir_schema::stmt::Count + 17;
+        std::string cprefix = trait_name + "::" + target + "::";
+        DeclArrayBuilder ac_arr = ib.array(ik::ASSOC_CONSTS);
+        for (auto& [key, entry] : assoc_const_impls_) {
+            if (key.rfind(cprefix, 0) != 0) continue;
+            if (entry.value_ast.is_null()) continue;
+            auto v = ctfe_eval_const(map_of(entry.value_ast), holder_);
+            if (!v) continue;   // non-const-foldable value — skip (used via accessor)
+            auto cname = key.substr(cprefix.size());
+            auto e = ac_arr.submap(ASSOC_CONST_SCHEMA, 4);
+            e.str_always(ack::AC_NAME, cname);
+            e.i64(ack::AC_VALUE, v.value().i);
+        }
     }
     // doc: DEAD (never read post-store) — impl_doc consumed above, not mirrored.
     (void)impl_doc;

@@ -866,6 +866,13 @@ private:
     // folds it (eval_len_postfix) or defers it under ARR_LEN_EXPR_PFX.
     std::optional<std::string> build_const_expr_postfix(writ::TinyMapView node);
 
+    // const-length-overhaul: the ctfe'd value of `<type_name>::<const_name>`
+    // (any trait impl or inherent), for folding a `C::CONST` projection in a
+    // length / const-arg at sema-time substitution. Mono uses its own
+    // pre-indexed table (assoc_const_values_); this is the sema-side twin.
+    std::optional<int64_t> sema_assoc_const_value(const std::string& type_name,
+                                                  const std::string& const_name);
+
     // T2-29: is `t` an UNINHABITED type (no value can exist)? Never; an
     // empty enum or one whose every variant has an uninhabited payload; a
     // struct/tuple with an uninhabited field; `[T; N>0]` with uninhabited

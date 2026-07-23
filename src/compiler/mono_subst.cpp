@@ -35,14 +35,16 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             if (nm.rfind(ARR_LEN_EXPR_PFX, 0) == 0) {
                 auto v = eval_len_postfix(
                     std::string_view(nm).substr(ARR_LEN_EXPR_PFX.size()),
-                    [&](std::string_view p) -> std::optional<int64_t> {
-                        auto pit = s.find(std::string(p));
-                        if (pit != s.end()) {
-                            TypeRef bt(pit->second);
-                            if (auto cv = bt.const_val()) return *cv;
-                        }
-                        return std::nullopt;
-                    });
+                    make_len_leaf_resolver(
+                        [&](const std::string& p) -> TypeRef {
+                            auto pit = s.find(p);
+                            return pit != s.end() ? TypeRef(pit->second) : TypeRef(nullptr);
+                        },
+                        [&](const std::string& tn, const std::string& cn) -> std::optional<int64_t> {
+                            auto ait = assoc_const_values_.find(tn + "::" + cn);
+                            return ait != assoc_const_values_.end()
+                                ? std::optional<int64_t>(ait->second) : std::nullopt;
+                        }));
                 if (v) {
                     LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = *v;
                     return out_.type_pool.alloc(lt);
@@ -69,6 +71,11 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                 auto pit = cur_packs_.find(pname);
                 if (pit == cur_packs_.end()) return {false, 0};
                 return {true, static_cast<uint64_t>(pit->second.size())};
+            },
+            [&](const std::string& tn, const std::string& cn) -> std::optional<int64_t> {
+                auto ait = assoc_const_values_.find(tn + "::" + cn);
+                return ait != assoc_const_values_.end()
+                    ? std::optional<int64_t>(ait->second) : std::nullopt;
             });
         if (elem == tv.elem() && r.size == tv.arr_size() && r.symbolic == tv.arr_size_var())
             return tv;

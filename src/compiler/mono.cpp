@@ -246,6 +246,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // Also split blanket impls into a separate table for fallback lookup.
     const TypePoolImpl* impl_pool = out_.type_pool.impl();
     for (auto& impl : out_.impls) {
+        // const-length-overhaul: index this impl's ctfe'd assoc-const VALUES by
+        // "<target>::<name>", so subst_type can fold a compile-time `C::CONST`
+        // projection in a length / const-arg once C binds to a concrete type.
+        impl.each_assoc_const([&](lir_view::AssocConstView ac) {
+            assoc_const_values_[std::string(impl.target_type()) + "::" +
+                                std::string(ac.name())] = ac.value();
+        });
         if (impl.is_blanket()) {
             BlanketImplInfo info;
             info.trait_name     = std::string(impl.trait_name());
