@@ -69,6 +69,12 @@ UPD(s, pos, datum_s)       replace; OPTIMAL form is a function of KIND:
 `R` (read) is the query plane; it shares Pos/Datum but not the two-phase.
 Split/merge (`MOV` to sibling) are OUT OF SCOPE here — a separate task.
 
+A GROUP insert is not confined to mutating one leaf: past a leaf's capacity
+it BUILDS SUBTREES (fill leaves from the batch, raise branch levels — the
+bulk-build path; Memoria's batch input providers). Subtree CONSTRUCTION is
+therefore an outcome of the batch atoms; GRAFTING the built subtree into the
+host tree remains the BT protocol's job.
+
 Implementation split (deliberate): BATCH atoms (n-row INS/DEL) lower onto
 the columnar machinery (PdtBuf per stream, PkdSeq for the structure stream);
 INDIVIDUAL updates lower onto the Datatype plane and are compiled (fused)
@@ -105,6 +111,19 @@ kernel generator each cover both.
 5. **Projection homomorphism** — the structure stream's rank projection maps
    entry space into every stream's position space; batches are specified in
    entry space and lowered to per-stream positions by the algebra.
+
+## Position: the bottom of the physical query plan
+
+In Memoria/C++ composition was first-class AT THE API: most operations
+return a cursor/iterator into the tree so the next op (typically
+find+update) can sometimes skip its find part — which made the iterator
+system and the container APIs very complex. Logos avoids that complexity BY
+DESIGN: containers are driven primarily through DEEM (its query language).
+This algebra is therefore LOW-LEVEL — it corresponds to the lowest tier of
+the physical query-execution plan. Composition lives in the plan, not in a
+cursor-bearing public API: Deem compiles a query down to sequences of these
+operations, and kernel fusion (below) is the plan's operator fusion,
+specialized per schema.
 
 ## Kernel fusion — the metaprogramming plane
 
