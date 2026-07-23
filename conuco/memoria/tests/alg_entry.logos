@@ -1,0 +1,157 @@
+package test;
+// ADR 0023 S2 — the DERIVED entry forms over the reference interpreter:
+// ENTRY_INS/ENTRY_DEL/ENTRY_SET specified in ENTRY SPACE and lowered
+// through the structure stream's rank projection (law 5), plus the
+// WITH_ENTRY quad executor (alg_entry_apply). Two schemas: the multimap
+// shape (FSE keys + VLE values + SSRLE(2)) exercising real projections,
+// and the map shape (FSE + FSE, no structure stream) as the degenerate
+// identity-projection case — the btss surface's algebra form.
+use logos.mem.bt.alg;
+use logos.mem.bt.interp;
+use logos.mem.pkd;
+use logos.mem.pkd.pdtbuf;
+use logos.mem.pkd.sseq;
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.panic;
+
+// A multimap entry datum: key + `vals` value spans (positional cols; the
+// structure col is filled by alg_entry_ins itself).
+fn mm_datum(key: u64, vals: i64, tag: u8) -> LeafBatchDatum {
+    let mut d: LeafBatchDatum = leaf_batch_datum_new();
+    let mut ck: DatumCol = datum_col_new();
+    ck.cells.push(key);
+    d.cols.push(ck);
+    let mut cv: DatumCol = datum_col_new();
+    let mut i: i64 = 0i64;
+    while i < vals {
+        let mut vb: Vec<u8> = vec_new::<u8>();
+        vb.push(tag);
+        vb.push(i as u8);
+        vb.push(0x33u8);
+        cv.spans.push_span(vb.as_slice());
+        i = i + 1i64;
+    }
+    d.cols.push(cv);
+    d.cols.push(datum_col_new());   // structure slot, derived
+    return d;
+}
+
+fn main() -> i32 {
+    unsafe {
+        // ── the multimap shape ──
+        let mut sch: NodeSchema = node_schema_new();
+        sch.streams.push(sd_fse(8u32, true));
+        sch.streams.push(sd_vle());
+        sch.streams.push(sd_ssrle(2u32));
+
+        let mem: *mut u8 = alloc(4096i64);
+        let a: *mut PkdAlloc = pkd_format(mem, 4096u32, 3u32);
+        alg_fmt_node(a, &sch);
+
+        // entries: (100, 2 vals), (300, 1 val), then 200 INSERTED BETWEEN
+        let mut d0: LeafBatchDatum = mm_datum(100u64, 2i64, 0xA0u8);
+        if !alg_entry_ins(a, &sch, 0u64, &mut d0) { return 1i32; }
+        let mut d1: LeafBatchDatum = mm_datum(300u64, 1i64, 0xB0u8);
+        if !alg_entry_ins(a, &sch, 1u64, &mut d1) { return 2i32; }
+        let mut d2: LeafBatchDatum = mm_datum(200u64, 3i64, 0xC0u8);
+        if !alg_entry_ins(a, &sch, 1u64, &mut d2) { return 3i32; }
+
+        // keys 100, 200, 300; values in ENTRY order: A0 A0 | C0 C0 C0 | B0
+        {
+            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            if kb.size() != 3u64 { return 4i32; }
+            if kb.get(0u32, 0u64) != 100u64 { return 5i32; }
+            if kb.get(0u32, 1u64) != 200u64 { return 6i32; }
+            if kb.get(0u32, 2u64) != 300u64 { return 7i32; }
+            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            if vb.size() != 6u64 { return 8i32; }
+            let s0: &[u8] = vb.row_span(0u32, 0u32, 0u64);
+            if s0[0i64] != 0xA0u8 { return 9i32; }
+            let s2: &[u8] = vb.row_span(0u32, 0u32, 2u64);
+            if s2[0i64] != 0xC0u8 { return 10i32; }
+            let s5: &[u8] = vb.row_span(0u32, 0u32, 5u64);
+            if s5[0i64] != 0xB0u8 { return 11i32; }
+            let sq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(2u32));
+            if sq.size() != 9u64 { return 12i32; }        // 3 + (2+1+3) syms
+            if sq.rank_eq_all(0u64) != 3u64 { return 13i32; }
+            if sq.rank_eq_all(1u64) != 6u64 { return 14i32; }
+        }
+
+        // ── ENTRY_SET: replace entry 1's values same-arity (3 spans) ──
+        {
+            let mut ds: LeafBatchDatum = mm_datum(200u64, 3i64, 0xD0u8);
+            // stream 0 untouched on a value-only set: empty its col
+            ds.cols.borrow_mut(0i64).cells.clear();
+            if !alg_entry_set(a, &sch, 1u64, &ds) { return 15i32; }
+            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            if vb.size() != 6u64 { return 16i32; }
+            let s2b: &[u8] = vb.row_span(0u32, 0u32, 2u64);
+            if s2b[0i64] != 0xD0u8 { return 17i32; }
+            let s4b: &[u8] = vb.row_span(0u32, 0u32, 4u64);
+            if s4b[0i64] != 0xD0u8 { return 18i32; }
+            // neighbors intact
+            let s1b: &[u8] = vb.row_span(0u32, 0u32, 1u64);
+            if s1b[0i64] != 0xA0u8 { return 19i32; }
+            let s5b: &[u8] = vb.row_span(0u32, 0u32, 5u64);
+            if s5b[0i64] != 0xB0u8 { return 20i32; }
+        }
+
+        // ── ENTRY_DEL: drop entry 1 (200, 3 vals) whole ──
+        {
+            if !alg_entry_del(a, &sch, 1u64) { return 21i32; }
+            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            if kb.size() != 2u64 { return 22i32; }
+            if kb.get(0u32, 1u64) != 300u64 { return 23i32; }
+            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            if vb.size() != 3u64 { return 24i32; }
+            let sq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(2u32));
+            if sq.size() != 5u64 { return 25i32; }        // 0 1 1 | 0 1
+            if sq.rank_eq_all(1u64) != 3u64 { return 26i32; }
+        }
+        dealloc(mem);
+
+        // ── the map shape (degenerate: no structure stream) + the quad ──
+        let mut msch: NodeSchema = node_schema_new();
+        msch.streams.push(sd_fse(8u32, true));
+        msch.streams.push(sd_fse(8u32, false));
+        let mem2: *mut u8 = alloc(4096i64);
+        let a2: *mut PkdAlloc = pkd_format(mem2, 4096u32, 2u32);
+        alg_fmt_node(a2, &msch);
+
+        // UPSERT-miss via the quad: ET_INS at position 0
+        let mut e0: LeafBatchDatum = leaf_batch_datum_new();
+        let mut k0: DatumCol = datum_col_new();
+        k0.cells.push(42u64);
+        e0.cols.push(k0);
+        let mut v0: DatumCol = datum_col_new();
+        v0.cells.push(4200u64);
+        e0.cols.push(v0);
+        if !alg_entry_apply(a2, &msch, 0u64, ET_INS, &mut e0) { return 27i32; }
+        // UPSERT-hit via the quad: ET_SET value only
+        let mut e1: LeafBatchDatum = leaf_batch_datum_new();
+        e1.cols.push(datum_col_new());   // key col untouched (0 rows)
+        let mut v1: DatumCol = datum_col_new();
+        v1.cells.push(4300u64);
+        e1.cols.push(v1);
+        if !alg_entry_apply(a2, &msch, 0u64, ET_SET, &mut e1) { return 28i32; }
+        // ET_NOOP commits nothing; ET_DEL empties the node
+        let mut en: LeafBatchDatum = leaf_batch_datum_new();
+        if !alg_entry_apply(a2, &msch, 0u64, ET_NOOP, &mut en) { return 29i32; }
+        {
+            let kb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(0u32));
+            let vb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(1u32));
+            if kb2.size() != 1u64 { return 30i32; }
+            if kb2.get(0u32, 0u64) != 42u64 { return 31i32; }
+            if vb2.get(0u32, 0u64) != 4300u64 { return 32i32; }
+        }
+        if !alg_entry_apply(a2, &msch, 0u64, ET_DEL, &mut en) { return 33i32; }
+        {
+            let kb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(0u32));
+            if kb2.size() != 0u64 { return 34i32; }
+        }
+        dealloc(mem2);
+    }
+    return 0i32;
+}

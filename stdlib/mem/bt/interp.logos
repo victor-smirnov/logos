@@ -10,6 +10,7 @@ use logos.mem.bt.alg;            // the description layer (S1)
 use logos.mem.pkd;               // PkdAlloc, SlotKind, PkdError
 use logos.mem.pkd.pdtbuf;        // PdtBuf — the FSE/VLE/CHILD two-phase
 use logos.mem.pkd.sseq;          // PkdSsrle — the structure-stream plan/commit
+use logos.mem.pkd.ssrle;         // ssrle_runs_from_symbols — the run codec
 use logos.mem.collections.vec;
 use logos.lang.result;
 use logos.lang.panic;
@@ -321,4 +322,184 @@ pub unsafe fn alg_apply(a: *mut PkdAlloc, sch: &NodeSchema, b: &NodeBatch,
         i = i + 1i64;
     }
     return true;
+}
+
+// ── derived forms: ENTRY space (ADR 0023 §Derived forms, law 5) ─────────────
+//
+// Batches below are specified at an ENTRY position i0 (a stream-0 row index)
+// and LOWERED to per-stream positions by the structure stream's rank
+// projection — the projection homomorphism made code, generalizing what
+// btfl_step hand-rolled. A schema WITHOUT a structure stream is the
+// single-stream degenerate case: every stream carries exactly one row per
+// entry and the projection is the identity.
+
+/// The schema's structure stream, or -1 if the node is single-stream.
+fn alg_sseq_stream(sch: &NodeSchema) -> i64 {
+    let mut s: i64 = 0i64;
+    while s < sch.streams.length() {
+        if sch.streams.borrow(s).kind == SK_SSRLE {
+            return s;
+        }
+        s = s + 1i64;
+    }
+    return -1i64;
+}
+
+/// Rows datum column `col` carries for a stream of kind `kind`.
+fn alg_col_rows(kind: u32, col: &DatumCol) -> u64 {
+    if kind == SK_VLE {
+        return col.spans.lens.length() as u64;
+    }
+    return col.cells.length() as u64;
+}
+
+/// The structure position of entry `i0` (seq.size() when appending) — the
+/// anchor every per-stream position projects from.
+unsafe fn alg_entry_anchor(a: *mut PkdAlloc, ss: u32, i0: u64) -> u64 {
+    let seq: PkdSsrle = st_seq(a, ss);
+    let kc: u64 = seq.rank_eq_all(0u64);
+    if i0 < kc {
+        return seq.select_fw_eq(i0, 0u64).idx;
+    }
+    return seq.size();
+}
+
+/// ENTRY_INS: insert one logical entry at entry position `i0`. `d` carries
+/// one column PER STREAM, positionally (op.datum = stream index); the
+/// structure column's runs are DERIVED here from the data columns' row
+/// counts and written into `d` — hence the &mut. Ops are ordered
+/// data-first, structure LAST (law 3).
+pub unsafe fn alg_entry_ins(a: *mut PkdAlloc, sch: &NodeSchema, i0: u64,
+                            d: &mut LeafBatchDatum) -> bool {
+    let ss: i64 = alg_sseq_stream(sch);
+    let mut b: NodeBatch = node_batch_new();
+    if ss < 0i64 {
+        // single-stream: one row per stream at i0
+        let mut s: i64 = 0i64;
+        while s < sch.streams.length() {
+            let kind: u32 = sch.streams.borrow(s).kind;
+            assert(alg_col_rows(kind, d.cols.borrow(s)) == 1u64,
+                   "alg: single-stream entry carries exactly one row per stream");
+            b.ops.push(op_ins(s as u32, i0, 1u64, s as u32));
+            s = s + 1i64;
+        }
+        return alg_apply(a, sch, &b, &(*d));
+    }
+    // multi-stream: project through the structure anchor, derive the runs
+    let anchor: u64 = alg_entry_anchor(a, ss as u32, i0);
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    let mut s2: i64 = 0i64;
+    while s2 < sch.streams.length() {
+        if s2 != ss {
+            let kind2: u32 = sch.streams.borrow(s2).kind;
+            let m: u64 = alg_col_rows(kind2, d.cols.borrow(s2));
+            if s2 == 0i64 {
+                assert(m == 1u64, "alg: entry stream 0 carries exactly one row");
+                b.ops.push(op_ins(0u32, i0, 1u64, 0u32));
+            } else if m > 0u64 {
+                let v: u64 = st_seq(a, ss as u32).rank_eq(anchor, s2 as u64);
+                b.ops.push(op_ins(s2 as u32, v, m, s2 as u32));
+            }
+            let mut j: u64 = 0u64;
+            while j < m {
+                syms.push(s2 as u64);
+                j = j + 1u64;
+            }
+        }
+        s2 = s2 + 1i64;
+    }
+    {
+        let sc: &mut DatumCol = d.cols.borrow_mut(ss);
+        sc.runs = ssrle_runs_from_symbols(st_seq(a, ss as u32).bps(), &syms);
+    }
+    b.ops.push(op_ins(ss as u32, anchor, syms.length() as u64, ss as u32));
+    return alg_apply(a, sch, &b, &(*d));
+}
+
+/// ENTRY_DEL: remove the logical entry at entry position `i0` — every
+/// stream's projected row window, the structure segment LAST.
+pub unsafe fn alg_entry_del(a: *mut PkdAlloc, sch: &NodeSchema, i0: u64) -> bool {
+    let ss: i64 = alg_sseq_stream(sch);
+    let mut b: NodeBatch = node_batch_new();
+    let dd: LeafBatchDatum = leaf_batch_datum_new();
+    if ss < 0i64 {
+        let mut s: i64 = 0i64;
+        while s < sch.streams.length() {
+            b.ops.push(op_del(s as u32, i0, 1u64));
+            s = s + 1i64;
+        }
+        return alg_apply(a, sch, &b, &dd);
+    }
+    let p0: u64 = alg_entry_anchor(a, ss as u32, i0);
+    let p1: u64 = alg_entry_anchor(a, ss as u32, i0 + 1u64);
+    let mut s2: i64 = 0i64;
+    while s2 < sch.streams.length() {
+        if s2 != ss {
+            let seq: PkdSsrle = st_seq(a, ss as u32);
+            let v0: u64 = seq.rank_eq(p0, s2 as u64);
+            let v1: u64 = seq.rank_eq(p1, s2 as u64);
+            let mut m: u64 = v1 - v0;
+            if s2 == 0i64 {
+                m = 1u64;   // the entry's own stream-0 row
+            }
+            if m > 0u64 {
+                b.ops.push(op_del(s2 as u32, v0, m));
+            }
+        }
+        s2 = s2 + 1i64;
+    }
+    b.ops.push(op_del(ss as u32, p0, p1 - p0));
+    return alg_apply(a, sch, &b, &dd);
+}
+
+/// ENTRY_SET: replace the entry's data rows in place — the same-arity form
+/// (per stream, the datum's row count equals the entry's current window;
+/// arity CHANGES are ENTRY_DEL + ENTRY_INS, the structure stream moves).
+/// UPD's kind-optimal forms apply per stream.
+pub unsafe fn alg_entry_set(a: *mut PkdAlloc, sch: &NodeSchema, i0: u64,
+                            d: &LeafBatchDatum) -> bool {
+    let ss: i64 = alg_sseq_stream(sch);
+    let mut b: NodeBatch = node_batch_new();
+    let mut s: i64 = 0i64;
+    while s < sch.streams.length() {
+        if s != ss {
+            let kind: u32 = sch.streams.borrow(s).kind;
+            let col: &DatumCol = d.cols.borrow(s);
+            let m: u64 = alg_col_rows(kind, col);
+            if m > 0u64 {
+                let mut v: u64 = i0;
+                if ss >= 0i64 && s != 0i64 {
+                    let anchor: u64 = alg_entry_anchor(a, ss as u32, i0);
+                    v = st_seq(a, ss as u32).rank_eq(anchor, s as u64);
+                }
+                let mut o: NodeOp = op_upd(s as u32, v, s as u32);
+                o.n = m;
+                b.ops.push(o);
+            }
+        }
+        s = s + 1i64;
+    }
+    return alg_apply(a, sch, &b, d);
+}
+
+/// The WITH_ENTRY executor: commit one quad TRANSITION at entry position
+/// `i0`. The user fn (Option<State> → Option<State>) runs ABOVE this, at
+/// the typed surface that owns the views; here only its collapsed verdict
+/// arrives. UPSERT = ET_INS on miss / ET_SET on hit.
+pub unsafe fn alg_entry_apply(a: *mut PkdAlloc, sch: &NodeSchema, i0: u64,
+                              et: u32, d: &mut LeafBatchDatum) -> bool {
+    if et == ET_NOOP {
+        return true;
+    }
+    if et == ET_INS {
+        return alg_entry_ins(a, sch, i0, d);
+    }
+    if et == ET_SET {
+        return alg_entry_set(a, sch, i0, &(*d));
+    }
+    if et == ET_DEL {
+        return alg_entry_del(a, sch, i0);
+    }
+    assert(false, "alg: unknown entry transition");
+    return false;
 }

@@ -147,6 +147,21 @@ pub fn op_upd(stream: u32, pos: u64, datum: u32) -> NodeOp {
     return NodeOp { op: OP_UPD, stream: stream, pos: pos, n: 1u64, datum: datum };
 }
 
+// ── the WITH_ENTRY transition vocabulary (ADR 0023 §Derived forms) ──────────
+// The quad `fn: Option<State> → Option<State>` collapses to four TRANSITIONS
+// once the user fn has run; the executor consumes the transition, never the
+// fn (the fn splices into generated kernels at S3, rides a fn-ptr in the
+// interpreter's callers).
+
+/// None→None / Some→Some (unchanged): nothing to commit.
+pub const ET_NOOP: u32 = 0u32;
+/// None→Some: insert the entry (UPSERT's miss arm).
+pub const ET_INS: u32 = 1u32;
+/// Some→Some': replace the entry's data rows in place.
+pub const ET_SET: u32 = 2u32;
+/// Some→None: remove the entry.
+pub const ET_DEL: u32 = 3u32;
+
 /// A node-local batch: the unit of pricing and atomic commit (ADR 0023
 /// §Laws). Ops are listed in COMMIT order — the position-stability law
 /// (data streams before the structure stream) is the builder's obligation,
