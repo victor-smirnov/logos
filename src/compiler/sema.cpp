@@ -4721,13 +4721,24 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
     if (!tplist.has_key(la::ITEMS)) return result;
     auto tpitems = arr_of(tplist.get(la::ITEMS.code));
     // Pre-pass: add all type param names as typevars so bounds referencing sibling params resolve.
+    // CONST params pre-register too (as ConstVars) — a sibling's trait bound
+    // may carry one as a const-generic ARGUMENT (`B: BtBranch<K, N>` with
+    // `const N: u32` declared in the same list); without the pre-pass that
+    // bound resolved before N existed and died as "unknown type 'N'".
     std::vector<std::string> temp_params;
     for (uint64_t i = 0; i < tpitems.size(); ++i) {
         auto tpnode = map_of(tpitems.get(i));
-        if (code_of(tpnode) == la::TYPE_PARAM) {
+        int32_t tpc = code_of(tpnode);
+        if (tpc == la::TYPE_PARAM || tpc == la::CONST_PARAM) {
             auto name = std::string(str_of(tpnode.get(la::NAME.code)));
             if (!current_type_params_.count(name)) {
-                current_type_params_[name] = make_typevar(name);
+                if (tpc == la::CONST_PARAM) {
+                    LogosTypeBuilder c; c.kind = LogosType::Kind::ConstVar;
+                    c.type_var_name = name;
+                    current_type_params_[name] = pool_->alloc(std::move(c));
+                } else {
+                    current_type_params_[name] = make_typevar(name);
+                }
                 temp_params.push_back(name);
             }
         }
@@ -4797,13 +4808,24 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
     if (!tplist.has_key(la::ITEMS)) return result;
     auto tpitems = arr_of(tplist.get(la::ITEMS.code));
     // Pre-pass: add all type param names as typevars so bounds referencing sibling params resolve.
+    // CONST params pre-register too (as ConstVars) — a sibling's trait bound
+    // may carry one as a const-generic ARGUMENT (`B: BtBranch<K, N>` with
+    // `const N: u32` declared in the same list); without the pre-pass that
+    // bound resolved before N existed and died as "unknown type 'N'".
     std::vector<std::string> temp_params;
     for (uint64_t i = 0; i < tpitems.size(); ++i) {
         auto tpnode = map_of(tpitems.get(i));
-        if (code_of(tpnode) == la::TYPE_PARAM) {
+        int32_t tpc = code_of(tpnode);
+        if (tpc == la::TYPE_PARAM || tpc == la::CONST_PARAM) {
             auto name = std::string(str_of(tpnode.get(la::NAME.code)));
             if (!current_type_params_.count(name)) {
-                current_type_params_[name] = make_typevar(name);
+                if (tpc == la::CONST_PARAM) {
+                    LogosTypeBuilder c; c.kind = LogosType::Kind::ConstVar;
+                    c.type_var_name = name;
+                    current_type_params_[name] = pool_->alloc(std::move(c));
+                } else {
+                    current_type_params_[name] = make_typevar(name);
+                }
                 temp_params.push_back(name);
             }
         }

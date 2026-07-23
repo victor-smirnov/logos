@@ -55,6 +55,9 @@ pub fn bt_descend_get<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B
 /// multistream shape; a single-stream tree is `N = 1` (lcnt[0] = entry count).
 /// One shape for both worlds — the two insert protocols stopped drifting.
 pub struct BtInsRet<K, const N: u32> {
+    /// `false` iff the insert was REJECTED (btfl: duplicate key) — the reject
+    /// propagates up untouched; single-stream upsert always reports `true`.
+    pub ok: bool,
     pub addr: *mut u8,
     pub lsep: K,
     pub lcnt: [u64; N],
@@ -66,37 +69,76 @@ pub struct BtInsRet<K, const N: u32> {
 
 // ── plain insert (no CoW — in-place mutation) ──────────────────────────────────
 
-/// Bottom-up insert-with-split, mutating nodes in place. Mirrors `GenCowTree_ins`.
-pub fn bt_ins<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
-    node: *mut u8, level: u32, key: K, val: VIn) -> BtInsRet<K, 1> {
+/// The LEAF STEP of an insert — the one part of the bottom-up protocol that
+/// legitimately differs per family: a single-stream map UPSERTS (step_upsert
+/// below); the multistream bt_fl REJECTS duplicates and rank-projects the
+/// entry into every stream (its step lives in logos.mem.bt.btfl). Everything
+/// above the leaf — descend, row update, split propagation, sibling insert —
+/// is the SAME protocol and lives once in `bt_ins_rec`. The step is a plain
+/// FN POINTER (not a trait static): a trait-static reached through a bound
+/// whose trait ARGS need substitution is an open mono seam (the G156-1
+/// class) — the fn-ptr form works today and swaps back when that lands.
+///
+/// THE bottom-up insert recursion — the one skeleton both the single-stream
+/// and the multistream (bt_fl) plain inserts ride (S2b/A2; the CoW insert
+/// interleaves privatization at every level and stays its own walk below
+/// until the privatize hook lands). Descends by `find_child`, delegates the
+/// leaf to `step`, updates the child row, and propagates a split by
+/// inserting the right sibling into this branch (splitting IT if full).
+pub fn bt_ins_rec<K: Copy, E: Copy, B: BtBranch<K, N>, const N: u32>(
+    node: *mut u8, level: u32, key: K, e: E, snp: u64,
+    step: fn(*mut u8, K, E, u64) -> BtInsRet<K, N>) -> BtInsRet<K, N> {
     if level == 0u32 {
-        let mut lf: L = L::adopt(node);
-        if lf.try_insert(key, val) {
-            return BtInsRet { addr: node, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: false, rsep: key, rcnt: [0u64], rptr: node };
-        }
-        let mut rt: L = L::new_in(0u64);
-        lf.split_into(&mut rt);
-        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
-        return BtInsRet { addr: node, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
+        return step(node, key, e, snp);
     }
     let mut br: B = B::adopt(node);
     let ci: u32 = br.find_child(key);
-    let r: BtInsRet<K, 1> = bt_ins::<K, VIn, VOut, L, B>(br.child_addr(ci), level - 1u32, key, val);
+    let r: BtInsRet<K, N> = bt_ins_rec::<K, E, B, N>(br.child_addr(ci), level - 1u32, key, e, snp, step);
+    if !r.ok { return r; }
     br.update_row(ci, r.lsep, &r.lcnt);
     if !r.split {
-        return BtInsRet { addr: node, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: node };
+        let mut t: [u64; N] = [0u64; N];
+        br.totals(&mut t);
+        return BtInsRet { ok: true, addr: node, lsep: br.max_sep(), lcnt: t, split: false, rsep: key, rcnt: [0u64; N], rptr: node };
     }
     if br.can_insert_child() {
         br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr);
-        return BtInsRet { addr: node, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: node };
+        let mut t: [u64; N] = [0u64; N];
+        br.totals(&mut t);
+        return BtInsRet { ok: true, addr: node, lsep: br.max_sep(), lcnt: t, split: false, rsep: key, rcnt: [0u64; N], rptr: node };
     }
-    let mut rb: B = B::new_in(0u64);
+    let mut rb: B = br.new_sibling(snp);
     let _ = br.split_into(&mut rb);
     let lc: u32 = br.child_count();
     if ci + 1u32 < lc { br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr); } else {
         rb.insert_row((ci + 1u32) - lc, r.rsep, &r.rcnt, r.rptr);
     }
-    return BtInsRet { addr: node, lsep: br.max_sep(), lcnt: [br.total_size()], split: true, rsep: rb.max_sep(), rcnt: [rb.total_size()], rptr: rb.block() };
+    let mut lt: [u64; N] = [0u64; N];
+    br.totals(&mut lt);
+    let mut rt2: [u64; N] = [0u64; N];
+    rb.totals(&mut rt2);
+    return BtInsRet { ok: true, addr: node, lsep: br.max_sep(), lcnt: lt, split: true, rsep: rb.max_sep(), rcnt: rt2, rptr: rb.block() };
+}
+
+/// The single-stream UPSERT leaf step: try in place, else split at the middle
+/// and retry into the owning half.
+pub fn step_upsert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>>(
+    node: *mut u8, key: K, val: VIn, snp: u64) -> BtInsRet<K, 1> {
+    let mut lf: L = L::adopt(node);
+    if lf.try_insert(key, val) {
+        return BtInsRet { ok: true, addr: node, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: false, rsep: key, rcnt: [0u64], rptr: node };
+    }
+    let mut rt: L = lf.new_sibling(snp);
+    lf.split_into(&mut rt);
+    if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
+    return BtInsRet { ok: true, addr: node, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
+}
+
+/// Bottom-up insert-with-split, mutating nodes in place — the single-stream
+/// instantiation of `bt_ins_rec` over the upsert step. Mirrors `GenCowTree_ins`.
+pub fn bt_ins<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    node: *mut u8, level: u32, key: K, val: VIn) -> BtInsRet<K, 1> {
+    return bt_ins_rec::<K, VIn, B, 1>(node, level, key, val, 0u64, step_upsert::<K, VIn, VOut, L>);
 }
 
 /// Recursively releases `(node, level)` — the non-CoW, non-refcounted teardown
@@ -145,12 +187,12 @@ pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VO
         let work: *mut u8 = bt_leaf_private::<K, VIn, VOut, L, P>(node, cur);
         let mut lf: L = L::adopt(work);
         if lf.try_insert(key, val) {
-            return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: false, rsep: key, rcnt: [0u64], rptr: work };
+            return BtInsRet { ok: true, addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: false, rsep: key, rcnt: [0u64], rptr: work };
         }
-        let mut rt: L = L::new_in(cur);
+        let mut rt: L = lf.new_sibling(cur);
         lf.split_into(&mut rt);
         if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
-        return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
+        return BtInsRet { ok: true, addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
     }
     let work: *mut u8 = bt_branch_private::<K, B, P>(node, cur);
     let mut br: B = B::adopt(work);
@@ -163,19 +205,19 @@ pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VO
         tree_release(old_child, level - 1u32);
     }
     if !r.split {
-        return BtInsRet { addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: work };
+        return BtInsRet { ok: true, addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: work };
     }
     if br.can_insert_child() {
         br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr);
-        return BtInsRet { addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: work };
+        return BtInsRet { ok: true, addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: work };
     }
-    let mut rb: B = B::new_in(cur);
+    let mut rb: B = br.new_sibling(cur);
     let _ = br.split_into(&mut rb);
     let lc: u32 = br.child_count();
     if ci + 1u32 < lc { br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr); } else {
         rb.insert_row((ci + 1u32) - lc, r.rsep, &r.rcnt, r.rptr);
     }
-    return BtInsRet { addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: true, rsep: rb.max_sep(), rcnt: [rb.total_size()], rptr: rb.block() };
+    return BtInsRet { ok: true, addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: true, rsep: rb.max_sep(), rcnt: [rb.total_size()], rptr: rb.block() };
 }
 
 // ── size ─────────────────────────────────────────────────────────────────────

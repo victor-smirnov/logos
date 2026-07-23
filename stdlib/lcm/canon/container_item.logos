@@ -1463,7 +1463,7 @@ fn emit_bt_leaf_impl(lname: str, kty: str, vty: str, vol: bool) {
         use logos.mem.bt.map;
         impl BtLeaf<#(kid), #(vi), #(vo)> for #nm {
             fn adopt(mem: *mut u8) -> #nm { return #nm::adopt(mem); }
-            fn new_in(snp: u64) -> #nm { return #nm::new_in(snp); }
+            fn new_sibling(self: &#nm, snp: u64) -> #nm { return #nm::new_in(snp); }
             fn block(self: &#nm) -> *mut u8 { return self.block(); }
             fn count(self: &#nm) -> u32 { return self.count(); }
             fn key_at(self: &#nm, i: u32) -> #(kid) { return self.key_at(i); }
@@ -1486,7 +1486,7 @@ fn emit_bt_branch_impl(bname: str, kty: str) {
         use logos.mem.bt.map;
         impl BtBranch<#(kid), 1> for #nm {
             fn adopt(mem: *mut u8) -> #nm { return #nm::adopt(mem); }
-            fn new_in(snp: u64) -> #nm { return #nm::new_in(snp); }
+            fn new_sibling(self: &#nm, snp: u64) -> #nm { return #nm::new_in(snp); }
             fn block(self: &#nm) -> *mut u8 { return self.block(); }
             fn child_count(self: &#nm) -> u32 { return self.child_count(); }
             fn sep_at(self: &#nm, i: u32) -> #(kid) { return self.sep_at(i); }

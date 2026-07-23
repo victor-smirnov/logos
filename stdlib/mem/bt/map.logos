@@ -68,8 +68,12 @@ pub trait Ctr {
 pub trait BtLeaf<K, VIn, VOut> {
     /// Reinterpret an existing block as `Self` (no allocation).
     fn adopt(mem: *mut u8) -> Self;
-    /// Allocate + format a fresh empty leaf block, stamped with snapshot id `snp`.
-    fn new_in(snp: u64) -> Self;
+    /// Allocate + format a fresh empty leaf shaped LIKE `self` (same geometry,
+    /// same column descriptors), stamped with snapshot id `snp` — the split
+    /// sibling. SELF-relative on purpose: a multistream leaf's shape is not
+    /// recoverable from a static call (the single-stream generated nodes bake
+    /// their shape and simply ignore `self`).
+    fn new_sibling(self: &Self, snp: u64) -> Self;
     fn block(self: &Self) -> *mut u8;
     fn count(self: &Self) -> u32;
     fn key_at(self: &Self, i: u32) -> K;
@@ -101,7 +105,9 @@ pub trait BtLeaf<K, VIn, VOut> {
 /// the `[T; N]`-across-fn-boundary codegen gap is an open arc.
 pub trait BtBranch<K, const N: u32> {
     fn adopt(mem: *mut u8) -> Self;
-    fn new_in(snp: u64) -> Self;
+    /// A fresh empty branch shaped LIKE `self` (the split sibling) — see
+    /// BtLeaf::new_sibling for why this is self-relative.
+    fn new_sibling(self: &Self, snp: u64) -> Self;
     fn block(self: &Self) -> *mut u8;
     fn child_count(self: &Self) -> u32;
     fn sep_at(self: &Self, i: u32) -> K;
