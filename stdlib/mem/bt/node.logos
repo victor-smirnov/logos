@@ -148,6 +148,10 @@ pub trait NodeProfile {
     fn free(node: *mut u8);
     /// The child-slot sentinel meaning "this node is a leaf".
     fn no_children() -> u32;
+    /// The TOTAL block size of a node (header + region) — what a split
+    /// sibling allocation must reproduce (new_sibling reads it off the node
+    /// it splits from).
+    fn block_size(node: *mut u8) -> u32;
 }
 
 /// The CoW node profile — MemNode. A zero-sized marker used only as a type
@@ -168,4 +172,5 @@ impl NodeProfile for CowProfile {
     fn set_child_slot(node: *mut u8, slot: u32) { unsafe { node_set_child_slot(node, slot); } }
     fn free(node: *mut u8) { unsafe { node_free(node); } }
     fn no_children() -> u32 { return NODE_NO_CHILDREN; }
+    fn block_size(node: *mut u8) -> u32 { return unsafe { node_block_size(node) }; }
 }
