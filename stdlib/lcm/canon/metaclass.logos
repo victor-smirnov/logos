@@ -21,6 +21,7 @@ package logos.lcm.canon.metaclass;
 
 use logos.lang.writ.wstatic;
 use logos.lang.rc;                // Rc — the thread-local container handle plane
+use logos.mem.sync;               // Arc — the snapshot parent-hold plane
 
 /// Typed wrapper over a container configuration document. Zero-field: the
 /// type carries only the CFG identity (content hash) + factory routing.
@@ -50,8 +51,11 @@ pub struct CtrClass<const CFG: WritStatic> {}
 pub trait CtrFamily<S> {
     type Handle;
     fn family_id() -> u64;
-    fn create(snap: &mut S, ctr_id: u64) -> Self::Handle;
-    fn open(snap: &mut S, ctr_id: u64) -> Self::Handle;
+    /// The snapshot arrives as `&mut Arc<S>`: the handle CLONES the Arc — a
+    /// container holds its PARENT snapshot alive (the ownership chain
+    /// Ctr ──Arc→ Snapshot ──Arc→ Store).
+    fn create(snap: &mut Arc<S>, ctr_id: u64) -> Self::Handle;
+    fn open(snap: &mut Arc<S>, ctr_id: u64) -> Self::Handle;
 }
 
 /// The single container-instantiation surface (ADR 0021 §4):
@@ -69,14 +73,14 @@ pub trait CtrFamily<S> {
 /// NB (ADR 0021 §5): logos.lcm.deem's ADR-0017 `create_ctr`/`open_ctr` still
 /// exist; these are package-scoped here — a unit importing BOTH modules would
 /// collide (no unit does today; the deem pair retires with the memoria port).
-pub fn create_ctr<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> C::Handle {
+pub fn create_ctr<C: CtrFamily<S>, S>(snap: &mut Arc<S>, ctr_id: u64) -> C::Handle {
     return C::create(snap, ctr_id);
 }
 
 /// Open an existing container `ctr_id` in `snap` through its family handle.
 /// Existence is not checked here (wave-parity with the generated handle's
 /// `open`); the Option-returning form arrives with the deem-pair retirement.
-pub fn open_ctr<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> C::Handle {
+pub fn open_ctr<C: CtrFamily<S>, S>(snap: &mut Arc<S>, ctr_id: u64) -> C::Handle {
     return C::open(snap, ctr_id);
 }
 
@@ -87,11 +91,11 @@ pub fn open_ctr<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> C::Handle {
 // pool — open question), which these signatures already permit.
 
 /// Creates the container and hands the handle out on the thread-local Rc plane.
-pub fn create_ctr_rc<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> Rc<C::Handle> {
+pub fn create_ctr_rc<C: CtrFamily<S>, S>(snap: &mut Arc<S>, ctr_id: u64) -> Rc<C::Handle> {
     return rc_new::<C::Handle>(C::create(snap, ctr_id));
 }
 
 /// Opens an existing container on the thread-local Rc plane.
-pub fn open_ctr_rc<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> Rc<C::Handle> {
+pub fn open_ctr_rc<C: CtrFamily<S>, S>(snap: &mut Arc<S>, ctr_id: u64) -> Rc<C::Handle> {
     return rc_new::<C::Handle>(C::open(snap, ctr_id));
 }

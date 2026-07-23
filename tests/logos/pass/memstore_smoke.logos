@@ -7,7 +7,8 @@
 // in the node header; tree_release reads it from there).
 package test;
 
-use logos.mem.bt.memstore;   // MemoryStore, MemorySnapshot, DirEntry
+use logos.mem.bt.memstore;
+use logos.mem.sync;   // Arc — the store/snapshot plane   // MemoryStore, MemorySnapshot, DirEntry
 use logos.mem.bt.map;        // trait Snapshot — brings snapshot_id() into scope
 use logos.mem.bt.node;       // node_snapshot / node_rc / node_pkd / node_child_slot —
                              // verify the header stamps directly
@@ -17,8 +18,8 @@ use logos.lang.result;       // Result (format/push)
 
 fn main() -> i32 {
     // ── (1) storage capability ───────────────────────────────────────────
-    let mut store: MemoryStore = MemoryStore::new();
-    let mut s1: MemorySnapshot = store.fork();
+    let mut store: Arc<MemoryStore> = store_new();
+    let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     if s1.snapshot_id() != 1u64 { return 1i32; }
 
     let h: *mut u8 = s1.node_alloc(4096u32, 2u32);
@@ -30,15 +31,13 @@ fn main() -> i32 {
     if s1.get_child(s1.child_ref_of(h)) != h { return 7i32; }  // roundtrips
     if s1.cow_needed(h) { return 8i32; }                       // stamped with s1 → no clone
 
-    let mut s2: MemorySnapshot = store.fork();
+    let mut s2: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     if s2.snapshot_id() != 2u64 { return 9i32; }
     if !s2.cow_needed(h) { return 10i32; }                     // h frozen for s2 → must clone
     s1.node_free(h);
-    s1.release();   // s1's (empty) directory — h was never registered
-    s2.release();
 
     // ── (2) directory + multi-container fork/commit refcounting ───────────
-    let mut s0: MemorySnapshot = store.fork();                 // id 3, empty dir
+    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);                 // id 3, empty dir
     let a: *mut u8 = s0.node_alloc(4096u32, 2u32);             // container 7 root (leaf)
     let b: *mut u8 = s0.node_alloc(4096u32, 2u32);             // container 9 root (leaf)
     s0.set_root(7u64, a, 0u32);
@@ -46,23 +45,20 @@ fn main() -> i32 {
     if !s0.has_ctr(7u64) || !s0.has_ctr(9u64) { return 11i32; }
     if s0.root_of(7u64).root != a || s0.root_of(9u64).level != 0u32 { return 12i32; }
 
-    store.commit(&s0);                                         // HEAD adopts a,b (inc_rc each)
+    (&mut *store).commit(&*s0);                                         // HEAD adopts a,b (inc_rc each)
     if unsafe { node_rc(a) } != 2u32 { return 13i32; }         // s0 + HEAD
     if unsafe { node_rc(b) } != 2u32 { return 14i32; }
 
-    let mut sf: MemorySnapshot = store.fork();                 // shares HEAD's a,b (inc_rc)
+    let mut sf: Arc<MemorySnapshot> = store_fork_arc(&mut store);                 // shares HEAD's a,b (inc_rc)
     if !sf.has_ctr(7u64) { return 15i32; }                     // directory copied from HEAD
     if unsafe { node_rc(a) } != 3u32 { return 16i32; }         // s0 + HEAD + sf
-
-    sf.release();                                              // drop sf's share
-    if unsafe { node_rc(a) } != 2u32 { return 17i32; }
-    s0.release();                                              // drop s0's share
-    if unsafe { node_rc(a) } != 1u32 { return 18i32; }         // only HEAD left
-    store.release();                                           // HEAD → a,b freed at rc 0
+    // Drop model: the s0/sf shares return when the WRAPPERS close (scope end,
+    // reverse order) — the head-only rc=1 state is reached after this fn's
+    // scope, which valgrind's zero-leak verdict pins.
 
     // ── (3) container-agnostic recursive tree release (branch → leaf) ─────
-    let mut store2: MemoryStore = MemoryStore::new();
-    let mut s: MemorySnapshot = store2.fork();
+    let mut store2: Arc<MemoryStore> = store_new();
+    let mut s: Arc<MemorySnapshot> = store_fork_arc(&mut store2);
     let leaf: *mut u8 = s.node_alloc(4096u32, 2u32);           // level-0 child (rc 1)
     let br: *mut u8 = s.branch_alloc(4096u32, 3u32, 2u32);     // level-1 branch (rc 1),
                                                                // children declared in slot 2
@@ -103,7 +99,6 @@ fn main() -> i32 {
         cb2.commit_insert(&us, &row);
     }
     s.set_root(5u64, br, 1u32);
-    s.release();   // tree_release(br,1): dec br→0 → recurse the DECLARED child
-                   // slot → tree_release(leaf,0) → free both
+    // wrapper Drop walks the declared child slot → tree_release(leaf,0) → free both
     return 0i32;
 }

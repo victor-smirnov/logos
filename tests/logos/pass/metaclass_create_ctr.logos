@@ -11,7 +11,8 @@ package main;
 use logos.lcm.canon.metaclass;       // CtrClass + CtrFamily + create_ctr/open_ctr
 use logos.lcm.canon.container_item;  // loads the factory (an emitted `use` cannot LOAD a module)
 use logos.mem.bt.map;                // trait hub for the generated impls
-use logos.mem.bt.memstore;           // MemoryStore / MemorySnapshot
+use logos.mem.bt.memstore;
+use logos.mem.sync;   // Arc — the store/snapshot plane           // MemoryStore / MemorySnapshot
 use logos.mem.pkd;                   // generated leaf/branch target
 use logos.lang.writ.wstatic;
 
@@ -19,8 +20,8 @@ pub const LegendCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "
 pub type Legend = CtrClass<LegendCfg>;
 
 fn main() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
-    let mut s0: MemorySnapshot = store.fork();
+    let mut store: Arc<MemoryStore> = store_new();
+    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     let m = create_ctr::<Legend>(&mut s0, 1u64);
     let mut k: u64 = 0u64;
     while k < 1000u64 { m.insert(k, k + 7u64); k = k + 1u64; }
@@ -32,13 +33,11 @@ fn main() -> i32 {
     }
     if m.get_or(5000u64, 0xDEADu64) != 0xDEADu64 { bad = bad + 1u64; }
     if m.size() != 1000u64 { bad = bad + 1u64; }
-    store.commit(&s0);
+    (&mut *store).commit(&*s0);
     // open_ctr on the same snapshot sees the same container.
     let m2 = open_ctr::<Legend>(&mut s0, 1u64);
     if m2.size() != 1000u64 { bad = bad + 1u64; }
     if m2.get_or(999u64, 0u64) != 999u64 + 7u64 { bad = bad + 1u64; }
-    s0.release();
-    store.release();
     if bad != 0u64 { return 1i32; }
     return 42i32;
 }

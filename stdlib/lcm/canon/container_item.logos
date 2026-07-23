@@ -1404,15 +1404,26 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
         use logos.mem.bt.ops;
-        pub struct #nm { snap: *mut MemorySnapshot, ctr_id: u64 }
+        use logos.mem.sync;               // Arc — the parent hold
+        pub struct #nm {
+            // the PARENT HOLD (Ctr ──Arc→ Snapshot) + the raw access path
+            // (&self interior discipline; the Arc's inner is heap-stable).
+            hold: Arc<MemorySnapshot>,
+            snap: *mut MemorySnapshot,
+            ctr_id: u64,
+        }
         impl #nm {
-            pub static fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
-                let lf: #lid = #lid::new_in(snap.snapshot_id());
-                snap.set_root(ctr_id, lf.block(), 0u32);
-                return #nm { snap: snap as *mut MemorySnapshot, ctr_id: ctr_id };
+            pub static fn create(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+                let raw: *mut MemorySnapshot = (&mut **snap) as *mut MemorySnapshot;
+                unsafe {
+                    let lf: #lid = #lid::new_in((*raw).snapshot_id());
+                    (*raw).set_root(ctr_id, lf.block(), 0u32);
+                }
+                return #nm { hold: snap.clone_ref(), snap: raw, ctr_id: ctr_id };
             }
-            pub static fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
-                return #nm { snap: snap as *mut MemorySnapshot, ctr_id: ctr_id };
+            pub static fn open(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+                let raw: *mut MemorySnapshot = (&mut **snap) as *mut MemorySnapshot;
+                return #nm { hold: snap.clone_ref(), snap: raw, ctr_id: ctr_id };
             }
             pub fn insert(self: &#nm, key: #(kid), val: #(vi)) {
                 unsafe {
@@ -1806,32 +1817,43 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
         use logos.mem.bt.map;             // Ctr / Multimap — the dyn boundary traits
         use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
+        use logos.mem.sync;               // Arc — the parent hold
         use logos.mem.collections.vec;
         use logos.lang.panic;
         pub struct #nm {
+            // the PARENT HOLD (ownership chain: Ctr ──Arc→ Snapshot) + the raw
+            // ACCESS path (the &self interior discipline; the Arc's inner is
+            // heap-stable, so the ptr stays valid for the handle's lifetime).
+            hold: Arc<MemorySnapshot>,
             snap: *mut MemorySnapshot,
             ctr_id: u64,
             leaf_bytes: u32,
             branch_bytes: u32,
         }
         impl #nm {
-            pub static fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
+            pub static fn create(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
                 return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
             }
-            pub static fn create_with(snap: &mut MemorySnapshot, ctr_id: u64,
+            pub static fn create_with(snap: &mut Arc<MemorySnapshot>, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                let t: Btfl<2, #nd> = btfl_create::<2, #nd>(snap, leaf_bytes, branch_bytes);
-                snap.set_root(ctr_id, t.root, t.level);
+                let raw: *mut MemorySnapshot = (&mut **snap) as *mut MemorySnapshot;
+                unsafe {
+                    let t: Btfl<2, #nd> = btfl_create::<2, #nd>(&mut *raw, leaf_bytes, branch_bytes);
+                    (*raw).set_root(ctr_id, t.root, t.level);
+                }
                 return #nm {
-                    snap: snap as *mut MemorySnapshot,
+                    hold: snap.clone_ref(),
+                    snap: raw,
                     ctr_id: ctr_id,
                     leaf_bytes: leaf_bytes,
                     branch_bytes: branch_bytes,
                 };
             }
-            pub static fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
+            pub static fn open(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+                let raw: *mut MemorySnapshot = (&mut **snap) as *mut MemorySnapshot;
                 return #nm {
-                    snap: snap as *mut MemorySnapshot,
+                    hold: snap.clone_ref(),
+                    snap: raw,
                     ctr_id: ctr_id,
                     leaf_bytes: #(lbs),
                     branch_bytes: #(bbs),
@@ -2185,15 +2207,16 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     let b: QuoteItemBlob = quote_item! {
         use logos.lcm.canon.metaclass;
         use logos.mem.bt.memstore;
+        use logos.mem.sync;
         impl CtrFamily<MemorySnapshot> for CtrClass<#(cfgty)> {
             type Handle = #famid;
             fn family_id() -> u64 {
                 return #(idexpr);
             }
-            fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> #famid {
+            fn create(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #famid {
                 return #famid::create(snap, ctr_id);
             }
-            fn open(snap: &mut MemorySnapshot, ctr_id: u64) -> #famid {
+            fn open(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #famid {
                 return #famid::open(snap, ctr_id);
             }
         }

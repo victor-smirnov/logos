@@ -81,7 +81,7 @@ fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let mut snap: Arc<MemorySnapshot> = store_fork_arc(&mut store);
 
-    let mut m = create_ctr_rc::<typeof(Map::<u64, u64>)>(&mut *snap, 1u64);
+    let mut m = create_ctr_rc::<typeof(Map::<u64, u64>)>(&mut snap, 1u64);
 
     // ── §2 the typed surface (through the Rc, auto-deref) ───────────────────
     // upsert semantics: insert-new + replace-on-hit; ordered by key (the
@@ -108,7 +108,7 @@ fn run_all() -> i32 {
 
     // ── §3 snapshot lifecycle: commit publishes, open sees the same trees ───
     store.commit(&*snap);
-    let m2 = open_ctr::<typeof(Map::<u64, u64>)>(&mut *snap, 1u64);
+    let m2 = open_ctr::<typeof(Map::<u64, u64>)>(&mut snap, 1u64);
     if m2.size() != n + 1u64 { return 8i32; }
     if m2.get_or(4u64, 0u64) != 12u64 { return 9i32; }
 

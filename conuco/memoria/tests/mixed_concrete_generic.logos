@@ -34,11 +34,11 @@ fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 { return C::family_id(); }
 
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s: MemorySnapshot = store_fork(&mut store);
+    let mut s: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     let c = create_ctr::<typeof(Conc)>(&mut s, 1u64);
     c.insert(1u64, 7u64);
     if c.get_or(1u64, 0u64) != 7u64 { return 1i32; }
-    store.commit(&s);
+    (&mut *store).commit(&*s);
 
     let g = create_ctr::<typeof(Gen::<u64>)>(&mut s, 2u64);
     g.insert(1u64, 5u64);

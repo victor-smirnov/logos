@@ -20,7 +20,8 @@ use logos.lcm.canon.container_item;   // `container` lowering handler + the fact
 use logos.lcm.canon.metaclass;        // create_ctr/open_ctr + CtrClass
 use logos.mem.pkd;                    // generated volume-leaf substrate
 use logos.mem.bt.map;                 // Ctr trait (generated impl names it)
-use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
+use logos.mem.bt.memstore;
+use logos.mem.sync;   // Arc — the store/snapshot plane            // MemoryStore / MemorySnapshot
 use logos.lang.str;
 use logos.lang.writ.wstatic;
 
@@ -49,8 +50,8 @@ fn beq(b: &[u8], want: str) -> bool {
 }
 
 fn main() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
-    let mut s1: MemorySnapshot = store.fork();
+    let mut store: Arc<MemoryStore> = store_new();
+    let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
 
     // ── create + fill through the CONCRETE declaration handle ──
     let jc = create_ctr::<typeof(Journal)>(&mut s1, JOURNAL);
@@ -88,8 +89,6 @@ fn main() -> i32 {
     if jc.get_or(9999u64).len() != 0i64 { return 8i32; }
     if jg.get_or(9999u64).len() != 0i64 { return 9i32; }
 
-    store.commit(&s1);
-    s1.release();
-    store.release();
+    (&mut *store).commit(&*s1);
     return 42i32;
 }

@@ -29,7 +29,7 @@ container GenBt for u8 {
 
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s0: MemorySnapshot = store_fork(&mut store);
+    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     let t = create_ctr::<typeof(GenBt)>(&mut s0, 1u64);
     if t.size() != 0u64 { return 2i32; }
 

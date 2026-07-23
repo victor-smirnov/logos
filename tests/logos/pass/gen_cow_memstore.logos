@@ -14,7 +14,8 @@ use logos.lcm.canon.container_item;   // the `container` lowering handler + the 
 use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
 use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
-use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the shared store
+use logos.mem.bt.memstore;
+use logos.mem.sync;   // Arc — the store/snapshot plane            // MemoryStore, MemorySnapshot — the shared store
 
 container GenCow for u8 {
     kind ordered_map;
@@ -23,27 +24,27 @@ container GenCow for u8 {
 }
 
 fn main() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
+    let mut store: Arc<MemoryStore> = store_new();
     let n: u64 = 2000u64;
 
     // ── version A: create container #1, fill [0, N) ──────────────────────
-    let mut s0: MemorySnapshot = store.fork();
+    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     if s0.snapshot_id() != 1u64 { return 1i32; }
     let m0 = create_ctr::<typeof(GenCow)>(&mut s0, 1u64);
     let mut k: u64 = 0u64;
     while k < n { m0.insert(k, k + 7u64); k = k + 1u64; }
     if m0.size() != n { return 2i32; }
-    store.commit(&s0);
+    (&mut *store).commit(&*s0);
 
     // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
-    let mut s1: MemorySnapshot = store.fork();
+    let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     if s1.snapshot_id() != 2u64 { return 3i32; }
     let m1 = open_ctr::<typeof(GenCow)>(&mut s1, 1u64);
     if m1.get_or(0u64, 0xFFFFu64) != 7u64 { return 4i32; }
     if m1.get_or(n - 1u64, 0xFFFFu64) != (n - 1u64) + 7u64 { return 5i32; }
     k = n;
     while k < 2u64 * n { m1.insert(k, k + 7u64); k = k + 1u64; }
-    store.commit(&s1);
+    (&mut *store).commit(&*s1);
 
     // ── ISOLATION: s0 (frozen) still sees ONLY [0, N); s1 sees [0, 2N) ───
     let m0b = open_ctr::<typeof(GenCow)>(&mut s0, 1u64);
@@ -63,8 +64,5 @@ fn main() -> i32 {
     }
 
     // ── teardown: each version drops its share; HEAD frees the rest ──────
-    s1.release();
-    s0.release();
-    store.release();
     return 0i32;
 }
