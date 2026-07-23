@@ -711,6 +711,11 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     let nm:  Ident = Ident::new(name);
     let kid: Ident = Ident::new(kty);
     let vid: Ident = Ident::new(vty);
+    // lower_bound signedness verdict: the compare domain follows the KEY
+    // type — a blind u64 cast would invert negative signed keys.
+    let signed_k: bool = str_byte_at(kty, 0i64) == 105u8;   // 'i'
+    let lbfn: Ident = if signed_k { Ident::new("btss_lower_bound_i64") } else { Ident::new("btss_lower_bound_u64") };
+    let lbdom: Ident = if signed_k { Ident::new("i64") } else { Ident::new("u64") };
     // Store-configuration plane (S2): node form + geometry baked from StoreCfg.
     let nd: Ident = Ident::new(MEM_STORE_NODE);
     let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
@@ -751,14 +756,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             pub fn count(self: &#nm) -> u32 { return unsafe { btss_count(self.a()) }; }
             pub fn key_at(self: &#nm, i: u32) -> #(kid) { return unsafe { self.kc().get(0u32, i as u64) as #(kid) }; }
             pub fn lower_bound(self: &#nm, key: #(kid)) -> u32 {
-                let n: u32 = self.count();
-                let mut i: u32 = 0u32;
-                while i < n {
-                    if self.key_at(i) >= key {
-                        return i;
-                    } i = i + 1u32;
-                }
-                return n;
+                return unsafe { #(lbfn)(self.a(), key as #(lbdom)) };
             }
             pub fn split_into(self: &mut #nm, dst: &mut #nm) {
                 let at: u32 = self.split_index();

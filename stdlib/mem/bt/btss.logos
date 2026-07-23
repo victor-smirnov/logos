@@ -287,3 +287,34 @@ pub unsafe fn btss_split_index_volume(a: *mut PkdAlloc) -> u32 {
     }
     return at;
 }
+
+/// lower_bound over the key column, UNSIGNED domain: first row whose key cell
+/// is >= `key` as u64. The signedness VARIANT is chosen by the emitter from
+/// the key type's verdict — a blind u64 compare would invert negative i64
+/// keys, so the signed twin below exists and nothing here guesses.
+pub unsafe fn btss_lower_bound_u64(a: *mut PkdAlloc, key: u64) -> u32 {
+    let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+    let n: u32 = kb.size() as u32;
+    let mut i: u32 = 0u32;
+    while i < n {
+        if kb.get(0u32, i as u64) >= key {
+            return i;
+        }
+        i = i + 1u32;
+    }
+    return n;
+}
+
+/// lower_bound over the key column, SIGNED domain (cells reinterpreted i64).
+pub unsafe fn btss_lower_bound_i64(a: *mut PkdAlloc, key: i64) -> u32 {
+    let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+    let n: u32 = kb.size() as u32;
+    let mut i: u32 = 0u32;
+    while i < n {
+        if (kb.get(0u32, i as u64) as i64) >= key {
+            return i;
+        }
+        i = i + 1u32;
+    }
+    return n;
+}
