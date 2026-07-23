@@ -857,6 +857,15 @@ private:
     // survived only because the two positions had separate code.
     ArrayLen resolve_array_len(writ::TinyMapView len_node);
 
+    // const-length-overhaul: encode a const-expression AST node (a BINOP /
+    // UNARY / PAREN_EXPR tree over ARR_LEN leaves) as a postfix (RPN) string —
+    // `#<int>` literal, `$<name>` const-param, arithmetic operators. Leaves are
+    // resolved through resolve_array_len (reusing every atom path). Returns
+    // nullopt on an unsupported form (a diagnostic is emitted). Shared by the
+    // array-length position and the const-generic-argument position; the caller
+    // folds it (eval_len_postfix) or defers it under ARR_LEN_EXPR_PFX.
+    std::optional<std::string> build_const_expr_postfix(writ::TinyMapView node);
+
     // T2-29: is `t` an UNINHABITED type (no value can exist)? Never; an
     // empty enum or one whose every variant has an uninhabited payload; a
     // struct/tuple with an uninhabited field; `[T; N>0]` with uninhabited

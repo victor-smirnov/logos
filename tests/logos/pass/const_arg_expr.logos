@@ -1,0 +1,27 @@
+// const-length-overhaul: an arithmetic const expression in a const-generic
+// ARGUMENT position, `f::<{ N + 1 }>()`. Braces (Rust's const-arg block) delimit
+// the expression so the `>` / `>>` close-delimiter ambiguity never arises.
+// Folds at sema when concrete; a const-param leaf defers and folds at mono when
+// the caller's parameter binds. Asserts the values end to end.
+package const_arg_expr;
+
+fn seq<const N: u32>() -> u32 { return N; }
+
+// The argument expression is over the CALLER's const-generic parameter — the
+// useful case (a concrete `{3+1}` you would just write as `4`).
+fn plus_one<const N: u32>() -> u32 { return seq::<{ N + 1u32 }>(); }
+fn times_two<const N: u32>() -> u32 { return seq::<{ N * 2u32 }>(); }
+fn span<const N: u32>() -> u32 { return seq::<{ N * 2u32 - 1u32 }>(); }
+
+fn main() -> i32 {
+    // concrete argument expressions fold at sema
+    if seq::<{ 3u32 + 1u32 }>() != 4u32 { return 1i32; }
+    if seq::<{ (2u32 + 2u32) * 2u32 }>() != 8u32 { return 2i32; }
+
+    // symbolic argument expressions fold per instantiation at mono
+    if plus_one::<3u32>() != 4u32 { return 3i32; }
+    if plus_one::<10u32>() != 11u32 { return 4i32; }   // a DISTINCT instantiation
+    if times_two::<5u32>() != 10u32 { return 5i32; }
+    if span::<4u32>() != 7u32 { return 6i32; }          // 4*2 - 1
+    return 0i32;
+}

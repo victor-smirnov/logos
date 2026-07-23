@@ -2101,6 +2101,13 @@
                    => { CODE: LIT_INT, VALUE: $1 }
                     / writ_lit
                    => { CODE: LIT_WSTATIC, VALUE: $1 }
+                    // const-length-overhaul: a braced const-generic ARGUMENT
+                    // expression `{ N + 1 }` (Rust's const-arg block — the
+                    // braces sidestep the `>`/`>>` close-delimiter ambiguity).
+                    // Reuses the length const-expr chain; sema folds it to a
+                    // value or defers it as an encoded ConstVar.
+                    / LBRACE clen_bitor RBRACE
+                   => { CODE: PAREN_EXPR, VALUE: $2 }
                     / type_ref
 
     simple_type <- HASH LPAREN expr RPAREN LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE

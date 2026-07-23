@@ -2461,7 +2461,14 @@ std::string type_str(TypeRef t) {
         return r; }
     case LogosType::Kind::TaggedPtr:   return "&tagged<" + std::string(TypeRef(t).struct_name()) + "> " + std::string(TypeRef(t).trait_name());
     case LogosType::Kind::TypeVar:     return std::string(TypeRef(t).type_var_name());
-    case LogosType::Kind::ConstVar:    return std::string(TypeRef(t).type_var_name());
+    case LogosType::Kind::ConstVar: {
+        // A deferred const-arg EXPRESSION rides a postfix-encoded ConstVar name
+        // — decode it back to infix for diagnostics.
+        std::string nm(TypeRef(t).type_var_name());
+        if (nm.rfind(ARR_LEN_EXPR_PFX, 0) == 0)
+            return decode_len_expr_infix(std::string_view(nm).substr(ARR_LEN_EXPR_PFX.size()));
+        return nm;
+    }
     case LogosType::Kind::AssocType: {
         std::string r = type_str(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
         if (!TypeRef(t).gat_args().empty()) {
@@ -4419,6 +4426,56 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     }
 }
 
+std::optional<std::string> SemaChecker::build_const_expr_postfix(TinyMapView node) {
+    std::string post;
+    bool ok = true;
+    std::function<void(TinyMapView)> emit = [&](TinyMapView n) {
+        if (!ok) return;
+        int32_t c = code_of(n);
+        if (c == la::PAREN_EXPR) { emit(map_of(n.get(la::VALUE.code))); return; }
+        if (c == la::UNARY) {
+            auto op = std::string(str_of(n.get(la::OP.code)));
+            if (op != "-") {
+                error(std::format("const expression: unsupported unary operator '{}' "
+                                  "(only '-' is allowed; call a function via metacall)", op));
+                ok = false; return;
+            }
+            emit(map_of(n.get(la::VALUE.code)));
+            post += " ~";
+            return;
+        }
+        if (c == la::BINOP) {
+            auto op = std::string(str_of(n.get(la::OP.code)));
+            if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%" &&
+                op != "<<" && op != ">>" && op != "&" && op != "|" && op != "^") {
+                error(std::format("const expression: unsupported operator '{}' "
+                                  "(arithmetic only; call a function via metacall)", op));
+                ok = false; return;
+            }
+            emit(map_of(n.get(la::LHS.code)));
+            emit(map_of(n.get(la::RHS.code)));
+            post += ' '; post += op;
+            return;
+        }
+        if (c == la::ARR_LEN) {
+            // A leaf — reuse the whole atom resolution (SIZE / NAME / Q::N /
+            // module-const): a concrete value emits `#v`, a symbolic const-param
+            // emits `$name`.
+            ArrayLen leaf = resolve_array_len(n);
+            if (!leaf.ok) { ok = false; return; }
+            if (!leaf.symbolic.empty()) { post += " $"; post += leaf.symbolic; }
+            else { post += " #"; post += std::to_string(leaf.value); }
+            return;
+        }
+        error("const expression: unsupported form (arithmetic over integers, "
+              "consts and const-generic params only)");
+        ok = false;
+    };
+    emit(node);
+    if (!ok) return std::nullopt;
+    return post;
+}
+
 SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
     ArrayLen r;
     if (len.is_null()) {
@@ -4436,55 +4493,11 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
     // the postfix in arr_size_var (never a type), folded at mono when the param
     // binds. The array's length is always a number or this pending computation.
     if (int32_t lc = code_of(len); lc == la::BINOP || lc == la::UNARY || lc == la::PAREN_EXPR) {
-        std::string post;
-        bool ok = true;
-        std::function<void(TinyMapView)> emit = [&](TinyMapView n) {
-            if (!ok) return;
-            int32_t c = code_of(n);
-            if (c == la::PAREN_EXPR) { emit(map_of(n.get(la::VALUE.code))); return; }
-            if (c == la::UNARY) {
-                auto op = std::string(str_of(n.get(la::OP.code)));
-                if (op != "-") {
-                    error(std::format("array length: unsupported unary operator '{}' "
-                                      "(only '-' is allowed; call a function via metacall)", op));
-                    ok = false; return;
-                }
-                emit(map_of(n.get(la::VALUE.code)));
-                post += " ~";
-                return;
-            }
-            if (c == la::BINOP) {
-                auto op = std::string(str_of(n.get(la::OP.code)));
-                if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%" &&
-                    op != "<<" && op != ">>" && op != "&" && op != "|" && op != "^") {
-                    error(std::format("array length: unsupported operator '{}' in a length "
-                                      "expression (arithmetic only; call via metacall)", op));
-                    ok = false; return;
-                }
-                emit(map_of(n.get(la::LHS.code)));
-                emit(map_of(n.get(la::RHS.code)));
-                post += ' '; post += op;
-                return;
-            }
-            if (c == la::ARR_LEN) {
-                // A leaf — reuse the whole atom resolution (SIZE / NAME / Q::N /
-                // module-const): a concrete value emits `#v`, a symbolic
-                // const-param emits `$name`.
-                ArrayLen leaf = resolve_array_len(n);
-                if (!leaf.ok) { ok = false; return; }
-                if (!leaf.symbolic.empty()) { post += " $"; post += leaf.symbolic; }
-                else { post += " #"; post += std::to_string(leaf.value); }
-                return;
-            }
-            error("array length: unsupported expression form (arithmetic over "
-                  "integers, consts and const-generic params only)");
-            ok = false;
-        };
-        emit(len);
-        if (!ok) { r.ok = false; return r; }
+        auto post = build_const_expr_postfix(len);
+        if (!post) { r.ok = false; return r; }
         // Try to fold now (empty lookup: only `#` leaves resolve). All concrete
         // ⇒ a size; any `$name` ⇒ defer, carrying the postfix string.
-        if (auto folded = eval_len_postfix(post, [](std::string_view) { return std::optional<int64_t>{}; })) {
+        if (auto folded = eval_len_postfix(*post, [](std::string_view) { return std::optional<int64_t>{}; })) {
             if (*folded < 0) {
                 error(std::format("array length cannot be negative, got {}", *folded));
                 r.ok = false;
@@ -4493,7 +4506,7 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
             r.value = static_cast<uint64_t>(*folded);
             return r;
         }
-        r.symbolic = std::string(ARR_LEN_EXPR_PFX) + post;
+        r.symbolic = std::string(ARR_LEN_EXPR_PFX) + *post;
         return r;
     }
     // `sizeof...(P)` — a variadic pack's arity. Stays symbolic under a
@@ -5119,7 +5132,31 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                                                const SemaLifetimeSubst& ls) {
     if (!t) return t;
     switch (t.kind()) {
-    case LogosType::Kind::ConstVar:
+    case LogosType::Kind::ConstVar: {
+        // const-length-overhaul: a deferred const-arg EXPRESSION rides a
+        // postfix-encoded ConstVar name — evaluate it against the substitution
+        // and fold to an IntLit (mirrors the mono side).
+        std::string nm(t.type_var_name());
+        if (nm.rfind(ARR_LEN_EXPR_PFX, 0) == 0) {
+            auto v = eval_len_postfix(
+                std::string_view(nm).substr(ARR_LEN_EXPR_PFX.size()),
+                [&](std::string_view p) -> std::optional<int64_t> {
+                    auto pit = s.find(std::string(p));
+                    if (pit != s.end()) {
+                        TypeRef bt(pit->second);
+                        if (auto cv = bt.const_val()) return *cv;
+                    }
+                    return std::nullopt;
+                });
+            if (v) {
+                LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = *v;
+                return pool_->alloc(std::move(lt));
+            }
+            return t;
+        }
+        auto it = s.find(nm);
+        return (it != s.end()) ? TypeRef(it->second) : t;
+    }
     case LogosType::Kind::TypeVar: {
         auto it = s.find(std::string(t.type_var_name()));
         return (it != s.end()) ? TypeRef(it->second) : t;
@@ -6974,6 +7011,23 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         return pool_->alloc(std::move(t));
     }
 
+    // const-length-overhaul: a braced const-generic ARGUMENT expression
+    // (`f::<{ N + 1 }>()`) arrives here as a PAREN_EXPR / BINOP / UNARY node.
+    // Fold it to an IntLit when concrete; otherwise carry it as a ConstVar
+    // whose name is the postfix encoding (never a type-expression), folded to
+    // IntLit at mono when the param binds — the const-arg analog of a deferred
+    // array length.
+    if (tc == la::PAREN_EXPR || tc == la::BINOP || tc == la::UNARY) {
+        auto post = build_const_expr_postfix(node);
+        if (!post) return error_t();
+        if (auto folded = eval_len_postfix(*post, [](std::string_view) { return std::optional<int64_t>{}; })) {
+            LogosTypeBuilder t; t.kind = LogosType::Kind::IntLit; t.const_val = *folded;
+            return pool_->alloc(std::move(t));
+        }
+        LogosTypeBuilder t; t.kind = LogosType::Kind::ConstVar;
+        t.type_var_name = std::string(ARR_LEN_EXPR_PFX) + *post;
+        return pool_->alloc(std::move(t));
+    }
     if (tc == la::LIT_INT) {
         auto sv = str_of(node.get(la::VALUE.code));
         LogosTypeBuilder t; t.kind = LogosType::Kind::IntLit;

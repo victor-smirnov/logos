@@ -26,6 +26,30 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     // field is local by construction. Reads through foreign TypeRefs
     // are safe — lir_view's accessors are cross-arena-aware.
     if (tv.kind() == LogosType::Kind::TypeVar || tv.kind() == LogosType::Kind::ConstVar) {
+        // const-length-overhaul: a deferred const-arg EXPRESSION rides a
+        // ConstVar whose name is postfix-encoded (`f::<{N+1}>`). Evaluate it
+        // against the substitution and fold to an IntLit — the const-arg analog
+        // of a deferred array length. Never survives to codegen as a ConstVar.
+        if (tv.kind() == LogosType::Kind::ConstVar) {
+            std::string nm(tv.type_var_name());
+            if (nm.rfind(ARR_LEN_EXPR_PFX, 0) == 0) {
+                auto v = eval_len_postfix(
+                    std::string_view(nm).substr(ARR_LEN_EXPR_PFX.size()),
+                    [&](std::string_view p) -> std::optional<int64_t> {
+                        auto pit = s.find(std::string(p));
+                        if (pit != s.end()) {
+                            TypeRef bt(pit->second);
+                            if (auto cv = bt.const_val()) return *cv;
+                        }
+                        return std::nullopt;
+                    });
+                if (v) {
+                    LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = *v;
+                    return out_.type_pool.alloc(lt);
+                }
+                return tv;
+            }
+        }
         auto it = s.find(tv.type_var_name());   // transparent: no std::string
         if (it != s.end()) return it->second;
         return tv;
