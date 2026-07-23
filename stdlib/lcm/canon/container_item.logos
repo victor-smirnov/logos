@@ -711,6 +711,15 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     let nm:  Ident = Ident::new(name);
     let kid: Ident = Ident::new(kty);
     let vid: Ident = Ident::new(vty);
+    // Store-configuration plane (S2): node form + geometry baked from StoreCfg.
+    let nd: Ident = Ident::new(MEM_STORE_NODE);
+    let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
+    let mut lb_u: String = fmt_display_to_string(&scfg.leaf_bytes());
+    lb_u.push_str("u32");
+    let lbs: ExprBlob = parse_expr(lb_u.as_str());
+    let mut lb_i: String = fmt_display_to_string(&scfg.leaf_bytes());
+    lb_i.push_str("i64");
+    let lbsi: ExprBlob = parse_expr(lb_i.as_str());
 
     // Struct + cow/vol-INDEPENDENT methods (two columns: key=kty, val=vty; for a
     // volume node vty is `str` — a VLE column). `self.a()` + `split_index` live in
@@ -1051,24 +1060,24 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                 pub static fn new() -> #nm { return #nm::new_in(0u64); }
                 pub static fn new_in(snp: u64) -> #nm {
                     unsafe {
-                        let base: *mut u8 = CowProfile::alloc(4096u32, 2u32, snp);
-                        let a: *mut PkdAlloc = CowProfile::pkd(base);
+                        let base: *mut u8 = #nd::alloc(#(lbs), 2u32, snp);
+                        let a: *mut PkdAlloc = #nd::pkd(base);
                         #nm::fmt_slot(a, 0u32, false, true);
                         #nm::fmt_vc(a);
-                        return #nm { mem: base, cap: 4096u32 };
+                        return #nm { mem: base, cap: #(lbs) };
                     }
                 }
                 pub static fn adopt(mem: *mut u8) -> #nm { 
                     return #nm { 
                         mem: mem, 
-                        cap: unsafe { (*CowProfile::pkd(mem)).block_size() } 
+                        cap: unsafe { (*#nd::pkd(mem)).block_size() } 
                     }; 
                 }
                 unsafe fn a(self: &#nm) -> *mut PkdAlloc { 
-                    return CowProfile::pkd(self.mem); 
+                    return #nd::pkd(self.mem); 
                 }
                 pub fn free(self: #nm) { 
-                    unsafe { CowProfile::free(self.mem); } 
+                    unsafe { #nd::free(self.mem); } 
                 }
             }
         };
@@ -1120,11 +1129,11 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
 
                 pub static fn new() -> #nm {
                     unsafe {
-                        let base: *mut u8 = alloc(4096i64);
-                        let a: *mut PkdAlloc = pkd_format(base, 4096u32, 2u32);
+                        let base: *mut u8 = alloc(#(lbsi));
+                        let a: *mut PkdAlloc = pkd_format(base, #(lbs), 2u32);
                         #nm::fmt_slot(a, 0u32, false, true);
                         #nm::fmt_vc(a);
-                        return #nm { mem: base, cap: 4096u32 };
+                        return #nm { mem: base, cap: #(lbs) };
                     }
                 }
                 pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }
@@ -1155,6 +1164,15 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
     // `use` imports (quote_item! bodies do — no side Emitter pass).
     let nm:  Ident = Ident::new(name);
     let kid: Ident = Ident::new(kty);
+    // Store-configuration plane (S2): node form + geometry baked from StoreCfg.
+    let nd: Ident = Ident::new(MEM_STORE_NODE);
+    let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
+    let mut bb_u: String = fmt_display_to_string(&scfg.branch_bytes());
+    bb_u.push_str("u32");
+    let bbs: ExprBlob = parse_expr(bb_u.as_str());
+    let mut bb_i: String = fmt_display_to_string(&scfg.branch_bytes());
+    bb_i.push_str("i64");
+    let bbsi: ExprBlob = parse_expr(bb_i.as_str());
 
     // The struct + the cow-INDEPENDENT methods (three FSE columns: sep=kty,
     // sz/ptr=u64). `self.a()` (the PkdAlloc accessor) lives in the flavor impl
@@ -1343,36 +1361,36 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 pub static fn new() -> #nm { return #nm::new_in(0u64); }
                 pub static fn new_in(snp: u64) -> #nm {
                     unsafe {
-                        let base: *mut u8 = CowProfile::alloc(4096u32, 3u32, snp);
+                        let base: *mut u8 = #nd::alloc(#(bbs), 3u32, snp);
                         // A BRANCH: declare where its child refs live, so the
                         // container-agnostic tree walk needs no global slot
                         // convention.
-                        CowProfile::set_child_slot(base, 2u32);
-                        let a: *mut PkdAlloc = CowProfile::pkd(base);
+                        #nd::set_child_slot(base, 2u32);
+                        let a: *mut PkdAlloc = #nd::pkd(base);
                         #nm::fmt_col(a, 0u32, true);
                         #nm::fmt_col(a, 1u32, false);
                         #nm::fmt_col(a, 2u32, false);
-                        return #nm { mem: base, cap: 4096u32 };
+                        return #nm { mem: base, cap: #(bbs) };
                     }
                 }
-                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (*CowProfile::pkd(mem)).block_size() } }; }
-                unsafe fn a(self: &#nm) -> *mut PkdAlloc { return CowProfile::pkd(self.mem); }
+                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (*#nd::pkd(mem)).block_size() } }; }
+                unsafe fn a(self: &#nm) -> *mut PkdAlloc { return #nd::pkd(self.mem); }
                 pub fn free_children(self: #nm) {
                     let n: u32 = self.child_count();
                     let mut i: u32 = 0u32;
                     while i < n {
-                        unsafe { CowProfile::free(self.child_addr(i)); } i = i + 1u32;
+                        unsafe { #nd::free(self.child_addr(i)); } i = i + 1u32;
                     }
-                    unsafe { CowProfile::free(self.mem); }
+                    unsafe { #nd::free(self.mem); }
                 }
-                pub fn free_block(self: #nm) { unsafe { CowProfile::free(self.mem); } }
+                pub fn free_block(self: #nm) { unsafe { #nd::free(self.mem); } }
                 pub fn cow_clone(self: &#nm, snp: u64) -> #nm {
                     let mut c: #nm = #nm::new_in(snp);
                     let n: u32 = self.child_count();
                     let mut i: u32 = 0u32;
                     while i < n {
                         let p: *mut u8 = self.child_addr(i);
-                        unsafe { CowProfile::inc_rc(p); }
+                        unsafe { #nd::inc_rc(p); }
                         c.push_child(self.sep_at(i), self.size_at(i), p);
                         i = i + 1u32;
                     }
@@ -1390,12 +1408,12 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
             impl #nm {
                 pub static fn new() -> #nm {
                     unsafe {
-                        let base: *mut u8 = alloc(4096i64);
-                        let a: *mut PkdAlloc = pkd_format(base, 4096u32, 3u32);
+                        let base: *mut u8 = alloc(#(bbsi));
+                        let a: *mut PkdAlloc = pkd_format(base, #(bbs), 3u32);
                         #nm::fmt_col(a, 0u32, true);
                         #nm::fmt_col(a, 1u32, false);
                         #nm::fmt_col(a, 2u32, false);
-                        return #nm { mem: base, cap: 4096u32 };
+                        return #nm { mem: base, cap: #(bbs) };
                     }
                 }
                 pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }
@@ -1602,6 +1620,9 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     // which outlives this synchronous emit.
     let nm:  Ident = Ident::new(name);
     let lid: Ident = Ident::new(lname);
+    // Store-configuration plane (S2): node form + geometry baked from StoreCfg.
+    let nd: Ident = Ident::new(MEM_STORE_NODE);
+    let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
     let bid: Ident = Ident::new(bname);
     let kid: Ident = Ident::new(kty);
     let vi: ExprBlob = parse_type(vty);
@@ -1612,7 +1633,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     // root-split graft + `set_root` publish; `size` forwards into bt_size.
     let handle: QuoteItemBlob = quote_item! {
         use logos.mem.bt.map;
-        use logos.mem.bt.node;            // CowProfile — the store's node profile
+        use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
         use logos.mem.bt.ops;
         pub struct #nm { snap: *mut MemorySnapshot, ctr_id: u64 }
@@ -1629,7 +1650,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 unsafe {
                     let e: DirEntry = (*self.snap).root_of(self.ctr_id);
                     let cur: u64 = (*self.snap).snapshot_id();
-                    let r: BtInsRet<#(kid)> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid), CowProfile>(e.root, e.level, key, val, cur);
+                    let r: BtInsRet<#(kid)> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, val, cur);
                     let mut nrt: *mut u8 = e.root;
                     let mut nlv: u32 = e.level;
                     if r.addr != e.root {
