@@ -97,7 +97,11 @@ kernel generator each cover both.
 ### Laws
 
 1. **Exact pricing** — price(batch) = Σ price(atom), computed by the SAME
-   prepares that commit. No estimate formulas, ever.
+   prepares that commit. No estimate formulas, ever. Composition note (the
+   S2 interpreter's pin): atoms are priced against the PRE-batch state and
+   summed — exact when a batch carries at most ONE growing atom per stream
+   (the derived ENTRY_* forms guarantee this); richer batches are the
+   builder's obligation until the kernel generator prices state chains.
 2. **Atomicity** — batch commits iff price ≤ free_space; no partial node
    states. The VLE replace discipline (price the insert on the PRE-remove
    state, so the post-remove commit cannot fail) is the general shape of

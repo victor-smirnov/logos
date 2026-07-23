@@ -1,0 +1,186 @@
+package test;
+// ADR 0023 S2 — the reference interpreter's LAW tests over a real node:
+// exact pricing (law 1), whole-batch atomicity + rejection (law 2), commit
+// order (law 3, exercised by the entry-shaped batch), view re-resolution
+// (law 4, implicit in every mutation landing), and the VLE replace
+// discipline (price-on-PRE-remove). Schema: the multimap leaf shape —
+// FSE64-ordered keys, VLE values, SSRLE(2) structure.
+use logos.mem.bt.alg;
+use logos.mem.bt.interp;
+use logos.mem.pkd;
+use logos.mem.pkd.pdtbuf;
+use logos.mem.pkd.sseq;
+use logos.mem.pkd.ssrle;
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.panic;
+
+fn mm_schema() -> NodeSchema {
+    let mut sch: NodeSchema = node_schema_new();
+    sch.streams.push(sd_fse(8u32, true));   // 0: keys
+    sch.streams.push(sd_vle());             // 1: values
+    sch.streams.push(sd_ssrle(2u32));       // 2: structure
+    return sch;
+}
+
+struct Eb {
+    b: NodeBatch,
+    d: LeafBatchDatum,
+}
+
+// One logical entry (key, value-bytes) as an ENTRY-shaped batch: data
+// streams first, the structure stream LAST (law 3's order).
+fn entry_batch(kpos: u64, vpos: u64, spos: u64, key: u64, vlen: i64) -> Eb {
+    let mut d: LeafBatchDatum = leaf_batch_datum_new();
+    let mut ck: DatumCol = datum_col_new();
+    ck.cells.push(key);
+    d.cols.push(ck);
+    let mut cv: DatumCol = datum_col_new();
+    let mut vb: Vec<u8> = vec_new::<u8>();
+    let mut i: i64 = 0i64;
+    while i < vlen {
+        vb.push((0x40i64 + i) as u8);
+        i = i + 1i64;
+    }
+    cv.spans.push_span(vb.as_slice());
+    d.cols.push(cv);
+    let mut cs: DatumCol = datum_col_new();
+    cs.runs.push(SsrleRun { pattern: 0u64, pattern_length: 1u32, run_length: 1u64 });
+    cs.runs.push(SsrleRun { pattern: 1u64, pattern_length: 1u32, run_length: 1u64 });
+    d.cols.push(cs);
+    let mut b: NodeBatch = node_batch_new();
+    b.ops.push(op_ins(0u32, kpos, 1u64, 0u32));
+    b.ops.push(op_ins(1u32, vpos, 1u64, 1u32));
+    b.ops.push(op_ins(2u32, spos, 2u64, 2u32));
+    return Eb { b: b, d: d };
+}
+
+fn main() -> i32 {
+    let sch: NodeSchema = mm_schema();
+    unsafe {
+        let mem: *mut u8 = alloc(4096i64);
+        let a: *mut PkdAlloc = pkd_format(mem, 4096u32, 3u32);
+        alg_fmt_node(a, &sch);
+
+        // ── entry inserts land across all three streams ──
+        let e0: Eb = entry_batch(0u64, 0u64, 0u64, 500u64, 4i64);
+        if !alg_apply(a, &sch, &e0.b, &e0.d) { return 1i32; }
+        let e1: Eb = entry_batch(1u64, 1u64, 2u64, 700u64, 6i64);
+        if !alg_apply(a, &sch, &e1.b, &e1.d) { return 2i32; }
+        let e2: Eb = entry_batch(1u64, 1u64, 2u64, 600u64, 5i64);
+        if !alg_apply(a, &sch, &e2.b, &e2.d) { return 3i32; }
+
+        // keys: 500, 600, 700
+        {
+            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            if kb.size() != 3u64 { return 4i32; }
+            if kb.get(0u32, 0u64) != 500u64 { return 5i32; }
+            if kb.get(0u32, 1u64) != 600u64 { return 6i32; }
+            if kb.get(0u32, 2u64) != 700u64 { return 7i32; }
+        }
+        // values: lens 4, 5, 6
+        {
+            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            if vb.size() != 3u64 { return 8i32; }
+            if vb.row_span(0u32, 0u32, 0u64).len() != 4i64 { return 9i32; }
+            if vb.row_span(0u32, 0u32, 1u64).len() != 5i64 { return 10i32; }
+            if vb.row_span(0u32, 0u32, 2u64).len() != 6i64 { return 11i32; }
+        }
+        // structure: 3 entries of (0,1) → 6 symbols, rank_eq checks the
+        // projection homomorphism (law 5): 3 zeros, 3 ones
+        {
+            let sq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(2u32));
+            if sq.size() != 6u64 { return 12i32; }
+            if sq.rank_eq_all(0u64) != 3u64 { return 13i32; }
+            if sq.rank_eq_all(1u64) != 3u64 { return 14i32; }
+        }
+
+        // ── UPD/FSE: the O(1) cell set ──
+        {
+            let mut du: LeafBatchDatum = leaf_batch_datum_new();
+            let mut cu: DatumCol = datum_col_new();
+            cu.cells.push(601u64);
+            du.cols.push(cu);
+            let mut bu: NodeBatch = node_batch_new();
+            bu.ops.push(op_upd(0u32, 1u64, 0u32));
+            if !alg_apply(a, &sch, &bu, &du) { return 15i32; }
+            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            if kb.get(0u32, 1u64) != 601u64 { return 16i32; }
+            if kb.size() != 3u64 { return 17i32; }
+        }
+
+        // ── UPD/VLE: replace row 1's span with a LONGER one (priced on the
+        // pre-remove state — the no-value-lost discipline) ──
+        {
+            let mut dv: LeafBatchDatum = leaf_batch_datum_new();
+            let mut cv: DatumCol = datum_col_new();
+            let mut nb: Vec<u8> = vec_new::<u8>();
+            let mut i2: i64 = 0i64;
+            while i2 < 9i64 {
+                nb.push(0x70u8);
+                i2 = i2 + 1i64;
+            }
+            cv.spans.push_span(nb.as_slice());
+            dv.cols.push(cv);
+            let mut bv: NodeBatch = node_batch_new();
+            bv.ops.push(op_upd(1u32, 1u64, 0u32));
+            if !alg_apply(a, &sch, &bv, &dv) { return 18i32; }
+            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            if vb.size() != 3u64 { return 19i32; }
+            if vb.row_span(0u32, 0u32, 1u64).len() != 9i64 { return 20i32; }
+            let sp1: &[u8] = vb.row_span(0u32, 0u32, 1u64);
+            if sp1[0i64] != 0x70u8 { return 21i32; }
+            // neighbors untouched
+            if vb.row_span(0u32, 0u32, 0u64).len() != 4i64 { return 22i32; }
+            if vb.row_span(0u32, 0u32, 2u64).len() != 6i64 { return 23i32; }
+        }
+
+        // ── ENTRY_DEL: drop entry 1 across all three streams ──
+        {
+            let dd: LeafBatchDatum = leaf_batch_datum_new();
+            let mut bd: NodeBatch = node_batch_new();
+            bd.ops.push(op_del(0u32, 1u64, 1u64));
+            bd.ops.push(op_del(1u32, 1u64, 1u64));
+            bd.ops.push(op_del(2u32, 2u64, 2u64));
+            if !alg_apply(a, &sch, &bd, &dd) { return 24i32; }
+            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            if kb.size() != 2u64 { return 25i32; }
+            if kb.get(0u32, 1u64) != 700u64 { return 26i32; }
+            let sq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(2u32));
+            if sq.size() != 4u64 { return 27i32; }
+        }
+
+        // ── law 2: a batch that cannot fit is rejected WHOLE, node
+        // untouched. Tiny node: after formatting, almost no free space. ──
+        {
+            let mem2: *mut u8 = alloc(4096i64);
+            // just enough for the three formatted streams + a little slack
+            let a2: *mut PkdAlloc = pkd_format(mem2, 640u32, 3u32);
+            alg_fmt_node(a2, &sch);
+            let mut applied: i64 = 0i64;
+            let mut k: u64 = 0u64;
+            while k < 64u64 {
+                let ef: Eb = entry_batch(k, k, 2u64 * k, 1000u64 + k, 8i64);
+                if !alg_apply(a2, &sch, &ef.b, &ef.d) {
+                    break;
+                }
+                applied = applied + 1i64;
+                k = k + 1u64;
+            }
+            // it must reject before 64 and the node must stay CONSISTENT:
+            // every stream still carries exactly `applied` entries
+            if applied >= 64i64 { return 28i32; }
+            let kb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(0u32));
+            let vb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(1u32));
+            let sq2: PkdSsrle = pkd_ssrle_adopt(a2.get::<u8>(2u32));
+            if kb2.size() != applied as u64 { return 29i32; }
+            if vb2.size() != applied as u64 { return 30i32; }
+            if sq2.size() != 2u64 * (applied as u64) { return 31i32; }
+            dealloc(mem2);
+        }
+
+        dealloc(mem);
+    }
+    return 0i32;
+}

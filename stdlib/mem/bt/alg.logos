@@ -1,7 +1,7 @@
 // logos.mem.bt.alg — the node stream-CRUD algebra: the DESCRIPTION layer
 // (ADR 0023, S1). Pure data — no execution here. The reference interpreter
-// (S2) gives these meanings; the kernel generator (S3) compiles them per
-// schema. This algebra is the lowest tier of the physical query plan: the
+// (logos.mem.bt.interp, S2) gives these meanings; the kernel generator (S3)
+// compiles them per schema. This algebra is the lowest tier of the physical query plan: the
 // Deem query engine composes ABOVE it, structure-driven specialization
 // happens BELOW it (the kernel generator's axis).
 package logos.mem.bt.alg;

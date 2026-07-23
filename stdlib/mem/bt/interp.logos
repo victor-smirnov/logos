@@ -1,0 +1,324 @@
+// logos.mem.bt.interp — the node stream-CRUD algebra: the REFERENCE
+// INTERPRETER (ADR 0023, S2). Dynamic KIND dispatch over the NodeSchema.
+// This code DEFINES the algebra's semantics: it is the differential oracle
+// for generated kernels (S3) and stays the execution path of
+// interpreter-mode Deem. Where legacy hand-unrolled behavior disagrees with
+// this interpreter, the legacy is discarded, not emulated.
+package logos.mem.bt.interp;
+
+use logos.mem.bt.alg;            // the description layer (S1)
+use logos.mem.pkd;               // PkdAlloc, SlotKind, PkdError
+use logos.mem.pkd.pdtbuf;        // PdtBuf — the FSE/VLE/CHILD two-phase
+use logos.mem.pkd.sseq;          // PkdSsrle — the structure-stream plan/commit
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.panic;
+
+// ── stream adoption (the VecCtr idiom: views re-resolved at EVERY use —
+// sibling slots move when earlier streams grow) ─────────────────────────────
+
+unsafe fn st_pdt(a: *mut PkdAlloc, s: u32) -> PdtBuf {
+    return pdtbuf_adopt(a.get::<u8>(s));
+}
+
+unsafe fn st_seq(a: *mut PkdAlloc, s: u32) -> PkdSsrle {
+    return pkd_ssrle_adopt(a.get::<u8>(s));
+}
+
+// ── node formatting ─────────────────────────────────────────────────────────
+
+/// Format `a`'s slots per the schema: slot i ← stream i, capacity-0
+/// geometry, Allocatable, wired to the node allocator (the nested-block
+/// discipline). The generalization of btss_fmt_slot / btfl leaf formatting.
+pub unsafe fn alg_fmt_node(a: *mut PkdAlloc, sch: &NodeSchema) {
+    let mut s: u32 = 0u32;
+    while (s as i64) < sch.streams.length() {
+        let kind: u32 = sch.streams.borrow(s as i64).kind;
+        if kind == SK_SSRLE {
+            let need: u32 = pkd_ssrle_empty_size();
+            let p: *mut u8 = match a.allocate(s, need, SlotKind::Allocatable) {
+                Result::Ok(q) => q,
+                Result::Err(_e) => {
+                    assert(false, "alg: structure-stream slot allocation failed");
+                    return;
+                }
+            };
+            let bsz: u32 = a.element_size(s);
+            match pkd_ssrle_format(p, bsz, sch.streams.borrow(s as i64).alphabet) {
+                Result::Ok(_q) => {}
+                Result::Err(_e) => {
+                    assert(false, "alg: structure-stream format failed");
+                }
+            }
+            let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+            inner.set_allocator(a as *const PkdAlloc);
+        } else {
+            let mut ord: u32 = PDT_ORD_UNORDERED;
+            if sch.streams.borrow(s as i64).ordered {
+                ord = PDT_ORD_MAX;
+            }
+            let mut dsc: PdtDescr = pdt_descr_new(1u32, ord, false);
+            if kind == SK_VLE {
+                dsc.dims.push(pdt_dim_vle(1u32));
+            } else {
+                // FSE and CHILD are both fixed cells; P0 narrows to u64
+                assert(sch.streams.borrow(s as i64).width == 8u32,
+                       "alg: FSE widths other than 8 await the width plane");
+                dsc.dims.push(pdt_dim_fse(8u32));
+            }
+            let zero: Vec<u64> = pdt_payload_zero(&dsc);
+            let need: u32 = pdtbuf_compute_block_size(&dsc, 0u64, &zero);
+            let p: *mut u8 = match a.allocate(s, need, SlotKind::Allocatable) {
+                Result::Ok(q) => q,
+                Result::Err(_e) => {
+                    assert(false, "alg: stream slot allocation failed");
+                    return;
+                }
+            };
+            let bsz: u32 = a.element_size(s);
+            match pdtbuf_format(p, bsz, &dsc) {
+                Result::Ok(_b) => {}
+                Result::Err(_e) => {
+                    assert(false, "alg: stream column format failed");
+                }
+            }
+            let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+            inner.set_allocator(a as *const PkdAlloc);
+        }
+        s = s + 1u32;
+    }
+}
+
+// ── pricing (law 1: exact — the SAME prepares that commit) ──────────────────
+
+/// Price one atom against the CURRENT node state; Err = the atom cannot be
+/// priced at all (malformed against the stream). Returns GROW bytes — the
+/// parent-chain demand beyond the stream's own block.
+unsafe fn alg_price_op(a: *mut PkdAlloc, sch: &NodeSchema, op: &NodeOp,
+                       d: &LeafBatchDatum) -> Result<u32, PkdError> {
+    let kind: u32 = sch.streams.borrow(op.stream as i64).kind;
+    if kind == SK_SSRLE {
+        let seq: PkdSsrle = st_seq(a, op.stream);
+        let cur: u32 = a.element_size(op.stream);
+        if op.op == OP_INS {
+            let us: SsrleUpdate = seq.plan_insert(op.pos, &d.cols.borrow(op.datum as i64).runs);
+            if us.block_size > cur {
+                return Result::Ok(us.block_size - cur);
+            }
+            return Result::Ok(0u32);
+        }
+        if op.op == OP_DEL {
+            // a remove can GROW the stream (mid-run splits) — priced, not assumed
+            let us: SsrleUpdate = seq.plan_remove(op.pos, op.pos + op.n);
+            if us.block_size > cur {
+                return Result::Ok(us.block_size - cur);
+            }
+            return Result::Ok(0u32);
+        }
+        // UPD(SSRLE) = run edit. No consuming surface yet: structure streams
+        // only ever GAIN/LOSE symbols (entry ins/del); lands with S3.
+        assert(false, "alg: UPD on an SSRLE stream is not implemented");
+        return Result::Err(PkdError::OutOfMem);
+    }
+    // FSE / VLE / CHILD all ride PdtBuf
+    let pb: PdtBuf = st_pdt(a, op.stream);
+    if op.op == OP_INS {
+        if kind == SK_VLE {
+            match pb.prepare_insert_vals(op.pos, op.n, PDT_CAP_KEEP,
+                                         &d.cols.borrow(op.datum as i64).spans) {
+                Result::Ok(u) => {
+                    return Result::Ok(u.grow_bytes());
+                }
+                Result::Err(e) => {
+                    return Result::Err(e);
+                }
+            }
+        }
+        match pb.prepare_insert(op.pos, op.n, PDT_CAP_KEEP) {
+            Result::Ok(u) => {
+                return Result::Ok(u.grow_bytes());
+            }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        }
+    }
+    if op.op == OP_DEL {
+        match pb.prepare_remove(op.pos, op.pos + op.n, PDT_CAP_KEEP) {
+            Result::Ok(u) => {
+                return Result::Ok(u.grow_bytes());
+            }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        }
+    }
+    // UPD — the kind-optimal form (the algebra's UPD law):
+    if kind == SK_VLE {
+        // VLE replace: priced as an INSERT on the PRE-remove state — larger
+        // than the post-remove insert the commit performs, so the commit
+        // cannot fail into a value-lost partial state (law 2's discipline).
+        match pb.prepare_insert_vals(op.pos, op.n, PDT_CAP_KEEP,
+                                     &d.cols.borrow(op.datum as i64).spans) {
+            Result::Ok(u) => {
+                return Result::Ok(u.grow_bytes());
+            }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        }
+    }
+    // FSE/CHILD: a cell set — O(1), no geometry motion, price 0
+    return Result::Ok(0u32);
+}
+
+/// Price the whole batch (law 1). CONSERVATIVE composition: every atom is
+/// priced against the PRE-batch state and the grows are summed. This bounds
+/// the commit exactly when the batch has at most ONE growing atom per
+/// stream — which the derived ENTRY_* forms guarantee; richer batches are
+/// the builder's obligation until the kernel generator prices state chains.
+pub unsafe fn alg_price(a: *mut PkdAlloc, sch: &NodeSchema, b: &NodeBatch,
+                        d: &LeafBatchDatum) -> Result<u32, PkdError> {
+    let mut total: u32 = 0u32;
+    let mut i: i64 = 0i64;
+    while i < b.ops.length() {
+        match alg_price_op(a, sch, b.ops.borrow(i), d) {
+            Result::Ok(g) => {
+                total = total + g;
+            }
+            Result::Err(e) => {
+                return Result::Err(e);
+            }
+        }
+        i = i + 1i64;
+    }
+    return Result::Ok(total);
+}
+
+// ── commit ──────────────────────────────────────────────────────────────────
+
+/// Commit one atom. Every prepare here was priced by alg_price against a
+/// state at least as demanding, so failure is a builder-contract violation,
+/// not a capacity condition — hence the asserts.
+unsafe fn alg_commit_op(a: *mut PkdAlloc, sch: &NodeSchema, op: &NodeOp,
+                        d: &LeafBatchDatum) {
+    let kind: u32 = sch.streams.borrow(op.stream as i64).kind;
+    if kind == SK_SSRLE {
+        if op.op == OP_INS {
+            let seq: PkdSsrle = st_seq(a, op.stream);
+            let us: SsrleUpdate = seq.plan_insert(op.pos, &d.cols.borrow(op.datum as i64).runs);
+            let mut seq2: PkdSsrle = st_seq(a, op.stream);
+            seq2.commit(&us);
+            return;
+        }
+        if op.op == OP_DEL {
+            let seq: PkdSsrle = st_seq(a, op.stream);
+            let us: SsrleUpdate = seq.plan_remove(op.pos, op.pos + op.n);
+            let mut seq2: PkdSsrle = st_seq(a, op.stream);
+            seq2.commit(&us);
+            return;
+        }
+        assert(false, "alg: UPD on an SSRLE stream is not implemented");
+        return;
+    }
+    if op.op == OP_INS {
+        if kind == SK_VLE {
+            let pb: PdtBuf = st_pdt(a, op.stream);
+            let us: PdtUpdate = match pb.prepare_insert_vals(op.pos, op.n, PDT_CAP_KEEP,
+                                                             &d.cols.borrow(op.datum as i64).spans) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "alg: priced VLE insert failed at commit");
+                    return;
+                }
+            };
+            let mut pb2: PdtBuf = st_pdt(a, op.stream);
+            pb2.commit_insert_vals(&us, &d.cols.borrow(op.datum as i64).spans);
+            return;
+        }
+        let pb: PdtBuf = st_pdt(a, op.stream);
+        let us: PdtUpdate = match pb.prepare_insert(op.pos, op.n, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                assert(false, "alg: priced FSE insert failed at commit");
+                return;
+            }
+        };
+        let mut pb2: PdtBuf = st_pdt(a, op.stream);
+        pb2.commit_insert(&us, &d.cols.borrow(op.datum as i64).cells);
+        return;
+    }
+    if op.op == OP_DEL {
+        let pb: PdtBuf = st_pdt(a, op.stream);
+        let us: PdtUpdate = match pb.prepare_remove(op.pos, op.pos + op.n, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                assert(false, "alg: priced remove failed at commit");
+                return;
+            }
+        };
+        let mut pb2: PdtBuf = st_pdt(a, op.stream);
+        pb2.commit_remove(&us);
+        return;
+    }
+    // UPD
+    if kind == SK_VLE {
+        // remove THEN insert; the insert was priced on the PRE-remove state,
+        // so it cannot fail here (the no-value-lost law)
+        {
+            let pb: PdtBuf = st_pdt(a, op.stream);
+            let ur: PdtUpdate = match pb.prepare_remove(op.pos, op.pos + op.n, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "alg: VLE replace remove failed at commit");
+                    return;
+                }
+            };
+            let mut pb2: PdtBuf = st_pdt(a, op.stream);
+            pb2.commit_remove(&ur);
+        }
+        let pb3: PdtBuf = st_pdt(a, op.stream);
+        let ui: PdtUpdate = match pb3.prepare_insert_vals(op.pos, op.n, PDT_CAP_KEEP,
+                                                          &d.cols.borrow(op.datum as i64).spans) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                assert(false, "alg: pre-remove-priced VLE insert failed at commit");
+                return;
+            }
+        };
+        let mut pb4: PdtBuf = st_pdt(a, op.stream);
+        pb4.commit_insert_vals(&ui, &d.cols.borrow(op.datum as i64).spans);
+        return;
+    }
+    // FSE/CHILD: the O(1) cell set — row j ← cells[j]
+    let mut pb5: PdtBuf = st_pdt(a, op.stream);
+    let mut j: u64 = 0u64;
+    while j < op.n {
+        pb5.set(0u32, op.pos + j, d.cols.borrow(op.datum as i64).cells.get(j as i64));
+        j = j + 1u64;
+    }
+}
+
+/// Apply a batch: price WHOLE → reject WHOLE if price exceeds the node's
+/// free space (law 2 — no partial node states), else commit atoms in listed
+/// order (law 3, the builder's order obligation), re-adopting every view at
+/// every step (law 4). Returns false on rejection — the caller's cue to
+/// split or to build subtrees.
+pub unsafe fn alg_apply(a: *mut PkdAlloc, sch: &NodeSchema, b: &NodeBatch,
+                        d: &LeafBatchDatum) -> bool {
+    let price: u32 = match alg_price(a, sch, b, d) {
+        Result::Ok(p) => p,
+        Result::Err(_e) => {
+            return false;
+        }
+    };
+    if price > a.free_space() {
+        return false;
+    }
+    let mut i: i64 = 0i64;
+    while i < b.ops.length() {
+        alg_commit_op(a, sch, b.ops.borrow(i), d);
+        i = i + 1i64;
+    }
+    return true;
+}
