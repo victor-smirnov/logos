@@ -14,7 +14,8 @@ use logos.lcm.canon.container_item;   // the `container` lowering handler + the 
 use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
 use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
-use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot — the shared store
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane            // MemoryStore/MemorySnapshot — the shared store
 use logos.mem.string;
 use logos.std.io;
 
@@ -27,8 +28,8 @@ container GenBt for u8 {
 }
 
 fn run_all() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
-    let mut s0: MemorySnapshot = store.fork();
+    let mut store: Arc<MemoryStore> = store_new();
+    let mut s0: MemorySnapshot = store_fork(&mut store);
     let t = create_ctr::<typeof(GenBt)>(&mut s0, 1u64);
     if t.size() != 0u64 { return 2i32; }
 
@@ -80,7 +81,6 @@ fn run_all() -> i32 {
         j = j + 1u64;
     }
 
-    store.release();
     return 0i32;
 }
 

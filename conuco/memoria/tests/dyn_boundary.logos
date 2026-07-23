@@ -64,9 +64,9 @@ fn total_via<M: Multimap>(m: &M) -> u64 {
 }
 
 fn main() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
+    let mut store: Arc<MemoryStore> = store_new();
     // the CROSS-THREAD plane: the snapshot rides Arc (S3 Store-dyn design)
-    let mut snap: Arc<MemorySnapshot> = store.fork_arc();
+    let mut snap: Arc<MemorySnapshot> = store_fork_arc(&mut store);
 
     // the THREAD-LOCAL plane: the container handle rides Rc
     let mut h = create_ctr_rc::<typeof(Multimap::<u64, u64>)>(&mut *snap, 1u64);

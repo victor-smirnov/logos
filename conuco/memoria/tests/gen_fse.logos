@@ -15,7 +15,8 @@ use logos.lcm.canon.container_item;   // the `container` lowering handler + the 
 use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
 use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
-use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot — the shared store
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane            // MemoryStore/MemorySnapshot — the shared store
 use logos.mem.string;
 use logos.std.io;
 
@@ -41,8 +42,8 @@ container FseC for u8 {
 
 fn run_all() -> i32 {
     // ── (A) u32 → i64 : bulk fill forcing multi-level growth ────────────────
-    let mut astore: MemoryStore = MemoryStore::new();
-    let mut as0: MemorySnapshot = astore.fork();
+    let mut astore: Arc<MemoryStore> = store_new();
+    let mut as0: MemorySnapshot = store_fork(&mut astore);
     let ta = create_ctr::<typeof(FseA)>(&mut as0, 1u64);
     let na: u32 = 100000u32;
     let mut a: u32 = 0u32;
@@ -61,15 +62,15 @@ fn run_all() -> i32 {
     if ta.get_or(4000u32, -1i64) != 777777i64 { return 6i32; }
 
     // ── (A) u32 → i64 : CoW-map snapshot isolation ───────────────────────────
-    let mut store: MemoryStore = MemoryStore::new();
+    let mut store: Arc<MemoryStore> = store_new();
     let m: u32 = 3000u32;
-    let mut s0: MemorySnapshot = store.fork();
+    let mut s0: MemorySnapshot = store_fork(&mut store);
     let c0 = create_ctr::<typeof(FseA)>(&mut s0, 1u64);
     let mut k: u32 = 0u32;
     while k < m { c0.insert(k, k as i64 + 5i64); k = k + 1u32; }
     if c0.size() != m as u64 { return 7i32; }
     store.commit(&s0);
-    let mut s1: MemorySnapshot = store.fork();
+    let mut s1: MemorySnapshot = store_fork(&mut store);
     let c1 = open_ctr::<typeof(FseA)>(&mut s1, 1u64);
     k = m;
     while k < 2u32 * m { c1.insert(k, k as i64 + 5i64); k = k + 1u32; }
@@ -79,11 +80,10 @@ fn run_all() -> i32 {
     if c1.size() != 2u64 * m as u64 { return 9i32; }
     if c0b.get_or(m, -42i64) != -42i64 { return 10i32; }         // s1's key absent in s0
     if c1.get_or(m, -42i64) != m as i64 + 5i64 { return 11i32; }
-    store.release();
 
     // ── (B) i32 → u32 : SIGNED keys spanning negative → positive ────────────
-    let mut bstore: MemoryStore = MemoryStore::new();
-    let mut bs0: MemorySnapshot = bstore.fork();
+    let mut bstore: Arc<MemoryStore> = store_new();
+    let mut bs0: MemorySnapshot = store_fork(&mut bstore);
     let tb = create_ctr::<typeof(FseB)>(&mut bs0, 1u64);
     let lo: i32 = -4000i32;
     let hi: i32 = 4000i32;
@@ -99,8 +99,8 @@ fn run_all() -> i32 {
     if tb.get_or(9999i32, 7u32) != 7u32 { return 15i32; }        // above range
 
     // ── (C) u16 → u32 : narrow key, fill + CoW roundtrip ────────────────────
-    let mut cstore: MemoryStore = MemoryStore::new();
-    let mut cs0: MemorySnapshot = cstore.fork();
+    let mut cstore: Arc<MemoryStore> = store_new();
+    let mut cs0: MemorySnapshot = store_fork(&mut cstore);
     let tc = create_ctr::<typeof(FseC)>(&mut cs0, 1u64);
     let nc: u16 = 6000u16;
     let mut c: u16 = 0u16;

@@ -18,7 +18,8 @@ use logos.lcm.canon.container_item;   // the `container` lowering handler + the 
 use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
 use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
-use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the shared store
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane            // MemoryStore, MemorySnapshot — the shared store
 use logos.lang.str;                   // str_byte_at (byte comparison)
 use logos.mem.string;
 use logos.std.io;
@@ -51,8 +52,8 @@ fn beq(b: &[u8], want: str) -> bool {
 
 fn run_all() -> i32 {
     // ── (1) multi-leaf volume map: fill / lookup / replace-on-hit ───────────
-    let mut tstore: MemoryStore = MemoryStore::new();
-    let mut ts: MemorySnapshot = tstore.fork();
+    let mut tstore: Arc<MemoryStore> = store_new();
+    let mut ts: MemorySnapshot = store_fork(&mut tstore);
     let t = create_ctr::<typeof(GenVol)>(&mut ts, CTR);
     let n: u64 = 4000u64;
     let mut k: u64 = 0u64;
@@ -73,9 +74,9 @@ fn run_all() -> i32 {
     if !beq(t.get_or(2001u64), vstr(2001u64)) { return 7i32; }   // neighbour intact
 
     // ── (2) CoW snapshot-versioned map over a VLE value column ───────────────
-    let mut store: MemoryStore = MemoryStore::new();
+    let mut store: Arc<MemoryStore> = store_new();
     let m: u64 = 1500u64;
-    let mut s0: MemorySnapshot = store.fork();
+    let mut s0: MemorySnapshot = store_fork(&mut store);
     if s0.snapshot_id() != 1u64 { return 8i32; }
     let c0 = create_ctr::<typeof(GenVol)>(&mut s0, CTR);
     k = 0u64;
@@ -83,7 +84,7 @@ fn run_all() -> i32 {
     if c0.size() != m { return 9i32; }
     store.commit(&s0);
 
-    let mut s1: MemorySnapshot = store.fork();
+    let mut s1: MemorySnapshot = store_fork(&mut store);
     let c1 = open_ctr::<typeof(GenVol)>(&mut s1, CTR);
     k = m;
     while k < 2u64 * m { c1.insert(k, vstr(k)); k = k + 1u64; }
@@ -102,7 +103,7 @@ fn run_all() -> i32 {
     }
 
     // a third version overwrites a spread of keys; s1 untouched.
-    let mut s2: MemorySnapshot = store.fork();
+    let mut s2: MemorySnapshot = store_fork(&mut store);
     let c2 = open_ctr::<typeof(GenVol)>(&mut s2, CTR);
     k = 0u64;
     while k < 2u64 * m { c2.insert(k, "OVERWRITTEN"); k = k + 300u64; }
@@ -115,7 +116,6 @@ fn run_all() -> i32 {
     if !beq(c1b.get_or(300u64), vstr(300u64)) { return 18i32; }
     if c2b.size() != 2u64 * m { return 19i32; }                  // overwrite, no growth
 
-    store.release();
     return 0i32;
 }
 

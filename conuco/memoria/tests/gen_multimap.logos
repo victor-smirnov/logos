@@ -30,7 +30,8 @@ use logos.lcm.canon.metaclass;        // create_ctr / open_ctr (mono demand surf
 use logos.mem.bt.btfl;
 use logos.mem.bt.node;                // Btfl<2, CowProfile> + the runtime law surface
 use logos.mem.bt.map;                 // trait hub (declaring-unit contract)
-use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane            // MemoryStore / MemorySnapshot
 use logos.lang.arith;
 use logos.mem.collections.vec;
 use logos.mem.string;
@@ -245,8 +246,8 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
 }
 
 fn run_all() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
-    let mut snap: MemorySnapshot = store.fork();
+    let mut store: Arc<MemoryStore> = store_new();
+    let mut snap: MemorySnapshot = store_fork(&mut store);
 
     // ── 10..19: empty container (created through the trait surface) ─────────
     {
@@ -407,7 +408,6 @@ fn run_all() -> i32 {
         }
     }
 
-    store.release();
     return 0i32;
 }
 

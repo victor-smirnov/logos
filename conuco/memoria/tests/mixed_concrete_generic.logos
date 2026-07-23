@@ -15,6 +15,7 @@ use logos.lcm.canon.metaclass;        // create_ctr + CtrFamily (family_id probe
 use logos.mem.pkd;
 use logos.mem.bt.map;
 use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane
 use logos.mem.string;
 use logos.std.io;
 
@@ -32,8 +33,8 @@ container Gen<V> for u8 {
 fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 { return C::family_id(); }
 
 fn run_all() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
-    let mut s: MemorySnapshot = store.fork();
+    let mut store: Arc<MemoryStore> = store_new();
+    let mut s: MemorySnapshot = store_fork(&mut store);
     let c = create_ctr::<typeof(Conc)>(&mut s, 1u64);
     c.insert(1u64, 7u64);
     if c.get_or(1u64, 0u64) != 7u64 { return 1i32; }
@@ -51,7 +52,6 @@ fn run_all() -> i32 {
     if d.get_or(1u64, 0u32) != 9u32 { return 4i32; }
     if fid::<typeof(Gen::<u32>)>() == fid::<typeof(Conc)>() { return 5i32; }
 
-    store.release();
     return 0i32;
 }
 

@@ -14,7 +14,8 @@ use logos.lcm.canon.container_item;   // the `container` lowering handler + the 
 use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
 use logos.mem.pkd;                    // the generated leaf/branch target
 use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` names it)
-use logos.mem.bt.memstore;            // MemoryStore, MemorySnapshot — the shared store
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane            // MemoryStore, MemorySnapshot — the shared store
 use logos.mem.string;
 use logos.std.io;
 
@@ -29,11 +30,11 @@ container GenCow for u8 {
 const CTR: u64 = 1u64;   // this store holds a single container in slot 1
 
 fn run_all() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
+    let mut store: Arc<MemoryStore> = store_new();
 
     // ── version A: create container CTR, fill [0, N) through the Ctr handle ─
     let n: u64 = 8000u64;
-    let mut s0: MemorySnapshot = store.fork();
+    let mut s0: MemorySnapshot = store_fork(&mut store);
     if s0.snapshot_id() != 1u64 { return 1i32; }
     let m0 = create_ctr::<typeof(GenCow)>(&mut s0, CTR);
     let mut k: u64 = 0u64;
@@ -42,7 +43,7 @@ fn run_all() -> i32 {
     store.commit(&s0);
 
     // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
-    let mut s1: MemorySnapshot = store.fork();
+    let mut s1: MemorySnapshot = store_fork(&mut store);
     if s1.snapshot_id() != 2u64 { return 3i32; }
     let m1 = open_ctr::<typeof(GenCow)>(&mut s1, CTR);
     if m1.get_or(0u64, 0xFFFFu64) != 7u64 { return 4i32; }
@@ -69,7 +70,7 @@ fn run_all() -> i32 {
     }
 
     // ── a third version overwrites a spread of keys in s1's lineage ──────
-    let mut s2: MemorySnapshot = store.fork();
+    let mut s2: MemorySnapshot = store_fork(&mut store);
     let m2 = open_ctr::<typeof(GenCow)>(&mut s2, CTR);
     k = 0u64;
     while k < 2u64 * n { m2.insert(k, k + 1000000u64); k = k + 500u64; }
@@ -84,7 +85,6 @@ fn run_all() -> i32 {
 
     // ── reclamation: drop every version + the store; rc frees shared nodes
     // exactly once (the real check is valgrind over this teardown).
-    store.release();
     return 0i32;
 }
 

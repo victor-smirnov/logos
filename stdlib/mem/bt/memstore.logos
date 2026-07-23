@@ -141,7 +141,14 @@ pub struct SnapDesc {
 /// wrapper decrements the descriptor's counter and — only when it was the
 /// LAST wrapper of an Active/Dropped entry — physically releases the entry's
 /// trees and forgets the descriptor.
-pub struct MemorySnapshot { desc: *mut SnapDesc, store: *mut MemoryStore }
+pub struct MemorySnapshot {
+    desc: *mut SnapDesc,
+    // The PARENT HOLD: every wrapper keeps the store alive (the C++
+    // shared_from_this in snp_make_shared_init). None = store-less (with_id
+    // library tests). Guarantees store Drop runs only after every wrapper
+    // closed — its history drain never races a live wrapper.
+    store: Option<Arc<MemoryStore>>,
+}
 
 // The STORAGE CAPABILITY — inherent methods the generated container reaches
 // through (ADR 0020 Track B, emitter-parameterized: the generator emits concrete
@@ -157,7 +164,7 @@ impl MemorySnapshot {
             id: id, dir: Directory::new(), status: SNAP_ACTIVE,
             wrappers: atomic_i32_new(1),
         }));
-        return MemorySnapshot { desc: d, store: 0 as *mut MemoryStore };
+        return MemorySnapshot { desc: d, store: Option::None };
     }
 
     // — capability: node storage —
@@ -253,10 +260,9 @@ impl Drop for MemorySnapshot {
                 i = i + 1i64;
             }
             // LOCK POINT (v1): descriptor unlink vs concurrent find().
-            if self.store != (0 as *mut MemoryStore) {
-                (*self.store).forget(self.desc);
-            } else {
-                let _ = box_from_raw(self.desc);   // store-less: wrapper owns it
+            match &mut self.store {
+                Option::Some(st) => { let g: &mut MemoryStore = &mut **st; g.forget(self.desc); }
+                Option::None => { let _ = box_from_raw(self.desc); }   // store-less
             }
         }
     }
@@ -282,19 +288,15 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
-    pub static fn new() -> MemoryStore {
+    // (internal) the bare store value — the public constructor is store_new(),
+    // which wraps it in the Arc every parent hold clones.
+    static fn new_guts() -> MemoryStore {
         return MemoryStore { next_id: 1u64, head: Directory::new(), snaps: vec_new::<u64>() };
     }
 
-    // Mint a wrapper over `d` (counter already accounted by the caller).
-    unsafe fn wrap(self: &mut MemoryStore, d: *mut SnapDesc) -> MemorySnapshot {
-        return MemorySnapshot { desc: d, store: self as *mut MemoryStore };
-    }
-
-    /// Opens a fresh mutable snapshot: a new HISTORY ENTRY (descriptor) with a
-    /// private copy of HEAD's directory (each shared root's rc bumped for the
-    /// new version's hold) — plus its first wrapper.
-    pub fn fork(self: &mut MemoryStore) -> MemorySnapshot {
+    // (internal) allocate a fresh ACTIVE descriptor over a private copy of
+    // HEAD's directory; returns it with its first wrapper slot accounted.
+    fn fork_desc(self: &mut MemoryStore) -> *mut SnapDesc {
         let id: u64 = self.next_id;
         self.next_id = self.next_id + 1u64;
         let dir: Directory = self.head.clone_dir();
@@ -306,21 +308,11 @@ impl MemoryStore {
         }));
         // LOCK POINT (v1): history-table insert vs concurrent find().
         self.snaps.push(d as u64);
-        return unsafe { self.wrap(d) };
+        return d;
     }
 
-    /// The BOUNDARY form of fork (S3 Store-dyn design): the wrapper rides Arc
-    /// — Store/Snapshot are CROSS-THREAD objects (containers are not: a Ctr
-    /// handle is thread-local and rides Rc). The last Arc drop closes the
-    /// wrapper, which is what releases an Active/Dropped entry.
-    pub fn fork_arc(self: &mut MemoryStore) -> Arc<MemorySnapshot> {
-        return arc_new(self.fork());
-    }
-
-    /// A NEW wrapper over an existing COMMITTED history entry — one per call
-    /// (one per thread in MT use). Active/dropped entries are not findable
-    /// (the Memoria find() contract).
-    pub fn find(self: &mut MemoryStore, id: u64) -> Option<MemorySnapshot> {
+    // (internal) find a COMMITTED descriptor and account one more wrapper.
+    fn find_desc(self: &mut MemoryStore, id: u64) -> *mut SnapDesc {
         // LOCK POINT (v1): table scan + counter bump vs a concurrent close.
         let n: i64 = self.snaps.len();
         let mut i: i64 = 0i64;
@@ -329,15 +321,15 @@ impl MemoryStore {
             unsafe {
                 if (*d).id == id {
                     if (*d).status != SNAP_COMMITTED {
-                        return Option::None;
+                        return 0 as *mut SnapDesc;
                     }
                     let _ = (&mut (*d).wrappers as *mut AtomicI32).fetch_add(1);
-                    return Option::Some(self.wrap(d));
+                    return d;
                 }
             }
             i = i + 1i64;
         }
-        return Option::None;
+        return 0 as *mut SnapDesc;
     }
 
     // Unlink + free a descriptor (the last wrapper of an Active/Dropped entry
@@ -375,12 +367,11 @@ impl MemoryStore {
         unsafe { (*snap.desc).status = SNAP_COMMITTED; }
     }
 
-    /// Store END OF LIFE (the C++ ~store/free_memory analog): tears down the
-    /// committed HEAD, releases + frees every history entry with NO open
-    /// wrappers, and marks the still-wrapped ones DROPPED — their last wrapper
-    /// close performs the release (the store must outlive its wrappers:
-    /// declare the store first, wrappers drop first in reverse scope order).
-    pub fn release(self: &mut MemoryStore) {
+    /// Store END OF LIFE (the C++ ~store/free_memory analog) — run by Drop
+    /// when the LAST Arc closes. The parent holds guarantee every wrapper is
+    /// already gone, so the history drain only ever sees unwrapped entries
+    /// (the DROPPED-marking branch is defensive).
+    fn eol_release(self: &mut MemoryStore) {
         let n: i64 = self.head.len();
         let mut i: i64 = 0i64;
         while i < n {
@@ -410,6 +401,53 @@ impl MemoryStore {
             }
         }
     }
+}
+
+impl Drop for MemoryStore {
+    fn drop(self: &mut MemoryStore) {
+        self.eol_release();
+    }
+}
+
+// ── the Arc plane of the STORE itself ───────────────────────────────────────
+// The store is created INTO an Arc; snapshots (and, through them, containers)
+// hold Arc clones of their PARENT, so the ownership chain
+//     Ctr ──Arc→ Snapshot wrapper ──Arc→ Store
+// keeps every parent alive exactly as long as any child lives. There is no
+// manual store.release(): the LAST Arc drop runs the store's Drop (HEAD +
+// history teardown), and the parent holds guarantee no wrapper outlives it.
+// fork/find are free fns over &mut Arc — a method cannot clone the Arc that
+// holds its own receiver (no shared_from_this; the C++ side uses exactly
+// that in snp_make_shared_init).
+
+pub fn store_new() -> Arc<MemoryStore> {
+    return arc_new(MemoryStore::new_guts());
+}
+
+/// Opens a fresh mutable snapshot: a new history entry + its first wrapper,
+/// which HOLDS the store (an Arc clone).
+pub fn store_fork(st: &mut Arc<MemoryStore>) -> MemorySnapshot {
+    let hold: Arc<MemoryStore> = st.clone_ref();
+    let g: &mut MemoryStore = &mut **st;
+    let d: *mut SnapDesc = g.fork_desc();
+    return MemorySnapshot { desc: d, store: Option::Some(hold) };
+}
+
+/// The cross-thread form: the wrapper itself rides an Arc.
+pub fn store_fork_arc(st: &mut Arc<MemoryStore>) -> Arc<MemorySnapshot> {
+    return arc_new(store_fork(st));
+}
+
+/// A NEW wrapper over an existing COMMITTED entry — one per call (one per
+/// thread in MT use); active/dropped entries are not findable.
+pub fn store_find(st: &mut Arc<MemoryStore>, id: u64) -> Option<MemorySnapshot> {
+    let g: &mut MemoryStore = &mut **st;
+    let d: *mut SnapDesc = g.find_desc(id);
+    if d == (0 as *mut SnapDesc) {
+        return Option::None;
+    }
+    let hold: Arc<MemoryStore> = st.clone_ref();
+    return Option::Some(MemorySnapshot { desc: d, store: Option::Some(hold) });
 }
 
 impl Store for MemoryStore {}

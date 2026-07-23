@@ -78,8 +78,8 @@ fn report_via<C: Ctr>(c: &C) -> u64 {
 
 fn run_all() -> i32 {
     // ── §1 store → snapshot (Arc plane) → container (Rc plane) ──────────────
-    let mut store: MemoryStore = MemoryStore::new();
-    let mut snap: Arc<MemorySnapshot> = store.fork_arc();
+    let mut store: Arc<MemoryStore> = store_new();
+    let mut snap: Arc<MemorySnapshot> = store_fork_arc(&mut store);
 
     let mut m = create_ctr_rc::<typeof(Map::<u64, u64>)>(&mut *snap, 1u64);
 
@@ -119,7 +119,6 @@ fn run_all() -> i32 {
     let uid: Uid256 = (&*snap as &dyn Snapshot).snapshot_uid();
     if !uid256_eq(&uid, &uid256_from_u64(snap.snapshot_id())) { return 11i32; }
 
-    store.release();
     return 0i32;
 }
 

@@ -17,7 +17,8 @@ use logos.lcm.canon.container_item;   // `container` lowering handler + the fact
 use logos.lcm.canon.metaclass;        // create_ctr/open_ctr (ADR 0021 Phase 4b surface)
 use logos.mem.pkd;                    // generated nodes' column substrate
 use logos.mem.bt.map;                 // Ctr trait (generated impl names it)
-use logos.mem.bt.memstore;            // MemoryStore/MemorySnapshot (hand-written)
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane            // MemoryStore/MemorySnapshot (hand-written)
 use logos.lang.str;
 use logos.mem.string;
 use logos.std.io;
@@ -46,10 +47,10 @@ fn beq(b: &[u8], want: str) -> bool {
 }
 
 fn run_all() -> i32 {
-    let mut store: MemoryStore = MemoryStore::new();
+    let mut store: Arc<MemoryStore> = store_new();
 
     // ── v1: fork, CREATE both containers in the snapshot, fill, commit ──
-    let mut s1: MemorySnapshot = store.fork();
+    let mut s1: MemorySnapshot = store_fork(&mut store);
     let ledger = create_ctr::<typeof(Ledger)>(&mut s1, LEDGER);
     let journal = create_ctr::<typeof(Journal)>(&mut s1, JOURNAL);
     let n: u64 = 5000u64;
@@ -62,7 +63,7 @@ fn run_all() -> i32 {
     store.commit(&s1);
 
     // ── v2: branch, mutate BOTH — CoW copies only the touched paths ──
-    let mut s2: MemorySnapshot = store.fork();
+    let mut s2: MemorySnapshot = store_fork(&mut store);
     let l2 = open_ctr::<typeof(Ledger)>(&mut s2, LEDGER);
     let j2 = open_ctr::<typeof(Journal)>(&mut s2, JOURNAL);
     l2.insert(0u64, 999u64);              // overwrite in v2
