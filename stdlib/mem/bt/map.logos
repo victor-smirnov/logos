@@ -25,6 +25,7 @@ use logos.mem.bt.node;
 // a metaprog-emitted `use` cannot itself load a module, so this import
 // carries the edge into every generated unit's module graph.
 use logos.mem.bt.btss;
+use logos.mem.collections.vec;   // Vec — the Multimap boundary signatures
 
 /// Owns blocks and the snapshot lifecycle. The concrete factory methods
 /// (`fork`, `commit`, …) live on the implementor — stores are FEW and very
@@ -49,8 +50,57 @@ pub trait Snapshot {
 }
 
 /// A container handle bound to a snapshot's storage (Map/Vector/Queue/…).
+/// The ROOT of the per-family boundary tower (S3): family traits refine it
+/// (`trait Multimap: Ctr`), so Deem can hold a uniform `&dyn Ctr` plane
+/// (directories, enumeration) and upcast-free family surfaces where it knows
+/// the kind. Inside a trait object sits a concrete monomorphized family
+/// handle for a concrete StoreCfg — virtual at the boundary, static within.
 pub trait Ctr {
     fn size(self: &Self) -> u64;
+}
+
+/// The boundary IDENTITY type: an opaque 256-bit POD (fits a UID256). The
+/// compiled Deem plane sees ONE layout for snapshot/block/container ids
+/// regardless of the store's internal id types; a store maps its own ids in
+/// and out at the boundary. Operations beyond copy/compare stay with the
+/// store (the BlockID-datatype discipline) — nothing here peeks inside.
+pub struct Uid256 {
+    pub b: [u64; 4],
+}
+
+impl Copy for Uid256 {}
+
+pub fn uid256_zero() -> Uid256 {
+    return Uid256 { b: [0u64; 4] };
+}
+
+/// A u64-valued id lifted into the boundary form (the MemoryStore case).
+pub fn uid256_from_u64(v: u64) -> Uid256 {
+    let mut u: Uid256 = uid256_zero();
+    u.b[0] = v;
+    return u;
+}
+
+pub fn uid256_eq(x: &Uid256, y: &Uid256) -> bool {
+    let mut i: i64 = 0i64;
+    while i < 4i64 {
+        if x.b[i] != y.b[i] {
+            return false;
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+/// The 2-stream multimap FAMILY boundary (bt_fl's only client today):
+/// key → value sequence. Refines Ctr; the generated family handle implements
+/// it, and Deem drives inserts/lookups through `&mut dyn Multimap` without
+/// knowing the store or its configuration.
+pub trait Multimap: Ctr {
+    /// Appends `key`'s value run to `out`; false when the key is absent.
+    fn find(self: &Self, key: u64, out: &mut Vec<u64>) -> bool;
+    /// Inserts `key → vals`; false when the key already exists.
+    fn insert(self: &mut Self, key: u64, vals: &Vec<u64>) -> bool;
 }
 
 // ── b+tree node contracts (ADR 0021 ops-reshape) ─────────────────────────────

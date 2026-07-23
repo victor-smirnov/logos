@@ -1856,6 +1856,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
     let bbs: ExprBlob = parse_expr(bbs_s.as_str());
     let b: QuoteItemBlob = quote_item! {
         use logos.mem.bt.btfl;
+        use logos.mem.bt.map;             // Ctr / Multimap — the dyn boundary traits
         use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
         use logos.mem.collections.vec;
@@ -1952,6 +1953,22 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn level(self: &#nm) -> u32 {
                 return self.tree().level;
+            }
+        }
+        // ── the dyn BOUNDARY (S3): the family handle behind trait objects ──
+        // Deem holds `&dyn Ctr` (uniform plane) / `&mut dyn Multimap` (typed
+        // family surface); inside sits THIS monomorphized handle. The impl
+        // bodies delegate to the inherent methods (same names — inherent wins
+        // at dispatch, which is exactly the delegation we want).
+        impl Ctr for #nm {
+            fn size(self: &#nm) -> u64 { return self.count(0u64); }
+        }
+        impl Multimap for #nm {
+            fn find(self: &#nm, key: u64, out: &mut Vec<u64>) -> bool {
+                return self.find(key, out);
+            }
+            fn insert(self: &mut #nm, key: u64, vals: &Vec<u64>) -> bool {
+                return self.insert(key, vals);
             }
         }
     };

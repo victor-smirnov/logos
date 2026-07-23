@@ -1,0 +1,78 @@
+package test;
+// S3 of the StoreCfg arc: the hybrid boundary. INSIDE the container — a
+// monomorphized family generated for a concrete StoreCfg; AT the boundary —
+// trait objects: Deem-side code drives the container through
+// `&mut dyn Multimap` / `&dyn Ctr` (the family tower `Multimap: Ctr`) with
+// no knowledge of the store, its configuration or the generated type. One
+// compiled driver serves every implementation — the code-bloat control the
+// hybrid design exists for.
+use memoria.ctr.multimap;             // the generic declaration (binary module)
+use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
+use logos.lcm.canon.metaclass;        // create_ctr / open_ctr (mono demand surface)
+use logos.mem.bt.map;                 // Ctr / Multimap — the boundary traits + Uid256
+use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
+use logos.mem.collections.vec;
+use logos.lang.panic;
+
+// The DEEM-SIDE driver: knows only the boundary traits. Inserts k → [k, k+1]
+// runs and checks them back; returns the container's entry count through the
+// SUPERTRAIT surface (the dyn upcast).
+fn drive(m: &mut dyn Multimap, base: u64, n: u64) -> u64 {
+    let mut k: u64 = 0u64;
+    while k < n {
+        let mut vals: Vec<u64> = vec_new::<u64>();
+        vals.push(base + k);
+        vals.push(base + k + 1u64);
+        assert(m.insert(base + k, &vals), "dyn insert must succeed");
+        k = k + 1u64;
+    }
+    // duplicate rejects through the boundary
+    let mut dup: Vec<u64> = vec_new::<u64>();
+    dup.push(7u64);
+    assert(!m.insert(base, &dup), "dyn duplicate insert must reject");
+    // read back
+    let mut out: Vec<u64> = vec_new::<u64>();
+    assert(m.find(base + (n / 2u64), &mut out), "dyn find must hit");
+    assert(out.length() == 2i64, "dyn find run length");
+    assert(out.get(0i64) == base + (n / 2u64), "dyn find value 0");
+    assert(!m.find(base + n + 100u64, &mut out), "dyn find must miss");
+    return m.size();
+}
+
+// A Ctr-plane consumer: the UNIFORM handle surface (directory-style).
+fn total(c: &dyn Ctr) -> u64 {
+    return c.size();
+}
+
+// The generic→dyn ADAPTERS: the factory-backed bound defers until the drain
+// (the metaclass machinery), and the dyn coercion happens over the BOUND
+// param — post-drain M is the concrete generated handle with the impl in
+// place. This is the Deem entry shape: generic at the rim, dyn inside.
+fn drive_via<M: Multimap>(m: &mut M, base: u64, n: u64) -> u64 {
+    return drive(m, base, n);
+}
+fn total_via<M: Multimap>(m: &M) -> u64 {
+    return total(m);
+}
+
+fn main() -> i32 {
+    let mut store: MemoryStore = MemoryStore::new();
+    let mut snap: MemorySnapshot = store.fork();
+
+    let mut h = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 1u64);
+    let got: u64 = drive_via(&mut h, 1000u64, 50u64);
+    if got != 50u64 { return 1i32; }
+
+    // the supertrait plane over the same object
+    if total_via(&h) != 50u64 { return 2i32; }
+
+    // boundary ids: the opaque 32B POD round-trips a store id
+    let u: Uid256 = uid256_from_u64(42u64);
+    let v: Uid256 = uid256_from_u64(42u64);
+    let w: Uid256 = uid256_from_u64(43u64);
+    if !uid256_eq(&u, &v) { return 3i32; }
+    if uid256_eq(&u, &w) { return 4i32; }
+
+    snap.release();
+    return 0i32;
+}
