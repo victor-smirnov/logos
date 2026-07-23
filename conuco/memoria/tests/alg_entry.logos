@@ -152,6 +152,90 @@ fn main() -> i32 {
             if kb2.size() != 0u64 { return 34i32; }
         }
         dealloc(mem2);
+
+        // ── the VLE map shape (FSE key + VLE value, no structure stream) —
+        // the btss_upsert_vals_at unrolling as algebra: ET_INS on miss,
+        // ET_SET on hit rides the pre-remove-priced VLE replace ──
+        let mut vsch: NodeSchema = node_schema_new();
+        vsch.streams.push(sd_fse(8u32, true));
+        vsch.streams.push(sd_vle());
+        let mem3: *mut u8 = alloc(4096i64);
+        let a3: *mut PkdAlloc = pkd_format(mem3, 4096u32, 2u32);
+        alg_fmt_node(a3, &vsch);
+        {
+            let mut f0: LeafBatchDatum = leaf_batch_datum_new();
+            let mut fk: DatumCol = datum_col_new();
+            fk.cells.push(10u64);
+            f0.cols.push(fk);
+            let mut fv: DatumCol = datum_col_new();
+            let mut sb: Vec<u8> = vec_new::<u8>();
+            sb.push(0x51u8); sb.push(0x52u8);
+            fv.spans.push_span(sb.as_slice());
+            f0.cols.push(fv);
+            if !alg_entry_apply(a3, &vsch, 0u64, ET_INS, &mut f0) { return 35i32; }
+            // hit: replace the span with a LONGER one, key untouched
+            let mut f1: LeafBatchDatum = leaf_batch_datum_new();
+            f1.cols.push(datum_col_new());
+            let mut fv1: DatumCol = datum_col_new();
+            let mut sb1: Vec<u8> = vec_new::<u8>();
+            let mut q: i64 = 0i64;
+            while q < 7i64 { sb1.push(0x66u8); q = q + 1i64; }
+            fv1.spans.push_span(sb1.as_slice());
+            f1.cols.push(fv1);
+            if !alg_entry_apply(a3, &vsch, 0u64, ET_SET, &mut f1) { return 36i32; }
+            let vb3: PdtBuf = pdtbuf_adopt(a3.get::<u8>(1u32));
+            if vb3.size() != 1u64 { return 37i32; }
+            if vb3.row_span(0u32, 0u32, 0u64).len() != 7i64 { return 38i32; }
+            let kb3: PdtBuf = pdtbuf_adopt(a3.get::<u8>(0u32));
+            if kb3.get(0u32, 0u64) != 10u64 { return 39i32; }
+        }
+        dealloc(mem3);
+
+        // ── the BRANCH shape (MAXKEY + 2 CNT columns + CHILD) — the
+        // btfl_branch_insert_child/update_row unrollings as algebra:
+        // BranchDatum lowers onto the positional carrier, branch individual
+        // ops ARE the entry forms (no structure stream) ──
+        let mut bsch: NodeSchema = node_schema_new();
+        bsch.streams.push(sd_fse(8u32, true));   // MAXKEY
+        bsch.streams.push(sd_fse(8u32, false));  // cnt[0]
+        bsch.streams.push(sd_fse(8u32, false));  // cnt[1]
+        bsch.streams.push(sd_child());           // child refs
+        let mem4: *mut u8 = alloc(4096i64);
+        let a4: *mut PkdAlloc = pkd_format(mem4, 4096u32, 4u32);
+        alg_fmt_node(a4, &bsch);
+        {
+            let mut c0: Vec<u64> = vec_new::<u64>();
+            c0.push(3u64); c0.push(7u64);
+            let mut r0: LeafBatchDatum = branch_datum_lower(&bsch, &branch_datum(100u64, c0, 0xAAu64));
+            if !alg_entry_ins(a4, &bsch, 0u64, &mut r0) { return 40i32; }
+            let mut c1: Vec<u64> = vec_new::<u64>();
+            c1.push(5u64); c1.push(11u64);
+            let mut r1: LeafBatchDatum = branch_datum_lower(&bsch, &branch_datum(200u64, c1, 0xBBu64));
+            if !alg_entry_ins(a4, &bsch, 1u64, &mut r1) { return 41i32; }
+            // update_row analog: row 0's counts+sep change after child growth
+            let mut c2: Vec<u64> = vec_new::<u64>();
+            c2.push(4u64); c2.push(9u64);
+            let r2: LeafBatchDatum = branch_datum_lower(&bsch, &branch_datum(150u64, c2, 0xAAu64));
+            if !alg_entry_set(a4, &bsch, 0u64, &r2) { return 42i32; }
+            let mk: PdtBuf = pdtbuf_adopt(a4.get::<u8>(0u32));
+            if mk.size() != 2u64 { return 43i32; }
+            if mk.get(0u32, 0u64) != 150u64 { return 44i32; }
+            if mk.get(0u32, 1u64) != 200u64 { return 45i32; }
+            let n0: PdtBuf = pdtbuf_adopt(a4.get::<u8>(1u32));
+            if n0.get(0u32, 0u64) != 4u64 { return 46i32; }
+            let n1: PdtBuf = pdtbuf_adopt(a4.get::<u8>(2u32));
+            if n1.get(0u32, 0u64) != 9u64 { return 47i32; }
+            if n1.get(0u32, 1u64) != 11u64 { return 48i32; }
+            let cb: PdtBuf = pdtbuf_adopt(a4.get::<u8>(3u32));
+            if cb.get(0u32, 0u64) != 0xAAu64 { return 49i32; }
+            if cb.get(0u32, 1u64) != 0xBBu64 { return 50i32; }
+            // row removal
+            if !alg_entry_del(a4, &bsch, 0u64) { return 51i32; }
+            let mk2: PdtBuf = pdtbuf_adopt(a4.get::<u8>(0u32));
+            if mk2.size() != 1u64 { return 52i32; }
+            if mk2.get(0u32, 0u64) != 200u64 { return 53i32; }
+        }
+        dealloc(mem4);
     }
     return 0i32;
 }

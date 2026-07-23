@@ -114,6 +114,32 @@ pub fn branch_datum(sep: u64, cnt: Vec<u64>, child: u64) -> BranchDatum {
     return BranchDatum { sep: sep, cnt: cnt, child: child };
 }
 
+/// Lower a branch row onto the POSITIONAL per-stream carrier: the branch
+/// schema convention is stream 0 = MAXKEY, streams 1..k = the CNT columns,
+/// the last stream = CHILD. With this, branch individual ops ARE the entry
+/// forms — a branch node is the degenerate no-structure-stream case.
+pub fn branch_datum_lower(sch: &NodeSchema, bd: &BranchDatum) -> LeafBatchDatum {
+    let n: i64 = sch.streams.length();
+    assert(n >= 2i64, "alg: a branch schema has at least MAXKEY + CHILD");
+    assert(bd.cnt.length() == n - 2i64,
+           "alg: BranchDatum count arity != the schema's CNT columns");
+    let mut d: LeafBatchDatum = leaf_batch_datum_new();
+    let mut ck: DatumCol = datum_col_new();
+    ck.cells.push(bd.sep);
+    d.cols.push(ck);
+    let mut i: i64 = 0i64;
+    while i < n - 2i64 {
+        let mut cc: DatumCol = datum_col_new();
+        cc.cells.push(bd.cnt.get(i));
+        d.cols.push(cc);
+        i = i + 1i64;
+    }
+    let mut ch: DatumCol = datum_col_new();
+    ch.cells.push(bd.child);
+    d.cols.push(ch);
+    return d;
+}
+
 // The third carrier — the INDIVIDUAL-LEAF datum — is the TUPLE of the
 // logical schema's Datatype Views ((K-View, V-View) for Map<K, V>): it has
 // no algebra-side structure beyond the tuple itself, so no type lives here;
