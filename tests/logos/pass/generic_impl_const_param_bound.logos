@@ -1,0 +1,28 @@
+package generic_impl_const_param_bound;
+pub trait Br<K, const N: u32> {
+    fn adopt(mem: *mut u8) -> Self;
+    fn total(self: &Self, out: &mut [u64; N]);
+    fn sep(self: &Self) -> K;
+}
+pub struct Mark;
+pub struct WrapRef<const N: u32, P> { pub mem: *mut u8 }
+impl<const N: u32, P> Br<u64, N> for WrapRef<N, P> {
+    fn adopt(mem: *mut u8) -> WrapRef<N, P> { return WrapRef::<N, P> { mem: mem }; }
+    fn total(self: &WrapRef<N, P>, out: &mut [u64; N]) {
+        let mut i: u32 = 0u32;
+        while i < N { out[i as i64] = (i as u64) + 7u64; i = i + 1u32; }
+    }
+    fn sep(self: &WrapRef<N, P>) -> u64 { return self.mem as u64; }
+}
+fn drive<K: Copy, B: Br<K, N>, const N: u32>(m: *mut u8, out: &mut [u64; N]) -> K {
+    let b: B = B::adopt(m);
+    b.total(out);
+    return b.sep();
+}
+fn main() -> i32 {
+    let mut o: [u64; 2] = [0u64; 2];
+    let s: u64 = drive::<u64, WrapRef<2u32, Mark>, 2>(64 as *mut u8, &mut o);
+    if s != 64u64 { return 1i32; }
+    if o[0] != 7u64 || o[1] != 8u64 { return 2i32; }
+    return 0i32;
+}

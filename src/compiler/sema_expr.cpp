@@ -4012,8 +4012,15 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
         // (mlir-gen verification failure). Leaving T unbound lets the
         // real inference (args / later uses) fill it.
         if (actual_norm.kind() == LogosType::Kind::InferredType) return;
-        if (!bindings.count(std::string(formal.type_var_name())))
-            bindings[std::string(formal.type_var_name())] = actual_norm;
+        if (!bindings.count(std::string(formal.type_var_name()))) {
+            // A CONST param binds the RAW actual: the IntLit→i32 widening
+            // above is a TYPE-inference default and would erase the VALUE —
+            // `impl<const N, …> Trait<…, N> for W<N, …>` matched against
+            // `W<2, …>` bound N = i32 and every const-parameterized generic
+            // impl failed its trait-arg comparison downstream.
+            bindings[std::string(formal.type_var_name())] =
+                formal.kind() == LogosType::Kind::ConstVar ? actual : actual_norm;
+        }
         return;
     }
 

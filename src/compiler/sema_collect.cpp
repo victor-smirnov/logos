@@ -989,6 +989,13 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 std::function<bool(TypeRef)> mtv = [&](TypeRef t) -> bool {
                     if (!t) return false;
                     if (t.kind() == LogosType::Kind::TypeVar) return true;
+                    // A still-unbound CONST param (`impl<const N, …> Trait<…, N>
+                    // for W<N, …>` matched against `W<2, …>`) is abstract in
+                    // exactly the TypeVar sense — undecidable here, validated
+                    // at monomorphization. Without this the concrete const arg
+                    // compared against the impl's ConstVar and every
+                    // const-parameterized generic impl failed its bound.
+                    if (t.kind() == LogosType::Kind::ConstVar) return true;
                     if (t.pointee() && mtv(t.pointee())) return true;
                     if (t.elem() && mtv(t.elem()))       return true;
                     for (auto a : t.type_args())   if (mtv(a)) return true;
