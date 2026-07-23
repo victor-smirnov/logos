@@ -28,6 +28,9 @@ use logos.lang.panic;
 use logos.mem.bt.node;           // node_alloc/_free/_inc_rc/_dec_rc/_rc/_snapshot — the rc header
 use logos.mem.bt.map;            // trait Store, trait Snapshot — the capability contract
 use logos.mem.sync;              // Arc — the cross-thread snapshot handle (S3)
+use logos.lang.atomic;           // AtomicI32 — the wrapper counter (cross-thread)
+use logos.mem.boxed;             // Box — stable SnapDesc storage
+use logos.lang.option;
 use logos.mem.collections.vec;   // Vec — the directory backing (few containers → linear scan)
 
 // ── generic tree lifecycle (container-agnostic, over the uniform node shape) ──
@@ -107,18 +110,54 @@ impl Directory {
     }
 }
 
-// ── MemorySnapshot: skip key + storage capability + directory ────────────────
+// ── the snapshot DESCRIPTOR + WRAPPER split (Memoria memory_cow model) ──────
+//
+// The STORE owns the whole history: one `SnapDesc` per snapshot — the analog
+// of Memoria's HistoryNode {status, references_, root}. What application code
+// holds is a WRAPPER (`MemorySnapshot`) around a descriptor: `find()` mints
+// one wrapper per call (one per thread in MT use), `Drop` of a wrapper only
+// closes the wrapper — the history entry lives on, re-obtainable via
+// `store.find(id)`. `remove()` MARKS the descriptor dropped; the physical
+// release happens when the LAST wrapper for that id closes (the atomic
+// wrapper counter hits zero) — mirroring ~ThreadsSnapshot in
+// threads_snapshot_cow_impl.hpp. v1 = atomics + (documented) lock points;
+// the bookkeeping-thread alternative stays open in project_storecfg_plane.
 
-/// A MemoryStore snapshot. `id` is the CoW skip key stamped into every node it
-/// writes; `dir` maps each container's id to its current root in THIS version.
-pub struct MemorySnapshot { id: u64, dir: Directory }
+/// Snapshot lifecycle states (Memoria SnapshotStatus, the v1 subset).
+pub const SNAP_ACTIVE:    u32 = 0u32;
+pub const SNAP_COMMITTED: u32 = 1u32;
+pub const SNAP_DROPPED:   u32 = 2u32;
+
+/// The store-owned snapshot descriptor: the history entry itself.
+pub struct SnapDesc {
+    pub id: u64,
+    dir: Directory,          // this version's container roots (rc-holds)
+    status: u32,
+    wrappers: AtomicI32,     // open MemorySnapshot wrappers for this entry
+}
+
+/// A MemoryStore snapshot WRAPPER. `desc` points at the store-owned history
+/// entry (Box-stable); the wrapper carries no state of its own. Dropping the
+/// wrapper decrements the descriptor's counter and — only when it was the
+/// LAST wrapper of an Active/Dropped entry — physically releases the entry's
+/// trees and forgets the descriptor.
+pub struct MemorySnapshot { desc: *mut SnapDesc, store: *mut MemoryStore }
 
 // The STORAGE CAPABILITY — inherent methods the generated container reaches
 // through (ADR 0020 Track B, emitter-parameterized: the generator emits concrete
 // `snap.node_alloc(…)` calls, so the surface is inherent, not a consumed trait).
 impl MemorySnapshot {
+    unsafe fn d(self: &MemorySnapshot) -> *mut SnapDesc { return self.desc; }
+
+    /// A STORE-LESS snapshot (library tests drive btfl/bt directly, no
+    /// history): its descriptor is owned by the wrapper alone — the last
+    /// wrapper close releases the trees AND frees the descriptor.
     pub static fn with_id(id: u64) -> MemorySnapshot {
-        return MemorySnapshot { id: id, dir: Directory::new() };
+        let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
+            id: id, dir: Directory::new(), status: SNAP_ACTIVE,
+            wrappers: atomic_i32_new(1),
+        }));
+        return MemorySnapshot { desc: d, store: 0 as *mut MemoryStore };
     }
 
     // — capability: node storage —
@@ -126,7 +165,7 @@ impl MemorySnapshot {
     /// Allocate a fresh node block — a `nslots`-slot PkdAlloc region of
     /// `pkd_bytes`, stamped with this snapshot's id (the CoW skip key) and rc=1.
     pub fn node_alloc(self: &mut MemorySnapshot, pkd_bytes: u32, nslots: u32) -> *mut u8 {
-        return unsafe { node_alloc(pkd_bytes, nslots, self.id) };
+        return unsafe { node_alloc(pkd_bytes, nslots, (*self.d()).id) };
     }
 
     /// A BRANCH node: same block, plus the declaration of which slot carries
@@ -135,7 +174,7 @@ impl MemorySnapshot {
     pub fn branch_alloc(self: &mut MemorySnapshot, pkd_bytes: u32, nslots: u32,
                         child_slot: u32) -> *mut u8 {
         unsafe {
-            let b: *mut u8 = node_alloc(pkd_bytes, nslots, self.id);
+            let b: *mut u8 = node_alloc(pkd_bytes, nslots, (*self.d()).id);
             node_set_child_slot(b, child_slot);
             return b;
         }
@@ -161,34 +200,73 @@ impl MemorySnapshot {
     /// True iff `h` is shared with a frozen snapshot (its stamped id differs)
     /// and must be `cow_clone`d before an in-place write.
     pub fn cow_needed(self: &MemorySnapshot, h: *mut u8) -> bool {
-        return unsafe { node_snapshot(h) } != self.id;
+        return unsafe { node_snapshot(h) != (*self.d()).id };
     }
 
     // — directory: container roots in this version —
 
-    pub fn has_ctr(self: &MemorySnapshot, ctr_id: u64) -> bool { return self.dir.has(ctr_id); }
-    pub fn root_of(self: &MemorySnapshot, ctr_id: u64) -> DirEntry { return self.dir.root_of(ctr_id); }
+    pub fn has_ctr(self: &MemorySnapshot, ctr_id: u64) -> bool {
+        return unsafe { (*self.d()).dir.has(ctr_id) };
+    }
+    pub fn root_of(self: &MemorySnapshot, ctr_id: u64) -> DirEntry {
+        return unsafe { (*self.d()).dir.root_of(ctr_id) };
+    }
     pub fn set_root(self: &mut MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32) {
-        self.dir.set_root(ctr_id, root, level);
+        unsafe { (*self.d()).dir.set_root(ctr_id, root, level); }
     }
 
-    /// Drops this snapshot's structural share of EVERY container tree (rc-release
-    /// each root; trees with no other holder are freed). Call before the snapshot
-    /// goes out of scope — the raw blocks are rc-managed, not owned by `dir`.
-    pub fn release(self: &mut MemorySnapshot) {
-        let n: i64 = self.dir.len();
-        let mut i: i64 = 0i64;
-        while i < n {
-            let e: DirEntry = self.dir.at(i);
-            unsafe { tree_release(e.root, e.level); }
-            i = i + 1i64;
+    // — lifecycle —
+
+    /// MARKS this history entry for deletion (Memoria snapshot drop()): the
+    /// entry stays until the LAST wrapper for it closes; then its trees are
+    /// rc-released and the descriptor is forgotten. The committed HEAD holds
+    /// its OWN rc-shares, so removing a committed snapshot never pulls trees
+    /// out from under HEAD.
+    pub fn remove(self: &mut MemorySnapshot) {
+        // LOCK POINT (v1 single-threaded): status write vs concurrent find().
+        unsafe { (*self.d()).status = SNAP_DROPPED; }
+    }
+
+    pub fn status(self: &MemorySnapshot) -> u32 {
+        return unsafe { (*self.d()).status };
+    }
+}
+
+// Closing the LAST wrapper of an Active or Dropped entry physically releases
+// the entry (rc-release every tree, forget the descriptor). A Committed
+// entry's wrappers close without touching it — `store.find(id)` re-mints.
+impl Drop for MemorySnapshot {
+    fn drop(self: &mut MemorySnapshot) {
+        unsafe {
+            if self.desc == (0 as *mut SnapDesc) { return; }
+            let old: i32 = (&mut (*self.desc).wrappers as *mut AtomicI32).fetch_sub(1);
+            if old != 1i32 { return; }              // not the last wrapper
+            let st: u32 = (*self.desc).status;
+            if st == SNAP_COMMITTED { return; }     // history entry lives on
+            // Active (uncommitted dies with its last wrapper) or Dropped
+            // (marked): release this version's structural shares + forget.
+            let n: i64 = (*self.desc).dir.len();
+            let mut i: i64 = 0i64;
+            while i < n {
+                let e: DirEntry = (*self.desc).dir.at(i);
+                tree_release(e.root, e.level);
+                i = i + 1i64;
+            }
+            // LOCK POINT (v1): descriptor unlink vs concurrent find().
+            if self.store != (0 as *mut MemoryStore) {
+                (*self.store).forget(self.desc);
+            } else {
+                let _ = box_from_raw(self.desc);   // store-less: wrapper owns it
+            }
         }
     }
 }
 
 // The marker trait (logos.mem.bt.map): a snapshot exposes its CoW skip key.
 impl Snapshot for MemorySnapshot {
-    pub fn snapshot_id(self: &MemorySnapshot) -> u64 { return self.id; }
+    pub fn snapshot_id(self: &MemorySnapshot) -> u64 {
+        return unsafe { (*self.desc).id };
+    }
 }
 
 // ── MemoryStore: snapshot lifecycle over the committed HEAD directory ────────
@@ -197,25 +275,25 @@ impl Snapshot for MemorySnapshot {
 /// directory. `fork` opens a mutable child sharing HEAD's trees; `commit`
 /// atomically swaps HEAD to a snapshot's directory — every container the
 /// snapshot touched moves together (the Memoria multi-container guarantee).
-pub struct MemoryStore { next_id: u64, head: Directory }
+pub struct MemoryStore {
+    next_id: u64,
+    head: Directory,
+    snaps: Vec<u64>,     // live SnapDesc* (Box-stable), the history table
+}
 
 impl MemoryStore {
-    pub static fn new() -> MemoryStore { return MemoryStore { next_id: 1u64, head: Directory::new() }; }
-
-    /// Opens a fresh mutable snapshot: the next id + a private copy of HEAD's
-    /// directory, with each shared root's rc bumped for the new version's hold.
-    /// Nodes this snapshot writes are stamped with `id`; nodes reached from HEAD
-    /// are frozen until cow-cloned into `id`.
-    /// The BOUNDARY form of fork (S3 Store-dyn design): the snapshot rides an
-    /// Arc — Store/Snapshot are CROSS-THREAD objects (containers are not: a
-    /// Ctr handle is thread-local and rides Rc). v1 allocates plainly; the
-    /// design destination is a POOL of ready snapshot instances inside the
-    /// store (Drop returning the object to the pool — open question, pinned
-    /// in project_storecfg_plane), which this signature already permits.
-    pub fn fork_arc(self: &mut MemoryStore) -> Arc<MemorySnapshot> {
-        return arc_new(self.fork());
+    pub static fn new() -> MemoryStore {
+        return MemoryStore { next_id: 1u64, head: Directory::new(), snaps: vec_new::<u64>() };
     }
 
+    // Mint a wrapper over `d` (counter already accounted by the caller).
+    unsafe fn wrap(self: &mut MemoryStore, d: *mut SnapDesc) -> MemorySnapshot {
+        return MemorySnapshot { desc: d, store: self as *mut MemoryStore };
+    }
+
+    /// Opens a fresh mutable snapshot: a new HISTORY ENTRY (descriptor) with a
+    /// private copy of HEAD's directory (each shared root's rc bumped for the
+    /// new version's hold) — plus its first wrapper.
     pub fn fork(self: &mut MemoryStore) -> MemorySnapshot {
         let id: u64 = self.next_id;
         self.next_id = self.next_id + 1u64;
@@ -223,12 +301,64 @@ impl MemoryStore {
         let n: i64 = dir.len();
         let mut i: i64 = 0i64;
         while i < n { unsafe { node_inc_rc(dir.at(i).root); } i = i + 1i64; }
-        return MemorySnapshot { id: id, dir: dir };
+        let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
+            id: id, dir: dir, status: SNAP_ACTIVE, wrappers: atomic_i32_new(1),
+        }));
+        // LOCK POINT (v1): history-table insert vs concurrent find().
+        self.snaps.push(d as u64);
+        return unsafe { self.wrap(d) };
     }
 
-    /// Atomically publishes `snap` as the new HEAD: drops HEAD's old structural
-    /// share of every container tree, then adopts `snap`'s roots (bumping each
-    /// for HEAD's own hold — `snap` keeps its independent refs until released).
+    /// The BOUNDARY form of fork (S3 Store-dyn design): the wrapper rides Arc
+    /// — Store/Snapshot are CROSS-THREAD objects (containers are not: a Ctr
+    /// handle is thread-local and rides Rc). The last Arc drop closes the
+    /// wrapper, which is what releases an Active/Dropped entry.
+    pub fn fork_arc(self: &mut MemoryStore) -> Arc<MemorySnapshot> {
+        return arc_new(self.fork());
+    }
+
+    /// A NEW wrapper over an existing COMMITTED history entry — one per call
+    /// (one per thread in MT use). Active/dropped entries are not findable
+    /// (the Memoria find() contract).
+    pub fn find(self: &mut MemoryStore, id: u64) -> Option<MemorySnapshot> {
+        // LOCK POINT (v1): table scan + counter bump vs a concurrent close.
+        let n: i64 = self.snaps.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let d: *mut SnapDesc = self.snaps.get(i) as *mut SnapDesc;
+            unsafe {
+                if (*d).id == id {
+                    if (*d).status != SNAP_COMMITTED {
+                        return Option::None;
+                    }
+                    let _ = (&mut (*d).wrappers as *mut AtomicI32).fetch_add(1);
+                    return Option::Some(self.wrap(d));
+                }
+            }
+            i = i + 1i64;
+        }
+        return Option::None;
+    }
+
+    // Unlink + free a descriptor (the last wrapper of an Active/Dropped entry
+    // just released its trees). Memoria forget_snapshot.
+    fn forget(self: &mut MemoryStore, d: *mut SnapDesc) {
+        let n: i64 = self.snaps.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if (self.snaps.get(i) as *mut SnapDesc) == d {
+                self.snaps.remove(i);
+                let _ = unsafe { box_from_raw(d) };   // Box drop frees the desc
+                return;
+            }
+            i = i + 1i64;
+        }
+    }
+
+    /// Atomically publishes `snap` as the new HEAD and marks its entry
+    /// COMMITTED: drops HEAD's old structural share of every container tree,
+    /// then adopts `snap`'s roots (bumping each for HEAD's own hold — the
+    /// entry keeps its independent refs until its last wrapper closes).
     pub fn commit(self: &mut MemoryStore, snap: &MemorySnapshot) {
         let hn: i64 = self.head.len();
         let mut i: i64 = 0i64;
@@ -237,15 +367,19 @@ impl MemoryStore {
             unsafe { tree_release(e.root, e.level); }
             i = i + 1i64;
         }
-        let nd: Directory = snap.dir.clone_dir();
+        let nd: Directory = unsafe { (*snap.desc).dir.clone_dir() };
         let nn: i64 = nd.len();
         let mut j: i64 = 0i64;
         while j < nn { unsafe { node_inc_rc(nd.at(j).root); } j = j + 1i64; }
         self.head = nd;
+        unsafe { (*snap.desc).status = SNAP_COMMITTED; }
     }
 
-    /// Tears down the committed HEAD (rc-release every container tree). Call at
-    /// store end of life; outstanding snapshots must be released independently.
+    /// Store END OF LIFE (the C++ ~store/free_memory analog): tears down the
+    /// committed HEAD, releases + frees every history entry with NO open
+    /// wrappers, and marks the still-wrapped ones DROPPED — their last wrapper
+    /// close performs the release (the store must outlive its wrappers:
+    /// declare the store first, wrappers drop first in reverse scope order).
     pub fn release(self: &mut MemoryStore) {
         let n: i64 = self.head.len();
         let mut i: i64 = 0i64;
@@ -253,6 +387,27 @@ impl MemoryStore {
             let e: DirEntry = self.head.at(i);
             unsafe { tree_release(e.root, e.level); }
             i = i + 1i64;
+        }
+        // drain the history table
+        let mut k: i64 = 0i64;
+        while k < self.snaps.len() {
+            let d: *mut SnapDesc = self.snaps.get(k) as *mut SnapDesc;
+            unsafe {
+                if (&mut (*d).wrappers as *mut AtomicI32).load() == 0i32 {
+                    let dn: i64 = (*d).dir.len();
+                    let mut j: i64 = 0i64;
+                    while j < dn {
+                        let e2: DirEntry = (*d).dir.at(j);
+                        tree_release(e2.root, e2.level);
+                        j = j + 1i64;
+                    }
+                    self.snaps.remove(k);
+                    let _ = box_from_raw(d);
+                } else {
+                    (*d).status = SNAP_DROPPED;   // last wrapper close cleans up
+                    k = k + 1i64;
+                }
+            }
         }
     }
 }

@@ -407,7 +407,6 @@ fn run_all() -> i32 {
         }
     }
 
-    snap.release();
     store.release();
     return 0i32;
 }

@@ -71,8 +71,6 @@ fn run_all() -> i32 {
     if t.size() != bsz { return 5i32; }
     if !beq(t.get_or(2000u64), "REPLACEMENT-VALUE-LONGISH") { return 6i32; }
     if !beq(t.get_or(2001u64), vstr(2001u64)) { return 7i32; }   // neighbour intact
-    ts.release();
-    tstore.release();
 
     // ── (2) CoW snapshot-versioned map over a VLE value column ───────────────
     let mut store: MemoryStore = MemoryStore::new();
@@ -117,9 +115,6 @@ fn run_all() -> i32 {
     if !beq(c1b.get_or(300u64), vstr(300u64)) { return 18i32; }
     if c2b.size() != 2u64 * m { return 19i32; }                  // overwrite, no growth
 
-    s0.release();
-    s1.release();
-    s2.release();
     store.release();
     return 0i32;
 }

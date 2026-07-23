@@ -94,6 +94,5 @@ fn main() -> i32 {
     let su: Uid256 = snap_uid(&*snap);
     if !uid256_eq(&su, &uid256_from_u64(snap.snapshot_id())) { return 5i32; }
 
-    snap.release();
     return 0i32;
 }

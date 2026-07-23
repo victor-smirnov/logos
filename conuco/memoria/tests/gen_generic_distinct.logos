@@ -43,7 +43,6 @@ fn run_all() -> i32 {
     // distinct configs → distinct family identities
     if fid::<typeof(Map::<u64, u64>)>() == fid::<typeof(Map::<i32, bool>)>() { return 7i32; }
 
-    s0.release();
     store.release();
     return 0i32;
 }

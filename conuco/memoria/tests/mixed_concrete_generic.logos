@@ -51,7 +51,6 @@ fn run_all() -> i32 {
     if d.get_or(1u64, 0u32) != 9u32 { return 4i32; }
     if fid::<typeof(Gen::<u32>)>() == fid::<typeof(Conc)>() { return 5i32; }
 
-    s.release();
     store.release();
     return 0i32;
 }

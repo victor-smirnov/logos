@@ -43,7 +43,6 @@ fn run_all() -> i32 {
     if m2.size() != n { return 5i32; }
     if m2.get_or(4u64, 0u64) != 12u64 { return 6i32; }
 
-    s0.release();
     store.release();
     return 0i32;
 }

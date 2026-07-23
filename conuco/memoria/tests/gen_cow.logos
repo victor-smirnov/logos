@@ -84,9 +84,6 @@ fn run_all() -> i32 {
 
     // ── reclamation: drop every version + the store; rc frees shared nodes
     // exactly once (the real check is valgrind over this teardown).
-    s0.release();
-    s1.release();
-    s2.release();
     store.release();
     return 0i32;
 }

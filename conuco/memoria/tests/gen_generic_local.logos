@@ -33,7 +33,6 @@ fn run_all() -> i32 {
     if m.get_or(2u64, 0u64) != 22u64 { return 2i32; }
     if m.get_or(1u64, 0u64) != 11u64 { return 3i32; }
     if m.get_or(9u64, 0xDEADu64) != 0xDEADu64 { return 4i32; }   // absent → sentinel
-    s0.release();
     store.release();
     return 0i32;
 }
