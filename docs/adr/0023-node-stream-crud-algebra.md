@@ -126,15 +126,17 @@ The division of labor:
 
 * The algebra ITSELF carries only SIMPLE fusions — the find&update class
   (WITH_ENTRY is exactly that shape).
-* Beyond that, the algebra's obligation is to be OPTIMIZABLE, not to
-  optimize: its implementation must expose LOCAL-DATA AVAILABILITY — an
-  operation can accept and yield position/locality evidence (the resolved
-  node, per-stream positions, live views), so a plan step that lands where
-  the previous one finished skips the re-descent. This evidence is internal
-  to the plan executor — NOT a cursor-bearing public API.
-* The OPTIMIZER sits ABOVE the algebra: the Deem query engine. The
-  container-level contract it targets: the container is handed a QUERY PLAN
-  and returns an ITERATOR over the plan's result set.
+* Exploiting local DATA for query optimization is the OPTIMIZER's function
+  (the Deem query engine, sitting above); containers serve it through a
+  STANDARD API. The container-level contract: the container is handed a
+  QUERY PLAN and returns an ITERATOR over the plan's result set.
+* What the CONTAINER level owns is optimization by local STRUCTURE: the
+  same algebra op admits different optimizations per PHYSICAL layout —
+  `Map<u64, V>` differs deeply from `Map<str, V>` in implementation, and
+  the u64 case admits far more (fixed cells, direct compares, O(1) UPD)
+  than the str case (VLE geometry). THESE structure-driven optimizations
+  of the algebra are made at the container level — the kernel generator's
+  axis of specialization — and stay invisible above the standard API.
 
 This makes the work a CO-DESIGN: the Deem query engine over Memoria
 containers and the container API itself are designed together — the algebra
