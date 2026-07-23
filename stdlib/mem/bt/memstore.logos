@@ -159,6 +159,9 @@ pub struct MemorySnapshot {
 // The STORAGE CAPABILITY — inherent methods the generated container reaches
 // through (ADR 0020 Track B, emitter-parameterized: the generator emits concrete
 // `snap.node_alloc(…)` calls, so the surface is inherent, not a consumed trait).
+// The whole surface takes `&self`: the WRAPPER itself is never mutated — every
+// write goes through the store-owned descriptor (`desc`), which is the one
+// honest interior point. Shared wrapper over shared state LOOKS shared.
 impl MemorySnapshot {
     unsafe fn d(self: &MemorySnapshot) -> *mut SnapDesc { return self.desc; }
 
@@ -179,14 +182,14 @@ impl MemorySnapshot {
 
     /// Allocate a fresh node block — a `nslots`-slot PkdAlloc region of
     /// `pkd_bytes`, stamped with this snapshot's id (the CoW skip key) and rc=1.
-    pub fn node_alloc(self: &mut MemorySnapshot, pkd_bytes: u32, nslots: u32) -> *mut u8 {
+    pub fn node_alloc(self: &MemorySnapshot, pkd_bytes: u32, nslots: u32) -> *mut u8 {
         return unsafe { node_alloc(pkd_bytes, nslots, (*self.d()).id) };
     }
 
     /// A BRANCH node: same block, plus the declaration of which slot carries
     /// its child refs. Every branch must go through this — a branch allocated
     /// as a plain node trips tree_release's assert rather than leaking.
-    pub fn branch_alloc(self: &mut MemorySnapshot, pkd_bytes: u32, nslots: u32,
+    pub fn branch_alloc(self: &MemorySnapshot, pkd_bytes: u32, nslots: u32,
                         child_slot: u32) -> *mut u8 {
         unsafe {
             let b: *mut u8 = node_alloc(pkd_bytes, nslots, (*self.d()).id);
@@ -195,14 +198,14 @@ impl MemorySnapshot {
         }
     }
     /// Release a node block (its children are released by the caller).
-    pub fn node_free(self: &mut MemorySnapshot, h: *mut u8) { unsafe { node_free(h); } }
+    pub fn node_free(self: &MemorySnapshot, h: *mut u8) { unsafe { node_free(h); } }
 
     /// Bump / drop a node's structural-sharing refcount; `dec_rc` returns the
     /// new value (0 = the caller must `node_free`).
-    pub fn inc_rc(self: &mut MemorySnapshot, h: *mut u8) -> u32 {
+    pub fn inc_rc(self: &MemorySnapshot, h: *mut u8) -> u32 {
         unsafe { node_inc_rc(h); return node_rc(h); }
     }
-    pub fn dec_rc(self: &mut MemorySnapshot, h: *mut u8) -> u32 {
+    pub fn dec_rc(self: &MemorySnapshot, h: *mut u8) -> u32 {
         return unsafe { node_dec_rc(h) };
     }
 
@@ -226,7 +229,7 @@ impl MemorySnapshot {
     pub fn root_of(self: &MemorySnapshot, ctr_id: u64) -> DirEntry {
         return unsafe { (*self.d()).dir.root_of(ctr_id) };
     }
-    pub fn set_root(self: &mut MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32) {
+    pub fn set_root(self: &MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32) {
         unsafe { (*self.d()).dir.set_root(ctr_id, root, level); }
     }
 
@@ -237,7 +240,7 @@ impl MemorySnapshot {
     /// rc-released and the descriptor is forgotten. The committed HEAD holds
     /// its OWN rc-shares, so removing a committed snapshot never pulls trees
     /// out from under HEAD.
-    pub fn remove(self: &mut MemorySnapshot) {
+    pub fn remove(self: &MemorySnapshot) {
         // LOCK POINT (v1 single-threaded): status write vs concurrent find().
         unsafe { (*self.d()).status = SNAP_DROPPED; }
     }

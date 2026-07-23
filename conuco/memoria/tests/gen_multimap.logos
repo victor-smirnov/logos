@@ -251,7 +251,7 @@ fn run_all() -> i32 {
 
     // ── 10..19: empty container (created through the trait surface) ─────────
     {
-        let h0 = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 1u64);
+        let h0 = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
         if h0.count(0u64) != 0u64 {
             return 10i32;
         }
@@ -280,7 +280,7 @@ fn run_all() -> i32 {
 
     // ── 80..89: open + a second container id in the same snapshot ───────────
     {
-        let h0b = open_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 1u64);
+        let h0b = open_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
         let mut one: Vec<u64> = vec_new::<u64>();
         one.push(41u64);
         one.push(42u64);
@@ -290,7 +290,7 @@ fn run_all() -> i32 {
         if h0b.count(0u64) != 1u64 {
             return 81i32;
         }
-        let h2 = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 2u64);
+        let h2 = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 2u64);
         if h2.count(0u64) != 0u64 {
             return 82i32;   // container ids are independent
         }
@@ -314,7 +314,7 @@ fn run_all() -> i32 {
 
     // ── 20..39: config A — small nodes (reformat), per-mutation equivalence ─
     {
-        let mut ha = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 3u64);
+        let mut ha = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 3u64);
         ha.reformat(512u32, 320u32);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xB7F1u64 };
@@ -371,7 +371,7 @@ fn run_all() -> i32 {
 
     // ── 40..59: config B — default nodes, longer value runs ─────────────────
     {
-        let hb = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 4u64);
+        let hb = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 4u64);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xC0FFEEu64 };
         let mut r: i64 = 0i64;

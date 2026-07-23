@@ -54,7 +54,7 @@ fn main() -> i32 {
     let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
 
     // ── create + fill through the CONCRETE declaration handle ──
-    let jc = create_ctr::<typeof(Journal)>(&mut s1, JOURNAL);
+    let jc = create_ctr::<typeof(Journal)>(&s1, JOURNAL);
     jc.insert(1u64, "opened");
     jc.insert(2u64, "funded");
     // Scale: 300 keys with a short VLE value — forces volume-leaf splits.

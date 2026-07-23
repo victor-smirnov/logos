@@ -7873,6 +7873,35 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     };
     for (int deref_guard = 0; deref_guard < 16; ++deref_guard) {
         TypeRef rt = expr_type(recv);
+        // Autoderef peels a REFERENCE layer first: a `&Arc<T>` / `&mut Arc<T>`
+        // receiver (params and field borrows arrive as refs all the time) used
+        // to bail out of this loop at the non-Struct check below, so the
+        // user-Deref step never ran and `a.read()` through `&Arc<T>` died as
+        // "no method". When the pointee is a struct that LACKS the method
+        // directly, place-deref the reference and let the Deref step take
+        // over next iteration; a pointee with a direct method stays with the
+        // normal &self receiver machinery.
+        if ((TypeRef(rt).kind() == LogosType::Kind::Ref ||
+             TypeRef(rt).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(rt).pointee() &&
+            TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Struct) {
+            TypeRef pt = TypeRef(rt).pointee();
+            auto pn = concrete_struct_name(pt);
+            auto pb = std::string(TypeRef(pt).struct_name());
+            std::string pm(method_name);
+            bool pdirect = !find_func_candidates(pn + "__" + pm).empty() ||
+                           (!pb.empty() && !find_func_candidates(pb + "__" + pm).empty());
+            // A method provided ON THE REFERENCE TYPE ITSELF
+            // (`impl Trait for &T` → the $ref_/$mut_ref_ registry) must keep
+            // the reference receiver — peeling would steal it.
+            std::string rpfx = (TypeRef(rt).kind() == LogosType::Kind::MutRef)
+                                   ? "$mut_ref_" : "$ref_";
+            bool rdirect = !find_func_candidates(rpfx + pn + "__" + pm).empty() ||
+                           (!pb.empty() && !find_func_candidates(rpfx + pb + "__" + pm).empty());
+            if (pdirect || rdirect) break;
+            recv = builder().deref(std::move(recv), pt);
+            continue;
+        }
         if (TypeRef(rt).kind() != LogosType::Kind::Struct) break;
         auto sname_d = concrete_struct_name(rt);
         auto base_d  = std::string(TypeRef(rt).struct_name());

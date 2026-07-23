@@ -168,10 +168,12 @@ impl<T: ?Sized> Arc<T> {
         return Arc { inner: self.inner };
     }
 
-    /// Same as `clone_arc` but takes `&mut self` — no caller-side raw pointer cast.
-    pub fn clone_ref(&mut self) -> Arc<T> {
+    /// Same as `clone_arc` from a SHARED borrow: cloning only bumps the
+    /// ATOMIC strong count — interior mutability by nature, so the receiver
+    /// is `&self` and the one const→mut cast lives here, not at call sites.
+    pub fn clone_ref(&self) -> Arc<T> {
         unsafe {
-            let p: *mut Arc<T> = self as *mut Arc<T>;
+            let p: *mut Arc<T> = (self as *const Arc<T>) as *mut Arc<T>;
             return p.clone_arc();
         }
     }

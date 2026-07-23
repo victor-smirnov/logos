@@ -1,0 +1,24 @@
+package autoderef_through_ref_binding;
+use logos.mem.sync;
+use logos.lang.rc;
+
+pub struct Gut { pub v: i64 }
+impl Gut {
+    pub fn read(self: &Gut) -> i64 { return self.v; }
+    pub fn bump(self: &mut Gut) -> i64 { self.v = self.v + 1i64; return self.v; }
+}
+pub struct Holder { pub g: Arc<Gut> }
+
+fn via_ref(a: &Arc<Gut>) -> i64 { return a.read(); }          // A: &self via &Arc param
+fn via_mutref(a: &mut Arc<Gut>) -> i64 { return a.bump(); }   // B: &mut self via &mut Arc param
+fn via_field(h: &Holder) -> i64 { return h.g.read(); }        // C: &self via Arc field
+fn main() -> i32 {
+    let mut a: Arc<Gut> = arc_new(Gut { v: 10i64 });
+    if a.read() != 10i64 { return 1i32; }                      // D: &self via Arc value
+    if a.bump() != 11i64 { return 2i32; }                      // E: &mut self via Arc value
+    if via_ref(&a) != 11i64 { return 3i32; }
+    if via_mutref(&mut a) != 12i64 { return 4i32; }
+    let h: Holder = Holder { g: a.clone_ref() };
+    if via_field(&h) != 12i64 { return 5i32; }
+    return 0i32;
+}

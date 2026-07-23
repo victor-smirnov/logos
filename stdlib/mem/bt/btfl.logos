@@ -235,7 +235,7 @@ unsafe fn pdt_lower_bound_max(b: &PdtBuf, key: u64) -> u32 {
 /// PkdAlloc's PkdAllocatable back-ref, healed when earlier slots shift) and
 /// wired to the leaf's allocator, so the sequence grows through the parent
 /// chain exactly like the C++ nested PackedAllocator.
-fn btfl_leaf_new<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, leaf_bytes: u32) -> *mut u8 {
+fn btfl_leaf_new<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32) -> *mut u8 {
     unsafe {
         let node: *mut u8 = P::alloc(leaf_bytes, N + 1u32, snap.snapshot_id());
         let a: *mut PkdAlloc = P::pkd(node);
@@ -269,7 +269,7 @@ fn btfl_leaf_new<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, leaf_b
 // Fresh empty leaf with per-stream KIND CODES (stream 0 is always FSE64-MAX;
 // codes[s-1] shapes stream s). The codes are the family's design constants —
 // they exist only at creation; thereafter every block SELF-DESCRIBES.
-fn btfl_leaf_new_shaped<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, leaf_bytes: u32,
+fn btfl_leaf_new_shaped<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32,
                                       codes: &Vec<u64>) -> *mut u8 {
     unsafe {
         let node: *mut u8 = P::alloc(leaf_bytes, N + 1u32, snap.snapshot_id());
@@ -345,7 +345,7 @@ fn btfl_leaf_new_like<const N: u32, P: NodeProfile>(snp: u64, leaf_bytes: u32,
 /// ref column. The PdtBuf block is wired to the node's allocator so its
 /// growth rides the parent chain — the same nested-block discipline as the
 /// leaf's SSRLE stream.
-fn btfl_branch_new<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, branch_bytes: u32) -> *mut u8 {
+fn btfl_branch_new<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, branch_bytes: u32) -> *mut u8 {
     return btfl_branch_new_raw::<N, P>(snap.snapshot_id(), branch_bytes);
 }
 
@@ -393,7 +393,7 @@ pub struct Btfl<const N: u32, P: NodeProfile> {
 /// Creates an empty N-stream tree (a single empty leaf). Call sites spell the
 /// stream count: `btfl_create::<2, P>(…)` (const-generic N is not inferable from
 /// the value arguments).
-pub fn btfl_create<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, leaf_bytes: u32, branch_bytes: u32) -> Btfl<N, P> {
+pub fn btfl_create<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32, branch_bytes: u32) -> Btfl<N, P> {
     let root: *mut u8 = btfl_leaf_new::<N, P>(snap, leaf_bytes);
     return Btfl::<N, P> {
         root: root,
@@ -406,7 +406,7 @@ pub fn btfl_create<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, leaf
 /// Creates an empty N-stream tree with per-stream KIND CODES (stream 0 is
 /// always the FSE64 ordered stream; `codes[s-1]` shapes stream s —
 /// BTFL_KIND_FSE64 or BTFL_KIND_VLE).
-pub fn btfl_create_shaped<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, leaf_bytes: u32,
+pub fn btfl_create_shaped<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32,
                                         branch_bytes: u32, codes: &Vec<u64>) -> Btfl<N, P> {
     let root: *mut u8 = btfl_leaf_new_shaped::<N, P>(snap, leaf_bytes, codes);
     return Btfl::<N, P> {
@@ -1297,7 +1297,7 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
 /// `flat` (stream-major), VLE streams take their rows from `spans`
 /// (stream-major across the VLE streams). Which is which comes from the
 /// COLUMNS THEMSELVES — blocks self-describe their kind.
-pub fn btfl_insert_entry<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, t: &mut Btfl<N, P>, key: u64,
+pub fn btfl_insert_entry<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<N, P>, key: u64,
                                        flat: &Vec<u64>, lens: &Vec<u64>,
                                        spans: &PdtVals) -> bool {
     unsafe {
@@ -1325,7 +1325,7 @@ pub fn btfl_insert_entry<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot
 
 /// The all-FSE entry form — every stream's rows ride `flat` (compat surface;
 /// forwards with an empty span carrier).
-pub fn btfl_insert_n<const N: u32, P: NodeProfile>(snap: &mut MemorySnapshot, t: &mut Btfl<N, P>, key: u64,
+pub fn btfl_insert_n<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<N, P>, key: u64,
                                    flat: &Vec<u64>, lens: &Vec<u64>) -> bool {
     let ev: PdtVals = pdt_vals_new();
     return btfl_insert_entry::<N, P>(snap, t, key, flat, lens, &ev);
@@ -1625,7 +1625,7 @@ unsafe fn btfl_fill_leaf<P: NodeProfile>(st: &BtflStage, from: u64, leaf: *mut u
 /// remains. Every leaf but the last is filled to capacity — which is what a
 /// bulk build is FOR: the single-insert path leaves nodes half full after each
 /// split, and replaying a batch through it would too.
-pub fn btfl_bulk_build<P: NodeProfile>(snap: &mut MemorySnapshot, st: &BtflStage,
+pub fn btfl_bulk_build<P: NodeProfile>(snap: &MemorySnapshot, st: &BtflStage,
                        leaf_bytes: u32, branch_bytes: u32) -> Btfl<2, P> {
     unsafe {
         if st.size() == 0u64 {

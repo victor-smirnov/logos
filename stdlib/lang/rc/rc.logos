@@ -99,10 +99,12 @@ impl<T: ?Sized> Rc<T> {
         return Rc { inner: self.inner };
     }
 
-    /// Clones this handle via `&mut self` (bumps the strong count); safe wrapper over `clone_rc`.
-    pub fn clone_ref(&mut self) -> Rc<T> {
+    /// Clones this handle from a SHARED borrow (bumps the strong count in
+    /// the heap-stable inner — the interior-mutation point lives here, not at
+    /// call sites). Rc is thread-local by contract; no race is possible.
+    pub fn clone_ref(&self) -> Rc<T> {
         unsafe {
-            let p: *mut Rc<T> = self as *mut Rc<T>;
+            let p: *mut Rc<T> = (self as *const Rc<T>) as *mut Rc<T>;
             return p.clone_rc();
         }
     }

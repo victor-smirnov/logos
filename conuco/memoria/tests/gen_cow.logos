@@ -36,7 +36,7 @@ fn run_all() -> i32 {
     let n: u64 = 8000u64;
     let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     if s0.snapshot_id() != 1u64 { return 1i32; }
-    let m0 = create_ctr::<typeof(GenCow)>(&mut s0, CTR);
+    let m0 = create_ctr::<typeof(GenCow)>(&s0, CTR);
     let mut k: u64 = 0u64;
     while k < n { m0.insert(k, k + 7u64); k = k + 1u64; }
     if m0.size() != n { return 2i32; }   // handle sees its snapshot's size
@@ -45,7 +45,7 @@ fn run_all() -> i32 {
     // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
     let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     if s1.snapshot_id() != 2u64 { return 3i32; }
-    let m1 = open_ctr::<typeof(GenCow)>(&mut s1, CTR);
+    let m1 = open_ctr::<typeof(GenCow)>(&s1, CTR);
     if m1.get_or(0u64, 0xFFFFu64) != 7u64 { return 4i32; }
     if m1.get_or(n - 1u64, 0xFFFFu64) != (n - 1u64) + 7u64 { return 5i32; }
     k = n;
@@ -53,7 +53,7 @@ fn run_all() -> i32 {
     (&mut *store).commit(&*s1);
 
     // ── ISOLATION: s0 (frozen) still sees ONLY [0, N); s1 sees [0, 2N) ───
-    let m0b = open_ctr::<typeof(GenCow)>(&mut s0, CTR);
+    let m0b = open_ctr::<typeof(GenCow)>(&s0, CTR);
     if m0b.size() != n { return 6i32; }
     if m1.size() != 2u64 * n { return 7i32; }
     k = 0u64;
@@ -71,12 +71,12 @@ fn run_all() -> i32 {
 
     // ── a third version overwrites a spread of keys in s1's lineage ──────
     let mut s2: Arc<MemorySnapshot> = store_fork_arc(&mut store);
-    let m2 = open_ctr::<typeof(GenCow)>(&mut s2, CTR);
+    let m2 = open_ctr::<typeof(GenCow)>(&s2, CTR);
     k = 0u64;
     while k < 2u64 * n { m2.insert(k, k + 1000000u64); k = k + 500u64; }
     (&mut *store).commit(&*s2);
-    let m2b = open_ctr::<typeof(GenCow)>(&mut s2, CTR);
-    let m1b = open_ctr::<typeof(GenCow)>(&mut s1, CTR);
+    let m2b = open_ctr::<typeof(GenCow)>(&s2, CTR);
+    let m1b = open_ctr::<typeof(GenCow)>(&s1, CTR);
     if m2b.get_or(0u64, 0u64) != 1000000u64 { return 12i32; }
     if m1b.get_or(0u64, 0u64) != 7u64 { return 13i32; }              // s1 untouched
     if m2b.get_or(500u64, 0u64) != 500u64 + 1000000u64 { return 14i32; }

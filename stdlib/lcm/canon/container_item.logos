@@ -1411,32 +1411,18 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             ctr_id: u64,
         }
         impl #nm {
-            // The snapshot ACCESS path from a &self handle: the Arc's raw
-            // accessor (the inner is heap-stable while `snap` holds it). One
-            // field, one owner story — when the Ctr POOL lands, a pooled
-            // instance RESETS `snap` (breaking the Snapshot→pool→Ctr→Snapshot
-            // cycle) and re-sets it on take-from-pool; until then it is
-            // simply the parent hold.
-            unsafe fn sp(self: &#nm) -> *mut MemorySnapshot {
-                let a: *mut Arc<MemorySnapshot> =
-                    (&self.snap as *const Arc<MemorySnapshot>) as *mut Arc<MemorySnapshot>;
-                return a.get() as *mut MemorySnapshot;
-            }
-            pub static fn create(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
-                {
-                    let s: &mut MemorySnapshot = &mut **snap;
-                    let lf: #lid = #lid::new_in(s.snapshot_id());
-                    s.set_root(ctr_id, lf.block(), 0u32);
-                }
+            pub static fn create(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+                let lf: #lid = #lid::new_in(snap.snapshot_id());
+                snap.set_root(ctr_id, lf.block(), 0u32);
                 return #nm { snap: snap.clone_ref(), ctr_id: ctr_id };
             }
-            pub static fn open(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+            pub static fn open(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
                 return #nm { snap: snap.clone_ref(), ctr_id: ctr_id };
             }
             pub fn insert(self: &#nm, key: #(kid), val: #(vi)) {
                 unsafe {
-                    let e: DirEntry = (*self.sp()).root_of(self.ctr_id);
-                    let cur: u64 = (*self.sp()).snapshot_id();
+                    let e: DirEntry = self.snap.root_of(self.ctr_id);
+                    let cur: u64 = self.snap.snapshot_id();
                     let r: BtInsRet<#(kid), 1> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, val, cur);
                     let mut nrt: *mut u8 = e.root;
                     let mut nlv: u32 = e.level;
@@ -1451,12 +1437,12 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         nrt = top.block();
                         nlv = e.level + 1u32;
                     }
-                    (*self.sp()).set_root(self.ctr_id, nrt, nlv);
+                    self.snap.set_root(self.ctr_id, nrt, nlv);
                 }
             }
             pub fn size(self: &#nm) -> u64 {
                 unsafe {
-                    let e: DirEntry = (*self.sp()).root_of(self.ctr_id);
+                    let e: DirEntry = self.snap.root_of(self.ctr_id);
                     return bt_size::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level);
                 }
             }
@@ -1464,7 +1450,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         impl Ctr for #nm {
             fn size(self: &#nm) -> u64 {
                 unsafe {
-                    let e: DirEntry = (*self.sp()).root_of(self.ctr_id);
+                    let e: DirEntry = self.snap.root_of(self.ctr_id);
                     return bt_size::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level);
                 }
             }
@@ -1482,7 +1468,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid)) -> &[u8] {
                     unsafe {
-                        let e: DirEntry = (*self.sp()).root_of(self.ctr_id);
+                        let e: DirEntry = self.snap.root_of(self.ctr_id);
                         let miss: &[u8] = slice_from_raw::<u8>(e.root as *const u8, 0i64);
                         return bt_descend_get::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, miss);
                     }
@@ -1497,7 +1483,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid), sentinel: #(vo)) -> #(vo) {
                     unsafe {
-                        let e: DirEntry = (*self.sp()).root_of(self.ctr_id);
+                        let e: DirEntry = self.snap.root_of(self.ctr_id);
                         return bt_descend_get::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, sentinel);
                     }
                 }
@@ -1837,27 +1823,13 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             branch_bytes: u32,
         }
         impl #nm {
-            // The snapshot ACCESS path from a &self handle: the Arc's raw
-            // accessor (the inner is heap-stable while `snap` holds it). One
-            // field, one owner story — when the Ctr POOL lands, a pooled
-            // instance RESETS `snap` (breaking the Snapshot→pool→Ctr→Snapshot
-            // cycle) and re-sets it on take-from-pool; until then it is
-            // simply the parent hold.
-            unsafe fn sp(self: &#nm) -> *mut MemorySnapshot {
-                let a: *mut Arc<MemorySnapshot> =
-                    (&self.snap as *const Arc<MemorySnapshot>) as *mut Arc<MemorySnapshot>;
-                return a.get() as *mut MemorySnapshot;
-            }
-            pub static fn create(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+            pub static fn create(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
                 return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
             }
-            pub static fn create_with(snap: &mut Arc<MemorySnapshot>, ctr_id: u64,
+            pub static fn create_with(snap: &Arc<MemorySnapshot>, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                {
-                    let s: &mut MemorySnapshot = &mut **snap;
-                    let t: Btfl<2, #nd> = btfl_create::<2, #nd>(s, leaf_bytes, branch_bytes);
-                    s.set_root(ctr_id, t.root, t.level);
-                }
+                let t: Btfl<2, #nd> = btfl_create::<2, #nd>(&**snap, leaf_bytes, branch_bytes);
+                snap.set_root(ctr_id, t.root, t.level);
                 return #nm {
                     snap: snap.clone_ref(),
                     ctr_id: ctr_id,
@@ -1865,7 +1837,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     branch_bytes: branch_bytes,
                 };
             }
-            pub static fn open(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+            pub static fn open(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
                 return #nm {
                     snap: snap.clone_ref(),
                     ctr_id: ctr_id,
@@ -1875,7 +1847,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn tree(self: &#nm) -> Btfl<2, #nd> {
                 unsafe {
-                    let e: DirEntry = (*self.sp()).root_of(self.ctr_id);
+                    let e: DirEntry = self.snap.root_of(self.ctr_id);
                     return Btfl::<2, #nd> {
                         root: e.root,
                         level: e.level,
@@ -1891,8 +1863,8 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 assert(btfl_count::<2, #nd>(&t, 0u64) == 0u64, "reformat: container not empty");
                 btfl_drop::<2, #nd>(&t);
                 unsafe {
-                    let t2: Btfl<2, #nd> = btfl_create::<2, #nd>(&mut *self.sp(), leaf_bytes, branch_bytes);
-                    (*self.sp()).set_root(self.ctr_id, t2.root, t2.level);
+                    let t2: Btfl<2, #nd> = btfl_create::<2, #nd>(&*self.snap, leaf_bytes, branch_bytes);
+                    self.snap.set_root(self.ctr_id, t2.root, t2.level);
                 }
                 self.leaf_bytes = leaf_bytes;
                 self.branch_bytes = branch_bytes;
@@ -1903,9 +1875,9 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     // multimap container: one key entry + `vals` as stream 1
                     let mut lens: Vec<u64> = vec_new::<u64>();
                     lens.push(vals.length() as u64);
-                    let ok: bool = btfl_insert_n::<2, #nd>(&mut *self.sp(), &mut t, key, vals, &lens);
+                    let ok: bool = btfl_insert_n::<2, #nd>(&*self.snap, &mut t, key, vals, &lens);
                     if ok {
-                        (*self.sp()).set_root(self.ctr_id, t.root, t.level);
+                        self.snap.set_root(self.ctr_id, t.root, t.level);
                     }
                     return ok;
                 }
@@ -2227,10 +2199,10 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
             fn family_id() -> u64 {
                 return #(idexpr);
             }
-            fn create(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #famid {
+            fn create(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #famid {
                 return #famid::create(snap, ctr_id);
             }
-            fn open(snap: &mut Arc<MemorySnapshot>, ctr_id: u64) -> #famid {
+            fn open(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #famid {
                 return #famid::open(snap, ctr_id);
             }
         }

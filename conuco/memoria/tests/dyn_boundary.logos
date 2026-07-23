@@ -69,7 +69,7 @@ fn main() -> i32 {
     let mut snap: Arc<MemorySnapshot> = store_fork_arc(&mut store);
 
     // the THREAD-LOCAL plane: the container handle rides Rc
-    let mut h = create_ctr_rc::<typeof(Multimap::<u64, u64>)>(&mut snap, 1u64);
+    let mut h = create_ctr_rc::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
     let got: u64 = drive_via(&*h, 1000u64, 50u64);
     if got != 50u64 { return 1i32; }
     // an Rc CLONE of the same handle writes too (shared-view semantics)

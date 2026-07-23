@@ -26,7 +26,7 @@ container Map<K, V> for u8 {
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
-    let m = create_ctr::<typeof(Map::<u64, u64>)>(&mut s0, 1u64);
+    let m = create_ctr::<typeof(Map::<u64, u64>)>(&s0, 1u64);
     m.insert(1u64, 11u64);
     m.insert(2u64, 22u64);
     m.insert(3u64, 33u64);
