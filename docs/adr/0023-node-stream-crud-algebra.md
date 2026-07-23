@@ -176,3 +176,8 @@ disagrees, the legacy is discarded, not emulated.
 
 Non-goals here: split/merge (separate task), cross-node composition (stays
 in the BT protocol skeleton, which sequences node-local batches).
+
+FOCUS pin (2026-07-24): the CURRENT work is the NODE-LEVEL algebra only
+(S1–S4 above). The container API (plan in, result-set iterator out) and its
+Deem query-engine integration — the co-design horizon described in
+§Position — are the NEXT development stage, deliberately out of this one.
