@@ -1,0 +1,70 @@
+package test;
+// ADR 0023 S1 — the algebra's DESCRIPTION layer: schemas, datum carriers and
+// batches construct as plain data and read back exactly. No execution here
+// (that's the S2 interpreter's gate); this pins the descriptive shapes the
+// interpreter and the kernel generator both consume.
+use logos.mem.bt.alg;
+use logos.mem.pkd.pdtbuf;
+use logos.mem.pkd.ssrle;
+use logos.mem.collections.vec;
+use logos.lang.panic;
+
+fn main() -> i32 {
+    // ── a multimap LEAF schema: FSE64-ordered keys, VLE values, SSRLE(2) ──
+    let mut leaf: NodeSchema = node_schema_new();
+    leaf.streams.push(sd_fse(8u32, true));
+    leaf.streams.push(sd_vle());
+    leaf.streams.push(sd_ssrle(2u32));
+    if leaf.streams.len() != 3i64 { return 1i32; }
+    if leaf.streams.borrow(0i64).kind != SK_FSE { return 2i32; }
+    if !leaf.streams.borrow(0i64).ordered { return 3i32; }
+    if leaf.streams.borrow(1i64).kind != SK_VLE { return 4i32; }
+    if leaf.streams.borrow(2i64).alphabet != 2u32 { return 5i32; }
+
+    // ── a BRANCH schema: the SAME shape (MAXKEY + CNT columns + child) ──
+    let mut br: NodeSchema = node_schema_new();
+    br.streams.push(sd_fse(8u32, true));    // MAXKEY measure
+    br.streams.push(sd_fse(8u32, false));   // CNT columns ride one pdt in
+    br.streams.push(sd_child());            // practice; descriptively: streams
+    if br.streams.borrow(2i64).kind != SK_CHILD { return 6i32; }
+
+    // ── a leaf batch datum: one column per stream, kinds populated apart ──
+    let mut d: LeafBatchDatum = leaf_batch_datum_new();
+    let mut c0: DatumCol = datum_col_new();
+    c0.cells.push(42u64);
+    c0.cells.push(43u64);
+    d.cols.push(c0);
+    let mut c1: DatumCol = datum_col_new();
+    let mut vb: Vec<u8> = vec_new::<u8>();
+    vb.push(7u8); vb.push(8u8); vb.push(9u8);
+    c1.spans.push_span(vb.as_slice());      // pricing geometry, no rows
+    d.cols.push(c1);
+    let mut c2: DatumCol = datum_col_new();
+    c2.runs.push(SsrleRun { pattern: 0u64, pattern_length: 1u32, run_length: 1u64 });
+    c2.runs.push(SsrleRun { pattern: 1u64, pattern_length: 1u32, run_length: 2u64 });
+    d.cols.push(c2);
+    if d.cols.len() != 3i64 { return 7i32; }
+    if d.cols.borrow(0i64).cells.get(1i64) != 43u64 { return 8i32; }
+    if d.cols.borrow(2i64).runs.len() != 2i64 { return 9i32; }
+
+    // ── the branch datum: (sep, counts[N], child) ──
+    let mut cnt: Vec<u64> = vec_new::<u64>();
+    cnt.push(5u64);
+    cnt.push(9u64);
+    let bd: BranchDatum = branch_datum(100u64, cnt, 0xDEADu64);
+    if bd.sep != 100u64 || bd.cnt.get(1i64) != 9u64 || bd.child != 0xDEADu64 { return 10i32; }
+
+    // ── a batch in commit order: data streams first, structure LAST ──
+    let mut b: NodeBatch = node_batch_new();
+    b.ops.push(op_ins(0u32, 4u64, 1u64, 0u32));
+    b.ops.push(op_ins(1u32, 7u64, 2u64, 1u32));
+    b.ops.push(op_ins(2u32, 11u64, 3u64, 2u32));
+    b.ops.push(op_del(1u32, 0u64, 1u64));
+    b.ops.push(op_upd(0u32, 4u64, 0u32));
+    if b.ops.len() != 5i64 { return 11i32; }
+    if b.ops.borrow(0i64).op != OP_INS { return 12i32; }
+    if b.ops.borrow(3i64).op != OP_DEL { return 13i32; }
+    if b.ops.borrow(3i64).datum != OP_NO_DATUM { return 14i32; }
+    if b.ops.borrow(4i64).n != 1u64 { return 15i32; }
+    return 0i32;
+}

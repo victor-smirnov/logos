@@ -1,0 +1,162 @@
+// logos.mem.bt.alg — the node stream-CRUD algebra: the DESCRIPTION layer
+// (ADR 0023, S1). Pure data — no execution here. The reference interpreter
+// (S2) gives these meanings; the kernel generator (S3) compiles them per
+// schema. This algebra is the lowest tier of the physical query plan: the
+// Deem query engine composes ABOVE it, structure-driven specialization
+// happens BELOW it (the kernel generator's axis).
+package logos.mem.bt.alg;
+
+use logos.mem.pkd.pdtbuf;        // PdtVals — the VLE span carrier (reused)
+use logos.mem.pkd.ssrle;         // SsrleRun — the structure-stream run form
+use logos.mem.collections.vec;
+
+// ── NodeSchema — the node's physical stream composition ─────────────────────
+//
+// One schema shape covers LEAF and BRANCH (a branch is MAXKEY + CNT columns
+// + a child column — ordinary streams). The runtime POD below serves the
+// interpreter; the kernel generator reads the SAME composition as a
+// WritStatic document (one configuration plane with StoreCfg):
+//
+//     @{ "streams": [ @{ "kind": "fse",   "width": 8 },
+//                     @{ "kind": "vle" },
+//                     @{ "kind": "ssrle", "alphabet": 2 },
+//                     @{ "kind": "child" } ] }
+//
+// The kinds formalize "local STRUCTURE" — the container-level optimization
+// axis (Map<u64,V> vs Map<str,V> is exactly a kind difference here).
+
+/// Stream KIND: fixed-size cells (width bytes each).
+pub const SK_FSE: u32 = 0u32;
+/// Stream KIND: variable-length byte spans (VLE geometry).
+pub const SK_VLE: u32 = 1u32;
+/// Stream KIND: the SSRLE structure stream (alphabet = data-stream count).
+pub const SK_SSRLE: u32 = 2u32;
+/// Stream KIND: the child-reference column of a branch.
+pub const SK_CHILD: u32 = 3u32;
+
+/// One stream's physical descriptor.
+pub struct StreamDescr {
+    pub kind: u32,
+    /// FSE: the cell width in bytes. Other kinds: 0.
+    pub width: u32,
+    /// SSRLE: the alphabet size. Other kinds: 0.
+    pub alphabet: u32,
+    /// The MAX-ordered measure stream flag (the seek axis; stream 0 of an
+    /// ordered container, the MAXKEY column of a branch).
+    pub ordered: bool,
+}
+
+/// The node's stream list, slot-ordered (stream i lives in PkdAlloc slot i).
+pub struct NodeSchema {
+    pub streams: Vec<StreamDescr>,
+}
+
+pub fn node_schema_new() -> NodeSchema {
+    return NodeSchema { streams: vec_new::<StreamDescr>() };
+}
+
+pub fn sd_fse(width: u32, ordered: bool) -> StreamDescr {
+    return StreamDescr { kind: SK_FSE, width: width, alphabet: 0u32, ordered: ordered };
+}
+pub fn sd_vle() -> StreamDescr {
+    return StreamDescr { kind: SK_VLE, width: 0u32, alphabet: 0u32, ordered: false };
+}
+pub fn sd_ssrle(alphabet: u32) -> StreamDescr {
+    return StreamDescr { kind: SK_SSRLE, width: 0u32, alphabet: alphabet, ordered: false };
+}
+pub fn sd_child() -> StreamDescr {
+    return StreamDescr { kind: SK_CHILD, width: 8u32, alphabet: 0u32, ordered: false };
+}
+
+// ── Datum carriers (ADR 0023 §Objects — three, split by execution path) ─────
+
+/// One stream's component of a LEAF BATCH datum. Only the schema-kind's
+/// member is meaningful; the rest stay empty (a plain POD stand-in for the
+/// tuple until the generator specializes it away).
+pub struct DatumCol {
+    /// FSE / CHILD: cell values, row-ordered.
+    pub cells: Vec<u64>,
+    /// VLE: the span carrier (lengths + bytes — carries PRICING geometry
+    /// without materializing rows).
+    pub spans: PdtVals,
+    /// SSRLE: the run form of the inserted structure segment.
+    pub runs: Vec<SsrleRun>,
+}
+
+pub fn datum_col_new() -> DatumCol {
+    return DatumCol {
+        cells: vec_new::<u64>(),
+        spans: pdt_vals_new(),
+        runs: vec_new::<SsrleRun>(),
+    };
+}
+
+/// The BULK carrier for leaf batch INS: columnar, one component per stream,
+/// positionally matched to the NodeSchema. Executes through per-stream
+/// PdtBuf (+ PkdSeq past one data stream).
+pub struct LeafBatchDatum {
+    pub cols: Vec<DatumCol>,
+}
+
+pub fn leaf_batch_datum_new() -> LeafBatchDatum {
+    return LeafBatchDatum { cols: vec_new::<DatumCol>() };
+}
+
+/// The BRANCH row form — ONE carrier for branch batch AND individual ops:
+/// (separator, per-stream subtree counts, child ref).
+pub struct BranchDatum {
+    pub sep: u64,
+    pub cnt: Vec<u64>,
+    pub child: u64,
+}
+
+pub fn branch_datum(sep: u64, cnt: Vec<u64>, child: u64) -> BranchDatum {
+    return BranchDatum { sep: sep, cnt: cnt, child: child };
+}
+
+// The third carrier — the INDIVIDUAL-LEAF datum — is the TUPLE of the
+// logical schema's Datatype Views ((K-View, V-View) for Map<K, V>): it has
+// no algebra-side structure beyond the tuple itself, so no type lives here;
+// the kernel generator receives it as the fused user-fn's signature (S3).
+
+// ── Atoms + batches ─────────────────────────────────────────────────────────
+
+pub const OP_INS: u32 = 0u32;
+pub const OP_DEL: u32 = 1u32;
+pub const OP_UPD: u32 = 2u32;
+
+/// One per-stream atom. `datum` indexes the batch's datum component list
+/// (LeafBatchDatum.cols / a BranchDatum list); DEL carries none (u32::MAX).
+pub struct NodeOp {
+    pub op: u32,
+    pub stream: u32,
+    pub pos: u64,
+    pub n: u64,
+    pub datum: u32,
+}
+
+pub const OP_NO_DATUM: u32 = 0xFFFFFFFFu32;
+
+pub fn op_ins(stream: u32, pos: u64, n: u64, datum: u32) -> NodeOp {
+    return NodeOp { op: OP_INS, stream: stream, pos: pos, n: n, datum: datum };
+}
+pub fn op_del(stream: u32, pos: u64, n: u64) -> NodeOp {
+    return NodeOp { op: OP_DEL, stream: stream, pos: pos, n: n, datum: OP_NO_DATUM };
+}
+pub fn op_upd(stream: u32, pos: u64, datum: u32) -> NodeOp {
+    return NodeOp { op: OP_UPD, stream: stream, pos: pos, n: 1u64, datum: datum };
+}
+
+/// A node-local batch: the unit of pricing and atomic commit (ADR 0023
+/// §Laws). Ops are listed in COMMIT order — the position-stability law
+/// (data streams before the structure stream) is the builder's obligation,
+/// checked by the interpreter (S2). A batch larger than the node admits is
+/// REJECTED whole; a GROUP insert past capacity builds subtrees instead —
+/// that outcome rides the executor's result, not this description.
+pub struct NodeBatch {
+    pub ops: Vec<NodeOp>,
+}
+
+pub fn node_batch_new() -> NodeBatch {
+    return NodeBatch { ops: vec_new::<NodeOp>() };
+}
