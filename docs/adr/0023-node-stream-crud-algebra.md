@@ -120,10 +120,26 @@ find+update) can sometimes skip its find part — which made the iterator
 system and the container APIs very complex. Logos avoids that complexity BY
 DESIGN: containers are driven primarily through DEEM (its query language).
 This algebra is therefore LOW-LEVEL — it corresponds to the lowest tier of
-the physical query-execution plan. Composition lives in the plan, not in a
-cursor-bearing public API: Deem compiles a query down to sequences of these
-operations, and kernel fusion (below) is the plan's operator fusion,
-specialized per schema.
+the physical query-execution plan.
+
+The division of labor:
+
+* The algebra ITSELF carries only SIMPLE fusions — the find&update class
+  (WITH_ENTRY is exactly that shape).
+* Beyond that, the algebra's obligation is to be OPTIMIZABLE, not to
+  optimize: its implementation must expose LOCAL-DATA AVAILABILITY — an
+  operation can accept and yield position/locality evidence (the resolved
+  node, per-stream positions, live views), so a plan step that lands where
+  the previous one finished skips the re-descent. This evidence is internal
+  to the plan executor — NOT a cursor-bearing public API.
+* The OPTIMIZER sits ABOVE the algebra: the Deem query engine. The
+  container-level contract it targets: the container is handed a QUERY PLAN
+  and returns an ITERATOR over the plan's result set.
+
+This makes the work a CO-DESIGN: the Deem query engine over Memoria
+containers and the container API itself are designed together — the algebra
+is their shared instruction set, kernel fusion (below) is the plan's
+operator fusion specialized per schema.
 
 ## Kernel fusion — the metaprogramming plane
 
