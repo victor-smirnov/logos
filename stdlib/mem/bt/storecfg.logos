@@ -52,6 +52,14 @@ pub const MEM_STORE_LOCAL: WritStatic = @{
     "node": <type:CowProfile>
 };
 
+/// The node slot's SPLICE spelling — the same type as MEM_STORE_LOCAL's
+/// `"node"` slot, in the form the container factory splices into generated
+/// code (type-slots serve the TYPE plane via `<type:MEM_STORE_LOCAL.node>`;
+/// emitters splice token text). The conuco store_cfg test pins the type
+/// plane; the factory gate pins this spelling — drift between them fails a
+/// gate, not silently.
+pub const MEM_STORE_NODE: str = "CowProfile";
+
 /// The composed configuration: a two-layer overlay view. Store-local slots
 /// win over external ones (a store's own facts are not overridable from
 /// outside); everything is read through this one surface.

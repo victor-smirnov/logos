@@ -32,8 +32,12 @@ use logos.lang.writ.anyval;        // WAny
 use logos.lang.writ.wstring;       // WString (read-back checks)
 use logos.lang.str;                // str_byte_at, str_eq, str_from_raw
 use logos.mem.string;              // String (diagnostic composition)
+use logos.mem.fmt;                 // fmt_display_to_string — geometry splices
 use logos.lcm.canon.vocab;        // shared fact/verdict vocabulary (no bare strings across the Canon seam)
 use logos.mem.bt.ops;             // NOT used here — carries the MODULE-GRAPH edge
+use logos.mem.bt.storecfg;        // StoreCfg — the store-configuration plane
+                                  // (MEM_STORE_NODE splice + geometry) the
+                                  // emitters bake into generated families
                                   // for the emitted ordered_map blobs: an emitted
                                   // `use logos.mem.bt.ops;` resolves names but
                                   // cannot itself LOAD a module (same contract as
@@ -1997,9 +2001,20 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
 
     // ── the family: handle struct + thin delegation into logos.mem.bt.btfl ──
     let nm: Ident = Ident::new(name);
+    // The store-configuration plane (S2): the node form and the default node
+    // geometry come from the composed StoreCfg — the emitter BAKES them into
+    // the generated family instead of hardcoding the MemoryStore spellings.
+    let nd: Ident = Ident::new(MEM_STORE_NODE);
+    let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
+    let mut lbs_s: String = fmt_display_to_string(&scfg.leaf_bytes());
+    lbs_s.push_str("u32");
+    let lbs: ExprBlob = parse_expr(lbs_s.as_str());
+    let mut bbs_s: String = fmt_display_to_string(&scfg.branch_bytes());
+    bbs_s.push_str("u32");
+    let bbs: ExprBlob = parse_expr(bbs_s.as_str());
     let b: QuoteItemBlob = quote_item! {
         use logos.mem.bt.btfl;
-        use logos.mem.bt.node;            // CowProfile — the store's node profile
+        use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
         use logos.mem.collections.vec;
         use logos.lang.panic;
@@ -2011,11 +2026,11 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
         }
         impl #nm {
             pub static fn create(snap: &mut MemorySnapshot, ctr_id: u64) -> #nm {
-                return #nm::create_with(snap, ctr_id, 4096u32, 4096u32);
+                return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
             }
             pub static fn create_with(snap: &mut MemorySnapshot, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                let t: Btfl<2, CowProfile> = btfl_create::<2, CowProfile>(snap, leaf_bytes, branch_bytes);
+                let t: Btfl<2, #nd> = btfl_create::<2, #nd>(snap, leaf_bytes, branch_bytes);
                 snap.set_root(ctr_id, t.root, t.level);
                 return #nm {
                     snap: snap as *mut MemorySnapshot,
@@ -2028,14 +2043,14 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 return #nm {
                     snap: snap as *mut MemorySnapshot,
                     ctr_id: ctr_id,
-                    leaf_bytes: 4096u32,
-                    branch_bytes: 4096u32,
+                    leaf_bytes: #(lbs),
+                    branch_bytes: #(bbs),
                 };
             }
-            pub fn tree(self: &#nm) -> Btfl<2, CowProfile> {
+            pub fn tree(self: &#nm) -> Btfl<2, #nd> {
                 unsafe {
                     let e: DirEntry = (*self.snap).root_of(self.ctr_id);
-                    return Btfl::<2, CowProfile> {
+                    return Btfl::<2, #nd> {
                         root: e.root,
                         level: e.level,
                         leaf_bytes: self.leaf_bytes,
@@ -2046,11 +2061,11 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             /// Re-creates the (EMPTY — asserted) container with new node
             /// sizing; splits then allocate siblings of the new size.
             pub fn reformat(self: &mut #nm, leaf_bytes: u32, branch_bytes: u32) {
-                let t: Btfl<2, CowProfile> = self.tree();
-                assert(btfl_count::<2, CowProfile>(&t, 0u64) == 0u64, "reformat: container not empty");
-                btfl_drop::<2, CowProfile>(&t);
+                let t: Btfl<2, #nd> = self.tree();
+                assert(btfl_count::<2, #nd>(&t, 0u64) == 0u64, "reformat: container not empty");
+                btfl_drop::<2, #nd>(&t);
                 unsafe {
-                    let t2: Btfl<2, CowProfile> = btfl_create::<2, CowProfile>(&mut *self.snap, leaf_bytes, branch_bytes);
+                    let t2: Btfl<2, #nd> = btfl_create::<2, #nd>(&mut *self.snap, leaf_bytes, branch_bytes);
                     (*self.snap).set_root(self.ctr_id, t2.root, t2.level);
                 }
                 self.leaf_bytes = leaf_bytes;
@@ -2058,11 +2073,11 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
                 unsafe {
-                    let mut t: Btfl<2, CowProfile> = self.tree();
+                    let mut t: Btfl<2, #nd> = self.tree();
                     // multimap container: one key entry + `vals` as stream 1
                     let mut lens: Vec<u64> = vec_new::<u64>();
                     lens.push(vals.length() as u64);
-                    let ok: bool = btfl_insert_n::<2, CowProfile>(&mut *self.snap, &mut t, key, vals, &lens);
+                    let ok: bool = btfl_insert_n::<2, #nd>(&mut *self.snap, &mut t, key, vals, &lens);
                     if ok {
                         (*self.snap).set_root(self.ctr_id, t.root, t.level);
                     }
@@ -2070,28 +2085,28 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 }
             }
             pub fn find(self: &#nm, key: u64, out: &mut Vec<u64>) -> bool {
-                let t: Btfl<2, CowProfile> = self.tree();
-                return btfl_key_stream::<2, CowProfile>(&t, key, 1u32, out);
+                let t: Btfl<2, #nd> = self.tree();
+                return btfl_key_stream::<2, #nd>(&t, key, 1u32, out);
             }
             pub fn seek(self: &#nm, key: u64) -> BtflSeek {
-                let t: Btfl<2, CowProfile> = self.tree();
-                return btfl_seek::<2, CowProfile>(&t, key);
+                let t: Btfl<2, #nd> = self.tree();
+                return btfl_seek::<2, #nd>(&t, key);
             }
             pub fn select(self: &#nm, sym: u64, rank: u64) -> BtflLoc {
-                let t: Btfl<2, CowProfile> = self.tree();
-                return btfl_select::<2, CowProfile>(&t, sym, rank);
+                let t: Btfl<2, #nd> = self.tree();
+                return btfl_select::<2, #nd>(&t, sym, rank);
             }
             pub fn access(self: &#nm, pos: u64) -> u64 {
-                let t: Btfl<2, CowProfile> = self.tree();
-                return btfl_access::<2, CowProfile>(&t, pos);
+                let t: Btfl<2, #nd> = self.tree();
+                return btfl_access::<2, #nd>(&t, pos);
             }
             pub fn count(self: &#nm, sym: u64) -> u64 {
-                let t: Btfl<2, CowProfile> = self.tree();
-                return btfl_count::<2, CowProfile>(&t, sym);
+                let t: Btfl<2, #nd> = self.tree();
+                return btfl_count::<2, #nd>(&t, sym);
             }
             pub fn check(self: &#nm) -> bool {
-                let t: Btfl<2, CowProfile> = self.tree();
-                return btfl_check::<2, CowProfile>(&t);
+                let t: Btfl<2, #nd> = self.tree();
+                return btfl_check::<2, #nd>(&t);
             }
             pub fn level(self: &#nm) -> u32 {
                 return self.tree().level;
