@@ -86,12 +86,20 @@ pub trait BtLeaf<K, VIn, VOut> {
     fn free(self: Self);
 }
 
-/// A branch node: `child_count()` separator/subtree-size/child-ref triples,
-/// uniformly `(K, u64, *mut u8)` regardless of what K is — every generated
-/// branch DECLARES which slot holds its child refs in its own node header
-/// (`node_set_child_slot`), which is what lets `tree_release` stay
-/// container-agnostic without constraining any container's branch layout.
-pub trait BtBranch<K> {
+/// A branch node: `child_count()` separator/subtree-counts/child-ref rows,
+/// uniformly `(K, [u64; N], *mut u8)` — every generated branch DECLARES which
+/// slot holds its child refs in its own node header (`node_set_child_slot`),
+/// which is what lets `tree_release` stay container-agnostic without
+/// constraining any container's branch layout.
+///
+/// S2b: the contract is N-ARY — a child's subtree summary is one COUNT PER
+/// STREAM (`&[u64; N]`), the multistream (bt_fl) branch shape. A single-stream
+/// container is exactly `N = 1` (its one count = the subtree entry count), so
+/// the single-stream and the multistream insert protocols share ONE report
+/// shape and ONE branch contract instead of drifting as two copies. Counts
+/// cross the boundary by reference (`&[u64; N]` / out-param), never by value —
+/// the `[T; N]`-across-fn-boundary codegen gap is an open arc.
+pub trait BtBranch<K, const N: u32> {
     fn adopt(mem: *mut u8) -> Self;
     fn new_in(snp: u64) -> Self;
     fn block(self: &Self) -> *mut u8;
@@ -101,15 +109,22 @@ pub trait BtBranch<K> {
     fn set_child_addr(self: &mut Self, i: u32, ptr: *mut u8);
     /// The last (= largest) separator; the branch's own subtree-max key.
     fn max_sep(self: &Self) -> K;
-    /// Sum of every child's subtree size.
+    /// Sum of every child's stream-0 count (the entry count for N = 1).
     fn total_size(self: &Self) -> u64;
+    /// Per-stream subtree totals, written into `out`.
+    fn totals(self: &Self, out: &mut [u64; N]);
     /// Index of the child whose subtree may contain `key` (clamped to the last
     /// child when `key` exceeds every separator; `0` when the branch is empty).
     fn find_child(self: &Self, key: K) -> u32;
-    fn push_child(self: &mut Self, sep: K, sz: u64, ptr: *mut u8);
-    fn insert_child(self: &mut Self, pos: u32, sep: K, sz: u64, ptr: *mut u8);
-    fn update_child(self: &mut Self, i: u32, sep: K, sz: u64);
-    /// `true` iff one more `(sep, size, ptr)` triple fits without a split.
+    fn push_row(self: &mut Self, sep: K, cnt: &[u64; N], ptr: *mut u8);
+    fn insert_row(self: &mut Self, pos: u32, sep: K, cnt: &[u64; N], ptr: *mut u8);
+    fn update_row(self: &mut Self, i: u32, sep: K, cnt: &[u64; N]);
+    /// `true` iff one more `(sep, counts, ptr)` row fits without a split.
+    /// (The *_row methods are DISTINCT names from the concrete nodes' inherent
+    /// update_child/insert_child on purpose: an inherent method with the same
+    /// name+arity shadows a trait method at mono dispatch — the
+    /// method-resolution gap — and the scalar inherent would capture the
+    /// N-ary trait call.)
     fn can_insert_child(self: &Self) -> bool;
     /// Move the upper half of `self`'s children into `dst`; returns `self`'s new `max_sep()`.
     fn split_into(self: &mut Self, dst: &mut Self) -> K;

@@ -3722,6 +3722,23 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 for (auto& tp : tit->second.type_params) {
                     if (tp.is_variadic) { variadic_tp_name = tp.name; break; }
                 }
+                // S2b: substitute the impl's CONCRETE trait args into the
+                // declared method signature before comparing. `fn f(&self,
+                // cnt: &[u64; N])` in `trait T<const N: u32>` must compare as
+                // `&[u64; 1]` against an `impl T<K, 1>` method — without the
+                // substitution a const-param-sized array in a trait method
+                // makes every impl method "missing" (the conformance check is
+                // one more site of the array-length disease). Bound TYPE
+                // params substitute too — the leftover-generic skips below
+                // still cover the unbound ones.
+                SemaSubst trait_arg_subst;
+                {
+                    auto& tps = tit->second.type_params;
+                    for (size_t ti = 0; ti < tps.size() && ti < trait_type_args.size(); ++ti) {
+                        if (trait_type_args[ti])
+                            trait_arg_subst[tps[ti].name] = trait_type_args[ti];
+                    }
+                }
                 const SemaFuncInfo* matching = nullptr;
                 for (auto* c : cands) {
                     int variadic_pos = -1;
@@ -3750,6 +3767,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         auto tp = m.param_types[k];
                         auto cp = c->param_types[k];
                         if (!tp || !cp) { sig_match = false; break; }
+                        if (!trait_arg_subst.empty())
+                            tp = subst_type_sema(tp, trait_arg_subst);
                         // If the trait param is generic (TypeVar or AssocType),
                         // it matches any concrete impl type.
                         if (is_generic_param(tp)) continue;

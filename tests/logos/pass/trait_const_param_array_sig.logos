@@ -1,0 +1,20 @@
+package trait_const_param_array_sig;
+pub trait Cnt<const N: u32> {
+    fn put(self: &mut Self, cnt: &[u64; N]);
+    fn get0(self: &Self) -> u64;
+}
+pub struct One { v: u64 }
+impl Cnt<1> for One {
+    fn put(self: &mut One, cnt: &[u64; 1]) { self.v = cnt[0]; }
+    fn get0(self: &One) -> u64 { return self.v; }
+}
+fn drive<C: Cnt<1>>(c: &mut C) -> u64 {
+    let a: [u64; 1] = [42u64];
+    c.put(&a);
+    return c.get0();
+}
+fn main() -> i32 {
+    let mut o: One = One { v: 0u64 };
+    if drive::<One>(&mut o) != 42u64 { return 1i32; }
+    return 0i32;
+}

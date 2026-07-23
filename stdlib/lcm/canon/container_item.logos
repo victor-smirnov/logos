@@ -1484,7 +1484,7 @@ fn emit_bt_branch_impl(bname: str, kty: str) {
     let kid: Ident = Ident::new(kty);
     let b: QuoteItemBlob = quote_item! {
         use logos.mem.bt.map;
-        impl BtBranch<#(kid)> for #nm {
+        impl BtBranch<#(kid), 1> for #nm {
             fn adopt(mem: *mut u8) -> #nm { return #nm::adopt(mem); }
             fn new_in(snp: u64) -> #nm { return #nm::new_in(snp); }
             fn block(self: &#nm) -> *mut u8 { return self.block(); }
@@ -1494,10 +1494,11 @@ fn emit_bt_branch_impl(bname: str, kty: str) {
             fn set_child_addr(self: &mut #nm, i: u32, ptr: *mut u8) { self.set_child_addr(i, ptr); }
             fn max_sep(self: &#nm) -> #(kid) { return self.max_sep(); }
             fn total_size(self: &#nm) -> u64 { return self.total_size(); }
+            fn totals(self: &#nm, out: &mut [u64; 1]) { out[0] = self.total_size(); }
             fn find_child(self: &#nm, key: #(kid)) -> u32 { return self.find_child(key); }
-            fn push_child(self: &mut #nm, sep: #(kid), sz: u64, ptr: *mut u8) { self.push_child(sep, sz, ptr); }
-            fn insert_child(self: &mut #nm, pos: u32, sep: #(kid), sz: u64, ptr: *mut u8) { self.insert_child(pos, sep, sz, ptr); }
-            fn update_child(self: &mut #nm, i: u32, sep: #(kid), sz: u64) { self.update_child(i, sep, sz); }
+            fn push_row(self: &mut #nm, sep: #(kid), cnt: &[u64; 1], ptr: *mut u8) { self.push_child(sep, cnt[0], ptr); }
+            fn insert_row(self: &mut #nm, pos: u32, sep: #(kid), cnt: &[u64; 1], ptr: *mut u8) { self.insert_child(pos, sep, cnt[0], ptr); }
+            fn update_row(self: &mut #nm, i: u32, sep: #(kid), cnt: &[u64; 1]) { self.update_child(i, sep, cnt[0]); }
             fn can_insert_child(self: &#nm) -> bool { return self.can_insert_child(); }
             fn split_into(self: &mut #nm, dst: &mut #nm) -> #(kid) { return self.split_into(dst); }
             fn cow_clone(self: &#nm, snp: u64) -> #nm { return self.cow_clone(snp); }
@@ -1543,11 +1544,11 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
             pub fn height(self: &#tid) -> u32 { return self.root_level; }
             pub fn size(self: &#tid) -> u64 { return bt_size::<#(kid), #(vi), #(vo), #(lid), #(bid)>(self.root, self.root_level); }
             pub fn insert(self: &mut #tid, key: #(kid), val: #(vi)) {
-                let r: BtInsRet<#(kid)> = bt_ins::<#(kid), #(vi), #(vo), #(lid), #(bid)>(self.root, self.root_level, key, val);
+                let r: BtInsRet<#(kid), 1> = bt_ins::<#(kid), #(vi), #(vo), #(lid), #(bid)>(self.root, self.root_level, key, val);
                 if r.split {
                     let mut nr: #bid = #bid::new();
-                    nr.push_child(r.lsep, r.lsize, self.root);
-                    nr.push_child(r.rsep, r.rsize, r.rptr);
+                    nr.push_child(r.lsep, r.lcnt[0], self.root);
+                    nr.push_child(r.rsep, r.rcnt[0], r.rptr);
                     self.root = nr.block();
                     self.root_level = self.root_level + 1u32;
                 }
@@ -1650,7 +1651,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 unsafe {
                     let e: DirEntry = (*self.snap).root_of(self.ctr_id);
                     let cur: u64 = (*self.snap).snapshot_id();
-                    let r: BtInsRet<#(kid)> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, val, cur);
+                    let r: BtInsRet<#(kid), 1> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, val, cur);
                     let mut nrt: *mut u8 = e.root;
                     let mut nlv: u32 = e.level;
                     if r.addr != e.root {
@@ -1659,8 +1660,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                     }
                     if r.split {
                         let mut top: #bid = #bid::new_in(cur);
-                        top.push_child(r.lsep, r.lsize, r.addr);
-                        top.push_child(r.rsep, r.rsize, r.rptr);
+                        top.push_child(r.lsep, r.lcnt[0], r.addr);
+                        top.push_child(r.rsep, r.rcnt[0], r.rptr);
                         nrt = top.block();
                         nlv = e.level + 1u32;
                     }

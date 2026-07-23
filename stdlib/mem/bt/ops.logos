@@ -5,11 +5,11 @@
 // leaf/branch node shape. Only the node LAYOUT (the PkdArray<K>/PkdArray<V> column
 // mix, block format, `adopt`/`new_in`/`cow_clone`) stays per-config generated; the
 // tree ALGORITHMS (descend, insert-with-split, CoW-insert, free, size) are expressed
-// here exactly once and instantiate over any `L: BtLeaf<K, VIn, VOut>` / `B: BtBranch<K>`.
+// here exactly once and instantiate over any `L: BtLeaf<K, VIn, VOut>` / `B: BtBranch<K, 1>`.
 //
 // Style/shape verified against a compiled-and-passing spike (trait_spike2.logos):
 // self-less associated fns (`fn adopt(mem: *mut u8) -> Self;`) called as `L::adopt(node)`
-// inside generic fns bounded `<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>`.
+// inside generic fns bounded `<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>`.
 // Algorithms mirror the FAST GenCow family (ref_fast_all.logos) verbatim, field-for-
 // field and branch-for-branch — only node-type names became `L`/`B` type params and
 // `GenCow*` symbols became `bt_*`.
@@ -26,7 +26,7 @@ use logos.mem.bt.map;       // BtLeaf / BtBranch — the node contracts (declare
 
 /// Point lookup from `(root, level)` down to the owning leaf; `sentinel` on miss.
 /// Mirrors `GenCow_descend_get` / `GenCowTree::get_or` (same walk, both used it).
-pub fn bt_descend_get<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(
+pub fn bt_descend_get<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
     root: *mut u8, level: u32, key: K, sentinel: VOut) -> VOut {
     let mut node: *mut u8 = root;
     let mut lvl: u32 = level;
@@ -51,55 +51,58 @@ pub fn bt_descend_get<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B
 /// re-points its child ref (mirrors `GenCowCowRet`; `GenCowTreeIR` is the same
 /// shape minus `addr` because the plain path never needs it — kept here as one
 /// struct rather than two so `bt_ins`/`bt_cow_insert` share one report type).
-pub struct BtInsRet<K> {
+/// S2b: the report is N-ARY — one count per stream per side (`[u64; N]`), the
+/// multistream shape; a single-stream tree is `N = 1` (lcnt[0] = entry count).
+/// One shape for both worlds — the two insert protocols stopped drifting.
+pub struct BtInsRet<K, const N: u32> {
     pub addr: *mut u8,
     pub lsep: K,
-    pub lsize: u64,
+    pub lcnt: [u64; N],
     pub split: bool,
     pub rsep: K,
-    pub rsize: u64,
+    pub rcnt: [u64; N],
     pub rptr: *mut u8,
 }
 
 // ── plain insert (no CoW — in-place mutation) ──────────────────────────────────
 
 /// Bottom-up insert-with-split, mutating nodes in place. Mirrors `GenCowTree_ins`.
-pub fn bt_ins<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(
-    node: *mut u8, level: u32, key: K, val: VIn) -> BtInsRet<K> {
+pub fn bt_ins<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    node: *mut u8, level: u32, key: K, val: VIn) -> BtInsRet<K, 1> {
     if level == 0u32 {
         let mut lf: L = L::adopt(node);
         if lf.try_insert(key, val) {
-            return BtInsRet { addr: node, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: node };
+            return BtInsRet { addr: node, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: false, rsep: key, rcnt: [0u64], rptr: node };
         }
         let mut rt: L = L::new_in(0u64);
         lf.split_into(&mut rt);
         if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
-        return BtInsRet { addr: node, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };
+        return BtInsRet { addr: node, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
     }
     let mut br: B = B::adopt(node);
     let ci: u32 = br.find_child(key);
-    let r: BtInsRet<K> = bt_ins::<K, VIn, VOut, L, B>(br.child_addr(ci), level - 1u32, key, val);
-    br.update_child(ci, r.lsep, r.lsize);
+    let r: BtInsRet<K, 1> = bt_ins::<K, VIn, VOut, L, B>(br.child_addr(ci), level - 1u32, key, val);
+    br.update_row(ci, r.lsep, &r.lcnt);
     if !r.split {
-        return BtInsRet { addr: node, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };
+        return BtInsRet { addr: node, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: node };
     }
     if br.can_insert_child() {
-        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
-        return BtInsRet { addr: node, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: node };
+        br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr);
+        return BtInsRet { addr: node, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: node };
     }
     let mut rb: B = B::new_in(0u64);
     let _ = br.split_into(&mut rb);
     let lc: u32 = br.child_count();
-    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else {
-        rb.insert_child((ci + 1u32) - lc, r.rsep, r.rsize, r.rptr);
+    if ci + 1u32 < lc { br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr); } else {
+        rb.insert_row((ci + 1u32) - lc, r.rsep, &r.rcnt, r.rptr);
     }
-    return BtInsRet { addr: node, lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };
+    return BtInsRet { addr: node, lsep: br.max_sep(), lcnt: [br.total_size()], split: true, rsep: rb.max_sep(), rcnt: [rb.total_size()], rptr: rb.block() };
 }
 
 /// Recursively releases `(node, level)` — the non-CoW, non-refcounted teardown
 /// (unconditional free, no rc check; use `tree_release` for the rc-aware CoW
 /// teardown). Mirrors `GenCowTree_free`.
-pub fn bt_tree_free<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(node: *mut u8, level: u32) {
+pub fn bt_tree_free<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(node: *mut u8, level: u32) {
     if level == 0u32 {
         L::adopt(node).free();
         return;
@@ -125,7 +128,7 @@ pub unsafe fn bt_leaf_private<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, 
 }
 
 /// The branch analog of `bt_leaf_private`. Mirrors `GenCow_branch_private`.
-pub unsafe fn bt_branch_private<K: Copy, B: BtBranch<K>, P: NodeProfile>(node: *mut u8, cur: u64) -> *mut u8 {
+pub unsafe fn bt_branch_private<K: Copy, B: BtBranch<K, 1>, P: NodeProfile>(node: *mut u8, cur: u64) -> *mut u8 {
     if P::snapshot(node) == cur { return node; }
     return B::adopt(node).cow_clone(cur).block();
 }
@@ -136,43 +139,43 @@ pub unsafe fn bt_branch_private<K: Copy, B: BtBranch<K>, P: NodeProfile>(node: *
 /// via `tree_release` (structural-sharing rc-drop, not an unconditional free —
 /// the old block may still be referenced by a frozen sibling snapshot).
 /// Mirrors `GenCow_cow_insert`.
-pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>, P: NodeProfile>(
-    node: *mut u8, level: u32, key: K, val: VIn, cur: u64) -> BtInsRet<K> {
+pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>, P: NodeProfile>(
+    node: *mut u8, level: u32, key: K, val: VIn, cur: u64) -> BtInsRet<K, 1> {
     if level == 0u32 {
         let work: *mut u8 = bt_leaf_private::<K, VIn, VOut, L, P>(node, cur);
         let mut lf: L = L::adopt(work);
         if lf.try_insert(key, val) {
-            return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: false, rsep: key, rsize: 0u64, rptr: work };
+            return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: false, rsep: key, rcnt: [0u64], rptr: work };
         }
         let mut rt: L = L::new_in(cur);
         lf.split_into(&mut rt);
         if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.try_insert(key, val); } else { let _ = rt.try_insert(key, val); }
-        return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lsize: lf.count() as u64, split: true, rsep: rt.key_at(rt.count() - 1u32), rsize: rt.count() as u64, rptr: rt.block() };
+        return BtInsRet { addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
     }
     let work: *mut u8 = bt_branch_private::<K, B, P>(node, cur);
     let mut br: B = B::adopt(work);
     let ci: u32 = br.find_child(key);
     let old_child: *mut u8 = br.child_addr(ci);
-    let r: BtInsRet<K> = bt_cow_insert::<K, VIn, VOut, L, B, P>(old_child, level - 1u32, key, val, cur);
-    br.update_child(ci, r.lsep, r.lsize);
+    let r: BtInsRet<K, 1> = bt_cow_insert::<K, VIn, VOut, L, B, P>(old_child, level - 1u32, key, val, cur);
+    br.update_row(ci, r.lsep, &r.lcnt);
     if r.addr != old_child {
         br.set_child_addr(ci, r.addr);
         tree_release(old_child, level - 1u32);
     }
     if !r.split {
-        return BtInsRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };
+        return BtInsRet { addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: work };
     }
     if br.can_insert_child() {
-        br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr);
-        return BtInsRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: false, rsep: key, rsize: 0u64, rptr: work };
+        br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr);
+        return BtInsRet { addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: work };
     }
     let mut rb: B = B::new_in(cur);
     let _ = br.split_into(&mut rb);
     let lc: u32 = br.child_count();
-    if ci + 1u32 < lc { br.insert_child(ci + 1u32, r.rsep, r.rsize, r.rptr); } else {
-        rb.insert_child((ci + 1u32) - lc, r.rsep, r.rsize, r.rptr);
+    if ci + 1u32 < lc { br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr); } else {
+        rb.insert_row((ci + 1u32) - lc, r.rsep, &r.rcnt, r.rptr);
     }
-    return BtInsRet { addr: work, lsep: br.max_sep(), lsize: br.total_size(), split: true, rsep: rb.max_sep(), rsize: rb.total_size(), rptr: rb.block() };
+    return BtInsRet { addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: true, rsep: rb.max_sep(), rcnt: [rb.total_size()], rptr: rb.block() };
 }
 
 // ── size ─────────────────────────────────────────────────────────────────────
@@ -180,14 +183,14 @@ pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VO
 /// `(root, level)` shape (not the snapshot/`Ctr` shape) so it composes with
 /// both a bare `GenCowTree`-style handle and a `DirEntry` read out of a
 /// `MemorySnapshot`'s directory. Mirrors `GenCow_size` / `GenCowTree::size`.
-pub fn bt_size<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K>>(root: *mut u8, level: u32) -> u64 {
+pub fn bt_size<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(root: *mut u8, level: u32) -> u64 {
     if level == 0u32 { return L::adopt(root).count() as u64; }
     return B::adopt(root).total_size();
 }
 
 // ── no generic BtTree<K, V, L, B> struct ────────────────────────────────────
 //
-// A `pub struct BtTree<K, V, L: BtLeaf<K,VIn,VOut>, B: BtBranch<K>> { root: *mut u8,
+// A `pub struct BtTree<K, V, L: BtLeaf<K,VIn,VOut>, B: BtBranch<K, 1>> { root: *mut u8,
 // root_level: u32 }` was considered and dropped: none of its fields mention
 // K/V/L/B, so all four type params would be UNCONSTRAINED (no PhantomData
 // convention in this codebase to pin them, and adding one just to satisfy the
