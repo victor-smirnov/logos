@@ -1,0 +1,130 @@
+// logos.mem.bt.storecfg — the STORE CONFIGURATION plane (ADR 0020 §9 "store
+// profiles", in their Logos form). Memoria/C++ parameterizes the whole
+// container stack by a Profile TYPE; here the profile is DATA: a WritStatic
+// document (the `@{...}` eDSL) validated by convention. Deem/the application
+// supplies the EXTERNAL config; a store ADDS its own slots (MemoryStore adds
+// its node form); the container factory (metacall) reads the composed config
+// and instantiates BT/BTSS/BTFL families with the concrete types/geometry
+// baked in. Two forces meet here:
+//   * config is DATA → composition is document overlay, schemas/validation
+//     are ordinary code, and metafunctions process it directly;
+//   * WStaticLit identity = content hash → instantiations DEDUPE by config
+//     content (two stores with one config share the monomorphized family) —
+//     the code-bloat control of the hybrid static/dynamic design.
+//
+// SLOT CONVENTIONS (string-keyed; `<type:...>` slots hold TYPES, readable at
+// the type plane via `<type:CFG.slot>` projections):
+//   external (supplied by Deem/app; STORE_CFG_DEFAULT when unconfigured):
+//     "snp_id":       <type:...>   snapshot-id type
+//     "block_id":     <type:...>   block-id type
+//     "ctr_id":       <type:...>   container-id type
+//     "leaf_bytes":   int          leaf node block size (default 4096)
+//     "branch_bytes": int          branch node block size (default 4096)
+//   store-local (ADDED by the store; never supplied externally):
+//     "node":         <type:...>   the store's node form (NodeProfile impl)
+//
+// COMPOSITION = OVERLAY, NOT CONSTRUCTION: the merged document is never
+// materialized. `StoreCfg` is a two-layer read view (store-local slots first,
+// then external); type-slots stay true type-refs inside their rodata blobs.
+// The demand identity of a generated family remains the EXTERNAL document's
+// content hash — a store's augmentation is deterministic per store, so it
+// does not ride the type identity.
+package logos.mem.bt.storecfg;
+
+use logos.lang.writ.wstatic;      // WritStatic — the @{...} rodata blob handle
+use logos.lang.writ.static_view;  // WView2 — string-keyed blob reader
+use logos.lang.writ.anyval;       // WAny
+use logos.mem.bt.node;            // CowProfile — MemoryStore's node form
+
+/// The default EXTERNAL configuration: u64 ids, 4K nodes. What a caller gets
+/// when it configures nothing.
+pub const STORE_CFG_DEFAULT: WritStatic = @{
+    "snp_id":       <type:u64>,
+    "block_id":     <type:u64>,
+    "ctr_id":       <type:u64>,
+    "leaf_bytes":   4096,
+    "branch_bytes": 4096
+};
+
+/// MemoryStore's OWN augmentation: the in-memory CoW node form. A second
+/// store contributes its own local document (and nothing else changes).
+pub const MEM_STORE_LOCAL: WritStatic = @{
+    "node": <type:CowProfile>
+};
+
+/// The composed configuration: a two-layer overlay view. Store-local slots
+/// win over external ones (a store's own facts are not overridable from
+/// outside); everything is read through this one surface.
+pub struct StoreCfg {
+    ext: WView2,
+    loc: WView2,
+}
+
+impl Copy for StoreCfg {}
+
+/// Composes an external config with a store's local augmentation.
+pub fn store_cfg(ext: WritStatic, local: WritStatic) -> StoreCfg {
+    return StoreCfg {
+        ext: wview2_from_ptr(ext.ptr),
+        loc: wview2_from_ptr(local.ptr),
+    };
+}
+
+/// MemoryStore's composition: the given external config + MEM_STORE_LOCAL.
+pub fn mem_store_cfg(ext: WritStatic) -> StoreCfg {
+    return store_cfg(ext, MEM_STORE_LOCAL);
+}
+
+impl StoreCfg {
+    /// Slot lookup, store-local first. Missing everywhere ⇒ null WAny.
+    /// Laundered through the raw word (`wany_from_word`) — the borrow checker
+    /// conservatively ties a Ref-carrying WAny to the local view it came from
+    /// (the mem.any precedent); the rebuilt value carries no borrow.
+    pub fn get(self: StoreCfg, slot: str) -> WAny {
+        let l: WView2 = self.loc;
+        let lv: WAny = l.map_get(l.root(), slot);
+        if !lv.is_null() { return wany_from_word(lv.raw()); }
+        let e: WView2 = self.ext;
+        let ev: WAny = e.map_get(e.root(), slot);
+        return wany_from_word(ev.raw());
+    }
+    pub fn has(self: StoreCfg, slot: str) -> bool {
+        return !self.get(slot).is_null();
+    }
+    /// Integer slot with a default for absence.
+    pub fn get_int_or(self: StoreCfg, slot: str, dflt: u64) -> u64 {
+        let v: WAny = self.get(slot);
+        if v.is_null() { return dflt; }
+        let e: WView2 = self.ext;   // any view decodes a value-form WAny
+        return e.get_u64(v);
+    }
+    /// Leaf node block size (geometry the factory bakes into `node_alloc`).
+    pub fn leaf_bytes(self: StoreCfg) -> u32 {
+        return self.get_int_or("leaf_bytes", 4096u64) as u32;
+    }
+    /// Branch node block size.
+    pub fn branch_bytes(self: StoreCfg) -> u32 {
+        return self.get_int_or("branch_bytes", 4096u64) as u32;
+    }
+}
+
+/// Validates an EXTERNAL config document: the three id TYPE slots must be
+/// present (they type the store's public identity plane), and the geometry
+/// slots, when present, must be sane (a node smaller than 512 bytes cannot
+/// hold a header + a formatted PkdAlloc worth using).
+pub fn store_cfg_check(ext: WritStatic) -> bool {
+    let v: WView2 = wview2_from_ptr(ext.ptr);
+    let root: WAny = v.root();
+    if v.map_get(root, "snp_id").is_null() { return false; }
+    if v.map_get(root, "block_id").is_null() { return false; }
+    if v.map_get(root, "ctr_id").is_null() { return false; }
+    let lb: WAny = v.map_get(root, "leaf_bytes");
+    if !lb.is_null() {
+        if v.get_u64(lb) < 512u64 { return false; }
+    }
+    let bb: WAny = v.map_get(root, "branch_bytes");
+    if !bb.is_null() {
+        if v.get_u64(bb) < 512u64 { return false; }
+    }
+    return true;
+}

@@ -1,0 +1,54 @@
+package test;
+// S1 of the StoreCfg arc: the store-configuration plane is a WritStatic
+// document; composition is an OVERLAY view (store-local slots win), never a
+// materialized merge; validation is an ordinary function over the doc; and a
+// type-slot is readable back at the TYPE plane (`<type:CFG.node>`), which is
+// what lets the factory bake the store's node form into generated families.
+use logos.mem.bt.storecfg;
+use logos.mem.bt.node;           // NODE_NO_CHILDREN — via the projected type
+use logos.lang.writ.wstatic;
+use logos.lang.writ.static_view;
+use logos.lang.writ.anyval;
+use logos.lang.panic;
+
+// A custom external cfg: overrides leaf geometry, keeps u64 ids.
+const EXT: WritStatic = @{
+    "snp_id":       <type:u64>,
+    "block_id":     <type:u64>,
+    "ctr_id":       <type:u64>,
+    "leaf_bytes":   8192
+};
+
+// A broken external cfg: no block_id.
+const BAD: WritStatic = @{ "snp_id": <type:u64>, "ctr_id": <type:u64> };
+
+// An overlay-order probe: local layer carrying a slot the external also has.
+const LOC_OVR: WritStatic = @{ "leaf_bytes": 1024 };
+
+// The store's node form, projected back from the config document to the TYPE
+// plane — the seam the factory rides.
+type NodeT = <type:MEM_STORE_LOCAL.node>;
+
+fn main() -> i32 {
+    // validation
+    assert(store_cfg_check(STORE_CFG_DEFAULT), "default external cfg must validate");
+    assert(store_cfg_check(EXT), "custom external cfg must validate");
+    assert(!store_cfg_check(BAD), "cfg without block_id must be rejected");
+
+    // composition: MemoryStore's overlay over the custom external
+    let cfg: StoreCfg = mem_store_cfg(EXT);
+    assert(cfg.leaf_bytes() == 8192u32, "external geometry must read through");
+    assert(cfg.branch_bytes() == 4096u32, "absent slot must yield the default");
+    assert(cfg.has("node"), "store-local node slot must be visible");
+    assert(cfg.has("snp_id"), "external id slots must be visible");
+    assert(!cfg.has("nope"), "unknown slot must be absent");
+
+    // overlay order: the LOCAL layer wins over the external one
+    let ovr: StoreCfg = store_cfg(EXT, LOC_OVR);
+    assert(ovr.leaf_bytes() == 1024u32, "store-local slot must shadow the external");
+
+    // the type plane: the node slot IS the store's node form
+    assert(NodeT::no_children() == NODE_NO_CHILDREN,
+           "projected node type must be the store's NodeProfile impl");
+    return 0i32;
+}
