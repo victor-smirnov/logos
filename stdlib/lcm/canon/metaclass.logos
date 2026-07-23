@@ -20,6 +20,7 @@
 package logos.lcm.canon.metaclass;
 
 use logos.lang.writ.wstatic;
+use logos.lang.rc;                // Rc — the thread-local container handle plane
 
 /// Typed wrapper over a container configuration document. Zero-field: the
 /// type carries only the CFG identity (content hash) + factory routing.
@@ -77,4 +78,20 @@ pub fn create_ctr<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> C::Handle {
 /// `open`); the Option-returning form arrives with the deem-pair retirement.
 pub fn open_ctr<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> C::Handle {
     return C::open(snap, ctr_id);
+}
+
+// ── the Rc plane (S3 Store-dyn design) ──────────────────────────────────────
+// A container handle is STRICTLY THREAD-LOCAL — it rides Rc (non-atomic),
+// while Store/Snapshot ride Arc (cross-thread). v1 allocates plainly; the
+// design destination is a pool of ready handles inside the snapshot (Drop →
+// pool — open question), which these signatures already permit.
+
+/// Creates the container and hands the handle out on the thread-local Rc plane.
+pub fn create_ctr_rc<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> Rc<C::Handle> {
+    return rc_new::<C::Handle>(C::create(snap, ctr_id));
+}
+
+/// Opens an existing container on the thread-local Rc plane.
+pub fn open_ctr_rc<C: CtrFamily<S>, S>(snap: &mut S, ctr_id: u64) -> Rc<C::Handle> {
+    return rc_new::<C::Handle>(C::open(snap, ctr_id));
 }

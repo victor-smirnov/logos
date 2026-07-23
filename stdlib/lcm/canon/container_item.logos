@@ -1914,7 +1914,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             fn find(self: &#nm, key: u64, out: &mut Vec<u64>) -> bool {
                 return self.find(key, out);
             }
-            fn insert(self: &mut #nm, key: u64, vals: &Vec<u64>) -> bool {
+            fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
                 return self.insert(key, vals);
             }
         }

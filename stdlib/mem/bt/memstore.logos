@@ -27,6 +27,7 @@ use logos.mem.pkd.pdtbuf;        // PdtBuf — the uniform child column (single-
 use logos.lang.panic;
 use logos.mem.bt.node;           // node_alloc/_free/_inc_rc/_dec_rc/_rc/_snapshot — the rc header
 use logos.mem.bt.map;            // trait Store, trait Snapshot — the capability contract
+use logos.mem.sync;              // Arc — the cross-thread snapshot handle (S3)
 use logos.mem.collections.vec;   // Vec — the directory backing (few containers → linear scan)
 
 // ── generic tree lifecycle (container-agnostic, over the uniform node shape) ──
@@ -205,6 +206,16 @@ impl MemoryStore {
     /// directory, with each shared root's rc bumped for the new version's hold.
     /// Nodes this snapshot writes are stamped with `id`; nodes reached from HEAD
     /// are frozen until cow-cloned into `id`.
+    /// The BOUNDARY form of fork (S3 Store-dyn design): the snapshot rides an
+    /// Arc — Store/Snapshot are CROSS-THREAD objects (containers are not: a
+    /// Ctr handle is thread-local and rides Rc). v1 allocates plainly; the
+    /// design destination is a POOL of ready snapshot instances inside the
+    /// store (Drop returning the object to the pool — open question, pinned
+    /// in project_storecfg_plane), which this signature already permits.
+    pub fn fork_arc(self: &mut MemoryStore) -> Arc<MemorySnapshot> {
+        return arc_new(self.fork());
+    }
+
     pub fn fork(self: &mut MemoryStore) -> MemorySnapshot {
         let id: u64 = self.next_id;
         self.next_id = self.next_id + 1u64;

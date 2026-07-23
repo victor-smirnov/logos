@@ -11,13 +11,15 @@ use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LO
 use logos.lcm.canon.metaclass;        // create_ctr / open_ctr (mono demand surface)
 use logos.mem.bt.map;                 // Ctr / Multimap — the boundary traits + Uid256
 use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
+use logos.mem.sync;                   // Arc — the cross-thread snapshot plane
+use logos.lang.rc;                    // Rc — the thread-local container plane
 use logos.mem.collections.vec;
 use logos.lang.panic;
 
 // The DEEM-SIDE driver: knows only the boundary traits. Inserts k → [k, k+1]
 // runs and checks them back; returns the container's entry count through the
 // SUPERTRAIT surface (the dyn upcast).
-fn drive(m: &mut dyn Multimap, base: u64, n: u64) -> u64 {
+fn drive(m: &dyn Multimap, base: u64, n: u64) -> u64 {
     let mut k: u64 = 0u64;
     while k < n {
         let mut vals: Vec<u64> = vec_new::<u64>();
@@ -54,7 +56,7 @@ fn snap_uid(s: &dyn Snapshot) -> Uid256 {
 // (the metaclass machinery), and the dyn coercion happens over the BOUND
 // param — post-drain M is the concrete generated handle with the impl in
 // place. This is the Deem entry shape: generic at the rim, dyn inside.
-fn drive_via<M: Multimap>(m: &mut M, base: u64, n: u64) -> u64 {
+fn drive_via<M: Multimap>(m: &M, base: u64, n: u64) -> u64 {
     return drive(m, base, n);
 }
 fn total_via<M: Multimap>(m: &M) -> u64 {
@@ -63,14 +65,22 @@ fn total_via<M: Multimap>(m: &M) -> u64 {
 
 fn main() -> i32 {
     let mut store: MemoryStore = MemoryStore::new();
-    let mut snap: MemorySnapshot = store.fork();
+    // the CROSS-THREAD plane: the snapshot rides Arc (S3 Store-dyn design)
+    let mut snap: Arc<MemorySnapshot> = store.fork_arc();
 
-    let mut h = create_ctr::<typeof(Multimap::<u64, u64>)>(&mut snap, 1u64);
-    let got: u64 = drive_via(&mut h, 1000u64, 50u64);
+    // the THREAD-LOCAL plane: the container handle rides Rc
+    let mut h = create_ctr_rc::<typeof(Multimap::<u64, u64>)>(&mut *snap, 1u64);
+    let got: u64 = drive_via(&*h, 1000u64, 50u64);
     if got != 50u64 { return 1i32; }
+    // an Rc CLONE of the same handle writes too (shared-view semantics)
+    let mut h2 = h.clone_ref();
+    let mut more: Vec<u64> = vec_new::<u64>();
+    more.push(9u64);
+    assert(h2.insert(2000u64, &more), "insert via the Rc clone");
+    if h.size() != 51u64 { return 6i32; }
 
     // the supertrait plane over the same object
-    if total_via(&h) != 50u64 { return 2i32; }
+    if total_via(&*h) != 51u64 { return 2i32; }
 
     // boundary ids: the opaque 32B POD round-trips a store id
     let u: Uid256 = uid256_from_u64(42u64);
@@ -80,7 +90,8 @@ fn main() -> i32 {
     if uid256_eq(&u, &w) { return 4i32; }
 
     // the snapshot boundary plane: dyn Snapshot yields the boundary id
-    let su: Uid256 = snap_uid(&snap);
+    // (through the Arc — auto-deref)
+    let su: Uid256 = snap_uid(&*snap);
     if !uid256_eq(&su, &uid256_from_u64(snap.snapshot_id())) { return 5i32; }
 
     snap.release();

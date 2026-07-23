@@ -106,8 +106,10 @@ pub fn uid256_eq(x: &Uid256, y: &Uid256) -> bool {
 pub trait Multimap: Ctr {
     /// Appends `key`'s value run to `out`; false when the key is absent.
     fn find(self: &Self, key: u64, out: &mut Vec<u64>) -> bool;
-    /// Inserts `key → vals`; false when the key already exists.
-    fn insert(self: &mut Self, key: u64, vals: &Vec<u64>) -> bool;
+    /// Inserts `key → vals`; false when the key already exists. Takes `&self`:
+    /// a handle is a thread-local VIEW onto snapshot-owned state (Rc-shared —
+    /// several clones of one handle may write; the snapshot is the owner).
+    fn insert(self: &Self, key: u64, vals: &Vec<u64>) -> bool;
 }
 
 // ── b+tree node contracts (ADR 0021 ops-reshape) ─────────────────────────────
