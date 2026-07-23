@@ -1033,7 +1033,7 @@ sym	logos_lang..logos.lang.fabric.PrimVec$G1$u8__storage_remove_at__g__pmut_Prim
 sym	logos_lang..logos.lang.fabric.PrimVec$G1$u8__storage_set__g__pmut_PrimVec$G1$T__u64__T
 sym	logos_lang..logos.lang.fabric.string_store.StrDt__drop_store__f__pmut_WritStringStorage
 sym	logos_lang..logos.lang.fabric.string_store.StrDt__new_store__f__void
-sym	logos_lang..logos.lang.fabric.string_store.StrDt__store_accepts__f__pcst_StrDt::Store__StrDt::ViewInStore
+sym	logos_lang..logos.lang.fabric.string_store.StrDt__store_accepts__f__pcst_WritStringStorage__StringView
 sym	logos_lang..logos.lang.fabric.string_store.StrDt__store_get__f__pcst_WritStringStorage__u64
 sym	logos_lang..logos.lang.fabric.string_store.StrDt__store_insert_at__f__pmut_WritStringStorage__u64__StringView
 sym	logos_lang..logos.lang.fabric.string_store.StrDt__store_len__f__pcst_WritStringStorage
