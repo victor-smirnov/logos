@@ -44,6 +44,12 @@ fn total(c: &dyn Ctr) -> u64 {
     return c.size();
 }
 
+// A Snapshot-plane consumer: the store-agnostic id surface — the boundary
+// Uid256 through `&dyn Snapshot` (the default lifts MemoryStore's u64 id).
+fn snap_uid(s: &dyn Snapshot) -> Uid256 {
+    return s.snapshot_uid();
+}
+
 // The generic→dyn ADAPTERS: the factory-backed bound defers until the drain
 // (the metaclass machinery), and the dyn coercion happens over the BOUND
 // param — post-drain M is the concrete generated handle with the impl in
@@ -72,6 +78,10 @@ fn main() -> i32 {
     let w: Uid256 = uid256_from_u64(43u64);
     if !uid256_eq(&u, &v) { return 3i32; }
     if uid256_eq(&u, &w) { return 4i32; }
+
+    // the snapshot boundary plane: dyn Snapshot yields the boundary id
+    let su: Uid256 = snap_uid(&snap);
+    if !uid256_eq(&su, &uid256_from_u64(snap.snapshot_id())) { return 5i32; }
 
     snap.release();
     return 0i32;

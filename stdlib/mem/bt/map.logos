@@ -47,6 +47,13 @@ pub trait Store {}
 /// starts to pay off, the capability graduates to required trait methods here.
 pub trait Snapshot {
     fn snapshot_id(self: &Self) -> u64;
+    /// The BOUNDARY form of the snapshot id (S3): the opaque 256-bit POD the
+    /// compiled Deem plane holds regardless of the store's internal id type.
+    /// The default lifts a u64 id (the MemoryStore case); a store with wide
+    /// ids overrides. Object-safe — `&dyn Snapshot` is the Deem-facing plane.
+    fn snapshot_uid(self: &Self) -> Uid256 {
+        return uid256_from_u64(self.snapshot_id());
+    }
 }
 
 /// A container handle bound to a snapshot's storage (Map/Vector/Queue/…).
