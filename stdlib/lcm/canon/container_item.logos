@@ -35,6 +35,10 @@ use logos.mem.string;              // String (diagnostic composition)
 use logos.mem.fmt;                 // fmt_display_to_string — geometry splices
 use logos.lcm.canon.vocab;        // shared fact/verdict vocabulary (no bare strings across the Canon seam)
 use logos.mem.bt.ops;             // NOT used here — carries the MODULE-GRAPH edge
+use logos.lcm.canon.alg_kernel;   // the node stream-CRUD kernel generator
+                                  // (ADR 0023 S4): the leaf's mutation
+                                  // mechanics are generated ALGEBRA kernels
+use logos.lang.option;            // Option — the kernel-blob drain loop
 use logos.mem.bt.storecfg;        // StoreCfg — the store-configuration plane
                                   // (MEM_STORE_NODE splice + geometry) the
                                   // emitters bake into generated families
@@ -769,6 +773,32 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     };
     unsafe { logos_emit_item_blob_subst(&common); }
 
+    // ── ADR 0023 S4: the leaf's MUTATION mechanics are generated ALGEBRA
+    // kernels. The Canon verdict lowers to the schema's wire spelling and
+    // the fused upsert quad is emitted per leaf; try_insert below calls it.
+    // btss_upsert_* died into these.
+    let mut aname: String = String::new();
+    aname.push_str(name);
+    aname.push_str("Alg");
+    let spec: str = if vol { "fse8o,vle" } else { "fse8o,fse8" };
+    let mut kl: ItemList = alg_kernel_with_entry(aname.as_str(), spec,
+                                                 "if hit { ET_SET } else { ET_INS }");
+    loop {
+        // drain — independent top-level items, emission order irrelevant
+        match kl.blobs.pop() {
+            Option::Some(b) => {
+                unsafe { logos_emit_item_blob_subst(&b); }
+            }
+            Option::None => {
+                break;
+            }
+        }
+    }
+    let mut wn: String = String::new();
+    wn.push_str(name);
+    wn.push_str("Alg_with_entry");
+    let wek: Ident = Ident::new(wn.as_str());   // wn outlives the emissions below
+
     // val_at / try_insert / split_index — VERDICT-SELECTED (Canon fast|volume).
     if vol {
         // Volume: VLE value column — val_at borrows bytes (&[u8]); try_insert
@@ -781,6 +811,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             use logos.lang.str;
             use logos.lang.slice;
             use logos.mem.collections.vec;
+            use logos.mem.bt.alg;
             impl #nm {
                 pub fn val_at(self: &#nm, i: u32) -> &[u8] {
                     unsafe {
@@ -797,14 +828,22 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         return false;
                     }
                     unsafe {
-                        let mut pv: PdtVals = pdt_vals_new();
-                        pv.push_span(slice_from_raw::<u8>(val.as_ptr(), val.len()));
                         let pos: u32 = self.lower_bound(key);
                         let hit: bool = pos < self.count() && self.key_at(pos) == key;
-                        // K-domain comparison above; the VLE mechanics
-                        // (replace-on-hit pricing, two-phase pair insert)
-                        // live in btss_upsert_vals_at.
-                        return btss_upsert_vals_at(self.a(), pos, hit, key as u64, &pv);
+                        // K-domain comparison HERE (signedness verdict); the
+                        // mutation is the generated ALGEBRA kernel — the
+                        // fused upsert quad (ADR 0023 S4). On hit the key
+                        // column stays untouched (empty col = no rows).
+                        let mut d: LeafBatchDatum = leaf_batch_datum_new();
+                        let mut ck: DatumCol = datum_col_new();
+                        if !hit {
+                            ck.cells.push(key as u64);
+                        }
+                        d.cols.push(ck);
+                        let mut cv: DatumCol = datum_col_new();
+                        cv.spans.push_span(slice_from_raw::<u8>(val.as_ptr(), val.len()));
+                        d.cols.push(cv);
+                        return #(wek)(self.a(), pos as u64, hit, &mut d);
                     }
                 }
                                 static unsafe fn fmt_vc(a: *mut PkdAlloc) {
@@ -826,14 +865,26 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             use logos.mem.pkd.pdtbuf;
             use logos.lang.result;
             use logos.mem.collections.vec;
+            use logos.mem.bt.alg;
             impl #nm {
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     unsafe {
                         // K-domain comparison stays HERE (signedness); the
-                        // u64 cell mechanics live in btss_upsert_at.
+                        // mutation is the generated ALGEBRA kernel — the
+                        // fused upsert quad (ADR 0023 S4). On hit the key
+                        // column stays untouched (empty col = no rows).
                         let pos: u32 = self.lower_bound(key);
                         let hit: bool = pos < self.count() && self.key_at(pos) == key;
-                        return btss_upsert_at(self.a(), pos, hit, key as u64, val as u64);
+                        let mut d: LeafBatchDatum = leaf_batch_datum_new();
+                        let mut ck: DatumCol = datum_col_new();
+                        if !hit {
+                            ck.cells.push(key as u64);
+                        }
+                        d.cols.push(ck);
+                        let mut cv: DatumCol = datum_col_new();
+                        cv.cells.push(val as u64);
+                        d.cols.push(cv);
+                        return #(wek)(self.a(), pos as u64, hit, &mut d);
                     }
                 }
                 static unsafe fn fmt_vc(a: *mut PkdAlloc) {

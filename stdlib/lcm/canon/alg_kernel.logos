@@ -204,6 +204,15 @@ fn ak_driver(out: &mut ItemList, drv: Ident, pcalls: Vec<ExprBlob>, ccalls: Vec<
     let ps_arr: ExprBlob = quote_expr! { vec_from_arr([ #(#pcalls),* ]) };
     let cs_arr: ExprBlob = quote_expr! { vec_from_arr([ #(#ccalls),* ]) };
     let db: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
         pub unsafe fn #drv(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
             let ps: Vec<u64> = #(ps_arr);
             let mut tot: u64 = 0u64;
@@ -253,6 +262,15 @@ fn ak_ins_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
             let ssu: ExprBlob = ak_lit(ss, "u32");
             let rows_arr: ExprBlob = quote_expr! { vec_from_arr([ #(#rowexprs),* ]) };
             let pb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                 unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
                     let rows: Vec<u64> = #(rows_arr);
                     let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
@@ -267,6 +285,15 @@ fn ak_ins_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
             };
             ak_push(out, pb);
             let cb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                 unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
                     let rows: Vec<u64> = #(rows_arr);
                     let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
@@ -282,6 +309,15 @@ fn ak_ins_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
             let pos: ExprBlob = ak_pos(ss, dord, 0i64);
             if sts.borrow(s).kind == AK_VLE {
                 let pb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                     unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
                         let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
                         if n == 0u64 {
@@ -300,6 +336,15 @@ fn ak_ins_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
                 };
                 ak_push(out, pb);
                 let cb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                     unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
                         let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
                         if n == 0u64 {
@@ -321,6 +366,15 @@ fn ak_ins_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
                 ak_push(out, cb);
             } else {
                 let pb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                     unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
                         let n: u64 = d.cols.borrow(#(sli)).cells.length() as u64;
                         if n == 0u64 {
@@ -339,6 +393,15 @@ fn ak_ins_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
                 };
                 ak_push(out, pb);
                 let cb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                     unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
                         let n: u64 = d.cols.borrow(#(sli)).cells.length() as u64;
                         if n == 0u64 {
@@ -400,6 +463,15 @@ fn ak_del_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
         if s == ss {
             let ssu: ExprBlob = ak_lit(ss, "u32");
             let pb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                 unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
                     let p0: u64 = alg_entry_anchor(a, #(ssu), i0);
                     let p1: u64 = alg_entry_anchor(a, #(ssu), i0 + 1u64);
@@ -417,6 +489,15 @@ fn ak_del_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
             };
             ak_push(out, pb);
             let cb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                 unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
                     let p0: u64 = alg_entry_anchor(a, #(ssu), i0);
                     let p1: u64 = alg_entry_anchor(a, #(ssu), i0 + 1u64);
@@ -435,6 +516,15 @@ fn ak_del_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
             let v0: ExprBlob = ak_pos(ss, dord, 0i64);
             let v1: ExprBlob = ak_pos(ss, dord, 1i64);
             let pb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                 unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
                     let w0: u64 = #(v0);
                     let w1: u64 = #(v1);
@@ -454,6 +544,15 @@ fn ak_del_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
             };
             ak_push(out, pb);
             let cb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                 unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
                     let w0: u64 = #(v0);
                     let w1: u64 = #(v1);
@@ -518,6 +617,15 @@ fn ak_set_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
             let pos: ExprBlob = ak_pos(ss, dord, 0i64);
             if sts.borrow(s).kind == AK_VLE {
                 let pb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                     unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
                         let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
                         if n == 0u64 {
@@ -536,6 +644,15 @@ fn ak_set_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
                 };
                 ak_push(out, pb);
                 let cb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                     unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
                         let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
                         if n == 0u64 {
@@ -570,12 +687,30 @@ fn ak_set_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
                 ak_push(out, cb);
             } else {
                 let pb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                     unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
                         return 0u64;
                     }
                 };
                 ak_push(out, pb);
                 let cb: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
                     unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
                         let n: u64 = d.cols.borrow(#(sli)).cells.length() as u64;
                         if n == 0u64 {
@@ -661,6 +796,15 @@ pub fn alg_kernel_with_entry(name: str, spec: str, decide_src: str) -> ItemList 
         parse_expr(sc.as_str())
     };
     let db: QuoteItemBlob = quote_item! {
+                use logos.mem.pkd;
+                use logos.mem.pkd.pdtbuf;
+                use logos.mem.pkd.sseq;
+                use logos.mem.pkd.ssrle;
+                use logos.mem.bt.alg;
+                use logos.mem.bt.interp;
+                use logos.mem.collections.vec;
+                use logos.lang.result;
+                use logos.lang.panic;
         pub unsafe fn #we(a: *mut PkdAlloc, i0: u64, hit: bool, d: &mut LeafBatchDatum) -> bool {
             let et: u32 = #(decide);
             if et == ET_NOOP {
