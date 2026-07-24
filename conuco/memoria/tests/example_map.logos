@@ -7,9 +7,13 @@ package test;
 //
 // The stack, top to bottom (what each § below exercises):
 //
-//   Deem/app code            §4 dyn plane (&dyn Ctr), §2 Rc handles
+//   Deem/app code            §4 dyn plane (&dyn Ctr), §2 Rc handles,
+//                            §8 #[batch_entry] adapters (app struct → batch)
 //   ── boundary ─────────    map.logos: Ctr (+family traits), Uid256;
-//                            §6 with_entry — the WITH_ENTRY quad
+//                            §6 with_entry — the WITH_ENTRY quad;
+//                            §7 seek(n) — the entry-number cursor;
+//                            §8 make_buffer/insert_batch — the two-stage
+//                            batch (staging → weight-calculus packing)
 //   metaclass factory        §1 create_ctr_rc — decl → CFG doc → mono demand
 //                            → generated family (package logos.gen)
 //   BT protocol              ops.logos: bt_cow_insert / bt_cow_with_entry
@@ -42,6 +46,7 @@ use memoria.ctr.map;                  // §0 the LIBRARY declaration (below)
 use logos.lang.option;
 use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
 use logos.lcm.canon.metaclass;        // create_ctr_rc / open_ctr — the demand surface
+use logos.lcm.canon.adapter;          // §8 #[batch_entry] — the adapter metafunction
 use logos.mem.bt.map;                 // Ctr / Uid256 — the boundary plane
 use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
 use logos.mem.sync;                   // Arc — the cross-thread snapshot plane
@@ -50,6 +55,19 @@ use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.std.io;
 use logos.lang.panic;
+use logos.std.compiler.metaprog;      // §8 the handler kit (annotation dispatch)
+
+// ── §8 prelude: an APPLICATION struct as a batch entry ──────────────────────
+// #[batch_entry] reads the fields, validates them against the encodable set
+// (a bad field fails the COMPILE naming the struct and field) and emits the
+// BatchMapEntry impl with the casts — u32 here, the column is u64. The
+// buffer's push_from/extend_from accept it through the trait seam, so the
+// factory-hashed buffer type is never named in this file.
+#[batch_entry]
+struct Deposit {
+    account: u32,
+    cents: u64,
+}
 
 // ── §0 THE DECLARATION (lives in memoria.ctr.map, quoted for the reader) ────
 //
@@ -163,6 +181,35 @@ fn run_all() -> i32 {
     let last = m.seek(n);                          // entry #4000 = key 500_000
     if !last.valid() || last.key() != 500_000u64 { return 19i32; }
     if m.seek(n + 1u64).valid() { return 20i32; }  // past the end: invalid, no trap
+
+    // ── §8 BATCH INSERT (the two-stage design): the container hands out a
+    // STAGING BUFFER already in the leaf's physical column format
+    // (make_buffer — the old-Memoria shape); insert_batch cuts it into leaf
+    // fragments by PRE-ESTIMATION at the 90% fill target — no trial
+    // insertion, no block restores (the pack_weight gate pins the byte
+    // exactness this stands on) — and splices them under the same CoW
+    // privatize/repoint walk as a single insert. The contract: keys
+    // strictly ascending, landing WHOLE between two adjacent existing keys
+    // (a violating batch is REJECTED with the tree untouched).
+    let mut buf = m.make_buffer();
+    buf.push(600_000u64, 1u64);                    // the typed direct push …
+    let mut deps: Vec<Deposit> = vec_new::<Deposit>();
+    let mut d: u64 = 1u64;
+    while d < 100u64 {
+        deps.push(Deposit { account: (600_000u64 + d) as u32, cents: d * 25u64 });
+        d = d + 1u64;
+    }
+    buf.extend_from(&deps);                        // … and the §8-prelude adapters
+    if buf.len() != 100u64 { return 21i32; }
+    if !m.insert_batch(&buf) { return 22i32; }
+    if m.size() != n + 101u64 { return 23i32; }
+    if m.get_or(600_042u64, 0u64) != 42u64 * 25u64 { return 24i32; }
+    // the sorted-run contract: an unsorted batch is rejected, tree untouched
+    let mut bad = m.make_buffer();
+    bad.push(9u64, 9u64);
+    bad.push(3u64, 3u64);
+    if m.insert_batch(&bad) { return 25i32; }
+    if m.size() != n + 101u64 { return 26i32; }
 
     return 0i32;
 }
