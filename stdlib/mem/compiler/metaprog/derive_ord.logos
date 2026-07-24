@@ -1,30 +1,22 @@
 // logos.std.compiler.metaprog — derive(Ord) for plain and generic
 // structs.
 //
-// Hook for `#[derive_ord]`. Emits an impl whose cmp builds a
-// per-field array of Orderings and returns the first non-Equal —
-// equivalent to lexicographic Rust derive(Ord), but the array
-// form sidesteps quote_expr!'s single-expression repeat-body limit.
+// Hook for `#[derive_ord]`. Emits lexicographic Rust-derive(Ord)
+// DIRECTLY: a per-field statement FOLD, each iteration comparing one
+// field and early-returning the first non-Equal —
 //
 //   impl<T1: Ord, ...> Ord for Name<T1, ...> {
 //       fn cmp(&self, other: &Name<T1, ...>) -> Ordering {
-//           let mut __ords: Vec<Ordering> = vec_new::<Ordering>();
-//           __ords.push(self.f1.cmp(&other.f1));
-//           __ords.push(self.f2.cmp(&other.f2));
+//           { let __o = self.f1.cmp(&other.f1); if !__o.is_eq() { return __o; } }
+//           { let __o = self.f2.cmp(&other.f2); if !__o.is_eq() { return __o; } }
 //           …
-//           let mut __i: i64 = 0i64;
-//           let __n: i64 = __ords.length();
-//           while __i < __n {
-//               let __o: Ordering = __ords.get(__i);
-//               if !__o.is_eq() { return __o; }
-//               __i = __i + 1i64;
-//           }
 //           return Ordering::Equal;
 //       }
 //   }
 //
-// Empty-field structs degenerate to `return Ordering::Equal;` (the
-// loop just never enters).
+// (The historical form accumulated a RUNTIME Vec<Ordering> and scanned
+// it — a heap allocation per cmp sidestepping the then-missing
+// statement folds. Empty-field structs degenerate to Equal.)
 //
 // §6.10 sub-deliverable 5/8.
 
@@ -73,15 +65,10 @@ fn derive_ord_hook(target_offset: u32) -> () {
         let blob: QuoteItemBlob = quote_item! {
             impl Ord for #(nm) {
                 fn cmp(&self, other: &#(nm)) -> Ordering {
-                    let mut __ords: Vec<Ordering> = vec_new::<Ordering>();
-                    #( __ords.push(self.#fnames.cmp(&other.#fnames)); )*
-                    let mut __i: i64 = 0i64;
-                    let __n: i64 = __ords.length();
-                    while __i < __n {
-                        let __o: Ordering = __ords.get(__i);
+                    #( {
+                        let __o: Ordering = self.#fnames.cmp(&other.#fnames);
                         if !__o.is_eq() { return __o; }
-                        __i = __i + 1i64;
-                    }
+                    } )*
                     return Ordering::Equal;
                 }
             }
@@ -91,15 +78,10 @@ fn derive_ord_hook(target_offset: u32) -> () {
         let blob2: QuoteItemBlob = quote_item! {
             impl<#( #tparams: Ord ),*> Ord for #nm<#( #tparams ),*> {
                 fn cmp(&self, other: &#nm<#( #tparams ),*>) -> Ordering {
-                    let mut __ords: Vec<Ordering> = vec_new::<Ordering>();
-                    #( __ords.push(self.#fnames.cmp(&other.#fnames)); )*
-                    let mut __i: i64 = 0i64;
-                    let __n: i64 = __ords.length();
-                    while __i < __n {
-                        let __o: Ordering = __ords.get(__i);
+                    #( {
+                        let __o: Ordering = self.#fnames.cmp(&other.#fnames);
                         if !__o.is_eq() { return __o; }
-                        __i = __i + 1i64;
-                    }
+                    } )*
                     return Ordering::Equal;
                 }
             }
