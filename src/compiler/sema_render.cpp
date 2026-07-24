@@ -571,6 +571,11 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         // Delegate to the stmt-side renderer — it already handles BODY/ITEMS shapes.
         return render_stmt_src(node);
     }
+    case la::BLOCK: {
+        // A bare block at EXPRESSION position (block-as-expr — spliced
+        // statement-fold bodies land here). Same delegation as above.
+        return render_stmt_src(node);
+    }
 
     default:
         return std::format("/* render_expr: unsupported AST code {} */", c);

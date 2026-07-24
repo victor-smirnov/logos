@@ -18058,7 +18058,13 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         return true;
     };
 
+    // Grammar `$...` spreads can alias a NAMED capture into a sibling list
+    // (MATCH's scrutinee rides VALUE *and* ITEMS[0]) — a revisited node
+    // would re-register its placeholder and trip on the already-rewritten
+    // int NAME_VAR. Dedup by node offset (the item path's visited_src twin).
+    std::unordered_set<uint32_t> walk_visited;
     std::function<bool(uint32_t)> walk = [&](uint32_t tom_off) -> bool {
+        if (!walk_visited.insert(tom_off).second) return true;
         auto tom = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
         int32_t cd = 0;
         if (tom.has_key(la::CODE.code)) {
@@ -18207,6 +18213,30 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         // position register.
         if (cd == la::BLOCK_STMT.code || cd == la::UNSAFE_BLOCK.code) {
             return recurse_key(la::BODY.code);
+        }
+        // MATCH: the scrutinee (VALUE) and every arm's GUARD/BODY/EXPR carry
+        // antiquotes; arm patterns (LHS) are pattern space, not exprs.
+        if (cd == la::MATCH.code) {
+            if (!recurse_key(la::VALUE.code)) return false;
+            auto t = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
+            if (!t.has_key(la::ITEMS.code)) return true;
+            AnyVal av = t.get(la::ITEMS.code);
+            if (!av.is_pointer()) return true;
+            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
+            uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
+            for (uint64_t i = 0; i < n; ++i) {
+                auto arr2 = writ::ArrayView(arena_offset_t(arr_off), doc.holder());
+                AnyVal el = arr2.get(i);
+                if (!el.is_pointer()) continue;
+                if (!walk(static_cast<uint32_t>(el.to_offset(WritAccess::base(doc)).value())))
+                    return false;
+            }
+            return true;
+        }
+        if (cd == la::MATCH_ARM.code) {
+            if (!recurse_key(la::GUARD.code)) return false;
+            if (!recurse_key(la::BODY.code)) return false;
+            return recurse_key(la::EXPR.code);
         }
         // Slice 1.6: ARR_LIT / TUPLE_LIT / BLOCK — iterate ITEMS so
         // REPEAT_GROUP and ExprBlob antiquots inside `[...]`, `(...)`,

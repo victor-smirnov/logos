@@ -2066,11 +2066,11 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 if (el.is_null() || !el.is_pointer()) continue;
                 uint64_t r = find_cursor_count(
                     static_cast<uint32_t>(el.to_offset(src_base).value()));
-                if (r > 0) return r;
+                if (r != static_cast<uint64_t>(-1)) return r;
             }
-            return 0;
+            return static_cast<uint64_t>(-1);
         }
-        if (tc0 == 130) return 0;
+        if (tc0 == 130) return static_cast<uint64_t>(-1);
         // Treat as TOM. Check for NAME_VAR(int idx) on this node.
         auto tt = logos::writ::TinyMapView(arena_offset_t(off), src_doc.holder());
         if (tt.has_key(la::NAME_VAR.code)) {
@@ -2081,9 +2081,14 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                     && static_cast<uint64_t>(idx) < idents_count) {
                     auto sp = get_span(idx);
                     // kind=1 (scalar ExprBlob) — never a cursor.
-                    // kind=0 (Ident scalar/cursor) and kind=2 (Vec<ExprBlob>
-                    // cursor) — only contribute when count > 1.
-                    if (sp.kind != 1 && sp.count > 1) return sp.count;
+                    // kind=2 (Vec<ExprBlob>) — a cursor BY KIND: count 1 and
+                    //   even 0 are legitimate fold lengths (the -1 sentinel
+                    //   below distinguishes "no cursor found").
+                    // kind=0 (Ident) — scalar and 1-element Vec cursors pack
+                    //   identically (count=1), so count > 1 stays the only
+                    //   safe discriminator.
+                    if (sp.kind == 2) return sp.count;
+                    if (sp.kind == 0 && sp.count > 1) return sp.count;
                 }
             }
         }
@@ -2094,9 +2099,9 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             if (av.is_null() || !av.is_pointer()) continue;
             uint32_t coff = static_cast<uint32_t>(av.to_offset(src_base).value());
             uint64_t r = find_cursor_count(coff);
-            if (r > 0) return r;
+            if (r != static_cast<uint64_t>(-1)) return r;
         }
-        return 0;
+        return static_cast<uint64_t>(-1);
     };
 
     // Step 5c Option B: deep-copy any Writ node tree (TOM + ObjectArray
@@ -2241,9 +2246,12 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             uint32_t body_off =
                 static_cast<uint32_t>(bav.to_offset(src_base).value());
             uint64_t n = find_cursor_count(body_off);
-            if (n == 0) {
+            if (n == static_cast<uint64_t>(-1) || n == 0) {
+                // an empty `&&*`-fold has no value to yield — count 0 is as
+                // fatal here as a missing cursor
                 std::fprintf(stderr,
-                    "logos_quote_expr_subst: REPEAT_GROUP cursor count is 0\n");
+                    "logos_quote_expr_subst: REPEAT_GROUP has no cursor "
+                    "or an empty one in value position\n");
                 return 0;
             }
             return expand_andand(body_off, n);
@@ -2473,11 +2481,12 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 uint32_t body_off =
                     static_cast<uint32_t>(bav.to_offset(src_base).value());
                 uint64_t n = find_cursor_count(body_off);
-                if (n == 0) {
+                if (n == static_cast<uint64_t>(-1)) {
                     std::fprintf(stderr,
-                        "logos_quote_expr_subst: REPEAT_GROUP cursor count is 0\n");
+                        "logos_quote_expr_subst: REPEAT_GROUP body has no cursor\n");
                     return 0;
                 }
+                // n == 0: a legitimately EMPTY fold — splice nothing.
                 int64_t saved = cursor_i;
                 for (uint64_t j = 0; j < n; ++j) {
                     cursor_i = static_cast<int64_t>(j);
