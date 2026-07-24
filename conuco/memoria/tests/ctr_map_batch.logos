@@ -1,0 +1,372 @@
+// ctr_map_batch — the MAP batch-insert gate (slice 2): make_buffer /
+// typed push / insert_batch through the metaclass pipeline, on BOTH value
+// flavors (fast u64 and volume str). The CoW splice: every batch runs
+// against a model; rejection laws (unsorted, interleaving) leave the tree
+// bit-untouched; the snapshot skip-key discipline is exercised by
+// committing between batches (privatization on the next batch's path).
+//
+// Error-code decades:
+//   10..29  fast map: bulk load, disjoint batches, rejections, model laws
+//   30..39  fast map: post-commit batch (CoW path privatization)
+//   40..59  volume map: str batches, spans roundtrip, rejections
+package test;
+
+use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
+use logos.lcm.canon.metaclass;        // create_ctr / open_ctr
+use logos.mem.bt.map;                 // trait hub
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane
+use logos.mem.pkd;
+use logos.lang.arith;
+use logos.lang.str;
+use logos.lang.writ.wstatic;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
+
+pub const FastCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": <type:u64> };
+pub type FastMap = CtrClass<FastCfg>;
+pub const VolCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": "str" };
+pub type VolMap = CtrClass<VolCfg>;
+
+// deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
+struct Lcg {
+    s: u64,
+}
+
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 {
+        self.s = wrapping_add::<u64>(
+            wrapping_mul::<u64>(self.s, 6364136223846793005u64),
+            1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+}
+
+// sorted (key, val) model
+struct Model {
+    mk: Vec<u64>,
+    mv: Vec<u64>,
+}
+
+fn model_new() -> Model {
+    return Model { mk: vec_new::<u64>(), mv: vec_new::<u64>() };
+}
+
+fn model_lower_bound(md: &Model, k: u64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < md.mk.len() {
+        if md.mk.get(i) >= k {
+            return i;
+        }
+        i = i + 1i64;
+    }
+    return md.mk.len();
+}
+
+// splice a sorted run (keys strictly ascending, disjoint from the model)
+fn model_splice(md: &mut Model, ks: &Vec<u64>, vs: &Vec<u64>) {
+    let at: i64 = model_lower_bound(md, ks.get(0i64));
+    // shift-right by hand (no Vec::insert)
+    let add: i64 = ks.len();
+    let old: i64 = md.mk.len();
+    let mut i: i64 = 0i64;
+    while i < add {
+        md.mk.push(0u64);
+        md.mv.push(0u64);
+        i = i + 1i64;
+    }
+    i = old - 1i64;
+    while i >= at {
+        md.mk.set(i + add, md.mk.get(i));
+        md.mv.set(i + add, md.mv.get(i));
+        i = i - 1i64;
+    }
+    i = 0i64;
+    while i < add {
+        md.mk.set(at + i, ks.get(i));
+        md.mv.set(at + i, vs.get(i));
+        i = i + 1i64;
+    }
+}
+
+// a batch of `n` fresh keys forming a run INSIDE one random gap of the
+// model (disjoint + non-interleaving by construction): keys are spaced by
+// 16, runs claim consecutive odd offsets in a gap
+fn gen_run(lcg: &mut Lcg, md: &Model, n: u64, ks: &mut Vec<u64>, vs: &mut Vec<u64>) {
+    // base = a multiple of 1000 not yet claimed: derive from a random draw
+    // and probe the model for collisions on the first key
+    let mut base: u64 = 0u64;
+    let mut tries: i64 = 0i64;
+    let mut placed: bool = false;
+    while !placed {
+        base = (lcg.next() % 1000000u64) * 1000u64;
+        let at: i64 = model_lower_bound(md, base);
+        let hi: u64 = base + n;
+        let mut clash: bool = false;
+        if at < md.mk.len() {
+            if md.mk.get(at) < hi {
+                clash = true;
+            }
+        }
+        if !clash {
+            placed = true;
+        }
+        tries = tries + 1i64;
+        assert(tries < 1000i64, "gen_run: could not place a run (model too dense?)");
+    }
+    let mut i: u64 = 0u64;
+    while i < n {
+        ks.push(base + i);
+        vs.push(base * 7u64 + i);
+        i = i + 1u64;
+    }
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+
+    // ── 10..29: fast map ────────────────────────────────────────────────────
+    {
+        let m = create_ctr::<FastMap>(&snap, 1u64);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0xBEE5u64 };
+
+        // (a) bulk load into the empty container: one big sorted batch
+        {
+            let mut buf = m.make_buffer();
+            let mut ks: Vec<u64> = vec_new::<u64>();
+            let mut vs: Vec<u64> = vec_new::<u64>();
+            let mut i: u64 = 0u64;
+            while i < 4000u64 {
+                ks.push(i * 10u64);
+                vs.push(i * 10u64 + 3u64);
+                i = i + 1u64;
+            }
+            i = 0u64;
+            while i < 4000u64 {
+                buf.push(ks.get(i as i64), vs.get(i as i64));
+                i = i + 1u64;
+            }
+            if !m.insert_batch(&buf) {
+                return 10i32;
+            }
+            model_splice(&mut md, &ks, &vs);
+        }
+        if m.size() != 4000u64 {
+            return 11i32;
+        }
+
+        // (b) rejection: unsorted batch — tree untouched
+        {
+            let mut bad = m.make_buffer();
+            bad.push(77777u64, 1u64);
+            bad.push(5u64, 2u64);
+            if m.insert_batch(&bad) {
+                return 12i32;
+            }
+            if m.size() != 4000u64 {
+                return 13i32;
+            }
+        }
+        // (c) rejection: interleaving batch (keys straddle an existing key)
+        {
+            let mut bad = m.make_buffer();
+            bad.push(15u64, 1u64);      // between 10 and 20
+            bad.push(25u64, 2u64);      // between 20 and 30 — straddles 20
+            if m.insert_batch(&bad) {
+                return 14i32;
+            }
+            if m.size() != 4000u64 {
+                return 15i32;
+            }
+        }
+        // (d) a batch that DUPLICATES an existing key is rejected
+        {
+            let mut bad = m.make_buffer();
+            bad.push(20u64, 9u64);
+            if m.insert_batch(&bad) {
+                return 16i32;
+            }
+        }
+
+        // (e) disjoint random runs, model-equivalent after each
+        let mut r: i64 = 0i64;
+        while r < 20i64 {
+            let n: u64 = 1u64 + lcg.next() % 600u64;
+            let mut ks: Vec<u64> = vec_new::<u64>();
+            let mut vs: Vec<u64> = vec_new::<u64>();
+            gen_run(&mut lcg, &md, n, &mut ks, &mut vs);
+            let mut buf = m.make_buffer();
+            let mut i: u64 = 0u64;
+            while i < n {
+                buf.push(ks.get(i as i64), vs.get(i as i64));
+                i = i + 1u64;
+            }
+            if !m.insert_batch(&buf) {
+                return 17i32;
+            }
+            model_splice(&mut md, &ks, &vs);
+            if m.size() != md.mk.len() as u64 {
+                return 18i32;
+            }
+            // spot checks: the run itself + neighbors via get_or and seek
+            i = 0u64;
+            while i < n {
+                if m.get_or(ks.get(i as i64), 0xDEADu64) != vs.get(i as i64) {
+                    return 19i32;
+                }
+                i = i + 7u64 + 1u64;
+            }
+            r = r + 1i64;
+        }
+        // full model equivalence via the entry-number seek
+        {
+            let mut i: i64 = 0i64;
+            while i < md.mk.len() {
+                let c = m.seek(i as u64);
+                if !c.valid() {
+                    return 20i32;
+                }
+                if c.key() != md.mk.get(i) || c.value() != md.mv.get(i) {
+                    return 21i32;
+                }
+                i = i + 1i64;
+            }
+            if m.seek(md.mk.len() as u64).valid() {
+                return 22i32;
+            }
+        }
+
+        // ── 30..39: batch AFTER a commit — the CoW privatization path ──────
+        snap.commit();
+        let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+        {
+            let m2 = open_ctr::<FastMap>(&s2, 1u64);
+            let before: u64 = m2.size();
+            let mut ks: Vec<u64> = vec_new::<u64>();
+            let mut vs: Vec<u64> = vec_new::<u64>();
+            gen_run(&mut lcg, &md, 400u64, &mut ks, &mut vs);
+            let mut buf = m2.make_buffer();
+            let mut i: u64 = 0u64;
+            while i < 400u64 {
+                buf.push(ks.get(i as i64), vs.get(i as i64));
+                i = i + 1u64;
+            }
+            if !m2.insert_batch(&buf) {
+                return 30i32;
+            }
+            if m2.size() != before + 400u64 {
+                return 31i32;
+            }
+            // the batch is visible in s2 …
+            if m2.get_or(ks.get(0i64), 0xDEADu64) != vs.get(0i64) {
+                return 32i32;
+            }
+            // … and INVISIBLE in the committed s1 (the CoW isolation law)
+            let m1 = open_ctr::<FastMap>(&snap, 1u64);
+            if m1.get_or(ks.get(0i64), 0xDEADu64) != 0xDEADu64 {
+                return 33i32;
+            }
+            if m1.size() != before {
+                return 34i32;
+            }
+        }
+    }
+
+    // ── 40..59: volume map (str values) ─────────────────────────────────────
+    {
+        let mut store2: Arc<MemoryStore> = store_new();
+        let snapv: Arc<dyn Snapshot> = store_fork_arc(&mut store2);
+        let mv = create_ctr::<VolMap>(&snapv, 1u64);
+
+        // bulk load: 600 keys, value lengths cycling 0..~60 bytes (incl.
+        // empty spans — legal geometry)
+        {
+            let mut buf = mv.make_buffer();
+            let mut i: u64 = 0u64;
+            while i < 600u64 {
+                let k: u64 = i * 4u64;
+                if i % 3u64 == 0u64 {
+                    buf.push(k, "");
+                } else if i % 3u64 == 1u64 {
+                    buf.push(k, "volume-row");
+                } else {
+                    buf.push(k, "a-considerably-longer-volume-row-payload-for-vle-spans");
+                }
+                i = i + 1u64;
+            }
+            if !mv.insert_batch(&buf) {
+                return 40i32;
+            }
+        }
+        if mv.size() != 600u64 {
+            return 41i32;
+        }
+        // spans roundtrip through get_or and through the cursor
+        {
+            let a: &[u8] = mv.get_or(0u64);
+            if a.len() != 0i64 {
+                return 42i32;
+            }
+            let b: &[u8] = mv.get_or(4u64);
+            if b.len() != 10i64 {
+                return 43i32;
+            }
+            let c = mv.seek(2u64);       // key 8, the long payload
+            if !c.valid() || c.key() != 8u64 {
+                return 44i32;
+            }
+            if c.value().len() != 54i64 {
+                return 45i32;
+            }
+        }
+        // a second disjoint batch ABOVE the loaded range
+        {
+            let mut buf = mv.make_buffer();
+            let mut i: u64 = 0u64;
+            while i < 200u64 {
+                buf.push(100000u64 + i, "second-batch");
+                i = i + 1u64;
+            }
+            if !mv.insert_batch(&buf) {
+                return 46i32;
+            }
+            if mv.size() != 800u64 {
+                return 47i32;
+            }
+            if mv.get_or(100199u64).len() != 12i64 {
+                return 48i32;
+            }
+        }
+        // rejection on the volume flavor too
+        {
+            let mut bad = mv.make_buffer();
+            bad.push(2u64, "x");         // between 0 and 4
+            bad.push(6u64, "y");         // between 4 and 8 — straddles 4
+            if mv.insert_batch(&bad) {
+                return 49i32;
+            }
+            if mv.size() != 800u64 {
+                return 50i32;
+            }
+        }
+        snapv.commit();
+    }
+
+    return 0i32;
+}
+
+// Diagnostic code PRINTED, never returned (8-bit exit-status channel).
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_map_batch: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

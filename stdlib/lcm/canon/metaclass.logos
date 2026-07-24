@@ -29,6 +29,9 @@ use logos.mem.bt.map;             // trait Snapshot — the erased public snapsh
 // consumer imports THIS module, so the edge lives here (map itself cannot
 // carry it: map → btvec → memstore → map would cycle).
 use logos.mem.bt.btvec;
+// Same hub rule for the batch machinery (BtssBuf / btss_batch_insert) the
+// generated map families delegate into.
+use logos.mem.bt.pack;
 
 /// Typed wrapper over a container configuration document. Zero-field: the
 /// type carries only the CFG identity (content hash) + factory routing.

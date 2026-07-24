@@ -36,7 +36,12 @@ use logos.mem.pkd;               // PkdAlloc — slot rounding / region overhead
 use logos.mem.pkd.pdtbuf;        // PdtBuf + pdtbuf_compute_block_size (the oracle)
 use logos.mem.pkd.sseq;          // pkd_ssrle_block_size — structure-stream price
 use logos.mem.pkd.ssrle;         // SsrleRun + ssrle_compute_size
+use logos.mem.bt.node;           // NodeProfile — the map splice's node seam
+use logos.mem.bt.memstore;       // MemorySnapshot + tree_release (CoW discipline)
 use logos.mem.collections.vec;
+use logos.lang.mem;              // alloc/dealloc/copy_bytes — staging + privatize
+use logos.lang.slice;            // slice_from_raw — span reads without a local-borrow chain
+use logos.lang.result;
 use logos.lang.panic;
 
 // ── PdtBuf columns (FSE / VLE) ──────────────────────────────────────────────
@@ -171,4 +176,1016 @@ pub fn pack_region_weight(ws: &Vec<u32>) -> u32 {
         i = i + 1i64;
     }
     return total;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// The MAP batch (the btss family: single-stream ordered K/V) — slice 2.
+//
+// Same two-stage shape as the Vector packer, plus the three things a sorted
+// keyed container adds: (a) the insertion point comes from a KEY descent,
+// not a position; (b) the batch must be strictly-ascending and must land
+// WHOLE between two adjacent existing keys (checked read-only BEFORE any
+// mutation — an interleaving batch is REJECTED, the general merge is a
+// later op); (c) the walk is CoW — every touched node is privatized to the
+// current snapshot first, the raw-region form of bt_leaf_private (the
+// region bytes are position-independent by the packed-family discipline, so
+// privatize = fresh node + region byte-copy + child rc bumps).
+//
+// Cells are u64 at rest; key COMPARISONS take the family's signedness
+// verdict (a blind u64 compare would invert negative signed keys — the
+// btss sign discipline). The generated family owns the K/V casts.
+
+// sign-aware strict less-than over key cells
+fn pk_lt(a: u64, b: u64, signed: bool) -> bool {
+    if signed {
+        return (a as i64) < (b as i64);
+    }
+    return a < b;
+}
+
+// ── the staging buffer ──────────────────────────────────────────────────────
+
+/// The map staging: two heap columns in the leaf's physical format — keys
+/// (FSE64) + values (FSE64 or VLE). The container's make_buffer product;
+/// RAII-owned, grows by doubling.
+pub struct BtssBuf {
+    kmem: *mut u8,
+    vmem: *mut u8,
+    cap_rows: u64,
+    vle: bool,
+}
+
+fn pk_key_descr() -> PdtDescr {
+    let mut d: PdtDescr = pdt_descr_new(1u32, PDT_ORD_UNORDERED, false);
+    d.dims.push(pdt_dim_fse(8u32));
+    return d;
+}
+
+fn pk_val_descr(vle: bool) -> PdtDescr {
+    let mut d: PdtDescr = pdt_descr_new(1u32, PDT_ORD_UNORDERED, false);
+    if vle {
+        d.dims.push(pdt_dim_vle(1u32));
+    } else {
+        d.dims.push(pdt_dim_fse(8u32));
+    }
+    return d;
+}
+
+fn pk_col_new(d: &PdtDescr, cap_rows: u64, payload: u64) -> *mut u8 {
+    let mut pay: Vec<u64> = vec_new::<u64>();
+    if d.vle_dim_count() > 0u32 {
+        pay.push(payload);
+    }
+    let bytes: u32 = pdtbuf_compute_block_size(d, cap_rows, &pay);
+    let mem: *mut u8 = alloc(bytes as i64);
+    unsafe {
+        match pdtbuf_format(mem, bytes, d) {
+            Result::Ok(b0) => {
+                let mut b: PdtBuf = b0;
+                match b.reserve_geom(cap_rows, &pay) {
+                    Result::Ok(_u) => {}
+                    Result::Err(_e) => {
+                        assert(false, "btss_buf: staging reserve failed");
+                    }
+                }
+                // reserve_geom moves size; keep it a REServation, not rows
+                let mut b2: PdtBuf = pdtbuf_adopt(mem);
+                b2.set_size(0u64);
+            }
+            Result::Err(_e) => {
+                assert(false, "btss_buf: staging format failed");
+            }
+        }
+    }
+    return mem;
+}
+
+/// A fresh map staging buffer (`vle` = the family's value-column verdict).
+pub fn btss_buf_new(vle: bool, cap_rows: u64) -> BtssBuf {
+    let mut cap: u64 = cap_rows;
+    if cap < 16u64 {
+        cap = 16u64;
+    }
+    let kd: PdtDescr = pk_key_descr();
+    let vd: PdtDescr = pk_val_descr(vle);
+    return BtssBuf {
+        kmem: pk_col_new(&kd, cap, 0u64),
+        vmem: pk_col_new(&vd, cap, if vle { cap * 16u64 } else { 0u64 }),
+        cap_rows: cap,
+        vle: vle,
+    };
+}
+
+impl BtssBuf {
+    unsafe fn kb(self: &BtssBuf) -> PdtBuf {
+        return pdtbuf_adopt(self.kmem);
+    }
+    unsafe fn vb(self: &BtssBuf) -> PdtBuf {
+        return pdtbuf_adopt(self.vmem);
+    }
+    pub fn len(self: &BtssBuf) -> u64 {
+        return unsafe { self.kb().size() };
+    }
+    pub fn is_vle(self: &BtssBuf) -> bool {
+        return self.vle;
+    }
+    pub fn key(self: &BtssBuf, i: u64) -> u64 {
+        return unsafe { self.kb().get(0u32, i) };
+    }
+    pub fn val_cell(self: &BtssBuf, i: u64) -> u64 {
+        return unsafe { self.vb().get(0u32, i) };
+    }
+    pub fn val_span(self: &BtssBuf, i: u64) -> &[u8] {
+        // Built from raw parts: a row_span through the LOCAL PdtBuf view
+        // would borrow the local (the dangling-view class the cursor hit);
+        // the span's real provenance is the heap block self owns.
+        unsafe {
+            let b: PdtBuf = self.vb();
+            let off: u64 = b.row_offset(0u32, 0u32, i);
+            let len: u64 = b.row_len(0u32, 0u32, i);
+            return slice_from_raw::<u8>(b.payload(0u32, 0u32).byte_add(off as i64), len as i64);
+        }
+    }
+
+    fn push_key(self: &mut BtssBuf, k: u64) {
+        unsafe {
+            let n: u64 = self.kb().size();
+            let us: PdtUpdate = match self.kb().prepare_insert(n, 1u64, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "btss_buf: key push prepare failed (grow contract)");
+                    return;
+                }
+            };
+            let mut row: Vec<u64> = vec_new::<u64>();
+            row.push(k);
+            let mut b: PdtBuf = self.kb();
+            b.commit_insert(&us, &row);
+        }
+    }
+
+    /// Append one (key, FSE value) row.
+    pub fn push_cell(self: &mut BtssBuf, k: u64, v: u64) {
+        assert(!self.vle, "btss_buf: push_cell on a VLE-valued buffer");
+        unsafe {
+            if self.kb().size() == self.cap_rows {
+                self.grow(0u64);
+            }
+            self.push_key(k);
+            let n: u64 = self.vb().size();
+            let us: PdtUpdate = match self.vb().prepare_insert(n, 1u64, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "btss_buf: val push prepare failed (grow contract)");
+                    return;
+                }
+            };
+            let mut row: Vec<u64> = vec_new::<u64>();
+            row.push(v);
+            let mut b: PdtBuf = self.vb();
+            b.commit_insert(&us, &row);
+        }
+    }
+
+    /// Append one (key, VLE value) row.
+    pub fn push_span(self: &mut BtssBuf, k: u64, v: &[u8]) {
+        assert(self.vle, "btss_buf: push_span on an FSE-valued buffer");
+        unsafe {
+            if self.kb().size() == self.cap_rows {
+                self.grow(v.len() as u64);
+            }
+            let n: u64 = self.vb().size();
+            let mut vals: PdtVals = pdt_vals_new();
+            vals.push_span(v);
+            let mut committed: bool = false;
+            while !committed {
+                let vbv: PdtBuf = self.vb();
+                match vbv.prepare_insert_vals(n, 1u64, PDT_CAP_KEEP, &vals) {
+                    Result::Ok(us) => {
+                        let mut b: PdtBuf = self.vb();
+                        b.commit_insert_vals(&us, &vals);
+                        committed = true;
+                    }
+                    Result::Err(_e) => {
+                        // payload outgrew the value block — double and retry
+                        self.grow(v.len() as u64);
+                    }
+                }
+            }
+            self.push_key(k);
+        }
+    }
+
+    fn grow(self: &mut BtssBuf, extra_payload: u64) {
+        unsafe {
+            let kd: PdtDescr = pk_key_descr();
+            let vd: PdtDescr = pk_val_descr(self.vle);
+            let n: u64 = self.kb().size();
+            let ncap: u64 = self.cap_rows * 2u64;
+            let mut npay: u64 = 0u64;
+            if self.vle {
+                npay = self.vb().payload_used(0u32, 0u32) * 2u64 + extra_payload + 64u64;
+            }
+            // keys: rebuild into the doubled block
+            let nk: *mut u8 = pk_col_new(&kd, ncap, 0u64);
+            {
+                let src: PdtBuf = self.kb();
+                let dst: PdtBuf = pdtbuf_adopt(nk);
+                let us: PdtUpdate = match dst.prepare_insert(0u64, n, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "btss_buf: key grow prepare failed");
+                        return;
+                    }
+                };
+                let mut cells: Vec<u64> = vec_new::<u64>();
+                let mut i: u64 = 0u64;
+                while i < n {
+                    cells.push(src.get(0u32, i));
+                    i = i + 1u64;
+                }
+                let mut dst2: PdtBuf = pdtbuf_adopt(nk);
+                dst2.commit_insert(&us, &cells);
+            }
+            // values: cells or spans
+            let vn: u64 = self.vb().size();
+            let nv: *mut u8 = pk_col_new(&vd, ncap, npay);
+            if self.vle {
+                let src: PdtBuf = self.vb();
+                let mut vals: PdtVals = pdt_vals_new();
+                let mut i: u64 = 0u64;
+                while i < vn {
+                    vals.push_span(src.row_span(0u32, 0u32, i));
+                    i = i + 1u64;
+                }
+                let dst: PdtBuf = pdtbuf_adopt(nv);
+                let us: PdtUpdate = match dst.prepare_insert_vals(0u64, vn, PDT_CAP_KEEP, &vals) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "btss_buf: val grow prepare failed");
+                        return;
+                    }
+                };
+                let mut dst2: PdtBuf = pdtbuf_adopt(nv);
+                dst2.commit_insert_vals(&us, &vals);
+            } else {
+                let src: PdtBuf = self.vb();
+                let dst: PdtBuf = pdtbuf_adopt(nv);
+                let us: PdtUpdate = match dst.prepare_insert(0u64, vn, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "btss_buf: val grow prepare failed");
+                        return;
+                    }
+                };
+                let mut cells: Vec<u64> = vec_new::<u64>();
+                let mut i: u64 = 0u64;
+                while i < vn {
+                    cells.push(src.get(0u32, i));
+                    i = i + 1u64;
+                }
+                let mut dst2: PdtBuf = pdtbuf_adopt(nv);
+                dst2.commit_insert(&us, &cells);
+            }
+            dealloc(self.kmem);
+            dealloc(self.vmem);
+            self.kmem = nk;
+            self.vmem = nv;
+            self.cap_rows = ncap;
+        }
+    }
+
+    /// Strictly-ascending key check under the sign verdict (the batch
+    /// contract; O(m), run once per insert).
+    pub fn is_sorted(self: &BtssBuf, signed: bool) -> bool {
+        let n: u64 = self.len();
+        let mut i: u64 = 1u64;
+        while i < n {
+            if !pk_lt(self.key(i - 1u64), self.key(i), signed) {
+                return false;
+            }
+            i = i + 1u64;
+        }
+        return true;
+    }
+}
+
+impl Drop for BtssBuf {
+    fn drop(&mut self) {
+        unsafe {
+            dealloc(self.kmem);
+            dealloc(self.vmem);
+        }
+    }
+}
+
+// ── raw node helpers (the btss uniform shapes) ──────────────────────────────
+
+// leaf slots: 0 = keys (MAX-ordered), 1 = values; branch slots: 0 = sep
+// (MAX), 1 = subtree count, 2 = child refs (declared in the header).
+const PKB_SEP:   u32 = 0u32;
+const PKB_CNT:   u32 = 1u32;
+const PKB_CHILD: u32 = 2u32;
+
+unsafe fn pk_slot(a: *mut PkdAlloc, s: u32) -> PdtBuf {
+    return pdtbuf_adopt(a.get::<u8>(s));
+}
+
+// Format slot `s` of a node region from an explicit descriptor at the
+// capacity-0 geometry (the donor-shape form of btss_fmt_slot).
+unsafe fn pk_fmt_slot(a: *mut PkdAlloc, s: u32, d: &PdtDescr) {
+    let zero: Vec<u64> = pdt_payload_zero(d);
+    let need: u32 = pdtbuf_compute_block_size(d, 0u64, &zero);
+    let p: *mut u8 = match a.allocate(s, need, SlotKind::Allocatable) {
+        Result::Ok(q) => q,
+        Result::Err(_e) => {
+            assert(false, "pack: node slot allocation failed");
+            return;
+        }
+    };
+    let bsz: u32 = a.element_size(s);
+    match pdtbuf_format(p, bsz, d) {
+        Result::Ok(_b) => {}
+        Result::Err(_e) => {
+            assert(false, "pack: node slot format failed");
+        }
+    }
+    let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+    inner.set_allocator(a as *const PkdAlloc);
+}
+
+// Fresh empty leaf shaped LIKE the donor (same block size, same column
+// descriptors read off the self-describing donor slots).
+fn pk_leaf_new_like<P: NodeProfile>(donor: *mut u8, snp: u64) -> *mut u8 {
+    unsafe {
+        let da: *mut PkdAlloc = P::pkd(donor);
+        let kd: PdtDescr = pk_slot(da, 0u32).descr();
+        let vd: PdtDescr = pk_slot(da, 1u32).descr();
+        let node: *mut u8 = P::alloc(P::block_size(donor), 2u32, snp);
+        let a: *mut PkdAlloc = P::pkd(node);
+        pk_fmt_slot(a, 0u32, &kd);
+        pk_fmt_slot(a, 1u32, &vd);
+        return node;
+    }
+}
+
+// Fresh empty 3-slot branch (the uniform btss branch shape).
+fn pk_branch_new<P: NodeProfile>(snp: u64, branch_bytes: u32) -> *mut u8 {
+    unsafe {
+        let node: *mut u8 = P::alloc(branch_bytes, 3u32, snp);
+        P::set_child_slot(node, PKB_CHILD);
+        let a: *mut PkdAlloc = P::pkd(node);
+        btss_fmt_slot(a, PKB_SEP, false, true);
+        btss_fmt_slot(a, PKB_CNT, false, false);
+        btss_fmt_slot(a, PKB_CHILD, false, false);
+        return node;
+    }
+}
+
+// "Make `node` privately writable under snapshot `cur`" — the RAW-region
+// form of bt_leaf_private/bt_branch_private: fresh node, region byte-copy
+// (the packed family's region is position-independent — the CoW-clone-unit
+// law), child_slot restored, children rc-bumped for a branch. The fresh
+// header (rc = 1, snap = cur) comes from P::alloc.
+fn pk_private<P: NodeProfile>(node: *mut u8, cur: u64, is_branch: bool) -> *mut u8 {
+    unsafe {
+        if P::snapshot(node) == cur {
+            return node;
+        }
+        let sa: *mut PkdAlloc = P::pkd(node);
+        let n: *mut u8 = P::alloc(P::block_size(node), sa.elements(), cur);
+        let da: *mut PkdAlloc = P::pkd(n);
+        copy_bytes(da as *mut u8, sa as *const u8, sa.block_size() as i64);
+        P::set_child_slot(n, P::child_slot(node));
+        if is_branch {
+            let cb: PdtBuf = pk_slot(P::pkd(n), PKB_CHILD);
+            let cc: u64 = cb.size();
+            let mut i: u64 = 0u64;
+            while i < cc {
+                P::inc_rc(cb.get(0u32, i) as *mut u8);
+                i = i + 1u64;
+            }
+        }
+        return n;
+    }
+}
+
+// ── the merged read view: leaf prefix ++ staging ++ leaf suffix ─────────────
+
+struct PkMerged {
+    leaf: *mut u8,
+    split: u64,
+    lcount: u64,
+    kbuf: *mut u8,
+    vbuf: *mut u8,
+    bcount: u64,
+    vle: bool,
+}
+
+fn pk_merged_len(m: &PkMerged) -> u64 {
+    return m.lcount + m.bcount;
+}
+
+fn pk_merged_key<P: NodeProfile>(m: &PkMerged, i: u64) -> u64 {
+    unsafe {
+        if i < m.split {
+            return pk_slot(P::pkd(m.leaf), 0u32).get(0u32, i);
+        }
+        if i < m.split + m.bcount {
+            return pdtbuf_adopt(m.kbuf).get(0u32, i - m.split);
+        }
+        return pk_slot(P::pkd(m.leaf), 0u32).get(0u32, i - m.bcount);
+    }
+}
+
+fn pk_merged_val_cell<P: NodeProfile>(m: &PkMerged, i: u64) -> u64 {
+    unsafe {
+        if i < m.split {
+            return pk_slot(P::pkd(m.leaf), 1u32).get(0u32, i);
+        }
+        if i < m.split + m.bcount {
+            return pdtbuf_adopt(m.vbuf).get(0u32, i - m.split);
+        }
+        return pk_slot(P::pkd(m.leaf), 1u32).get(0u32, i - m.bcount);
+    }
+}
+
+fn pk_merged_val_span<P: NodeProfile>(m: &PkMerged, i: u64) -> &[u8] {
+    // Raw-parts construction (see BtssBuf::val_span) — the provenance is the
+    // leaf block / staging block, not the local PdtBuf view.
+    unsafe {
+        let mut b: PdtBuf = pk_slot(P::pkd(m.leaf), 1u32);
+        let mut r: u64 = i;
+        if i >= m.split && i < m.split + m.bcount {
+            b = pdtbuf_adopt(m.vbuf);
+            r = i - m.split;
+        } else if i >= m.split + m.bcount {
+            r = i - m.bcount;
+        }
+        let off: u64 = b.row_offset(0u32, 0u32, r);
+        let len: u64 = b.row_len(0u32, 0u32, r);
+        return slice_from_raw::<u8>(b.payload(0u32, 0u32).byte_add(off as i64), len as i64);
+    }
+}
+
+// VLE payload bytes of merged rows [i0, i0+r) — piecewise off the two
+// sources' live byte-offset prefix sums (segment-additive: the A1 axiom).
+fn pk_merged_payload<P: NodeProfile>(m: &PkMerged, i0: u64, r: u64) -> u64 {
+    unsafe {
+        let lb: PdtBuf = pk_slot(P::pkd(m.leaf), 1u32);
+        let bb: PdtBuf = pdtbuf_adopt(m.vbuf);
+        let e: u64 = i0 + r;
+        let mut total: u64 = 0u64;
+        // segment 1: leaf prefix rows [0, split)
+        if i0 < m.split {
+            let hi: u64 = if e < m.split { e } else { m.split };
+            total = total + lb.row_offset(0u32, 0u32, hi) - lb.row_offset(0u32, 0u32, i0);
+        }
+        // segment 2: staging rows [split, split+bcount)
+        let s2lo: u64 = if i0 > m.split { i0 } else { m.split };
+        let s2hi: u64 = if e < m.split + m.bcount { e } else { m.split + m.bcount };
+        if s2lo < s2hi {
+            total = total + bb.row_offset(0u32, 0u32, s2hi - m.split)
+                          - bb.row_offset(0u32, 0u32, s2lo - m.split);
+        }
+        // segment 3: leaf suffix rows [split+bcount, ...)
+        let s3lo: u64 = if i0 > m.split + m.bcount { i0 } else { m.split + m.bcount };
+        if s3lo < e {
+            total = total + lb.row_offset(0u32, 0u32, e - m.bcount)
+                          - lb.row_offset(0u32, 0u32, s3lo - m.bcount);
+        }
+        return total;
+    }
+}
+
+// ── the splice ──────────────────────────────────────────────────────────────
+
+// One parent row of the map splice report: (separator, count, child).
+struct PkRow {
+    sep: u64,
+    cnt: u64,
+    ptr: *mut u8,
+}
+
+// Max merged rows a fresh donor-shaped leaf admits within `budget` bytes,
+// for the fragment starting at merged row `done` — binary search over the
+// monotone range weight (keys FSE + values FSE/VLE via the merged payload).
+fn pk_leaf_rows_cap<P: NodeProfile>(m: &PkMerged, done: u64, remaining: u64,
+                                    kd: &PdtDescr, vd: &PdtDescr, budget: u32) -> u64 {
+    let zero: Vec<u64> = pdt_payload_zero(kd);
+    let mut lo: u64 = 1u64;
+    let mut hi: u64 = remaining;
+    while lo < hi {
+        let mid: u64 = (lo + hi + 1u64) / 2u64;
+        let kw: u32 = pdtbuf_compute_block_size(kd, mid, &zero);
+        let mut vpay: Vec<u64> = vec_new::<u64>();
+        if m.vle {
+            vpay.push(pk_merged_payload::<P>(m, done, mid));
+        }
+        let vw: u32 = pdtbuf_compute_block_size(vd, mid, &vpay);
+        let mut ws: Vec<u32> = vec_new::<u32>();
+        ws.push(kw);
+        ws.push(vw);
+        if pack_region_weight(&ws) <= budget {
+            lo = mid;
+        } else {
+            hi = mid - 1u64;
+        }
+    }
+    return lo;
+}
+
+// Pack the merged sequence into fresh donor-shaped leaves at the 90% fill
+// target; one two-phase bulk insert per column per fragment.
+fn pk_pack_leaves<P: NodeProfile>(m: &PkMerged, donor: *mut u8, snp: u64,
+                                  out: &mut Vec<PkRow>) {
+    unsafe {
+        let da: *mut PkdAlloc = P::pkd(donor);
+        let kd: PdtDescr = pk_slot(da, 0u32).descr();
+        let vd: PdtDescr = pk_slot(da, 1u32).descr();
+        let total: u64 = pk_merged_len(m);
+        let budget: u32 = (*da).block_size() * 9u32 / 10u32;
+        let mut done: u64 = 0u64;
+        while done < total {
+            let cap: u64 = pk_leaf_rows_cap::<P>(m, done, total - done, &kd, &vd, budget);
+            assert(cap > 0u64, "pack: a merged row exceeds the leaf budget (the 1/4 bound was not enforced upstream?)");
+            let take: u64 = cap;
+            let lf: *mut u8 = pk_leaf_new_like::<P>(donor, snp);
+            let a: *mut PkdAlloc = P::pkd(lf);
+            // keys
+            {
+                let kb: PdtBuf = pk_slot(a, 0u32);
+                let us: PdtUpdate = match kb.prepare_insert(0u64, take, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "pack: priced key fragment rejected (weight law broken?)");
+                        return;
+                    }
+                };
+                let mut cells: Vec<u64> = vec_new::<u64>();
+                let mut i: u64 = 0u64;
+                while i < take {
+                    cells.push(pk_merged_key::<P>(m, done + i));
+                    i = i + 1u64;
+                }
+                let mut kb2: PdtBuf = pk_slot(a, 0u32);
+                kb2.commit_insert(&us, &cells);
+            }
+            // values
+            if m.vle {
+                let mut vals: PdtVals = pdt_vals_new();
+                let mut i: u64 = 0u64;
+                while i < take {
+                    vals.push_span(pk_merged_val_span::<P>(m, done + i));
+                    i = i + 1u64;
+                }
+                let vb: PdtBuf = pk_slot(a, 1u32);
+                let us: PdtUpdate = match vb.prepare_insert_vals(0u64, take, PDT_CAP_KEEP, &vals) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "pack: priced VLE fragment rejected (weight law broken?)");
+                        return;
+                    }
+                };
+                let mut vb2: PdtBuf = pk_slot(a, 1u32);
+                vb2.commit_insert_vals(&us, &vals);
+            } else {
+                let vb: PdtBuf = pk_slot(a, 1u32);
+                let us: PdtUpdate = match vb.prepare_insert(0u64, take, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "pack: priced val fragment rejected (weight law broken?)");
+                        return;
+                    }
+                };
+                let mut cells: Vec<u64> = vec_new::<u64>();
+                let mut i: u64 = 0u64;
+                while i < take {
+                    cells.push(pk_merged_val_cell::<P>(m, done + i));
+                    i = i + 1u64;
+                }
+                let mut vb2: PdtBuf = pk_slot(a, 1u32);
+                vb2.commit_insert(&us, &cells);
+            }
+            out.push(PkRow {
+                sep: pk_merged_key::<P>(m, done + take - 1u64),
+                cnt: take,
+                ptr: lf,
+            });
+            done = done + take;
+        }
+    }
+}
+
+// Pack a (sep, cnt, child) row list into fresh 3-slot branches at the 90%
+// target. A branch's own separator = its last row's separator.
+fn pk_pack_branches<P: NodeProfile>(rows: &Vec<PkRow>, snp: u64, branch_bytes: u32,
+                                    out: &mut Vec<PkRow>) {
+    unsafe {
+        let probe: *mut u8 = pk_branch_new::<P>(snp, branch_bytes);
+        let budget: u32 = (*P::pkd(probe)).block_size();
+        let d: PdtDescr = pk_key_descr();
+        let zero: Vec<u64> = pdt_payload_zero(&d);
+        let mut lo: u64 = 1u64;
+        let mut hi: u64 = (budget as u64) / 24u64 + 1u64;
+        while lo < hi {
+            let mid: u64 = (lo + hi + 1u64) / 2u64;
+            let w: u32 = pdtbuf_compute_block_size(&d, mid, &zero);
+            let mut ws: Vec<u32> = vec_new::<u32>();
+            ws.push(w);
+            ws.push(w);
+            ws.push(w);
+            if pack_region_weight(&ws) <= budget {
+                lo = mid;
+            } else {
+                hi = mid - 1u64;
+            }
+        }
+        let mut target: u64 = lo * 9u64 / 10u64;
+        if target < 2u64 {
+            target = 2u64;
+        }
+        let total: u64 = rows.length() as u64;
+        let mut done: u64 = 0u64;
+        let mut cur: *mut u8 = probe;
+        while done < total {
+            let mut take: u64 = target;
+            if total - done < take {
+                take = total - done;
+            }
+            let a: *mut PkdAlloc = P::pkd(cur);
+            let mut sub: u64 = 0u64;
+            let mut i: u64 = 0u64;
+            while i < take {
+                let rw: &PkRow = rows.borrow((done + i) as i64);
+                btss_put_cell(a, PKB_SEP, i as u32, rw.sep);
+                btss_put_cell(a, PKB_CNT, i as u32, rw.cnt);
+                btss_put_cell(a, PKB_CHILD, i as u32, rw.ptr as u64);
+                sub = sub + rw.cnt;
+                i = i + 1u64;
+            }
+            out.push(PkRow {
+                sep: rows.borrow((done + take - 1u64) as i64).sep,
+                cnt: sub,
+                ptr: cur,
+            });
+            done = done + take;
+            if done < total {
+                cur = pk_branch_new::<P>(snp, branch_bytes);
+            }
+        }
+    }
+}
+
+// lower_bound over a MAX key/sep column in the raw u64 domain with the sign
+// verdict (first row NOT less than `key`).
+unsafe fn pk_lower_bound(b: &PdtBuf, key: u64, signed: bool) -> u64 {
+    let n: u64 = b.size();
+    let mut i: u64 = 0u64;
+    while i < n {
+        if !pk_lt(b.get(0u32, i), key, signed) {
+            return i;
+        }
+        i = i + 1u64;
+    }
+    return n;
+}
+
+// The recursive CoW splice. OWNERSHIP: takes the parent's one ref to
+// `node`; returns rows owning their ptrs. When the returned set does not
+// contain `node`, the original ref was released inside (tree_release — the
+// old block may still be shared with a frozen snapshot).
+fn pk_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, first: u64, signed: bool,
+                                 buf: &BtssBuf, cur: u64, branch_bytes: u32) -> Vec<PkRow> {
+    unsafe {
+        if level == 0u32 {
+            let work: *mut u8 = pk_private::<P>(node, cur, false);
+            let a: *mut PkdAlloc = P::pkd(work);
+            let m: u64 = buf.len();
+            let kb0: PdtBuf = pk_slot(a, 0u32);
+            let pos: u64 = pk_lower_bound(&kb0, first, signed);
+            // in-place try: BOTH columns priced against the shared region
+            // before either commits
+            let mut fits: bool = false;
+            {
+                let kb: PdtBuf = pk_slot(a, 0u32);
+                match kb.prepare_insert(pos, m, PDT_CAP_KEEP) {
+                    Result::Ok(us_k) => {
+                        if buf.vle {
+                            let mut vals: PdtVals = pdt_vals_new();
+                            let mut i: u64 = 0u64;
+                            while i < m {
+                                vals.push_span(buf.val_span(i));
+                                i = i + 1u64;
+                            }
+                            let vb: PdtBuf = pk_slot(a, 1u32);
+                            match vb.prepare_insert_vals(pos, m, PDT_CAP_KEEP, &vals) {
+                                Result::Ok(us_v) => {
+                                    fits = us_k.grow_bytes() + us_v.grow_bytes() <= a.free_space();
+                                }
+                                Result::Err(_e) => {}
+                            }
+                        } else {
+                            let vb: PdtBuf = pk_slot(a, 1u32);
+                            match vb.prepare_insert(pos, m, PDT_CAP_KEEP) {
+                                Result::Ok(us_v) => {
+                                    fits = us_k.grow_bytes() + us_v.grow_bytes() <= a.free_space();
+                                }
+                                Result::Err(_e) => {}
+                            }
+                        }
+                    }
+                    Result::Err(_e) => {}
+                }
+            }
+            if fits {
+                // keys
+                {
+                    let kb: PdtBuf = pk_slot(a, 0u32);
+                    let us: PdtUpdate = match kb.prepare_insert(pos, m, PDT_CAP_KEEP) {
+                        Result::Ok(u) => u,
+                        Result::Err(_e) => {
+                            assert(false, "pack: priced key insert failed at commit");
+                            return vec_new::<PkRow>();
+                        }
+                    };
+                    let mut cells: Vec<u64> = vec_new::<u64>();
+                    let mut i: u64 = 0u64;
+                    while i < m {
+                        cells.push(buf.key(i));
+                        i = i + 1u64;
+                    }
+                    let mut kb2: PdtBuf = pk_slot(a, 0u32);
+                    kb2.commit_insert(&us, &cells);
+                }
+                // values
+                if buf.vle {
+                    let mut vals: PdtVals = pdt_vals_new();
+                    let mut i: u64 = 0u64;
+                    while i < m {
+                        vals.push_span(buf.val_span(i));
+                        i = i + 1u64;
+                    }
+                    let vb: PdtBuf = pk_slot(a, 1u32);
+                    let us: PdtUpdate = match vb.prepare_insert_vals(pos, m, PDT_CAP_KEEP, &vals) {
+                        Result::Ok(u) => u,
+                        Result::Err(_e) => {
+                            assert(false, "pack: priced VLE insert failed at commit");
+                            return vec_new::<PkRow>();
+                        }
+                    };
+                    let mut vb2: PdtBuf = pk_slot(a, 1u32);
+                    vb2.commit_insert_vals(&us, &vals);
+                } else {
+                    let vb: PdtBuf = pk_slot(a, 1u32);
+                    let us: PdtUpdate = match vb.prepare_insert(pos, m, PDT_CAP_KEEP) {
+                        Result::Ok(u) => u,
+                        Result::Err(_e) => {
+                            assert(false, "pack: priced val insert failed at commit");
+                            return vec_new::<PkRow>();
+                        }
+                    };
+                    let mut cells: Vec<u64> = vec_new::<u64>();
+                    let mut i: u64 = 0u64;
+                    while i < m {
+                        cells.push(buf.val_cell(i));
+                        i = i + 1u64;
+                    }
+                    let mut vb2: PdtBuf = pk_slot(a, 1u32);
+                    vb2.commit_insert(&us, &cells);
+                }
+                if work != node {
+                    tree_release(node, 0u32);
+                }
+                let kbf: PdtBuf = pk_slot(a, 0u32);
+                let cnt: u64 = kbf.size();
+                let mut one: Vec<PkRow> = vec_new::<PkRow>();
+                one.push(PkRow { sep: kbf.get(0u32, cnt - 1u64), cnt: cnt, ptr: work });
+                return one;
+            }
+            // overflow: repack (prefix ++ staging ++ suffix) into fresh leaves
+            let merged: PkMerged = PkMerged {
+                leaf: work,
+                split: pos,
+                lcount: pk_slot(a, 0u32).size(),
+                kbuf: buf.kmem,
+                vbuf: buf.vmem,
+                bcount: m,
+                vle: buf.vle,
+            };
+            let mut rows: Vec<PkRow> = vec_new::<PkRow>();
+            pk_pack_leaves::<P>(&merged, work, cur, &mut rows);
+            if work != node {
+                P::free(work);              // the private clone (leaf: no children)
+                tree_release(node, 0u32);   // the original parent ref
+            } else {
+                P::free(node);
+            }
+            return rows;
+        }
+        let work: *mut u8 = pk_private::<P>(node, cur, true);
+        let a: *mut PkdAlloc = P::pkd(work);
+        let sb: PdtBuf = pk_slot(a, PKB_SEP);
+        let n: u64 = sb.size();
+        let mut ci: u64 = pk_lower_bound(&sb, first, signed);
+        if ci >= n {
+            ci = n - 1u64;                  // the FindShuttle clamp
+        }
+        let old_child: *mut u8 = pk_slot(a, PKB_CHILD).get(0u32, ci) as *mut u8;
+        let sub: Vec<PkRow> = pk_splice_rec::<P>(old_child, level - 1u32, first, signed,
+                                                 buf, cur, branch_bytes);
+        // refresh row ci from the first sub row
+        {
+            let mut s2: PdtBuf = pk_slot(a, PKB_SEP);
+            s2.set(0u32, ci, sub.borrow(0i64).sep);
+            let mut c2: PdtBuf = pk_slot(a, PKB_CNT);
+            c2.set(0u32, ci, sub.borrow(0i64).cnt);
+            let mut p2: PdtBuf = pk_slot(a, PKB_CHILD);
+            p2.set(0u32, ci, sub.borrow(0i64).ptr as u64);
+        }
+        if sub.length() > 1i64 {
+            let extra: u64 = (sub.length() as u64) - 1u64;
+            // admission: all three columns priced against the shared region
+            let mut fits: bool = false;
+            {
+                let s3: PdtBuf = pk_slot(a, PKB_SEP);
+                match s3.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                    Result::Ok(us_s) => {
+                        let c3: PdtBuf = pk_slot(a, PKB_CNT);
+                        match c3.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                            Result::Ok(us_c) => {
+                                let p3: PdtBuf = pk_slot(a, PKB_CHILD);
+                                match p3.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                                    Result::Ok(us_p) => {
+                                        fits = us_s.grow_bytes() + us_c.grow_bytes()
+                                             + us_p.grow_bytes() <= a.free_space();
+                                    }
+                                    Result::Err(_e) => {}
+                                }
+                            }
+                            Result::Err(_e) => {}
+                        }
+                    }
+                    Result::Err(_e) => {}
+                }
+            }
+            if fits {
+                let mut seps: Vec<u64> = vec_new::<u64>();
+                let mut cnts: Vec<u64> = vec_new::<u64>();
+                let mut ptrs: Vec<u64> = vec_new::<u64>();
+                let mut q: i64 = 1i64;
+                while q < sub.length() {
+                    seps.push(sub.borrow(q).sep);
+                    cnts.push(sub.borrow(q).cnt);
+                    ptrs.push(sub.borrow(q).ptr as u64);
+                    q = q + 1i64;
+                }
+                let s4: PdtBuf = pk_slot(a, PKB_SEP);
+                let us1: PdtUpdate = match s4.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "pack: priced sep insert failed at commit");
+                        return vec_new::<PkRow>();
+                    }
+                };
+                let mut s5: PdtBuf = pk_slot(a, PKB_SEP);
+                s5.commit_insert(&us1, &seps);
+                let c4: PdtBuf = pk_slot(a, PKB_CNT);
+                let us2: PdtUpdate = match c4.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "pack: priced cnt insert failed at commit");
+                        return vec_new::<PkRow>();
+                    }
+                };
+                let mut c5: PdtBuf = pk_slot(a, PKB_CNT);
+                c5.commit_insert(&us2, &cnts);
+                let p4: PdtBuf = pk_slot(a, PKB_CHILD);
+                let us3: PdtUpdate = match p4.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "pack: priced child insert failed at commit");
+                        return vec_new::<PkRow>();
+                    }
+                };
+                let mut p5: PdtBuf = pk_slot(a, PKB_CHILD);
+                p5.commit_insert(&us3, &ptrs);
+            } else {
+                // recompose this branch's whole row list into fresh branches
+                let mut rows: Vec<PkRow> = vec_new::<PkRow>();
+                let sbx: PdtBuf = pk_slot(a, PKB_SEP);
+                let cbx: PdtBuf = pk_slot(a, PKB_CNT);
+                let pbx: PdtBuf = pk_slot(a, PKB_CHILD);
+                let mut i: u64 = 0u64;
+                while i < n {
+                    if i == ci {
+                        let mut q: i64 = 0i64;
+                        while q < sub.length() {
+                            rows.push(PkRow {
+                                sep: sub.borrow(q).sep,
+                                cnt: sub.borrow(q).cnt,
+                                ptr: sub.borrow(q).ptr,
+                            });
+                            q = q + 1i64;
+                        }
+                    } else {
+                        rows.push(PkRow {
+                            sep: sbx.get(0u32, i),
+                            cnt: cbx.get(0u32, i),
+                            ptr: pbx.get(0u32, i) as *mut u8,
+                        });
+                    }
+                    i = i + 1u64;
+                }
+                let mut out: Vec<PkRow> = vec_new::<PkRow>();
+                pk_pack_branches::<P>(&rows, cur, branch_bytes, &mut out);
+                // the refs moved into the fresh branches: drop the shells
+                if work != node {
+                    P::free(work);              // clone shell (no child walk)
+                    tree_release(node, level);  // original ref (decs children)
+                } else {
+                    P::free(node);              // own shell, refs transferred
+                }
+                return out;
+            }
+        }
+        if work != node {
+            tree_release(node, level);
+        }
+        // recompute this node's total off its refreshed count column
+        let cbt: PdtBuf = pk_slot(a, PKB_CNT);
+        let nn: u64 = cbt.size();
+        let mut tot: u64 = 0u64;
+        let mut i2: u64 = 0u64;
+        while i2 < nn {
+            tot = tot + cbt.get(0u32, i2);
+            i2 = i2 + 1u64;
+        }
+        let sbt: PdtBuf = pk_slot(a, PKB_SEP);
+        let mut one: Vec<PkRow> = vec_new::<PkRow>();
+        one.push(PkRow { sep: sbt.get(0u32, nn - 1u64), cnt: tot, ptr: work });
+        return one;
+    }
+}
+
+/// The map batch-insert result: `ok = false` = the batch was REJECTED
+/// (unsorted, or its key range interleaves an existing key) and NOTHING was
+/// mutated; on success root/level carry the (possibly repointed) tree top.
+pub struct BtssBatchRet {
+    pub ok: bool,
+    pub root: *mut u8,
+    pub level: u32,
+}
+
+/// Batch insert into the btss map: `buf` strictly ascending under `signed`,
+/// landing whole between two adjacent existing keys (the sorted-run
+/// contract; the general interleaving merge is a later op). Validation is
+/// READ-ONLY and precedes any mutation — a rejected batch leaves the tree
+/// untouched. The mutating walk is CoW: every touched node is privatized
+/// to `cur` first.
+pub fn btss_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, level: u32,
+                                         buf: &BtssBuf, signed: bool,
+                                         branch_bytes: u32) -> BtssBatchRet {
+    let m: u64 = buf.len();
+    if m == 0u64 {
+        return BtssBatchRet { ok: true, root: root, level: level };
+    }
+    if !buf.is_sorted(signed) {
+        return BtssBatchRet { ok: false, root: root, level: level };
+    }
+    let first: u64 = buf.key(0u64);
+    let last: u64 = buf.key(m - 1u64);
+    // read-only pre-check: find the landing leaf, reject interleaving
+    unsafe {
+        let mut node: *mut u8 = root;
+        let mut lvl: u32 = level;
+        while lvl > 0u32 {
+            let a: *mut PkdAlloc = P::pkd(node);
+            let sb: PdtBuf = pk_slot(a, PKB_SEP);
+            let mut ci: u64 = pk_lower_bound(&sb, first, signed);
+            if ci >= sb.size() {
+                ci = sb.size() - 1u64;
+            }
+            node = pk_slot(a, PKB_CHILD).get(0u32, ci) as *mut u8;
+            lvl = lvl - 1u32;
+        }
+        let kb: PdtBuf = pk_slot(P::pkd(node), 0u32);
+        let pos: u64 = pk_lower_bound(&kb, first, signed);
+        if pos < kb.size() {
+            if !pk_lt(last, kb.get(0u32, pos), signed) {
+                return BtssBatchRet { ok: false, root: root, level: level };
+            }
+        }
+    }
+    let cur: u64 = snap.snapshot_id();
+    let mut rows: Vec<PkRow> = pk_splice_rec::<P>(root, level, first, signed,
+                                                  buf, cur, branch_bytes);
+    let mut lvl: u32 = level;
+    while rows.length() > 1i64 {
+        let mut up: Vec<PkRow> = vec_new::<PkRow>();
+        pk_pack_branches::<P>(&rows, cur, branch_bytes, &mut up);
+        rows = up;
+        lvl = lvl + 1u32;
+    }
+    return BtssBatchRet { ok: true, root: rows.borrow(0i64).ptr, level: lvl };
 }

@@ -168,6 +168,8 @@ sym	logos.mem.bt.alg.NodeBatch__type_id__g__ref_T
 sym	logos.mem.bt.alg.NodeOp__type_id__g__ref_T
 sym	logos.mem.bt.alg.NodeSchema__type_id__g__ref_T
 sym	logos.mem.bt.alg.StreamDescr__type_id__g__ref_T
+sym	logos.mem.bt.btfl.BfCol__type_id__g__ref_T
+sym	logos.mem.bt.btfl.BtflBuf__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflCut__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflEntryCur__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflEntry__type_id__g__ref_T
@@ -185,6 +187,8 @@ sym	logos.mem.bt.memstore.MemoryStore__type_id__g__ref_T
 sym	logos.mem.bt.memstore.SnapDesc__type_id__g__ref_T
 sym	logos.mem.bt.node.CowProfile__type_id__g__ref_T
 sym	logos.mem.bt.ops.BtCur__type_id__g__ref_T
+sym	logos.mem.bt.pack.BtssBatchRet__type_id__g__ref_T
+sym	logos.mem.bt.pack.BtssBuf__type_id__g__ref_T
 sym	logos.mem.bt.storecfg.StoreCfg__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$String__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$bool__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -9227,11 +9231,13 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__AtomicU32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__AtomicU64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__AtomicU8
 sym	logos_lang.logos.lang.any$type_id_of__g__void__AtomicUsize
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BfCol
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowMutError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowedBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BranchDatum
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtCur
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflCut
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflEntry
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflEntryCur
@@ -9239,6 +9245,8 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflLoc
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflSeek
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflStage
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflValCur
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtssBatchRet
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtssBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtvecBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtvecCur
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ByteSplitter
@@ -10182,6 +10190,13 @@ sym	logos_mem..logos.mem.any.TypeInfo__type_code__f__ref_TypeInfo
 sym	logos_mem..logos.mem.boxed.Box$G1$SnapDesc__deref__g__ref_Box$G1$T
 sym	logos_mem..logos.mem.boxed.Box$G1$SnapDesc__deref_mut__g__refmut_Box$G1$T
 sym	logos_mem..logos.mem.boxed.Box$G1$SnapDesc__drop__g__Box$G1$T
+sym	logos_mem..logos.mem.bt.btfl.BtflBuf__drop__f__refmut_BtflBuf
+sym	logos_mem..logos.mem.bt.btfl.BtflBuf__is_sorted__f__ref_BtflBuf
+sym	logos_mem..logos.mem.bt.btfl.BtflBuf__key__f__ref_BtflBuf__u64
+sym	logos_mem..logos.mem.bt.btfl.BtflBuf__len__f__ref_BtflBuf
+sym	logos_mem..logos.mem.bt.btfl.BtflBuf__push_entry__f__refmut_BtflBuf__u64__ref_Vec$G1$u64
+sym	logos_mem..logos.mem.bt.btfl.BtflBuf__val_flat__f__ref_BtflBuf__u64
+sym	logos_mem..logos.mem.bt.btfl.BtflBuf__vcnt__f__ref_BtflBuf__u64
 sym	logos_mem..logos.mem.bt.btfl.BtflStage__entries__f__ref_BtflStage
 sym	logos_mem..logos.mem.bt.btfl.BtflStage__push_entry__f__refmut_BtflStage__u64__ref_Vec$G1$u64
 sym	logos_mem..logos.mem.bt.btfl.BtflStage__size__f__ref_BtflStage
@@ -10227,6 +10242,15 @@ sym	logos_mem..logos.mem.bt.node.CowProfile__rc__f__pmut_u8
 sym	logos_mem..logos.mem.bt.node.CowProfile__set_child_slot__f__pmut_u8__u32
 sym	logos_mem..logos.mem.bt.node.CowProfile__set_snapshot__f__pmut_u8__u64
 sym	logos_mem..logos.mem.bt.node.CowProfile__snapshot__f__pmut_u8
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__drop__f__refmut_BtssBuf
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__is_sorted__f__ref_BtssBuf__bool
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__is_vle__f__ref_BtssBuf
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__key__f__ref_BtssBuf__u64
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__len__f__ref_BtssBuf
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__push_cell__f__refmut_BtssBuf__u64__u64
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__push_span__f__refmut_BtssBuf__u64__slice_u8
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__val_cell__f__ref_BtssBuf__u64
+sym	logos_mem..logos.mem.bt.pack.BtssBuf__val_span__f__ref_BtssBuf__u64
 sym	logos_mem..logos.mem.bt.storecfg.StoreCfg__branch_bytes__f__StoreCfg
 sym	logos_mem..logos.mem.bt.storecfg.StoreCfg__get__f__StoreCfg__slice_u8
 sym	logos_mem..logos.mem.bt.storecfg.StoreCfg__get_int_or__f__StoreCfg__slice_u8__u64
@@ -11337,6 +11361,7 @@ sym	logos_mem.logos.mem.bt.alg$sd_child__f__void
 sym	logos_mem.logos.mem.bt.alg$sd_fse__f__u32__bool
 sym	logos_mem.logos.mem.bt.alg$sd_ssrle__f__u32
 sym	logos_mem.logos.mem.bt.alg$sd_vle__f__void
+sym	logos_mem.logos.mem.bt.btfl$btfl_buf_new__f__void
 sym	logos_mem.logos.mem.bt.btfl$btfl_cut__f__ref_BtflStage__u64__u64
 sym	logos_mem.logos.mem.bt.btfl$btfl_stage_new__f__void
 sym	logos_mem.logos.mem.bt.btss$btss_count__f__pmut_PkdAlloc
@@ -11377,6 +11402,7 @@ sym	logos_mem.logos.mem.bt.node$node_set_child_slot__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_set_rc__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_set_snapshot__f__pmut_u8__u64
 sym	logos_mem.logos.mem.bt.node$node_snapshot__f__pmut_u8
+sym	logos_mem.logos.mem.bt.pack$btss_buf_new__f__bool__u64
 sym	logos_mem.logos.mem.bt.pack$pack_col_weight__f__ref_PdtBuf__u64__u64
 sym	logos_mem.logos.mem.bt.pack$pack_range_payload__f__ref_PdtBuf__u64__u64
 sym	logos_mem.logos.mem.bt.pack$pack_region_weight__f__ref_Vec$G1$u32
@@ -12321,8 +12347,10 @@ type	logos.mem.bt.alg.NodeBatch	fields=[ops:Vec<NodeOp>]
 type	logos.mem.bt.alg.NodeOp	fields=[op:u32,stream:u32,pos:u64,n:u64,datum:u32]
 type	logos.mem.bt.alg.NodeSchema	fields=[streams:Vec<StreamDescr>]
 type	logos.mem.bt.alg.StreamDescr	fields=[kind:u32,width:u32,alphabet:u32,ordered:bool]
+type	logos.mem.bt.btfl.BfCol	fields=[mem:*mut u8,cap:u64]
 type	logos.mem.bt.btfl.Btfl	fields=[root:*mut u8,level:u32,leaf_bytes:u32,branch_bytes:u32]
 type	logos.mem.bt.btfl.BtflBranchRef	fields=[mem:*mut u8]
+type	logos.mem.bt.btfl.BtflBuf	fields=[kc:BfCol,vc:BfCol,cc:BfCol]
 type	logos.mem.bt.btfl.BtflCut	fields=[keys:u64,vals:u64,key_at:u64,val_at:u64]
 type	logos.mem.bt.btfl.BtflEntry	fields=[flat:*const Vec<u64>,lens:*const Vec<u64>,spans:*const PdtVals]
 type	logos.mem.bt.btfl.BtflEntryCur	fields=[found:bool,leaf:*mut u8,kidx:u32]
@@ -12342,6 +12370,8 @@ type	logos.mem.bt.memstore.SnapDesc	fields=[id:u64,dir:Directory,status:u32,wrap
 type	logos.mem.bt.node.CowProfile	fields=[]
 type	logos.mem.bt.ops.BtCur	fields=[found:bool,leaf:*mut u8,idx:u32]
 type	logos.mem.bt.ops.BtInsRet	fields=[ok:bool,addr:*mut u8,lsep:K,lcnt:[u64; N],split:bool,rsep:K,rcnt:[u64; N],rptr:*mut u8]
+type	logos.mem.bt.pack.BtssBatchRet	fields=[ok:bool,root:*mut u8,level:u32]
+type	logos.mem.bt.pack.BtssBuf	fields=[kmem:*mut u8,vmem:*mut u8,cap_rows:u64,vle:bool]
 type	logos.mem.bt.storecfg.StoreCfg	fields=[ext:WView2,loc:WView2]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]

@@ -452,6 +452,118 @@ fn run_all() -> i32 {
         }
     }
 
+    // ── 70..79: BATCH insert (make_buffer / push / insert_batch) ────────────
+    // Entry-aligned batches against the same reference model; per-batch full
+    // equivalence (check_full = the whole law set incl. the structure
+    // stream), rejection laws leave the tree untouched.
+    {
+        let hc = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 5u64);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0xF00Du64 };
+
+        // (a) bulk load into the empty container: 900 entries, value runs
+        // 0..6 (incl. empty runs — adjacent 0-symbols in the structure)
+        {
+            let mut buf = hc.make_buffer();
+            let mut i: u64 = 0u64;
+            while i < 900u64 {
+                let k: u64 = i * 8u64;
+                let mcnt: u64 = lcg.next() % 7u64;
+                let mut vals: Vec<u64> = vec_new::<u64>();
+                let mut j: u64 = 0u64;
+                while j < mcnt {
+                    vals.push(k * 100u64 + j);
+                    j = j + 1u64;
+                }
+                buf.push(k, &vals);
+                model_insert(&mut md, k, &vals);
+                i = i + 1u64;
+            }
+            if !hc.insert_batch(&buf) {
+                return 70i32;
+            }
+        }
+        {
+            let t: Btfl<2, CowProfile> = hc.tree();
+            let c: i32 = check_full(&t, &md);
+            if c != 0i32 {
+                return 71i32;
+            }
+        }
+        if hc.level() < 1u32 {
+            return 72i32;   // the bulk load must have split
+        }
+
+        // (b) rejection: unsorted / interleaving — tree untouched
+        {
+            let before: u64 = hc.count(0u64);
+            let mut bad = hc.make_buffer();
+            let mut v1: Vec<u64> = vec_new::<u64>();
+            v1.push(1u64);
+            bad.push(500u64, &v1);
+            bad.push(3u64, &v1);       // unsorted
+            if hc.insert_batch(&bad) {
+                return 73i32;
+            }
+            let mut bad2 = hc.make_buffer();
+            bad2.push(1u64, &v1);      // between existing 0 and 8
+            bad2.push(9u64, &v1);      // between 8 and 16 — straddles 8
+            if hc.insert_batch(&bad2) {
+                return 74i32;
+            }
+            if hc.count(0u64) != before {
+                return 75i32;
+            }
+        }
+
+        // (c) disjoint batches into gaps, full equivalence after each
+        let mut r: i64 = 0i64;
+        while r < 8i64 {
+            let base: u64 = 7200u64 + (r as u64) * 1000u64;   // above the loaded range
+            let n: u64 = 50u64 + lcg.next() % 200u64;
+            let mut buf = hc.make_buffer();
+            let mut i: u64 = 0u64;
+            while i < n {
+                let k: u64 = base + i * 2u64;
+                let mcnt: u64 = lcg.next() % 5u64;
+                let mut vals: Vec<u64> = vec_new::<u64>();
+                let mut j: u64 = 0u64;
+                while j < mcnt {
+                    vals.push(k + 1000000u64 + j);
+                    j = j + 1u64;
+                }
+                buf.push(k, &vals);
+                model_insert(&mut md, k, &vals);
+                i = i + 1u64;
+            }
+            if !hc.insert_batch(&buf) {
+                return 76i32;
+            }
+            let t: Btfl<2, CowProfile> = hc.tree();
+            let c: i32 = check_full(&t, &md);
+            if c != 0i32 {
+                return 77i32;
+            }
+            r = r + 1i64;
+        }
+        // (d) the hierarchical seek still holds over the batched content
+        {
+            let nk2: i64 = md.mk.len();
+            let mut n2: i64 = 0i64;
+            while n2 < nk2 {
+                let kc = hc.seek(n2 as u64);
+                if !kc.valid() || kc.key() != md.mk.get(n2) {
+                    return 78i32;
+                }
+                let vc: u64 = md.moff.get(n2 + 1i64) - md.moff.get(n2);
+                if kc.val_count() != vc {
+                    return 79i32;
+                }
+                n2 = n2 + 97i64;
+            }
+        }
+    }
+
     return 0i32;
 }
 
