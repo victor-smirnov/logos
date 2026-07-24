@@ -170,13 +170,28 @@ disagrees, the legacy is discarded, not emulated.
 ## Staging
 
 * **S1** — description layer: Op/Batch/NodeSchema/Datum types (data only).
+  LANDED (logos.mem.bt.alg).
 * **S2** — reference interpreter + law tests (pricing, atomicity, rejection
   paths, projections); existing surfaces re-expressed as batches.
+  LANDED (logos.mem.bt.interp; alg_interp/alg_entry gates — all five
+  hand-unrollings shown as algebra instances).
 * **S3** — the kernel generator (metafunction over NodeSchema), differential
   gate vs the interpreter across schemas × batches; fusion of user fns.
+  LANDED (logos.lcm.canon.alg_kernel: entry family + the fused WITH_ENTRY
+  whose decide expression splices inline; alg_kernel_diff/alg_kernel_family
+  gates against the interpreter, rejection boundary included).
 * **S4** — surface rebase: btss_upsert_* die into algebra instantiations;
   btfl entry ops and branch row ops become batches; `with_value`-style
   WITH_ENTRY lands on the Map/Multimap boundary traits.
+  LANDED for the ordered_map plane: the factory emits per-schema kernels
+  (Canon verdict → wire spelling), generated try_insert/with_entry ride
+  them, btss_upsert_* are DELETED; bt_cow_with_entry twins the CoW walk;
+  the handle's with_entry(key, f) is the boundary form (f = fn-ptr there;
+  splice-fusion is the metaprogram tier's form). REMAINING: the btfl
+  multimap step (btfl_step → kernels) — deliberately deferred INTO the
+  btfl 8a2/8c re-generalization arc: replacing the 2-stream-hardwired
+  runtime pays for itself when N and per-stream kinds generalize, not
+  before.
 
 Non-goals here: split/merge (separate task), cross-node composition (stays
 in the BT protocol skeleton, which sequences node-local batches).
