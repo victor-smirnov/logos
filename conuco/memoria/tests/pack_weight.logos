@@ -1,0 +1,369 @@
+// pack_weight — the WEIGHT-ORACLE gate (batch-insert slice 0). Pins the
+// theorem the packer will stand on: the price of a fresh block holding a
+// staging RANGE is computable from the staging's own prefix geometry —
+// zero mutations — and it equals the materialized block's consumption
+// BYTE FOR BYTE. Randomized content and cuts, all three stream kinds.
+// A drift of one byte anywhere = the attempt-free packing claim is false
+// and the arc stops here instead of on a corrupted leaf.
+//
+// Laws per kind:
+//   FSE (unordered + MAX-ordered): weight == consumed; cells roundtrip.
+//   VLE (byte-offset prefix sums): weight == consumed; spans roundtrip.
+//   SSRLE (run-list cuts, incl. mid-run): unit size == code_units after
+//     set_runs; block price admits the encode; symbols roundtrip.
+//   Region: PkdAlloc price formula admits exactly the priced slots.
+//
+// Error-code decades: 10..19 FSE, 20..29 VLE, 30..39 SSRLE, 40..49 region.
+package test;
+
+use logos.mem.bt.pack;           // the weight calculus under test
+use logos.mem.pkd;               // PkdAlloc, SlotKind
+use logos.mem.pkd.pdtbuf;        // PdtBuf — staging + materialization
+use logos.mem.pkd.sseq;          // PkdSsrle
+use logos.mem.pkd.ssrle;         // SsrleRun, runs_from_symbols, compute_size
+use logos.lang.arith;
+use logos.lang.mem;              // alloc/dealloc — heap staging blocks
+use logos.lang.result;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
+
+// deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
+struct Lcg {
+    s: u64,
+}
+
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 {
+        self.s = wrapping_add::<u64>(
+            wrapping_mul::<u64>(self.s, 6364136223846793005u64),
+            1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+}
+
+// ── FSE: staging fill → random cuts → materialize → byte equality ───────────
+
+unsafe fn fse_case(lcg: &mut Lcg, ordered: bool) -> i32 {
+    let mut d: PdtDescr = pdt_descr_new(1u32,
+        if ordered { PDT_ORD_MAX } else { PDT_ORD_UNORDERED }, false);
+    d.dims.push(pdt_dim_fse(8u32));
+
+    let n: u64 = 64u64 + lcg.next() % 700u64;
+    // staging cells (ascending when MAX-ordered — the key-column shape)
+    let mut cells: Vec<u64> = vec_new::<u64>();
+    let mut acc: u64 = 0u64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        if ordered {
+            acc = acc + 1u64 + lcg.next() % 9u64;
+            cells.push(acc);
+        } else {
+            cells.push(lcg.next());
+        }
+        i = i + 1u64;
+    }
+
+    // staging block: priced by the same oracle, filled through the real path
+    let zero: Vec<u64> = pdt_payload_zero(&d);
+    let sbytes: u32 = pdtbuf_compute_block_size(&d, n, &zero);
+    let smem: *mut u8 = alloc(sbytes as i64);
+    let sb: PdtBuf = match pdtbuf_format(smem, sbytes, &d) {
+        Result::Ok(b) => b,
+        Result::Err(_e) => { return 11i32; }
+    };
+    let us: PdtUpdate = match sb.prepare_insert(0u64, n, PDT_CAP_KEEP) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => { return 12i32; }
+    };
+    let mut sb2: PdtBuf = pdtbuf_adopt(smem);
+    sb2.commit_insert(&us, &cells);
+
+    // random cuts
+    let mut r: i64 = 0i64;
+    while r < 40i64 {
+        let stg: PdtBuf = pdtbuf_adopt(smem);
+        let i0: u64 = lcg.next() % n;
+        let k: u64 = 1u64 + lcg.next() % (n - i0);
+        let w: u32 = pack_col_weight(&stg, i0, k);
+
+        let mem: *mut u8 = alloc(w as i64);
+        let mb: PdtBuf = match pdtbuf_format(mem, w, &d) {
+            Result::Ok(b) => b,
+            Result::Err(_e) => { return 13i32; }   // weight too small to even format
+        };
+        let mu: PdtUpdate = match mb.prepare_insert(0u64, k, PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { return 14i32; }   // weight rejected the priced rows
+        };
+        let mut rng: Vec<u64> = vec_new::<u64>();
+        let mut j: u64 = 0u64;
+        while j < k {
+            rng.push(cells.get((i0 + j) as i64));
+            j = j + 1u64;
+        }
+        let mut mb2: PdtBuf = pdtbuf_adopt(mem);
+        mb2.commit_insert(&mu, &rng);
+
+        let fin: PdtBuf = pdtbuf_adopt(mem);
+        if fin.consumed_bytes() != w {
+            return 15i32;   // THE law: prepared == consumed, range form
+        }
+        if fin.size() != k {
+            return 16i32;
+        }
+        j = 0u64;
+        while j < k {
+            if fin.get(0u32, j) != cells.get((i0 + j) as i64) {
+                return 17i32;
+            }
+            j = j + 1u64;
+        }
+        dealloc(mem);
+        r = r + 1i64;
+    }
+    dealloc(smem);
+    return 0i32;
+}
+
+// ── VLE: random spans, byte-offset prefix sums drive the weight ─────────────
+
+unsafe fn vle_case(lcg: &mut Lcg) -> i32 {
+    let mut d: PdtDescr = pdt_descr_new(1u32, PDT_ORD_UNORDERED, false);
+    d.dims.push(pdt_dim_vle(1u32));
+
+    let n: u64 = 32u64 + lcg.next() % 300u64;
+    // staging spans: lengths 0..80 (incl. empty spans — legal geometry)
+    let mut vals: PdtVals = pdt_vals_new();
+    let mut model: Vec<u64> = vec_new::<u64>();  // flat bytes, span-major
+    let mut lens: Vec<u64> = vec_new::<u64>();
+    let mut i: u64 = 0u64;
+    while i < n {
+        let l: u64 = lcg.next() % 80u64;
+        lens.push(l);
+        let mut sp: Vec<u8> = vec_new::<u8>();
+        let mut j: u64 = 0u64;
+        while j < l {
+            let b: u8 = (lcg.next() % 251u64) as u8;
+            sp.push(b);
+            model.push(b as u64);
+            j = j + 1u64;
+        }
+        vals.push_span(sp.as_slice());
+        i = i + 1u64;
+    }
+    let mut paytot: u64 = 0u64;
+    {
+        let mut q: i64 = 0i64;
+        while q < lens.length() {
+            paytot = paytot + lens.get(q);
+            q = q + 1i64;
+        }
+    }
+
+    // staging block through the real VLE path
+    let mut pay: Vec<u64> = vec_new::<u64>();
+    pay.push(paytot);
+    let sbytes: u32 = pdtbuf_compute_block_size(&d, n, &pay);
+    let smem: *mut u8 = alloc(sbytes as i64);
+    let sb: PdtBuf = match pdtbuf_format(smem, sbytes, &d) {
+        Result::Ok(b) => b,
+        Result::Err(_e) => { return 21i32; }
+    };
+    let us: PdtUpdate = match sb.prepare_insert_vals(0u64, n, PDT_CAP_KEEP, &vals) {
+        Result::Ok(u) => u,
+        Result::Err(_e) => { return 22i32; }
+    };
+    let mut sb2: PdtBuf = pdtbuf_adopt(smem);
+    sb2.commit_insert_vals(&us, &vals);
+
+    let mut r: i64 = 0i64;
+    while r < 40i64 {
+        let stg: PdtBuf = pdtbuf_adopt(smem);
+        let i0: u64 = lcg.next() % n;
+        let k: u64 = 1u64 + lcg.next() % (n - i0);
+        let w: u32 = pack_col_weight(&stg, i0, k);
+
+        // range PdtVals off the staging's own spans
+        let mut rv: PdtVals = pdt_vals_new();
+        let mut j: u64 = 0u64;
+        while j < k {
+            rv.push_span(stg.row_span(0u32, 0u32, i0 + j));
+            j = j + 1u64;
+        }
+
+        let mem: *mut u8 = alloc(w as i64);
+        let mb: PdtBuf = match pdtbuf_format(mem, w, &d) {
+            Result::Ok(b) => b,
+            Result::Err(_e) => { return 23i32; }
+        };
+        let mu: PdtUpdate = match mb.prepare_insert_vals(0u64, k, PDT_CAP_KEEP, &rv) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { return 24i32; }
+        };
+        let mut mb2: PdtBuf = pdtbuf_adopt(mem);
+        mb2.commit_insert_vals(&mu, &rv);
+
+        let fin: PdtBuf = pdtbuf_adopt(mem);
+        if fin.consumed_bytes() != w {
+            return 25i32;   // THE law, VLE form
+        }
+        if fin.size() != k {
+            return 26i32;
+        }
+        j = 0u64;
+        while j < k {
+            let a: &[u8] = fin.row_span(0u32, 0u32, j);
+            let b: &[u8] = stg.row_span(0u32, 0u32, i0 + j);
+            if a.len() != b.len() {
+                return 27i32;
+            }
+            let mut t: i64 = 0i64;
+            while t < a.len() {
+                if a[t] != b[t] {
+                    return 28i32;
+                }
+                t = t + 1i64;
+            }
+            j = j + 1u64;
+        }
+        dealloc(mem);
+        r = r + 1i64;
+    }
+    dealloc(smem);
+    return 0i32;
+}
+
+// ── SSRLE: run-list cuts (incl. mid-run) → set_runs → unit equality ─────────
+
+unsafe fn ssrle_case(lcg: &mut Lcg, alphabet: u32) -> i32 {
+    let bps: u32 = ssrle_bps_for_alphabet(alphabet);
+    // symbol stream in the BTFL shape: entries = one 0-symbol + a random run
+    // of higher symbols (incl. zero-length runs → adjacent 0s → mid-run cuts)
+    let ecount: u64 = 40u64 + lcg.next() % 200u64;
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    let mut e: u64 = 0u64;
+    while e < ecount {
+        syms.push(0u64);
+        let mut s: u64 = 1u64;
+        while s < alphabet as u64 {
+            let m: u64 = lcg.next() % 5u64;
+            let mut j: u64 = 0u64;
+            while j < m {
+                syms.push(s);
+                j = j + 1u64;
+            }
+            s = s + 1u64;
+        }
+        e = e + 1u64;
+    }
+    let total: u64 = syms.length() as u64;
+    let runs: Vec<SsrleRun> = ssrle_runs_from_symbols(bps, &syms);
+    if pack_runs_len(&runs) != total {
+        return 31i32;
+    }
+
+    let mut r: i64 = 0i64;
+    while r < 40i64 {
+        let p0: u64 = lcg.next() % total;
+        let k: u64 = 1u64 + lcg.next() % (total - p0);
+        let cut: Vec<SsrleRun> = pack_runs_cut(bps, &runs, p0, k);
+        if pack_runs_len(&cut) != k {
+            return 32i32;
+        }
+        let units: u64 = ssrle_compute_size(bps, &cut, 0u64);
+        let wb: u32 = pack_seq_weight(alphabet, &cut);
+
+        let mem: *mut u8 = alloc(wb as i64);
+        let mut sq: PkdSsrle = match pkd_ssrle_format(mem, wb, alphabet) {
+            Result::Ok(q) => q,
+            Result::Err(_e) => { return 33i32; }   // weight too small to format
+        };
+        match sq.set_runs(&cut) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => { return 34i32; }   // weight rejected the priced runs
+        }
+        let fin: PkdSsrle = pkd_ssrle_adopt(mem);
+        if fin.code_units() != units {
+            return 35i32;   // encode diverged from compute_size through OUR cut
+        }
+        if fin.size() != k {
+            return 36i32;
+        }
+        // symbol roundtrip against the model
+        let mut j: u64 = 0u64;
+        while j < k {
+            if fin.access(j) != syms.get((p0 + j) as i64) {
+                return 37i32;
+            }
+            j = j + 1u64;
+        }
+        dealloc(mem);
+        r = r + 1i64;
+    }
+    return 0i32;
+}
+
+// ── region: the PkdAlloc price admits exactly the priced slots ──────────────
+
+unsafe fn region_case(lcg: &mut Lcg) -> i32 {
+    let mut r: i64 = 0i64;
+    while r < 20i64 {
+        let slots: u32 = 1u32 + (lcg.next() % 6u64) as u32;
+        let mut ws: Vec<u32> = vec_new::<u32>();
+        let mut i: u32 = 0u32;
+        while i < slots {
+            ws.push(16u32 + (lcg.next() % 700u64) as u32);
+            i = i + 1u32;
+        }
+        let total: u32 = pack_region_weight(&ws);
+        let mem: *mut u8 = alloc(total as i64);
+        let a: *mut PkdAlloc = pkd_format(mem, total, slots);
+        i = 0u32;
+        while i < slots {
+            match a.allocate(i, ws.get(i as i64), SlotKind::Raw) {
+                Result::Ok(_p) => {}
+                Result::Err(_e) => { return 41i32; }   // region price rejected a priced slot
+            }
+            i = i + 1u32;
+        }
+        if a.free_space() != 0u32 {
+            return 42i32;   // the price must be EXACT, not merely sufficient
+        }
+        dealloc(mem);
+        r = r + 1i64;
+    }
+    return 0i32;
+}
+
+fn run_all() -> i32 {
+    unsafe {
+        let mut lcg: Lcg = Lcg { s: 0xACC0DEu64 };
+        let c1: i32 = fse_case(&mut lcg, false);
+        if c1 != 0i32 { return c1; }
+        let c2: i32 = fse_case(&mut lcg, true);
+        if c2 != 0i32 { return c2; }
+        let c3: i32 = vle_case(&mut lcg);
+        if c3 != 0i32 { return c3; }
+        let c4: i32 = ssrle_case(&mut lcg, 2u32);
+        if c4 != 0i32 { return c4; }
+        let c5: i32 = ssrle_case(&mut lcg, 3u32);
+        if c5 != 0i32 { return c5; }
+        let c6: i32 = region_case(&mut lcg);
+        if c6 != 0i32 { return c6; }
+    }
+    return 0i32;
+}
+
+// Diagnostic code PRINTED, never returned (8-bit exit-status channel).
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL pack_weight: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

@@ -24,8 +24,12 @@ package logos.mem.bt.btvec;
 use logos.mem.bt.node;       // NodeProfile — the node-form seam
 use logos.mem.bt.btss;       // the shared single-stream column mechanics
 use logos.mem.bt.memstore;   // MemorySnapshot (creation stamp) + tree_release
+use logos.mem.bt.pack;       // the weight calculus (pack_region_weight)
 use logos.mem.pkd;           // PkdAlloc
 use logos.mem.pkd.pdtbuf;    // PdtBuf — the column store
+use logos.mem.collections.vec;
+use logos.lang.mem;          // alloc/dealloc — the staging heap block
+use logos.lang.result;
 use logos.lang.panic;
 
 // Branch slots.
@@ -305,6 +309,494 @@ pub fn btvec_insert_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
 /// Append `v` (insert at size()).
 pub fn btvec_append<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, v: u64) {
     btvec_insert_at::<P>(snap, t, btvec_size::<P>(t), v);
+}
+
+// ── batch insert (slice 1: the Vector packer) ───────────────────────────────
+//
+// The two-stage batch insert (PAIR 2026-07-24): (1) the CONTAINER hands the
+// user a staging buffer already in the physical column format — a growable
+// Vec-like wrapper over a heap PdtBuf (the old-Memoria make_buffer shape);
+// (2) `insert(pos, buf)` cuts the staging into leaf-sized fragments by the
+// WEIGHT CALCULUS (logos.mem.bt.pack) — the cut is chosen by pre-estimation
+// against the 90% fill target, never by trial insertion: zero backtracks,
+// zero block restores (the pack_weight gate pins the byte-exactness this
+// stands on). Fill factor 90% hardcoded (Victor: runtime buffer parameter
+// later).
+//
+// The splice generalizes the insert report from {left, maybe-right} to a
+// LIST of (count, child) rows: a leaf overflowing into j fragments hands its
+// parent j rows; a branch overflowing packs ITS row list into fresh branch
+// nodes the same way; the root grows however many levels the top list needs.
+
+/// The staging buffer for a u64-cell vector: a growable single-column FSE64
+/// PdtBuf on the heap (the container's make_buffer product). Rows are at
+/// rest in the LEAF's physical format — packing is a column copy, not a
+/// re-encode.
+pub struct BtvecBuf {
+    mem: *mut u8,
+    cap_rows: u64,
+}
+
+fn bv_buf_descr() -> PdtDescr {
+    let mut d: PdtDescr = pdt_descr_new(1u32, PDT_ORD_UNORDERED, false);
+    d.dims.push(pdt_dim_fse(8u32));
+    return d;
+}
+
+/// A fresh staging buffer (initial capacity `cap_rows`, grows by doubling).
+pub fn btvec_buf_new(cap_rows: u64) -> BtvecBuf {
+    let d: PdtDescr = bv_buf_descr();
+    let mut cap: u64 = cap_rows;
+    if cap < 16u64 {
+        cap = 16u64;
+    }
+    let zero: Vec<u64> = pdt_payload_zero(&d);
+    let bytes: u32 = pdtbuf_compute_block_size(&d, cap, &zero);
+    let mem: *mut u8 = alloc(bytes as i64);
+    unsafe {
+        match pdtbuf_format(mem, bytes, &d) {
+            Result::Ok(b0) => {
+                let mut b: PdtBuf = b0;
+                match b.reserve(cap) {
+                    Result::Ok(_u) => {}
+                    Result::Err(_e) => {
+                        assert(false, "btvec_buf: staging reserve failed");
+                    }
+                }
+            }
+            Result::Err(_e) => {
+                assert(false, "btvec_buf: staging format failed");
+            }
+        }
+    }
+    return BtvecBuf { mem: mem, cap_rows: cap };
+}
+
+impl BtvecBuf {
+    unsafe fn b(self: &BtvecBuf) -> PdtBuf {
+        return pdtbuf_adopt(self.mem);
+    }
+    pub fn len(self: &BtvecBuf) -> u64 {
+        return unsafe { self.b().size() };
+    }
+    pub fn get(self: &BtvecBuf, i: u64) -> u64 {
+        return unsafe { self.b().get(0u32, i) };
+    }
+    /// Append one cell (the Vec-like fill surface); doubles the heap block
+    /// when full.
+    pub fn push(self: &mut BtvecBuf, v: u64) {
+        unsafe {
+            if self.b().size() == self.cap_rows {
+                self.grow();
+            }
+            let n: u64 = self.b().size();
+            let us: PdtUpdate = match self.b().prepare_insert(n, 1u64, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "btvec_buf: push prepare failed");
+                    return;
+                }
+            };
+            let mut row: Vec<u64> = vec_new::<u64>();
+            row.push(v);
+            let mut b2: PdtBuf = self.b();
+            b2.commit_insert(&us, &row);
+        }
+    }
+    fn grow(self: &mut BtvecBuf) {
+        unsafe {
+            let d: PdtDescr = bv_buf_descr();
+            let ncap: u64 = self.cap_rows * 2u64;
+            let zero: Vec<u64> = pdt_payload_zero(&d);
+            let bytes: u32 = pdtbuf_compute_block_size(&d, ncap, &zero);
+            let nmem: *mut u8 = alloc(bytes as i64);
+            let n: u64 = self.b().size();
+            match pdtbuf_format(nmem, bytes, &d) {
+                Result::Ok(b) => {
+                    let us: PdtUpdate = match b.prepare_insert(0u64, n, PDT_CAP_KEEP) {
+                        Result::Ok(u) => u,
+                        Result::Err(_e) => {
+                            assert(false, "btvec_buf: grow prepare failed");
+                            return;
+                        }
+                    };
+                    let mut cells: Vec<u64> = vec_new::<u64>();
+                    let ob: PdtBuf = self.b();
+                    let mut i: u64 = 0u64;
+                    while i < n {
+                        cells.push(ob.get(0u32, i));
+                        i = i + 1u64;
+                    }
+                    let mut nb: PdtBuf = pdtbuf_adopt(nmem);
+                    nb.commit_insert(&us, &cells);
+                    // KEEP policy trimmed nothing; top up the reservation to
+                    // the doubled capacity for the fill loop ahead.
+                    let mut nb2: PdtBuf = pdtbuf_adopt(nmem);
+                    match nb2.reserve(ncap) {
+                        Result::Ok(_u) => {}
+                        Result::Err(_e) => {
+                            assert(false, "btvec_buf: grow reserve failed");
+                        }
+                    }
+                }
+                Result::Err(_e) => {
+                    assert(false, "btvec_buf: grow format failed");
+                }
+            }
+            dealloc(self.mem);
+            self.mem = nmem;
+            self.cap_rows = ncap;
+        }
+    }
+}
+
+/// The staging block is owned: RAII releases it with the wrapper (the
+/// make_buffer product needs no manual free at the user surface).
+impl Drop for BtvecBuf {
+    fn drop(&mut self) {
+        unsafe {
+            dealloc(self.mem);
+        }
+    }
+}
+
+// ── the packer ──────────────────────────────────────────────────────────────
+
+// One parent row of the splice report: a finished subtree's (count, child).
+struct BvRow {
+    cnt: u64,
+    ptr: *mut u8,
+}
+
+// The leaf's PkdAlloc-region byte budget (block minus the node header) —
+// read off a live node rather than duplicating the header formula.
+fn bv_region_budget<P: NodeProfile>(node: *mut u8) -> u32 {
+    unsafe {
+        return (*P::pkd(node)).block_size();
+    }
+}
+
+// Max rows a fresh single-FSE64-slot region of `budget` bytes admits.
+// weight(k) is monotone — plain upward scan priced by the SAME formula the
+// pack_weight gate pinned (the closed form is invertible, but deriving it
+// here would duplicate layout knowledge the pricing fn owns).
+fn bv_fse_rows_cap(budget: u32) -> u64 {
+    let d: PdtDescr = bv_buf_descr();
+    let zero: Vec<u64> = pdt_payload_zero(&d);
+    let mut lo: u64 = 1u64;
+    let mut hi: u64 = (budget as u64) / 8u64 + 1u64;
+    // binary search the largest k with region(weight(k)) <= budget
+    while lo < hi {
+        let mid: u64 = (lo + hi + 1u64) / 2u64;
+        let mut ws: Vec<u32> = vec_new::<u32>();
+        ws.push(pdtbuf_compute_block_size(&d, mid, &zero));
+        if pack_region_weight(&ws) <= budget {
+            lo = mid;
+        } else {
+            hi = mid - 1u64;
+        }
+    }
+    return lo;
+}
+
+// A segmented read cursor over (existing-leaf prefix) ++ (staging buffer)
+// ++ (existing-leaf suffix) — the merged cell sequence a leaf splice packs.
+// Reads are O(1) per cell off live blocks; nothing is materialized until a
+// chunk is cut.
+struct BvMerged {
+    leaf: *mut u8,     // the existing leaf (the splice always starts at one)
+    split: u64,        // local insert position within the leaf
+    lcount: u64,       // the leaf's row count
+    buf: *mut u8,      // the staging block
+    bcount: u64,
+}
+
+fn bv_merged_len(m: &BvMerged) -> u64 {
+    return m.lcount + m.bcount;
+}
+
+fn bv_merged_get<P: NodeProfile>(m: &BvMerged, i: u64) -> u64 {
+    unsafe {
+        if i < m.split {
+            return bv_vals(P::pkd(m.leaf)).get(0u32, i);
+        }
+        if i < m.split + m.bcount {
+            return pdtbuf_adopt(m.buf).get(0u32, i - m.split);
+        }
+        return bv_vals(P::pkd(m.leaf)).get(0u32, i - m.bcount);
+    }
+}
+
+// Pack the merged sequence into fresh leaves at the 90% fill target; the
+// LAST fragment takes whatever remains (the greedy tail — accepted). Each
+// leaf is filled by ONE two-phase bulk insert.
+fn bv_pack_leaves<P: NodeProfile>(m: &BvMerged, snp: u64, leaf_bytes: u32,
+                                  out: &mut Vec<BvRow>) {
+    let total: u64 = bv_merged_len(m);
+    let probe: *mut u8 = bv_leaf_new::<P>(snp, leaf_bytes);
+    let cap: u64 = bv_fse_rows_cap(bv_region_budget::<P>(probe));
+    let mut target: u64 = cap * 9u64 / 10u64;       // the 90% fill policy
+    if target == 0u64 {
+        target = 1u64;
+    }
+    let mut done: u64 = 0u64;
+    let mut cur: *mut u8 = probe;                   // first fragment reuses the probe
+    while done < total {
+        let mut take: u64 = target;
+        if total - done < take {
+            take = total - done;
+        }
+        unsafe {
+            let a: *mut PkdAlloc = P::pkd(cur);
+            let vb: PdtBuf = bv_vals(a);
+            let us: PdtUpdate = match vb.prepare_insert(0u64, take, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "btvec pack: priced fragment rejected (weight law broken?)");
+                    return;
+                }
+            };
+            let mut cells: Vec<u64> = vec_new::<u64>();
+            let mut i: u64 = 0u64;
+            while i < take {
+                cells.push(bv_merged_get::<P>(m, done + i));
+                i = i + 1u64;
+            }
+            let mut vb2: PdtBuf = bv_vals(a);
+            vb2.commit_insert(&us, &cells);
+        }
+        out.push(BvRow { cnt: take, ptr: cur });
+        done = done + take;
+        if done < total {
+            cur = bv_leaf_new::<P>(snp, leaf_bytes);
+        }
+    }
+}
+
+// Pack a (count, child) row list into fresh branch nodes at the 90% target.
+fn bv_pack_branches<P: NodeProfile>(rows: &Vec<BvRow>, snp: u64, branch_bytes: u32,
+                                    out: &mut Vec<BvRow>) {
+    let probe: *mut u8 = bv_branch_new::<P>(snp, branch_bytes);
+    // branch region: TWO FSE64 slots (cnt + child) of equal row count
+    let budget: u32 = bv_region_budget::<P>(probe);
+    let d: PdtDescr = bv_buf_descr();
+    let zero: Vec<u64> = pdt_payload_zero(&d);
+    let mut lo: u64 = 1u64;
+    let mut hi: u64 = (budget as u64) / 16u64 + 1u64;
+    while lo < hi {
+        let mid: u64 = (lo + hi + 1u64) / 2u64;
+        let w: u32 = pdtbuf_compute_block_size(&d, mid, &zero);
+        let mut ws: Vec<u32> = vec_new::<u32>();
+        ws.push(w);
+        ws.push(w);
+        if pack_region_weight(&ws) <= budget {
+            lo = mid;
+        } else {
+            hi = mid - 1u64;
+        }
+    }
+    let mut target: u64 = lo * 9u64 / 10u64;
+    if target < 2u64 {
+        target = 2u64;                              // a branch under two children is degenerate
+    }
+    let total: u64 = rows.length() as u64;
+    let mut done: u64 = 0u64;
+    let mut cur: *mut u8 = probe;
+    while done < total {
+        let mut take: u64 = target;
+        if total - done < take {
+            take = total - done;
+        }
+        unsafe {
+            let a: *mut PkdAlloc = P::pkd(cur);
+            let mut sub: u64 = 0u64;
+            let mut i: u64 = 0u64;
+            while i < take {
+                let rw: &BvRow = rows.borrow((done + i) as i64);
+                btss_put_cell(a, BV_CNT, i as u32, rw.cnt);
+                btss_put_cell(a, BV_CHILD, i as u32, rw.ptr as u64);
+                sub = sub + rw.cnt;
+                i = i + 1u64;
+            }
+            out.push(BvRow { cnt: sub, ptr: cur });
+        }
+        done = done + take;
+        if done < total {
+            cur = bv_branch_new::<P>(snp, branch_bytes);
+        }
+    }
+}
+
+// The recursive splice: insert the staging at LOCAL position `pos` under
+// `(node, level)`; returns the (count, child) rows replacing this node in
+// its parent (one row = no structural growth at this level).
+fn bv_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64, buf: &BtvecBuf,
+                                 snp: u64, leaf_bytes: u32, branch_bytes: u32) -> Vec<BvRow> {
+    unsafe {
+        if level == 0u32 {
+            let a: *mut PkdAlloc = P::pkd(node);
+            let m: u64 = buf.len();
+            // Fast path: the whole batch fits this leaf — ONE bulk two-phase
+            // insert in place, no structural change.
+            let vb: PdtBuf = bv_vals(a);
+            match vb.prepare_insert(pos, m, PDT_CAP_KEEP) {
+                Result::Ok(us) => {
+                    let mut cells: Vec<u64> = vec_new::<u64>();
+                    let mut i: u64 = 0u64;
+                    while i < m {
+                        cells.push(buf.get(i));
+                        i = i + 1u64;
+                    }
+                    let mut vb2: PdtBuf = bv_vals(a);
+                    vb2.commit_insert(&us, &cells);
+                    let mut one: Vec<BvRow> = vec_new::<BvRow>();
+                    one.push(BvRow { cnt: bv_vals(a).size(), ptr: node });
+                    return one;
+                }
+                Result::Err(_e) => {}
+            }
+            // Overflow: pack (prefix ++ staging ++ suffix) into fresh leaves,
+            // release the old block.
+            let merged: BvMerged = BvMerged {
+                leaf: node,
+                split: pos,
+                lcount: bv_vals(a).size(),
+                buf: buf.mem,
+                bcount: m,
+            };
+            let mut rows: Vec<BvRow> = vec_new::<BvRow>();
+            bv_pack_leaves::<P>(&merged, snp, leaf_bytes, &mut rows);
+            P::free(node);
+            return rows;
+        }
+        let a: *mut PkdAlloc = P::pkd(node);
+        let cb: PdtBuf = bv_cnt(a);
+        let n: u64 = cb.size();
+        let mut ci: u64 = 0u64;
+        let mut rem: u64 = pos;
+        while ci + 1u64 < n && rem > cb.get(0u32, ci) {
+            rem = rem - cb.get(0u32, ci);
+            ci = ci + 1u64;
+        }
+        let sub: Vec<BvRow> = bv_splice_rec::<P>(bv_child(a).get(0u32, ci) as *mut u8,
+                                                 level - 1u32, rem, buf,
+                                                 snp, leaf_bytes, branch_bytes);
+        if sub.length() == 1i64 {
+            // No structural growth below: refresh the child row in place.
+            let mut ub: PdtBuf = bv_cnt(a);
+            ub.set(0u32, ci, sub.borrow(0i64).cnt);
+            let mut chb: PdtBuf = bv_child(a);
+            chb.set(0u32, ci, sub.borrow(0i64).ptr as u64);
+            let mut one: Vec<BvRow> = vec_new::<BvRow>();
+            one.push(BvRow { cnt: btvec_node_total::<P>(node), ptr: node });
+            return one;
+        }
+        // The child became several: try to absorb the extra rows in place,
+        // else recompose this branch's whole row list into fresh branch
+        // nodes. Admission is the btss_fits_row discipline generalized to a
+        // ROW RANGE: price BOTH columns' growth against the one region's
+        // free space BEFORE committing either (a committed first column
+        // would eat the space the second was priced against).
+        let extra: u64 = (sub.length() as u64) - 1u64;
+        let mut fits: bool = false;
+        {
+            let cbb: PdtBuf = bv_cnt(a);
+            match cbb.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                Result::Ok(us_c) => {
+                    let chp: PdtBuf = bv_child(a);
+                    match chp.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                        Result::Ok(us_p) => {
+                            fits = us_c.grow_bytes() + us_p.grow_bytes() <= a.free_space();
+                        }
+                        Result::Err(_e) => {}
+                    }
+                }
+                Result::Err(_e) => {}
+            }
+        }
+        if fits {
+            // Commit pairwise, re-preparing each (a commit moves sibling
+            // slots — the VecCtr re-adopt discipline).
+            let mut cells_c: Vec<u64> = vec_new::<u64>();
+            let mut cells_p: Vec<u64> = vec_new::<u64>();
+            let mut q: i64 = 1i64;
+            while q < sub.length() {
+                cells_c.push(sub.borrow(q).cnt);
+                cells_p.push(sub.borrow(q).ptr as u64);
+                q = q + 1i64;
+            }
+            let cb2: PdtBuf = bv_cnt(a);
+            let us1: PdtUpdate = match cb2.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "btvec splice: priced cnt insert failed at commit");
+                    return vec_new::<BvRow>();
+                }
+            };
+            let mut cb3: PdtBuf = bv_cnt(a);
+            cb3.commit_insert(&us1, &cells_c);
+            let ch2: PdtBuf = bv_child(a);
+            let us2: PdtUpdate = match ch2.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "btvec splice: priced child insert failed at commit");
+                    return vec_new::<BvRow>();
+                }
+            };
+            let mut ch3: PdtBuf = bv_child(a);
+            ch3.commit_insert(&us2, &cells_p);
+            let mut ub: PdtBuf = bv_cnt(a);
+            ub.set(0u32, ci, sub.borrow(0i64).cnt);
+            let mut chb: PdtBuf = bv_child(a);
+            chb.set(0u32, ci, sub.borrow(0i64).ptr as u64);
+            let mut one: Vec<BvRow> = vec_new::<BvRow>();
+            one.push(BvRow { cnt: btvec_node_total::<P>(node), ptr: node });
+            return one;
+        }
+        // Recompose: existing rows with row ci replaced by the sub list.
+        let mut rows: Vec<BvRow> = vec_new::<BvRow>();
+        let mut i: u64 = 0u64;
+        while i < n {
+            if i == ci {
+                let mut j: i64 = 0i64;
+                while j < sub.length() {
+                    rows.push(BvRow { cnt: sub.borrow(j).cnt, ptr: sub.borrow(j).ptr });
+                    j = j + 1i64;
+                }
+            } else {
+                rows.push(BvRow { cnt: cb.get(0u32, i), ptr: bv_child(a).get(0u32, i) as *mut u8 });
+            }
+            i = i + 1u64;
+        }
+        let mut out: Vec<BvRow> = vec_new::<BvRow>();
+        bv_pack_branches::<P>(&rows, snp, branch_bytes, &mut out);
+        P::free(node);
+        return out;
+    }
+}
+
+/// Batch insert: splice the staging buffer's rows at position `pos`
+/// (0-based; `pos == size()` appends). The tree grows however many levels
+/// the top row list needs.
+pub fn btvec_insert_buf<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>,
+                                        pos: u64, buf: &BtvecBuf) {
+    if buf.len() == 0u64 {
+        return;
+    }
+    let sz: u64 = btvec_size::<P>(t);
+    assert(pos <= sz, "btvec_insert_buf: position beyond the vector");
+    let snp: u64 = snap.snapshot_id();
+    let mut rows: Vec<BvRow> = bv_splice_rec::<P>(t.root, t.level, pos, buf,
+                                                  snp, t.leaf_bytes, t.branch_bytes);
+    let mut lvl: u32 = t.level;
+    while rows.length() > 1i64 {
+        let mut up: Vec<BvRow> = vec_new::<BvRow>();
+        bv_pack_branches::<P>(&rows, snp, t.branch_bytes, &mut up);
+        rows = up;
+        lvl = lvl + 1u32;
+    }
+    t.root = rows.borrow(0i64).ptr;
+    t.level = lvl;
 }
 
 // ── structural check (test surface) ─────────────────────────────────────────

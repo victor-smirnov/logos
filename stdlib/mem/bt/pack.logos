@@ -1,0 +1,174 @@
+// logos.mem.bt.pack — the batch-insert WEIGHT CALCULUS (slice 0 of the
+// two-stage batch insert).
+//
+// The design (PAIR, 2026-07-24): batch insert = (1) encode application data
+// into a STAGING buffer that is already the physical column format (PdtBuf
+// columns + an SsrleRun list for the structure stream), then (2) cut the
+// staging into leaf-sized fragments. The cut is chosen by PRE-ESTIMATION,
+// never by trial insertion: this module answers "what does a fresh block
+// holding staging range [i0, i0+k) cost, exactly, in bytes" from the
+// staging's own prefix geometry — zero mutations, zero restores.
+//
+// WHY THIS IS SOUND (the proof obligation Victor set): the pricing law the
+// substrate already enforces — `pdtbuf_compute_block_size` is the PREPARED
+// side, `consumed_bytes` the CONSUMED side, and prepare/commit reach the
+// priced geometry EXACTLY under both capacity policies (the P4 resolution:
+// geometry is DERIVED, never estimated). This module adds no new knowledge:
+// it evaluates the SAME pure pricing functions on range arguments. The
+// restriction (where this breaks): stream encodings must have an
+// O(1)-summarizable size state — FSE (row count), VLE (byte-offset prefix
+// sums, P7), SSRLE (run list) all qualify; dictionary/adaptive-entropy
+// codecs would not (their "summary" is the compressor state — for such a
+// kind the packer falls back to clean-fail prepare, which the two-phase
+// discipline makes restore-free anyway).
+//
+// The gate (conuco pack_weight) pins BYTE EQUALITY: weight(range) ==
+// consumed bytes of the materialized block, across randomized content and
+// cuts, for all three kinds. Any drift — even one byte — fails the gate.
+//
+// VLE entry bound (Victor): a single entry may not exceed 1/4 of the
+// MAXIMUM block size; larger entries are rejected AT THE STAGING BOUNDARY
+// (stage 1), so the packer may rely on the invariant. Blocks are 4K today,
+// 4K..1M in the Memoria plan — the bound rides StoreCfg, not this module.
+package logos.mem.bt.pack;
+
+use logos.mem.pkd;               // PkdAlloc — slot rounding / region overhead
+use logos.mem.pkd.pdtbuf;        // PdtBuf + pdtbuf_compute_block_size (the oracle)
+use logos.mem.pkd.sseq;          // pkd_ssrle_block_size — structure-stream price
+use logos.mem.pkd.ssrle;         // SsrleRun + ssrle_compute_size
+use logos.mem.collections.vec;
+use logos.lang.panic;
+
+// ── PdtBuf columns (FSE / VLE) ──────────────────────────────────────────────
+
+/// VLE payload geometry of staging rows [i0, i0+k): one entry per
+/// (column, VLE dimension) in payload_slot order — byte-offset differences
+/// (the P7 prefix sums). All-FSE descriptors yield the empty vector.
+pub fn pack_range_payload(b: &PdtBuf, i0: u64, k: u64) -> Vec<u64> {
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let cols: u32 = b.columns();
+    let dims: u32 = b.dim_count();
+    let mut c: u32 = 0u32;
+    while c < cols {
+        let mut d: u32 = 0u32;
+        while d < dims {
+            if b.dim_at(d).kind == PDT_DIM_VLE {
+                out.push(b.row_offset(c, d, i0 + k) - b.row_offset(c, d, i0));
+            }
+            d = d + 1u32;
+        }
+        c = c + 1u32;
+    }
+    return out;
+}
+
+/// EXACT price (bytes) of a fresh block holding staging rows [i0, i0+k) at
+/// capacity k — the same pure function the two-phase machinery prices
+/// mutations with, evaluated on range arguments. O(1) beyond the payload
+/// walk (row_offset reads on the staging's live offsets).
+pub fn pack_col_weight(b: &PdtBuf, i0: u64, k: u64) -> u32 {
+    assert(i0 + k <= b.size(), "pack: weight range beyond the staging buffer");
+    let d: PdtDescr = b.descr();
+    let pay: Vec<u64> = pack_range_payload(b, i0, k);
+    return pdtbuf_compute_block_size(&d, k, &pay);
+}
+
+// ── the structure stream (SSRLE run list) ───────────────────────────────────
+
+// Append `sym` × `n` to a run list, merging into the tail when the tail is a
+// single-symbol run of the same symbol (the staging normal form: every run a
+// single-symbol pattern — what alg_runs_from_rows produces entry by entry).
+fn pack_runs_push(bps: u32, out: &mut Vec<SsrleRun>, sym: u64, n: u64) {
+    if n == 0u64 {
+        return;
+    }
+    let ln: i64 = out.length();
+    if ln > 0i64 {
+        // SsrleRun is Copy — take the tail by value so no shared borrow of
+        // `out` survives into the set below.
+        let last: SsrleRun = out.get(ln - 1i64);
+        if last.pattern_length == 1u32 && last.symbol(bps, 0u64) == sym {
+            let grown: u64 = last.run_length + n;
+            if ssrle_is_fit(bps, 1u64, grown) {
+                out.set(ln - 1i64, ssrle_run_new(bps, 1u32, sym, grown));
+                return;
+            }
+        }
+    }
+    let mut rem: u64 = n;
+    let cap: u64 = ssrle_max_run_length(bps, 1u32);
+    while rem > 0u64 {
+        let take: u64 = if rem > cap { cap } else { rem };
+        out.push(ssrle_run_new(bps, 1u32, sym, take));
+        rem = rem - take;
+    }
+}
+
+/// Cut a SINGLE-SYMBOL-pattern run list at symbol range [p0, p0+k) — the
+/// staging normal form (each run = one symbol repeated; multi-symbol
+/// patterns are a later staging optimization and would extend the cut to
+/// partial patterns). Boundary runs shrink; middle runs pass through.
+pub fn pack_runs_cut(bps: u32, runs: &Vec<SsrleRun>, p0: u64, k: u64) -> Vec<SsrleRun> {
+    let mut out: Vec<SsrleRun> = vec_new::<SsrleRun>();
+    if k == 0u64 {
+        return out;
+    }
+    let mut pos: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    let end: u64 = p0 + k;
+    while i < runs.length() && pos < end {
+        let r: &SsrleRun = runs.borrow(i);
+        assert(r.pattern_length == 1u32,
+               "pack_runs_cut: staging runs must be single-symbol patterns");
+        let len: u64 = r.full_run_length();
+        let rend: u64 = pos + len;
+        if rend > p0 {
+            // Overlap [lo, hi) of this run with the cut window.
+            let lo: u64 = if pos > p0 { pos } else { p0 };
+            let hi: u64 = if rend < end { rend } else { end };
+            pack_runs_push(bps, &mut out, r.symbol(bps, 0u64), hi - lo);
+        }
+        pos = rend;
+        i = i + 1i64;
+    }
+    assert(pos >= end, "pack_runs_cut: symbol range beyond the staging run list");
+    return out;
+}
+
+/// Total symbol count of a run list (the staging structure length).
+pub fn pack_runs_len(runs: &Vec<SsrleRun>) -> u64 {
+    let mut n: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    while i < runs.length() {
+        n = n + runs.borrow(i).full_run_length();
+        i = i + 1i64;
+    }
+    return n;
+}
+
+/// EXACT price (bytes) of a fresh structure-stream block holding `runs` —
+/// segment-aware code units through the same size function set_runs pins
+/// (`writer diverged from compute_size` is its own internal assert), then
+/// the block price incl. index layers.
+pub fn pack_seq_weight(alphabet: u32, runs: &Vec<SsrleRun>) -> u32 {
+    let bps: u32 = ssrle_bps_for_alphabet(alphabet);
+    let units: u64 = ssrle_compute_size(bps, runs, 0u64);
+    return pkd_ssrle_block_size(alphabet, units);
+}
+
+// ── the node region ─────────────────────────────────────────────────────────
+
+/// Price of a node's PkdAlloc REGION holding slots of the given weights:
+/// the allocator's own overhead plus each slot rounded to the 8-byte
+/// granularity `allocate` actually hands out. The node HEADER (MemNode) is
+/// the store's business — NodeProfile::alloc takes the TOTAL block size, so
+/// the packer adds the profile's header size on top of this.
+pub fn pack_region_weight(ws: &Vec<u32>) -> u32 {
+    let mut total: u32 = PkdAlloc::empty_size_for(ws.length() as u32);
+    let mut i: i64 = 0i64;
+    while i < ws.length() {
+        total = total + round_up_bytes(ws.get(i));
+        i = i + 1i64;
+    }
+    return total;
+}

@@ -2315,6 +2315,25 @@ fn emit_btvec_family(name: str) {
                     self.ms().set_root(self.ctr_id, t.root, t.level);
                 }
             }
+            /// The batch surface (PAIR 2026-07-24): the CONTAINER hands out
+            /// the staging buffer — already the leaf's physical column
+            /// format, growable, RAII-owned. Fill with push, then splice
+            /// with `insert(pos, &buf)`; the buffer survives the insert and
+            /// may be reused or refilled.
+            pub fn make_buffer(self: &#nm) -> BtvecBuf {
+                return btvec_buf_new(1024u64);
+            }
+            /// Batch insert: splice the buffer's rows at `pos` (0-based;
+            /// `pos == size()` appends). Fragmentation is chosen by the
+            /// weight calculus at the 90% fill target — no trial insertion,
+            /// no block restores.
+            pub fn insert(self: &#nm, pos: u64, buf: &BtvecBuf) {
+                unsafe {
+                    let mut t: Btvec<#nd> = self.tree();
+                    btvec_insert_buf::<#nd>(self.ms(), &mut t, pos, buf);
+                    self.ms().set_root(self.ctr_id, t.root, t.level);
+                }
+            }
             pub fn insert_at(self: &#nm, pos: u64, v: u64) {
                 unsafe {
                     let mut t: Btvec<#nd> = self.tree();

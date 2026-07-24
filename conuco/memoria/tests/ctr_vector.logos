@@ -169,6 +169,123 @@ fn run_all() -> i32 {
         }
     }
 
+    // ── 50..69: BATCH insert (make_buffer / push / insert(pos, buf)) ────────
+    // The two-stage batch path: staging in the container-provided buffer,
+    // weight-calculus packing at the 90% fill target. Laws vs the same
+    // Vec<u64> model; the count-invariant check() runs after every splice.
+    {
+        let mut vb = create_ctr::<V64>(&snap, 5u64);
+        vb.reformat(512u32, 320u32);        // small nodes — deep trees cheap
+        let mut model: Vec<u64> = vec_new::<u64>();
+        let mut lcg: Lcg = Lcg { s: 0xBA7C4u64 };
+
+        // (a) BULK LOAD into the empty container: one big buffer → a whole
+        // multi-level tree built by packing alone.
+        {
+            let mut buf = vb.make_buffer();
+            let mut i: u64 = 0u64;
+            while i < 5000u64 {
+                let v: u64 = lcg.next();
+                buf.push(v);
+                model.push(v);
+                i = i + 1u64;
+            }
+            if buf.len() != 5000u64 {
+                return 50i32;
+            }
+            vb.insert(0u64, &buf);
+        }
+        if vb.size() != 5000u64 {
+            return 51i32;
+        }
+        if !vb.check() {
+            return 52i32;
+        }
+        if vb.level() < 2u32 {
+            return 53i32;   // bulk load must have built a deep tree
+        }
+
+        // (b) random-position batches of random sizes (incl. the in-place
+        // fast path and multi-fragment splices), model-equivalent each round.
+        let mut r: i64 = 0i64;
+        while r < 25i64 {
+            let bn: u64 = 1u64 + lcg.next() % 900u64;
+            let pos: u64 = lcg.next() % ((model.len() as u64) + 1u64);
+            let mut buf = vb.make_buffer();
+            let mut i: u64 = 0u64;
+            while i < bn {
+                let v: u64 = lcg.next();
+                buf.push(v);
+                model_insert_at(&mut model, (pos + i) as i64, v);
+                i = i + 1u64;
+            }
+            vb.insert(pos, &buf);
+            if vb.size() != model.len() as u64 {
+                return 54i32;
+            }
+            if !vb.check() {
+                return 55i32;
+            }
+            // spot equivalence around the splice + dual read paths
+            let lo: u64 = if pos > 3u64 { pos - 3u64 } else { 0u64 };
+            let mut hi: u64 = pos + bn + 3u64;
+            if hi > model.len() as u64 {
+                hi = model.len() as u64;
+            }
+            let mut q: u64 = lo;
+            while q < hi {
+                if vb.get(q) != model.get(q as i64) {
+                    return 56i32;
+                }
+                q = q + 1u64;
+            }
+            r = r + 1i64;
+        }
+        // full equivalence at the end — every element via BOTH read paths
+        {
+            let mut i: i64 = 0i64;
+            while i < model.len() {
+                if vb.get(i as u64) != model.get(i) {
+                    return 57i32;
+                }
+                let c = vb.seek(i as u64);
+                if !c.valid() || c.value() != model.get(i) {
+                    return 58i32;
+                }
+                i = i + 1i64;
+            }
+        }
+
+        // (c) buffer REUSE: the same buffer spliced twice inserts twice.
+        {
+            let mut buf = vb.make_buffer();
+            buf.push(0xAAu64);
+            buf.push(0xBBu64);
+            vb.insert(0u64, &buf);
+            vb.insert(0u64, &buf);
+            model_insert_at(&mut model, 0i64, 0xBBu64);
+            model_insert_at(&mut model, 0i64, 0xAAu64);
+            model_insert_at(&mut model, 0i64, 0xBBu64);
+            model_insert_at(&mut model, 0i64, 0xAAu64);
+            if vb.size() != model.len() as u64 {
+                return 60i32;
+            }
+            if vb.get(0u64) != 0xAAu64 || vb.get(1u64) != 0xBBu64
+               || vb.get(2u64) != 0xAAu64 || vb.get(3u64) != 0xBBu64 {
+                return 61i32;
+            }
+            // (d) the EMPTY buffer is a no-op.
+            let ebuf = vb.make_buffer();
+            vb.insert(0u64, &ebuf);
+            if vb.size() != model.len() as u64 {
+                return 62i32;
+            }
+            if !vb.check() {
+                return 63i32;
+            }
+        }
+    }
+
     // ── 80..89: pipeline smoke ──────────────────────────────────────────────
     {
         let vb = create_ctr::<V64>(&snap, 3u64);
