@@ -33,6 +33,7 @@ package test;
 // ═══════════════════════════════════════════════════════════════════════════
 
 use memoria.ctr.map;                  // §0 the LIBRARY declaration (below)
+use logos.lang.option;
 use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
 use logos.lcm.canon.metaclass;        // create_ctr_rc / open_ctr — the demand surface
 use logos.mem.bt.map;                 // Ctr / Uid256 — the boundary plane
@@ -119,7 +120,34 @@ fn run_all() -> i32 {
     let uid: Uid256 = (&*snap as &dyn Snapshot).snapshot_uid();
     if !uid256_eq(&uid, &uid256_from_u64(snap.snapshot_id())) { return 11i32; }
 
+    // ── §6 WITH_ENTRY — the quad boundary (ADR 0023): ONE function drives
+    // insert/update/remove/no-op; the transition itself runs on the
+    // generated algebra kernels through the same CoW walk as insert ────────
+    m.with_entry(777_777u64, half_or_seed);        // miss → seed 100
+    if m.get_or(777_777u64, 0u64) != 100u64 { return 12i32; }
+    m.with_entry(777_777u64, half_or_seed);        // hit, even → half
+    if m.get_or(777_777u64, 0u64) != 50u64 { return 13i32; }
+    m.with_entry(777_777u64, half_or_seed);        // 50 → 25 (odd next time)
+    m.with_entry(777_777u64, half_or_seed);        // odd → REMOVE
+    if m.get_or(777_777u64, 0u64) != 0u64 { return 14i32; }
+    if m.size() != n + 1u64 { return 15i32; }
+
     return 0i32;
+}
+
+// The quad in one function: None→Some(100) seeds, even halves, odd removes.
+fn half_or_seed(cur: Option<u64>) -> Option<u64> {
+    match cur {
+        Option::Some(v) => {
+            if v % 2u64 == 1u64 {
+                return Option::None;
+            }
+            return Option::Some(v / 2u64);
+        }
+        Option::None => {
+            return Option::Some(100u64);
+        }
+    }
 }
 
 // Exit status is an 8-bit channel: print the diagnostic code, return a fixed
