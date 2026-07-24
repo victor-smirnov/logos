@@ -1389,6 +1389,7 @@ fn emit_bt_branch_impl(bname: str, kty: str) {
             fn max_sep(self: &#nm) -> #(kid) { return self.max_sep(); }
             fn total_size(self: &#nm) -> u64 { return self.total_size(); }
             fn totals(self: &#nm, out: &mut [u64; 1]) { out[0] = self.total_size(); }
+            fn count_at(self: &#nm, i: u32, _s: u32) -> u64 { return self.size_at(i); }
             fn find_child(self: &#nm, key: #(kid)) -> u32 { return self.find_child(key); }
             fn push_row(self: &mut #nm, sep: #(kid), cnt: &[u64; 1], ptr: *mut u8) { self.push_child(sep, cnt[0], ptr); }
             fn insert_row(self: &mut #nm, pos: u32, sep: #(kid), cnt: &[u64; 1], ptr: *mut u8) { self.insert_child(pos, sep, cnt[0], ptr); }
@@ -1655,6 +1656,51 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         };
         unsafe { logos_emit_item_blob_subst(&g); }
     }
+
+    // ── seek by entry NUMBER (the stream-size feature; Memoria's classic
+    // BTSS semantics): every container doubles as an ARRAY of its entries.
+    // `{N}Cur` is the v0 cursor — leaf identity + local index, with typed
+    // key/value reads through the leaf; movement (next/prev) is the cursors
+    // arc. The branch subtree-count column that powers the descent has been
+    // maintained by every insert since S2b — bt_seek_at is its read side.
+    let mut cn: String = String::new();
+    cn.push_str(name);
+    cn.push_str("Cur");
+    let cid: Ident = Ident::new(cn.as_str());
+    let cq: QuoteItemBlob = quote_item! {
+        use logos.mem.bt.map;
+        use logos.mem.bt.memstore;
+        use logos.mem.bt.ops;
+        use logos.lang.panic;
+        // The cursor HOLDS the adopted leaf (not the raw block pointer): a
+        // volume family's `value()` returns a &[u8] view whose borrow must
+        // run through `self` — a view derived from a locally adopted leaf
+        // would be a dangling reference, and borrowck says so.
+        pub struct #cid { pub found: bool, lf: #lid, idx: u32 }
+        impl #cid {
+            pub fn valid(self: &#cid) -> bool { return self.found; }
+            pub fn key(self: &#cid) -> #(kid) {
+                assert(self.found, "cursor: key() past the end");
+                return self.lf.key_at(self.idx);
+            }
+            pub fn value(self: &#cid) -> #(vo) {
+                assert(self.found, "cursor: value() past the end");
+                return self.lf.val_at(self.idx);
+            }
+        }
+        impl #nm {
+            /// Cursor at the `pos`-th entry in KEY ORDER (0-based). Past the
+            /// end ⇒ an invalid cursor (`valid() == false`), never a trap.
+            pub fn seek(self: &#nm, pos: u64) -> #cid {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let c: BtCur = bt_seek_at::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, pos);
+                    return #cid { found: c.found, lf: #lid::adopt(c.leaf), idx: c.idx };
+                }
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&cq); }
 }
 
 // ── ADR 0021 Phase 4b: the container's CFG document ───────────────────────
@@ -2057,7 +2103,11 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 let t: Btfl<2, #nd> = self.tree();
                 return btfl_key_stream::<2, #nd>(&t, key, 1u32, out);
             }
-            pub fn seek(self: &#nm, key: u64) -> BtflSeek {
+            /// Seek by the KEY MEASURE (`keys.seek(max(key))` — the declared
+            /// ops row): where `key` lands in key order. The POSITIONAL
+            /// `seek(n)` (Memoria's classic entry-number semantics) lives
+            /// below with the cursor pair.
+            pub fn seek_key(self: &#nm, key: u64) -> BtflSeek {
                 let t: Btfl<2, #nd> = self.tree();
                 return btfl_seek::<2, #nd>(&t, key);
             }
@@ -2095,6 +2145,213 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
                 return self.insert(key, vals);
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&b); }
+
+    // ── the hierarchical entry seek (stream-size feature, BTFL semantics):
+    // `ctr.seek(n)` = cursor at the n-th KEY (symbol 0 marks the top nesting
+    // level), `key_cur.seek(m)` = cursor at the m-th VALUE of that key — the
+    // RELATIVE seek, resolved inside the key's leaf (the cheap case the C++
+    // shuttles optimize for). Cursor movement is the cursors arc; these are
+    // the v0 position pairs with typed reads.
+    let mut kcn: String = String::new();
+    kcn.push_str(name);
+    kcn.push_str("KeyCur");
+    let kcid: Ident = Ident::new(kcn.as_str());
+    let mut vcn: String = String::new();
+    vcn.push_str(name);
+    vcn.push_str("ValCur");
+    let vcid: Ident = Ident::new(vcn.as_str());
+    let sq: QuoteItemBlob = quote_item! {
+        use logos.mem.bt.btfl;
+        use logos.mem.bt.node;
+        use logos.mem.bt.memstore;
+        use logos.lang.panic;
+        pub struct #kcid { pub found: bool, leaf: *mut u8, kidx: u32 }
+        pub struct #vcid { pub found: bool, leaf: *mut u8, vidx: u32 }
+        impl #kcid {
+            pub fn valid(self: &#kcid) -> bool { return self.found; }
+            pub fn key(self: &#kcid) -> u64 {
+                assert(self.found, "key cursor: key() past the end");
+                return btfl_leaf_key_at::<#nd>(self.leaf, self.kidx);
+            }
+            /// The size of this key's value run.
+            pub fn val_count(self: &#kcid) -> u64 {
+                assert(self.found, "key cursor: val_count() past the end");
+                return btfl_entry_stream_count::<2, #nd>(self.leaf, self.kidx, 1u32);
+            }
+            /// The RELATIVE seek: cursor at the m-th value of THIS key.
+            pub fn seek(self: &#kcid, m: u64) -> #vcid {
+                assert(self.found, "key cursor: seek() past the end");
+                let c: BtflValCur = btfl_entry_seek::<2, #nd>(self.leaf, self.kidx, 1u32, m);
+                return #vcid { found: c.found, leaf: c.leaf, vidx: c.vidx };
+            }
+        }
+        impl #vcid {
+            pub fn valid(self: &#vcid) -> bool { return self.found; }
+            pub fn value(self: &#vcid) -> u64 {
+                assert(self.found, "value cursor: value() past the end");
+                return btfl_leaf_stream_at::<2, #nd>(self.leaf, 1u32, self.vidx);
+            }
+        }
+        impl #nm {
+            /// Cursor at the `n`-th KEY in symbol order (0-based; the
+            /// classic entry-number seek, BTFL's hierarchical reading).
+            pub fn seek(self: &#nm, n: u64) -> #kcid {
+                let t: Btfl<2, #nd> = self.tree();
+                let c: BtflEntryCur = btfl_seek_nth::<2, #nd>(&t, n);
+                return #kcid { found: c.found, leaf: c.leaf, kidx: c.kidx };
+            }
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&sq); }
+}
+
+// ── the generated VECTOR family — thin glue over logos.mem.bt.btvec ─────────
+//
+// Vector<V> is the pure stream-size container (Memoria bt_ss's dynamic
+// vector): branch nodes carry ONLY per-child subtree entry counts, every
+// operation is positional. The family is the same thin-delegation shape as
+// the multimap's: handle {snap, ctr_id, sizing} over the directory, methods
+// forwarding into the btvec prototype, the cursor pair for seek. v0 columns
+// are u64 (validated at the factory gate); the typed cast boundary arrives
+// with 8c alongside the other families'.
+fn emit_btvec_family(name: str) {
+    let nm: Ident = Ident::new(name);
+    let nd: Ident = Ident::new(MEM_STORE_NODE);
+    let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
+    let mut lbs_s: String = fmt_display_to_string(&scfg.leaf_bytes());
+    lbs_s.push_str("u32");
+    let lbs: ExprBlob = parse_expr(lbs_s.as_str());
+    let mut bbs_s: String = fmt_display_to_string(&scfg.branch_bytes());
+    bbs_s.push_str("u32");
+    let bbs: ExprBlob = parse_expr(bbs_s.as_str());
+    let mut cn: String = String::new();
+    cn.push_str(name);
+    cn.push_str("Cur");
+    let cid: Ident = Ident::new(cn.as_str());
+    let b: QuoteItemBlob = quote_item! {
+        use logos.mem.bt.btvec;
+        use logos.mem.bt.map;             // Ctr — the dyn boundary trait
+        use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
+        use logos.mem.bt.memstore;
+        use logos.mem.sync;               // Arc — the parent hold
+        use logos.lang.panic;
+        pub struct #nm {
+            // the PARENT HOLD (Ctr ──Arc→ Snapshot): the ONE snapshot field.
+            snap: Arc<dyn Snapshot>,
+            ctr_id: u64,
+            leaf_bytes: u32,
+            branch_bytes: u32,
+        }
+        pub struct #cid { pub found: bool, leaf: *mut u8, idx: u32 }
+        impl #cid {
+            pub fn valid(self: &#cid) -> bool { return self.found; }
+            pub fn value(self: &#cid) -> u64 {
+                let c: BtvecCur = BtvecCur { found: self.found, leaf: self.leaf, idx: self.idx };
+                return btvec_cur_value::<#nd>(&c);
+            }
+        }
+        impl #nm {
+            // PRIVILEGED tier: recover the concrete MemorySnapshot from the
+            // erased `Arc<dyn Snapshot>` hold (this family is generated for
+            // MemoryStore, so its snap is always a MemorySnapshot).
+            fn ms(self: &#nm) -> &MemorySnapshot {
+                return unsafe { &*(dyn_data(&*self.snap) as *const MemorySnapshot) };
+            }
+            pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
+                return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
+            }
+            pub static fn create_with(snap: &Arc<dyn Snapshot>, ctr_id: u64,
+                                      leaf_bytes: u32, branch_bytes: u32) -> #nm {
+                let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
+                let t: Btvec<#nd> = btvec_create::<#nd>(msr, leaf_bytes, branch_bytes);
+                msr.set_root(ctr_id, t.root, t.level);
+                return #nm {
+                    snap: snap.clone_ref(),
+                    ctr_id: ctr_id,
+                    leaf_bytes: leaf_bytes,
+                    branch_bytes: branch_bytes,
+                };
+            }
+            pub static fn open(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
+                return #nm {
+                    snap: snap.clone_ref(),
+                    ctr_id: ctr_id,
+                    leaf_bytes: #(lbs),
+                    branch_bytes: #(bbs),
+                };
+            }
+            pub fn tree(self: &#nm) -> Btvec<#nd> {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    return Btvec::<#nd> {
+                        root: e.root,
+                        level: e.level,
+                        leaf_bytes: self.leaf_bytes,
+                        branch_bytes: self.branch_bytes,
+                    };
+                }
+            }
+            /// Re-creates the (EMPTY — asserted) container with new node
+            /// sizing; splits then allocate siblings of the new size.
+            pub fn reformat(self: &mut #nm, leaf_bytes: u32, branch_bytes: u32) {
+                let t: Btvec<#nd> = self.tree();
+                assert(btvec_size::<#nd>(&t) == 0u64, "reformat: container not empty");
+                btvec_drop::<#nd>(&t);
+                unsafe {
+                    let t2: Btvec<#nd> = btvec_create::<#nd>(self.ms(), leaf_bytes, branch_bytes);
+                    self.ms().set_root(self.ctr_id, t2.root, t2.level);
+                }
+                self.leaf_bytes = leaf_bytes;
+                self.branch_bytes = branch_bytes;
+            }
+            pub fn append(self: &#nm, v: u64) {
+                unsafe {
+                    let mut t: Btvec<#nd> = self.tree();
+                    btvec_append::<#nd>(self.ms(), &mut t, v);
+                    self.ms().set_root(self.ctr_id, t.root, t.level);
+                }
+            }
+            pub fn insert_at(self: &#nm, pos: u64, v: u64) {
+                unsafe {
+                    let mut t: Btvec<#nd> = self.tree();
+                    btvec_insert_at::<#nd>(self.ms(), &mut t, pos, v);
+                    self.ms().set_root(self.ctr_id, t.root, t.level);
+                }
+            }
+            pub fn get(self: &#nm, pos: u64) -> u64 {
+                let t: Btvec<#nd> = self.tree();
+                return btvec_get::<#nd>(&t, pos);
+            }
+            pub fn set(self: &#nm, pos: u64, v: u64) {
+                let t: Btvec<#nd> = self.tree();
+                btvec_set::<#nd>(&t, pos, v);
+            }
+            /// Cursor at the `pos`-th entry (0-based; the entry-number seek).
+            pub fn seek(self: &#nm, pos: u64) -> #cid {
+                let t: Btvec<#nd> = self.tree();
+                let c: BtvecCur = btvec_seek::<#nd>(&t, pos);
+                return #cid { found: c.found, leaf: c.leaf, idx: c.idx };
+            }
+            pub fn size(self: &#nm) -> u64 {
+                let t: Btvec<#nd> = self.tree();
+                return btvec_size::<#nd>(&t);
+            }
+            pub fn check(self: &#nm) -> bool {
+                let t: Btvec<#nd> = self.tree();
+                return btvec_check::<#nd>(&t);
+            }
+            pub fn level(self: &#nm) -> u32 {
+                return self.tree().level;
+            }
+        }
+        impl Ctr for #nm {
+            fn size(self: &#nm) -> u64 {
+                let t: Btvec<#nd> = self.tree();
+                return btvec_size::<#nd>(&t);
             }
         }
     };
@@ -2244,8 +2501,9 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         error("container factory: CFG document has no readable kind (emit_cfg_doc format skew?)");
         return out;
     }
-    if !str_eq(kind, KIND_ORDERED_MAP) && !str_eq(kind, KIND_MULTIMAP) {
-        error("container factory: unsupported container kind — the factory generates `ordered_map` and `multimap` families");
+    if !str_eq(kind, KIND_ORDERED_MAP) && !str_eq(kind, KIND_MULTIMAP)
+       && !str_eq(kind, KIND_VECTOR) {
+        error("container factory: unsupported container kind — the factory generates `ordered_map`, `multimap` and `vector` families");
         return out;
     }
 
@@ -2275,6 +2533,21 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         sp.push_str(":0,val:");
         sp.push_str(vty);
         sp.push_str(":0|measures=max(key)|pkg=logos.gen");
+    } else if str_eq(kind, KIND_VECTOR) {
+        // The positional container: one value column, no key, no measures —
+        // the branch information is the subtree entry count alone (btvec).
+        let vty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"value\""));
+        if vty.len() == 0i64 {
+            error("container factory: vector CFG document has no readable `value` type slot (emit_cfg_doc format skew?)");
+            return out;
+        }
+        if !str_eq(vty, "u64") {
+            error("container factory: vector v0 generates u64 value columns only — generic value types land with 8c");
+            return out;
+        }
+        sp.push_str("pub=1|generics=|gnames=|backing=u8|backing_pkg=|kind=vector|entry=val:");
+        sp.push_str(vty);
+        sp.push_str(":0|pkg=logos.gen");
     } else {
         // BTFL 8b multimap: streams/measures/ops ride the doc as the SAME
         // compact strings the spec carries — read back verbatim; cols
@@ -2679,6 +2952,14 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         return;
     }
     if !str_eq(cs.kind, KIND_VECTOR) {
+        return;
+    }
+    // FACTORY path (mono demanded CtrClass<CFG>): the b+tree-backed
+    // POSITIONAL family — thin glue over logos.mem.bt.btvec. The DECL path
+    // below keeps the wave-0 Deem scan projection (a different plane: source
+    // rel over a declared backing, not a store-backed container).
+    if !emit_cfg {
+        emit_btvec_family(name);
         return;
     }
     if !cv_has_cap(vm, name, "can_scan") {

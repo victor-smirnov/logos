@@ -169,10 +169,13 @@ sym	logos.mem.bt.alg.NodeOp__type_id__g__ref_T
 sym	logos.mem.bt.alg.NodeSchema__type_id__g__ref_T
 sym	logos.mem.bt.alg.StreamDescr__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflCut__type_id__g__ref_T
+sym	logos.mem.bt.btfl.BtflEntryCur__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflEntry__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflLoc__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflSeek__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflStage__type_id__g__ref_T
+sym	logos.mem.bt.btfl.BtflValCur__type_id__g__ref_T
+sym	logos.mem.bt.btvec.BtvecCur__type_id__g__ref_T
 sym	logos.mem.bt.map.Uid256__type_id__g__ref_T
 sym	logos.mem.bt.memstore.DirEntry__type_id__g__ref_T
 sym	logos.mem.bt.memstore.Directory__type_id__g__ref_T
@@ -180,6 +183,7 @@ sym	logos.mem.bt.memstore.MemorySnapshot__type_id__g__ref_T
 sym	logos.mem.bt.memstore.MemoryStore__type_id__g__ref_T
 sym	logos.mem.bt.memstore.SnapDesc__type_id__g__ref_T
 sym	logos.mem.bt.node.CowProfile__type_id__g__ref_T
+sym	logos.mem.bt.ops.BtCur__type_id__g__ref_T
 sym	logos.mem.bt.storecfg.StoreCfg__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$String__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$bool__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -9225,11 +9229,15 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowMutError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BorrowedBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BranchDatum
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtCur
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflCut
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflEntry
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflEntryCur
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflLoc
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflSeek
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflStage
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflValCur
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtvecCur
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ByteSplitter
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Bytes
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Bytes$M23c60f9d48390b84
@@ -12293,9 +12301,13 @@ type	logos.mem.bt.btfl.Btfl	fields=[root:*mut u8,level:u32,leaf_bytes:u32,branch
 type	logos.mem.bt.btfl.BtflBranchRef	fields=[mem:*mut u8]
 type	logos.mem.bt.btfl.BtflCut	fields=[keys:u64,vals:u64,key_at:u64,val_at:u64]
 type	logos.mem.bt.btfl.BtflEntry	fields=[flat:*const Vec<u64>,lens:*const Vec<u64>,spans:*const PdtVals]
+type	logos.mem.bt.btfl.BtflEntryCur	fields=[found:bool,leaf:*mut u8,kidx:u32]
 type	logos.mem.bt.btfl.BtflLoc	fields=[found:bool,leaf:*mut u8,idx:u64,pos:u64]
 type	logos.mem.bt.btfl.BtflSeek	fields=[found:bool,rank:u64,leaf:*mut u8,kidx:u32]
 type	logos.mem.bt.btfl.BtflStage	fields=[keys:Vec<u64>,vals:Vec<u64>,starts:Vec<u64>,total:u64]
+type	logos.mem.bt.btfl.BtflValCur	fields=[found:bool,leaf:*mut u8,vidx:u32]
+type	logos.mem.bt.btvec.Btvec	fields=[root:*mut u8,level:u32,leaf_bytes:u32,branch_bytes:u32]
+type	logos.mem.bt.btvec.BtvecCur	fields=[found:bool,leaf:*mut u8,idx:u32]
 type	logos.mem.bt.map.Uid256	fields=[b:[u64; 4]]
 type	logos.mem.bt.memstore.DirEntry	fields=[ctr_id:u64,root:*mut u8,level:u32]
 type	logos.mem.bt.memstore.Directory	fields=[entries:Vec<DirEntry>]
@@ -12303,6 +12315,7 @@ type	logos.mem.bt.memstore.MemorySnapshot	fields=[desc:*mut SnapDesc,store:Arc<M
 type	logos.mem.bt.memstore.MemoryStore	fields=[next_id:u64,head:Directory,snaps:Vec<u64>]
 type	logos.mem.bt.memstore.SnapDesc	fields=[id:u64,dir:Directory,status:u32,wrappers:AtomicI32]
 type	logos.mem.bt.node.CowProfile	fields=[]
+type	logos.mem.bt.ops.BtCur	fields=[found:bool,leaf:*mut u8,idx:u32]
 type	logos.mem.bt.ops.BtInsRet	fields=[ok:bool,addr:*mut u8,lsep:K,lcnt:[u64; N],split:bool,rsep:K,rcnt:[u64; N],rptr:*mut u8]
 type	logos.mem.bt.storecfg.StoreCfg	fields=[ext:WView2,loc:WView2]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
@@ -12536,7 +12549,7 @@ vtable	logos.lang.writ.wmap.WIntKeyTag	slots=[map_code]
 vtable	logos.lang.writ.wmap.WritField	slots=[from_wany,to_wany]
 vtable	logos.lcm.io.read.Read	slots=[read]
 vtable	logos.lcm.io.write.Write	slots=[write,flush]
-vtable	logos.mem.bt.map.BtBranch	slots=[adopt,new_sibling,block,child_count,sep_at,child_addr,set_child_addr,max_sep,total_size,totals,find_child,push_row,insert_row,update_row,can_insert_child,split_into,cow_clone,free_block]
+vtable	logos.mem.bt.map.BtBranch	slots=[adopt,new_sibling,block,child_count,sep_at,child_addr,set_child_addr,max_sep,total_size,totals,count_at,find_child,push_row,insert_row,update_row,can_insert_child,split_into,cow_clone,free_block]
 vtable	logos.mem.bt.map.BtLeaf	slots=[adopt,new_sibling,block,count,key_at,val_at,lower_bound,try_insert,with_entry,split_into,cow_clone,free]
 vtable	logos.mem.bt.map.Ctr	slots=[size]
 vtable	logos.mem.bt.map.Multimap	slots=[size,find,insert]

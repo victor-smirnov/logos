@@ -89,6 +89,19 @@ fn main() -> i32 {
     if jc.get_or(9999u64).len() != 0i64 { return 8i32; }
     if jg.get_or(9999u64).len() != 0i64 { return 9i32; }
 
+    // seek(n) over the VOLUME family: the &[u8] value view rides the cursor
+    // (the cursor holds the adopted leaf, so the borrow runs through self).
+    // Key order: 1, 2, 3, 100..399 → entry 0 = "opened", entry 3 = key 100.
+    let c0 = jc.seek(0u64);
+    if !c0.valid() || c0.key() != 1u64 { return 10i32; }
+    if !beq(c0.value(), "opened") { return 11i32; }
+    let c3 = jc.seek(3u64);
+    if !c3.valid() || c3.key() != 100u64 { return 12i32; }
+    if !beq(c3.value(), "row") { return 13i32; }
+    let clast = jc.seek(302u64);
+    if !clast.valid() || clast.key() != 399u64 { return 14i32; }
+    if jc.seek(303u64).valid() { return 15i32; }   // past the end: invalid, no trap
+
     s1.commit();
     return 42i32;
 }

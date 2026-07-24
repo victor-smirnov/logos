@@ -23,6 +23,12 @@ use logos.lang.writ.wstatic;
 use logos.lang.rc;                // Rc — the thread-local container handle plane
 use logos.mem.sync;               // Arc — the snapshot parent-hold plane
 use logos.mem.bt.map;             // trait Snapshot — the erased public snapshot tier
+// The factory-generated VECTOR family delegates into the btvec positional
+// prototype, and a metaprog-emitted `use` cannot itself LOAD a module — the
+// same hub rule as logos.mem.bt.map's node/btss edges. Every create_ctr
+// consumer imports THIS module, so the edge lives here (map itself cannot
+// carry it: map → btvec → memstore → map would cycle).
+use logos.mem.bt.btvec;
 
 /// Typed wrapper over a container configuration document. Zero-field: the
 /// type carries only the CFG identity (content hash) + factory routing.

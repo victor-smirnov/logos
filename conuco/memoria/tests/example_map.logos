@@ -148,6 +148,22 @@ fn run_all() -> i32 {
     if m.get_or(777_777u64, 0u64) != 0u64 { return 14i32; }
     if m.size() != n + 1u64 { return 15i32; }
 
+    // ── §7 SEEK BY ENTRY NUMBER (the stream-size feature): every container
+    // doubles as an ARRAY of its entries — Memoria's classic BTSS semantics.
+    // The branch rows carry per-child subtree counts (maintained by every
+    // insert), so seek(n) is one descent that subtracts child counts until
+    // the remainder falls inside a subtree. The cursor is the v0 pair (leaf
+    // + local index) with typed key/value reads; movement lands with the
+    // cursors arc. Keys here are 0..n plus 500_000 → entry i has key i for
+    // i < n, and the LAST entry is the 500_000 straggler.
+    let c = m.seek(2500u64);
+    if !c.valid() { return 16i32; }
+    if c.key() != 2500u64 { return 17i32; }
+    if c.value() != 7500u64 { return 18i32; }
+    let last = m.seek(n);                          // entry #4000 = key 500_000
+    if !last.valid() || last.key() != 500_000u64 { return 19i32; }
+    if m.seek(n + 1u64).valid() { return 20i32; }  // past the end: invalid, no trap
+
     return 0i32;
 }
 

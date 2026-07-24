@@ -33,6 +33,18 @@ fn main() -> i32 {
     }
     if m.get_or(5000u64, 0xDEADu64) != 0xDEADu64 { bad = bad + 1u64; }
     if m.size() != 1000u64 { bad = bad + 1u64; }
+    // seek(n) — the entry-number read (stream-size feature): the container
+    // as an array of its entries in key order. Insertion was ascending, so
+    // the n-th entry's key is n.
+    k = 0u64;
+    while k < 1000u64 {
+        let c = m.seek(k);
+        if !c.valid() { bad = bad + 1u64; }
+        if c.key() != k { bad = bad + 1u64; }
+        if c.value() != k + 7u64 { bad = bad + 1u64; }
+        k = k + 250u64;
+    }
+    if m.seek(1000u64).valid() { bad = bad + 1u64; }   // past the end: invalid, no trap
     s0.commit();
     // open_ctr on the same snapshot sees the same container.
     let m2 = open_ctr::<Legend>(&mut s0, 1u64);

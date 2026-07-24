@@ -707,6 +707,102 @@ pub fn btfl_key_stream<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, key: u64, s
     }
 }
 
+// ── hierarchical entry seek (the stream-size feature, BTFL semantics) ───────
+//
+// A BTFL container is a NESTING tree marked by its symbol sequence: symbol 0
+// = the top level after the root (multimap keys), symbol s+1 = the children
+// of the preceding symbol-s entry. Seek is therefore TWO operations, not one:
+// `ctr.seek(n)` finds the n-th symbol-0 entry (a KEY cursor), and
+// `key_cur.seek(m)` finds the m-th entry of ITS run in the next stream (a
+// VALUE cursor) — a RELATIVE address resolved inside the key's leaf. The
+// branch descent rides the same per-symbol CNT columns every insert has
+// maintained since S2b (one SUM-index find_gt per level, the C++
+// find_for_select_fw step); the relative half is leaf-local under the v0
+// key-aligned-split invariant — the cheap case the C++ shuttles optimize for
+// (small m ⇒ the walk never leaves the node it started in).
+
+/// A key cursor: the n-th symbol-0 entry — its leaf and LOCAL key index.
+/// `found = false` ⇔ n >= the key count (kidx then = the local key count).
+pub struct BtflEntryCur {
+    pub found: bool,
+    pub leaf: *mut u8,
+    pub kidx: u32,
+}
+
+/// A value cursor: the m-th next-stream entry of one key's run — the leaf
+/// and the LOCAL row index in that value stream's column.
+pub struct BtflValCur {
+    pub found: bool,
+    pub leaf: *mut u8,
+    pub vidx: u32,
+}
+
+/// `ctr.seek(n)`: cursor at the n-th KEY (symbol-0 entry) in symbol order.
+pub fn btfl_seek_nth<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, n: u64) -> BtflEntryCur {
+    unsafe {
+        let mut node: *mut u8 = t.root;
+        let mut lvl: u32 = t.level;
+        let mut rem: u64 = n;
+        while lvl > 0u32 {
+            let a: *mut PkdAlloc = P::pkd(node);
+            let b: PdtBuf = br_pdt(a);
+            // One SUM-index step: the child whose CNT0 column crosses the
+            // remainder, and the prefix consumed before it.
+            let f: PdtFind = b.find_gt(BRC_CNT0, rem);
+            if f.idx >= b.size() {
+                // n beyond the tree: land past-the-end of the LAST leaf.
+                let last: u32 = (b.size() as u32) - 1u32;
+                rem = b.get(BRC_CNT0, last as u64);
+                node = br_child(a).get(0u32, last as u64) as *mut u8;
+            } else {
+                rem = rem - f.prefix;
+                node = br_child(a).get(0u32, f.idx) as *mut u8;
+            }
+            lvl = lvl - 1u32;
+        }
+        let kc: u64 = lf_pdt(P::pkd(node), 0u32).size();
+        if rem >= kc {
+            return BtflEntryCur { found: false, leaf: node, kidx: kc as u32 };
+        }
+        return BtflEntryCur { found: true, leaf: node, kidx: rem as u32 };
+    }
+}
+
+/// Row count of stream `s` under the key at `(leaf, kidx)` — the size of the
+/// key's run projected into that stream (rank difference over the run's
+/// symbol span; multimap value count for s = 1).
+pub fn btfl_entry_stream_count<const N: u32, P: NodeProfile>(leaf: *mut u8, kidx: u32, s: u32) -> u64 {
+    unsafe {
+        let a: *mut PkdAlloc = P::pkd(leaf);
+        let seq: PkdSsrle = lf_seq_n::<N>(a);
+        let kc: u32 = lf_pdt(a, 0u32).size() as u32;
+        let p: u64 = seq.select_fw_eq(kidx as u64, 0u64).idx;
+        let mut end: u64 = seq.size();
+        if kidx + 1u32 < kc {
+            end = seq.select_fw_eq((kidx as u64) + 1u64, 0u64).idx;
+        }
+        return seq.rank_eq(end, s as u64) - seq.rank_eq(p + 1u64, s as u64);
+    }
+}
+
+/// `key_cur.seek(m)`: cursor at the m-th stream-`s` entry of the key at
+/// `(leaf, kidx)` — the RELATIVE seek. Leaf-local: the run's first stream-`s`
+/// row is the rank projection of the key's symbol position; the m-th is m
+/// rows after it (the v0 key-aligned-split invariant keeps the whole run in
+/// the key's leaf).
+pub fn btfl_entry_seek<const N: u32, P: NodeProfile>(leaf: *mut u8, kidx: u32, s: u32, m: u64) -> BtflValCur {
+    unsafe {
+        let a: *mut PkdAlloc = P::pkd(leaf);
+        let seq: PkdSsrle = lf_seq_n::<N>(a);
+        let v0: u64 = seq.rank_eq(seq.select_fw_eq(kidx as u64, 0u64).idx + 1u64, s as u64);
+        let cnt: u64 = btfl_entry_stream_count::<N, P>(leaf, kidx, s);
+        if m >= cnt {
+            return BtflValCur { found: false, leaf: leaf, vidx: (v0 + cnt) as u32 };
+        }
+        return BtflValCur { found: true, leaf: leaf, vidx: (v0 + m) as u32 };
+    }
+}
+
 // ── insert ──────────────────────────────────────────────────────────────────
 
 // The insert reports ride the SHARED BtInsRet<u64, N> (logos.mem.bt.ops) —
@@ -1243,6 +1339,9 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
                 sym = sym + 1u32;
             }
         }
+    }
+    fn count_at(self: &BtflBranchRef<N, P>, i: u32, s: u32) -> u64 {
+        unsafe { return br_pdt(P::pkd(self.mem)).get(BRC_CNT0 + s, i as u64); }
     }
     fn find_child(self: &BtflBranchRef<N, P>, key: u64) -> u32 {
         unsafe { return btfl_find_child(P::pkd(self.mem), key); }

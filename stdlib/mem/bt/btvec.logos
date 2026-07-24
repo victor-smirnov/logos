@@ -1,0 +1,342 @@
+// logos.mem.bt.btvec — the POSITIONAL single-stream prototype: Vector<V>
+// (Memoria bt_ss's dynamic-vector shape). The pure stream-size container —
+// its branch nodes carry ONLY the per-child subtree entry count (plus the
+// child refs): there is no key, no measure column, and every operation is
+// positional. Descent subtracts child counts until the remainder falls
+// inside one subtree — the same walk the seek side of every other container
+// rides, here it is the ONLY walk.
+//
+// Like logos.mem.bt.btfl this is a hand-written PROTOTYPE generic over the
+// node form (`P: NodeProfile`): the Canon factory's kind=vector family is
+// thin glue over these fns. Cells are u64 at rest (the btss discipline); the
+// generated family casts its value type at the boundary. In-place mutation
+// (no CoW privatization) — the same v0 restriction as btfl; the CoW walk
+// lands with the shared privatize hook.
+//
+//   node layout
+//     leaf:   slot 0 = FSE64 value column            (child_slot = none)
+//     branch: slot 0 = FSE64 subtree-count column,
+//             slot 1 = child-ref column               (child_slot = 1 —
+//             declared in the header, so memstore's container-agnostic
+//             tree_release walks it with no global convention)
+package logos.mem.bt.btvec;
+
+use logos.mem.bt.node;       // NodeProfile — the node-form seam
+use logos.mem.bt.btss;       // the shared single-stream column mechanics
+use logos.mem.bt.memstore;   // MemorySnapshot (creation stamp) + tree_release
+use logos.mem.pkd;           // PkdAlloc
+use logos.mem.pkd.pdtbuf;    // PdtBuf — the column store
+use logos.lang.panic;
+
+// Branch slots.
+const BV_CNT:   u32 = 0u32;
+const BV_CHILD: u32 = 1u32;
+
+// ── node creation ───────────────────────────────────────────────────────────
+
+fn bv_leaf_new<P: NodeProfile>(snp: u64, leaf_bytes: u32) -> *mut u8 {
+    unsafe {
+        let node: *mut u8 = P::alloc(leaf_bytes, 1u32, snp);
+        // One unordered FSE64 value column.
+        btss_fmt_slot(P::pkd(node), 0u32, false, false);
+        return node;
+    }
+}
+
+fn bv_branch_new<P: NodeProfile>(snp: u64, branch_bytes: u32) -> *mut u8 {
+    unsafe {
+        let node: *mut u8 = P::alloc(branch_bytes, 2u32, snp);
+        P::set_child_slot(node, BV_CHILD);
+        let a: *mut PkdAlloc = P::pkd(node);
+        btss_fmt_slot(a, BV_CNT, false, false);
+        btss_fmt_slot(a, BV_CHILD, false, false);
+        return node;
+    }
+}
+
+// ── the tree handle ─────────────────────────────────────────────────────────
+
+/// A positional single-stream tree: (root, level) + the node sizing splits
+/// reproduce. level 0 = root is a leaf.
+pub struct Btvec<P: NodeProfile> {
+    pub root: *mut u8,
+    pub level: u32,
+    pub leaf_bytes: u32,
+    pub branch_bytes: u32,
+}
+
+/// Creates an empty vector (a single empty leaf).
+pub fn btvec_create<P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32, branch_bytes: u32) -> Btvec<P> {
+    return Btvec::<P> {
+        root: bv_leaf_new::<P>(snap.snapshot_id(), leaf_bytes),
+        level: 0u32,
+        leaf_bytes: leaf_bytes,
+        branch_bytes: branch_bytes,
+    };
+}
+
+/// Releases the tree (rc-aware recursive release via the declared child slot).
+pub fn btvec_drop<P: NodeProfile>(t: &Btvec<P>) {
+    unsafe {
+        tree_release(t.root, t.level);
+    }
+}
+
+// ── reads ───────────────────────────────────────────────────────────────────
+
+unsafe fn bv_cnt(a: *mut PkdAlloc) -> PdtBuf { return pdtbuf_adopt(a.get::<u8>(BV_CNT)); }
+unsafe fn bv_child(a: *mut PkdAlloc) -> PdtBuf { return pdtbuf_adopt(a.get::<u8>(BV_CHILD)); }
+unsafe fn bv_vals(a: *mut PkdAlloc) -> PdtBuf { return pdtbuf_adopt(a.get::<u8>(0u32)); }
+
+/// Total entry count.
+pub fn btvec_size<P: NodeProfile>(t: &Btvec<P>) -> u64 {
+    unsafe {
+        let a: *mut PkdAlloc = P::pkd(t.root);
+        if t.level == 0u32 {
+            return bv_vals(a).size();
+        }
+        let b: PdtBuf = bv_cnt(a);
+        let n: u64 = b.size();
+        let mut s: u64 = 0u64;
+        let mut i: u64 = 0u64;
+        while i < n {
+            s = s + b.get(0u32, i);
+            i = i + 1u64;
+        }
+        return s;
+    }
+}
+
+/// Where a positional seek landed: the owning leaf and the LOCAL index.
+/// `found = false` ⇔ pos >= size() (idx then = the leaf's count).
+pub struct BtvecCur {
+    pub found: bool,
+    pub leaf: *mut u8,
+    pub idx: u32,
+}
+
+/// Cursor at the `pos`-th entry (0-based) — the count descent.
+pub fn btvec_seek<P: NodeProfile>(t: &Btvec<P>, pos: u64) -> BtvecCur {
+    unsafe {
+        let mut node: *mut u8 = t.root;
+        let mut lvl: u32 = t.level;
+        let mut rem: u64 = pos;
+        while lvl > 0u32 {
+            let a: *mut PkdAlloc = P::pkd(node);
+            let b: PdtBuf = bv_cnt(a);
+            let n: u64 = b.size();
+            let mut i: u64 = 0u64;
+            let mut descending: bool = false;
+            while !descending && i < n {
+                let c: u64 = b.get(0u32, i);
+                if rem < c {
+                    descending = true;
+                } else {
+                    rem = rem - c;
+                    i = i + 1u64;
+                }
+            }
+            if !descending {
+                // pos beyond the tree: land past-the-end of the LAST subtree.
+                i = n - 1u64;
+                rem = b.get(0u32, i);
+            }
+            node = bv_child(a).get(0u32, i) as *mut u8;
+            lvl = lvl - 1u32;
+        }
+        let cnt: u64 = bv_vals(P::pkd(node)).size();
+        if rem >= cnt {
+            return BtvecCur { found: false, leaf: node, idx: cnt as u32 };
+        }
+        return BtvecCur { found: true, leaf: node, idx: rem as u32 };
+    }
+}
+
+/// The `pos`-th entry's cell (traps past the end — use btvec_seek for the
+/// checked form).
+pub fn btvec_get<P: NodeProfile>(t: &Btvec<P>, pos: u64) -> u64 {
+    let c: BtvecCur = btvec_seek::<P>(t, pos);
+    assert(c.found, "btvec_get: position beyond the vector");
+    unsafe {
+        return bv_vals(P::pkd(c.leaf)).get(0u32, c.idx as u64);
+    }
+}
+
+/// A cursor's cell (the typed read the family wraps).
+pub fn btvec_cur_value<P: NodeProfile>(c: &BtvecCur) -> u64 {
+    assert(c.found, "btvec cursor: value() past the end");
+    unsafe {
+        return bv_vals(P::pkd(c.leaf)).get(0u32, c.idx as u64);
+    }
+}
+
+/// Overwrite the `pos`-th entry in place (no structural change, no CoW —
+/// the v0 restriction).
+pub fn btvec_set<P: NodeProfile>(t: &Btvec<P>, pos: u64, v: u64) {
+    let c: BtvecCur = btvec_seek::<P>(t, pos);
+    assert(c.found, "btvec_set: position beyond the vector");
+    unsafe {
+        let mut b: PdtBuf = bv_vals(P::pkd(c.leaf));
+        b.set(0u32, c.idx as u64, v);
+    }
+}
+
+// ── insert ──────────────────────────────────────────────────────────────────
+
+// The bottom-up positional insert report: left count, plus an optional split's
+// right sibling (its count and block). In-place — no identity change to carry.
+struct BvIns {
+    lcnt: u64,
+    split: bool,
+    rcnt: u64,
+    rptr: *mut u8,
+}
+
+// Insert `v` at LOCAL position `pos` under `(node, level)`. The descent is
+// positional: child i absorbs an insertion position within [0, cnt_i]
+// (rem == cnt_i inserts at the child's end — append prefers the LEFT child,
+// keeping the rightmost path for genuine appends past every subtree).
+fn bv_ins_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64, v: u64, snp: u64,
+                              leaf_bytes: u32, branch_bytes: u32) -> BvIns {
+    unsafe {
+        if level == 0u32 {
+            let a: *mut PkdAlloc = P::pkd(node);
+            if btss_fits_row(a, 1u32) {
+                btss_put_cell(a, 0u32, pos as u32, v);
+                return BvIns { lcnt: bv_vals(a).size(), split: false, rcnt: 0u64, rptr: node };
+            }
+            // Count-balanced split at the middle, then insert into the owner.
+            let rn: *mut u8 = bv_leaf_new::<P>(snp, leaf_bytes);
+            let at: u64 = bv_vals(a).size() / 2u64;
+            btss_split_col(a, P::pkd(rn), 0u32, at as u32);
+            if pos <= at {
+                btss_put_cell(a, 0u32, pos as u32, v);
+            } else {
+                btss_put_cell(P::pkd(rn), 0u32, (pos - at) as u32, v);
+            }
+            return BvIns {
+                lcnt: bv_vals(a).size(),
+                split: true,
+                rcnt: bv_vals(P::pkd(rn)).size(),
+                rptr: rn,
+            };
+        }
+        let a: *mut PkdAlloc = P::pkd(node);
+        let cb: PdtBuf = bv_cnt(a);
+        let n: u64 = cb.size();
+        let mut ci: u64 = 0u64;
+        let mut rem: u64 = pos;
+        while ci + 1u64 < n && rem > cb.get(0u32, ci) {
+            rem = rem - cb.get(0u32, ci);
+            ci = ci + 1u64;
+        }
+        let r: BvIns = bv_ins_rec::<P>(bv_child(a).get(0u32, ci) as *mut u8, level - 1u32,
+                                       rem, v, snp, leaf_bytes, branch_bytes);
+        {
+            let mut ub: PdtBuf = bv_cnt(a);
+            ub.set(0u32, ci, r.lcnt);
+        }
+        if !r.split {
+            return BvIns { lcnt: btvec_node_total::<P>(node), split: false, rcnt: 0u64, rptr: node };
+        }
+        if btss_fits_row(a, 2u32) {
+            btss_put_cell(a, BV_CNT, (ci + 1u64) as u32, r.rcnt);
+            btss_put_cell(a, BV_CHILD, (ci + 1u64) as u32, r.rptr as u64);
+            return BvIns { lcnt: btvec_node_total::<P>(node), split: false, rcnt: 0u64, rptr: node };
+        }
+        // Branch split at the middle; graft the new right row into its owner.
+        let rb: *mut u8 = bv_branch_new::<P>(snp, branch_bytes);
+        let at: u64 = n / 2u64;
+        let ra: *mut PkdAlloc = P::pkd(rb);
+        btss_split_col(a, ra, BV_CNT, at as u32);
+        btss_split_col(a, ra, BV_CHILD, at as u32);
+        if ci + 1u64 <= at {
+            btss_put_cell(a, BV_CNT, (ci + 1u64) as u32, r.rcnt);
+            btss_put_cell(a, BV_CHILD, (ci + 1u64) as u32, r.rptr as u64);
+        } else {
+            btss_put_cell(ra, BV_CNT, ((ci + 1u64) - at) as u32, r.rcnt);
+            btss_put_cell(ra, BV_CHILD, ((ci + 1u64) - at) as u32, r.rptr as u64);
+        }
+        return BvIns {
+            lcnt: btvec_node_total::<P>(node),
+            split: true,
+            rcnt: btvec_node_total::<P>(rb),
+            rptr: rb,
+        };
+    }
+}
+
+// A branch node's own subtree total (sum of its count column).
+fn btvec_node_total<P: NodeProfile>(node: *mut u8) -> u64 {
+    unsafe {
+        let b: PdtBuf = bv_cnt(P::pkd(node));
+        let n: u64 = b.size();
+        let mut s: u64 = 0u64;
+        let mut i: u64 = 0u64;
+        while i < n {
+            s = s + b.get(0u32, i);
+            i = i + 1u64;
+        }
+        return s;
+    }
+}
+
+/// Insert `v` at position `pos` (0-based; `pos == size()` appends). Splits
+/// propagate bottom-up; a root split grows the tree by one level here.
+pub fn btvec_insert_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, pos: u64, v: u64) {
+    let sz: u64 = btvec_size::<P>(t);
+    assert(pos <= sz, "btvec_insert_at: position beyond the vector");
+    let snp: u64 = snap.snapshot_id();
+    let r: BvIns = bv_ins_rec::<P>(t.root, t.level, pos, v, snp, t.leaf_bytes, t.branch_bytes);
+    if r.split {
+        unsafe {
+            let nr: *mut u8 = bv_branch_new::<P>(snp, t.branch_bytes);
+            let a: *mut PkdAlloc = P::pkd(nr);
+            btss_put_cell(a, BV_CNT, 0u32, r.lcnt);
+            btss_put_cell(a, BV_CHILD, 0u32, t.root as u64);
+            btss_put_cell(a, BV_CNT, 1u32, r.rcnt);
+            btss_put_cell(a, BV_CHILD, 1u32, r.rptr as u64);
+            t.root = nr;
+            t.level = t.level + 1u32;
+        }
+    }
+}
+
+/// Append `v` (insert at size()).
+pub fn btvec_append<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, v: u64) {
+    btvec_insert_at::<P>(snap, t, btvec_size::<P>(t), v);
+}
+
+// ── structural check (test surface) ─────────────────────────────────────────
+
+/// Verifies every branch row's count against a recursive recount of its
+/// subtree — the stream-size invariant the inserts must maintain.
+pub fn btvec_check<P: NodeProfile>(t: &Btvec<P>) -> bool {
+    return bv_check_rec::<P>(t.root, t.level) != 0xFFFFFFFFFFFFFFFFu64;
+}
+
+// Returns the subtree's entry count, or u64::MAX on a count mismatch.
+fn bv_check_rec<P: NodeProfile>(node: *mut u8, level: u32) -> u64 {
+    unsafe {
+        if level == 0u32 {
+            return bv_vals(P::pkd(node)).size();
+        }
+        let a: *mut PkdAlloc = P::pkd(node);
+        let cb: PdtBuf = bv_cnt(a);
+        let n: u64 = cb.size();
+        let mut total: u64 = 0u64;
+        let mut i: u64 = 0u64;
+        while i < n {
+            let sub: u64 = bv_check_rec::<P>(bv_child(a).get(0u32, i) as *mut u8, level - 1u32);
+            if sub == 0xFFFFFFFFFFFFFFFFu64 {
+                return sub;
+            }
+            if sub != cb.get(0u32, i) {
+                return 0xFFFFFFFFFFFFFFFFu64;
+            }
+            total = total + sub;
+            i = i + 1u64;
+        }
+        return total;
+    }
+}

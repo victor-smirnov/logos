@@ -261,7 +261,7 @@ fn run_all() -> i32 {
         if !h0.check() {
             return 12i32;
         }
-        let sk: BtflSeek = h0.seek(7u64);
+        let sk: BtflSeek = h0.seek_key(7u64);
         if sk.found {
             return 13i32;
         }
@@ -341,7 +341,7 @@ fn run_all() -> i32 {
                 model_insert(&mut md, k, &vals);
             }
             // absent keys (odd) always miss — through the GENERATED reads
-            let miss: BtflSeek = ha.seek(k + 1u64);
+            let miss: BtflSeek = ha.seek_key(k + 1u64);
             if miss.found {
                 return 33i32;
             }
@@ -405,6 +405,50 @@ fn run_all() -> i32 {
         }
         if hb.level() < 1u32 {
             return 58i32;   // must have split at least once
+        }
+
+        // ── 60..69: the HIERARCHICAL entry seek (stream-size feature) ───────
+        // `ctr.seek(n)` = the n-th KEY cursor; `key_cur.seek(m)` = the m-th
+        // VALUE of that key (the relative seek). The model IS the oracle:
+        // sorted keys (mk), flat values in key order (mv), offsets (moff).
+        let nk: i64 = md.mk.len();
+        let mut n: i64 = 0i64;
+        while n < nk {
+            let kc = hb.seek(n as u64);
+            if !kc.valid() {
+                return 60i32;
+            }
+            if kc.key() != md.mk.get(n) {
+                return 61i32;
+            }
+            let vc: u64 = md.moff.get(n + 1i64) - md.moff.get(n);
+            if kc.val_count() != vc {
+                return 62i32;
+            }
+            // every value of this key through the relative seek
+            let mut m: u64 = 0u64;
+            while m < vc {
+                let vcur = kc.seek(m);
+                if !vcur.valid() {
+                    return 63i32;
+                }
+                if vcur.value() != md.mv.get((md.moff.get(n) + m) as i64) {
+                    return 64i32;
+                }
+                m = m + 1u64;
+            }
+            // past the end of the key's run: invalid, no trap
+            if kc.seek(vc).valid() {
+                return 65i32;
+            }
+            n = n + 1i64;
+        }
+        // past the last key: invalid, no trap
+        if hb.seek(nk as u64).valid() {
+            return 66i32;
+        }
+        if hb.seek((nk as u64) + 1000u64).valid() {
+            return 67i32;
         }
     }
 

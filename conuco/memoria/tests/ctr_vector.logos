@@ -1,0 +1,201 @@
+// ctr_vector — the Vector<V> family gate: the pure stream-size container
+// (branch nodes carry ONLY per-child subtree entry counts) through the full
+// metaclass pipeline: CFG literal → mono demand → __container_factory →
+// generated family (Hs<hex>, package logos.gen) → thin glue over
+// logos.mem.bt.btvec. Model-equivalence harness in the gen_multimap style:
+// the reference model is a plain Vec<u64>; every mutation rides the
+// generated handle; laws are checked against the model each round.
+//
+// Error-code decades:
+//   10..19  empty container + trivial appends (default nodes)
+//   20..39  config A: small nodes (reformat 512/320) — random positional
+//           inserts, per-round size/check, periodic full equivalence
+//           (get(i) AND seek(i).value() vs the model); final level ≥ 2
+//   40..49  set-in-place over config A's final state
+//   80..89  pipeline smoke (second container id independence, open)
+package test;
+
+use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
+use logos.lcm.canon.metaclass;        // create_ctr / open_ctr (mono demand surface)
+use logos.mem.bt.btvec;               // Btvec — the tree() law surface
+use logos.mem.bt.node;                // CowProfile
+use logos.mem.bt.map;                 // trait hub (declaring-unit contract)
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc — the store/snapshot plane
+use logos.mem.pkd;
+use logos.lang.arith;
+use logos.lang.writ.wstatic;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
+
+pub const VecCfg: WritStatic = @{ "kind": "vector", "value": <type:u64> };
+pub type V64 = CtrClass<VecCfg>;
+
+// deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
+struct Lcg {
+    s: u64,
+}
+
+impl Lcg {
+    fn next(self: &mut Lcg) -> u64 {
+        self.s = wrapping_add::<u64>(
+            wrapping_mul::<u64>(self.s, 6364136223846793005u64),
+            1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+}
+
+// Vec has no positional insert — shift-right by hand (the model is O(n²)
+// over the run; fine at this scale).
+fn model_insert_at(m: &mut Vec<u64>, pos: i64, v: u64) {
+    m.push(0u64);
+    let mut i: i64 = m.len() - 1i64;
+    while i > pos {
+        m.set(i, m.get(i - 1i64));
+        i = i - 1i64;
+    }
+    m.set(pos, v);
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+
+    // ── 10..19: empty + trivial appends (default nodes) ─────────────────────
+    {
+        let v0 = create_ctr::<V64>(&snap, 1u64);
+        if v0.size() != 0u64 {
+            return 10i32;
+        }
+        if v0.seek(0u64).valid() {
+            return 11i32;
+        }
+        if !v0.check() {
+            return 12i32;
+        }
+        v0.append(7u64);
+        v0.append(9u64);
+        if v0.size() != 2u64 {
+            return 13i32;
+        }
+        if v0.get(0u64) != 7u64 || v0.get(1u64) != 9u64 {
+            return 14i32;
+        }
+        let c = v0.seek(1u64);
+        if !c.valid() || c.value() != 9u64 {
+            return 15i32;
+        }
+        if v0.seek(2u64).valid() {
+            return 16i32;
+        }
+    }
+
+    // ── 20..39: config A — small nodes, random positional inserts ───────────
+    {
+        let mut va = create_ctr::<V64>(&snap, 2u64);
+        va.reformat(512u32, 320u32);
+        let mut model: Vec<u64> = vec_new::<u64>();
+        let mut lcg: Lcg = Lcg { s: 0x5EEDu64 };
+        let mut r: i64 = 0i64;
+        while r < 1500i64 {
+            let val: u64 = lcg.next();
+            // Mix appends (2/3) with random-position inserts (1/3): front,
+            // middle and tail all get traffic across splits.
+            let mode: u64 = lcg.next() % 3u64;
+            if mode == 0u64 && model.len() > 0i64 {
+                let pos: u64 = lcg.next() % ((model.len() as u64) + 1u64);
+                va.insert_at(pos, val);
+                model_insert_at(&mut model, pos as i64, val);
+            } else {
+                va.append(val);
+                model.push(val);
+            }
+            if va.size() != model.len() as u64 {
+                return 21i32;
+            }
+            if !va.check() {
+                return 22i32;   // a branch count row disagrees with its subtree
+            }
+            // Periodic FULL equivalence — every element via BOTH read paths.
+            if r % 100i64 == 99i64 {
+                let mut i: i64 = 0i64;
+                while i < model.len() {
+                    if va.get(i as u64) != model.get(i) {
+                        return 23i32;
+                    }
+                    let c = va.seek(i as u64);
+                    if !c.valid() {
+                        return 24i32;
+                    }
+                    if c.value() != model.get(i) {
+                        return 25i32;
+                    }
+                    i = i + 1i64;
+                }
+                if va.seek(model.len() as u64).valid() {
+                    return 26i32;
+                }
+            }
+            r = r + 1i64;
+        }
+        if va.level() < 2u32 {
+            return 38i32;   // the scenario must cross branch-split depth
+        }
+
+        // ── 40..49: set-in-place over the final state ───────────────────────
+        let n: i64 = model.len();
+        let mut k: i64 = 0i64;
+        while k < 200i64 {
+            let pos: u64 = lcg.next() % (n as u64);
+            let nv: u64 = lcg.next();
+            va.set(pos, nv);
+            model.set(pos as i64, nv);
+            if va.get(pos) != nv {
+                return 41i32;
+            }
+            k = k + 1i64;
+        }
+        if !va.check() {
+            return 42i32;
+        }
+        // spot re-verify after the write burst
+        let mut i2: i64 = 0i64;
+        while i2 < n {
+            if va.get(i2 as u64) != model.get(i2) {
+                return 43i32;
+            }
+            i2 = i2 + 37i64;
+        }
+    }
+
+    // ── 80..89: pipeline smoke ──────────────────────────────────────────────
+    {
+        let vb = create_ctr::<V64>(&snap, 3u64);
+        vb.append(1u64);
+        let vc = create_ctr::<V64>(&snap, 4u64);
+        if vc.size() != 0u64 {
+            return 81i32;   // container ids are independent
+        }
+        let vb2 = open_ctr::<V64>(&snap, 3u64);
+        if vb2.size() != 1u64 || vb2.get(0u64) != 1u64 {
+            return 82i32;
+        }
+    }
+
+    return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap and report SUCCESS.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_vector: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

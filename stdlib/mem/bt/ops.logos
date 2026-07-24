@@ -272,6 +272,63 @@ pub unsafe fn bt_cow_with_entry<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn
     return BtInsRet { ok: true, addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: true, rsep: rb.max_sep(), rcnt: [rb.total_size()], rptr: rb.block() };
 }
 
+// ── seek by entry NUMBER (the stream-size feature's read side) ───────────────
+//
+// Every container doubles as an ARRAY of its entries (Memoria's classic BTSS
+// seek semantics): the branch rows already carry per-child subtree counts —
+// maintained by every insert since S2b — so the N-th entry is a descent that
+// subtracts child counts until the remainder falls inside one subtree, then
+// indexes the leaf locally. O(height · fanout) with the linear column walk
+// (matching lower_bound's discipline); flips to one SUM-index find_gt per
+// level when the branch count column graduates to the SUM order.
+
+/// Where a positional seek landed: the owning leaf and the LOCAL entry index.
+/// `found = false` ⇔ `pos >= size()` (leaf/idx are then the past-the-end
+/// position: the last leaf and its count). The v0 cursor is this pair — leaf
+/// identity + local offset; movement (next/prev with a parent path) is the
+/// cursors arc.
+pub struct BtCur {
+    pub found: bool,
+    pub leaf: *mut u8,
+    pub idx: u32,
+}
+
+/// Descend `(root, level)` to the entry at ordinal `pos` (0-based, stream 0).
+pub fn bt_seek_at<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    root: *mut u8, level: u32, pos: u64) -> BtCur {
+    let mut node: *mut u8 = root;
+    let mut lvl: u32 = level;
+    let mut rem: u64 = pos;
+    while lvl > 0u32 {
+        let br: B = B::adopt(node);
+        let n: u32 = br.child_count();
+        let mut i: u32 = 0u32;
+        let mut descending: bool = false;
+        while !descending && i < n {
+            let c: u64 = br.count_at(i, 0u32);
+            if rem < c {
+                descending = true;
+            } else {
+                rem = rem - c;
+                i = i + 1u32;
+            }
+        }
+        if !descending {
+            // pos beyond the tree: land past-the-end of the LAST subtree.
+            i = n - 1u32;
+            rem = br.count_at(i, 0u32);
+        }
+        node = br.child_addr(i);
+        lvl = lvl - 1u32;
+    }
+    let lf: L = L::adopt(node);
+    let cnt: u32 = lf.count();
+    if (rem as u32) >= cnt {
+        return BtCur { found: false, leaf: node, idx: cnt };
+    }
+    return BtCur { found: true, leaf: node, idx: rem as u32 };
+}
+
 // ── size ─────────────────────────────────────────────────────────────────────
 
 /// `(root, level)` shape (not the snapshot/`Ctr` shape) so it composes with
