@@ -798,6 +798,10 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     wn.push_str(name);
     wn.push_str("Alg_with_entry");
     let wek: Ident = Ident::new(wn.as_str());   // wn outlives the emissions below
+    let mut dn: String = String::new();
+    dn.push_str(name);
+    dn.push_str("Alg_entry_del");
+    let delk: Ident = Ident::new(dn.as_str()); // dn outlives the emissions below
 
     // val_at / try_insert / split_index — VERDICT-SELECTED (Canon fast|volume).
     if vol {
@@ -812,6 +816,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             use logos.lang.slice;
             use logos.mem.collections.vec;
             use logos.mem.bt.alg;
+            use logos.lang.option;
             impl #nm {
                 pub fn val_at(self: &#nm, i: u32) -> &[u8] {
                     unsafe {
@@ -846,6 +851,40 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         return #(wek)(self.a(), pos as u64, hit, &mut d);
                     }
                 }
+                /// The WITH_ENTRY quad at this leaf (ADR 0023): f maps the
+                /// entry's current state to its next; the transition runs on
+                /// the generated algebra kernels. False iff it does not fit.
+                pub fn with_entry(self: &mut #nm, key: #(kid), f: fn(Option<&[u8]>) -> Option<#(vid)>) -> bool {
+                    unsafe {
+                        let pos: u32 = self.lower_bound(key);
+                        let hit: bool = pos < self.count() && self.key_at(pos) == key;
+                        let mut cur: Option<&[u8]> = Option::None;
+                        if hit {
+                            cur = Option::Some(self.val_at(pos));
+                        }
+                        match f(cur) {
+                            Option::Some(v) => {
+                                let mut d: LeafBatchDatum = leaf_batch_datum_new();
+                                let mut ck: DatumCol = datum_col_new();
+                                if !hit {
+                                    ck.cells.push(key as u64);
+                                }
+                                d.cols.push(ck);
+                                let mut cv: DatumCol = datum_col_new();
+                                cv.spans.push_span(slice_from_raw::<u8>(v.as_ptr(), v.len()));
+                                d.cols.push(cv);
+                                return #(wek)(self.a(), pos as u64, hit, &mut d);
+                            }
+                            Option::None => {
+                                if !hit {
+                                    return true;   // None→None: no-op
+                                }
+                                let dd: LeafBatchDatum = leaf_batch_datum_new();
+                                return #(delk)(self.a(), pos as u64, &dd);
+                            }
+                        }
+                    }
+                }
                                 static unsafe fn fmt_vc(a: *mut PkdAlloc) {
                     #nm::fmt_slot(a, 1u32, true, false);
                 }
@@ -866,6 +905,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             use logos.lang.result;
             use logos.mem.collections.vec;
             use logos.mem.bt.alg;
+            use logos.lang.option;
             impl #nm {
                 pub fn try_insert(self: &mut #nm, key: #(kid), val: #(vid)) -> bool {
                     unsafe {
@@ -885,6 +925,40 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         cv.cells.push(val as u64);
                         d.cols.push(cv);
                         return #(wek)(self.a(), pos as u64, hit, &mut d);
+                    }
+                }
+                /// The WITH_ENTRY quad at this leaf (ADR 0023): f maps the
+                /// entry's current state to its next; the transition runs on
+                /// the generated algebra kernels. False iff it does not fit.
+                pub fn with_entry(self: &mut #nm, key: #(kid), f: fn(Option<#(vid)>) -> Option<#(vid)>) -> bool {
+                    unsafe {
+                        let pos: u32 = self.lower_bound(key);
+                        let hit: bool = pos < self.count() && self.key_at(pos) == key;
+                        let mut cur: Option<#(vid)> = Option::None;
+                        if hit {
+                            cur = Option::Some(self.val_at(pos));
+                        }
+                        match f(cur) {
+                            Option::Some(v) => {
+                                let mut d: LeafBatchDatum = leaf_batch_datum_new();
+                                let mut ck: DatumCol = datum_col_new();
+                                if !hit {
+                                    ck.cells.push(key as u64);
+                                }
+                                d.cols.push(ck);
+                                let mut cv: DatumCol = datum_col_new();
+                                cv.cells.push(v as u64);
+                                d.cols.push(cv);
+                                return #(wek)(self.a(), pos as u64, hit, &mut d);
+                            }
+                            Option::None => {
+                                if !hit {
+                                    return true;   // None→None: no-op
+                                }
+                                let dd: LeafBatchDatum = leaf_batch_datum_new();
+                                return #(delk)(self.a(), pos as u64, &dd);
+                            }
+                        }
                     }
                 }
                 static unsafe fn fmt_vc(a: *mut PkdAlloc) {
@@ -1279,6 +1353,7 @@ fn emit_bt_leaf_impl(lname: str, kty: str, vty: str, vol: bool) {
     let vo: ExprBlob = if vol { parse_type("&[u8]") } else { parse_type(vty) };
     let b: QuoteItemBlob = quote_item! {
         use logos.mem.bt.map;
+        use logos.lang.option;
         impl BtLeaf<#(kid), #(vi), #(vo)> for #nm {
             fn adopt(mem: *mut u8) -> #nm { return #nm::adopt(mem); }
             fn new_sibling(self: &#nm, snp: u64) -> #nm { return #nm::new_in(snp); }
@@ -1288,6 +1363,7 @@ fn emit_bt_leaf_impl(lname: str, kty: str, vty: str, vol: bool) {
             fn val_at(self: &#nm, i: u32) -> #(vo) { return self.val_at(i); }
             fn lower_bound(self: &#nm, key: #(kid)) -> u32 { return self.lower_bound(key); }
             fn try_insert(self: &mut #nm, key: #(kid), val: #(vi)) -> bool { return self.try_insert(key, val); }
+            fn with_entry(self: &mut #nm, key: #(kid), f: fn(Option<#(vo)>) -> Option<#(vi)>) -> bool { return self.with_entry(key, f); }
             fn split_into(self: &mut #nm, dst: &mut #nm) { self.split_into(dst); }
             fn cow_clone(self: &#nm, snp: u64) -> #nm { return self.cow_clone(snp); }
             fn free(self: #nm) { self.free(); }
@@ -1456,6 +1532,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         use logos.mem.bt.memstore;
         use logos.mem.bt.ops;
         use logos.mem.sync;               // Arc — the parent hold
+        use logos.lang.option;            // Option — the with_entry quad
         pub struct #nm {
             // the PARENT HOLD (Ctr ──Arc→ Snapshot): the ONE snapshot field.
             snap: Arc<MemorySnapshot>,
@@ -1475,6 +1552,33 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                     let e: DirEntry = self.snap.root_of(self.ctr_id);
                     let cur: u64 = self.snap.snapshot_id();
                     let r: BtInsRet<#(kid), 1> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, val, cur);
+                    let mut nrt: *mut u8 = e.root;
+                    let mut nlv: u32 = e.level;
+                    if r.addr != e.root {
+                        nrt = r.addr;
+                        tree_release(e.root, e.level);
+                    }
+                    if r.split {
+                        let mut top: #bid = #bid::new_in(cur);
+                        top.push_child(r.lsep, r.lcnt[0], r.addr);
+                        top.push_child(r.rsep, r.rcnt[0], r.rptr);
+                        nrt = top.block();
+                        nlv = e.level + 1u32;
+                    }
+                    self.snap.set_root(self.ctr_id, nrt, nlv);
+                }
+            }
+            /// The container-boundary WITH_ENTRY (ADR 0023 §Derived forms —
+            /// the with_value generalization): one function drives the quad
+            /// (None→Some insert, Some→Some' replace, Some→None remove,
+            /// None→None no-op). Same walk discipline as insert: CoW
+            /// privatization, root repoint, root-split graft. `f` may run
+            /// again if the leaf splits — keep it pure.
+            pub fn with_entry(self: &#nm, key: #(kid), f: fn(Option<#(vo)>) -> Option<#(vi)>) {
+                unsafe {
+                    let e: DirEntry = self.snap.root_of(self.ctr_id);
+                    let cur: u64 = self.snap.snapshot_id();
+                    let r: BtInsRet<#(kid), 1> = bt_cow_with_entry::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, f, cur);
                     let mut nrt: *mut u8 = e.root;
                     let mut nlv: u32 = e.level;
                     if r.addr != e.root {

@@ -1,0 +1,131 @@
+package test;
+// ADR 0023 S4c — WITH_ENTRY on the container boundary: the generated cow
+// handle's `with_entry(key, f)` drives the quad through the SAME walk
+// discipline as insert (CoW privatization, root repoint, root-split graft),
+// with the leaf transition running on the generated algebra kernels. One
+// FSE map (u64 values, counter-bump upsert + conditional delete at scale —
+// forces multi-level growth THROUGH the with_entry path alone) and one
+// volume map (str values — the VLE replace discipline under f).
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.string;
+use logos.lang.option;
+use logos.std.io;
+
+container WeFse for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+container WeVol for u8 {
+    kind ordered_map;
+    entry { key: u64, val: str }
+    measure max(key);
+}
+
+// the quad fns (fn-ptrs at this boundary; fusion of user SOURCE happens at
+// the metaprogram tier — S3b's decide_src)
+fn bump(cur: Option<u64>) -> Option<u64> {
+    match cur {
+        Option::Some(v) => {
+            return Option::Some(v + 1u64);
+        }
+        Option::None => {
+            return Option::Some(1u64);
+        }
+    }
+}
+
+fn drop_odd(cur: Option<u64>) -> Option<u64> {
+    match cur {
+        Option::Some(v) => {
+            if v % 2u64 == 1u64 {
+                return Option::None;       // Some→None: remove
+            }
+            return Option::Some(v);        // Some→Some (unchanged value)
+        }
+        Option::None => {
+            return Option::None;           // None→None: no-op
+        }
+    }
+}
+
+fn set_hello(cur: Option<&[u8]>) -> Option<str> {
+    match cur {
+        Option::Some(_v) => {
+            return Option::Some("replaced-with-a-longer-value");
+        }
+        Option::None => {
+            return Option::Some("hi");
+        }
+    }
+}
+
+fn main() -> i32 {
+    // ── FSE: counter map, every mutation through with_entry ──
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let m = create_ctr::<typeof(WeFse)>(&snap, 1u64);
+    let n: u64 = 20000u64;
+    // two bump passes over n keys: first inserts (None→Some 1), second
+    // updates (Some→Some 2); interleaved order stresses interior positions
+    let mut pass: u64 = 0u64;
+    while pass < 2u64 {
+        let mut k: u64 = 0u64;
+        while k < n {
+            let key: u64 = (k * 7919u64) % (n * 4u64);   // scattered keys
+            m.with_entry(key, bump);
+            k = k + 1u64;
+        }
+        pass = pass + 1u64;
+    }
+    if m.size() != n { return 1i32; }
+    // every key's counter is exactly 2 (deterministic key set: revisit)
+    {
+        let mut k2: u64 = 0u64;
+        while k2 < n {
+            let key: u64 = (k2 * 7919u64) % (n * 4u64);
+            if m.get_or(key, 0u64) != 2u64 { return 2i32; }
+            k2 = k2 + 1u64;
+        }
+    }
+    // third bump makes counters 3 (odd) → drop_odd removes ALL entries
+    {
+        let mut k3: u64 = 0u64;
+        while k3 < n {
+            let key: u64 = (k3 * 7919u64) % (n * 4u64);
+            m.with_entry(key, bump);
+            m.with_entry(key, drop_odd);
+            k3 = k3 + 1u64;
+        }
+    }
+    if m.size() != 0u64 { return 3i32; }
+    // no-op probes on the now-empty map (None→None)
+    m.with_entry(42u64, drop_odd);
+    if m.size() != 0u64 { return 4i32; }
+
+    // ── VLE: str values — insert-then-grow through the quad ──
+    let v = create_ctr::<typeof(WeVol)>(&snap, 2u64);
+    let mut j: u64 = 0u64;
+    while j < 500u64 {
+        v.with_entry(j * 3u64, set_hello);       // None→Some "hi"
+        j = j + 1u64;
+    }
+    if v.size() != 500u64 { return 5i32; }
+    let mut j2: u64 = 0u64;
+    while j2 < 500u64 {
+        v.with_entry(j2 * 3u64, set_hello);      // Some→Some' (longer span)
+        j2 = j2 + 1u64;
+    }
+    if v.size() != 500u64 { return 6i32; }
+    {
+        let got: &[u8] = v.get_or(3u64);
+        if got.len() != 28i64 { return 7i32; }   // "replaced-with-a-longer-value"
+        if got[0i64] != 114u8 { return 8i32; }   // 'r'
+    }
+    return 0i32;
+}

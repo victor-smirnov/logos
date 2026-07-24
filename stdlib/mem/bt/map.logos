@@ -26,6 +26,8 @@ use logos.mem.bt.node;
 // carries the edge into every generated unit's module graph.
 use logos.mem.bt.btss;
 use logos.mem.collections.vec;   // Vec — the Multimap boundary signatures
+use logos.lang.option;           // Option — the WITH_ENTRY quad signature
+use logos.lang.panic;            // assert — the with_entry default
 
 /// Owns blocks and the snapshot lifecycle. The concrete factory methods
 /// (`fork`, `commit`, …) live on the implementor — stores are FEW and very
@@ -146,6 +148,15 @@ pub trait BtLeaf<K, VIn, VOut> {
     fn lower_bound(self: &Self, key: K) -> u32;
     /// Upsert in place; `false` iff there is no room (caller must split).
     fn try_insert(self: &mut Self, key: K, val: VIn) -> bool;
+    /// The WITH_ENTRY quad at this leaf (ADR 0023 §Derived forms): `f` maps
+    /// the entry's current state to its next — None→Some inserts, Some→Some'
+    /// replaces, Some→None removes, None→None is a no-op. `false` iff the
+    /// transition does not fit (the caller splits and retries — `f` MAY RUN
+    /// AGAIN on the retry; keep it pure). Default: unsupported.
+    fn with_entry(self: &mut Self, key: K, f: fn(Option<VOut>) -> Option<VIn>) -> bool {
+        assert(false, "BtLeaf: with_entry is not implemented for this leaf");
+        return false;
+    }
     /// Move the upper half of `self`'s entries into `dst` (`dst` starts empty).
     fn split_into(self: &mut Self, dst: &mut Self);
     /// A deep copy of `self`'s entries into a fresh block stamped `snp` (CoW).

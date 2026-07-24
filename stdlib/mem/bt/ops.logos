@@ -15,6 +15,7 @@
 // `GenCow*` symbols became `bt_*`.
 package logos.mem.bt.ops;
 
+use logos.lang.option;      // Option — the WITH_ENTRY quad signature
 use logos.mem.bt.node;      // NodeProfile — the node-form seam (P::snapshot)
 use logos.mem.bt.memstore;  // tree_release — container-agnostic recursive rc-release
 use logos.mem.bt.map;       // BtLeaf / BtBranch — the node contracts (declared in
@@ -199,6 +200,57 @@ pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VO
     let ci: u32 = br.find_child(key);
     let old_child: *mut u8 = br.child_addr(ci);
     let r: BtInsRet<K, 1> = bt_cow_insert::<K, VIn, VOut, L, B, P>(old_child, level - 1u32, key, val, cur);
+    br.update_row(ci, r.lsep, &r.lcnt);
+    if r.addr != old_child {
+        br.set_child_addr(ci, r.addr);
+        tree_release(old_child, level - 1u32);
+    }
+    if !r.split {
+        return BtInsRet { ok: true, addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: work };
+    }
+    if br.can_insert_child() {
+        br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr);
+        return BtInsRet { ok: true, addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: false, rsep: key, rcnt: [0u64], rptr: work };
+    }
+    let mut rb: B = br.new_sibling(cur);
+    let _ = br.split_into(&mut rb);
+    let lc: u32 = br.child_count();
+    if ci + 1u32 < lc { br.insert_row(ci + 1u32, r.rsep, &r.rcnt, r.rptr); } else {
+        rb.insert_row((ci + 1u32) - lc, r.rsep, &r.rcnt, r.rptr);
+    }
+    return BtInsRet { ok: true, addr: work, lsep: br.max_sep(), lcnt: [br.total_size()], split: true, rsep: rb.max_sep(), rcnt: [rb.total_size()], rptr: rb.block() };
+}
+
+/// bt_cow_insert's WITH_ENTRY twin (ADR 0023 §Derived forms): the same
+/// privatize/recurse/graft walk, with the leaf action being the quad —
+/// `f: Option<VOut> → Option<VIn>` over the entry at `key`. Differences
+/// from insert are confined to the leaf arm: a no-op/remove always "fits";
+/// an insert/replace that does not fit splits the leaf and RETRIES on the
+/// key's side (f runs again there — the BtLeaf contract asks it to be
+/// pure). Removal does no underflow handling (merge is the separate
+/// split/merge task); an emptied leaf remains a valid node.
+pub unsafe fn bt_cow_with_entry<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>, P: NodeProfile>(
+    node: *mut u8, level: u32, key: K, f: fn(Option<VOut>) -> Option<VIn>, cur: u64) -> BtInsRet<K, 1> {
+    if level == 0u32 {
+        let work: *mut u8 = bt_leaf_private::<K, VIn, VOut, L, P>(node, cur);
+        let mut lf: L = L::adopt(work);
+        if lf.with_entry(key, f) {
+            let mut sep: K = key;
+            if lf.count() > 0u32 {
+                sep = lf.key_at(lf.count() - 1u32);
+            }
+            return BtInsRet { ok: true, addr: work, lsep: sep, lcnt: [lf.count() as u64], split: false, rsep: key, rcnt: [0u64], rptr: work };
+        }
+        let mut rt: L = lf.new_sibling(cur);
+        lf.split_into(&mut rt);
+        if key <= lf.key_at(lf.count() - 1u32) { let _ = lf.with_entry(key, f); } else { let _ = rt.with_entry(key, f); }
+        return BtInsRet { ok: true, addr: work, lsep: lf.key_at(lf.count() - 1u32), lcnt: [lf.count() as u64], split: true, rsep: rt.key_at(rt.count() - 1u32), rcnt: [rt.count() as u64], rptr: rt.block() };
+    }
+    let work: *mut u8 = bt_branch_private::<K, B, P>(node, cur);
+    let mut br: B = B::adopt(work);
+    let ci: u32 = br.find_child(key);
+    let old_child: *mut u8 = br.child_addr(ci);
+    let r: BtInsRet<K, 1> = bt_cow_with_entry::<K, VIn, VOut, L, B, P>(old_child, level - 1u32, key, f, cur);
     br.update_row(ci, r.lsep, &r.lcnt);
     if r.addr != old_child {
         br.set_child_addr(ci, r.addr);
