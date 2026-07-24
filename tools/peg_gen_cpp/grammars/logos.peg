@@ -1783,72 +1783,80 @@
     // (Send / Sync) for the dyn+Auto enforce at unsize coercion
     // (logos-core 2.4(c)). Lifetime bounds are recorded but not yet
     // enforced (depends on §2.1 region_infer wiring).
+    //
+    // IS_REF marks every AMP-led alt below (`&dyn` / `&mut dyn` / `&'a dyn`)
+    // so the reference form is RECOVERABLE from the node: sema treats bare
+    // `dyn Trait` and `&dyn Trait` alike at type position, but the AST→source
+    // renderer must not — a `&dyn` printed back as `dyn` is a lie in the
+    // --dump-metaprog listing and a changed type in the --gen-dir reparse
+    // that gets swapped in for the compile. IS_MUT (slot 25) already implies
+    // AMP; IS_REF (slot 45) is otherwise unused on a DYN_TYPE.
     dyn_auto_bound <- PLUS IDENT    => { CODE: AUTO_TRAIT_BOUND, NAME: $2 }
                    / PLUS LIFETIME => { CODE: AUTO_LIFE_BOUND,  NAME: $2 }
     dyn_type <- AMP LIFETIME KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true, ITEMS: $..., IS_REF: true }
               / AMP LIFETIME KW_MUT KW_DYN IDENT dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true, ITEMS: $..., IS_REF: true }
               / AMP LIFETIME KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6, RET_TYPE: $9, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6, RET_TYPE: $9, ITEMS: $..., IS_REF: true }
               / AMP LIFETIME KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, RET_TYPE: $8, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, RET_TYPE: $8, ITEMS: $..., IS_REF: true }
               / AMP LIFETIME KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6, ITEMS: $..., IS_REF: true }
               / AMP LIFETIME KW_DYN IDENT LPAREN RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $..., IS_REF: true }
               / AMP LIFETIME KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $..., IS_REF: true }
               / AMP LIFETIME KW_DYN IDENT dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7, RET_TYPE: $10, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7, RET_TYPE: $10, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, RET_TYPE: $9, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, RET_TYPE: $9, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN hrtb_binder IDENT dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, PARAMS: $6, RET_TYPE: $9, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, PARAMS: $6, RET_TYPE: $9, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN hrtb_binder IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, RET_TYPE: $8, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, RET_TYPE: $8, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, PARAMS: $6, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, PARAMS: $6, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN hrtb_binder IDENT LPAREN RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN hrtb_binder IDENT dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6, RET_TYPE: $9, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6, RET_TYPE: $9, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, RET_TYPE: $8, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, RET_TYPE: $8, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN IDENT LPAREN RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $..., IS_REF: true }
               / AMP KW_MUT KW_DYN IDENT dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5, RET_TYPE: $8, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5, RET_TYPE: $8, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $3, RET_TYPE: $7, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $3, RET_TYPE: $7, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN IDENT LPAREN RPAREN dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $..., IS_REF: true }
               / AMP KW_DYN IDENT dyn_auto_bound*
-             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
+             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $..., IS_REF: true }
               // B63.3: HRTB-quantified `dyn for<'a> Trait<&'a T>` and Fn-family
               // variants. Binders captured into HRTB_BINDERS for future region
               // inference; sema currently treats them as plain bound forms.

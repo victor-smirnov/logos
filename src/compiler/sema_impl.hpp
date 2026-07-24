@@ -4684,6 +4684,12 @@ private:
     // Item-rendering sub-helpers (sema_render.cpp Stage 2).
     std::string render_path_parts_(writ::TinyMapView node);
     std::string render_type_param_src_(writ::TinyMapView node);
+    // One element of a `<…>` list at USE position (a type ARGUMENT, not a
+    // declared parameter) — the impl-header form `impl Trait<Args> for T`,
+    // where the grammar stores `type_arg_list` in the TYPE_PARAMS slot.
+    // Handles the non-type shapes `type_or_lt_arg` admits (lifetime,
+    // const-arg, quote pack/repeat) and hands real types to render_type_src.
+    std::string render_type_arg_src_(writ::TinyMapView node);
     // Syntactic render of one TRAIT_BOUND node (`Copy`, `?Sized`,
     // `Iterator<Item = T>`, `Fn(A) -> R`). A bound is NOT a type —
     // resolve_type rejects the node — so the bounds loop of

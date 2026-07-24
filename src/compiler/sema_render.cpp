@@ -1114,6 +1114,43 @@ std::string SemaChecker::render_path_parts_(TinyMapView node) {
     return s;
 }
 
+std::string SemaChecker::render_type_arg_src_(TinyMapView node) {
+    // One element of a `<…>` list at USE position (grammar `type_or_lt_arg`).
+    // Most elements are ordinary types, but the rule also admits lifetimes,
+    // const-generic ARGUMENTS and quote-only pack/repeat forms — none of which
+    // the type renderer knows. Handle those structurally; everything else is a
+    // real type and goes to the type renderer.
+    if (node.is_null()) return "_";
+    int32_t c = code_of(node);
+    auto name_of = [&]() -> std::string {
+        return node.has_key(la::NAME) ? std::string(str_of(node.get(la::NAME.code)))
+                                      : std::string{};
+    };
+    switch (c) {
+    case la::LIFETIME_PARAM:  return name_of().empty() ? "'_" : name_of();
+    case la::PACK_EXPAND:     return name_of() + "...";
+    case la::ANTIQUOT_TYPE:   return "$" + name_of();
+    case la::ANTIQUOT_PACK:   return "$" + name_of() + "...";
+    case la::LIT_INT:         return render_expr_src(node);
+    case la::PAREN_EXPR:
+        // Const-arg block `{ N + 1 }` — the braces are load-bearing (they
+        // disambiguate the `>` close-delimiter), so keep them.
+        return "{" + render_expr_src(map_of(node.get(la::VALUE.code))) + "}";
+    case la::REPEAT_GROUP: {
+        // quote-only `#(T),*` splice cursor. OP: 0 = no separator, 1 = comma.
+        std::string inner = render_type_arg_src_(map_of(node.get(la::VALUE.code)));
+        bool comma = false;
+        if (node.has_key(la::OP)) {
+            AnyVal op = node.get(la::OP.code);
+            comma = !op.is_null() && op.is_value() && op.as_value<int32_t>() == 1;
+        }
+        return "#(" + inner + ")" + (comma ? ",*" : "*");
+    }
+    case la::TRAIT_BOUND:     return render_trait_bound_src_(node);
+    default:                  return render_type_src(node);
+    }
+}
+
 std::string SemaChecker::render_type_param_src_(TinyMapView node) {
     // TYPE_PARAM:  NAME, optional ITEMS (bounds), optional IS_VARIADIC,
     //              optional NAME_VAR (antiquot in a quote).
@@ -1122,6 +1159,15 @@ std::string SemaChecker::render_type_param_src_(TinyMapView node) {
     //              into valid Logos source.
     std::string s;
     if (node.is_null()) return s;
+    // The `<…>` after an item name is a DECLARATION list on struct/enum/fn/
+    // trait but an ARGUMENT list on an impl header — the grammar files
+    // `type_arg_list` into the very same TYPE_PARAMS slot. Only the parameter
+    // node codes are parameters; anything else is a type at USE position, and
+    // reading its fields as a parameter's is silent corruption: a DYN_TYPE's
+    // NAME alone turned `impl Fam<dyn Tag>` into `impl Fam<Tag>`, and a
+    // GENERIC_INST's args came out as bounds (`Wrap<u64>` → `Wrap: u64`).
+    if (code_of(node) != la::TYPE_PARAM && code_of(node) != la::CONST_PARAM)
+        return render_type_arg_src_(node);
     if (code_of(node) == la::CONST_PARAM) {
         s += "const ";
         if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
@@ -1135,6 +1181,9 @@ std::string SemaChecker::render_type_param_src_(TinyMapView node) {
     }
     if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
     else if (node.has_key(la::NAME_VAR)) s += "<antiquot>";
+    // G158-6 where-predicate subject: `where &T: Trait` / `where T::A: Trait`
+    // is a TYPE_PARAM whose subject sits in TYPE, not NAME.
+    else if (node.has_key(la::TYPE)) s += render_type_src(map_of(node.get(la::TYPE.code)));
     if (flag_set(node, la::IS_VARIADIC)) s += "...";
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
@@ -1175,9 +1224,9 @@ std::string SemaChecker::render_trait_bound_src_(TinyMapView node) {
                         s += std::string(str_of(a.get(la::NAME.code)));
                     s += " = ";
                     if (a.has_key(la::TYPE))
-                        s += render_type_src_syntactic_(map_of(a.get(la::TYPE.code)));
+                        s += render_type_arg_src_(map_of(a.get(la::TYPE.code)));
                 } else {
-                    s += render_type_src_syntactic_(a);
+                    s += render_type_arg_src_(a);
                 }
             }
             s += ">";
@@ -2072,26 +2121,87 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
         return s;
     }
     case la::DYN_TYPE: {
-        // Grammar admits both `dyn Trait[<…>]` (bare, e.g. inside `*mut dyn …`)
-        // and `&dyn Trait[<…>]`. Both lower to CODE: DYN_TYPE with no marker
-        // distinguishing them. Default to bare `dyn …`; an outer REF_TYPE/
-        // PTR_TYPE supplies its own `&`/`*mut`. Lone `&dyn` at type position
-        // round-trips as `dyn` — broken but rare; fix when grammar carries a
-        // marker.
-        std::string s = "dyn ";
-        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
-        if (node.has_key(la::ITEMS)) {
-            auto items = arr_of(node.get(la::ITEMS.code));
-            if (items.size() > 0) {
-                s += "<";
-                for (uint64_t i = 0; i < items.size(); ++i) {
-                    if (i) s += ", ";
-                    s += recur(map_of(items.get(i)));
+        // The grammar folds `dyn Trait…` (bare, e.g. inside `*mut dyn …`) and
+        // the reference forms `&dyn` / `&mut dyn` / `&'a dyn` into ONE node.
+        // IS_REF marks every AMP-led alt, so the `&` survives the render; an
+        // outer PTR_TYPE (bare form) supplies its own `*mut`.
+        //
+        // ITEMS is a MIXED array: type-args AND the trailing `+ Bound` nodes
+        // (AUTO_TRAIT_BOUND / AUTO_LIFE_BOUND) land in the same slot, exactly
+        // as resolve_type sees them — so bucket by CODE here too rather than
+        // spraying everything inside `<…>`. Fn-family shapes carry their
+        // arg-types in PARAMS and the result in RET_TYPE.
+        std::string s;
+        if (flag_set(node, la::IS_REF)) {
+            s += "&";
+            if (node.has_key(la::LIFETIME))
+                s += std::string(str_of(node.get(la::LIFETIME.code))) + " ";
+            if (flag_set(node, la::IS_MUT)) s += "mut ";
+        }
+        s += "dyn ";
+        if (node.has_key(la::HRTB_BINDERS)) {
+            auto hb = map_of(node.get(la::HRTB_BINDERS.code));
+            if (!hb.is_null() && hb.has_key(la::ITEMS)) {
+                auto lts = arr_of(hb.get(la::ITEMS.code));
+                if (lts.size() > 0) {
+                    s += "for<";
+                    for (uint64_t i = 0; i < lts.size(); ++i) {
+                        if (i) s += ", ";
+                        auto lt = map_of(lts.get(i));
+                        if (!lt.is_null() && lt.has_key(la::NAME))
+                            s += std::string(str_of(lt.get(la::NAME.code)));
+                    }
+                    s += "> ";
                 }
-                s += ">";
             }
         }
-        return s;
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        // On the Fn-family alts `$...` re-collects the arg-type list (a
+        // CODE-less TOM) and the `-> R` node into ITEMS as well; PARAMS and
+        // RET_TYPE are the authoritative copies, so take the args from there
+        // and let ITEMS contribute bounds only. Same bucketing resolve_type
+        // does — it skips the Fn-family through a name check.
+        bool fn_form = node.has_key(la::PARAMS) || node.has_key(la::RET_TYPE);
+        std::string bounds;
+        if (node.has_key(la::ITEMS)) {
+            auto items = arr_of(node.get(la::ITEMS.code));
+            std::string args;
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto it = map_of(items.get(i));
+                int32_t ic = it.is_null() ? -1 : code_of(it);
+                if (ic < 0) continue;   // HRTB binder / arg-list TOM — no CODE
+                if (ic == la::AUTO_TRAIT_BOUND.code || ic == la::AUTO_LIFE_BOUND.code) {
+                    bounds += " + ";
+                    if (it.has_key(la::NAME))
+                        bounds += std::string(str_of(it.get(la::NAME.code)));
+                    continue;
+                }
+                if (fn_form) continue;
+                if (!args.empty()) args += ", ";
+                args += render_type_arg_src_(it);
+            }
+            if (!args.empty()) s += "<" + args + ">";
+        }
+        if (node.has_key(la::PARAMS)) {
+            // Fn-family: `dyn Fn(T1, …)`. An empty PARAMS still needs `()`.
+            auto pl = map_of(node.get(la::PARAMS.code));
+            s += "(";
+            if (!pl.is_null() && pl.has_key(la::ITEMS)) {
+                auto args = arr_of(pl.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < args.size(); ++i) {
+                    if (i) s += ", ";
+                    s += recur(map_of(args.get(i)));
+                }
+            }
+            s += ")";
+        } else if (node.has_key(la::RET_TYPE)) {
+            s += "()";   // `dyn Fn() -> R` — zero-arg alt stores no PARAMS
+        }
+        if (node.has_key(la::RET_TYPE)) {
+            s += " -> ";
+            s += recur(map_of(node.get(la::RET_TYPE.code)));
+        }
+        return s + bounds;
     }
     case la::FN_PTR_TYPE: {
         std::string s = "fn(";

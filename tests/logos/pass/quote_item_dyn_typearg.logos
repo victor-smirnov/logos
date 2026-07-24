@@ -1,0 +1,80 @@
+// Renderer fidelity for TRAIT-OBJECT and TYPE-ARGUMENT positions. Two source
+// planes read this AST back as Logos text — `--dump-metaprog` (display) and
+// `--gen-dir` (whose reparse is SWAPPED IN for the compile) — so a shape the
+// renderer degrades is a shape the reader is lied to about.
+//
+// Two classes are pinned here:
+//   (1) An impl header's trait args live in the same TYPE_PARAMS slot as a
+//       declaration's parameter list (grammar files `type_arg_list` there),
+//       so a renderer that reads them as PARAMETERS mangles every non-bare
+//       shape: `dyn Tag` lost its `dyn`, `Wrap<u64>` came out `Wrap: u64`,
+//       `*mut u8` / `[u64; 4]` vanished, `(u64, i32)` became `: u64 + i32`.
+//   (2) DYN_TYPE folds `dyn` / `&dyn` / `&mut dyn` / `&'a dyn` into ONE node
+//       and collects the trailing `+ Bound` markers into the same ITEMS array
+//       as the type-args — while the Fn-family alts additionally re-collect
+//       their arg list and `-> R` there. All of it has to come back out.
+//
+// The rendered text is asserted by render_type_fidelity.sh; this file also
+// runs as an ordinary pass test and through the logos_09_gendir_* gate.
+package main;
+
+use logos.std.compiler.metaprog;
+
+trait Tag { fn tag(self: &Self) -> u64; }
+trait Gen<T> { fn g(self: &Self) -> u64; }
+trait Fam<S> { fn fam_id() -> u64; }
+
+struct Wrap<T> { v: T }
+struct CDyn {}
+struct CGen {}
+struct CPtr {}
+struct CTup {}
+struct CArr {}
+
+#[metaprog_handler("dyn_render_inject")]
+fn dyn_render_inject_hook(target_offset: u32) -> () {
+    let blob: QuoteItemBlob = quote_item! {
+        // (1) type-ARGUMENT position on an impl header.
+        impl Fam<dyn Tag> for CDyn {
+            fn fam_id() -> u64 { return 1u64; }
+        }
+        impl Fam<Wrap<u64>> for CGen {
+            fn fam_id() -> u64 { return 2u64; }
+        }
+        impl Fam<*mut u8> for CPtr {
+            fn fam_id() -> u64 { return 3u64; }
+        }
+        impl Fam<(u64, i32)> for CTup {
+            fn fam_id() -> u64 { return 4u64; }
+        }
+        impl Fam<[u64; 4]> for CArr {
+            fn fam_id() -> u64 { return 5u64; }
+        }
+        // (2) trait-object shapes at parameter position.
+        fn d_ref(x: &dyn Tag) -> u64 { return 0u64; }
+        fn d_mut(x: &mut dyn Tag) -> u64 { return 0u64; }
+        fn d_bnd(x: &dyn Tag + Send) -> u64 { return 0u64; }
+        fn d_arg(x: &dyn Gen<u64> + Send + Sync) -> u64 { return 0u64; }
+        fn d_fn1(x: &dyn Fn(u64) -> u64) -> u64 { return 0u64; }
+        fn d_fn0(x: &dyn Fn() -> u64) -> u64 { return 0u64; }
+        fn d_ptr(x: *mut dyn Tag) -> u64 { return 0u64; }
+        fn d_lft<'a>(x: &'a dyn Tag) -> u64 { return 0u64; }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[dyn_render_inject]
+struct Marker {}
+
+fn main() -> i32 {
+    // The emitted impls are what the render gate reads; touch a couple so the
+    // items are not merely parsed but resolved end-to-end.
+    let a: u64 = CDyn::fam_id();
+    let b: u64 = CGen::fam_id();
+    let c: u64 = CArr::fam_id();
+    if a != 1u64 { return 1i32; }
+    if b != 2u64 { return 2i32; }
+    if c != 5u64 { return 3i32; }
+    return 0i32;
+}

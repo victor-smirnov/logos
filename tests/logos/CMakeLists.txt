@@ -839,7 +839,7 @@ set_tests_properties(logos_08_lint_inline_typebuilder PROPERTIES
 # dump reparses cleanly (no fidelity fallback), and DWARF references it —
 # the debugger lists generated code. One representative per corpus axis:
 # vis/trait/impl/struct (vis_antiquote) and dyn/opt uses (opt_use).
-foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse_as quote_item_wstatic_typearg quote_item_wstatic_const quote_item_ctrfamily_impl)
+foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse_as quote_item_wstatic_typearg quote_item_wstatic_const quote_item_ctrfamily_impl quote_item_dyn_typearg)
     add_test(
         NAME logos_09_gendir_${GENDIR_CASE}
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run_gendir_test.sh
@@ -852,6 +852,21 @@ foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse
         ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
     )
 endforeach()
+
+# Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
+# and the trait-object / type-argument degradations all reparse into something
+# ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.
+add_test(
+    NAME logos_09_render_type_fidelity
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/render_type_fidelity.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/quote_item_dyn_typearg.logos
+)
+set_tests_properties(logos_09_render_type_fidelity PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
 
 # Diagnostics: --diag-format=json + structured exit codes (B0.2).
 add_test(
