@@ -14,8 +14,6 @@
 //     direct `x.type_id()` use (the eager blanket pass doesn't cover
 //     primitives reached only via dyn-coercion). Direct `i.type_id()` (no
 //     dyn) IS sound and tested. See [[baghunt-any-primitive-dyn-and-downcast]].
-//   - any_downcast_ref / any_downcast_mut — `downcast_ref`/`_mut` not yet in
-//     the module (generic-body `&dyn → ptr` data-word extraction mis-lowers).
 //   - any_owning — `Box<dyn Any>` (Box port).
 //   - Debug / PartialEq derive on the test types — not needed here.
 
@@ -24,6 +22,7 @@ package test_coretest_any;
 use logos.std.fmt;
 use logos.lang.panic;
 use logos.lang.any;
+use logos.lang.option;
 
 struct Alpha { a: i32 }
 struct Beta  { b: i32 }
@@ -74,4 +73,31 @@ fn test_type_id_identity() {
     let c: TypeId = type_id_of::<Beta>();
     assert!(a.eq(&b));
     assert!(!a.eq(&c));
+}
+
+// any_downcast_ref — recover `&T` from `&dyn Any`; wrong type yields None.
+#[test]
+fn test_any_downcast_ref() {
+    let x: Alpha = Alpha { a: 7i32 };
+    let ax: &dyn Any = &x as &dyn Any;
+    match downcast_ref::<Alpha>(ax) {
+        Option::Some(r) => { assert!(r.a == 7i32); }
+        Option::None    => { assert!(false); }
+    }
+    match downcast_ref::<Beta>(ax) {
+        Option::Some(_) => { assert!(false); }
+        Option::None    => { }
+    }
+}
+
+// any_downcast_mut — recover `&mut T` and mutate through it.
+#[test]
+fn test_any_downcast_mut() {
+    let mut x: Alpha = Alpha { a: 1i32 };
+    let ax: &mut dyn Any = &mut x as &mut dyn Any;
+    match downcast_mut::<Alpha>(ax) {
+        Option::Some(r) => { r.a = 42i32; }
+        Option::None    => { assert!(false); }
+    }
+    assert!(x.a == 42i32);
 }

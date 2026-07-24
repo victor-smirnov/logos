@@ -1164,6 +1164,13 @@ private:
                                               TypeRef val_lt);
     mlir::Value gen_dyn_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
     mlir::Value gen_tagged_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
+    // Normalise a `&dyn Trait` expression to a POINTER to its 16-byte
+    // {data,vtable} storage (the receiver-navigation shared by vtable dispatch
+    // and the `__dyn_data__` / `__dyn_vtable__` reconstruction intrinsics).
+    // Value-fat-pair model: handles a dyn-let / &dyn param (scope_ holds the
+    // storage pointer directly), an alloca-backed `&(&dyn)` (load once), and a
+    // by-value fat pair (spill). Returns null on failure.
+    mlir::Value dyn_storage_ptr(lir_view::ExprRef recv_ref);
 
     // ── malloc / free helpers ─────────────────────────────────────
     void ensure_malloc_free(mlir::ModuleOp mod);

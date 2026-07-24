@@ -1,0 +1,57 @@
+// downcast_ref / downcast_mut (logos.lang.any) — recovering the concrete type
+// from an erased `&dyn Any`. Pins the primitive AND the bug it was blocked on:
+// the fat-pointer data half must extract correctly inside a GENERIC body (the
+// `dyn_data` intrinsic reuses the vtable-dispatch navigation; the naive
+// `&dyn → *const T` cast mis-read under mono — baghunt-any-primitive-dyn-and-
+// downcast). exit 0 iff every arm holds.
+package any_downcast;
+
+use logos.lang.any;
+use logos.lang.option;
+
+struct Boxi { v: u64 }
+struct Other { w: u64 }
+
+// The GENERIC path: downcast_ref/_mut are themselves generic (`<T>`), so the
+// `&dyn` param extraction runs in a mono'd body. A second layer of generic
+// wrapping stresses the same seam once more.
+fn peek<T>(a: &dyn Any) -> bool { return any_is::<T>(a); }
+
+fn main() -> i32 {
+    let b: Boxi = Boxi { v: 43981u64 };
+    let d: &dyn Any = &b as &dyn Any;
+
+    // generic predicate through a wrapper (dispatch on &dyn in a generic body)
+    if !peek::<Boxi>(d) { return 1i32; }
+    if peek::<Other>(d) { return 2i32; }
+
+    // downcast_ref: right type recovers the value
+    match downcast_ref::<Boxi>(d) {
+        Option::Some(r) => { if r.v != 43981u64 { return 3i32; } }
+        Option::None => { return 4i32; }
+    }
+    // downcast_ref: wrong type → None (the type-id guard holds)
+    match downcast_ref::<Other>(d) {
+        Option::Some(_) => { return 5i32; }
+        Option::None => { }
+    }
+
+    // downcast_mut: write through the recovered &mut T is visible on the source
+    let mut b2: Boxi = Boxi { v: 5u64 };
+    let dm: &mut dyn Any = &mut b2 as &mut dyn Any;
+    match downcast_mut::<Boxi>(dm) {
+        Option::Some(r) => { r.v = 99u64; }
+        Option::None => { return 6i32; }
+    }
+    if b2.v != 99u64 { return 7i32; }
+
+    // downcast_mut: wrong type → None, no write
+    let mut b3: Boxi = Boxi { v: 1u64 };
+    let dm3: &mut dyn Any = &mut b3 as &mut dyn Any;
+    match downcast_mut::<Other>(dm3) {
+        Option::Some(_) => { return 8i32; }
+        Option::None => { }
+    }
+
+    return 0i32;
+}

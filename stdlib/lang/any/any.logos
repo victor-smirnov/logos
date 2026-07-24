@@ -18,10 +18,10 @@
 //     `x.type_id()` use — the eager blanket-instantiation pass doesn't cover
 //     primitives reached solely through dyn-coercion. Follow-up:
 //     [[baghunt-any-primitive-dyn-and-downcast]].
-//   - `downcast_ref` / `downcast_mut` are NOT yet provided: recovering `&T`
-//     from `&dyn Any` needs the fat-pointer data word, and the `&dyn → ptr`
-//     cast mis-extracts inside a *generic* body (works non-generically).
-//     Same follow-up. `is` + `type_id` (this module) are the sound surface.
+//   - `downcast_ref` / `downcast_mut` recover `&T` / `&mut T` via the
+//     `dyn_data` intrinsic (the fat-pointer data half), which extracts
+//     correctly inside a generic body — the naive `&dyn → *const T` cast did
+//     not, which is why these were once omitted.
 
 package logos.lang.any;
 
@@ -73,7 +73,28 @@ pub fn any_is<_T>(a: &dyn Any) -> bool {   // _T: type-level only (type_id_of::<
     return lhs.lo == rhs.lo && lhs.hi == rhs.hi;
 }
 
-// NOTE: downcast_ref / downcast_mut intentionally omitted until the
-// generic-body `&dyn → ptr` data-word extraction is fixed — see the module
-// header + [[baghunt-any-primitive-dyn-and-downcast]]. `is` + `type_id` are
-// the sound surface today.
+/// Recovers `&T` from an erased `&dyn Any` when the concrete type matches,
+/// else `None` — the `(dyn Any).downcast_ref::<T>()` analogue. Sound: the
+/// `any_is` type-id guard precedes the reinterpret, so the `&T` is only formed
+/// when the erased value truly holds a `T`.
+///
+/// The data half is recovered via the `dyn_data` intrinsic (mlir-gen reuses
+/// the vtable-dispatch receiver navigation), which extracts correctly inside
+/// this GENERIC body — the naive `a as *const T` cast does not (it mis-reads
+/// the fat pointer under mono; the historical reason this was omitted).
+pub fn downcast_ref<T>(a: &dyn Any) -> Option<&T> {
+    if any_is::<T>(a) {
+        let p: *const T = dyn_data(a) as *const T;
+        return Option::Some(unsafe { &*p });
+    }
+    return Option::None;
+}
+
+/// The `&mut` twin of [downcast_ref] — recovers `&mut T` from `&mut dyn Any`.
+pub fn downcast_mut<T>(a: &mut dyn Any) -> Option<&mut T> {
+    if any_is::<T>(a) {
+        let p: *mut T = dyn_data(a) as *mut T;
+        return Option::Some(unsafe { &mut *p });
+    }
+    return Option::None;
+}

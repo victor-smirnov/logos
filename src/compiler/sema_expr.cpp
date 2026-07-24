@@ -3786,6 +3786,12 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         if      (callee == "Some") { if (auto e = try_prelude("Option", "Some")) return e; }
         else if (callee == "Ok")   { if (auto e = try_prelude("Result", "Ok")) return e; }
         else if (callee == "Err")  { if (auto e = try_prelude("Result", "Err")) return e; }
+        // No-turbofish compiler intrinsics (e.g. `dyn_data(a)`) — most type
+        // intrinsics arrive via lower_generic_call (turbofish), but a value-only
+        // one is a plain CALL and lands here. Only matches reserved intrinsic
+        // names, and only after real-function resolution failed, so a
+        // same-named user fn is never shadowed.
+        if (auto r = lower_type_intrinsic(node, callee)) return *r;
         if (!metaprog_mode_)
             error(std::format("call to undefined function '{}'", callee));
         return builder().call(std::string(callee), {}, std::move(arg_exprs), error_t());
@@ -5993,6 +5999,27 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         TypeRef tobj = make_trait_object(trait_name, std::move(trait_args),
                                          TraitOwningKind::Borrow, false, false);
         return builder().call("__dyn_from_parts__", {}, std::move(rargs), tobj);
+    }
+
+    // dyn_data(a: &dyn Trait) -> *mut u8 — the DATA half (field 0) of a `&dyn`
+    // fat pointer: recover the concrete address behind an erased trait object.
+    // The INVERSE of dyn_from_parts, and the foundation of `downcast_ref`
+    // (logos.lang.any): a naive `a as *const u8` mis-extracts inside a generic
+    // body (baghunt-any-primitive-dyn-and-downcast), so mlir-gen reuses the
+    // vtable-dispatch receiver navigation instead. Layout is uniform across
+    // traits, so no trait type-arg is needed.
+    if (callee == "dyn_data") {
+        // Plain CALL (no turbofish) carries ARGS as a bare array; a turbofish
+        // path would wrap it in ITEMS — collect_arg_asts handles both.
+        auto arg_nodes = collect_arg_asts(node);
+        if (arg_nodes.size() != 1) {
+            error("dyn_data(a: &dyn Trait) requires exactly one argument");
+            return error_expr();
+        }
+        std::vector<lir::LExprPtr> rargs;
+        rargs.push_back(lower_expr(arg_nodes[0]));
+        return builder().call("__dyn_data__", {}, std::move(rargs),
+                              make_ptr(true, u8_t(), false));
     }
 
     // typelist_len::<L>() / typelist_head::<L>() / typelist_nth::<L>(i)

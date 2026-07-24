@@ -2034,6 +2034,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         builder_.create<mlir::LLVM::StoreOp>(loc_, vtable_v, vp);
         return alloca;
     }
+    // __dyn_data__(a: &dyn Trait) -> *mut u8 : extract the DATA half (field 0)
+    // of a `&dyn` fat pair — the inverse of __dyn_from_parts__. The operand is
+    // normalised to a pointer-to-16-byte-storage by the SAME navigation that
+    // vtable dispatch uses (dyn_storage_ptr), so it is correct in every
+    // context — including a GENERIC body, where the naive `a as *const u8`
+    // user-level cast mis-extracts (baghunt-any-primitive-dyn-and-downcast).
+    // The foundation of `downcast_ref` in logos.lang.any.
+    if (match_intr("__dyn_data__")) {
+        if (arg_les.empty()) return nullptr;
+        auto storage = dyn_storage_ptr(arg_les[0]);
+        if (!storage) return nullptr;
+        auto dyn_struct = dyn_llvm_type();
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), dyn_struct, storage, idx0);
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+    }
 
     // After pkg-mangling, intrinsic names ship as
     // `std.lang.text$str_from_raw__f__pcst_u8__i64` etc. Strip pkg

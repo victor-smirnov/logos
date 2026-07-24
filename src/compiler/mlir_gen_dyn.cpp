@@ -1478,18 +1478,18 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
 // Indirect call through &dyn Trait vtable.
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
-                                           TypeRef ret_logos_type) {
-    // The receiver is a &dyn Trait — a pointer to {data_ptr, vtable_ptr}.
-
-    auto recv_ref = v.receiver();
+// Normalise a `&dyn Trait` expression to a POINTER to its 16-byte
+// {data,vtable} storage. Shared by vtable dispatch (gen_dyn_dispatch) and the
+// reconstruction intrinsics (`__dyn_data__`). See the value-fat-pair model in
+// coerce_to_dyn.
+mlir::Value MLIRGenImpl::dyn_storage_ptr(lir_view::ExprRef recv_ref) {
     if (!recv_ref) return nullptr;
     // Unwrap the implicit-reborrow wrap (inserted by sema's
-    // try_implicit_reborrow_mut). The wrap exists for borrow_check; for
-    // vtable dispatch we need the underlying VarRef so the var_dyn_trait_ /
-    // fat-pair-load logic below fires correctly — without the unwrap, the
-    // wrap appears as a non-VarRef receiver, the loader treats it as a
-    // by-value fat pair, and field-0/field-1 GEPs misread → segfault.
+    // try_implicit_reborrow_mut). The wrap exists for borrow_check; here we
+    // need the underlying VarRef so the var_dyn_trait_ / fat-pair-load logic
+    // below fires correctly — without the unwrap, the wrap appears as a
+    // non-VarRef, the loader treats it as a by-value fat pair, and the
+    // field-0/field-1 GEPs misread → segfault.
     if (lir_view::ExprRef inner_var; lir_view::is_reborrow_shape(recv_ref, &inner_var)) {
         recv_ref = inner_var;
         if (!recv_ref) return nullptr;
@@ -1541,7 +1541,7 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     }
 
     // Value-fat-pair model: normalise the receiver to a POINTER to the 16-byte
-    // {data,vtable} storage (so the field-0/field-1 GEPs below work).
+    // {data,vtable} storage (so the field-0/field-1 GEPs work).
     //  - A struct-VALUE receiver (e.g. read of an inline `&dyn` struct field, or
     //    a returned-by-value fat pair) must be spilled to an alloca.
     //  - A `&dyn`/`dyn` (TraitObject) value is ALREADY a pointer to the 16-byte
@@ -1551,6 +1551,18 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     //    it is likewise already the pointer we want — use as-is.
     if (recv_alloca.getType() == dyn_struct)
         recv_alloca = spill_to_alloca(recv_alloca);
+    return recv_alloca;
+}
+
+mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
+                                           TypeRef ret_logos_type) {
+    // The receiver is a &dyn Trait — a pointer to {data_ptr, vtable_ptr}.
+    auto recv_ref = v.receiver();
+    if (!recv_ref) return nullptr;
+    mlir::Value recv_alloca = dyn_storage_ptr(recv_ref);
+    if (!recv_alloca) return nullptr;
+
+    auto dyn_struct = dyn_llvm_type();
 
     // Load data_ptr (field 0)
     llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
