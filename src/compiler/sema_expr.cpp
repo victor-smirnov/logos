@@ -3391,9 +3391,12 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     // Lower arguments first — needed for type inference. For antiquot
     // CALL produced by `#(callee_expr)(args...)` / `#cl(args...)`, the
-    // grammar's `$...` capture also includes the outer `expr` (the
-    // antiquot's payload) as the first ARGS element — skip it. Plain
-    // IDENT-form CALL is unaffected.
+    // grammar's `$...` capture also includes the antiquot's payload as
+    // the first ARGS element — skip it. (The arg LIST itself must be
+    // grouped in the grammar alts exactly like the plain-IDENT alt —
+    // ungrouped, the leading `expr` stayed a positional capture outside
+    // `$...` and the first real argument vanished.) Plain IDENT-form
+    // CALL is unaffected.
     std::vector<lir::LExprPtr> arg_exprs;
     if (node.has_key(la::ARGS)) {
         auto args = args_array();
@@ -18086,7 +18089,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             return recurse_key(la::RECEIVER.code);
         }
         if (cd == la::CALL.code || cd == la::METHOD_CALL.code
-            || cd == la::STATIC_CALL.code) {
+            || cd == la::STATIC_CALL.code || cd == la::GENERIC_CALL.code) {
             // CALL has either CALLEE (an IDENT string — `foo(args)`) or
             // NAME_VAR (antiquot — `#foo(args)`). Neither is a child
             // expression: CALLEE is a leaf-string keyed by name; NAME_VAR
@@ -18096,18 +18099,38 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             // like a small offset (e.g. 462), `walk` crashed in
             // TinyObjectMap::get on the string bytes.
             //
-            // METHOD_CALL / STATIC_CALL RECEIVER is a real sub-expression.
+            // METHOD_CALL RECEIVER is a real sub-expression; STATIC_CALL /
+            // GENERIC_CALL RECEIVER is an IDENT leaf-string (same hazard as
+            // CALLEE — never recurse it).
             if (cd == la::CALL.code) {
                 if (!register_name_var(tom_off, /*ident_only=*/false))
                     return false;
-            } else {
+            } else if (cd == la::METHOD_CALL.code) {
                 if (!recurse_key(la::RECEIVER.code)) return false;
             }
+            // ARGS shape follows the grammar alternative (the sema lowerers'
+            // args_array discipline): plain CALL alts spread a bare array
+            // (`ARGS: $...`) — EXCEPT the qualified alt (QUAL_PARTS), which
+            // carries a call_arg_list `{ITEMS:[...]}` wrapper; METHOD_CALL
+            // wraps exactly when the turbofish alt matched (TYPE_PARAMS);
+            // STATIC_CALL / GENERIC_CALL always wrap. Reading a wrapper TOM
+            // as an ArrayView walks garbage offsets — the qe_b1 crash.
             auto t = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
             if (t.has_key(la::ARGS.code)) {
                 AnyVal av = t.get(la::ARGS.code);
                 if (av.is_pointer()) {
+                    bool wrapped =
+                        (cd == la::STATIC_CALL.code || cd == la::GENERIC_CALL.code)
+                        || (cd == la::CALL.code && t.has_key(la::QUAL_PARTS.code))
+                        || (cd == la::METHOD_CALL.code && t.has_key(la::TYPE_PARAMS.code));
                     uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
+                    if (wrapped) {
+                        auto m = writ::TinyMapView(arena_offset_t(arr_off), doc.holder());
+                        if (!m.has_key(la::ITEMS.code)) return true;
+                        AnyVal iav = m.get(la::ITEMS.code);
+                        if (!iav.is_pointer()) return true;
+                        arr_off = static_cast<uint32_t>(iav.to_offset(WritAccess::base(doc)).value());
+                    }
                     uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
                     // Refresh base+arr each iter: walk() can grow the arena via
                     // register_name_var->put(), staling `b` and `arr`.

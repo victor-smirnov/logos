@@ -3559,13 +3559,13 @@
               => { CODE: STATIC_CALL, NAME_VAR: $2, NAME: $4, ARGS: $6 }
                / HASH IDENT COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, NAME_VAR: $2, NAME: $4, ARGS: $6 }
-               / HASH IDENT LPAREN RPAREN
+               // Antiquot calls group their arg list like the plain-IDENT alt
+               // below: an UNGROUPED `expr (COMMA expr)*` makes the `$...`
+               // spread collect only the star-group — `#f(a, b, c)` silently
+               // dropped its FIRST argument.
+               / HASH IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
               => { CODE: CALL, NAME_VAR: $2, ARGS: $... }
-               / HASH IDENT LPAREN expr (COMMA expr)* COMMA? RPAREN
-              => { CODE: CALL, NAME_VAR: $2, ARGS: $... }
-               / HASH LPAREN expr RPAREN LPAREN RPAREN
-              => { CODE: CALL, NAME_VAR: $3, ARGS: $... }
-               / HASH LPAREN expr RPAREN LPAREN expr (COMMA expr)* COMMA? RPAREN
+               / HASH LPAREN expr RPAREN LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
               => { CODE: CALL, NAME_VAR: $3, ARGS: $... }
                / IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
               => { CODE: CALL, CALLEE: $1, ARGS: $... }

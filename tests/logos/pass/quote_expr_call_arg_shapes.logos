@@ -1,0 +1,53 @@
+// quote_expr! templates whose CALL-family nodes carry the WRAPPED args
+// shape ({ITEMS:[...]} from call_arg_list) used to crash the antiquot
+// registration walk, which read every ARGS pointer as a bare array: the
+// turbofish METHOD_CALL alt (`a.get::<u8>(#e)`) walked garbage offsets
+// (SIGSEGV), and STATIC_CALL / GENERIC_CALL args were never scanned for
+// antiquotes at all. The walk now mirrors the sema lowerers' args_array
+// discipline (wrapper iff turbofish/qualified/static/generic). This test
+// pins the CLASS: every call shape with `#e` inside args, lowered AND
+// spliced, must both compile and evaluate.
+package quote_expr_call_arg_shapes;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+
+struct Box9 { v: i64 }
+
+impl Box9 {
+    pub fn geti(self: &Box9, d: i64) -> i64 { return self.v + d; }
+    pub fn get<T>(self: &Box9, d: i64) -> i64 { return self.v + d + 1i64; }
+    pub static fn mk<T>(d: i64) -> i64 { return d * 3i64; }
+}
+
+fn idg<T>(x: i64) -> i64 { return x + 10i64; }
+
+#[fn_macro]
+pub fn qs_turbofish(args: Vec<ExprBlob>) -> ExprBlob {
+    let e: ExprBlob = args.get(0i64);
+    // turbofish METHOD_CALL: args ride the {ITEMS} wrapper
+    return quote_expr! { b.get::<u8>(#e) };
+}
+
+// STATIC_CALL / GENERIC_CALL templates (`Box9::<u8>::mk(#e)`,
+// `idg::<u8>(#e)`) now register their antiquotes (previously never scanned)
+// but the RENDER side does not re-emit those node codes as exprs yet — the
+// splice site sees WritStatic and type-errors CLEANLY (no crash). Full
+// support is a separate render-side task; this test pins the walk class.
+
+#[fn_macro]
+pub fn qs_nested(args: Vec<ExprBlob>) -> ExprBlob {
+    let e: ExprBlob = args.get(0i64);
+    // the alg_kernel shape: turbofish receiver-call + nested plain call,
+    // the SAME blob spliced at two arg sites
+    return quote_expr! { b.get::<u8>(b.geti(#e)).wrapping_add(idg::<u8>(#e)) };
+}
+
+fn main() -> i32 {
+    let b: Box9 = Box9 { v: 100i64 };
+    let t: i64 = qs_turbofish!(7i64);          // 100 + 7 + 1 = 108
+    if t != 108i64 { return 1i32; }
+    let n: i64 = qs_nested!(2i64);             // get::<u8>(102)=203; idg(2)=12 → 215
+    if n != 215i64 { return 4i32; }
+    return 0i32;
+}

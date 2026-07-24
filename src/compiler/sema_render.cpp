@@ -142,9 +142,11 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         // CALLEE for plain `name(args)` form; NAME after antiquot
         // substitution wrote NAME_VAR(idx) → NAME(string). When the
         // antiquot path is taken, the grammar's `$...` capture also
-        // pulled in the outer expr (the antiquot payload) as the
-        // first ARGS element — sema's lower_call skips it; we mirror
-        // that here so the rendered source round-trips correctly.
+        // pulled in the antiquot payload as the first ARGS element —
+        // sema's lower_call skips it; we mirror that here so the rendered
+        // source round-trips correctly. (The arg list in the antiquot alts
+        // must be GROUPED like the plain alt — ungrouped, the leading
+        // `expr` stayed outside `$...` and the first real arg vanished.)
         std::string callee_str(str_of(node.get(la::CALLEE.code)));
         bool antiquot_callee = callee_str.empty();
         if (antiquot_callee) callee_str = std::string(str_of(node.get(la::NAME.code)));
