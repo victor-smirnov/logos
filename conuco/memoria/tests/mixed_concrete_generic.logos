@@ -38,7 +38,7 @@ fn run_all() -> i32 {
     let c = create_ctr::<typeof(Conc)>(&s, 1u64);
     c.insert(1u64, 7u64);
     if c.get_or(1u64, 0u64) != 7u64 { return 1i32; }
-    (&mut *store).commit(&*s);
+    s.commit();
 
     let g = create_ctr::<typeof(Gen::<u64>)>(&s, 2u64);
     g.insert(1u64, 5u64);

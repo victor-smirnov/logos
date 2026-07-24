@@ -89,6 +89,6 @@ fn main() -> i32 {
     if jc.get_or(9999u64).len() != 0i64 { return 8i32; }
     if jg.get_or(9999u64).len() != 0i64 { return 9i32; }
 
-    (&mut *store).commit(&*s1);
+    s1.commit();
     return 42i32;
 }

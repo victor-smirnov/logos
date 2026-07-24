@@ -40,7 +40,7 @@ fn run_all() -> i32 {
     let mut k: u64 = 0u64;
     while k < n { m0.insert(k, k + 7u64); k = k + 1u64; }
     if m0.size() != n { return 2i32; }   // handle sees its snapshot's size
-    (&mut *store).commit(&*s0);
+    s0.commit();
 
     // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
     let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
@@ -50,7 +50,7 @@ fn run_all() -> i32 {
     if m1.get_or(n - 1u64, 0xFFFFu64) != (n - 1u64) + 7u64 { return 5i32; }
     k = n;
     while k < 2u64 * n { m1.insert(k, k + 7u64); k = k + 1u64; }
-    (&mut *store).commit(&*s1);
+    s1.commit();
 
     // ── ISOLATION: s0 (frozen) still sees ONLY [0, N); s1 sees [0, 2N) ───
     let m0b = open_ctr::<typeof(GenCow)>(&s0, CTR);
@@ -74,7 +74,7 @@ fn run_all() -> i32 {
     let m2 = open_ctr::<typeof(GenCow)>(&s2, CTR);
     k = 0u64;
     while k < 2u64 * n { m2.insert(k, k + 1000000u64); k = k + 500u64; }
-    (&mut *store).commit(&*s2);
+    s2.commit();
     let m2b = open_ctr::<typeof(GenCow)>(&s2, CTR);
     let m1b = open_ctr::<typeof(GenCow)>(&s1, CTR);
     if m2b.get_or(0u64, 0u64) != 1000000u64 { return 12i32; }

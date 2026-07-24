@@ -33,7 +33,7 @@ fn main() -> i32 {
     }
     if m.get_or(5000u64, 0xDEADu64) != 0xDEADu64 { bad = bad + 1u64; }
     if m.size() != 1000u64 { bad = bad + 1u64; }
-    (&mut *store).commit(&*s0);
+    s0.commit();
     // open_ctr on the same snapshot sees the same container.
     let m2 = open_ctr::<Legend>(&mut s0, 1u64);
     if m2.size() != 1000u64 { bad = bad + 1u64; }

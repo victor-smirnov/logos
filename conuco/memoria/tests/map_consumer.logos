@@ -37,7 +37,7 @@ fn run_all() -> i32 {
     m.insert(1234u64, 7u64);              // replace-on-hit
     if m.get_or(1234u64, 0u64) != 7u64 { return 3i32; }
     if m.size() != n { return 4i32; }
-    (&mut *store).commit(&*s0);
+    s0.commit();
 
     // open_ctr through the same cross-module alias sees the same container.
     let m2 = open_ctr::<typeof(Map::<u64, u64>)>(&s0, 1u64);

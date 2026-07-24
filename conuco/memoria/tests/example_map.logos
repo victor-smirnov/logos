@@ -114,7 +114,7 @@ fn run_all() -> i32 {
     if m.size() != n + 1u64 { return 7i32; }
 
     // ── §3 snapshot lifecycle: commit publishes, open sees the same trees ───
-    store.commit(&*snap);
+    snap.commit();
     let m2 = open_ctr::<typeof(Map::<u64, u64>)>(&snap, 1u64);
     if m2.size() != n + 1u64 { return 8i32; }
     if m2.get_or(4u64, 0u64) != 12u64 { return 9i32; }

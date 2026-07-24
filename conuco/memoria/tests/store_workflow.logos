@@ -60,7 +60,7 @@ fn run_all() -> i32 {
     journal.insert(2u64, "funded");
     if ledger.size() != n { return 1i32; }
     if journal.size() != 2u64 { return 2i32; }
-    (&mut *store).commit(&*s1);
+    s1.commit();
 
     // ── v2: branch, mutate BOTH — CoW copies only the touched paths ──
     let mut s2: Arc<MemorySnapshot> = store_fork_arc(&mut store);
@@ -69,7 +69,7 @@ fn run_all() -> i32 {
     l2.insert(0u64, 999u64);              // overwrite in v2
     j2.insert(2u64, "frozen");            // VLE replace-on-hit (grows)
     j2.insert(3u64, "closed");
-    (&mut *store).commit(&*s2);
+    s2.commit();
 
     // ── isolation: v1 is frozen, v2 sees the new state ──
     let l1 = open_ctr::<typeof(Ledger)>(&s1, LEDGER);

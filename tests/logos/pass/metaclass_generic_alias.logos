@@ -38,7 +38,7 @@ fn main() -> i32 {
     }
     if m.get_or(7777u64, 0xDEADu64) != 0xDEADu64 { bad = bad + 1u64; }
     if m.size() != 1000u64 { bad = bad + 1u64; }
-    (&mut *store).commit(&*s0);
+    s0.commit();
     if bad != 0u64 { return 1i32; }
     return 42i32;
 }

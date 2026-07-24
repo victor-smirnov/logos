@@ -45,7 +45,7 @@ fn main() -> i32 {
     if !s0.has_ctr(7u64) || !s0.has_ctr(9u64) { return 11i32; }
     if s0.root_of(7u64).root != a || s0.root_of(9u64).level != 0u32 { return 12i32; }
 
-    (&mut *store).commit(&*s0);                                         // HEAD adopts a,b (inc_rc each)
+    s0.commit();                                         // HEAD adopts a,b (inc_rc each)
     if unsafe { node_rc(a) } != 2u32 { return 13i32; }         // s0 + HEAD
     if unsafe { node_rc(b) } != 2u32 { return 14i32; }
 

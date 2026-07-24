@@ -235,6 +235,19 @@ impl MemorySnapshot {
 
     // — lifecycle —
 
+    /// Publishes THIS snapshot as the store's new HEAD and marks its history
+    /// entry COMMITTED. The wrapper reaches the store through its parent
+    /// hold — the surface stays `&self` (the wrapper is never mutated; the
+    /// store is the honest mutation point, reached via a local Arc hold).
+    /// The wrapper stays open afterwards: `store.find(id)` / open_ctr now
+    /// resolve this snapshot's trees.
+    pub fn commit(self: &MemorySnapshot) {
+        // LOCK POINT (v1): HEAD swap vs concurrent fork/find.
+        let mut hold: Arc<MemoryStore> = self.store.clone_ref();
+        let g: &mut MemoryStore = &mut *hold;
+        g.commit(self);
+    }
+
     /// MARKS this history entry for deletion (Memoria snapshot drop()): the
     /// entry stays until the LAST wrapper for it closes; then its trees are
     /// rc-released and the descriptor is forgotten. The committed HEAD holds
@@ -356,11 +369,13 @@ impl MemoryStore {
         }
     }
 
-    /// Atomically publishes `snap` as the new HEAD and marks its entry
-    /// COMMITTED: drops HEAD's old structural share of every container tree,
-    /// then adopts `snap`'s roots (bumping each for HEAD's own hold — the
-    /// entry keeps its independent refs until its last wrapper closes).
-    pub fn commit(self: &mut MemoryStore, snap: &MemorySnapshot) {
+    // (internal) Atomically publishes `snap` as the new HEAD and marks its
+    // entry COMMITTED: drops HEAD's old structural share of every container
+    // tree, then adopts `snap`'s roots (bumping each for HEAD's own hold —
+    // the entry keeps its independent refs until its last wrapper closes).
+    // The public surface is MemorySnapshot::commit() — the wrapper reaches
+    // back through its parent hold.
+    fn commit(self: &mut MemoryStore, snap: &MemorySnapshot) {
         let hn: i64 = self.head.len();
         let mut i: i64 = 0i64;
         while i < hn {

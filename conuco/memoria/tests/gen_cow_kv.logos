@@ -82,13 +82,13 @@ fn run_all() -> i32 {
     k = 0u64;
     while k < m { c0.insert(k, vstr(k)); k = k + 1u64; }
     if c0.size() != m { return 9i32; }
-    (&mut *store).commit(&*s0);
+    s0.commit();
 
     let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     let c1 = open_ctr::<typeof(GenVol)>(&s1, CTR);
     k = m;
     while k < 2u64 * m { c1.insert(k, vstr(k)); k = k + 1u64; }
-    (&mut *store).commit(&*s1);
+    s1.commit();
 
     // ISOLATION: s0 (frozen) sees only [0, m); s1 sees [0, 2m).
     let c0b = open_ctr::<typeof(GenVol)>(&s0, CTR);
@@ -107,7 +107,7 @@ fn run_all() -> i32 {
     let c2 = open_ctr::<typeof(GenVol)>(&s2, CTR);
     k = 0u64;
     while k < 2u64 * m { c2.insert(k, "OVERWRITTEN"); k = k + 300u64; }
-    (&mut *store).commit(&*s2);
+    s2.commit();
     let c2b = open_ctr::<typeof(GenVol)>(&s2, CTR);
     let c1b = open_ctr::<typeof(GenVol)>(&s1, CTR);
     if !beq(c2b.get_or(0u64), "OVERWRITTEN") { return 15i32; }

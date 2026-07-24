@@ -69,12 +69,12 @@ fn run_all() -> i32 {
     let mut k: u32 = 0u32;
     while k < m { c0.insert(k, k as i64 + 5i64); k = k + 1u32; }
     if c0.size() != m as u64 { return 7i32; }
-    (&mut *store).commit(&*s0);
+    s0.commit();
     let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
     let c1 = open_ctr::<typeof(FseA)>(&s1, 1u64);
     k = m;
     while k < 2u32 * m { c1.insert(k, k as i64 + 5i64); k = k + 1u32; }
-    (&mut *store).commit(&*s1);
+    s1.commit();
     let c0b = open_ctr::<typeof(FseA)>(&s0, 1u64);
     if c0b.size() != m as u64 { return 8i32; }                    // frozen A
     if c1.size() != 2u64 * m as u64 { return 9i32; }
@@ -111,7 +111,7 @@ fn run_all() -> i32 {
         if tc.get_or(c, 0xFFFFu32) != c as u32 * 3u32 { return 17i32; }
         c = c + 1u16;
     }
-    (&mut *cstore).commit(&*cs0);
+    cs0.commit();
     let cc0b = open_ctr::<typeof(FseC)>(&cs0, 1u64);
     if cc0b.get_or(1500u16, 0xFFFFu32) != 1500u32 * 3u32 { return 19i32; }
 
