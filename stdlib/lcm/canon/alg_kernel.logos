@@ -151,7 +151,7 @@ fn ak_call(base: str, tag: str, n: i64) -> ExprBlob {
 }
 
 fn ak_push(out: &mut ItemList, b: QuoteItemBlob) {
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
+    out.blobs.push(b);
 }
 
 // The row-count exprs of the DATA streams, in symbol order — the structure
@@ -167,7 +167,7 @@ fn ak_row_exprs(sts: &Vec<AkStream>, ss: i64) -> Vec<ExprBlob> {
             } else {
                 quote_expr! { d.cols.borrow(#sl).cells.length() as u64 }
             };
-            unsafe { (&mut rowexprs as *mut Vec<ExprBlob>).push(re); }
+            rowexprs.push(re);
         }
         s = s + 1i64;
     }
@@ -426,18 +426,14 @@ fn ak_ins_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
         }
         // chain calls — data streams in schema order, structure LAST
         if s != ss {
-            unsafe {
-                (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pi", s));
-                (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_ci", s));
-            }
+                            pcalls.push(ak_call(name, "_pi", s));
+                ccalls.push(ak_call(name, "_ci", s));
         }
         s = s + 1i64;
     }
     if ss >= 0i64 {
-        unsafe {
-            (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pi", ss));
-            (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_ci", ss));
-        }
+                    pcalls.push(ak_call(name, "_pi", ss));
+            ccalls.push(ak_call(name, "_ci", ss));
     }
     ak_driver(out, ak_name(name, "_entry_ins"), pcalls, ccalls);
 }
@@ -576,18 +572,14 @@ fn ak_del_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
             dord = dord + 1i64;
         }
         if s != ss {
-            unsafe {
-                (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pd", s));
-                (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_cd", s));
-            }
+                            pcalls.push(ak_call(name, "_pd", s));
+                ccalls.push(ak_call(name, "_cd", s));
         }
         s = s + 1i64;
     }
     if ss >= 0i64 {
-        unsafe {
-            (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pd", ss));
-            (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_cd", ss));
-        }
+                    pcalls.push(ak_call(name, "_pd", ss));
+            ccalls.push(ak_call(name, "_cd", ss));
     }
     ak_driver(out, ak_name(name, "_entry_del"), pcalls, ccalls);
 }
@@ -728,10 +720,8 @@ fn ak_set_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
                 };
                 ak_push(out, cb);
             }
-            unsafe {
-                (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_ps", s));
-                (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_cs", s));
-            }
+                            pcalls.push(ak_call(name, "_ps", s));
+                ccalls.push(ak_call(name, "_cs", s));
             dord = dord + 1i64;
         }
         s = s + 1i64;
