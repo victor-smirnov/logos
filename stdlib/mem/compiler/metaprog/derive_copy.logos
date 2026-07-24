@@ -35,10 +35,7 @@ fn derive_copy_hook(target_offset: u32) -> () {
     let mut k: u64 = 0 as u64;
     while k < np {
         let tp: SView = view.ast_type_param_name(item, k);
-        unsafe {
-            (&mut tparams as *mut Vec<Ident>).push(
-                Ident { ptr: tp.ptr, len: tp.len });
-        }
+        tparams.push(Ident { ptr: tp.ptr, len: tp.len });
         k = k + (1 as u64);
     }
 

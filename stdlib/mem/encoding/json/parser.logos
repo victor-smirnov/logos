@@ -291,7 +291,6 @@ unsafe fn parse_array(p: &mut Parser) -> Result<Json, JsonError> {
     let mut err_pos: i64 = 0 as i64 - 1 as i64;     // -1 = no error yet
     let mut err_msg: String = String::new();
     {
-        let items_ptr: *mut Vec<Json> = (&mut items) as *mut Vec<Json>;
         skip_ws(p);
         let mut empty: bool = peek(p) == 93;     // ']'
         if empty { p.pos = p.pos + 1 as i64; }
@@ -303,7 +302,7 @@ unsafe fn parse_array(p: &mut Parser) -> Result<Json, JsonError> {
                     err_msg.push_bytes(e.message.as_ptr(), e.message.len());
                     going = false;
                 }
-                Result::Ok(v)  => { items_ptr.push(v); }
+                Result::Ok(v)  => { items.push(v); }
             }
             if going {
                 skip_ws(p);
@@ -337,7 +336,6 @@ unsafe fn parse_object(p: &mut Parser) -> Result<Json, JsonError> {
     let mut err_pos: i64 = 0 as i64 - 1 as i64;
     let mut err_msg: String = String::new();
     {
-        let fields_ptr: *mut Vec<JsonField> = (&mut fields) as *mut Vec<JsonField>;
         skip_ws(p);
         let mut empty: bool = peek(p) == 125;     // '}'
         if empty { p.pos = p.pos + 1 as i64; }
@@ -372,7 +370,7 @@ unsafe fn parse_object(p: &mut Parser) -> Result<Json, JsonError> {
                         going = false;
                     }
                     Result::Ok(jv) => {
-                        fields_ptr.push(JsonField { key: k, val: jv });
+                        fields.push(JsonField { key: k, val: jv });
                     }
                 }
             }

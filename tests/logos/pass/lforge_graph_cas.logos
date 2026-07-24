@@ -217,20 +217,18 @@ unsafe fn main() -> i32 {
 
     // 2. ActionKey: stable for same inputs+args.
     let mut inputs: Vec<FileNode> = Vec::<FileNode>::new();
-    let inputs_p: *mut Vec<FileNode> = (&mut inputs) as *mut Vec<FileNode>;
     // Build inputs by reading from disk fresh (no clone yet for FileNode).
     let a2: FileNode = match file_node_of("/tmp/__lf_b04__/src/a.logos") {
         Result::Err(_) => { return 11; }
         Result::Ok(n)  => { n }
     };
-    inputs_p.push(a2);
+    inputs.push(a2);
 
     let mut args: Vec<String> = Vec::<String>::new();
-    let args_p: *mut Vec<String> = (&mut args) as *mut Vec<String>;
     let mut a1: String = String::new(); a1.push_str("logosc");
     let mut a2s: String = String::new(); a2s.push_str("-O2");
-    args_p.push(a1);
-    args_p.push(a2s);
+    args.push(a1);
+    args.push(a2s);
 
     let key1: ActionKey = make_action_key(&inputs, &args);
     if key1.hex.len() != 64 as i64 { return 12; }

@@ -27,12 +27,10 @@ fn derive_struct_with_cols_hook(target_offset: u32) -> () {
     let s_i64: str = "i64";
     let mut col_names: Vec<Ident> = Vec::<Ident>::new();
     let mut col_types: Vec<Ident> = Vec::<Ident>::new();
-    unsafe {
-        (&mut col_names as *mut Vec<Ident>).push(Ident::new(s_a));
-        (&mut col_types as *mut Vec<Ident>).push(Ident::new(s_u64));
-        (&mut col_names as *mut Vec<Ident>).push(Ident::new(s_b));
-        (&mut col_types as *mut Vec<Ident>).push(Ident::new(s_i64));
-    }
+    col_names.push(Ident::new(s_a));
+    col_types.push(Ident::new(s_u64));
+    col_names.push(Ident::new(s_b));
+    col_types.push(Ident::new(s_i64));
 
     let blob: QuoteItemBlob = quote_item! {
         pub struct GeneratedCols {

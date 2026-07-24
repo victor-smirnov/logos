@@ -33,7 +33,7 @@ pub fn emit_marker() -> ItemList {
     let s: str = "FmMarker";
     let id: Ident = Ident::new(s);
     let b: QuoteItemBlob = quote_item! { struct #id { v: i32 } };
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
+    out.blobs.push(b);
     return out;
 }
 emit_marker!{}

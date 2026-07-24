@@ -38,7 +38,7 @@ fn emit_one() -> ItemList {
     let b: QuoteItemBlob = quote_item! {
         struct #id { v: i32 }
     };
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
+    out.blobs.push(b);
     return out;
 }
 

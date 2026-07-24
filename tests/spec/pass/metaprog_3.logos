@@ -72,11 +72,11 @@ pub fn emit_pair(args: Vec<ExprBlob>) -> ItemList {
     let s_a: str = "il_alpha";
     let id_a: Ident = Ident::new(s_a);
     let b1: QuoteItemBlob = quote_item! { fn #(id_a)() -> i32 { return 4i32; } };
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b1); }
+    out.blobs.push(b1);
     let s_b: str = "il_beta";
     let id_b: Ident = Ident::new(s_b);
     let b2: QuoteItemBlob = quote_item! { fn #(id_b)() -> i32 { return 5i32; } };
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b2); }
+    out.blobs.push(b2);
     return out;
 }
 

@@ -28,10 +28,7 @@ fn derive_clone_q_hook(target_offset: u32) -> () {
     while i < nf {
         let fld: WAny = view.ast_struct_field(item, i);
         let fsv: SView = view.ast_field_name(fld);
-        unsafe {
-            (&mut fnames as *mut Vec<Ident>).push(
-                Ident { ptr: fsv.ptr, len: fsv.len });
-        }
+        fnames.push(Ident { ptr: fsv.ptr, len: fsv.len });
         i = i + (1 as u64);
     }
 

@@ -36,7 +36,7 @@ pub fn res_query(s: str) -> ItemList {
             pub fn resource_value() -> i32 { return 7i32; }
         }
     };
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
+    out.blobs.push(b);
     return out;
 }
 

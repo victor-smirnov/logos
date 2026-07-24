@@ -286,10 +286,10 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
                         let sym_id: Ident = Ident { ptr: sym_ptr, len: sym_len };
 
                         unsafe {
-                            (&mut col_names    as *mut Vec<Ident>).push(f_id);
-                            (&mut col_types    as *mut Vec<Ident>).push(t_id);
-                            (&mut shuttle_fns  as *mut Vec<Ident>).push(tmpl_id);
-                            (&mut shuttle_syms as *mut Vec<Ident>).push(sym_id);
+                            col_names.push(f_id);
+                            col_types.push(t_id);
+                            shuttle_fns.push(tmpl_id);
+                            shuttle_syms.push(sym_id);
                         }
                     }
                     i = i + (1 as u64);

@@ -16,14 +16,14 @@ pub fn emit_pair(args: Vec<ExprBlob>) -> ItemList {
     let b1: QuoteItemBlob = quote_item! {
         struct #id_a { x: i32 }
     };
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b1); }
+    out.blobs.push(b1);
 
     let s_b: str = "Bar";
     let id_b: Ident = Ident::new(s_b);
     let b2: QuoteItemBlob = quote_item! {
         struct #id_b { y: i32 }
     };
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b2); }
+    out.blobs.push(b2);
 
     return out;
 }

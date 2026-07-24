@@ -8,7 +8,7 @@
 // only need QuoteItemBlob.
 //
 // Construction: `let mut out: ItemList = item_list_new();`
-// Append:        `unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }`
+// Append:        `out.blobs.push(b);`
 
 package logos.std.compiler.metaprog;
 

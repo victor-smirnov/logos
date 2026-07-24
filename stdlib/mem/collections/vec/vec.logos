@@ -568,9 +568,9 @@ pub fn iter_partition_vec<I: Iterator<T>, T>(
                     let v_copy: T = *((&v) as *const T);
                     let take_yes: bool = pred(v_copy);
                     if take_yes {
-                        (&mut yes as *mut Vec<T>).push(v);
+                        yes.push(v);
                     } else {
-                        (&mut no as *mut Vec<T>).push(v);
+                        no.push(v);
                     }
                 }
             }

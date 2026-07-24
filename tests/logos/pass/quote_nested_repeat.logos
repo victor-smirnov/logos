@@ -29,13 +29,11 @@ fn gen_nested_hook(target_offset: u32) -> () {
     let mut inner: Vec<Vec<Ident>> = Vec::<Vec<Ident>>::new();
     let mut in0: Vec<Ident> = Vec::<Ident>::new();
     let mut in1: Vec<Ident> = Vec::<Ident>::new();
-    unsafe {
-        (&mut in0 as *mut Vec<Ident>).push(Ident{ptr:sx.as_ptr(),len:sx.len() as u64});
-        (&mut in0 as *mut Vec<Ident>).push(Ident{ptr:sy.as_ptr(),len:sy.len() as u64});
-        (&mut in1 as *mut Vec<Ident>).push(Ident{ptr:sz.as_ptr(),len:sz.len() as u64});
-        (&mut inner as *mut Vec<Vec<Ident>>).push(in0);
-        (&mut inner as *mut Vec<Vec<Ident>>).push(in1);
-    }
+    in0.push(Ident{ptr:sx.as_ptr(),len:sx.len() as u64});
+    in0.push(Ident{ptr:sy.as_ptr(),len:sy.len() as u64});
+    in1.push(Ident{ptr:sz.as_ptr(),len:sz.len() as u64});
+    inner.push(in0);
+    inner.push(in1);
     let blob: QuoteItemBlob = quote_item! {
         fn run() -> i32 {
             let mut __t: i32 = 0i32;

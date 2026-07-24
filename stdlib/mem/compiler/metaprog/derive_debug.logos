@@ -45,10 +45,7 @@ fn derive_debug_hook(target_offset: u32) -> () {
     while i < nf {
         let fld: WAny = view.ast_struct_field(item, i);
         let fsv: SView = view.ast_field_name(fld);
-        unsafe {
-            (&mut fnames as *mut Vec<Ident>).push(
-                Ident { ptr: fsv.ptr, len: fsv.len });
-        }
+        fnames.push(Ident { ptr: fsv.ptr, len: fsv.len });
         i = i + (1 as u64);
     }
 
@@ -57,10 +54,7 @@ fn derive_debug_hook(target_offset: u32) -> () {
     let mut k: u64 = 0 as u64;
     while k < np {
         let tp: SView = view.ast_type_param_name(item, k);
-        unsafe {
-            (&mut tparams as *mut Vec<Ident>).push(
-                Ident { ptr: tp.ptr, len: tp.len });
-        }
+        tparams.push(Ident { ptr: tp.ptr, len: tp.len });
         k = k + (1 as u64);
     }
 
