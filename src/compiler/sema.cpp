@@ -8117,7 +8117,13 @@ void SemaChecker::lower_program(const std::vector<writ::Writ>& asts, lir::LProgr
         kept.reserve(prog.functions.size());
         for (auto& fp : prog.functions) {
             if (!fp) continue;
-            auto base = is_impl_method_shape(std::string(fp.name()));
+            // fp.name() is a doc-backed string_view — hand it over DIRECTLY.
+            // Wrapping it in std::string(...) made `base` (a substr view
+            // returned by is_impl_method_shape) dangle into the destroyed
+            // temporary: usually-still-intact freed heap, occasionally
+            // reused → garbage lookups (once-per-thousands flaky tests,
+            // and a latent mis-hosting/miscompile channel).
+            auto base = is_impl_method_shape(fp.name());
             lir_view::StructView* host = nullptr;
             if (!base.empty()) {
                 auto it = templates_by_name.find(std::string(base));
