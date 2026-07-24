@@ -1,0 +1,230 @@
+package test;
+// ADR 0023 S3b — the generated ENTRY family + the FUSED WITH_ENTRY kernel
+// vs the reference interpreter. FmK (multimap shape) runs ins/set/del
+// kernels against interpreter twins with stream-by-stream agreement; WeK
+// (FSE map shape) runs the fused quad — the user's decide EXPRESSION is
+// spliced INLINE at the kernel's decision point (no indirection), here
+// exercising every transition against alg_entry_apply twins.
+use logos.lcm.canon.alg_kernel;
+use logos.mem.bt.alg;
+use logos.mem.bt.interp;
+use logos.mem.pkd;
+use logos.mem.pkd.pdtbuf;
+use logos.mem.pkd.sseq;
+use logos.mem.pkd.ssrle;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.panic;
+
+metacall alg_kernel_family("FmK", "fse8o,vle,ssrle2");
+metacall alg_kernel_with_entry("WeK", "fse8o,fse8", "if hit { ET_SET } else { ET_INS }");
+metacall alg_kernel_with_entry("WdK", "fse8o,fse8", "if hit { ET_DEL } else { ET_NOOP }");
+
+fn mm_datum(key: u64, vals: i64, tag: u8) -> LeafBatchDatum {
+    let mut d: LeafBatchDatum = leaf_batch_datum_new();
+    let mut ck: DatumCol = datum_col_new();
+    ck.cells.push(key);
+    d.cols.push(ck);
+    let mut cv: DatumCol = datum_col_new();
+    let mut i: i64 = 0i64;
+    while i < vals {
+        let mut vb: Vec<u8> = vec_new::<u8>();
+        vb.push(tag);
+        vb.push(i as u8);
+        cv.spans.push_span(vb.as_slice());
+        i = i + 1i64;
+    }
+    d.cols.push(cv);
+    d.cols.push(datum_col_new());
+    return d;
+}
+
+// value-only SET datum: key col empty (stream untouched), `vals` spans
+fn mm_set_datum(vals: i64, tag: u8) -> LeafBatchDatum {
+    let mut d: LeafBatchDatum = leaf_batch_datum_new();
+    d.cols.push(datum_col_new());
+    let mut cv: DatumCol = datum_col_new();
+    let mut i: i64 = 0i64;
+    while i < vals {
+        let mut vb: Vec<u8> = vec_new::<u8>();
+        vb.push(tag);
+        vb.push((0x10i64 + i) as u8);
+        vb.push(i as u8);
+        cv.spans.push_span(vb.as_slice());
+        i = i + 1i64;
+    }
+    d.cols.push(cv);
+    d.cols.push(datum_col_new());
+    return d;
+}
+
+unsafe fn mm_agree(x: *mut PkdAlloc, y: *mut PkdAlloc) -> bool {
+    let kx: PdtBuf = pdtbuf_adopt(x.get::<u8>(0u32));
+    let ky: PdtBuf = pdtbuf_adopt(y.get::<u8>(0u32));
+    if kx.size() != ky.size() { return false; }
+    let mut i: u64 = 0u64;
+    while i < kx.size() {
+        if kx.get(0u32, i) != ky.get(0u32, i) { return false; }
+        i = i + 1u64;
+    }
+    let vx: PdtBuf = pdtbuf_adopt(x.get::<u8>(1u32));
+    let vy: PdtBuf = pdtbuf_adopt(y.get::<u8>(1u32));
+    if vx.size() != vy.size() { return false; }
+    let mut r: u64 = 0u64;
+    while r < vx.size() {
+        let sx: &[u8] = vx.row_span(0u32, 0u32, r);
+        let sy: &[u8] = vy.row_span(0u32, 0u32, r);
+        if sx.len() != sy.len() { return false; }
+        let mut b: i64 = 0i64;
+        while b < sx.len() {
+            if sx[b] != sy[b] { return false; }
+            b = b + 1i64;
+        }
+        r = r + 1u64;
+    }
+    let qx: PkdSsrle = pkd_ssrle_adopt(x.get::<u8>(2u32));
+    let qy: PkdSsrle = pkd_ssrle_adopt(y.get::<u8>(2u32));
+    if qx.size() != qy.size() { return false; }
+    let mut p: u64 = 0u64;
+    while p <= qx.size() {
+        if qx.rank_eq(p, 0u64) != qy.rank_eq(p, 0u64) { return false; }
+        if qx.rank_eq(p, 1u64) != qy.rank_eq(p, 1u64) { return false; }
+        p = p + 1u64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    unsafe {
+        let mut sch: NodeSchema = node_schema_new();
+        sch.streams.push(sd_fse(8u32, true));
+        sch.streams.push(sd_vle());
+        sch.streams.push(sd_ssrle(2u32));
+        let ma: *mut u8 = alloc(4096i64);
+        let ka: *mut PkdAlloc = pkd_format(ma, 4096u32, 3u32);
+        alg_fmt_node(ka, &sch);
+        let mb: *mut u8 = alloc(4096i64);
+        let ib: *mut PkdAlloc = pkd_format(mb, 4096u32, 3u32);
+        alg_fmt_node(ib, &sch);
+
+        // ── FmK ins: seed four entries (varying arity, interior inserts) ──
+        let mut t: i64 = 0i64;
+        while t < 4i64 {
+            let key: u64 = 50u64 * (t as u64) + 5u64;
+            let vals: i64 = (t + 1i64) % 3i64 + 1i64;      // 2,3,1,2
+            let tag: u8 = (0x60i64 + t) as u8;
+            let cnt: u64 = pdtbuf_adopt(ka.get::<u8>(0u32)).size();
+            let i0: u64 = if t % 2i64 == 0i64 { cnt } else { cnt / 2u64 };
+            let dk: LeafBatchDatum = mm_datum(key, vals, tag);
+            if !FmK_entry_ins(ka, i0, &dk) { return 1i32; }
+            let mut di: LeafBatchDatum = mm_datum(key, vals, tag);
+            if !alg_entry_ins(ib, &sch, i0, &mut di) { return 2i32; }
+            if !mm_agree(ka, ib) { return 3i32; }
+            t = t + 1i64;
+        }
+
+        // ── FmK set: same-arity value replace on every entry ──
+        let mut e: u64 = 0u64;
+        while e < 4u64 {
+            // current arity of entry e (via the interpreter twin's ranks)
+            let sq: PkdSsrle = pkd_ssrle_adopt(ib.get::<u8>(2u32));
+            let p0: u64 = alg_entry_anchor(ib, 2u32, e);
+            let p1: u64 = alg_entry_anchor(ib, 2u32, e + 1u64);
+            let m: i64 = (sq.rank_eq(p1, 1u64) - sq.rank_eq(p0, 1u64)) as i64;
+            let ds: LeafBatchDatum = mm_set_datum(m, (0x80u64 + e) as u8);
+            if !FmK_entry_set(ka, e, &ds) { return 4i32; }
+            if !alg_entry_set(ib, &sch, e, &ds) { return 5i32; }
+            if !mm_agree(ka, ib) { return 6i32; }
+            e = e + 1u64;
+        }
+
+        // ── FmK del: drop entries 1 then 0, agreement after each ──
+        if !FmK_entry_del(ka, 1u64, &mm_set_datum(0i64, 0u8)) { return 7i32; }
+        if !alg_entry_del(ib, &sch, 1u64) { return 8i32; }
+        if !mm_agree(ka, ib) { return 9i32; }
+        if !FmK_entry_del(ka, 0u64, &mm_set_datum(0i64, 0u8)) { return 10i32; }
+        if !alg_entry_del(ib, &sch, 0u64) { return 11i32; }
+        if !mm_agree(ka, ib) { return 12i32; }
+        dealloc(ma);
+        dealloc(mb);
+
+        // ── the fused WITH_ENTRY quad on the FSE map shape ──
+        let mut msch: NodeSchema = node_schema_new();
+        msch.streams.push(sd_fse(8u32, true));
+        msch.streams.push(sd_fse(8u32, false));
+        let mc: *mut u8 = alloc(4096i64);
+        let kc: *mut PkdAlloc = pkd_format(mc, 4096u32, 2u32);
+        alg_fmt_node(kc, &msch);
+        let md: *mut u8 = alloc(4096i64);
+        let id: *mut PkdAlloc = pkd_format(md, 4096u32, 2u32);
+        alg_fmt_node(id, &msch);
+
+        // upsert-miss ×3 (keys 10,20,30 in order), then upsert-hit on key 20
+        let mut u: u64 = 0u64;
+        while u < 3u64 {
+            let mut dk2: LeafBatchDatum = leaf_batch_datum_new();
+            let mut c0: DatumCol = datum_col_new();
+            c0.cells.push(10u64 * (u + 1u64));
+            dk2.cols.push(c0);
+            let mut c1: DatumCol = datum_col_new();
+            c1.cells.push(100u64 * (u + 1u64));
+            dk2.cols.push(c1);
+            if !WeK_with_entry(kc, u, false, &mut dk2) { return 13i32; }
+            let mut di2: LeafBatchDatum = leaf_batch_datum_new();
+            let mut e0: DatumCol = datum_col_new();
+            e0.cells.push(10u64 * (u + 1u64));
+            di2.cols.push(e0);
+            let mut e1: DatumCol = datum_col_new();
+            e1.cells.push(100u64 * (u + 1u64));
+            di2.cols.push(e1);
+            if !alg_entry_apply(id, &msch, u, ET_INS, &mut di2) { return 14i32; }
+            u = u + 1u64;
+        }
+        {
+            // hit on entry 1 (key 20): value 999, key untouched
+            let mut dh: LeafBatchDatum = leaf_batch_datum_new();
+            dh.cols.push(datum_col_new());
+            let mut hv: DatumCol = datum_col_new();
+            hv.cells.push(999u64);
+            dh.cols.push(hv);
+            if !WeK_with_entry(kc, 1u64, true, &mut dh) { return 15i32; }
+            let mut dh2: LeafBatchDatum = leaf_batch_datum_new();
+            dh2.cols.push(datum_col_new());
+            let mut hv2: DatumCol = datum_col_new();
+            hv2.cells.push(999u64);
+            dh2.cols.push(hv2);
+            if !alg_entry_apply(id, &msch, 1u64, ET_SET, &mut dh2) { return 16i32; }
+        }
+        // WdK: hit → ET_DEL (drop key 10), miss → ET_NOOP (no change)
+        {
+            let mut dn: LeafBatchDatum = leaf_batch_datum_new();
+            dn.cols.push(datum_col_new());
+            dn.cols.push(datum_col_new());
+            if !WdK_with_entry(kc, 0u64, true, &mut dn) { return 17i32; }
+            if !alg_entry_apply(id, &msch, 0u64, ET_DEL, &mut dn) { return 18i32; }
+            if !WdK_with_entry(kc, 0u64, false, &mut dn) { return 19i32; }
+            if !alg_entry_apply(id, &msch, 0u64, ET_NOOP, &mut dn) { return 20i32; }
+        }
+        // twins agree cell-for-cell: keys 20,30; vals 999,300
+        {
+            let kx: PdtBuf = pdtbuf_adopt(kc.get::<u8>(0u32));
+            let ky: PdtBuf = pdtbuf_adopt(id.get::<u8>(0u32));
+            let vx: PdtBuf = pdtbuf_adopt(kc.get::<u8>(1u32));
+            let vy: PdtBuf = pdtbuf_adopt(id.get::<u8>(1u32));
+            if kx.size() != 2u64 || ky.size() != 2u64 { return 21i32; }
+            let mut w: u64 = 0u64;
+            while w < 2u64 {
+                if kx.get(0u32, w) != ky.get(0u32, w) { return 22i32; }
+                if vx.get(0u32, w) != vy.get(0u32, w) { return 23i32; }
+                w = w + 1u64;
+            }
+            if kx.get(0u32, 0u64) != 20u64 { return 24i32; }
+            if vx.get(0u32, 0u64) != 999u64 { return 25i32; }
+        }
+        dealloc(mc);
+        dealloc(md);
+    }
+    return 0i32;
+}

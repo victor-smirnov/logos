@@ -1,6 +1,6 @@
 // logos.lcm.canon.alg_kernel — the KERNEL GENERATOR of the node stream-CRUD
 // algebra (ADR 0023, S3). A metafunction reads a NodeSchema and quote-emits
-// a SPECIALIZED kernel: the interpreter's dynamic KIND dispatch resolved at
+// SPECIALIZED kernels: the interpreter's dynamic KIND dispatch resolved at
 // GENERATION time into straight-line per-stream code — the right prepare
 // variant per kind, the summed price, the guarded commits in law order.
 // The reference interpreter (logos.mem.bt.interp) is the differential
@@ -9,9 +9,16 @@
 // Composition mechanics (the derive_ord idiom, not statement folds): the
 // variable-length per-stream work rides per-stream FRAGMENT FNS (one
 // quote_item! each, kind-shaped, slot numbers spliced as literals), and the
-// driver collects them through Vec<ExprBlob> cursor repetition into
+// drivers collect them through Vec<ExprBlob> cursor repetition into
 // vec_from_arr([...]) — array element order IS commit order (law 3: data
 // streams first, structure last).
+//
+// Fragment calls ride parse_expr (metatime-known name + fixed args), not
+// `#f(args)` antiquot calls: the quote_expr! SHIM packs a CALL's ARGS
+// exactly, while the grammar-parsed antiquot alts leak the payload in as
+// ARGS[0] — and the render/lower compensation for the latter eats the
+// first REAL argument of the former (pinned class; see lower_call in
+// sema_expr.cpp).
 //
 // Schema spelling at this seam: the compact stream list "fse8o,vle,ssrle2"
 // (kind + width/alphabet + ordered mark). The WritStatic NodeSchema doc of
@@ -143,205 +150,57 @@ fn ak_call(base: str, tag: str, n: i64) -> ExprBlob {
     return parse_expr(s.as_str());
 }
 
-// ── the ENTRY_INS kernel ────────────────────────────────────────────────────
-//
-// Generated surface, per schema:
-//   <name>_pi<k> — per-stream PRICE fragments: grow bytes, or u64::MAX when
-//                  the atom cannot be priced (the reject sentinel);
-//   <name>_ci<k> — per-stream COMMIT fragments (priced, so failure asserts);
-//   <name>_entry_ins(a, i0, d) -> bool — the driver: prices whole, rejects
-//                  whole, commits in law order.
-// The datum contract matches the interpreter's entry forms: positional cols
-// (col s ↔ stream s); the structure column is IGNORED — the kernel derives
-// the entry's runs from the data columns' row counts.
+fn ak_push(out: &mut ItemList, b: QuoteItemBlob) {
+    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(b); }
+}
 
-/// The metacall entry: `metacall alg_kernel_entry_ins("Name", "fse8o,vle,ssrle2");`
-pub fn alg_kernel_entry_ins(name: str, spec: str) -> ItemList {
-    let mut out: ItemList = item_list_new();
-    let mut sts: Vec<AkStream> = vec_new::<AkStream>();
-    if !ak_parse(spec, &mut sts) {
-        return out;
-    }
-    let ss: i64 = ak_sseq_at(&sts);
-
-    let mut pcalls: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut ccalls: Vec<ExprBlob> = vec_new::<ExprBlob>();
-
-    // row-count exprs of the DATA streams, in symbol order — the structure
-    // fragment derives the entry's runs from these
+// The row-count exprs of the DATA streams, in symbol order — the structure
+// fragments derive the entry's run segment from these.
+fn ak_row_exprs(sts: &Vec<AkStream>, ss: i64) -> Vec<ExprBlob> {
     let mut rowexprs: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    {
-        let mut s: i64 = 0i64;
-        while s < sts.length() {
-            if s != ss {
-                let sl: ExprBlob = ak_lit(s, "i64");
-                let re: ExprBlob = if sts.borrow(s).kind == AK_VLE {
-                    quote_expr! { d.cols.borrow(#sl).spans.lens.length() as u64 }
-                } else {
-                    quote_expr! { d.cols.borrow(#sl).cells.length() as u64 }
-                };
-                unsafe { (&mut rowexprs as *mut Vec<ExprBlob>).push(re); }
-            }
-            s = s + 1i64;
-        }
-    }
-
     let mut s: i64 = 0i64;
-    let mut dord: i64 = 0i64;        // data ordinal = the stream's symbol
     while s < sts.length() {
-        let pf: Ident = ak_ident(name, "_pi", s);
-        let cf: Ident = ak_ident(name, "_ci", s);
-        let slu: ExprBlob = ak_lit(s, "u32");
-        let sli: ExprBlob = ak_lit(s, "i64");
-        if s == ss {
-            // ── the structure stream: derive runs, plan, delta vs slot ──
-            // (the rows array rides ONE pre-built vec_from_arr expr — cursor
-            // repetition stays inside quote_expr!, items splice the blob)
-            let ssu: ExprBlob = ak_lit(ss, "u32");
-            let rows_arr: ExprBlob = quote_expr! { vec_from_arr([ #(#rowexprs),* ]) };
-            let pb: QuoteItemBlob = quote_item! {
-                unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
-                    let rows: Vec<u64> = #(rows_arr);
-                    let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
-                    let runs: Vec<SsrleRun> = alg_runs_from_rows(seq.bps(), &rows);
-                    let us: SsrleUpdate = seq.plan_insert(alg_entry_anchor(a, #(ssu), i0), &runs);
-                    let cur: u32 = a.element_size(#(ssu));
-                    if us.block_size > cur {
-                        return (us.block_size - cur) as u64;
-                    }
-                    return 0u64;
-                }
-            };
-            unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(pb); }
-            let cb: QuoteItemBlob = quote_item! {
-                unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
-                    let rows: Vec<u64> = #(rows_arr);
-                    let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
-                    let runs: Vec<SsrleRun> = alg_runs_from_rows(seq.bps(), &rows);
-                    let us: SsrleUpdate = seq.plan_insert(alg_entry_anchor(a, #(ssu), i0), &runs);
-                    let mut seq2: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
-                    seq2.commit(&us);
-                    return true;
-                }
-            };
-            unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(cb); }
-        } else {
-            // ── a data stream: position = i0 for the entry stream (symbol
-            // 0), else the rank projection off the structure anchor ──
-            let pos: ExprBlob = if ss < 0i64 || dord == 0i64 {
-                quote_expr! { i0 }
-            } else {
-                let ssu2: ExprBlob = ak_lit(ss, "u32");
-                let dsym: ExprBlob = ak_lit(dord, "u64");
-                quote_expr! {
-                    pkd_ssrle_adopt(a.get::<u8>(#ssu2)).rank_eq(alg_entry_anchor(a, #ssu2, i0), #dsym)
-                }
-            };
-            if sts.borrow(s).kind == AK_VLE {
-                let pb: QuoteItemBlob = quote_item! {
-                    unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
-                        let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
-                        if n == 0u64 {
-                            return 0u64;
-                        }
-                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
-                        match pb2.prepare_insert_vals(#(pos), n, PDT_CAP_KEEP, &d.cols.borrow(#(sli)).spans) {
-                            Result::Ok(u) => {
-                                return u.grow_bytes() as u64;
-                            }
-                            Result::Err(_e) => {
-                                return 0xFFFFFFFFFFFFFFFFu64;
-                            }
-                        }
-                    }
-                };
-                unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(pb); }
-                let cb: QuoteItemBlob = quote_item! {
-                    unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
-                        let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
-                        if n == 0u64 {
-                            return true;
-                        }
-                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
-                        let us: PdtUpdate = match pb2.prepare_insert_vals(#(pos), n, PDT_CAP_KEEP, &d.cols.borrow(#(sli)).spans) {
-                            Result::Ok(u) => u,
-                            Result::Err(_e) => {
-                                assert(false, "alg kernel: priced VLE insert failed at commit");
-                                return false;
-                            }
-                        };
-                        let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
-                        pb3.commit_insert_vals(&us, &d.cols.borrow(#(sli)).spans);
-                        return true;
-                    }
-                };
-                unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(cb); }
-            } else {
-                let pb: QuoteItemBlob = quote_item! {
-                    unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
-                        let n: u64 = d.cols.borrow(#(sli)).cells.length() as u64;
-                        if n == 0u64 {
-                            return 0u64;
-                        }
-                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
-                        match pb2.prepare_insert(#(pos), n, PDT_CAP_KEEP) {
-                            Result::Ok(u) => {
-                                return u.grow_bytes() as u64;
-                            }
-                            Result::Err(_e) => {
-                                return 0xFFFFFFFFFFFFFFFFu64;
-                            }
-                        }
-                    }
-                };
-                unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(pb); }
-                let cb: QuoteItemBlob = quote_item! {
-                    unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
-                        let n: u64 = d.cols.borrow(#(sli)).cells.length() as u64;
-                        if n == 0u64 {
-                            return true;
-                        }
-                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
-                        let us: PdtUpdate = match pb2.prepare_insert(#(pos), n, PDT_CAP_KEEP) {
-                            Result::Ok(u) => u,
-                            Result::Err(_e) => {
-                                assert(false, "alg kernel: priced FSE insert failed at commit");
-                                return false;
-                            }
-                        };
-                        let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
-                        pb3.commit_insert(&us, &d.cols.borrow(#(sli)).cells);
-                        return true;
-                    }
-                };
-                unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(cb); }
-            }
-            dord = dord + 1i64;
-        }
-        // chain calls — array element order IS evaluation order, and the
-        // build order here is schema order with the structure stream LAST.
-        // The calls ride parse_expr (metatime-known name + fixed args), not
-        // `#f(args)` antiquot calls: the quote_expr! SHIM packs a CALL's
-        // ARGS exactly, while the grammar-parsed antiquot alts leak the
-        // payload in as ARGS[0] — and the render/lower compensation for the
-        // latter eats the first REAL argument of the former (pinned class;
-        // see lower_call in sema_expr.cpp).
         if s != ss {
-            unsafe {
-                (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pi", s));
-                (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_ci", s));
-            }
+            let sl: ExprBlob = ak_lit(s, "i64");
+            let re: ExprBlob = if sts.borrow(s).kind == AK_VLE {
+                quote_expr! { d.cols.borrow(#sl).spans.lens.length() as u64 }
+            } else {
+                quote_expr! { d.cols.borrow(#sl).cells.length() as u64 }
+            };
+            unsafe { (&mut rowexprs as *mut Vec<ExprBlob>).push(re); }
         }
         s = s + 1i64;
     }
-    if ss >= 0i64 {
-        unsafe {
-            (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pi", ss));
-            (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_ci", ss));
-        }
-    }
+    return rowexprs;
+}
 
-    let drv: Ident = ak_name(name, "_entry_ins");
+// The projected position of data stream `s` (symbol `dord`) at entry
+// position `i0 + off` — `i0`/`i0 + 1u64` direct for the entry stream or a
+// schema without a structure stream, else the rank projection off the
+// structure anchor (law 5).
+fn ak_pos(ss: i64, dord: i64, off: i64) -> ExprBlob {
+    if ss < 0i64 || dord == 0i64 {
+        if off == 0i64 {
+            return quote_expr! { i0 };
+        }
+        return quote_expr! { i0 + 1u64 };
+    }
+    let ssu: ExprBlob = ak_lit(ss, "u32");
+    let dsym: ExprBlob = ak_lit(dord, "u64");
+    if off == 0i64 {
+        return quote_expr! {
+            pkd_ssrle_adopt(a.get::<u8>(#ssu)).rank_eq(alg_entry_anchor(a, #ssu, i0), #dsym)
+        };
+    }
+    return quote_expr! {
+        pkd_ssrle_adopt(a.get::<u8>(#ssu)).rank_eq(alg_entry_anchor(a, #ssu, i0 + 1u64), #dsym)
+    };
+}
+
+// The shared driver skeleton: price all fragments (u64::MAX = unpriceable
+// sentinel), reject the WHOLE entry op below the free-space line (law 2),
+// else run the commit chain (law 3 order baked into the array order).
+fn ak_driver(out: &mut ItemList, drv: Ident, pcalls: Vec<ExprBlob>, ccalls: Vec<ExprBlob>) {
     let ps_arr: ExprBlob = quote_expr! { vec_from_arr([ #(#pcalls),* ]) };
     let cs_arr: ExprBlob = quote_expr! { vec_from_arr([ #(#ccalls),* ]) };
     let db: QuoteItemBlob = quote_item! {
@@ -364,6 +223,462 @@ pub fn alg_kernel_entry_ins(name: str, spec: str) -> ItemList {
             return true;
         }
     };
-    unsafe { (&mut out.blobs as *mut Vec<QuoteItemBlob>).push(db); }
+    ak_push(out, db);
+}
+
+// ── the ENTRY_INS kernel ────────────────────────────────────────────────────
+//
+// Generated surface, per schema:
+//   <name>_pi<k> / <name>_ci<k> — per-stream PRICE/COMMIT fragments;
+//   <name>_entry_ins(a, i0, d) -> bool — the driver.
+// The datum contract matches the interpreter's entry forms: positional cols
+// (col s ↔ stream s); the structure column is IGNORED — the kernel derives
+// the entry's runs from the data columns' row counts.
+
+fn ak_ins_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
+    let ss: i64 = ak_sseq_at(sts);
+    let mut pcalls: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut ccalls: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let rowexprs: Vec<ExprBlob> = ak_row_exprs(sts, ss);
+
+    let mut s: i64 = 0i64;
+    let mut dord: i64 = 0i64;
+    while s < sts.length() {
+        let pf: Ident = ak_ident(name, "_pi", s);
+        let cf: Ident = ak_ident(name, "_ci", s);
+        let slu: ExprBlob = ak_lit(s, "u32");
+        let sli: ExprBlob = ak_lit(s, "i64");
+        if s == ss {
+            // ── the structure stream: derive runs, plan, delta vs slot ──
+            let ssu: ExprBlob = ak_lit(ss, "u32");
+            let rows_arr: ExprBlob = quote_expr! { vec_from_arr([ #(#rowexprs),* ]) };
+            let pb: QuoteItemBlob = quote_item! {
+                unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
+                    let rows: Vec<u64> = #(rows_arr);
+                    let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
+                    let runs: Vec<SsrleRun> = alg_runs_from_rows(seq.bps(), &rows);
+                    let us: SsrleUpdate = seq.plan_insert(alg_entry_anchor(a, #(ssu), i0), &runs);
+                    let cur: u32 = a.element_size(#(ssu));
+                    if us.block_size > cur {
+                        return (us.block_size - cur) as u64;
+                    }
+                    return 0u64;
+                }
+            };
+            ak_push(out, pb);
+            let cb: QuoteItemBlob = quote_item! {
+                unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
+                    let rows: Vec<u64> = #(rows_arr);
+                    let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
+                    let runs: Vec<SsrleRun> = alg_runs_from_rows(seq.bps(), &rows);
+                    let us: SsrleUpdate = seq.plan_insert(alg_entry_anchor(a, #(ssu), i0), &runs);
+                    let mut seq2: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
+                    seq2.commit(&us);
+                    return true;
+                }
+            };
+            ak_push(out, cb);
+        } else {
+            let pos: ExprBlob = ak_pos(ss, dord, 0i64);
+            if sts.borrow(s).kind == AK_VLE {
+                let pb: QuoteItemBlob = quote_item! {
+                    unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
+                        let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
+                        if n == 0u64 {
+                            return 0u64;
+                        }
+                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        match pb2.prepare_insert_vals(#(pos), n, PDT_CAP_KEEP, &d.cols.borrow(#(sli)).spans) {
+                            Result::Ok(u) => {
+                                return u.grow_bytes() as u64;
+                            }
+                            Result::Err(_e) => {
+                                return 0xFFFFFFFFFFFFFFFFu64;
+                            }
+                        }
+                    }
+                };
+                ak_push(out, pb);
+                let cb: QuoteItemBlob = quote_item! {
+                    unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
+                        let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
+                        if n == 0u64 {
+                            return true;
+                        }
+                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        let us: PdtUpdate = match pb2.prepare_insert_vals(#(pos), n, PDT_CAP_KEEP, &d.cols.borrow(#(sli)).spans) {
+                            Result::Ok(u) => u,
+                            Result::Err(_e) => {
+                                assert(false, "alg kernel: priced VLE insert failed at commit");
+                                return false;
+                            }
+                        };
+                        let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        pb3.commit_insert_vals(&us, &d.cols.borrow(#(sli)).spans);
+                        return true;
+                    }
+                };
+                ak_push(out, cb);
+            } else {
+                let pb: QuoteItemBlob = quote_item! {
+                    unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
+                        let n: u64 = d.cols.borrow(#(sli)).cells.length() as u64;
+                        if n == 0u64 {
+                            return 0u64;
+                        }
+                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        match pb2.prepare_insert(#(pos), n, PDT_CAP_KEEP) {
+                            Result::Ok(u) => {
+                                return u.grow_bytes() as u64;
+                            }
+                            Result::Err(_e) => {
+                                return 0xFFFFFFFFFFFFFFFFu64;
+                            }
+                        }
+                    }
+                };
+                ak_push(out, pb);
+                let cb: QuoteItemBlob = quote_item! {
+                    unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
+                        let n: u64 = d.cols.borrow(#(sli)).cells.length() as u64;
+                        if n == 0u64 {
+                            return true;
+                        }
+                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        let us: PdtUpdate = match pb2.prepare_insert(#(pos), n, PDT_CAP_KEEP) {
+                            Result::Ok(u) => u,
+                            Result::Err(_e) => {
+                                assert(false, "alg kernel: priced FSE insert failed at commit");
+                                return false;
+                            }
+                        };
+                        let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        pb3.commit_insert(&us, &d.cols.borrow(#(sli)).cells);
+                        return true;
+                    }
+                };
+                ak_push(out, cb);
+            }
+            dord = dord + 1i64;
+        }
+        // chain calls — data streams in schema order, structure LAST
+        if s != ss {
+            unsafe {
+                (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pi", s));
+                (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_ci", s));
+            }
+        }
+        s = s + 1i64;
+    }
+    if ss >= 0i64 {
+        unsafe {
+            (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pi", ss));
+            (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_ci", ss));
+        }
+    }
+    ak_driver(out, ak_name(name, "_entry_ins"), pcalls, ccalls);
+}
+
+// ── the ENTRY_DEL kernel ────────────────────────────────────────────────────
+//
+// Removes the logical entry at `i0` whole: every data stream's projected
+// row window [v0, v1), the structure segment [p0, p1) LAST. A remove is
+// PRICED, not assumed free — SSRLE mid-run splits and VLE geometry can
+// grow a block on removal. The datum is unused (uniform call shape).
+
+fn ak_del_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
+    let ss: i64 = ak_sseq_at(sts);
+    let mut pcalls: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut ccalls: Vec<ExprBlob> = vec_new::<ExprBlob>();
+
+    let mut s: i64 = 0i64;
+    let mut dord: i64 = 0i64;
+    while s < sts.length() {
+        let pf: Ident = ak_ident(name, "_pd", s);
+        let cf: Ident = ak_ident(name, "_cd", s);
+        let slu: ExprBlob = ak_lit(s, "u32");
+        if s == ss {
+            let ssu: ExprBlob = ak_lit(ss, "u32");
+            let pb: QuoteItemBlob = quote_item! {
+                unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
+                    let p0: u64 = alg_entry_anchor(a, #(ssu), i0);
+                    let p1: u64 = alg_entry_anchor(a, #(ssu), i0 + 1u64);
+                    if p1 <= p0 {
+                        return 0u64;
+                    }
+                    let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
+                    let us: SsrleUpdate = seq.plan_remove(p0, p1);
+                    let cur: u32 = a.element_size(#(ssu));
+                    if us.block_size > cur {
+                        return (us.block_size - cur) as u64;
+                    }
+                    return 0u64;
+                }
+            };
+            ak_push(out, pb);
+            let cb: QuoteItemBlob = quote_item! {
+                unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
+                    let p0: u64 = alg_entry_anchor(a, #(ssu), i0);
+                    let p1: u64 = alg_entry_anchor(a, #(ssu), i0 + 1u64);
+                    if p1 <= p0 {
+                        return true;
+                    }
+                    let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
+                    let us: SsrleUpdate = seq.plan_remove(p0, p1);
+                    let mut seq2: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#(ssu)));
+                    seq2.commit(&us);
+                    return true;
+                }
+            };
+            ak_push(out, cb);
+        } else {
+            let v0: ExprBlob = ak_pos(ss, dord, 0i64);
+            let v1: ExprBlob = ak_pos(ss, dord, 1i64);
+            let pb: QuoteItemBlob = quote_item! {
+                unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
+                    let w0: u64 = #(v0);
+                    let w1: u64 = #(v1);
+                    if w1 <= w0 {
+                        return 0u64;
+                    }
+                    let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                    match pb2.prepare_remove(w0, w1, PDT_CAP_KEEP) {
+                        Result::Ok(u) => {
+                            return u.grow_bytes() as u64;
+                        }
+                        Result::Err(_e) => {
+                            return 0xFFFFFFFFFFFFFFFFu64;
+                        }
+                    }
+                }
+            };
+            ak_push(out, pb);
+            let cb: QuoteItemBlob = quote_item! {
+                unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
+                    let w0: u64 = #(v0);
+                    let w1: u64 = #(v1);
+                    if w1 <= w0 {
+                        return true;
+                    }
+                    let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                    let us: PdtUpdate = match pb2.prepare_remove(w0, w1, PDT_CAP_KEEP) {
+                        Result::Ok(u) => u,
+                        Result::Err(_e) => {
+                            assert(false, "alg kernel: priced remove failed at commit");
+                            return false;
+                        }
+                    };
+                    let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                    pb3.commit_remove(&us);
+                    return true;
+                }
+            };
+            ak_push(out, cb);
+            dord = dord + 1i64;
+        }
+        if s != ss {
+            unsafe {
+                (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pd", s));
+                (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_cd", s));
+            }
+        }
+        s = s + 1i64;
+    }
+    if ss >= 0i64 {
+        unsafe {
+            (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_pd", ss));
+            (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_cd", ss));
+        }
+    }
+    ak_driver(out, ak_name(name, "_entry_del"), pcalls, ccalls);
+}
+
+// ── the ENTRY_SET kernel ────────────────────────────────────────────────────
+//
+// The same-arity in-place replace of the entry's data rows (arity changes
+// are DEL+INS — the structure stream moves there and only there). UPD's
+// kind-optimal forms are baked per stream: FSE = the O(1) cell set (price
+// 0), VLE = the pre-remove-priced remove+insert (the no-value-lost law).
+// A datum col with 0 rows leaves its stream untouched. The structure
+// stream has no SET fragment at all.
+
+fn ak_set_items(out: &mut ItemList, name: str, sts: &Vec<AkStream>) {
+    let ss: i64 = ak_sseq_at(sts);
+    let mut pcalls: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut ccalls: Vec<ExprBlob> = vec_new::<ExprBlob>();
+
+    let mut s: i64 = 0i64;
+    let mut dord: i64 = 0i64;
+    while s < sts.length() {
+        if s != ss {
+            let pf: Ident = ak_ident(name, "_ps", s);
+            let cf: Ident = ak_ident(name, "_cs", s);
+            let slu: ExprBlob = ak_lit(s, "u32");
+            let sli: ExprBlob = ak_lit(s, "i64");
+            let pos: ExprBlob = ak_pos(ss, dord, 0i64);
+            if sts.borrow(s).kind == AK_VLE {
+                let pb: QuoteItemBlob = quote_item! {
+                    unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
+                        let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
+                        if n == 0u64 {
+                            return 0u64;
+                        }
+                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        match pb2.prepare_insert_vals(#(pos), n, PDT_CAP_KEEP, &d.cols.borrow(#(sli)).spans) {
+                            Result::Ok(u) => {
+                                return u.grow_bytes() as u64;
+                            }
+                            Result::Err(_e) => {
+                                return 0xFFFFFFFFFFFFFFFFu64;
+                            }
+                        }
+                    }
+                };
+                ak_push(out, pb);
+                let cb: QuoteItemBlob = quote_item! {
+                    unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
+                        let n: u64 = d.cols.borrow(#(sli)).spans.lens.length() as u64;
+                        if n == 0u64 {
+                            return true;
+                        }
+                        let v: u64 = #(pos);
+                        {
+                            let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                            let ur: PdtUpdate = match pb2.prepare_remove(v, v + n, PDT_CAP_KEEP) {
+                                Result::Ok(u) => u,
+                                Result::Err(_e) => {
+                                    assert(false, "alg kernel: VLE replace remove failed at commit");
+                                    return false;
+                                }
+                            };
+                            let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                            pb3.commit_remove(&ur);
+                        }
+                        let pb4: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        let ui: PdtUpdate = match pb4.prepare_insert_vals(v, n, PDT_CAP_KEEP, &d.cols.borrow(#(sli)).spans) {
+                            Result::Ok(u) => u,
+                            Result::Err(_e) => {
+                                assert(false, "alg kernel: pre-remove-priced VLE insert failed at commit");
+                                return false;
+                            }
+                        };
+                        let mut pb5: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        pb5.commit_insert_vals(&ui, &d.cols.borrow(#(sli)).spans);
+                        return true;
+                    }
+                };
+                ak_push(out, cb);
+            } else {
+                let pb: QuoteItemBlob = quote_item! {
+                    unsafe fn #pf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> u64 {
+                        return 0u64;
+                    }
+                };
+                ak_push(out, pb);
+                let cb: QuoteItemBlob = quote_item! {
+                    unsafe fn #cf(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
+                        let n: u64 = d.cols.borrow(#(sli)).cells.length() as u64;
+                        if n == 0u64 {
+                            return true;
+                        }
+                        let v: u64 = #(pos);
+                        let mut pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#(slu)));
+                        let mut j: u64 = 0u64;
+                        while j < n {
+                            pb2.set(0u32, v + j, d.cols.borrow(#(sli)).cells.get(j as i64));
+                            j = j + 1u64;
+                        }
+                        return true;
+                    }
+                };
+                ak_push(out, cb);
+            }
+            unsafe {
+                (&mut pcalls as *mut Vec<ExprBlob>).push(ak_call(name, "_ps", s));
+                (&mut ccalls as *mut Vec<ExprBlob>).push(ak_call(name, "_cs", s));
+            }
+            dord = dord + 1i64;
+        }
+        s = s + 1i64;
+    }
+    ak_driver(out, ak_name(name, "_entry_set"), pcalls, ccalls);
+}
+
+// ── public metafunctions ────────────────────────────────────────────────────
+
+/// `metacall alg_kernel_entry_ins("Name", "fse8o,vle,ssrle2");`
+pub fn alg_kernel_entry_ins(name: str, spec: str) -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let mut sts: Vec<AkStream> = vec_new::<AkStream>();
+    if !ak_parse(spec, &mut sts) {
+        return out;
+    }
+    ak_ins_items(&mut out, name, &sts);
+    return out;
+}
+
+/// The full entry family: <name>_entry_ins / _entry_del / _entry_set.
+pub fn alg_kernel_family(name: str, spec: str) -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let mut sts: Vec<AkStream> = vec_new::<AkStream>();
+    if !ak_parse(spec, &mut sts) {
+        return out;
+    }
+    ak_ins_items(&mut out, name, &sts);
+    ak_del_items(&mut out, name, &sts);
+    ak_set_items(&mut out, name, &sts);
+    return out;
+}
+
+/// The FUSED WITH_ENTRY kernel (ADR 0023 §Kernel fusion): emits the whole
+/// entry family PLUS `<name>_with_entry(a, i0, hit, d) -> bool` whose
+/// decision point is the USER'S OWN expression `decide_src`, spliced
+/// inline — no indirection where the quad collapses. The expression sees
+/// the bindings `a`, `i0`, `hit`, `d` (&mut LeafBatchDatum: read the hit
+/// entry through it, write the replacement rows into it) and yields the
+/// transition (ET_NOOP/ET_INS/ET_SET/ET_DEL). UPSERT is the special case
+/// `if hit { ET_SET } else { ET_INS }`.
+pub fn alg_kernel_with_entry(name: str, spec: str, decide_src: str) -> ItemList {
+    let mut out: ItemList = alg_kernel_family(name, spec);
+    let decide: ExprBlob = parse_expr(decide_src);
+    let we: Ident = ak_name(name, "_with_entry");
+    let ins_c: ExprBlob = {
+        let mut sc: String = String::new();
+        sc.push_str(name);
+        sc.push_str("_entry_ins(a, i0, &(*d))");
+        parse_expr(sc.as_str())
+    };
+    let set_c: ExprBlob = {
+        let mut sc: String = String::new();
+        sc.push_str(name);
+        sc.push_str("_entry_set(a, i0, &(*d))");
+        parse_expr(sc.as_str())
+    };
+    let del_c: ExprBlob = {
+        let mut sc: String = String::new();
+        sc.push_str(name);
+        sc.push_str("_entry_del(a, i0, &(*d))");
+        parse_expr(sc.as_str())
+    };
+    let db: QuoteItemBlob = quote_item! {
+        pub unsafe fn #we(a: *mut PkdAlloc, i0: u64, hit: bool, d: &mut LeafBatchDatum) -> bool {
+            let et: u32 = #(decide);
+            if et == ET_NOOP {
+                return true;
+            }
+            if et == ET_INS {
+                return #(ins_c);
+            }
+            if et == ET_SET {
+                return #(set_c);
+            }
+            if et == ET_DEL {
+                return #(del_c);
+            }
+            assert(false, "alg kernel: unknown entry transition");
+            return false;
+        }
+    };
+    ak_push(&mut out, db);
     return out;
 }
