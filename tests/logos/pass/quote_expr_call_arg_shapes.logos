@@ -43,11 +43,38 @@ pub fn qs_nested(args: Vec<ExprBlob>) -> ExprBlob {
     return quote_expr! { b.get::<u8>(b.geti(#e)).wrapping_add(idg::<u8>(#e)) };
 }
 
+fn take3(a: i64, b2: i64, c: i64) -> i64 { return a * 100i64 + b2 * 10i64 + c; }
+
+// Antiquot CALLEE with MULTIPLE args — both forms. Since the ARGS
+// unification the antiquot alts pack an EXACT call_arg_list wrapper
+// (historically `$...` leaked the NAME_VAR payload into ARGS[0] and every
+// consumer compensated with skip-1; the ident form silently DROPPED its
+// first argument under that compensation).
+#[fn_macro]
+pub fn qs_aq_ident(args: Vec<ExprBlob>) -> ExprBlob {
+    let f: Ident = Ident::new("take3");
+    return quote_expr! { #f(1i64, 2i64, 3i64) };
+}
+
+// (the paren form `#(f)(args)` is item-template-only — `#(` opens a
+// repeat in quote_expr! — its multi-arg pin lives in
+// quote_item_exprblob_cursor.logos)
+#[fn_macro]
+pub fn qs_aq_mixed(args: Vec<ExprBlob>) -> ExprBlob {
+    let f: Ident = Ident::new("take3");
+    let e: ExprBlob = args.get(0i64);
+    return quote_expr! { #f(#e, 5i64, 6i64) };
+}
+
 fn main() -> i32 {
     let b: Box9 = Box9 { v: 100i64 };
     let t: i64 = qs_turbofish!(7i64);          // 100 + 7 + 1 = 108
     if t != 108i64 { return 1i32; }
     let n: i64 = qs_nested!(2i64);             // get::<u8>(102)=203; idg(2)=12 → 215
     if n != 215i64 { return 4i32; }
+    let ai: i64 = qs_aq_ident!();              // take3(1,2,3) = 123
+    if ai != 123i64 { return 5i32; }
+    let ap: i64 = qs_aq_mixed!(4i64);          // take3(4,5,6) = 456
+    if ap != 456i64 { return 6i32; }
     return 0i32;
 }

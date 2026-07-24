@@ -3559,14 +3559,16 @@
               => { CODE: STATIC_CALL, NAME_VAR: $2, NAME: $4, ARGS: $6 }
                / HASH IDENT COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, NAME_VAR: $2, NAME: $4, ARGS: $6 }
-               // Antiquot calls group their arg list like the plain-IDENT alt
-               // below: an UNGROUPED `expr (COMMA expr)*` makes the `$...`
-               // spread collect only the star-group — `#f(a, b, c)` silently
-               // dropped its FIRST argument.
-               / HASH IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
-              => { CODE: CALL, NAME_VAR: $2, ARGS: $... }
-               / HASH LPAREN expr RPAREN LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
-              => { CODE: CALL, NAME_VAR: $3, ARGS: $... }
+               // Antiquot calls carry their args as a call_arg_list wrapper
+               // `{ITEMS:[...]}` — same convention as the qualified/static
+               // alts, and EXACT: the historical `ARGS: $...` spread also
+               // collected the NAME_VAR payload (a TOM capture) as ARGS[0],
+               // forcing skip-1 compensation in every consumer (lower_call,
+               // the render, the quote registration walk).
+               / HASH IDENT LPAREN call_arg_list? RPAREN
+              => { CODE: CALL, NAME_VAR: $2, ARGS: $4 }
+               / HASH LPAREN expr RPAREN LPAREN call_arg_list? RPAREN
+              => { CODE: CALL, NAME_VAR: $3, ARGS: $6 }
                / IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
               => { CODE: CALL, CALLEE: $1, ARGS: $... }
                / KW_NEW LPAREN (expr (COMMA expr)* COMMA?)? RPAREN

@@ -140,16 +140,12 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
 
     case la::CALL: {
         // CALLEE for plain `name(args)` form; NAME after antiquot
-        // substitution wrote NAME_VAR(idx) → NAME(string). When the
-        // antiquot path is taken, the grammar's `$...` capture also
-        // pulled in the antiquot payload as the first ARGS element —
-        // sema's lower_call skips it; we mirror that here so the rendered
-        // source round-trips correctly. (The arg list in the antiquot alts
-        // must be GROUPED like the plain alt — ungrouped, the leading
-        // `expr` stayed outside `$...` and the first real arg vanished.)
+        // substitution wrote NAME_VAR(idx) → NAME(string). Antiquot alts
+        // carry ARGS as an EXACT call_arg_list wrapper (`{ITEMS:[...]}`)
+        // since the grammar unification — the tom_form probe below unwraps
+        // it; no payload skip.
         std::string callee_str(str_of(node.get(la::CALLEE.code)));
-        bool antiquot_callee = callee_str.empty();
-        if (antiquot_callee) callee_str = std::string(str_of(node.get(la::NAME.code)));
+        if (callee_str.empty()) callee_str = std::string(str_of(node.get(la::NAME.code)));
         std::string s = callee_str;
         s += "(";
         if (node.has_key(la::ARGS)) {
@@ -160,9 +156,8 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
                 auto items = tom_form
                     ? arr_of(args_tom.get(la::ITEMS.code))
                     : arr_of(args_av);
-                uint64_t start = antiquot_callee ? 1 : 0;
-                for (uint64_t i = start; i < items.size(); ++i) {
-                    if (i > start) s += ", ";
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (i > 0) s += ", ";
                     s += render_expr_src(map_of(items.get(i)));
                 }
             }

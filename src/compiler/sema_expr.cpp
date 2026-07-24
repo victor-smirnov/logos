@@ -3117,12 +3117,13 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     call_pkg_qualifier_ = extract_pkg_qualifier(node);
 
     // ARGS is normally a raw array (plain `IDENT(args)` via `$...`). The
-    // qualified `pkg::fn(args)` alt instead carries a `call_arg_list` node
-    // `{ITEMS:[...]}` — unwrap it there. Gated on QUAL_PARTS so the raw-array
-    // path (the overwhelming majority) is never reinterpreted as a map.
+    // qualified `pkg::fn(args)` and antiquot (`#f(args)` / `#(f)(args)`)
+    // alts instead carry a `call_arg_list` node `{ITEMS:[...]}` — unwrap
+    // those. Gated so the raw-array path (the overwhelming majority) is
+    // never reinterpreted as a map.
     auto args_array = [&]() -> writ::ArrayView {
         auto av = node.get(la::ARGS.code);
-        if (node.has_key(la::QUAL_PARTS)) {
+        if (node.has_key(la::QUAL_PARTS) || antiquot_callee) {
             auto m = map_of(av);
             if (m.has_key(la::ITEMS)) return arr_of(m.get(la::ITEMS.code));
         }
@@ -3389,18 +3390,13 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // The old intrinsic path (EFormatCall) is retained for future intrinsics but
     // no longer intercepts the "format" name.
 
-    // Lower arguments first — needed for type inference. For antiquot
-    // CALL produced by `#(callee_expr)(args...)` / `#cl(args...)`, the
-    // grammar's `$...` capture also includes the antiquot's payload as
-    // the first ARGS element — skip it. (The arg LIST itself must be
-    // grouped in the grammar alts exactly like the plain-IDENT alt —
-    // ungrouped, the leading `expr` stayed a positional capture outside
-    // `$...` and the first real argument vanished.) Plain IDENT-form
-    // CALL is unaffected.
+    // Lower arguments first — needed for type inference. Antiquot CALLs
+    // (`#(callee_expr)(args...)` / `#cl(args...)`) carry an EXACT
+    // call_arg_list wrapper since the grammar unification — args_array
+    // unwraps it above; no payload skip.
     std::vector<lir::LExprPtr> arg_exprs;
     if (node.has_key(la::ARGS)) {
         auto args = args_array();
-        uint64_t start = antiquot_callee ? 1 : 0;
         // Closure-arg type hinting: an un-annotated closure literal (`|s| {…}`)
         // needs its param/return types from the callee's formal. For a generic
         // free fn `fn call_it<F>(f: F) where F: FnOnce(i64)->i64`, the formal is
@@ -3480,18 +3476,18 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             }
             return nullptr;
         };
-        for (uint64_t i = start; i < args.size(); ++i) {
+        for (uint64_t i = 0; i < args.size(); ++i) {
             TypeRef saved = hint_closure_formal_;
             TypeRef saved_eh = hint_enum_type_;
             TypeRef saved_th = hint_tuple_type_;
             TypeRef saved_ah = hint_arr_elem_type_;
-            if (TypeRef h = closure_hint_for((size_t)(i - start)))
+            if (TypeRef h = closure_hint_for((size_t)i))
                 hint_closure_formal_ = h;
-            if (TypeRef eh = enum_hint_for((size_t)(i - start)))
+            if (TypeRef eh = enum_hint_for((size_t)i))
                 hint_enum_type_ = eh;
-            if (TypeRef th = tuple_hint_for((size_t)(i - start)))
+            if (TypeRef th = tuple_hint_for((size_t)i))
                 hint_tuple_type_ = th;
-            if (TypeRef ah = slice_elem_hint_for((size_t)(i - start)))
+            if (TypeRef ah = slice_elem_hint_for((size_t)i))
                 hint_arr_elem_type_ = ah;
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
             hint_closure_formal_ = saved;
@@ -18163,18 +18159,24 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             }
             // ARGS shape follows the grammar alternative (the sema lowerers'
             // args_array discipline): plain CALL alts spread a bare array
-            // (`ARGS: $...`) — EXCEPT the qualified alt (QUAL_PARTS), which
-            // carries a call_arg_list `{ITEMS:[...]}` wrapper; METHOD_CALL
-            // wraps exactly when the turbofish alt matched (TYPE_PARAMS);
-            // STATIC_CALL / GENERIC_CALL always wrap. Reading a wrapper TOM
-            // as an ArrayView walks garbage offsets — the qe_b1 crash.
+            // (`ARGS: $...`) — EXCEPT the qualified alt (QUAL_PARTS) and the
+            // antiquot alts (NAME_VAR), which carry a call_arg_list
+            // `{ITEMS:[...]}` wrapper; METHOD_CALL wraps exactly when the
+            // turbofish alt matched (TYPE_PARAMS); STATIC_CALL /
+            // GENERIC_CALL always wrap. Reading a wrapper TOM as an
+            // ArrayView walks garbage offsets — the qe_b1 crash.
             auto t = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
             if (t.has_key(la::ARGS.code)) {
                 AnyVal av = t.get(la::ARGS.code);
                 if (av.is_pointer()) {
                     bool wrapped =
                         (cd == la::STATIC_CALL.code || cd == la::GENERIC_CALL.code)
-                        || (cd == la::CALL.code && t.has_key(la::QUAL_PARTS.code))
+                        || (cd == la::CALL.code
+                            && (t.has_key(la::QUAL_PARTS.code)
+                                || t.has_key(la::NAME_VAR.code)
+                                // post-substitution antiquot CALL: NAME_VAR
+                                // became NAME (plain CALLs never carry NAME)
+                                || t.has_key(la::NAME.code)))
                         || (cd == la::METHOD_CALL.code && t.has_key(la::TYPE_PARAMS.code));
                     uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
                     if (wrapped) {
