@@ -34,7 +34,7 @@ container HsPinOps for u8 {
     ops { seek(max(key)); insert; }
 }
 
-fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 {
+fn fid<C: CtrFamily>() -> u64 {
     return C::family_id();
 }
 

@@ -26,7 +26,7 @@ pub type PMap<K, V> = CtrClass<PMapCfg<K, V>>;
 
 fn main() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     let m = create_ctr::<PMap<u64, u64>>(&mut s0, 1u64);
     let mut k: u64 = 0u64;
     while k < 1000u64 { m.insert(k, k * 3u64 + 1u64); k = k + 1u64; }

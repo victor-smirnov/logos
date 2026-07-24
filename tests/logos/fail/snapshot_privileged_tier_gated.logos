@@ -1,0 +1,22 @@
+// The two-tier snapshot interface (Memoria public/internal split): a holder of
+// the PUBLIC tier `Arc<dyn Snapshot>` — what store_fork_arc hands out — can call
+// the public surface (id plane + lifecycle) but NOT the privileged capability
+// (node_alloc / root_of / set_root), which is inherent on the concrete
+// MemorySnapshot and absent from the dyn vtable. This pins that node_alloc does
+// not resolve through the erased public tier: reaching it is a deliberate
+// downcast (what the generated container does), not the default surface.
+package snapshot_privileged_tier_gated;
+
+use logos.mem.bt.memstore;
+use logos.mem.bt.map;
+use logos.mem.sync;
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    // PUBLIC tier resolves fine (id plane):
+    let _id: u64 = snap.snapshot_id();
+    // PRIVILEGED tier must NOT resolve through the dyn public tier:
+    let _n: *mut u8 = snap.node_alloc(4096u32, 2u32);
+    return 0i32;
+}

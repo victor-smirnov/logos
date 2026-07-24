@@ -50,7 +50,7 @@ fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
 
     // ── v1: fork, CREATE both containers in the snapshot, fill, commit ──
-    let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     let ledger = create_ctr::<typeof(Ledger)>(&s1, LEDGER);
     let journal = create_ctr::<typeof(Journal)>(&s1, JOURNAL);
     let n: u64 = 5000u64;
@@ -63,7 +63,7 @@ fn run_all() -> i32 {
     s1.commit();
 
     // ── v2: branch, mutate BOTH — CoW copies only the touched paths ──
-    let mut s2: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     let l2 = open_ctr::<typeof(Ledger)>(&s2, LEDGER);
     let j2 = open_ctr::<typeof(Journal)>(&s2, JOURNAL);
     l2.insert(0u64, 999u64);              // overwrite in v2

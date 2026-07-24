@@ -38,15 +38,21 @@ pub trait Store {}
 /// A consistent version of a store; containers are opened from it. Its id is the
 /// CoW skip key stamped into every node the snapshot writes.
 ///
-/// This trait stays a minimal MARKER on purpose (ADR 0020 Track B,
-/// container⟂store split — emitter-parameterized). The full STORAGE CAPABILITY a
-/// container reaches through — node allocation, refcounting, `u64` child-ref
-/// resolution, the CoW skip key — lives as INHERENT methods on each hand-written
-/// snapshot (see `logos.mem.bt.memstore::MemorySnapshot`): the Canon container
-/// generator emits store-specialized CONCRETE calls against it, so nothing
-/// consumes the capability generically and it need not inflate this contract.
-/// When a second store lands (SWMR/OLTP) and enforcing the surface across stores
-/// starts to pay off, the capability graduates to required trait methods here.
+/// This is the PUBLIC tier of the two-tier snapshot interface (the Memoria
+/// public/internal split). It carries exactly what user/Deem code needs — the
+/// id plane and the lifecycle (`commit`/`remove`/`status`) — and is object-safe:
+/// `store_fork_arc` hands out `Arc<dyn Snapshot>`, so this vtable IS the user's
+/// whole surface.
+///
+/// The PRIVILEGED tier — node allocation, refcounting, `u64` child-ref
+/// resolution, directory root_of/set_root — stays as INHERENT methods on each
+/// concrete snapshot (`logos.mem.bt.memstore::MemorySnapshot`). It is NOT in
+/// this vtable, so a `dyn Snapshot` holder cannot reach it; the Canon-generated
+/// container recovers the concrete (an explicit `dyn_data` downcast — the
+/// moral equivalent of Memoria's cast to the internal interface) and calls the
+/// capability there. Reaching the privileged tier is thus a deliberate act, not
+/// the default surface. When a second store lands (SWMR/OLTP) the privileged
+/// tier can graduate to a `trait NodeStore: Snapshot` refined per store.
 pub trait Snapshot {
     fn snapshot_id(self: &Self) -> u64;
     /// The BOUNDARY form of the snapshot id (S3): the opaque 256-bit POD the
@@ -56,6 +62,14 @@ pub trait Snapshot {
     fn snapshot_uid(self: &Self) -> Uid256 {
         return uid256_from_u64(self.snapshot_id());
     }
+    /// Publishes this snapshot as the store's new HEAD and marks its history
+    /// entry COMMITTED. Lifecycle — the concrete impl reaches its store.
+    fn commit(self: &Self);
+    /// Marks this history entry for deletion (Memoria snapshot drop): the entry
+    /// survives until its last wrapper closes.
+    fn remove(self: &Self);
+    /// The entry's lifecycle status (ACTIVE / COMMITTED / DROPPED).
+    fn status(self: &Self) -> u32;
 }
 
 /// A container handle bound to a snapshot's storage (Map/Vector/Queue/…).

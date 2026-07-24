@@ -68,7 +68,7 @@ fn set_hello(cur: Option<&[u8]>) -> Option<str> {
 fn main() -> i32 {
     // ── FSE: counter map, every mutation through with_entry ──
     let mut store: Arc<MemoryStore> = store_new();
-    let snap: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     let m = create_ctr::<typeof(WeFse)>(&snap, 1u64);
     let n: u64 = 20000u64;
     // two bump passes over n keys: first inserts (None→Some 1), second

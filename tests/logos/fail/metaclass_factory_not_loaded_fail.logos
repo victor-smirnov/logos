@@ -18,7 +18,7 @@ pub type Legend = CtrClass<LegendCfg>;
 
 fn main() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s0 = store_fork_arc(&mut store);
     let m = create_ctr::<Legend>(&mut s0, 1u64);
     return m.size() as i32;
 }

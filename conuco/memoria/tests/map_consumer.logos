@@ -25,7 +25,7 @@ use logos.std.io;
 
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
 
     // fast family (u64/u64), enough inserts to force splits.
     let m = create_ctr::<typeof(Map::<u64, u64>)>(&s0, 1u64);

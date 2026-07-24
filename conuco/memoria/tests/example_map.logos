@@ -85,8 +85,16 @@ fn report_via<C: Ctr>(c: &C) -> u64 {
 
 fn run_all() -> i32 {
     // ── §1 store → snapshot (Arc plane) → container (Rc plane) ──────────────
+    // The TWO-TIER interface (Memoria public/internal split): store_fork_arc
+    // hands out `Arc<dyn Snapshot>` — the PUBLIC tier. Its vtable is the whole
+    // surface user code sees: the id plane (§5) + lifecycle (commit/remove/
+    // status, §3). The PRIVILEGED capability (node_alloc / root_of / set_root)
+    // is inherent on the concrete MemorySnapshot and NOT in this vtable — so
+    // `snap.node_alloc(...)` does not even resolve here. The generated container
+    // recovers the concrete internally (an explicit dyn_data downcast, the moral
+    // equivalent of Memoria's cast to the internal interface) to reach it.
     let mut store: Arc<MemoryStore> = store_new();
-    let mut snap: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
 
     let mut m = create_ctr_rc::<typeof(Map::<u64, u64>)>(&snap, 1u64);
 
@@ -122,8 +130,10 @@ fn run_all() -> i32 {
     // ── §4 the dyn plane in action ──────────────────────────────────────────
     if report_via(&*m) != n + 1u64 { return 10i32; }
 
-    // ── §5 the boundary id plane: Uid256 through &dyn Snapshot ──────────────
-    let uid: Uid256 = (&*snap as &dyn Snapshot).snapshot_uid();
+    // ── §5 the boundary id plane: Uid256 straight off the public tier ───────
+    // snap IS `Arc<dyn Snapshot>` now — snapshot_uid / snapshot_id are public
+    // vtable methods, so the boundary id plane is a direct call (no coercion).
+    let uid: Uid256 = snap.snapshot_uid();
     if !uid256_eq(&uid, &uid256_from_u64(snap.snapshot_id())) { return 11i32; }
 
     // ── §6 WITH_ENTRY — the quad boundary (ADR 0023): ONE function drives

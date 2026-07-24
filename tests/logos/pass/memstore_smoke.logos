@@ -19,7 +19,7 @@ use logos.lang.result;       // Result (format/push)
 fn main() -> i32 {
     // ── (1) storage capability ───────────────────────────────────────────
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s1: MemorySnapshot = store_fork(&mut store);
     if s1.snapshot_id() != 1u64 { return 1i32; }
 
     let h: *mut u8 = s1.node_alloc(4096u32, 2u32);
@@ -31,13 +31,13 @@ fn main() -> i32 {
     if s1.get_child(s1.child_ref_of(h)) != h { return 7i32; }  // roundtrips
     if s1.cow_needed(h) { return 8i32; }                       // stamped with s1 → no clone
 
-    let mut s2: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s2: MemorySnapshot = store_fork(&mut store);
     if s2.snapshot_id() != 2u64 { return 9i32; }
     if !s2.cow_needed(h) { return 10i32; }                     // h frozen for s2 → must clone
     s1.node_free(h);
 
     // ── (2) directory + multi-container fork/commit refcounting ───────────
-    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);                 // id 3, empty dir
+    let mut s0: MemorySnapshot = store_fork(&mut store);                 // id 3, empty dir
     let a: *mut u8 = s0.node_alloc(4096u32, 2u32);             // container 7 root (leaf)
     let b: *mut u8 = s0.node_alloc(4096u32, 2u32);             // container 9 root (leaf)
     s0.set_root(7u64, a, 0u32);
@@ -49,7 +49,7 @@ fn main() -> i32 {
     if unsafe { node_rc(a) } != 2u32 { return 13i32; }         // s0 + HEAD
     if unsafe { node_rc(b) } != 2u32 { return 14i32; }
 
-    let mut sf: Arc<MemorySnapshot> = store_fork_arc(&mut store);                 // shares HEAD's a,b (inc_rc)
+    let mut sf: MemorySnapshot = store_fork(&mut store);                 // shares HEAD's a,b (inc_rc)
     if !sf.has_ctr(7u64) { return 15i32; }                     // directory copied from HEAD
     if unsafe { node_rc(a) } != 3u32 { return 16i32; }         // s0 + HEAD + sf
     // Drop model: the s0/sf shares return when the WRAPPERS close (scope end,
@@ -58,7 +58,7 @@ fn main() -> i32 {
 
     // ── (3) container-agnostic recursive tree release (branch → leaf) ─────
     let mut store2: Arc<MemoryStore> = store_new();
-    let mut s: Arc<MemorySnapshot> = store_fork_arc(&mut store2);
+    let mut s: MemorySnapshot = store_fork(&mut store2);
     let leaf: *mut u8 = s.node_alloc(4096u32, 2u32);           // level-0 child (rc 1)
     let br: *mut u8 = s.branch_alloc(4096u32, 3u32, 2u32);     // level-1 branch (rc 1),
                                                                // children declared in slot 2

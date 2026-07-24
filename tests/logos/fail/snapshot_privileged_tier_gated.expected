@@ -1,0 +1,1 @@
+trait 'Snapshot' has no method 'node_alloc'

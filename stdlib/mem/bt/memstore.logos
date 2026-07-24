@@ -233,34 +233,9 @@ impl MemorySnapshot {
         unsafe { (*self.d()).dir.set_root(ctr_id, root, level); }
     }
 
-    // — lifecycle —
-
-    /// Publishes THIS snapshot as the store's new HEAD and marks its history
-    /// entry COMMITTED. The wrapper reaches the store through its parent
-    /// hold — the surface stays `&self` (the wrapper is never mutated; the
-    /// store is the honest mutation point, reached via a local Arc hold).
-    /// The wrapper stays open afterwards: `store.find(id)` / open_ctr now
-    /// resolve this snapshot's trees.
-    pub fn commit(self: &MemorySnapshot) {
-        // LOCK POINT (v1): HEAD swap vs concurrent fork/find.
-        let mut hold: Arc<MemoryStore> = self.store.clone_ref();
-        let g: &mut MemoryStore = &mut *hold;
-        g.commit(self);
-    }
-
-    /// MARKS this history entry for deletion (Memoria snapshot drop()): the
-    /// entry stays until the LAST wrapper for it closes; then its trees are
-    /// rc-released and the descriptor is forgotten. The committed HEAD holds
-    /// its OWN rc-shares, so removing a committed snapshot never pulls trees
-    /// out from under HEAD.
-    pub fn remove(self: &MemorySnapshot) {
-        // LOCK POINT (v1 single-threaded): status write vs concurrent find().
-        unsafe { (*self.d()).status = SNAP_DROPPED; }
-    }
-
-    pub fn status(self: &MemorySnapshot) -> u32 {
-        return unsafe { (*self.d()).status };
-    }
+    // — lifecycle lives on `impl Snapshot for MemorySnapshot` below (the PUBLIC
+    //   tier: commit/remove/status ride the dyn vtable so a `dyn Snapshot`
+    //   holder can call them). The PRIVILEGED capability above stays inherent.
 }
 
 // Closing the LAST wrapper of an Active or Dropped entry physically releases
@@ -290,10 +265,39 @@ impl Drop for MemorySnapshot {
     }
 }
 
-// The marker trait (logos.mem.bt.map): a snapshot exposes its CoW skip key.
+// The PUBLIC tier (logos.mem.bt.map): the id plane + lifecycle. This vtable is
+// the whole surface a `dyn Snapshot` holder (user/Deem code) sees — the
+// privileged capability (node_alloc/root_of/set_root/…) is inherent above and
+// deliberately NOT here.
 impl Snapshot for MemorySnapshot {
     pub fn snapshot_id(self: &MemorySnapshot) -> u64 {
         return unsafe { (*self.desc).id };
+    }
+
+    /// Publishes THIS snapshot as the store's new HEAD and marks its history
+    /// entry COMMITTED. The wrapper reaches the store through its parent hold —
+    /// the surface stays `&self` (the wrapper is never mutated; the store is the
+    /// honest mutation point, reached via a local Arc hold). The wrapper stays
+    /// open afterwards: store_find / open_ctr now resolve this snapshot's trees.
+    pub fn commit(self: &MemorySnapshot) {
+        // LOCK POINT (v1): HEAD swap vs concurrent fork/find.
+        let mut hold: Arc<MemoryStore> = self.store.clone_ref();
+        let g: &mut MemoryStore = &mut *hold;
+        g.commit(self);
+    }
+
+    /// MARKS this history entry for deletion (Memoria snapshot drop()): the
+    /// entry stays until the LAST wrapper for it closes; then its trees are
+    /// rc-released and the descriptor is forgotten. The committed HEAD holds its
+    /// OWN rc-shares, so removing a committed snapshot never pulls trees out
+    /// from under HEAD.
+    pub fn remove(self: &MemorySnapshot) {
+        // LOCK POINT (v1 single-threaded): status write vs concurrent find().
+        unsafe { (*self.d()).status = SNAP_DROPPED; }
+    }
+
+    pub fn status(self: &MemorySnapshot) -> u32 {
+        return unsafe { (*self.d()).status };
     }
 }
 
@@ -457,21 +461,26 @@ pub fn store_fork(st: &mut Arc<MemoryStore>) -> MemorySnapshot {
     return MemorySnapshot { desc: d, store: hold };
 }
 
-/// The cross-thread form: the wrapper itself rides an Arc.
-pub fn store_fork_arc(st: &mut Arc<MemoryStore>) -> Arc<MemorySnapshot> {
-    return arc_new(store_fork(st));
+/// The cross-thread form: the wrapper rides an Arc, ERASED to `Arc<dyn Snapshot>`
+/// — the public tier. Users and Deem code hold this; the id plane + lifecycle
+/// are all the vtable exposes. The Canon-generated container recovers the
+/// concrete `MemorySnapshot` internally for the privileged capability.
+pub fn store_fork_arc(st: &mut Arc<MemoryStore>) -> Arc<dyn Snapshot> {
+    return arc_new::<MemorySnapshot>(store_fork(st)) as Arc<dyn Snapshot>;
 }
 
-/// A NEW wrapper over an existing COMMITTED entry — one per call (one per
-/// thread in MT use); active/dropped entries are not findable.
-pub fn store_find(st: &mut Arc<MemoryStore>, id: u64) -> Option<MemorySnapshot> {
+/// A NEW wrapper over an existing COMMITTED entry, erased to `Arc<dyn Snapshot>`
+/// — one per call (one per thread in MT use); active/dropped entries are not
+/// findable.
+pub fn store_find(st: &mut Arc<MemoryStore>, id: u64) -> Option<Arc<dyn Snapshot>> {
     let g: &mut MemoryStore = &mut **st;
     let d: *mut SnapDesc = g.find_desc(id);
     if d == (0 as *mut SnapDesc) {
         return Option::None;
     }
     let hold: Arc<MemoryStore> = st.clone_ref();
-    return Option::Some(MemorySnapshot { desc: d, store: hold });
+    let snap: MemorySnapshot = MemorySnapshot { desc: d, store: hold };
+    return Option::Some(arc_new::<MemorySnapshot>(snap) as Arc<dyn Snapshot>);
 }
 
 impl Store for MemoryStore {}

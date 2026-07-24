@@ -1535,21 +1535,30 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         use logos.lang.option;            // Option — the with_entry quad
         pub struct #nm {
             // the PARENT HOLD (Ctr ──Arc→ Snapshot): the ONE snapshot field.
-            snap: Arc<MemorySnapshot>,
+            snap: Arc<dyn Snapshot>,
             ctr_id: u64,
         }
         impl #nm {
-            pub static fn create(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+            // PRIVILEGED tier: recover the concrete MemorySnapshot from the
+            // erased `Arc<dyn Snapshot>` hold. Sound by construction — this
+            // family is generated for MemoryStore, so its snap is always a
+            // MemorySnapshot (the moral equivalent of Memoria's cast to the
+            // internal interface; `dyn_data` = the fat-pointer data half).
+            fn ms(self: &#nm) -> &MemorySnapshot {
+                return unsafe { &*(dyn_data(&*self.snap) as *const MemorySnapshot) };
+            }
+            pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
+                let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
                 let lf: #lid = #lid::new_in(snap.snapshot_id());
-                snap.set_root(ctr_id, lf.block(), 0u32);
+                msr.set_root(ctr_id, lf.block(), 0u32);
                 return #nm { snap: snap.clone_ref(), ctr_id: ctr_id };
             }
-            pub static fn open(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+            pub static fn open(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
                 return #nm { snap: snap.clone_ref(), ctr_id: ctr_id };
             }
             pub fn insert(self: &#nm, key: #(kid), val: #(vi)) {
                 unsafe {
-                    let e: DirEntry = self.snap.root_of(self.ctr_id);
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
                     let cur: u64 = self.snap.snapshot_id();
                     let r: BtInsRet<#(kid), 1> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, val, cur);
                     let mut nrt: *mut u8 = e.root;
@@ -1565,7 +1574,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         nrt = top.block();
                         nlv = e.level + 1u32;
                     }
-                    self.snap.set_root(self.ctr_id, nrt, nlv);
+                    self.ms().set_root(self.ctr_id, nrt, nlv);
                 }
             }
             /// The container-boundary WITH_ENTRY (ADR 0023 §Derived forms —
@@ -1576,7 +1585,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// again if the leaf splits — keep it pure.
             pub fn with_entry(self: &#nm, key: #(kid), f: fn(Option<#(vo)>) -> Option<#(vi)>) {
                 unsafe {
-                    let e: DirEntry = self.snap.root_of(self.ctr_id);
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
                     let cur: u64 = self.snap.snapshot_id();
                     let r: BtInsRet<#(kid), 1> = bt_cow_with_entry::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, f, cur);
                     let mut nrt: *mut u8 = e.root;
@@ -1592,12 +1601,12 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         nrt = top.block();
                         nlv = e.level + 1u32;
                     }
-                    self.snap.set_root(self.ctr_id, nrt, nlv);
+                    self.ms().set_root(self.ctr_id, nrt, nlv);
                 }
             }
             pub fn size(self: &#nm) -> u64 {
                 unsafe {
-                    let e: DirEntry = self.snap.root_of(self.ctr_id);
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
                     return bt_size::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level);
                 }
             }
@@ -1605,7 +1614,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         impl Ctr for #nm {
             fn size(self: &#nm) -> u64 {
                 unsafe {
-                    let e: DirEntry = self.snap.root_of(self.ctr_id);
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
                     return bt_size::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level);
                 }
             }
@@ -1623,7 +1632,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid)) -> &[u8] {
                     unsafe {
-                        let e: DirEntry = self.snap.root_of(self.ctr_id);
+                        let e: DirEntry = self.ms().root_of(self.ctr_id);
                         let miss: &[u8] = slice_from_raw::<u8>(e.root as *const u8, 0i64);
                         return bt_descend_get::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, miss);
                     }
@@ -1638,7 +1647,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid), sentinel: #(vo)) -> #(vo) {
                     unsafe {
-                        let e: DirEntry = self.snap.root_of(self.ctr_id);
+                        let e: DirEntry = self.ms().root_of(self.ctr_id);
                         return bt_descend_get::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, sentinel);
                     }
                 }
@@ -1972,19 +1981,26 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
         pub struct #nm {
             // the PARENT HOLD (ownership chain: Ctr ──Arc→ Snapshot): the ONE
             // snapshot field.
-            snap: Arc<MemorySnapshot>,
+            snap: Arc<dyn Snapshot>,
             ctr_id: u64,
             leaf_bytes: u32,
             branch_bytes: u32,
         }
         impl #nm {
-            pub static fn create(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+            // PRIVILEGED tier: recover the concrete MemorySnapshot from the
+            // erased `Arc<dyn Snapshot>` hold (this family is generated for
+            // MemoryStore, so its snap is always a MemorySnapshot).
+            fn ms(self: &#nm) -> &MemorySnapshot {
+                return unsafe { &*(dyn_data(&*self.snap) as *const MemorySnapshot) };
+            }
+            pub static fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
                 return #nm::create_with(snap, ctr_id, #(lbs), #(bbs));
             }
-            pub static fn create_with(snap: &Arc<MemorySnapshot>, ctr_id: u64,
+            pub static fn create_with(snap: &Arc<dyn Snapshot>, ctr_id: u64,
                                       leaf_bytes: u32, branch_bytes: u32) -> #nm {
-                let t: Btfl<2, #nd> = btfl_create::<2, #nd>(&**snap, leaf_bytes, branch_bytes);
-                snap.set_root(ctr_id, t.root, t.level);
+                let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
+                let t: Btfl<2, #nd> = btfl_create::<2, #nd>(msr, leaf_bytes, branch_bytes);
+                msr.set_root(ctr_id, t.root, t.level);
                 return #nm {
                     snap: snap.clone_ref(),
                     ctr_id: ctr_id,
@@ -1992,7 +2008,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     branch_bytes: branch_bytes,
                 };
             }
-            pub static fn open(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #nm {
+            pub static fn open(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
                 return #nm {
                     snap: snap.clone_ref(),
                     ctr_id: ctr_id,
@@ -2002,7 +2018,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn tree(self: &#nm) -> Btfl<2, #nd> {
                 unsafe {
-                    let e: DirEntry = self.snap.root_of(self.ctr_id);
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
                     return Btfl::<2, #nd> {
                         root: e.root,
                         level: e.level,
@@ -2018,8 +2034,8 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 assert(btfl_count::<2, #nd>(&t, 0u64) == 0u64, "reformat: container not empty");
                 btfl_drop::<2, #nd>(&t);
                 unsafe {
-                    let t2: Btfl<2, #nd> = btfl_create::<2, #nd>(&*self.snap, leaf_bytes, branch_bytes);
-                    self.snap.set_root(self.ctr_id, t2.root, t2.level);
+                    let t2: Btfl<2, #nd> = btfl_create::<2, #nd>(self.ms(), leaf_bytes, branch_bytes);
+                    self.ms().set_root(self.ctr_id, t2.root, t2.level);
                 }
                 self.leaf_bytes = leaf_bytes;
                 self.branch_bytes = branch_bytes;
@@ -2030,9 +2046,9 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     // multimap container: one key entry + `vals` as stream 1
                     let mut lens: Vec<u64> = vec_new::<u64>();
                     lens.push(vals.length() as u64);
-                    let ok: bool = btfl_insert_n::<2, #nd>(&*self.snap, &mut t, key, vals, &lens);
+                    let ok: bool = btfl_insert_n::<2, #nd>(self.ms(), &mut t, key, vals, &lens);
                     if ok {
-                        self.snap.set_root(self.ctr_id, t.root, t.level);
+                        self.ms().set_root(self.ctr_id, t.root, t.level);
                     }
                     return ok;
                 }
@@ -2348,16 +2364,17 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     let b: QuoteItemBlob = quote_item! {
         use logos.lcm.canon.metaclass;
         use logos.mem.bt.memstore;
+        use logos.mem.bt.map;             // trait Snapshot — the erased public tier
         use logos.mem.sync;
-        impl CtrFamily<MemorySnapshot> for CtrClass<#(cfgty)> {
+        impl CtrFamily for CtrClass<#(cfgty)> {
             type Handle = #famid;
             fn family_id() -> u64 {
                 return #(idexpr);
             }
-            fn create(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #famid {
+            fn create(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #famid {
                 return #famid::create(snap, ctr_id);
             }
-            fn open(snap: &Arc<MemorySnapshot>, ctr_id: u64) -> #famid {
+            fn open(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #famid {
                 return #famid::open(snap, ctr_id);
             }
         }

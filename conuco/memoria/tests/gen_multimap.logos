@@ -247,7 +247,7 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
 
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut snap: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
 
     // ── 10..19: empty container (created through the trait surface) ─────────
     {

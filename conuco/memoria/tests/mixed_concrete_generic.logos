@@ -30,11 +30,11 @@ container Gen<V> for u8 {
     measure max(key);
 }
 
-fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 { return C::family_id(); }
+fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
 
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     let c = create_ctr::<typeof(Conc)>(&s, 1u64);
     c.insert(1u64, 7u64);
     if c.get_or(1u64, 0u64) != 7u64 { return 1i32; }

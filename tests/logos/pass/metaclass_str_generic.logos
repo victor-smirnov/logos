@@ -51,7 +51,7 @@ fn beq(b: &[u8], want: str) -> bool {
 
 fn main() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
 
     // ── create + fill through the CONCRETE declaration handle ──
     let jc = create_ctr::<typeof(Journal)>(&s1, JOURNAL);

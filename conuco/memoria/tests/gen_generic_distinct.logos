@@ -21,11 +21,11 @@ container Map<K, V> for u8 {
     measure max(key);
 }
 
-fn fid<C: CtrFamily<MemorySnapshot>>() -> u64 { return C::family_id(); }
+fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
 
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
-    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
 
     let a = create_ctr::<typeof(Map::<u64, u64>)>(&s0, 1u64);          // fast u64/u64
     a.insert(1u64, 10u64);

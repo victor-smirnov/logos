@@ -34,7 +34,7 @@ fn run_all() -> i32 {
 
     // ── version A: create container CTR, fill [0, N) through the Ctr handle ─
     let n: u64 = 8000u64;
-    let mut s0: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     if s0.snapshot_id() != 1u64 { return 1i32; }
     let m0 = create_ctr::<typeof(GenCow)>(&s0, CTR);
     let mut k: u64 = 0u64;
@@ -43,7 +43,7 @@ fn run_all() -> i32 {
     s0.commit();
 
     // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
-    let mut s1: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     if s1.snapshot_id() != 2u64 { return 3i32; }
     let m1 = open_ctr::<typeof(GenCow)>(&s1, CTR);
     if m1.get_or(0u64, 0xFFFFu64) != 7u64 { return 4i32; }
@@ -70,7 +70,7 @@ fn run_all() -> i32 {
     }
 
     // ── a third version overwrites a spread of keys in s1's lineage ──────
-    let mut s2: Arc<MemorySnapshot> = store_fork_arc(&mut store);
+    let mut s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     let m2 = open_ctr::<typeof(GenCow)>(&s2, CTR);
     k = 0u64;
     while k < 2u64 * n { m2.insert(k, k + 1000000u64); k = k + 500u64; }
