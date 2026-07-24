@@ -8,12 +8,18 @@ package test;
 // The stack, top to bottom (what each § below exercises):
 //
 //   Deem/app code            §4 dyn plane (&dyn Ctr), §2 Rc handles
-//   ── boundary ─────────    map.logos: Ctr (+family traits), Uid256
+//   ── boundary ─────────    map.logos: Ctr (+family traits), Uid256;
+//                            §6 with_entry — the WITH_ENTRY quad
 //   metaclass factory        §1 create_ctr_rc — decl → CFG doc → mono demand
 //                            → generated family (package logos.gen)
-//   BT protocol              ops.logos: bt_ins_rec / bt_cow_insert skeletons
-//   BTSS substrate           btss.logos: column mechanics (fmt/split/upsert/
-//                            lower_bound variants) — ONE body per algorithm
+//   BT protocol              ops.logos: bt_cow_insert / bt_cow_with_entry
+//                            walk skeletons (privatize / graft / repoint)
+//   node ALGEBRA (ADR 0023)  alg.logos (description) + interp.logos
+//                            (reference semantics); the factory emits
+//                            per-schema FUSED KERNELS (alg_kernel) — the
+//                            leaf's mutations, btss upserts died here
+//   BTSS substrate           btss.logos: column mechanics (fmt/split/
+//                            lower_bound/split_index) — ONE body each
 //   node / store             node.logos MemNode (CoW header) + memstore
 //   configuration            storecfg.logos: WritStatic docs — the store's
 //                            node form + geometry BAKED at generation
