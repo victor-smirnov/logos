@@ -807,9 +807,12 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             total_idents += tp;
             for (uint64_t j = 0; j < tp; ++j) total_str += pods[j].len;
         }
+        // total_str doubles as the blob-cursor byte budget: each pod is a
+        // serialized doc spliced (copied in) exactly once, and the copied-in
+        // object graph is bounded by ~its serialized size; 2× covers slack.
         size_t bound = static_cast<size_t>(blob->template_size)
                          * (2 * total_idents + 2)
-                     + static_cast<size_t>(total_str) + 65536;
+                     + static_cast<size_t>(total_str) * 2 + 65536;
         (void)WritAccess::arena(doc).reserve(bound);
     }
 
@@ -880,10 +883,58 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         return true;
     };
 
+    // Blob-cursor splice (Vec<ExprBlob> cursor, encoding bit 0x800000): if
+    // the TOM at `noff` is a blob-cursor placeholder whose pod resolves at
+    // repeat iteration `iter`, deep-copy that pod's serialized expr into
+    // `doc` and return the copy's offset (caller repoints the parent slot).
+    // Returns 0 when `noff` is not a blob-cursor placeholder or the pod is
+    // out of range; sets subst_failed on a real error.
+    auto try_cursor_blob_splice = [&](uint32_t noff, uint64_t iter) -> uint32_t {
+        if (cursors_count == 0) return 0;
+        auto ntom = logos::writ::TinyMapView(arena_offset_t(noff), doc.holder());
+        if (!ntom.has_key(la::NAME_VAR.code)) return 0;
+        AnyVal nv = ntom.get(la::NAME_VAR.code);
+        if (!nv.is_value()) return 0;
+        int32_t enc = nv.as_value<int32_t>();
+        if (enc < 0 || (enc & 0x400000) == 0 || (enc & 0x800000) == 0) return 0;
+        int32_t cidx = enc & 0xFF;
+        if (static_cast<uint64_t>(cidx) >= cursors_count) return 0;
+        const auto& ch = cursor_hdrs[cidx];
+        if (iter >= ch.count) return 0;
+        const auto* pods = reinterpret_cast<const IdentPod*>(
+            cursors_base + ch.pods_offset);
+        const auto& pod = pods[iter];
+        if (!pod.ptr || pod.len == 0) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: blob cursor %d pod %llu empty\n",
+                cidx, (unsigned long long)iter);
+            subst_failed = true; return 0;
+        }
+        auto inner_e = logos::writ::from_bytes_copy(pod.ptr, pod.len);
+        if (!inner_e) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: blob cursor from_bytes_copy failed\n");
+            subst_failed = true; return 0;
+        }
+        auto inner_doc = std::move(inner_e).get();
+        const uint8_t* ib = WritAccess::base(inner_doc);
+        auto inner_root_off = WritAccess::root_offset(inner_doc).value();
+        auto cp_e = copy_object_into(ib + inner_root_off, ib, doc);
+        if (!cp_e) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: blob cursor copy_object_into failed\n");
+            subst_failed = true; return 0;
+        }
+        return static_cast<uint32_t>(
+            reinterpret_cast<uint8_t*>(cp_e.get()) - WritAccess::base(doc));
+    };
+
     // Cursor expansion (item-level REPEAT_GROUP): substitutes
     // NAME_VAR(int with bit 30 set) → NAME(cursor_hdrs[idx].pods[iter])
     // throughout a freshly cloned subtree. Cursor placeholders only —
     // ident/blob placeholders in the body remain for the outer subst_walk.
+    // Blob-cursor placeholders (bit 0x800000) are spliced from the PARENT
+    // side (slot replacement) via try_cursor_blob_splice.
     std::function<void(uint32_t, uint64_t)> expand_cursor_in_subtree;
     expand_cursor_in_subtree = [&](uint32_t off, uint64_t iter) {
         uint8_t* dbase = WritAccess::base(doc);
@@ -892,9 +943,12 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             AnyVal nv = tom.get(la::NAME_VAR.code);
             if (nv.is_value()) {
                 int32_t enc = nv.as_value<int32_t>();
-                if (enc >= 0 && (enc & 0x400000) != 0) {
-                    // Encoding: bit 22 = is-cursor, bits 0-7 = cursor index,
-                    // bits 8-21 = pinned-outer-index + 1 (0 = unpinned).
+                if (enc >= 0 && (enc & 0x400000) != 0
+                    && (enc & 0x800000) == 0) {
+                    // Encoding: bit 22 = is-cursor, bit 23 = blob cursor
+                    // (spliced by the parent, skipped here), bits 0-7 =
+                    // cursor index, bits 8-21 = pinned-outer-index + 1
+                    // (0 = unpinned).
                     // T2-30: a depth-2 cursor (inner_counts_offset != 0) seen
                     // unpinned during OUTER expansion records its outer index
                     // (iter) into bits 8-21 and stays a placeholder; the inner
@@ -962,8 +1016,11 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 }
             }
         }
-        // Snapshot children before recursion (puts may have rebased).
-        std::vector<std::pair<bool, uint32_t>> children;
+        // Snapshot children before recursion (puts may have rebased). Keys
+        // (for TOM children) and indices (for array elements) ride along so
+        // a blob-cursor splice can repoint the parent slot in place.
+        struct Child { bool is_arr; uint8_t key; uint32_t off; };
+        std::vector<Child> children;
         dbase = WritAccess::base(doc);
         tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
         uint64_t bm = tom.bitmap();
@@ -976,18 +1033,28 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             const uint8_t* pointee = dbase + coff;
             lh::TypeTag tag = lh::TypeTag::read_before(pointee);
             if (tag.type_code() == lh::type_hash::TinyObjectMap)
-                children.push_back({false, coff});
+                children.push_back({false, key, coff});
             else if (tag.type_code() == lh::type_hash::Array)
-                children.push_back({true, coff});
+                children.push_back({true, key, coff});
         }
-        for (auto [is_arr, coff] : children) {
+        for (auto [is_arr, key, coff] : children) {
+            if (subst_failed) return;
             if (!is_arr) {
+                uint32_t sp = try_cursor_blob_splice(coff, iter);
+                if (subst_failed) return;
+                if (sp != 0) {
+                    auto ptom = logos::writ::TinyMapView(
+                        arena_offset_t(off), doc.holder());
+                    (void)ptom.put(key, AnyVal::from_offset(
+                        WritAccess::base(doc), arena_offset_t(sp)));
+                    continue;
+                }
                 expand_cursor_in_subtree(coff, iter);
                 continue;
             }
             uint8_t* db2 = WritAccess::base(doc);
             auto arr = logos::writ::ArrayView(arena_offset_t(coff), doc.holder());
-            std::vector<uint32_t> elem_offs;
+            std::vector<std::pair<uint64_t, uint32_t>> elems;
             for (uint64_t i = 0; i < arr.size(); ++i) {
                 AnyVal e = arr.get(i);
                 if (e.is_null() || !e.is_pointer()) continue;
@@ -995,10 +1062,20 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 const uint8_t* ep = db2 + eoff;
                 lh::TypeTag etag = lh::TypeTag::read_before(ep);
                 if (etag.type_code() == lh::type_hash::TinyObjectMap)
-                    elem_offs.push_back(eoff);
+                    elems.push_back({i, eoff});
             }
-            for (uint32_t eoff : elem_offs)
+            for (auto [ei, eoff] : elems) {
+                uint32_t sp = try_cursor_blob_splice(eoff, iter);
+                if (subst_failed) return;
+                if (sp != 0) {
+                    auto parr = logos::writ::ArrayView(
+                        arena_offset_t(coff), doc.holder());
+                    parr.set(ei, AnyVal::from_offset(
+                        WritAccess::base(doc), arena_offset_t(sp)));
+                    continue;
+                }
                 expand_cursor_in_subtree(eoff, iter);
+            }
         }
     };
 
@@ -1156,7 +1233,13 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 void* dst_obj = cp_e.get();
                 uint32_t copy_off = static_cast<uint32_t>(
                     reinterpret_cast<uint8_t*>(dst_obj) - WritAccess::base(doc));
-                expand_cursor_in_subtree(copy_off, j);
+                // Body root that IS a bare blob-cursor placeholder
+                // (`#( #frags )*`): splice replaces the whole copy.
+                uint32_t sp = try_cursor_blob_splice(copy_off, j);
+                if (subst_failed) return 0;
+                if (sp != 0) copy_off = sp;
+                else expand_cursor_in_subtree(copy_off, j);
+                if (subst_failed) return 0;
                 auto na2 = ArrayView(arena_offset_t(new_arr_off), doc.holder());
                 (void)na2.push_back(
                     AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(copy_off)));
@@ -1802,8 +1885,21 @@ extern "C" const uint8_t* logos_qib_pack_cursors(
     struct CursorHdr { uint64_t count; uint64_t pods_offset; uint64_t inner_counts_offset; };
     struct VecPod    { const IdentPod* ptr; uint64_t len; uint64_t cap; };
     struct VecVecPod { const VecPod*  ptr; uint64_t len; uint64_t cap; };
+    // Depth 3 = Vec<ExprBlob> splice cursor. ExprBlob is a bare pointer to
+    // WritStatic-shaped bytes whose size sits 8 bytes BEFORE the pointer
+    // (same convention logos_qib_pack_blobs reads). Packed as IdentPods
+    // whose bytes are the serialized doc — the subst side tells them apart
+    // by the 0x800000 bit in the placeholder encoding, not by layout.
+    struct BlobRefPod  { const uint8_t* ptr; };
+    struct VecBlobPod  { const BlobRefPod* ptr; uint64_t len; uint64_t cap; };
     auto depth_of = [&](uint64_t i) -> uint8_t {
         return depths ? depths[i] : 1;
+    };
+    auto blob_size_of = [](const BlobRefPod& b) -> uint64_t {
+        if (!b.ptr) return 0;
+        uint64_t sz = 0;
+        std::memcpy(&sz, b.ptr - 8, 8);
+        return sz;
     };
 
     uint64_t hdr_bytes = 8 + n * sizeof(CursorHdr);
@@ -1812,7 +1908,14 @@ extern "C" const uint8_t* logos_qib_pack_cursors(
     std::vector<uint64_t> outer_counts(n, 0);
     uint64_t total_pods = 0, total_str = 0, total_ic = 0;
     for (uint64_t i = 0; i < n; ++i) {
-        if (depth_of(i) >= 2) {
+        if (depth_of(i) == 3) {
+            const auto* v = reinterpret_cast<const VecBlobPod*>(arr[i]);
+            if (!v) continue;
+            outer_counts[i] = v->len;
+            total_pods += v->len;
+            for (uint64_t j = 0; j < v->len; ++j)
+                total_str += blob_size_of(v->ptr[j]);
+        } else if (depth_of(i) == 2) {
             const auto* vv = reinterpret_cast<const VecVecPod*>(arr[i]);
             if (!vv) continue;
             outer_counts[i] = vv->len;
@@ -1856,7 +1959,15 @@ extern "C" const uint8_t* logos_qib_pack_cursors(
         hdrs[i].pods_offset        = pod_off;
         hdrs[i].inner_counts_offset = 0;
         auto* pods = reinterpret_cast<IdentPod*>(buf + pod_off);
-        if (depth_of(i) >= 2) {
+        if (depth_of(i) == 3) {
+            const auto* v = reinterpret_cast<const VecBlobPod*>(arr[i]);
+            if (!v) continue;
+            for (uint64_t j = 0; j < v->len; ++j) {
+                IdentPod src{v->ptr[j].ptr, blob_size_of(v->ptr[j])};
+                emit_pod(pods, j, src);
+            }
+            pod_off += v->len * sizeof(IdentPod);
+        } else if (depth_of(i) >= 2) {
             const auto* vv = reinterpret_cast<const VecVecPod*>(arr[i]);
             if (!vv) continue;
             hdrs[i].inner_counts_offset = ic_off;

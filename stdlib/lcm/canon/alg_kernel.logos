@@ -171,17 +171,20 @@ fn ak_pos(ss: i64, dord: i64, off: i64) -> ExprBlob {
 // blocks fold first (u64::MAX = the unpriceable sentinel), the whole entry
 // op rejects below the free-space line (law 2), then the per-stream COMMIT
 // blocks fold in the SAME order (law 3). `pfrags`/`cfrags` are
-// value-yielding block-exprs built per stream kind by the emitters below.
-//
-// The folds run in quote_expr! (Vec<ExprBlob> cursors + statement folds
-// live there); the finished BODY splices into the item as one scalar blob
-// — quote_item!'s own repeat path speaks Vec<Ident> cursors only. The
-// early `return`s inside the spliced block return from the enclosing
-// generated fn; the trailing `return true` in the item satisfies the
-// checker's fall-through and is dead in practice.
+// value-yielding block-exprs built per stream kind by the emitters below,
+// folded directly in the item template (quote_item! Vec<ExprBlob> cursors).
 fn ak_driver(out: &mut ItemList, drv: Ident, pfrags: Vec<ExprBlob>, cfrags: Vec<ExprBlob>) {
-    let body: ExprBlob = quote_expr! {
-        {
+    let db: QuoteItemBlob = quote_item! {
+        use logos.mem.pkd;
+        use logos.mem.pkd.pdtbuf;
+        use logos.mem.pkd.sseq;
+        use logos.mem.pkd.ssrle;
+        use logos.mem.bt.alg;
+        use logos.mem.bt.interp;
+        use logos.mem.collections.vec;
+        use logos.lang.result;
+        use logos.lang.panic;
+        pub unsafe fn #drv(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
             let mut tot: u64 = 0u64;
             #( {
                 let g: u64 = #pfrags;
@@ -194,21 +197,6 @@ fn ak_driver(out: &mut ItemList, drv: Ident, pfrags: Vec<ExprBlob>, cfrags: Vec<
                 return false;
             }
             #( #cfrags; )*
-            return true;
-        }
-    };
-    let db: QuoteItemBlob = quote_item! {
-        use logos.mem.pkd;
-        use logos.mem.pkd.pdtbuf;
-        use logos.mem.pkd.sseq;
-        use logos.mem.pkd.ssrle;
-        use logos.mem.bt.alg;
-        use logos.mem.bt.interp;
-        use logos.mem.collections.vec;
-        use logos.lang.result;
-        use logos.lang.panic;
-        pub unsafe fn #drv(a: *mut PkdAlloc, i0: u64, d: &LeafBatchDatum) -> bool {
-            #(body);
             return true;
         }
     };

@@ -16989,10 +16989,21 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         if (args.size() != 1) return false;
         return is_ident_type(args[0]);
     };
+    auto is_vec_exprblob_qi = [&](TypeRef t) -> bool {
+        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
+        if (TypeRef(t).struct_name() != "Vec") return false;
+        auto args = TypeRef(t).type_args();
+        if (args.size() != 1) return false;
+        return is_expr_blob_type_qi(args[0]);
+    };
     // T2-30: a cursor's nesting depth. 1 = Vec<Ident>, 2 = Vec<Vec<Ident>>
-    // (drives nested `#(…)*`); 0 = not a cursor type.
+    // (drives nested `#(…)*`); 3 = Vec<ExprBlob> (a depth-1 SPLICE cursor:
+    // each iteration replaces the placeholder node with that element's
+    // pre-built expr — the item-path twin of quote_expr!'s kind-2 cursor);
+    // 0 = not a cursor type.
     auto cursor_nesting_depth = [&](TypeRef t) -> int {
         if (is_vec_ident_qi(t)) return 1;
+        if (is_vec_exprblob_qi(t)) return 3;
         if (TypeRef(t).kind() == LogosType::Kind::Struct
             && TypeRef(t).struct_name() == "Vec") {
             auto args = TypeRef(t).type_args();
@@ -17052,13 +17063,15 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                         // T2-30: cursor depth = its Vec nesting (1 or 2). A
                         // depth-d cursor may appear at repeat-depth ≥ d (a
                         // depth-1 cursor inside an inner loop is constant).
+                        // A blob cursor (3) iterates like depth-1.
                         int cdepth = cursor_nesting_depth(vt);
-                        if (cdepth == 0 || cdepth > qi_repeat_depth) {
+                        int iter_depth = (cdepth == 3) ? 1 : cdepth;
+                        if (cdepth == 0 || iter_depth > qi_repeat_depth) {
                             error("quote_item!: `#" + vname
                                 + "` inside `#(...)*` — expected "
                                 + (qi_repeat_depth >= 2
-                                   ? "Vec<Ident> or Vec<Vec<Ident>>"
-                                   : "Vec<Ident>"));
+                                   ? "Vec<Ident>, Vec<Vec<Ident>> or Vec<ExprBlob>"
+                                   : "Vec<Ident> or Vec<ExprBlob>"));
                             walk_failed = true; return;
                         }
                         Placeholder ph{Placeholder::Kind::Cursor,
@@ -17195,6 +17208,8 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                         //   ident sites  → positive idx (counts only idents)
                         //   blob sites   → negative -(idx+1) (counts only blobs)
                         //   cursor sites → positive idx | 0x400000
+                        //                  (| 0x800000 for a Vec<ExprBlob>
+                        //                  splice cursor — depth tag 3)
                         int32_t encoded;
                         Placeholder::Kind k = placeholders[next_idx].kind;
                         if (k == Placeholder::Kind::ExprBlob) {
@@ -17203,6 +17218,8 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                         } else if (k == Placeholder::Kind::Cursor) {
                             encoded = static_cast<int32_t>(cursor_idx)
                                     | 0x400000;
+                            if (placeholders[next_idx].cursor_depth == 3)
+                                encoded |= 0x800000;
                             cursor_idx++;
                         } else {
                             encoded = static_cast<int32_t>(ident_idx);
@@ -17548,12 +17565,14 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         // nesting depths. A depth-1 cursor var is Vec<Ident>; a depth-2 one
         // (T2-30 nested `#(…)*`) is Vec<Vec<Ident>> — pack reads each per its
         // depth, so the array element type is the neutral `*const u8`.
-        TypeRef vec_ident_t, vec_vec_ident_t;
+        TypeRef vec_ident_t, vec_vec_ident_t, vec_exprblob_t;
         {
             std::vector<TypeRef> a1; a1.push_back(ident_t);
             vec_ident_t = make_generic_struct("Vec", std::move(a1));
             std::vector<TypeRef> a2; a2.push_back(vec_ident_t);
             vec_vec_ident_t = make_generic_struct("Vec", std::move(a2));
+            std::vector<TypeRef> a3; a3.push_back(expr_blob_t);
+            vec_exprblob_t = make_generic_struct("Vec", std::move(a3));
         }
         auto u8p = u8_ptr_t;
         auto arr_t = make_array(u8p, N_cursors);
@@ -17563,7 +17582,8 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         for (auto& ph : placeholders) {
             if (ph.kind != Placeholder::Kind::Cursor) continue;
             auto var_ptr_t = make_ptr(false,
-                ph.cursor_depth >= 2 ? vec_vec_ident_t : vec_ident_t);
+                ph.cursor_depth == 3 ? vec_exprblob_t
+                : ph.cursor_depth == 2 ? vec_vec_ident_t : vec_ident_t);
             auto a = builder().addr_of(ph.var_name, var_ptr_t);
             elems.push_back(builder().cast(std::move(a), u8p));
             depth_elems.push_back(builder().lit_int(

@@ -1,0 +1,87 @@
+// Vec<ExprBlob> cursors in quote_item! `#(...)*` folds. The item path
+// historically spoke only Vec<Ident> in repeats; heterogeneous fragment
+// folds had to be assembled in quote_expr! and spliced as ONE scalar blob
+// (the ak_driver body-splice workaround). A blob cursor (encoding bit
+// 0x800000 over the cursor bit 0x400000) now splices each element's
+// pre-built expr per iteration, directly in the item template.
+package quote_item_exprblob_cursor;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+
+// Statement fold: each element is a heterogeneous pre-built block.
+#[fn_macro]
+pub fn emit_stepper(args: Vec<ExprBlob>) -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let mut frags: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    frags.push(parse_expr("{ t = t + 5i64; }"));
+    frags.push(parse_expr("{ t = t * 3i64; }"));
+    frags.push(parse_expr("{ t = t - 4i64; }"));
+    let b: QuoteItemBlob = quote_item! {
+        pub fn stepper() -> i64 {
+            let mut t: i64 = 1i64;
+            #( #frags; )*
+            return t;
+        }
+    };
+    out.blobs.push(b);
+    return out;
+}
+
+// Expression-position fold mixed with an Ident cursor in a SEPARATE
+// group, plus a scalar Ident for the fn name.
+#[fn_macro]
+pub fn emit_summer(args: Vec<ExprBlob>) -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let nm: Ident = Ident::new("summer");
+    let mut vals: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    vals.push(parse_expr("7i64"));
+    vals.push(parse_expr("(2i64 * 5i64)"));
+    vals.push(parse_expr("{ let k: i64 = 3i64; k * k }"));
+    let b: QuoteItemBlob = quote_item! {
+        pub fn #nm() -> i64 {
+            let mut acc: i64 = 0i64;
+            #( {
+                let g: i64 = #vals;
+                acc = acc + g;
+            } )*
+            return acc;
+        }
+    };
+    out.blobs.push(b);
+    return out;
+}
+
+// Paren-form antiquot call `#(f)(a, b, c)` with MULTIPLE args — the
+// ARGS-unification pin for item templates (exact call_arg_list wrapper;
+// historically the `$...` spread leaked the payload into ARGS[0] and
+// consumers compensated with skip-1).
+pub fn take3i(a: i64, b: i64, c: i64) -> i64 { return a * 100i64 + b * 10i64 + c; }
+
+#[fn_macro]
+pub fn emit_caller(args: Vec<ExprBlob>) -> ItemList {
+    let mut out: ItemList = item_list_new();
+    let f: Ident = Ident::new("take3i");
+    let b: QuoteItemBlob = quote_item! {
+        pub fn caller3() -> i64 {
+            return #(f)(7i64, 8i64, 9i64);
+        }
+    };
+    out.blobs.push(b);
+    return out;
+}
+
+emit_stepper!{}
+emit_summer!{}
+emit_caller!{}
+
+unsafe fn main() -> i32 {
+    // stepper: ((1 + 5) * 3) - 4 = 14
+    if stepper() != 14i64 { return 1; }
+    // summer: 7 + 10 + 9 = 26
+    if summer() != 26i64 { return 2; }
+    // caller3: take3i(7,8,9) = 789
+    if caller3() != 789i64 { return 3; }
+    return 0;
+}

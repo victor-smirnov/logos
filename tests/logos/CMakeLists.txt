@@ -379,6 +379,7 @@ set(LOGOS_INTEGRATION_TESTS
     quote_expr_subblob
     quote_expr_call_arg_shapes
     quote_expr_stmt_fold
+    quote_item_exprblob_cursor
     slice6_field_accessors
     meta_pack_basic
     meta_pack_search
