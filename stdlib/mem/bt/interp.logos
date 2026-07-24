@@ -353,9 +353,28 @@ fn alg_col_rows(kind: u32, col: &DatumCol) -> u64 {
     return col.cells.length() as u64;
 }
 
+/// Symbols `k` repeated rows[k] times, packed to runs — the entry's
+/// structure segment from its per-data-stream row counts. Shared by the
+/// entry forms here and by GENERATED kernels (the placement rule: runtime
+/// ops live in the stdlib, generation is the wiring).
+pub fn alg_runs_from_rows(bps: u32, rows: &Vec<u64>) -> Vec<SsrleRun> {
+    let mut syms: Vec<u64> = vec_new::<u64>();
+    let mut k: i64 = 0i64;
+    while k < rows.length() {
+        let m: u64 = rows.get(k);
+        let mut j: u64 = 0u64;
+        while j < m {
+            syms.push(k as u64);
+            j = j + 1u64;
+        }
+        k = k + 1i64;
+    }
+    return ssrle_runs_from_symbols(bps, &syms);
+}
+
 /// The structure position of entry `i0` (seq.size() when appending) — the
 /// anchor every per-stream position projects from.
-unsafe fn alg_entry_anchor(a: *mut PkdAlloc, ss: u32, i0: u64) -> u64 {
+pub unsafe fn alg_entry_anchor(a: *mut PkdAlloc, ss: u32, i0: u64) -> u64 {
     let seq: PkdSsrle = st_seq(a, ss);
     let kc: u64 = seq.rank_eq_all(0u64);
     if i0 < kc {

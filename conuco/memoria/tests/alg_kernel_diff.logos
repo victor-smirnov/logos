@@ -1,0 +1,202 @@
+package test;
+// ADR 0023 S3a — the DIFFERENTIAL gate: generated kernels vs the reference
+// interpreter. The generator bakes the interpreter's KIND dispatch into
+// straight-line per-stream code; the interpreter DEFINES the semantics, so
+// on every entry sequence the kernel-built node and the interpreter-built
+// node must agree stream by stream (sizes, cells, spans, symbol ranks) —
+// including the REJECTION boundary (both refuse the same entry on a tiny
+// node). Two schemas: the multimap shape (projections + derived runs) and
+// the FSE map shape (degenerate, no structure stream).
+use logos.lcm.canon.alg_kernel;   // the kernel generator (metacall below)
+use logos.mem.bt.alg;
+use logos.mem.bt.interp;
+use logos.mem.pkd;
+use logos.mem.pkd.pdtbuf;
+use logos.mem.pkd.sseq;
+use logos.mem.pkd.ssrle;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.mem;
+use logos.lang.result;
+use logos.lang.panic;
+
+metacall alg_kernel_entry_ins("MmK", "fse8o,vle,ssrle2");
+metacall alg_kernel_entry_ins("MapK", "fse8o,fse8");
+
+// a multimap entry datum: key + `vals` spans (positional; structure col
+// present for the interpreter's derivation, ignored by the kernel)
+fn mm_datum(key: u64, vals: i64, tag: u8) -> LeafBatchDatum {
+    let mut d: LeafBatchDatum = leaf_batch_datum_new();
+    let mut ck: DatumCol = datum_col_new();
+    ck.cells.push(key);
+    d.cols.push(ck);
+    let mut cv: DatumCol = datum_col_new();
+    let mut i: i64 = 0i64;
+    while i < vals {
+        let mut vb: Vec<u8> = vec_new::<u8>();
+        vb.push(tag);
+        vb.push(i as u8);
+        cv.spans.push_span(vb.as_slice());
+        i = i + 1i64;
+    }
+    d.cols.push(cv);
+    d.cols.push(datum_col_new());
+    return d;
+}
+
+// stream-by-stream agreement of two nodes under the multimap schema
+unsafe fn mm_agree(x: *mut PkdAlloc, y: *mut PkdAlloc) -> bool {
+    let kx: PdtBuf = pdtbuf_adopt(x.get::<u8>(0u32));
+    let ky: PdtBuf = pdtbuf_adopt(y.get::<u8>(0u32));
+    if kx.size() != ky.size() { return false; }
+    let mut i: u64 = 0u64;
+    while i < kx.size() {
+        if kx.get(0u32, i) != ky.get(0u32, i) { return false; }
+        i = i + 1u64;
+    }
+    let vx: PdtBuf = pdtbuf_adopt(x.get::<u8>(1u32));
+    let vy: PdtBuf = pdtbuf_adopt(y.get::<u8>(1u32));
+    if vx.size() != vy.size() { return false; }
+    let mut r: u64 = 0u64;
+    while r < vx.size() {
+        let sx: &[u8] = vx.row_span(0u32, 0u32, r);
+        let sy: &[u8] = vy.row_span(0u32, 0u32, r);
+        if sx.len() != sy.len() { return false; }
+        let mut b: i64 = 0i64;
+        while b < sx.len() {
+            if sx[b] != sy[b] { return false; }
+            b = b + 1i64;
+        }
+        r = r + 1u64;
+    }
+    let qx: PkdSsrle = pkd_ssrle_adopt(x.get::<u8>(2u32));
+    let qy: PkdSsrle = pkd_ssrle_adopt(y.get::<u8>(2u32));
+    if qx.size() != qy.size() { return false; }
+    let mut p: u64 = 0u64;
+    while p <= qx.size() {
+        if qx.rank_eq(p, 0u64) != qy.rank_eq(p, 0u64) { return false; }
+        if qx.rank_eq(p, 1u64) != qy.rank_eq(p, 1u64) { return false; }
+        p = p + 1u64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    unsafe {
+        // ── the multimap schema: interleaved entry inserts, kernel and
+        // interpreter driven by the SAME script ──
+        let mut sch: NodeSchema = node_schema_new();
+        sch.streams.push(sd_fse(8u32, true));
+        sch.streams.push(sd_vle());
+        sch.streams.push(sd_ssrle(2u32));
+        let ma: *mut u8 = alloc(4096i64);
+        let ka: *mut PkdAlloc = pkd_format(ma, 4096u32, 3u32);
+        alg_fmt_node(ka, &sch);
+        let mb: *mut u8 = alloc(4096i64);
+        let ib: *mut PkdAlloc = pkd_format(mb, 4096u32, 3u32);
+        alg_fmt_node(ib, &sch);
+
+        // script: (key, vals, i0) — appends, front insert, middle insert,
+        // empty-value entry (0 spans: sseq gets a lone 0-symbol)
+        let mut t: i64 = 0i64;
+        while t < 8i64 {
+            let key: u64 = 100u64 * (t as u64) + 7u64;
+            let vals: i64 = (t * 3i64 + 1i64) % 4i64;    // 1,0,3,2,...
+            let tag: u8 = (0x40i64 + t) as u8;
+            let count: u64 = pdtbuf_adopt(ka.get::<u8>(0u32)).size();
+            let mut i0: u64 = 0u64;
+            if t % 3i64 == 0i64 {
+                i0 = count;                                // append
+            } else if t % 3i64 == 1i64 {
+                i0 = 0u64;                                 // front
+            } else {
+                i0 = count / 2u64;                         // middle
+            }
+            let dk: LeafBatchDatum = mm_datum(key, vals, tag);
+            let rk: bool = MmK_entry_ins(ka, i0, &dk);
+            let mut di: LeafBatchDatum = mm_datum(key, vals, tag);
+            let ri: bool = alg_entry_ins(ib, &sch, i0, &mut di);
+            if rk != ri { return 1i32; }
+            if !rk { return 2i32; }
+            if !mm_agree(ka, ib) { return 3i32; }
+            t = t + 1i64;
+        }
+        dealloc(ma);
+        dealloc(mb);
+
+        // ── the rejection boundary: a tiny node — kernel and interpreter
+        // must refuse the SAME first entry, leaving twins consistent ──
+        let mc: *mut u8 = alloc(4096i64);
+        let kc: *mut PkdAlloc = pkd_format(mc, 704u32, 3u32);
+        alg_fmt_node(kc, &sch);
+        let md: *mut u8 = alloc(4096i64);
+        let id: *mut PkdAlloc = pkd_format(md, 704u32, 3u32);
+        alg_fmt_node(id, &sch);
+        let mut n: u64 = 0u64;
+        loop {
+            let dk2: LeafBatchDatum = mm_datum(n, 2i64, 0x55u8);
+            let rk2: bool = MmK_entry_ins(kc, n, &dk2);
+            let mut di2: LeafBatchDatum = mm_datum(n, 2i64, 0x55u8);
+            let ri2: bool = alg_entry_ins(id, &sch, n, &mut di2);
+            if rk2 != ri2 { return 4i32; }
+            if !rk2 {
+                break;
+            }
+            if !mm_agree(kc, id) { return 5i32; }
+            n = n + 1u64;
+            if n > 64u64 { return 6i32; }
+        }
+        if n == 0u64 { return 7i32; }     // must land at least one
+        if !mm_agree(kc, id) { return 8i32; }
+        dealloc(mc);
+        dealloc(md);
+
+        // ── the FSE map shape (no structure stream) ──
+        let mut msch: NodeSchema = node_schema_new();
+        msch.streams.push(sd_fse(8u32, true));
+        msch.streams.push(sd_fse(8u32, false));
+        let me: *mut u8 = alloc(4096i64);
+        let ke: *mut PkdAlloc = pkd_format(me, 4096u32, 2u32);
+        alg_fmt_node(ke, &msch);
+        let mf: *mut u8 = alloc(4096i64);
+        let ifn: *mut PkdAlloc = pkd_format(mf, 4096u32, 2u32);
+        alg_fmt_node(ifn, &msch);
+        let mut u: u64 = 0u64;
+        while u < 32u64 {
+            let mut dk3: LeafBatchDatum = leaf_batch_datum_new();
+            let mut c0: DatumCol = datum_col_new();
+            c0.cells.push(u * 10u64);
+            dk3.cols.push(c0);
+            let mut c1: DatumCol = datum_col_new();
+            c1.cells.push(u * 10u64 + 1u64);
+            dk3.cols.push(c1);
+            let pos: u64 = u / 2u64;      // interior inserts
+            if !MapK_entry_ins(ke, pos, &dk3) { return 9i32; }
+            let mut di3: LeafBatchDatum = leaf_batch_datum_new();
+            let mut e0: DatumCol = datum_col_new();
+            e0.cells.push(u * 10u64);
+            di3.cols.push(e0);
+            let mut e1: DatumCol = datum_col_new();
+            e1.cells.push(u * 10u64 + 1u64);
+            di3.cols.push(e1);
+            if !alg_entry_ins(ifn, &msch, pos, &mut di3) { return 10i32; }
+            u = u + 1u64;
+        }
+        {
+            let kx: PdtBuf = pdtbuf_adopt(ke.get::<u8>(0u32));
+            let ky: PdtBuf = pdtbuf_adopt(ifn.get::<u8>(0u32));
+            let vx: PdtBuf = pdtbuf_adopt(ke.get::<u8>(1u32));
+            let vy: PdtBuf = pdtbuf_adopt(ifn.get::<u8>(1u32));
+            if kx.size() != 32u64 || ky.size() != 32u64 { return 11i32; }
+            let mut w: u64 = 0u64;
+            while w < 32u64 {
+                if kx.get(0u32, w) != ky.get(0u32, w) { return 12i32; }
+                if vx.get(0u32, w) != vy.get(0u32, w) { return 13i32; }
+                w = w + 1u64;
+            }
+        }
+        dealloc(me);
+        dealloc(mf);
+    }
+    return 0i32;
+}
