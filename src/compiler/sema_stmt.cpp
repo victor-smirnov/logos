@@ -9860,7 +9860,8 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                             if ((sc == la::EXPR_STMT || sc == la::TAIL_EXPR) && s.has_key(la::VALUE))
                                 last_expr = lower_expr_temp_scoped(map_of(s.get(la::VALUE.code)));
                             else if (sc != la::EXPR_STMT && sc != la::TAIL_EXPR && sc != la::LET &&
-                                     sc != la::LET_DESTRUCT && sc != la::RETURN)
+                                     sc != la::LET_DESTRUCT && sc != la::RETURN &&
+                                     !is_stmt_only_code(sc))
                                 last_expr = lower_expr_temp_scoped(s);
                             else
                                 blk.push_back(lower_stmt(s));

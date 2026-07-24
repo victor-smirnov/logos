@@ -1,0 +1,75 @@
+// Statement FOLDS in quote_expr! block templates: `#( <stmt> )*` at
+// statement position expands to N substituted statements spliced into the
+// enclosing block (no separator — sequence IS the join). Two cursor
+// flavors: a Vec<Ident> cursor in a homogeneous body, and a Vec<ExprBlob>
+// cursor whose elements are HETEROGENEOUS pre-built block-exprs — the form
+// that lets a generator lay kind-varied per-element bodies straight-line
+// (the alg_kernel/derive_ord shape; previously worked around with runtime
+// Vec accumulators or per-element fragment fns).
+package quote_expr_stmt_fold;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+
+// homogeneous body, Ident cursor
+#[fn_macro]
+pub fn sum3(args: Vec<ExprBlob>) -> ExprBlob {
+    let mut names: Vec<Ident> = vec_new::<Ident>();
+    names.push(Ident::new("a1"));
+    names.push(Ident::new("a2"));
+    names.push(Ident::new("a3"));
+    return quote_expr! {
+        {
+            let mut acc: i64 = 0i64;
+            #( acc = acc + #names; )*
+            acc
+        }
+    };
+}
+
+// heterogeneous bodies: each element is its own pre-built block-expr —
+// spliced blocks in EXPR_STMT position used to VANISH (lower_block_expr
+// shoved a stmt-only tail through lower_expr, whose default is a silent
+// error_expr); is_stmt_only_code now routes them through lower_stmt.
+#[fn_macro]
+pub fn runsteps(args: Vec<ExprBlob>) -> ExprBlob {
+    let mut frags: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    frags.push(parse_expr("{ t = t + 5i64; }"));
+    frags.push(parse_expr("{ t = t * 3i64; }"));
+    return quote_expr! {
+        {
+            let mut t: i64 = 1i64;
+            #( #frags; )*
+            t
+        }
+    };
+}
+
+// the same cursor under a bare scoping block (BLOCK_STMT registration)
+#[fn_macro]
+pub fn wrapped(args: Vec<ExprBlob>) -> ExprBlob {
+    let mut frags: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    frags.push(parse_expr("q.push(2i64)"));
+    frags.push(parse_expr("q.push(4i64)"));
+    return quote_expr! {
+        {
+            let mut q: Vec<i64> = vec_new::<i64>();
+            #( { #frags; } )*
+            q
+        }
+    };
+}
+
+fn main() -> i32 {
+    let a1: i64 = 10i64;
+    let a2: i64 = 20i64;
+    let a3: i64 = 30i64;
+    let s: i64 = sum3!();
+    if s != 60i64 { return 1i32; }
+    let r: i64 = runsteps!();      // (1+5)*3 = 18
+    if r != 18i64 { return 2i32; }
+    let q: Vec<i64> = wrapped!();
+    if q.length() != 2i64 { return 3i32; }
+    if q.get(0i64) + q.get(1i64) != 6i64 { return 4i32; }
+    return 0i32;
+}

@@ -4436,6 +4436,7 @@ private:
     lir::LExprPtr lower_macro_concat_bytes(writ::TinyMapView node);
     // Bare `{ stmts; tail_expr }` as expression — lowers a BLOCK AST node
     // as an expr whose value is the tail expression (or void if absent).
+    static bool is_stmt_only_code(int32_t c);
     lir::LExprPtr lower_block_expr(writ::TinyMapView node);
     // Item-position metacall (MC1.1). Synthesises a void thunk that wraps
     // the inner callee — `let __b = call(); logos_emit_item_blob_subst(&__b);`

@@ -15047,6 +15047,29 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
 //
 // Mirrors the local `lower_block_last_expr` lambda in lower_if_expr; the
 // two paths could be unified once block-as-expression is settled.
+// Statement-ONLY node codes: shapes lower_expr cannot lower (its default is a
+// SILENT error_expr — an assign in a block-expr tail used to just vanish). A
+// block whose last item is one of these lowers it via lower_stmt and types the
+// block VOID; a match arm requiring a value reports its explicit error instead.
+bool SemaChecker::is_stmt_only_code(int32_t c) {
+    namespace la = logos::compiler::ast;
+    return c == la::ASSIGN.code || c == la::COMPOUND_ASSIGN.code
+        || c == la::PLACE_ASSIGN.code || c == la::DESTRUCTURE_ASSIGN.code
+        || c == la::FIELD_WRITE.code || c == la::INDEX_WRITE.code
+        || c == la::FIELD_INDEX_WRITE.code || c == la::DEREF_FIELD_WRITE.code
+        || c == la::TUPLE_FIELD_WRITE.code || c == la::CHAIN_FIELD_WRITE.code
+        || c == la::FIELD_COMPOUND_ASSIGN.code || c == la::INDEX_COMPOUND_ASSIGN.code
+        || c == la::DEREF_FIELD_COMPOUND_ASSIGN.code
+        || c == la::TUPLE_FIELD_COMPOUND_ASSIGN.code
+        || c == la::FIELD_INDEX_COMPOUND_ASSIGN.code
+        || c == la::CHAIN_FIELD_COMPOUND_ASSIGN.code
+        || c == la::DEREF_WRITE.code
+        || c == la::WHILE.code || c == la::FOR.code || c == la::FOR_EACH.code
+        || c == la::BREAK.code || c == la::CONTINUE.code
+        || c == la::NESTED_FN.code || c == la::BLOCK_STMT.code
+        || c == la::LET_ELSE.code;
+}
+
 lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
     if (!node.has_key(la::ITEMS)) {
         // Empty block evaluates to void.
@@ -15097,7 +15120,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
             }
             if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR
                 && lc != la::LET && lc != la::LET_DESTRUCT
-                && lc != la::RETURN) {
+                && lc != la::RETURN && !is_stmt_only_code(lc)) {
                 result = lower_expr(s);
                 continue;
             }
@@ -18081,7 +18104,11 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             return recurse_key(la::RHS.code);
         }
         if (cd == la::PAREN_EXPR.code || cd == la::UNARY.code
-            || cd == la::CAST.code) {
+            || cd == la::CAST.code || cd == la::DEREF.code) {
+            return recurse_key(la::VALUE.code);
+        }
+        if (cd == la::INDEX_READ.code || cd == la::PLACE_ASSIGN.code) {
+            if (!recurse_key(la::RECEIVER.code)) return false;
             return recurse_key(la::VALUE.code);
         }
         if (cd == la::FIELD_READ.code) {
@@ -18175,6 +18202,12 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         if (cd == la::FIELD_SHORTHAND.code) {
             return true;
         }
+        // Bare scoping / unsafe blocks wrap their BLOCK under BODY —
+        // unwrap so antiquotes inside `{ ... }` / `unsafe { ... }` at stmt
+        // position register.
+        if (cd == la::BLOCK_STMT.code || cd == la::UNSAFE_BLOCK.code) {
+            return recurse_key(la::BODY.code);
+        }
         // Slice 1.6: ARR_LIT / TUPLE_LIT / BLOCK — iterate ITEMS so
         // REPEAT_GROUP and ExprBlob antiquots inside `[...]`, `(...)`,
         // and `{ stmts; tail }` get registered.
@@ -18199,7 +18232,11 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         // payload expression where `#name` / `#(expr)*` may live.
         if (cd == la::LET.code || cd == la::LET_DESTRUCT.code
             || cd == la::EXPR_STMT.code || cd == la::TAIL_EXPR.code
-            || cd == la::RETURN.code) {
+            || cd == la::RETURN.code
+            // the write family: the payload rides VALUE; ASSIGN's NAME and
+            // COMPOUND_ASSIGN's RECEIVER are IDENT leaf-strings (never
+            // recurse — the CALLEE-string hazard)
+            || cd == la::ASSIGN.code || cd == la::COMPOUND_ASSIGN.code) {
             return recurse_key(la::VALUE.code);
         }
         // IF (both expression and statement form): COND / THEN / ELSE
