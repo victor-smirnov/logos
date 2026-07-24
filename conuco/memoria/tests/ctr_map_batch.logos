@@ -13,6 +13,8 @@ package test;
 
 use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
 use logos.lcm.canon.metaclass;        // create_ctr / open_ctr
+use logos.lcm.canon.adapter;          // #[batch_entry] — the adapter metafunction
+use logos.std.compiler.metaprog;      // the handler kit (annotation dispatch)
 use logos.mem.bt.map;                 // trait hub
 use logos.mem.bt.memstore;
 use logos.mem.sync;                   // Arc — the store/snapshot plane
@@ -28,6 +30,23 @@ pub const FastCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "va
 pub type FastMap = CtrClass<FastCfg>;
 pub const VolCfg: WritStatic = @{ "kind": "ordered_map", "key": <type:u64>, "value": "str" };
 pub type VolMap = CtrClass<VolCfg>;
+
+// ── application entry structs (the metaprog adapters) ───────────────────────
+// #[batch_entry] reads the fields, validates against the encodable set and
+// emits the adapter-trait impl (BatchMapEntry / BatchMapEntryVol) with the
+// casts — the buffer's push_from/extend_from accept them via the trait seam.
+
+#[batch_entry]
+struct Order {
+    id: u32,          // narrower than the column — the adapter casts
+    amount: u64,
+}
+
+#[batch_entry]
+struct Remark {
+    id: u64,
+    text: str,
+}
 
 // deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
 struct Lcg {
@@ -352,7 +371,67 @@ fn run_all() -> i32 {
                 return 50i32;
             }
         }
+
+        // ── 51..59: the METAPROG ADAPTERS (#[batch_entry] → extend_from) ────
+        // Volume flavor: application Remark structs through the trait seam.
+        {
+            let mut items: Vec<Remark> = vec_new::<Remark>();
+            let mut i: u64 = 0u64;
+            while i < 50u64 {
+                items.push(Remark { id: 200000u64 + i, text: "adapted-remark" });
+                i = i + 1u64;
+            }
+            let mut buf = mv.make_buffer();
+            buf.extend_from(&items);
+            if buf.len() != 50u64 {
+                return 51i32;
+            }
+            if !mv.insert_batch(&buf) {
+                return 52i32;
+            }
+            if mv.size() != 850u64 {
+                return 53i32;
+            }
+            if mv.get_or(200007u64).len() != 14i64 {
+                return 54i32;
+            }
+        }
         snapv.commit();
+    }
+
+    // Fast flavor: Order structs (u32 key field — the adapter's cast) into a
+    // fresh fast map.
+    {
+        let mut store3: Arc<MemoryStore> = store_new();
+        let snapf: Arc<dyn Snapshot> = store_fork_arc(&mut store3);
+        let mf = create_ctr::<FastMap>(&snapf, 1u64);
+        let mut items: Vec<Order> = vec_new::<Order>();
+        let mut i: u64 = 0u64;
+        while i < 300u64 {
+            items.push(Order { id: (i * 3u64) as u32, amount: i * 100u64 });
+            i = i + 1u64;
+        }
+        let mut buf = mf.make_buffer();
+        buf.extend_from(&items);
+        if !mf.insert_batch(&buf) {
+            return 55i32;
+        }
+        if mf.size() != 300u64 {
+            return 56i32;
+        }
+        if mf.get_or(297u64, 0xDEADu64) != 9900u64 {
+            return 57i32;
+        }
+        // single push_from on top
+        let mut b2 = mf.make_buffer();
+        b2.push_from(&Order { id: 100000u32, amount: 42u64 });
+        if !mf.insert_batch(&b2) {
+            return 58i32;
+        }
+        if mf.get_or(100000u64, 0u64) != 42u64 {
+            return 59i32;
+        }
+        snapf.commit();
     }
 
     return 0i32;

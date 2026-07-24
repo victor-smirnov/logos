@@ -26,6 +26,8 @@ package test;
 
 use memoria.ctr.multimap;             // the generic declaration (binary module)
 use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
+use logos.lcm.canon.adapter;          // #[batch_entry] — the adapter metafunction
+use logos.std.compiler.metaprog;      // the handler kit (annotation dispatch)
 use logos.lcm.canon.metaclass;        // create_ctr / open_ctr (mono demand surface)
 use logos.mem.bt.btfl;
 use logos.mem.bt.node;                // Btfl<2, CowProfile> + the runtime law surface
@@ -36,6 +38,14 @@ use logos.lang.arith;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.std.io;
+
+// An application entry for the ADAPTER path: #[batch_entry] infers the
+// multimap flavor from (int, Vec<u64>) and emits the BatchMmEntry impl.
+#[batch_entry]
+struct Reading {
+    sensor: u64,
+    samples: Vec<u64>,
+}
 
 // deterministic LCG (Knuth MMIX) — wrapping BY DESIGN
 struct Lcg {
@@ -560,6 +570,45 @@ fn run_all() -> i32 {
                     return 79i32;
                 }
                 n2 = n2 + 97i64;
+            }
+        }
+        // (e) the METAPROG ADAPTER: application Reading structs through the
+        // trait seam (#[batch_entry] emitted the BatchMmEntry impl)
+        {
+            let mut items: Vec<Reading> = vec_new::<Reading>();
+            let mut i: u64 = 0u64;
+            while i < 40u64 {
+                let mut s: Vec<u64> = vec_new::<u64>();
+                let mut j: u64 = 0u64;
+                while j < i % 4u64 {
+                    s.push(i * 10u64 + j);
+                    j = j + 1u64;
+                }
+                items.push(Reading { sensor: 900000u64 + i * 2u64, samples: s });
+                i = i + 1u64;
+            }
+            let mut buf = hc.make_buffer();
+            buf.extend_from(&items);
+            if buf.len() != 40u64 {
+                return 80i32;
+            }
+            let before: u64 = hc.count(0u64);
+            if !hc.insert_batch(&buf) {
+                return 81i32;
+            }
+            if hc.count(0u64) != before + 40u64 {
+                return 82i32;
+            }
+            // spot: sensor 900006 carries samples {30, 31, 32}
+            let mut got: Vec<u64> = vec_new::<u64>();
+            if !hc.find(900006u64, &mut got) {
+                return 83i32;
+            }
+            if got.len() != 3i64 || got.get(0i64) != 30u64 {
+                return 84i32;
+            }
+            if !hc.check() {
+                return 85i32;
             }
         }
     }

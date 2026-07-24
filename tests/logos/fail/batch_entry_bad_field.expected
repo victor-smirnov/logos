@@ -1,0 +1,1 @@
+batch_entry: struct 'Bad', field 'weight': the VALUE field must be an integer (fast map), str (volume map) or Vec<u64> (multimap)

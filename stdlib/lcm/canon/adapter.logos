@@ -1,0 +1,174 @@
+// logos.lcm.canon.adapter — the batch-entry ADAPTER metafunction (the
+// metaprog-adapter arc, stage A of the PAIR design: application structures
+// → staging buffers).
+//
+//     #[batch_entry]
+//     struct Order { id: u64, note: str }
+//
+// reads the annotated struct's fields, VALIDATES them against the encodable
+// set with metafunction-time diagnostics (a bad field fails THE COMPILE with
+// the field named — not a "your generated sheet doesn't compile" somewhere
+// downstream), and emits the matching adapter-trait impl with the casts:
+//
+//     2 fields, int + int        → impl BatchMapEntry     (fast map)
+//     2 fields, int + str        → impl BatchMapEntryVol  (volume map)
+//     2 fields, int + Vec<u64>   → impl BatchMmEntry      (multimap)
+//
+// The trait is the seam (logos.mem.bt.map): the generated family buffers
+// accept any implementor through push_from/extend_from, so the
+// factory-hashed buffer type is never named in user code. The flavor is
+// INFERRED from the struct in v0; cross-checking against a named container
+// CFG document waits on the annotation-argument channel of the handler API
+// (the metaprog-diagnostics arc) — recorded there.
+package logos.lcm.canon.adapter;
+
+use logos.std.compiler.metaprog;   // OView / quotes / emit — the handler kit
+use logos.mem.collections.vec;
+use logos.lang.writ.anyval;
+use logos.mem.bt.map;              // the adapter traits (hub — also carries
+                                   // the module edge for the emitted impls)
+use logos.mem.string;
+
+// the encodable integer set (u64-castable cells; bool excluded in v0 —
+// its cast verdict rides the Canon column rules, not this adapter)
+fn ad_is_int(t: &SView) -> bool {
+    let names: [str; 10] = ["u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
+                            "usize", "isize"];
+    let mut i: i64 = 0i64;
+    while i < 10i64 {
+        if sview_eq_str(t, names[i]) {
+            return true;
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn sview_eq_str(v: &SView, s: str) -> bool {
+    if v.len != s.len() as u64 {
+        return false;
+    }
+    let mut i: u64 = 0u64;
+    while i < v.len {
+        if unsafe { *v.ptr.add(i as u32) } != str_byte_at(s, i as i64) {
+            return false;
+        }
+        i = i + 1u64;
+    }
+    return true;
+}
+
+fn ad_err(prefix: str, nm: &SView, field: &SView, detail: str) {
+    let mut msg: String = String::new();
+    msg.push_str("batch_entry: struct '");
+    msg.push_bytes(nm.ptr, nm.len as i64);
+    msg.push_str("'");
+    if field.len > 0u64 {
+        msg.push_str(", field '");
+        msg.push_bytes(field.ptr, field.len as i64);
+        msg.push_str("'");
+    }
+    msg.push_str(": ");
+    msg.push_str(prefix);
+    msg.push_str(detail);
+    error(msg.as_str());
+}
+
+#[metaprog_handler("batch_entry")]
+fn batch_entry_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) {
+        return;
+    }
+    let item: WAny = view.node_at(target_offset);
+    let nm_sv: SView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) {
+        return;
+    }
+    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+    let none: SView = SView { ptr: 0 as *const u8, len: 0u64 };
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    if nf != 2u64 {
+        ad_err("a batch entry needs exactly two fields (key, value); this struct has ", &nm_sv, &none,
+               if nf < 2u64 { "fewer" } else { "more" });
+        return;
+    }
+    let f0: WAny = view.ast_struct_field(item, 0u64);
+    let f1: WAny = view.ast_struct_field(item, 1u64);
+    let f0n: SView = view.ast_field_name(f0);
+    let f1n: SView = view.ast_field_name(f1);
+    let f0t: SView = view.ast_field_type_name(f0);
+    let f1t: SView = view.ast_field_type_name(f1);
+
+    if !ad_is_int(&f0t) {
+        ad_err("the KEY field must be an integer type (u8..u64 / i8..i64 / usize / isize)",
+               &nm_sv, &f0n, "");
+        return;
+    }
+    let kf: Ident = Ident { ptr: f0n.ptr, len: f0n.len };
+    let vf: Ident = Ident { ptr: f1n.ptr, len: f1n.len };
+
+    if ad_is_int(&f1t) {
+        // fast map entry
+        let blob: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.map;
+            impl BatchMapEntry for #nm {
+                fn key_cell(self: &#nm) -> u64 {
+                    return self.#kf as u64;
+                }
+                fn val_cell(self: &#nm) -> u64 {
+                    return self.#vf as u64;
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+        return;
+    }
+    if sview_eq_str(&f1t, "str") {
+        // volume map entry
+        let blob: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.map;
+            impl BatchMapEntryVol for #nm {
+                fn key_cell(self: &#nm) -> u64 {
+                    return self.#kf as u64;
+                }
+                fn val_str(self: &#nm) -> str {
+                    return self.#vf;
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+        return;
+    }
+    if sview_eq_str(&f1t, "Vec") {
+        let a0: SView = view.ast_field_type_arg0_name(f1);
+        if !sview_eq_str(&a0, "u64") {
+            ad_err("a multimap value run must be Vec<u64> (generic element types land with 8c)",
+                   &nm_sv, &f1n, "");
+            return;
+        }
+        // multimap entry
+        let blob: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.map;
+            use logos.mem.collections.vec;
+            impl BatchMmEntry for #nm {
+                fn key_cell(self: &#nm) -> u64 {
+                    return self.#kf as u64;
+                }
+                fn val_run(self: &#nm, out: &mut Vec<u64>) {
+                    let mut i: i64 = 0i64;
+                    while i < self.#vf.length() {
+                        out.push(self.#vf.get(i));
+                        i = i + 1i64;
+                    }
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+        return;
+    }
+    ad_err("the VALUE field must be an integer (fast map), str (volume map) or Vec<u64> (multimap)",
+           &nm_sv, &f1n, "");
+    return;
+}

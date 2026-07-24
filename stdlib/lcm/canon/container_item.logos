@@ -1709,6 +1709,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     if vol {
         let bp: QuoteItemBlob = quote_item! {
             use logos.mem.bt.pack;
+            use logos.mem.bt.map;         // BatchMapEntryVol — the adapter seam
+            use logos.mem.collections.vec;
             use logos.lang.slice;
             use logos.lang.panic;
             impl #bufid {
@@ -1721,14 +1723,46 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                                              slice_from_raw::<u8>(val.as_ptr(), val.len()));
                     }
                 }
+                /// One adapter-implementing application entry.
+                pub fn push_from<T: BatchMapEntryVol>(self: &mut #bufid, e: &T) {
+                    let v: str = e.val_str();
+                    assert(8i64 + v.len() <= 1024i64,
+                           "batch: value exceeds the entry bound (1/4 block)");
+                    unsafe {
+                        self.inner.push_span(e.key_cell(),
+                                             slice_from_raw::<u8>(v.as_ptr(), v.len()));
+                    }
+                }
+                /// A whole collection of adapter entries.
+                pub fn extend_from<T: BatchMapEntryVol>(self: &mut #bufid, items: &Vec<T>) {
+                    let mut i: i64 = 0i64;
+                    while i < items.length() {
+                        self.push_from(items.borrow(i));
+                        i = i + 1i64;
+                    }
+                }
             }
         };
         unsafe { logos_emit_item_blob_subst(&bp); }
     } else {
         let bp: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.map;         // BatchMapEntry — the adapter seam
+            use logos.mem.collections.vec;
             impl #bufid {
                 pub fn push(self: &mut #bufid, key: #(kid), val: #(vi)) {
                     self.inner.push_cell(key as u64, val as u64);
+                }
+                /// One adapter-implementing application entry.
+                pub fn push_from<T: BatchMapEntry>(self: &mut #bufid, e: &T) {
+                    self.inner.push_cell(e.key_cell(), e.val_cell());
+                }
+                /// A whole collection of adapter entries.
+                pub fn extend_from<T: BatchMapEntry>(self: &mut #bufid, items: &Vec<T>) {
+                    let mut i: i64 = 0i64;
+                    while i < items.length() {
+                        self.push_from(items.borrow(i));
+                        i = i + 1i64;
+                    }
                 }
             }
         };
@@ -2238,6 +2272,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
     let mbq: QuoteItemBlob = quote_item! {
         use logos.mem.bt.btfl;
         use logos.mem.bt.node;
+        use logos.mem.bt.map;             // BatchMmEntry — the adapter seam
         use logos.mem.bt.memstore;
         use logos.mem.collections.vec;
         pub struct #mbufid { inner: BtflBuf }
@@ -2246,6 +2281,20 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             /// Append one entry: `key` with its value run.
             pub fn push(self: &mut #mbufid, key: u64, vals: &Vec<u64>) {
                 self.inner.push_entry(key, vals);
+            }
+            /// One adapter-implementing application entry (BatchMmEntry).
+            pub fn push_from<T: BatchMmEntry>(self: &mut #mbufid, e: &T) {
+                let mut run: Vec<u64> = vec_new::<u64>();
+                e.val_run(&mut run);
+                self.inner.push_entry(e.key_cell(), &run);
+            }
+            /// A whole collection of adapter entries.
+            pub fn extend_from<T: BatchMmEntry>(self: &mut #mbufid, items: &Vec<T>) {
+                let mut i: i64 = 0i64;
+                while i < items.length() {
+                    self.push_from(items.borrow(i));
+                    i = i + 1i64;
+                }
             }
         }
         impl #nm {

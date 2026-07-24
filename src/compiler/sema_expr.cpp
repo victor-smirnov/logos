@@ -9935,10 +9935,34 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // path. Without the gate, auto-ref'ing arc here triggers mono-time
     // re-emit of Arc::deref_mut's body in the caller package and
     // exposes private ArcInner — a separate cross-package mono fragility.
+    // Method-level = declared BEYOND the receiver struct's own type params.
+    // Deliberately NOT read off struct_subst: this path seeds struct_subst
+    // with EVERY resolved param (incl. inferred method-level ones, for the
+    // ret-type substitution below), so "present in struct_subst" said
+    // struct-level for `push_from<T>` on a CONCRETE struct, the auto-ref was
+    // skipped, and borrowck MOVED the bare by-value receiver at the call
+    // (`buf.push_from(&e); buf.len()` → "use of moved value").
     bool fi_has_method_level_tparam = false;
-    if (!fi.type_params.empty() && !struct_subst.empty()) {
+    if (!fi.type_params.empty()) {
+        std::set<std::string> struct_tps;
+        if (TypeRef rst = expr_type(recv)) {
+            TypeRef r2 = rst;
+            if (is_ref_like(r2.kind()) && r2.pointee()) r2 = TypeRef(r2.pointee());
+            std::string_view sn;
+            if (r2.kind() == LogosType::Kind::Struct ||
+                r2.kind() == LogosType::Kind::ZonedStruct)
+                sn = r2.struct_name();
+            else if (r2.kind() == LogosType::Kind::Enum)
+                sn = r2.enum_name();
+            if (!sn.empty()) {
+                if (auto [_, si] = find_struct_by_name(std::string(sn)); si)
+                    for (auto& tp : si->type_params) struct_tps.insert(tp.name);
+                else if (auto [_e, ei] = find_enum_by_name(std::string(sn)); ei)
+                    for (auto& tp : ei->type_params) struct_tps.insert(tp.name);
+            }
+        }
         for (auto& tp : fi.type_params)
-            if (!struct_subst.count(tp.name)) { fi_has_method_level_tparam = true; break; }
+            if (!struct_tps.count(tp.name)) { fi_has_method_level_tparam = true; break; }
     }
     if (fi_has_method_level_tparam && !fi.param_types.empty()) {
         auto formal0 = subst_type_sema(fi.param_types[0], struct_subst);

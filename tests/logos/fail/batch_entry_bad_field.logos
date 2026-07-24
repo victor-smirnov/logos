@@ -1,0 +1,19 @@
+// The batch-entry adapter's METAFUNCTION-TIME diagnostics (the contrast
+// with proc-macro's "your generated sheet doesn't compile somewhere"): a
+// field outside the encodable set fails the COMPILE with the struct and
+// field NAMED. f64 is not an encodable cell type in v0.
+package main;
+
+use logos.lcm.canon.adapter;         // #[batch_entry]
+use logos.std.compiler.metaprog;     // the handler kit
+use logos.mem.bt.map;                // the adapter traits
+
+#[batch_entry]
+struct Bad {
+    id: u64,
+    weight: f64,
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

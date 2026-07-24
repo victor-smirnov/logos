@@ -115,6 +115,35 @@ pub fn uid256_eq(x: &Uid256, y: &Uid256) -> bool {
     return true;
 }
 
+// ── batch-entry ADAPTER traits (the metaprog-adapter seam) ──────────────────
+//
+// An application struct becomes batch-insertable by implementing one of
+// these — normally through `#[batch_entry]` (logos.lcm.canon.adapter), which
+// reads the struct's fields, VALIDATES them against the encodable set with
+// metafunction-time diagnostics, and emits the impl with the field casts.
+// The generated family buffers accept any implementor through
+// `push_from`/`extend_from` — the trait is the seam, so the factory-hashed
+// buffer type never needs naming in user code.
+
+/// One (key, value) entry of a FAST map batch — cells in the staging domain.
+pub trait BatchMapEntry {
+    fn key_cell(self: &Self) -> u64;
+    fn val_cell(self: &Self) -> u64;
+}
+
+/// One (key, value) entry of a VOLUME map batch — the value by view.
+pub trait BatchMapEntryVol {
+    fn key_cell(self: &Self) -> u64;
+    fn val_str(self: &Self) -> str;
+}
+
+/// One (key, value-run) entry of a multimap batch.
+pub trait BatchMmEntry {
+    fn key_cell(self: &Self) -> u64;
+    /// Append the entry's value run to `out` (cleared by the caller).
+    fn val_run(self: &Self, out: &mut Vec<u64>);
+}
+
 /// The 2-stream multimap FAMILY boundary (bt_fl's only client today):
 /// key → value sequence. Refines Ctr; the generated family handle implements
 /// it, and Deem drives inserts/lookups through `&mut dyn Multimap` without
