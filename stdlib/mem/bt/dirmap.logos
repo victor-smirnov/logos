@@ -18,19 +18,23 @@
 //   BRANCH — slot 0 = separators (MAX = subtree max key), slot 1 = child refs
 //            (declared child_slot ⇒ the ordinary structural spine).
 //
-// REFCOUNT DISCIPLINE (each parent slot owns exactly one rc on its target):
-//   - cow_clone of a node inc_rc's every ref it holds (children for a branch,
-//     container roots for a leaf) — the clone's slots each acquire ownership.
-//   - a value-ref overwrite (container repoint) tree_release's the DISPLACED
-//     ref (the slot relinquishes its old target).
-//   - a child repoint tree_release's the old child (mirrors bt_cow_insert).
-//   - the CALLER transfers an OWNED ref into `dir_set` (a fresh container root
-//     carries its alloc-rc; a reused root the caller inc_rc's first — the
-//     root-split graft case lives in the store, not here).
+// REFCOUNT DISCIPLINE (the store drives this; see logos.mem.bt.memstore):
+//   - fork SHARES the directory root (one inc_rc); container roots are NOT
+//     bumped eagerly. A snapshot acquires its own ownership of a container root
+//     LAZILY, when it first PRIVATIZES the leaf that holds it (`dir_privatize`
+//     / `dir_leaf_private` inc_rc's every ref on the cloned leaf).
+//   - a container mutation goes: `dir_privatize(key)` (clone the path, bump the
+//     roots, read the current root) → the container engine mutates + releases
+//     the OLD root exactly as it always has (that release is balanced by the
+//     privatize bump) → `dir_set(key, new_root)` repoints the slot WITHOUT
+//     releasing (the engine already did). So `dir_set` never frees a container
+//     root — the engines stay untouched.
+//   - a child repoint during either walk tree_release's the old child (its
+//     clone bumped it); freeing a directory leaf cascades to its roots
+//     (node.logos tree_release, via value_ref_slot).
 //
-// This mirrors bt_cow_insert deliberately; a later unification could route the
-// directory through the generic engine once the ref-value datatype is a
-// first-class column behaviour rather than a header flag.
+// This split (privatize-then-repoint) is what lets the directory be a real CoW
+// container while the container engines keep their flat-store root lifecycle.
 package logos.mem.bt.dirmap;
 
 use logos.mem.pkd;               // PkdAlloc
@@ -254,13 +258,11 @@ unsafe fn dir_set_rec(node: *mut u8, level: u32, key: u64, new_ref: u64, cur: u6
         let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
         let cnt: u32 = kb.size() as u32;
         if pos < cnt && kb.get(0u32, pos as u64) == key {
-            // OVERWRITE: the slot relinquishes its old container root.
-            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
-            let old_ref: u64 = vb.get(0u32, pos as u64);
-            if new_ref != old_ref {
-                dir_set_cell(a, DIR_REF, pos, new_ref);
-                tree_release(old_ref as *mut u8, node_level(old_ref as *mut u8));
-            }
+            // OVERWRITE (repoint): store the new root; DO NOT release the old
+            // one — the container engine already released it (the flat-store
+            // lifecycle), and the per-snapshot ownership was bumped at
+            // dir_privatize. dir_set never frees a container root.
+            dir_set_cell(a, DIR_REF, pos, new_ref);
             return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
         }
         // INSERT a new container.
@@ -313,6 +315,51 @@ unsafe fn dir_set_rec(node: *mut u8, level: u32, key: u64, new_ref: u64, cur: u6
 /// history root; forks share it.
 pub unsafe fn dir_new(snp: u64) -> DirRoot {
     return DirRoot { root: dir_leaf_new(snp), level: 0u32 };
+}
+
+/// The privatize step of a container mutation: CoW-clone the path down to
+/// `key`'s leaf (acquiring this snapshot's ownership — each cloned leaf inc_rc's
+/// its container roots), and return the (possibly new) directory root/level plus
+/// the container root currently mapped to `key` (0 if absent). The store calls
+/// this BEFORE running the container engine, so the engine's own release of the
+/// old root is balanced by the ownership acquired here.
+pub struct DirPriv { pub root: *mut u8, pub level: u32, pub val: u64 }
+
+struct DirPrivRec { addr: *mut u8, val: u64 }
+
+unsafe fn dir_privatize_rec(node: *mut u8, level: u32, key: u64, cur: u64) -> DirPrivRec {
+    if level == 0u32 {
+        let work: *mut u8 = dir_leaf_private(node, cur);
+        let a: *mut PkdAlloc = node_pkd(work);
+        let pos: u32 = btss_lower_bound_u64(a, key);
+        let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
+        let mut v: u64 = 0u64;
+        if (pos as u64) < kb.size() && kb.get(0u32, pos as u64) == key {
+            v = pdtbuf_adopt(a.get::<u8>(DIR_REF)).get(0u32, pos as u64);
+        }
+        return DirPrivRec { addr: work, val: v };
+    }
+    let work: *mut u8 = dir_branch_private(node, cur);
+    let a: *mut PkdAlloc = node_pkd(work);
+    let ci: u32 = dir_find_child(a, key);
+    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+    let old_child: *mut u8 = cb.get(0u32, ci as u64) as *mut u8;
+    let r: DirPrivRec = dir_privatize_rec(old_child, level - 1u32, key, cur);
+    if r.addr != old_child {
+        dir_set_cell(a, DIR_REF, ci, r.addr as u64);
+        tree_release(old_child, level - 1u32);       // clone bumped it; release the old child
+    }
+    return DirPrivRec { addr: work, val: r.val };
+}
+
+pub unsafe fn dir_privatize(root: *mut u8, level: u32, key: u64, cur: u64) -> DirPriv {
+    let r: DirPrivRec = dir_privatize_rec(root, level, key, cur);
+    let mut nrt: *mut u8 = root;
+    if r.addr != root {
+        nrt = r.addr;
+        tree_release(root, level);
+    }
+    return DirPriv { root: nrt, level: level, val: r.val };
 }
 
 /// CoW-upsert `key → new_ref`. Returns the container's (possibly new) directory

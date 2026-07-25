@@ -1559,7 +1559,11 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             }
             pub fn insert(self: &#nm, key: #(kid), val: #(vi)) {
                 unsafe {
-                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    // root_of_mut privatizes this snapshot's directory path to
+                    // the container FIRST (acquiring ownership of the roots on
+                    // that leaf), so the flat-store root lifecycle below is
+                    // balanced; set_root then only repoints the directory slot.
+                    let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
                     let cur: u64 = self.snap.snapshot_id();
                     let r: BtInsRet<#(kid), 1> = bt_cow_insert::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, val, cur);
                     let mut nrt: *mut u8 = e.root;
@@ -1586,7 +1590,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// again if the leaf splits — keep it pure.
             pub fn with_entry(self: &#nm, key: #(kid), f: fn(Option<#(vo)>) -> Option<#(vi)>) {
                 unsafe {
-                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
                     let cur: u64 = self.snap.snapshot_id();
                     let r: BtInsRet<#(kid), 1> = bt_cow_with_entry::<#(kid), #(vi), #(vo), #(lid), #(bid), #nd>(e.root, e.level, key, f, cur);
                     let mut nrt: *mut u8 = e.root;
@@ -1694,7 +1698,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// privatize/repoint discipline as insert.
             pub fn insert_batch(self: &#nm, buf: &#bufid) -> bool {
                 unsafe {
-                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
                     let r: BtssBatchRet = btss_batch_insert::<#nd>(self.ms(), e.root, e.level,
                                                                    &buf.inner, #(sgn), #(bbs));
                     if r.ok {
@@ -1710,7 +1714,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// one-child branch.
             pub fn remove(self: &#nm, key: #(kid)) -> bool {
                 unsafe {
-                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
                     let r: BtssRemRet = btss_remove::<#nd>(self.ms(), e.root, e.level,
                                                            key as u64, #(sgn));
                     if r.found {
@@ -2201,10 +2205,24 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     };
                 }
             }
+            // The MUTATION view: privatizes this snapshot's directory path first
+            // (root_of_mut), so the engine's flat-store root lifecycle is
+            // balanced and set_root only repoints the directory slot.
+            fn tree_mut(self: &#nm) -> Btfl<2, #nd> {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
+                    return Btfl::<2, #nd> {
+                        root: e.root,
+                        level: e.level,
+                        leaf_bytes: self.leaf_bytes,
+                        branch_bytes: self.branch_bytes,
+                    };
+                }
+            }
             /// Re-creates the (EMPTY — asserted) container with new node
             /// sizing; splits then allocate siblings of the new size.
             pub fn reformat(self: &mut #nm, leaf_bytes: u32, branch_bytes: u32) {
-                let t: Btfl<2, #nd> = self.tree();
+                let t: Btfl<2, #nd> = self.tree_mut();
                 assert(btfl_count::<2, #nd>(&t, 0u64) == 0u64, "reformat: container not empty");
                 btfl_drop::<2, #nd>(&t);
                 unsafe {
@@ -2216,7 +2234,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
                 unsafe {
-                    let mut t: Btfl<2, #nd> = self.tree();
+                    let mut t: Btfl<2, #nd> = self.tree_mut();
                     // multimap container: one key entry + `vals` as stream 1
                     let mut lens: Vec<u64> = vec_new::<u64>();
                     lens.push(vals.length() as u64);
@@ -2237,7 +2255,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             /// admission; the root collapses while it is a one-child branch.
             pub fn remove(self: &#nm, key: u64) -> bool {
                 unsafe {
-                    let mut t: Btfl<2, #nd> = self.tree();
+                    let mut t: Btfl<2, #nd> = self.tree_mut();
                     let ok: bool = btfl_remove::<#nd>(self.ms(), &mut t, key);
                     if ok {
                         self.ms().set_root(self.ctr_id, t.root, t.level);
@@ -2494,10 +2512,23 @@ fn emit_btvec_family(name: str) {
                     };
                 }
             }
+            // The MUTATION view (privatizes the directory path first — see the
+            // map/btfl handles); used by every method that repoints the root.
+            fn tree_mut(self: &#nm) -> Btvec<#nd> {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
+                    return Btvec::<#nd> {
+                        root: e.root,
+                        level: e.level,
+                        leaf_bytes: self.leaf_bytes,
+                        branch_bytes: self.branch_bytes,
+                    };
+                }
+            }
             /// Re-creates the (EMPTY — asserted) container with new node
             /// sizing; splits then allocate siblings of the new size.
             pub fn reformat(self: &mut #nm, leaf_bytes: u32, branch_bytes: u32) {
-                let t: Btvec<#nd> = self.tree();
+                let t: Btvec<#nd> = self.tree_mut();
                 assert(btvec_size::<#nd>(&t) == 0u64, "reformat: container not empty");
                 btvec_drop::<#nd>(&t);
                 unsafe {
@@ -2509,7 +2540,7 @@ fn emit_btvec_family(name: str) {
             }
             pub fn append(self: &#nm, v: u64) {
                 unsafe {
-                    let mut t: Btvec<#nd> = self.tree();
+                    let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_append::<#nd>(self.ms(), &mut t, v);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
                 }
@@ -2528,14 +2559,14 @@ fn emit_btvec_family(name: str) {
             /// no block restores.
             pub fn insert(self: &#nm, pos: u64, buf: &BtvecBuf) {
                 unsafe {
-                    let mut t: Btvec<#nd> = self.tree();
+                    let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_insert_buf::<#nd>(self.ms(), &mut t, pos, buf);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
                 }
             }
             pub fn insert_at(self: &#nm, pos: u64, v: u64) {
                 unsafe {
-                    let mut t: Btvec<#nd> = self.tree();
+                    let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_insert_at::<#nd>(self.ms(), &mut t, pos, v);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
                 }
@@ -2545,7 +2576,7 @@ fn emit_btvec_family(name: str) {
             /// the root collapses while it is a one-child branch.
             pub fn remove_at(self: &#nm, pos: u64) {
                 unsafe {
-                    let mut t: Btvec<#nd> = self.tree();
+                    let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_remove_at::<#nd>(self.ms(), &mut t, pos);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
                 }

@@ -61,9 +61,12 @@ fn run_all() -> i32 {
         if dir_get(rootA, levelA, 100u64) != (r1 as u64) { return 12i32; }
         if dir_get(rootB, levelB, 100u64) != (r1 as u64) { return 13i32; }
 
-        // ── repoint C100 in snap B (overwrite releases the displaced root) ─
+        // ── repoint C100 in snap B, the memstore way (b): privatize the path,
+        // the "engine" releases the displaced root, then dir_set repoints ─────
         let r1b: *mut u8 = fake(2u64);
-        let sr: DirRoot = dir_set(rootB, levelB, 100u64, r1b as u64, 2u64);
+        let pv: DirPriv = dir_privatize(rootB, levelB, 100u64, 2u64);
+        tree_release(pv.val as *mut u8, node_level(pv.val as *mut u8));   // engine's old-root release
+        let sr: DirRoot = dir_set(pv.root, pv.level, 100u64, r1b as u64, 2u64);
         let rootB2: *mut u8 = sr.root;  let levelB2: u32 = sr.level;
         if dir_get(rootB2, levelB2, 100u64) != (r1b as u64) { return 14i32; }
         if dir_get(rootA, levelA, 100u64) != (r1 as u64) { return 15i32; }   // A untouched
@@ -100,7 +103,9 @@ fn run_all() -> i32 {
         node_inc_rc(br);
         let bA: *mut u8 = br;  let blA: u32 = bl;
         let g: *mut u8 = fake(3u64);
-        let sg: DirRoot = dir_set(bA, blA, 1u64, g as u64, 3u64);   // repoint key 1 in snap 3
+        let pg: DirPriv = dir_privatize(bA, blA, 1u64, 3u64);       // privatize path to key 1
+        tree_release(pg.val as *mut u8, node_level(pg.val as *mut u8));  // engine releases old root
+        let sg: DirRoot = dir_set(pg.root, pg.level, 1u64, g as u64, 3u64);   // repoint key 1 in snap 3
         if dir_get(sg.root, sg.level, 1u64) != (g as u64) { return 21i32; }
         if dir_get(bA, blA, 1u64) != roots.get(0i64) { return 22i32; }   // snap-1 view intact
 

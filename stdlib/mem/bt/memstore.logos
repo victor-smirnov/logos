@@ -42,53 +42,18 @@ use logos.mem.bt.dirmap;         // the directory is a CoW container (dir_set/ge
 
 // ── directory: ctr_id → (root, level), the snapshot's container registry ─────
 
-/// One container's root in a snapshot's directory. `root`/`level` evolve as the
-/// container is mutated (CoW repoints the root); a fresh container appends a row.
+/// One container's root, as `root_of` reports it to a generated handle. The
+/// directory now STORES only `ctr_id → root` (a pure `Map<CtrID, BlockID>`,
+/// logos.mem.bt.dirmap); `level` is recovered from the root node's own header
+/// (`node_level`) and surfaced here so handles keep their `(root, level)` shape.
 pub struct DirEntry { pub ctr_id: u64, pub root: *mut u8, pub level: u32 }
 
-/// A snapshot's container registry. Few containers per store → a linear-scan
-/// vector is the right shape; a real profile can swap in a map later.
-pub struct Directory { entries: Vec<DirEntry> }
-
-impl Directory {
-    pub static fn new() -> Directory { return Directory { entries: vec_new::<DirEntry>() }; }
-
-    fn find(self: &Directory, ctr_id: u64) -> i64 {
-        let n: i64 = self.entries.len();
-        let mut i: i64 = 0i64;
-        while i < n { if self.entries.get(i).ctr_id == ctr_id { return i; } i = i + 1i64; }
-        return -1i64;
-    }
-
-    pub fn has(self: &Directory, ctr_id: u64) -> bool { return self.find(ctr_id) >= 0i64; }
-
-    /// (root, level) for `ctr_id`; asserts the container is registered.
-    pub fn root_of(self: &Directory, ctr_id: u64) -> DirEntry {
-        let i: i64 = self.find(ctr_id);
-        assert(i >= 0i64, "directory: unknown container id");
-        return self.entries.get(i);
-    }
-
-    /// Registers a new container's root, or repoints an existing one (CoW).
-    pub fn set_root(self: &mut Directory, ctr_id: u64, root: *mut u8, level: u32) {
-        let i: i64 = self.find(ctr_id);
-        if i >= 0i64 { self.entries.set(i, DirEntry { ctr_id: ctr_id, root: root, level: level }); return; }
-        self.entries.push(DirEntry { ctr_id: ctr_id, root: root, level: level });
-    }
-
-    pub fn len(self: &Directory) -> i64 { return self.entries.len(); }
-    pub fn at(self: &Directory, i: i64) -> DirEntry { return self.entries.get(i); }
-
-    /// A fresh directory with the same rows (block refs copied verbatim — the
-    /// caller inc_rc's each root to record the new snapshot's structural share).
-    pub fn clone_dir(self: &Directory) -> Directory {
-        let mut d: Directory = Directory::new();
-        let n: i64 = self.entries.len();
-        let mut i: i64 = 0i64;
-        while i < n { d.entries.push(self.entries.get(i)); i = i + 1i64; }
-        return d;
-    }
-}
+// The snapshot's container registry is a CoW container itself — a dirmap
+// `Map<CtrID, root>` whose leaf VALUES are container roots (reference cells).
+// A SnapDesc holds only its `dir_root` (the superblock): fork shares it with one
+// inc_rc (O(1), not an O(D) copy), a lookup is an O(log D) descent, and drop is
+// ONE `tree_release(dir_root)` that cascades to every container root through the
+// leaves' value-ref columns. See logos.mem.bt.dirmap for the rc discipline.
 
 // ── the snapshot DESCRIPTOR + WRAPPER split (Memoria memory_cow model) ──────
 //
@@ -120,7 +85,8 @@ pub struct SnapDesc {
     pub id: u64,
     parent: u64,             // the snapshot this one forked from (0 = root)
     branch: String,          // the branch commit() advances (default "master")
-    dir: Directory,          // this version's container roots (rc-holds)
+    dir_root: *mut u8,       // the directory container's root (a CoW dirmap tree)
+    dir_level: u32,          // its level (grows as the directory splits)
     status: u32,
     wrappers: AtomicI32,     // open MemorySnapshot wrappers for this entry
 }
@@ -219,16 +185,64 @@ impl MemorySnapshot {
         return unsafe { node_snapshot(h) != (*self.d()).id };
     }
 
-    // — directory: container roots in this version —
+    // — directory: container roots in this version (a CoW dirmap tree) —
 
     pub fn has_ctr(self: &MemorySnapshot, ctr_id: u64) -> bool {
-        return unsafe { (*self.d()).dir.has(ctr_id) };
+        return unsafe { dir_has((*self.d()).dir_root, (*self.d()).dir_level, ctr_id) };
     }
+
+    /// (root, level) for `ctr_id`; asserts the container is registered. `level`
+    /// is read from the root node's own header. READ path — no CoW.
     pub fn root_of(self: &MemorySnapshot, ctr_id: u64) -> DirEntry {
-        return unsafe { (*self.d()).dir.root_of(ctr_id) };
+        unsafe {
+            let root: u64 = dir_get((*self.d()).dir_root, (*self.d()).dir_level, ctr_id);
+            assert(root != 0u64, "directory: unknown container id");
+            let rp: *mut u8 = root as *mut u8;
+            return DirEntry { ctr_id: ctr_id, root: rp, level: node_level(rp) };
+        }
     }
+
+    /// The MUTATION-path root read: CoW-privatize this snapshot's directory path
+    /// to `ctr_id`'s leaf FIRST (acquiring this snapshot's ownership of the
+    /// container roots on the touched leaf), then return `(root, level)`. A
+    /// generated handle calls this before running its engine, so the engine's
+    /// own release of the old root is balanced by the ownership acquired here;
+    /// the following `set_root` then only repoints the (now private) slot.
+    pub fn root_of_mut(self: &MemorySnapshot, ctr_id: u64) -> DirEntry {
+        unsafe {
+            let cur: u64 = (*self.d()).id;
+            let p: DirPriv = dir_privatize((*self.d()).dir_root, (*self.d()).dir_level, ctr_id, cur);
+            (*self.d()).dir_root = p.root;
+            (*self.d()).dir_level = p.level;
+            assert(p.val != 0u64, "directory: unknown container id");
+            let rp: *mut u8 = p.val as *mut u8;
+            return DirEntry { ctr_id: ctr_id, root: rp, level: node_level(rp) };
+        }
+    }
+
+    /// Register / repoint `ctr_id`'s root (CoW upsert on the directory tree).
+    /// Stamps the root node's level into its header so the directory can release
+    /// it later (`node_level`), then repoints the descriptor's `dir_root`. The
+    /// directory OWNS the container root's refcount: the caller must leave the
+    /// OLD root's rc untouched by the mutation (dir_set releases the displaced
+    /// root); a root reused inside the NEW root's subtree is inc_rc'd by the
+    /// caller's graft (see the generated handles).
     pub fn set_root(self: &MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32) {
-        unsafe { (*self.d()).dir.set_root(ctr_id, root, level); }
+        unsafe {
+            node_set_level(root, level);
+            let cur: u64 = (*self.d()).id;
+            let nr: DirRoot = dir_set((*self.d()).dir_root, (*self.d()).dir_level,
+                                      ctr_id, root as u64, cur);
+            (*self.d()).dir_root = nr.root;
+            (*self.d()).dir_level = nr.level;
+        }
+    }
+
+    /// The registered container ids (Memoria container_names), in key order.
+    pub fn container_ids(self: &MemorySnapshot) -> Vec<u64> {
+        let mut out: Vec<u64> = vec_new::<u64>();
+        unsafe { dir_keys((*self.d()).dir_root, (*self.d()).dir_level, &mut out); }
+        return out;
     }
 
     // — lifecycle lives on `impl Snapshot for MemorySnapshot` below (the PUBLIC
@@ -248,14 +262,9 @@ impl Drop for MemorySnapshot {
             let st: u32 = (*self.desc).status;
             if st == SNAP_COMMITTED { return; }     // history entry lives on
             // Active (uncommitted dies with its last wrapper) or Dropped
-            // (marked): release this version's structural shares + forget.
-            let n: i64 = (*self.desc).dir.len();
-            let mut i: i64 = 0i64;
-            while i < n {
-                let e: DirEntry = (*self.desc).dir.at(i);
-                tree_release(e.root, e.level);
-                i = i + 1i64;
-            }
+            // (marked): release this version's directory tree — ONE cascade
+            // that frees every container root through the leaves' value-refs.
+            tree_release((*self.desc).dir_root, (*self.desc).dir_level);
             // LOCK POINT (v1): descriptor unlink vs concurrent find().
             let g: &mut MemoryStore = &mut *self.store;
             g.forget(self.desc);
@@ -404,23 +413,30 @@ impl MemoryStore {
     }
 
     // (internal) allocate a fresh ACTIVE descriptor as a child of `parent`
-    // (0 = root), on `branch`, over a private copy of the parent's directory
-    // (or empty for a root). Returns it with its first wrapper slot accounted.
+    // (0 = root), on `branch`. A root gets a FRESH empty directory; a child
+    // SHARES the parent's directory tree with one inc_rc (O(1) fork — the CoW
+    // copy happens lazily, per touched leaf, on the first mutation). Returns it
+    // with its first wrapper slot accounted.
     fn fork_desc(self: &mut MemoryStore, parent: u64, branch: str) -> *mut SnapDesc {
         let id: u64 = self.next_id;
         self.next_id = self.next_id + 1u64;
-        let dir: Directory = if parent == 0u64 {
-            Directory::new()
+        let mut dr: *mut u8 = 0 as *mut u8;
+        let mut dl: u32 = 0u32;
+        let mut pd: *mut SnapDesc = 0 as *mut SnapDesc;
+        if parent != 0u64 { pd = self.desc_of(parent); }
+        if pd == (0 as *mut SnapDesc) {
+            let dn: DirRoot = unsafe { dir_new(id) };
+            dr = dn.root; dl = dn.level;
         } else {
-            let pd: *mut SnapDesc = self.desc_of(parent);
-            if pd == (0 as *mut SnapDesc) { Directory::new() }
-            else { unsafe { (*pd).dir.clone_dir() } }
-        };
-        let n: i64 = dir.len();
-        let mut i: i64 = 0i64;
-        while i < n { unsafe { node_inc_rc(dir.at(i).root); } i = i + 1i64; }
+            unsafe {
+                dr = (*pd).dir_root;
+                dl = (*pd).dir_level;
+                node_inc_rc(dr);                 // share the parent's directory tree
+            }
+        }
         let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
-            id: id, parent: parent, branch: String::from(branch), dir: dir,
+            id: id, parent: parent, branch: String::from(branch),
+            dir_root: dr, dir_level: dl,
             status: SNAP_ACTIVE, wrappers: atomic_i32_new(1),
         }));
         // LOCK POINT (v1): history-table insert vs concurrent find().
@@ -490,13 +506,7 @@ impl MemoryStore {
             let d: *mut SnapDesc = self.snaps.get(k) as *mut SnapDesc;
             unsafe {
                 if (&mut (*d).wrappers as *mut AtomicI32).load() == 0i32 {
-                    let dn: i64 = (*d).dir.len();
-                    let mut j: i64 = 0i64;
-                    while j < dn {
-                        let e2: DirEntry = (*d).dir.at(j);
-                        tree_release(e2.root, e2.level);
-                        j = j + 1i64;
-                    }
+                    tree_release((*d).dir_root, (*d).dir_level);
                     self.snaps.remove(k);
                     let _ = box_from_raw(d);
                 } else {
@@ -825,13 +835,7 @@ pub fn store_pack(st: &mut Arc<MemoryStore>) -> i64 {
             }
             if reclaim {
                 unsafe {
-                    let dn: i64 = (*d).dir.len();
-                    let mut j: i64 = 0i64;
-                    while j < dn {
-                        let e: DirEntry = (*d).dir.at(j);
-                        tree_release(e.root, e.level);
-                        j = j + 1i64;
-                    }
+                    tree_release((*d).dir_root, (*d).dir_level);
                     g.snaps.remove(k);
                     let _ = box_from_raw(d);
                 }
