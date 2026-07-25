@@ -129,6 +129,11 @@ impl NodeView {
         return self.col(idx).prepare_insert_vals(at, count, policy, vals);
     }
 
+    /// Byte size of slot `idx`'s backing block (the SSRLE growth budget).
+    pub fn element_size(self: &NodeView, idx: u32) -> u32 {
+        return unsafe { self.a.element_size(idx) };
+    }
+
     /// Free space left in the region — the budget the weight calculus prices
     /// against. A read, so it composes with live column views.
     pub fn free_space(self: &NodeView) -> u32 { return unsafe { self.a.free_space() }; }
@@ -208,7 +213,27 @@ impl ColRef {
         return self.buf().row_offset(column, dim, row);
     }
     pub fn sum_all(self: &ColRef, column: u32) -> u64 { return self.buf().sum_all(column); }
+    pub fn sum(self: &ColRef, column: u32, start: u64, end: u64) -> u64 {
+        return self.buf().sum(column, start, end);
+    }
+    /// SUM-index descent: first row whose prefix sum exceeds `v`.
+    pub fn find_gt(self: &ColRef, column: u32, v: u64) -> PdtFind {
+        return self.buf().find_gt(column, v);
+    }
     pub fn check(self: &ColRef) -> i32 { return self.buf().check(); }
+    /// A row's payload BYTE at `i` — the span pieces stay inside the view,
+    /// because a `&[u8]` derived from the freshly resolved buffer would be a
+    /// reference to a temporary (the borrow checker says so, and it is right).
+    pub fn row_byte(self: &ColRef, column: u32, dim: u32, row: u64, i: u64) -> u8 {
+        return self.buf().row_span(column, dim, row)[i as i64];
+    }
+    /// Byte size of the slot backing this column.
+    pub fn element_size(self: &ColRef) -> u32 {
+        return unsafe { self.a.element_size(self.idx) };
+    }
+    /// The payload as a raw PdtBuf for a read-only helper that still speaks
+    /// PdtBuf. Safe: the value is derived fresh and used within the call.
+    pub fn as_buf(self: &ColRef) -> PdtBuf { return self.buf(); }
     /// Byte length of one row's payload in a VLE dimension.
     pub fn row_len(self: &ColRef, column: u32, dim: u32, row: u64) -> u64 {
         return self.buf().row_len(column, dim, row);
@@ -273,8 +298,14 @@ impl ColMut {
     /// Insert `vals` as rows at `at` — prepare AND commit in one call, each on
     /// a freshly resolved payload. False = the insert could not be planned
     /// (the caller priced it wrong).
+    /// `vals` is ROW-MAJOR: a multi-column buffer takes `columns` cells per
+    /// row, so the row count is derived, not assumed to be the cell count.
+    /// (Assuming one cell per row silently corrupts a multi-column column —
+    /// the btfl branch measure store is exactly that shape.)
     pub fn insert_cells(self: &mut ColMut, at: u64, vals: &Vec<u64>) -> bool {
-        let us: PdtUpdate = match self.buf().prepare_insert(at, vals.len() as u64,
+        let cols: u64 = self.buf().columns() as u64;
+        let rows: u64 = if cols == 0u64 { 0u64 } else { (vals.len() as u64) / cols };
+        let us: PdtUpdate = match self.buf().prepare_insert(at, rows,
                                                             PDT_CAP_KEEP) {
             Result::Ok(u) => u,
             Result::Err(_e) => { return false; }
@@ -308,6 +339,41 @@ impl ColMut {
     pub fn commit_planned_vals(self: &mut ColMut, us: &PdtUpdate, vals: &PdtVals) {
         let mut b: PdtBuf = self.buf();
         b.commit_insert_vals(us, vals);
+    }
+
+    /// Overwrite a whole row (all columns) in place.
+    pub fn set_row(self: &mut ColMut, row: u64, vals: &Vec<u64>) {
+        let mut b: PdtBuf = self.buf();
+        b.set_row(row, vals);
+    }
+    /// Rebuild the column's internal index after direct cell writes.
+    pub fn reindex(self: &mut ColMut) {
+        let mut b: PdtBuf = self.buf();
+        b.reindex();
+    }
+
+    /// Reserve capacity for `rows` more rows (the split-target pre-grow).
+    pub fn reserve(self: &mut ColMut, rows: u64) -> bool {
+        let mut b: PdtBuf = self.buf();
+        match b.reserve(rows) { Result::Ok(_u) => { return true; } Result::Err(_e) => { return false; } }
+    }
+    /// Reserve with explicit per-slot payload (the VLE form).
+    pub fn reserve_geom(self: &mut ColMut, rows: u64, pay: &Vec<u64>) -> bool {
+        let mut b: PdtBuf = self.buf();
+        match b.reserve_geom(rows, pay) { Result::Ok(_u) => { return true; } Result::Err(_e) => { return false; } }
+    }
+    /// Move rows [at..] into `dst` — prepare AND commit, each on freshly
+    /// resolved payloads on BOTH sides (the split is cross-node, so both can
+    /// move). False = the split could not be planned.
+    pub fn split_to(self: &mut ColMut, dst: &mut ColMut, at: u64, policy: u32) -> bool {
+        let sp: PdtSplit = match self.buf().prepare_split_to(&dst.buf(), at, policy) {
+            Result::Ok(x) => x,
+            Result::Err(_e) => { return false; }
+        };
+        let mut sb: PdtBuf = self.buf();
+        let mut db: PdtBuf = dst.buf();
+        sb.commit_split_to(&mut db, &sp);
+        return true;
     }
 
     /// Remove rows [at, end) — prepare AND commit in one call, each on a
