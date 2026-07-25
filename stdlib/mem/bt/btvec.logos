@@ -25,8 +25,9 @@ use logos.mem.bt.node;       // NodeProfile — the node-form seam
 use logos.mem.bt.btss;       // the shared single-stream column mechanics
 use logos.mem.bt.memstore;   // MemorySnapshot (creation stamp) + tree_release
 use logos.mem.bt.pack;       // the weight calculus (pack_region_weight)
-use logos.mem.pkd;           // PkdAlloc
-use logos.mem.pkd.pdtbuf;    // PdtBuf — the column store
+use logos.mem.bt.view;       // NodeView / ColRef — the borrow-checked column skin
+use logos.mem.pkd;           // PkdAlloc — staging-heap buffers only
+use logos.mem.pkd.pdtbuf;    // PdtBuf — the staging (non-node) column store
 use logos.mem.collections.vec;
 use logos.lang.mem;          // alloc/dealloc — the staging heap block
 use logos.lang.result;
@@ -39,23 +40,19 @@ const BV_CHILD: u32 = 1u32;
 // ── node creation ───────────────────────────────────────────────────────────
 
 fn bv_leaf_new<P: NodeProfile>(snp: u64, leaf_bytes: u32) -> *mut u8 {
-    unsafe {
-        let node: *mut u8 = P::alloc(leaf_bytes, 1u32, snp);
-        // One unordered FSE64 value column.
-        btss_fmt_slot(P::pkd(node), 0u32, false, false);
-        return node;
-    }
+    let node: *mut u8 = P::alloc(leaf_bytes, 1u32, snp);
+    // One unordered FSE64 value column.
+    node_view_at(node).fmt_slot(0u32, false, false);
+    return node;
 }
 
 fn bv_branch_new<P: NodeProfile>(snp: u64, branch_bytes: u32) -> *mut u8 {
-    unsafe {
-        let node: *mut u8 = P::alloc(branch_bytes, 2u32, snp);
-        P::set_child_slot(node, BV_CHILD);
-        let a: *mut PkdAlloc = P::pkd(node);
-        btss_fmt_slot(a, BV_CNT, false, false);
-        btss_fmt_slot(a, BV_CHILD, false, false);
-        return node;
-    }
+    let node: *mut u8 = P::alloc(branch_bytes, 2u32, snp);
+    P::set_child_slot(node, BV_CHILD);
+    let mut a: NodeView = node_view_at(node);
+    a.fmt_slot(BV_CNT, false, false);
+    a.fmt_slot(BV_CHILD, false, false);
+    return node;
 }
 
 // ── the tree handle ─────────────────────────────────────────────────────────
@@ -81,34 +78,30 @@ pub fn btvec_create<P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes: u32, bran
 
 /// Releases the tree (rc-aware recursive release via the declared child slot).
 pub fn btvec_drop<P: NodeProfile>(t: &Btvec<P>) {
-    unsafe {
-        tree_release(t.root, t.level);
-    }
+    unsafe { tree_release(t.root, t.level); }
 }
 
 // ── reads ───────────────────────────────────────────────────────────────────
 
-unsafe fn bv_cnt(a: *mut PkdAlloc) -> PdtBuf { return pdtbuf_adopt(a.get::<u8>(BV_CNT)); }
-unsafe fn bv_child(a: *mut PkdAlloc) -> PdtBuf { return pdtbuf_adopt(a.get::<u8>(BV_CHILD)); }
-unsafe fn bv_vals(a: *mut PkdAlloc) -> PdtBuf { return pdtbuf_adopt(a.get::<u8>(0u32)); }
+fn bv_cnt(nv: &NodeView) -> ColRef { return nv.col(BV_CNT); }
+fn bv_child(nv: &NodeView) -> ColRef { return nv.col(BV_CHILD); }
+fn bv_vals(nv: &NodeView) -> ColRef { return nv.col(0u32); }
 
 /// Total entry count.
 pub fn btvec_size<P: NodeProfile>(t: &Btvec<P>) -> u64 {
-    unsafe {
-        let a: *mut PkdAlloc = P::pkd(t.root);
-        if t.level == 0u32 {
-            return bv_vals(a).size();
-        }
-        let b: PdtBuf = bv_cnt(a);
-        let n: u64 = b.size();
-        let mut s: u64 = 0u64;
-        let mut i: u64 = 0u64;
-        while i < n {
-            s = s + b.get(0u32, i);
-            i = i + 1u64;
-        }
-        return s;
+    let mut a: NodeView = node_view_at(t.root);
+    if t.level == 0u32 {
+        return bv_vals(&a).size();
     }
+    let b: ColRef = bv_cnt(&a);
+    let n: u64 = b.size();
+    let mut s: u64 = 0u64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        s = s + b.get(0u32, i);
+        i = i + 1u64;
+    }
+    return s;
 }
 
 /// Where a positional seek landed: the owning leaf and the LOCAL index.
@@ -121,39 +114,37 @@ pub struct BtvecCur {
 
 /// Cursor at the `pos`-th entry (0-based) — the count descent.
 pub fn btvec_seek<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64) -> BtvecCur {
-    unsafe {
-        let mut node: *mut u8 = t.root;
-        let mut lvl: u32 = t.level;
-        let mut rem: u64 = pos;
-        while lvl > 0u32 {
-            let a: *mut PkdAlloc = P::pkd(node);
-            let b: PdtBuf = bv_cnt(a);
-            let n: u64 = b.size();
-            let mut i: u64 = 0u64;
-            let mut descending: bool = false;
-            while !descending && i < n {
-                let c: u64 = b.get(0u32, i);
-                if rem < c {
-                    descending = true;
-                } else {
-                    rem = rem - c;
-                    i = i + 1u64;
-                }
+    let mut node: *mut u8 = t.root;
+    let mut lvl: u32 = t.level;
+    let mut rem: u64 = pos;
+    while lvl > 0u32 {
+        let mut a: NodeView = node_view_at(node);
+        let b: ColRef = bv_cnt(&a);
+        let n: u64 = b.size();
+        let mut i: u64 = 0u64;
+        let mut descending: bool = false;
+        while !descending && i < n {
+            let c: u64 = b.get(0u32, i);
+            if rem < c {
+                descending = true;
+            } else {
+                rem = rem - c;
+                i = i + 1u64;
             }
-            if !descending {
-                // pos beyond the tree: land past-the-end of the LAST subtree.
-                i = n - 1u64;
-                rem = b.get(0u32, i);
-            }
-            node = snap.resolve(bv_child(a).get(0u32, i)).ptr();
-            lvl = lvl - 1u32;
         }
-        let cnt: u64 = bv_vals(P::pkd(node)).size();
-        if rem >= cnt {
-            return BtvecCur { found: false, leaf: node, idx: cnt as u32 };
+        if !descending {
+            // pos beyond the tree: land past-the-end of the LAST subtree.
+            i = n - 1u64;
+            rem = b.get(0u32, i);
         }
-        return BtvecCur { found: true, leaf: node, idx: rem as u32 };
+        node = snap.resolve(bv_child(&a).get(0u32, i)).ptr();
+        lvl = lvl - 1u32;
     }
+    let cnt: u64 = bv_vals(&node_view_at(node)).size();
+    if rem >= cnt {
+        return BtvecCur { found: false, leaf: node, idx: cnt as u32 };
+    }
+    return BtvecCur { found: true, leaf: node, idx: rem as u32 };
 }
 
 /// The `pos`-th entry's cell (traps past the end — use btvec_seek for the
@@ -162,7 +153,7 @@ pub fn btvec_get<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64) 
     let c: BtvecCur = btvec_seek::<P>(snap, t, pos);
     assert(c.found, "btvec_get: position beyond the vector");
     unsafe {
-        return bv_vals(P::pkd(c.leaf)).get(0u32, c.idx as u64);
+        return node_view_at(c.leaf).col(0u32).get(0u32, c.idx as u64);
     }
 }
 
@@ -170,7 +161,7 @@ pub fn btvec_get<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64) 
 pub fn btvec_cur_value<P: NodeProfile>(c: &BtvecCur) -> u64 {
     assert(c.found, "btvec cursor: value() past the end");
     unsafe {
-        return bv_vals(P::pkd(c.leaf)).get(0u32, c.idx as u64);
+        return node_view_at(c.leaf).col(0u32).get(0u32, c.idx as u64);
     }
 }
 
@@ -180,8 +171,8 @@ pub fn btvec_set<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64, 
     let c: BtvecCur = btvec_seek::<P>(snap, t, pos);
     assert(c.found, "btvec_set: position beyond the vector");
     unsafe {
-        let mut b: PdtBuf = bv_vals(P::pkd(c.leaf));
-        b.set(0u32, c.idx as u64, v);
+        let mut nv: NodeView = node_view_at(c.leaf);
+        nv.col_mut(0u32).set(0u32, c.idx as u64, v);
     }
 }
 
@@ -202,87 +193,81 @@ struct BvIns {
 // keeping the rightmost path for genuine appends past every subtree).
 fn bv_ins_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64, v: u64, snp: u64,
                               leaf_bytes: u32, branch_bytes: u32) -> BvIns {
-    unsafe {
-        if level == 0u32 {
-            let a: *mut PkdAlloc = P::pkd(node);
-            if btss_fits_row(a, 1u32) {
-                btss_put_cell(a, 0u32, pos as u32, v);
-                return BvIns { lcnt: bv_vals(a).size(), split: false, rcnt: 0u64, rptr: node };
-            }
-            // Count-balanced split at the middle, then insert into the owner.
-            let rn: *mut u8 = bv_leaf_new::<P>(snp, leaf_bytes);
-            let at: u64 = bv_vals(a).size() / 2u64;
-            btss_split_col(a, P::pkd(rn), 0u32, at as u32);
-            if pos <= at {
-                btss_put_cell(a, 0u32, pos as u32, v);
-            } else {
-                btss_put_cell(P::pkd(rn), 0u32, (pos - at) as u32, v);
-            }
-            return BvIns {
-                lcnt: bv_vals(a).size(),
-                split: true,
-                rcnt: bv_vals(P::pkd(rn)).size(),
-                rptr: rn,
-            };
+    if level == 0u32 {
+        let mut a: NodeView = node_view_at(node);
+        if a.fits_row(1u32) {
+            a.put_cell(0u32, pos as u32, v);
+            return BvIns { lcnt: bv_vals(&a).size(), split: false, rcnt: 0u64, rptr: node };
         }
-        let a: *mut PkdAlloc = P::pkd(node);
-        let cb: PdtBuf = bv_cnt(a);
-        let n: u64 = cb.size();
-        let mut ci: u64 = 0u64;
-        let mut rem: u64 = pos;
-        while ci + 1u64 < n && rem > cb.get(0u32, ci) {
-            rem = rem - cb.get(0u32, ci);
-            ci = ci + 1u64;
-        }
-        let r: BvIns = bv_ins_rec::<P>(snap, snap.resolve(bv_child(a).get(0u32, ci)).ptr(), level - 1u32,
-                                       rem, v, snp, leaf_bytes, branch_bytes);
-        {
-            let mut ub: PdtBuf = bv_cnt(a);
-            ub.set(0u32, ci, r.lcnt);
-        }
-        if !r.split {
-            return BvIns { lcnt: btvec_node_total::<P>(node), split: false, rcnt: 0u64, rptr: node };
-        }
-        if btss_fits_row(a, 2u32) {
-            btss_put_cell(a, BV_CNT, (ci + 1u64) as u32, r.rcnt);
-            btss_put_cell(a, BV_CHILD, (ci + 1u64) as u32, r.rptr as u64);
-            return BvIns { lcnt: btvec_node_total::<P>(node), split: false, rcnt: 0u64, rptr: node };
-        }
-        // Branch split at the middle; graft the new right row into its owner.
-        let rb: *mut u8 = bv_branch_new::<P>(snp, branch_bytes);
-        let at: u64 = n / 2u64;
-        let ra: *mut PkdAlloc = P::pkd(rb);
-        btss_split_col(a, ra, BV_CNT, at as u32);
-        btss_split_col(a, ra, BV_CHILD, at as u32);
-        if ci + 1u64 <= at {
-            btss_put_cell(a, BV_CNT, (ci + 1u64) as u32, r.rcnt);
-            btss_put_cell(a, BV_CHILD, (ci + 1u64) as u32, r.rptr as u64);
+        // Count-balanced split at the middle, then insert into the owner.
+        let rn: *mut u8 = bv_leaf_new::<P>(snp, leaf_bytes);
+        let mut rv: NodeView = node_view_at(rn);
+        let at: u64 = bv_vals(&a).size() / 2u64;
+        a.split_col_to(&mut rv, 0u32, at as u32);
+        if pos <= at {
+            a.put_cell(0u32, pos as u32, v);
         } else {
-            btss_put_cell(ra, BV_CNT, ((ci + 1u64) - at) as u32, r.rcnt);
-            btss_put_cell(ra, BV_CHILD, ((ci + 1u64) - at) as u32, r.rptr as u64);
+            rv.put_cell(0u32, (pos - at) as u32, v);
         }
         return BvIns {
-            lcnt: btvec_node_total::<P>(node),
+            lcnt: bv_vals(&a).size(),
             split: true,
-            rcnt: btvec_node_total::<P>(rb),
-            rptr: rb,
+            rcnt: bv_vals(&node_view_at(rn)).size(),
+            rptr: rn,
         };
     }
+    let mut a: NodeView = node_view_at(node);
+    let cb: ColRef = bv_cnt(&a);
+    let n: u64 = cb.size();
+    let mut ci: u64 = 0u64;
+    let mut rem: u64 = pos;
+    while ci + 1u64 < n && rem > cb.get(0u32, ci) {
+        rem = rem - cb.get(0u32, ci);
+        ci = ci + 1u64;
+    }
+    let r: BvIns = bv_ins_rec::<P>(snap, snap.resolve(bv_child(&a).get(0u32, ci)).ptr(), level - 1u32,
+                                   rem, v, snp, leaf_bytes, branch_bytes);
+    a.col_mut(BV_CNT).set(0u32, ci, r.lcnt);
+    if !r.split {
+        return BvIns { lcnt: btvec_node_total::<P>(node), split: false, rcnt: 0u64, rptr: node };
+    }
+    if a.fits_row(2u32) {
+        a.put_cell(BV_CNT, (ci + 1u64) as u32, r.rcnt);
+        a.put_cell(BV_CHILD, (ci + 1u64) as u32, r.rptr as u64);
+        return BvIns { lcnt: btvec_node_total::<P>(node), split: false, rcnt: 0u64, rptr: node };
+    }
+    // Branch split at the middle; graft the new right row into its owner.
+    let rb: *mut u8 = bv_branch_new::<P>(snp, branch_bytes);
+    let at: u64 = n / 2u64;
+    let mut ra: NodeView = node_view_at(rb);
+    a.split_col_to(&mut ra, BV_CNT, at as u32);
+    a.split_col_to(&mut ra, BV_CHILD, at as u32);
+    if ci + 1u64 <= at {
+        a.put_cell(BV_CNT, (ci + 1u64) as u32, r.rcnt);
+        a.put_cell(BV_CHILD, (ci + 1u64) as u32, r.rptr as u64);
+    } else {
+        ra.put_cell(BV_CNT, ((ci + 1u64) - at) as u32, r.rcnt);
+        ra.put_cell(BV_CHILD, ((ci + 1u64) - at) as u32, r.rptr as u64);
+    }
+    return BvIns {
+        lcnt: btvec_node_total::<P>(node),
+        split: true,
+        rcnt: btvec_node_total::<P>(rb),
+        rptr: rb,
+    };
 }
 
 // A branch node's own subtree total (sum of its count column).
 fn btvec_node_total<P: NodeProfile>(node: *mut u8) -> u64 {
-    unsafe {
-        let b: PdtBuf = bv_cnt(P::pkd(node));
-        let n: u64 = b.size();
-        let mut s: u64 = 0u64;
-        let mut i: u64 = 0u64;
-        while i < n {
-            s = s + b.get(0u32, i);
-            i = i + 1u64;
-        }
-        return s;
+    let b: ColRef = bv_cnt(&node_view_at(node));
+    let n: u64 = b.size();
+    let mut s: u64 = 0u64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        s = s + b.get(0u32, i);
+        i = i + 1u64;
     }
+    return s;
 }
 
 /// Insert `v` at position `pos` (0-based; `pos == size()` appends). Splits
@@ -295,11 +280,11 @@ pub fn btvec_insert_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
     if r.split {
         unsafe {
             let nr: *mut u8 = bv_branch_new::<P>(snp, t.branch_bytes);
-            let a: *mut PkdAlloc = P::pkd(nr);
-            btss_put_cell(a, BV_CNT, 0u32, r.lcnt);
-            btss_put_cell(a, BV_CHILD, 0u32, t.root as u64);
-            btss_put_cell(a, BV_CNT, 1u32, r.rcnt);
-            btss_put_cell(a, BV_CHILD, 1u32, r.rptr as u64);
+            let mut a: NodeView = node_view_at(nr);
+            a.put_cell(BV_CNT, 0u32, r.lcnt);
+            a.put_cell(BV_CHILD, 0u32, t.root as u64);
+            a.put_cell(BV_CNT, 1u32, r.rcnt);
+            a.put_cell(BV_CHILD, 1u32, r.rptr as u64);
             t.root = nr;
             t.level = t.level + 1u32;
         }
@@ -454,9 +439,7 @@ impl BtvecBuf {
 /// make_buffer product needs no manual free at the user surface).
 impl Drop for BtvecBuf {
     fn drop(&mut self) {
-        unsafe {
-            dealloc(self.mem);
-        }
+        dealloc(self.mem);
     }
 }
 
@@ -471,9 +454,7 @@ struct BvRow {
 // The leaf's PkdAlloc-region byte budget (block minus the node header) —
 // read off a live node rather than duplicating the header formula.
 fn bv_region_budget<P: NodeProfile>(node: *mut u8) -> u32 {
-    unsafe {
-        return (*P::pkd(node)).block_size();
-    }
+    return unsafe { (*P::pkd(node)).block_size() };
 }
 
 // Max rows a fresh single-FSE64-slot region of `budget` bytes admits.
@@ -516,15 +497,13 @@ fn bv_merged_len(m: &BvMerged) -> u64 {
 }
 
 fn bv_merged_get<P: NodeProfile>(m: &BvMerged, i: u64) -> u64 {
-    unsafe {
-        if i < m.split {
-            return bv_vals(P::pkd(m.leaf)).get(0u32, i);
-        }
-        if i < m.split + m.bcount {
-            return pdtbuf_adopt(m.buf).get(0u32, i - m.split);
-        }
-        return bv_vals(P::pkd(m.leaf)).get(0u32, i - m.bcount);
+    if i < m.split {
+        return node_view_at(m.leaf).col(0u32).get(0u32, i);
     }
+    if i < m.split + m.bcount {
+        return unsafe { pdtbuf_adopt(m.buf).get(0u32, i - m.split) };
+    }
+    return node_view_at(m.leaf).col(0u32).get(0u32, i - m.bcount);
 }
 
 // Pack the merged sequence into fresh leaves at the 90% fill target; the
@@ -547,23 +526,15 @@ fn bv_pack_leaves<P: NodeProfile>(m: &BvMerged, snp: u64, leaf_bytes: u32,
             take = total - done;
         }
         unsafe {
-            let a: *mut PkdAlloc = P::pkd(cur);
-            let vb: PdtBuf = bv_vals(a);
-            let us: PdtUpdate = match vb.prepare_insert(0u64, take, PDT_CAP_KEEP) {
-                Result::Ok(u) => u,
-                Result::Err(_e) => {
-                    assert(false, "btvec pack: priced fragment rejected (weight law broken?)");
-                    return;
-                }
-            };
+            let mut a: NodeView = node_view_at(cur);
             let mut cells: Vec<u64> = vec_new::<u64>();
             let mut i: u64 = 0u64;
             while i < take {
                 cells.push(bv_merged_get::<P>(m, done + i));
                 i = i + 1u64;
             }
-            let mut vb2: PdtBuf = bv_vals(a);
-            vb2.commit_insert(&us, &cells);
+            assert(a.col_mut(0u32).insert_cells(0u64, &cells),
+                   "btvec pack: priced fragment rejected (weight law broken?)");
         }
         out.push(BvRow { cnt: take, ptr: cur });
         done = done + take;
@@ -608,13 +579,13 @@ fn bv_pack_branches<P: NodeProfile>(rows: &Vec<BvRow>, snp: u64, branch_bytes: u
             take = total - done;
         }
         unsafe {
-            let a: *mut PkdAlloc = P::pkd(cur);
+            let mut a: NodeView = node_view_at(cur);
             let mut sub: u64 = 0u64;
             let mut i: u64 = 0u64;
             while i < take {
                 let rw: &BvRow = rows.borrow((done + i) as i64);
-                btss_put_cell(a, BV_CNT, i as u32, rw.cnt);
-                btss_put_cell(a, BV_CHILD, i as u32, rw.ptr as u64);
+                a.put_cell(BV_CNT, i as u32, rw.cnt);
+                a.put_cell(BV_CHILD, i as u32, rw.ptr as u64);
                 sub = sub + rw.cnt;
                 i = i + 1u64;
             }
@@ -632,129 +603,112 @@ fn bv_pack_branches<P: NodeProfile>(rows: &Vec<BvRow>, snp: u64, branch_bytes: u
 // its parent (one row = no structural growth at this level).
 fn bv_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64, buf: &BtvecBuf,
                                  snp: u64, leaf_bytes: u32, branch_bytes: u32) -> Vec<BvRow> {
-    unsafe {
-        if level == 0u32 {
-            let a: *mut PkdAlloc = P::pkd(node);
-            let m: u64 = buf.len();
-            // Fast path: the whole batch fits this leaf — ONE bulk two-phase
-            // insert in place, no structural change.
-            let vb: PdtBuf = bv_vals(a);
-            match vb.prepare_insert(pos, m, PDT_CAP_KEEP) {
-                Result::Ok(us) => {
-                    let mut cells: Vec<u64> = vec_new::<u64>();
-                    let mut i: u64 = 0u64;
-                    while i < m {
-                        cells.push(buf.get(i));
-                        i = i + 1u64;
-                    }
-                    let mut vb2: PdtBuf = bv_vals(a);
-                    vb2.commit_insert(&us, &cells);
-                    let mut one: Vec<BvRow> = vec_new::<BvRow>();
-                    one.push(BvRow { cnt: bv_vals(a).size(), ptr: node });
-                    return one;
-                }
-                Result::Err(_e) => {}
+    if level == 0u32 {
+        let mut a: NodeView = node_view_at(node);
+        let m: u64 = buf.len();
+        // Fast path: the whole batch fits this leaf — ONE bulk two-phase
+        // insert in place, no structural change.
+        let mut cells: Vec<u64> = vec_new::<u64>();
+        {
+            let mut i: u64 = 0u64;
+            while i < m {
+                cells.push(buf.get(i));
+                i = i + 1u64;
             }
-            // Overflow: pack (prefix ++ staging ++ suffix) into fresh leaves,
-            // release the old block.
-            let merged: BvMerged = BvMerged {
-                leaf: node,
-                split: pos,
-                lcount: bv_vals(a).size(),
-                buf: buf.mem,
-                bcount: m,
-            };
-            let mut rows: Vec<BvRow> = vec_new::<BvRow>();
-            bv_pack_leaves::<P>(&merged, snp, leaf_bytes, &mut rows);
-            P::free(node);
-            return rows;
         }
-        let a: *mut PkdAlloc = P::pkd(node);
-        let cb: PdtBuf = bv_cnt(a);
+        if a.col_mut(0u32).insert_cells(pos, &cells) {
+            let mut one: Vec<BvRow> = vec_new::<BvRow>();
+            one.push(BvRow { cnt: bv_vals(&a).size(), ptr: node });
+            return one;
+        }
+        // Overflow: pack (prefix ++ staging ++ suffix) into fresh leaves,
+        // release the old block.
+        let merged: BvMerged = BvMerged {
+            leaf: node,
+            split: pos,
+            lcount: bv_vals(&a).size(),
+            buf: buf.mem,
+            bcount: m,
+        };
+        let mut rows: Vec<BvRow> = vec_new::<BvRow>();
+        bv_pack_leaves::<P>(&merged, snp, leaf_bytes, &mut rows);
+        P::free(node);
+        return rows;
+    }
+    let mut a: NodeView = node_view_at(node);
+    // READ PHASE: locate the child row. The view is scoped so the borrow
+    // ends here — everything below can move the region.
+    let mut ci: u64 = 0u64;
+    let mut rem: u64 = pos;
+    {
+        let cb: ColRef = bv_cnt(&a);
         let n: u64 = cb.size();
-        let mut ci: u64 = 0u64;
-        let mut rem: u64 = pos;
         while ci + 1u64 < n && rem > cb.get(0u32, ci) {
             rem = rem - cb.get(0u32, ci);
             ci = ci + 1u64;
         }
-        let sub: Vec<BvRow> = bv_splice_rec::<P>(snap, snap.resolve(bv_child(a).get(0u32, ci)).ptr(),
-                                                 level - 1u32, rem, buf,
-                                                 snp, leaf_bytes, branch_bytes);
-        if sub.length() == 1i64 {
-            // No structural growth below: refresh the child row in place.
-            let mut ub: PdtBuf = bv_cnt(a);
-            ub.set(0u32, ci, sub.borrow(0i64).cnt);
-            let mut chb: PdtBuf = bv_child(a);
-            chb.set(0u32, ci, sub.borrow(0i64).ptr as u64);
-            let mut one: Vec<BvRow> = vec_new::<BvRow>();
-            one.push(BvRow { cnt: btvec_node_total::<P>(node), ptr: node });
-            return one;
-        }
-        // The child became several: try to absorb the extra rows in place,
-        // else recompose this branch's whole row list into fresh branch
-        // nodes. Admission is the btss_fits_row discipline generalized to a
-        // ROW RANGE: price BOTH columns' growth against the one region's
-        // free space BEFORE committing either (a committed first column
-        // would eat the space the second was priced against).
-        let extra: u64 = (sub.length() as u64) - 1u64;
-        let mut fits: bool = false;
-        {
-            let cbb: PdtBuf = bv_cnt(a);
-            match cbb.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
-                Result::Ok(us_c) => {
-                    let chp: PdtBuf = bv_child(a);
-                    match chp.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
-                        Result::Ok(us_p) => {
-                            fits = us_c.grow_bytes() + us_p.grow_bytes() <= a.free_space();
-                        }
-                        Result::Err(_e) => {}
+    }
+    let sub: Vec<BvRow> = bv_splice_rec::<P>(snap, snap.resolve(bv_child(&a).get(0u32, ci)).ptr(),
+                                             level - 1u32, rem, buf,
+                                             snp, leaf_bytes, branch_bytes);
+    if sub.length() == 1i64 {
+        // No structural growth below: refresh the child row in place.
+        a.col_mut(BV_CNT).set(0u32, ci, sub.borrow(0i64).cnt);
+        a.col_mut(BV_CHILD).set(0u32, ci, sub.borrow(0i64).ptr as u64);
+        let mut one: Vec<BvRow> = vec_new::<BvRow>();
+        one.push(BvRow { cnt: btvec_node_total::<P>(node), ptr: node });
+        return one;
+    }
+    // The child became several: try to absorb the extra rows in place,
+    // else recompose this branch's whole row list into fresh branch
+    // nodes. Admission is the btss_fits_row discipline generalized to a
+    // ROW RANGE: price BOTH columns' growth against the one region's
+    // free space BEFORE committing either (a committed first column
+    // would eat the space the second was priced against).
+    let extra: u64 = (sub.length() as u64) - 1u64;
+    let mut fits: bool = false;
+    {
+        let cbb: ColRef = bv_cnt(&a);
+        match cbb.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+            Result::Ok(us_c) => {
+                let chp: ColRef = bv_child(&a);
+                match chp.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
+                    Result::Ok(us_p) => {
+                        fits = us_c.grow_bytes() + us_p.grow_bytes() <= a.free_space();
                     }
+                    Result::Err(_e) => {}
                 }
-                Result::Err(_e) => {}
             }
+            Result::Err(_e) => {}
         }
-        if fits {
-            // Commit pairwise, re-preparing each (a commit moves sibling
-            // slots — the VecCtr re-adopt discipline).
-            let mut cells_c: Vec<u64> = vec_new::<u64>();
-            let mut cells_p: Vec<u64> = vec_new::<u64>();
-            let mut q: i64 = 1i64;
-            while q < sub.length() {
-                cells_c.push(sub.borrow(q).cnt);
-                cells_p.push(sub.borrow(q).ptr as u64);
-                q = q + 1i64;
-            }
-            let cb2: PdtBuf = bv_cnt(a);
-            let us1: PdtUpdate = match cb2.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
-                Result::Ok(u) => u,
-                Result::Err(_e) => {
-                    assert(false, "btvec splice: priced cnt insert failed at commit");
-                    return vec_new::<BvRow>();
-                }
-            };
-            let mut cb3: PdtBuf = bv_cnt(a);
-            cb3.commit_insert(&us1, &cells_c);
-            let ch2: PdtBuf = bv_child(a);
-            let us2: PdtUpdate = match ch2.prepare_insert(ci + 1u64, extra, PDT_CAP_KEEP) {
-                Result::Ok(u) => u,
-                Result::Err(_e) => {
-                    assert(false, "btvec splice: priced child insert failed at commit");
-                    return vec_new::<BvRow>();
-                }
-            };
-            let mut ch3: PdtBuf = bv_child(a);
-            ch3.commit_insert(&us2, &cells_p);
-            let mut ub: PdtBuf = bv_cnt(a);
-            ub.set(0u32, ci, sub.borrow(0i64).cnt);
-            let mut chb: PdtBuf = bv_child(a);
-            chb.set(0u32, ci, sub.borrow(0i64).ptr as u64);
-            let mut one: Vec<BvRow> = vec_new::<BvRow>();
-            one.push(BvRow { cnt: btvec_node_total::<P>(node), ptr: node });
-            return one;
+    }
+    if fits {
+        // Commit pairwise, re-preparing each (a commit moves sibling
+        // slots — the VecCtr re-adopt discipline).
+        let mut cells_c: Vec<u64> = vec_new::<u64>();
+        let mut cells_p: Vec<u64> = vec_new::<u64>();
+        let mut q: i64 = 1i64;
+        while q < sub.length() {
+            cells_c.push(sub.borrow(q).cnt);
+            cells_p.push(sub.borrow(q).ptr as u64);
+            q = q + 1i64;
         }
-        // Recompose: existing rows with row ci replaced by the sub list.
-        let mut rows: Vec<BvRow> = vec_new::<BvRow>();
+        assert(a.col_mut(BV_CNT).insert_cells(ci + 1u64, &cells_c),
+               "btvec splice: priced cnt insert failed at commit");
+        assert(a.col_mut(BV_CHILD).insert_cells(ci + 1u64, &cells_p),
+               "btvec splice: priced child insert failed at commit");
+        a.col_mut(BV_CNT).set(0u32, ci, sub.borrow(0i64).cnt);
+        a.col_mut(BV_CHILD).set(0u32, ci, sub.borrow(0i64).ptr as u64);
+        let mut one: Vec<BvRow> = vec_new::<BvRow>();
+        one.push(BvRow { cnt: btvec_node_total::<P>(node), ptr: node });
+        return one;
+    }
+    // Recompose: existing rows with row ci replaced by the sub list.
+    let mut rows: Vec<BvRow> = vec_new::<BvRow>();
+    {
+        // a FRESH read view: the branches above may have moved the region.
+        let cb: ColRef = bv_cnt(&a);
+        let n: u64 = cb.size();
         let mut i: u64 = 0u64;
         while i < n {
             if i == ci {
@@ -764,15 +718,16 @@ fn bv_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u3
                     j = j + 1i64;
                 }
             } else {
-                rows.push(BvRow { cnt: cb.get(0u32, i), ptr: snap.resolve(bv_child(a).get(0u32, i)).ptr() });
+                rows.push(BvRow { cnt: cb.get(0u32, i),
+                                  ptr: snap.resolve(bv_child(&a).get(0u32, i)).ptr() });
             }
             i = i + 1u64;
         }
-        let mut out: Vec<BvRow> = vec_new::<BvRow>();
-        bv_pack_branches::<P>(&rows, snp, branch_bytes, &mut out);
-        P::free(node);
-        return out;
     }
+    let mut out: Vec<BvRow> = vec_new::<BvRow>();
+    bv_pack_branches::<P>(&rows, snp, branch_bytes, &mut out);
+    P::free(node);
+    return out;
 }
 
 /// Batch insert: splice the staging buffer's rows at position `pos`
@@ -805,19 +760,11 @@ pub fn btvec_insert_buf<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>,
 // EXACT weight admission — `w(left rows + right rows) ≤ region budget`
 // decides, no trial insertion. In-place tree (btvec v0, same as insert).
 
-unsafe fn bv_branch_remove_row(a: *mut PkdAlloc, i: u64) {
+fn bv_branch_remove_row(nv: &mut NodeView, i: u64) {
     let mut s: u32 = 0u32;
     while s < 2u32 {
-        let b: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
-        let us: PdtUpdate = match b.prepare_remove(i, i + 1u64, PDT_CAP_EXACT) {
-            Result::Ok(u) => u,
-            Result::Err(_e) => {
-                assert(false, "btvec: branch row remove failed to prepare");
-                return;
-            }
-        };
-        let mut b2: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
-        b2.commit_remove(&us);
+        assert(nv.col_mut(s).remove_rows(i, i + 1u64, PDT_CAP_EXACT),
+               "btvec: branch row remove failed to prepare");
         s = s + 1u32;
     }
 }
@@ -825,92 +772,82 @@ unsafe fn bv_branch_remove_row(a: *mut PkdAlloc, i: u64) {
 // weight admission for merging two SIBLING nodes into one (slots = 1 for a
 // leaf's value column, 2 for a branch's cnt+child columns)
 fn bv_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8, slots: u32) -> bool {
-    unsafe {
-        let d: PdtDescr = bv_buf_descr();
-        let zero: Vec<u64> = pdt_payload_zero(&d);
-        let n: u64 = pdtbuf_adopt((*P::pkd(l)).get::<u8>(0u32)).size()
-                   + pdtbuf_adopt((*P::pkd(r)).get::<u8>(0u32)).size();
-        let w: u32 = pdtbuf_compute_block_size(&d, n, &zero);
-        let mut ws: Vec<u32> = vec_new::<u32>();
-        let mut s: u32 = 0u32;
-        while s < slots {
-            ws.push(w);
-            s = s + 1u32;
-        }
-        return pack_region_weight(&ws) <= (*P::pkd(l)).block_size();
+    let d: PdtDescr = bv_buf_descr();
+    let zero: Vec<u64> = pdt_payload_zero(&d);
+    let n: u64 = node_view_at(l).col(0u32).size()
+               + node_view_at(r).col(0u32).size();
+    let w: u32 = pdtbuf_compute_block_size(&d, n, &zero);
+    let mut ws: Vec<u32> = vec_new::<u32>();
+    let mut s: u32 = 0u32;
+    while s < slots {
+        ws.push(w);
+        s = s + 1u32;
     }
+    return pack_region_weight(&ws) <= unsafe { (*P::pkd(l)).block_size() };
 }
 
 // append every cell of `src` column `s` to `dst` (front or back)
-unsafe fn bv_absorb_col<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut u8, s: u32,
-                                        at_front: bool, bump_rc: bool) {
-    let da: *mut PkdAlloc = P::pkd(dst);
-    let sa: *mut PkdAlloc = P::pkd(src);
-    let sb: PdtBuf = pdtbuf_adopt(sa.get::<u8>(s));
-    let sn: u64 = sb.size();
+fn bv_absorb_col<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut u8, s: u32,
+                                 at_front: bool, bump_rc: bool) {
+    let mut da: NodeView = node_view_at(dst);
+    let sa: NodeView = node_view_at(src);
+    let sn: u64 = sa.col(s).size();
     if sn == 0u64 {
         return;
     }
-    let db: PdtBuf = pdtbuf_adopt(da.get::<u8>(s));
-    let pos: u64 = if at_front { 0u64 } else { db.size() };
-    let us: PdtUpdate = match db.prepare_insert(pos, sn, PDT_CAP_KEEP) {
-        Result::Ok(u) => u,
-        Result::Err(_e) => {
-            assert(false, "btvec: admitted merge rejected (weight law broken?)");
-            return;
-        }
-    };
+    // read the source column out FIRST — the destination insert below can move
+    // the region, and the checker will not let a source view survive it.
     let mut cells: Vec<u64> = vec_new::<u64>();
-    let mut i: u64 = 0u64;
-    while i < sn {
-        let v: u64 = sb.get(0u32, i);
-        if bump_rc {
-            snap.resolve(v).inc_rc();  // copied child refs are NEW references
+    {
+        let sb: ColRef = sa.col(s);
+        let mut i: u64 = 0u64;
+        while i < sn {
+            let v: u64 = sb.get(0u32, i);
+            if bump_rc {
+                snap.resolve(v).inc_rc();  // copied child refs are NEW references
+            }
+            cells.push(v);
+            i = i + 1u64;
         }
-        cells.push(v);
-        i = i + 1u64;
     }
-    let mut db2: PdtBuf = pdtbuf_adopt(da.get::<u8>(s));
-    db2.commit_insert(&us, &cells);
+    let pos: u64 = if at_front { 0u64 } else { da.col(s).size() };
+    assert(da.col_mut(s).insert_cells(pos, &cells),
+           "btvec: admitted merge rejected (weight law broken?)");
 }
 
 // try to merge the child at row `ci` with a neighbor (right, then left)
-fn bv_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: *mut PkdAlloc, ci: u64, child: *mut u8,
+fn bv_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: &mut NodeView, ci: u64, child: *mut u8,
                                 child_level: u32) {
-    unsafe {
-        let n: u64 = bv_cnt(a).size();
-        let slots: u32 = if child_level == 0u32 { 1u32 } else { 2u32 };
-        if ci + 1u64 < n {
-            let sib: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci + 1u64)).ptr();
-            if bv_mergeable::<P>(child, sib, slots) {
-                bv_absorb_col::<P>(snap, child, sib, 0u32, false, false);
-                if child_level > 0u32 {
-                    bv_absorb_col::<P>(snap, child, sib, BV_CHILD, false, true);
-                }
-                let rcnt: u64 = bv_cnt(a).get(0u32, ci + 1u64);
-                tree_release(sib, child_level);
-                bv_branch_remove_row(a, ci + 1u64);
-                let oc: u64 = bv_cnt(a).get(0u32, ci);
-                let mut c2: PdtBuf = bv_cnt(a);
-                c2.set(0u32, ci, oc + rcnt);
-                return;
+    let n: u64 = bv_cnt(a).size();
+    let slots: u32 = if child_level == 0u32 { 1u32 } else { 2u32 };
+    if ci + 1u64 < n {
+        let sib: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci + 1u64)).ptr();
+        if bv_mergeable::<P>(child, sib, slots) {
+            bv_absorb_col::<P>(snap, child, sib, 0u32, false, false);
+            if child_level > 0u32 {
+                bv_absorb_col::<P>(snap, child, sib, BV_CHILD, false, true);
             }
+            let rcnt: u64 = bv_cnt(a).get(0u32, ci + 1u64);
+            unsafe { tree_release(sib, child_level); }
+            bv_branch_remove_row(a, ci + 1u64);
+            let oc: u64 = bv_cnt(a).get(0u32, ci);
+            a.col_mut(BV_CNT).set(0u32, ci, oc + rcnt);
+            return;
         }
-        if ci >= 1u64 {
-            let sib: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci - 1u64)).ptr();
-            if bv_mergeable::<P>(child, sib, slots) {
-                bv_absorb_col::<P>(snap, child, sib, 0u32, true, false);
-                if child_level > 0u32 {
-                    bv_absorb_col::<P>(snap, child, sib, BV_CHILD, true, true);
-                }
-                let lcnt: u64 = bv_cnt(a).get(0u32, ci - 1u64);
-                tree_release(sib, child_level);
-                bv_branch_remove_row(a, ci - 1u64);
-                let at: u64 = ci - 1u64;
-                let oc: u64 = bv_cnt(a).get(0u32, at);
-                let mut c2: PdtBuf = bv_cnt(a);
-                c2.set(0u32, at, oc + lcnt);
+    }
+    if ci >= 1u64 {
+        let sib: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci - 1u64)).ptr();
+        if bv_mergeable::<P>(child, sib, slots) {
+            bv_absorb_col::<P>(snap, child, sib, 0u32, true, false);
+            if child_level > 0u32 {
+                bv_absorb_col::<P>(snap, child, sib, BV_CHILD, true, true);
             }
+            let lcnt: u64 = bv_cnt(a).get(0u32, ci - 1u64);
+            unsafe { tree_release(sib, child_level); }
+            bv_branch_remove_row(a, ci - 1u64);
+            let at: u64 = ci - 1u64;
+            let oc: u64 = bv_cnt(a).get(0u32, at);
+            a.col_mut(BV_CNT).set(0u32, at, oc + lcnt);
         }
     }
 }
@@ -918,51 +855,40 @@ fn bv_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: *mut PkdAlloc, ci: u64
 // remove one cell at LOCAL position `pos`; returns the node's new count, or
 // u64::MAX when the node vanished (freed — the parent drops the row)
 fn bv_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64) -> u64 {
-    unsafe {
-        if level == 0u32 {
-            let a: *mut PkdAlloc = P::pkd(node);
-            let b: PdtBuf = bv_vals(a);
-            let us: PdtUpdate = match b.prepare_remove(pos, pos + 1u64, PDT_CAP_EXACT) {
-                Result::Ok(u) => u,
-                Result::Err(_e) => {
-                    assert(false, "btvec: cell remove failed to prepare");
-                    return 0u64;
-                }
-            };
-            let mut b2: PdtBuf = bv_vals(a);
-            b2.commit_remove(&us);
-            let cnt: u64 = bv_vals(a).size();
-            if cnt == 0u64 {
-                P::free(node);
-                return 0xFFFFFFFFFFFFFFFFu64;
-            }
-            return cnt;
-        }
-        let a: *mut PkdAlloc = P::pkd(node);
-        let cb: PdtBuf = bv_cnt(a);
-        let n: u64 = cb.size();
-        let mut ci: u64 = 0u64;
-        let mut rem: u64 = pos;
-        while ci + 1u64 < n && rem >= cb.get(0u32, ci) {
-            rem = rem - cb.get(0u32, ci);
-            ci = ci + 1u64;
-        }
-        let child: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci)).ptr();
-        let sub: u64 = bv_remove_rec::<P>(snap, child, level - 1u32, rem);
-        if sub == 0xFFFFFFFFFFFFFFFFu64 {
-            bv_branch_remove_row(a, ci);
-        } else {
-            let mut c2: PdtBuf = bv_cnt(a);
-            c2.set(0u32, ci, sub);
-            bv_try_merge::<P>(snap, a, ci, child, level - 1u32);
-        }
-        let nn: u64 = bv_cnt(a).size();
-        if nn == 0u64 {
+    if level == 0u32 {
+        let mut a: NodeView = node_view_at(node);
+        assert(a.col_mut(0u32).remove_rows(pos, pos + 1u64, PDT_CAP_EXACT),
+               "btvec: cell remove failed to prepare");
+        let cnt: u64 = bv_vals(&a).size();
+        if cnt == 0u64 {
             P::free(node);
             return 0xFFFFFFFFFFFFFFFFu64;
         }
-        return btvec_node_total::<P>(node);
+        return cnt;
     }
+    let mut a: NodeView = node_view_at(node);
+    let cb: ColRef = bv_cnt(&a);
+    let n: u64 = cb.size();
+    let mut ci: u64 = 0u64;
+    let mut rem: u64 = pos;
+    while ci + 1u64 < n && rem >= cb.get(0u32, ci) {
+        rem = rem - cb.get(0u32, ci);
+        ci = ci + 1u64;
+    }
+    let child: *mut u8 = snap.resolve(bv_child(&a).get(0u32, ci)).ptr();
+    let sub: u64 = bv_remove_rec::<P>(snap, child, level - 1u32, rem);
+    if sub == 0xFFFFFFFFFFFFFFFFu64 {
+        bv_branch_remove_row(&mut a, ci);
+    } else {
+        a.col_mut(BV_CNT).set(0u32, ci, sub);
+        bv_try_merge::<P>(snap, &mut a, ci, child, level - 1u32);
+    }
+    let nn: u64 = bv_cnt(&a).size();
+    if nn == 0u64 {
+        P::free(node);
+        return 0xFFFFFFFFFFFFFFFFu64;
+    }
+    return btvec_node_total::<P>(node);
 }
 
 /// Remove the entry at `pos` (0-based; traps past the end). The touched
@@ -981,9 +907,9 @@ pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
     unsafe {
         let mut going: bool = t.level > 0u32;
         while going {
-            let a: *mut PkdAlloc = P::pkd(t.root);
-            if bv_cnt(a).size() == 1u64 {
-                let child: *mut u8 = snap.resolve(bv_child(a).get(0u32, 0u64)).ptr();
+            let mut a: NodeView = node_view_at(t.root);
+            if bv_cnt(&a).size() == 1u64 {
+                let child: *mut u8 = snap.resolve(bv_child(&a).get(0u32, 0u64)).ptr();
                 P::free(t.root);
                 t.root = child;
                 t.level = t.level - 1u32;
@@ -1005,26 +931,24 @@ pub fn btvec_check<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>) -> bool 
 
 // Returns the subtree's entry count, or u64::MAX on a count mismatch.
 fn bv_check_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32) -> u64 {
-    unsafe {
-        if level == 0u32 {
-            return bv_vals(P::pkd(node)).size();
-        }
-        let a: *mut PkdAlloc = P::pkd(node);
-        let cb: PdtBuf = bv_cnt(a);
-        let n: u64 = cb.size();
-        let mut total: u64 = 0u64;
-        let mut i: u64 = 0u64;
-        while i < n {
-            let sub: u64 = bv_check_rec::<P>(snap, snap.resolve(bv_child(a).get(0u32, i)).ptr(), level - 1u32);
-            if sub == 0xFFFFFFFFFFFFFFFFu64 {
-                return sub;
-            }
-            if sub != cb.get(0u32, i) {
-                return 0xFFFFFFFFFFFFFFFFu64;
-            }
-            total = total + sub;
-            i = i + 1u64;
-        }
-        return total;
+    if level == 0u32 {
+        return bv_vals(&node_view_at(node)).size();
     }
+    let mut a: NodeView = node_view_at(node);
+    let cb: ColRef = bv_cnt(&a);
+    let n: u64 = cb.size();
+    let mut total: u64 = 0u64;
+    let mut i: u64 = 0u64;
+    while i < n {
+        let sub: u64 = bv_check_rec::<P>(snap, snap.resolve(bv_child(&a).get(0u32, i)).ptr(), level - 1u32);
+        if sub == 0xFFFFFFFFFFFFFFFFu64 {
+            return sub;
+        }
+        if sub != cb.get(0u32, i) {
+            return 0xFFFFFFFFFFFFFFFFu64;
+        }
+        total = total + sub;
+        i = i + 1u64;
+    }
+    return total;
 }

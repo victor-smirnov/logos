@@ -3,8 +3,8 @@
 // THE HAZARD. A node's columns live in one PkdAlloc region, laid out back to
 // back. Growing slot `i` SHIFTS every later slot (`resize_block_at` →
 // `move_elements_up`), so any pointer into slots > i dangles — and a two-phase
-// `prepare` can itself enlarge the region through the nested-allocator chain,
-// invalidating even the slot being written. Until now container code held raw
+// COMMIT is exactly such a grow, so it invalidates views taken before it
+// (including into the slot being written). Until now container code held raw
 // `*mut PkdAlloc` and raw `PdtBuf` copies (`pdtbuf_adopt`), and stayed correct
 // only by CONVENTION: "re-adopt after prepare". Nothing checked it.
 //
@@ -51,6 +51,13 @@ pub fn node_view(bp: MemBlockPtr) -> NodeView {
 /// A node view over a region the caller already resolved (migration transit:
 /// engines still derive `P::pkd(node)`; this wraps it into the checked skin).
 pub unsafe fn node_view_of(a: *mut PkdAlloc) -> NodeView { return NodeView { a: a }; }
+
+/// A node view over a raw block pointer — the currency the engines still speak.
+/// Safe on the same terms as `MemBlockPtr::pkd()`: a block pointer names a
+/// formatted node, and the view hands out nothing that is not borrow-tied.
+pub fn node_view_at(p: *mut u8) -> NodeView {
+    return NodeView { a: unsafe { node_pkd(p) } };
+}
 
 /// A SHARED column view: `(allocator, slot)`, resolved per call. Borrows its
 /// NodeView, so no resize can happen while it lives.
@@ -162,6 +169,15 @@ impl ColRef {
     }
     pub fn sum_all(self: &ColRef, column: u32) -> u64 { return self.buf().sum_all(column); }
     pub fn check(self: &ColRef) -> i32 { return self.buf().check(); }
+    /// PRICE an insert without performing it. `prepare` takes `&self` — it
+    /// plans, it does not move anything (the shift happens at commit) — so
+    /// pricing SEVERAL columns before committing any is expressible, which is
+    /// exactly what the region-budget check needs.
+    pub fn prepare_insert(self: &ColRef, at: u64, count: u64, policy: u32)
+        -> Result<PdtUpdate, PkdError> {
+        return self.buf().prepare_insert(at, count, policy);
+    }
+
     /// The underlying buffer, for surfaces not yet mirrored here. Unsafe
     /// because the result is a RAW view again — it must not outlive this call.
     pub unsafe fn raw_buf(self: &ColRef) -> PdtBuf { return self.buf(); }
@@ -194,6 +210,34 @@ impl ColMut {
     pub fn commit_insert(self: &mut ColMut, us: &PdtUpdate, vals: &Vec<u64>) {
         let mut b: PdtBuf = self.buf();          // fresh — prepare may have moved it
         b.commit_insert(us, vals);
+    }
+
+    /// Insert `vals` as rows at `at` — prepare AND commit in one call, each on
+    /// a freshly resolved payload. False = the insert could not be planned
+    /// (the caller priced it wrong).
+    pub fn insert_cells(self: &mut ColMut, at: u64, vals: &Vec<u64>) -> bool {
+        let us: PdtUpdate = match self.buf().prepare_insert(at, vals.len() as u64,
+                                                            PDT_CAP_KEEP) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { return false; }
+        };
+        let mut b: PdtBuf = self.buf();          // fresh — prepare may have moved it
+        b.commit_insert(&us, vals);
+        return true;
+    }
+
+    /// Remove rows [at, end) — prepare AND commit in one call, each on a
+    /// freshly resolved payload. The two-step (with its re-adopt in between)
+    /// was the shape most likely to go stale; here it is not expressible.
+    /// False = the removal could not be planned.
+    pub fn remove_rows(self: &mut ColMut, at: u64, end: u64, policy: u32) -> bool {
+        let us: PdtUpdate = match self.buf().prepare_remove(at, end, policy) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { return false; }
+        };
+        let mut b: PdtBuf = self.buf();          // fresh — prepare may have moved it
+        b.commit_remove(&us);
+        return true;
     }
 
     /// ESCAPE HATCH: the raw buffer for surfaces not yet mirrored.

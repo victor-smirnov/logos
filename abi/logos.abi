@@ -10322,8 +10322,10 @@ sym	logos_mem..logos.mem.bt.stream.MemStream__write_u64__f__refmut_MemStream__u6
 sym	logos_mem..logos.mem.bt.stream.MemStream__write_u8__f__refmut_MemStream__u8
 sym	logos_mem..logos.mem.bt.view.ColMut__commit_insert__f__refmut_ColMut__ref_PdtUpdate__ref_Vec$G1$u64
 sym	logos_mem..logos.mem.bt.view.ColMut__get__f__ref_ColMut__u32__u64
+sym	logos_mem..logos.mem.bt.view.ColMut__insert_cells__f__refmut_ColMut__u64__ref_Vec$G1$u64
 sym	logos_mem..logos.mem.bt.view.ColMut__prepare_insert__f__ref_ColMut__u64__u64__u32
 sym	logos_mem..logos.mem.bt.view.ColMut__raw_buf__f__ref_ColMut
+sym	logos_mem..logos.mem.bt.view.ColMut__remove_rows__f__refmut_ColMut__u64__u64__u32
 sym	logos_mem..logos.mem.bt.view.ColMut__set__f__refmut_ColMut__u32__u64__u64
 sym	logos_mem..logos.mem.bt.view.ColMut__size__f__ref_ColMut
 sym	logos_mem..logos.mem.bt.view.NodeView__col__f__ref_NodeView__u32
@@ -11550,6 +11552,7 @@ sym	logos_mem.logos.mem.bt.storecfg$store_cfg_check__f__WritStatic
 sym	logos_mem.logos.mem.bt.stream$mem_stream_new__f__void
 sym	logos_mem.logos.mem.bt.stream$mem_stream_over__f__pmut_u8__i64
 sym	logos_mem.logos.mem.bt.view$node_view__f__MemBlockPtr
+sym	logos_mem.logos.mem.bt.view$node_view_at__f__pmut_u8
 sym	logos_mem.logos.mem.bt.view$node_view_of__f__pmut_PkdAlloc
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__&[u8]__Vec$G1$i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__&[u8]__u8
