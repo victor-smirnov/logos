@@ -16,6 +16,8 @@ package logos.mem.bt.check;
 
 use logos.mem.pkd;
 use logos.mem.pkd.pdtbuf;
+use logos.mem.pkd.sseq;            // PkdSsrle — verify the symbol sequence
+use logos.mem.pkd.ssrle;          // SsrleRun
 use logos.mem.bt.node;
 use logos.mem.bt.dump;             // push_hex — name the offending node
 use logos.mem.string;
@@ -58,6 +60,81 @@ unsafe fn subtree_max_key(node: *mut u8, level: u32) -> u64 {
     return kb.get(0u32, m - 1u64);
 }
 
+// Verify a nested symbol sequence: its declared size equals the sum of its run
+// lengths, and the per-symbol total ranks sum to the size.
+unsafe fn check_ssrle(pk: &PkdSsrle, node: *mut u8, out: &mut String) -> u64 {
+    let mut v: u64 = 0u64;
+    let runs: Vec<SsrleRun> = pk.as_runs();
+    let mut total: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    let n: i64 = runs.len();
+    while i < n { total = total + runs.get(i).full_run_length(); i = i + 1i64; }
+    if total != pk.size() {
+        viol_i(out, node, "ssrle size != sum of run lengths", 0u64, pk.size(), total);
+        v = v + 1u64;
+    }
+    let asz: u32 = pk.alphabet_size();
+    let mut rsum: u64 = 0u64;
+    let mut s: u32 = 0u32;
+    while s < asz { rsum = rsum + pk.rank_eq_all(s as u64); s = s + 1u32; }
+    if rsum != pk.size() {
+        viol_i(out, node, "ssrle per-symbol rank sum != size", 0u64, rsum, pk.size());
+        v = v + 1u64;
+    }
+    return v;
+}
+
+// Internal index consistency of every slot: PdtBuf.check() verifies a SUM
+// buffer's prefix-sum index against the ground-truth scan; the ssrle_slot is
+// verified as a symbol sequence instead.
+unsafe fn check_node_slots(node: *mut u8, out: &mut String) -> u64 {
+    let a: *mut PkdAlloc = node_pkd(node);
+    let sq: u32 = node_ssrle_slot(node);
+    let nslots: u32 = a.elements();
+    let mut v: u64 = 0u64;
+    let mut s: u32 = 0u32;
+    while s < nslots {
+        if a.is_allocatable(s) {
+            if s == sq {
+                let pk: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(s));
+                v = v + check_ssrle(&pk, node, out);
+            } else {
+                let buf: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
+                let rc: i32 = buf.check();
+                if rc != 0i32 {
+                    viol_i(out, node, "PdtBuf.check failed (index inconsistent)", s as u64, rc as u64, 0u64);
+                    v = v + 1u64;
+                }
+            }
+        }
+        s = s + 1u32;
+    }
+    return v;
+}
+
+/// Total entry count in `(node, level)`'s subtree — leaf key rows, or a branch's
+/// single-column SUM count slot summed. The base of the SUM inter-node check.
+unsafe fn subtree_entry_count(node: *mut u8, level: u32) -> u64 {
+    if level == 0u32 {
+        return pdtbuf_adopt(node_pkd(node).get::<u8>(0u32)).size();
+    }
+    // find the branch's single-column SUM count slot
+    let a: *mut PkdAlloc = node_pkd(node);
+    let cs: u32 = node_child_slot(node);
+    let nslots: u32 = a.elements();
+    let mut s: u32 = 0u32;
+    while s < nslots {
+        if s != cs && a.is_allocatable(s) {
+            let buf: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
+            if buf.ordering() == PDT_ORD_SUM && buf.columns() == 1u32 {
+                return buf.sum_all(0u32);
+            }
+        }
+        s = s + 1u32;
+    }
+    return 0u64;
+}
+
 // slot-0 strictly increasing (keys/separators are a MAX-ordered, unique set).
 unsafe fn check_ordered(node: *mut u8, out: &mut String) -> u64 {
     let kb: PdtBuf = pdtbuf_adopt(node_pkd(node).get::<u8>(0u32));
@@ -85,6 +162,7 @@ pub fn check_tree(root: *mut u8, level: u32, out: &mut String) -> u64 {
         let mut v: u64 = 0u64;
         if node_rc(root) == 0u32 { viol(out, root, "rc == 0"); v = v + 1u64; }
         v = v + check_ordered(root, out);
+        v = v + check_node_slots(root, out);       // internal index / symbol-seq consistency
         if level == 0u32 { return v; }
 
         let a: *mut PkdAlloc = node_pkd(root);
@@ -92,6 +170,20 @@ pub fn check_tree(root: *mut u8, level: u32, out: &mut String) -> u64 {
         if cs == NODE_NO_CHILDREN { viol(out, root, "branch has no child_slot"); return v + 1u64; }
         let seps: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
         let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+        // the branch's single-column SUM count slot (stream-size), if any — its
+        // cell i must equal the entry count of child i's subtree (inter-node SUM).
+        let mut sumslot: u32 = NODE_NO_CHILDREN;
+        {
+            let ntot: u32 = a.elements();
+            let mut ss: u32 = 0u32;
+            while ss < ntot {
+                if ss != cs && ss != 0u32 && a.is_allocatable(ss) {
+                    let b2: PdtBuf = pdtbuf_adopt(a.get::<u8>(ss));
+                    if b2.ordering() == PDT_ORD_SUM && b2.columns() == 1u32 { sumslot = ss; }
+                }
+                ss = ss + 1u32;
+            }
+        }
         let ns: u64 = seps.size();
         let nc: u64 = cb.size();
         if ns != nc { viol_i(out, root, "sep count != child count", 0u64, ns, nc); v = v + 1u64; }
@@ -100,8 +192,14 @@ pub fn check_tree(root: *mut u8, level: u32, out: &mut String) -> u64 {
         let mut i: u64 = 0u64;
         while i < n {
             let child: *mut u8 = cb.get(0u32, i) as *mut u8;
-            if node_level(child) != level - 1u32 {
-                viol_i(out, child, "child level mismatch", i, node_level(child) as u64, (level - 1u32) as u64);
+            // Level is stamped in the header only where a node must self-describe
+            // (container roots at set_root; the whole directory tree). Internal
+            // container branches leave it 0 (unstamped) until full level-in-header
+            // lands — so flag a STAMPED (non-zero) level that disagrees, not the
+            // unstamped 0.
+            let clv: u32 = node_level(child);
+            if clv != 0u32 && clv != level - 1u32 {
+                viol_i(out, child, "child stamped level mismatch", i, clv as u64, (level - 1u32) as u64);
                 v = v + 1u64;
             }
             if node_snapshot(child) > ps {
@@ -112,6 +210,14 @@ pub fn check_tree(root: *mut u8, level: u32, out: &mut String) -> u64 {
             if seps.get(0u32, i) != cmax {
                 viol_i(out, root, "separator != child subtree max", i, seps.get(0u32, i), cmax);
                 v = v + 1u64;
+            }
+            if sumslot != NODE_NO_CHILDREN {
+                let ecnt: u64 = subtree_entry_count(child, level - 1u32);
+                let claimed: u64 = pdtbuf_adopt(a.get::<u8>(sumslot)).get(0u32, i);
+                if claimed != ecnt {
+                    viol_i(out, root, "SUM count != child subtree entry count", i, claimed, ecnt);
+                    v = v + 1u64;
+                }
             }
             v = v + check_tree(child, level - 1u32, out);
             i = i + 1u64;

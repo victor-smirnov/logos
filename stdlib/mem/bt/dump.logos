@@ -15,6 +15,8 @@ package logos.mem.bt.dump;
 
 use logos.mem.pkd;                // PkdAlloc
 use logos.mem.pkd.pdtbuf;         // PdtBuf, PdtDim
+use logos.mem.pkd.sseq;           // PkdSsrle — the nested symbol sequence
+use logos.mem.pkd.ssrle;          // SsrleRun, ssrle_bps_for_alphabet
 use logos.mem.bt.node;            // node_* accessors
 use logos.mem.string;             // String
 use logos.mem.collections.vec;
@@ -42,6 +44,149 @@ pub fn push_hex(out: &mut String, v: u64) {
     }
 }
 
+/// Right-align `v` in a field of width `w` (leading spaces) — for table columns.
+fn push_ru64(out: &mut String, v: u64, w: u32) {
+    let mut d: u32 = 1u32;
+    let mut t: u64 = v;
+    while t >= 10u64 { t = t / 10u64; d = d + 1u32; }
+    let mut p: u32 = d;
+    while p < w { out.push_u8(32u8); p = p + 1u32; }
+    out.push_u64(v);
+}
+
+/// Dump a nested SYMBOL SEQUENCE (PkdSsrle) as a 2D TABLE — one row per run,
+/// far easier to read than a flat symbol list (the Memoria dump shape). Columns:
+/// run index, byte offset into the decoded sequence, pattern length, run length,
+/// and the pattern's symbols; a trailing per-symbol total-rank line.
+pub fn ssrle_dump(pk: &PkdSsrle, out: &mut String, ind: u32) {
+    let asz: u32 = pk.alphabet_size();
+    let bps: u32 = ssrle_bps_for_alphabet(asz);
+    let sz: u64 = pk.size();
+    let runs: Vec<SsrleRun> = pk.as_runs();
+    push_indent(out, ind);
+    out.push_str("SSRLE alphabet="); out.push_u64(asz as u64);
+    out.push_str(" size="); out.push_u64(sz);
+    out.push_str(" runs="); out.push_u64(runs.len() as u64); out.push_str("\n");
+    push_indent(out, ind + 1u32);
+    out.push_str("run  offset  patLen  runLen  symbols\n");
+    let mut off: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    let n: i64 = runs.len();
+    while i < n {
+        let r: SsrleRun = runs.get(i);
+        push_indent(out, ind + 1u32);
+        push_ru64(out, i as u64, 3u32); out.push_str("  ");
+        push_ru64(out, off, 6u32); out.push_str("  ");
+        push_ru64(out, r.pattern_length as u64, 6u32); out.push_str("  ");
+        push_ru64(out, r.run_length, 6u32); out.push_str("  [");
+        let mut j: u64 = 0u64;
+        while j < (r.pattern_length as u64) {
+            if j > 0u64 { out.push_str(" "); }
+            out.push_u64(r.pattern_symbol(bps, j));
+            j = j + 1u64;
+        }
+        out.push_str("]\n");
+        off = off + r.full_run_length();
+        i = i + 1i64;
+    }
+    // The DECODED sequence as a 2D grid (Memoria dumpSymbols): position-labelled
+    // rows, `cols` symbols per row, with a column-index header — the readable
+    // view of the actual symbols, not just the RLE runs above.
+    let cols: u64 = if asz <= 16u32 { 64u64 } else { 32u64 };
+    push_indent(out, ind + 1u32);
+    out.push_str("pos     ");
+    let mut hc: u64 = 0u64;
+    while hc < cols {
+        push_ru64(out, hc, 8u32);
+        hc = hc + 8u64;
+    }
+    out.push_str("\n");
+    let mut pos: u64 = 0u64;
+    let mut col: u64 = 0u64;
+    let mut ri: i64 = 0i64;
+    while ri < n {
+        let r: SsrleRun = runs.get(ri);
+        let reps: u64 = r.run_length;
+        let plen: u64 = r.pattern_length as u64;
+        let mut rep: u64 = 0u64;
+        while rep < reps {
+            let mut k: u64 = 0u64;
+            while k < plen {
+                if col == 0u64 {
+                    push_indent(out, ind + 1u32);
+                    push_ru64(out, pos, 6u32); out.push_str(": ");
+                }
+                out.push_u64(r.pattern_symbol(bps, k)); out.push_str(" ");
+                col = col + 1u64;
+                pos = pos + 1u64;
+                if col == cols { out.push_str("\n"); col = 0u64; }
+                k = k + 1u64;
+            }
+            rep = rep + 1u64;
+        }
+        ri = ri + 1i64;
+    }
+    if col != 0u64 { out.push_str("\n"); }
+
+    push_indent(out, ind + 1u32);
+    out.push_str("ranks:");
+    let mut s: u32 = 0u32;
+    while s < asz {
+        out.push_str(" sym"); out.push_u64(s as u64); out.push_str("=");
+        out.push_u64(pk.rank_eq_all(s as u64));
+        s = s + 1u32;
+    }
+    out.push_str("\n");
+}
+
+/// Dump a standalone PdtBuf's content as a table — descriptor (columns, dims,
+/// ordering) then one row per entry with each column's cell (FSE) or byte-span
+/// (VLE). For the batch STAGING buffers, which are PdtBufs: `pdtbuf_dump` shows
+/// exactly what a batch carries before it is spliced.
+pub fn pdtbuf_dump(buf: &PdtBuf, out: &mut String, ind: u32) {
+    let cols: u32 = buf.columns();
+    let rows: u64 = buf.size();
+    let vle: bool = buf.vle_dim_count() > 0u32;
+    let ord: u32 = buf.ordering();
+    push_indent(out, ind);
+    out.push_str("PDTBUF cols="); out.push_u64(cols as u64);
+    out.push_str(" rows="); out.push_u64(rows);
+    out.push_str(if vle { " vle" } else { " fse" });
+    out.push_str(" ord=");
+    if ord == 0u32 { out.push_str("SUM"); } else { if ord == 1u32 { out.push_str("MAX"); } else { out.push_str("UNORD"); } }
+    out.push_str("\n");
+    let mut r: u64 = 0u64;
+    while r < rows {
+        push_indent(out, ind + 1u32);
+        out.push_str("["); push_ru64(out, r, 4u32); out.push_str("] ");
+        if vle {
+            let lo: u64 = buf.row_offset(0u32, 0u32, r);
+            let hi: u64 = buf.row_offset(0u32, 0u32, r + 1u64);
+            out.push_str("vle "); out.push_u64(hi - lo); out.push_str("B");
+        } else {
+            let mut c: u32 = 0u32;
+            while c < cols {
+                if c > 0u32 { out.push_str(", "); }
+                out.push_u64(buf.get(c, r));
+                c = c + 1u32;
+            }
+        }
+        out.push_str("\n");
+        r = r + 1u64;
+    }
+    if ord == 0u32 {
+        // SUM buffer: show the per-column totals (index-computed)
+        let mut c: u32 = 0u32;
+        push_indent(out, ind + 1u32); out.push_str("sums:");
+        while c < cols {
+            out.push_str(" c"); out.push_u64(c as u64); out.push_str("=");
+            out.push_u64(buf.sum_all(c));
+            c = c + 1u32;
+        }
+        out.push_str("\n");
+    }
+}
+
 /// Dump ONE node's header + every allocated slot's columns, at indent `ind`.
 /// A slot that is the declared child_slot or value_ref_slot has its cells shown
 /// as hex (they are block addresses); other cells are decimal.
@@ -55,15 +200,23 @@ pub fn node_dump(node: *mut u8, out: &mut String, ind: u32) {
         out.push_str(" snap="); out.push_u64(node_snapshot(node));
         out.push_str(" rc="); out.push_u64(node_rc(node) as u64);
         out.push_str(" lvl="); out.push_u64(node_level(node) as u64);
+        let sq: u32 = node_ssrle_slot(node);
         if cs != NODE_NO_CHILDREN { out.push_str(" child=slot"); out.push_u64(cs as u64); }
         if vr != NODE_NO_CHILDREN { out.push_str(" vref=slot"); out.push_u64(vr as u64); }
+        if sq != NODE_NO_CHILDREN { out.push_str(" ssrle=slot"); out.push_u64(sq as u64); }
         out.push_str("\n");
 
         let a: *mut PkdAlloc = node_pkd(node);
         let nslots: u32 = a.elements();
         let mut s: u32 = 0u32;
         while s < nslots {
-            if a.is_allocatable(s) {
+            if s == sq && a.is_allocatable(s) {
+                // a nested symbol sequence — decode as a 2D table, not a column
+                push_indent(out, ind + 1u32);
+                out.push_str("slot"); out.push_u64(s as u64); out.push_str(" [SSRLE]:\n");
+                let pk: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(s));
+                ssrle_dump(&pk, out, ind + 2u32);
+            } else if a.is_allocatable(s) {
                 let buf: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
                 let rows: u64 = buf.size();
                 let cols: u32 = buf.columns();

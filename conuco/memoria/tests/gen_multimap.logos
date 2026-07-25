@@ -677,6 +677,18 @@ fn run_all() -> i32 {
         }
     }
 
+    // ── 90..99: check() the populated multimaps (SUM/MAX inter-node, internal
+    // SUM-index consistency, and the SSRLE symbol-sequence). A well-formed tree
+    // reports 0 violations; on a violation the report (naming the node) prints,
+    // and you `dump_ctr_path` it to look.
+    {
+        let ms: &MemorySnapshot = unsafe { &*(dyn_data(&*snap) as *const MemorySnapshot) };
+        if ms.check_ctr_count(3u64) != 0u64 { eprintln_string(&ms.check_ctr(3u64)); return 90i32; }
+        if ms.check_ctr_count(4u64) != 0u64 { eprintln_string(&ms.check_ctr(4u64)); return 91i32; }
+        if ms.check_ctr_count(5u64) != 0u64 { eprintln_string(&ms.check_ctr(5u64)); return 92i32; }
+        if ms.check_dir_count() != 0u64 { eprintln_string(&ms.check_dir()); return 93i32; }
+    }
+
     return 0i32;
 }
 

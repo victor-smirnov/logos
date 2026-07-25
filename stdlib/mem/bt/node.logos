@@ -66,13 +66,14 @@ struct MemNode {
     // allocator to be formatted nor a reach into the tail (Memoria's
     // Header::memory_block_size()).
     block_size: u32,
-    // Explicit alignment padding: keeps the fixed header at 32 bytes (a
-    // multiple of 8) so the trailing PkdAlloc lands on an 8-byte boundary
-    // (without it the header is misaligned — a silent misalignment for u64
-    // packed data on aarch64). A hand-maintained invariant: if a field is
-    // added/removed here, keep the pre-`alc` size a multiple of 8. (A real
-    // `alignas` on PkdAlloc would remove the need.)
-    _align_pad: u32,
+    // WHICH PkdAlloc slot holds a nested PACKED SYMBOL SEQUENCE (a PkdSsrle
+    // block — the BTFL leaf's structure stream), or NODE_NO_CHILDREN when the
+    // node has none. Declared here so the generic dumper/checker can decode and
+    // verify the symbol sequence without per-container knowledge (the dual of
+    // value_ref_slot for an SSRLE column). Also serves as the header's alignment
+    // slot — keeping the pre-`alc` size a multiple of 8 (a hand-maintained
+    // invariant: a field added/removed here must preserve that).
+    ssrle_slot: u32,
     // The column region — the DST tail (allocator_).
     alc:        PkdAlloc,
 }
@@ -102,6 +103,7 @@ pub unsafe fn node_alloc(block_size: u32, nslots: u32, snp: u64) -> *mut u8 {
     (*n).rc = 1u32;
     (*n).child_slot = NODE_NO_CHILDREN;      // childless until declared
     (*n).value_ref_slot = NODE_NO_CHILDREN;  // no ref-value column until declared
+    (*n).ssrle_slot = NODE_NO_CHILDREN;      // no symbol-sequence slot until declared
     (*n).level = 0u32;                       // a leaf until stamped otherwise
     let region: u32 = block_size - (offset_of!(MemNode, alc) as u32);
     let _ = pkd_format(node_pkd(base) as *mut u8, region, nslots);
@@ -137,6 +139,14 @@ pub unsafe fn node_level(base: *mut u8) -> u32 { return (*mn(base)).level; }
 /// Stamp this node's level. The store stamps a container ROOT's level at
 /// `set_root` so the directory can self-describe its release.
 pub unsafe fn node_set_level(base: *mut u8, level: u32) { (*mn(base)).level = level; }
+
+/// Which slot holds a nested packed SYMBOL SEQUENCE (PkdSsrle), or
+/// NODE_NO_CHILDREN when none. Only a BTFL leaf declares one.
+pub unsafe fn node_ssrle_slot(base: *mut u8) -> u32 { return (*mn(base)).ssrle_slot; }
+
+/// Declare where this node keeps its symbol sequence (the BTFL leaf at
+/// construction); every other node leaves it NODE_NO_CHILDREN.
+pub unsafe fn node_set_ssrle_slot(base: *mut u8, slot: u32) { (*mn(base)).ssrle_slot = slot; }
 
 pub unsafe fn node_snapshot(base: *mut u8) -> u64 { return (*mn(base)).snap; }
 pub unsafe fn node_set_snapshot(base: *mut u8, snp: u64) { (*mn(base)).snap = snp; }

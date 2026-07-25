@@ -263,6 +263,7 @@ fn btfl_leaf_new<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
         inner.set_allocator(a as *const PkdAlloc);
+        node_set_ssrle_slot(node, N);       // declare the symbol-sequence slot (dump/check)
         return node;
     }
 }
@@ -302,6 +303,7 @@ fn btfl_leaf_new_shaped<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, lea
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
         inner.set_allocator(a as *const PkdAlloc);
+        node_set_ssrle_slot(node, N);       // declare the symbol-sequence slot (dump/check)
         return node;
     }
 }
@@ -338,6 +340,7 @@ fn btfl_leaf_new_like<const N: u32, P: NodeProfile>(snp: u64, leaf_bytes: u32,
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
         inner.set_allocator(a as *const PkdAlloc);
+        node_set_ssrle_slot(node, N);       // declare the symbol-sequence slot (dump/check)
         return node;
     }
 }

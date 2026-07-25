@@ -295,6 +295,13 @@ impl MemorySnapshot {
         return unsafe { check_tree((*self.d()).dir_root, (*self.d()).dir_level, &mut s) };
     }
 
+    /// Container `ctr_id`'s violation COUNT (0 = well-formed).
+    pub fn check_ctr_count(self: &MemorySnapshot, ctr_id: u64) -> u64 {
+        let e: DirEntry = self.root_of(ctr_id);
+        let mut s: String = String::new();
+        return unsafe { check_tree(e.root, e.level, &mut s) };
+    }
+
     // — lifecycle lives on `impl Snapshot for MemorySnapshot` below (the PUBLIC
     //   tier: commit/remove/status ride the dyn vtable so a `dyn Snapshot`
     //   holder can call them). The PRIVILEGED capability above stays inherent.
