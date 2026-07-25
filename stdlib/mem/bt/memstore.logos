@@ -34,6 +34,7 @@ use logos.lang.option;
 use logos.mem.collections.vec;   // Vec — the directory backing (few containers → linear scan)
 use logos.mem.string;            // String — named-branch refs + snapshot branch tag
 use logos.lang.str;              // str — branch-name views
+use logos.mem.bt.blockptr;       // MemBlockPtr + trait BlockStore — the block plane
 use logos.mem.bt.dirmap;         // the directory is a CoW container (dir_set/get/…)
 use logos.mem.bt.dump;           // node/tree dumper — debugging the node-data deltas
 use logos.mem.bt.check;          // invariant checker — localize violations at scale
@@ -87,10 +88,30 @@ pub struct SnapDesc {
     pub id: u64,
     parent: u64,             // the snapshot this one forked from (0 = root)
     branch: String,          // the branch commit() advances (default "master")
-    dir_root: *mut u8,       // the directory container's root (a CoW dirmap tree)
+    dir_root: MemBlockPtr,   // the directory container's root (a CoW dirmap tree)
     dir_level: u32,          // its level (grows as the directory splits)
     status: u32,
     wrappers: AtomicI32,     // open MemorySnapshot wrappers for this entry
+}
+
+/// The store's BLOCK PLANE at a given snapshot id — the minimal `BlockStore`
+/// the store itself uses (the directory walks, and the bootstrap allocation in
+/// `fork_desc`, which runs before any snapshot WRAPPER exists). Zero-cost: one
+/// u64. `MemorySnapshot` implements the same trait for container-facing code.
+pub struct MemBlocks { snp: u64 }
+
+pub fn mem_blocks_at(snp: u64) -> MemBlocks { return MemBlocks { snp: snp }; }
+
+impl BlockStore for MemBlocks {
+    fn resolve(self: &MemBlocks, id: u64) -> MemBlockPtr {
+        return block_from_addr(id as *mut u8);   // MemoryStore: the id IS the address
+    }
+    fn alloc_block(self: &MemBlocks, block_size: u32, nslots: u32) -> MemBlockPtr {
+        return block_from_addr(unsafe { node_alloc(block_size, nslots, self.snp) });
+    }
+    fn release_block(self: &MemBlocks, bp: MemBlockPtr, level: u32) {
+        unsafe { tree_release(bp.ptr(), level); }   // disposal delegate: free()
+    }
 }
 
 /// A named branch: a mutable ref pointing at its head (tip) snapshot id, git's
@@ -181,6 +202,40 @@ impl MemorySnapshot {
     pub fn get_child(self: &MemorySnapshot, cref: u64) -> *mut u8 { return cref as *mut u8; }
     pub fn child_ref_of(self: &MemorySnapshot, h: *mut u8) -> u64 { return h as u64; }
 
+    // — the BLOCK POINTER plane (Memoria SharedBlockPtr): a container resolves
+    //   a stored id into a handle THROUGH its store and hands blocks back to it
+    //   to dispose. For MemoryStore resolve is the cast above and disposal is
+    //   free(); a disk store swaps the pointer type and does cache lookup /
+    //   pin / eviction behind the same three calls. See logos.mem.bt.blockptr.
+
+    /// This snapshot's BLOCK PLANE — the `BlockStore` its directory walks (and
+    /// any store-agnostic engine) resolve/allocate/dispose through.
+    pub fn blocks(self: &MemorySnapshot) -> MemBlocks {
+        return mem_blocks_at(unsafe { (*self.d()).id });
+    }
+
+    /// Resolve a stored block id into a handle.
+    pub fn resolve(self: &MemorySnapshot, id: u64) -> MemBlockPtr {
+        return block_from_addr(id as *mut u8);
+    }
+
+    /// Allocate a fresh block as a handle, stamped with this snapshot's id.
+    pub fn alloc_block(self: &MemorySnapshot, block_size: u32, nslots: u32) -> MemBlockPtr {
+        return block_from_addr(self.node_alloc(block_size, nslots));
+    }
+
+    /// A BRANCH block as a handle (its child-ref slot declared).
+    pub fn alloc_branch_block(self: &MemorySnapshot, block_size: u32, nslots: u32,
+                              child_slot: u32) -> MemBlockPtr {
+        return block_from_addr(self.branch_alloc(block_size, nslots, child_slot));
+    }
+
+    /// Hand a block's SUBTREE back to the store: one structural share dropped,
+    /// disposal at zero (here free, via the container-agnostic walk).
+    pub fn release_block(self: &MemorySnapshot, bp: MemBlockPtr, level: u32) {
+        unsafe { tree_release(bp.ptr(), level); }
+    }
+
     /// True iff `h` is shared with a frozen snapshot (its stamped id differs)
     /// and must be `cow_clone`d before an in-place write.
     pub fn cow_needed(self: &MemorySnapshot, h: *mut u8) -> bool {
@@ -190,14 +245,16 @@ impl MemorySnapshot {
     // — directory: container roots in this version (a CoW dirmap tree) —
 
     pub fn has_ctr(self: &MemorySnapshot, ctr_id: u64) -> bool {
-        return unsafe { dir_has((*self.d()).dir_root, (*self.d()).dir_level, ctr_id) };
+        return unsafe { dir_has::<MemBlocks>(&self.blocks(), (*self.d()).dir_root,
+                                            (*self.d()).dir_level, ctr_id) };
     }
 
     /// (root, level) for `ctr_id`; asserts the container is registered. `level`
     /// is read from the root node's own header. READ path — no CoW.
     pub fn root_of(self: &MemorySnapshot, ctr_id: u64) -> DirEntry {
         unsafe {
-            let root: u64 = dir_get((*self.d()).dir_root, (*self.d()).dir_level, ctr_id);
+            let root: u64 = dir_get::<MemBlocks>(&self.blocks(), (*self.d()).dir_root,
+                                                (*self.d()).dir_level, ctr_id);
             assert(root != 0u64, "directory: unknown container id");
             let rp: *mut u8 = root as *mut u8;
             return DirEntry { ctr_id: ctr_id, root: rp, level: node_level(rp) };
@@ -213,7 +270,8 @@ impl MemorySnapshot {
     pub fn root_of_mut(self: &MemorySnapshot, ctr_id: u64) -> DirEntry {
         unsafe {
             let cur: u64 = (*self.d()).id;
-            let p: DirPriv = dir_privatize((*self.d()).dir_root, (*self.d()).dir_level, ctr_id, cur);
+            let p: DirPriv = dir_privatize::<MemBlocks>(&self.blocks(), (*self.d()).dir_root,
+                                                       (*self.d()).dir_level, ctr_id, cur);
             (*self.d()).dir_root = p.root;
             (*self.d()).dir_level = p.level;
             assert(p.val != 0u64, "directory: unknown container id");
@@ -233,8 +291,8 @@ impl MemorySnapshot {
         unsafe {
             node_set_level(root, level);
             let cur: u64 = (*self.d()).id;
-            let nr: DirRoot = dir_set((*self.d()).dir_root, (*self.d()).dir_level,
-                                      ctr_id, root as u64, cur);
+            let nr: DirRoot = dir_set::<MemBlocks>(&self.blocks(), (*self.d()).dir_root,
+                                                  (*self.d()).dir_level, ctr_id, root as u64, cur);
             (*self.d()).dir_root = nr.root;
             (*self.d()).dir_level = nr.level;
         }
@@ -243,7 +301,8 @@ impl MemorySnapshot {
     /// The registered container ids (Memoria container_names), in key order.
     pub fn container_ids(self: &MemorySnapshot) -> Vec<u64> {
         let mut out: Vec<u64> = vec_new::<u64>();
-        unsafe { dir_keys((*self.d()).dir_root, (*self.d()).dir_level, &mut out); }
+        unsafe { dir_keys::<MemBlocks>(&self.blocks(), (*self.d()).dir_root,
+                                      (*self.d()).dir_level, &mut out); }
         return out;
     }
 
@@ -260,7 +319,7 @@ impl MemorySnapshot {
     /// A structured-text dump of the snapshot's DIRECTORY tree itself (the
     /// `CtrID → root` map); leaf value-refs are the container roots (hex).
     pub fn dump_dir(self: &MemorySnapshot) -> String {
-        unsafe { return tree_dump_string((*self.d()).dir_root, (*self.d()).dir_level); }
+        unsafe { return tree_dump_string((*self.d()).dir_root.ptr(), (*self.d()).dir_level); }
     }
 
     /// The root→leaf SPINE toward `key` in container `ctr_id` (`keep` = leaf +
@@ -272,7 +331,7 @@ impl MemorySnapshot {
 
     /// The directory's root→leaf spine toward `ctr_id` (which dir leaf routes it).
     pub fn dump_dir_path(self: &MemorySnapshot, ctr_id: u64, keep: u32) -> String {
-        unsafe { return path_dump_string((*self.d()).dir_root, (*self.d()).dir_level, ctr_id, keep); }
+        unsafe { return path_dump_string((*self.d()).dir_root.ptr(), (*self.d()).dir_level, ctr_id, keep); }
     }
 
     /// Verify container `ctr_id`'s tree invariants; returns a report string
@@ -285,14 +344,14 @@ impl MemorySnapshot {
 
     /// Verify the DIRECTORY tree's own invariants (the `CtrID → root` map).
     pub fn check_dir(self: &MemorySnapshot) -> String {
-        unsafe { return check_tree_report((*self.d()).dir_root, (*self.d()).dir_level); }
+        unsafe { return check_tree_report((*self.d()).dir_root.ptr(), (*self.d()).dir_level); }
     }
 
     /// The directory's violation COUNT (0 = well-formed) — for gating a check
     /// into a test without parsing the report.
     pub fn check_dir_count(self: &MemorySnapshot) -> u64 {
         let mut s: String = String::new();
-        return unsafe { check_tree((*self.d()).dir_root, (*self.d()).dir_level, &mut s) };
+        return unsafe { check_tree((*self.d()).dir_root.ptr(), (*self.d()).dir_level, &mut s) };
     }
 
     /// Container `ctr_id`'s violation COUNT (0 = well-formed).
@@ -321,11 +380,26 @@ impl Drop for MemorySnapshot {
             // Active (uncommitted dies with its last wrapper) or Dropped
             // (marked): release this version's directory tree — ONE cascade
             // that frees every container root through the leaves' value-refs.
-            tree_release((*self.desc).dir_root, (*self.desc).dir_level);
+            tree_release((*self.desc).dir_root.ptr(), (*self.desc).dir_level);
             // LOCK POINT (v1): descriptor unlink vs concurrent find().
             let g: &mut MemoryStore = &mut *self.store;
             g.forget(self.desc);
         }
+    }
+}
+
+// The BLOCK-PLANE capability as a TRAIT (logos.mem.bt.blockptr): engines that
+// want to stay store-agnostic take `&S: BlockStore` instead of a concrete
+// snapshot, and the disk store implements the same three calls over its cache.
+impl BlockStore for MemorySnapshot {
+    fn resolve(self: &MemorySnapshot, id: u64) -> MemBlockPtr {
+        return block_from_addr(id as *mut u8);
+    }
+    fn alloc_block(self: &MemorySnapshot, block_size: u32, nslots: u32) -> MemBlockPtr {
+        return block_from_addr(self.node_alloc(block_size, nslots));
+    }
+    fn release_block(self: &MemorySnapshot, bp: MemBlockPtr, level: u32) {
+        unsafe { tree_release(bp.ptr(), level); }
     }
 }
 
@@ -477,18 +551,18 @@ impl MemoryStore {
     fn fork_desc(self: &mut MemoryStore, parent: u64, branch: str) -> *mut SnapDesc {
         let id: u64 = self.next_id;
         self.next_id = self.next_id + 1u64;
-        let mut dr: *mut u8 = 0 as *mut u8;
+        let mut dr: MemBlockPtr = block_null();
         let mut dl: u32 = 0u32;
         let mut pd: *mut SnapDesc = 0 as *mut SnapDesc;
         if parent != 0u64 { pd = self.desc_of(parent); }
         if pd == (0 as *mut SnapDesc) {
-            let dn: DirRoot = unsafe { dir_new(id) };
+            let dn: DirRoot = unsafe { dir_new::<MemBlocks>(&mem_blocks_at(id)) };
             dr = dn.root; dl = dn.level;
         } else {
             unsafe {
                 dr = (*pd).dir_root;
                 dl = (*pd).dir_level;
-                node_inc_rc(dr);                 // share the parent's directory tree
+                dr.inc_rc();                     // share the parent's directory tree
             }
         }
         let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
@@ -563,7 +637,7 @@ impl MemoryStore {
             let d: *mut SnapDesc = self.snaps.get(k) as *mut SnapDesc;
             unsafe {
                 if (&mut (*d).wrappers as *mut AtomicI32).load() == 0i32 {
-                    tree_release((*d).dir_root, (*d).dir_level);
+                    tree_release((*d).dir_root.ptr(), (*d).dir_level);
                     self.snaps.remove(k);
                     let _ = box_from_raw(d);
                 } else {
@@ -892,7 +966,7 @@ pub fn store_pack(st: &mut Arc<MemoryStore>) -> i64 {
             }
             if reclaim {
                 unsafe {
-                    tree_release((*d).dir_root, (*d).dir_level);
+                    tree_release((*d).dir_root.ptr(), (*d).dir_level);
                     g.snaps.remove(k);
                     let _ = box_from_raw(d);
                 }

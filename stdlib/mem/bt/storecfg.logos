@@ -35,6 +35,7 @@ use logos.lang.writ.wstatic;      // WritStatic — the @{...} rodata blob handl
 use logos.lang.writ.static_view;  // WView2 — string-keyed blob reader
 use logos.lang.writ.anyval;       // WAny
 use logos.mem.bt.node;            // CowProfile — MemoryStore's node form
+use logos.mem.bt.blockptr;        // MemBlockPtr — MemoryStore's block pointer
 
 /// The default EXTERNAL configuration: u64 ids, 4K nodes. What a caller gets
 /// when it configures nothing.
@@ -46,10 +47,14 @@ pub const STORE_CFG_DEFAULT: WritStatic = @{
     "branch_bytes": 4096
 };
 
-/// MemoryStore's OWN augmentation: the in-memory CoW node form. A second
-/// store contributes its own local document (and nothing else changes).
+/// MemoryStore's OWN augmentation: the in-memory CoW node form + the BLOCK
+/// POINTER type containers resolve ids through (Memoria
+/// `ProfileTraits::SharedBlockPtr`). A second store contributes its own local
+/// document — its own node form and its own block pointer (one that pins a
+/// cached page instead of casting an address), and nothing else changes.
 pub const MEM_STORE_LOCAL: WritStatic = @{
-    "node": <type:CowProfile>
+    "node":    <type:CowProfile>,
+    "blockptr": <type:MemBlockPtr>
 };
 
 /// The node slot's SPLICE spelling — the same type as MEM_STORE_LOCAL's
@@ -59,6 +64,11 @@ pub const MEM_STORE_LOCAL: WritStatic = @{
 /// plane; the factory gate pins this spelling — drift between them fails a
 /// gate, not silently.
 pub const MEM_STORE_NODE: str = "CowProfile";
+
+/// The block-pointer slot's SPLICE spelling — the type generated containers
+/// name when they hold a block handle. Swapping the store swaps this type (and
+/// with it, resolve/dispose policy) without the container code changing.
+pub const MEM_STORE_BLOCKPTR: str = "MemBlockPtr";
 
 /// The composed configuration: a two-layer overlay view. Store-local slots
 /// win over external ones (a store's own facts are not overridable from

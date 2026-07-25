@@ -9,8 +9,13 @@
 // else:
 //   - fork  = share the directory root (one inc_rc), NOT an O(D) copy;
 //   - lookup/update = O(log D) descent / CoW upsert, NOT an O(D) scan;
-//   - drop  = ONE `tree_release(dir_root)` that cascades to every container
+//   - drop  = ONE `release_block(dir_root)` that cascades to every container
 //             root through the leaves' value-ref columns.
+//
+// BLOCK PLANE: every stored id is turned into a block handle THROUGH the store
+// (`st.resolve(id)`, logos.mem.bt.blockptr) — this module never casts an id to
+// an address itself. That is what lets the same code run over a disk store,
+// where resolve is a cache lookup and disposal returns the page to the pool.
 //
 // NODE SHAPE (two FSE64 columns over the shared MemNode substrate):
 //   LEAF   — slot 0 = keys (MAX-ordered), slot 1 = container-root refs
@@ -29,9 +34,9 @@
 //     privatize bump) → `dir_set(key, new_root)` repoints the slot WITHOUT
 //     releasing (the engine already did). So `dir_set` never frees a container
 //     root — the engines stay untouched.
-//   - a child repoint during either walk tree_release's the old child (its
-//     clone bumped it); freeing a directory leaf cascades to its roots
-//     (node.logos tree_release, via value_ref_slot).
+//   - a child repoint during either walk releases the old child (its clone
+//     bumped it); freeing a directory leaf cascades to its roots (node.logos
+//     tree_release, via value_ref_slot).
 //
 // This split (privatize-then-repoint) is what lets the directory be a real CoW
 // container while the container engines keep their flat-store root lifecycle.
@@ -39,7 +44,8 @@ package logos.mem.bt.dirmap;
 
 use logos.mem.pkd;               // PkdAlloc
 use logos.mem.pkd.pdtbuf;        // PdtBuf, pdtbuf_adopt
-use logos.mem.bt.node;           // node_* + tree_release (generic lifecycle)
+use logos.mem.bt.node;           // node_* header ops
+use logos.mem.bt.blockptr;       // MemBlockPtr + trait BlockStore — the block plane
 use logos.mem.bt.btss;           // FSE64 column primitives (shared with leaves)
 use logos.mem.collections.vec;
 use logos.lang.mem;              // copy_bytes — the region byte-copy on clone
@@ -56,27 +62,27 @@ const DIR_BLOCK: u32 = 4096u32;
 
 // ── node construction ────────────────────────────────────────────────────────
 
-/// A fresh empty directory LEAF stamped `snp`: two FSE64 columns, the ref column
-/// declared as the value-ref slot (so tree_release cascades through it).
-unsafe fn dir_leaf_new(snp: u64) -> *mut u8 {
-    let b: *mut u8 = node_alloc(DIR_BLOCK, DIR_NSLOTS, snp);
-    let a: *mut PkdAlloc = node_pkd(b);
+/// A fresh empty directory LEAF: two FSE64 columns, the ref column declared as
+/// the value-ref slot (so a release cascades through it).
+unsafe fn dir_leaf_new<S: BlockStore>(st: &S) -> MemBlockPtr {
+    let b: MemBlockPtr = st.alloc_block(DIR_BLOCK, DIR_NSLOTS);
+    let a: *mut PkdAlloc = b.pkd();
     btss_fmt_slot(a, DIR_KEY, false, true);    // keys: FSE64, MAX-ordered
     btss_fmt_slot(a, DIR_REF, false, false);   // container roots: FSE64
-    node_set_value_ref_slot(b, DIR_REF);
-    node_set_level(b, 0u32);
+    b.set_value_ref_slot(DIR_REF);
+    b.set_level(0u32);
     return b;
 }
 
-/// A fresh empty directory BRANCH at `level` stamped `snp`: separators + child
-/// refs, the ref column declared as the ordinary child slot.
-unsafe fn dir_branch_new(snp: u64, level: u32) -> *mut u8 {
-    let b: *mut u8 = node_alloc(DIR_BLOCK, DIR_NSLOTS, snp);
-    let a: *mut PkdAlloc = node_pkd(b);
+/// A fresh empty directory BRANCH at `level`: separators + child refs, the ref
+/// column declared as the ordinary child slot.
+unsafe fn dir_branch_new<S: BlockStore>(st: &S, level: u32) -> MemBlockPtr {
+    let b: MemBlockPtr = st.alloc_block(DIR_BLOCK, DIR_NSLOTS);
+    let a: *mut PkdAlloc = b.pkd();
     btss_fmt_slot(a, DIR_KEY, false, true);    // separators: FSE64, MAX-ordered
     btss_fmt_slot(a, DIR_REF, false, false);   // child nodes: FSE64
-    node_set_child_slot(b, DIR_REF);
-    node_set_level(b, level);
+    b.set_child_slot(DIR_REF);
+    b.set_level(level);
     return b;
 }
 
@@ -84,29 +90,28 @@ unsafe fn dir_branch_new(snp: u64, level: u32) -> *mut u8 {
 /// (position-independent by the packed-family CoW-clone-unit law), and the
 /// header ref-slot declarations + level carried over. Mirrors pk_private's
 /// region copy; rc bumps are added by the leaf/branch privatize wrappers.
-unsafe fn dir_clone_node(node: *mut u8, cur: u64) -> *mut u8 {
-    let sa: *mut PkdAlloc = node_pkd(node);
-    let n: *mut u8 = node_alloc(node_block_size(node), sa.elements(), cur);
-    let da: *mut PkdAlloc = node_pkd(n);
+unsafe fn dir_clone_node<S: BlockStore>(st: &S, node: MemBlockPtr) -> MemBlockPtr {
+    let sa: *mut PkdAlloc = node.pkd();
+    let n: MemBlockPtr = st.alloc_block(node.block_size(), sa.elements());
+    let da: *mut PkdAlloc = n.pkd();
     copy_bytes(da as *mut u8, sa as *const u8, sa.block_size() as i64);
-    node_set_child_slot(n, node_child_slot(node));
-    node_set_value_ref_slot(n, node_value_ref_slot(node));
-    node_set_level(n, node_level(node));
+    n.set_child_slot(node.child_slot());
+    n.set_value_ref_slot(node.value_ref_slot());
+    n.set_level(node.level());
     return n;
 }
 
 /// Make a LEAF privately writable under `cur`. If already private, unchanged;
 /// otherwise clone it and inc_rc every container root it references (the clone's
 /// value-ref slots each acquire ownership — the frozen original keeps its own).
-unsafe fn dir_leaf_private(node: *mut u8, cur: u64) -> *mut u8 {
-    if node_snapshot(node) == cur { return node; }
-    let n: *mut u8 = dir_clone_node(node, cur);
-    let a: *mut PkdAlloc = node_pkd(n);
-    let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+unsafe fn dir_leaf_private<S: BlockStore>(st: &S, node: MemBlockPtr, cur: u64) -> MemBlockPtr {
+    if node.snapshot() == cur { return node; }
+    let n: MemBlockPtr = dir_clone_node::<S>(st, node);
+    let vb: PdtBuf = pdtbuf_adopt(n.pkd().get::<u8>(DIR_REF));
     let m: u64 = vb.size();
     let mut j: u64 = 0u64;
     while j < m {
-        node_inc_rc(vb.get(0u32, j) as *mut u8);
+        st.resolve(vb.get(0u32, j)).inc_rc();
         j = j + 1u64;
     }
     return n;
@@ -114,15 +119,14 @@ unsafe fn dir_leaf_private(node: *mut u8, cur: u64) -> *mut u8 {
 
 /// Make a BRANCH privately writable under `cur`, inc_rc'ing every child (the
 /// structural spine share). Mirrors bt_branch_private / pk_private.
-unsafe fn dir_branch_private(node: *mut u8, cur: u64) -> *mut u8 {
-    if node_snapshot(node) == cur { return node; }
-    let n: *mut u8 = dir_clone_node(node, cur);
-    let a: *mut PkdAlloc = node_pkd(n);
-    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+unsafe fn dir_branch_private<S: BlockStore>(st: &S, node: MemBlockPtr, cur: u64) -> MemBlockPtr {
+    if node.snapshot() == cur { return node; }
+    let n: MemBlockPtr = dir_clone_node::<S>(st, node);
+    let cb: PdtBuf = pdtbuf_adopt(n.pkd().get::<u8>(DIR_REF));
     let m: u64 = cb.size();
     let mut j: u64 = 0u64;
     while j < m {
-        node_inc_rc(cb.get(0u32, j) as *mut u8);
+        st.resolve(cb.get(0u32, j)).inc_rc();
         j = j + 1u64;
     }
     return n;
@@ -152,20 +156,24 @@ unsafe fn dir_set_cell(a: *mut PkdAlloc, slot: u32, pos: u32, v: u64) {
     b.set(0u32, pos as u64, v);
 }
 
+/// The child handle at branch row `ci` — resolved THROUGH the store.
+unsafe fn dir_child_at<S: BlockStore>(st: &S, a: *mut PkdAlloc, ci: u64) -> MemBlockPtr {
+    return st.resolve(pdtbuf_adopt(a.get::<u8>(DIR_REF)).get(0u32, ci));
+}
+
 // ── read path ────────────────────────────────────────────────────────────────
 
-/// The container root mapped to `key`, or 0 if absent. O(log D) descent.
-pub unsafe fn dir_get(root: *mut u8, level: u32, key: u64) -> u64 {
-    let mut node: *mut u8 = root;
+/// The container root id mapped to `key`, or 0 if absent. O(log D) descent.
+pub unsafe fn dir_get<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64) -> u64 {
+    let mut node: MemBlockPtr = root;
     let mut lvl: u32 = level;
     while lvl > 0u32 {
-        let a: *mut PkdAlloc = node_pkd(node);
+        let a: *mut PkdAlloc = node.pkd();
         let ci: u32 = dir_find_child(a, key);
-        let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
-        node = cb.get(0u32, ci as u64) as *mut u8;
+        node = dir_child_at::<S>(st, a, ci as u64);
         lvl = lvl - 1u32;
     }
-    let a2: *mut PkdAlloc = node_pkd(node);
+    let a2: *mut PkdAlloc = node.pkd();
     let pos: u32 = btss_lower_bound_u64(a2, key);
     let kb: PdtBuf = pdtbuf_adopt(a2.get::<u8>(DIR_KEY));
     if (pos as u64) < kb.size() && kb.get(0u32, pos as u64) == key {
@@ -175,66 +183,66 @@ pub unsafe fn dir_get(root: *mut u8, level: u32, key: u64) -> u64 {
     return 0u64;
 }
 
-pub unsafe fn dir_has(root: *mut u8, level: u32, key: u64) -> bool {
-    return dir_get(root, level, key) != 0u64;
+pub unsafe fn dir_has<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64) -> bool {
+    return dir_get::<S>(st, root, level, key) != 0u64;
 }
 
 /// Collect every CtrID in key order (the container_names walk).
-pub unsafe fn dir_keys(root: *mut u8, level: u32, out: &mut Vec<u64>) {
+pub unsafe fn dir_keys<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, out: &mut Vec<u64>) {
+    let a: *mut PkdAlloc = root.pkd();
     if level == 0u32 {
-        let a: *mut PkdAlloc = node_pkd(root);
         let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
         let n: u64 = kb.size();
         let mut i: u64 = 0u64;
         while i < n { out.push(kb.get(0u32, i)); i = i + 1u64; }
         return;
     }
-    let a: *mut PkdAlloc = node_pkd(root);
-    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
-    let n: u64 = cb.size();
+    let n: u64 = pdtbuf_adopt(a.get::<u8>(DIR_REF)).size();
     let mut i: u64 = 0u64;
     while i < n {
-        dir_keys(cb.get(0u32, i) as *mut u8, level - 1u32, out);
+        dir_keys::<S>(st, dir_child_at::<S>(st, a, i), level - 1u32, out);
         i = i + 1u64;
     }
 }
 
 /// Number of containers registered (the in-order key count).
-pub unsafe fn dir_count(root: *mut u8, level: u32) -> u64 {
+pub unsafe fn dir_count<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32) -> u64 {
+    let a: *mut PkdAlloc = root.pkd();
     if level == 0u32 {
-        return pdtbuf_adopt(node_pkd(root).get::<u8>(DIR_KEY)).size();
+        return pdtbuf_adopt(a.get::<u8>(DIR_KEY)).size();
     }
-    let a: *mut PkdAlloc = node_pkd(root);
-    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
-    let n: u64 = cb.size();
+    let n: u64 = pdtbuf_adopt(a.get::<u8>(DIR_REF)).size();
     let mut total: u64 = 0u64;
     let mut i: u64 = 0u64;
-    while i < n { total = total + dir_count(cb.get(0u32, i) as *mut u8, level - 1u32); i = i + 1u64; }
+    while i < n {
+        total = total + dir_count::<S>(st, dir_child_at::<S>(st, a, i), level - 1u32);
+        i = i + 1u64;
+    }
     return total;
 }
 
 // ── CoW upsert ───────────────────────────────────────────────────────────────
 
-/// The recursion's report: the (possibly new) node address, plus a split's
-/// right sibling and the two separators.
+/// The recursion's report: the (possibly new) node, plus a split's right
+/// sibling and the two separators.
 struct DirIns {
-    addr: *mut u8,
+    node: MemBlockPtr,
     split: bool,
     sep_l: u64,
     sep_r: u64,
-    right: *mut u8,
+    right: MemBlockPtr,
 }
 
 /// The upsert's result: the container's (possibly new) directory root + level.
-pub struct DirRoot { pub root: *mut u8, pub level: u32 }
+pub struct DirRoot { pub root: MemBlockPtr, pub level: u32 }
 
-// Insert `(key, ref)` into a full leaf/branch by splitting count-balanced; the
-// new row lands in whichever half owns `key`. `ref` is a container root (leaf)
-// or a child node (branch); the column shape is identical.
-unsafe fn dir_split_leaf(work: *mut u8, key: u64, new_ref: u64, cur: u64) -> DirIns {
-    let a: *mut PkdAlloc = node_pkd(work);
-    let right: *mut u8 = dir_leaf_new(cur);
-    let ra: *mut PkdAlloc = node_pkd(right);
+// Insert `(key, ref)` into a full leaf by splitting count-balanced; the new row
+// lands in whichever half owns `key`.
+unsafe fn dir_split_leaf<S: BlockStore>(st: &S, work: MemBlockPtr, key: u64,
+                                        new_ref: u64) -> DirIns {
+    let a: *mut PkdAlloc = work.pkd();
+    let right: MemBlockPtr = dir_leaf_new::<S>(st);
+    let ra: *mut PkdAlloc = right.pkd();
     let at: u32 = btss_count(a) / 2u32;
     btss_split_col(a, ra, DIR_KEY, at);
     btss_split_col(a, ra, DIR_REF, at);
@@ -247,13 +255,15 @@ unsafe fn dir_split_leaf(work: *mut u8, key: u64, new_ref: u64, cur: u64) -> Dir
         btss_put_cell(ra, DIR_KEY, p, key);
         btss_put_cell(ra, DIR_REF, p, new_ref);
     }
-    return DirIns { addr: work, split: true, sep_l: dir_max_key(a), sep_r: dir_max_key(ra), right: right };
+    return DirIns { node: work, split: true, sep_l: dir_max_key(a),
+                    sep_r: dir_max_key(ra), right: right };
 }
 
-unsafe fn dir_set_rec(node: *mut u8, level: u32, key: u64, new_ref: u64, cur: u64) -> DirIns {
+unsafe fn dir_set_rec<S: BlockStore>(st: &S, node: MemBlockPtr, level: u32, key: u64,
+                                     new_ref: u64, cur: u64) -> DirIns {
     if level == 0u32 {
-        let work: *mut u8 = dir_leaf_private(node, cur);
-        let a: *mut PkdAlloc = node_pkd(work);
+        let work: MemBlockPtr = dir_leaf_private::<S>(st, node, cur);
+        let a: *mut PkdAlloc = work.pkd();
         let pos: u32 = btss_lower_bound_u64(a, key);
         let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
         let cnt: u32 = kb.size() as u32;
@@ -263,58 +273,62 @@ unsafe fn dir_set_rec(node: *mut u8, level: u32, key: u64, new_ref: u64, cur: u6
             // lifecycle), and the per-snapshot ownership was bumped at
             // dir_privatize. dir_set never frees a container root.
             dir_set_cell(a, DIR_REF, pos, new_ref);
-            return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
+            return DirIns { node: work, split: false, sep_l: dir_max_key(a),
+                            sep_r: 0u64, right: block_null() };
         }
         // INSERT a new container.
         if btss_fits_row(a, DIR_NSLOTS) {
             btss_put_cell(a, DIR_KEY, pos, key);
             btss_put_cell(a, DIR_REF, pos, new_ref);
-            return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
+            return DirIns { node: work, split: false, sep_l: dir_max_key(a),
+                            sep_r: 0u64, right: block_null() };
         }
-        return dir_split_leaf(work, key, new_ref, cur);
+        return dir_split_leaf::<S>(st, work, key, new_ref);
     }
     // BRANCH.
-    let work: *mut u8 = dir_branch_private(node, cur);
-    let a: *mut PkdAlloc = node_pkd(work);
+    let work: MemBlockPtr = dir_branch_private::<S>(st, node, cur);
+    let a: *mut PkdAlloc = work.pkd();
     let ci: u32 = dir_find_child(a, key);
-    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
-    let old_child: *mut u8 = cb.get(0u32, ci as u64) as *mut u8;
-    let r: DirIns = dir_set_rec(old_child, level - 1u32, key, new_ref, cur);
+    let old_child: MemBlockPtr = dir_child_at::<S>(st, a, ci as u64);
+    let r: DirIns = dir_set_rec::<S>(st, old_child, level - 1u32, key, new_ref, cur);
     dir_set_cell(a, DIR_KEY, ci, r.sep_l);            // child's max may have grown
-    if r.addr != old_child {
-        dir_set_cell(a, DIR_REF, ci, r.addr as u64);  // repoint to the private child
-        tree_release(old_child, level - 1u32);        // release the old child (clone bumped it)
+    if r.node.id() != old_child.id() {
+        dir_set_cell(a, DIR_REF, ci, r.node.id());    // repoint to the private child
+        st.release_block(old_child, level - 1u32);    // release the old child (clone bumped it)
     }
     if !r.split {
-        return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
+        return DirIns { node: work, split: false, sep_l: dir_max_key(a),
+                        sep_r: 0u64, right: block_null() };
     }
     // Graft the new right child at ci+1.
     if btss_fits_row(a, DIR_NSLOTS) {
         btss_put_cell(a, DIR_KEY, ci + 1u32, r.sep_r);
-        btss_put_cell(a, DIR_REF, ci + 1u32, r.right as u64);
-        return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
+        btss_put_cell(a, DIR_REF, ci + 1u32, r.right.id());
+        return DirIns { node: work, split: false, sep_l: dir_max_key(a),
+                        sep_r: 0u64, right: block_null() };
     }
     // Branch full → split, then insert (sep_r, right) into the owning half.
-    let rb: *mut u8 = dir_branch_new(cur, level);
-    let rba: *mut PkdAlloc = node_pkd(rb);
+    let rb: MemBlockPtr = dir_branch_new::<S>(st, level);
+    let rba: *mut PkdAlloc = rb.pkd();
     let at: u32 = btss_count(a) / 2u32;
     btss_split_col(a, rba, DIR_KEY, at);
     btss_split_col(a, rba, DIR_REF, at);
     let lc: u32 = btss_count(a);
     if ci + 1u32 < lc {
         btss_put_cell(a, DIR_KEY, ci + 1u32, r.sep_r);
-        btss_put_cell(a, DIR_REF, ci + 1u32, r.right as u64);
+        btss_put_cell(a, DIR_REF, ci + 1u32, r.right.id());
     } else {
         btss_put_cell(rba, DIR_KEY, (ci + 1u32) - lc, r.sep_r);
-        btss_put_cell(rba, DIR_REF, (ci + 1u32) - lc, r.right as u64);
+        btss_put_cell(rba, DIR_REF, (ci + 1u32) - lc, r.right.id());
     }
-    return DirIns { addr: work, split: true, sep_l: dir_max_key(a), sep_r: dir_max_key(rba), right: rb };
+    return DirIns { node: work, split: true, sep_l: dir_max_key(a),
+                    sep_r: dir_max_key(rba), right: rb };
 }
 
 /// A fresh empty directory root (level 0). The store mints one per snapshot
 /// history root; forks share it.
-pub unsafe fn dir_new(snp: u64) -> DirRoot {
-    return DirRoot { root: dir_leaf_new(snp), level: 0u32 };
+pub unsafe fn dir_new<S: BlockStore>(st: &S) -> DirRoot {
+    return DirRoot { root: dir_leaf_new::<S>(st), level: 0u32 };
 }
 
 /// The privatize step of a container mutation: CoW-clone the path down to
@@ -323,65 +337,65 @@ pub unsafe fn dir_new(snp: u64) -> DirRoot {
 /// the container root currently mapped to `key` (0 if absent). The store calls
 /// this BEFORE running the container engine, so the engine's own release of the
 /// old root is balanced by the ownership acquired here.
-pub struct DirPriv { pub root: *mut u8, pub level: u32, pub val: u64 }
+pub struct DirPriv { pub root: MemBlockPtr, pub level: u32, pub val: u64 }
 
-struct DirPrivRec { addr: *mut u8, val: u64 }
+struct DirPrivRec { node: MemBlockPtr, val: u64 }
 
-unsafe fn dir_privatize_rec(node: *mut u8, level: u32, key: u64, cur: u64) -> DirPrivRec {
+unsafe fn dir_privatize_rec<S: BlockStore>(st: &S, node: MemBlockPtr, level: u32,
+                                           key: u64, cur: u64) -> DirPrivRec {
     if level == 0u32 {
-        let work: *mut u8 = dir_leaf_private(node, cur);
-        let a: *mut PkdAlloc = node_pkd(work);
+        let work: MemBlockPtr = dir_leaf_private::<S>(st, node, cur);
+        let a: *mut PkdAlloc = work.pkd();
         let pos: u32 = btss_lower_bound_u64(a, key);
         let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
         let mut v: u64 = 0u64;
         if (pos as u64) < kb.size() && kb.get(0u32, pos as u64) == key {
             v = pdtbuf_adopt(a.get::<u8>(DIR_REF)).get(0u32, pos as u64);
         }
-        return DirPrivRec { addr: work, val: v };
+        return DirPrivRec { node: work, val: v };
     }
-    let work: *mut u8 = dir_branch_private(node, cur);
-    let a: *mut PkdAlloc = node_pkd(work);
+    let work: MemBlockPtr = dir_branch_private::<S>(st, node, cur);
+    let a: *mut PkdAlloc = work.pkd();
     let ci: u32 = dir_find_child(a, key);
-    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
-    let old_child: *mut u8 = cb.get(0u32, ci as u64) as *mut u8;
-    let r: DirPrivRec = dir_privatize_rec(old_child, level - 1u32, key, cur);
-    if r.addr != old_child {
-        dir_set_cell(a, DIR_REF, ci, r.addr as u64);
-        tree_release(old_child, level - 1u32);       // clone bumped it; release the old child
+    let old_child: MemBlockPtr = dir_child_at::<S>(st, a, ci as u64);
+    let r: DirPrivRec = dir_privatize_rec::<S>(st, old_child, level - 1u32, key, cur);
+    if r.node.id() != old_child.id() {
+        dir_set_cell(a, DIR_REF, ci, r.node.id());
+        st.release_block(old_child, level - 1u32);   // clone bumped it; release the old child
     }
-    return DirPrivRec { addr: work, val: r.val };
+    return DirPrivRec { node: work, val: r.val };
 }
 
-pub unsafe fn dir_privatize(root: *mut u8, level: u32, key: u64, cur: u64) -> DirPriv {
-    let r: DirPrivRec = dir_privatize_rec(root, level, key, cur);
-    let mut nrt: *mut u8 = root;
-    if r.addr != root {
-        nrt = r.addr;
-        tree_release(root, level);
+pub unsafe fn dir_privatize<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32,
+                                           key: u64, cur: u64) -> DirPriv {
+    let r: DirPrivRec = dir_privatize_rec::<S>(st, root, level, key, cur);
+    let mut nrt: MemBlockPtr = root;
+    if r.node.id() != root.id() {
+        nrt = r.node;
+        st.release_block(root, level);
     }
     return DirPriv { root: nrt, level: level, val: r.val };
 }
 
-/// CoW-upsert `key → new_ref`. Returns the container's (possibly new) directory
-/// root/level. `new_ref` ownership is TRANSFERRED in (see the module header rc
-/// discipline); the displaced root, if any, is released. The old directory root
-/// is released iff its identity changed (mirrors bt_cow_insert's root repoint);
-/// on a root split it is grafted under a fresh top.
-pub unsafe fn dir_set(root: *mut u8, level: u32, key: u64, new_ref: u64, cur: u64) -> DirRoot {
-    let r: DirIns = dir_set_rec(root, level, key, new_ref, cur);
-    let mut nrt: *mut u8 = root;
+/// CoW-upsert `key → new_ref`. Returns the (possibly new) directory root/level.
+/// The old directory root is released iff its identity changed (mirrors
+/// bt_cow_insert's root repoint); on a root split it is grafted under a fresh
+/// top. A displaced CONTAINER root is never freed here (see the rc discipline).
+pub unsafe fn dir_set<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64,
+                                     new_ref: u64, cur: u64) -> DirRoot {
+    let r: DirIns = dir_set_rec::<S>(st, root, level, key, new_ref, cur);
+    let mut nrt: MemBlockPtr = r.node;
     let mut nlv: u32 = level;
-    if r.addr != root {
-        nrt = r.addr;
-        tree_release(root, level);
+    if r.node.id() != root.id() {
+        st.release_block(root, level);
     }
     if r.split {
-        let top: *mut u8 = dir_branch_new(cur, level + 1u32);
-        let ta: *mut PkdAlloc = node_pkd(top);
+        let top: MemBlockPtr = dir_branch_new::<S>(st, level + 1u32);
+        let ta: *mut PkdAlloc = top.pkd();
         btss_put_cell(ta, DIR_KEY, 0u32, r.sep_l);
-        btss_put_cell(ta, DIR_REF, 0u32, r.addr as u64);
+        btss_put_cell(ta, DIR_REF, 0u32, r.node.id());
         btss_put_cell(ta, DIR_KEY, 1u32, r.sep_r);
-        btss_put_cell(ta, DIR_REF, 1u32, r.right as u64);
+        btss_put_cell(ta, DIR_REF, 1u32, r.right.id());
         nrt = top;
         nlv = level + 1u32;
     }

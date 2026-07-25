@@ -1,0 +1,90 @@
+// logos.mem.bt.blockptr — the BLOCK POINTER plane (Memoria CowSharedBlockPtr /
+// PageShared, the MemoryStore-minimal form).
+//
+// A container must never turn a stored `u64` block id into a block address by
+// itself: it asks its STORE to resolve the id, and hands the block back to the
+// store to dispose. That single indirection is what keeps ONE container
+// codebase working over a main-memory store and, later, an external-memory one:
+//   - MemoryStore  — the id IS the address (a cast), disposal is free();
+//   - a disk store — the id is a real BlockID, resolve = cache lookup / load
+//     (pin), disposal = unpin + write-back / return to the eviction pool.
+//
+// So the block-pointer TYPE is part of the store's configuration (Memoria's
+// `ProfileTraits<Profile>::SharedBlockPtr`): containers name it through their
+// config, and swapping the store swaps the pointer type with all its policy.
+//
+// `MemBlockPtr` is the MemoryStore one: a THIN handle over the block address
+// (`Copy`, one word). Its refcount is INTRUSIVE — it lives in the block header
+// (logos.mem.bt.node `rc`) — so there is no separate control block the way C++
+// needs one for its cache. Disposal is delegated (`release` → the store's
+// free); when a custom / NUMA-aware allocator lands, the block carries a
+// reference to its store and the delegation resolves there, with the handle
+// staying exactly this thin.
+package logos.mem.bt.blockptr;
+
+use logos.mem.pkd;                // PkdAlloc
+use logos.mem.bt.node;            // the block header + tree_release
+
+/// The MemoryStore block pointer: a thin handle over a block address.
+/// `id() == addr` here (no block mapping); a disk store's pointer resolves a
+/// real BlockID instead, which is why containers must go through the store.
+pub struct MemBlockPtr { addr: *mut u8 }
+
+impl Copy for MemBlockPtr {}
+impl Clone for MemBlockPtr {
+    fn clone(&self) -> MemBlockPtr { return MemBlockPtr { addr: self.addr }; }
+}
+
+/// The null handle (an absent block).
+pub fn block_null() -> MemBlockPtr { return MemBlockPtr { addr: 0 as *mut u8 }; }
+
+/// Wrap a raw block address. Store-internal: containers obtain handles from
+/// their snapshot (`resolve` / `alloc_block`), never by wrapping an address.
+pub fn block_from_addr(p: *mut u8) -> MemBlockPtr { return MemBlockPtr { addr: p }; }
+
+impl MemBlockPtr {
+    pub fn is_null(self: &MemBlockPtr) -> bool { return self.addr == (0 as *mut u8); }
+
+    /// The raw block base — for the packed-column access the node types do.
+    pub fn ptr(self: &MemBlockPtr) -> *mut u8 { return self.addr; }
+
+    /// The BLOCK ID as stored in a parent's child column. For MemoryStore this
+    /// is the address; a disk store stores a real id here.
+    pub fn id(self: &MemBlockPtr) -> u64 { return self.addr as u64; }
+
+    // — header access through the handle (so container code stops reaching for
+    //   node_* on a raw pointer) —
+    pub fn pkd(self: &MemBlockPtr) -> *mut PkdAlloc { return unsafe { node_pkd(self.addr) }; }
+    pub fn block_size(self: &MemBlockPtr) -> u32 { return unsafe { node_block_size(self.addr) }; }
+    pub fn snapshot(self: &MemBlockPtr) -> u64 { return unsafe { node_snapshot(self.addr) }; }
+    pub fn set_snapshot(self: &MemBlockPtr, snp: u64) { unsafe { node_set_snapshot(self.addr, snp); } }
+    pub fn level(self: &MemBlockPtr) -> u32 { return unsafe { node_level(self.addr) }; }
+    pub fn set_level(self: &MemBlockPtr, lv: u32) { unsafe { node_set_level(self.addr, lv); } }
+    pub fn child_slot(self: &MemBlockPtr) -> u32 { return unsafe { node_child_slot(self.addr) }; }
+    pub fn set_child_slot(self: &MemBlockPtr, s: u32) { unsafe { node_set_child_slot(self.addr, s); } }
+    pub fn value_ref_slot(self: &MemBlockPtr) -> u32 { return unsafe { node_value_ref_slot(self.addr) }; }
+    pub fn set_value_ref_slot(self: &MemBlockPtr, s: u32) { unsafe { node_set_value_ref_slot(self.addr, s); } }
+    pub fn elements(self: &MemBlockPtr) -> u32 { return unsafe { node_pkd(self.addr).elements() }; }
+
+    // — the intrusive refcount (structural shares AND live code handles) —
+    pub fn rc(self: &MemBlockPtr) -> u32 { return unsafe { node_rc(self.addr) }; }
+    pub fn inc_rc(self: &MemBlockPtr) { unsafe { node_inc_rc(self.addr); } }
+    pub fn dec_rc(self: &MemBlockPtr) -> u32 { return unsafe { node_dec_rc(self.addr) }; }
+}
+
+/// The store capability a container reaches for block lifetime. MemoryStore's
+/// snapshot implements it; a disk store implements the same three operations
+/// over its cache. Container/engine code takes `&S: BlockStore` and never
+/// touches an address arithmetic of its own.
+pub trait BlockStore {
+    /// Turn a stored block id into a usable handle (MemoryStore: a cast; a disk
+    /// store: cache lookup, loading + pinning the block if absent).
+    fn resolve(self: &Self, id: u64) -> MemBlockPtr;
+    /// Allocate a fresh block of `block_size` bytes with `nslots` slots,
+    /// stamped with this snapshot's id.
+    fn alloc_block(self: &Self, block_size: u32, nslots: u32) -> MemBlockPtr;
+    /// Give the block's SUBTREE back to the store: drop one structural share
+    /// and, at zero, dispose the block (MemoryStore: free; a disk store:
+    /// unpin / return to the eviction pool) after releasing its children.
+    fn release_block(self: &Self, bp: MemBlockPtr, level: u32);
+}

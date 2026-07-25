@@ -14,103 +14,111 @@
 package test;
 
 use logos.mem.bt.dirmap;
-use logos.mem.bt.node;        // node_alloc / node_rc / node_level / tree_release
+use logos.mem.bt.blockptr;    // MemBlockPtr + BlockStore — the block plane
+use logos.mem.bt.memstore;    // MemBlocks — MemoryStore's BlockStore at a snapshot id
+use logos.mem.bt.node;        // node_level — the header a released root self-describes with
 use logos.mem.pkd;            // (node substrate)
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.std.io;
 
 // A fake container root: a bare level-0 leaf block, rc 1, that the directory
-// references and tree_release will free. node_level = 0 (default).
-unsafe fn fake(snp: u64) -> *mut u8 { return node_alloc(4096u32, 2u32, snp); }
+// references and a release will free. node_level = 0 (default). Allocated
+// THROUGH the store, like everything else on the block plane.
+unsafe fn fake(snp: u64) -> MemBlockPtr {
+    return mem_blocks_at(snp).alloc_block(4096u32, 2u32);
+}
 
 fn run_all() -> i32 {
     unsafe {
         // ── basic insert + get + count (one leaf) ────────────────────────
-        let d0: DirRoot = dir_new(1u64);
-        let mut root: *mut u8 = d0.root;
+        let d0: DirRoot = dir_new::<MemBlocks>(&mem_blocks_at(1u64));
+        let mut root: MemBlockPtr = d0.root;
         let mut level: u32 = d0.level;
 
-        let r1: *mut u8 = fake(1u64);
-        let r2: *mut u8 = fake(1u64);
-        let s1: DirRoot = dir_set(root, level, 100u64, r1 as u64, 1u64); root = s1.root; level = s1.level;
-        let s2: DirRoot = dir_set(root, level, 200u64, r2 as u64, 1u64); root = s2.root; level = s2.level;
+        let r1: MemBlockPtr = fake(1u64);
+        let r2: MemBlockPtr = fake(1u64);
+        let s1: DirRoot = dir_set::<MemBlocks>(&mem_blocks_at(1u64), root, level, 100u64, r1.id(), 1u64); root = s1.root; level = s1.level;
+        let s2: DirRoot = dir_set::<MemBlocks>(&mem_blocks_at(1u64), root, level, 200u64, r2.id(), 1u64); root = s2.root; level = s2.level;
 
-        if dir_get(root, level, 100u64) != (r1 as u64) { return 1i32; }
-        if dir_get(root, level, 200u64) != (r2 as u64) { return 2i32; }
-        if dir_get(root, level, 300u64) != 0u64 { return 3i32; }
-        if dir_count(root, level) != 2u64 { return 4i32; }
-        if node_rc(r1) != 1u32 { return 5i32; }        // one directory slot owns r1
-        if node_rc(r2) != 1u32 { return 6i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), root, level, 100u64) != r1.id() { return 1i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), root, level, 200u64) != r2.id() { return 2i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), root, level, 300u64) != 0u64 { return 3i32; }
+        if dir_count::<MemBlocks>(&mem_blocks_at(1u64), root, level) != 2u64 { return 4i32; }
+        if r1.rc() != 1u32 { return 5i32; }        // one directory slot owns r1
+        if r2.rc() != 1u32 { return 6i32; }
 
         // ── fork: share the directory root, then CoW-mutate under snap 2 ──
-        node_inc_rc(root);                              // snap A + snap B share `root`
-        let rootA: *mut u8 = root;  let levelA: u32 = level;
+        root.inc_rc();                              // snap A + snap B share `root`
+        let rootA: MemBlockPtr = root;  let levelA: u32 = level;
 
-        let r3: *mut u8 = fake(2u64);
-        let sb: DirRoot = dir_set(rootA, levelA, 300u64, r3 as u64, 2u64);  // snap B adds C300
-        let rootB: *mut u8 = sb.root;  let levelB: u32 = sb.level;
+        let r3: MemBlockPtr = fake(2u64);
+        let sb: DirRoot = dir_set::<MemBlocks>(&mem_blocks_at(2u64), rootA, levelA, 300u64, r3.id(), 2u64);  // snap B adds C300
+        let rootB: MemBlockPtr = sb.root;  let levelB: u32 = sb.level;
 
         // The shared leaf was cloned → r1, r2 now referenced by BOTH versions.
-        if node_rc(r1) != 2u32 { return 7i32; }
-        if node_rc(r2) != 2u32 { return 8i32; }
-        if node_rc(r3) != 1u32 { return 9i32; }
+        if r1.rc() != 2u32 { return 7i32; }
+        if r2.rc() != 2u32 { return 8i32; }
+        if r3.rc() != 1u32 { return 9i32; }
         // Isolation: B sees C300, A does not; both share C100/C200.
-        if dir_get(rootB, levelB, 300u64) != (r3 as u64) { return 10i32; }
-        if dir_get(rootA, levelA, 300u64) != 0u64 { return 11i32; }
-        if dir_get(rootA, levelA, 100u64) != (r1 as u64) { return 12i32; }
-        if dir_get(rootB, levelB, 100u64) != (r1 as u64) { return 13i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), rootB, levelB, 300u64) != r3.id() { return 10i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), rootA, levelA, 300u64) != 0u64 { return 11i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), rootA, levelA, 100u64) != r1.id() { return 12i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), rootB, levelB, 100u64) != r1.id() { return 13i32; }
 
         // ── repoint C100 in snap B, the memstore way (b): privatize the path,
         // the "engine" releases the displaced root, then dir_set repoints ─────
-        let r1b: *mut u8 = fake(2u64);
-        let pv: DirPriv = dir_privatize(rootB, levelB, 100u64, 2u64);
-        tree_release(pv.val as *mut u8, node_level(pv.val as *mut u8));   // engine's old-root release
-        let sr: DirRoot = dir_set(pv.root, pv.level, 100u64, r1b as u64, 2u64);
-        let rootB2: *mut u8 = sr.root;  let levelB2: u32 = sr.level;
-        if dir_get(rootB2, levelB2, 100u64) != (r1b as u64) { return 14i32; }
-        if dir_get(rootA, levelA, 100u64) != (r1 as u64) { return 15i32; }   // A untouched
-        if node_rc(r1) != 1u32 { return 16i32; }        // B's slot relinquished r1
-        if node_rc(r1b) != 1u32 { return 17i32; }
+        let r1b: MemBlockPtr = fake(2u64);
+        let pv: DirPriv = dir_privatize::<MemBlocks>(&mem_blocks_at(2u64), rootB, levelB, 100u64, 2u64);
+        { let ov: MemBlockPtr = mem_blocks_at(2u64).resolve(pv.val);
+          mem_blocks_at(2u64).release_block(ov, ov.level()); }   // engine's old-root release
+        let sr: DirRoot = dir_set::<MemBlocks>(&mem_blocks_at(2u64), pv.root, pv.level, 100u64, r1b.id(), 2u64);
+        let rootB2: MemBlockPtr = sr.root;  let levelB2: u32 = sr.level;
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), rootB2, levelB2, 100u64) != r1b.id() { return 14i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), rootA, levelA, 100u64) != r1.id() { return 15i32; }   // A untouched
+        if r1.rc() != 1u32 { return 16i32; }        // B's slot relinquished r1
+        if r1b.rc() != 1u32 { return 17i32; }
 
         // ── release both versions — one call each, cascades to all roots ──
-        tree_release(rootB2, levelB2);                  // frees B: r1b, r3 (r2 → A)
-        tree_release(rootA, levelA);                    // frees A: r1, r2
+        mem_blocks_at(1u64).release_block(rootB2, levelB2);                  // frees B: r1b, r3 (r2 → A)
+        mem_blocks_at(1u64).release_block(rootA, levelA);                    // frees A: r1, r2
         // (valgrind is the oracle for the frees; nothing left to read.)
 
         // ── split stress: many containers force leaf splits (level > 0) ──
-        let big: DirRoot = dir_new(1u64);
-        let mut br: *mut u8 = big.root;  let mut bl: u32 = big.level;
+        let big: DirRoot = dir_new::<MemBlocks>(&mem_blocks_at(1u64));
+        let mut br: MemBlockPtr = big.root;  let mut bl: u32 = big.level;
         let n: u64 = 600u64;
         let mut roots: Vec<u64> = vec_new::<u64>();
         let mut i: u64 = 0u64;
         while i < n {
-            let f: *mut u8 = fake(1u64);
-            roots.push(f as u64);
-            let sx: DirRoot = dir_set(br, bl, i * 7u64 + 1u64, f as u64, 1u64);
+            let f: MemBlockPtr = fake(1u64);
+            roots.push(f.id());
+            let sx: DirRoot = dir_set::<MemBlocks>(&mem_blocks_at(1u64), br, bl,
+                                                   i * 7u64 + 1u64, f.id(), 1u64);
             br = sx.root; bl = sx.level;
             i = i + 1u64;
         }
-        if dir_count(br, bl) != n { return 18i32; }
+        if dir_count::<MemBlocks>(&mem_blocks_at(1u64), br, bl) != n { return 18i32; }
         if bl == 0u32 { return 19i32; }                 // splits produced a real tree
         // every key resolves to its own root
         let mut k: u64 = 0u64;
         while k < n {
-            if dir_get(br, bl, k * 7u64 + 1u64) != roots.get(k as i64) { return 20i32; }
+            if dir_get::<MemBlocks>(&mem_blocks_at(1u64), br, bl, k * 7u64 + 1u64) != roots.get(k as i64) { return 20i32; }
             k = k + 1u64;
         }
         // fork the big tree, mutate one key under snap 3, verify isolation
-        node_inc_rc(br);
-        let bA: *mut u8 = br;  let blA: u32 = bl;
-        let g: *mut u8 = fake(3u64);
-        let pg: DirPriv = dir_privatize(bA, blA, 1u64, 3u64);       // privatize path to key 1
-        tree_release(pg.val as *mut u8, node_level(pg.val as *mut u8));  // engine releases old root
-        let sg: DirRoot = dir_set(pg.root, pg.level, 1u64, g as u64, 3u64);   // repoint key 1 in snap 3
-        if dir_get(sg.root, sg.level, 1u64) != (g as u64) { return 21i32; }
-        if dir_get(bA, blA, 1u64) != roots.get(0i64) { return 22i32; }   // snap-1 view intact
+        br.inc_rc();
+        let bA: MemBlockPtr = br;  let blA: u32 = bl;
+        let g: MemBlockPtr = fake(3u64);
+        let pg: DirPriv = dir_privatize::<MemBlocks>(&mem_blocks_at(3u64), bA, blA, 1u64, 3u64);       // privatize path to key 1
+        { let og: MemBlockPtr = mem_blocks_at(3u64).resolve(pg.val);
+          mem_blocks_at(3u64).release_block(og, og.level()); }  // engine releases old root
+        let sg: DirRoot = dir_set::<MemBlocks>(&mem_blocks_at(3u64), pg.root, pg.level, 1u64, g.id(), 3u64);   // repoint key 1 in snap 3
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), sg.root, sg.level, 1u64) != g.id() { return 21i32; }
+        if dir_get::<MemBlocks>(&mem_blocks_at(1u64), bA, blA, 1u64) != roots.get(0i64) { return 22i32; }   // snap-1 view intact
 
-        tree_release(sg.root, sg.level);                // snap 3 version
-        tree_release(bA, blA);                          // snap 1 version — cascades all 600
+        mem_blocks_at(1u64).release_block(sg.root, sg.level);                // snap 3 version
+        mem_blocks_at(1u64).release_block(bA, blA);                          // snap 1 version — cascades all 600
         return 0i32;
     }
 }
