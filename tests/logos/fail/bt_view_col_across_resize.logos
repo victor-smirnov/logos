@@ -1,0 +1,20 @@
+// The node-view safety gate (logos.mem.bt.view): a column view borrows its
+// NodeView, so holding one across an operation that can SHIFT the region must
+// not compile. This is the machine-checked form of the invariant container code
+// used to keep by convention ("re-adopt after prepare") — if this test ever
+// starts compiling, the enforcement has regressed.
+package bt_view_col_across_resize;
+
+use logos.mem.bt.view;
+use logos.mem.bt.blockptr;
+use logos.mem.bt.node;
+
+fn main() -> i32 {
+    unsafe {
+        let bp: MemBlockPtr = block_from_addr(node_alloc(4096u32, 2u32, 1u64));
+        let mut nv: NodeView = node_view(bp);
+        let keys = nv.col(0u32);          // shared borrow of nv
+        let vals = nv.col_mut(1u32);      // MUST reject: exclusive while shared is live
+        return (keys.size() + vals.size()) as i32;
+    }
+}

@@ -1,0 +1,201 @@
+// logos.mem.bt.view — the SAFE node view: borrow-checked column access.
+//
+// THE HAZARD. A node's columns live in one PkdAlloc region, laid out back to
+// back. Growing slot `i` SHIFTS every later slot (`resize_block_at` →
+// `move_elements_up`), so any pointer into slots > i dangles — and a two-phase
+// `prepare` can itself enlarge the region through the nested-allocator chain,
+// invalidating even the slot being written. Until now container code held raw
+// `*mut PkdAlloc` and raw `PdtBuf` copies (`pdtbuf_adopt`), and stayed correct
+// only by CONVENTION: "re-adopt after prepare". Nothing checked it.
+//
+// THE FIX, in two layers:
+//
+//  1. STRUCTURAL — a column view stores `(allocator, slot)`, never a payload
+//     pointer, and re-resolves the payload on EVERY call. A stale view is
+//     therefore not expressible: there is no cached address to go stale. (This
+//     is the idiom pdtbuf.logos already blesses for nested buffers; here it
+//     becomes the only way container code touches a column.)
+//
+//  2. CHECKED — `col()` borrows the NodeView SHARED, `col_mut()` borrows it
+//     EXCLUSIVELY, and every region-resizing operation takes `&mut NodeView`.
+//     The views are `#[borrow_carrying]`, so holding one across a resize is a
+//     COMPILE ERROR ("cannot borrow as mutable: has shared borrows"), and NLL
+//     releases at last use so ordinary read-then-write code needs no scoping.
+//
+// LIMIT, stated plainly: this makes the INTRA-NODE invariant machine-checked —
+// the one that actually bites (a resize invalidating sibling views). Two block
+// handles aliasing the SAME node still alias; catching that needs ownership of
+// blocks, which the store deliberately does not have (blocks are shared by
+// refcount across snapshots).
+package logos.mem.bt.view;
+
+use logos.mem.pkd;                // PkdAlloc
+use logos.mem.pkd.pdtbuf;         // PdtBuf — the column, re-resolved per call
+use logos.mem.pkd.sseq;           // PkdSsrle — the nested symbol sequence
+use logos.mem.bt.node;            // node_pkd — the region behind a block
+use logos.mem.bt.btss;            // the column primitives this wraps in a checked skin
+use logos.mem.bt.blockptr;        // MemBlockPtr — the block handle
+use logos.lang.result;            // Result — the two-phase prepare outcome
+use logos.mem.collections.vec;    // Vec — commit row payloads
+use logos.lang.panic;
+
+/// One node's column region, as an owner-proxy. Container code holds THIS
+/// instead of a raw `*mut PkdAlloc`; every column comes out of it borrow-tied.
+pub struct NodeView { a: *mut PkdAlloc }
+
+/// The node view of a block handle.
+pub fn node_view(bp: MemBlockPtr) -> NodeView {
+    return NodeView { a: bp.pkd() };
+}
+
+/// A node view over a region the caller already resolved (migration transit:
+/// engines still derive `P::pkd(node)`; this wraps it into the checked skin).
+pub unsafe fn node_view_of(a: *mut PkdAlloc) -> NodeView { return NodeView { a: a }; }
+
+/// A SHARED column view: `(allocator, slot)`, resolved per call. Borrows its
+/// NodeView, so no resize can happen while it lives.
+#[borrow_carrying]
+pub struct ColRef { a: *mut PkdAlloc, idx: u32 }
+
+/// An EXCLUSIVE column view — same re-resolution, plus the mutating surface.
+#[borrow_carrying]
+pub struct ColMut { a: *mut PkdAlloc, idx: u32 }
+
+impl NodeView {
+    /// Slot `idx` for reading. While the result lives, `&mut` calls on this
+    /// view (any resize) are rejected by the borrow checker.
+    pub fn col(self: &NodeView, idx: u32) -> ColRef {
+        return ColRef { a: self.a, idx: idx };
+    }
+
+    /// Slot `idx` for writing — an exclusive borrow of the whole node, because
+    /// writing one column can move every other one.
+    pub fn col_mut(self: &mut NodeView, idx: u32) -> ColMut {
+        return ColMut { a: self.a, idx: idx };
+    }
+
+    /// The nested symbol sequence in slot `idx` (BTFL's structure stream).
+    pub fn ssrle(self: &NodeView, idx: u32) -> PkdSsrle {
+        return unsafe { pkd_ssrle_adopt(self.a.get::<u8>(idx)) };
+    }
+
+    /// Slot count of the region.
+    pub fn slots(self: &NodeView) -> u32 { return unsafe { self.a.elements() }; }
+
+    /// Is slot `idx` allocated?
+    pub fn has(self: &NodeView, idx: u32) -> bool {
+        return unsafe { self.a.is_allocatable(idx) };
+    }
+
+    /// Free space left in the region — the budget the weight calculus prices
+    /// against. A read, so it composes with live column views.
+    pub fn free_space(self: &NodeView) -> u32 { return unsafe { self.a.free_space() }; }
+
+    /// ESCAPE HATCH: the raw region. Every remaining use is a site not yet
+    /// migrated to the checked surface — keep the list shrinking.
+    pub unsafe fn raw(self: &NodeView) -> *mut PkdAlloc { return self.a; }
+
+    // ── the btss column primitives, as CHECKED node operations ───────────
+    //
+    // These delegate to logos.mem.bt.btss (which still speaks raw
+    // `*mut PkdAlloc`), so the `unsafe` lives HERE, once, instead of at every
+    // engine call site. What the engines gain is the borrow discipline: a
+    // mutating primitive takes `&mut self`, so calling it while a column view
+    // is live does not compile. When the last raw caller is gone, btss's raw
+    // surface goes with it.
+
+    /// Entry count — the key column's row count.
+    pub fn count(self: &NodeView) -> u32 { return unsafe { btss_count(self.a) }; }
+
+    /// First row whose key is >= `key`, unsigned / signed key domains.
+    pub fn lower_bound_u64(self: &NodeView, key: u64) -> u32 {
+        return unsafe { btss_lower_bound_u64(self.a, key) };
+    }
+    pub fn lower_bound_i64(self: &NodeView, key: i64) -> u32 {
+        return unsafe { btss_lower_bound_i64(self.a, key) };
+    }
+
+    /// EXACT one-more-row admission over the first `slots` columns.
+    pub fn fits_row(self: &NodeView, slots: u32) -> bool {
+        return unsafe { btss_fits_row(self.a, slots) };
+    }
+
+    /// The volume-balanced split index.
+    pub fn split_index_volume(self: &NodeView) -> u32 {
+        return unsafe { btss_split_index_volume(self.a) };
+    }
+
+    /// Format slot `slot` as a single-column PdtBuf. Allocates ⇒ `&mut`.
+    pub fn fmt_slot(self: &mut NodeView, slot: u32, vle: bool, ordered: bool) {
+        unsafe { btss_fmt_slot(self.a, slot, vle, ordered); }
+    }
+
+    /// Two-phase insert of ONE cell into `slot` at `pos`. Can grow the region
+    /// (and thus move every later slot) ⇒ `&mut`, which is exactly what makes
+    /// a live sibling view a compile error.
+    pub fn put_cell(self: &mut NodeView, slot: u32, pos: u32, v: u64) {
+        unsafe { btss_put_cell(self.a, slot, pos, v); }
+    }
+
+    /// Move rows [at..] of `slot` into `dst`'s same slot (the split half).
+    pub fn split_col_to(self: &mut NodeView, dst: &mut NodeView, slot: u32, at: u32) {
+        unsafe { btss_split_col(self.a, dst.a, slot, at); }
+    }
+}
+
+impl ColRef {
+    // The payload, RE-RESOLVED. Never cached: that is what makes a stale view
+    // inexpressible rather than merely unlikely.
+    fn buf(self: &ColRef) -> PdtBuf {
+        return unsafe { pdtbuf_adopt(self.a.get::<u8>(self.idx)) };
+    }
+
+    pub fn size(self: &ColRef) -> u64 { return self.buf().size(); }
+    pub fn columns(self: &ColRef) -> u32 { return self.buf().columns(); }
+    pub fn ordering(self: &ColRef) -> u32 { return self.buf().ordering(); }
+    pub fn vle_dims(self: &ColRef) -> u32 { return self.buf().vle_dim_count(); }
+    pub fn get(self: &ColRef, column: u32, row: u64) -> u64 {
+        return self.buf().get(column, row);
+    }
+    pub fn row_offset(self: &ColRef, column: u32, dim: u32, row: u64) -> u64 {
+        return self.buf().row_offset(column, dim, row);
+    }
+    pub fn sum_all(self: &ColRef, column: u32) -> u64 { return self.buf().sum_all(column); }
+    pub fn check(self: &ColRef) -> i32 { return self.buf().check(); }
+    /// The underlying buffer, for surfaces not yet mirrored here. Unsafe
+    /// because the result is a RAW view again — it must not outlive this call.
+    pub unsafe fn raw_buf(self: &ColRef) -> PdtBuf { return self.buf(); }
+}
+
+impl ColMut {
+    fn buf(self: &ColMut) -> PdtBuf {
+        return unsafe { pdtbuf_adopt(self.a.get::<u8>(self.idx)) };
+    }
+
+    // reads (an exclusive view can read too)
+    pub fn size(self: &ColMut) -> u64 { return self.buf().size(); }
+    pub fn get(self: &ColMut, column: u32, row: u64) -> u64 {
+        return self.buf().get(column, row);
+    }
+
+    /// Overwrite one cell in place (no grow, no shift).
+    pub fn set(self: &mut ColMut, column: u32, row: u64, v: u64) {
+        let mut b: PdtBuf = self.buf();
+        b.set(column, row, v);
+    }
+
+    /// The two-phase pair, with the re-resolution built IN: `commit` derives a
+    /// fresh payload view, so the "re-adopt after prepare" rule that used to be
+    /// the caller's job is now impossible to get wrong.
+    pub fn prepare_insert(self: &ColMut, at: u64, count: u64, policy: u32)
+        -> Result<PdtUpdate, PkdError> {
+        return self.buf().prepare_insert(at, count, policy);
+    }
+    pub fn commit_insert(self: &mut ColMut, us: &PdtUpdate, vals: &Vec<u64>) {
+        let mut b: PdtBuf = self.buf();          // fresh — prepare may have moved it
+        b.commit_insert(us, vals);
+    }
+
+    /// ESCAPE HATCH: the raw buffer for surfaces not yet mirrored.
+    pub unsafe fn raw_buf(self: &ColMut) -> PdtBuf { return self.buf(); }
+}

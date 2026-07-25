@@ -42,11 +42,10 @@
 // container while the container engines keep their flat-store root lifecycle.
 package logos.mem.bt.dirmap;
 
-use logos.mem.pkd;               // PkdAlloc
-use logos.mem.pkd.pdtbuf;        // PdtBuf, pdtbuf_adopt
+use logos.mem.pkd;               // PkdAlloc — only for the raw region byte-copy
 use logos.mem.bt.node;           // node_* header ops
 use logos.mem.bt.blockptr;       // MemBlockPtr + trait BlockStore — the block plane
-use logos.mem.bt.btss;           // FSE64 column primitives (shared with leaves)
+use logos.mem.bt.view;           // NodeView / ColRef — the borrow-checked column skin
 use logos.mem.collections.vec;
 use logos.lang.mem;              // copy_bytes — the region byte-copy on clone
 use logos.lang.panic;
@@ -64,11 +63,11 @@ const DIR_BLOCK: u32 = 4096u32;
 
 /// A fresh empty directory LEAF: two FSE64 columns, the ref column declared as
 /// the value-ref slot (so a release cascades through it).
-unsafe fn dir_leaf_new<S: BlockStore>(st: &S) -> MemBlockPtr {
+fn dir_leaf_new<S: BlockStore>(st: &S) -> MemBlockPtr {
     let b: MemBlockPtr = st.alloc_block(DIR_BLOCK, DIR_NSLOTS);
-    let a: *mut PkdAlloc = b.pkd();
-    btss_fmt_slot(a, DIR_KEY, false, true);    // keys: FSE64, MAX-ordered
-    btss_fmt_slot(a, DIR_REF, false, false);   // container roots: FSE64
+    let mut nv: NodeView = node_view(b);
+    nv.fmt_slot(DIR_KEY, false, true);    // keys: FSE64, MAX-ordered
+    nv.fmt_slot(DIR_REF, false, false);   // container roots: FSE64
     b.set_value_ref_slot(DIR_REF);
     b.set_level(0u32);
     return b;
@@ -76,11 +75,11 @@ unsafe fn dir_leaf_new<S: BlockStore>(st: &S) -> MemBlockPtr {
 
 /// A fresh empty directory BRANCH at `level`: separators + child refs, the ref
 /// column declared as the ordinary child slot.
-unsafe fn dir_branch_new<S: BlockStore>(st: &S, level: u32) -> MemBlockPtr {
+fn dir_branch_new<S: BlockStore>(st: &S, level: u32) -> MemBlockPtr {
     let b: MemBlockPtr = st.alloc_block(DIR_BLOCK, DIR_NSLOTS);
-    let a: *mut PkdAlloc = b.pkd();
-    btss_fmt_slot(a, DIR_KEY, false, true);    // separators: FSE64, MAX-ordered
-    btss_fmt_slot(a, DIR_REF, false, false);   // child nodes: FSE64
+    let mut nv: NodeView = node_view(b);
+    nv.fmt_slot(DIR_KEY, false, true);    // separators: FSE64, MAX-ordered
+    nv.fmt_slot(DIR_REF, false, false);   // child nodes: FSE64
     b.set_child_slot(DIR_REF);
     b.set_level(level);
     return b;
@@ -104,10 +103,11 @@ unsafe fn dir_clone_node<S: BlockStore>(st: &S, node: MemBlockPtr) -> MemBlockPt
 /// Make a LEAF privately writable under `cur`. If already private, unchanged;
 /// otherwise clone it and inc_rc every container root it references (the clone's
 /// value-ref slots each acquire ownership — the frozen original keeps its own).
-unsafe fn dir_leaf_private<S: BlockStore>(st: &S, node: MemBlockPtr, cur: u64) -> MemBlockPtr {
+fn dir_leaf_private<S: BlockStore>(st: &S, node: MemBlockPtr, cur: u64) -> MemBlockPtr {
     if node.snapshot() == cur { return node; }
-    let n: MemBlockPtr = dir_clone_node::<S>(st, node);
-    let vb: PdtBuf = pdtbuf_adopt(n.pkd().get::<u8>(DIR_REF));
+    let n: MemBlockPtr = unsafe { dir_clone_node::<S>(st, node) };
+    let nv: NodeView = node_view(n);
+    let vb: ColRef = nv.col(DIR_REF);
     let m: u64 = vb.size();
     let mut j: u64 = 0u64;
     while j < m {
@@ -119,10 +119,11 @@ unsafe fn dir_leaf_private<S: BlockStore>(st: &S, node: MemBlockPtr, cur: u64) -
 
 /// Make a BRANCH privately writable under `cur`, inc_rc'ing every child (the
 /// structural spine share). Mirrors bt_branch_private / pk_private.
-unsafe fn dir_branch_private<S: BlockStore>(st: &S, node: MemBlockPtr, cur: u64) -> MemBlockPtr {
+fn dir_branch_private<S: BlockStore>(st: &S, node: MemBlockPtr, cur: u64) -> MemBlockPtr {
     if node.snapshot() == cur { return node; }
-    let n: MemBlockPtr = dir_clone_node::<S>(st, node);
-    let cb: PdtBuf = pdtbuf_adopt(n.pkd().get::<u8>(DIR_REF));
+    let n: MemBlockPtr = unsafe { dir_clone_node::<S>(st, node) };
+    let nv: NodeView = node_view(n);
+    let cb: ColRef = nv.col(DIR_REF);
     let m: u64 = cb.size();
     let mut j: u64 = 0u64;
     while j < m {
@@ -134,8 +135,8 @@ unsafe fn dir_branch_private<S: BlockStore>(st: &S, node: MemBlockPtr, cur: u64)
 
 // ── column helpers ───────────────────────────────────────────────────────────
 
-unsafe fn dir_max_key(a: *mut PkdAlloc) -> u64 {
-    let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
+fn dir_max_key(nv: &NodeView) -> u64 {
+    let kb: ColRef = nv.col(DIR_KEY);
     let n: u64 = kb.size();
     if n == 0u64 { return 0u64; }
     return kb.get(0u32, n - 1u64);
@@ -143,79 +144,77 @@ unsafe fn dir_max_key(a: *mut PkdAlloc) -> u64 {
 
 /// Which child a branch descends for `key`: the first separator >= key, clamped
 /// to the last child when `key` exceeds every separator (MAX-separator routing).
-unsafe fn dir_find_child(a: *mut PkdAlloc, key: u64) -> u32 {
-    let n: u32 = btss_count(a);
-    let mut i: u32 = btss_lower_bound_u64(a, key);
+fn dir_find_child(nv: &NodeView, key: u64) -> u32 {
+    let n: u32 = nv.count();
+    let mut i: u32 = nv.lower_bound_u64(key);
     if i >= n { i = n - 1u32; }
     return i;
 }
 
 /// Overwrite an existing FSE64 cell in place (no grow).
-unsafe fn dir_set_cell(a: *mut PkdAlloc, slot: u32, pos: u32, v: u64) {
-    let mut b: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
-    b.set(0u32, pos as u64, v);
+fn dir_set_cell(nv: &mut NodeView, slot: u32, pos: u32, v: u64) {
+    nv.col_mut(slot).set(0u32, pos as u64, v);
 }
 
 /// The child handle at branch row `ci` — resolved THROUGH the store.
-unsafe fn dir_child_at<S: BlockStore>(st: &S, a: *mut PkdAlloc, ci: u64) -> MemBlockPtr {
-    return st.resolve(pdtbuf_adopt(a.get::<u8>(DIR_REF)).get(0u32, ci));
+fn dir_child_at<S: BlockStore>(st: &S, nv: &NodeView, ci: u64) -> MemBlockPtr {
+    return st.resolve(nv.col(DIR_REF).get(0u32, ci));
 }
 
 // ── read path ────────────────────────────────────────────────────────────────
 
 /// The container root id mapped to `key`, or 0 if absent. O(log D) descent.
-pub unsafe fn dir_get<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64) -> u64 {
+pub fn dir_get<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64) -> u64 {
     let mut node: MemBlockPtr = root;
     let mut lvl: u32 = level;
     while lvl > 0u32 {
-        let a: *mut PkdAlloc = node.pkd();
-        let ci: u32 = dir_find_child(a, key);
-        node = dir_child_at::<S>(st, a, ci as u64);
+        let nv: NodeView = node_view(node);
+        let ci: u32 = dir_find_child(&nv, key);
+        node = dir_child_at::<S>(st, &nv, ci as u64);
         lvl = lvl - 1u32;
     }
-    let a2: *mut PkdAlloc = node.pkd();
-    let pos: u32 = btss_lower_bound_u64(a2, key);
-    let kb: PdtBuf = pdtbuf_adopt(a2.get::<u8>(DIR_KEY));
+    let nv2: NodeView = node_view(node);
+    let pos: u32 = nv2.lower_bound_u64(key);
+    let kb: ColRef = nv2.col(DIR_KEY);
     if (pos as u64) < kb.size() && kb.get(0u32, pos as u64) == key {
-        let vb: PdtBuf = pdtbuf_adopt(a2.get::<u8>(DIR_REF));
-        return vb.get(0u32, pos as u64);
+        return nv2.col(DIR_REF).get(0u32, pos as u64);
     }
     return 0u64;
 }
 
-pub unsafe fn dir_has<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64) -> bool {
+pub fn dir_has<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64) -> bool {
     return dir_get::<S>(st, root, level, key) != 0u64;
 }
 
 /// Collect every CtrID in key order (the container_names walk).
-pub unsafe fn dir_keys<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, out: &mut Vec<u64>) {
-    let a: *mut PkdAlloc = root.pkd();
+pub fn dir_keys<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, out: &mut Vec<u64>) {
+    let nv: NodeView = node_view(root);
     if level == 0u32 {
-        let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
+        let kb: ColRef = nv.col(DIR_KEY);
         let n: u64 = kb.size();
         let mut i: u64 = 0u64;
         while i < n { out.push(kb.get(0u32, i)); i = i + 1u64; }
         return;
     }
-    let n: u64 = pdtbuf_adopt(a.get::<u8>(DIR_REF)).size();
+    let n: u64 = nv.col(DIR_REF).size();
     let mut i: u64 = 0u64;
     while i < n {
-        dir_keys::<S>(st, dir_child_at::<S>(st, a, i), level - 1u32, out);
+        dir_keys::<S>(st, dir_child_at::<S>(st, &nv, i), level - 1u32, out);
         i = i + 1u64;
     }
 }
 
 /// Number of containers registered (the in-order key count).
-pub unsafe fn dir_count<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32) -> u64 {
-    let a: *mut PkdAlloc = root.pkd();
+pub fn dir_count<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32) -> u64 {
+    let nv: NodeView = node_view(root);
     if level == 0u32 {
-        return pdtbuf_adopt(a.get::<u8>(DIR_KEY)).size();
+        return nv.col(DIR_KEY).size();
     }
-    let n: u64 = pdtbuf_adopt(a.get::<u8>(DIR_REF)).size();
+    let n: u64 = nv.col(DIR_REF).size();
     let mut total: u64 = 0u64;
     let mut i: u64 = 0u64;
     while i < n {
-        total = total + dir_count::<S>(st, dir_child_at::<S>(st, a, i), level - 1u32);
+        total = total + dir_count::<S>(st, dir_child_at::<S>(st, &nv, i), level - 1u32);
         i = i + 1u64;
     }
     return total;
@@ -238,96 +237,99 @@ pub struct DirRoot { pub root: MemBlockPtr, pub level: u32 }
 
 // Insert `(key, ref)` into a full leaf by splitting count-balanced; the new row
 // lands in whichever half owns `key`.
-unsafe fn dir_split_leaf<S: BlockStore>(st: &S, work: MemBlockPtr, key: u64,
-                                        new_ref: u64) -> DirIns {
-    let a: *mut PkdAlloc = work.pkd();
+fn dir_split_leaf<S: BlockStore>(st: &S, work: MemBlockPtr, key: u64,
+                                 new_ref: u64) -> DirIns {
+    let mut nv: NodeView = node_view(work);
     let right: MemBlockPtr = dir_leaf_new::<S>(st);
-    let ra: *mut PkdAlloc = right.pkd();
-    let at: u32 = btss_count(a) / 2u32;
-    btss_split_col(a, ra, DIR_KEY, at);
-    btss_split_col(a, ra, DIR_REF, at);
-    if key <= dir_max_key(a) {
-        let p: u32 = btss_lower_bound_u64(a, key);
-        btss_put_cell(a, DIR_KEY, p, key);
-        btss_put_cell(a, DIR_REF, p, new_ref);
+    let mut rv: NodeView = node_view(right);
+    let at: u32 = nv.count() / 2u32;
+    nv.split_col_to(&mut rv, DIR_KEY, at);
+    nv.split_col_to(&mut rv, DIR_REF, at);
+    if key <= dir_max_key(&nv) {
+        let p: u32 = nv.lower_bound_u64(key);
+        nv.put_cell(DIR_KEY, p, key);
+        nv.put_cell(DIR_REF, p, new_ref);
     } else {
-        let p: u32 = btss_lower_bound_u64(ra, key);
-        btss_put_cell(ra, DIR_KEY, p, key);
-        btss_put_cell(ra, DIR_REF, p, new_ref);
+        let p: u32 = rv.lower_bound_u64(key);
+        rv.put_cell(DIR_KEY, p, key);
+        rv.put_cell(DIR_REF, p, new_ref);
     }
-    return DirIns { node: work, split: true, sep_l: dir_max_key(a),
-                    sep_r: dir_max_key(ra), right: right };
+    return DirIns { node: work, split: true, sep_l: dir_max_key(&nv),
+                    sep_r: dir_max_key(&rv), right: right };
 }
 
-unsafe fn dir_set_rec<S: BlockStore>(st: &S, node: MemBlockPtr, level: u32, key: u64,
-                                     new_ref: u64, cur: u64) -> DirIns {
+fn dir_set_rec<S: BlockStore>(st: &S, node: MemBlockPtr, level: u32, key: u64,
+                              new_ref: u64, cur: u64) -> DirIns {
     if level == 0u32 {
         let work: MemBlockPtr = dir_leaf_private::<S>(st, node, cur);
-        let a: *mut PkdAlloc = work.pkd();
-        let pos: u32 = btss_lower_bound_u64(a, key);
-        let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
-        let cnt: u32 = kb.size() as u32;
-        if pos < cnt && kb.get(0u32, pos as u64) == key {
+        let mut nv: NodeView = node_view(work);
+        let pos: u32 = nv.lower_bound_u64(key);
+        let cnt: u32 = nv.col(DIR_KEY).size() as u32;
+        // the key-column read ENDS here: what follows may resize the region,
+        // and the checker would reject holding the view across it.
+        let mut hit: bool = false;
+        if pos < cnt { hit = nv.col(DIR_KEY).get(0u32, pos as u64) == key; }
+        if hit {
             // OVERWRITE (repoint): store the new root; DO NOT release the old
             // one — the container engine already released it (the flat-store
             // lifecycle), and the per-snapshot ownership was bumped at
             // dir_privatize. dir_set never frees a container root.
-            dir_set_cell(a, DIR_REF, pos, new_ref);
-            return DirIns { node: work, split: false, sep_l: dir_max_key(a),
+            dir_set_cell(&mut nv, DIR_REF, pos, new_ref);
+            return DirIns { node: work, split: false, sep_l: dir_max_key(&nv),
                             sep_r: 0u64, right: block_null() };
         }
         // INSERT a new container.
-        if btss_fits_row(a, DIR_NSLOTS) {
-            btss_put_cell(a, DIR_KEY, pos, key);
-            btss_put_cell(a, DIR_REF, pos, new_ref);
-            return DirIns { node: work, split: false, sep_l: dir_max_key(a),
+        if nv.fits_row(DIR_NSLOTS) {
+            nv.put_cell(DIR_KEY, pos, key);
+            nv.put_cell(DIR_REF, pos, new_ref);
+            return DirIns { node: work, split: false, sep_l: dir_max_key(&nv),
                             sep_r: 0u64, right: block_null() };
         }
         return dir_split_leaf::<S>(st, work, key, new_ref);
     }
     // BRANCH.
     let work: MemBlockPtr = dir_branch_private::<S>(st, node, cur);
-    let a: *mut PkdAlloc = work.pkd();
-    let ci: u32 = dir_find_child(a, key);
-    let old_child: MemBlockPtr = dir_child_at::<S>(st, a, ci as u64);
+    let mut nv: NodeView = node_view(work);
+    let ci: u32 = dir_find_child(&nv, key);
+    let old_child: MemBlockPtr = dir_child_at::<S>(st, &nv, ci as u64);
     let r: DirIns = dir_set_rec::<S>(st, old_child, level - 1u32, key, new_ref, cur);
-    dir_set_cell(a, DIR_KEY, ci, r.sep_l);            // child's max may have grown
+    dir_set_cell(&mut nv, DIR_KEY, ci, r.sep_l);      // child's max may have grown
     if r.node.id() != old_child.id() {
-        dir_set_cell(a, DIR_REF, ci, r.node.id());    // repoint to the private child
+        dir_set_cell(&mut nv, DIR_REF, ci, r.node.id());  // repoint to the private child
         st.release_block(old_child, level - 1u32);    // release the old child (clone bumped it)
     }
     if !r.split {
-        return DirIns { node: work, split: false, sep_l: dir_max_key(a),
+        return DirIns { node: work, split: false, sep_l: dir_max_key(&nv),
                         sep_r: 0u64, right: block_null() };
     }
     // Graft the new right child at ci+1.
-    if btss_fits_row(a, DIR_NSLOTS) {
-        btss_put_cell(a, DIR_KEY, ci + 1u32, r.sep_r);
-        btss_put_cell(a, DIR_REF, ci + 1u32, r.right.id());
-        return DirIns { node: work, split: false, sep_l: dir_max_key(a),
+    if nv.fits_row(DIR_NSLOTS) {
+        nv.put_cell(DIR_KEY, ci + 1u32, r.sep_r);
+        nv.put_cell(DIR_REF, ci + 1u32, r.right.id());
+        return DirIns { node: work, split: false, sep_l: dir_max_key(&nv),
                         sep_r: 0u64, right: block_null() };
     }
     // Branch full → split, then insert (sep_r, right) into the owning half.
     let rb: MemBlockPtr = dir_branch_new::<S>(st, level);
-    let rba: *mut PkdAlloc = rb.pkd();
-    let at: u32 = btss_count(a) / 2u32;
-    btss_split_col(a, rba, DIR_KEY, at);
-    btss_split_col(a, rba, DIR_REF, at);
-    let lc: u32 = btss_count(a);
+    let mut rbv: NodeView = node_view(rb);
+    let at: u32 = nv.count() / 2u32;
+    nv.split_col_to(&mut rbv, DIR_KEY, at);
+    nv.split_col_to(&mut rbv, DIR_REF, at);
+    let lc: u32 = nv.count();
     if ci + 1u32 < lc {
-        btss_put_cell(a, DIR_KEY, ci + 1u32, r.sep_r);
-        btss_put_cell(a, DIR_REF, ci + 1u32, r.right.id());
+        nv.put_cell(DIR_KEY, ci + 1u32, r.sep_r);
+        nv.put_cell(DIR_REF, ci + 1u32, r.right.id());
     } else {
-        btss_put_cell(rba, DIR_KEY, (ci + 1u32) - lc, r.sep_r);
-        btss_put_cell(rba, DIR_REF, (ci + 1u32) - lc, r.right.id());
+        rbv.put_cell(DIR_KEY, (ci + 1u32) - lc, r.sep_r);
+        rbv.put_cell(DIR_REF, (ci + 1u32) - lc, r.right.id());
     }
-    return DirIns { node: work, split: true, sep_l: dir_max_key(a),
-                    sep_r: dir_max_key(rba), right: rb };
+    return DirIns { node: work, split: true, sep_l: dir_max_key(&nv),
+                    sep_r: dir_max_key(&rbv), right: rb };
 }
 
 /// A fresh empty directory root (level 0). The store mints one per snapshot
 /// history root; forks share it.
-pub unsafe fn dir_new<S: BlockStore>(st: &S) -> DirRoot {
+pub fn dir_new<S: BlockStore>(st: &S) -> DirRoot {
     return DirRoot { root: dir_leaf_new::<S>(st), level: 0u32 };
 }
 
@@ -341,33 +343,33 @@ pub struct DirPriv { pub root: MemBlockPtr, pub level: u32, pub val: u64 }
 
 struct DirPrivRec { node: MemBlockPtr, val: u64 }
 
-unsafe fn dir_privatize_rec<S: BlockStore>(st: &S, node: MemBlockPtr, level: u32,
-                                           key: u64, cur: u64) -> DirPrivRec {
+fn dir_privatize_rec<S: BlockStore>(st: &S, node: MemBlockPtr, level: u32,
+                                    key: u64, cur: u64) -> DirPrivRec {
     if level == 0u32 {
         let work: MemBlockPtr = dir_leaf_private::<S>(st, node, cur);
-        let a: *mut PkdAlloc = work.pkd();
-        let pos: u32 = btss_lower_bound_u64(a, key);
-        let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
+        let nv: NodeView = node_view(work);
+        let pos: u32 = nv.lower_bound_u64(key);
+        let kb: ColRef = nv.col(DIR_KEY);
         let mut v: u64 = 0u64;
         if (pos as u64) < kb.size() && kb.get(0u32, pos as u64) == key {
-            v = pdtbuf_adopt(a.get::<u8>(DIR_REF)).get(0u32, pos as u64);
+            v = nv.col(DIR_REF).get(0u32, pos as u64);
         }
         return DirPrivRec { node: work, val: v };
     }
     let work: MemBlockPtr = dir_branch_private::<S>(st, node, cur);
-    let a: *mut PkdAlloc = work.pkd();
-    let ci: u32 = dir_find_child(a, key);
-    let old_child: MemBlockPtr = dir_child_at::<S>(st, a, ci as u64);
+    let mut nv: NodeView = node_view(work);
+    let ci: u32 = dir_find_child(&nv, key);
+    let old_child: MemBlockPtr = dir_child_at::<S>(st, &nv, ci as u64);
     let r: DirPrivRec = dir_privatize_rec::<S>(st, old_child, level - 1u32, key, cur);
     if r.node.id() != old_child.id() {
-        dir_set_cell(a, DIR_REF, ci, r.node.id());
+        dir_set_cell(&mut nv, DIR_REF, ci, r.node.id());
         st.release_block(old_child, level - 1u32);   // clone bumped it; release the old child
     }
     return DirPrivRec { node: work, val: r.val };
 }
 
-pub unsafe fn dir_privatize<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32,
-                                           key: u64, cur: u64) -> DirPriv {
+pub fn dir_privatize<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32,
+                                    key: u64, cur: u64) -> DirPriv {
     let r: DirPrivRec = dir_privatize_rec::<S>(st, root, level, key, cur);
     let mut nrt: MemBlockPtr = root;
     if r.node.id() != root.id() {
@@ -381,8 +383,8 @@ pub unsafe fn dir_privatize<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32
 /// The old directory root is released iff its identity changed (mirrors
 /// bt_cow_insert's root repoint); on a root split it is grafted under a fresh
 /// top. A displaced CONTAINER root is never freed here (see the rc discipline).
-pub unsafe fn dir_set<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64,
-                                     new_ref: u64, cur: u64) -> DirRoot {
+pub fn dir_set<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key: u64,
+                              new_ref: u64, cur: u64) -> DirRoot {
     let r: DirIns = dir_set_rec::<S>(st, root, level, key, new_ref, cur);
     let mut nrt: MemBlockPtr = r.node;
     let mut nlv: u32 = level;
@@ -391,11 +393,11 @@ pub unsafe fn dir_set<S: BlockStore>(st: &S, root: MemBlockPtr, level: u32, key:
     }
     if r.split {
         let top: MemBlockPtr = dir_branch_new::<S>(st, level + 1u32);
-        let ta: *mut PkdAlloc = top.pkd();
-        btss_put_cell(ta, DIR_KEY, 0u32, r.sep_l);
-        btss_put_cell(ta, DIR_REF, 0u32, r.node.id());
-        btss_put_cell(ta, DIR_KEY, 1u32, r.sep_r);
-        btss_put_cell(ta, DIR_REF, 1u32, r.right.id());
+        let mut tv: NodeView = node_view(top);
+        tv.put_cell(DIR_KEY, 0u32, r.sep_l);
+        tv.put_cell(DIR_REF, 0u32, r.node.id());
+        tv.put_cell(DIR_KEY, 1u32, r.sep_r);
+        tv.put_cell(DIR_REF, 1u32, r.right.id());
         nrt = top;
         nlv = level + 1u32;
     }
