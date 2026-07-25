@@ -179,7 +179,14 @@ fn model_insert(md: &mut Model, k: u64, vals: &Vec<u64>) {
 // ── the equivalence + laws check (btfl_multimap's check_full, verbatim) ─────
 // Runs over the generated handle's directory view (h.tree()).
 
-fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
+// The concrete snapshot behind the erased handle — the block plane the btfl
+// read paths resolve ids through (the same dyn_data downcast the generated
+// family uses internally).
+fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
+    return unsafe { &*(dyn_data(&**s) as *const MemorySnapshot) };
+}
+
+fn check_full(snap: &MemorySnapshot, t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
     let n: i64 = md.mk.len();
     let t0: u64 = btfl_count::<2, CowProfile>(t, 0u64);
     let t1: u64 = btfl_count::<2, CowProfile>(t, 1u64);
@@ -189,7 +196,7 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
     if t1 != md.moff.get(n) {
         return 2i32;
     }
-    if !btfl_check::<2, CowProfile>(t) {
+    if !btfl_check::<2, CowProfile>(snap, t) {
         return 3i32;
     }
     let mut i: i64 = 0i64;
@@ -197,7 +204,7 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
         let k: u64 = md.mk.get(i);
         // find → exact value list
         let mut got: Vec<u64> = vec_new::<u64>();
-        if !btfl_key_stream::<2, CowProfile>(t, k, 1u32, &mut got) {
+        if !btfl_key_stream::<2, CowProfile>(snap, t, k, 1u32, &mut got) {
             return 4i32;
         }
         let lo: u64 = md.moff.get(i);
@@ -213,7 +220,7 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
             j = j + 1u64;
         }
         // seek → (found, global key rank)
-        let sk: BtflSeek = btfl_seek::<2, CowProfile>(t, k);
+        let sk: BtflSeek = btfl_seek::<2, CowProfile>(snap, t, k);
         if !sk.found {
             return 7i32;
         }
@@ -221,7 +228,7 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
             return 8i32;
         }
         // select(0, i) → the model symbol position P(i)
-        let sel: BtflLoc = btfl_select::<2, CowProfile>(t, 0u64, i as u64);
+        let sel: BtflLoc = btfl_select::<2, CowProfile>(snap, t, 0u64, i as u64);
         if !sel.found {
             return 9i32;
         }
@@ -256,33 +263,33 @@ fn check_full(t: &Btfl<2, CowProfile>, md: &Model) -> i32 {
             while md.moff.get(j2 + 1i64) <= v {
                 j2 = j2 + 1i64;
             }
-            let sel1: BtflLoc = btfl_select::<2, CowProfile>(t, 1u64, v);
+            let sel1: BtflLoc = btfl_select::<2, CowProfile>(snap, t, 1u64, v);
             if !sel1.found {
                 return 14i32;
             }
             if sel1.pos != (j2 as u64) + 1u64 + v {
                 return 15i32;
             }
-            if btfl_access::<2, CowProfile>(t, sel1.pos) != 1u64 {
+            if btfl_access::<2, CowProfile>(snap, t, sel1.pos) != 1u64 {
                 return 16i32;
             }
             s = s + 1i64;
         }
         // key symbol access inverse at a sampled key
         let mid: i64 = n / 2i64;
-        if btfl_access::<2, CowProfile>(t, (mid as u64) + md.moff.get(mid)) != 0u64 {
+        if btfl_access::<2, CowProfile>(snap, t, (mid as u64) + md.moff.get(mid)) != 0u64 {
             return 17i32;
         }
     }
     // negatives: not-found selects land at pos = total symbols
-    let selx: BtflLoc = btfl_select::<2, CowProfile>(t, 0u64, t0);
+    let selx: BtflLoc = btfl_select::<2, CowProfile>(snap, t, 0u64, t0);
     if selx.found {
         return 18i32;
     }
     if selx.pos != t0 + t1 {
         return 19i32;
     }
-    let sely: BtflLoc = btfl_select::<2, CowProfile>(t, 1u64, t1);
+    let sely: BtflLoc = btfl_select::<2, CowProfile>(snap, t, 1u64, t1);
     if sely.found {
         return 20i32;
     }
@@ -395,7 +402,7 @@ fn run_all() -> i32 {
             }
             // full model equivalence after EVERY mutation
             let t: Btfl<2, CowProfile> = ha.tree();
-            let c: i32 = check_full(&t, &md);
+            let c: i32 = check_full(ms_of(&snap), &t, &md);
             if c != 0i32 {
                 return 20i32 + (c % 10i32);
             }
@@ -441,7 +448,7 @@ fn run_all() -> i32 {
                 model_insert(&mut md, k, &vals);
             }
             let t: Btfl<2, CowProfile> = hb.tree();
-            let c: i32 = check_full(&t, &md);
+            let c: i32 = check_full(ms_of(&snap), &t, &md);
             if c != 0i32 {
                 return 40i32 + (c % 10i32);
             }
@@ -529,7 +536,7 @@ fn run_all() -> i32 {
         }
         {
             let t: Btfl<2, CowProfile> = hc.tree();
-            let c: i32 = check_full(&t, &md);
+            let c: i32 = check_full(ms_of(&snap), &t, &md);
             if c != 0i32 {
                 return 71i32;
             }
@@ -584,7 +591,7 @@ fn run_all() -> i32 {
                 return 76i32;
             }
             let t: Btfl<2, CowProfile> = hc.tree();
-            let c: i32 = check_full(&t, &md);
+            let c: i32 = check_full(ms_of(&snap), &t, &md);
             if c != 0i32 {
                 return 77i32;
             }
@@ -664,7 +671,7 @@ fn run_all() -> i32 {
                 }
                 if r % 25i64 == 24i64 {
                     let t: Btfl<2, CowProfile> = hc.tree();
-                    let c: i32 = check_full(&t, &md);
+                    let c: i32 = check_full(ms_of(&snap), &t, &md);
                     if c != 0i32 {
                         return 88i32;
                     }

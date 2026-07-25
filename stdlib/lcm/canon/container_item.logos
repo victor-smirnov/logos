@@ -2247,7 +2247,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn find(self: &#nm, key: u64, out: &mut Vec<u64>) -> bool {
                 let t: Btfl<2, #nd> = self.tree();
-                return btfl_key_stream::<2, #nd>(&t, key, 1u32, out);
+                return btfl_key_stream::<2, #nd>(self.ms(), &t, key, 1u32, out);
             }
             /// Remove the ENTRY keyed `key` — the key, its whole value run
             /// and its structure symbols. False = absent (nothing mutated).
@@ -2269,15 +2269,15 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             /// below with the cursor pair.
             pub fn seek_key(self: &#nm, key: u64) -> BtflSeek {
                 let t: Btfl<2, #nd> = self.tree();
-                return btfl_seek::<2, #nd>(&t, key);
+                return btfl_seek::<2, #nd>(self.ms(), &t, key);
             }
             pub fn select(self: &#nm, sym: u64, rank: u64) -> BtflLoc {
                 let t: Btfl<2, #nd> = self.tree();
-                return btfl_select::<2, #nd>(&t, sym, rank);
+                return btfl_select::<2, #nd>(self.ms(), &t, sym, rank);
             }
             pub fn access(self: &#nm, pos: u64) -> u64 {
                 let t: Btfl<2, #nd> = self.tree();
-                return btfl_access::<2, #nd>(&t, pos);
+                return btfl_access::<2, #nd>(self.ms(), &t, pos);
             }
             pub fn count(self: &#nm, sym: u64) -> u64 {
                 let t: Btfl<2, #nd> = self.tree();
@@ -2285,7 +2285,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             }
             pub fn check(self: &#nm) -> bool {
                 let t: Btfl<2, #nd> = self.tree();
-                return btfl_check::<2, #nd>(&t);
+                return btfl_check::<2, #nd>(self.ms(), &t);
             }
             pub fn level(self: &#nm) -> u32 {
                 return self.tree().level;
@@ -2418,7 +2418,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
             /// classic entry-number seek, BTFL's hierarchical reading).
             pub fn seek(self: &#nm, n: u64) -> #kcid {
                 let t: Btfl<2, #nd> = self.tree();
-                let c: BtflEntryCur = btfl_seek_nth::<2, #nd>(&t, n);
+                let c: BtflEntryCur = btfl_seek_nth::<2, #nd>(self.ms(), &t, n);
                 return #kcid { found: c.found, leaf: c.leaf, kidx: c.kidx };
             }
         }
@@ -2583,16 +2583,16 @@ fn emit_btvec_family(name: str) {
             }
             pub fn get(self: &#nm, pos: u64) -> u64 {
                 let t: Btvec<#nd> = self.tree();
-                return btvec_get::<#nd>(&t, pos);
+                return btvec_get::<#nd>(self.ms(), &t, pos);
             }
             pub fn set(self: &#nm, pos: u64, v: u64) {
                 let t: Btvec<#nd> = self.tree();
-                btvec_set::<#nd>(&t, pos, v);
+                btvec_set::<#nd>(self.ms(), &t, pos, v);
             }
             /// Cursor at the `pos`-th entry (0-based; the entry-number seek).
             pub fn seek(self: &#nm, pos: u64) -> #cid {
                 let t: Btvec<#nd> = self.tree();
-                let c: BtvecCur = btvec_seek::<#nd>(&t, pos);
+                let c: BtvecCur = btvec_seek::<#nd>(self.ms(), &t, pos);
                 return #cid { found: c.found, leaf: c.leaf, idx: c.idx };
             }
             pub fn size(self: &#nm) -> u64 {
@@ -2601,7 +2601,7 @@ fn emit_btvec_family(name: str) {
             }
             pub fn check(self: &#nm) -> bool {
                 let t: Btvec<#nd> = self.tree();
-                return btvec_check::<#nd>(&t);
+                return btvec_check::<#nd>(self.ms(), &t);
             }
             pub fn level(self: &#nm) -> u32 {
                 return self.tree().level;

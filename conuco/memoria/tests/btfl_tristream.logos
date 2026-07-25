@@ -178,7 +178,7 @@ fn model_p(md: &Model, j: i64) -> u64 {
 
 // ── the equivalence + laws check (run after EVERY mutation) ─────────────────
 
-fn check_full(t: &Btfl<3, CowProfile>, md: &Model) -> i32 {
+fn check_full(snap: &MemorySnapshot, t: &Btfl<3, CowProfile>, md: &Model) -> i32 {
     let n: i64 = md.mk.len();
     let t0: u64 = btfl_count::<3, CowProfile>(t, 0u64);
     let t1: u64 = btfl_count::<3, CowProfile>(t, 1u64);
@@ -192,7 +192,7 @@ fn check_full(t: &Btfl<3, CowProfile>, md: &Model) -> i32 {
     if t2 != md.toff.get(n) {
         return 3i32;
     }
-    if !btfl_check::<3, CowProfile>(t) {
+    if !btfl_check::<3, CowProfile>(snap, t) {
         return 4i32;
     }
     let total: u64 = t0 + t1 + t2;
@@ -201,7 +201,7 @@ fn check_full(t: &Btfl<3, CowProfile>, md: &Model) -> i32 {
         let k: u64 = md.mk.get(j);
         let pj: u64 = model_p(md, j);
         // seek law: found at global stream-0 rank j
-        let sk: BtflSeek = btfl_seek::<3, CowProfile>(t, k);
+        let sk: BtflSeek = btfl_seek::<3, CowProfile>(snap, t, k);
         if !sk.found {
             return 5i32;
         }
@@ -209,7 +209,7 @@ fn check_full(t: &Btfl<3, CowProfile>, md: &Model) -> i32 {
             return 6i32;
         }
         // select(0, j) → P(j), same leaf as the seek
-        let sel: BtflLoc = btfl_select::<3, CowProfile>(t, 0u64, j as u64);
+        let sel: BtflLoc = btfl_select::<3, CowProfile>(snap, t, 0u64, j as u64);
         if !sel.found {
             return 7i32;
         }
@@ -229,14 +229,14 @@ fn check_full(t: &Btfl<3, CowProfile>, md: &Model) -> i32 {
         let mut l: u64 = 0u64;
         while l < mv {
             let r: u64 = md.voff.get(j) + l;
-            let s1: BtflLoc = btfl_select::<3, CowProfile>(t, 1u64, r);
+            let s1: BtflLoc = btfl_select::<3, CowProfile>(snap, t, 1u64, r);
             if !s1.found {
                 return 11i32;
             }
             if s1.pos != pj + 1u64 + l {
                 return 12i32;
             }
-            if btfl_access::<3, CowProfile>(t, s1.pos) != 1u64 {
+            if btfl_access::<3, CowProfile>(snap, t, s1.pos) != 1u64 {
                 return 13i32;
             }
             let row: u64 = btfl_leaf_rank::<3, CowProfile>(s1.leaf, s1.idx, 1u64);
@@ -249,14 +249,14 @@ fn check_full(t: &Btfl<3, CowProfile>, md: &Model) -> i32 {
         let mut l2: u64 = 0u64;
         while l2 < mt {
             let r2: u64 = md.toff.get(j) + l2;
-            let s2: BtflLoc = btfl_select::<3, CowProfile>(t, 2u64, r2);
+            let s2: BtflLoc = btfl_select::<3, CowProfile>(snap, t, 2u64, r2);
             if !s2.found {
                 return 15i32;
             }
             if s2.pos != pj + 1u64 + mv + l2 {
                 return 16i32;
             }
-            if btfl_access::<3, CowProfile>(t, s2.pos) != 2u64 {
+            if btfl_access::<3, CowProfile>(snap, t, s2.pos) != 2u64 {
                 return 17i32;
             }
             let row2: u64 = btfl_leaf_rank::<3, CowProfile>(s2.leaf, s2.idx, 2u64);
@@ -267,24 +267,24 @@ fn check_full(t: &Btfl<3, CowProfile>, md: &Model) -> i32 {
             l2 = l2 + 1u64;
         }
         // key symbol access inverse
-        if btfl_access::<3, CowProfile>(t, pj) != 0u64 {
+        if btfl_access::<3, CowProfile>(snap, t, pj) != 0u64 {
             return 19i32;
         }
         j = j + 1i64;
     }
     // negatives: select past the end of every stream
-    let sx: BtflLoc = btfl_select::<3, CowProfile>(t, 0u64, t0);
+    let sx: BtflLoc = btfl_select::<3, CowProfile>(snap, t, 0u64, t0);
     if sx.found {
         return 20i32;
     }
     if sx.pos != total {
         return 21i32;
     }
-    let sy: BtflLoc = btfl_select::<3, CowProfile>(t, 1u64, t1);
+    let sy: BtflLoc = btfl_select::<3, CowProfile>(snap, t, 1u64, t1);
     if sy.found {
         return 22i32;
     }
-    let sz: BtflLoc = btfl_select::<3, CowProfile>(t, 2u64, t2);
+    let sz: BtflLoc = btfl_select::<3, CowProfile>(snap, t, 2u64, t2);
     if sz.found {
         return 23i32;
     }
@@ -337,12 +337,12 @@ fn drive(snap: &mut MemorySnapshot, t: &mut Btfl<3, CowProfile>, md: &mut Model,
             }
             model_insert(md, k, &vals, &tags);
         }
-        let rc: i32 = check_full(t, md);
+        let rc: i32 = check_full(snap, t, md);
         if rc != 0i32 {
             return rc;
         }
         // negative probe: the odd neighbour must miss
-        let miss: BtflSeek = btfl_seek::<3, CowProfile>(t, k + 1u64);
+        let miss: BtflSeek = btfl_seek::<3, CowProfile>(snap, t, k + 1u64);
         if miss.found {
             return 92i32;
         }
@@ -367,10 +367,10 @@ fn main() -> i32 {
         if btfl_count::<3, CowProfile>(&t, 0u64) != 0u64 { return 11i32; }
         if btfl_count::<3, CowProfile>(&t, 1u64) != 0u64 { return 12i32; }
         if btfl_count::<3, CowProfile>(&t, 2u64) != 0u64 { return 13i32; }
-        if !btfl_check::<3, CowProfile>(&t) { return 14i32; }
-        let s0: BtflLoc = btfl_select::<3, CowProfile>(&t, 0u64, 0u64);
+        if !btfl_check::<3, CowProfile>(&snap, &t) { return 14i32; }
+        let s0: BtflLoc = btfl_select::<3, CowProfile>(&snap, &t, 0u64, 0u64);
         if s0.found { return 15i32; }
-        let sk: BtflSeek = btfl_seek::<3, CowProfile>(&t, 42u64);
+        let sk: BtflSeek = btfl_seek::<3, CowProfile>(&snap, &t, 42u64);
         if sk.found { return 16i32; }
         btfl_drop::<3, CowProfile>(&t);
     }

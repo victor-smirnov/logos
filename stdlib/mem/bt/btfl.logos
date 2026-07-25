@@ -460,7 +460,7 @@ pub struct BtflLoc {
 /// (bt_select_shuttle.hpp:71-90 branch step, :106-137 leaf finish): each
 /// branch consumes the rank remainder against its per-symbol count column
 /// and the leaf finishes with select_fw_eq.
-pub fn btfl_select<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, sym: u64, rank: u64) -> BtflLoc {
+pub fn btfl_select<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, sym: u64, rank: u64) -> BtflLoc {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -493,7 +493,7 @@ pub fn btfl_select<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, sym: u64, rank:
                 prefix = prefix + b.sum(BRC_CNT0 + csym, 0u64, f.idx);
                 csym = csym + 1u32;
             }
-            node = br_child(a).get(0u32, f.idx) as *mut u8;
+            node = snap.resolve(br_child(a).get(0u32, f.idx)).ptr();
             lvl = lvl - 1u32;
         }
         let a: *mut PkdAlloc = P::pkd(node);
@@ -518,7 +518,7 @@ pub fn btfl_select<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, sym: u64, rank:
 
 /// Symbol at GLOBAL position `pos` — descent by the summed count columns,
 /// finished with the sequence access.
-pub fn btfl_access<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, pos: u64) -> u64 {
+pub fn btfl_access<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, pos: u64) -> u64 {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -544,7 +544,7 @@ pub fn btfl_access<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, pos: u64) -> u6
                 }
             }
             assert(descending, "btfl_access: position beyond the tree");
-            node = br_child(a).get(0u32, i) as *mut u8;
+            node = snap.resolve(br_child(a).get(0u32, i)).ptr();
             lvl = lvl - 1u32;
         }
         return lf_seq_n::<N>(P::pkd(node)).access(rem);
@@ -577,7 +577,7 @@ unsafe fn btfl_find_child(a: *mut PkdAlloc, key: u64) -> u32 {
 
 /// Descend to `key`'s leaf position by the stream-0 max-key measure,
 /// accumulating the global key rank from the CNT0 column prefixes.
-pub fn btfl_seek<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, key: u64) -> BtflSeek {
+pub fn btfl_seek<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, key: u64) -> BtflSeek {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -587,7 +587,7 @@ pub fn btfl_seek<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, key: u64) -> Btfl
             let ci: u32 = btfl_find_child(a, key);
             // The key-rank prefix is one SUM-index lookup, not a scan.
             rank = rank + br_pdt(a).sum(BRC_CNT0, 0u64, ci as u64);
-            node = br_child(a).get(0u32, ci as u64) as *mut u8;
+            node = snap.resolve(br_child(a).get(0u32, ci as u64)).ptr();
             lvl = lvl - 1u32;
         }
         let a: *mut PkdAlloc = P::pkd(node);
@@ -683,8 +683,8 @@ pub fn btfl_leaf_rank<const N: u32, P: NodeProfile>(leaf: *mut u8, upto: u64, sy
 // bt_fl PROTOTYPE op — generic over N and the stream index; the multimap
 // container's `find(k)` is exactly this with stream = 1. (For a VLE stream use
 // the span introspection instead — this yields u64 cells.)
-pub fn btfl_key_stream<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, key: u64, stream: u32, out: &mut Vec<u64>) -> bool {
-    let sk: BtflSeek = btfl_seek::<N, P>(t, key);
+pub fn btfl_key_stream<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, key: u64, stream: u32, out: &mut Vec<u64>) -> bool {
+    let sk: BtflSeek = btfl_seek::<N, P>(snap, t, key);
     if !sk.found {
         return false;
     }
@@ -742,7 +742,7 @@ pub struct BtflValCur {
 }
 
 /// `ctr.seek(n)`: cursor at the n-th KEY (symbol-0 entry) in symbol order.
-pub fn btfl_seek_nth<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, n: u64) -> BtflEntryCur {
+pub fn btfl_seek_nth<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>, n: u64) -> BtflEntryCur {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -757,10 +757,10 @@ pub fn btfl_seek_nth<const N: u32, P: NodeProfile>(t: &Btfl<N, P>, n: u64) -> Bt
                 // n beyond the tree: land past-the-end of the LAST leaf.
                 let last: u32 = (b.size() as u32) - 1u32;
                 rem = b.get(BRC_CNT0, last as u64);
-                node = br_child(a).get(0u32, last as u64) as *mut u8;
+                node = snap.resolve(br_child(a).get(0u32, last as u64)).ptr();
             } else {
                 rem = rem - f.prefix;
-                node = br_child(a).get(0u32, f.idx) as *mut u8;
+                node = snap.resolve(br_child(a).get(0u32, f.idx)).ptr();
             }
             lvl = lvl - 1u32;
         }
@@ -1318,6 +1318,11 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
         unsafe { return br_pdt(P::pkd(self.mem)).get(BRC_MAX, i as u64); }
     }
     fn child_addr(self: &BtflBranchRef<N, P>, i: u32) -> *mut u8 {
+        // THE LAST id→address cast outside the store: the BtBranch trait's node
+        // VIEW carries no store, so it cannot `resolve` (everything else on the
+        // block plane goes through logos.mem.bt.blockptr's BlockStore). Closing
+        // it means the branch-view contract itself carrying the store — the next
+        // step of the block-pointer migration.
         unsafe { return br_child(P::pkd(self.mem)).get(0u32, i as u64) as *mut u8; }
     }
     fn set_child_addr(self: &mut BtflBranchRef<N, P>, i: u32, ptr: *mut u8) {
@@ -1751,7 +1756,7 @@ pub fn btfl_bulk_build<P: NodeProfile>(snap: &MemorySnapshot, st: &BtflStage,
             let mut cur_n: u32 = 0u32;
             let mut idx: i64 = 0i64;
             while idx < nodes.length() {
-                let child: *mut u8 = nodes.get(idx) as *mut u8;
+                let child: *mut u8 = snap.resolve(nodes.get(idx)).ptr();
                 // the (max, counts) row for this child — leaf: per-stream row
                 // counts; branch: the wrapper's max_sep/totals (the
                 // branch_summary helper died with the skeleton unification)
@@ -1782,7 +1787,7 @@ pub fn btfl_bulk_build<P: NodeProfile>(snap: &MemorySnapshot, st: &BtflStage,
             level = level + 1u32;
         }
         return Btfl::<2, P> {
-            root: nodes.get(0i64) as *mut u8,
+            root: snap.resolve(nodes.get(0i64)).ptr(),
             level: level,
             leaf_bytes: leaf_bytes,
             branch_bytes: branch_bytes,
@@ -1802,7 +1807,7 @@ struct ChkRes<const N: u32> {
 // counts agree between the columns and the structure stream (per symbol);
 // stream-0 keys strictly increase globally; every non-empty leaf starts with
 // a symbol-0 entry (the v0 invariant).
-unsafe fn btfl_chk_rec<const N: u32, P: NodeProfile>(node: *mut u8, level: u32,
+unsafe fn btfl_chk_rec<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32,
                                      prev: &mut u64, any: &mut bool) -> ChkRes<N> {
     if level == 0u32 {
         let a: *mut PkdAlloc = P::pkd(node);
@@ -1864,7 +1869,7 @@ unsafe fn btfl_chk_rec<const N: u32, P: NodeProfile>(node: *mut u8, level: u32,
     let mut mx: u64 = 0u64;
     let mut i: u32 = 0u32;
     while i < n {
-        let sub: ChkRes<N> = btfl_chk_rec::<N, P>(ch.get(0u32, i as u64) as *mut u8, level - 1u32, prev, any);
+        let sub: ChkRes<N> = btfl_chk_rec::<N, P>(snap, snap.resolve(ch.get(0u32, i as u64)).ptr(), level - 1u32, prev, any);
         if !sub.ok {
             ok = false;
         }
@@ -1898,11 +1903,11 @@ pub unsafe fn br_pdt_size_for_test<P: NodeProfile>(root: *mut u8) -> u64 {
     return br_pdt(P::pkd(root)).size();
 }
 
-pub fn btfl_check<const N: u32, P: NodeProfile>(t: &Btfl<N, P>) -> bool {
+pub fn btfl_check<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t: &Btfl<N, P>) -> bool {
     unsafe {
         let mut prev: u64 = 0u64;
         let mut any: bool = false;
-        let res: ChkRes<N> = btfl_chk_rec::<N, P>(t.root, t.level, &mut prev, &mut any);
+        let res: ChkRes<N> = btfl_chk_rec::<N, P>(snap, t.root, t.level, &mut prev, &mut any);
         return res.ok;
     }
 }
@@ -2469,7 +2474,7 @@ unsafe fn bf_leaf_try_batch<P: NodeProfile>(node: *mut u8, i0: u64, buf: &BtflBu
 }
 
 // The recursive splice (in-place tree — the btfl v0 restriction).
-fn bf_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, first: u64,
+fn bf_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, first: u64,
                                  buf: &BtflBuf, bvoff: &Vec<u64>, snp: u64,
                                  leaf_bytes: u32, branch_bytes: u32) -> Vec<BfRow> {
     unsafe {
@@ -2508,8 +2513,8 @@ fn bf_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, first: u64,
         }
         let a: *mut PkdAlloc = P::pkd(node);
         let ci: u32 = btfl_find_child(a, first);
-        let old_child: *mut u8 = br_child(a).get(0u32, ci as u64) as *mut u8;
-        let sub: Vec<BfRow> = bf_splice_rec::<P>(old_child, level - 1u32, first, buf,
+        let old_child: *mut u8 = snap.resolve(br_child(a).get(0u32, ci as u64)).ptr();
+        let sub: Vec<BfRow> = bf_splice_rec::<P>(snap, old_child, level - 1u32, first, buf,
                                                  bvoff, snp, leaf_bytes, branch_bytes);
         // refresh row ci from the first sub row
         {
@@ -2602,7 +2607,7 @@ fn bf_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, first: u64,
                             sep: pbx.get(BRC_MAX, i),
                             cnt0: pbx.get(BRC_CNT0, i),
                             cnt1: pbx.get(BRC_CNT0 + 1u32, i),
-                            ptr: cbx.get(0u32, i) as *mut u8,
+                            ptr: snap.resolve(cbx.get(0u32, i)).ptr(),
                         });
                     }
                     i = i + 1u64;
@@ -2647,7 +2652,7 @@ pub fn btfl_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, 
         let mut lvl: u32 = t.level;
         while lvl > 0u32 {
             let a: *mut PkdAlloc = P::pkd(node);
-            node = br_child(a).get(0u32, btfl_find_child(a, first) as u64) as *mut u8;
+            node = snap.resolve(br_child(a).get(0u32, btfl_find_child(a, first) as u64)).ptr();
             lvl = lvl - 1u32;
         }
         let kb: PdtBuf = lf_pdt(P::pkd(node), 0u32);
@@ -2668,7 +2673,7 @@ pub fn btfl_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, 
         e = e + 1u64;
     }
     let snp: u64 = snap.snapshot_id();
-    let mut rows: Vec<BfRow> = bf_splice_rec::<P>(t.root, t.level, first, buf, &bvoff,
+    let mut rows: Vec<BfRow> = bf_splice_rec::<P>(snap, t.root, t.level, first, buf, &bvoff,
                                                   snp, t.leaf_bytes, t.branch_bytes);
     let mut lvl: u32 = t.level;
     while rows.length() > 1i64 {
@@ -2837,7 +2842,7 @@ fn bf_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
     }
 }
 
-fn bf_branch_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) {
+fn bf_branch_absorb<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut u8, at_front: bool) {
     unsafe {
         let da: *mut PkdAlloc = P::pkd(dst);
         let sa: *mut PkdAlloc = P::pkd(src);
@@ -2887,7 +2892,7 @@ fn bf_branch_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) 
             let mut i: u64 = 0u64;
             while i < sn {
                 let v: u64 = sb.get(0u32, i);
-                P::inc_rc(v as *mut u8);
+                snap.resolve(v).inc_rc();
                 cells.push(v);
                 i = i + 1u64;
             }
@@ -2926,12 +2931,12 @@ unsafe fn bf_branch_remove_row<P: NodeProfile>(a: *mut PkdAlloc, i: u64) {
     }
 }
 
-fn bf_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, child: *mut u8,
+fn bf_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: *mut PkdAlloc, ci: u64, child: *mut u8,
                                 child_level: u32) {
     unsafe {
         let n: u64 = br_pdt(a).size();
         if ci + 1u64 < n {
-            let sib: *mut u8 = br_child(a).get(0u32, ci + 1u64) as *mut u8;
+            let sib: *mut u8 = snap.resolve(br_child(a).get(0u32, ci + 1u64)).ptr();
             let can: bool = if child_level == 0u32 {
                 bf_leaves_mergeable::<P>(child, sib)
             } else {
@@ -2941,7 +2946,7 @@ fn bf_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, child: *mut u8,
                 if child_level == 0u32 {
                     bf_leaf_absorb::<P>(child, sib, false);
                 } else {
-                    bf_branch_absorb::<P>(child, sib, false);
+                    bf_branch_absorb::<P>(snap, child, sib, false);
                 }
                 let b: PdtBuf = br_pdt(a);
                 let rsep: u64 = b.get(BRC_MAX, ci + 1u64);
@@ -2962,7 +2967,7 @@ fn bf_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, child: *mut u8,
             }
         }
         if ci >= 1u64 {
-            let sib: *mut u8 = br_child(a).get(0u32, ci - 1u64) as *mut u8;
+            let sib: *mut u8 = snap.resolve(br_child(a).get(0u32, ci - 1u64)).ptr();
             let can: bool = if child_level == 0u32 {
                 bf_leaves_mergeable::<P>(child, sib)
             } else {
@@ -2972,7 +2977,7 @@ fn bf_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, child: *mut u8,
                 if child_level == 0u32 {
                     bf_leaf_absorb::<P>(child, sib, true);
                 } else {
-                    bf_branch_absorb::<P>(child, sib, true);
+                    bf_branch_absorb::<P>(snap, child, sib, true);
                 }
                 let b: PdtBuf = br_pdt(a);
                 let lc0: u64 = b.get(BRC_CNT0, ci - 1u64);
@@ -3004,7 +3009,7 @@ struct BfRemRet {
     cnt1: u64,
 }
 
-fn bf_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64) -> BfRemRet {
+fn bf_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, key: u64) -> BfRemRet {
     unsafe {
         if level == 0u32 {
             let a: *mut PkdAlloc = P::pkd(node);
@@ -3065,8 +3070,8 @@ fn bf_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64) -> BfRemRe
         }
         let a: *mut PkdAlloc = P::pkd(node);
         let ci: u32 = btfl_find_child(a, key);
-        let child: *mut u8 = br_child(a).get(0u32, ci as u64) as *mut u8;
-        let sub: BfRemRet = bf_remove_rec::<P>(child, level - 1u32, key);
+        let child: *mut u8 = snap.resolve(br_child(a).get(0u32, ci as u64)).ptr();
+        let sub: BfRemRet = bf_remove_rec::<P>(snap, child, level - 1u32, key);
         if sub.vanished {
             bf_branch_remove_row::<P>(a, ci as u64);
         } else {
@@ -3077,7 +3082,7 @@ fn bf_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64) -> BfRemRe
             row.push(sub.cnt1);
             ub.set_row(ci as u64, &row);
             ub.reindex();
-            bf_try_merge::<P>(a, ci as u64, child, level - 1u32);
+            bf_try_merge::<P>(snap, a, ci as u64, child, level - 1u32);
         }
         let nn: u64 = br_pdt(a).size();
         if nn == 0u64 {
@@ -3101,11 +3106,11 @@ fn bf_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64) -> BfRemRe
 /// while it is a one-child branch; an emptied container becomes a fresh
 /// empty leaf.
 pub fn btfl_remove<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, P>, key: u64) -> bool {
-    let sk: BtflSeek = btfl_seek::<2, P>(t, key);
+    let sk: BtflSeek = btfl_seek::<2, P>(snap, t, key);
     if !sk.found {
         return false;
     }
-    let r: BfRemRet = bf_remove_rec::<P>(t.root, t.level, key);
+    let r: BfRemRet = bf_remove_rec::<P>(snap, t.root, t.level, key);
     if r.vanished {
         t.root = btfl_leaf_new::<2, P>(snap, t.leaf_bytes);
         t.level = 0u32;
@@ -3116,7 +3121,7 @@ pub fn btfl_remove<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, P>, ke
         while going {
             let a: *mut PkdAlloc = P::pkd(t.root);
             if br_pdt(a).size() == 1u64 {
-                let child: *mut u8 = br_child(a).get(0u32, 0u64) as *mut u8;
+                let child: *mut u8 = snap.resolve(br_child(a).get(0u32, 0u64)).ptr();
                 P::free(t.root);
                 t.root = child;
                 t.level = t.level - 1u32;

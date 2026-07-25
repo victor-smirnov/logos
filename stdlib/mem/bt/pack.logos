@@ -547,7 +547,7 @@ fn pk_branch_new<P: NodeProfile>(snp: u64, branch_bytes: u32) -> *mut u8 {
 // (the packed family's region is position-independent — the CoW-clone-unit
 // law), child_slot restored, children rc-bumped for a branch. The fresh
 // header (rc = 1, snap = cur) comes from P::alloc.
-fn pk_private<P: NodeProfile>(node: *mut u8, cur: u64, is_branch: bool) -> *mut u8 {
+fn pk_private<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, cur: u64, is_branch: bool) -> *mut u8 {
     unsafe {
         if P::snapshot(node) == cur {
             return node;
@@ -562,7 +562,7 @@ fn pk_private<P: NodeProfile>(node: *mut u8, cur: u64, is_branch: bool) -> *mut 
             let cc: u64 = cb.size();
             let mut i: u64 = 0u64;
             while i < cc {
-                P::inc_rc(cb.get(0u32, i) as *mut u8);
+                snap.resolve(cb.get(0u32, i)).inc_rc();
                 i = i + 1u64;
             }
         }
@@ -855,11 +855,11 @@ unsafe fn pk_lower_bound(b: &PdtBuf, key: u64, signed: bool) -> u64 {
 // `node`; returns rows owning their ptrs. When the returned set does not
 // contain `node`, the original ref was released inside (tree_release — the
 // old block may still be shared with a frozen snapshot).
-fn pk_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, first: u64, signed: bool,
+fn pk_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, first: u64, signed: bool,
                                  buf: &BtssBuf, cur: u64, branch_bytes: u32) -> Vec<PkRow> {
     unsafe {
         if level == 0u32 {
-            let work: *mut u8 = pk_private::<P>(node, cur, false);
+            let work: *mut u8 = pk_private::<P>(snap, node, cur, false);
             let a: *mut PkdAlloc = P::pkd(work);
             let m: u64 = buf.len();
             let kb0: PdtBuf = pk_slot(a, 0u32);
@@ -983,7 +983,7 @@ fn pk_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, first: u64, signed: 
             }
             return rows;
         }
-        let work: *mut u8 = pk_private::<P>(node, cur, true);
+        let work: *mut u8 = pk_private::<P>(snap, node, cur, true);
         let a: *mut PkdAlloc = P::pkd(work);
         let sb: PdtBuf = pk_slot(a, PKB_SEP);
         let n: u64 = sb.size();
@@ -991,8 +991,8 @@ fn pk_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, first: u64, signed: 
         if ci >= n {
             ci = n - 1u64;                  // the FindShuttle clamp
         }
-        let old_child: *mut u8 = pk_slot(a, PKB_CHILD).get(0u32, ci) as *mut u8;
-        let sub: Vec<PkRow> = pk_splice_rec::<P>(old_child, level - 1u32, first, signed,
+        let old_child: *mut u8 = snap.resolve(pk_slot(a, PKB_CHILD).get(0u32, ci)).ptr();
+        let sub: Vec<PkRow> = pk_splice_rec::<P>(snap, old_child, level - 1u32, first, signed,
                                                  buf, cur, branch_bytes);
         // refresh row ci from the first sub row
         {
@@ -1092,7 +1092,7 @@ fn pk_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, first: u64, signed: 
                         rows.push(PkRow {
                             sep: sbx.get(0u32, i),
                             cnt: cbx.get(0u32, i),
-                            ptr: pbx.get(0u32, i) as *mut u8,
+                            ptr: snap.resolve(pbx.get(0u32, i)).ptr(),
                         });
                     }
                     i = i + 1u64;
@@ -1278,7 +1278,7 @@ fn pk_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
 // Append every (sep, cnt, child) row of branch `src` to branch `dst`
 // (private). The copied child refs are NEW references: rc-bump each — the
 // release of `src` afterwards nets the transfer for shared and owned alike.
-fn pk_branch_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) {
+fn pk_branch_absorb<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut u8, at_front: bool) {
     unsafe {
         let da: *mut PkdAlloc = P::pkd(dst);
         let sa: *mut PkdAlloc = P::pkd(src);
@@ -1303,7 +1303,7 @@ fn pk_branch_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) 
             while i < sn {
                 let v: u64 = sb.get(0u32, i);
                 if s == PKB_CHILD {
-                    P::inc_rc(v as *mut u8);
+                    snap.resolve(v).inc_rc();
                 }
                 cells.push(v);
                 i = i + 1u64;
@@ -1319,13 +1319,13 @@ fn pk_branch_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) 
 // (right first, then left). Mutates only the path child (`work_child`,
 // already private); the sibling is read + released. Refreshes the branch
 // rows. Children are leaves when `child_level == 0`.
-fn pk_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, work_child: *mut u8,
+fn pk_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: *mut PkdAlloc, ci: u64, work_child: *mut u8,
                                 child_level: u32) {
     unsafe {
         let n: u64 = pk_slot(a, PKB_SEP).size();
         // right neighbor: absorb it at the child's BACK
         if ci + 1u64 < n {
-            let sib: *mut u8 = pk_slot(a, PKB_CHILD).get(0u32, ci + 1u64) as *mut u8;
+            let sib: *mut u8 = snap.resolve(pk_slot(a, PKB_CHILD).get(0u32, ci + 1u64)).ptr();
             let can: bool = if child_level == 0u32 {
                 pk_leaves_mergeable::<P>(work_child, sib)
             } else {
@@ -1335,7 +1335,7 @@ fn pk_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, work_child: *mut u8,
                 if child_level == 0u32 {
                     pk_leaf_absorb::<P>(work_child, sib, false);
                 } else {
-                    pk_branch_absorb::<P>(work_child, sib, false);
+                    pk_branch_absorb::<P>(snap, work_child, sib, false);
                 }
                 // the merged row inherits the RIGHT sibling's separator
                 let rsep: u64 = pk_slot(a, PKB_SEP).get(0u32, ci + 1u64);
@@ -1352,7 +1352,7 @@ fn pk_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, work_child: *mut u8,
         }
         // left neighbor: absorb it at the child's FRONT
         if ci >= 1u64 {
-            let sib: *mut u8 = pk_slot(a, PKB_CHILD).get(0u32, ci - 1u64) as *mut u8;
+            let sib: *mut u8 = snap.resolve(pk_slot(a, PKB_CHILD).get(0u32, ci - 1u64)).ptr();
             let can: bool = if child_level == 0u32 {
                 pk_leaves_mergeable::<P>(work_child, sib)
             } else {
@@ -1362,7 +1362,7 @@ fn pk_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, work_child: *mut u8,
                 if child_level == 0u32 {
                     pk_leaf_absorb::<P>(work_child, sib, true);
                 } else {
-                    pk_branch_absorb::<P>(work_child, sib, true);
+                    pk_branch_absorb::<P>(snap, work_child, sib, true);
                 }
                 let lcnt: u64 = pk_slot(a, PKB_CNT).get(0u32, ci - 1u64);
                 tree_release(sib, child_level);
@@ -1382,11 +1382,11 @@ fn pk_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, work_child: *mut u8,
 // the parent's one ref to `node`; when the returned rows do not contain
 // `node`, the original ref was released inside. ZERO rows = the subtree
 // vanished (the parent removes its row).
-fn pk_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64, signed: bool,
+fn pk_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, key: u64, signed: bool,
                                  cur: u64) -> Vec<PkRow> {
     unsafe {
         if level == 0u32 {
-            let work: *mut u8 = pk_private::<P>(node, cur, false);
+            let work: *mut u8 = pk_private::<P>(snap, node, cur, false);
             let a: *mut PkdAlloc = P::pkd(work);
             let kb: PdtBuf = pk_slot(a, 0u32);
             let pos: u64 = pk_lower_bound(&kb, key, signed);
@@ -1428,7 +1428,7 @@ fn pk_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64, signed: bo
             one.push(PkRow { sep: kbf.get(0u32, cnt - 1u64), cnt: cnt, ptr: work });
             return one;
         }
-        let work: *mut u8 = pk_private::<P>(node, cur, true);
+        let work: *mut u8 = pk_private::<P>(snap, node, cur, true);
         let a: *mut PkdAlloc = P::pkd(work);
         let sb: PdtBuf = pk_slot(a, PKB_SEP);
         let n: u64 = sb.size();
@@ -1436,8 +1436,8 @@ fn pk_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64, signed: bo
         if ci >= n {
             ci = n - 1u64;
         }
-        let old_child: *mut u8 = pk_slot(a, PKB_CHILD).get(0u32, ci) as *mut u8;
-        let sub: Vec<PkRow> = pk_remove_rec::<P>(old_child, level - 1u32, key, signed, cur);
+        let old_child: *mut u8 = snap.resolve(pk_slot(a, PKB_CHILD).get(0u32, ci)).ptr();
+        let sub: Vec<PkRow> = pk_remove_rec::<P>(snap, old_child, level - 1u32, key, signed, cur);
         if sub.length() == 0i64 {
             pk_branch_remove_row(a, ci);
         } else {
@@ -1449,7 +1449,7 @@ fn pk_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64, signed: bo
             p2.set(0u32, ci, sub.borrow(0i64).ptr as u64);
             // the C++ step-4 analog: try to merge the touched child with a
             // neighbor — weight-admitted, path-child-mutating only
-            pk_try_merge::<P>(a, ci, sub.borrow(0i64).ptr, level - 1u32);
+            pk_try_merge::<P>(snap, a, ci, sub.borrow(0i64).ptr, level - 1u32);
         }
         if work != node {
             tree_release(node, level);
@@ -1500,7 +1500,7 @@ pub fn btss_remove<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, level: 
             if ci >= sb.size() {
                 ci = sb.size() - 1u64;
             }
-            node = pk_slot(a, PKB_CHILD).get(0u32, ci) as *mut u8;
+            node = snap.resolve(pk_slot(a, PKB_CHILD).get(0u32, ci)).ptr();
             lvl = lvl - 1u32;
         }
         let a: *mut PkdAlloc = P::pkd(node);
@@ -1514,7 +1514,7 @@ pub fn btss_remove<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, level: 
         leaf_bytes = P::block_size(node);
     }
     let cur: u64 = snap.snapshot_id();
-    let rows: Vec<PkRow> = pk_remove_rec::<P>(root, level, key, signed, cur);
+    let rows: Vec<PkRow> = pk_remove_rec::<P>(snap, root, level, key, signed, cur);
     if rows.length() == 0i64 {
         // the container emptied: a fresh empty leaf becomes the root
         unsafe {
@@ -1533,7 +1533,7 @@ pub fn btss_remove<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, level: 
         while going {
             let a: *mut PkdAlloc = P::pkd(nroot);
             if pk_slot(a, PKB_SEP).size() == 1u64 {
-                let child: *mut u8 = pk_slot(a, PKB_CHILD).get(0u32, 0u64) as *mut u8;
+                let child: *mut u8 = snap.resolve(pk_slot(a, PKB_CHILD).get(0u32, 0u64)).ptr();
                 P::free(nroot);            // the ref transfers to the root slot
                 nroot = child;
                 nlvl = nlvl - 1u32;
@@ -1584,7 +1584,7 @@ pub fn btss_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, l
             if ci >= sb.size() {
                 ci = sb.size() - 1u64;
             }
-            node = pk_slot(a, PKB_CHILD).get(0u32, ci) as *mut u8;
+            node = snap.resolve(pk_slot(a, PKB_CHILD).get(0u32, ci)).ptr();
             lvl = lvl - 1u32;
         }
         let kb: PdtBuf = pk_slot(P::pkd(node), 0u32);
@@ -1596,7 +1596,7 @@ pub fn btss_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, l
         }
     }
     let cur: u64 = snap.snapshot_id();
-    let mut rows: Vec<PkRow> = pk_splice_rec::<P>(root, level, first, signed,
+    let mut rows: Vec<PkRow> = pk_splice_rec::<P>(snap, root, level, first, signed,
                                                   buf, cur, branch_bytes);
     let mut lvl: u32 = level;
     while rows.length() > 1i64 {

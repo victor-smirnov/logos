@@ -120,7 +120,7 @@ pub struct BtvecCur {
 }
 
 /// Cursor at the `pos`-th entry (0-based) — the count descent.
-pub fn btvec_seek<P: NodeProfile>(t: &Btvec<P>, pos: u64) -> BtvecCur {
+pub fn btvec_seek<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64) -> BtvecCur {
     unsafe {
         let mut node: *mut u8 = t.root;
         let mut lvl: u32 = t.level;
@@ -145,7 +145,7 @@ pub fn btvec_seek<P: NodeProfile>(t: &Btvec<P>, pos: u64) -> BtvecCur {
                 i = n - 1u64;
                 rem = b.get(0u32, i);
             }
-            node = bv_child(a).get(0u32, i) as *mut u8;
+            node = snap.resolve(bv_child(a).get(0u32, i)).ptr();
             lvl = lvl - 1u32;
         }
         let cnt: u64 = bv_vals(P::pkd(node)).size();
@@ -158,8 +158,8 @@ pub fn btvec_seek<P: NodeProfile>(t: &Btvec<P>, pos: u64) -> BtvecCur {
 
 /// The `pos`-th entry's cell (traps past the end — use btvec_seek for the
 /// checked form).
-pub fn btvec_get<P: NodeProfile>(t: &Btvec<P>, pos: u64) -> u64 {
-    let c: BtvecCur = btvec_seek::<P>(t, pos);
+pub fn btvec_get<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64) -> u64 {
+    let c: BtvecCur = btvec_seek::<P>(snap, t, pos);
     assert(c.found, "btvec_get: position beyond the vector");
     unsafe {
         return bv_vals(P::pkd(c.leaf)).get(0u32, c.idx as u64);
@@ -176,8 +176,8 @@ pub fn btvec_cur_value<P: NodeProfile>(c: &BtvecCur) -> u64 {
 
 /// Overwrite the `pos`-th entry in place (no structural change, no CoW —
 /// the v0 restriction).
-pub fn btvec_set<P: NodeProfile>(t: &Btvec<P>, pos: u64, v: u64) {
-    let c: BtvecCur = btvec_seek::<P>(t, pos);
+pub fn btvec_set<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64, v: u64) {
+    let c: BtvecCur = btvec_seek::<P>(snap, t, pos);
     assert(c.found, "btvec_set: position beyond the vector");
     unsafe {
         let mut b: PdtBuf = bv_vals(P::pkd(c.leaf));
@@ -200,7 +200,7 @@ struct BvIns {
 // positional: child i absorbs an insertion position within [0, cnt_i]
 // (rem == cnt_i inserts at the child's end — append prefers the LEFT child,
 // keeping the rightmost path for genuine appends past every subtree).
-fn bv_ins_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64, v: u64, snp: u64,
+fn bv_ins_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64, v: u64, snp: u64,
                               leaf_bytes: u32, branch_bytes: u32) -> BvIns {
     unsafe {
         if level == 0u32 {
@@ -234,7 +234,7 @@ fn bv_ins_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64, v: u64, snp: 
             rem = rem - cb.get(0u32, ci);
             ci = ci + 1u64;
         }
-        let r: BvIns = bv_ins_rec::<P>(bv_child(a).get(0u32, ci) as *mut u8, level - 1u32,
+        let r: BvIns = bv_ins_rec::<P>(snap, snap.resolve(bv_child(a).get(0u32, ci)).ptr(), level - 1u32,
                                        rem, v, snp, leaf_bytes, branch_bytes);
         {
             let mut ub: PdtBuf = bv_cnt(a);
@@ -291,7 +291,7 @@ pub fn btvec_insert_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
     let sz: u64 = btvec_size::<P>(t);
     assert(pos <= sz, "btvec_insert_at: position beyond the vector");
     let snp: u64 = snap.snapshot_id();
-    let r: BvIns = bv_ins_rec::<P>(t.root, t.level, pos, v, snp, t.leaf_bytes, t.branch_bytes);
+    let r: BvIns = bv_ins_rec::<P>(snap, t.root, t.level, pos, v, snp, t.leaf_bytes, t.branch_bytes);
     if r.split {
         unsafe {
             let nr: *mut u8 = bv_branch_new::<P>(snp, t.branch_bytes);
@@ -630,7 +630,7 @@ fn bv_pack_branches<P: NodeProfile>(rows: &Vec<BvRow>, snp: u64, branch_bytes: u
 // The recursive splice: insert the staging at LOCAL position `pos` under
 // `(node, level)`; returns the (count, child) rows replacing this node in
 // its parent (one row = no structural growth at this level).
-fn bv_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64, buf: &BtvecBuf,
+fn bv_splice_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64, buf: &BtvecBuf,
                                  snp: u64, leaf_bytes: u32, branch_bytes: u32) -> Vec<BvRow> {
     unsafe {
         if level == 0u32 {
@@ -678,7 +678,7 @@ fn bv_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64, buf: &Btve
             rem = rem - cb.get(0u32, ci);
             ci = ci + 1u64;
         }
-        let sub: Vec<BvRow> = bv_splice_rec::<P>(bv_child(a).get(0u32, ci) as *mut u8,
+        let sub: Vec<BvRow> = bv_splice_rec::<P>(snap, snap.resolve(bv_child(a).get(0u32, ci)).ptr(),
                                                  level - 1u32, rem, buf,
                                                  snp, leaf_bytes, branch_bytes);
         if sub.length() == 1i64 {
@@ -764,7 +764,7 @@ fn bv_splice_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64, buf: &Btve
                     j = j + 1i64;
                 }
             } else {
-                rows.push(BvRow { cnt: cb.get(0u32, i), ptr: bv_child(a).get(0u32, i) as *mut u8 });
+                rows.push(BvRow { cnt: cb.get(0u32, i), ptr: snap.resolve(bv_child(a).get(0u32, i)).ptr() });
             }
             i = i + 1u64;
         }
@@ -786,7 +786,7 @@ pub fn btvec_insert_buf<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>,
     let sz: u64 = btvec_size::<P>(t);
     assert(pos <= sz, "btvec_insert_buf: position beyond the vector");
     let snp: u64 = snap.snapshot_id();
-    let mut rows: Vec<BvRow> = bv_splice_rec::<P>(t.root, t.level, pos, buf,
+    let mut rows: Vec<BvRow> = bv_splice_rec::<P>(snap, t.root, t.level, pos, buf,
                                                   snp, t.leaf_bytes, t.branch_bytes);
     let mut lvl: u32 = t.level;
     while rows.length() > 1i64 {
@@ -842,7 +842,7 @@ fn bv_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8, slots: u32) -> bool {
 }
 
 // append every cell of `src` column `s` to `dst` (front or back)
-unsafe fn bv_absorb_col<P: NodeProfile>(dst: *mut u8, src: *mut u8, s: u32,
+unsafe fn bv_absorb_col<P: NodeProfile>(snap: &MemorySnapshot, dst: *mut u8, src: *mut u8, s: u32,
                                         at_front: bool, bump_rc: bool) {
     let da: *mut PkdAlloc = P::pkd(dst);
     let sa: *mut PkdAlloc = P::pkd(src);
@@ -865,7 +865,7 @@ unsafe fn bv_absorb_col<P: NodeProfile>(dst: *mut u8, src: *mut u8, s: u32,
     while i < sn {
         let v: u64 = sb.get(0u32, i);
         if bump_rc {
-            P::inc_rc(v as *mut u8);   // copied child refs are NEW references
+            snap.resolve(v).inc_rc();  // copied child refs are NEW references
         }
         cells.push(v);
         i = i + 1u64;
@@ -875,17 +875,17 @@ unsafe fn bv_absorb_col<P: NodeProfile>(dst: *mut u8, src: *mut u8, s: u32,
 }
 
 // try to merge the child at row `ci` with a neighbor (right, then left)
-fn bv_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, child: *mut u8,
+fn bv_try_merge<P: NodeProfile>(snap: &MemorySnapshot, a: *mut PkdAlloc, ci: u64, child: *mut u8,
                                 child_level: u32) {
     unsafe {
         let n: u64 = bv_cnt(a).size();
         let slots: u32 = if child_level == 0u32 { 1u32 } else { 2u32 };
         if ci + 1u64 < n {
-            let sib: *mut u8 = bv_child(a).get(0u32, ci + 1u64) as *mut u8;
+            let sib: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci + 1u64)).ptr();
             if bv_mergeable::<P>(child, sib, slots) {
-                bv_absorb_col::<P>(child, sib, 0u32, false, false);
+                bv_absorb_col::<P>(snap, child, sib, 0u32, false, false);
                 if child_level > 0u32 {
-                    bv_absorb_col::<P>(child, sib, BV_CHILD, false, true);
+                    bv_absorb_col::<P>(snap, child, sib, BV_CHILD, false, true);
                 }
                 let rcnt: u64 = bv_cnt(a).get(0u32, ci + 1u64);
                 tree_release(sib, child_level);
@@ -897,11 +897,11 @@ fn bv_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, child: *mut u8,
             }
         }
         if ci >= 1u64 {
-            let sib: *mut u8 = bv_child(a).get(0u32, ci - 1u64) as *mut u8;
+            let sib: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci - 1u64)).ptr();
             if bv_mergeable::<P>(child, sib, slots) {
-                bv_absorb_col::<P>(child, sib, 0u32, true, false);
+                bv_absorb_col::<P>(snap, child, sib, 0u32, true, false);
                 if child_level > 0u32 {
-                    bv_absorb_col::<P>(child, sib, BV_CHILD, true, true);
+                    bv_absorb_col::<P>(snap, child, sib, BV_CHILD, true, true);
                 }
                 let lcnt: u64 = bv_cnt(a).get(0u32, ci - 1u64);
                 tree_release(sib, child_level);
@@ -917,7 +917,7 @@ fn bv_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, child: *mut u8,
 
 // remove one cell at LOCAL position `pos`; returns the node's new count, or
 // u64::MAX when the node vanished (freed — the parent drops the row)
-fn bv_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64) -> u64 {
+fn bv_remove_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, pos: u64) -> u64 {
     unsafe {
         if level == 0u32 {
             let a: *mut PkdAlloc = P::pkd(node);
@@ -947,14 +947,14 @@ fn bv_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64) -> u64 {
             rem = rem - cb.get(0u32, ci);
             ci = ci + 1u64;
         }
-        let child: *mut u8 = bv_child(a).get(0u32, ci) as *mut u8;
-        let sub: u64 = bv_remove_rec::<P>(child, level - 1u32, rem);
+        let child: *mut u8 = snap.resolve(bv_child(a).get(0u32, ci)).ptr();
+        let sub: u64 = bv_remove_rec::<P>(snap, child, level - 1u32, rem);
         if sub == 0xFFFFFFFFFFFFFFFFu64 {
             bv_branch_remove_row(a, ci);
         } else {
             let mut c2: PdtBuf = bv_cnt(a);
             c2.set(0u32, ci, sub);
-            bv_try_merge::<P>(a, ci, child, level - 1u32);
+            bv_try_merge::<P>(snap, a, ci, child, level - 1u32);
         }
         let nn: u64 = bv_cnt(a).size();
         if nn == 0u64 {
@@ -972,7 +972,7 @@ fn bv_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, pos: u64) -> u64 {
 pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, pos: u64) {
     let sz: u64 = btvec_size::<P>(t);
     assert(pos < sz, "btvec_remove_at: position beyond the vector");
-    let r: u64 = bv_remove_rec::<P>(t.root, t.level, pos);
+    let r: u64 = bv_remove_rec::<P>(snap, t.root, t.level, pos);
     if r == 0xFFFFFFFFFFFFFFFFu64 {
         t.root = bv_leaf_new::<P>(snap.snapshot_id(), t.leaf_bytes);
         t.level = 0u32;
@@ -983,7 +983,7 @@ pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
         while going {
             let a: *mut PkdAlloc = P::pkd(t.root);
             if bv_cnt(a).size() == 1u64 {
-                let child: *mut u8 = bv_child(a).get(0u32, 0u64) as *mut u8;
+                let child: *mut u8 = snap.resolve(bv_child(a).get(0u32, 0u64)).ptr();
                 P::free(t.root);
                 t.root = child;
                 t.level = t.level - 1u32;
@@ -999,12 +999,12 @@ pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
 
 /// Verifies every branch row's count against a recursive recount of its
 /// subtree — the stream-size invariant the inserts must maintain.
-pub fn btvec_check<P: NodeProfile>(t: &Btvec<P>) -> bool {
-    return bv_check_rec::<P>(t.root, t.level) != 0xFFFFFFFFFFFFFFFFu64;
+pub fn btvec_check<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>) -> bool {
+    return bv_check_rec::<P>(snap, t.root, t.level) != 0xFFFFFFFFFFFFFFFFu64;
 }
 
 // Returns the subtree's entry count, or u64::MAX on a count mismatch.
-fn bv_check_rec<P: NodeProfile>(node: *mut u8, level: u32) -> u64 {
+fn bv_check_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32) -> u64 {
     unsafe {
         if level == 0u32 {
             return bv_vals(P::pkd(node)).size();
@@ -1015,7 +1015,7 @@ fn bv_check_rec<P: NodeProfile>(node: *mut u8, level: u32) -> u64 {
         let mut total: u64 = 0u64;
         let mut i: u64 = 0u64;
         while i < n {
-            let sub: u64 = bv_check_rec::<P>(bv_child(a).get(0u32, i) as *mut u8, level - 1u32);
+            let sub: u64 = bv_check_rec::<P>(snap, snap.resolve(bv_child(a).get(0u32, i)).ptr(), level - 1u32);
             if sub == 0xFFFFFFFFFFFFFFFFu64 {
                 return sub;
             }
