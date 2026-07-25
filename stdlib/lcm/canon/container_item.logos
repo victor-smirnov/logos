@@ -1703,6 +1703,22 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                     return r.ok;
                 }
             }
+            /// Remove `key`. False = absent (nothing mutated). CoW walk;
+            /// the touched node MERGES with a neighbor when the combined
+            /// weight fits (the C++ remove-then-merge discipline under
+            /// exact admission); the root collapses while it is a
+            /// one-child branch.
+            pub fn remove(self: &#nm, key: #(kid)) -> bool {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let r: BtssRemRet = btss_remove::<#nd>(self.ms(), e.root, e.level,
+                                                           key as u64, #(sgn));
+                    if r.found {
+                        self.ms().set_root(self.ctr_id, r.root, r.level);
+                    }
+                    return r.found;
+                }
+            }
         }
     };
     unsafe { logos_emit_item_blob_subst(&bq); }
@@ -2215,6 +2231,20 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 let t: Btfl<2, #nd> = self.tree();
                 return btfl_key_stream::<2, #nd>(&t, key, 1u32, out);
             }
+            /// Remove the ENTRY keyed `key` — the key, its whole value run
+            /// and its structure symbols. False = absent (nothing mutated).
+            /// The touched node merges with a neighbor under exact weight
+            /// admission; the root collapses while it is a one-child branch.
+            pub fn remove(self: &#nm, key: u64) -> bool {
+                unsafe {
+                    let mut t: Btfl<2, #nd> = self.tree();
+                    let ok: bool = btfl_remove::<#nd>(self.ms(), &mut t, key);
+                    if ok {
+                        self.ms().set_root(self.ctr_id, t.root, t.level);
+                    }
+                    return ok;
+                }
+            }
             /// Seek by the KEY MEASURE (`keys.seek(max(key))` — the declared
             /// ops row): where `key` lands in key order. The POSITIONAL
             /// `seek(n)` (Memoria's classic entry-number semantics) lives
@@ -2507,6 +2537,16 @@ fn emit_btvec_family(name: str) {
                 unsafe {
                     let mut t: Btvec<#nd> = self.tree();
                     btvec_insert_at::<#nd>(self.ms(), &mut t, pos, v);
+                    self.ms().set_root(self.ctr_id, t.root, t.level);
+                }
+            }
+            /// Remove the entry at `pos` (traps past the end). The touched
+            /// node merges with a neighbor under exact weight admission;
+            /// the root collapses while it is a one-child branch.
+            pub fn remove_at(self: &#nm, pos: u64) {
+                unsafe {
+                    let mut t: Btvec<#nd> = self.tree();
+                    btvec_remove_at::<#nd>(self.ms(), &mut t, pos);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
                 }
             }

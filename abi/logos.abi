@@ -189,6 +189,7 @@ sym	logos.mem.bt.node.CowProfile__type_id__g__ref_T
 sym	logos.mem.bt.ops.BtCur__type_id__g__ref_T
 sym	logos.mem.bt.pack.BtssBatchRet__type_id__g__ref_T
 sym	logos.mem.bt.pack.BtssBuf__type_id__g__ref_T
+sym	logos.mem.bt.pack.BtssRemRet__type_id__g__ref_T
 sym	logos.mem.bt.storecfg.StoreCfg__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$String__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$bool__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -9247,6 +9248,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflStage
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtflValCur
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtssBatchRet
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtssBuf
+sym	logos_lang.logos.lang.any$type_id_of__g__void__BtssRemRet
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtvecBuf
 sym	logos_lang.logos.lang.any$type_id_of__g__void__BtvecCur
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ByteSplitter
@@ -12372,6 +12374,7 @@ type	logos.mem.bt.ops.BtCur	fields=[found:bool,leaf:*mut u8,idx:u32]
 type	logos.mem.bt.ops.BtInsRet	fields=[ok:bool,addr:*mut u8,lsep:K,lcnt:[u64; N],split:bool,rsep:K,rcnt:[u64; N],rptr:*mut u8]
 type	logos.mem.bt.pack.BtssBatchRet	fields=[ok:bool,root:*mut u8,level:u32]
 type	logos.mem.bt.pack.BtssBuf	fields=[kmem:*mut u8,vmem:*mut u8,cap_rows:u64,vle:bool]
+type	logos.mem.bt.pack.BtssRemRet	fields=[found:bool,root:*mut u8,level:u32]
 type	logos.mem.bt.storecfg.StoreCfg	fields=[ext:WView2,loc:WView2]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]

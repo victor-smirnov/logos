@@ -2678,3 +2678,450 @@ pub fn btfl_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, 
     t.level = lvl;
     return true;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// REMOVAL (the deletion slice): delete a whole ENTRY — the key, its value
+// run, and its structure symbols — plus the parent-driven neighbor merge
+// under EXACT weight admission (the same discipline as the map's removal in
+// pack.logos; the structure stream's merged size is computed on the
+// CONCATENATED run list, seam merge included). In-place tree (btfl v0).
+
+// the entry-aligned admission: can leaves `l` and `r` merge into one?
+fn bf_leaves_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
+    unsafe {
+        let la: *mut PkdAlloc = P::pkd(l);
+        let ra: *mut PkdAlloc = P::pkd(r);
+        let kn: u64 = lf_pdt(la, 0u32).size() + lf_pdt(ra, 0u32).size();
+        let vn: u64 = lf_pdt(la, 1u32).size() + lf_pdt(ra, 1u32).size();
+        let mut kd: PdtDescr = pdt_descr_new(1u32, PDT_ORD_MAX, false);
+        kd.dims.push(pdt_dim_fse(8u32));
+        let mut vd: PdtDescr = pdt_descr_new(1u32, PDT_ORD_UNORDERED, false);
+        vd.dims.push(pdt_dim_fse(8u32));
+        let zero: Vec<u64> = pdt_payload_zero(&kd);
+        let kw: u32 = pdtbuf_compute_block_size(&kd, kn, &zero);
+        let vw: u32 = pdtbuf_compute_block_size(&vd, vn, &zero);
+        // structure: exact units of the concatenated (seam-merged) run list
+        let seq_l: PkdSsrle = lf_seq_n::<2>(la);
+        let bps: u32 = seq_l.bps();
+        let mut runs: Vec<SsrleRun> = seq_l.as_runs();
+        let rr: Vec<SsrleRun> = lf_seq_n::<2>(ra).as_runs();
+        let mut i: i64 = 0i64;
+        while i < rr.length() {
+            let run: SsrleRun = rr.get(i);
+            // seam merge: extend the tail when the single-symbol patterns match
+            let ln: i64 = runs.length();
+            let mut merged: bool = false;
+            if ln > 0i64 && run.pattern_length == 1u32 {
+                let last: SsrleRun = runs.get(ln - 1i64);
+                if last.pattern_length == 1u32
+                   && last.symbol(bps, 0u64) == run.symbol(bps, 0u64)
+                   && ssrle_is_fit(bps, 1u64, last.run_length + run.run_length) {
+                    runs.set(ln - 1i64, ssrle_run_new(bps, 1u32, run.symbol(bps, 0u64),
+                                                      last.run_length + run.run_length));
+                    merged = true;
+                }
+            }
+            if !merged {
+                runs.push(run);
+            }
+            i = i + 1i64;
+        }
+        let units: u64 = ssrle_compute_size(bps, &runs, 0u64);
+        let sw: u32 = pkd_ssrle_block_size(2u32, units);
+        let mut total: u32 = PkdAlloc::empty_size_for(3u32);
+        total = total + round_up_bytes(kw) + round_up_bytes(vw) + round_up_bytes(sw);
+        if total > (*la).block_size() {
+            return false;
+        }
+        // stash nothing: the absorb below recomputes the same list
+        return true;
+    }
+}
+
+// absorb leaf `src` (read-only) into leaf `dst`: bulk column appends + the
+// structure stream rebuilt as the concatenated run list (set_runs replaces
+// the whole nested block — priced by the admission above)
+fn bf_leaf_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) {
+    unsafe {
+        let da: *mut PkdAlloc = P::pkd(dst);
+        let sa: *mut PkdAlloc = P::pkd(src);
+        let mut s: u32 = 0u32;
+        while s < 2u32 {
+            let sb: PdtBuf = lf_pdt(sa, s);
+            let sn: u64 = sb.size();
+            if sn > 0u64 {
+                let db: PdtBuf = lf_pdt(da, s);
+                let pos: u64 = if at_front { 0u64 } else { db.size() };
+                let us: PdtUpdate = match db.prepare_insert(pos, sn, PDT_CAP_KEEP) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "btfl: admitted leaf merge rejected (weight law broken?)");
+                        return;
+                    }
+                };
+                let mut cells: Vec<u64> = vec_new::<u64>();
+                let mut i: u64 = 0u64;
+                while i < sn {
+                    cells.push(sb.get(0u32, i));
+                    i = i + 1u64;
+                }
+                let mut db2: PdtBuf = lf_pdt(da, s);
+                db2.commit_insert(&us, &cells);
+            }
+            s = s + 1u32;
+        }
+        // structure: whole-stream rebuild in concatenation order
+        let dseq: PkdSsrle = lf_seq_n::<2>(da);
+        let bps: u32 = dseq.bps();
+        let a_runs: Vec<SsrleRun> = if at_front { lf_seq_n::<2>(sa).as_runs() } else { dseq.as_runs() };
+        let b_runs: Vec<SsrleRun> = if at_front { lf_seq_n::<2>(da).as_runs() } else { lf_seq_n::<2>(sa).as_runs() };
+        let mut runs: Vec<SsrleRun> = vec_new::<SsrleRun>();
+        let mut i: i64 = 0i64;
+        while i < a_runs.length() {
+            runs.push(a_runs.get(i));
+            i = i + 1i64;
+        }
+        i = 0i64;
+        while i < b_runs.length() {
+            let run: SsrleRun = b_runs.get(i);
+            let ln: i64 = runs.length();
+            let mut merged: bool = false;
+            if ln > 0i64 && run.pattern_length == 1u32 {
+                let last: SsrleRun = runs.get(ln - 1i64);
+                if last.pattern_length == 1u32
+                   && last.symbol(bps, 0u64) == run.symbol(bps, 0u64)
+                   && ssrle_is_fit(bps, 1u64, last.run_length + run.run_length) {
+                    runs.set(ln - 1i64, ssrle_run_new(bps, 1u32, run.symbol(bps, 0u64),
+                                                      last.run_length + run.run_length));
+                    merged = true;
+                }
+            }
+            if !merged {
+                runs.push(run);
+            }
+            i = i + 1i64;
+        }
+        let mut dseq2: PkdSsrle = lf_seq_n::<2>(da);
+        match dseq2.set_runs(&runs) {
+            Result::Ok(_u) => {}
+            Result::Err(_e) => {
+                assert(false, "btfl: admitted structure merge rejected (weight law broken?)");
+            }
+        }
+    }
+}
+
+// branch-merge admission: the nested br_pdt (multi-col, self-described) +
+// the child column at the combined row count
+fn bf_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
+    unsafe {
+        let la: *mut PkdAlloc = P::pkd(l);
+        let n: u64 = br_pdt(la).size() + br_pdt(P::pkd(r)).size();
+        let pd: PdtDescr = br_pdt(la).descr();
+        let mut pay: Vec<u64> = vec_new::<u64>();
+        let mut q: i64 = 0i64;
+        while q < pd.payload_len() {
+            pay.push(0u64);
+            q = q + 1i64;
+        }
+        let pw: u32 = pdtbuf_compute_block_size(&pd, n, &pay);
+        let mut cd: PdtDescr = pdt_descr_new(1u32, PDT_ORD_UNORDERED, false);
+        cd.dims.push(pdt_dim_fse(8u32));
+        let cw: u32 = pdtbuf_compute_block_size(&cd, n, &pdt_payload_zero(&cd));
+        let mut total: u32 = PkdAlloc::empty_size_for(BR_SLOTS);
+        total = total + round_up_bytes(pw) + round_up_bytes(cw);
+        return total <= (*la).block_size();
+    }
+}
+
+fn bf_branch_absorb<P: NodeProfile>(dst: *mut u8, src: *mut u8, at_front: bool) {
+    unsafe {
+        let da: *mut PkdAlloc = P::pkd(dst);
+        let sa: *mut PkdAlloc = P::pkd(src);
+        let sn: u64 = br_pdt(sa).size();
+        if sn == 0u64 {
+            return;
+        }
+        // the measure rows (multi-col, row-major cells)
+        {
+            let db: PdtBuf = br_pdt(da);
+            let pos: u64 = if at_front { 0u64 } else { db.size() };
+            let us: PdtUpdate = match db.prepare_insert(pos, sn, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "btfl: admitted branch merge rejected (weight law broken?)");
+                    return;
+                }
+            };
+            let sb: PdtBuf = br_pdt(sa);
+            let cols: u32 = sb.columns();
+            let mut cells: Vec<u64> = vec_new::<u64>();
+            let mut i: u64 = 0u64;
+            while i < sn {
+                let mut c: u32 = 0u32;
+                while c < cols {
+                    cells.push(sb.get(c, i));
+                    c = c + 1u32;
+                }
+                i = i + 1u64;
+            }
+            let mut db2: PdtBuf = br_pdt(da);
+            db2.commit_insert(&us, &cells);
+        }
+        // the child refs (rc-bumped: copied refs are NEW references)
+        {
+            let db: PdtBuf = br_child(da);
+            let pos: u64 = if at_front { 0u64 } else { db.size() };
+            let us: PdtUpdate = match db.prepare_insert(pos, sn, PDT_CAP_KEEP) {
+                Result::Ok(u) => u,
+                Result::Err(_e) => {
+                    assert(false, "btfl: admitted child merge rejected (weight law broken?)");
+                    return;
+                }
+            };
+            let sb: PdtBuf = br_child(sa);
+            let mut cells: Vec<u64> = vec_new::<u64>();
+            let mut i: u64 = 0u64;
+            while i < sn {
+                let v: u64 = sb.get(0u32, i);
+                P::inc_rc(v as *mut u8);
+                cells.push(v);
+                i = i + 1u64;
+            }
+            let mut db2: PdtBuf = br_child(da);
+            db2.commit_insert(&us, &cells);
+        }
+    }
+}
+
+unsafe fn bf_branch_remove_row<P: NodeProfile>(a: *mut PkdAlloc, i: u64) {
+    {
+        let b: PdtBuf = br_pdt(a);
+        let us: PdtUpdate = match b.prepare_remove(i, i + 1u64, PDT_CAP_EXACT) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                assert(false, "btfl: branch row remove failed to prepare");
+                return;
+            }
+        };
+        let mut b2: PdtBuf = br_pdt(a);
+        b2.commit_remove(&us);
+        let mut b3: PdtBuf = br_pdt(a);
+        b3.reindex();
+    }
+    {
+        let b: PdtBuf = br_child(a);
+        let us: PdtUpdate = match b.prepare_remove(i, i + 1u64, PDT_CAP_EXACT) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => {
+                assert(false, "btfl: branch child remove failed to prepare");
+                return;
+            }
+        };
+        let mut b2: PdtBuf = br_child(a);
+        b2.commit_remove(&us);
+    }
+}
+
+fn bf_try_merge<P: NodeProfile>(a: *mut PkdAlloc, ci: u64, child: *mut u8,
+                                child_level: u32) {
+    unsafe {
+        let n: u64 = br_pdt(a).size();
+        if ci + 1u64 < n {
+            let sib: *mut u8 = br_child(a).get(0u32, ci + 1u64) as *mut u8;
+            let can: bool = if child_level == 0u32 {
+                bf_leaves_mergeable::<P>(child, sib)
+            } else {
+                bf_branches_mergeable::<P>(child, sib)
+            };
+            if can {
+                if child_level == 0u32 {
+                    bf_leaf_absorb::<P>(child, sib, false);
+                } else {
+                    bf_branch_absorb::<P>(child, sib, false);
+                }
+                let b: PdtBuf = br_pdt(a);
+                let rsep: u64 = b.get(BRC_MAX, ci + 1u64);
+                let rc0: u64 = b.get(BRC_CNT0, ci + 1u64);
+                let rc1: u64 = b.get(BRC_CNT0 + 1u32, ci + 1u64);
+                let oc0: u64 = b.get(BRC_CNT0, ci);
+                let oc1: u64 = b.get(BRC_CNT0 + 1u32, ci);
+                tree_release(sib, child_level);
+                bf_branch_remove_row::<P>(a, ci + 1u64);
+                let mut ub: PdtBuf = br_pdt(a);
+                let mut row: Vec<u64> = vec_new::<u64>();
+                row.push(rsep);
+                row.push(oc0 + rc0);
+                row.push(oc1 + rc1);
+                ub.set_row(ci, &row);
+                ub.reindex();
+                return;
+            }
+        }
+        if ci >= 1u64 {
+            let sib: *mut u8 = br_child(a).get(0u32, ci - 1u64) as *mut u8;
+            let can: bool = if child_level == 0u32 {
+                bf_leaves_mergeable::<P>(child, sib)
+            } else {
+                bf_branches_mergeable::<P>(child, sib)
+            };
+            if can {
+                if child_level == 0u32 {
+                    bf_leaf_absorb::<P>(child, sib, true);
+                } else {
+                    bf_branch_absorb::<P>(child, sib, true);
+                }
+                let b: PdtBuf = br_pdt(a);
+                let lc0: u64 = b.get(BRC_CNT0, ci - 1u64);
+                let lc1: u64 = b.get(BRC_CNT0 + 1u32, ci - 1u64);
+                let osep: u64 = b.get(BRC_MAX, ci);
+                let oc0: u64 = b.get(BRC_CNT0, ci);
+                let oc1: u64 = b.get(BRC_CNT0 + 1u32, ci);
+                tree_release(sib, child_level);
+                bf_branch_remove_row::<P>(a, ci - 1u64);
+                let at: u64 = ci - 1u64;
+                let mut ub: PdtBuf = br_pdt(a);
+                let mut row: Vec<u64> = vec_new::<u64>();
+                row.push(osep);
+                row.push(oc0 + lc0);
+                row.push(oc1 + lc1);
+                ub.set_row(at, &row);
+                ub.reindex();
+            }
+        }
+    }
+}
+
+// remove the entry keyed `key` under `(node, level)`; the report is the
+// (sep, cnt0, cnt1) row — or `vanished` when the node emptied and was freed
+struct BfRemRet {
+    vanished: bool,
+    sep: u64,
+    cnt0: u64,
+    cnt1: u64,
+}
+
+fn bf_remove_rec<P: NodeProfile>(node: *mut u8, level: u32, key: u64) -> BfRemRet {
+    unsafe {
+        if level == 0u32 {
+            let a: *mut PkdAlloc = P::pkd(node);
+            let kb: PdtBuf = lf_pdt(a, 0u32);
+            let kc: u64 = kb.size();
+            let kidx: u64 = pdt_lower_bound_max(&kb, key) as u64;
+            // the pre-checked key IS here (btfl_remove verified read-only)
+            let seq: PkdSsrle = lf_seq_n::<2>(a);
+            let p: u64 = seq.select_fw_eq(kidx, 0u64).idx;
+            let mut end: u64 = seq.size();
+            if kidx + 1u64 < kc {
+                end = seq.select_fw_eq(kidx + 1u64, 0u64).idx;
+            }
+            let v0: u64 = seq.rank_eq(p + 1u64, 1u64);
+            let vcnt: u64 = seq.rank_eq(end, 1u64) - v0;
+            // data streams first, the structure last (position stability)
+            {
+                let b: PdtBuf = lf_pdt(a, 0u32);
+                let us: PdtUpdate = match b.prepare_remove(kidx, kidx + 1u64, PDT_CAP_EXACT) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "btfl: key remove failed to prepare");
+                        return BfRemRet { vanished: false, sep: 0u64, cnt0: 0u64, cnt1: 0u64 };
+                    }
+                };
+                let mut b2: PdtBuf = lf_pdt(a, 0u32);
+                b2.commit_remove(&us);
+            }
+            if vcnt > 0u64 {
+                let b: PdtBuf = lf_pdt(a, 1u32);
+                let us: PdtUpdate = match b.prepare_remove(v0, v0 + vcnt, PDT_CAP_EXACT) {
+                    Result::Ok(u) => u,
+                    Result::Err(_e) => {
+                        assert(false, "btfl: value-run remove failed to prepare");
+                        return BfRemRet { vanished: false, sep: 0u64, cnt0: 0u64, cnt1: 0u64 };
+                    }
+                };
+                let mut b2: PdtBuf = lf_pdt(a, 1u32);
+                b2.commit_remove(&us);
+            }
+            {
+                let sq: PkdSsrle = lf_seq_n::<2>(a);
+                let us: SsrleUpdate = sq.plan_remove(p, end);
+                let mut sq2: PkdSsrle = lf_seq_n::<2>(a);
+                sq2.commit(&us);
+            }
+            let nkc: u64 = lf_pdt(a, 0u32).size();
+            if nkc == 0u64 {
+                P::free(node);
+                return BfRemRet { vanished: true, sep: 0u64, cnt0: 0u64, cnt1: 0u64 };
+            }
+            return BfRemRet {
+                vanished: false,
+                sep: lf_pdt(a, 0u32).get(0u32, nkc - 1u64),
+                cnt0: nkc,
+                cnt1: lf_pdt(a, 1u32).size(),
+            };
+        }
+        let a: *mut PkdAlloc = P::pkd(node);
+        let ci: u32 = btfl_find_child(a, key);
+        let child: *mut u8 = br_child(a).get(0u32, ci as u64) as *mut u8;
+        let sub: BfRemRet = bf_remove_rec::<P>(child, level - 1u32, key);
+        if sub.vanished {
+            bf_branch_remove_row::<P>(a, ci as u64);
+        } else {
+            let mut ub: PdtBuf = br_pdt(a);
+            let mut row: Vec<u64> = vec_new::<u64>();
+            row.push(sub.sep);
+            row.push(sub.cnt0);
+            row.push(sub.cnt1);
+            ub.set_row(ci as u64, &row);
+            ub.reindex();
+            bf_try_merge::<P>(a, ci as u64, child, level - 1u32);
+        }
+        let nn: u64 = br_pdt(a).size();
+        if nn == 0u64 {
+            P::free(node);
+            return BfRemRet { vanished: true, sep: 0u64, cnt0: 0u64, cnt1: 0u64 };
+        }
+        let b: PdtBuf = br_pdt(a);
+        return BfRemRet {
+            vanished: false,
+            sep: b.get(BRC_MAX, nn - 1u64),
+            cnt0: b.sum_all(BRC_CNT0),
+            cnt1: b.sum_all(BRC_CNT0 + 1u32),
+        };
+    }
+}
+
+/// Remove the entry keyed `key` — the key, its whole value run, and its
+/// structure symbols. False = absent (nothing mutated). The touched node
+/// merges with a neighbor under exact weight admission (structure units
+/// computed on the concatenated seam-merged run list); the root collapses
+/// while it is a one-child branch; an emptied container becomes a fresh
+/// empty leaf.
+pub fn btfl_remove<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, P>, key: u64) -> bool {
+    let sk: BtflSeek = btfl_seek::<2, P>(t, key);
+    if !sk.found {
+        return false;
+    }
+    let r: BfRemRet = bf_remove_rec::<P>(t.root, t.level, key);
+    if r.vanished {
+        t.root = btfl_leaf_new::<2, P>(snap, t.leaf_bytes);
+        t.level = 0u32;
+        return true;
+    }
+    unsafe {
+        let mut going: bool = t.level > 0u32;
+        while going {
+            let a: *mut PkdAlloc = P::pkd(t.root);
+            if br_pdt(a).size() == 1u64 {
+                let child: *mut u8 = br_child(a).get(0u32, 0u64) as *mut u8;
+                P::free(t.root);
+                t.root = child;
+                t.level = t.level - 1u32;
+                going = t.level > 0u32;
+            } else {
+                going = false;
+            }
+        }
+    }
+    return true;
+}

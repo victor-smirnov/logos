@@ -21,7 +21,9 @@ package test;
 //                            C++ shuttles optimize for);
 //                            §5 make_buffer/insert_batch — the two-stage
 //                            batch with ENTRY-aligned cuts (a key's value
-//                            run never leaves its leaf)
+//                            run never leaves its leaf);
+//                            §8 remove — a whole ENTRY leaves (key, run,
+//                            structure symbols) + weight-admitted merge
 //   metaclass factory        §1 create_ctr_rc — decl → multistream CFG doc
 //                            → mono demand → generated btfl family
 //   BTFL prototype           logos.mem.bt.btfl: seek/select/rank/access
@@ -239,8 +241,21 @@ fn run_all() -> i32 {
     if !m2.find(900_000u64, &mut g2) { return 31i32; }
     if g2.len() != 2i64 || g2.get(1i64) != 8u64 { return 32i32; }
 
+    // ── §8 REMOVAL: an ENTRY leaves whole — the key, its value run, AND its
+    // structure symbols (the nesting mark). Same neighbor-merge discipline
+    // as the map, with the structure stream's merged size computed on the
+    // concatenated (seam-merged) run list. False = absent, nothing mutated.
+    if !m2.remove(6u64) { return 33i32; }             // key 6 and its 3 values
+    if m2.remove(6u64) { return 34i32; }              // gone whole
+    let mut g3: Vec<u64> = vec_new::<u64>();
+    if m2.find(6u64, &mut g3) { return 35i32; }
+    if m2.count(0u64) != n + 60u64 { return 36i32; }  // one key fewer
+    // the hierarchical seek re-numbers: entry 3 is now key 8
+    let kc2 = m2.seek(3u64);
+    if !kc2.valid() || kc2.key() != 8u64 { return 37i32; }
+
     // the structural self-check (branch counts vs subtree reality) last
-    if !m.check() { return 33i32; }
+    if !m2.check() { return 38i32; }
     return 0i32;
 }
 

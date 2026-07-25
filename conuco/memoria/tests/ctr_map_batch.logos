@@ -399,6 +399,92 @@ fn run_all() -> i32 {
         snapv.commit();
     }
 
+    // ── 60..79: REMOVAL — random remove vs the model + the CoW isolation law
+    {
+        let mut store4: Arc<MemoryStore> = store_new();
+        let snapr: Arc<dyn Snapshot> = store_fork_arc(&mut store4);
+        let mr = create_ctr::<FastMap>(&snapr, 1u64);
+        let mut md: Model = model_new();
+        let mut lcg: Lcg = Lcg { s: 0xDEAD5EEDu64 };
+        // load 2500 keys (spread), then remove a random half, model-checked
+        {
+            let mut ks: Vec<u64> = vec_new::<u64>();
+            let mut vs: Vec<u64> = vec_new::<u64>();
+            let mut i: u64 = 0u64;
+            while i < 2500u64 {
+                ks.push(i * 7u64);
+                vs.push(i * 7u64 + 1u64);
+                i = i + 1u64;
+            }
+            let mut buf = mr.make_buffer();
+            i = 0u64;
+            while i < 2500u64 {
+                buf.push(ks.get(i as i64), vs.get(i as i64));
+                i = i + 1u64;
+            }
+            if !mr.insert_batch(&buf) {
+                return 60i32;
+            }
+            model_splice(&mut md, &ks, &vs);
+        }
+        let mut r: i64 = 0i64;
+        while r < 1200i64 {
+            let at: i64 = (lcg.next() % (md.mk.len() as u64)) as i64;
+            let k: u64 = md.mk.get(at);
+            if !mr.remove(k) {
+                return 61i32;
+            }
+            // model shift-left at `at`
+            let mut i: i64 = at;
+            while i + 1i64 < md.mk.len() {
+                md.mk.set(i, md.mk.get(i + 1i64));
+                md.mv.set(i, md.mv.get(i + 1i64));
+                i = i + 1i64;
+            }
+            md.mk.pop();
+            md.mv.pop();
+            if mr.remove(k) {
+                return 62i32;   // second removal of the same key must miss
+            }
+            if mr.size() != md.mk.len() as u64 {
+                return 63i32;
+            }
+            // spot equivalence through the entry-number seek (post-merge)
+            if r % 200i64 == 199i64 {
+                let mut q: i64 = 0i64;
+                while q < md.mk.len() {
+                    let c = mr.seek(q as u64);
+                    if !c.valid() || c.key() != md.mk.get(q) || c.value() != md.mv.get(q) {
+                        return 64i32;
+                    }
+                    q = q + 89i64;
+                }
+            }
+            r = r + 1i64;
+        }
+        // the CoW isolation law for REMOVAL: a key removed in the next
+        // snapshot stays visible in the committed one
+        snapr.commit();
+        let snap2: Arc<dyn Snapshot> = store_fork_arc(&mut store4);
+        {
+            let m2 = open_ctr::<FastMap>(&snap2, 1u64);
+            let victim: u64 = md.mk.get(0i64);
+            if !m2.remove(victim) {
+                return 65i32;
+            }
+            if m2.get_or(victim, 0xDEADu64) != 0xDEADu64 {
+                return 66i32;
+            }
+            let m1 = open_ctr::<FastMap>(&snapr, 1u64);
+            if m1.get_or(victim, 0xDEADu64) == 0xDEADu64 {
+                return 67i32;   // the committed snapshot must still see it
+            }
+            if m1.size() != md.mk.len() as u64 {
+                return 68i32;
+            }
+        }
+    }
+
     // Fast flavor: Order structs (u32 key field — the adapter's cast) into a
     // fresh fast map.
     {

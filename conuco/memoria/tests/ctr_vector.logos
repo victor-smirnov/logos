@@ -286,6 +286,67 @@ fn run_all() -> i32 {
         }
     }
 
+    // ── 70..79: REMOVAL — random insert/remove interleave vs the model ──────
+    // The deletion slice: remove_at + the parent-driven neighbor merge under
+    // exact weight admission. The count-invariant check() runs after every
+    // removal; the drain exercises root collapse down to the empty leaf.
+    {
+        let mut vr = create_ctr::<V64>(&snap, 6u64);
+        vr.reformat(512u32, 320u32);
+        let mut model: Vec<u64> = vec_new::<u64>();
+        let mut lcg: Lcg = Lcg { s: 0xDE1E7Eu64 };
+        let mut r: i64 = 0i64;
+        while r < 1200i64 {
+            let grow: bool = model.len() == 0i64 || lcg.next() % 3u64 != 0u64;
+            if grow {
+                let v: u64 = lcg.next();
+                let pos: u64 = lcg.next() % ((model.len() as u64) + 1u64);
+                vr.insert_at(pos, v);
+                model_insert_at(&mut model, pos as i64, v);
+            } else {
+                let pos: u64 = lcg.next() % (model.len() as u64);
+                vr.remove_at(pos);
+                // model shift-left
+                let mut i: i64 = pos as i64;
+                while i + 1i64 < model.len() {
+                    model.set(i, model.get(i + 1i64));
+                    i = i + 1i64;
+                }
+                model.pop();
+            }
+            if vr.size() != model.len() as u64 {
+                return 70i32;
+            }
+            if !vr.check() {
+                return 71i32;   // a branch count row disagrees post-merge
+            }
+            if r % 150i64 == 149i64 {
+                let mut i: i64 = 0i64;
+                while i < model.len() {
+                    if vr.get(i as u64) != model.get(i) {
+                        return 72i32;
+                    }
+                    i = i + 1i64;
+                }
+            }
+            r = r + 1i64;
+        }
+        // drain to EMPTY: root collapse all the way, then reuse
+        while vr.size() > 0u64 {
+            vr.remove_at(0u64);
+        }
+        if !vr.check() {
+            return 73i32;
+        }
+        if vr.level() != 0u32 {
+            return 74i32;   // the empty vector is a single leaf again
+        }
+        vr.append(11u64);
+        if vr.get(0u64) != 11u64 || vr.size() != 1u64 {
+            return 75i32;
+        }
+    }
+
     // ── 80..89: pipeline smoke ──────────────────────────────────────────────
     {
         let vb = create_ctr::<V64>(&snap, 3u64);

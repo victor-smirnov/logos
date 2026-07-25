@@ -13,7 +13,8 @@ package test;
 //                            §6 with_entry — the WITH_ENTRY quad;
 //                            §7 seek(n) — the entry-number cursor;
 //                            §8 make_buffer/insert_batch — the two-stage
-//                            batch (staging → weight-calculus packing)
+//                            batch (staging → weight-calculus packing);
+//                            §9 remove — delete + weight-admitted merge
 //   metaclass factory        §1 create_ctr_rc — decl → CFG doc → mono demand
 //                            → generated family (package logos.gen)
 //   BT protocol              ops.logos: bt_cow_insert / bt_cow_with_entry
@@ -210,6 +211,25 @@ fn run_all() -> i32 {
     bad.push(3u64, 3u64);
     if m.insert_batch(&bad) { return 25i32; }
     if m.size() != n + 101u64 { return 26i32; }
+
+    // ── §9 REMOVAL: delete + the neighbor MERGE (the C++ remove-then-merge
+    // discipline, decided by the weight calculus — `w(left)+w(right) ≤
+    // budget` is exact, so a merge fits by proof or is not attempted). The
+    // walk is the same CoW privatize/repoint as insert; the root collapses
+    // while it is a one-child branch. An absent key returns false with
+    // NOTHING mutated.
+    if !m.remove(600_042u64) { return 27i32; }        // a batch row from §8
+    if m.remove(600_042u64) { return 28i32; }         // second time: absent
+    if m.get_or(600_042u64, 0xDEADu64) != 0xDEADu64 { return 29i32; }
+    if m.size() != n + 100u64 { return 30i32; }
+    // remove a spread of §2 keys — merges fire as leaves drain
+    i = 0u64;
+    while i < n {
+        if !m.remove(i) { return 31i32; }
+        i = i + 5u64;
+    }
+    if m.size() != n + 100u64 - 800u64 { return 32i32; }
+    if m.get_or(6u64, 0u64) != 18u64 { return 33i32; }   // neighbors intact
 
     return 0i32;
 }

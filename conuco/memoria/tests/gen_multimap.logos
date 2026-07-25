@@ -79,6 +79,40 @@ fn model_new() -> Model {
     };
 }
 
+// remove the entry keyed `k` — the key, its values, its offset span
+fn model_remove(md: &mut Model, k: u64) {
+    let at: i64 = model_find(md, k);
+    assert(at >= 0i64, "model_remove: absent key");
+    let v0: u64 = md.moff.get(at);
+    let v1: u64 = md.moff.get(at + 1i64);
+    let m: u64 = v1 - v0;
+    // shift keys left
+    let mut i: i64 = at;
+    while i + 1i64 < md.mk.len() {
+        md.mk.set(i, md.mk.get(i + 1i64));
+        i = i + 1i64;
+    }
+    md.mk.pop();
+    // shift values left by m starting at v0
+    i = v0 as i64;
+    while (i as u64) + m < md.mv.len() as u64 {
+        md.mv.set(i, md.mv.get(i + m as i64));
+        i = i + 1i64;
+    }
+    let mut drop: u64 = 0u64;
+    while drop < m {
+        md.mv.pop();
+        drop = drop + 1u64;
+    }
+    // offsets: remove entry `at+1`, shift the tail down by m
+    i = at + 1i64;
+    while i + 1i64 < md.moff.len() {
+        md.moff.set(i, md.moff.get(i + 1i64) - m);
+        i = i + 1i64;
+    }
+    md.moff.pop();
+}
+
 fn model_find(md: &Model, k: u64) -> i64 {
     let n: i64 = md.mk.len();
     let mut i: i64 = 0i64;
@@ -584,6 +618,8 @@ fn run_all() -> i32 {
                     s.push(i * 10u64 + j);
                     j = j + 1u64;
                 }
+                // the model tracks the adapter batch too — (f) removes against it
+                model_insert(&mut md, 900000u64 + i * 2u64, &s);
                 items.push(Reading { sensor: 900000u64 + i * 2u64, samples: s });
                 i = i + 1u64;
             }
@@ -609,6 +645,34 @@ fn run_all() -> i32 {
             }
             if !hc.check() {
                 return 85i32;
+            }
+        }
+        // (f) REMOVAL: random entries removed against the model, the FULL
+        // law set (check_full — incl. the structure stream) after each burst
+        {
+            let mut lcg2: Lcg = Lcg { s: 0xE0FFu64 };
+            let mut r: i64 = 0i64;
+            while r < 200i64 {
+                let at: i64 = (lcg2.next() % (md.mk.len() as u64)) as i64;
+                let k: u64 = md.mk.get(at);
+                if !hc.remove(k) {
+                    return 86i32;
+                }
+                model_remove(&mut md, k);
+                if hc.remove(k) {
+                    return 87i32;   // the entry is gone whole
+                }
+                if r % 25i64 == 24i64 {
+                    let t: Btfl<2, CowProfile> = hc.tree();
+                    let c: i32 = check_full(&t, &md);
+                    if c != 0i32 {
+                        return 88i32;
+                    }
+                }
+                r = r + 1i64;
+            }
+            if hc.count(0u64) != md.mk.len() as u64 {
+                return 89i32;
             }
         }
     }
