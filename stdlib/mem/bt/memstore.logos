@@ -32,6 +32,8 @@ use logos.lang.atomic;           // AtomicI32 — the wrapper counter (cross-thr
 use logos.mem.boxed;             // Box — stable SnapDesc storage
 use logos.lang.option;
 use logos.mem.collections.vec;   // Vec — the directory backing (few containers → linear scan)
+use logos.mem.string;            // String — named-branch refs + snapshot branch tag
+use logos.lang.str;              // str — branch-name views
 
 // ── generic tree lifecycle (container-agnostic, over the uniform node shape) ──
 
@@ -128,13 +130,31 @@ pub const SNAP_ACTIVE:    u32 = 0u32;
 pub const SNAP_COMMITTED: u32 = 1u32;
 pub const SNAP_DROPPED:   u32 = 2u32;
 
-/// The store-owned snapshot descriptor: the history entry itself.
+/// The store-owned snapshot descriptor: the history entry itself. A NODE in
+/// the snapshot DAG — `parent` links it to the version it forked from (0 = a
+/// root, forked from the empty store), `branch` names the ref that `commit`
+/// advances to this id (the git model: fork inherits its source's branch,
+/// `set_as_branch` rebinds it). Committed descriptors are retained in the
+/// store's history table forever (until `remove` + reclaim), so each holds its
+/// OWN structural-sharing shares — a branch ref is then a pure id pointer, no
+/// tree shares of its own.
 pub struct SnapDesc {
     pub id: u64,
+    parent: u64,             // the snapshot this one forked from (0 = root)
+    branch: String,          // the branch commit() advances (default "master")
     dir: Directory,          // this version's container roots (rc-holds)
     status: u32,
     wrappers: AtomicI32,     // open MemorySnapshot wrappers for this entry
 }
+
+/// A named branch: a mutable ref pointing at its head (tip) snapshot id, git's
+/// `refs/heads/<name>`. `tip == 0` means the branch exists but is empty (no
+/// commit yet — the state of "master" in a fresh store). Branch refs hold NO
+/// tree shares: the committed descriptor at `tip` owns its trees.
+pub struct BranchRef { name: String, tip: u64 }
+
+/// The default branch name (git's `master`): every store is born with it.
+pub const MASTER_BRANCH: str = "master";
 
 /// A MemoryStore snapshot WRAPPER. `desc` points at the store-owned history
 /// entry (Box-stable); the wrapper carries no state of its own. Dropping the
@@ -274,16 +294,42 @@ impl Snapshot for MemorySnapshot {
         return unsafe { (*self.desc).id };
     }
 
-    /// Publishes THIS snapshot as the store's new HEAD and marks its history
-    /// entry COMMITTED. The wrapper reaches the store through its parent hold —
-    /// the surface stays `&self` (the wrapper is never mutated; the store is the
-    /// honest mutation point, reached via a local Arc hold). The wrapper stays
-    /// open afterwards: store_find / open_ctr now resolve this snapshot's trees.
+    /// Publishes THIS snapshot and marks its history entry COMMITTED: the
+    /// branch it is bound to (`master` unless `set_as_branch` rebound it)
+    /// advances its tip to this id. The wrapper reaches the store through its
+    /// parent hold — the surface stays `&self` (the wrapper is never mutated;
+    /// the store is the honest mutation point, reached via a local Arc hold).
+    /// The wrapper stays open afterwards: store_find / open_ctr now resolve
+    /// this snapshot's trees.
     pub fn commit(self: &MemorySnapshot) {
-        // LOCK POINT (v1): HEAD swap vs concurrent fork/find.
+        // LOCK POINT (v1): branch-tip advance vs concurrent fork/find.
         let mut hold: Arc<MemoryStore> = self.store.clone_ref();
         let g: &mut MemoryStore = &mut *hold;
         g.commit(self);
+    }
+
+    pub fn snapshot_parent(self: &MemorySnapshot) -> u64 {
+        return unsafe { (*self.d()).parent };
+    }
+
+    /// Rebinds this snapshot's branch (Memoria set_as_branch): stores the name
+    /// on the descriptor AND materializes the branch ref now (pointing at this
+    /// snapshot's current tip if already committed, else left for commit to
+    /// advance). Reaches the store through the parent hold.
+    pub fn set_as_branch(self: &MemorySnapshot, name: str) {
+        unsafe {
+            (*self.d()).branch.clear();
+            (*self.d()).branch.push_str(name);
+            let committed: bool = (*self.d()).status == SNAP_COMMITTED;
+            let id: u64 = (*self.d()).id;
+            let mut hold: Arc<MemoryStore> = self.store.clone_ref();
+            let g: &mut MemoryStore = &mut *hold;
+            // Ensure the branch exists; if this snapshot is already committed,
+            // point the branch at it right away (a committed snapshot rebranded
+            // becomes that branch's head).
+            g.ensure_branch(name);
+            if committed { g.set_branch_tip(name, id); }
+        }
     }
 
     /// MARKS this history entry for deletion (Memoria snapshot drop()): the
@@ -301,36 +347,103 @@ impl Snapshot for MemorySnapshot {
     }
 }
 
-// ── MemoryStore: snapshot lifecycle over the committed HEAD directory ────────
+// ── MemoryStore: the snapshot DAG + named branches ──────────────────────────
 
-/// Owns the monotonic snapshot-id sequence and the committed HEAD version's
-/// directory. `fork` opens a mutable child sharing HEAD's trees; `commit`
-/// atomically swaps HEAD to a snapshot's directory — every container the
-/// snapshot touched moves together (the Memoria multi-container guarantee).
+/// Owns the monotonic snapshot-id sequence, the history table (the DAG's
+/// nodes), and the named-branch refs (the DAG's mutable heads). `fork` opens a
+/// mutable child of a branch tip (or any snapshot) sharing its trees; `commit`
+/// advances the snapshot's branch to it — every container the snapshot touched
+/// moves together (the Memoria multi-container guarantee). Committed snapshots
+/// are RETAINED (findable by id), each holding its own structural shares, so
+/// there is no single mutable HEAD: a branch ref is a pure id pointer.
 pub struct MemoryStore {
     next_id: u64,
-    head: Directory,
-    snaps: Vec<u64>,     // live SnapDesc* (Box-stable), the history table
+    snaps: Vec<u64>,           // live SnapDesc* (Box-stable), the history table
+    branches: Vec<BranchRef>,  // named refs; `master` always present
 }
 
 impl MemoryStore {
     // (internal) the bare store value — the public constructor is store_new(),
-    // which wraps it in the Arc every parent hold clones.
+    // which wraps it in the Arc every parent hold clones. Born with an empty
+    // `master` branch (tip 0 = no commit yet).
     static fn new_guts() -> MemoryStore {
-        return MemoryStore { next_id: 1u64, head: Directory::new(), snaps: vec_new::<u64>() };
+        let mut brs: Vec<BranchRef> = vec_new::<BranchRef>();
+        brs.push(BranchRef { name: String::from(MASTER_BRANCH), tip: 0u64 });
+        return MemoryStore { next_id: 1u64, snaps: vec_new::<u64>(), branches: brs };
     }
 
-    // (internal) allocate a fresh ACTIVE descriptor over a private copy of
-    // HEAD's directory; returns it with its first wrapper slot accounted.
-    fn fork_desc(self: &mut MemoryStore) -> *mut SnapDesc {
+    // ── branch table (linear scan; branches are few) ──────────────────────
+
+    fn branch_index(self: &MemoryStore, name: str) -> i64 {
+        let n: i64 = self.branches.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if self.branches.borrow(i).name.eq_str(name) { return i; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
+
+    /// Branch tip id, or 0 if the branch is absent/empty.
+    fn branch_tip(self: &MemoryStore, name: str) -> u64 {
+        let i: i64 = self.branch_index(name);
+        if i < 0i64 { return 0u64; }
+        return self.branches.borrow(i).tip;
+    }
+
+    /// Create the branch if absent (tip 0).
+    fn ensure_branch(self: &mut MemoryStore, name: str) {
+        if self.branch_index(name) < 0i64 {
+            self.branches.push(BranchRef { name: String::from(name), tip: 0u64 });
+        }
+    }
+
+    /// Point a branch at `id` (creating it if absent).
+    fn set_branch_tip(self: &mut MemoryStore, name: str, id: u64) {
+        let i: i64 = self.branch_index(name);
+        if i < 0i64 {
+            self.branches.push(BranchRef { name: String::from(name), tip: id });
+            return;
+        }
+        unsafe { (*self.branches.at(i)).tip = id; }
+    }
+
+    fn remove_branch(self: &mut MemoryStore, name: str) {
+        let i: i64 = self.branch_index(name);
+        if i >= 0i64 { let _ = self.branches.remove(i); }   // BranchRef move-drops its String
+    }
+
+    // (internal) locate a descriptor by id (any status), or null.
+    fn desc_of(self: &MemoryStore, id: u64) -> *mut SnapDesc {
+        let n: i64 = self.snaps.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let d: *mut SnapDesc = self.snaps.get(i) as *mut SnapDesc;
+            if unsafe { (*d).id } == id { return d; }
+            i = i + 1i64;
+        }
+        return 0 as *mut SnapDesc;
+    }
+
+    // (internal) allocate a fresh ACTIVE descriptor as a child of `parent`
+    // (0 = root), on `branch`, over a private copy of the parent's directory
+    // (or empty for a root). Returns it with its first wrapper slot accounted.
+    fn fork_desc(self: &mut MemoryStore, parent: u64, branch: str) -> *mut SnapDesc {
         let id: u64 = self.next_id;
         self.next_id = self.next_id + 1u64;
-        let dir: Directory = self.head.clone_dir();
+        let dir: Directory = if parent == 0u64 {
+            Directory::new()
+        } else {
+            let pd: *mut SnapDesc = self.desc_of(parent);
+            if pd == (0 as *mut SnapDesc) { Directory::new() }
+            else { unsafe { (*pd).dir.clone_dir() } }
+        };
         let n: i64 = dir.len();
         let mut i: i64 = 0i64;
         while i < n { unsafe { node_inc_rc(dir.at(i).root); } i = i + 1i64; }
         let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
-            id: id, dir: dir, status: SNAP_ACTIVE, wrappers: atomic_i32_new(1),
+            id: id, parent: parent, branch: String::from(branch), dir: dir,
+            status: SNAP_ACTIVE, wrappers: atomic_i32_new(1),
         }));
         // LOCK POINT (v1): history-table insert vs concurrent find().
         self.snaps.push(d as u64);
@@ -373,40 +486,26 @@ impl MemoryStore {
         }
     }
 
-    // (internal) Atomically publishes `snap` as the new HEAD and marks its
-    // entry COMMITTED: drops HEAD's old structural share of every container
-    // tree, then adopts `snap`'s roots (bumping each for HEAD's own hold —
-    // the entry keeps its independent refs until its last wrapper closes).
-    // The public surface is MemorySnapshot::commit() — the wrapper reaches
-    // back through its parent hold.
+    // (internal) Marks `snap` COMMITTED and advances its branch's tip to it.
+    // No tree-share transfer: the committed descriptor already owns its own
+    // structural shares (retained until the entry is reclaimed), so the branch
+    // is a pure id pointer. The public surface is MemorySnapshot::commit().
     fn commit(self: &mut MemoryStore, snap: &MemorySnapshot) {
-        let hn: i64 = self.head.len();
-        let mut i: i64 = 0i64;
-        while i < hn {
-            let e: DirEntry = self.head.at(i);
-            unsafe { tree_release(e.root, e.level); }
-            i = i + 1i64;
+        unsafe {
+            (*snap.desc).status = SNAP_COMMITTED;
+            let id: u64 = (*snap.desc).id;
+            let br: str = (*snap.desc).branch.as_str();
+            self.set_branch_tip(br, id);
         }
-        let nd: Directory = unsafe { (*snap.desc).dir.clone_dir() };
-        let nn: i64 = nd.len();
-        let mut j: i64 = 0i64;
-        while j < nn { unsafe { node_inc_rc(nd.at(j).root); } j = j + 1i64; }
-        self.head = nd;
-        unsafe { (*snap.desc).status = SNAP_COMMITTED; }
     }
 
     /// Store END OF LIFE (the C++ ~store/free_memory analog) — run by Drop
     /// when the LAST Arc closes. The parent holds guarantee every wrapper is
     /// already gone, so the history drain only ever sees unwrapped entries
-    /// (the DROPPED-marking branch is defensive).
+    /// (the DROPPED-marking branch is defensive). Every committed descriptor
+    /// owns its trees, so draining the history table releases them all — there
+    /// is no separate HEAD to unwind.
     fn eol_release(self: &mut MemoryStore) {
-        let n: i64 = self.head.len();
-        let mut i: i64 = 0i64;
-        while i < n {
-            let e: DirEntry = self.head.at(i);
-            unsafe { tree_release(e.root, e.level); }
-            i = i + 1i64;
-        }
         // drain the history table
         let mut k: i64 = 0i64;
         while k < self.snaps.len() {
@@ -452,12 +551,15 @@ pub fn store_new() -> Arc<MemoryStore> {
     return arc_new(MemoryStore::new_guts());
 }
 
-/// Opens a fresh mutable snapshot: a new history entry + its first wrapper,
-/// which HOLDS the store (an Arc clone).
+/// Opens a fresh mutable snapshot as a child of the `master` tip (the default
+/// flow): a new history entry + its first wrapper, which HOLDS the store (an
+/// Arc clone). On a fresh store master is empty (tip 0) → this is a root
+/// snapshot with an empty directory.
 pub fn store_fork(st: &mut Arc<MemoryStore>) -> MemorySnapshot {
     let hold: Arc<MemoryStore> = st.clone_ref();
     let g: &mut MemoryStore = &mut **st;
-    let d: *mut SnapDesc = g.fork_desc();
+    let tip: u64 = g.branch_tip(MASTER_BRANCH);
+    let d: *mut SnapDesc = g.fork_desc(tip, MASTER_BRANCH);
     return MemorySnapshot { desc: d, store: hold };
 }
 
@@ -481,6 +583,313 @@ pub fn store_find(st: &mut Arc<MemoryStore>, id: u64) -> Option<Arc<dyn Snapshot
     let hold: Arc<MemoryStore> = st.clone_ref();
     let snap: MemorySnapshot = MemorySnapshot { desc: d, store: hold };
     return Option::Some(arc_new::<MemorySnapshot>(snap) as Arc<dyn Snapshot>);
+}
+
+// ── named branches: fork / find / master ────────────────────────────────────
+
+// (internal) mint a dyn-erased wrapper over an existing COMMITTED descriptor
+// found by id, or None. Shared by find/master/find_branch.
+fn wrap_committed(st: &mut Arc<MemoryStore>, id: u64) -> Option<Arc<dyn Snapshot>> {
+    return store_find(st, id);
+}
+
+/// Forks a fresh mutable child of a NAMED branch's tip (Memoria
+/// `find_branch(name)->branch()`). The child inherits the branch, so its commit
+/// advances that branch. None if the branch does not exist. If the branch
+/// exists but is empty (tip 0) the child is a root on that branch.
+pub fn store_fork_branch(st: &mut Arc<MemoryStore>, name: str) -> Option<Arc<dyn Snapshot>> {
+    let hold: Arc<MemoryStore> = st.clone_ref();
+    let g: &mut MemoryStore = &mut **st;
+    if g.branch_index(name) < 0i64 { return Option::None; }
+    let tip: u64 = g.branch_tip(name);
+    let d: *mut SnapDesc = g.fork_desc(tip, name);
+    let snap: MemorySnapshot = MemorySnapshot { desc: d, store: hold };
+    return Option::Some(arc_new::<MemorySnapshot>(snap) as Arc<dyn Snapshot>);
+}
+
+/// Forks a fresh mutable child of a SPECIFIC snapshot (Memoria
+/// `snapshot->branch()`): the DAG grows a new node with `parent_id` as its
+/// parent, inheriting that snapshot's branch tag. None if `parent_id` is
+/// unknown or not committed (you branch off committed history).
+pub fn store_fork_from(st: &mut Arc<MemoryStore>, parent_id: u64) -> Option<Arc<dyn Snapshot>> {
+    let hold: Arc<MemoryStore> = st.clone_ref();
+    let g: &mut MemoryStore = &mut **st;
+    let pd: *mut SnapDesc = g.desc_of(parent_id);
+    if pd == (0 as *mut SnapDesc) { return Option::None; }
+    if unsafe { (*pd).status } != SNAP_COMMITTED { return Option::None; }
+    let br: str = unsafe { (*pd).branch.as_str() };
+    let d: *mut SnapDesc = g.fork_desc(parent_id, br);
+    let snap: MemorySnapshot = MemorySnapshot { desc: d, store: hold };
+    return Option::Some(arc_new::<MemorySnapshot>(snap) as Arc<dyn Snapshot>);
+}
+
+/// A read wrapper over a named branch's tip snapshot (Memoria `find_branch`).
+/// None if the branch is absent or empty (tip 0).
+pub fn store_find_branch(st: &mut Arc<MemoryStore>, name: str) -> Option<Arc<dyn Snapshot>> {
+    let tip: u64 = { let g: &mut MemoryStore = &mut **st; g.branch_tip(name) };
+    if tip == 0u64 { return Option::None; }
+    return wrap_committed(st, tip);
+}
+
+/// A read wrapper over the `master` tip (Memoria `master()`). None if master
+/// is empty (no commit yet).
+pub fn store_master(st: &mut Arc<MemoryStore>) -> Option<Arc<dyn Snapshot>> {
+    return store_find_branch(st, MASTER_BRANCH);
+}
+
+/// Points a named branch at a snapshot id (Memoria `set_branch`), creating the
+/// branch if absent. Asserts the id names a committed snapshot.
+pub fn store_set_branch(st: &mut Arc<MemoryStore>, name: str, id: u64) {
+    let g: &mut MemoryStore = &mut **st;
+    let d: *mut SnapDesc = g.desc_of(id);
+    assert(d != (0 as *mut SnapDesc), "store_set_branch: unknown snapshot id");
+    assert(unsafe { (*d).status } == SNAP_COMMITTED,
+           "store_set_branch: a branch may only point at a committed snapshot");
+    g.set_branch_tip(name, id);
+}
+
+/// Points `master` at a snapshot id (Memoria `set_master`).
+pub fn store_set_master(st: &mut Arc<MemoryStore>, id: u64) {
+    store_set_branch(st, MASTER_BRANCH, id);
+}
+
+/// Removes a named branch ref (Memoria `remove_named_branch`). The snapshots it
+/// pointed at stay in history (findable by id) until dropped + packed. Removing
+/// `master` is allowed but unusual.
+pub fn store_remove_branch(st: &mut Arc<MemoryStore>, name: str) {
+    let g: &mut MemoryStore = &mut **st;
+    g.remove_branch(name);
+}
+
+/// Marks a COMMITTED snapshot for deletion BY ID, no wrapper required (the
+/// store-level analog of `MemorySnapshot::remove`). Unlike the wrapper form —
+/// which reclaims eagerly when its last wrapper closes (RAII) — this defers the
+/// physical release to `store_pack`, matching Memoria's drop-marks / pack-frees
+/// split. A dropped snapshot is no longer `store_find`-able. Asserts the id
+/// names a committed snapshot; a snapshot with committed children or a live
+/// branch ref survives pack until those clear.
+pub fn store_drop(st: &mut Arc<MemoryStore>, id: u64) {
+    let g: &mut MemoryStore = &mut **st;
+    let d: *mut SnapDesc = g.desc_of(id);
+    assert(d != (0 as *mut SnapDesc), "store_drop: unknown snapshot id");
+    assert(unsafe { (*d).status } == SNAP_COMMITTED,
+           "store_drop: only a committed snapshot can be dropped");
+    unsafe { (*d).status = SNAP_DROPPED; }
+}
+
+/// All branch names (Memoria `branch_names`).
+pub fn store_branches(st: &Arc<MemoryStore>) -> Vec<String> {
+    let g: &MemoryStore = &**st;
+    let mut out: Vec<String> = vec_new::<String>();
+    let n: i64 = g.branches.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        out.push(String::from(g.branches.borrow(i).name.as_str()));
+        i = i + 1i64;
+    }
+    return out;
+}
+
+/// A branch's tip id, 0 if absent/empty (Memoria `branch_head`).
+pub fn store_branch_head(st: &Arc<MemoryStore>, name: str) -> u64 {
+    let g: &MemoryStore = &**st;
+    return g.branch_tip(name);
+}
+
+/// Every branch's tip id (Memoria `branch_heads`).
+pub fn store_branch_heads(st: &Arc<MemoryStore>) -> Vec<u64> {
+    let g: &MemoryStore = &**st;
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let n: i64 = g.branches.len();
+    let mut i: i64 = 0i64;
+    while i < n { out.push(g.branches.borrow(i).tip); i = i + 1i64; }
+    return out;
+}
+
+// ── lineage: the snapshot DAG ────────────────────────────────────────────────
+
+/// The parent of a snapshot (0 = a root / unknown id) — Memoria
+/// `snapshot_parent`.
+pub fn store_snapshot_parent(st: &Arc<MemoryStore>, id: u64) -> u64 {
+    let g: &MemoryStore = &**st;
+    let d: *mut SnapDesc = g.desc_of(id);
+    if d == (0 as *mut SnapDesc) { return 0u64; }
+    return unsafe { (*d).parent };
+}
+
+/// The direct children of a snapshot (Memoria `children_of`): every descriptor
+/// whose parent is `id`.
+pub fn store_children_of(st: &Arc<MemoryStore>, id: u64) -> Vec<u64> {
+    let g: &MemoryStore = &**st;
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let n: i64 = g.snaps.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let d: *mut SnapDesc = g.snaps.get(i) as *mut SnapDesc;
+        if unsafe { (*d).parent } == id { out.push(unsafe { (*d).id }); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+/// The first root snapshot's id (Memoria `root_shaphot_id`): the earliest
+/// committed descriptor forked from the empty store. 0 if none committed yet.
+pub fn store_root_id(st: &Arc<MemoryStore>) -> u64 {
+    let g: &MemoryStore = &**st;
+    let n: i64 = g.snaps.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let d: *mut SnapDesc = g.snaps.get(i) as *mut SnapDesc;
+        unsafe {
+            if (*d).parent == 0u64 && (*d).status == SNAP_COMMITTED { return (*d).id; }
+        }
+        i = i + 1i64;
+    }
+    return 0u64;
+}
+
+/// The DAG's committed leaves (Memoria `heads`): committed snapshots with no
+/// committed child. Distinct from `store_branch_heads` — a leaf need not carry
+/// a branch ref (a dangling head after a concurrent commit).
+pub fn store_heads(st: &Arc<MemoryStore>) -> Vec<u64> {
+    let g: &MemoryStore = &**st;
+    let mut out: Vec<u64> = vec_new::<u64>();
+    let n: i64 = g.snaps.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let d: *mut SnapDesc = g.snaps.get(i) as *mut SnapDesc;
+        if unsafe { (*d).status } == SNAP_COMMITTED {
+            let id: u64 = unsafe { (*d).id };
+            let mut has_child: bool = false;
+            let mut j: i64 = 0i64;
+            while j < n {
+                let e: *mut SnapDesc = g.snaps.get(j) as *mut SnapDesc;
+                unsafe {
+                    if (*e).parent == id && (*e).status == SNAP_COMMITTED { has_child = true; }
+                }
+                j = j + 1i64;
+            }
+            if !has_child { out.push(id); }
+        }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+/// The linear ancestry from `start_id` to `stop_id` inclusive (Memoria
+/// `linear_history`): walks `stop`'s parent chain until it reaches `start`,
+/// returned oldest→newest. Empty if `start` is not an ancestor of `stop`.
+pub fn store_linear_history(st: &Arc<MemoryStore>, start_id: u64, stop_id: u64) -> Vec<u64> {
+    let g: &MemoryStore = &**st;
+    let mut rev: Vec<u64> = vec_new::<u64>();
+    let mut cur: u64 = stop_id;
+    let mut reached: bool = false;
+    loop {
+        if cur == 0u64 { break; }
+        let d: *mut SnapDesc = g.desc_of(cur);
+        if d == (0 as *mut SnapDesc) { break; }
+        rev.push(cur);
+        if cur == start_id { reached = true; break; }
+        cur = unsafe { (*d).parent };
+    }
+    let mut out: Vec<u64> = vec_new::<u64>();
+    if !reached { return out; }              // start not on stop's ancestry
+    let mut k: i64 = rev.len() - 1i64;
+    while k >= 0i64 { out.push(rev.get(k)); k = k - 1i64; }
+    return out;
+}
+
+/// A snapshot's lifecycle status (Memoria `snapshot_status`): ACTIVE /
+/// COMMITTED / DROPPED, or DROPPED-as-absent for an unknown id.
+pub fn store_snapshot_status(st: &Arc<MemoryStore>, id: u64) -> u32 {
+    let g: &MemoryStore = &**st;
+    let d: *mut SnapDesc = g.desc_of(id);
+    if d == (0 as *mut SnapDesc) { return SNAP_DROPPED; }
+    return unsafe { (*d).status };
+}
+
+/// The count of ACTIVE (uncommitted) snapshots (Memoria `active_snapshots`).
+pub fn store_active_snapshots(st: &Arc<MemoryStore>) -> i64 {
+    let g: &MemoryStore = &**st;
+    let mut c: i64 = 0i64;
+    let n: i64 = g.snaps.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let d: *mut SnapDesc = g.snaps.get(i) as *mut SnapDesc;
+        if unsafe { (*d).status } == SNAP_ACTIVE { c = c + 1i64; }
+        i = i + 1i64;
+    }
+    return c;
+}
+
+/// Reclaims DROPPED leaf snapshots (Memoria `pack`, v0): a descriptor marked
+/// DROPPED, with no committed child, no branch ref pointing at it, and no open
+/// wrapper, has its trees released and is forgotten. Returns the count
+/// reclaimed. History compaction (collapsing single-child committed chains)
+/// stays for a later increment.
+pub fn store_pack(st: &mut Arc<MemoryStore>) -> i64 {
+    let g: &mut MemoryStore = &mut **st;
+    let mut reclaimed: i64 = 0i64;
+    let mut progress: bool = true;
+    // Iterate to a fixpoint: reclaiming a leaf can expose its parent as a leaf.
+    while progress {
+        progress = false;
+        let mut k: i64 = 0i64;
+        while k < g.snaps.len() {
+            let d: *mut SnapDesc = g.snaps.get(k) as *mut SnapDesc;
+            let mut reclaim: bool = false;
+            unsafe {
+                if (*d).status == SNAP_DROPPED
+                    && (&mut (*d).wrappers as *mut AtomicI32).load() == 0i32 {
+                    let id: u64 = (*d).id;
+                    reclaim = !g.has_committed_child(id) && !g.is_branch_tip(id);
+                }
+            }
+            if reclaim {
+                unsafe {
+                    let dn: i64 = (*d).dir.len();
+                    let mut j: i64 = 0i64;
+                    while j < dn {
+                        let e: DirEntry = (*d).dir.at(j);
+                        tree_release(e.root, e.level);
+                        j = j + 1i64;
+                    }
+                    g.snaps.remove(k);
+                    let _ = box_from_raw(d);
+                }
+                reclaimed = reclaimed + 1i64;
+                progress = true;
+            } else {
+                k = k + 1i64;
+            }
+        }
+    }
+    return reclaimed;
+}
+
+impl MemoryStore {
+    fn has_committed_child(self: &MemoryStore, id: u64) -> bool {
+        let n: i64 = self.snaps.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let d: *mut SnapDesc = self.snaps.get(i) as *mut SnapDesc;
+            unsafe {
+                if (*d).parent == id && (*d).status == SNAP_COMMITTED { return true; }
+            }
+            i = i + 1i64;
+        }
+        return false;
+    }
+
+    fn is_branch_tip(self: &MemoryStore, id: u64) -> bool {
+        let n: i64 = self.branches.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            if self.branches.borrow(i).tip == id { return true; }
+            i = i + 1i64;
+        }
+        return false;
+    }
 }
 
 impl Store for MemoryStore {}

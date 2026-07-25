@@ -70,6 +70,21 @@ pub trait Snapshot {
     fn remove(self: &Self);
     /// The entry's lifecycle status (ACTIVE / COMMITTED / DROPPED).
     fn status(self: &Self) -> u32;
+
+    /// The id of the snapshot this one forked from (0 = a root, forked from the
+    /// empty store). The snapshot DAG's parent link — the Memoria
+    /// `snapshot_parent`. Lineage is part of the id plane, so it rides the
+    /// public vtable.
+    fn snapshot_parent(self: &Self) -> u64;
+    /// True iff this snapshot has a parent (is not a root).
+    fn has_parent(self: &Self) -> bool { return self.snapshot_parent() != 0u64; }
+    /// Rebinds this snapshot to a named branch: `commit` will advance THAT
+    /// branch to this id (Memoria `set_as_branch`). The branch is created if it
+    /// does not exist yet.
+    fn set_as_branch(self: &Self, name: str);
+    /// Rebinds this snapshot to the default branch `master` (Memoria
+    /// `set_as_master`).
+    fn set_as_master(self: &Self) { self.set_as_branch("master"); }
 }
 
 /// A container handle bound to a snapshot's storage (Map/Vector/Queue/…).

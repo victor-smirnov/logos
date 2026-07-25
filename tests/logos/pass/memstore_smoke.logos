@@ -45,16 +45,16 @@ fn main() -> i32 {
     if !s0.has_ctr(7u64) || !s0.has_ctr(9u64) { return 11i32; }
     if s0.root_of(7u64).root != a || s0.root_of(9u64).level != 0u32 { return 12i32; }
 
-    s0.commit();                                         // HEAD adopts a,b (inc_rc each)
-    if unsafe { node_rc(a) } != 2u32 { return 13i32; }         // s0 + HEAD
-    if unsafe { node_rc(b) } != 2u32 { return 14i32; }
+    s0.commit();                                         // master tip → s0; NO tree transfer
+    if unsafe { node_rc(a) } != 1u32 { return 13i32; }         // committed s0 owns a alone
+    if unsafe { node_rc(b) } != 1u32 { return 14i32; }         // (a branch ref holds no share)
 
-    let mut sf: MemorySnapshot = store_fork(&mut store);                 // shares HEAD's a,b (inc_rc)
-    if !sf.has_ctr(7u64) { return 15i32; }                     // directory copied from HEAD
-    if unsafe { node_rc(a) } != 3u32 { return 16i32; }         // s0 + HEAD + sf
-    // Drop model: the s0/sf shares return when the WRAPPERS close (scope end,
-    // reverse order) — the head-only rc=1 state is reached after this fn's
-    // scope, which valgrind's zero-leak verdict pins.
+    let mut sf: MemorySnapshot = store_fork(&mut store);                 // child of master tip = s0
+    if !sf.has_ctr(7u64) { return 15i32; }                     // directory copied from s0
+    if unsafe { node_rc(a) } != 2u32 { return 16i32; }         // s0 desc + sf desc
+    // Drop model: the sf share returns when the WRAPPER closes (scope end); s0
+    // is committed, so its share is released at store EOL (history-table drain).
+    // valgrind's zero-leak verdict pins the balance.
 
     // ── (3) container-agnostic recursive tree release (branch → leaf) ─────
     let mut store2: Arc<MemoryStore> = store_new();
