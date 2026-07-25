@@ -138,6 +138,45 @@ impl NodeView {
     /// against. A read, so it composes with live column views.
     pub fn free_space(self: &NodeView) -> u32 { return unsafe { self.a.free_space() }; }
 
+    // ── RAW slots (blobs, not columns) ──────────────────────────────────────
+    //
+    // A slot need not hold a PdtBuf: the container-METADATA slot holds an
+    // opaque byte blob (a Writ document). These two are the blob peers of
+    // col()/col_mut() and carry the same contract — the shared view borrows
+    // the node, so it cannot outlive a resize.
+
+    /// Slot `idx`'s payload as raw bytes. Borrows the node SHARED: holding the
+    /// slice across any `&mut NodeView` call is a compile error.
+    pub fn raw(self: &NodeView, idx: u32) -> &[u8] {
+        return unsafe { self.a.data(idx) };
+    }
+
+    /// (Re)allocate slot `idx` to `n` RAW bytes, discarding any previous
+    /// content, and hand back the writable payload. `&mut` — the region moves.
+    pub fn raw_alloc(self: &mut NodeView, idx: u32, n: u32) -> bool {
+        unsafe {
+            if self.a.element_size(idx) > 0u32 {
+                self.a.free_at(idx);
+            }
+            match self.a.allocate(idx, n, SlotKind::Raw) {
+                Result::Ok(_p) => { return true; }
+                Result::Err(_e) => { return false; }
+            }
+        }
+    }
+
+    /// Slot `idx`'s payload as writable raw bytes (after `raw_alloc`).
+    pub fn raw_mut(self: &mut NodeView, idx: u32) -> &mut [u8] {
+        return unsafe { self.a.data_mut(idx) };
+    }
+
+    /// Release slot `idx`'s payload entirely (size back to 0).
+    pub fn raw_free(self: &mut NodeView, idx: u32) {
+        unsafe {
+            if self.a.element_size(idx) > 0u32 { self.a.free_at(idx); }
+        }
+    }
+
     /// ESCAPE HATCH: the raw region. Every remaining use is a site not yet
     /// migrated to the checked surface — keep the list shrinking.
     pub unsafe fn raw(self: &NodeView) -> *mut PkdAlloc { return self.a; }

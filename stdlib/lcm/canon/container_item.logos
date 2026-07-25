@@ -1510,7 +1510,8 @@ fn emit_tree(tname: str, lname: str, bname: str, kty: str, vty: str, vol: bool) 
 // traits-refresh) removes this later. `logos.mem.bt.memstore` (the
 // MemorySnapshot capability + DirEntry + tree_release), `logos.mem.bt.ops` and
 // `logos.mem.pkd` are function/type refs and resolve via the emitted `use`.
-fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool) {
+fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool,
+                mexpr: ExprBlob, iexpr: ExprBlob) {
     // The map items are quote blobs; each carries its own `use` imports. No
     // composite free-item names remain — all plain names borrow the spec,
     // which outlives this synchronous emit.
@@ -1531,6 +1532,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         use logos.mem.bt.map;
         use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         use logos.mem.bt.ops;
         use logos.mem.sync;               // Arc — the parent hold
         use logos.lang.option;            // Option — the with_entry quad
@@ -1552,6 +1555,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
                 let lf: #lid = #lid::new_in(snap.snapshot_id());
                 msr.set_root(ctr_id, lf.block(), 0u32);
+                ctr_publish_meta_tiered(lf.block(), #(mexpr), #(iexpr));
                 return #nm { snap: snap.clone_ref(), ctr_id: ctr_id };
             }
             pub static fn open(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
@@ -1576,10 +1580,16 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         let mut top: #bid = #bid::new_in(cur);
                         top.push_child(r.lsep, r.lcnt[0], r.addr);
                         top.push_child(r.rsep, r.rcnt[0], r.rptr);
+                        // Root PROMOTION: the old root is a CHILD now and must
+                        // not keep the schema document (a stale one mis-prices
+                        // the weight law); set_root_meta republishes it into the
+                        // fresh top. Memoria's ctr_root_to_node.
+                        meta_clear_if_owned(r.addr, cur);
                         nrt = top.block();
                         nlv = e.level + 1u32;
                     }
                     self.ms().set_root(self.ctr_id, nrt, nlv);
+                    ctr_publish_meta_tiered(nrt, #(mexpr), #(iexpr));
                 }
             }
             /// The container-boundary WITH_ENTRY (ADR 0023 §Derived forms —
@@ -1603,10 +1613,16 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         let mut top: #bid = #bid::new_in(cur);
                         top.push_child(r.lsep, r.lcnt[0], r.addr);
                         top.push_child(r.rsep, r.rcnt[0], r.rptr);
+                        // Root PROMOTION: the old root is a CHILD now and must
+                        // not keep the schema document (a stale one mis-prices
+                        // the weight law); set_root_meta republishes it into the
+                        // fresh top. Memoria's ctr_root_to_node.
+                        meta_clear_if_owned(r.addr, cur);
                         nrt = top.block();
                         nlv = e.level + 1u32;
                     }
                     self.ms().set_root(self.ctr_id, nrt, nlv);
+                    ctr_publish_meta_tiered(nrt, #(mexpr), #(iexpr));
                 }
             }
             pub fn size(self: &#nm) -> u64 {
@@ -1632,6 +1648,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     if vol {
         let g: QuoteItemBlob = quote_item! {
             use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
             use logos.mem.bt.ops;
             use logos.lang.slice;
             impl #nm {
@@ -1648,6 +1666,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     } else {
         let g: QuoteItemBlob = quote_item! {
             use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
             use logos.mem.bt.ops;
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid), sentinel: #(vo)) -> #(vo) {
@@ -1682,6 +1702,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         use logos.mem.bt.pack;
         use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         pub struct #bufid { inner: BtssBuf }
         impl #bufid {
             pub fn len(self: &#bufid) -> u64 { return self.inner.len(); }
@@ -1703,6 +1725,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                                                                    &buf.inner, #(sgn), #(bbs));
                     if r.ok {
                         self.ms().set_root(self.ctr_id, r.root, r.level);
+                        ctr_publish_meta_tiered(r.root, #(mexpr), #(iexpr));
                     }
                     return r.ok;
                 }
@@ -1719,6 +1742,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                                                            key as u64, #(sgn));
                     if r.found {
                         self.ms().set_root(self.ctr_id, r.root, r.level);
+                        ctr_publish_meta_tiered(r.root, #(mexpr), #(iexpr));
                     }
                     return r.found;
                 }
@@ -1802,6 +1826,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
     let cq: QuoteItemBlob = quote_item! {
         use logos.mem.bt.map;
         use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         use logos.mem.bt.ops;
         use logos.lang.panic;
         // The cursor HOLDS the adopted leaf (not the raw block pointer): a
@@ -2060,7 +2086,8 @@ fn emit_cfg_doc_multimap(name: str, cs: &ContainerSpec,
 // The handle mirrors the CoW map's `{snap, ctr_id}` shape and finds its tree
 // through the snapshot directory; node sizing is per-handle (create_with) —
 // splits allocate siblings of the handle's size.
-fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
+fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
+                    mexpr: ExprBlob, iexpr: ExprBlob) {
     // ── v0 shape validation ─────────────────────────────────────────────────
     let sn: i64 = cs.streams.len();
     let s0e: i64 = cf_next_comma(cs.streams, 0i64, sn);
@@ -2153,6 +2180,8 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
         use logos.mem.bt.map;             // Ctr / Multimap — the dyn boundary traits
         use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         use logos.mem.sync;               // Arc — the parent hold
         use logos.mem.collections.vec;
         use logos.lang.panic;
@@ -2179,6 +2208,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
                 let t: Btfl<2, #nd> = btfl_create::<2, #nd>(msr, leaf_bytes, branch_bytes);
                 msr.set_root(ctr_id, t.root, t.level);
+                ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                 return #nm {
                     snap: snap.clone_ref(),
                     ctr_id: ctr_id,
@@ -2228,6 +2258,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                 unsafe {
                     let t2: Btfl<2, #nd> = btfl_create::<2, #nd>(self.ms(), leaf_bytes, branch_bytes);
                     self.ms().set_root(self.ctr_id, t2.root, t2.level);
+                    ctr_publish_meta_tiered(t2.root, #(mexpr), #(iexpr));
                 }
                 self.leaf_bytes = leaf_bytes;
                 self.branch_bytes = branch_bytes;
@@ -2241,6 +2272,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     let ok: bool = btfl_insert_n::<2, #nd>(self.ms(), &mut t, key, vals, &lens);
                     if ok {
                         self.ms().set_root(self.ctr_id, t.root, t.level);
+                        ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                     }
                     return ok;
                 }
@@ -2259,6 +2291,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     let ok: bool = btfl_remove::<#nd>(self.ms(), &mut t, key);
                     if ok {
                         self.ms().set_root(self.ctr_id, t.root, t.level);
+                        ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                     }
                     return ok;
                 }
@@ -2322,6 +2355,8 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
         use logos.mem.bt.node;
         use logos.mem.bt.map;             // BatchMmEntry — the adapter seam
         use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         use logos.mem.collections.vec;
         pub struct #mbufid { inner: BtflBuf }
         impl #mbufid {
@@ -2359,6 +2394,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
                     let ok: bool = btfl_batch_insert::<#nd>(self.ms(), &mut t, &buf.inner);
                     if ok {
                         self.ms().set_root(self.ctr_id, t.root, t.level);
+                        ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                     }
                     return ok;
                 }
@@ -2385,6 +2421,8 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
         use logos.mem.bt.btfl;
         use logos.mem.bt.node;
         use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         use logos.lang.panic;
         pub struct #kcid { pub found: bool, leaf: *mut u8, kidx: u32 }
         pub struct #vcid { pub found: bool, leaf: *mut u8, vidx: u32 }
@@ -2435,7 +2473,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>) {
 // forwarding into the btvec prototype, the cursor pair for seek. v0 columns
 // are u64 (validated at the factory gate); the typed cast boundary arrives
 // with 8c alongside the other families'.
-fn emit_btvec_family(name: str) {
+fn emit_btvec_family(name: str, mexpr: ExprBlob, iexpr: ExprBlob) {
     let nm: Ident = Ident::new(name);
     let nd: Ident = Ident::new(MEM_STORE_NODE);
     let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
@@ -2454,6 +2492,8 @@ fn emit_btvec_family(name: str) {
         use logos.mem.bt.map;             // Ctr — the dyn boundary trait
         use logos.mem.bt.node;            // the store's node profile (spliced as #nd)
         use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         use logos.mem.sync;               // Arc — the parent hold
         use logos.lang.panic;
         pub struct #nm {
@@ -2486,6 +2526,7 @@ fn emit_btvec_family(name: str) {
                 let msr: &MemorySnapshot = unsafe { &*(dyn_data(&**snap) as *const MemorySnapshot) };
                 let t: Btvec<#nd> = btvec_create::<#nd>(msr, leaf_bytes, branch_bytes);
                 msr.set_root(ctr_id, t.root, t.level);
+                ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                 return #nm {
                     snap: snap.clone_ref(),
                     ctr_id: ctr_id,
@@ -2534,6 +2575,7 @@ fn emit_btvec_family(name: str) {
                 unsafe {
                     let t2: Btvec<#nd> = btvec_create::<#nd>(self.ms(), leaf_bytes, branch_bytes);
                     self.ms().set_root(self.ctr_id, t2.root, t2.level);
+                    ctr_publish_meta_tiered(t2.root, #(mexpr), #(iexpr));
                 }
                 self.leaf_bytes = leaf_bytes;
                 self.branch_bytes = branch_bytes;
@@ -2543,6 +2585,7 @@ fn emit_btvec_family(name: str) {
                     let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_append::<#nd>(self.ms(), &mut t, v);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
+                    ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                 }
             }
             /// The batch surface (PAIR 2026-07-24): the CONTAINER hands out
@@ -2562,6 +2605,7 @@ fn emit_btvec_family(name: str) {
                     let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_insert_buf::<#nd>(self.ms(), &mut t, pos, buf);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
+                    ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                 }
             }
             pub fn insert_at(self: &#nm, pos: u64, v: u64) {
@@ -2569,6 +2613,7 @@ fn emit_btvec_family(name: str) {
                     let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_insert_at::<#nd>(self.ms(), &mut t, pos, v);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
+                    ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                 }
             }
             /// Remove the entry at `pos` (traps past the end). The touched
@@ -2579,6 +2624,7 @@ fn emit_btvec_family(name: str) {
                     let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_remove_at::<#nd>(self.ms(), &mut t, pos);
                     self.ms().set_root(self.ctr_id, t.root, t.level);
+                    ctr_publish_meta_tiered(t.root, #(mexpr), #(iexpr));
                 }
             }
             pub fn get(self: &#nm, pos: u64) -> u64 {
@@ -2871,7 +2917,7 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         }
         sp.push_str("|pkg=logos.gen");
     }
-    container_item_run(fam.as_str(), sp.as_str(), false);
+    container_item_run(fam.as_str(), sp.as_str(), false, cfg_src);
 
     // ── satisfaction marker + Phase 4a surface: the full CtrFamily impl ────
     // type Handle = the family's CoW handle; create/open forward to its
@@ -2896,6 +2942,8 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     let b: QuoteItemBlob = quote_item! {
         use logos.lcm.canon.metaclass;
         use logos.mem.bt.memstore;
+        use logos.mem.bt.meta;           // the container SCHEMA document plane
+        use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         use logos.mem.bt.map;             // trait Snapshot — the erased public tier
         use logos.mem.sync;
         impl CtrFamily for CtrClass<#(cfgty)> {
@@ -2925,7 +2973,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         error("container item: empty container name (compiler seam regression?)");
         return out;
     }
-    container_item_run(name, spec, true);
+    container_item_run(name, spec, true, "");
     return out;
 }
 
@@ -2934,7 +2982,7 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
 // (__container_factory, emit_cfg=false — the factory's input IS the CFG doc,
 // re-emitting it would be circular). facts → Canon verdicts → capability-
 // gated emission; diagnostics ride error() (nothing to thread back).
-fn container_item_run(name: str, spec: str, emit_cfg: bool) {
+fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
     let facts: Writ = container_facts(name, spec);
     // Shape gate on the fact mirror — a malformed spec (or a fact-builder
     // regression) must fail the COMPILE, not silently drop the declaration.
@@ -2988,6 +3036,38 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         error("container item: malformed spec (compiler seam regression?)");
         return;
     }
+
+    // ── the family's SCHEMA document (the Deem-facing low-level schema) ─────
+    // A factory-generated family publishes its CFG document into the container's
+    // ROOT BLOCK at every root change (`ctr_publish_meta_tiered`), so an opened
+    // store answers "what is this container" from the container's own bytes.
+    // The decl-path families (raw test containers) have no CFG document and
+    // pass the null handle, which publication skips.
+    //
+    // The document rides as the `@`-literal ITSELF (an ExprBlob spliced at each
+    // publication site) rather than as a named const emitted beside the family:
+    // a metaprog-emitted `pub const …: WritStatic` read from ANOTHER emitted
+    // chunk resolves but loses its declared type (the argument lowers as i32 and
+    // only MLIR verification notices), while the same const in an ordinary
+    // module is fine. Splicing the literal has no cross-chunk dependency at all.
+    let mut mexpr: ExprBlob = parse_expr("writ_static_none()");
+    let mut iexpr: ExprBlob = parse_expr("writ_static_none()");
+    if cfg_src.len() > 0i64 {
+        mexpr = parse_wstatic(cfg_src);
+        // The compact IDENTITY document — published when the root's geometry
+        // cannot host the full CFG (a multimap's is ~1.1 KB; a 320-byte branch
+        // has ~56 bytes free). `f` is the family name, which IS the CFG's
+        // content hash — Memoria's root `model_name`, and the key a registry
+        // resolves the full schema by.
+        let mut idoc: String = String::new();
+        idoc.push_str("@{\"f\": \"");
+        idoc.push_str(name);
+        idoc.push_str("\", \"k\": \"");
+        idoc.push_str(cs.kind);
+        idoc.push_str("\"}");
+        iexpr = parse_wstatic(idoc.as_str());
+    }
+
 
     // ADR 0021 Phase 4b: the DECL SITE of an ordered_map lowers to the CFG
     // const + the CtrClass alias ONLY (emit_cfg_doc, below at the kind
@@ -3077,7 +3157,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
             let _ok: bool = emit_cfg_doc_multimap(name, &cs, vm);
             return;
         }
-        emit_btfl_family(name, &cs, vm);
+        emit_btfl_family(name, &cs, vm, mexpr, iexpr);
         return;
     }
     // kind=ordered_map: realize Canon's container_shape PLAN. Structure is the
@@ -3206,7 +3286,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
         // versioning=cow → the CoW snapshot-versioned map ({N}Store/{N}Snapshot/
         // {N}) over the same CoW-flavored nodes. Closes ②: one decl → whole stack.
         if saw_cow {
-            emit_cow_map(name, ln.as_str(), bn.as_str(), kty, vty, vol);
+            emit_cow_map(name, ln.as_str(), bn.as_str(), kty, vty, vol, mexpr, iexpr);
         }
         return;
     }
@@ -3218,7 +3298,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool) {
     // below keeps the wave-0 Deem scan projection (a different plane: source
     // rel over a declared backing, not a store-backed container).
     if !emit_cfg {
-        emit_btvec_family(name);
+        emit_btvec_family(name, mexpr, iexpr);
         return;
     }
     if !cv_has_cap(vm, name, "can_scan") {

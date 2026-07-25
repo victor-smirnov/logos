@@ -93,9 +93,17 @@ unsafe fn mn(base: *mut u8) -> *mut MemNode { return base as *mut MemNode; }
 /// Allocates a node block of `block_size` bytes TOTAL (the whole node — you ask
 /// for the size you want, e.g. 4096). The MemNode header is carved from the
 /// front; the PkdAlloc region gets the rest (`block_size − header`) with
-/// `nslots` slots. Stamps block_size, snap = `snp`, rc = 1, formats the region.
-/// Returns the block base; the caller formats each column slot on node_pkd(base).
-pub unsafe fn node_alloc(block_size: u32, nslots: u32, snp: u64) -> *mut u8 {
+/// `ncols` COLUMN slots PLUS the trailing container-METADATA slot (see
+/// `node_meta_slot`). Stamps block_size, snap = `snp`, rc = 1, formats the
+/// region. Returns the block base; the caller formats each column slot on
+/// node_pkd(base).
+///
+/// Callers pass their COLUMN count and never see the metadata slot: reserving
+/// it here — in the one constructor of every CoW node — is what makes the
+/// "slot `elements() − 1` is metadata" law hold BY CONSTRUCTION, so a generic
+/// reader needs no header field and no per-engine stamping. A node cloned from
+/// another must therefore pass `node_ncols(src)`, not `elements()`.
+pub unsafe fn node_alloc(block_size: u32, ncols: u32, snp: u64) -> *mut u8 {
     let base: *mut u8 = alloc(block_size as i64);
     let n: *mut MemNode = mn(base);
     (*n).block_size = block_size;
@@ -106,9 +114,25 @@ pub unsafe fn node_alloc(block_size: u32, nslots: u32, snp: u64) -> *mut u8 {
     (*n).ssrle_slot = NODE_NO_CHILDREN;      // no symbol-sequence slot until declared
     (*n).level = 0u32;                       // a leaf until stamped otherwise
     let region: u32 = block_size - (offset_of!(MemNode, alc) as u32);
-    let _ = pkd_format(node_pkd(base) as *mut u8, region, nslots);
+    let _ = pkd_format(node_pkd(base) as *mut u8, region, ncols + 1u32);
     return base;
 }
+
+/// How many COLUMN slots this node carries — its allocator's slot count minus
+/// the trailing metadata slot. A node cloned from `src` is allocated with
+/// `node_ncols(src)`; a walk over "every column" stops here.
+pub unsafe fn node_ncols(base: *mut u8) -> u32 { return node_pkd(base).elements() - 1u32; }
+
+/// The index of this node's CONTAINER-METADATA slot: the trailing PkdAlloc slot
+/// every node reserves (Memoria's `METADATA` segment of TreeNodeBase, moved to
+/// the far end so a container's column indices stay 0-based).
+///
+/// The slot is EMPTY in every ordinary node and holds a Writ document in a
+/// container's ROOT — so, exactly as in Memoria, **its presence IS the root
+/// flag** (`has_root_metadata()` ⟺ `is_root()`). The payload plane —
+/// write/read/migrate, and the document itself — lives in `logos.mem.bt.meta`;
+/// this module only owns where it sits.
+pub unsafe fn node_meta_slot(base: *mut u8) -> u32 { return node_pkd(base).elements() - 1u32; }
 
 /// The total block size of a node (Header::memory_block_size()).
 pub unsafe fn node_block_size(base: *mut u8) -> u32 { return (*mn(base)).block_size; }
@@ -232,11 +256,14 @@ pub unsafe fn tree_release(root: *mut u8, level: u32) {
 // profile today; a second store's node form lands as a second impl.
 pub trait NodeProfile {
     /// Allocate a node block of `block_size` bytes TOTAL, carve the header,
-    /// format the remaining PkdAlloc region with `nslots` slots (snap, rc = 1,
-    /// childless). Returns the block base.
-    fn alloc(block_size: u32, nslots: u32, snap: u64) -> *mut u8;
+    /// format the remaining PkdAlloc region with `ncols` column slots plus the
+    /// container-metadata slot (snap, rc = 1, childless). Returns the block base.
+    fn alloc(block_size: u32, ncols: u32, snap: u64) -> *mut u8;
     /// The PkdAlloc column region of a node block.
     fn pkd(node: *mut u8) -> *mut PkdAlloc;
+    /// How many COLUMN slots a node carries — what `alloc` was given, recovered
+    /// from the node itself (the clone path's slot count).
+    fn ncols(node: *mut u8) -> u32;
     /// The CoW skip key (the creating snapshot).
     fn snapshot(node: *mut u8) -> u64;
     fn set_snapshot(node: *mut u8, snp: u64);
@@ -265,6 +292,7 @@ impl NodeProfile for CowProfile {
         return unsafe { node_alloc(block_size, nslots, snap) };
     }
     fn pkd(node: *mut u8) -> *mut PkdAlloc { return unsafe { node_pkd(node) }; }
+    fn ncols(node: *mut u8) -> u32 { return unsafe { node_ncols(node) }; }
     fn snapshot(node: *mut u8) -> u64 { return unsafe { node_snapshot(node) }; }
     fn set_snapshot(node: *mut u8, snp: u64) { unsafe { node_set_snapshot(node, snp); } }
     fn rc(node: *mut u8) -> u32 { return unsafe { node_rc(node) }; }

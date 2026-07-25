@@ -65,6 +65,11 @@ impl MemBlockPtr {
     pub fn value_ref_slot(self: &MemBlockPtr) -> u32 { return unsafe { node_value_ref_slot(self.addr) }; }
     pub fn set_value_ref_slot(self: &MemBlockPtr, s: u32) { unsafe { node_set_value_ref_slot(self.addr, s); } }
     pub fn elements(self: &MemBlockPtr) -> u32 { return unsafe { node_pkd(self.addr).elements() }; }
+    /// COLUMN slots — `elements()` minus the trailing container-metadata slot.
+    /// This, not `elements()`, is what a clone passes back to `alloc_block`.
+    pub fn ncols(self: &MemBlockPtr) -> u32 { return unsafe { node_ncols(self.addr) }; }
+    /// The container-metadata slot index (the trailing slot).
+    pub fn meta_slot(self: &MemBlockPtr) -> u32 { return unsafe { node_meta_slot(self.addr) }; }
 
     // — the intrusive refcount (structural shares AND live code handles) —
     pub fn rc(self: &MemBlockPtr) -> u32 { return unsafe { node_rc(self.addr) }; }

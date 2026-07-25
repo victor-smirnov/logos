@@ -91,7 +91,7 @@ fn dir_branch_new<S: BlockStore>(st: &S, level: u32) -> MemBlockPtr {
 /// region copy; rc bumps are added by the leaf/branch privatize wrappers.
 unsafe fn dir_clone_node<S: BlockStore>(st: &S, node: MemBlockPtr) -> MemBlockPtr {
     let sa: *mut PkdAlloc = node.pkd();
-    let n: MemBlockPtr = st.alloc_block(node.block_size(), sa.elements());
+    let n: MemBlockPtr = st.alloc_block(node.block_size(), node.ncols());
     let da: *mut PkdAlloc = n.pkd();
     copy_bytes(da as *mut u8, sa as *const u8, sa.block_size() as i64);
     n.set_child_slot(node.child_slot());

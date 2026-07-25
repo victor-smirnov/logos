@@ -1814,6 +1814,22 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::WRIT_FLOAT:
     case la::WRIT_BOOL:
     case la::WRIT_NULL:  return lower_writ_lit(expr);
+    case la::LIT_WSTATIC: {
+        // A `parse_wstatic` blob spliced at EXPRESSION position — `f(#(cfg))`,
+        // where the same blob at TYPE position is `Foo<#(cfg)>`. That helper
+        // hands back a LIT_WSTATIC WRAPPER whose VALUE is the bare writ literal
+        // (sema_collect's const path documents the same shape); resolve_type
+        // unwraps it, and expression position must unwrap it identically.
+        // Without this case the wrapper falls off the dispatch and the argument
+        // lowers as an integer — a metaprog-emitted call then fails MLIR
+        // verification with "expected !llvm.ptr, but provided i32", pointing at
+        // the callee rather than at the splice.
+        if (!expr.has_key(la::VALUE)) {
+            error("WritStatic literal: missing payload");
+            return error_expr();
+        }
+        return lower_writ_lit(map_of(expr.get(la::VALUE.code)));
+    }
     case la::WRIT_BLOB:  return lower_writ_blob(expr);
     case la::QUOTE_ITEM:   return lower_quote_item(expr);
     case la::QUOTE_EXPR:   return lower_quote_expr(expr);

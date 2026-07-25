@@ -37,6 +37,7 @@ use logos.mem.pkd.pdtbuf;        // PdtBuf + pdtbuf_compute_block_size (the orac
 use logos.mem.pkd.sseq;          // pkd_ssrle_block_size — structure-stream price
 use logos.mem.pkd.ssrle;         // SsrleRun + ssrle_compute_size
 use logos.mem.bt.node;           // NodeProfile — the map splice's node seam
+use logos.mem.bt.meta;       // the container SCHEMA document — follows the root
 use logos.mem.bt.view;           // NodeView / ColRef — the borrow-checked column skin
 use logos.mem.bt.memstore;       // MemorySnapshot + tree_release (CoW discipline)
 use logos.mem.collections.vec;
@@ -171,6 +172,27 @@ pub fn pack_seq_weight(alphabet: u32, runs: &Vec<SsrleRun>) -> u32 {
 /// the packer adds the profile's header size on top of this.
 pub fn pack_region_weight(ws: &Vec<u32>) -> u32 {
     let mut total: u32 = PkdAlloc::empty_size_for(ws.length() as u32);
+    let mut i: i64 = 0i64;
+    while i < ws.length() {
+        total = total + round_up_bytes(ws.get(i));
+        i = i + 1i64;
+    }
+    return total;
+}
+
+/// The weight law as a NODE pays it: `ws` column weights plus the trailing
+/// container-METADATA slot every node reserves (`node_meta_slot`). Every
+/// split-capacity and merge-admission price goes through HERE — pricing a node
+/// with `pack_region_weight` under-counts the layout table by one entry, and an
+/// under-counted budget admits a merge that then does not fit ("admitted merge
+/// rejected"). The bare region form stays for regions that are not nodes.
+///
+/// The metadata PAYLOAD is deliberately not priced: only a container root holds
+/// one, and a root has no sibling to merge with. A node that stops being the
+/// root gives its document up at that moment (`meta_migrate`), so no node the
+/// weight law ever prices is carrying one.
+pub fn pack_node_weight(ws: &Vec<u32>) -> u32 {
+    let mut total: u32 = PkdAlloc::empty_size_for(ws.length() as u32 + 1u32);
     let mut i: i64 = 0i64;
     while i < ws.length() {
         total = total + round_up_bytes(ws.get(i));
@@ -527,7 +549,10 @@ fn pk_private<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, cur: u64, is
             return node;
         }
         let sa: *mut PkdAlloc = P::pkd(node);
-        let n: *mut u8 = P::alloc(P::block_size(node), sa.elements(), cur);
+        // ncols, not elements(): alloc reserves the trailing metadata slot
+        // itself, so a clone asks for the source's COLUMN count (else every
+        // CoW generation would grow the node one empty slot).
+        let n: *mut u8 = P::alloc(P::block_size(node), P::ncols(node), cur);
         copy_bytes(P::pkd(n) as *mut u8, sa as *const u8, sa.block_size() as i64);
         P::set_child_slot(n, P::child_slot(node));
         if is_branch {
@@ -662,7 +687,7 @@ fn pk_leaf_rows_cap<P: NodeProfile>(m: &PkMerged, done: u64, remaining: u64,
         let mut ws: Vec<u32> = vec_new::<u32>();
         ws.push(kw);
         ws.push(vw);
-        if pack_region_weight(&ws) <= budget {
+        if pack_node_weight(&ws) <= budget {
             lo = mid;
         } else {
             hi = mid - 1u64;
@@ -762,7 +787,7 @@ fn pk_pack_branches<P: NodeProfile>(rows: &Vec<PkRow>, snp: u64, branch_bytes: u
         ws.push(w);
         ws.push(w);
         ws.push(w);
-        if pack_region_weight(&ws) <= budget {
+        if pack_node_weight(&ws) <= budget {
             lo = mid;
         } else {
             hi = mid - 1u64;
@@ -1123,7 +1148,7 @@ fn pk_leaves_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
     let mut ws: Vec<u32> = vec_new::<u32>();
     ws.push(kw);
     ws.push(vw);
-    return pack_region_weight(&ws) <= (*la).block_size();
+    return pack_node_weight(&ws) <= (*la).block_size();
 }
 
 // Append every row of leaf `src` (read-only — may be shared) to leaf `dst`
@@ -1207,7 +1232,7 @@ fn pk_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
     ws.push(w);
     ws.push(w);
     ws.push(w);
-    return pack_region_weight(&ws) <= (*la).block_size();
+    return pack_node_weight(&ws) <= (*la).block_size();
 }
 
 // Append every (sep, cnt, child) row of branch `src` to branch `dst`
@@ -1434,6 +1459,9 @@ pub fn btss_remove<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, level: 
             let mut a: NodeView = node_view_at(nroot);
             if pk_slot(&a, PKB_SEP).size() == 1u64 {
                 let child: *mut u8 = snap.resolve(pk_slot(&a, PKB_CHILD).get(0u32, 0u64)).ptr();
+                // Root DEMOTION: the document follows the root into the child,
+                // or is dropped when the child is too small (see btvec's twin).
+                meta_handover(nroot, child);
                 P::free(nroot);            // the ref transfers to the root slot
                 nroot = child;
                 nlvl = nlvl - 1u32;
@@ -1499,6 +1527,19 @@ pub fn btss_batch_insert<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, l
     let mut rows: Vec<PkRow> = pk_splice_rec::<P>(snap, root, level, first, signed,
                                                   buf, cur, branch_bytes);
     let mut lvl: u32 = level;
+    if rows.length() > 1i64 {
+        // The batch grew the tree ABOVE the old root: no node at this level is
+        // the root any more, so none may keep the schema document — a stale one
+        // would mis-price the weight law (it is not counted). The store
+        // republishes the document into the new top (`set_root_meta`), which is
+        // also what covers the case where the splice retired the carrier node
+        // altogether.
+        let mut i: i64 = 0i64;
+        while i < rows.length() {
+            meta_clear_if_owned(rows.borrow(i).ptr, cur);
+            i = i + 1i64;
+        }
+    }
     while rows.length() > 1i64 {
         let mut up: Vec<PkRow> = vec_new::<PkRow>();
         pk_pack_branches::<P>(&rows, cur, branch_bytes, &mut up);

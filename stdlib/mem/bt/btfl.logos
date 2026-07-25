@@ -84,6 +84,7 @@ use logos.mem.pkd.sseq;          // PkdSsrle — the packed symbol sequence
 use logos.mem.pkd;               // PkdAlloc, SlotKind, PkdError
 use logos.mem.pkd.pdtbuf;        // PdtBuf — the branch measure/count store (P7.3)
 use logos.mem.bt.node;           // node_alloc / node_pkd (via snapshot) — node blocks
+use logos.mem.bt.meta;       // the container SCHEMA document — follows the root
 use logos.mem.bt.view;           // NodeView / ColRef — the borrow-checked column skin
 use logos.mem.bt.memstore;       // MemorySnapshot (allocation capability), tree_release
 use logos.mem.bt.ops;            // BtInsRet / bt_ins_rec — THE bottom-up insert skeleton
@@ -1352,6 +1353,10 @@ pub fn btfl_insert_entry<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, t:
             let mut na: NodeView = node_view_at(nb);
             btfl_branch_insert_child::<N>(&mut na, 0u32, r.lsep, &r.lcnt, r.addr as u64);
             btfl_branch_insert_child::<N>(&mut na, 1u32, r.rsep, &r.rcnt, r.rptr as u64);
+            // Root PROMOTION: the schema document follows the root; the demoted
+            // node gives it up (see btvec's twin — Memoria's
+            // ctr_copy_root_metadata + ctr_root_to_node).
+            meta_migrate(t.root, nb, snap.snapshot_id());
             t.root = nb;
             t.level = t.level + 1u32;
         }
@@ -2166,7 +2171,9 @@ fn bf_leaf_rows_cap(m: &BfMerged, e0: u64, remaining: u64, bps: u32, budget: u32
         let runs: Vec<SsrleRun> = bf_range_runs(m, e0, mid, bps);
         let units: u64 = ssrle_compute_size(bps, &runs, 0u64);
         let sw: u32 = pkd_ssrle_block_size(2u32, units);
-        let mut total: u32 = PkdAlloc::empty_size_for(3u32);
+        // +1: the container-METADATA slot every node reserves (node_meta_slot);
+        // pricing without it under-counts the layout table (pack_node_weight).
+        let mut total: u32 = PkdAlloc::empty_size_for(3u32 + 1u32);
         total = total + round_up_bytes(kw) + round_up_bytes(vw) + round_up_bytes(sw);
         if total <= budget {
             lo = mid;
@@ -2655,7 +2662,9 @@ fn bf_leaves_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
         }
         let units: u64 = ssrle_compute_size(bps, &runs, 0u64);
         let sw: u32 = pkd_ssrle_block_size(2u32, units);
-        let mut total: u32 = PkdAlloc::empty_size_for(3u32);
+        // +1: the container-METADATA slot every node reserves (node_meta_slot);
+        // pricing without it under-counts the layout table (pack_node_weight).
+        let mut total: u32 = PkdAlloc::empty_size_for(3u32 + 1u32);
         total = total + round_up_bytes(kw) + round_up_bytes(vw) + round_up_bytes(sw);
         if total > (*la).block_size() {
             return false;
@@ -2754,7 +2763,7 @@ fn bf_branches_mergeable<P: NodeProfile>(l: *mut u8, r: *mut u8) -> bool {
         let mut cd: PdtDescr = pdt_descr_new(1u32, PDT_ORD_UNORDERED, false);
         cd.dims.push(pdt_dim_fse(8u32));
         let cw: u32 = pdtbuf_compute_block_size(&cd, n, &pdt_payload_zero(&cd));
-        let mut total: u32 = PkdAlloc::empty_size_for(BR_SLOTS);
+        let mut total: u32 = PkdAlloc::empty_size_for(BR_SLOTS + 1u32);  // + the metadata slot
         total = total + round_up_bytes(pw) + round_up_bytes(cw);
         return total <= (*la).block_size();
     }
@@ -3002,6 +3011,9 @@ pub fn btfl_remove<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btfl<2, P>, ke
             let mut a: NodeView = node_view_at(t.root);
             if br_pdt(&a).size() == 1u64 {
                 let child: *mut u8 = snap.resolve(br_child(&a).get(0u32, 0u64)).ptr();
+                // Root DEMOTION: the document follows the root into the child,
+                // or is dropped when the child is too small (see btvec's twin).
+                meta_handover(t.root, child);
                 P::free(t.root);
                 t.root = child;
                 t.level = t.level - 1u32;

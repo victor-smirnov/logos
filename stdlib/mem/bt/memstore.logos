@@ -41,6 +41,9 @@ use logos.lang.mem;              // alloc / dealloc / copy_bytes — the block i
 use logos.mem.bt.dirmap;         // the directory is a CoW container (dir_set/get/…)
 use logos.mem.bt.dump;           // node/tree dumper — debugging the node-data deltas
 use logos.mem.bt.check;          // invariant checker — localize violations at scale
+use logos.mem.bt.meta;           // the container SCHEMA document in the root block
+use logos.lang.writ.wstatic;     // WritStatic — the family's compile-time schema blob
+use logos.lang.writ.static_view; // WView2 — the reader handed to Deem/user code
 
 // tree_release (generic node lifecycle + the directory's value-ref cascade)
 // lives in logos.mem.bt.node — pure node_* + column walk — so both this store
@@ -299,6 +302,56 @@ impl MemorySnapshot {
             (*self.d()).dir_root = nr.root;
             (*self.d()).dir_level = nr.level;
         }
+    }
+
+    /// `set_root`, plus: republish the container's SCHEMA document into the new
+    /// root when it does not already carry one. This is the single point where
+    /// a container's self-description is maintained, and it is idempotent —
+    ///
+    ///   * a CoW-privatized root arrives with the document already copied (the
+    ///     clone byte-copies the whole region) ⇒ no-op;
+    ///   * a root PROMOTED over a split, a child a collapse DEMOTED into the
+    ///     root, and the fresh leaf an emptied container resets to all arrive
+    ///     bare ⇒ the document is written from the family's compile-time blob.
+    ///
+    /// Publishing from the CONSTANT rather than migrating between blocks is
+    /// what makes the emptied-container case work at all: that path frees the
+    /// old root inside the engine, so there is nothing left to copy from.
+    ///
+    /// A null `doc` (the schema-less callers: raw engine tests, the directory
+    /// itself) skips publication entirely.
+    /// `set_root` + `ctr_publish_meta` — the hand-written peer of what every
+    /// generated family does inline. `doc` is the document's BLOB POINTER
+    /// (`writ_static_ptr` of a `@`-literal); the blob is self-describing
+    /// (`[u64 size][bytes]`), so the pointer loses nothing.
+    pub fn set_root_meta(self: &MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32,
+                         doc: *const u8) {
+        self.set_root(ctr_id, root, level);
+        ctr_publish_meta(root, doc);
+    }
+
+    /// Publish the document `doc` points at as container `ctr_id`'s schema.
+    pub fn set_ctr_meta(self: &MemorySnapshot, ctr_id: u64, doc: *const u8) {
+        let e: DirEntry = self.root_of(ctr_id);
+        assert(meta_write_blob(e.root, doc),
+               "container metadata: the root cannot host the schema document");
+    }
+
+    /// Container `ctr_id`'s schema document, read straight out of its root
+    /// block — the store's self-description. Needs NO compile-time knowledge of
+    /// the container's type: `container_ids()` + this is a full catalog of an
+    /// opened store, and it is what the Deem plane reads to know what a
+    /// container's entries look like.
+    pub fn ctr_meta(self: &MemorySnapshot, ctr_id: u64) -> WView2 {
+        let e: DirEntry = self.root_of(ctr_id);
+        assert(meta_present(e.root), "container metadata: this container carries no schema");
+        return meta_doc(e.root);
+    }
+
+    /// Does `ctr_id` carry a schema document? (A container created through a
+    /// raw engine path — no family — does not.)
+    pub fn has_ctr_meta(self: &MemorySnapshot, ctr_id: u64) -> bool {
+        return meta_present(self.root_of(ctr_id).root);
     }
 
     /// The registered container ids (Memoria container_names), in key order.
@@ -1210,8 +1263,8 @@ pub fn store_load<R: InStream>(inp: &mut R) -> Option<Arc<MemoryStore>> {
                 let bsz: u32 = inp.read_u32();
                 let tmp: *mut u8 = alloc(bsz as i64);
                 if !inp.read_all(tmp, bsz as i64) { dealloc(tmp); return Option::None; }
-                let nslots: u32 = node_pkd(tmp).elements();
-                let bp: MemBlockPtr = bs.alloc_block(bsz, nslots);
+                let ncols: u32 = node_ncols(tmp);   // the image's own column count
+                let bp: MemBlockPtr = bs.alloc_block(bsz, ncols);
                 copy_bytes(bp.ptr(), tmp as *const u8, bsz as i64);
                 dealloc(tmp);
                 node_set_rc(bp.ptr(), 0u32);       // recomputed from the graph below

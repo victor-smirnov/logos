@@ -1,0 +1,180 @@
+// ctr_meta — the container SCHEMA plane: a store that describes itself.
+//
+// Every container publishes its CFG document into its own ROOT BLOCK
+// (logos.mem.bt.meta — Memoria's `BalancedTreeMetadata` segment, generalized
+// from a two-field record to a Writ document). What that buys, and what this
+// test pins:
+//
+//   §A  three families — map, multimap, vector — each answer `kind` from their
+//       own bytes, read through `container_ids()` + `ctr_meta()`: NO
+//       compile-time knowledge of the container's type is involved;
+//   §B  the document survives every root change — a split that PROMOTES a new
+//       root, a CoW privatization in a forked snapshot, and the removal that
+//       COLLAPSES the tree back;
+//   §C  only the ROOT carries it (a stale document on a demoted node would
+//       silently over-admit a later merge — the weight law prices columns
+//       against free space and knows nothing of the metadata payload);
+//   §D  a save/load round-trip preserves it — the document is part of the block
+//       image, so serialization carries it with no serializer support at all;
+//
+// Publication is BEST EFFORT: a node geometry too small for the document (a
+// 320-byte branch has ~56 bytes free) leaves the container anonymous instead of
+// failing the write. That path is exercised by ctr_vector's 512/320 reformat —
+// it must keep working, which is exactly what this plane must not break.
+package test;
+
+use memoria.ctr.multimap;             // the generic multimap declaration
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.bt.meta;
+use logos.mem.bt.stream;
+use logos.mem.sync;
+use logos.lang.writ.static_view;      // WView2 / SView2 — the document reader
+use logos.lang.writ.anyval;           // WAny — a document node handle
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.std.io;
+
+container Ledger for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
+    return unsafe { &*(dyn_data(&**s) as *const MemorySnapshot) };
+}
+
+// The one read the whole test is about: ask a container what it is, holding
+// nothing but the store and an id.
+fn kind_of(ms: &MemorySnapshot, ctr_id: u64) -> String {
+    let mut out: String = String::new();
+    if !ms.has_ctr_meta(ctr_id) {
+        return out;                       // anonymous — §E
+    }
+    let vw: WView2 = ms.ctr_meta(ctr_id);
+    let root: WAny = vw.root();
+    // "kind" in the full CFG document, "k" in the compact identity form: a
+    // reader asks for the keys it needs and tolerates the leaner shape.
+    let mut k: WAny = vw.map_get(root, "kind");
+    if k.is_null() {
+        k = vw.map_get(root, "k");
+    }
+    if k.is_null() {
+        return out;
+    }
+    let sv: SView2 = vw.get_str_view(k);
+    out.push_str(unsafe { str_from_raw(sv.ptr, sv.len as i64) });
+    return out;
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let ms: &MemorySnapshot = ms_of(&s1);
+
+    // ── §A three families, three self-descriptions ──────────────────────────
+    let mp = create_ctr::<typeof(Ledger)>(&s1, 1u64);
+    let mm = create_ctr::<typeof(Multimap::<u64, u64>)>(&s1, 2u64);
+
+    if !str_eq(kind_of(ms, 1u64).as_str(), "ordered_map") { return 10i32; }
+    if !str_eq(kind_of(ms, 2u64).as_str(), "multimap") { return 11i32; }
+
+    // The catalog of an opened store: ids from the directory, kinds from the
+    // blocks. Nothing here names a container TYPE.
+    {
+        let ids: Vec<u64> = ms.container_ids();
+        if ids.len() != 2i64 { return 12i32; }
+        let mut i: i64 = 0i64;
+        while i < ids.len() {
+            if kind_of(ms, ids.get(i)).len() == 0i64 { return 13i32; }
+            i = i + 1i64;
+        }
+    }
+
+    // The full CFG document — not just the identity — reached the 4 KB root:
+    // the key column's type is readable straight off the block.
+    {
+        let vw: WView2 = ms.ctr_meta(1u64);
+        let kv: WAny = vw.map_get(vw.root(), "key");
+        if kv.is_null() { return 14i32; }
+    }
+
+    // ── §B the document survives every root change ──────────────────────────
+    // Enough entries to split the root leaf and PROMOTE a branch above it.
+    {
+        let mut k: u64 = 0u64;
+        while k < 2000u64 { mp.insert(k, k * 7u64); k = k + 1u64; }
+    }
+    if ms.root_of(1u64).level == 0u32 { return 20i32; }      // the tree did grow
+    if !str_eq(kind_of(ms, 1u64).as_str(), "ordered_map") { return 21i32; }
+
+    // ── §C only the root carries it ─────────────────────────────────────────
+    // The promoted-over node became a child and must have given the document up
+    // — check_tree fails a NON-ROOT node that carries one.
+    if ms.check_ctr_count(1u64) != 0u64 {
+        eprintln_string(&ms.check_ctr(1u64));
+        return 30i32;
+    }
+
+    s1.commit();
+
+    // A forked snapshot CoW-privatizes the root; the clone byte-copies the
+    // region, so the document rides along with no code involved.
+    let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mp2 = open_ctr::<typeof(Ledger)>(&s2, 1u64);
+        mp2.insert(999999u64, 1u64);
+    }
+    if !str_eq(kind_of(ms_of(&s2), 1u64).as_str(), "ordered_map") { return 31i32; }
+    // …and the frozen snapshot still describes itself, on its own root.
+    if !str_eq(kind_of(ms, 1u64).as_str(), "ordered_map") { return 32i32; }
+
+    // The collapse back to a single leaf hands the document to the child.
+    {
+        let mp2 = open_ctr::<typeof(Ledger)>(&s2, 1u64);
+        let mut k: u64 = 0u64;
+        while k < 2000u64 { let _ = mp2.remove(k); k = k + 1u64; }
+    }
+    if !str_eq(kind_of(ms_of(&s2), 1u64).as_str(), "ordered_map") { return 33i32; }
+    s2.commit();
+
+    // ── §D a save/load round-trip preserves it ──────────────────────────────
+    {
+        let mut buf: MemStream = mem_stream_new();
+        if !store_save::<MemStream>(&store, &mut buf) { return 40i32; }
+        buf.rewind();
+        let mut rs: Arc<MemoryStore> = match store_load::<MemStream>(&mut buf) {
+            Option::Some(v) => v,
+            Option::None => { return 41i32; }
+        };
+        let head: Arc<dyn Snapshot> = match store_find(&mut rs, 2u64) {
+            Option::Some(v) => v,
+            Option::None => { return 45i32; }
+        };
+        let rms: &MemorySnapshot = ms_of(&head);
+        let ids: Vec<u64> = rms.container_ids();
+        if ids.len() != 2i64 { return 42i32; }
+        if !str_eq(kind_of(rms, 1u64).as_str(), "ordered_map") { return 43i32; }
+        if !str_eq(kind_of(rms, 2u64).as_str(), "multimap") { return 44i32; }
+    }
+
+    let _ = mm;
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_meta: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

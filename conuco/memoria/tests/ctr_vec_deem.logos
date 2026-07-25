@@ -35,8 +35,11 @@ fn run_all() -> i32 {
     if c.get(0i64) != 10u64 { return 2i32; }
     if c.get(15i64) != 160u64 { return 3i32; }
 
-    let rows: Vec<(i64, i64)> = match big(&c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    let rows: Vec<(i64, i64)> = match big(&c) { 
+        Result::Ok(v) => { v } 
+        Result::Err(_e) => { return 4i32; } 
+    };
+    
     if rows.len() != 6i64 { return 5i32; }
     // Expected set: pos p in 10..=15 with elem (p+1)*10. Set semantics —
     // assert membership + count, not order.

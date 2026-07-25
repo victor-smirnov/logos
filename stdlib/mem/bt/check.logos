@@ -206,6 +206,17 @@ pub fn check_tree(root: *mut u8, level: u32, out: &mut String) -> u64 {
                 viol_i(out, child, "child snap > parent snap (CoW)", i, node_snapshot(child), ps);
                 v = v + 1u64;
             }
+            // Only a ROOT carries the container's schema document (Memoria's
+            // `has_root_metadata() ⟺ is_root()`). This is not bookkeeping
+            // hygiene: the split/merge weight law prices columns against the
+            // node's free space and does not count the metadata payload, so a
+            // document stranded on a demoted node silently over-admits a merge
+            // — which shows up far away, as a rejected admitted merge.
+            if meta_present(child) {
+                viol_i(out, child, "non-root node carries container metadata", i,
+                       meta_size(child), 0u64);
+                v = v + 1u64;
+            }
             let cmax: u64 = subtree_max_key(child, level - 1u32);
             if seps.get(0u32, i) != cmax {
                 viol_i(out, root, "separator != child subtree max", i, seps.get(0u32, i), cmax);

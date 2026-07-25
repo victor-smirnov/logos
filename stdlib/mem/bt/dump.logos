@@ -18,6 +18,7 @@ use logos.mem.pkd.pdtbuf;         // PdtBuf, PdtDim
 use logos.mem.pkd.sseq;           // PkdSsrle — the nested symbol sequence
 use logos.mem.pkd.ssrle;          // SsrleRun, ssrle_bps_for_alphabet
 use logos.mem.bt.node;            // node_* accessors
+use logos.mem.bt.meta;            // the container SCHEMA document in the root
 use logos.mem.string;             // String
 use logos.mem.collections.vec;
 use logos.lang.str;
@@ -28,6 +29,21 @@ fn push_indent(out: &mut String, n: u32) {
 }
 
 /// `0x`-prefixed lowercase hex of `v` (for block addresses / refs).
+/// Printable-ASCII preview of `n` bytes at `p` (non-printables as '.'),
+/// truncated to `max`. A Writ document stores its keys and string values
+/// inline, so this reads well enough to identify a container at a glance —
+/// and it needs no knowledge of the document's shape.
+pub fn push_blob_ascii(p: *const u8, n: u64, out: &mut String, max: u64) {
+    let lim: u64 = if n < max { n } else { max };
+    let mut i: u64 = 0u64;
+    while i < lim {
+        let c: u8 = unsafe { *p.byte_add(i as i64) };
+        if c >= 32u8 && c < 127u8 { out.push_u8(c); } else { out.push_u8(46u8); }
+        i = i + 1u64;
+    }
+    if lim < n { out.push_str("..."); }
+}
+
 pub fn push_hex(out: &mut String, v: u64) {
     out.push_str("0x");
     if v == 0u64 { out.push_u8(48u8); return; }
@@ -208,9 +224,25 @@ pub fn node_dump(node: *mut u8, out: &mut String, ind: u32) {
 
         let a: *mut PkdAlloc = node_pkd(node);
         let nslots: u32 = a.elements();
+        // The trailing slot is the container's SCHEMA document (a root carries
+        // one; every other node leaves it empty). Print WHAT the container is
+        // before printing its data — a node dump that cannot say which
+        // container it belongs to makes the reader guess.
+        let ms: u32 = node_meta_slot(node);
+        if meta_size(node) > 0u64 {
+            push_indent(out, ind + 1u32);
+            out.push_str("slot"); out.push_u64(ms as u64);
+            out.push_str(" [SCHEMA] bytes="); out.push_u64(meta_size(node));
+            out.push_str(":\n");
+            push_indent(out, ind + 2u32);
+            push_blob_ascii(meta_ptr(node), meta_size(node), out, 160u64);
+            out.push_str("\n");
+        }
         let mut s: u32 = 0u32;
         while s < nslots {
-            if s == sq && a.is_allocatable(s) {
+            if s == ms {
+                s = s + 1u32;          // the schema slot, printed above
+            } else if s == sq && a.is_allocatable(s) {
                 // a nested symbol sequence — decode as a 2D table, not a column
                 push_indent(out, ind + 1u32);
                 out.push_str("slot"); out.push_u64(s as u64); out.push_str(" [SSRLE]:\n");
