@@ -94,6 +94,41 @@ impl NodeView {
         return unsafe { self.a.is_allocatable(idx) };
     }
 
+    /// The region's total block size.
+    pub fn block_size(self: &NodeView) -> u32 { return unsafe { self.a.block_size() }; }
+
+    /// Format slot `s` from an EXPLICIT descriptor (the donor-shape form of
+    /// fmt_slot). Allocates ⇒ `&mut`.
+    pub fn fmt_slot_descr(self: &mut NodeView, s: u32, d: &PdtDescr) {
+        unsafe {
+            let zero: Vec<u64> = pdt_payload_zero(d);
+            let need: u32 = pdtbuf_compute_block_size(d, 0u64, &zero);
+            let p: *mut u8 = match self.a.allocate(s, need, SlotKind::Allocatable) {
+                Result::Ok(q) => q,
+                Result::Err(_e) => { assert(false, "NodeView: slot allocation failed"); return; }
+            };
+            let bsz: u32 = self.a.element_size(s);
+            match pdtbuf_format(p, bsz, d) {
+                Result::Ok(_b) => {}
+                Result::Err(_e) => { assert(false, "NodeView: slot format failed"); }
+            }
+            let inner: *mut PkdAlloc = p as *mut PkdAlloc;
+            inner.set_allocator(self.a as *const PkdAlloc);
+        }
+    }
+
+    /// PRICE an insert on slot `idx` without holding a view: the borrow ends
+    /// with the call, so the commit that follows can take `&mut`. This is the
+    /// shape multi-column budgeting needs (price every column, then commit).
+    pub fn price_insert(self: &NodeView, idx: u32, at: u64, count: u64, policy: u32)
+        -> Result<PdtUpdate, PkdError> {
+        return self.col(idx).prepare_insert(at, count, policy);
+    }
+    pub fn price_insert_vals(self: &NodeView, idx: u32, at: u64, count: u64, policy: u32,
+                             vals: &PdtVals) -> Result<PdtUpdate, PkdError> {
+        return self.col(idx).prepare_insert_vals(at, count, policy, vals);
+    }
+
     /// Free space left in the region — the budget the weight calculus prices
     /// against. A read, so it composes with live column views.
     pub fn free_space(self: &NodeView) -> u32 { return unsafe { self.a.free_space() }; }
@@ -161,6 +196,11 @@ impl ColRef {
     pub fn columns(self: &ColRef) -> u32 { return self.buf().columns(); }
     pub fn ordering(self: &ColRef) -> u32 { return self.buf().ordering(); }
     pub fn vle_dims(self: &ColRef) -> u32 { return self.buf().vle_dim_count(); }
+    pub fn vle_dim_count(self: &ColRef) -> u32 { return self.buf().vle_dim_count(); }
+    /// Bytes of payload actually used by a (column, dim) — the weight input.
+    pub fn payload_used(self: &ColRef, column: u32, dim: u32) -> u64 {
+        return self.buf().payload_used(column, dim);
+    }
     pub fn get(self: &ColRef, column: u32, row: u64) -> u64 {
         return self.buf().get(column, row);
     }
@@ -169,6 +209,24 @@ impl ColRef {
     }
     pub fn sum_all(self: &ColRef, column: u32) -> u64 { return self.buf().sum_all(column); }
     pub fn check(self: &ColRef) -> i32 { return self.buf().check(); }
+    /// Byte length of one row's payload in a VLE dimension.
+    pub fn row_len(self: &ColRef, column: u32, dim: u32, row: u64) -> u64 {
+        return self.buf().row_len(column, dim, row);
+    }
+    /// The payload base of a (column, dim) — a raw span; the caller must not
+    /// let it outlive this view.
+    pub unsafe fn payload(self: &ColRef, column: u32, dim: u32) -> *mut u8 {
+        return self.buf().payload(column, dim);
+    }
+    /// PRICE a VALS-shaped insert (VLE payloads) without performing it.
+    pub fn prepare_insert_vals(self: &ColRef, at: u64, count: u64, policy: u32,
+                               vals: &PdtVals) -> Result<PdtUpdate, PkdError> {
+        return self.buf().prepare_insert_vals(at, count, policy, vals);
+    }
+
+    /// The column's own descriptor — the self-describing shape a donor-shaped
+    /// sibling is formatted from.
+    pub fn descr(self: &ColRef) -> PdtDescr { return self.buf().descr(); }
     /// PRICE an insert without performing it. `prepare` takes `&self` — it
     /// plans, it does not move anything (the shift happens at commit) — so
     /// pricing SEVERAL columns before committing any is expressible, which is
@@ -224,6 +282,32 @@ impl ColMut {
         let mut b: PdtBuf = self.buf();          // fresh — prepare may have moved it
         b.commit_insert(&us, vals);
         return true;
+    }
+
+    /// Insert VALS-shaped rows (VLE payloads) at `at` — prepare AND commit in
+    /// one call, each on a freshly resolved payload.
+    pub fn insert_vals(self: &mut ColMut, at: u64, count: u64, vals: &PdtVals) -> bool {
+        let us: PdtUpdate = match self.buf().prepare_insert_vals(at, count,
+                                                                 PDT_CAP_KEEP, vals) {
+            Result::Ok(u) => u,
+            Result::Err(_e) => { return false; }
+        };
+        let mut b: PdtBuf = self.buf();          // fresh — prepare may have moved it
+        b.commit_insert_vals(&us, vals);
+        return true;
+    }
+
+    /// Commit a PLAN priced earlier on a shared view (the multi-column budget
+    /// case: price every column first, then commit them in order). The payload
+    /// is resolved fresh here, so a commit of a SIBLING column in between is
+    /// survivable.
+    pub fn commit_planned(self: &mut ColMut, us: &PdtUpdate, vals: &Vec<u64>) {
+        let mut b: PdtBuf = self.buf();
+        b.commit_insert(us, vals);
+    }
+    pub fn commit_planned_vals(self: &mut ColMut, us: &PdtUpdate, vals: &PdtVals) {
+        let mut b: PdtBuf = self.buf();
+        b.commit_insert_vals(us, vals);
     }
 
     /// Remove rows [at, end) — prepare AND commit in one call, each on a
