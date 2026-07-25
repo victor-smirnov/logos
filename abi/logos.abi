@@ -195,6 +195,7 @@ sym	logos.mem.bt.pack.BtssBatchRet__type_id__g__ref_T
 sym	logos.mem.bt.pack.BtssBuf__type_id__g__ref_T
 sym	logos.mem.bt.pack.BtssRemRet__type_id__g__ref_T
 sym	logos.mem.bt.storecfg.StoreCfg__type_id__g__ref_T
+sym	logos.mem.bt.stream.MemStream__type_id__g__ref_T
 sym	logos.mem.collections.vec.Vec$G1$String__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$bool__fmt__g__ref_Vec$G1$T__refmut_Formatter
 sym	logos.mem.collections.vec.Vec$G1$i32__fmt__g__ref_Vec$G1$T__refmut_Formatter
@@ -9336,6 +9337,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceU32
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MapSliceU64
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MemBlockPtr
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MemBlocks
+sym	logos_lang.logos.lang.any$type_id_of__g__void__MemStream
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MemorySnapshot
 sym	logos_lang.logos.lang.any$type_id_of__g__void__MemoryStore
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Method
@@ -10302,6 +10304,18 @@ sym	logos_mem..logos.mem.bt.storecfg.StoreCfg__get__f__StoreCfg__slice_u8
 sym	logos_mem..logos.mem.bt.storecfg.StoreCfg__get_int_or__f__StoreCfg__slice_u8__u64
 sym	logos_mem..logos.mem.bt.storecfg.StoreCfg__has__f__StoreCfg__slice_u8
 sym	logos_mem..logos.mem.bt.storecfg.StoreCfg__leaf_bytes__f__StoreCfg
+sym	logos_mem..logos.mem.bt.stream.MemStream__drop__f__refmut_MemStream
+sym	logos_mem..logos.mem.bt.stream.MemStream__len__f__ref_MemStream
+sym	logos_mem..logos.mem.bt.stream.MemStream__ptr__f__ref_MemStream
+sym	logos_mem..logos.mem.bt.stream.MemStream__read_all__f__refmut_MemStream__pmut_u8__i64
+sym	logos_mem..logos.mem.bt.stream.MemStream__read_u32__f__refmut_MemStream
+sym	logos_mem..logos.mem.bt.stream.MemStream__read_u64__f__refmut_MemStream
+sym	logos_mem..logos.mem.bt.stream.MemStream__read_u8__f__refmut_MemStream
+sym	logos_mem..logos.mem.bt.stream.MemStream__rewind__f__refmut_MemStream
+sym	logos_mem..logos.mem.bt.stream.MemStream__write_all__f__refmut_MemStream__pcst_u8__i64
+sym	logos_mem..logos.mem.bt.stream.MemStream__write_u32__f__refmut_MemStream__u32
+sym	logos_mem..logos.mem.bt.stream.MemStream__write_u64__f__refmut_MemStream__u64
+sym	logos_mem..logos.mem.bt.stream.MemStream__write_u8__f__refmut_MemStream__u8
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__drop__g__HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__get__g__pmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__get_or_insert__g__pmut_HashMap$G2$K$V__K__V
@@ -10346,6 +10360,10 @@ sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$i64__drop__g__HashMa
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$i64__get__g__pmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$i64__get_or_insert__g__pmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$i64__insert__g__pmut_HashMap$G2$K$V__K__V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$u64__contains_key__g__pmut_HashMap$G2$K$V__ref_K
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$u64__drop__g__HashMap$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$u64__get__g__pmut_HashMap$G2$K$V__ref_K
+sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$u64__insert__g__pmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMapKeys$G2$i64$i64__count__g__HashMapKeys$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMapKeys$G2$i64$i64__enumerate__g__HashMapKeys$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMapKeys$G2$i64$i64__filter__g__HashMapKeys$G2$K$V__fn(&K) -> bool
@@ -10716,6 +10734,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__get__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__index__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__index_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__into_iter__g__Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u32__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u64__borrow__g__ref_Vec$G1$T__i64
@@ -11503,6 +11522,8 @@ sym	logos_mem.logos.mem.bt.pack$pack_seq_weight__f__u32__ref_Vec$G1$SsrleRun
 sym	logos_mem.logos.mem.bt.storecfg$mem_store_cfg__f__WritStatic
 sym	logos_mem.logos.mem.bt.storecfg$store_cfg__f__WritStatic__WritStatic
 sym	logos_mem.logos.mem.bt.storecfg$store_cfg_check__f__WritStatic
+sym	logos_mem.logos.mem.bt.stream$mem_stream_new__f__void
+sym	logos_mem.logos.mem.bt.stream$mem_stream_over__f__pmut_u8__i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__&[u8]__Vec$G1$i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__&[u8]__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], &[u8])__u8
@@ -12469,6 +12490,7 @@ type	logos.mem.bt.pack.BtssBatchRet	fields=[ok:bool,root:*mut u8,level:u32]
 type	logos.mem.bt.pack.BtssBuf	fields=[kmem:*mut u8,vmem:*mut u8,cap_rows:u64,vle:bool]
 type	logos.mem.bt.pack.BtssRemRet	fields=[found:bool,root:*mut u8,level:u32]
 type	logos.mem.bt.storecfg.StoreCfg	fields=[ext:WView2,loc:WView2]
+type	logos.mem.bt.stream.MemStream	fields=[mem:*mut u8,len:i64,cap:i64,pos:i64]
 type	logos.mem.collections.btree.BTreeMap	fields=[keys:*mut K,vals:*mut V,len:i64,cap:i64]
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]
 type	logos.mem.collections.deque.VecDeque	fields=[buf:*mut T,head:i64,len:i64,cap:i64]
@@ -12711,6 +12733,8 @@ vtable	logos.mem.bt.map.Multimap	slots=[size,find,insert]
 vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,set_as_branch,set_as_master]
 vtable	logos.mem.bt.map.Store	slots=[]
 vtable	logos.mem.bt.node.NodeProfile	slots=[alloc,pkd,snapshot,set_snapshot,rc,inc_rc,dec_rc,child_slot,set_child_slot,free,no_children,block_size]
+vtable	logos.mem.bt.stream.InStream	slots=[read_all,read_u8,read_u32,read_u64]
+vtable	logos.mem.bt.stream.OutStream	slots=[write_all,write_u8,write_u32,write_u64]
 vtable	logos.mem.fmt.Binary	slots=[fmt]
 vtable	logos.mem.fmt.Debug	slots=[fmt]
 vtable	logos.mem.fmt.Display	slots=[fmt]

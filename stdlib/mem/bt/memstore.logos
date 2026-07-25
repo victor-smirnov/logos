@@ -35,6 +35,9 @@ use logos.mem.collections.vec;   // Vec — the directory backing (few container
 use logos.mem.string;            // String — named-branch refs + snapshot branch tag
 use logos.lang.str;              // str — branch-name views
 use logos.mem.bt.blockptr;       // MemBlockPtr + trait BlockStore — the block plane
+use logos.mem.bt.stream;         // OutStream / InStream — virtualized save/load IO
+use logos.mem.collections.hashmap; // address → block id during serialization
+use logos.lang.mem;              // alloc / dealloc / copy_bytes — the block image buffer
 use logos.mem.bt.dirmap;         // the directory is a CoW container (dir_set/get/…)
 use logos.mem.bt.dump;           // node/tree dumper — debugging the node-data deltas
 use logos.mem.bt.check;          // invariant checker — localize violations at scale
@@ -1006,3 +1009,277 @@ impl MemoryStore {
 }
 
 impl Store for MemoryStore {}
+
+// ── SERIALIZATION: the whole store to/from a byte stream ────────────────────
+//
+// Memoria's `store()` / `load_memory_store()`, with two deliberate departures:
+//
+//  1. VIRTUALIZED IO — save/load take `OutStream` / `InStream` (this module
+//     never names a file), so the same serializer targets a file, a socket, or
+//     MEMORY (a whole MemoryStore image inside another buffer). File helpers
+//     live with the consumer for now.
+//  2. NO per-container serializers. C++ dispatches
+//     `get_block_operations(ctr_type_hash, block_type_hash)->serialize(...)`
+//     because each packed struct knows its own layout. Our substrate is
+//     uniform and POSITION-INDEPENDENT (a nested block's back-reference to its
+//     parent allocator is an OFFSET, not an address), so a block image is its
+//     bytes VERBATIM — and the only absolute values inside are the block refs,
+//     which live in the header-declared slots (`child_slot` / `value_ref_slot`).
+//     So the whole id↔address transform is ONE generic rewrite, and the walk
+//     is self-describing: no level, no type hashes, no registry.
+//
+// Structural SHARING is preserved: each distinct block is written once (dense
+// id by first visit), so a block shared by N snapshots is restored shared —
+// anything else would silently multiply the tree on load. Refcounts are NOT
+// serialized: they are recomputed on load, falling out of the ref rewrite (one
+// inc per restored reference, plus one per snapshot's directory-root hold).
+
+pub const STORE_MAGIC:   u64 = 0x4C4F474F534D454Du64;   // "LOGOSMEM"
+pub const STORE_FORMAT:  u32 = 1u32;
+
+// Walk from `bp`, assigning a dense id to every block on first visit. Purely
+// slot-driven: a node DECLARES where its refs are, so this needs no level and
+// no container knowledge.
+unsafe fn ser_walk(bp: MemBlockPtr, ids: *mut HashMap<u64, u64>, order: &mut Vec<u64>) {
+    let a: u64 = bp.id();
+    if ids.contains_key(&a) { return; }
+    order.push(a);
+    ids.insert(a, order.len() as u64);          // ids are 1-based (0 = none)
+    let cs: u32 = bp.child_slot();
+    if cs != NODE_NO_CHILDREN {
+        let cb: PdtBuf = pdtbuf_adopt(bp.pkd().get::<u8>(cs));
+        let n: u64 = cb.size();
+        let mut i: u64 = 0u64;
+        while i < n { ser_walk(block_from_addr(cb.get(0u32, i) as *mut u8), ids, order); i = i + 1u64; }
+    }
+    let vr: u32 = bp.value_ref_slot();
+    if vr != NODE_NO_CHILDREN {
+        let vb: PdtBuf = pdtbuf_adopt(bp.pkd().get::<u8>(vr));
+        let m: u64 = vb.size();
+        let mut j: u64 = 0u64;
+        while j < m {
+            let r: u64 = vb.get(0u32, j);
+            if r != 0u64 { ser_walk(block_from_addr(r as *mut u8), ids, order); }
+            j = j + 1u64;
+        }
+    }
+}
+
+// Rewrite an IMAGE's ref columns in place, mapping each cell through `f`
+// (address→id when saving, id→address when loading). Slot-driven, so it works
+// on a detached image exactly as on a live block.
+unsafe fn ser_map_refs(img: *mut u8, ids: *mut HashMap<u64, u64>, to_id: bool,
+                       addrs: &Vec<u64>) {
+    let slots: Vec<u32> = {
+        let mut s: Vec<u32> = vec_new::<u32>();
+        let cs: u32 = node_child_slot(img);
+        if cs != NODE_NO_CHILDREN { s.push(cs); }
+        let vr: u32 = node_value_ref_slot(img);
+        if vr != NODE_NO_CHILDREN { s.push(vr); }
+        s
+    };
+    let mut k: i64 = 0i64;
+    while k < slots.len() {
+        let slot: u32 = slots.get(k);
+        let mut b: PdtBuf = pdtbuf_adopt(node_pkd(img).get::<u8>(slot));
+        let n: u64 = b.size();
+        let mut i: u64 = 0u64;
+        while i < n {
+            let cell: u64 = b.get(0u32, i);
+            if cell != 0u64 {
+                if to_id {
+                    let p: *const u64 = ids.get(&cell);
+                    assert(p != (0 as *const u64), "store_save: unvisited block reference");
+                    b.set(0u32, i, *p);
+                } else {
+                    assert(cell >= 1u64 && cell <= (addrs.len() as u64),
+                           "store_load: block id out of range");
+                    let addr: u64 = addrs.get((cell - 1u64) as i64);
+                    b.set(0u32, i, addr);
+                    node_inc_rc(addr as *mut u8);   // rc recomputed from the graph
+                }
+            }
+            i = i + 1u64;
+        }
+        k = k + 1i64;
+    }
+}
+
+/// Serialize the whole store — committed history, branches, and every block
+/// reachable from it — into `out`. Uncommitted (ACTIVE) snapshots are working
+/// state and are not written, matching Memoria.
+pub fn store_save<W: OutStream>(st: &Arc<MemoryStore>, out: &mut W) -> bool {
+    unsafe {
+        let g: &MemoryStore = &**st;
+        // committed entries, in history order
+        let mut descs: Vec<u64> = vec_new::<u64>();
+        {
+            let n: i64 = g.snaps.len();
+            let mut i: i64 = 0i64;
+            while i < n {
+                let d: *mut SnapDesc = g.snaps.get(i) as *mut SnapDesc;
+                if (*d).status == SNAP_COMMITTED { descs.push(d as u64); }
+                i = i + 1i64;
+            }
+        }
+        // pass 1 — dense block ids over the union of every snapshot's graph
+        let mut ids: HashMap<u64, u64> = hashmap_new::<u64, u64>();
+        let mut order: Vec<u64> = vec_new::<u64>();
+        {
+            let mut i: i64 = 0i64;
+            while i < descs.len() {
+                let d: *mut SnapDesc = descs.get(i) as *mut SnapDesc;
+                ser_walk((*d).dir_root, &mut ids, &mut order);
+                i = i + 1i64;
+            }
+        }
+        // header
+        if !out.write_u64(STORE_MAGIC) { return false; }
+        if !out.write_u32(STORE_FORMAT) { return false; }
+        if !out.write_u32(0u32) { return false; }              // flags
+        // pass 2 — block images, refs rewritten to ids in a COPY (live blocks
+        // are never mutated)
+        if !out.write_u64(order.len() as u64) { return false; }
+        {
+            let empty: Vec<u64> = vec_new::<u64>();
+            let mut i: i64 = 0i64;
+            while i < order.len() {
+                let src: *mut u8 = order.get(i) as *mut u8;
+                let bsz: u32 = node_block_size(src);
+                let img: *mut u8 = alloc(bsz as i64);
+                copy_bytes(img, src as *const u8, bsz as i64);
+                ser_map_refs(img, &mut ids, true, &empty);
+                let ok: bool = out.write_u32(bsz) && out.write_all(img as *const u8, bsz as i64);
+                dealloc(img);
+                if !ok { return false; }
+                i = i + 1i64;
+            }
+        }
+        // pass 3 — the snapshot DAG
+        if !out.write_u64(descs.len() as u64) { return false; }
+        {
+            let mut i: i64 = 0i64;
+            while i < descs.len() {
+                let d: *mut SnapDesc = descs.get(i) as *mut SnapDesc;
+                let rid: *const u64 = ids.get(&(*d).dir_root.id());
+                assert(rid != (0 as *const u64), "store_save: snapshot root unvisited");
+                if !out.write_u64((*d).id) { return false; }
+                if !out.write_u64((*d).parent) { return false; }
+                if !out.write_u32((*d).status) { return false; }
+                if !out.write_u64(*rid) { return false; }
+                if !out.write_u32((*d).dir_level) { return false; }
+                let bn: str = (*d).branch.as_str();
+                if !out.write_u32(bn.len() as u32) { return false; }
+                if !out.write_all(bn.as_ptr(), bn.len()) { return false; }
+                i = i + 1i64;
+            }
+        }
+        // pass 4 — branch refs + the id sequence
+        if !out.write_u64(g.branches.len() as u64) { return false; }
+        {
+            let mut i: i64 = 0i64;
+            while i < g.branches.len() {
+                let nm: str = g.branches.borrow(i).name.as_str();
+                if !out.write_u32(nm.len() as u32) { return false; }
+                if !out.write_all(nm.as_ptr(), nm.len()) { return false; }
+                if !out.write_u64(g.branches.borrow(i).tip) { return false; }
+                i = i + 1i64;
+            }
+        }
+        return out.write_u64(g.next_id);
+    }
+}
+
+/// Rebuild a store from `inp` (the image `store_save` wrote). Blocks are
+/// re-allocated THROUGH the store, ids are mapped back to addresses, and
+/// refcounts are recomputed from the restored graph.
+pub fn store_load<R: InStream>(inp: &mut R) -> Option<Arc<MemoryStore>> {
+    unsafe {
+        if inp.read_u64() != STORE_MAGIC { return Option::None; }
+        if inp.read_u32() != STORE_FORMAT { return Option::None; }
+        let _flags: u32 = inp.read_u32();
+
+        let mut st: Arc<MemoryStore> = store_new();
+        let blocks: u64 = inp.read_u64();
+        let mut addrs: Vec<u64> = vec_new::<u64>();
+        let bs: MemBlocks = mem_blocks_at(0u64);   // images carry their own snap stamp
+        // pass 1 — materialize every block image (refs still ids), rc zeroed
+        {
+            let mut i: u64 = 0u64;
+            while i < blocks {
+                let bsz: u32 = inp.read_u32();
+                let tmp: *mut u8 = alloc(bsz as i64);
+                if !inp.read_all(tmp, bsz as i64) { dealloc(tmp); return Option::None; }
+                let nslots: u32 = node_pkd(tmp).elements();
+                let bp: MemBlockPtr = bs.alloc_block(bsz, nslots);
+                copy_bytes(bp.ptr(), tmp as *const u8, bsz as i64);
+                dealloc(tmp);
+                node_set_rc(bp.ptr(), 0u32);       // recomputed from the graph below
+                addrs.push(bp.id());
+                i = i + 1u64;
+            }
+        }
+        // pass 2 — ids back to addresses; every restored reference bumps its target
+        {
+            let mut dummy: HashMap<u64, u64> = hashmap_new::<u64, u64>();
+            let mut i: i64 = 0i64;
+            while i < addrs.len() {
+                ser_map_refs(addrs.get(i) as *mut u8, &mut dummy, false, &addrs);
+                i = i + 1i64;
+            }
+        }
+        // pass 3 — the snapshot DAG
+        let snaps: u64 = inp.read_u64();
+        {
+            let g: &mut MemoryStore = &mut *st;
+            let mut i: u64 = 0u64;
+            while i < snaps {
+                let id: u64 = inp.read_u64();
+                let parent: u64 = inp.read_u64();
+                let status: u32 = inp.read_u32();
+                let rid: u64 = inp.read_u64();
+                let dlv: u32 = inp.read_u32();
+                let blen: u32 = inp.read_u32();
+                let mut bname: String = String::new();
+                {
+                    let tmp: *mut u8 = alloc(blen as i64 + 1i64);
+                    if !inp.read_all(tmp, blen as i64) { dealloc(tmp); return Option::None; }
+                    bname.push_bytes(tmp as *const u8, blen as i64);
+                    dealloc(tmp);
+                }
+                assert(rid >= 1u64 && rid <= (addrs.len() as u64), "store_load: bad root id");
+                let root: MemBlockPtr = block_from_addr(addrs.get((rid - 1u64) as i64) as *mut u8);
+                root.inc_rc();                      // the snapshot's own hold
+                let d: *mut SnapDesc = box_into_raw(box_new(SnapDesc {
+                    id: id, parent: parent, branch: bname,
+                    dir_root: root, dir_level: dlv,
+                    status: status, wrappers: atomic_i32_new(0),
+                }));
+                g.snaps.push(d as u64);
+                i = i + 1u64;
+            }
+        }
+        // pass 4 — branches (replacing the fresh store's default master) + ids
+        {
+            let g: &mut MemoryStore = &mut *st;
+            let brs: u64 = inp.read_u64();
+            g.branches = vec_new::<BranchRef>();
+            let mut i: u64 = 0u64;
+            while i < brs {
+                let nlen: u32 = inp.read_u32();
+                let mut nm: String = String::new();
+                {
+                    let tmp: *mut u8 = alloc(nlen as i64 + 1i64);
+                    if !inp.read_all(tmp, nlen as i64) { dealloc(tmp); return Option::None; }
+                    nm.push_bytes(tmp as *const u8, nlen as i64);
+                    dealloc(tmp);
+                }
+                let tip: u64 = inp.read_u64();
+                g.branches.push(BranchRef { name: nm, tip: tip });
+                i = i + 1u64;
+            }
+            g.next_id = inp.read_u64();
+        }
+        return Option::Some(st);
+    }
+}

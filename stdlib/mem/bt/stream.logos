@@ -1,0 +1,132 @@
+// logos.mem.bt.stream — VIRTUALIZED byte streams for store serialization.
+//
+// The store's save/load never name a file: they take `&mut W: OutStream` /
+// `&mut R: InStream`. That indirection is deliberate (a divergence from base
+// Memoria, which writes to a file handle): the same serializer then targets a
+// file, a socket, a pipe — or MEMORY, which is what lets a whole MemoryStore
+// live inside another buffer.
+//
+// The traits are minimal on purpose: an implementor provides ONE raw byte
+// operation, and the fixed-width helpers ride on defaults. Values are written
+// in NATIVE byte order — a MemoryStore image is already tied to this machine's
+// pointer width; a portable interchange format is a separate concern (and a
+// separate header flag) when one is needed.
+//
+// (Placement: this is general IO and belongs in an io tier; it lives here until
+// the io modules are split out.)
+package logos.mem.bt.stream;
+
+use logos.lang.mem;                // alloc / dealloc / copy_bytes
+use logos.lang.panic;
+
+/// A byte sink. `write_all` returns false on failure; the fixed-width helpers
+/// build on it, so an implementor writes exactly one method.
+pub trait OutStream {
+    fn write_all(self: &mut Self, buf: *const u8, len: i64) -> bool;
+
+    fn write_u8(self: &mut Self, v: u8) -> bool {
+        let x: u8 = v;
+        return self.write_all(&x as *const u8, 1i64);
+    }
+    fn write_u32(self: &mut Self, v: u32) -> bool {
+        let x: u32 = v;
+        return self.write_all(&x as *const u32 as *const u8, 4i64);
+    }
+    fn write_u64(self: &mut Self, v: u64) -> bool {
+        let x: u64 = v;
+        return self.write_all(&x as *const u64 as *const u8, 8i64);
+    }
+}
+
+/// A byte source. `read_all` fills exactly `len` bytes or returns false.
+pub trait InStream {
+    fn read_all(self: &mut Self, buf: *mut u8, len: i64) -> bool;
+
+    fn read_u8(self: &mut Self) -> u8 {
+        let mut x: u8 = 0u8;
+        assert(self.read_all(&mut x as *mut u8, 1i64), "InStream: short read (u8)");
+        return x;
+    }
+    fn read_u32(self: &mut Self) -> u32 {
+        let mut x: u32 = 0u32;
+        assert(self.read_all(&mut x as *mut u32 as *mut u8, 4i64), "InStream: short read (u32)");
+        return x;
+    }
+    fn read_u64(self: &mut Self) -> u64 {
+        let mut x: u64 = 0u64;
+        assert(self.read_all(&mut x as *mut u64 as *mut u8, 8i64), "InStream: short read (u64)");
+        return x;
+    }
+}
+
+// ── the in-MEMORY stream ─────────────────────────────────────────────────────
+//
+// Writes append (growing by doubling); reads consume from `pos`. `rewind`
+// turns a just-written stream into a readable one — the round-trip in a single
+// object, and the vehicle for "a MemoryStore image inside memory".
+
+pub struct MemStream {
+    mem: *mut u8,
+    len: i64,
+    cap: i64,
+    pos: i64,
+}
+
+pub fn mem_stream_new() -> MemStream {
+    return MemStream { mem: 0 as *mut u8, len: 0i64, cap: 0i64, pos: 0i64 };
+}
+
+/// A readable stream over bytes someone else owns (no copy, no ownership —
+/// the caller keeps the buffer alive).
+pub fn mem_stream_over(ptr: *mut u8, len: i64) -> MemStream {
+    return MemStream { mem: ptr, len: len, cap: 0i64, pos: 0i64 };   // cap 0 ⇒ not owned
+}
+
+impl MemStream {
+    pub fn len(self: &MemStream) -> i64 { return self.len; }
+    pub fn ptr(self: &MemStream) -> *mut u8 { return self.mem; }
+    /// Re-read from the start (a written stream becomes a readable one).
+    pub fn rewind(self: &mut MemStream) { self.pos = 0i64; }
+
+    fn grow(self: &mut MemStream, need: i64) {
+        if self.len + need <= self.cap { return; }
+        let mut nc: i64 = if self.cap == 0i64 { 4096i64 } else { self.cap * 2i64 };
+        while nc < self.len + need { nc = nc * 2i64; }
+        unsafe {
+            let nm: *mut u8 = alloc(nc);
+            if self.mem != (0 as *mut u8) && self.len > 0i64 {
+                copy_bytes(nm, self.mem as *const u8, self.len);
+            }
+            if self.mem != (0 as *mut u8) && self.cap > 0i64 { dealloc(self.mem); }
+            self.mem = nm;
+            self.cap = nc;
+        }
+    }
+}
+
+impl OutStream for MemStream {
+    fn write_all(self: &mut MemStream, buf: *const u8, len: i64) -> bool {
+        if len <= 0i64 { return true; }
+        self.grow(len);
+        unsafe { copy_bytes(self.mem.byte_add(self.len), buf, len); }
+        self.len = self.len + len;
+        return true;
+    }
+}
+
+impl InStream for MemStream {
+    fn read_all(self: &mut MemStream, buf: *mut u8, len: i64) -> bool {
+        if len <= 0i64 { return true; }
+        if self.pos + len > self.len { return false; }
+        unsafe { copy_bytes(buf, self.mem.byte_add(self.pos) as *const u8, len); }
+        self.pos = self.pos + len;
+        return true;
+    }
+}
+
+impl Drop for MemStream {
+    fn drop(self: &mut MemStream) {
+        // cap > 0 marks an OWNED buffer (mem_stream_over borrows).
+        if self.cap > 0i64 && self.mem != (0 as *mut u8) { unsafe { dealloc(self.mem); } }
+    }
+}

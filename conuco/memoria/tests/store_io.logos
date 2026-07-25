@@ -1,0 +1,187 @@
+// store_io — save/load round-trip of a whole MemoryStore.
+//
+// The serializer is stream-VIRTUALIZED: the same `store_save`/`store_load` run
+// over an in-MEMORY stream (§A — the shape that will let a store image live
+// inside another buffer) and over a FILE (§B, memoria.store's FileOut/FileIn).
+//
+// What the round-trip must preserve:
+//   - every container's contents, across MULTIPLE snapshots (frozen history);
+//   - the branch table and the snapshot DAG (parents, ids, next_id);
+//   - STRUCTURAL SHARING — a block reachable from two snapshots must come back
+//     as ONE block (a rc > 1 witness), not a silently duplicated tree;
+//   - well-formedness — check_dir/check_ctr over the restored store.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use memoria.store;                    // FileOut / FileIn — the file streams
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.bt.stream;              // MemStream + the OutStream/InStream traits
+use logos.mem.bt.blockptr;
+use logos.mem.sync;
+use logos.lang.str;
+use logos.mem.string;
+use logos.lang.option;
+use logos.std.io;
+
+container Ledger for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+const N_CTRS: u64 = 40u64;
+const N_KEYS: u64 = 60u64;
+
+fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
+    return unsafe { &*(dyn_data(&**s) as *const MemorySnapshot) };
+}
+
+// Build the fixture: v1 fills N_CTRS containers on master; v2 branches
+// "feature" and edits ONE container (so most blocks stay SHARED between the
+// two snapshots — the sharing witness below depends on it).
+fn build(store: &mut Arc<MemoryStore>) {
+    let s1: Arc<dyn Snapshot> = store_fork_arc(store);
+    {
+        let mut c: u64 = 1u64;
+        while c <= N_CTRS {
+            let h = create_ctr::<typeof(Ledger)>(&s1, c);
+            let mut k: u64 = 0u64;
+            while k < N_KEYS { h.insert(k, c * 1000u64 + k); k = k + 1u64; }
+            c = c + 1u64;
+        }
+    }
+    s1.commit();
+
+    let s2: Arc<dyn Snapshot> = store_fork_arc(store);
+    s2.set_as_branch("feature");
+    {
+        let h = open_ctr::<typeof(Ledger)>(&s2, 7u64);
+        h.insert(3u64, 999999u64);
+    }
+    s2.commit();
+}
+
+// Verify a store (fresh or restored) against the fixture's expectations.
+fn verify(store: &mut Arc<MemoryStore>) -> i32 {
+    // branch table
+    if store_branch_head(store, "master") != 1u64 { return 1i32; }
+    if store_branch_head(store, "feature") != 2u64 { return 2i32; }
+    // DAG
+    if store_snapshot_parent(store, 2u64) != 1u64 { return 3i32; }
+    if store_snapshot_status(store, 1u64) != SNAP_COMMITTED { return 4i32; }
+    if store_snapshot_status(store, 2u64) != SNAP_COMMITTED { return 5i32; }
+
+    let m: Arc<dyn Snapshot> = match store_find(store, 1u64) {
+        Option::Some(s) => s,
+        Option::None => { return 6i32; }
+    };
+    let f: Arc<dyn Snapshot> = match store_find(store, 2u64) {
+        Option::Some(s) => s,
+        Option::None => { return 7i32; }
+    };
+
+    // every container, every key, in the FROZEN v1
+    {
+        let mut c: u64 = 1u64;
+        while c <= N_CTRS {
+            let h = open_ctr::<typeof(Ledger)>(&m, c);
+            if h.size() != N_KEYS { return 8i32; }
+            let mut k: u64 = 0u64;
+            while k < N_KEYS {
+                if h.get_or(k, 0xDEADu64) != c * 1000u64 + k { return 9i32; }
+                k = k + 1u64;
+            }
+            c = c + 1u64;
+        }
+    }
+    // the edit is visible in v2 only
+    {
+        let h2 = open_ctr::<typeof(Ledger)>(&f, 7u64);
+        if h2.get_or(3u64, 0u64) != 999999u64 { return 10i32; }
+        let h1 = open_ctr::<typeof(Ledger)>(&m, 7u64);
+        if h1.get_or(3u64, 0u64) != 7003u64 { return 11i32; }
+        // an untouched container reads the same through both
+        let u2 = open_ctr::<typeof(Ledger)>(&f, 20u64);
+        if u2.get_or(5u64, 0u64) != 20005u64 { return 12i32; }
+    }
+    // well-formed after restore
+    if ms_of(&m).check_dir_count() != 0u64 { eprintln_string(&ms_of(&m).check_dir()); return 13i32; }
+    if ms_of(&f).check_dir_count() != 0u64 { return 14i32; }
+    if ms_of(&m).check_ctr_count(7u64) != 0u64 { return 15i32; }
+    if ms_of(&f).check_ctr_count(7u64) != 0u64 { return 16i32; }
+    if ms_of(&m).container_ids().len() != (N_CTRS as i64) { return 17i32; }
+
+    // STRUCTURAL SHARING: container 20 was never touched in v2, so both
+    // snapshots must resolve it to the SAME block, and that block must carry
+    // more than one reference. A duplicating loader would pass every check
+    // above and fail here.
+    {
+        let r1 = ms_of(&m).root_of(20u64);
+        let r2 = ms_of(&f).root_of(20u64);
+        if r1.root != r2.root { return 18i32; }
+        if unsafe { node_rc(r1.root) } < 2u32 { return 19i32; }
+    }
+    return 0i32;
+}
+
+fn run_all() -> i32 {
+    // ── §A: round-trip through an in-MEMORY stream ───────────────────────
+    let mut img: MemStream = mem_stream_new();
+    {
+        let mut store: Arc<MemoryStore> = store_new();
+        build(&mut store);
+        let base: i32 = verify(&mut store);
+        if base != 0i32 { return 100i32 + base; }        // the fixture itself
+        if !store_save::<MemStream>(&store, &mut img) { return 20i32; }
+        if img.len() <= 0i64 { return 21i32; }
+    }   // the ORIGINAL store is gone — what follows lives only in the image
+    img.rewind();
+    {
+        let mut back: Arc<MemoryStore> = match store_load::<MemStream>(&mut img) {
+            Option::Some(s) => s,
+            Option::None => { return 22i32; }
+        };
+        let rc: i32 = verify(&mut back);
+        if rc != 0i32 { return 200i32 + rc; }
+    }
+
+    // ── §B: round-trip through a FILE (the same serializer, other stream) ─
+    let path: str = "/tmp/logos_store_io.bin";
+    {
+        let mut store: Arc<MemoryStore> = store_new();
+        build(&mut store);
+        let mut fo: FileOut = match file_out_create(path) {
+            Option::Some(w) => w,
+            Option::None => { return 30i32; }
+        };
+        if !store_save::<FileOut>(&store, &mut fo) { return 31i32; }
+        if fo.close() <= 0i64 { return 32i32; }
+    }
+    {
+        let mut fi: FileIn = match file_in_open(path) {
+            Option::Some(r) => r,
+            Option::None => { return 33i32; }
+        };
+        let mut back: Arc<MemoryStore> = match store_load::<FileIn>(&mut fi) {
+            Option::Some(s) => s,
+            Option::None => { return 34i32; }
+        };
+        fi.close();
+        let rc: i32 = verify(&mut back);
+        if rc != 0i32 { return 300i32 + rc; }
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL store_io: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

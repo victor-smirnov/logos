@@ -1,0 +1,154 @@
+// memoria.store (fileio) — FILE-backed byte streams for store save/load.
+//
+// The store serializer is stream-virtualized (logos.mem.bt.stream): it never
+// names a file. These are the file implementations of that contract, living on
+// the consumer side for now — they graduate into an io tier when the modules
+// are split.
+//
+// Both buffer: the serializer emits many small fixed-width fields between the
+// big block images, and a syscall per u32 would dominate the cost.
+package memoria.store;
+
+use logos.mem.bt.stream;     // OutStream / InStream — the contract
+use logos.std.io.fs;         // File / open / create
+use logos.lang.mem;          // alloc / dealloc / copy_bytes
+use logos.lang.result;
+use logos.lang.option;      // Option — open/create may fail
+use logos.lang.panic;
+
+const FIO_BUF: i64 = 65536i64;
+
+/// A buffered file SINK. `close` flushes; dropping without closing flushes too.
+pub struct FileOut {
+    f: File,
+    buf: *mut u8,
+    fill: i64,
+    off: i64,        // file offset of the next flush
+    ok: bool,
+}
+
+pub fn file_out_create(path: str) -> Option<FileOut> {
+    match create(path.as_ptr()) {
+        Result::Ok(f) => {
+            return Option::Some(FileOut {
+                f: f, buf: unsafe { alloc(FIO_BUF) }, fill: 0i64, off: 0i64, ok: true,
+            });
+        }
+        Result::Err(_e) => { return Option::None; }
+    }
+}
+
+impl FileOut {
+    fn flush_buf(self: &mut FileOut) -> bool {
+        if self.fill == 0i64 { return true; }
+        let n: i32 = self.f.write_at(self.buf as *const u8, self.fill, self.off);
+        if (n as i64) != self.fill { self.ok = false; return false; }
+        self.off = self.off + self.fill;
+        self.fill = 0i64;
+        return true;
+    }
+
+    /// Flush + close; returns the number of bytes written, or -1 on error.
+    pub fn close(self: &mut FileOut) -> i64 {
+        if !self.flush_buf() { return -1i64; }
+        let _ = self.f.close();
+        return self.off;
+    }
+}
+
+impl OutStream for FileOut {
+    fn write_all(self: &mut FileOut, buf: *const u8, len: i64) -> bool {
+        if !self.ok { return false; }
+        if len >= FIO_BUF {
+            // big payload (a block image): flush, then write it straight through
+            if !self.flush_buf() { return false; }
+            let n: i32 = self.f.write_at(buf, len, self.off);
+            if (n as i64) != len { self.ok = false; return false; }
+            self.off = self.off + len;
+            return true;
+        }
+        if self.fill + len > FIO_BUF {
+            if !self.flush_buf() { return false; }
+        }
+        unsafe { copy_bytes(self.buf.byte_add(self.fill), buf, len); }
+        self.fill = self.fill + len;
+        return true;
+    }
+}
+
+impl Drop for FileOut {
+    fn drop(self: &mut FileOut) {
+        if self.buf != (0 as *mut u8) {
+            let _ = self.flush_buf();
+            unsafe { dealloc(self.buf); }
+        }
+    }
+}
+
+/// A buffered file SOURCE.
+pub struct FileIn {
+    f: File,
+    buf: *mut u8,
+    fill: i64,       // valid bytes in buf
+    pos: i64,        // consumed bytes in buf
+    off: i64,        // file offset of the next refill
+    eof: bool,
+}
+
+pub fn file_in_open(path: str) -> Option<FileIn> {
+    match open(path.as_ptr()) {
+        Result::Ok(f) => {
+            return Option::Some(FileIn {
+                f: f, buf: unsafe { alloc(FIO_BUF) },
+                fill: 0i64, pos: 0i64, off: 0i64, eof: false,
+            });
+        }
+        Result::Err(_e) => { return Option::None; }
+    }
+}
+
+impl FileIn {
+    pub fn close(self: &mut FileIn) { let _ = self.f.close(); }
+
+    fn refill(self: &mut FileIn) -> bool {
+        self.fill = 0i64;
+        self.pos = 0i64;
+        let n: i32 = self.f.read_at(self.buf, FIO_BUF, self.off);
+        if n <= 0i32 { self.eof = true; return false; }
+        self.fill = n as i64;
+        self.off = self.off + self.fill;
+        return true;
+    }
+}
+
+impl InStream for FileIn {
+    fn read_all(self: &mut FileIn, buf: *mut u8, len: i64) -> bool {
+        let mut want: i64 = len;
+        let mut dst: *mut u8 = buf;
+        while want > 0i64 {
+            if self.pos == self.fill {
+                // a large read bypasses the buffer entirely
+                if want >= FIO_BUF {
+                    let n: i32 = self.f.read_at(dst, want, self.off);
+                    if (n as i64) != want { return false; }
+                    self.off = self.off + want;
+                    return true;
+                }
+                if !self.refill() { return false; }
+            }
+            let avail: i64 = self.fill - self.pos;
+            let take: i64 = if avail < want { avail } else { want };
+            unsafe { copy_bytes(dst, self.buf.byte_add(self.pos) as *const u8, take); }
+            self.pos = self.pos + take;
+            unsafe { dst = dst.byte_add(take); }
+            want = want - take;
+        }
+        return true;
+    }
+}
+
+impl Drop for FileIn {
+    fn drop(self: &mut FileIn) {
+        if self.buf != (0 as *mut u8) { unsafe { dealloc(self.buf); } }
+    }
+}
