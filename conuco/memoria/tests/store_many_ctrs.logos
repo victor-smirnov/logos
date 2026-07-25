@@ -83,9 +83,24 @@ fn run_all() -> i32 {
         if u2.get_or(900u64, 0u64) != 9000u64 { return 8i32; }
     }
 
-    // (Per-container REMOVE at this scale is exercised by ctr_map_batch /
-    // example_map; this test's job is the directory's scaling — create,
-    // O(log D) lookup, O(1)-fork isolation, and the ONE-cascade release below.)
+    // ── remove a container's entry at scale; its other entry survives ────
+    {
+        let c = open_ctr::<typeof(Ledger)>(&s2, 1500u64);
+        if !c.remove(1500u64) { return 9i32; }
+        if c.get_or(1500u64, 0xDEADu64) != 0xDEADu64 { return 10i32; }
+        if c.get_or(1001500u64, 0u64) != 1500u64 { return 11i32; }  // id+1000000, survives
+        if c.size() != 1u64 { return 12i32; }
+    }
+
+    // the DIRECTORY tree is well-formed after all the churn (check() at scale —
+    // separators, ordering, levels, snap monotonicity across 2000 entries)
+    {
+        let msr: &MemorySnapshot = unsafe { &*(dyn_data(&*s2) as *const MemorySnapshot) };
+        if msr.check_dir_count() != 0u64 {
+            eprintln_string(&msr.check_dir());
+            return 13i32;
+        }
+    }
 
     // Everything (both snapshots' whole 2000-container populations) is released
     // by the store's Drop at scope end — ONE tree_release(dir_root) cascade per

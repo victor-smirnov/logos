@@ -35,6 +35,8 @@ use logos.mem.collections.vec;   // Vec — the directory backing (few container
 use logos.mem.string;            // String — named-branch refs + snapshot branch tag
 use logos.lang.str;              // str — branch-name views
 use logos.mem.bt.dirmap;         // the directory is a CoW container (dir_set/get/…)
+use logos.mem.bt.dump;           // node/tree dumper — debugging the node-data deltas
+use logos.mem.bt.check;          // invariant checker — localize violations at scale
 
 // tree_release (generic node lifecycle + the directory's value-ref cascade)
 // lives in logos.mem.bt.node — pure node_* + column walk — so both this store
@@ -243,6 +245,54 @@ impl MemorySnapshot {
         let mut out: Vec<u64> = vec_new::<u64>();
         unsafe { dir_keys((*self.d()).dir_root, (*self.d()).dir_level, &mut out); }
         return out;
+    }
+
+    // — debugging: dump node data to structured text (Memoria dump_*) —
+
+    /// A structured-text dump of container `ctr_id`'s whole tree in this
+    /// snapshot (header + columns per node, children indented). Dump before and
+    /// after an operation and compare to SEE what it changed.
+    pub fn dump_ctr(self: &MemorySnapshot, ctr_id: u64) -> String {
+        let e: DirEntry = self.root_of(ctr_id);
+        return tree_dump_string(e.root, e.level);
+    }
+
+    /// A structured-text dump of the snapshot's DIRECTORY tree itself (the
+    /// `CtrID → root` map); leaf value-refs are the container roots (hex).
+    pub fn dump_dir(self: &MemorySnapshot) -> String {
+        unsafe { return tree_dump_string((*self.d()).dir_root, (*self.d()).dir_level); }
+    }
+
+    /// The root→leaf SPINE toward `key` in container `ctr_id` (`keep` = leaf +
+    /// keep-1 ancestors, 0 = whole path). The focused view for a mutation.
+    pub fn dump_ctr_path(self: &MemorySnapshot, ctr_id: u64, key: u64, keep: u32) -> String {
+        let e: DirEntry = self.root_of(ctr_id);
+        return path_dump_string(e.root, e.level, key, keep);
+    }
+
+    /// The directory's root→leaf spine toward `ctr_id` (which dir leaf routes it).
+    pub fn dump_dir_path(self: &MemorySnapshot, ctr_id: u64, keep: u32) -> String {
+        unsafe { return path_dump_string((*self.d()).dir_root, (*self.d()).dir_level, ctr_id, keep); }
+    }
+
+    /// Verify container `ctr_id`'s tree invariants; returns a report string
+    /// (leading line = violation count, then one line per violation, naming the
+    /// node). Clean tree ⇒ "check: 0 violation(s)".
+    pub fn check_ctr(self: &MemorySnapshot, ctr_id: u64) -> String {
+        let e: DirEntry = self.root_of(ctr_id);
+        return check_tree_report(e.root, e.level);
+    }
+
+    /// Verify the DIRECTORY tree's own invariants (the `CtrID → root` map).
+    pub fn check_dir(self: &MemorySnapshot) -> String {
+        unsafe { return check_tree_report((*self.d()).dir_root, (*self.d()).dir_level); }
+    }
+
+    /// The directory's violation COUNT (0 = well-formed) — for gating a check
+    /// into a test without parsing the report.
+    pub fn check_dir_count(self: &MemorySnapshot) -> u64 {
+        let mut s: String = String::new();
+        return unsafe { check_tree((*self.d()).dir_root, (*self.d()).dir_level, &mut s) };
     }
 
     // — lifecycle lives on `impl Snapshot for MemorySnapshot` below (the PUBLIC

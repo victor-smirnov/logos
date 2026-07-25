@@ -1,0 +1,132 @@
+// logos.mem.bt.check — a GENERIC bt-tree invariant checker with diagnostics.
+// The second half of the Memoria debugging method (the first is dump.logos):
+// verify the invariants WITHIN a node and BETWEEN a node and its children,
+// report WHERE and WHICH invariant broke, at scale. Once check() localizes a
+// violation you `dump` the named node(s) and look. With both, debugging a
+// container is no harder than debugging a linked list.
+//
+// It is GENERIC because the substrate is uniform: slot 0 of every bt node is
+// the MAX-ordered key/separator column, a branch declares its child_slot, and a
+// separator equals the maximum key reachable through its child. So one walk
+// checks map / directory / btfl / btvec alike. (Keys compared UNSIGNED — a
+// signed-key container needs the signed twin; the directory this serves is
+// unsigned.) A Canon-emitted, schema-aware checker (per-container extra
+// invariants) is the natural next layer.
+package logos.mem.bt.check;
+
+use logos.mem.pkd;
+use logos.mem.pkd.pdtbuf;
+use logos.mem.bt.node;
+use logos.mem.bt.dump;             // push_hex — name the offending node
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+fn viol(out: &mut String, node: *mut u8, msg: str) {
+    out.push_str("  VIOLATION @"); push_hex(out, node as u64);
+    out.push_str(" lvl="); out.push_u64(unsafe { node_level(node) } as u64);
+    out.push_str(": "); out.push_str(msg); out.push_str("\n");
+}
+
+fn viol_i(out: &mut String, node: *mut u8, msg: str, i: u64, a: u64, b: u64) {
+    out.push_str("  VIOLATION @"); push_hex(out, node as u64);
+    out.push_str(": "); out.push_str(msg);
+    out.push_str(" [i="); out.push_u64(i);
+    out.push_str(" got="); out.push_u64(a);
+    out.push_str(" exp="); out.push_u64(b); out.push_str("]\n");
+}
+
+/// The maximum key reachable through `(node, level)` — descend the rightmost
+/// child to the rightmost leaf and read its last slot-0 cell. GROUND TRUTH,
+/// independent of the separators being checked.
+unsafe fn subtree_max_key(node: *mut u8, level: u32) -> u64 {
+    let mut n: *mut u8 = node;
+    let mut lv: u32 = level;
+    while lv > 0u32 {
+        let a: *mut PkdAlloc = node_pkd(n);
+        let cs: u32 = node_child_slot(n);
+        if cs == NODE_NO_CHILDREN { return 0u64; }
+        let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+        let cnt: u64 = cb.size();
+        if cnt == 0u64 { return 0u64; }
+        n = cb.get(0u32, cnt - 1u64) as *mut u8;
+        lv = lv - 1u32;
+    }
+    let kb: PdtBuf = pdtbuf_adopt(node_pkd(n).get::<u8>(0u32));
+    let m: u64 = kb.size();
+    if m == 0u64 { return 0u64; }
+    return kb.get(0u32, m - 1u64);
+}
+
+// slot-0 strictly increasing (keys/separators are a MAX-ordered, unique set).
+unsafe fn check_ordered(node: *mut u8, out: &mut String) -> u64 {
+    let kb: PdtBuf = pdtbuf_adopt(node_pkd(node).get::<u8>(0u32));
+    let n: u64 = kb.size();
+    let mut v: u64 = 0u64;
+    let mut i: u64 = 1u64;
+    while i < n {
+        if kb.get(0u32, i) <= kb.get(0u32, i - 1u64) {
+            viol_i(out, node, "slot0 not strictly increasing", i, kb.get(0u32, i), kb.get(0u32, i - 1u64));
+            v = v + 1u64;
+        }
+        i = i + 1u64;
+    }
+    return v;
+}
+
+/// Recursively verify `(root, level)`, appending diagnostics to `out`. Returns
+/// the total violation count (0 = well-formed). Invariants:
+///   within a node — rc >= 1; slot 0 strictly increasing;
+///   a branch      — sep count == child count; and per child i:
+///                   child.level == level-1; child.snap <= node.snap (CoW);
+///                   sep[i] == the max key reachable through child i.
+pub fn check_tree(root: *mut u8, level: u32, out: &mut String) -> u64 {
+    unsafe {
+        let mut v: u64 = 0u64;
+        if node_rc(root) == 0u32 { viol(out, root, "rc == 0"); v = v + 1u64; }
+        v = v + check_ordered(root, out);
+        if level == 0u32 { return v; }
+
+        let a: *mut PkdAlloc = node_pkd(root);
+        let cs: u32 = node_child_slot(root);
+        if cs == NODE_NO_CHILDREN { viol(out, root, "branch has no child_slot"); return v + 1u64; }
+        let seps: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+        let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+        let ns: u64 = seps.size();
+        let nc: u64 = cb.size();
+        if ns != nc { viol_i(out, root, "sep count != child count", 0u64, ns, nc); v = v + 1u64; }
+        let n: u64 = if ns < nc { ns } else { nc };
+        let ps: u64 = node_snapshot(root);
+        let mut i: u64 = 0u64;
+        while i < n {
+            let child: *mut u8 = cb.get(0u32, i) as *mut u8;
+            if node_level(child) != level - 1u32 {
+                viol_i(out, child, "child level mismatch", i, node_level(child) as u64, (level - 1u32) as u64);
+                v = v + 1u64;
+            }
+            if node_snapshot(child) > ps {
+                viol_i(out, child, "child snap > parent snap (CoW)", i, node_snapshot(child), ps);
+                v = v + 1u64;
+            }
+            let cmax: u64 = subtree_max_key(child, level - 1u32);
+            if seps.get(0u32, i) != cmax {
+                viol_i(out, root, "separator != child subtree max", i, seps.get(0u32, i), cmax);
+                v = v + 1u64;
+            }
+            v = v + check_tree(child, level - 1u32, out);
+            i = i + 1u64;
+        }
+        return v;
+    }
+}
+
+/// Convenience: check a tree, returning the diagnostics string (empty-ish when
+/// clean) and the violation count via the leading line.
+pub fn check_tree_report(root: *mut u8, level: u32) -> String {
+    let mut s: String = String::new();
+    let v: u64 = check_tree(root, level, &mut s);
+    let mut head: String = String::new();
+    head.push_str("check: "); head.push_u64(v); head.push_str(" violation(s)\n");
+    head.push_str(s.as_str());
+    return head;
+}

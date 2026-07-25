@@ -1,0 +1,196 @@
+// logos.mem.bt.dump — a GENERIC node/tree dumper: any bt node's data as
+// structured, indented text. The Logos answer to Memoria's per-packed-struct
+// `generateDataEvents` (block_operations.hpp): there, EACH packed structure
+// hand-writes how to serialize itself to text. Here the node substrate is
+// UNIFORM — a MemNode header + a PkdAlloc of PdtBuf column slots — so ONE walker
+// over (header, slots, columns) dumps every node kind (leaf / branch /
+// directory / btfl / btvec) with no per-struct code. Slot semantics (key / val
+// / sep / child / ref) are labelled where the header declares them
+// (child_slot / value_ref_slot); a schema-aware, Canon-emitted labelled dumper
+// is the natural next layer.
+//
+// Purpose: make node-data DELTAS observable — dump a (sub)tree before and after
+// an operation and compare, to see exactly what the operation changed.
+package logos.mem.bt.dump;
+
+use logos.mem.pkd;                // PkdAlloc
+use logos.mem.pkd.pdtbuf;         // PdtBuf, PdtDim
+use logos.mem.bt.node;            // node_* accessors
+use logos.mem.string;             // String
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+fn push_indent(out: &mut String, n: u32) {
+    let mut i: u32 = 0u32;
+    while i < n { out.push_str("  "); i = i + 1u32; }
+}
+
+/// `0x`-prefixed lowercase hex of `v` (for block addresses / refs).
+pub fn push_hex(out: &mut String, v: u64) {
+    out.push_str("0x");
+    if v == 0u64 { out.push_u8(48u8); return; }
+    let mut started: bool = false;
+    let mut shift: i32 = 60i32;
+    while shift >= 0i32 {
+        let nib: u8 = ((v >> (shift as u64)) & 0xFu64) as u8;
+        if nib != 0u8 || started {
+            started = true;
+            let ch: u8 = if nib < 10u8 { 48u8 + nib } else { 87u8 + nib };
+            out.push_u8(ch);
+        }
+        shift = shift - 4i32;
+    }
+}
+
+/// Dump ONE node's header + every allocated slot's columns, at indent `ind`.
+/// A slot that is the declared child_slot or value_ref_slot has its cells shown
+/// as hex (they are block addresses); other cells are decimal.
+pub fn node_dump(node: *mut u8, out: &mut String, ind: u32) {
+    unsafe {
+        let cs: u32 = node_child_slot(node);
+        let vr: u32 = node_value_ref_slot(node);
+        push_indent(out, ind);
+        if node_level(node) == 0u32 { out.push_str("LEAF   @"); } else { out.push_str("BRANCH @"); }
+        push_hex(out, node as u64);
+        out.push_str(" snap="); out.push_u64(node_snapshot(node));
+        out.push_str(" rc="); out.push_u64(node_rc(node) as u64);
+        out.push_str(" lvl="); out.push_u64(node_level(node) as u64);
+        if cs != NODE_NO_CHILDREN { out.push_str(" child=slot"); out.push_u64(cs as u64); }
+        if vr != NODE_NO_CHILDREN { out.push_str(" vref=slot"); out.push_u64(vr as u64); }
+        out.push_str("\n");
+
+        let a: *mut PkdAlloc = node_pkd(node);
+        let nslots: u32 = a.elements();
+        let mut s: u32 = 0u32;
+        while s < nslots {
+            if a.is_allocatable(s) {
+                let buf: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
+                let rows: u64 = buf.size();
+                let cols: u32 = buf.columns();
+                let vle: bool = buf.vle_dim_count() > 0u32;
+                let isref: bool = (s == cs) || (s == vr);
+                push_indent(out, ind + 1u32);
+                out.push_str("slot"); out.push_u64(s as u64);
+                out.push_str(if vle { " vle cols=" } else { " fse cols=" });
+                out.push_u64(cols as u64);
+                out.push_str(" rows="); out.push_u64(rows);
+                if isref { out.push_str(" [REF]"); }
+                out.push_str(":\n");
+
+                let mut r: u64 = 0u64;
+                while r < rows {
+                    push_indent(out, ind + 2u32);
+                    out.push_str("["); out.push_u64(r); out.push_str("] ");
+                    if vle {
+                        // variable-length: show the row's payload byte span
+                        let lo: u64 = buf.row_offset(0u32, 0u32, r);
+                        let hi: u64 = buf.row_offset(0u32, 0u32, r + 1u64);
+                        out.push_str("vle "); out.push_u64(hi - lo); out.push_str("B");
+                    } else {
+                        let mut c: u32 = 0u32;
+                        while c < cols {
+                            if c > 0u32 { out.push_str(", "); }
+                            let cell: u64 = buf.get(c, r);
+                            if isref { push_hex(out, cell); } else { out.push_u64(cell); }
+                            c = c + 1u32;
+                        }
+                    }
+                    out.push_str("\n");
+                    r = r + 1u64;
+                }
+            }
+            s = s + 1u32;
+        }
+    }
+}
+
+/// Recursively dump a tree from `(root, level)` — the node, then its children
+/// (the declared child_slot column) indented under it. A directory leaf's
+/// value-ref column (foreign container roots) is shown as hex but NOT recursed
+/// into (those are separate containers).
+pub fn tree_dump(root: *mut u8, level: u32, out: &mut String, ind: u32) {
+    node_dump(root, out, ind);
+    if level > 0u32 {
+        unsafe {
+            let a: *mut PkdAlloc = node_pkd(root);
+            let cs: u32 = node_child_slot(root);
+            if cs != NODE_NO_CHILDREN {
+                let ch: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+                let n: u64 = ch.size();
+                let mut i: u64 = 0u64;
+                while i < n {
+                    tree_dump(ch.get(0u32, i) as *mut u8, level - 1u32, out, ind + 2u32);
+                    i = i + 1u64;
+                }
+            }
+        }
+    }
+}
+
+/// Convenience: a fresh String holding the whole tree dump.
+pub fn tree_dump_string(root: *mut u8, level: u32) -> String {
+    let mut s: String = String::new();
+    tree_dump(root, level, &mut s, 0u32);
+    return s;
+}
+
+// ── PATH dump: the root→leaf spine toward a key ──────────────────────────────
+// Often you only want the nodes an operation actually walks: the leaf holding a
+// key and its ancestors. Routing is GENERIC — slot 0 of every bt node is the
+// MAX-ordered key/separator column, so "first cell >= key, clamped to the last
+// child" descends toward `key` for any node kind. (Unsigned compare — a
+// signed-key container's path routing would need the signed twin; fine for the
+// unsigned directory this debugs.)
+
+/// The child index a branch descends for `key`: first slot-0 cell >= key,
+/// clamped to the last child.
+unsafe fn generic_child_index(node: *mut u8, key: u64) -> u32 {
+    let a: *mut PkdAlloc = node_pkd(node);
+    let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+    let n: u64 = kb.size();
+    let mut i: u64 = 0u64;
+    while i < n {
+        if kb.get(0u32, i) >= key { return i as u32; }
+        i = i + 1u64;
+    }
+    if n == 0u64 { return 0u32; }
+    return (n - 1u64) as u32;
+}
+
+/// Dump the spine from `(root, level)` down to `key`'s leaf. `keep` bounds how
+/// many nodes from the LEAF up are shown (leaf + keep-1 ancestors); `keep == 0`
+/// dumps the whole path. Nodes print root-first within the kept window, each
+/// indented one level deeper.
+pub fn path_dump(root: *mut u8, level: u32, key: u64, keep: u32, out: &mut String) {
+    unsafe {
+        let mut path: Vec<u64> = vec_new::<u64>();
+        let mut node: *mut u8 = root;
+        let mut lvl: u32 = level;
+        loop {
+            path.push(node as u64);
+            if lvl == 0u32 { break; }
+            let ci: u32 = generic_child_index(node, key);
+            let a: *mut PkdAlloc = node_pkd(node);
+            let cs: u32 = node_child_slot(node);
+            if cs == NODE_NO_CHILDREN { break; }
+            let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+            node = cb.get(0u32, ci as u64) as *mut u8;
+            lvl = lvl - 1u32;
+        }
+        let total: i64 = path.len();
+        let mut start: i64 = 0i64;
+        if keep != 0u32 && (keep as i64) < total { start = total - (keep as i64); }
+        let mut i: i64 = start;
+        while i < total {
+            node_dump(path.get(i) as *mut u8, out, (i - start) as u32);
+            i = i + 1i64;
+        }
+    }
+}
+
+/// Convenience: the path dump as a fresh String.
+pub fn path_dump_string(root: *mut u8, level: u32, key: u64, keep: u32) -> String {
+    let mut s: String = String::new();
+    path_dump(root, level, key, keep, &mut s);
+    return s;
+}
