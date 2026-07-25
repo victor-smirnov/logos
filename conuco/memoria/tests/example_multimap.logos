@@ -1,0 +1,259 @@
+package test;
+// ═══════════════════════════════════════════════════════════════════════════
+// example_multimap — THE worked example of the Memoria/Logos container stack
+// over the MULTISTREAM multimap (the btfl family). A living document, the
+// sibling of example_map: it runs in the conuco gate, so every layer it
+// demonstrates stays green as the stack evolves. Iterate HERE.
+//
+// What makes the multimap DIFFERENT from the map (and what each § shows):
+// the container is a NESTING TREE marked by its symbol sequence — symbol 0
+// opens an entry (a key), symbol 1 marks that entry's values. One SSRLE
+// structure stream carries the nesting; the data streams carry the cells.
+// Everything hierarchical about the API follows from that reading:
+//
+//   Deem/app code            §6 dyn plane (&dyn Ctr / &mut dyn Multimap),
+//                            §5 #[batch_entry] adapters (app struct → batch)
+//   ── boundary ─────────    map.logos: Ctr + Multimap (the family trait);
+//                            §3 hierarchical seek — ctr.seek(n) = the n-th
+//                            KEY cursor, key_cur.seek(m) = the m-th VALUE
+//                            of THAT key (the RELATIVE address, resolved
+//                            inside the key's leaf — the cheap case the
+//                            C++ shuttles optimize for);
+//                            §5 make_buffer/insert_batch — the two-stage
+//                            batch with ENTRY-aligned cuts (a key's value
+//                            run never leaves its leaf)
+//   metaclass factory        §1 create_ctr_rc — decl → multistream CFG doc
+//                            → mono demand → generated btfl family
+//   BTFL prototype           logos.mem.bt.btfl: seek/select/rank/access
+//                            over per-symbol CNT columns (§4), the shared
+//                            bt_ins_rec skeleton, the batch splice
+//   packed substrate         PdtBuf data streams + PkdSsrle structure
+//                            stream (rank/select on runs)
+//   node / store             node.logos MemNode + memstore (the same
+//                            store/snapshot planes as the map — §1, §7)
+//
+// v0 restrictions this example inherits (they lift with later increments):
+// u64 columns; in-place tree (no CoW privatization — btfl 8b); the
+// key-aligned-split invariant (a key's value run lives in the key's leaf).
+// ═══════════════════════════════════════════════════════════════════════════
+
+use memoria.ctr.multimap;             // §0 the LIBRARY declaration (quoted below)
+use logos.lcm.canon.container_item;   // the factory (an emitted `use` cannot LOAD a module)
+use logos.lcm.canon.metaclass;        // create_ctr_rc / open_ctr — the demand surface
+use logos.lcm.canon.adapter;          // §5 #[batch_entry] — the adapter metafunction
+use logos.mem.bt.map;                 // Ctr / Multimap — the boundary plane
+use logos.mem.bt.memstore;            // MemoryStore / MemorySnapshot
+use logos.mem.sync;                   // Arc — the cross-thread snapshot plane
+use logos.lang.rc;                    // Rc — the thread-local handle plane
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.std.io;
+use logos.lang.panic;
+use logos.std.compiler.metaprog;      // §5 the handler kit (annotation dispatch)
+
+// ── §0 THE DECLARATION (lives in memoria.ctr.multimap, quoted for the reader):
+//
+//     pub container Multimap<K, V> for u8 {
+//         kind multimap;
+//         stream keys {
+//             entry { key: K }
+//             measure max(key);
+//             ops { seek(max(key)); insert; remove; }
+//         }
+//         stream values {
+//             entry { val: V }
+//             measure count;
+//             ops { select(count); scan(val); bulk_append; }
+//         }
+//     }
+//
+// TWO streams, declared with their measures and ops — Canon judges the
+// template (a missing measure or an ops/measure mismatch fails the compile
+// with Canon's reason), and the declaration lowers to the generic CFG const
+// + the `Multimap<K,V> = CtrClass<...>` alias. Naming a concrete
+// instantiation below is what fires the factory.
+
+// ── §5 prelude: an APPLICATION struct as a multimap batch entry ─────────────
+// (int, Vec<u64>) infers the multimap flavor; #[batch_entry] validates the
+// fields and emits the BatchMmEntry impl. A bad field — say `samples: f64`
+// — fails the COMPILE naming the struct and field (the metafunction-time
+// diagnostics; pinned by tests/logos/fail/batch_entry_bad_field).
+#[batch_entry]
+struct Reading {
+    sensor: u64,
+    samples: Vec<u64>,
+}
+
+// ── §6 the dyn plane: consumers that know ONLY the boundary ─────────────────
+// The PINNED S3 entry shape: "generic at the rim, dyn inside". A dyn
+// coercion cannot defer on the pre-drain factory projection
+// (`CtrClass<...>::Handle`), so the entry fn is a thin GENERIC rim whose
+// bound defers through the factory machinery — and the generic→dyn
+// coercion happens INSIDE, over the bound type. This is the Deem entry
+// form (see conuco dyn_boundary for the full law set).
+//
+// The uniform Ctr plane (directories, enumeration — one fn serves map and
+// multimap handles alike) …
+fn report(c: &dyn Ctr) -> u64 {
+    return c.size();
+}
+fn report_via<C: Ctr>(c: &C) -> u64 {
+    return report(c);                     // generic → dyn at the inner call
+}
+
+// … and the FAMILY surface: Deem drives inserts/lookups through
+// `&dyn Multimap` without knowing the store or its configuration.
+fn ingest(mm: &dyn Multimap, key: u64, vals: &Vec<u64>) -> bool {
+    return mm.insert(key, vals);
+}
+fn ingest_via<M: Multimap>(mm: &M, key: u64, vals: &Vec<u64>) -> bool {
+    return ingest(mm, key, vals);
+}
+
+fn run_all() -> i32 {
+    // ── §1 store → snapshot (Arc plane) → container (Rc plane) ──────────────
+    // Identical to the map's §1 — the store/snapshot machinery is
+    // container-agnostic; only the family behind the handle differs.
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+
+    let mut m = create_ctr_rc::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
+
+    // ── §2 the typed surface: entries are (key → value RUN) ─────────────────
+    // insert takes the whole run; a duplicate key is REJECTED (false) — the
+    // multimap's contract, where the map upserts.
+    let n: u64 = 700u64;                  // enough to force leaf+branch splits
+    let mut k: u64 = 0u64;
+    while k < n {
+        let mut vals: Vec<u64> = vec_new::<u64>();
+        let mut j: u64 = 0u64;
+        while j < k % 4u64 {              // runs of 0..3 values — EMPTY runs
+            vals.push(k * 100u64 + j);    // are legal (adjacent 0-symbols)
+            j = j + 1u64;
+        }
+        if !m.insert(k * 2u64, &vals) { return 1i32; }
+        k = k + 1u64;
+    }
+    if m.count(0u64) != n { return 2i32; }            // keys   = symbol-0 count
+    let mut dup: Vec<u64> = vec_new::<u64>();
+    dup.push(9u64);
+    if m.insert(4u64, &dup) { return 3i32; }          // duplicate key → reject
+    if m.count(0u64) != n { return 4i32; }
+
+    // find appends the key's WHOLE run
+    let mut got: Vec<u64> = vec_new::<u64>();
+    if !m.find(6u64, &mut got) { return 5i32; }       // key 6 = entry 3: 3 values
+    if got.len() != 3i64 || got.get(0i64) != 300u64 { return 6i32; }
+    let mut none: Vec<u64> = vec_new::<u64>();
+    if m.find(7u64, &mut none) { return 7i32; }       // odd keys are absent
+
+    // ── §3 the HIERARCHICAL seek (the nesting-tree reading) ─────────────────
+    // ctr.seek(n) = cursor at the n-th KEY (symbol order); the branch descent
+    // rides the per-symbol subtree-count columns (one SUM-index step per
+    // level). key_cur.seek(m) = the m-th value of THAT key — the RELATIVE
+    // seek, a rank projection inside the key's leaf: small m never leaves
+    // the node the key lives in.
+    let kc = m.seek(3u64);
+    if !kc.valid() { return 8i32; }
+    if kc.key() != 6u64 { return 9i32; }              // the 3rd key is 6
+    if kc.val_count() != 3u64 { return 10i32; }
+    let vc = kc.seek(1u64);                           // its middle value
+    if !vc.valid() || vc.value() != 301u64 { return 11i32; }
+    if kc.seek(3u64).valid() { return 12i32; }        // past the run: invalid
+    if m.seek(n).valid() { return 13i32; }            // past the keys: invalid
+
+    // ── §4 the SYMBOL plane (what the structure stream really is) ───────────
+    // The flat symbol sequence for the first three entries (keys 0, 2, 4 with
+    // 0, 1, 2 values) reads 0 0 1 0 1 1 …: access(pos) returns the symbol at
+    // a GLOBAL position; select(sym, r) finds the (r+1)-th such symbol;
+    // count(sym) totals it — the rank/select algebra every hierarchical op
+    // above is built from.
+    if m.access(0u64) != 0u64 { return 14i32; }       // key 0 (empty run)
+    if m.access(1u64) != 0u64 { return 15i32; }       // key 2
+    if m.access(2u64) != 1u64 { return 16i32; }       // key 2's value
+    let loc = m.select(0u64, 3u64);                   // the 4th key entry …
+    if !loc.found { return 17i32; }
+    if m.access(loc.pos) != 0u64 { return 18i32; }    // … is a 0-symbol
+    // per-symbol totals: values = sum of run lengths 0+1+2+3 per 4 keys
+    if m.count(1u64) != (n / 4u64) * 6u64 { return 19i32; }
+
+    // ── §5 BATCH INSERT (the two-stage design, ENTRY-aligned) ───────────────
+    // The staging buffer holds WHOLE entries (key + value run) — the cut
+    // unit is the entry, honoring the key-aligned-split invariant; each
+    // fragment's SSRLE segment is rebuilt from the entry counts by the
+    // weight calculus (no trial insertion, no restores). Same sorted-run
+    // contract as the map: strictly ascending, landing whole in one gap.
+    let mut buf = m.make_buffer();
+    {
+        let mut v0: Vec<u64> = vec_new::<u64>();
+        v0.push(7u64);
+        v0.push(8u64);
+        buf.push(900_000u64, &v0);                    // the direct push …
+    }
+    {
+        let mut rs: Vec<Reading> = vec_new::<Reading>();
+        let mut i: u64 = 1u64;
+        while i < 60u64 {
+            let mut s: Vec<u64> = vec_new::<u64>();
+            let mut j: u64 = 0u64;
+            while j < i % 3u64 {
+                s.push(900_000u64 + i * 10u64 + j);
+                j = j + 1u64;
+            }
+            rs.push(Reading { sensor: 900_000u64 + i * 2u64, samples: s });
+            i = i + 1u64;
+        }
+        buf.extend_from(&rs);                         // … and the §5-prelude adapters
+    }
+    if buf.len() != 60u64 { return 20i32; }
+    if !m.insert_batch(&buf) { return 21i32; }
+    if m.count(0u64) != n + 60u64 { return 22i32; }
+    let mut b42: Vec<u64> = vec_new::<u64>();
+    if !m.find(900_084u64, &mut b42) { return 23i32; }   // Reading #42: 42%3 = 0 …
+    if b42.len() != 0i64 { return 24i32; }               // … an EMPTY run, found
+    // the sorted-run contract: an interleaving batch is rejected whole
+    let mut bad = m.make_buffer();
+    {
+        let mut bv: Vec<u64> = vec_new::<u64>();
+        bv.push(1u64);
+        bad.push(1u64, &bv);                          // between keys 0 and 2
+        bad.push(3u64, &bv);                          // between 2 and 4 — straddles 2
+    }
+    if m.insert_batch(&bad) { return 25i32; }
+    if m.count(0u64) != n + 60u64 { return 26i32; }
+
+    // ── §6 the dyn plane in action ──────────────────────────────────────────
+    if report_via(&*m) != n + 60u64 { return 27i32; } // Ctr::size = the key count
+    {
+        let mut vv: Vec<u64> = vec_new::<u64>();
+        vv.push(1u64);
+        if !ingest_via(&*m, 999_999u64, &vv) { return 28i32; }
+        if ingest_via(&*m, 999_999u64, &vv) { return 29i32; }   // dup via dyn too
+    }
+
+    // ── §7 snapshot lifecycle: commit publishes, open sees the same tree ────
+    snap.commit();
+    let m2 = open_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
+    if m2.count(0u64) != n + 61u64 { return 30i32; }
+    let mut g2: Vec<u64> = vec_new::<u64>();
+    if !m2.find(900_000u64, &mut g2) { return 31i32; }
+    if g2.len() != 2i64 || g2.get(1i64) != 8u64 { return 32i32; }
+
+    // the structural self-check (branch counts vs subtree reality) last
+    if !m.check() { return 33i32; }
+    return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned (a process exit status is
+// an 8-bit channel — code >= 256 would wrap and report SUCCESS).
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL example_multimap: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
