@@ -1,0 +1,342 @@
+// logos.mem.bt.dirmap — the store DIRECTORY as a CoW container (Memoria's
+// `Map<CtrID, BlockID>` allocator directory, self-hosted on the very node
+// substrate the user containers run on).
+//
+// A snapshot's directory is a B-tree keyed by CtrID (u64), whose LEAF VALUES
+// are the ROOTS of other containers — reference cells, not plain data. That one
+// difference (declared in the node header as `value_ref_slot`) is what makes
+// the directory participate in the same CoW + refcount machinery as everything
+// else:
+//   - fork  = share the directory root (one inc_rc), NOT an O(D) copy;
+//   - lookup/update = O(log D) descent / CoW upsert, NOT an O(D) scan;
+//   - drop  = ONE `tree_release(dir_root)` that cascades to every container
+//             root through the leaves' value-ref columns.
+//
+// NODE SHAPE (two FSE64 columns over the shared MemNode substrate):
+//   LEAF   — slot 0 = keys (MAX-ordered), slot 1 = container-root refs
+//            (declared value_ref_slot ⇒ tree_release cascades, cow_clone bumps).
+//   BRANCH — slot 0 = separators (MAX = subtree max key), slot 1 = child refs
+//            (declared child_slot ⇒ the ordinary structural spine).
+//
+// REFCOUNT DISCIPLINE (each parent slot owns exactly one rc on its target):
+//   - cow_clone of a node inc_rc's every ref it holds (children for a branch,
+//     container roots for a leaf) — the clone's slots each acquire ownership.
+//   - a value-ref overwrite (container repoint) tree_release's the DISPLACED
+//     ref (the slot relinquishes its old target).
+//   - a child repoint tree_release's the old child (mirrors bt_cow_insert).
+//   - the CALLER transfers an OWNED ref into `dir_set` (a fresh container root
+//     carries its alloc-rc; a reused root the caller inc_rc's first — the
+//     root-split graft case lives in the store, not here).
+//
+// This mirrors bt_cow_insert deliberately; a later unification could route the
+// directory through the generic engine once the ref-value datatype is a
+// first-class column behaviour rather than a header flag.
+package logos.mem.bt.dirmap;
+
+use logos.mem.pkd;               // PkdAlloc
+use logos.mem.pkd.pdtbuf;        // PdtBuf, pdtbuf_adopt
+use logos.mem.bt.node;           // node_* + tree_release (generic lifecycle)
+use logos.mem.bt.btss;           // FSE64 column primitives (shared with leaves)
+use logos.mem.collections.vec;
+use logos.lang.mem;              // copy_bytes — the region byte-copy on clone
+use logos.lang.panic;
+
+// Column slots (shared leaf/branch layout: key column, then ref column).
+pub const DIR_KEY: u32 = 0u32;   // keys (leaf) / separators (branch)
+pub const DIR_REF: u32 = 1u32;   // container roots (leaf) / child nodes (branch)
+const DIR_NSLOTS: u32 = 2u32;
+
+// Directory node block size. Few slots, small fixed cells (8B key + 8B ref) ⇒ a
+// 4K node holds ~250 rows, so thousands of containers fit in a 2-level tree.
+const DIR_BLOCK: u32 = 4096u32;
+
+// ── node construction ────────────────────────────────────────────────────────
+
+/// A fresh empty directory LEAF stamped `snp`: two FSE64 columns, the ref column
+/// declared as the value-ref slot (so tree_release cascades through it).
+unsafe fn dir_leaf_new(snp: u64) -> *mut u8 {
+    let b: *mut u8 = node_alloc(DIR_BLOCK, DIR_NSLOTS, snp);
+    let a: *mut PkdAlloc = node_pkd(b);
+    btss_fmt_slot(a, DIR_KEY, false, true);    // keys: FSE64, MAX-ordered
+    btss_fmt_slot(a, DIR_REF, false, false);   // container roots: FSE64
+    node_set_value_ref_slot(b, DIR_REF);
+    node_set_level(b, 0u32);
+    return b;
+}
+
+/// A fresh empty directory BRANCH at `level` stamped `snp`: separators + child
+/// refs, the ref column declared as the ordinary child slot.
+unsafe fn dir_branch_new(snp: u64, level: u32) -> *mut u8 {
+    let b: *mut u8 = node_alloc(DIR_BLOCK, DIR_NSLOTS, snp);
+    let a: *mut PkdAlloc = node_pkd(b);
+    btss_fmt_slot(a, DIR_KEY, false, true);    // separators: FSE64, MAX-ordered
+    btss_fmt_slot(a, DIR_REF, false, false);   // child nodes: FSE64
+    node_set_child_slot(b, DIR_REF);
+    node_set_level(b, level);
+    return b;
+}
+
+/// The raw CoW-clone of a node: a fresh block, the column region byte-copied
+/// (position-independent by the packed-family CoW-clone-unit law), and the
+/// header ref-slot declarations + level carried over. Mirrors pk_private's
+/// region copy; rc bumps are added by the leaf/branch privatize wrappers.
+unsafe fn dir_clone_node(node: *mut u8, cur: u64) -> *mut u8 {
+    let sa: *mut PkdAlloc = node_pkd(node);
+    let n: *mut u8 = node_alloc(node_block_size(node), sa.elements(), cur);
+    let da: *mut PkdAlloc = node_pkd(n);
+    copy_bytes(da as *mut u8, sa as *const u8, sa.block_size() as i64);
+    node_set_child_slot(n, node_child_slot(node));
+    node_set_value_ref_slot(n, node_value_ref_slot(node));
+    node_set_level(n, node_level(node));
+    return n;
+}
+
+/// Make a LEAF privately writable under `cur`. If already private, unchanged;
+/// otherwise clone it and inc_rc every container root it references (the clone's
+/// value-ref slots each acquire ownership — the frozen original keeps its own).
+unsafe fn dir_leaf_private(node: *mut u8, cur: u64) -> *mut u8 {
+    if node_snapshot(node) == cur { return node; }
+    let n: *mut u8 = dir_clone_node(node, cur);
+    let a: *mut PkdAlloc = node_pkd(n);
+    let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+    let m: u64 = vb.size();
+    let mut j: u64 = 0u64;
+    while j < m {
+        node_inc_rc(vb.get(0u32, j) as *mut u8);
+        j = j + 1u64;
+    }
+    return n;
+}
+
+/// Make a BRANCH privately writable under `cur`, inc_rc'ing every child (the
+/// structural spine share). Mirrors bt_branch_private / pk_private.
+unsafe fn dir_branch_private(node: *mut u8, cur: u64) -> *mut u8 {
+    if node_snapshot(node) == cur { return node; }
+    let n: *mut u8 = dir_clone_node(node, cur);
+    let a: *mut PkdAlloc = node_pkd(n);
+    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+    let m: u64 = cb.size();
+    let mut j: u64 = 0u64;
+    while j < m {
+        node_inc_rc(cb.get(0u32, j) as *mut u8);
+        j = j + 1u64;
+    }
+    return n;
+}
+
+// ── column helpers ───────────────────────────────────────────────────────────
+
+unsafe fn dir_max_key(a: *mut PkdAlloc) -> u64 {
+    let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
+    let n: u64 = kb.size();
+    if n == 0u64 { return 0u64; }
+    return kb.get(0u32, n - 1u64);
+}
+
+/// Which child a branch descends for `key`: the first separator >= key, clamped
+/// to the last child when `key` exceeds every separator (MAX-separator routing).
+unsafe fn dir_find_child(a: *mut PkdAlloc, key: u64) -> u32 {
+    let n: u32 = btss_count(a);
+    let mut i: u32 = btss_lower_bound_u64(a, key);
+    if i >= n { i = n - 1u32; }
+    return i;
+}
+
+/// Overwrite an existing FSE64 cell in place (no grow).
+unsafe fn dir_set_cell(a: *mut PkdAlloc, slot: u32, pos: u32, v: u64) {
+    let mut b: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
+    b.set(0u32, pos as u64, v);
+}
+
+// ── read path ────────────────────────────────────────────────────────────────
+
+/// The container root mapped to `key`, or 0 if absent. O(log D) descent.
+pub unsafe fn dir_get(root: *mut u8, level: u32, key: u64) -> u64 {
+    let mut node: *mut u8 = root;
+    let mut lvl: u32 = level;
+    while lvl > 0u32 {
+        let a: *mut PkdAlloc = node_pkd(node);
+        let ci: u32 = dir_find_child(a, key);
+        let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+        node = cb.get(0u32, ci as u64) as *mut u8;
+        lvl = lvl - 1u32;
+    }
+    let a2: *mut PkdAlloc = node_pkd(node);
+    let pos: u32 = btss_lower_bound_u64(a2, key);
+    let kb: PdtBuf = pdtbuf_adopt(a2.get::<u8>(DIR_KEY));
+    if (pos as u64) < kb.size() && kb.get(0u32, pos as u64) == key {
+        let vb: PdtBuf = pdtbuf_adopt(a2.get::<u8>(DIR_REF));
+        return vb.get(0u32, pos as u64);
+    }
+    return 0u64;
+}
+
+pub unsafe fn dir_has(root: *mut u8, level: u32, key: u64) -> bool {
+    return dir_get(root, level, key) != 0u64;
+}
+
+/// Collect every CtrID in key order (the container_names walk).
+pub unsafe fn dir_keys(root: *mut u8, level: u32, out: &mut Vec<u64>) {
+    if level == 0u32 {
+        let a: *mut PkdAlloc = node_pkd(root);
+        let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
+        let n: u64 = kb.size();
+        let mut i: u64 = 0u64;
+        while i < n { out.push(kb.get(0u32, i)); i = i + 1u64; }
+        return;
+    }
+    let a: *mut PkdAlloc = node_pkd(root);
+    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+    let n: u64 = cb.size();
+    let mut i: u64 = 0u64;
+    while i < n {
+        dir_keys(cb.get(0u32, i) as *mut u8, level - 1u32, out);
+        i = i + 1u64;
+    }
+}
+
+/// Number of containers registered (the in-order key count).
+pub unsafe fn dir_count(root: *mut u8, level: u32) -> u64 {
+    if level == 0u32 {
+        return pdtbuf_adopt(node_pkd(root).get::<u8>(DIR_KEY)).size();
+    }
+    let a: *mut PkdAlloc = node_pkd(root);
+    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+    let n: u64 = cb.size();
+    let mut total: u64 = 0u64;
+    let mut i: u64 = 0u64;
+    while i < n { total = total + dir_count(cb.get(0u32, i) as *mut u8, level - 1u32); i = i + 1u64; }
+    return total;
+}
+
+// ── CoW upsert ───────────────────────────────────────────────────────────────
+
+/// The recursion's report: the (possibly new) node address, plus a split's
+/// right sibling and the two separators.
+struct DirIns {
+    addr: *mut u8,
+    split: bool,
+    sep_l: u64,
+    sep_r: u64,
+    right: *mut u8,
+}
+
+/// The upsert's result: the container's (possibly new) directory root + level.
+pub struct DirRoot { pub root: *mut u8, pub level: u32 }
+
+// Insert `(key, ref)` into a full leaf/branch by splitting count-balanced; the
+// new row lands in whichever half owns `key`. `ref` is a container root (leaf)
+// or a child node (branch); the column shape is identical.
+unsafe fn dir_split_leaf(work: *mut u8, key: u64, new_ref: u64, cur: u64) -> DirIns {
+    let a: *mut PkdAlloc = node_pkd(work);
+    let right: *mut u8 = dir_leaf_new(cur);
+    let ra: *mut PkdAlloc = node_pkd(right);
+    let at: u32 = btss_count(a) / 2u32;
+    btss_split_col(a, ra, DIR_KEY, at);
+    btss_split_col(a, ra, DIR_REF, at);
+    if key <= dir_max_key(a) {
+        let p: u32 = btss_lower_bound_u64(a, key);
+        btss_put_cell(a, DIR_KEY, p, key);
+        btss_put_cell(a, DIR_REF, p, new_ref);
+    } else {
+        let p: u32 = btss_lower_bound_u64(ra, key);
+        btss_put_cell(ra, DIR_KEY, p, key);
+        btss_put_cell(ra, DIR_REF, p, new_ref);
+    }
+    return DirIns { addr: work, split: true, sep_l: dir_max_key(a), sep_r: dir_max_key(ra), right: right };
+}
+
+unsafe fn dir_set_rec(node: *mut u8, level: u32, key: u64, new_ref: u64, cur: u64) -> DirIns {
+    if level == 0u32 {
+        let work: *mut u8 = dir_leaf_private(node, cur);
+        let a: *mut PkdAlloc = node_pkd(work);
+        let pos: u32 = btss_lower_bound_u64(a, key);
+        let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_KEY));
+        let cnt: u32 = kb.size() as u32;
+        if pos < cnt && kb.get(0u32, pos as u64) == key {
+            // OVERWRITE: the slot relinquishes its old container root.
+            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+            let old_ref: u64 = vb.get(0u32, pos as u64);
+            if new_ref != old_ref {
+                dir_set_cell(a, DIR_REF, pos, new_ref);
+                tree_release(old_ref as *mut u8, node_level(old_ref as *mut u8));
+            }
+            return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
+        }
+        // INSERT a new container.
+        if btss_fits_row(a, DIR_NSLOTS) {
+            btss_put_cell(a, DIR_KEY, pos, key);
+            btss_put_cell(a, DIR_REF, pos, new_ref);
+            return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
+        }
+        return dir_split_leaf(work, key, new_ref, cur);
+    }
+    // BRANCH.
+    let work: *mut u8 = dir_branch_private(node, cur);
+    let a: *mut PkdAlloc = node_pkd(work);
+    let ci: u32 = dir_find_child(a, key);
+    let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(DIR_REF));
+    let old_child: *mut u8 = cb.get(0u32, ci as u64) as *mut u8;
+    let r: DirIns = dir_set_rec(old_child, level - 1u32, key, new_ref, cur);
+    dir_set_cell(a, DIR_KEY, ci, r.sep_l);            // child's max may have grown
+    if r.addr != old_child {
+        dir_set_cell(a, DIR_REF, ci, r.addr as u64);  // repoint to the private child
+        tree_release(old_child, level - 1u32);        // release the old child (clone bumped it)
+    }
+    if !r.split {
+        return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
+    }
+    // Graft the new right child at ci+1.
+    if btss_fits_row(a, DIR_NSLOTS) {
+        btss_put_cell(a, DIR_KEY, ci + 1u32, r.sep_r);
+        btss_put_cell(a, DIR_REF, ci + 1u32, r.right as u64);
+        return DirIns { addr: work, split: false, sep_l: dir_max_key(a), sep_r: 0u64, right: 0 as *mut u8 };
+    }
+    // Branch full → split, then insert (sep_r, right) into the owning half.
+    let rb: *mut u8 = dir_branch_new(cur, level);
+    let rba: *mut PkdAlloc = node_pkd(rb);
+    let at: u32 = btss_count(a) / 2u32;
+    btss_split_col(a, rba, DIR_KEY, at);
+    btss_split_col(a, rba, DIR_REF, at);
+    let lc: u32 = btss_count(a);
+    if ci + 1u32 < lc {
+        btss_put_cell(a, DIR_KEY, ci + 1u32, r.sep_r);
+        btss_put_cell(a, DIR_REF, ci + 1u32, r.right as u64);
+    } else {
+        btss_put_cell(rba, DIR_KEY, (ci + 1u32) - lc, r.sep_r);
+        btss_put_cell(rba, DIR_REF, (ci + 1u32) - lc, r.right as u64);
+    }
+    return DirIns { addr: work, split: true, sep_l: dir_max_key(a), sep_r: dir_max_key(rba), right: rb };
+}
+
+/// A fresh empty directory root (level 0). The store mints one per snapshot
+/// history root; forks share it.
+pub unsafe fn dir_new(snp: u64) -> DirRoot {
+    return DirRoot { root: dir_leaf_new(snp), level: 0u32 };
+}
+
+/// CoW-upsert `key → new_ref`. Returns the container's (possibly new) directory
+/// root/level. `new_ref` ownership is TRANSFERRED in (see the module header rc
+/// discipline); the displaced root, if any, is released. The old directory root
+/// is released iff its identity changed (mirrors bt_cow_insert's root repoint);
+/// on a root split it is grafted under a fresh top.
+pub unsafe fn dir_set(root: *mut u8, level: u32, key: u64, new_ref: u64, cur: u64) -> DirRoot {
+    let r: DirIns = dir_set_rec(root, level, key, new_ref, cur);
+    let mut nrt: *mut u8 = root;
+    let mut nlv: u32 = level;
+    if r.addr != root {
+        nrt = r.addr;
+        tree_release(root, level);
+    }
+    if r.split {
+        let top: *mut u8 = dir_branch_new(cur, level + 1u32);
+        let ta: *mut PkdAlloc = node_pkd(top);
+        btss_put_cell(ta, DIR_KEY, 0u32, r.sep_l);
+        btss_put_cell(ta, DIR_REF, 0u32, r.addr as u64);
+        btss_put_cell(ta, DIR_KEY, 1u32, r.sep_r);
+        btss_put_cell(ta, DIR_REF, 1u32, r.right as u64);
+        nrt = top;
+        nlv = level + 1u32;
+    }
+    return DirRoot { root: nrt, level: nlv };
+}

@@ -16,8 +16,10 @@
 package logos.mem.bt.node;
 
 use logos.mem.pkd;          // PkdAlloc, pkd_format
+use logos.mem.pkd.pdtbuf;   // PdtBuf — child/value-ref column walk in tree_release
 use logos.lang.marker;      // SelfDescribing — MemNode is a DST ending in PkdAlloc
 use logos.lang.mem;         // alloc, dealloc
+use logos.lang.panic;       // assert — the branch child-slot invariant
 
 /// A node with no children — every leaf. Reading a child column off such a
 /// node is a structural error, not a silently empty walk.
@@ -41,18 +43,35 @@ struct MemNode {
     // a container lay its branch columns out freely while tree_release stays
     // container-agnostic.
     child_slot: u32,
+    // WHICH PkdAlloc slot holds a column of REFERENCE VALUES — block addresses
+    // that are ROOTS OF OTHER CONTAINERS (the store DIRECTORY's `CtrID→root`
+    // leaf), or NODE_NO_CHILDREN when the node holds no such refs. The dual of
+    // `child_slot` for a LEAF: unlike child refs (all one level below), these
+    // point at foreign trees of arbitrary height, so their level is read from
+    // each target's own header (`node_level`). tree_release cascades through
+    // this column on free; cow_clone bumps each ref's rc. This is what lets the
+    // directory itself be a CoW container without special-casing the walk.
+    value_ref_slot: u32,
+    // This node's LEVEL (0 = leaf; a branch is 1 + its children's level).
+    // Memoria carries the level in every block header; here it is stamped
+    // where a foreign tree's ROOT must be self-describing — the store stamps a
+    // container root's level at `set_root` so the directory can release it via
+    // `node_level` without carrying the level in the directory value (the pure
+    // `CtrID→BlockID` form). Internal nodes still take level threaded through
+    // the bt walk; making every node stamp it is a later simplification.
+    level:      u32,
     // The TOTAL node block size (the whole DST footprint, header + allocator
     // region). Stored here so the node's extent — and thus its DST length /
     // fat-pointer metadata — is a plain header read, needing neither the
     // allocator to be formatted nor a reach into the tail (Memoria's
     // Header::memory_block_size()).
     block_size: u32,
-    // Explicit alignment padding: keeps the fixed header at 24 bytes (a
+    // Explicit alignment padding: keeps the fixed header at 32 bytes (a
     // multiple of 8) so the trailing PkdAlloc lands on an 8-byte boundary
-    // (without it the header is 20 and the allocator is only 4-aligned — a
-    // silent misalignment for u64 packed data on aarch64). A hand-maintained
-    // invariant: if a field is added/removed here, keep the pre-`alc` size a
-    // multiple of 8. (A real `alignas` on PkdAlloc would remove the need.)
+    // (without it the header is misaligned — a silent misalignment for u64
+    // packed data on aarch64). A hand-maintained invariant: if a field is
+    // added/removed here, keep the pre-`alc` size a multiple of 8. (A real
+    // `alignas` on PkdAlloc would remove the need.)
     _align_pad: u32,
     // The column region — the DST tail (allocator_).
     alc:        PkdAlloc,
@@ -81,7 +100,9 @@ pub unsafe fn node_alloc(block_size: u32, nslots: u32, snp: u64) -> *mut u8 {
     (*n).block_size = block_size;
     (*n).snap = snp;
     (*n).rc = 1u32;
-    (*n).child_slot = NODE_NO_CHILDREN;   // childless until declared
+    (*n).child_slot = NODE_NO_CHILDREN;      // childless until declared
+    (*n).value_ref_slot = NODE_NO_CHILDREN;  // no ref-value column until declared
+    (*n).level = 0u32;                       // a leaf until stamped otherwise
     let region: u32 = block_size - (offset_of!(MemNode, alc) as u32);
     let _ = pkd_format(node_pkd(base) as *mut u8, region, nslots);
     return base;
@@ -100,6 +121,23 @@ pub unsafe fn node_child_slot(base: *mut u8) -> u32 { return (*mn(base)).child_s
 /// construction; leaves never do.
 pub unsafe fn node_set_child_slot(base: *mut u8, slot: u32) { (*mn(base)).child_slot = slot; }
 
+/// Which slot holds this node's REFERENCE-VALUE column (block addresses that
+/// root other containers), or NODE_NO_CHILDREN when none. Only the store
+/// directory's leaves declare one.
+pub unsafe fn node_value_ref_slot(base: *mut u8) -> u32 { return (*mn(base)).value_ref_slot; }
+
+/// Declare where this node keeps a column of container-root refs. The directory
+/// leaf calls this at construction; every other node leaves it NODE_NO_CHILDREN.
+pub unsafe fn node_set_value_ref_slot(base: *mut u8, slot: u32) { (*mn(base)).value_ref_slot = slot; }
+
+/// This node's level (0 = leaf). Read when releasing a foreign container root
+/// whose level is not otherwise in hand (the directory's cascade).
+pub unsafe fn node_level(base: *mut u8) -> u32 { return (*mn(base)).level; }
+
+/// Stamp this node's level. The store stamps a container ROOT's level at
+/// `set_root` so the directory can self-describe its release.
+pub unsafe fn node_set_level(base: *mut u8, level: u32) { (*mn(base)).level = level; }
+
 pub unsafe fn node_snapshot(base: *mut u8) -> u64 { return (*mn(base)).snap; }
 pub unsafe fn node_set_snapshot(base: *mut u8, snp: u64) { (*mn(base)).snap = snp; }
 pub unsafe fn node_rc(base: *mut u8) -> u32 { return (*mn(base)).rc; }
@@ -114,6 +152,60 @@ pub unsafe fn node_dec_rc(base: *mut u8) -> u32 {
 
 /// Frees a node block (header + region). Children are released by the caller.
 pub unsafe fn node_free(base: *mut u8) { dealloc(base); }
+
+// ── generic tree lifecycle (container-agnostic, over the uniform node shape) ──
+
+/// Recursively drops ONE structural-sharing ref to a subtree. At rc 0 the block
+/// is freed after its children are released (a branch reads its declared
+/// child_slot; a leaf has none). The intrusive-rc analog of an Arc drop, but
+/// container-agnostic: a branch DECLARES which slot holds its children in its
+/// own header, so this walk needs only `(root, level)` and never dictates a
+/// container's branch layout.
+///
+/// A leaf may ALSO declare a value_ref_slot — a column of block addresses that
+/// root OTHER containers (the store directory's `CtrID→root` leaf). When such a
+/// node is freed, those foreign roots are released too, cascading the whole
+/// directory-of-containers off ONE `tree_release(dir_root, dir_level)`. Each
+/// foreign root's level comes from its own header (`node_level`), since these
+/// refs — unlike child refs — point at trees of arbitrary height.
+///
+/// Lives here (not in the store) because it is pure node lifecycle — node_* +
+/// the column walk — so both the store (memstore) and the directory container
+/// (dirmap) reach it without a dependency cycle.
+pub unsafe fn tree_release(root: *mut u8, level: u32) {
+    if node_dec_rc(root) == 0u32 {
+        if level > 0u32 {
+            let a: *mut PkdAlloc = node_pkd(root);
+            let cs: u32 = node_child_slot(root);
+            assert(cs != NODE_NO_CHILDREN,
+                   "tree_release: a branch node never declared its child slot");
+            let ch: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+            let n: u64 = ch.size();
+            let mut i: u64 = 0u64;
+            while i < n {
+                tree_release(ch.get(0u32, i) as *mut u8, level - 1u32);
+                i = i + 1u64;
+            }
+        }
+        let vrs: u32 = node_value_ref_slot(root);
+        if vrs != NODE_NO_CHILDREN {
+            // A directory leaf: release every container root it references,
+            // each at the level stamped in the root's own header.
+            let a2: *mut PkdAlloc = node_pkd(root);
+            let vc: PdtBuf = pdtbuf_adopt(a2.get::<u8>(vrs));
+            let m: u64 = vc.size();
+            let mut j: u64 = 0u64;
+            while j < m {
+                let croot: *mut u8 = vc.get(0u32, j) as *mut u8;
+                if croot != (0 as *mut u8) {
+                    tree_release(croot, node_level(croot));
+                }
+                j = j + 1u64;
+            }
+        }
+        node_free(root);
+    }
+}
 
 // ── the node PROFILE (ADR 0020 / Memoria profiles) ───────────────────────────
 //
