@@ -1,0 +1,104 @@
+// store_many_ctrs — the payoff of the directory-as-CoW-container: THOUSANDS of
+// containers in one snapshot. The directory is a real dirmap tree now, so this
+// forces it multi-level (O(log D) lookups, splitting branches), forks share it
+// in O(1), and the whole population is released by ONE tree_release(dir_root)
+// that cascades to every container root (valgrind is the oracle for that).
+//
+// All 2000 containers are INSTANCES of one generated family (Ledger), keyed by
+// distinct ctr_ids — the family is monomorphized once; the directory holds the
+// per-instance roots.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.pkd;
+use logos.mem.bt.map;                 // Ctr / Snapshot
+use logos.mem.bt.memstore;
+use logos.mem.sync;                   // Arc
+use logos.lang.str;
+use logos.mem.string;
+use logos.lang.option;
+use logos.std.io;
+
+container Ledger for u8 {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+const N: u64 = 2000u64;
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+
+    // ── v1: create N containers, one entry each, commit ──────────────────
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let mut id: u64 = 1u64;
+        while id <= N {
+            let c = create_ctr::<typeof(Ledger)>(&s1, id);
+            c.insert(id, id * 10u64);         // key id → id*10
+            c.insert(id + 1000000u64, id);    // a second entry
+            id = id + 1u64;
+        }
+    }
+    s1.commit();
+
+    // O(log D) lookups over the multi-level directory: sample across the range
+    {
+        let mut id: u64 = 1u64;
+        while id <= N {
+            let c = open_ctr::<typeof(Ledger)>(&s1, id);
+            if c.get_or(id, 0xDEADu64) != id * 10u64 { return 1i32; }
+            if c.get_or(id + 1000000u64, 0xDEADu64) != id { return 2i32; }
+            if c.size() != 2u64 { return 3i32; }
+            id = id + 137u64;                 // stride the whole space
+        }
+    }
+    // the directory registered exactly N containers
+    {
+        let msr: &MemorySnapshot = unsafe { &*(dyn_data(&*s1) as *const MemorySnapshot) };
+        if msr.container_ids().len() != (N as i64) { return 4i32; }
+    }
+
+    // ── v2: fork (O(1) — shares the directory tree), mutate a HANDFUL ─────
+    let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    {
+        let a = open_ctr::<typeof(Ledger)>(&s2, 5u64);
+        a.insert(5u64, 999u64);               // overwrite in v2 only
+        let b = open_ctr::<typeof(Ledger)>(&s2, 1500u64);
+        b.insert(1500u64, 888u64);
+    }
+    s2.commit();
+
+    // isolation: v1 frozen, v2 sees the edits; untouched containers shared
+    {
+        let a1 = open_ctr::<typeof(Ledger)>(&s1, 5u64);
+        let a2 = open_ctr::<typeof(Ledger)>(&s2, 5u64);
+        if a1.get_or(5u64, 0u64) != 50u64 { return 5i32; }      // v1 original
+        if a2.get_or(5u64, 0u64) != 999u64 { return 6i32; }     // v2 edit
+        let u1 = open_ctr::<typeof(Ledger)>(&s1, 900u64);
+        let u2 = open_ctr::<typeof(Ledger)>(&s2, 900u64);
+        if u1.get_or(900u64, 0u64) != 9000u64 { return 7i32; }  // untouched, shared
+        if u2.get_or(900u64, 0u64) != 9000u64 { return 8i32; }
+    }
+
+    // (Per-container REMOVE at this scale is exercised by ctr_map_batch /
+    // example_map; this test's job is the directory's scaling — create,
+    // O(log D) lookup, O(1)-fork isolation, and the ONE-cascade release below.)
+
+    // Everything (both snapshots' whole 2000-container populations) is released
+    // by the store's Drop at scope end — ONE tree_release(dir_root) cascade per
+    // snapshot. valgrind pins zero leaks / zero double-frees.
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL store_many_ctrs: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
