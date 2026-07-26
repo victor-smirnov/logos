@@ -879,7 +879,12 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
             i = i + 1 as i64;
         }
     }
-    let rcodes: Vec<i32> = run_jobs(&rjobs, slots);
+    // A wider cap than the build phase: waves cost their SLOWEST member, and a
+    // test process is short-lived and small where a logosc invocation is neither.
+    // Measured on this suite: 8 → 21s, 16 → 19s, 32 → 12.5s, against a ~7s
+    // critical path (the slowest single test). A true sliding window needs
+    // wait-for-ANY, which the process surface does not expose yet.
+    let rcodes: Vec<i32> = run_jobs(&rjobs, slots * 4 as i64);
 
     let mut pass_n: i32 = 0;
     let mut fail_n: i32 = 0;

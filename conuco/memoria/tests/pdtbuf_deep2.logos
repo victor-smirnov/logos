@@ -1,0 +1,21 @@
+// pdtbuf_deep2 — the DEEP three-way sweep at 2 column(s).
+//
+// One rung, one column count: this sweep is the PdtBuf suite's whole cost, and
+// its four column counts are independent runs. See memoria.testkit.pdtbuf.
+package test;
+
+use memoria.testkit.pdtbuf;
+use logos.mem.string;
+use logos.std.io;
+
+fn main() -> i32 {
+    let code: i32 = rung_deep(2u32);
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL pdtbuf_deep2: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

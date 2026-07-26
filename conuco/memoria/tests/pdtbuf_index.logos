@@ -1,4 +1,4 @@
-// pdtbuf_core — rung `core` of the PdtBuf law suite.
+// pdtbuf_index — rung `index` of the PdtBuf law suite.
 //
 // The suite's body lives in memoria.testkit.pdtbuf (one 6.6k-line library
 // compiled once); this binary runs ONE rung, so the rungs run in parallel and
@@ -12,12 +12,12 @@ use logos.mem.string;
 use logos.std.io;
 
 fn main() -> i32 {
-    let code: i32 = rung_core();
+    let code: i32 = rung_index();
     if code == 0i32 {
         return 0i32;
     }
     let mut msg: String = String::new();
-    msg.push_str("FAIL pdtbuf_core: diagnostic code ");
+    msg.push_str("FAIL pdtbuf_index: diagnostic code ");
     msg.push_i64(code as i64);
     eprintln_string(&msg);
     return 1i32;
