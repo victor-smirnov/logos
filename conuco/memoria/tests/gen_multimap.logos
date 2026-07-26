@@ -366,12 +366,20 @@ fn run_all() -> i32 {
     // ── 20..39: config A — small nodes (reformat), per-mutation equivalence ─
     {
         let mut ha = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 3u64);
+        // Small nodes, to reach branch-split depth cheaply. NOTE the volume:
+        // this container's SCHEMA document (~1.1 KB — the multimap CFG carries
+        // streams, columns, measures, ops and layout verdicts) does not fit a
+        // 512-byte node, so publication enlarges the root and the nodes split
+        // off it inherit that size. The declared geometry is a RECOMMENDED
+        // default, not a cap — so the same data now yields a shallower tree,
+        // and the scenario needs proportionally more of it to still cross two
+        // branch levels.
         ha.reformat(512u32, 320u32);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xB7F1u64 };
         let mut r: i64 = 0i64;
-        while r < 800i64 {
-            let k: u64 = (lcg.next() % 1200u64) * 2u64;
+        while r < 2600i64 {
+            let k: u64 = (lcg.next() % 4000u64) * 2u64;
             let m: u64 = lcg.next() % 5u64;
             let mut vals: Vec<u64> = vec_new::<u64>();
             let mut j: u64 = 0u64;

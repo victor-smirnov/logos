@@ -201,7 +201,12 @@ fn bv_ins_rec<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, level: u32, 
             return BvIns { lcnt: bv_vals(&a).size(), split: false, rcnt: 0u64, rptr: node };
         }
         // Count-balanced split at the middle, then insert into the owner.
-        let rn: *mut u8 = bv_leaf_new::<P>(snp, leaf_bytes);
+        // The sibling inherits THIS node's block size, not the family geometry
+        // (Memoria bt_c_branch_common: `ctr_create_node(…,
+        // left_node->header().memory_block_size())`): a root enlarged to host
+        // its metadata splits into halves priced against ITS budget, and a
+        // family-sized sibling could not take them.
+        let rn: *mut u8 = bv_leaf_new::<P>(snp, P::block_size(node));
         let mut rv: NodeView = node_view_at(rn);
         let at: u64 = bv_vals(&a).size() / 2u64;
         a.split_col_to(&mut rv, 0u32, at as u32);
@@ -286,12 +291,11 @@ pub fn btvec_insert_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
             a.put_cell(BV_CHILD, 0u32, t.root as u64);
             a.put_cell(BV_CNT, 1u32, r.rcnt);
             a.put_cell(BV_CHILD, 1u32, r.rptr as u64);
-            // Root PROMOTION: the schema document follows the root, and the
-            // demoted node gives it up (Memoria ctr_create_new_root_block →
-            // ctr_copy_root_metadata + ctr_root_to_node). A fresh branch always
-            // has room, so this cannot fail.
-            meta_migrate(t.root, nr, snp);
-            t.root = nr;
+            // Root PROMOTION: the documents follow the root, and the demoted
+            // node gives them up (Memoria ctr_create_new_root_block →
+            // ctr_copy_root_metadata + ctr_root_to_node). The new root grows if
+            // the documents need more room than a fresh branch has.
+            t.root = meta_migrate(t.root, nr, snp);
             t.level = t.level + 1u32;
         }
     }
@@ -916,12 +920,12 @@ pub fn btvec_remove_at<P: NodeProfile>(snap: &MemorySnapshot, t: &mut Btvec<P>, 
             let mut a: NodeView = node_view_at(t.root);
             if bv_cnt(&a).size() == 1u64 {
                 let child: *mut u8 = snap.resolve(bv_child(&a).get(0u32, 0u64)).ptr();
-                // Root DEMOTION: the document follows the root into the child
-                // (Memoria ctr_node_to_root), or is dropped when the child is
-                // too small — the collapse itself is never blocked by it.
-                meta_handover(t.root, child);
+                // Root DEMOTION: the documents follow the root into the child
+                // (Memoria ctr_node_to_root); the child GROWS if it must, so the
+                // collapse is never blocked and nothing is lost.
+                let nc: *mut u8 = meta_handover(t.root, child);
                 P::free(t.root);
-                t.root = child;
+                t.root = nc;
                 t.level = t.level - 1u32;
                 going = t.level > 0u32;
             } else {

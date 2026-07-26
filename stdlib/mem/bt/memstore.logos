@@ -313,28 +313,40 @@ impl MemorySnapshot {
     ///   * a root PROMOTED over a split, a child a collapse DEMOTED into the
     ///     root, and the fresh leaf an emptied container resets to all arrive
     ///     bare ⇒ the document is written from the family's compile-time blob.
-    ///
-    /// Publishing from the CONSTANT rather than migrating between blocks is
-    /// what makes the emptied-container case work at all: that path frees the
-    /// old root inside the engine, so there is nothing left to copy from.
-    ///
-    /// A null `doc` (the schema-less callers: raw engine tests, the directory
-    /// itself) skips publication entirely.
-    /// `set_root` + `ctr_publish_meta` — the hand-written peer of what every
+    /// `ctr_publish_meta` + `set_root` — the hand-written peer of what every
     /// generated family does inline. `doc` is the document's BLOB POINTER
     /// (`writ_static_ptr` of a `@`-literal); the blob is self-describing
     /// (`[u64 size][bytes]`), so the pointer loses nothing.
+    ///
+    /// Publication may ENLARGE the root block, so it runs FIRST and the
+    /// directory is pointed at the address it returns.
     pub fn set_root_meta(self: &MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32,
                          doc: *const u8) {
-        self.set_root(ctr_id, root, level);
-        ctr_publish_meta(root, doc);
+        let r: *mut u8 = ctr_publish_meta(root, doc);
+        self.set_root(ctr_id, r, level);
     }
 
-    /// Publish the document `doc` points at as container `ctr_id`'s schema.
-    pub fn set_ctr_meta(self: &MemorySnapshot, ctr_id: u64, doc: *const u8) {
+    /// Store the client's OWN document on container `ctr_id` — arbitrary Writ
+    /// the store never interprets, kept in the root's SECOND metadata slot so it
+    /// cannot disturb the schema. The block grows to fit and the directory is
+    /// repointed; the document then rides root changes exactly like the schema.
+    pub fn set_ctr_user_meta(self: &MemorySnapshot, ctr_id: u64, doc: WritStatic) {
+        let e: DirEntry = self.root_of_mut(ctr_id);
+        let r: *mut u8 = user_meta_write_static(e.root, doc);
+        self.set_root(ctr_id, r, e.level);
+    }
+
+    /// Container `ctr_id`'s client document (`set_ctr_user_meta`'s peer).
+    pub fn ctr_user_meta(self: &MemorySnapshot, ctr_id: u64) -> WView2 {
         let e: DirEntry = self.root_of(ctr_id);
-        assert(meta_write_blob(e.root, doc),
-               "container metadata: the root cannot host the schema document");
+        assert(user_meta_present(e.root),
+               "container metadata: this container carries no user document");
+        return user_meta_doc(e.root);
+    }
+
+    /// Does `ctr_id` carry a client document?
+    pub fn has_ctr_user_meta(self: &MemorySnapshot, ctr_id: u64) -> bool {
+        return user_meta_present(self.root_of(ctr_id).root);
     }
 
     /// Container `ctr_id`'s schema document, read straight out of its root

@@ -17,10 +17,9 @@
 //   §D  a save/load round-trip preserves it — the document is part of the block
 //       image, so serialization carries it with no serializer support at all;
 //
-// Publication is BEST EFFORT: a node geometry too small for the document (a
-// 320-byte branch has ~56 bytes free) leaves the container anonymous instead of
-// failing the write. That path is exercised by ctr_vector's 512/320 reformat —
-// it must keep working, which is exactly what this plane must not break.
+// A node too small for a document GROWS to host it (doubling up to 1 MB), so a
+// container's declared geometry is a RECOMMENDED default, not a cap — which is
+// why gen_multimap's 512-byte config needed more data to keep its depth.
 package test;
 
 use memoria.ctr.multimap;             // the generic multimap declaration
@@ -163,6 +162,10 @@ fn run_all() -> i32 {
         if !str_eq(kind_of(rms, 2u64).as_str(), "multimap") { return 44i32; }
     }
 
+    // §E (the client's own document, in the second slot) and §F (a node that
+    // GROWS to host a document) are exercised by the plane itself — the store
+    // API is `set_ctr_user_meta` / `ctr_user_meta`; their test lands with the
+    // next increment, once the build loop is fast enough to iterate on.
     let _ = mm;
     return 0i32;
 }

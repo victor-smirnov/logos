@@ -10259,6 +10259,7 @@ sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__commit__f__ref_MemorySnapsh
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__container_ids__f__ref_MemorySnapshot
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__cow_needed__f__ref_MemorySnapshot__pmut_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__ctr_meta__f__ref_MemorySnapshot__u64
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__ctr_user_meta__f__ref_MemorySnapshot__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__dec_rc__f__ref_MemorySnapshot__pmut_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__drop__f__refmut_MemorySnapshot
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__dump_ctr__f__ref_MemorySnapshot__u64
@@ -10268,6 +10269,7 @@ sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__dump_dir_path__f__ref_Memor
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__get_child__f__ref_MemorySnapshot__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__has_ctr__f__ref_MemorySnapshot__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__has_ctr_meta__f__ref_MemorySnapshot__u64
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__has_ctr_user_meta__f__ref_MemorySnapshot__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__has_parent__f__ref_MemorySnapshot
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__inc_rc__f__ref_MemorySnapshot__pmut_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__node_alloc__f__ref_MemorySnapshot__u32__u32
@@ -10279,7 +10281,7 @@ sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__root_of__f__ref_MemorySnaps
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__root_of_mut__f__ref_MemorySnapshot__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_as_branch__f__ref_MemorySnapshot__slice_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_as_master__f__ref_MemorySnapshot
-sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_ctr_meta__f__ref_MemorySnapshot__u64__pcst_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_ctr_user_meta__f__ref_MemorySnapshot__u64__WritStatic
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_root__f__ref_MemorySnapshot__u64__pmut_u8__u32
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_root_meta__f__ref_MemorySnapshot__u64__pmut_u8__u32__pcst_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__snapshot_id__f__ref_MemorySnapshot
@@ -11547,7 +11549,6 @@ sym	logos_mem.logos.mem.bt.memstore$store_snapshot_parent__f__ref_Arc$G1$MemoryS
 sym	logos_mem.logos.mem.bt.memstore$store_snapshot_status__f__ref_Arc$G1$MemoryStore__u64
 sym	logos_mem.logos.mem.bt.meta$ctr_publish_meta__f__pmut_u8__pcst_u8
 sym	logos_mem.logos.mem.bt.meta$ctr_publish_meta_static__f__pmut_u8__WritStatic
-sym	logos_mem.logos.mem.bt.meta$ctr_publish_meta_tiered__f__pmut_u8__WritStatic__WritStatic
 sym	logos_mem.logos.mem.bt.meta$meta_clear__f__pmut_u8
 sym	logos_mem.logos.mem.bt.meta$meta_clear_if_owned__f__pmut_u8__u64
 sym	logos_mem.logos.mem.bt.meta$meta_doc__f__pmut_u8
@@ -11556,17 +11557,24 @@ sym	logos_mem.logos.mem.bt.meta$meta_handover__f__pmut_u8__pmut_u8
 sym	logos_mem.logos.mem.bt.meta$meta_migrate__f__pmut_u8__pmut_u8__u64
 sym	logos_mem.logos.mem.bt.meta$meta_present__f__pmut_u8
 sym	logos_mem.logos.mem.bt.meta$meta_ptr__f__pmut_u8
+sym	logos_mem.logos.mem.bt.meta$meta_reserve__f__pmut_u8__u64
 sym	logos_mem.logos.mem.bt.meta$meta_size__f__pmut_u8
 sym	logos_mem.logos.mem.bt.meta$meta_write__f__pmut_u8__pcst_u8__u64
-sym	logos_mem.logos.mem.bt.meta$meta_write_blob__f__pmut_u8__pcst_u8
 sym	logos_mem.logos.mem.bt.meta$meta_write_static__f__pmut_u8__WritStatic
+sym	logos_mem.logos.mem.bt.meta$user_meta_clear__f__pmut_u8
+sym	logos_mem.logos.mem.bt.meta$user_meta_doc__f__pmut_u8
+sym	logos_mem.logos.mem.bt.meta$user_meta_present__f__pmut_u8
+sym	logos_mem.logos.mem.bt.meta$user_meta_ptr__f__pmut_u8
+sym	logos_mem.logos.mem.bt.meta$user_meta_size__f__pmut_u8
+sym	logos_mem.logos.mem.bt.meta$user_meta_write__f__pmut_u8__pcst_u8__u64
+sym	logos_mem.logos.mem.bt.meta$user_meta_write_static__f__pmut_u8__WritStatic
 sym	logos_mem.logos.mem.bt.meta$writ_static_none__f__void
-sym	logos_mem.logos.mem.bt.meta$writ_static_ptr__f__WritStatic
 sym	logos_mem.logos.mem.bt.node$node_alloc__f__u32__u32__u64
 sym	logos_mem.logos.mem.bt.node$node_block_size__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_child_slot__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_dec_rc__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_free__f__pmut_u8
+sym	logos_mem.logos.mem.bt.node$node_grow__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_inc_rc__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_level__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_meta_slot__f__pmut_u8
@@ -11581,6 +11589,7 @@ sym	logos_mem.logos.mem.bt.node$node_set_ssrle_slot__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_set_value_ref_slot__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.node$node_snapshot__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_ssrle_slot__f__pmut_u8
+sym	logos_mem.logos.mem.bt.node$node_user_slot__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$node_value_ref_slot__f__pmut_u8
 sym	logos_mem.logos.mem.bt.node$tree_release__f__pmut_u8__u32
 sym	logos_mem.logos.mem.bt.pack$btss_buf_new__f__bool__u64

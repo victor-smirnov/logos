@@ -18,7 +18,7 @@ package logos.mem.bt.node;
 use logos.mem.pkd;          // PkdAlloc, pkd_format
 use logos.mem.pkd.pdtbuf;   // PdtBuf — child/value-ref column walk in tree_release
 use logos.lang.marker;      // SelfDescribing — MemNode is a DST ending in PkdAlloc
-use logos.lang.mem;         // alloc, dealloc
+use logos.lang.mem;         // alloc, dealloc, realloc_buf — node growth
 use logos.lang.panic;       // assert — the branch child-slot invariant
 
 /// A node with no children — every leaf. Reading a child column off such a
@@ -93,14 +93,14 @@ unsafe fn mn(base: *mut u8) -> *mut MemNode { return base as *mut MemNode; }
 /// Allocates a node block of `block_size` bytes TOTAL (the whole node — you ask
 /// for the size you want, e.g. 4096). The MemNode header is carved from the
 /// front; the PkdAlloc region gets the rest (`block_size − header`) with
-/// `ncols` COLUMN slots PLUS the trailing container-METADATA slot (see
-/// `node_meta_slot`). Stamps block_size, snap = `snp`, rc = 1, formats the
-/// region. Returns the block base; the caller formats each column slot on
-/// node_pkd(base).
+/// `ncols` COLUMN slots PLUS the two trailing METADATA slots (see
+/// `node_meta_slot` / `node_user_slot`). Stamps block_size, snap = `snp`,
+/// rc = 1, formats the region. Returns the block base; the caller formats each
+/// column slot on node_pkd(base).
 ///
-/// Callers pass their COLUMN count and never see the metadata slot: reserving
-/// it here — in the one constructor of every CoW node — is what makes the
-/// "slot `elements() − 1` is metadata" law hold BY CONSTRUCTION, so a generic
+/// Callers pass their COLUMN count and never see the metadata slots: reserving
+/// them here — in the one constructor of every CoW node — is what makes the
+/// "the last two slots are metadata" law hold BY CONSTRUCTION, so a generic
 /// reader needs no header field and no per-engine stamping. A node cloned from
 /// another must therefore pass `node_ncols(src)`, not `elements()`.
 pub unsafe fn node_alloc(block_size: u32, ncols: u32, snp: u64) -> *mut u8 {
@@ -114,25 +114,62 @@ pub unsafe fn node_alloc(block_size: u32, ncols: u32, snp: u64) -> *mut u8 {
     (*n).ssrle_slot = NODE_NO_CHILDREN;      // no symbol-sequence slot until declared
     (*n).level = 0u32;                       // a leaf until stamped otherwise
     let region: u32 = block_size - (offset_of!(MemNode, alc) as u32);
-    let _ = pkd_format(node_pkd(base) as *mut u8, region, ncols + 1u32);
+    let _ = pkd_format(node_pkd(base) as *mut u8, region, ncols + META_SLOTS);
     return base;
 }
 
-/// How many COLUMN slots this node carries — its allocator's slot count minus
-/// the trailing metadata slot. A node cloned from `src` is allocated with
-/// `node_ncols(src)`; a walk over "every column" stops here.
-pub unsafe fn node_ncols(base: *mut u8) -> u32 { return node_pkd(base).elements() - 1u32; }
+/// How many METADATA slots every node reserves past its columns: one SYSTEM,
+/// one USER (see `node_meta_slot` / `node_user_slot`).
+pub const META_SLOTS: u32 = 2u32;
 
-/// The index of this node's CONTAINER-METADATA slot: the trailing PkdAlloc slot
-/// every node reserves (Memoria's `METADATA` segment of TreeNodeBase, moved to
-/// the far end so a container's column indices stay 0-based).
+/// How many COLUMN slots this node carries — its allocator's slot count minus
+/// the trailing metadata slots. A node cloned from `src` is allocated with
+/// `node_ncols(src)`; a walk over "every column" stops here.
+pub unsafe fn node_ncols(base: *mut u8) -> u32 {
+    return node_pkd(base).elements() - META_SLOTS;
+}
+
+/// The index of this node's SYSTEM-metadata slot — Memoria's `METADATA`
+/// segment of TreeNodeBase, moved to the far end so a container's column
+/// indices stay 0-based and writing metadata shifts no column.
 ///
-/// The slot is EMPTY in every ordinary node and holds a Writ document in a
-/// container's ROOT — so, exactly as in Memoria, **its presence IS the root
+/// The slot is EMPTY in every ordinary node and holds the container's schema
+/// document in its ROOT — so, exactly as in Memoria, **its presence IS the root
 /// flag** (`has_root_metadata()` ⟺ `is_root()`). The payload plane —
-/// write/read/migrate, and the document itself — lives in `logos.mem.bt.meta`;
-/// this module only owns where it sits.
-pub unsafe fn node_meta_slot(base: *mut u8) -> u32 { return node_pkd(base).elements() - 1u32; }
+/// write/read/migrate, and the documents themselves — lives in
+/// `logos.mem.bt.meta`; this module only owns where they sit.
+pub unsafe fn node_meta_slot(base: *mut u8) -> u32 {
+    return node_pkd(base).elements() - 2u32;
+}
+
+/// The index of this node's USER-metadata slot: the container's OWN document,
+/// whose content the store never interprets. Two kinds of metadata live in a
+/// container — the system's (schema, identity: nobody outside needs to look)
+/// and the client's (anything at all) — and they are kept in separate slots so
+/// neither can disturb the other.
+pub unsafe fn node_user_slot(base: *mut u8) -> u32 {
+    return node_pkd(base).elements() - 1u32;
+}
+
+/// GROW a node block to `total` bytes (the whole DST footprint). The block is
+/// reallocated — the returned base MAY DIFFER — and the allocator region is
+/// re-sized to match, which is sound because a node's region is
+/// position-independent (self-relative offsets throughout, the CoW-clone-unit
+/// law); nothing inside needs patching.
+///
+/// The caller MUST re-point whatever refers to this block. In practice the only
+/// node that grows is a container ROOT, and the only reference to it is the
+/// store directory's entry, which the publishing site repoints anyway.
+pub unsafe fn node_grow(base: *mut u8, total: u32) -> *mut u8 {
+    let cur: u32 = node_block_size(base);
+    if total <= cur { return base; }
+    let nb: *mut u8 = realloc_buf(base, total as i64);
+    let n: *mut MemNode = mn(nb);
+    (*n).block_size = total;
+    let region: u32 = total - (offset_of!(MemNode, alc) as u32);
+    node_pkd(nb).set_block_size(region);
+    return nb;
+}
 
 /// The total block size of a node (Header::memory_block_size()).
 pub unsafe fn node_block_size(base: *mut u8) -> u32 { return (*mn(base)).block_size; }

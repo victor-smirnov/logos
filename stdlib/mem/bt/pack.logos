@@ -180,8 +180,8 @@ pub fn pack_region_weight(ws: &Vec<u32>) -> u32 {
     return total;
 }
 
-/// The weight law as a NODE pays it: `ws` column weights plus the trailing
-/// container-METADATA slot every node reserves (`node_meta_slot`). Every
+/// The weight law as a NODE pays it: `ws` column weights plus the two trailing
+/// METADATA slots every node reserves (system + user). Every
 /// split-capacity and merge-admission price goes through HERE — pricing a node
 /// with `pack_region_weight` under-counts the layout table by one entry, and an
 /// under-counted budget admits a merge that then does not fit ("admitted merge
@@ -192,7 +192,7 @@ pub fn pack_region_weight(ws: &Vec<u32>) -> u32 {
 /// root gives its document up at that moment (`meta_migrate`), so no node the
 /// weight law ever prices is carrying one.
 pub fn pack_node_weight(ws: &Vec<u32>) -> u32 {
-    let mut total: u32 = PkdAlloc::empty_size_for(ws.length() as u32 + 1u32);
+    let mut total: u32 = PkdAlloc::empty_size_for(ws.length() as u32 + META_SLOTS);
     let mut i: i64 = 0i64;
     while i < ws.length() {
         total = total + round_up_bytes(ws.get(i));
@@ -1459,11 +1459,11 @@ pub fn btss_remove<P: NodeProfile>(snap: &MemorySnapshot, root: *mut u8, level: 
             let mut a: NodeView = node_view_at(nroot);
             if pk_slot(&a, PKB_SEP).size() == 1u64 {
                 let child: *mut u8 = snap.resolve(pk_slot(&a, PKB_CHILD).get(0u32, 0u64)).ptr();
-                // Root DEMOTION: the document follows the root into the child,
-                // or is dropped when the child is too small (see btvec's twin).
-                meta_handover(nroot, child);
+                // Root DEMOTION: the documents follow the root into the child,
+                // which grows if it must (see btvec's twin).
+                let nc: *mut u8 = meta_handover(nroot, child);
                 P::free(nroot);            // the ref transfers to the root slot
-                nroot = child;
+                nroot = nc;
                 nlvl = nlvl - 1u32;
                 going = nlvl > 0u32;
             } else {

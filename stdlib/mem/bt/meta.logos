@@ -1,5 +1,6 @@
 // logos.mem.bt.meta — the container METADATA plane: a container carries its
-// own SCHEMA, in its own root node.
+// own SCHEMA, and whatever its client wants to say about itself, in its own
+// root node.
 //
 // THE PROBLEM. A store is a directory of `CtrID → root block` and nothing more:
 // open a store from disk and the containers in it are anonymous trees. Every
@@ -13,100 +14,164 @@
 // THE FIX, from the Memoria oracle. `bt::TreeNodeBase` reserves segment
 // `METADATA = 0` of every node's PackedAllocator and fills it in ROOTS with
 // `BalancedTreeMetadata` (model_name + block_size); `is_root()` is literally
-// `root_metadata_size() > 0`. Two deliberate deviations here:
+// `root_metadata_size() > 0`. Three deliberate deviations:
 //
-//  * the slot is the node's LAST, not its first (`node_meta_slot`), so a
-//    container's column indices stay 0-based AND writing metadata shifts no
-//    column — nothing lives past it. C++ pays a whole-region shift for the
-//    same write;
+//  * the slots are the node's LAST, not its first (`node_meta_slot` /
+//    `node_user_slot`), so a container's column indices stay 0-based AND
+//    writing metadata shifts no column — nothing lives past them. C++ pays a
+//    whole-region shift for the same write;
 //  * the payload is a WRIT DOCUMENT, not a fixed struct. The family's CFG doc
 //    — the same one the metaclass hashes into `family_id()` — travels WITH the
 //    data, so the schema is recoverable from bytes alone: kind, streams, entry
 //    columns, measures, ops, layout verdicts. That is what makes the store
-//    self-describing, and it is the low-level schema the Deem plane reads.
+//    self-describing, and it is the low-level schema the Deem plane reads;
+//  * there are TWO documents, in two slots. SYSTEM metadata is the store's
+//    (schema, identity — nobody outside needs to look at it); USER metadata is
+//    the client's, and its content is never interpreted here. Separate slots so
+//    neither can disturb the other.
 //
-// The blob is laid out exactly like a rodata `@`-literal — `[u64 len][bytes]` —
+// A blob is laid out exactly like a rodata `@`-literal — `[u64 len][bytes]` —
 // so a stored document is read with the very same `wview2_from_ptr` used on a
-// WritStatic, and its length is recoverable from the blob (never from the slot
-// size, which the allocator rounds up).
+// WritStatic, and its length comes from the blob (never from the slot size,
+// which the allocator rounds up).
+//
+// SIZE IS NOT A LIMIT — THE NODE GROWS. A document does not shrink with the
+// container's geometry (a multimap's CFG is ~1.1 KB, and a 320-byte branch node
+// is a legitimate choice for exercising deep trees), so publication ENLARGES the
+// root block to fit, doubling up to `META_MAX_BLOCK`. That is sound because a
+// node's region is position-independent: growing means realloc + a new region
+// size, and the only reference to a container root is the store directory's
+// entry, which the publishing site repoints anyway. Past the cap a document
+// belongs in its own place — a store-side `Map<str, Writ>` — the tier this
+// design leaves open; a fragment is not expected to reach it.
 //
 // THE ROOT LAW (Memoria's, kept verbatim): metadata presence IS the root flag.
 // Exactly the blocks the directory points at carry it — `check_tree` enforces
-// both directions. Root changes therefore MOVE the document:
-//   * CoW privatize — the clone byte-copies the whole region, so it rides free;
-//   * promotion (a fresh root over a split) and demotion (a one-child root
-//     collapsing into its child) — `meta_migrate`, called from `set_root`,
-//     the one choke point every family already goes through.
-// A demotion that cannot host the document is DECLINED by the engine
-// (`meta_fits` — Memoria's `ctr_can_convert_to_root`): the tree keeps a
-// redundant level rather than losing its schema.
+// both directions. Root changes therefore MOVE the documents:
+//   * CoW privatize — the clone byte-copies the whole region, so they ride free;
+//   * promotion (a fresh root over a split) — `meta_migrate`, which also strips
+//     the demoted node (Memoria's `ctr_root_to_node`);
+//   * demotion (a one-child root collapsing into its child) — `meta_handover`,
+//     before the old root is freed;
+//   * an emptied container's fresh leaf — republished from the family constant,
+//     because that path frees the old root inside the engine.
+// Stripping the demoted node is NOT hygiene: the split/merge weight law prices
+// columns against free space and does not count a metadata payload, so a
+// document stranded on a non-root silently over-admits a later merge.
 package logos.mem.bt.meta;
 
-use logos.mem.bt.node;            // node_meta_slot — where the blob sits
+use logos.mem.bt.node;            // node_meta_slot / node_user_slot / node_grow
 use logos.mem.bt.view;            // NodeView — the borrow-checked raw-slot skin
 use logos.lang.writ.wstatic;      // WritStatic — the compile-time document
 use logos.lang.writ.static_view;  // WView2 — the reader over blob bytes
 use logos.lang.mem;               // copy_bytes
 use logos.lang.slice;             // as_ptr on the slot views
-use logos.lang.panic;             // assert — publication must not fail silently
 
 /// The `[u64 len]` header ahead of the document bytes (the rodata blob shape).
 pub const META_PREFIX: u32 = 8u32;
 
+/// How far a node may be enlarged to host its documents: nodes grow by doubling
+/// up to 1 MB. A metadata fragment past that belongs in a store-side
+/// `Map<str, Writ>`, not in the node.
+pub const META_MAX_BLOCK: u32 = 1048576u32;
+
 /// "No document" — what a container generated WITHOUT a schema (the raw engine
-/// paths and the decl-path test families) hands to `set_root_meta`. Publication
-/// is then skipped and the container stays anonymous, exactly as before.
+/// paths and the decl-path test families) hands to the publishing calls.
 pub fn writ_static_none() -> WritStatic { return WritStatic { ptr: 0 as *const u8 }; }
 
 // ── reading ─────────────────────────────────────────────────────────────────
 
-/// The stored document's length in bytes; 0 when this node carries none — i.e.
-/// when it is not a container root.
-pub fn meta_size(node: *mut u8) -> u64 {
+fn slot_len(node: *mut u8, slot: u32) -> u64 {
     let nv: NodeView = node_view_at(node);
-    let s: u32 = unsafe { node_meta_slot(node) };
-    let b: &[u8] = nv.raw(s);
+    let b: &[u8] = nv.raw(slot);
     if (b.len() as u32) < META_PREFIX { return 0u64; }
     return unsafe { *(b.as_ptr() as *const u64) };
 }
 
-/// Does this node carry container metadata — i.e. IS IT A ROOT?
-pub fn meta_present(node: *mut u8) -> bool { return meta_size(node) > 0u64; }
-
-/// The stored document's first byte (past the length prefix). Null when absent.
-pub fn meta_ptr(node: *mut u8) -> *const u8 {
-    if !meta_present(node) { return 0 as *const u8; }
+fn slot_ptr(node: *mut u8, slot: u32) -> *const u8 {
+    if slot_len(node, slot) == 0u64 { return 0 as *const u8; }
     let nv: NodeView = node_view_at(node);
-    let s: u32 = unsafe { node_meta_slot(node) };
-    return unsafe { nv.raw(s).as_ptr().byte_add(META_PREFIX as i64) };
+    return unsafe { nv.raw(slot).as_ptr().byte_add(META_PREFIX as i64) };
 }
 
-/// The stored document as a Writ reader. Only call on a node whose
-/// `meta_present` is true — the same contract as reading any absent slot.
-pub fn meta_doc(node: *mut u8) -> WView2 {
-    return wview2_from_ptr(meta_ptr(node));
+/// The SYSTEM document's length in bytes; 0 when this node carries none — i.e.
+/// when it is not a container root.
+pub fn meta_size(node: *mut u8) -> u64 {
+    return slot_len(node, unsafe { node_meta_slot(node) });
+}
+
+/// Does this node carry system metadata — i.e. IS IT A ROOT?
+pub fn meta_present(node: *mut u8) -> bool { return meta_size(node) > 0u64; }
+
+/// The SYSTEM document's first byte (past the length prefix); null when absent.
+pub fn meta_ptr(node: *mut u8) -> *const u8 {
+    return slot_ptr(node, unsafe { node_meta_slot(node) });
+}
+
+/// The SYSTEM document as a Writ reader. Only call when `meta_present`.
+pub fn meta_doc(node: *mut u8) -> WView2 { return wview2_from_ptr(meta_ptr(node)); }
+
+/// The USER document's length in bytes; 0 when the client stored none.
+pub fn user_meta_size(node: *mut u8) -> u64 {
+    return slot_len(node, unsafe { node_user_slot(node) });
+}
+
+/// Does this node carry a client document?
+pub fn user_meta_present(node: *mut u8) -> bool { return user_meta_size(node) > 0u64; }
+
+/// The USER document's first byte (past the length prefix); null when absent.
+pub fn user_meta_ptr(node: *mut u8) -> *const u8 {
+    return slot_ptr(node, unsafe { node_user_slot(node) });
+}
+
+/// The USER document as a Writ reader. Only call when `user_meta_present`.
+pub fn user_meta_doc(node: *mut u8) -> WView2 {
+    return wview2_from_ptr(user_meta_ptr(node));
 }
 
 // ── writing ─────────────────────────────────────────────────────────────────
 
-/// Would a document of `len` bytes fit in this node? True when one is already
-/// there (the rewrite reuses its space) — Memoria's `can_convert_to_root`.
+/// Room a `len`-byte document needs in the region (payload + prefix, plus one
+/// allocation's 8-byte granularity).
+fn meta_need(len: u64) -> u64 { return len + (META_PREFIX as u64) + 8u64; }
+
+/// Does a `len`-byte document fit in this node AS IT STANDS (no growth)? True
+/// when one that size is already there — the rewrite reuses its space. This is
+/// Memoria's `can_convert_to_root`, and it is what `meta_reserve` grows against.
 pub fn meta_fits(node: *mut u8, len: u64) -> bool {
-    if meta_present(node) { return true; }
+    if len == 0u64 { return true; }
+    if meta_size(node) >= len { return true; }
     let nv: NodeView = node_view_at(node);
-    return (nv.free_space() as u64) >= (len + (META_PREFIX as u64) + 8u64);
+    return (nv.free_space() as u64) >= meta_need(len);
 }
 
-/// Store `len` bytes of document into this node's metadata slot, making it a
-/// container ROOT. False when the region has no room — callers that cannot
-/// tolerate failure must have priced it with `meta_fits` first.
-pub fn meta_write(node: *mut u8, src: *const u8, len: u64) -> bool {
+/// Enlarge `node` — doubling, capped at `META_MAX_BLOCK` — until a `len`-byte
+/// document fits, and hand back the block's (possibly NEW) base. Unchanged when
+/// it already fits or the cap is reached.
+///
+/// The caller MUST re-point the directory at the returned address; every
+/// publishing site does, because it is repointing the root anyway.
+pub fn meta_reserve(node: *mut u8, len: u64) -> *mut u8 {
+    let mut b: *mut u8 = node;
+    if len == 0u64 { return b; }
+    let mut guard: u32 = 0u32;
+    while !meta_fits(b, len) && guard < 32u32 {
+        let cur: u32 = unsafe { node_block_size(b) };
+        if cur >= META_MAX_BLOCK { return b; }
+        let mut next: u32 = cur * 2u32;
+        if next > META_MAX_BLOCK { next = META_MAX_BLOCK; }
+        b = unsafe { node_grow(b, next) };
+        guard = guard + 1u32;
+    }
+    return b;
+}
+
+fn slot_write(node: *mut u8, slot: u32, src: *const u8, len: u64) -> bool {
     let mut nv: NodeView = node_view_at(node);
-    let s: u32 = unsafe { node_meta_slot(node) };
     let need: u32 = (len as u32) + META_PREFIX;
-    if !nv.raw_alloc(s, need) { return false; }
+    if !nv.raw_alloc(slot, need) { return false; }
     {
-        let d: &mut [u8] = nv.raw_mut(s);
+        let d: &mut [u8] = nv.raw_mut(slot);
         let p: *mut u8 = d.as_ptr() as *mut u8;
         unsafe {
             *(p as *mut u64) = len;
@@ -116,137 +181,119 @@ pub fn meta_write(node: *mut u8, src: *const u8, len: u64) -> bool {
     return true;
 }
 
-/// Store a compile-time document (the family's CFG blob) into `node`.
+/// Store `len` bytes of SYSTEM document into this node, making it a container
+/// ROOT. The node must already have room (`meta_reserve`).
+pub fn meta_write(node: *mut u8, src: *const u8, len: u64) -> bool {
+    return slot_write(node, unsafe { node_meta_slot(node) }, src, len);
+}
+
+/// Store a compile-time SYSTEM document (the family's CFG blob) into `node`.
 pub fn meta_write_static(node: *mut u8, ws: WritStatic) -> bool {
     return meta_write(node, ws.ptr, ws.size());
 }
 
-/// The blob pointer of a compile-time document — the currency the STORE takes.
-/// A `@`-literal's blob is `[u64 size][bytes]` with `ptr` past the size, so a
-/// bare pointer carries its own length (`writ_static_size`) and the store needs
-/// no `WritStatic` in its signatures.
-pub fn writ_static_ptr(ws: WritStatic) -> *const u8 { return ws.ptr; }
-
-/// Store the document a blob pointer names (`writ_static_ptr`'s peer).
-pub fn meta_write_blob(node: *mut u8, blob: *const u8) -> bool {
-    if blob == (0 as *const u8) { return true; }
-    return meta_write(node, blob, unsafe { writ_static_size(blob) });
-}
-
-/// PUBLISH a container's schema document into its (new) root — what every
-/// generated family calls right after `set_root`. Idempotent by design:
-///
-///   * a CoW-privatized root arrives with the document already copied (the
-///     clone byte-copies the whole region) ⇒ no-op;
-///   * a root PROMOTED over a split, a child a collapse DEMOTED into the root,
-///     and the fresh leaf an emptied container resets to all arrive bare ⇒ the
-///     document is written from the family's compile-time blob.
-///
-/// Publishing from the family CONSTANT rather than migrating between blocks is
-/// what makes the emptied-container case work at all: that path frees the old
-/// root inside the engine, so there is nothing left to copy from.
-///
-/// A null `doc` (the schema-less callers: raw engine tests, the decl-path test
-/// families) skips publication and the container stays anonymous.
-///
-/// A FREE FUNCTION, deliberately: a method newly added to an archived struct's
-/// impl is invisible to metaprog-EMITTED chunks ("MemorySnapshot has no method
-/// …") while the identical call from ordinary code compiles — free functions of
-/// the same fresh module resolve fine. Generated code therefore calls this;
-/// hand-written code may use `MemorySnapshot::set_root_meta`, which wraps it.
-pub fn ctr_publish_meta(root: *mut u8, doc: *const u8) {
-    if doc == (0 as *const u8) { return; }
-    if meta_present(root) { return; }
-    if !meta_write_blob(root, doc) {
-        // Best effort, as in the tiered form: a node geometry too small for the
-        // document leaves the container anonymous rather than failing the write.
-        return;
-    }
-}
-
-/// `ctr_publish_meta` taking the family's `@`-literal directly — the form the
-/// generated code splices (`writ_static_none()` when the family has no schema).
-pub fn ctr_publish_meta_static(root: *mut u8, doc: WritStatic) {
-    ctr_publish_meta(root, doc.ptr);
-}
-
-/// TWO-TIER, BEST-EFFORT publication — what the generated families call.
-///
-/// `full` is the family's whole CFG document (kind, streams, entry columns,
-/// measures, ops, layout verdicts — everything Deem needs to plan over the
-/// container); `ident` is the compact identity document (`{"f": family, "k":
-/// kind}`), tens of bytes. Whichever fits is written, richest first.
-///
-/// BEST EFFORT IS THE HONEST CONTRACT, not a concession. A container's node
-/// geometry is the user's choice and the document does not shrink with it: a
-/// multimap's CFG is ~1.1 KB, and a 320-byte branch node — a legitimate choice
-/// for exercising deep trees cheaply — has ~56 bytes free, too little even for
-/// the identity form. Refusing such a geometry would be worse than leaving the
-/// container ANONYMOUS, so publication never fails an operation; what actually
-/// happened is queryable (`meta_present` / `MemorySnapshot::has_ctr_meta`), and
-/// the default 4 KB geometry hosts the FULL schema comfortably.
-///
-/// Making the rich form unconditional needs the document to live out of line,
-/// in its own store block with only a reference in the root — the tier this
-/// design leaves open.
-pub fn ctr_publish_meta_tiered(root: *mut u8, full: WritStatic, ident: WritStatic) {
-    if full.ptr == (0 as *const u8) { return; }
-    if meta_present(root) { return; }
-    if meta_fits(root, full.size()) {
-        let _ = meta_write_static(root, full);
-        return;
-    }
-    if ident.ptr != (0 as *const u8) && meta_fits(root, ident.size()) {
-        let _ = meta_write_static(root, ident);
-    }
-}
-
-/// `meta_clear`, but only when THIS snapshot owns the node (the CoW stamp is
-/// the exclusivity proof). A node still stamped with an older snapshot is that
-/// snapshot's root and keeps its document.
-pub fn meta_clear_if_owned(node: *mut u8, cur: u64) {
-    if unsafe { node_snapshot(node) } == cur { meta_clear(node); }
-}
-
-/// Drop this node's metadata — the `root_to_node` half of a root change.
+/// Drop this node's system metadata — the `root_to_node` half of a root change.
 pub fn meta_clear(node: *mut u8) {
     let mut nv: NodeView = node_view_at(node);
     let s: u32 = unsafe { node_meta_slot(node) };
     nv.raw_free(s);
 }
 
-/// Copy the document from a root that is about to be FREED into the node
-/// taking its place — the collapse half of a root change (Memoria's
-/// `ctr_node_to_root`). No clear: `from` does not survive the call site. Best
-/// effort: a node too small for the document simply becomes an anonymous root
-/// (Memoria instead DECLINES the collapse and keeps a redundant level — it can,
-/// because its root metadata is a fixed two-field record that always fits).
-pub fn meta_handover(from: *mut u8, to: *mut u8) {
-    let n: u64 = meta_size(from);
-    if n == 0u64 { return; }
-    if meta_size(to) == n { return; }
-    if !meta_fits(to, n) { return; }
-    let _ = meta_write(to, meta_ptr(from), n);
+/// Drop this node's user metadata.
+pub fn user_meta_clear(node: *mut u8) {
+    let mut nv: NodeView = node_view_at(node);
+    let s: u32 = unsafe { node_user_slot(node) };
+    nv.raw_free(s);
 }
 
-/// Move the document from the outgoing root to the incoming one — the
-/// `ctr_copy_root_metadata` + `ctr_root_to_node` pair of a root PROMOTION.
-/// Best effort in the same sense as `ctr_publish_meta_tiered`: the document is
-/// copied when the new root can host it, and the demoted node gives it up
-/// EITHER WAY. That second half is not optional — only a root may carry a
-/// document, because the split/merge weight law prices columns against the
-/// node's free space and does not know about the metadata payload. A document
-/// stranded on a demoted node would silently over-admit a later merge.
-///
-/// `cur` is the WRITING snapshot's id and guards the clear: a node still
-/// stamped with an older snapshot is THAT snapshot's root and keeps its
-/// document (the writer is looking at a clone of it).
-pub fn meta_migrate(from: *mut u8, to: *mut u8, cur: u64) {
-    if from == to { return; }
-    let n: u64 = meta_size(from);
-    if n == 0u64 { return; }
-    if meta_size(to) != n && meta_fits(to, n) {
-        let _ = meta_write(to, meta_ptr(from), n);
+/// Strip BOTH documents, but only when THIS snapshot owns the node (the CoW
+/// stamp is the exclusivity proof). A node still stamped with an older snapshot
+/// is that snapshot's root and keeps its documents.
+pub fn meta_clear_if_owned(node: *mut u8, cur: u64) {
+    if unsafe { node_snapshot(node) } == cur {
+        meta_clear(node);
+        user_meta_clear(node);
     }
+}
+
+/// Store the client's OWN document in `node`, growing the block as needed;
+/// returns the block's (possibly new) base. The store never reads this content.
+pub fn user_meta_write(node: *mut u8, src: *const u8, len: u64) -> *mut u8 {
+    let b: *mut u8 = meta_reserve(node, len);
+    let _ = slot_write(b, unsafe { node_user_slot(b) }, src, len);
+    return b;
+}
+
+/// `user_meta_write` from a compile-time document.
+pub fn user_meta_write_static(node: *mut u8, ws: WritStatic) -> *mut u8 {
+    return user_meta_write(node, ws.ptr, ws.size());
+}
+
+// ── publication (what every generated family calls) ─────────────────────────
+
+/// PUBLISH the container's schema document into its (new) root, ENLARGING the
+/// block when the document does not fit, and return the root's (possibly new)
+/// address — the caller repoints the directory at it.
+///
+/// Idempotent by design: a CoW-privatized root arrives with its documents
+/// already copied (the clone byte-copies the whole region) and is left alone; a
+/// root promoted over a split, a child a collapse demoted into the root, and the
+/// fresh leaf an emptied container resets to all arrive bare and get the
+/// document written from the family's compile-time blob. Publishing from the
+/// CONSTANT rather than migrating between blocks is what makes the emptied case
+/// work at all: that path frees the old root inside the engine, so there is
+/// nothing left to copy from.
+///
+/// A null `doc` (the schema-less callers: raw engine tests, the decl-path test
+/// families) skips publication and leaves the container anonymous.
+pub fn ctr_publish_meta(root: *mut u8, doc: *const u8) -> *mut u8 {
+    if doc == (0 as *const u8) { return root; }
+    if meta_present(root) { return root; }
+    let len: u64 = unsafe { writ_static_size(doc) };
+    let b: *mut u8 = meta_reserve(root, len);
+    let _ = meta_write(b, doc, len);
+    return b;
+}
+
+/// `ctr_publish_meta` taking the family's `@`-literal directly — the form the
+/// generated code splices (`writ_static_none()` when the family has no schema).
+pub fn ctr_publish_meta_static(root: *mut u8, doc: WritStatic) -> *mut u8 {
+    return ctr_publish_meta(root, doc.ptr);
+}
+
+// ── root changes ────────────────────────────────────────────────────────────
+
+/// Copy the documents from a root that is about to be FREED into the node
+/// taking its place — the collapse half of a root change (Memoria's
+/// `ctr_node_to_root`). No clear: `from` does not survive the call site.
+/// Returns `to`'s (possibly new) address — the collapse repoints the root.
+pub fn meta_handover(from: *mut u8, to: *mut u8) -> *mut u8 {
+    let n: u64 = meta_size(from);
+    let u: u64 = user_meta_size(from);
+    if n == 0u64 && u == 0u64 { return to; }
+    let mut b: *mut u8 = to;
+    if n > 0u64 && meta_size(b) != n {
+        b = meta_reserve(b, n);
+        let _ = meta_write(b, meta_ptr(from), n);
+    }
+    if u > 0u64 && user_meta_size(b) != u {
+        b = user_meta_write(b, user_meta_ptr(from), u);
+    }
+    return b;
+}
+
+/// Move the documents from the outgoing root to the incoming one — the
+/// `ctr_copy_root_metadata` + `ctr_root_to_node` pair of a root PROMOTION. The
+/// demoted node gives them up (see the module header: a document stranded on a
+/// non-root silently over-admits a later merge). Returns `to`'s address, which
+/// growth may have changed.
+///
+/// `cur` is the WRITING snapshot's id and guards the strip: a node still
+/// stamped with an older snapshot is THAT snapshot's root and keeps its
+/// documents (the writer is looking at a clone of it).
+pub fn meta_migrate(from: *mut u8, to: *mut u8, cur: u64) -> *mut u8 {
+    if from == to { return to; }
+    let b: *mut u8 = meta_handover(from, to);
     meta_clear_if_owned(from, cur);
+    return b;
 }
