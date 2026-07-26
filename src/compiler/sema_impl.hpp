@@ -2133,6 +2133,12 @@ private:
     // through generic args / elems itself, so nested `_` (Vec<_>, &_,
     // [_; N]) is caught at the same single chokepoint. RAII guard below.
     bool in_item_signature_ = false;
+    // Set while a type ALIAS's RHS is resolved at declaration time. A failure
+    // there is not a user error: the alias keeps its AST and its use sites
+    // re-resolve it (collect_type_alias / lookup_type_by_name), so the
+    // diagnostic must wait for the use site — where the name is actually
+    // wanted and the metaprog round that defines it has had its chance.
+    bool alias_decl_resolve_ = false;
     struct ItemSignatureGuard {
         bool& flag; bool saved;
         explicit ItemSignatureGuard(bool& f) : flag(f), saved(f) { f = true; }

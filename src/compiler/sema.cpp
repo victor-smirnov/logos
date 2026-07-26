@@ -2843,10 +2843,29 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
         auto ukey = std::string(name);
         auto check_alias = [&](const std::string& key) -> TypeRef {
             auto it = type_aliases_.find(key);
-            if (it != type_aliases_.end() &&
-                it->second.type_params.empty() && it->second.lifetime_params.empty())
-                return it->second.type;
-            return nullptr;
+            if (it == type_aliases_.end() ||
+                !it->second.type_params.empty() || !it->second.lifetime_params.empty())
+                return nullptr;
+            // LAZY: an alias whose RHS could not resolve at declaration time
+            // (its `typeof(container …)` names a config const a later metaprog
+            // round emits) kept its AST — re-resolve it HERE, where the name is
+            // wanted and the round that defines it may already have run. The
+            // resolved type is cached back, so this costs one retry, once.
+            TypeRef t = it->second.type;
+            const bool unresolved =
+                !t || TypeRef(t).kind() == LogosType::Kind::Error;
+            if (unresolved && !it->second.rhs_node.is_null()) {
+                auto* saved_holder = holder_;
+                if (it->second.holder) holder_ = it->second.holder;
+                TypeRef fresh = resolve_type(it->second.rhs_node);
+                holder_ = saved_holder;
+                if (fresh && TypeRef(fresh).kind() != LogosType::Kind::Error) {
+                    it->second.type = fresh;
+                    return fresh;
+                }
+                return nullptr;      // still pending — let the caller diagnose
+            }
+            return t;
         };
         // B-mv-02: probe the current package's own alias FIRST so a user
         // `type MemDestroyer` shadows a same-name stdlib alias that holds the
@@ -6604,10 +6623,17 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                                   ? try_resolve_as_known_type(cfg_name)
                                   : resolve_generic_wstatic_const(cfg_name, args);
                 if (!cfg || TypeRef(cfg).kind() != LogosType::Kind::WStaticLit) {
-                    error(std::format(
-                        "typeof(container {}): its config const '{}' did not "
-                        "resolve to a WritStatic document (declaration "
-                        "lowering incomplete?)", ci->name, cfg_name));
+                    // Inside a type ALIAS's declaration-time resolution this is
+                    // EXPECTED, not an error: `<X>Cfg` is emitted by the
+                    // container item's handler in a later metaprog round. Stay
+                    // silent — the alias keeps its AST and its use sites
+                    // re-resolve it, and if it still fails there, THIS
+                    // diagnostic fires where the name was wanted.
+                    if (!alias_decl_resolve_)
+                        error(std::format(
+                            "typeof(container {}): its config const '{}' did not "
+                            "resolve to a WritStatic document (declaration "
+                            "lowering incomplete?)", ci->name, cfg_name));
                     return error_t();
                 }
                 return make_metaclass_wrapper(cfg);

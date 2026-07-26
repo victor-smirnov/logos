@@ -2272,13 +2272,28 @@ void SemaChecker::collect_type_alias(TinyMapView node) {
         // E0121: `type T = _;` rejected — pre-fix the InferredType alias
         // poisoned downstream resolution with misleading stdlib errors.
         ItemSignatureGuard sig_guard(in_item_signature_);
+        const bool saved_adr = alias_decl_resolve_;
+        alias_decl_resolve_ = true;
         entry.type = resolve_type(map_of(node.get(la::TYPE.code)));
+        alias_decl_resolve_ = saved_adr;
     }
     pop_type_params(entry.type_params);
     // ADR 0021 Phase 4a: retain a GENERIC alias's RHS AST so use sites can
     // re-resolve it under concrete bindings when it instantiates a generic
     // const (see TypeAliasEntry.rhs_node). Cheap: a view + holder pointer.
-    if (!entry.type_params.empty()) {
+    //
+    // LAZY ALIASES, same mechanism: an alias whose RHS did not resolve HERE
+    // keeps its AST too, and its use sites re-resolve it. A `type L =
+    // typeof(Ledger)` names a container whose config const a LATER metaprog
+    // round emits, so decl-time resolution cannot succeed — while the very
+    // same `typeof` inside a fn body resolves fine, because bodies are lowered
+    // after that round. Without this, a factory-generated container has no
+    // writable NAME in any position where a type must be spelled (parameter,
+    // field, return, type argument), which is what blocked writing a query
+    // against one. Diagnostics are not lost, they MOVE to the use site: an RHS
+    // that never resolves errors there, where the name is actually wanted.
+    if (!entry.type_params.empty() || !entry.type
+        || TypeRef(entry.type).kind() == LogosType::Kind::Error) {
         entry.rhs_node = map_of(node.get(la::TYPE.code));
         entry.holder   = holder_;
     }
