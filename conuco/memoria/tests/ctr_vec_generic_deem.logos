@@ -1,0 +1,63 @@
+// ctr_vec_generic_deem — ONE query, MANY element types.
+//
+// The point of the demo: the rel is GENERIC over the container's element. The
+// vector projection emits its materializer under a `CanonCol` bound (the
+// capability of projecting into the rel's integer domain), so `Vector<V>`
+// yields ONE relation for every numeric V — and a query written against that
+// relation, through a generic mapping, is instantiated per element type
+// without being rewritten.
+package test;
+
+use memoria.ctr.vec;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
+
+// ONE query shape, two element types — the SAME generic rel underneath
+// (`impl<T: … + CanonCol> __CtrSrc_Vector for VecCtr<T>`), so nothing about
+// the query changes with V.
+pub deem big_u64(v: &VecCtr<u64>) { from v r where r.elem > 100 select (r.pos, r.elem) }
+pub deem big_i64(v: &VecCtr<i64>) { from v r where r.elem > 100 select (r.pos, r.elem) }
+
+fn run_all() -> i32 {
+    let mut a: VecCtr<u64> = VecCtr::new(240u32);
+    let mut b: VecCtr<i64> = VecCtr::new(240u32);
+    let mut i: i64 = 0i64;
+    while i < 16i64 {
+        a.push(((i + 1i64) * 10i64) as u64);
+        b.push((i + 1i64) * 10i64);
+        i = i + 1i64;
+    }
+
+    let r64: Vec<(i64, i64)> = match big_u64(&a)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    let r_i64: Vec<(i64, i64)> = match big_i64(&b)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+
+    // values 10..160; rows above 100 are positions 10..15 — same answer, three
+    // element types, one query.
+    if r64.len() != 6i64 { return 4i32; }
+    if r_i64.len() != 6i64 { return 5i32; }
+    let mut m: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while k < r64.len() {
+        let t: (i64, i64) = r64.get(k);
+        if t.1 != (t.0 + 1i64) * 10i64 { return 7i32; }
+        m = m | (1i64 << (t.0 - 10i64));
+        k = k + 1i64;
+    }
+    if m != 63i64 { return 8i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_vec_generic_deem: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
