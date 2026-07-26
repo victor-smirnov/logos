@@ -111,7 +111,8 @@ fn gp_err_str(s: &String) -> str {
 // its slot's own address, so a foreign slot may point at a local node and vice
 // versa. Both arenas are never-move for the duration of the dispatch loop.
 #[token_macro]
-pub fn deem(name: str, params: str, enrich: str, natspec: str, ir: *const u8) -> ItemList {
+pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
+            ir: *const u8) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 {
         error("deem: needs a name — write `pub deem <name>(<params>) { from … select … }`");
@@ -121,6 +122,11 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, ir: *const u8) ->
     // are re-emitted VERBATIM as the generated fn signature; here we ALSO parse
     // them locally to bind sources (slice params) + type scalar params.
     let mut prm: MacroParams = macro_params_new();
+    // `<V: Bound, …>` verbatim from the item head — every generated fn head
+    // (the query fn and its per-rel/SCC helpers) re-emits it, and every CALL
+    // between them infers the args from the source param. Empty for a
+    // concrete query, which is the whole of the pre-generic behaviour.
+    prm.tparams = tparams;
     parse_macro_params(params, &mut prm);
     if prm.n == 0i64 {
         error("deem: needs at least one parameter — write `pub deem <name>(<src>: &[RowTy], …) { from <src> <var> … }`");

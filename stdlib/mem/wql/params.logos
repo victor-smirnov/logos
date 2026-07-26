@@ -105,6 +105,12 @@ pub struct MacroParams {
     pub rel_mat:     [str; 8],
     pub rel_marg:    [str; 8],
     pub rel_mod:     [str; 8],
+    // ── the item's TYPE-PARAM list, verbatim (`<V: Bound, …>`; "" = concrete) ──
+    // A generic `deem q<V: …>(…)` re-emits it onto EVERY generated fn head; the
+    // calls between those fns infer their args from the source param, so no
+    // turbofish is ever printed. Set by the deem handler from the compiler's
+    // slot-4 blob; trama!/catalog leave it empty.
+    pub tparams:     str,
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -140,6 +146,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_mat:     [""; 8],
         rel_marg:    [""; 8],
         rel_mod:     [""; 8],
+        tparams:     "",
     };
 }
 

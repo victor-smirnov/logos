@@ -344,7 +344,7 @@
     MAPPING_DEF_DONE            = 265   // a CONSUMED mapping item (its thunk ran; per-rel fns emitted). Distinct from FN_MACRO_CALL_ITEM_DONE so a consumer compiling against the ARCHIVE can still recognize the node and register the mapping (name/params/rels/bodies all survive the flip — only CODE changes) for cross-module fusion.
     REL_SIG                     = 262   // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
     REL_BIND                    = 263   // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
-    DEEM_DEF                    = 264   // ADR 0016: `pub? deem q(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.
+    DEEM_DEF                    = 264   // ADR 0016: `pub? deem q<V: Bound>?(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; TYPE_PARAMS = optional type-param list (re-emitted verbatim onto the generated fn heads — one query per container FAMILY); PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.
     CONTAINER_DEF_DONE          = 267   // ADR 0020 wave-0: a CONSUMED container item. Same convention as MAPPING_DEF_DONE — only CODE flips (driver); NAME/TYPE_PARAMS/TYPE/FIELDS survive so a consumer compiling against the ARCHIVE re-registers the declaration (cross-module Canon reasoning).
     CONTAINER_OP                = 269   // BTFL 8b: one entry of a container `ops { … }` block. NAME = verb ident (`seek`, `insert`, `scan`, …; the CLOSED vocabulary is validated by Canon, not the grammar); VALUE = optional arg head ident (`max` in `seek(max(key))`, `count` in `select(count)`, `val` in `scan(val)`); OP_ARG (FIELD slot) = optional inner ident of a parenthesized measure ref (`key` in `max(key)`).
 }
@@ -1335,10 +1335,14 @@
     // Contextual lead ident (same convention as rel/mapping's members): `deem`
     // as a keyword would break the `logos.std.deem` package path. The lead
     // rides the REL_KW slot; sema validates the text.
-    pub_deem_def <- pub_vis IDENT IDENT LPAREN param_list? RPAREN RAW_GROUP_BRACE
-                 => { CODE: DEEM_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, PARAMS: $5, RAW_TEXT: $7 }
-    deem_def     <- IDENT IDENT LPAREN param_list? RPAREN RAW_GROUP_BRACE
-                 => { CODE: DEEM_DEF, REL_KW: $1, NAME: $2, PARAMS: $4, RAW_TEXT: $6 }
+    // The GENERIC form `deem q<V: Bound>(w: M<VecCtr<V>>) { … }` (ADR 0016 §6
+    // T3, item tier): the type-param list rides the same TYPE_PARAMS slot as
+    // every other item's and is re-emitted verbatim onto the generated fn
+    // heads — one query for a whole container family, no per-element copy.
+    pub_deem_def <- pub_vis IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
+                 => { CODE: DEEM_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RAW_TEXT: $8 }
+    deem_def     <- IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
+                 => { CODE: DEEM_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RAW_TEXT: $7 }
 
     rel_sig  <- IDENT IDENT LPAREN param_list? RPAREN SEMI
              => { CODE: REL_SIG, REL_KW: $1, NAME: $2, PARAMS: $4 }

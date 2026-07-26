@@ -6,9 +6,17 @@
 // yields ONE relation for every numeric V — and a query written against that
 // relation, through a generic mapping, is instantiated per element type
 // without being rewritten.
+//
+// Two tiers of generality are gated here:
+//   §1  a generic MAPPING + one `deem` item per element type — the query is
+//       written once, but the instantiation lines still name the types;
+//   §2  a generic `deem` ITEM — the type parameter reaches the query item
+//       itself, so even those lines collapse into one. The type params ride
+//       verbatim onto every generated fn head; the calls between them infer.
 package test;
 
 use memoria.ctr.vec;
+use logos.lcm.canon.canon;            // CanonCol — the bound the projection needs
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.result;
@@ -23,9 +31,32 @@ pub mapping Big<S: __CtrSrc_Vector>(v: &S) {
     pub rel big(p: i64, e: i64) { from v r where r.elem > 100 select (r.pos, r.elem); }
 }
 
-// …and one line per element type to point it at a container. No query here.
+// §1 — one line per element type to point it at a container. No query here.
 pub deem big_u64(w: Big<VecCtr<u64>>) { from big b select (b.p, b.e) }
 pub deem big_i64(w: Big<VecCtr<i64>>) { from big b select (b.p, b.e) }
+
+// §2 — …and the same thing with the element type left OPEN. This single item
+// serves every V the container family admits: the emitted
+// `pub fn big<V: …>(w: &VecCtr<V>)` and its per-rel helper both carry the
+// list, and `big(&a)` / `big(&b)` below infer V from the argument.
+pub deem big<V: Copy + Fst + StableLayout + CanonCol>(w: Big<VecCtr<V>>) {
+    from big b select (b.p, b.e)
+}
+
+// The answer shape both tiers must produce: values 10..160, rows above 100 are
+// positions 10..15 — six rows, each `e == (p + 1) * 10`.
+fn rows_ok(rs: &Vec<(i64, i64)>) -> bool {
+    if rs.len() != 6i64 { return false; }
+    let mut m: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while k < rs.len() {
+        let t: (i64, i64) = rs.get(k);
+        if t.1 != (t.0 + 1i64) * 10i64 { return false; }
+        m = m | (1i64 << (t.0 - 10i64));
+        k = k + 1i64;
+    }
+    return m == 63i64;
+}
 
 fn run_all() -> i32 {
     let mut a: VecCtr<u64> = VecCtr::new(240u32);
@@ -37,24 +68,29 @@ fn run_all() -> i32 {
         i = i + 1i64;
     }
 
+    // §1 — the per-type items.
     let r64: Vec<(i64, i64)> = match big_u64(&a)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     let r_i64: Vec<(i64, i64)> = match big_i64(&b)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if !rows_ok(&r64)  { return 4i32; }
+    if !rows_ok(&r_i64) { return 5i32; }
 
-    // values 10..160; rows above 100 are positions 10..15 — same answer, three
-    // element types, one query.
-    if r64.len() != 6i64 { return 4i32; }
-    if r_i64.len() != 6i64 { return 5i32; }
-    let mut m: i64 = 0i64;
+    // §2 — ONE item, both element types, V inferred from the argument.
+    let g64: Vec<(i64, i64)> = match big(&a)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    let g_i64: Vec<(i64, i64)> = match big(&b)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if !rows_ok(&g64)  { return 8i32; }
+    if !rows_ok(&g_i64) { return 9i32; }
+
+    // …and the generic item agrees with the per-type ones, row for row.
     let mut k: i64 = 0i64;
-    while k < r64.len() {
-        let t: (i64, i64) = r64.get(k);
-        if t.1 != (t.0 + 1i64) * 10i64 { return 7i32; }
-        m = m | (1i64 << (t.0 - 10i64));
+    while k < 6i64 {
+        if g64.get(k) != r64.get(k)     { return 10i32; }
+        if g_i64.get(k) != r_i64.get(k) { return 11i32; }
         k = k + 1i64;
     }
-    if m != 63i64 { return 8i32; }
     return 0i32;
 }
 

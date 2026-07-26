@@ -4631,6 +4631,12 @@ private:
     // consuming package.
     std::string   native_source_spec(const std::string& pname,
                                      const std::string& ptype_stripped);
+    // Does this parameter-type TEXT name something the deem pipeline can bind
+    // a source from — a registered mapping, or a type (or type family, by
+    // base name) carrying a source impl? The pipeline matches by text, so a
+    // `false` here is the signal that the written spelling has to be replaced
+    // by the resolved one (see lower_deem_def).
+    bool          source_named_by_text_(std::string_view ptype) const;
     // Shared by the deem! macro path and the `deem` ITEM (ADR 0016): mapping
     // fusion + native-source spec over a deem parameter list. Mutates
     // params_text (mapping-type substitution) and raw_text (rule-list

@@ -187,19 +187,23 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
     return false;
 }
 
-// Emit the generated fn signature head: `pub fn <name>(<params verbatim>`.
+// Emit the generated fn signature head: `pub fn <name><tps>(<params verbatim>`.
 // The paren text is the REAL Logos parameter list from the deem!(…) surface —
 // the compiler parses + type-checks it when the emitted chunk compiles, and
 // the generated-fn param ORDER is the paren-list order, verbatim.
 // ADR 0016: a leading `-` on fn_name (vis_is_priv, params.logos) marks a
 // NON-pub generated fn — a private mapping rel; the marker is consumed here.
-fn emit_fn_head(em: &mut Emitter, fn_name: str, params_text: str) {
+// `tps` is the item's type-param list, also verbatim (`<V: Bound>`, "" for a
+// concrete query): a generic `deem` puts it on EVERY head it emits, and the
+// calls between those fns infer their args from the source param.
+fn emit_fn_head(em: &mut Emitter, fn_name: str, params_text: str, tps: str) {
     if vis_is_priv(fn_name) {
         em.push_text("fn ");
     } else {
         em.push_text("pub fn ");
     }
     em.push_text(vis_strip(fn_name));
+    em.push_text(tps);
     em.push_text("(");
     em.push_text(params_text);
 }
@@ -488,7 +492,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let mut __uses: String = String::new();
     prm.native_use_text(&mut __uses);
     begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
     if first {
         // Single-row mode: constant None (no scan loop).
         em.push_text(") -> Result<Option<");
@@ -511,13 +515,14 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
 
 // (a·false, FIND mode) — a const-false `find` predicate: constant None with the
 // borrow-returning signature (`Option<&Row>`), no scan loop.
-fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> bool {
+fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str, tps: str,
+                  h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     // find/first fast paths scan plain slices only — no engine params here.
     begin_chunk(&mut em, &view, "");
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, tps);
     em.push_text(") -> Result<Option<&");
     em.push_text(sc.row_ty);
     em.push_text(">, ElError> {\n");
@@ -533,14 +538,15 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> bo
 // answer, so BORROW it: `Option<&Row>` = Some(&src[0]) when non-empty, None
 // otherwise — zero loop, zero copy (the emit_identity precedent, narrowed to
 // one row).
-fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> bool {
+fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str, tps: str,
+                 h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view, "");
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, tps);
     em.push_text(") -> Result<Option<&");
     em.push_text(row_ty);
     em.push_text(">, ElError> {\n");
@@ -561,7 +567,7 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str, h: &Writ) -> boo
 // accessor-collapse peephole). The return TYPE narrows from `Vec<T>` to `&[T]`
 // (a genuinely thinner form; there is no per-row materialization).
 fn emit_identity(scan_e: RExpr,
-                 fn_name: str, params_text: str, h: &Writ) -> bool {
+                 fn_name: str, params_text: str, tps: str, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
@@ -569,7 +575,7 @@ fn emit_identity(scan_e: RExpr,
     let view: OView = oview_module_ast();
     let mut em: Emitter = Emitter::new();
     begin_chunk(&mut em, &view, "");
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, tps);
     em.push_text(") -> Result<&[");
     em.push_text(row_ty);
     em.push_text("], ElError> {\n");
@@ -605,15 +611,15 @@ pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                 let scan_e: RExpr = p.input_expr();
                 if empty {
                     if sel_mode == SELM_FIND() {
-                        return emit_none_find(scan_e, fn_name, params_text, h);
+                        return emit_none_find(scan_e, fn_name, params_text, prm.tparams, h);
                     }
                     return emit_empty(scan_e, p.sel, fn_name, params_text, prm, result_ty,
                                       has_result_ty, sel_mode == SELM_FIRST(), h);
                 }
                 if sel_mode != SELM_ALL() {
-                    return emit_head_row(scan_e, fn_name, params_text, h);
+                    return emit_head_row(scan_e, fn_name, params_text, prm.tparams, h);
                 }
-                return emit_identity(scan_e, fn_name, params_text, h);
+                return emit_identity(scan_e, fn_name, params_text, prm.tparams, h);
             }
             _ => { }
         }
@@ -807,7 +813,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut __uses: String = String::new();
     prm.native_use_text(&mut __uses);
     begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
     if first {
         em.push_text(") -> Result<Option<");
         em.push_text(result_elem);
@@ -976,7 +982,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     let mut __uses: String = String::new();
     prm.native_use_text(&mut __uses);
     begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
     em.push_text(") -> Result<Option<&");
     em.push_text(row_ty);
     em.push_text(">, ElError> {\n");
@@ -1941,7 +1947,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut __uses: String = String::new();
     prm.native_use_text(&mut __uses);
     begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
     if first {
         em.push_text(") -> Result<Option<");
         em.push_text(result_ty);
@@ -2264,7 +2270,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut __uses: String = String::new();
     prm.native_use_text(&mut __uses);
     begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
     em.push_text(") -> Result<Vec<");
     em.push_text(result_ty);
     em.push_text(">, ElError> {\n");
@@ -2999,7 +3005,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut __uses: String = String::new();
     prm.native_use_text(&mut __uses);
     begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text);
+    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
     em.push_text(") -> Result<Vec<");
     em.push_text(result_ty);
     em.push_text(">, ElError> {\n");
@@ -3978,6 +3984,7 @@ fn emit_rel_fn_oneshot(em: &mut Emitter, rel: RQRel, ri: i64, fn_name: str,
     em.push_text(vis_strip(fn_name));
     em.push_text("_rel_");
     em.push_text(prm.rel_names[ri]);
+    em.push_text(prm.tparams);
     em.push_text("(");
     em.push_text(params_text);
     push_dep_params(em, prm, scc.dep_mask[ri]);
@@ -4151,6 +4158,7 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
     em.push_text(vis_strip(fn_name));
     em.push_text("_scc");
     push_nk(em, "", c);
+    em.push_text(prm.tparams);
     em.push_text("(");
     em.push_text(params_text);
     push_dep_params(em, prm, mask);

@@ -20829,11 +20829,14 @@ void SemaChecker::emit_token_macro_item_site(
             // materializer fn + module. The walker registers native rels from
             // THIS, not from hardcoded type-name compares.
             blobs.push_back(pack_blob(natspec));
-            // Slot 4 (RelList only): the canonical rules TEXT — the mapping
-            // item's runtime artifact. The handler emits `<M>__rules() -> str`
-            // from it, so dynamically-compiled queries can FUSE a statically
-            // declared mapping (mappings are static-only; dynamics consumes).
-            if (ir_entry == IrEntry::RelList) blobs.push_back(pack_blob(rules_text));
+            // Slot 4 carries the ir_entry's own trailing text: for RelList the
+            // canonical rules TEXT (the mapping item's runtime artifact — the
+            // handler emits `<M>__rules() -> str` from it, so dynamically
+            // compiled queries can FUSE a statically declared mapping), for
+            // Program the deem's TYPE-PARAM list (re-emitted onto the generated
+            // fn heads — one query per container family). Both are `rules_text`
+            // at this seam; only the callee's reading of it differs.
+            blobs.push_back(pack_blob(rules_text));
 
             auto doc = logos::writ::make_doc(1u << 20).get();   // MultiChunk: never moves
             logos::wql::surface::WqlParser wp(raw_text, doc);
@@ -20902,11 +20905,13 @@ void SemaChecker::emit_token_macro_item_site(
                 static_cast<int64_t>(rules_text.size()),
                 macro_info->base_name);
         } else if (ir_mode) {
-            // (name, params, extra, natspec, ir) — the unified rule-IR ABI.
-            // `extra` is the pub mask (mapping) or the fusion spec (deem!);
-            // `natspec` describes native-source params; `ir` is a POINTER into
-            // the compiler's Writ arena — the root parsed above. The handler
-            // does `WAny::ref_to(ir)` and reads the tree in place.
+            // (name, params, extra, natspec, tparams, ir) — the unified rule-IR
+            // ABI. `extra` is the pub mask (mapping) or the fusion spec (deem!);
+            // `natspec` describes native-source params; `tparams` is the item's
+            // type-param list, verbatim (`<V: Bound>` — empty for a concrete
+            // query); `ir` is a POINTER into the compiler's Writ arena — the
+            // root parsed above. The handler does `WAny::ref_to(ir)` and reads
+            // the tree in place.
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
@@ -20917,13 +20922,16 @@ void SemaChecker::emit_token_macro_item_site(
                 "    let __mk: str = unsafe {{ str_from_raw(__pm, {3}i64) }};\n"
                 "    let __ps: *const u8 = unsafe {{ logos_macro_arg({0}u64, 3u64) }};\n"
                 "    let __ns: str = unsafe {{ str_from_raw(__ps, {4}i64) }};\n"
+                "    let __pg: *const u8 = unsafe {{ logos_macro_arg({0}u64, 4u64) }};\n"
+                "    let __gp: str = unsafe {{ str_from_raw(__pg, {5}i64) }};\n"
                 "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
-                "    {5}(__n, __pr, __mk, __ns, __ir)\n"
+                "    {6}(__n, __pr, __mk, __ns, __gp, __ir)\n"
                 "}}",
                 site_id, static_cast<int64_t>(resource_name.size()),
                 static_cast<int64_t>(params_text.size()),
                 static_cast<int64_t>(pub_mask.size()),
                 static_cast<int64_t>(natspec.size()),
+                static_cast<int64_t>(rules_text.size()),
                 macro_info->base_name);
         } else if (nargs == 3) {
             call_text = std::format(
@@ -21082,6 +21090,26 @@ void SemaChecker::seed_builtin_source_impls() {
          {"cutr","i64"}}));
     e.push_back(mk("EngineState", "controls", "deem_state_controls", "logos.mem.deem",
         {{"epoch","i64"},{"kind","i64"},{"val","i64"}}));
+}
+
+bool SemaChecker::source_named_by_text_(std::string_view ptype) const {
+    // Strip the reference marker + spaces the deem surface writes.
+    while (!ptype.empty() && (ptype.front() == '&' || ptype.front() == ' '))
+        ptype.remove_prefix(1);
+    if (ptype.empty()) return false;
+    // A slice source (`&[Row]`) is the pipeline's own native shape.
+    if (ptype.front() == '[') return true;
+    std::string key(ptype);
+    if (mappings_.count(key)) return true;
+    if (source_impls_.count(key)) return true;
+    // `Base<Args>` — a GENERIC source impl registers under the base alone
+    // (the same fallback native_source_spec makes), and a generic mapping is
+    // written `M<Src>`.
+    auto lt = key.find('<');
+    if (lt == std::string::npos) return false;
+    std::string base = key.substr(0, lt);
+    while (!base.empty() && base.back() == ' ') base.pop_back();
+    return mappings_.count(base) > 0 || source_impls_.count(base) > 0;
 }
 
 std::string SemaChecker::native_source_spec(const std::string& pname,
@@ -22034,6 +22062,21 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
         return;
     }
 
+    // Type params (`deem q<V: Bound>(…)`): rendered SYNTACTICALLY, exactly like
+    // the value params below — the list is re-emitted verbatim onto every
+    // generated fn head (the query fn and its per-rel helpers), so ONE query
+    // serves a whole container family. Nothing here resolves them: the emitted
+    // chunk is the honest gate (an unknown bound fails when it compiles), and
+    // the bounds a query needs are the BACKING type's, which sema cannot know.
+    std::string tparams_text;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        bool was_syn = dump_syntactic_types_;
+        set_render_syntactic(true);
+        tparams_text =
+            render_type_param_list_(map_of(node.get(la::TYPE_PARAMS.code)));
+        set_render_syntactic(was_syn);
+    }
+
     // Params: simple `name: Type` bindings, canonical syntactic text (the
     // resolved form would fail the pipeline's surface checks) — the same
     // discipline as mapping headers.
@@ -22055,13 +22098,64 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
                     return;
                 }
                 std::string pn(str_of(pv.get(la::NAME.code)));
-                std::string tsrc =
-                    render_type_src_syntactic_(map_of(pv.get(la::TYPE.code)));
+                auto tnode = map_of(pv.get(la::TYPE.code));
+                std::string tsrc = render_type_src_syntactic_(tnode);
                 if (tsrc.empty()) {
                     error(std::format(
                         "deem '{}': cannot render the type of parameter '{}'",
                         qname, pn));
                     return;
+                }
+                // A source that only the COMPILER can spell (ADR 0021): a
+                // factory family's handle is named by a content hash, so the
+                // only way to write it is the projection
+                // `&<typeof(C) as CtrFamily>::Handle` — and the pipeline below
+                // matches sources by their type's TEXT, which that spelling is
+                // not. Re-spell such a parameter by its RESOLVED struct name.
+                //
+                // The projection collapses only once the factory has emitted
+                // `impl CtrFamily for CtrClass<CFG>`, which happens in a LATER
+                // round (mono drains the factory after this sema). So while it
+                // is still a projection, DEFER the whole item one iteration —
+                // silently, exactly as the pending-container branch in
+                // enrich_deem_params does. The item stays DEEM_DEF and
+                // re-lowers when the family lands.
+                if (!source_named_by_text_(tsrc)) {
+                    // A PROBE, not the check: in the round before the factory
+                    // runs, `typeof(C)` legitimately has no config const yet
+                    // and resolution says so. The parameter's real gate is the
+                    // generated fn, which the compiler type-checks like any
+                    // other source — so roll this attempt's diagnostics back.
+                    size_t diag_mark = result_.diags.size();
+                    TypeRef rt = resolve_type(tnode);
+                    if (result_.diags.size() > diag_mark)
+                        result_.diags.resize(diag_mark);
+                    TypeRef core = rt;
+                    if (core && (TypeRef(core).kind() == LogosType::Kind::Ref ||
+                                 TypeRef(core).kind() == LogosType::Kind::MutRef))
+                        core = TypeRef(core).pointee();
+                    if (core && TypeRef(core).kind() == LogosType::Kind::AssocType) {
+                        // Say WHAT we are waiting for: a factory-backed marker
+                        // base records the demand, so the driver can drain the
+                        // factory in this very fixpoint instead of after mono.
+                        defer_factory_backed(TypeRef(core).assoc_base());
+                        if (std::getenv("LOGOS_CTR_DEBUG"))
+                            std::fprintf(stderr,
+                                "[ctr-debug] defer deem '%s': param %s: %s is "
+                                "still a projection\n",
+                                qname.c_str(), pn.c_str(), type_str(core).c_str());
+                        if (cur_prog_) cur_prog_->deferred_item_sites = true;
+                        return;
+                    }
+                    if (core && (TypeRef(core).kind() == LogosType::Kind::Struct ||
+                                 TypeRef(core).kind() == LogosType::Kind::ZonedStruct)) {
+                        std::string resolved = type_str(core);
+                        if (source_named_by_text_(resolved)) {
+                            bool by_ref = rt && TypeRef(rt).kind() != LogosType::Kind::Struct
+                                             && TypeRef(rt).kind() != LogosType::Kind::ZonedStruct;
+                            tsrc = (by_ref ? "&" : "") + resolved;
+                        }
+                    }
                 }
                 if (nparams) params_text += ", ";
                 params_text += pn;
@@ -22115,15 +22209,17 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
     }
     bool rt_is_il = is_item_list(macro_info->ret_type);
     if ((!rt_is_il && !is_quote_item_blob(macro_info->ret_type))
-            || macro_info->param_types.size() != 5
+            || macro_info->param_types.size() != 6
             || !is_str_type(macro_info->param_types[0])
             || !is_str_type(macro_info->param_types[1])
             || !is_str_type(macro_info->param_types[2])
             || !is_str_type(macro_info->param_types[3])
-            || !is_const_u8_ptr(macro_info->param_types[4])) {
+            || !is_str_type(macro_info->param_types[4])
+            || !is_const_u8_ptr(macro_info->param_types[5])) {
         error("deem item: the 'deem' handler must be a #[token_macro] "
               "`(name: str, params: str, enrich: str, natspec: str, "
-              "ir: *const u8) -> ItemList` (stdlib/compiler version skew?)");
+              "tparams: str, ir: *const u8) -> ItemList` "
+              "(stdlib/compiler version skew?)");
         return;
     }
     if (!holder_ || !cur_prog_) return;
@@ -22141,7 +22237,7 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
     std::string marked = is_pub ? qname : ("-" + qname);
     emit_token_macro_item_site(node, prog, macro_info, rt_is_il, 3,
                                marked, params_text, raw_text,
-                               IrEntry::Program, enrich, natspec);
+                               IrEntry::Program, enrich, natspec, tparams_text);
 }
 
 bool SemaChecker::enrich_deem_params(const std::string& callee_label,
@@ -22463,28 +22559,33 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             && TypeRef(t).pointee()
             && TypeRef(t).pointee().kind() == LogosType::Kind::U8;
     };
-    bool sig_ir5 = macro_info->is_token_macro
-        && macro_info->param_types.size() == 5
+    // Five leading `str` slots (name, params, enrich/pubs, natspec, tparams/
+    // rules) then the IR pointer — the shape BOTH rule-IR handlers wear (deem
+    // and __mapping_item), and the one the macro form is retired for.
+    bool sig_ir6 = macro_info->is_token_macro
+        && macro_info->param_types.size() == 6
         && is_str_type(macro_info->param_types[0])
         && is_str_type(macro_info->param_types[1])
         && is_str_type(macro_info->param_types[2])
         && is_str_type(macro_info->param_types[3])
-        && is_const_u8_ptr(macro_info->param_types[4]);
+        && is_str_type(macro_info->param_types[4])
+        && is_const_u8_ptr(macro_info->param_types[5]);
 
-    bool sig_vec = !sig_str && !sig_str2 && !sig_str3 && !sig_ir5
+    bool sig_vec = !sig_str && !sig_str2 && !sig_str3 && !sig_ir6
         && macro_info->param_types.size() == 1
         && TypeRef(macro_info->param_types[0]).kind() == LogosType::Kind::Struct
         && TypeRef(macro_info->param_types[0]).struct_name() == "Vec"
         && TypeRef(macro_info->param_types[0]).type_args().size() == 1
         && is_exprblob(TypeRef(macro_info->param_types[0]).type_args()[0]);
     bool sig_zero = macro_info->param_types.empty();
-    if (!sig_str && !sig_str2 && !sig_str3 && !sig_ir5 && !sig_vec && !sig_zero) {
+    if (!sig_str && !sig_str2 && !sig_str3 && !sig_ir6 && !sig_vec && !sig_zero) {
         // Preserve the canonical fn_macro wording (diagnostic rule
         // metaprog.fn-macro-item.param-signature); token_macro item callees
         // get their own message.
         const char* expected = macro_info->is_token_macro
             ? "`str`, `(name: str, body: str)`, `(name: str, params: str, body: str)`, "
-              "or `(name: str, params: str, enrich: str, natspec: str, ir: *const u8)`"
+              "or `(name: str, params: str, enrich: str, natspec: str, tparams: str, "
+              "ir: *const u8)`"
             : "`Vec<ExprBlob>` or no args";
         error(std::format(
             "fn_macro item: '{}!' must take {}", callee_name, expected));
@@ -22507,7 +22608,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             callee_name, callee_name, callee_name));
         return;
     }
-    if ((sig_str3 || sig_ir5) && !has_name) {
+    if ((sig_str3 || sig_ir6) && !has_name) {
         error(std::format(
             "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
             "`resource <name> = {}!(<params>){{ … }}`",
@@ -22521,14 +22622,14 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     bool has_params = node.has_key(la::PARAMS);
     std::string params_text;
     if (has_params) params_text = std::string(str_of(node.get(la::PARAMS.code)));
-    if (has_params && !sig_str3 && !sig_ir5) {
+    if (has_params && !sig_str3 && !sig_ir6) {
         error(std::format(
             "'{}!(<params>){{ … }}' supplies a parameter list, but '{}!' is not a "
             "`(name: str, params: str, body: str)` #[token_macro]",
             callee_name, callee_name));
         return;
     }
-    if ((sig_str3 || sig_ir5) && !has_params) {
+    if ((sig_str3 || sig_ir6) && !has_params) {
         error(std::format(
             "'{}!' takes `(name: str, params: str, body: str)` — invoke it as "
             "`resource <name> = {}!(<params>){{ … }}`, not the bare-brace form",
@@ -22553,7 +22654,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // The deem! macro form is RETIRED: the ir-ABI handler is reachable only
     // through the `deem` language item (its exact replacement — same handler,
     // same seam, plus real visibility and doc comments). Precedent: mapping!.
-    if (sig_ir5) {
+    if (sig_ir6) {
         error(std::format(
             "'{}!' is retired — write the language item instead:\n"
             "    pub deem {}({}) {{ … }}",

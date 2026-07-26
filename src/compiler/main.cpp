@@ -3130,6 +3130,10 @@ int run_metaprog_dispatch(
     // deferring module entirely — re-run a FULL fresh sema this iteration so
     // the deferred item is revisited (the M6.1 cache-bypass precedent).
     bool retry_deferred = false;
+    // Factory configs drained by the EARLY drain below (one chunk per CFG
+    // hash); main()'s post-mono drain re-fires them structurally and finds
+    // the chunk already emitted, so the two loops never double-generate.
+    std::unordered_set<uint64_t> early_drained_hashes;
     for (int iter = 0; ; ++iter) {
         auto _t = std::chrono::steady_clock::now();
         auto opts_iter = meta_opts;
@@ -3161,6 +3165,77 @@ int run_metaprog_dispatch(
         if (!prog.ok()) return 1;
         retry_deferred = retry_deferred || prog.deferred_item_sites;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
+
+        // ── ADR 0021: EARLY factory drain ───────────────────────────────
+        // sema records a factory demand the moment anything NAMES
+        // `CtrClass<CFG>` (defer_factory_backed). Historically only MONO's
+        // demands were drained, in main()'s post-mono loop — so the generated
+        // family landed after the last round that could have consumed it, and
+        // an ITEM waiting on the family (a `deem` whose source is a family
+        // handle; a signature naming one) could never resolve however many
+        // times it re-lowered.
+        //
+        // When a site actually deferred this round, drain the pending demands
+        // HERE, inside the fixpoint that discovered them: the chunk is the
+        // same one main()'s drain renders, the metacall runs on the next
+        // iteration through the ordinary item seam, and the waiting item
+        // re-lowers with the family present. Gated on `deferred_item_sites`
+        // so a program with nothing waiting keeps the established ordering
+        // exactly; hash-deduped so main()'s later drain is a no-op for
+        // anything satisfied here.
+        if (prog.deferred_item_sites && !prog.factory_demands.empty()) {
+            bool factory_available = false;
+            for (const auto& f : prog.functions)
+                if (f && logos::compiler::bare_fn_name(f.name())
+                         == "__container_factory") { factory_available = true; break; }
+            bool drained_now = false;
+            bool drain_emitted = false;
+            g_any_emitted = &drain_emitted;
+            if (factory_available) {
+                for (const auto& fd : prog.factory_demands) {
+                    if (early_drained_hashes.count(fd.cfg_hash)) continue;
+                    auto src_it = prog.wstatic_sources.find(fd.cfg_hash);
+                    // No captured CFG source → leave it to main()'s drain,
+                    // which owns that diagnostic.
+                    if (src_it == prog.wstatic_sources.end()) continue;
+                    char hex[17];
+                    std::snprintf(hex, sizeof hex, "%016llx",
+                                  (unsigned long long)fd.cfg_hash);
+                    std::string esc;
+                    esc.reserve(src_it->second.size() + 16);
+                    for (char c : src_it->second) {
+                        switch (c) {
+                        case '\\': esc += "\\\\"; break;
+                        case '"':  esc += "\\\""; break;
+                        case '\n': esc += "\\n";  break;
+                        case '\r': esc += "\\r";  break;
+                        case '\t': esc += "\\t";  break;
+                        case '\0': esc += "\\0";  break;
+                        default:   esc += c;      break;
+                        }
+                    }
+                    std::string chunk;
+                    chunk += "package logos.gen;\n";
+                    chunk += "use logos.lcm.canon.container_item;\n";
+                    chunk += "use logos.mem.bt.map;\n";
+                    chunk += "metacall __container_factory(\"";
+                    chunk += hex;
+                    chunk += "\", \"";
+                    chunk += esc;
+                    chunk += "\");\n";
+                    if (logos_emit_source(chunk.c_str())) drained_now = true;
+                    early_drained_hashes.insert(fd.cfg_hash);
+                    if (opts.trace || std::getenv("LOGOS_TRACE_DISPATCH"))
+                        std::fprintf(stderr,
+                            "metaclass: factory drained EARLY @hs_%s\n", hex);
+                }
+            }
+            g_any_emitted = nullptr;
+            // The chunk is a fresh ast: its metacall site is only visible to
+            // the NEXT sema, so force another round rather than falling into
+            // the break below.
+            if (drained_now) continue;
+        }
 
         bool has_pending_item_mc = false;
         {
