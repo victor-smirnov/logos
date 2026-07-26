@@ -3134,6 +3134,7 @@ int run_metaprog_dispatch(
     // hash); main()'s post-mono drain re-fires them structurally and finds
     // the chunk already emitted, so the two loops never double-generate.
     std::unordered_set<uint64_t> early_drained_hashes;
+    bool any_deferral_seen = false;
     for (int iter = 0; ; ++iter) {
         auto _t = std::chrono::steady_clock::now();
         auto opts_iter = meta_opts;
@@ -3183,7 +3184,11 @@ int run_metaprog_dispatch(
         // so a program with nothing waiting keeps the established ordering
         // exactly; hash-deduped so main()'s later drain is a no-op for
         // anything satisfied here.
-        if (prog.deferred_item_sites && !prog.factory_demands.empty()) {
+        // Sticky: once a site has deferred in THIS dispatch, keep draining
+        // demands as they appear — the waiting item may need a family whose
+        // demand only surfaces a round later.
+        if (prog.deferred_item_sites) any_deferral_seen = true;
+        if (any_deferral_seen && !prog.factory_demands.empty()) {
             bool factory_available = false;
             for (const auto& f : prog.functions)
                 if (f && logos::compiler::bare_fn_name(f.name())
@@ -3339,9 +3344,27 @@ int run_metaprog_dispatch(
         // — it stays valid because the underlying arena lives in `asts`. We
         // install g_macro_args from this snapshot around the item-thunk loop.
         auto m6_saved_macro_args = meta_prog.macro_arg_blobs;
+        // Metaprog stubs (bodies the discovery pass skipped). A CONCRETE stub
+        // is kept and POISONED — mlir_gen gives it a trap body — instead of
+        // being dropped: dropping it dangles any caller that WAS lowered in
+        // this pass, and callers exist. A `deem` item's query fn is emitted as
+        // SOURCE (so it is lowered, and Canon's own compile-time queries need
+        // it to be) while the container family it reads arrives as item BLOBS
+        // (so it is stubbed) — the call between them has to land on a symbol.
+        // A trap body is the honest one: nothing at compile time calls a
+        // generated container's materializer, and if anything ever did, it
+        // would abort rather than silently do nothing.
+        // GENERIC stubs still go: mono instantiates from the body, and an
+        // empty one has nothing to clone.
+        for (auto& f : meta_prog.functions)
+            if (f && f.is_metaprog_stub() && f.type_params().empty())
+                meta_prog.poisoned_fns.insert(
+                    sym::link_name(f, meta_prog.pkg_module_ids));
         meta_prog.functions.erase(
             std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
-                [](const auto& f) { return f.is_metaprog_stub(); }),
+                [](const auto& f) {
+                    return f.is_metaprog_stub() && !f.type_params().empty();
+                }),
             meta_prog.functions.end());
         // Pass binary_symbols through so the metaprog JIT's mlir_gen skips
         // body emission for fns already provided by the JIT's archive

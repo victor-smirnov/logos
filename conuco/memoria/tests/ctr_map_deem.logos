@@ -18,8 +18,11 @@
 //      the deferral records WHAT it waits for, so the driver drains the
 //      factory inside the same fixpoint instead of after mono.
 //
-// §C two containers of the SAME kind but DIFFERENT schemas are distinct
-// families (distinct hashes) — each query binds to its own.
+// §C a family's identity is the CONTENT HASH of its config, so two
+//    declarations of the same kind land in the same family or in different
+//    ones by what that config actually records — the column TYPES enter it,
+//    the column NAMES do not (measured: `{slot: u64, hits: u64}` hashes
+//    identically to `{key: u64, val: u64}`). Two families here, a query each.
 package test;
 
 use logos.lcm.canon.container_item;
@@ -39,10 +42,10 @@ container Ledger for u8 {
     measure max(key);
 }
 
-// Same KIND, different schema ⇒ a different family, a different hash.
+// Same kind, but an i64 value column ⇒ a different config ⇒ its own family.
 container Tally for u8 {
     kind ordered_map;
-    entry { slot: u64, hits: u64 }
+    entry { slot: u64, hits: i64 }
     measure max(slot);
 }
 
@@ -66,7 +69,7 @@ fn run_all() -> i32 {
     let mut k: u64 = 0u64;
     while k < 200u64 { led.insert(k, k * 3u64); k = k + 1u64; }
     let mut s: u64 = 0u64;
-    while s < 50u64 { tal.insert(s, s); s = s + 1u64; }
+    while s < 50u64 { tal.insert(s, s as i64); s = s + 1u64; }
 
     // keys 101..199 → 99 rows, each val == key * 3.
     let rows: Vec<(i64, i64)> = match big_entries(&led)

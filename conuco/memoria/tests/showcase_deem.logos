@@ -7,13 +7,9 @@
 //   §2  ONE query serves every element type — it is written against the
 //       RELATION (`pos`/`elem`), so the type parameter never appears in it;
 //   §3  a STORE describes itself — ids from the directory, kinds from each
-//       container's own root block, with no compile-time type in sight.
-//
-// Honest boundary, stated because a showcase should not blur it: §1–§2 query a
-// standalone container, §3 inspects a store-backed one. The relation for
-// store-backed families is emitted too (trait OrderedMapSource in
-// logos.mem.bt.map), but querying it needs a name for a hash-keyed handle —
-// see feat_deem_generic_and_fn_level.
+//       container's own root block, with no compile-time type in sight;
+//   §4  and the query reaches a STORE-BACKED container too, whose handle type
+//       is named by a content hash that nobody can type out.
 package test;
 
 use memoria.ctr.vec;                  // container Vector<T> — the declaration
@@ -62,19 +58,23 @@ pub mapping Above<S: __CtrSrc_Vector>(v: &S) {
 }
 
 // Pointing it at containers — these lines choose the element type; the QUERY
-// above never mentions one.
+// above never mentions one. (`deem` items take type params too, so even these
+// collapse into one — see ctr_vec_generic_deem.)
 pub deem above_u64(w: Above<VecCtr<u64>>) { from above a select (a.p, a.e) }
 pub deem above_i64(w: Above<VecCtr<i64>>) { from above a select (a.p, a.e) }
 
-// ── §4, NOT YET: the same query over a STORE-BACKED container ───────────────
-// The relation exists for store-backed families too (`trait OrderedMapSource`
-// in logos.mem.bt.map, implemented by every generated map family). What is
-// missing is a NAME: the family handle is hash-keyed, and a `deem` item's
-// parameter is checked BEFORE the metaprog round that defines the container —
-// so neither `typeof(Ledger)::Handle` nor an alias for it resolves in that
-// position (measured, 2026-07-25). That is the item-level deferral in
-// design_pending_fixpoint_not_pipeline; a fn-level `deem` sidesteps it by
-// INFERRING the type instead of spelling it.
+// ── §4 the same query, over a STORE-BACKED container ────────────────────────
+//
+// `Ledger`'s family is GENERATED: its handle type is named by the content hash
+// of its schema (`Hs<hex>`), so there is no name for it in this file — and a
+// `deem` parameter is a type position. The projection `<typeof(Ledger) as
+// CtrFamily>::Handle` is the one spelling that names the family without
+// knowing the hash; the compiler resolves it to the real struct name for the
+// query pipeline, and the item waits (recording WHAT it waits for) until the
+// factory has produced the family.
+pub deem big_vals(w: &<typeof(Ledger) as CtrFamily>::Handle) {
+    from w e where e.val > 1400 select (e.key, e.val)
+}
 
 fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
     return unsafe { &*(dyn_data(&**s) as *const MemorySnapshot) };
@@ -163,6 +163,16 @@ fn run_all() -> i32 {
     if ids.len() != 2i64 { return 5i32; }
     if !str_eq(kind_of(ms, 1u64).as_str(), "ordered_map") { return 6i32; }
     if !str_eq(kind_of(ms, 2u64).as_str(), "multimap") { return 7i32; }
+
+    // ── §4 the query, over that same store-backed map ───────────────────────
+    { let mut h: String = String::new(); h.push_str("the query, over a container in the store:"); println_string(&h); }
+    let big: Vec<(i64, i64)> = match big_vals(&led)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
+    report("Ledger (val > 1400)", &big);
+    // keys 0..499 with val = key*3 ⇒ val > 1400 ⟺ key ≥ 467: 33 rows.
+    if big.len() != 33i64 { return 9i32; }
+    let b0: (i64, i64) = big.get(0i64);
+    if b0.0 != 467i64 || b0.1 != 467i64 * 3i64 { return 10i32; }
     return 0i32;
 }
 
