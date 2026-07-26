@@ -9541,7 +9541,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // (ADR 0020 wave-0, S2): defer silently instead of erroring on the
         // not-yet-emitted `<mangled>.insert`/`.get`/… — resolved next sema.
         if (is_pending_container_type(sname)) {
-            if (cur_prog_) cur_prog_->deferred_item_sites = true;
+            note_pending_("container-family",
+                          std::format("the generated container instance '{}'", sname),
+                          "the container item's handler");
             return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
         }
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
@@ -10710,7 +10712,9 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         // (ADR 0020 wave-0, S2): defer silently on a field of the not-yet-
         // emitted instance struct — resolved next sema.
         if (is_pending_container_type(sname)) {
-            if (cur_prog_) cur_prog_->deferred_item_sites = true;
+            note_pending_("container-family",
+                          std::format("the generated container instance '{}'", sname),
+                          "the container item's handler");
             return builder().field_read(std::move(recv), std::string(field_name), error_t());
         }
         error(std::format("field read: struct '{}' has no field '{}'", sname, field_name));
@@ -14989,7 +14993,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // value stays a struct and its later `.insert`/`.free` hit the pending
         // method suppression instead of cascading "receiver is not a struct".
         if (is_pending_container_type(class_name)) {
-            if (cur_prog_) cur_prog_->deferred_item_sites = true;
+            note_pending_("container-family",
+                          std::format("the generated container instance '{}'", class_name),
+                          "the container item's handler");
             return builder().call(mangled, {}, std::move(arg_exprs),
                                   make_struct_type(class_name, cur_package_));
         }
@@ -21137,7 +21143,33 @@ bool SemaChecker::note_deem_plan_inst_(std::string_view callee, TypeRef arg) {
         if (e.name == plan->name && e.package == plan->package && e.family == fam)
             return true;
     cur_prog_->deem_plan_insts.push_back({plan->name, plan->package, fam});
+    // THIS is the demand: a call that needs bindings which do not exist yet.
+    // It clears itself — once they exist the call resolves and this path is
+    // never reached — so a record surviving to the end means the driver never
+    // managed to instantiate, and says so instead of leaving an "undefined
+    // function" for the call site to report.
+    note_pending_("deem-plan",
+                  std::format("the bindings for plan '{}' over '{}'",
+                              plan->name, fam),
+                  "the driver's plan instantiation");
     return true;
+}
+
+void SemaChecker::note_pending_(std::string kind, std::string what,
+                                std::string who) {
+    if (!cur_prog_) return;
+    for (const auto& p : cur_prog_->pending)
+        if (p.kind == kind && p.what == what && p.where == ctx_ &&
+            p.line == static_cast<int>(node_line_)) return;
+    cur_prog_->pending.push_back({std::move(kind), std::move(what),
+                                  std::move(who), ctx_, file_,
+                                  static_cast<int>(node_line_)});
+    if (std::getenv("LOGOS_TRACE_PENDING")) {
+        const auto& p = cur_prog_->pending.back();
+        std::fprintf(stderr, "[pending] %s:%d %s waits for %s (from %s)\n",
+                     p.file.c_str(), p.line, p.where.c_str(), p.what.c_str(),
+                     p.who.c_str());
+    }
 }
 
 bool SemaChecker::pending_deem_plan_(std::string_view name) const {
@@ -22272,7 +22304,10 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
                                 "[ctr-debug] defer deem '%s': param %s: %s is "
                                 "still a projection\n",
                                 qname.c_str(), pn.c_str(), type_str(core).c_str());
-                        if (cur_prog_) cur_prog_->deferred_item_sites = true;
+                        note_pending_(
+                            "container-family",
+                            std::format("the family behind '{}'", type_str(core)),
+                            "the metaclass factory");
                         return;
                     }
                     if (core && (TypeRef(core).kind() == LogosType::Kind::Struct ||
@@ -22340,7 +22375,12 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
             // A recorded plan is work the driver still owes: it is instantiated
             // at a factory drain, which the driver runs INSIDE this fixpoint
             // when a site has deferred. Say that a site has.
-            cur_prog_->deferred_item_sites = true;
+            // NOTE no pending is recorded here. A plan that nobody calls
+            // demands nothing — it is dead code, exactly as an uninstantiated
+            // generic fn is, and reporting it would make declaring a query an
+            // error. The demand arises at the CALL, and that is where it is
+            // recorded (note_deem_plan_inst_).
+            cur_prog_->deferred_plan_work = true;
         }
         return;
     }
@@ -22616,7 +22656,10 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                                     "[ctr-debug] defer deem site: param %s: %s "
                                     "(container %s pending)\n",
                                     pn.c_str(), key.c_str(), cn.c_str());
-                            if (cur_prog_) cur_prog_->deferred_item_sites = true;
+                            note_pending_(
+                                "container-decl",
+                                std::format("the projection of container '{}'", cn),
+                                "the container item's handler");
                             return false;
                         }
                     }

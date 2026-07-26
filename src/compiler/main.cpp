@@ -3293,7 +3293,7 @@ int run_metaprog_dispatch(
         stat_step(_t, "sema_lower", iter);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
-        retry_deferred = retry_deferred || prog.deferred_item_sites;
+        retry_deferred = retry_deferred || prog.has_pending() || prog.deferred_plan_work;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
 
         // ── ADR 0021: EARLY factory drain ───────────────────────────────
@@ -3309,14 +3309,14 @@ int run_metaprog_dispatch(
         // HERE, inside the fixpoint that discovered them: the chunk is the
         // same one main()'s drain renders, the metacall runs on the next
         // iteration through the ordinary item seam, and the waiting item
-        // re-lowers with the family present. Gated on `deferred_item_sites`
+        // re-lowers with the family present. Gated on a recorded PENDING
         // so a program with nothing waiting keeps the established ordering
         // exactly; hash-deduped so main()'s later drain is a no-op for
         // anything satisfied here.
         // Sticky: once a site has deferred in THIS dispatch, keep draining
         // demands as they appear — the waiting item may need a family whose
         // demand only surfaces a round later.
-        if (prog.deferred_item_sites) any_deferral_seen = true;
+        if (prog.has_pending() || prog.deferred_plan_work) any_deferral_seen = true;
         if (any_deferral_seen && !prog.factory_demands.empty()) {
             bool factory_available = false;
             for (const auto& f : prog.functions)
@@ -3465,7 +3465,7 @@ int run_metaprog_dispatch(
             meta_prog = sema_lower(asts, filenames, from_binary, resema_opts, {},
                                    opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
             if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
-            retry_deferred = retry_deferred || meta_prog.deferred_item_sites;
+            retry_deferred = retry_deferred || meta_prog.has_pending();
         }
         // WQL/Trama raw-text item macros: a #[token_macro] `(str) -> ItemList`
         // item callee's thunk reads its block bytes via logos_macro_arg(site,0).
@@ -6138,6 +6138,24 @@ int main(int argc, char** argv) {
 
     }  // factory drain loop
 
+    // ── the fixpoint stopped moving: what did it never get? ──────
+    // Every producer has now had its last chance — the metaprog rounds, the
+    // plan instantiations, and the post-mono factory drain are all behind us.
+    // A demand still standing here was never satisfied, and saying so is the
+    // whole reason a deferral records WHO it waits for: without this the same
+    // situation surfaces as a cascade somewhere downstream (an "undefined
+    // function" at a call site, an "unknown type" inside generated code) with
+    // nothing pointing back at the thing that never got produced.
+    if (prog.has_pending()) {
+        for (const auto& p : prog.pending)
+            std::fprintf(stderr,
+                "%s:%d: error: %s is still waiting for %s — %s never produced "
+                "it\n",
+                p.file.c_str(), p.line,
+                p.where.empty() ? "this program" : p.where.c_str(),
+                p.what.c_str(), p.who.c_str());
+        return 1;
+    }
 
     // ── Step 2d: Borrow checking ─────────────────────────────────
     prog = logos::compiler::borrow_check(std::move(prog));

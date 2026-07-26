@@ -867,14 +867,26 @@ struct LProgram {
     // MetacallRetTag — see above.)
     std::vector<lir_view::MetacallSiteView> metacall_sites;
 
-    // ADR 0020 wave-0: sema DEFERRED at least one language-item site this
-    // pass (a deem over a still-pending `container`'s backing type — its
-    // projection impl is emitted by the container's handler and only parses
-    // next iteration). The dispatch driver must re-run a FULL sema next
-    // iteration (delta-sema skips the deferring module, so the item would
-    // otherwise stay pending forever and its consumers see "call to
-    // undefined function").
-    bool deferred_item_sites = false;
+    // Sema could not finish something this pass because what it needs has not
+    // been produced yet, and the producer runs LATER in the same fixpoint. The
+    // dispatch driver must re-run a FULL sema next iteration (delta-sema skips
+    // the deferring module, so the site would otherwise stay pending forever
+    // and its consumers see "call to undefined function").
+    //
+    // This was one bool for every such reason, which meant the driver could
+    // neither pick the producer that would close a demand nor say, when the
+    // fixpoint stopped moving, what it never got. A deferral now says WHAT it
+    // waits for and WHO owes it: an unsatisfied one is a diagnostic instead of
+    // a silence followed by a cascade.
+    struct Pending {
+        std::string kind;   // producer tag, for grouping ("container-family", …)
+        std::string what;   // the thing awaited, as a phrase
+        std::string who;    // who was expected to produce it
+        std::string where;  // the demanding site's context ("deem 'q'")
+        std::string file; int line = 0;
+    };
+    std::vector<Pending> pending;
+    bool has_pending() const { return !pending.empty(); }
 
     // (ADR 0020 wave-0's `pending_container_srcs` generic-container harvest
     // was RETIRED in ADR 0021 Phase 4b — superseded by the demand channel
@@ -951,6 +963,10 @@ struct LProgram {
         std::string family;   // the argument's struct name (`Hs<hex>`)
     };
     std::vector<DeemPlanInst> deem_plan_insts;
+    // A plan was recorded this pass. Not a PENDING — a plan nobody calls
+    // demands nothing — but the driver still re-runs a full sema, since the
+    // instantiation it may owe is discovered in a body.
+    bool deferred_plan_work = false;
 
     // ADR 0021 §3: WritStatic docs as SOURCE TEXT, keyed by the same content
     // hash as wstatic_registry_. Sema fills at resolve_wstatic_value; the

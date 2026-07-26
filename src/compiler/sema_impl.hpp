@@ -4655,6 +4655,14 @@ private:
     // call to it was first seen. Calls to it are therefore not-yet-resolved,
     // not undefined; the driver reports a plan that never got instantiated.
     bool          pending_deem_plan_(std::string_view name) const;
+    // Record that THIS pass could not finish something because its producer
+    // runs later in the same fixpoint. `what` is the thing awaited, `who` the
+    // producer that owes it; the site comes from the current context. An
+    // unsatisfied record is reported by the driver when the fixpoint stops
+    // moving — a deferral that cannot name what it waits for can only be a
+    // silence followed by a cascade.
+    void          note_pending_(std::string kind, std::string what,
+                                std::string who);
     // Record that plan `callee` was called with an argument of this type —
     // the family the plan must be instantiated against.
     bool          note_deem_plan_inst_(std::string_view callee, TypeRef arg);

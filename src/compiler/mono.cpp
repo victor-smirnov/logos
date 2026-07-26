@@ -192,6 +192,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& fd : in_.factory_demands)
         if (factory_demand_hashes_.insert(fd.cfg_hash).second)
             out_.factory_demands.push_back(fd);
+
+    // Carry PENDING through: mono consumes the sema program, and the driver
+    // reports demands nothing ever satisfied AFTER the post-mono drain — the
+    // last point at which a producer could still have run.
+    for (auto& p : in_.pending) out_.pending.push_back(p);
+
     out_.writ_val_pool_    = std::move(in_.writ_val_pool_);
     out_.closure_pool_       = std::move(in_.closure_pool_);
     out_.consts              = std::move(in_.consts);
