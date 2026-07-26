@@ -615,86 +615,6 @@ fn build_generics(generics: str, bound_param: str) -> String {
     return out;
 }
 
-// Emits the SCAN projection for one kind=vector container (design §f): a
-// single-rel source trait, a scan materializer over the wave-0 backing
-// contract (`count(&self) -> i64`, `get(&self, i: i64) -> T`), and the impl
-// rel binding — one chunk into the declaring package, imports explicit.
-//   relty:  the rel column type (i64 / str / bool);
-//   direct: push `e` verbatim (str/bool cols) vs `e.canon_col()` (by_value);
-//   bound_param: generic param needing the CanonCol bound ("" = none).
-fn emit_vector_scan(cs: &ContainerSpec, name: str, col_name: str, col_ty: str,
-                    relty: str, direct: bool, bound_param: str) {
-    let view: OView = oview_module_ast();
-    let mut tp: String = String::new();
-    view.module_package_append(&mut tp);
-
-    // Composite names (Strings kept alive through the emissions below).
-    let mut src_s: String = String::new();
-    src_s.push_str("__CtrSrc_"); src_s.push_str(name);
-    let mut rows_s: String = String::new();
-    rows_s.push_str("__ctr_rows_"); rows_s.push_str(name);
-    let srcnm:  Ident = Ident::new(src_s.as_str());
-    let rowsfn: Ident = Ident::new(rows_s.as_str());
-    let colnm:  Ident = Ident::new(col_name);
-
-    // Optional-import idents: empty ⇒ `use #x?;` drops the line. canon carries
-    // CanonCol + canon_col(); backing_pkg carries the backing type. Both skip a
-    // self-import (declaring package == that package).
-    let canon_pkg: str = if str_eq(tp.as_str(), "logos.lcm.canon.canon") { "" }
-                         else {
-                             "logos.lcm.canon.canon"
-                         } ;
-    let canonid: Ident = Ident::new(canon_pkg);
-    let bpkg: str = if cs.backing_pkg.len() > 0i64 && !str_eq(cs.backing_pkg, tp.as_str())
-                    { cs.backing_pkg } else { "" };
-    let bpkgid: Ident = Ident::new(bpkg);
-
-    // Generics header string (verbatim + CanonCol on bound_param; "" = concrete).
-    let gen_s: String = build_generics(cs.generics, bound_param);
-
-    // ── source trait + scan materializer fn ─────────────────────────────────
-    // ONE template: the generics list, backing type, rel/col types and the push
-    // expression are reified from runtime strings (parse_type_params /
-    // parse_type / quote_expr!) — ExprBlob is Copy, so each fragment splices at
-    // all its sites — and the pub axis is the `pub(#vis)` visibility antiquote
-    // ("pub" / "" = private) instead of a blob-variant pair.
-    let vis_s: str = if cs.is_pub { "pub" } else { "" };
-    let vis: Ident = Ident::new(vis_s);
-    let rt: ExprBlob = parse_type(relty);
-    let gp: ExprBlob = parse_type_params(gen_s.as_str());
-    let bk: ExprBlob = parse_type(cs.backing);
-    let ct: ExprBlob = parse_type(col_ty);
-    let pv: ExprBlob = if direct { quote_expr! { e } } else { quote_expr! { e.canon_col() } };
-    let b: QuoteItemBlob = quote_item! {
-        use logos.mem.collections.vec;
-        use #canonid?;
-        use #bpkgid?;
-        pub(#vis) trait #srcnm { rel row(pos: i64, #colnm: #(rt)); }
-        pub(#vis) fn #rowsfn #(gp) (c: &#(bk)) -> Vec<(i64, #(rt))> {
-            let mut out: Vec<(i64, #(rt))> = vec_new::<(i64, #(rt))>();
-            let n: i64 = c.count();
-            let mut i: i64 = 0i64;
-            while i < n {
-                let e: #(ct) = c.get(i);
-                out.push((i, #(pv)));
-                i = i + 1i64;
-            }
-            return out;
-        }
-    };
-    unsafe { logos_emit_item_blob_subst(&b); }
-
-    // ── impl rel binding (impls are never pub; gp/bk blobs reused — Copy) ───
-    {
-        let b2: QuoteItemBlob = quote_item! {
-            use #canonid?;
-            use #bpkgid?;
-            impl #(gp) #srcnm for #(bk) { rel row = #rowsfn; }
-        };
-        unsafe { logos_emit_item_blob_subst(&b2); }
-    }
-}
-
 // Emits a concrete b+tree LEAF node for one kind=node container (ADR 0020 Track
 // B 2c): a struct owning a pkd block with two sibling columns (key, val) plus
 // the Node contract (new/count/key_at/val_at/lower_bound/try_insert/split). The
@@ -3438,57 +3358,10 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
         return;
     }
     // The config document — what a `create_ctr::<typeof(V::<…>)>` demand
-    // names, and therefore the only way to ASK for a generated family.
+    // names, and therefore the only way to ASK for a generated family. It is
+    // the declaration's ONLY emission: with `for <type>` retired there is no
+    // storage to project a source rel over, and the projection ships with the
+    // family the factory generates (emit_btvec_family).
     let _okv: bool = emit_cfg_doc(name, &cs);
-    // A declaration with NO backing type — `for u8`, the placeholder every
-    // store-backed container carries — has nothing to project a source rel
-    // over: its family, and with it the projection, come from the factory.
-    // The declaration's only business is the config document.
-    if str_eq(cs.backing, "u8") {
-        return;
-    }
-    if !cv_has_cap(vm, name, "can_scan") {
-        error("container item: Canon granted no can_scan capability for a vector container (Canon seam regression?)");
-        return;
-    }
-    // Canon has already judged wave-0 emission limits (multi-entry vector,
-    // unprojectable by_view column) as error rows above — a vector reaching
-    // this point has exactly one entry column with a col_proj verdict.
-    // Anything else here is a seam regression, not a user error.
-    let ce: i64 = cs.entry.len();
-    let b0: i64 = cf_next_comma(cs.entry, 0i64, ce);
-    if b0 != ce {
-        error("container item: multi-entry vector past Canon's verdict (seam regression?)");
-        return;
-    }
-    let c1: i64 = cf_find(cs.entry, 0i64, 58u8);    // ':'
-    let mut c2: i64 = b0 - 1i64;
-    while c2 > 0i64 && str_byte_at(cs.entry, c2) != 58u8 {
-        c2 = c2 - 1i64;
-    }
-    if c1 < 0i64 || c2 <= c1 {
-        error("container item: malformed entry column (compiler seam regression?)");
-        return;
-    }
-    let col_name: str = unsafe { cf_sub(cs.entry, 0i64, c1) };
-    let col_ty: str = unsafe { cf_sub(cs.entry, c1 + 1i64, c2) };
-    let col_prm: bool = str_eq(unsafe { cf_sub(cs.entry, c2 + 1i64, b0) }, "1");
-
-    // Column projection = Canon's col_proj verdict, consumed verbatim — the
-    // handler holds NO type vocabulary of its own (ADR 0020 §5; the verdict
-    // rows are the single source of relty/proj truth).
-    let pj: i64 = cv_col_proj(vm, name, col_name);
-    if pj == 0i64 {
-        error("container item: no col_proj verdict for the entry column (Canon seam regression?)");
-        return;
-    }
-    let direct: bool = pj == 1i64;
-    let relty: str = cv_col_relty(vm, name, col_name);
-    if relty.len() == 0i64 {
-        error("container item: col_proj verdict missing relty (Canon seam regression?)");
-        return;
-    }
-    let bound_param: str = if !direct && col_prm { col_ty } else { "" };
-    emit_vector_scan(&cs, name, col_name, col_ty, relty, direct, bound_param);
     return;
 }

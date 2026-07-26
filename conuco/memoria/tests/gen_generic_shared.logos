@@ -15,12 +15,12 @@ use logos.mem.sync;                   // Arc — the store/snapshot plane
 use logos.mem.string;
 use logos.std.io;
 
-container Map<K, V> for u8 {
+container Map<K, V> {
     kind ordered_map;
     entry { key: K, val: V }
     measure max(key);
 }
-container Fixed  for u8 {
+container Fixed {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);

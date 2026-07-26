@@ -14,7 +14,7 @@ package memoria.ctr.multimap;
 use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.bt.map;                 // trait hub (declaring-unit contract)
 
-pub container Multimap<K, V> for u8 {
+pub container Multimap<K, V> {
     kind multimap;
     stream keys {
         entry { key: K }

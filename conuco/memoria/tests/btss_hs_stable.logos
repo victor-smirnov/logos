@@ -19,7 +19,7 @@ use logos.mem.string;
 use logos.std.io;
 
 // Structurally IDENTICAL to gen_cow_kv's GenVol — different name on purpose.
-container HsPin for u8 {
+container HsPin {
     kind ordered_map;
     entry { key: u64, val: str }
     measure max(key);
@@ -27,7 +27,7 @@ container HsPin for u8 {
 
 // The BTSS-sugar `ops` extension must ALSO leave the doc untouched (ops are
 // decl-time facts, not doc content for sugar decls) — same family again.
-container HsPinOps for u8 {
+container HsPinOps {
     kind ordered_map;
     entry { key: u64, val: str }
     measure max(key);

@@ -55,7 +55,7 @@ use logos.std.compiler.metaprog;      // §5 the handler kit (annotation dispatc
 
 // ── §0 THE DECLARATION (lives in memoria.ctr.multimap, quoted for the reader):
 //
-//     pub container Multimap<K, V> for u8 {
+//     pub container Multimap<K, V> {
 //         kind multimap;
 //         stream keys {
 //             entry { key: K }

@@ -16,7 +16,7 @@ use logos.std.io;
 
 // key:u64 + val:str → a variable-length column → Canon verdict `volume` →
 // generated leaf with a VLE value column and a volume-balanced split.
-container GenKV for u8 {
+container GenKV {
     kind node;
     entry { key: u64, val: str }
 }

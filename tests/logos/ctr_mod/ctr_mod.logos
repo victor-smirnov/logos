@@ -1,17 +1,18 @@
-// Cross-module `container` fixture: the declaration + backing type live in
-// THIS archive; the deem consumer compiles against the binary module. Pins
-// the CONTAINER_DEF_DONE re-registration path (a consumer's pre-scan must
-// re-register the container and see its generated projection).
+// Cross-module `container` fixture: the DECLARATION lives in this archive and
+// the deem consumer compiles against the binary module. Pins the
+// CONTAINER_DEF_DONE re-registration path — a consumer's pre-scan must
+// re-register the container, which is what lets it name `typeof(Boxes::<…>)`
+// and so demand the family at all. The family itself is generated on the
+// CONSUMER's side, which is exactly what makes the re-registration load-bearing.
 package ctr_mod;
 
 use logos.std.wql.wql;
 use logos.lcm.canon.container_item;
 use logos.lang.mem;
 
-pub container Boxes<T> for BoxCtr<T> {
+pub container Boxes<V> {
     kind vector;
-    entry { elem: T }
-    measure count;
+    entry { elem: V }
 }
 
 /// Wave-0 scan-contract backing: count/get over a plain heap array (this

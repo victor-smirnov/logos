@@ -26,7 +26,7 @@ use logos.lcm.canon.container_item;  // the `container` item handler
 ///
 /// `VecCtr<T>` below is no longer that storage: it is a plain hand-written
 /// vector kept for the packed-block tests, unrelated to this declaration.
-pub container Vector<V> for u8 {
+pub container Vector<V> {
     kind vector;
     entry { elem: V }
 }

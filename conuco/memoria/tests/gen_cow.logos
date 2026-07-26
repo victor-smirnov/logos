@@ -21,7 +21,7 @@ use logos.std.io;
 
 // key:u64 + val:u64 → fast leaf → Canon versioning=cow → the CoW-Map typed half
 // (cow nodes + cow_insert + the GenCow handle) is emitted from this one decl.
-container GenCow for u8 {
+container GenCow {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);

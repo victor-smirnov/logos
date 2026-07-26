@@ -3,7 +3,7 @@
 // / container_word, so the item fails to parse.
 package test;
 
-pub container Vector<T> for VecCtr<T> {
+pub container Vector<T> {
     kind vector;
     entry { elem: T }
     measure max();

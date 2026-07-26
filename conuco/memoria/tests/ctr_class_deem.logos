@@ -32,7 +32,7 @@ use logos.lang.result;
 use logos.mem.string;
 use logos.std.io;
 
-pub container Map<K, V> for u8 {
+pub container Map<K, V> {
     kind ordered_map;
     entry { key: K, val: V }
     measure max(key);

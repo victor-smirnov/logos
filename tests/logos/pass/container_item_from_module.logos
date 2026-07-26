@@ -1,23 +1,32 @@
 // The container was declared in the ctr_mod ARCHIVE — this consumer only
-// imports and queries it: CONTAINER_DEF_DONE re-registration + the generated
-// projection must both survive the module boundary (the "cross-module Canon
-// reasoning" claim, previously untested).
+// imports and queries it. CONTAINER_DEF_DONE re-registration must survive the
+// module boundary (the "cross-module Canon reasoning" claim): without it the
+// consumer could not name `typeof(Boxes::<u64>)`, and the family it queries is
+// generated right here, on the consuming side.
 package container_item_from_module;
 
 use ctr_mod;
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 
-pub deem big(v: &BoxCtr<u64>) {
-    from v e where e.elem > 10 select (e.pos, e.elem)
+// Bound to the CLASS the archive declared — the family is this compile's.
+pub deem big<V>(v: Boxes<V>) {
+    from v e where e.val > 10 select (e.pos, e.val)
 }
 
 fn main() -> i32 {
-    let mut c: BoxCtr<u64> = BoxCtr::<u64>::new(8i64);
-    c.push(3u64);
-    c.push(25u64);
-    c.push(7u64);
-    c.push(42u64);
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let c = create_ctr::<typeof(Boxes::<u64>)>(&snap, 1u64);
+    c.append(3u64);
+    c.append(25u64);
+    c.append(7u64);
+    c.append(42u64);
     let rows: Vec<(i64, i64)> = match big(&c)
     { Result::Ok(r) => { r } Result::Err(_e) => { return 1i32; } };
     if rows.len() != 2i64 { return 2i32; }

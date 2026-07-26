@@ -16,12 +16,12 @@ use logos.mem.string;
 use logos.lang.option;
 use logos.std.io;
 
-container WeFse for u8 {
+container WeFse {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);
 }
-container WeVol for u8 {
+container WeVol {
     kind ordered_map;
     entry { key: u64, val: str }
     measure max(key);

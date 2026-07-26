@@ -26,7 +26,7 @@ use logos.lang.str;
 use logos.lang.writ.wstatic;
 
 // Concrete str-map: emit_cfg_doc records the value column as the "str" tag.
-container Journal for u8 {
+container Journal {
     kind ordered_map;
     entry { key: u64, val: str }
     measure max(key);

@@ -1,6 +1,6 @@
 // ctr_gen_vector_deem — a positional container with NO hand-written backing.
 //
-//     container Series for u8 { kind vector; entry { val: u64 } }
+//     container Series { kind vector; entry { val: u64 } }
 //
 // Nothing here writes a storage type. `for u8` is the placeholder that says
 // "there is no backing — generate one": the factory produces the b+tree-backed
@@ -24,7 +24,7 @@ use logos.lang.result;
 use logos.mem.string;
 use logos.std.io;
 
-container Series<V> for u8 {
+container Series<V> {
     kind vector;
     entry { val: V }
 }

@@ -35,7 +35,7 @@ use logos.std.io;
 //
 // This one lives in the memoria-ctr lib, quoted for the reader:
 //
-//     pub container Vector<V> for u8 {
+//     pub container Vector<V> {
 //         kind vector;
 //         entry { elem: V }
 //     }
@@ -45,7 +45,7 @@ use logos.std.io;
 // declaration yields a container AND its queryable projection.
 
 // A store-backed map, for §3. Same shape of declaration, different kind.
-container Ledger for u8 {
+container Ledger {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);

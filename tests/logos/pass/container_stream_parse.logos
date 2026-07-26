@@ -10,7 +10,7 @@ package test;
 
 use logos.lcm.canon.container_item;
 
-pub container MMap<K, V> for u8 {
+pub container MMap<K, V> {
     kind multimap;
     stream keys {
         entry { key: K }
@@ -24,7 +24,7 @@ pub container MMap<K, V> for u8 {
     }
 }
 
-pub container OMapOps for u8 {
+pub container OMapOps {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);

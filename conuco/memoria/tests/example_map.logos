@@ -72,7 +72,7 @@ struct Deposit {
 
 // ── §0 THE DECLARATION (lives in memoria.ctr.map, quoted for the reader) ────
 //
-//     pub container Map<K, V> for u8 {
+//     pub container Map<K, V> {
 //         kind ordered_map;
 //         entry { key: K, val: V }
 //         measure max(key);

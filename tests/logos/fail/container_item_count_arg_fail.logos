@@ -4,7 +4,7 @@
 // Canon's verdict, a separate diagnostic; this one is pure shape.)
 package test;
 
-pub container Vector<T> for VecCtr<T> {
+pub container Vector<T> {
     kind vector;
     entry { elem: T }
     measure count(elem);

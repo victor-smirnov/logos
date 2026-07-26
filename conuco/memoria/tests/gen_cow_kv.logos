@@ -26,7 +26,7 @@ use logos.std.io;
 
 // key:u64 + val:str → a variable-length value column → Canon verdict `volume` →
 // the whole VOLUME stack (leaf/branch + cow handle) from this one decl.
-container GenVol for u8 {
+container GenVol {
     kind ordered_map;
     entry { key: u64, val: str }
     measure max(key);

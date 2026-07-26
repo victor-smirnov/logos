@@ -19,12 +19,12 @@ use logos.mem.sync;                   // Arc — the store/snapshot plane
 use logos.mem.string;
 use logos.std.io;
 
-container Conc for u8 {
+container Conc {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);
 }
-container Gen<V> for u8 {
+container Gen<V> {
     kind ordered_map;
     entry { key: u64, val: V }
     measure max(key);

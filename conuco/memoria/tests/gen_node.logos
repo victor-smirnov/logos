@@ -12,7 +12,7 @@ use logos.mem.string;
 use logos.std.io;
 
 // key:u64 + val:u64 → all fixed-size → Canon verdict `fast` → generated leaf.
-container GenU64 for u8 {
+container GenU64 {
     kind node;
     entry { key: u64, val: u64 }
 }

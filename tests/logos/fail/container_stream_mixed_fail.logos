@@ -5,7 +5,7 @@ package test;
 
 use logos.lcm.canon.container_item;
 
-pub container Broken<K, V> for u8 {
+pub container Broken<K, V> {
     kind multimap;
     entry { key: K }
     stream values {

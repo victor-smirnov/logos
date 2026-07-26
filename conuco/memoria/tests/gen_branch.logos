@@ -17,13 +17,13 @@ use logos.mem.string;
 use logos.std.io;
 
 // key:u64 → all fixed-size → generated branch (three FSE columns sep/sz/ptr).
-container GenBr for u8 {
+container GenBr {
     kind branch;
     entry { key: u64 }
 }
 
 // key:u64 + val:u64 → all fixed-size → generated leaf serving as the children.
-container GenBrLeaf for u8 {
+container GenBrLeaf {
     kind node;
     entry { key: u64, val: u64 }
 }

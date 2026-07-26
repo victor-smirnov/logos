@@ -22,13 +22,13 @@ impl<T> VecCtr<T> {
     }
 }
 
-pub container Vector<T> for VecCtr<T> {
+pub container Vector<T> {
     kind vector;
     entry { elem: T }
     measure count;
 }
 
-pub container Map<K, V> for MapCtr<K, V> {
+pub container Map<K, V> {
     kind ordered_map;
     entry { key: K, val: V }
     measure count;

@@ -1404,11 +1404,25 @@
     container_word   <- IDENT IDENT SEMI
                      => { CODE: CONTAINER_CLAUSE, REL_KW: $1, NAME: $2 }
 
-    pub_container_def <- pub_vis IDENT IDENT type_param_list KW_FOR type_ref LBRACE container_clause* RBRACE
+    // A container declaration names NO storage type. `for <type>` was the
+    // porting-era shortcut — draping a relational interface over a
+    // hand-written container — and it is gone: the family is GENERATED per
+    // config by the metaclass factory, which is what makes the declaration
+    // the thing Deem writes queries against. The alternatives with the clause
+    // are kept ONE release for a diagnosis, and reject.
+    pub_container_def <- pub_vis IDENT IDENT type_param_list LBRACE container_clause* RBRACE
+                      => { CODE: CONTAINER_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
+                       / pub_vis IDENT IDENT LBRACE container_clause* RBRACE
+                      => { CODE: CONTAINER_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, FIELDS: $5 }
+                       / pub_vis IDENT IDENT type_param_list KW_FOR type_ref LBRACE container_clause* RBRACE
                       => { CODE: CONTAINER_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, FIELDS: $8 }
                        / pub_vis IDENT IDENT KW_FOR type_ref LBRACE container_clause* RBRACE
                       => { CODE: CONTAINER_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, TYPE: $5, FIELDS: $7 }
-    container_def     <- IDENT IDENT type_param_list KW_FOR type_ref LBRACE container_clause* RBRACE
+    container_def     <- IDENT IDENT type_param_list LBRACE container_clause* RBRACE
+                      => { CODE: CONTAINER_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5 }
+                       / IDENT IDENT LBRACE container_clause* RBRACE
+                      => { CODE: CONTAINER_DEF, REL_KW: $1, NAME: $2, FIELDS: $4 }
+                       / IDENT IDENT type_param_list KW_FOR type_ref LBRACE container_clause* RBRACE
                       => { CODE: CONTAINER_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, FIELDS: $7 }
                        / IDENT IDENT KW_FOR type_ref LBRACE container_clause* RBRACE
                       => { CODE: CONTAINER_DEF, REL_KW: $1, NAME: $2, TYPE: $4, FIELDS: $6 }

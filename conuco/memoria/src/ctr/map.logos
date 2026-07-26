@@ -15,7 +15,7 @@ use logos.lcm.canon.container_item;   // the `container` lowering handler
 use logos.mem.pkd;                    // generated leaf/branch substrate
 use logos.mem.bt.map;                 // Ctr trait (generated `impl Ctr` names it)
 
-pub container Map<K, V> for u8 {
+pub container Map<K, V> {
     kind ordered_map;
     entry { key: K, val: V }
     measure max(key);

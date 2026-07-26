@@ -26,7 +26,7 @@ use logos.mem.string;
 use logos.lang.option;
 use logos.std.io;
 
-container Ledger for u8 {
+container Ledger {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);

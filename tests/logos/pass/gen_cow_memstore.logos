@@ -17,7 +17,7 @@ use logos.mem.bt.map;                 // Ctr trait (the generated `impl Ctr` nam
 use logos.mem.bt.memstore;
 use logos.mem.sync;   // Arc — the store/snapshot plane            // MemoryStore, MemorySnapshot — the shared store
 
-container GenCow for u8 {
+container GenCow {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);

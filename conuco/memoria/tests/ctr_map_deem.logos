@@ -36,14 +36,14 @@ use logos.lang.result;
 use logos.mem.string;
 use logos.std.io;
 
-container Ledger for u8 {
+container Ledger {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);
 }
 
 // Same kind, but an i64 value column ⇒ a different config ⇒ its own family.
-container Tally for u8 {
+container Tally {
     kind ordered_map;
     entry { slot: u64, hits: i64 }
     measure max(slot);

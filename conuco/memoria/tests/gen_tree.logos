@@ -21,7 +21,7 @@ use logos.std.io;
 
 // key:u64 + val:u64 → all fixed-size → Canon leaf policy `fast`; the family's
 // leaf + branch + CoW handle are all factory-emitted from this one declaration.
-container GenBt for u8 {
+container GenBt {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);

@@ -21632,33 +21632,18 @@ bool SemaChecker::reconstruct_container_def(writ::TinyMapView node,
     // ── the `for <Type>` backing binding (wave-0 pragmatic; the final
     // language may separate declaration from binding). Syntactic render —
     // resolution happens only on the emission path.
-    if (!node.has_key(la::TYPE)) {
+    // A declaration names NO storage type: its family is generated. The
+    // `for <type>` clause is the porting-era shortcut and the grammar keeps it
+    // one release only, to say so rather than fail as a syntax error.
+    if (node.has_key(la::TYPE)) {
         err = std::format(
-            "container '{}': missing backing type (grammar regression?)",
-            cname);
+            "container '{}': `for <type>` is retired — a container declaration "
+            "names no storage type. Its family (nodes, cursor, handle and the "
+            "relation Deem queries) is GENERATED per configuration; write "
+            "`container {} {{ … }}` and instantiate with "
+            "`create_ctr::<typeof({}::<…>)>(&snap, id)`",
+            cname, cname, cname);
         return false;
-    }
-    out.backing_src = render_type_src_syntactic_(map_of(node.get(la::TYPE.code)));
-    if (out.backing_src.empty()) {
-        err = std::format(
-            "container '{}': cannot render the backing type", cname);
-        return false;
-    }
-    {
-        // Defining package of the backing BASE type, when already known
-        // (undeclared backing is legal until the emission path resolves it).
-        // Structs first — the normal backing shape — then Writ datatypes.
-        std::string base = out.backing_src;
-        if (auto lt = base.find('<'); lt != std::string::npos)
-            base.resize(lt);
-        while (!base.empty() && base.back() == ' ') base.pop_back();
-        auto [spkg, sinfo] = find_struct_by_name(base);
-        if (sinfo) {
-            out.backing_pkg = spkg;
-        } else {
-            auto [dpkg, dinfo] = find_datatype_by_name(base);
-            out.backing_pkg = dinfo ? dpkg : std::string{};
-        }
     }
 
     // ── clauses: `kind k;` / `entry { col: ty, … }` / `measure m;` /

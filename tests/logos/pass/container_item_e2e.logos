@@ -10,6 +10,10 @@
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
 use logos.std.wql.wql;
 use logos.lcm.canon.container_item;
 use logos.mem.collections.vec;
@@ -30,32 +34,34 @@ impl<T> VecCtr<T> {
     pub fn push(self: &mut VecCtr<T>, v: T) { self.buf.push(v); }
 }
 
-pub container Vector<T> for VecCtr<T> { 
+pub container Vector<T> { 
     kind vector; 
     entry { elem: T } 
     measure count; 
 }
 
-pub container Map<K, V> for MapCtr<K, V> { 
+pub container Map<K, V> { 
     kind ordered_map; 
     entry { key: K, val: V } 
     measure count; 
     measure max(key); 
 }
 
-// A static deem query THROUGH the generated projection: the deem site sees
-// `v: &VecCtr<u64>` as a native source (rel row(pos, elem)) — the impl was
-// emitted by the container item one metaprog iteration earlier.
-pub deem big(v: &VecCtr<u64>) {
-    from v e where e.elem > 10 select (e.pos, e.elem)
+// A static deem query bound to the CLASS: the family it compiles against is
+// generated for `Vector<u64>`, and the query names neither it nor an element
+// type.
+pub deem big<V>(v: Vector<V>) {
+    from v e where e.val > 10 select (e.pos, e.val)
 }
 
 fn main() -> i32 {
-    let mut c: VecCtr<u64> = VecCtr::new();
-    c.push(5u64);
-    c.push(25u64);
-    c.push(7u64);
-    c.push(42u64);
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let c = create_ctr::<typeof(Vector::<u64>)>(&snap, 1u64);
+    c.append(5u64);
+    c.append(25u64);
+    c.append(7u64);
+    c.append(42u64);
     let rows: Vec<(i64, i64)> = match big(&c)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     if rows.len() != 2i64 { return 2i32; }

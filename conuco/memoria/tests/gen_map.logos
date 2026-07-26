@@ -17,11 +17,11 @@ use logos.std.io;
 
 // key:u64 + val:u64 → all fixed-size → Canon verdict `fast`; the generated
 // leaf and the child-type-agnostic branch compose below.
-container GenMapLeaf for u8 {
+container GenMapLeaf {
     kind node;
     entry { key: u64, val: u64 }
 }
-container GenMapBranch for u8 {
+container GenMapBranch {
     kind branch;
     entry { key: u64 }
 }

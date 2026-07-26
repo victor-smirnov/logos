@@ -1,0 +1,23 @@
+// `container … for <type>` is retired. It was the porting-era shortcut —
+// draping a relational interface over a hand-written container — and it is the
+// one thing that made a declaration depend on storage someone had already
+// written. A declaration names no storage type: its family (nodes, cursor,
+// handle, and the relation Deem queries) is GENERATED per configuration, which
+// is what lets Deem order the structure instead of inheriting it.
+//
+// The grammar still accepts the clause for one release so this says what
+// happened rather than failing as a syntax error.
+package test;
+
+use logos.lcm.canon.container_item;
+
+pub struct MyStore { pub x: i64 }
+
+container Legacy for MyStore {
+    kind vector;
+    entry { elem: u64 }
+}
+
+fn main() -> i32 {
+    return 0i32;
+}
