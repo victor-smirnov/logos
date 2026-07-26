@@ -24,7 +24,7 @@ use lforge.spawn_helpers;
 // debug info; -O0 is logosc's default), release = -O3 (optimized, no debug
 // info). Without this, lforge profiles only changed OUTPUT PATHS — builds were
 // non-debuggable at the Logos level and release was never optimized.
-fn profile_compile_flags(profile: str, argv: &mut Vec<String>) {
+pub fn profile_compile_flags(profile: str, argv: &mut Vec<String>) {
     if str_eq_local(profile, "release") {
         // -O3 (matching cargo's release default of opt-level 3, NOT rustc -O's
         // opt-level 2): the more aggressive loop unroll/interleave thresholds

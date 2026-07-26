@@ -8,6 +8,7 @@ use logos.lang.str;
 use logos.lang.option;
 use logos.mem.collections.vec;
 use logos.std.process;
+use logos.std.env;                // LFORGE_JOBS — the job-pool cap
 
 use lforge.util;
 
@@ -103,4 +104,99 @@ pub fn run_child_capture_stdout(argv_strs: &Vec<String>) -> (i32, String) {
         let st: ExitStatus = child.wait();
         return (exit_rc_of(&st), out);
     }
+}
+
+// ── the JOB POOL ────────────────────────────────────────────────────────────
+//
+// Compiling one file at a time is what made a whole-suite run take minutes:
+// logosc is single-threaded per invocation, and a project's files (and a test
+// suite's binaries) are independent. `run_jobs` runs a list of commands with a
+// cap on how many are in flight, streaming their output as they go (stdio is
+// INHERITED — see the pipe-deadlock invariant above; interleaved output is the
+// price of parallelism, and each job prints its own file name).
+//
+// Waves, not a sliding window: spawn up to `max_par`, wait for all of them,
+// repeat. A window would keep the machine busier when job times differ wildly,
+// but it needs wait-for-ANY (waitpid(-1)), which the process surface does not
+// expose yet; waves already turn N sequential compiles into N/max_par rounds.
+
+/// How many jobs to run at once: `LFORGE_JOBS` if set, else `dflt`.
+pub fn job_slots(dflt: i64) -> i64 {
+    match var("LFORGE_JOBS") {
+        Option::Some(v) => {
+            let n: i64 = parse_i64_or(v.as_str(), dflt);
+            if n < 1 as i64 { return 1 as i64; }
+            return n;
+        }
+        Option::None => { return dflt; }
+    }
+}
+
+/// Run every argv in `jobs` with at most `max_par` in flight; returns each
+/// job's exit code, in order. A job that fails to spawn gets -1.
+pub fn run_jobs(jobs: &Vec<Vec<String>>, max_par: i64) -> Vec<i32> {
+    let n: i64 = jobs.length();
+    let mut codes: Vec<i32> = vec_new::<i32>();
+    let mut z: i64 = 0 as i64;
+    while z < n { codes.push(0); z = z + 1 as i64; }
+    let mut cap: i64 = max_par;
+    if cap < 1 as i64 { cap = 1 as i64; }
+
+    let mut base: i64 = 0 as i64;
+    while base < n {
+        let mut end: i64 = base + cap;
+        if end > n { end = n; }
+        // spawn the wave
+        let mut kids: Vec<Child> = vec_new::<Child>();
+        let mut spawned: i64 = base;
+        while spawned < end {
+            let argv: &Vec<String> = jobs.borrow(spawned);
+            let c: Child = spawn_inherit_argv(argv);
+            kids.push(c);
+            spawned = spawned + 1 as i64;
+        }
+        // reap it (pop yields reverse spawn order — index accordingly)
+        let mut k: i64 = end - 1 as i64;
+        while k >= base {
+            match kids.pop() {
+                Option::None    => { k = base - 1 as i64; }
+                Option::Some(c) => {
+                    let mut ch: Child = c;
+                    if ch.pid() < 0 {
+                        codes.set(k, 0 - 1);
+                    } else {
+                        let st: ExitStatus = ch.wait();
+                        codes.set(k, if st.success() { 0 } else { 1 });
+                    }
+                    k = k - 1 as i64;
+                }
+            }
+        }
+        base = end;
+    }
+    return codes;
+}
+
+// Spawn with ALL stdio inherited — the job-pool form (no pipe to drain, so
+// many children can run at once without the deadlock the capture helpers must
+// avoid).
+fn spawn_inherit_argv(argv_strs: &Vec<String>) -> Child {
+    let argv_buf: Vec<*const u8> = build_argv_buf(argv_strs);
+    unsafe {
+        return spawn(argv_buf.as_ptr() as *const *const u8, false, false, false);
+    }
+}
+
+fn parse_i64_or(s: str, dflt: i64) -> i64 {
+    let n: i64 = s.len();
+    if n == 0 as i64 { return dflt; }
+    let mut v: i64 = 0 as i64;
+    let mut i: i64 = 0 as i64;
+    while i < n {
+        let c: u8 = s[i];
+        if c < 48 as u8 || c > 57 as u8 { return dflt; }
+        v = v * 10 as i64 + ((c as i64) - 48 as i64);
+        i = i + 1 as i64;
+    }
+    return v;
 }

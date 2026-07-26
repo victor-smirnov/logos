@@ -420,6 +420,95 @@ pub fn cmd_install(m: &Manifest, profile: str) -> i32 {
 //
 // Failures aggregate; exit code is 0 iff every test passed.
 
+// The test's COMPILE command (logosc → .o). Split out of build_test_bin so a
+// whole suite's compiles can go through the job pool instead of one at a time.
+pub fn test_compile_argv(test_logos: &String, test_name: &String,
+                         targets: &Vec<Target>, profile: str,
+                         logosc: &String) -> Vec<String> {
+    let mut argv: Vec<String> = vec_new::<String>();
+    let obj_path: String = test_obj_path(test_name, profile);
+    push_string_arg(&mut argv, logosc);
+    push_string_arg(&mut argv, test_logos);
+    push_arg(&mut argv, "-o");
+    push_string_arg(&mut argv, &obj_path);
+    // The profile's flags, exactly as lib and bin targets get them — tests were
+    // the one path compiled at -O0 whatever was asked for, which is why an
+    // assertion-heavy law sweep dominated the suite's wall time (20s at -O0,
+    // 8s at -O2 — and the optimized compile is not the slower one). `lforge
+    // test --release` is now the fast loop; debug keeps -g for a debuggable
+    // failure.
+    profile_compile_flags(profile, &mut argv);
+    {
+        let gd: String = gensrc_dir_for(profile);
+        push_arg(&mut argv, "--gen-dir");
+        let ga: String = make_absolute(gd.as_str());
+        argv.push(ga);
+    }
+    let mut all_lib_archs: Vec<String> = vec_new::<String>();
+    collect_lib_archives(targets, profile, &mut all_lib_archs);
+    let lan: i64 = all_lib_archs.length();
+    let mut li: i64 = 0 as i64;
+    while li < lan {
+        let sa: &String = all_lib_archs.borrow(li);
+        push_arg(&mut argv, "-l");
+        push_string_arg(&mut argv, sa);
+        li = li + 1 as i64;
+    }
+    return argv;
+}
+
+/// Where a test's object and binary live.
+pub fn test_obj_path(test_name: &String, profile: str) -> String {
+    let mut p: String = String::new();
+    p.push_str(".lforge/"); p.push_str(profile); p.push_str("/test/");
+    p.push_str(test_name.as_str()); p.push_str(".o");
+    return p;
+}
+
+pub fn test_bin_path(test_name: &String, profile: str) -> String {
+    let mut p: String = String::new();
+    p.push_str(".lforge/"); p.push_str(profile); p.push_str("/test/");
+    p.push_str(test_name.as_str());
+    return p;
+}
+
+// Every lib target's archive — tests are top-level consumers of all of them.
+fn collect_lib_archives(targets: &Vec<Target>, profile: str, out: &mut Vec<String>) {
+    let nt: i64 = targets.length();
+    let mut ti: i64 = 0 as i64;
+    while ti < nt {
+        let tt: &Target = targets.borrow(ti);
+        match tt.kind {
+            TargetKind::Lib => {
+                let p: String = lib_archive_path(profile, tt.name.as_str());
+                out.push(p);
+            }
+            TargetKind::Bin => { }
+        }
+        ti = ti + 1 as i64;
+    }
+}
+
+/// The stdlib + project archives a test links against, newest-mtime of which
+/// decides whether its binary is stale (the stale-link trap: a fresh source
+/// with an old archive must still relink).
+pub fn test_link_inputs(targets: &Vec<Target>, profile: str, lib_dir: &String) -> Vec<String> {
+    let mut out: Vec<String> = vec_new::<String>();
+    collect_lib_archives(targets, profile, &mut out);
+    let lv: str = lib_dir.as_str();
+    let names: [str; 7] = ["liblogos-std.a", "liblogos-lcm.a", "liblogos-mem.a",
+                           "liblogos-lang.a", "liblstdlib_fibers.a",
+                           "liblstdlib_rt.a", "liblstdlib_uring.a"];
+    let mut i: i64 = 0 as i64;
+    while i < 7 as i64 {
+        let mut p: String = String::new();
+        p.push_str(lv); append_path(&mut p, names[i]);
+        out.push(p);
+        i = i + 1 as i64;
+    }
+    return out;
+}
+
 fn build_test_bin(test_logos: &String,
                           test_name:  &String,
                           targets:    &Vec<Target>,
@@ -495,7 +584,21 @@ fn build_test_bin(test_logos: &String,
         return 1;
     }
 
-    // cc <obj> --start-group [<lib>...] <stdlib_archives> --end-group … -o <bin>
+    let largv: Vec<String> = test_link_argv(test_name, targets, profile, lib_dir);
+    return run_child(&largv);
+    }
+}
+
+/// The test's LINK command (cc → binary), pool-runnable like the compile.
+///
+// cc <obj> --start-group [<lib>...] <stdlib_archives> --end-group … -o <bin>
+pub fn test_link_argv(test_name: &String, targets: &Vec<Target>, profile: str,
+                      lib_dir: &String) -> Vec<String> {
+    let obj_path: String = test_obj_path(test_name, profile);
+    let bin_p: String = test_bin_path(test_name, profile);
+    let mut all_lib_archs: Vec<String> = vec_new::<String>();
+    collect_lib_archives(targets, profile, &mut all_lib_archs);
+    let lan: i64 = all_lib_archs.length();
     // ALL FOUR stdlib layers (std+lcm+mem+lang) inside one ld group: a test
     // may reference any layer directly (e.g. logos.lang.mem::alloc), and
     // archive cross-references make single-pass left-to-right ordering
@@ -537,8 +640,7 @@ fn build_test_bin(test_logos: &String,
     push_arg(&mut largv, "-lstdc++");
     push_arg(&mut largv, "-o");
     push_string_arg(&mut largv, &bin_p);
-    return run_child(&largv);
-    }
+    return largv;
 }
 
 // Strip a path's trailing extension. "tests/foo.logos" → "tests/foo".
@@ -621,73 +723,205 @@ pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
         return 0;
     }
 
-    let entries: Vec<DirEntry> = walk_dir("tests");
-    let en: i64 = entries.length();
-
-    let mut pass_n: i32 = 0;
-    let mut fail_n: i32 = 0;
-    let mut ei: i64 = 0 as i64;
-    while ei < en {
-        let de: &DirEntry = entries.borrow(ei);
-        ei = ei + 1 as i64;
-        if de.is_dir { continue; }
-        let pview: str = de.name.as_str();
-        let pn: i64 = pview.len();
-        if pn < 6 as i64 { continue; }
-        // Quick suffix check: ".logos"
-        let suffix: str = ".logos";
-        let off: i64 = pn - 6 as i64;
-        let mut ok: bool = true;
-        let mut sk: i64 = 0 as i64;
-        while sk < 6 as i64 && ok {
-            if pview[off + sk] != suffix[sk] { ok = false; }
-            sk = sk + 1 as i64;
+    let mut names: Vec<String> = vec_new::<String>();   // stem per test
+    let mut paths: Vec<String> = vec_new::<String>();   // source per test
+    {
+        let entries: Vec<DirEntry> = walk_dir("tests");
+        let en: i64 = entries.length();
+        let mut ei: i64 = 0 as i64;
+        while ei < en {
+            let de: &DirEntry = entries.borrow(ei);
+            ei = ei + 1 as i64;
+            if de.is_dir { continue; }
+            let pview: str = de.name.as_str();
+            if !str_ends_with(pview, ".logos") { continue; }
+            let stem: String = strip_dot_logos(basename_view(pview));
+            let mut pp: String = String::new();
+            pp.push_str(pview);
+            names.push(stem);
+            paths.push(pp);
         }
-        if !ok { continue; }
+    }
+    let nts: i64 = names.length();
+    if nts == 0 as i64 {
+        println_str(1, "lforge: no tests found");
+        return 0;
+    }
 
-        let bn_view: str = basename_view(pview);
-        let stem: String = strip_dot_logos(bn_view);
-        let mut path_str: String = String::new();
-        path_str.push_str(pview);
-
-        let mut prefix: String = String::new();
-        prefix.push_str("lforge: test ");
-        prefix.push_str(stem.as_str());
-        println_string(1, &prefix);
-
-        let rc: i32 = build_test_bin(&path_str, &stem, &m.targets, profile, &logosc, &lib_dir);
-        if rc != 0 {
-            println_str(2, "  FAIL (compile/link)");
-            fail_n = fail_n + 1;
-            continue;
-        }
-
-        // Run the test binary.
-        let mut bin_p: String = String::new();
-        bin_p.push_str(".lforge/");
-        bin_p.push_str(profile);
-        bin_p.push_str("/test/");
-        bin_p.push_str(stem.as_str());
-
-        let mut argv: Vec<String> = vec_new::<String>();
-        push_string_arg(&mut argv, &bin_p);
-        let exit_rc: i32 = run_child(&argv);
-        if exit_rc == 0 {
-            println_str(1, "  PASS");
-            pass_n = pass_n + 1;
-        } else {
-            println_str(2, "  FAIL (exit code)");
-            fail_n = fail_n + 1;
+    {
+        let mut td: String = String::new();
+        td.push_str(".lforge/"); td.push_str(profile); td.push_str("/test");
+        match mkdir_p(td.as_str()) {
+            Result::Err(_) => { println_str(2, "lforge: cannot create test dir"); return 1; }
+            Result::Ok(_)  => { }
         }
     }
 
-    // Summary.
-    let mut summary: String = String::new();
-    summary.push_str("lforge: tests passed=");
-    summary.push_i64(pass_n as i64);
-    summary.push_str(" failed=");
-    summary.push_i64(fail_n as i64);
-    println_string(1, &summary);
+    // ── 3. COMPILE every stale test, in parallel ────────────────────────────
+    //
+    // One test at a time was the whole suite's cost: logosc is single-threaded
+    // per invocation and the tests are independent, so the run was as long as
+    // the sum of its compiles. Now the pool runs `LFORGE_JOBS` (default 8) at
+    // once, and a test whose binary is newer than its source AND newer than
+    // every archive it links is skipped entirely — the archive half of that
+    // check is what keeps a stale binary from being re-run against a rebuilt
+    // stdlib.
+    let mut link_inputs: Vec<String> = test_link_inputs(&m.targets, profile, &lib_dir);
+    // The COMPILER counts as an input: a rebuilt logosc means new codegen (and
+    // new flags — this is what keeps a profile switch from re-running yesterday's
+    // binaries).
+    {
+        let mut lc: String = String::new();
+        lc.push_str(logosc.as_str());
+        link_inputs.push(lc);
+    }
+    let archives_mt: i64 = newest_mtime(&link_inputs);
+    let slots: i64 = job_slots(8 as i64);
+
+    let mut stale: Vec<i64> = vec_new::<i64>();
+    {
+        let mut i: i64 = 0 as i64;
+        while i < nts {
+            let src: &String = paths.borrow(i);
+            let stem: &String = names.borrow(i);
+            let bin_p: String = test_bin_path(stem, profile);
+            let mut newest: i64 = archives_mt;
+            match mtime_ns(src.as_str()) {
+                Result::Ok(t)  => { if t > newest { newest = t; } }
+                Result::Err(_) => { }
+            }
+            if !output_is_fresh(bin_p.as_str(), newest) { stale.push(i); }
+            i = i + 1 as i64;
+        }
+    }
+
+    let n_stale: i64 = stale.length();
+    if n_stale > 0 as i64 {
+        let mut msg: String = String::new();
+        msg.push_str("lforge: compiling ");
+        msg.push_i64(n_stale);
+        msg.push_str(" of ");
+        msg.push_i64(nts);
+        msg.push_str(" test(s), ");
+        msg.push_i64(slots);
+        msg.push_str(" at a time");
+        println_string(1, &msg);
+    }
+
+    let mut broken: Vec<i64> = vec_new::<i64>();
+    if n_stale > 0 as i64 {
+        let mut cjobs: Vec<Vec<String>> = vec_new::<Vec<String>>();
+        {
+            let mut i: i64 = 0 as i64;
+            while i < n_stale {
+                let idx: i64 = *stale.borrow(i);
+                cjobs.push(test_compile_argv(paths.borrow(idx), names.borrow(idx),
+                                             &m.targets, profile, &logosc));
+                i = i + 1 as i64;
+            }
+        }
+        let ccodes: Vec<i32> = run_jobs(&cjobs, slots);
+
+        // ── 4. LINK the ones that compiled, in parallel ─────────────────────
+        let mut ljobs: Vec<Vec<String>> = vec_new::<Vec<String>>();
+        let mut linked: Vec<i64> = vec_new::<i64>();
+        {
+            let mut i: i64 = 0 as i64;
+            while i < n_stale {
+                let idx: i64 = *stale.borrow(i);
+                if *ccodes.borrow(i) != 0 {
+                    broken.push(idx);
+                } else {
+                    ljobs.push(test_link_argv(names.borrow(idx), &m.targets, profile, &lib_dir));
+                    linked.push(idx);
+                }
+                i = i + 1 as i64;
+            }
+        }
+        let lcodes: Vec<i32> = run_jobs(&ljobs, slots);
+        {
+            let mut i: i64 = 0 as i64;
+            while i < linked.length() {
+                if *lcodes.borrow(i) != 0 { broken.push(*linked.borrow(i)); }
+                i = i + 1 as i64;
+            }
+        }
+    }
+
+    // ── 5. RUN, also through the pool ───────────────────────────────────────
+    //
+    // Execution dominates once nothing needs compiling (a suite that builds in
+    // seconds still took half a minute to run), and test binaries are
+    // independent processes. Their stdio is inherited, so a FAILING test's
+    // diagnostics still reach the terminal — interleaved with its neighbours',
+    // which is why the verdict lines are printed afterwards, in file order,
+    // with each test named.
+    let mut runnable: Vec<i64> = vec_new::<i64>();
+    let mut rjobs: Vec<Vec<String>> = vec_new::<Vec<String>>();
+    {
+        let mut i: i64 = 0 as i64;
+        while i < nts {
+            let mut is_broken: bool = false;
+            {
+                let mut b: i64 = 0 as i64;
+                while b < broken.length() {
+                    if *broken.borrow(b) == i { is_broken = true; }
+                    b = b + 1 as i64;
+                }
+            }
+            if !is_broken {
+                let bp: String = test_bin_path(names.borrow(i), profile);
+                let mut argv: Vec<String> = vec_new::<String>();
+                push_string_arg(&mut argv, &bp);
+                rjobs.push(argv);
+                runnable.push(i);
+            }
+            i = i + 1 as i64;
+        }
+    }
+    let rcodes: Vec<i32> = run_jobs(&rjobs, slots);
+
+    let mut pass_n: i32 = 0;
+    let mut fail_n: i32 = 0;
+    let mut ti2: i64 = 0 as i64;
+    while ti2 < nts {
+        let stem: &String = names.borrow(ti2);
+        let mut line: String = String::new();
+        line.push_str("lforge: test ");
+        line.push_str(stem.as_str());
+        // find this test's run slot (absent = it never built)
+        let mut slot: i64 = 0 as i64 - 1 as i64;
+        {
+            let mut r: i64 = 0 as i64;
+            while r < runnable.length() {
+                if *runnable.borrow(r) == ti2 { slot = r; }
+                r = r + 1 as i64;
+            }
+        }
+        if slot < 0 as i64 {
+            line.push_str("  FAIL (compile/link)");
+            println_string(2, &line);
+            fail_n = fail_n + 1;
+        } else if *rcodes.borrow(slot) == 0 {
+            line.push_str("  PASS");
+            println_string(1, &line);
+            pass_n = pass_n + 1;
+        } else {
+            line.push_str("  FAIL (exit code)");
+            println_string(2, &line);
+            fail_n = fail_n + 1;
+        }
+        ti2 = ti2 + 1 as i64;
+    }
+
+    {
+        let mut summary: String = String::new();
+        summary.push_str("lforge: tests passed=");
+        summary.push_i64(pass_n as i64);
+        summary.push_str(" failed=");
+        summary.push_i64(fail_n as i64);
+        println_string(1, &summary);
+    }
     if fail_n > 0 { return 1; }
     return 0;
     }
