@@ -1,11 +1,17 @@
-// ctr_vec_deem — ADR 0020 wave-0 e2e over the REAL Vector-v0 (packed
-// storage): the `container` declaration (with the backing's pkd bounds in
-// ITS generic list — design §f/R7) rides the full chain — facts → Canon
-// verdicts → generated scan projection — and a STATIC deem query returns
-// correct rows from a live VecCtr<u64>, across a growth boundary.
+// ctr_vec_deem — e2e over the library's `container Vector` declaration, which
+// now names no storage type at all: the family (b+tree-backed, store-resident)
+// and its `rel row(pos, elem)` projection are generated per element type, and a
+// query binds the CLASS. The chain under test is unchanged — facts → Canon
+// verdicts → generated projection → static deem query returning correct rows —
+// only its two ends are: no hand-written backing, no named family.
 package test;
 
 use memoria.ctr.vec;
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.result;        // module-mode: Result is NOT in the prelude here
@@ -13,27 +19,28 @@ use logos.mem.string;
 use logos.std.io;
 
 // The `container Vector` declaration lives in the memoria-ctr LIB
-// (src/ctr/vec.logos); this consumer only `use`s it and queries — the
-// generated scan projection travels in the lib archive (per-file
-// emit-module, provenance-attributed synth chunks + stdlib skeleton-skip).
-pub deem big(v: &VecCtr<u64>) {
-    from v e where e.elem > 100 select (e.pos, e.elem)
+// (src/ctr/vec.logos); this consumer only `use`s it and queries. The query
+// binds the CLASS — the family it compiles against is chosen by the argument.
+// NB the query speaks the HUB's vocabulary (`rel row(pos, val)` in
+// logos.mem.bt.map), not the declaration's column names — one relation serves
+// every family, so the names cannot come from any one declaration.
+pub deem big<V>(v: Vector<V>) {
+    from v e where e.val > 100 select (e.pos, e.val)
 }
 
 fn run_all() -> i32 {
-    // 240-byte block: the PdtBuf element column's empty geometry (~130B)
-    // leaves under 16 cells of room, so 16 u64 pushes force grow() at least
-    // once — the deem scan below reads the REBUILT block.
-    let mut c: VecCtr<u64> = VecCtr::new(240u32);
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let c = create_ctr::<typeof(Vector::<u64>)>(&snap, 1u64);
     let mut i: i64 = 0i64;
     while i < 16i64 {
         // values 10,20,…,160 — rows above 100: (10,110)…(15,160)
-        c.push(((i + 1i64) * 10i64) as u64);
+        c.append(((i + 1i64) * 10i64) as u64);
         i = i + 1i64;
     }
-    if c.count() != 16i64 { return 1i32; }
-    if c.get(0i64) != 10u64 { return 2i32; }
-    if c.get(15i64) != 160u64 { return 3i32; }
+    if c.size() != 16u64 { return 1i32; }
+    if c.get(0u64) != 10u64 { return 2i32; }
+    if c.get(15u64) != 160u64 { return 3i32; }
 
     let rows: Vec<(i64, i64)> = match big(&c) { 
         Result::Ok(v) => { v } 

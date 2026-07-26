@@ -19,15 +19,16 @@ use logos.lang.result;
 use logos.std.wql.wql;               // native-source machinery for the projection
 use logos.lcm.canon.container_item;  // the `container` item handler
 
-/// The Memoria-plane declaration for this backing (ADR 0020): kind + entry +
-/// measures. Canon derives the scan projection; the generated __CtrSrc_Vector
-/// source trait + materializer ship in THIS lib archive (memoria-ctr), so
-/// consumers resolve &VecCtr<T> as a deem source without declaring anything.
-/// The backing pkd bounds ride the container's generic list (design §f/R7).
-pub container Vector<T: Copy + Fst + StableLayout> for VecCtr<T> {
+/// The Memoria-plane declaration (ADR 0020): kind + entry. It names NO storage
+/// type — `for u8` is the placeholder every store-backed container carries,
+/// and the family (b+tree-backed, store-resident, with its `rel row(pos, elem)`
+/// projection) is generated per element type by the metaclass factory.
+///
+/// `VecCtr<T>` below is no longer that storage: it is a plain hand-written
+/// vector kept for the packed-block tests, unrelated to this declaration.
+pub container Vector<V> for u8 {
     kind vector;
-    entry { elem: T }
-    measure count;
+    entry { elem: V }
 }
 
 pub struct VecCtr<T: Copy + Fst + StableLayout> {

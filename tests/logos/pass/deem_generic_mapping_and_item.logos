@@ -1,0 +1,114 @@
+// ONE query, many element types — the compiler side of it, over a source
+// written by hand so the test says nothing about any particular container.
+//
+// Two generalities compose here:
+//   §1 a GENERIC MAPPING over a source trait (`mapping M<S: Bound>(v: &S)`) —
+//      the query is written once, against the relation, and never names an
+//      element type;
+//   §2 a GENERIC DEEM ITEM (`deem q<V: …>(w: M<Col<V>>)`) — the type parameter
+//      reaches the query item too, so even the per-type instantiation lines
+//      collapse into one. The type-param list rides verbatim onto every fn the
+//      walker generates, and the calls between them infer.
+//
+// The source is the ADR 0016 §6 surface: a trait declaring the rel vocabulary,
+// an impl binding it to a materializer. `CanonCol` is the projection into the
+// rel's integer domain, implemented for every integer type.
+package test;
+
+use logos.lcm.canon.canon;         // CanonCol / canon_col()
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
+
+pub struct Col<T: Copy> { pub xs: Vec<T> }
+
+pub trait ColSource { rel cell(pos: i64, val: i64); }
+
+pub fn col_rows<T: Copy + CanonCol>(c: &Col<T>) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < (&c.xs).length() {
+        let v: T = (&c.xs).get(i);
+        out.push((i, v.canon_col()));
+        i = i + 1i64;
+    }
+    return out;
+}
+
+impl<T: Copy + CanonCol> ColSource for Col<T> { rel cell = col_rows; }
+
+// §1 — THE query, written once, against the relation.
+pub mapping Big<S: ColSource>(v: &S) {
+    pub rel big(p: i64, e: i64) { from v r where r.val > 100 select (r.pos, r.val); }
+}
+
+// …pointed at one element type per line…
+pub deem big_u64(w: Big<Col<u64>>) { from big b select (b.p, b.e) }
+
+// §2 — …and with the element type left OPEN, one item for every type.
+pub deem big_any<V: Copy + CanonCol>(w: Big<Col<V>>) { from big b select (b.p, b.e) }
+
+fn fill_u64() -> Col<u64> {
+    let mut xs: Vec<u64> = vec_new::<u64>();
+    let mut i: i64 = 0i64;
+    while i < 16i64 { xs.push((((i + 1i64) * 10i64) as u64)); i = i + 1i64; }
+    return Col { xs: xs };
+}
+
+fn fill_i64() -> Col<i64> {
+    let mut xs: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < 16i64 { xs.push((i + 1i64) * 10i64); i = i + 1i64; }
+    return Col { xs: xs };
+}
+
+// values 10..160; rows above 100 are positions 10..15, each e == (p + 1) * 10.
+fn rows_ok(rs: &Vec<(i64, i64)>) -> bool {
+    if rs.len() != 6i64 { return false; }
+    let mut m: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while k < rs.len() {
+        let t: (i64, i64) = rs.get(k);
+        if t.1 != (t.0 + 1i64) * 10i64 { return false; }
+        m = m | (1i64 << (t.0 - 10i64));
+        k = k + 1i64;
+    }
+    return m == 63i64;
+}
+
+fn run_all() -> i32 {
+    let a: Col<u64> = fill_u64();
+    let b: Col<i64> = fill_i64();
+
+    let r1: Vec<(i64, i64)> = match big_u64(&a)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if !rows_ok(&r1) { return 2i32; }
+
+    // the SAME generic item over both element types
+    let g1: Vec<(i64, i64)> = match big_any(&a)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    let g2: Vec<(i64, i64)> = match big_any(&b)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if !rows_ok(&g1) { return 5i32; }
+    if !rows_ok(&g2) { return 6i32; }
+
+    // …and it agrees with the per-type item, row for row.
+    let mut k: i64 = 0i64;
+    while k < 6i64 {
+        if g1.get(k) != r1.get(k) { return 7i32; }
+        k = k + 1i64;
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL deem_generic_mapping_and_item: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

@@ -14,7 +14,7 @@
 //       CLASS, and Deem compiles it against whatever family that class becomes.
 package test;
 
-use memoria.ctr.vec;                  // container Vector<T> — the declaration
+use memoria.ctr.vec;                  // container Vector<V> — the declaration
 use memoria.ctr.multimap;             // container Multimap<K, V>
 use logos.lcm.canon.container_item;
 use logos.lcm.canon.metaclass;
@@ -35,15 +35,14 @@ use logos.std.io;
 //
 // This one lives in the memoria-ctr lib, quoted for the reader:
 //
-//     pub container Vector<T: Copy + Fst + StableLayout> for VecCtr<T> {
+//     pub container Vector<V> for u8 {
 //         kind vector;
-//         entry { elem: T }
-//         measure count;
+//         entry { elem: V }
 //     }
 //
-// From it, Canon derives `rel row(pos, elem)` and the factory emits the
-// materializer + `impl<T: … + CanonCol> __CtrSrc_Vector for VecCtr<T>` — ONE
-// relation for every element type.
+// It names no storage type. The factory generates the family per element type
+// — b+tree-backed, store-resident — together with its relation, so ONE
+// declaration yields a container AND its queryable projection.
 
 // A store-backed map, for §3. Same shape of declaration, different kind.
 container Ledger for u8 {
@@ -55,15 +54,11 @@ container Ledger for u8 {
 // ── §2 ONE query, any element type ──────────────────────────────────────────
 //
 // Written against the RELATION. No `u64`, no `i64`, no container type.
-pub mapping Above<S: __CtrSrc_Vector>(v: &S) {
-    pub rel above(p: i64, e: i64) { from v r where r.elem > 100 select (r.pos, r.elem); }
+// Written against the CLASS and the hub relation — one item, every element
+// type, and no family or storage type named anywhere.
+pub deem above<V>(v: Vector<V>) {
+    from v r where r.val > 100 select (r.pos, r.val)
 }
-
-// Pointing it at containers — these lines choose the element type; the QUERY
-// above never mentions one. (`deem` items take type params too, so even these
-// collapse into one — see ctr_vec_generic_deem.)
-pub deem above_u64(w: Above<VecCtr<u64>>) { from above a select (a.p, a.e) }
-pub deem above_i64(w: Above<VecCtr<i64>>) { from above a select (a.p, a.e) }
 
 // ── §4 the same query, over a STORE-BACKED container ────────────────────────
 //
@@ -128,27 +123,27 @@ fn report(label: str, rows: &Vec<(i64, i64)>) {
 
 fn run_all() -> i32 {
     // ── §2 in action: two containers, two element types, ONE query ──────────
-    let mut a: VecCtr<u64> = VecCtr::new(240u32);
-    let mut b: VecCtr<i64> = VecCtr::new(240u32);
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let a = create_ctr::<typeof(Vector::<u64>)>(&snap, 10u64);
+    let b = create_ctr::<typeof(Vector::<i64>)>(&snap, 11u64);
     let mut i: i64 = 0i64;
     while i < 16i64 {
-        a.push(((i + 1i64) * 10i64) as u64);   // 10, 20, … 160
-        b.push((i + 1i64) * 10i64);
+        a.append(((i + 1i64) * 10i64) as u64);   // 10, 20, … 160
+        b.append((i + 1i64) * 10i64);
         i = i + 1i64;
     }
 
     { let mut h: String = String::new(); h.push_str("one query, two element types:"); println_string(&h); }
-    let r64: Vec<(i64, i64)> = match above_u64(&a)
+    let r64: Vec<(i64, i64)> = match above(&a)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    let ri64: Vec<(i64, i64)> = match above_i64(&b)
+    let ri64: Vec<(i64, i64)> = match above(&b)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
-    report("VecCtr<u64>", &r64);
-    report("VecCtr<i64>", &ri64);
+    report("Vector<u64>", &r64);
+    report("Vector<i64>", &ri64);
     if r64.len() != 6i64 || ri64.len() != 6i64 { return 3i32; }
 
     // ── §3 a store that describes itself ────────────────────────────────────
-    let mut store: Arc<MemoryStore> = store_new();
-    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     let ms: &MemorySnapshot = ms_of(&snap);
     let led = create_ctr::<typeof(Ledger)>(&snap, 1u64);
     let mm  = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 2u64);
@@ -173,7 +168,7 @@ fn run_all() -> i32 {
         println_string(&line);
         j = j + 1i64;
     }
-    if ids.len() != 2i64 { return 5i32; }
+    if ids.len() != 4i64 { return 5i32; }
     if !str_eq(kind_of(ms, 1u64).as_str(), "ordered_map") { return 6i32; }
     if !str_eq(kind_of(ms, 2u64).as_str(), "multimap") { return 7i32; }
 
