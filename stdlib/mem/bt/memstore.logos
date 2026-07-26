@@ -330,9 +330,16 @@ impl MemorySnapshot {
     /// the store never interprets, kept in the root's SECOND metadata slot so it
     /// cannot disturb the schema. The block grows to fit and the directory is
     /// repointed; the document then rides root changes exactly like the schema.
-    pub fn set_ctr_user_meta(self: &MemorySnapshot, ctr_id: u64, doc: WritStatic) {
+    /// `doc` is the document's BLOB POINTER (`writ_static_ptr` of a `@`-literal),
+    /// not a `WritStatic`: a method whose signature names that type is not
+    /// visible to code that consumes this module from its ARCHIVE — the caller
+    /// gets "MemorySnapshot has no method", with nothing wrong at the
+    /// declaration. The blob is self-describing (`[u64 size][bytes]`), so the
+    /// pointer loses nothing, and it is the currency `set_root_meta` already
+    /// takes for the same reason.
+    pub fn set_ctr_user_meta(self: &MemorySnapshot, ctr_id: u64, doc: *const u8) {
         let e: DirEntry = self.root_of_mut(ctr_id);
-        let r: *mut u8 = user_meta_write_static(e.root, doc);
+        let r: *mut u8 = user_meta_write(e.root, doc, unsafe { writ_static_size(doc) });
         self.set_root(ctr_id, r, e.level);
     }
 

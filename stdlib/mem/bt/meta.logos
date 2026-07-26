@@ -255,6 +255,12 @@ pub fn ctr_publish_meta(root: *mut u8, doc: *const u8) -> *mut u8 {
     return b;
 }
 
+/// The blob pointer of a compile-time document — the currency the STORE's
+/// methods take (`set_root_meta`, `set_ctr_user_meta`). A `@`-literal's blob is
+/// `[u64 size][bytes]` with `ptr` past the size, so a bare pointer carries its
+/// own length and no store signature needs to name `WritStatic`.
+pub fn writ_static_ptr(ws: WritStatic) -> *const u8 { return ws.ptr; }
+
 /// `ctr_publish_meta` taking the family's `@`-literal directly — the form the
 /// generated code splices (`writ_static_none()` when the family has no schema).
 pub fn ctr_publish_meta_static(root: *mut u8, doc: WritStatic) -> *mut u8 {

@@ -30,6 +30,9 @@ use logos.mem.bt.memstore;
 use logos.mem.bt.meta;
 use logos.mem.bt.stream;
 use logos.mem.sync;
+use logos.lang.writ.wstatic;          // WritStatic — writ_static_ptr's parameter type;
+                                      // absent, the CALL silently fails to resolve
+                                      // and takes the method call with it
 use logos.lang.writ.static_view;      // WView2 / SView2 — the document reader
 use logos.lang.writ.anyval;           // WAny — a document node handle
 use logos.lang.str;
@@ -162,10 +165,12 @@ fn run_all() -> i32 {
         if !str_eq(kind_of(rms, 2u64).as_str(), "multimap") { return 44i32; }
     }
 
-    // §E (the client's own document, in the second slot) and §F (a node that
-    // GROWS to host a document) are exercised by the plane itself — the store
-    // API is `set_ctr_user_meta` / `ctr_user_meta`; their test lands with the
-    // next increment, once the build loop is fast enough to iterate on.
+    // §E (the client's own document in the second slot) is NOT pinned yet: the
+    // store's `set_ctr_user_meta` writes into the root WITHOUT CoW-privatizing
+    // it, so on a root shared with a frozen snapshot the write lands in another
+    // snapshot's block — the very thing the CoW stamp exists to prevent. The
+    // write path needs the privatize-then-repoint discipline every container
+    // mutation already uses; the test lands with that fix.
     let _ = mm;
     return 0i32;
 }
