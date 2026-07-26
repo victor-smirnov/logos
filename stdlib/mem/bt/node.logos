@@ -278,6 +278,52 @@ pub unsafe fn tree_release(root: *mut u8, level: u32) {
     }
 }
 
+/// CoW-privatize a container ROOT so the caller may write into it: unchanged
+/// when this snapshot already owns it (`snap == cur` — the stamp IS the
+/// exclusivity proof), otherwise a fresh block with the region byte-copied, the
+/// header declarations carried over, every referenced child/foreign root
+/// rc-bumped for the clone, and ONE structural share of the original released.
+///
+/// Returns the block the caller must publish (`set_root`). This is the generic
+/// form of what each engine does on its mutation walk — needed at the STORE
+/// level because writing a container's METADATA is a mutation too: without it a
+/// document written into a root shared with a frozen snapshot lands in that
+/// snapshot's block, which is precisely what the CoW stamp exists to prevent.
+pub unsafe fn node_privatize(root: *mut u8, level: u32, cur: u64) -> *mut u8 {
+    if node_snapshot(root) == cur { return root; }
+    let sa: *mut PkdAlloc = node_pkd(root);
+    let n: *mut u8 = node_alloc(node_block_size(root), node_ncols(root), cur);
+    copy_bytes(node_pkd(n) as *mut u8, sa as *const u8, sa.block_size() as i64);
+    node_set_child_slot(n, node_child_slot(root));
+    node_set_value_ref_slot(n, node_value_ref_slot(root));
+    node_set_ssrle_slot(n, node_ssrle_slot(root));
+    node_set_level(n, level);
+    // the clone acquires its own share of everything the original referenced
+    let cs: u32 = node_child_slot(root);
+    if cs != NODE_NO_CHILDREN {
+        let ch: PdtBuf = pdtbuf_adopt(sa.get::<u8>(cs));
+        let cn: u64 = ch.size();
+        let mut i: u64 = 0u64;
+        while i < cn {
+            node_inc_rc(ch.get(0u32, i) as *mut u8);
+            i = i + 1u64;
+        }
+    }
+    let vrs: u32 = node_value_ref_slot(root);
+    if vrs != NODE_NO_CHILDREN {
+        let vc: PdtBuf = pdtbuf_adopt(sa.get::<u8>(vrs));
+        let vn: u64 = vc.size();
+        let mut j: u64 = 0u64;
+        while j < vn {
+            let r: *mut u8 = vc.get(0u32, j) as *mut u8;
+            if r != (0 as *mut u8) { node_inc_rc(r); }
+            j = j + 1u64;
+        }
+    }
+    tree_release(root, level);
+    return n;
+}
+
 // ── the node PROFILE (ADR 0020 / Memoria profiles) ───────────────────────────
 //
 // The container prototypes (BTFL, BTSS) must not be bound to a concrete node

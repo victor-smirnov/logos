@@ -1582,12 +1582,14 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         let mut top: #bid = #bid::new_in(cur);
                         top.push_child(r.lsep, r.lcnt[0], r.addr);
                         top.push_child(r.rsep, r.rcnt[0], r.rptr);
-                        // Root PROMOTION: the old root is a CHILD now and must
-                        // not keep the schema document (a stale one mis-prices
-                        // the weight law); set_root_meta republishes it into the
-                        // fresh top. Memoria's ctr_root_to_node.
-                        meta_clear_if_owned(r.addr, cur);
-                        nrt = top.block();
+                        // Root PROMOTION: BOTH documents move to the new root
+                        // and the demoted node gives them up (Memoria's
+                        // ctr_copy_root_metadata + ctr_root_to_node). Migrating
+                        // rather than clearing is what carries the CLIENT's
+                        // document across — publication below only knows the
+                        // family's schema constant. The new root grows if it
+                        // must, so take the address back.
+                        nrt = meta_migrate(r.addr, top.block(), cur);
                         nlv = e.level + 1u32;
                     }
                     {
@@ -1617,12 +1619,14 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         let mut top: #bid = #bid::new_in(cur);
                         top.push_child(r.lsep, r.lcnt[0], r.addr);
                         top.push_child(r.rsep, r.rcnt[0], r.rptr);
-                        // Root PROMOTION: the old root is a CHILD now and must
-                        // not keep the schema document (a stale one mis-prices
-                        // the weight law); set_root_meta republishes it into the
-                        // fresh top. Memoria's ctr_root_to_node.
-                        meta_clear_if_owned(r.addr, cur);
-                        nrt = top.block();
+                        // Root PROMOTION: BOTH documents move to the new root
+                        // and the demoted node gives them up (Memoria's
+                        // ctr_copy_root_metadata + ctr_root_to_node). Migrating
+                        // rather than clearing is what carries the CLIENT's
+                        // document across — publication below only knows the
+                        // family's schema constant. The new root grows if it
+                        // must, so take the address back.
+                        nrt = meta_migrate(r.addr, top.block(), cur);
                         nlv = e.level + 1u32;
                     }
                     {

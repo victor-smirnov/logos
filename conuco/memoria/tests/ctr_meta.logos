@@ -14,6 +14,9 @@
 //   §C  only the ROOT carries it (a stale document on a demoted node would
 //       silently over-admit a later merge — the weight law prices columns
 //       against free space and knows nothing of the metadata payload);
+//   §E  the CLIENT's own document lives beside the schema, in a second slot,
+//       is invisible to the frozen snapshot that shared the root, and rides
+//       the same root changes;
 //   §D  a save/load round-trip preserves it — the document is part of the block
 //       image, so serialization carries it with no serializer support at all;
 //
@@ -165,12 +168,38 @@ fn run_all() -> i32 {
         if !str_eq(kind_of(rms, 2u64).as_str(), "multimap") { return 44i32; }
     }
 
-    // §E (the client's own document in the second slot) is NOT pinned yet: the
-    // store's `set_ctr_user_meta` writes into the root WITHOUT CoW-privatizing
-    // it, so on a root shared with a frozen snapshot the write lands in another
-    // snapshot's block — the very thing the CoW stamp exists to prevent. The
-    // write path needs the privatize-then-repoint discipline every container
-    // mutation already uses; the test lands with that fix.
+    // ── §E the client's own document, beside the schema ─────────────────────
+    // A metadata write is a MUTATION: the store privatizes the root first
+    // (node_privatize), so a document written while a frozen snapshot shares
+    // that root cannot land in the frozen snapshot's block.
+    {
+        let s3: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+        let ms3: &MemorySnapshot = ms_of(&s3);
+        if ms3.has_ctr_user_meta(1u64) { return 50i32; }
+        let doc: *const u8 = writ_static_ptr(@{ "owner": "ledger-svc", "epoch": 7 });
+        ms3.set_ctr_user_meta(1u64, doc);
+        if !ms3.has_ctr_user_meta(1u64) { return 51i32; }
+        // the schema is untouched — separate slots, neither disturbs the other
+        if !str_eq(kind_of(ms3, 1u64).as_str(), "ordered_map") { return 52i32; }
+        {
+            let vw: WView2 = ms3.ctr_user_meta(1u64);
+            if vw.get_int(vw.map_get(vw.root(), "epoch")) != 7i64 { return 53i32; }
+        }
+        // the FROZEN snapshot never saw it — the write went to a private root
+        if ms_of(&s2).has_ctr_user_meta(1u64) { return 54i32; }
+        // …and it rides a root change: refill until the tree grows again
+        let hh = open_ctr::<typeof(Ledger)>(&s3, 1u64);
+        let mut k: u64 = 0u64;
+        while k < 2000u64 { hh.insert(k, k); k = k + 1u64; }
+        if ms3.root_of(1u64).level == 0u32 { return 55i32; }
+        {
+            let vw: WView2 = ms3.ctr_user_meta(1u64);
+            if vw.get_int(vw.map_get(vw.root(), "epoch")) != 7i64 { return 56i32; }
+        }
+        if !str_eq(kind_of(ms3, 1u64).as_str(), "ordered_map") { return 57i32; }
+        if ms3.check_ctr_count(1u64) != 0u64 { return 58i32; }
+    }
+
     let _ = mm;
     return 0i32;
 }

@@ -338,9 +338,15 @@ impl MemorySnapshot {
     /// pointer loses nothing, and it is the currency `set_root_meta` already
     /// takes for the same reason.
     pub fn set_ctr_user_meta(self: &MemorySnapshot, ctr_id: u64, doc: *const u8) {
-        let e: DirEntry = self.root_of_mut(ctr_id);
-        let r: *mut u8 = user_meta_write(e.root, doc, unsafe { writ_static_size(doc) });
-        self.set_root(ctr_id, r, e.level);
+        unsafe {
+            let cur: u64 = (*self.d()).id;
+            let e: DirEntry = self.root_of_mut(ctr_id);
+            // A metadata write is a MUTATION: privatize the root first, or the
+            // document lands in a block a frozen snapshot is still reading.
+            let p: *mut u8 = node_privatize(e.root, e.level, cur);
+            let r: *mut u8 = user_meta_write(p, doc, writ_static_size(doc));
+            self.set_root(ctr_id, r, e.level);
+        }
     }
 
     /// Container `ctr_id`'s client document (`set_ctr_user_meta`'s peer).
