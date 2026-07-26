@@ -3291,10 +3291,22 @@ int run_metaprog_dispatch(
         prog = sema_lower(asts, filenames, from_binary, opts_iter, {},
                           opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
         stat_step(_t, "sema_lower", iter);
-        prog.print_diags(stderr);
-        if (!prog.ok()) return 1;
         retry_deferred = retry_deferred || prog.has_pending() || prog.deferred_plan_work;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
+
+        // ── DRAIN FIRST, JUDGE WHAT IS LEFT ─────────────────────────────
+        // The one rule, expressed by the ORDER rather than by a flag at each
+        // gate: a round a producer can still advance is not judged. Everything
+        // downstream of a thing that has not been produced yet is a cascade,
+        // and printing it buries the real story under its consequences — which
+        // is exactly what happened when the plan loop was judged mid-flight.
+        // The drain below is hash-deduped, so it can only fire finitely often;
+        // when it stops producing, the gate underneath speaks.
+        //
+        // The other gates in this file sit OUTSIDE the fixpoint (runner
+        // synthesis, borrow check, the terminal re-sema after a drain round has
+        // already had its turn), where no producer owes anything, so they judge
+        // immediately and should.
 
         // ── ADR 0021: EARLY factory drain ───────────────────────────────
         // sema records a factory demand the moment anything NAMES
@@ -3370,6 +3382,9 @@ int run_metaprog_dispatch(
             // the break below.
             if (drained_now) continue;
         }
+
+        prog.print_diags(stderr);
+        if (!prog.ok()) return 1;
 
         bool has_pending_item_mc = false;
         {
