@@ -3260,6 +3260,18 @@ private:
         writ::MemHolder*      holder = nullptr;  // module-of-decl holder
     };
     logos::compiler::StrMap<GenericConstEntry> generic_consts_;
+    // A Writ document is a TEMPLATE when a `<type:T>` slot still holds an open
+    // parameter: `@{ "key": <type:K>, "value": <type:V> }` under generic K/V.
+    // Such a document has CONTENT but no VALUE — and everything downstream of
+    // a config doc keys on its content HASH, so hashing one anyway mints a
+    // perfectly well-formed identity for a configuration that does not exist.
+    // (Measured before this existed: `typeof(Map::<K, V>)` generated a family
+    // for the literal type name "K" and died as `unknown type '<error>'`.)
+    // hash → the open parameter names, in document order, for the diagnostic.
+    std::unordered_map<uint64_t, std::string> parametric_wstatic_;
+    // Hashes already reported as templates — one diagnostic per document, not
+    // one per use site.
+    std::unordered_set<uint64_t> parametric_reported_;
     logos::compiler::StrMap<SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
     logos::compiler::StrMap<SemaImplInfo>     impls_;

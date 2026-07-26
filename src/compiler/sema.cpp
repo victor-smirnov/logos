@@ -7335,6 +7335,13 @@ TypeRef SemaChecker::resolve_wstatic_value(TinyMapView val_node) {
             for (char c : s) h = fnv_byte(h, (uint8_t)c);
             return h;
         };
+        // Open parameters found in `<type:…>` slots, in document order. A
+        // non-empty list means this document is a TEMPLATE, not a value.
+        std::vector<std::string> open_params;
+        auto note_open = [&](std::string_view nm) {
+            for (auto& p : open_params) if (p == nm) return;
+            open_params.emplace_back(nm);
+        };
         std::function<uint64_t(writ::TinyMapView, uint64_t)> walk;
         walk = [&](writ::TinyMapView n, uint64_t h) -> uint64_t {
             int32_t c = code_of(n);
@@ -7409,7 +7416,13 @@ TypeRef SemaChecker::resolve_wstatic_value(TinyMapView val_node) {
                 if (n.has_key(la::TYPE)) {
                     auto type_node = map_of(n.get(la::TYPE.code));
                     TypeRef t = resolve_type(type_node);
-                    if (t) h = fnv_str(h, type_str(t));
+                    if (t) {
+                        auto k = TypeRef(t).kind();
+                        if (k == LogosType::Kind::TypeVar ||
+                            k == LogosType::Kind::ConstVar)
+                            note_open(TypeRef(t).type_var_name());
+                        h = fnv_str(h, type_str(t));
+                    }
                 } else if (n.has_key(la::NAME)) {
                     // Legacy AST shape (kept for safety; pre-3a' grammar).
                     auto nm = str_of(n.get(la::NAME.code));
@@ -7425,6 +7438,18 @@ TypeRef SemaChecker::resolve_wstatic_value(TinyMapView val_node) {
             return h;
         };
         uint64_t hash = walk(val_node, 0xcbf29ce484222325ULL);
+        // TEMPLATE: the document still has open `<type:…>` parameters. It gets
+        // an identity like any other (two identical templates are one
+        // template), but it is recorded as parametric so nothing downstream
+        // mistakes it for a configuration — see parametric_wstatic_.
+        if (!open_params.empty()) {
+            std::string names;
+            for (auto& p : open_params) {
+                if (!names.empty()) names += ", ";
+                names += p;
+            }
+            parametric_wstatic_.emplace(hash, std::move(names));
+        }
         // Register the lowered @-literal so mono can materialise it in
         // place of `__const_param:CFG` references inside generic bodies.
         // First-write-wins: identical hashes resolve to the same registered
@@ -7468,6 +7493,21 @@ std::optional<uint64_t> SemaChecker::factory_backed_marker_hash(TypeRef t) const
 bool SemaChecker::defer_factory_backed(TypeRef t) {
     auto h = factory_backed_marker_hash(t);
     if (!h) return false;
+    // A TEMPLATE config names no family: the identity of a family IS its
+    // config's content, and a document with open parameters has none. Say so
+    // once, here, where the demand would have been recorded — the alternative
+    // is what used to happen, a family generated for the parameter's own NAME.
+    if (auto pit = parametric_wstatic_.find(*h); pit != parametric_wstatic_.end()) {
+        if (parametric_reported_.insert(*h).second)
+            error(std::format(
+                "container config is a TEMPLATE — its `<type:…>` slots are "
+                "still the parameter(s) {}, so it names no container family "
+                "(a family's identity IS its config's content). Instantiate it "
+                "(`typeof(C::<u64, u64>)`), or write the query against the "
+                "source trait instead of the family (`<S: SourceTrait>(w: &S)`)",
+                pit->second));
+        return true;
+    }
     if (!cur_prog_) return false;  // no program to carry the demand — stay strict
     for (auto& fd : cur_prog_->factory_demands)
         if (fd.cfg_hash == *h) { fd.required = true; return true; }

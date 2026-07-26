@@ -22068,6 +22068,18 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
     // serves a whole container family. Nothing here resolves them: the emitted
     // chunk is the honest gate (an unknown bound fails when it compiles), and
     // the bounds a query needs are the BACKING type's, which sema cannot know.
+    //
+    // They ARE pushed into scope, though: the parameter loop below PROBES each
+    // param type by resolving it (to re-spell a factory handle by its real
+    // name), and that probe has to see `K`/`V` as the item's own parameters
+    // rather than as unknown types — otherwise a template config resolves to
+    // `<error>` and hashes as a configuration that does not exist.
+    std::vector<TypeParam> item_tps = read_type_params(node);
+    push_type_params(item_tps);
+    struct PopTps {
+        SemaChecker* s; std::vector<TypeParam>* t;
+        ~PopTps() { s->pop_type_params(*t); }
+    } _pop_tps{this, &item_tps};
     std::string tparams_text;
     if (node.has_key(la::TYPE_PARAMS)) {
         bool was_syn = dump_syntactic_types_;
