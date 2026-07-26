@@ -31,6 +31,48 @@ pub deem above<V>(s: Series<V>) {
     from s r where r.val > 100 select (r.pos, r.val)
 }
 
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+
+    // Two containers of the same class at different element types — two
+    // generated families, neither named here.
+    let a = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
+    let b = create_ctr::<typeof(Series::<i64>)>(&snap, 2u64);
+    let mut i: i64 = 0i64;
+    while i < 16i64 {                        // 10, 20, … 160 — past a leaf split
+        a.append(((i + 1i64) * 10i64) as u64);
+        b.append((i + 1i64) * 10i64);
+        i = i + 1i64;
+    }
+
+    { let mut h: String = String::new(); h.push_str("one query, two generated containers:"); println_string(&h); }
+    
+    let ra: Vec<(i64, i64)> = match above(&a) { 
+        Result::Ok(v) => { v } 
+        Result::Err(_e) => { return 1i32; } 
+    };
+    
+    let rb: Vec<(i64, i64)> = match above(&b) { 
+        Result::Ok(v) => { v } 
+        Result::Err(_e) => { return 2i32; } 
+    };
+
+    report("Series<u64>", &ra);
+    report("Series<i64>", &rb);
+
+    // values above 100 are positions 10..15, each val == (pos + 1) * 10
+    if ra.len() != 6i64 || rb.len() != 6i64 { return 3i32; }
+    let mut k: i64 = 0i64;
+    while k < 6i64 {
+        let r: (i64, i64) = ra.get(k);
+        if r.1 != (r.0 + 1i64) * 10i64 { return 4i32; }
+        if ra.get(k) != rb.get(k)      { return 5i32; }
+        k = k + 1i64;
+    }
+    return 0i32;
+}
+
 fn report(label: str, rows: &Vec<(i64, i64)>) {
     let mut line: String = String::new();
     line.push_str("  ");
@@ -49,41 +91,6 @@ fn report(label: str, rows: &Vec<(i64, i64)>) {
         i = i + 1i64;
     }
     println_string(&line);
-}
-
-fn run_all() -> i32 {
-    let mut store: Arc<MemoryStore> = store_new();
-    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-
-    // Two containers of the same class at different element types — two
-    // generated families, neither named here.
-    let a = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
-    let b = create_ctr::<typeof(Series::<i64>)>(&snap, 2u64);
-    let mut i: i64 = 0i64;
-    while i < 16i64 {                        // 10, 20, … 160 — past a leaf split
-        a.append(((i + 1i64) * 10i64) as u64);
-        b.append((i + 1i64) * 10i64);
-        i = i + 1i64;
-    }
-
-    { let mut h: String = String::new(); h.push_str("one query, two generated containers:"); println_string(&h); }
-    let ra: Vec<(i64, i64)> = match above(&a)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    let rb: Vec<(i64, i64)> = match above(&b)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
-    report("Series<u64>", &ra);
-    report("Series<i64>", &rb);
-
-    // values above 100 are positions 10..15, each val == (pos + 1) * 10
-    if ra.len() != 6i64 || rb.len() != 6i64 { return 3i32; }
-    let mut k: i64 = 0i64;
-    while k < 6i64 {
-        let r: (i64, i64) = ra.get(k);
-        if r.1 != (r.0 + 1i64) * 10i64 { return 4i32; }
-        if ra.get(k) != rb.get(k)      { return 5i32; }
-        k = k + 1i64;
-    }
-    return 0i32;
 }
 
 fn main() -> i32 {
