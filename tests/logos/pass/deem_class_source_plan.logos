@@ -8,13 +8,13 @@
 // the query is written against — so binding the class is the only spelling of
 // a query that never mentions a generated name.
 //
-// A class source makes the item a PLAN, not a function: which container
-// operations the query should use is a question about the class's CAPABILITIES
-// (Canon answers those as relations), and which code they become is a question
-// about the class together with its type arguments — both answered where the
-// family is generated. This test pins the recognition: the class binder is
-// understood, validated against the DECLARATION's parameter list, and recorded
-// — and says plainly that generating the bindings is the next step.
+// A class source makes the item a PLAN, not a function: it is compiled where
+// the class meets its type arguments — at a CALL, whose argument type names
+// the family. This file never calls it, and that is the case being pinned: an
+// uninstantiated plan is not an error, exactly as an uninstantiated generic fn
+// is not. Nothing is emitted for it, and the program compiles and runs.
+//
+// The end-to-end instantiation lives in conuco/memoria/tests/ctr_class_deem.
 package test;
 
 use logos.lcm.canon.container_item;

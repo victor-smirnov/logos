@@ -6636,6 +6636,23 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                             "lowering incomplete?)", ci->name, cfg_name));
                     return error_t();
                 }
+                // Remember which CLASS this config came from. The document
+                // itself is name-free on purpose (twin dedup), so this is the
+                // only place both ends are in hand — and a `deem` plan over a
+                // class needs it to find the families the class became.
+                if (cur_prog_) {
+                    uint64_t h = (uint64_t)TypeRef(cfg).const_val().value_or(0);
+                    if (h && !cur_prog_->cfg_classes.count(h)) {
+                        std::string argstr;
+                        for (auto a : args) {
+                            if (!argstr.empty()) argstr += ", ";
+                            argstr += a ? type_str(a) : std::string("_");
+                        }
+                        cur_prog_->cfg_classes.emplace(
+                            h, lir::LProgram::CfgClass{ci->name, ci->package,
+                                                       std::move(argstr)});
+                    }
+                }
                 return make_metaclass_wrapper(cfg);
             }
         }

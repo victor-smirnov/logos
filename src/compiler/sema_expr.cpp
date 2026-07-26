@@ -3808,7 +3808,15 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // names, and only after real-function resolution failed, so a
         // same-named user fn is never shadowed.
         if (auto r = lower_type_intrinsic(node, callee)) return *r;
-        if (!metaprog_mode_)
+        // A call to a `deem` PLAN is where the plan meets its family: the
+        // argument's type IS the family the class became. This is the only
+        // place both halves are in hand — a class is instantiated inside a
+        // body, and so is the call. Recording one suppresses the diagnostic;
+        // the driver instantiates and re-runs, and if the call still does not
+        // resolve then, nothing new was recorded and this fires for real.
+        bool noted = !metaprog_mode_ && !arg_exprs.empty() &&
+                     note_deem_plan_inst_(callee, expr_type(arg_exprs[0]));
+        if (!metaprog_mode_ && !noted)
             error(std::format("call to undefined function '{}'", callee));
         return builder().call(std::string(callee), {}, std::move(arg_exprs), error_t());
     }
@@ -6598,7 +6606,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         // (e.g. `branchnode_<col>_shuttle` which the derive will emit
         // during dispatch) shouldn't fail-the-pass. Silently propagate
         // <error>; post-dispatch sema sees the synth doc and resolves.
-        if (!metaprog_mode_)
+        if (!metaprog_mode_ && !pending_deem_plan_(callee))
             error(std::format("call to undefined function '{}'", callee));
         return builder().call(std::string(callee), {}, {}, error_t());
     }
@@ -21092,6 +21100,48 @@ void SemaChecker::seed_builtin_source_impls() {
         {{"epoch","i64"},{"kind","i64"},{"val","i64"}}));
 }
 
+bool SemaChecker::note_deem_plan_inst_(std::string_view callee, TypeRef arg) {
+    if (!cur_prog_ || !arg) return false;
+    const lir::LProgram::DeemPlan* plan = nullptr;
+    for (const auto& p : cur_prog_->deem_plans)
+        if (p.name == callee) { plan = &p; break; }
+    if (!plan) return false;
+    TypeRef t{arg};
+    while (t && (t.kind() == LogosType::Kind::Ref ||
+                 t.kind() == LogosType::Kind::MutRef ||
+                 t.kind() == LogosType::Kind::Ptr) && t.pointee())
+        t = TypeRef(t.pointee());
+    std::string fam;
+    if (t && (t.kind() == LogosType::Kind::Struct ||
+              t.kind() == LogosType::Kind::ZonedStruct)) {
+        fam = std::string(t.struct_name());
+    } else if (t && t.kind() == LogosType::Kind::AssocType) {
+        // `create_ctr::<typeof(C::<…>)>(…)` types its result as the projection
+        // `CtrClass<@hs_…>::Handle`, and in the round that matters the impl
+        // that would collapse it does not exist yet. It does not need to: the
+        // family's NAME is a function of the config hash, which the projection
+        // carries. Read it off directly.
+        if (auto h = factory_backed_marker_hash(TypeRef(t.assoc_base()))) {
+            char hex[17];
+            std::snprintf(hex, sizeof hex, "%016llx", (unsigned long long)*h);
+            fam = std::string("Hs") + hex;
+        }
+    }
+    if (fam.empty()) return false;
+    for (const auto& e : cur_prog_->deem_plan_insts)
+        if (e.name == plan->name && e.package == plan->package && e.family == fam)
+            return true;
+    cur_prog_->deem_plan_insts.push_back({plan->name, plan->package, fam});
+    return true;
+}
+
+bool SemaChecker::pending_deem_plan_(std::string_view name) const {
+    if (!cur_prog_) return false;
+    for (const auto& p : cur_prog_->deem_plans)
+        if (p.name == name) return true;
+    return false;
+}
+
 bool SemaChecker::source_named_by_text_(std::string_view ptype) const {
     // Strip the reference marker + spaces the deem surface writes.
     while (!ptype.empty() && (ptype.front() == '&' || ptype.front() == ' '))
@@ -22297,20 +22347,11 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
             for (const auto& q : cur_prog_->deem_plans)
                 if (q.name == p.name && q.package == p.package) { dup = true; break; }
             if (!dup) cur_prog_->deem_plans.push_back(std::move(p));
+            // A recorded plan is work the driver still owes: it is instantiated
+            // at a factory drain, which the driver runs INSIDE this fixpoint
+            // when a site has deferred. Say that a site has.
+            cur_prog_->deferred_item_sites = true;
         }
-        // SCAFFOLD (removed by the next slice, which generates the bindings at
-        // instantiation): the plan is understood and recorded, but nothing
-        // consumes it yet. Say exactly that rather than let the call site fail
-        // as an undefined function.
-        error(std::format(
-            "deem '{}': binds the container CLASS '{}' — the plan is "
-            "recorded, but generating its bindings at instantiation is not "
-            "wired yet. Today a query names a container through its generated "
-            "handle: `{}(w: &<typeof({}::<…>) as CtrFamily>::Handle)`",
-            qname,
-            class_args.empty() ? class_src->name
-                               : (class_src->name + "<" + class_args + ">"),
-            qname, class_src->name));
         return;
     }
 

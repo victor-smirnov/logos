@@ -928,6 +928,30 @@ struct LProgram {
     };
     std::vector<DeemPlan> deem_plans;
 
+    // Which CLASS a config hash came from. The config document is
+    // deliberately name-free (structurally identical declarations are ONE
+    // family — twin dedup), so a family cannot be traced back to a class
+    // through its config. `typeof(<container decl>)` knows both ends and
+    // records the association here, which is what lets a plan over a class
+    // find the families that class was instantiated into.
+    struct CfgClass {
+        std::string name;     // the container declaration's name
+        std::string package;  // its declaring package
+        std::string args;     // the concrete type args, as type_str ("u64, u64")
+    };
+    std::unordered_map<uint64_t, CfgClass> cfg_classes;
+
+    // Where a plan MET its family. A container class is instantiated inside a
+    // function body, and the call to the plan is right there beside it — so
+    // the call site is where both halves are in hand: the plan by name, the
+    // family as the argument's type. The driver instantiates from this.
+    struct DeemPlanInst {
+        std::string name;     // plan name
+        std::string package;  // the plan's declaring package
+        std::string family;   // the argument's struct name (`Hs<hex>`)
+    };
+    std::vector<DeemPlanInst> deem_plan_insts;
+
     // ADR 0021 §3: WritStatic docs as SOURCE TEXT, keyed by the same content
     // hash as wstatic_registry_. Sema fills at resolve_wstatic_value; the
     // factory drain renders `metacall <factory>("@{…}")` chunks from it.

@@ -1,0 +1,90 @@
+// ctr_class_deem — a query written against a container CLASS.
+//
+//     pub deem high_value_entries<K, V: Number>(map: Map<K, V>) { … }
+//
+// `Map` is an instance of the container metaclass and NOT a type. Nothing in
+// this file names a generated type: no `Hs<hash>`, no `typeof(…)::Handle`, no
+// source trait. That is the point — the handle type is generated per store and
+// per config, hash-named, and downstream of the very declaration the query is
+// written against, so a query that has to name it can only ever be written
+// after the fact.
+//
+// A class source makes the item a PLAN. It is compiled where the class meets
+// its type arguments — which is the CALL: `high_value_entries(&m)` says both
+// halves at once, the plan by name and the family as the argument's type. The
+// driver drains the factory for that family and instantiates the plan against
+// it; one plan becomes one overload per family, so the call site keeps writing
+// the one name it wrote.
+//
+// §A one plan, one instantiation, real rows.
+// §B the SAME plan over a second, differently-configured family — two
+//    instantiations of one query, distinguished only by the argument.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
+
+pub container Map<K, V> for u8 {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+// THE query. No container type, no element type, no generated name.
+pub deem high_value_entries<K, V: Number>(map: Map<K, V>) {
+    from map e where e.val > 1400 select (e.key, e.val)
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+
+    // §A — Map<u64, u64>, past a leaf split so the query reads a real tree.
+    let a = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 500u64 { a.insert(k, k * 3u64); k = k + 1u64; }
+    let ra: Vec<(i64, i64)> = match high_value_entries(&a)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    // val = key*3 > 1400 ⟺ key ≥ 467 ⇒ 33 rows, in key order.
+    if ra.len() != 33i64 { return 2i32; }
+    let f: (i64, i64) = ra.get(0i64);
+    if f.0 != 467i64 || f.1 != 467i64 * 3i64 { return 3i32; }
+    let mut i: i64 = 0i64;
+    while i < ra.len() {
+        let r: (i64, i64) = ra.get(i);
+        if r.1 != r.0 * 3i64 { return 4i32; }
+        if r.1 <= 1400i64    { return 5i32; }
+        i = i + 1i64;
+    }
+
+    // §B — a second family from the same class: an i64 value column is a
+    // different config, so a different family — and the SAME plan compiles
+    // against it too. Only the argument distinguishes the two calls.
+    let b = create_ctr::<typeof(Map::<u64, i64>)>(&snap, 2u64);
+    let mut j: u64 = 0u64;
+    while j < 600u64 { b.insert(j, (j as i64) * 3i64); j = j + 1u64; }
+    let rb: Vec<(i64, i64)> = match high_value_entries(&b)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if rb.len() != 133i64 { return 7i32; }
+    let g: (i64, i64) = rb.get(0i64);
+    if g.0 != 467i64 { return 8i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_class_deem: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

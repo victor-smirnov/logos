@@ -617,6 +617,135 @@ extern "C" int32_t logos_emit_source(const char* src) {
     return emit_source_tagged(src, "<metaprog>");
 }
 
+// (plan, family) pairs already instantiated. One compile per process, and the
+// two drain sites live in different functions — the driver's post-mono loop and
+// the dispatch's own early drain — so the set is shared here rather than
+// threaded twice.
+static std::set<std::string> g_deem_plan_seen;
+// CFG hashes already drained, shared by every drain site.
+static std::unordered_set<uint64_t> g_early_drained_hashes;
+
+// Render + emit one `metacall __container_factory(hash, cfg_src)` chunk per
+// undrained factory demand. Factored out of the driver's post-mono drain loop
+// so the SAME rendering serves every point a demand can be discovered — the
+// producer is called where the demand appears, not at one privileged phase.
+// Returns the number of chunks emitted; `drained` deduplicates by CFG hash.
+static int render_factory_chunks(const logos::compiler::lir::LProgram& prog,
+                                 std::unordered_set<uint64_t>& drained) {
+    bool factory_available = false;
+    for (const auto& f : prog.functions)
+        if (f && logos::compiler::bare_fn_name(f.name()) == "__container_factory")
+            { factory_available = true; break; }
+    if (!factory_available) return 0;
+    int emitted = 0;
+    for (const auto& fd : prog.factory_demands) {
+        if (drained.count(fd.cfg_hash)) continue;
+        auto src_it = prog.wstatic_sources.find(fd.cfg_hash);
+        if (src_it == prog.wstatic_sources.end()) continue;
+        char hex[17];
+        std::snprintf(hex, sizeof hex, "%016llx", (unsigned long long)fd.cfg_hash);
+        std::string esc;
+        esc.reserve(src_it->second.size() + 16);
+        for (char c : src_it->second) {
+            switch (c) {
+            case '\\': esc += "\\\\"; break;
+            case '"':  esc += "\\\""; break;
+            case '\n': esc += "\\n";  break;
+            case '\r': esc += "\\r";  break;
+            case '\t': esc += "\\t";  break;
+            case '\0': esc += "\\0";  break;
+            default:   esc += c;      break;
+            }
+        }
+        std::string chunk;
+        chunk += "package logos.gen;\n";
+        chunk += "use logos.lcm.canon.container_item;\n";
+        chunk += "use logos.mem.bt.map;\n";
+        chunk += "metacall __container_factory(\"";
+        chunk += hex;
+        chunk += "\", \"";
+        chunk += esc;
+        chunk += "\");\n";
+        if (logos_emit_source(chunk.c_str())) ++emitted;
+        drained.insert(fd.cfg_hash);
+    }
+    return emitted;
+}
+
+// ── a deem PLAN meets a generated family ────────────────────────────────────
+// A `deem` whose source binds a container CLASS (`map: Map<K, V>`) is recorded
+// as a plan rather than compiled at its declaration: which code it becomes is a
+// question about the class TOGETHER WITH its type arguments, and that pair only
+// exists where the factory generates a family. Here is that place.
+//
+// The plan is INSTANTIATED, not interpreted: the class parameter is re-spelled
+// to the handle the factory just generated and the item is handed to the
+// ORDINARY deem pipeline. One query name yields one overload per family, so the
+// call site keeps writing the name it wrote — the generated type never appears
+// in user source, which was the whole point of binding a class.
+//
+// Returns the number of chunks emitted; `seen` deduplicates (plan, family)
+// across drain rounds and across the two drain sites.
+static int render_deem_plan_chunks(const logos::compiler::lir::LProgram& prog,
+                                   std::set<std::string>& seen) {
+    int emitted = 0;
+    for (const auto& inst : prog.deem_plan_insts) {
+        const logos::compiler::lir::LProgram::DeemPlan* pp = nullptr;
+        for (const auto& q : prog.deem_plans)
+            if (q.name == inst.name && q.package == inst.package) { pp = &q; break; }
+        if (!pp) continue;
+        const auto& p = *pp;
+        const std::string& family = inst.family;
+        std::string key = p.package + "::" + p.name + "@" + family;
+        if (!seen.insert(key).second) continue;
+        // Re-spell the class parameter; every other parameter rides verbatim.
+        std::string params;
+        {
+            std::string_view t = p.params_text;
+            int depth = 0; size_t seg = 0;
+            auto flush = [&](size_t end) {
+                std::string_view piece = t.substr(seg, end - seg);
+                size_t a = piece.find_first_not_of(" \t");
+                if (a == std::string_view::npos) return;
+                piece = piece.substr(a);
+                size_t c = piece.find(':');
+                std::string_view nm = c == std::string_view::npos ? piece
+                                                                  : piece.substr(0, c);
+                while (!nm.empty() && nm.back() == ' ') nm.remove_suffix(1);
+                if (!params.empty()) params += ", ";
+                if (nm == p.param_name) {
+                    params += p.param_name;
+                    params += ": &";
+                    params += family;
+                } else {
+                    params += std::string(piece);
+                }
+            };
+            for (size_t i = 0; i < t.size(); ++i) {
+                char ch = t[i];
+                if (ch == '(' || ch == '[' || ch == '<') ++depth;
+                else if (ch == ')' || ch == ']' || ch == '>') --depth;
+                else if (ch == ',' && depth == 0) { flush(i); seg = i + 1; }
+            }
+            flush(t.size());
+        }
+        // The instantiated form is CONCRETE: the item's own type params are
+        // bound by the family and do not survive into it.
+        std::string chunk;
+        chunk += "package " + (p.package.empty() ? std::string("main") : p.package) + ";\n";
+        chunk += "use logos.gen;\n";              // the generated family
+        chunk += "use logos.mem.bt.map;\n";       // the hub source trait
+        chunk += "use logos.std.wql.wql;\n";      // the deem handler
+        chunk += "use logos.mem.collections.vec;\n";
+        chunk += "use logos.lang.result;\n";
+        chunk += p.is_pub ? "pub deem " : "deem ";
+        chunk += p.name;
+        chunk += "(" + params + ") {" + p.query_text + "}\n";
+        if (logos_emit_source(chunk.c_str())) ++emitted;
+    }
+    return emitted;
+}
+
 // C++-side thunk staging (metacall sites, item thunks).
 static int32_t logos_emit_source_thunk(const char* src) {
     return emit_source_tagged(src, "<metaprog-thunk>");
@@ -3133,7 +3262,7 @@ int run_metaprog_dispatch(
     // Factory configs drained by the EARLY drain below (one chunk per CFG
     // hash); main()'s post-mono drain re-fires them structurally and finds
     // the chunk already emitted, so the two loops never double-generate.
-    std::unordered_set<uint64_t> early_drained_hashes;
+    std::unordered_set<uint64_t>& early_drained_hashes = g_early_drained_hashes;
     bool any_deferral_seen = false;
     for (int iter = 0; ; ++iter) {
         auto _t = std::chrono::steady_clock::now();
@@ -4938,6 +5067,67 @@ int main(int argc, char** argv) {
     default_opts.implicit_prelude = implicit_prelude_pkg;  // default-on prelude
     default_opts.module_name_to_id = module_name_to_id;    // §3: resolve `use … from <name>`
     prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
+
+    // ── deem PLANS meet their families ──────────────────────────────────────
+    // A `deem` whose source binds a container CLASS is not a function but a
+    // plan: which code it becomes depends on the class TOGETHER WITH its type
+    // arguments, and that pair first exists at a CALL — the argument's type is
+    // the family the class became. Sema recorded those pairs; instantiate each
+    // into an ordinary deem over the family handle and re-run.
+    //
+    // This sits before the diagnostics gate on purpose: until a plan is
+    // instantiated the query fn does not exist, so the call to it and
+    // everything downstream is a cascade, not a finding. The loop ends when
+    // nothing new is emitted — and THEN the diagnostics are the truth.
+    {
+        constexpr int kMaxPlanIters = 8;
+        bool plan_any_emitted = false;
+        auto* saved_any = g_any_emitted;
+        g_any_emitted = &plan_any_emitted;
+        for (int pi = 0; pi < kMaxPlanIters; ++pi) {
+            if (prog.deem_plan_insts.empty()) break;
+            // The family has to EXIST before the plan can be written against
+            // it, and the demand for it lives in the same body as the call —
+            // discovered by this very sema. So drain here too: the producer is
+            // called where the demand appears, not at one privileged phase.
+            // STRICTLY IN THIS ORDER, one per iteration: the plan is written
+            // against the family handle, so the family must already be in the
+            // program when the plan's deem is lowered. Draining and
+            // instantiating in the same round lowers the deem before the
+            // factory metacall has run.
+            int n = render_factory_chunks(prog, g_early_drained_hashes);
+            if (n == 0) n = render_deem_plan_chunks(prog, g_deem_plan_seen);
+            if (n == 0) break;
+            // The instantiated item is an ordinary `deem`, and an ordinary
+            // deem is consumed by the metaprog dispatch — the window every
+            // user-level deem passes through before the final sema. Re-enter
+            // it, then re-run sema with the query fn present.
+            logos::compiler::MetaprogDispatchOpts popts;
+            popts.trace          = trace;
+            popts.dump_dir       = dump_metaprog_dir;
+            popts.dump_filter    = dump_metaprog_filter;
+            popts.archive_paths  = archive_paths;
+            popts.provenance_out = &ast_provenance;
+            popts.cfg_flags      = cfg_flags;
+            popts.binary_symbols = binary_symbols;
+            popts.dep_nominal_decls = dep_nominal_decls;
+            popts.stats_out      = stats_flag ? &top_stats : nullptr;
+            popts.sema_cache     = &sema_cache;
+            popts.implicit_prelude = implicit_prelude_pkg;
+            popts.module_ids     = &module_ids;
+            popts.self_module_id = "";
+            popts.module_name_to_id = module_name_to_id;
+            if (logos::compiler::run_metaprog_dispatch(
+                    asts, filenames, from_binary, pre_dispatch_entry_idx, popts) != 0)
+                return 1;
+            g_emit_seen = &emit_seen;   // the dispatch restored its own on exit
+            g_asts = &asts; g_filenames = &filenames; g_from_binary = &from_binary;
+            g_any_emitted = &plan_any_emitted;
+            prog = logos::compiler::sema_lower(asts, filenames, from_binary,
+                                               default_opts, is_lazy, module_ids);
+        }
+        g_any_emitted = saved_any;
+    }
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
 
@@ -5695,7 +5885,7 @@ int main(int argc, char** argv) {
     // CtrFamily impl fns all carry the hash-derived family name). Absence
     // after a drain round = the factory ran but produced nothing for that
     // config → hard error instead of a silent create_ctr resolution failure.
-    std::unordered_set<uint64_t> drained_factory_hashes;
+    std::unordered_set<uint64_t>& drained_factory_hashes = g_early_drained_hashes;
     constexpr int kMaxFactoryDrainRounds = 3;
     for (int drain_round = 0; ; ++drain_round) {
 
@@ -5947,6 +6137,7 @@ int main(int argc, char** argv) {
     }
 
     }  // factory drain loop
+
 
     // ── Step 2d: Borrow checking ─────────────────────────────────
     prog = logos::compiler::borrow_check(std::move(prog));

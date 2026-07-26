@@ -4649,6 +4649,15 @@ private:
     // `false` here is the signal that the written spelling has to be replaced
     // by the resolved one (see lower_deem_def).
     bool          source_named_by_text_(std::string_view ptype) const;
+    // Is `name` a `deem` PLAN recorded this round whose bindings have not been
+    // generated yet? A plan over a container class compiles where that class
+    // meets its type arguments — at a factory drain, a round or more after the
+    // call to it was first seen. Calls to it are therefore not-yet-resolved,
+    // not undefined; the driver reports a plan that never got instantiated.
+    bool          pending_deem_plan_(std::string_view name) const;
+    // Record that plan `callee` was called with an argument of this type —
+    // the family the plan must be instantiated against.
+    bool          note_deem_plan_inst_(std::string_view callee, TypeRef arg);
     // Shared by the deem! macro path and the `deem` ITEM (ADR 0016): mapping
     // fusion + native-source spec over a deem parameter list. Mutates
     // params_text (mapping-type substitution) and raw_text (rule-list
