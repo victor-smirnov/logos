@@ -18,8 +18,14 @@ use logos.std.io;
 // ONE query shape, two element types — the SAME generic rel underneath
 // (`impl<T: … + CanonCol> __CtrSrc_Vector for VecCtr<T>`), so nothing about
 // the query changes with V.
-pub deem big_u64(v: &VecCtr<u64>) { from v r where r.elem > 100 select (r.pos, r.elem) }
-pub deem big_i64(v: &VecCtr<i64>) { from v r where r.elem > 100 select (r.pos, r.elem) }
+// THE query — written ONCE, against the relation. No element type in it.
+pub mapping Big<S: __CtrSrc_Vector>(v: &S) {
+    pub rel big(p: i64, e: i64) { from v r where r.elem > 100 select (r.pos, r.elem); }
+}
+
+// …and one line per element type to point it at a container. No query here.
+pub deem big_u64(w: Big<VecCtr<u64>>) { from big b select (b.p, b.e) }
+pub deem big_i64(w: Big<VecCtr<i64>>) { from big b select (b.p, b.e) }
 
 fn run_all() -> i32 {
     let mut a: VecCtr<u64> = VecCtr::new(240u32);

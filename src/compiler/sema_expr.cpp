@@ -22241,6 +22241,29 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                         return false;
                     }
                     auto sit = source_impls_.find(marg);
+                    if (sit == source_impls_.end()) {
+                        // GENERIC source impls: `impl<T: …> Src for VecCtr<T>`
+                        // registers under its own written form, while the
+                        // instantiation site writes `VecCtr<u64>` — an exact
+                        // key match never fires, so a generic container could
+                        // not be a mapping's source at all and every element
+                        // type needed its own hand-written query. Fall back to
+                        // the type's BASE (everything before '<'), which is
+                        // what makes ONE generic query possible over any V.
+                        // Sound because a source impl binds rels for the whole
+                        // family: the bound is on the container, and the
+                        // materializer is monomorphized per instantiation.
+                        auto base_of = [](std::string_view t) {
+                            auto lt = t.find('<');
+                            return std::string(lt == std::string_view::npos ? t
+                                                                            : t.substr(0, lt));
+                        };
+                        const std::string want = base_of(marg);
+                        if (!want.empty())
+                            for (auto it2 = source_impls_.begin();
+                                 it2 != source_impls_.end(); ++it2)
+                                if (base_of(it2->first) == want) { sit = it2; break; }
+                    }
                     for (const auto& need : trit->second) {
                         bool have = false;
                         if (sit != source_impls_.end())
