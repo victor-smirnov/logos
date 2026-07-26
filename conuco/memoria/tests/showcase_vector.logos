@@ -1,0 +1,97 @@
+// showcase_vector — the whole arc on one screen, over one container.
+//
+// Three lines of declaration, three lines of query, and nothing else names a
+// type that anybody had to write:
+//
+//   · the CONTAINER names no storage. Its family — b+tree nodes, cursor,
+//     handle, and the relation the query reads — is generated per element type;
+//   · the QUERY binds the CLASS, so it names neither that family (whose type is
+//     called after a hash of the configuration) nor the element type;
+//   · so ONE query serves every family the class becomes: `Series<u64>` and
+//     `Series<i64>` below are two generated containers and one written query.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
+
+container Series<V> {
+    kind vector;
+    entry { val: V }
+}
+
+pub deem above<V>(s: Series<V>) {
+    from s r where r.val > 100 select (r.pos, r.val)
+}
+
+fn report(label: str, rows: &Vec<(i64, i64)>) {
+    let mut line: String = String::new();
+    line.push_str("  ");
+    line.push_str(label);
+    line.push_str(" -> ");
+    line.push_i64(rows.len());
+    line.push_str(" row(s):");
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: (i64, i64) = rows.get(i);
+        line.push_str(" (");
+        line.push_i64(r.0);
+        line.push_str(",");
+        line.push_i64(r.1);
+        line.push_str(")");
+        i = i + 1i64;
+    }
+    println_string(&line);
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+
+    // Two containers of the same class at different element types — two
+    // generated families, neither named here.
+    let a = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
+    let b = create_ctr::<typeof(Series::<i64>)>(&snap, 2u64);
+    let mut i: i64 = 0i64;
+    while i < 16i64 {                        // 10, 20, … 160 — past a leaf split
+        a.append(((i + 1i64) * 10i64) as u64);
+        b.append((i + 1i64) * 10i64);
+        i = i + 1i64;
+    }
+
+    { let mut h: String = String::new(); h.push_str("one query, two generated containers:"); println_string(&h); }
+    let ra: Vec<(i64, i64)> = match above(&a)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    let rb: Vec<(i64, i64)> = match above(&b)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    report("Series<u64>", &ra);
+    report("Series<i64>", &rb);
+
+    // values above 100 are positions 10..15, each val == (pos + 1) * 10
+    if ra.len() != 6i64 || rb.len() != 6i64 { return 3i32; }
+    let mut k: i64 = 0i64;
+    while k < 6i64 {
+        let r: (i64, i64) = ra.get(k);
+        if r.1 != (r.0 + 1i64) * 10i64 { return 4i32; }
+        if ra.get(k) != rb.get(k)      { return 5i32; }
+        k = k + 1i64;
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL showcase_vector: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
