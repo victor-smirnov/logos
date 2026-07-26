@@ -8,8 +8,10 @@
 //       RELATION (`pos`/`elem`), so the type parameter never appears in it;
 //   §3  a STORE describes itself — ids from the directory, kinds from each
 //       container's own root block, with no compile-time type in sight;
-//   §4  and the query reaches a STORE-BACKED container too, whose handle type
-//       is named by a content hash that nobody can type out.
+//   §4  the query reaches a STORE-BACKED container too, whose handle type is
+//       named by a content hash that nobody can type out;
+//   §5  …and then stops naming types at all: a query binds the container
+//       CLASS, and Deem compiles it against whatever family that class becomes.
 package test;
 
 use memoria.ctr.vec;                  // container Vector<T> — the declaration
@@ -74,6 +76,17 @@ pub deem above_i64(w: Above<VecCtr<i64>>) { from above a select (a.p, a.e) }
 // factory has produced the family.
 pub deem big_vals(w: &<typeof(Ledger) as CtrFamily>::Handle) {
     from w e where e.val > 1400 select (e.key, e.val)
+}
+
+// ── §5 the same query, naming nothing generated ─────────────────────────────
+//
+// `Ledger` is an instance of the container metaclass — a CLASS, not a type.
+// Binding it is the spelling that survives the fact that a family's handle is
+// generated: there is no `typeof`, no `::Handle`, no hash. The item is a PLAN,
+// and it is compiled where the class meets its type arguments — at the call
+// below, whose argument type says which family to compile against.
+pub deem big_vals_by_class(led: Ledger) {
+    from led e where e.val > 1400 select (e.key, e.val)
 }
 
 fn ms_of(s: &Arc<dyn Snapshot>) -> &MemorySnapshot {
@@ -173,6 +186,18 @@ fn run_all() -> i32 {
     if big.len() != 33i64 { return 9i32; }
     let b0: (i64, i64) = big.get(0i64);
     if b0.0 != 467i64 || b0.1 != 467i64 * 3i64 { return 10i32; }
+
+    // ── §5 the same answer, from a query that names nothing generated ───────
+    { let mut h: String = String::new(); h.push_str("the same query, written against the CLASS:"); println_string(&h); }
+    let byc: Vec<(i64, i64)> = match big_vals_by_class(&led)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    report("Ledger (by class)", &byc);
+    if byc.len() != big.len() { return 12i32; }
+    let mut z: i64 = 0i64;
+    while z < byc.len() {
+        if byc.get(z) != big.get(z) { return 13i32; }
+        z = z + 1i64;
+    }
     return 0i32;
 }
 
