@@ -1,0 +1,24 @@
+// Arity of a class source is checked against the DECLARATION's parameter
+// list — the class is what carries it, so this is not a type-argument
+// check but a metaclass-instance one.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.mem.bt.map;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub container Map<K, V> for u8 {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+pub deem high_value_entries<K>(map: Map<K>) {
+    from map e where e.val > 100 select (e.key, e.val)
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

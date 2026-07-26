@@ -22094,6 +22094,11 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
     // discipline as mapping headers.
     std::string params_text;
     size_t nparams = 0;
+    // A CLASS binder among the parameters (`map: Map<K, V>`) turns the whole
+    // item into a PLAN rather than a function — see the branch below and
+    // lir::LProgram::DeemPlan.
+    const ContainerInfo* class_src = nullptr;
+    std::string class_args, class_param;
     if (node.has_key(la::PARAMS)) {
         auto pl = map_of(node.get(la::PARAMS.code));
         if (!pl.is_null() && pl.has_key(la::ITEMS.code)) {
@@ -22117,6 +22122,77 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
                         "deem '{}': cannot render the type of parameter '{}'",
                         qname, pn));
                     return;
+                }
+                // ── the source is a CLASS, not a type ────────────────────
+                // `map: Map<K, V>` names a container DECLARATION — an
+                // instance of the container metaclass. It is deliberately not
+                // a type: the handle type is generated per store and per
+                // config, hash-named, and downstream of the very declaration
+                // this query is written against. Binding a class is therefore
+                // the ONLY spelling that never mentions a generated name, and
+                // the one the query surface should have had from the start.
+                //
+                // Recognised here, before any attempt to resolve it as a type
+                // (resolving `Map<K, V>` would build the config document with
+                // its `<type:…>` slots still open — a TEMPLATE, which names
+                // no family; see parametric_wstatic_).
+                {
+                    std::string_view core = tsrc;
+                    while (!core.empty() && (core.front() == '&' || core.front() == ' '))
+                        core.remove_prefix(1);
+                    std::string_view cbase = core;
+                    std::string args;
+                    if (auto lt = core.find('<');
+                            lt != std::string_view::npos && core.back() == '>') {
+                        cbase = core.substr(0, lt);
+                        args  = std::string(core.substr(lt + 1, core.size() - lt - 2));
+                    }
+                    while (!cbase.empty() && cbase.back() == ' ') cbase.remove_suffix(1);
+                    const ContainerInfo* found = nullptr;
+                    for (const auto& [ck, c] : containers_)
+                        if (c.name == cbase) { found = &c; break; }
+                    if (found) {
+                        if (class_src) {
+                            error(std::format(
+                                "deem '{}': two class sources ('{}' and '{}') — "
+                                "a plan binds ONE container class (join across "
+                                "classes is not a wave-0 surface)",
+                                qname, class_src->name, found->name));
+                            return;
+                        }
+                        // Arity against the DECLARATION, not against a type:
+                        // the class is what carries the parameter list.
+                        size_t want = found->generic_names.size();
+                        size_t got = 0;
+                        if (!args.empty()) {
+                            got = 1;
+                            int depth = 0;
+                            for (char ch : args) {
+                                if (ch == '<' || ch == '(' || ch == '[') ++depth;
+                                else if (ch == '>' || ch == ')' || ch == ']') --depth;
+                                else if (ch == ',' && depth == 0) ++got;
+                            }
+                        }
+                        if (got != want) {
+                            error(std::format(
+                                "deem '{}': container class '{}' declares {} type "
+                                "parameter(s) {}, got {}",
+                                qname, found->name, want,
+                                found->generics_src.empty() ? std::string("<>")
+                                                            : found->generics_src,
+                                got));
+                            return;
+                        }
+                        class_src   = found;
+                        class_args  = std::move(args);
+                        class_param = pn;
+                        if (nparams) params_text += ", ";
+                        params_text += pn;
+                        params_text += ": ";
+                        params_text += tsrc;
+                        ++nparams;
+                        continue;
+                    }
                 }
                 // A source that only the COMPILER can spell (ADR 0021): a
                 // factory family's handle is named by a content hash, so the
@@ -22189,6 +22265,54 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
         return;
     }
     std::string raw_text(str_of(node.get(la::RAW_TEXT.code)));
+
+    // ── a class source makes this a PLAN, not a function ────────────────────
+    // Nothing is emitted here. A query over a class cannot be compiled at the
+    // declaration: which container operations it should use is a question
+    // about the class's CAPABILITIES (Canon already answers those as
+    // relations — can_scan, can_seek(col), column modes and projections), and
+    // which code those become is a question about the class ⊗ its type args.
+    // Both are answered where the family is generated, so the plan is recorded
+    // and travels there.
+    if (class_src) {
+        bool is_pub_plan = false;
+        if (node.has_key(la::IS_PUB)) {
+            auto av = node.get(la::IS_PUB.code);
+            is_pub_plan = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
+        }
+        if (cur_prog_) {
+            lir::LProgram::DeemPlan p;
+            p.name        = qname;
+            p.package     = cur_package_;
+            p.class_name  = class_src->name;
+            p.class_args  = class_args;
+            p.param_name  = class_param;
+            p.tparams     = tparams_text;
+            p.params_text = params_text;
+            p.query_text  = raw_text;
+            p.is_pub      = is_pub_plan;
+            p.file        = file_;
+            p.line        = node_line_;
+            bool dup = false;
+            for (const auto& q : cur_prog_->deem_plans)
+                if (q.name == p.name && q.package == p.package) { dup = true; break; }
+            if (!dup) cur_prog_->deem_plans.push_back(std::move(p));
+        }
+        // SCAFFOLD (removed by the next slice, which generates the bindings at
+        // instantiation): the plan is understood and recorded, but nothing
+        // consumes it yet. Say exactly that rather than let the call site fail
+        // as an undefined function.
+        error(std::format(
+            "deem '{}': binds the container CLASS '{}' — the plan is "
+            "recorded, but generating its bindings at instantiation is not "
+            "wired yet. Today a query names a container through its generated "
+            "handle: `{}(w: &<typeof({}::<…>) as CtrFamily>::Handle)`",
+            qname,
+            class_args.empty() ? class_src->name
+                               : (class_src->name + "<" + class_args + ">"),
+            qname, class_src->name));
+        return;
+    }
 
     // The handler is the SAME `deem` token-macro the resource form uses.
     auto ovit = func_overloads_.find("deem");

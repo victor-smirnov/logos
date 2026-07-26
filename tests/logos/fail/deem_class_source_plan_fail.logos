@@ -1,0 +1,38 @@
+// A `deem` may bind a container CLASS — an instance of the container
+// metaclass — instead of a type:
+//
+//     pub deem high_value_entries<K, V: Number>(map: Map<K, V>) { … }
+//
+// `Map` is deliberately NOT a type. Its handle type is generated per store and
+// per config, named by a content hash, and downstream of the very declaration
+// the query is written against — so binding the class is the only spelling of
+// a query that never mentions a generated name.
+//
+// A class source makes the item a PLAN, not a function: which container
+// operations the query should use is a question about the class's CAPABILITIES
+// (Canon answers those as relations), and which code they become is a question
+// about the class together with its type arguments — both answered where the
+// family is generated. This test pins the recognition: the class binder is
+// understood, validated against the DECLARATION's parameter list, and recorded
+// — and says plainly that generating the bindings is the next step.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.mem.bt.map;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub container Map<K, V> for u8 {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+pub deem high_value_entries<K, V: Number>(map: Map<K, V>) {
+    from map e where e.val > 100 select (e.key, e.val)
+}
+
+fn main() -> i32 {
+    return 0i32;
+}

@@ -905,6 +905,29 @@ struct LProgram {
     };
     std::vector<FactoryDemand> factory_demands;
 
+    // A `deem` whose source parameter binds a container CLASS rather than a
+    // type — `pub deem q<K, V: Number>(map: Map<K, V>)`. `Map` is an instance
+    // of the container metaclass, NOT a type: its handle type is generated,
+    // hash-named, and downstream of the very declaration the query describes.
+    // Such a deem is therefore not a function to emit here but a PLAN to
+    // record: the bindings are generated where the class meets its type args,
+    // beside the family itself, by Deem and Canon together (Canon already
+    // publishes what a class can do — can_scan / can_seek(col) / col modes —
+    // as relations; the plan is the join of those with the query's demands).
+    struct DeemPlan {
+        std::string name;        // query name (an unemitted fn's name)
+        std::string package;     // declaring package
+        std::string class_name;  // the container class the source binds
+        std::string class_args;  // its type args as written ("K, V"; "" = none)
+        std::string param_name;  // the source parameter's name
+        std::string tparams;     // the item's own type-param list, verbatim
+        std::string params_text; // the full parameter list, canonical syntax
+        std::string query_text;  // the raw query body
+        bool        is_pub = false;
+        std::string file; int line = 0;   // the site, for diagnostics
+    };
+    std::vector<DeemPlan> deem_plans;
+
     // ADR 0021 §3: WritStatic docs as SOURCE TEXT, keyed by the same content
     // hash as wstatic_registry_. Sema fills at resolve_wstatic_value; the
     // factory drain renders `metacall <factory>("@{…}")` chunks from it.
