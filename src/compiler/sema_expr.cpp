@@ -21114,7 +21114,12 @@ bool SemaChecker::note_deem_plan_inst_(std::string_view callee, TypeRef arg) {
     std::string fam;
     if (t && (t.kind() == LogosType::Kind::Struct ||
               t.kind() == LogosType::Kind::ZonedStruct)) {
-        fam = std::string(t.struct_name());
+        // The INSTANTIATED spelling, not the base name: a class whose backing
+        // is a real generic type (`container Vector<T> for VecCtr<T>`) becomes
+        // `VecCtr<u64>`, and the emitted query has to say so or its
+        // materializer call cannot infer T. A factory family (`Hs<hex>`) has no
+        // arguments, so both spellings agree there.
+        fam = type_str(t);
     } else if (t && t.kind() == LogosType::Kind::AssocType) {
         // `create_ctr::<typeof(C::<…>)>(…)` types its result as the projection
         // `CtrClass<@hs_…>::Handle`, and in the round that matters the impl
