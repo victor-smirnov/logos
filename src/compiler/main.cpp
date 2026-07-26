@@ -4870,22 +4870,31 @@ int main(int argc, char** argv) {
     // cached TypeRefs (Step 3b+) stay valid.
     logos::compiler::SemaCache sema_cache;
 
+    // ONE dispatch configuration. Every point that re-enters the discovery
+    // loop needs the same one, and it was written out three times identically
+    // — a field added to one and not the others is a silent divergence between
+    // phases that have to agree.
+    auto dispatch_opts = [&] {
+        logos::compiler::MetaprogDispatchOpts o;
+        o.trace          = trace;
+        o.dump_dir       = dump_metaprog_dir;
+        o.dump_filter    = dump_metaprog_filter;
+        o.archive_paths  = archive_paths;
+        o.provenance_out = &ast_provenance;
+        o.cfg_flags      = cfg_flags;                 // Phase 2-4
+        o.binary_symbols = binary_symbols;
+        o.dep_nominal_decls = dep_nominal_decls;      // G156-1 ambiguity universe
+        o.stats_out      = stats_flag ? &top_stats : nullptr;
+        o.sema_cache     = &sema_cache;
+        o.implicit_prelude = implicit_prelude_pkg;
+        o.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
+        o.self_module_id = "";           // a plain user program is in the global module (no id)
+        o.module_name_to_id = module_name_to_id;      // §B-coex: `use … from` in discovery
+        return o;
+    };
+
     {
-        logos::compiler::MetaprogDispatchOpts mopts;
-        mopts.trace          = trace;
-        mopts.dump_dir       = dump_metaprog_dir;
-        mopts.dump_filter    = dump_metaprog_filter;
-        mopts.archive_paths  = archive_paths;
-        mopts.provenance_out = &ast_provenance;
-        mopts.cfg_flags      = cfg_flags;  // Phase 2-4
-        mopts.binary_symbols = binary_symbols;
-        mopts.dep_nominal_decls = dep_nominal_decls;  // G156-1 ambiguity universe
-        mopts.stats_out      = stats_flag ? &top_stats : nullptr;
-        mopts.sema_cache     = &sema_cache;
-        mopts.implicit_prelude = implicit_prelude_pkg;
-        mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
-        mopts.self_module_id = "";           // a plain user program is in the global module (no id)
-        mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
+        auto mopts = dispatch_opts();
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
@@ -5084,47 +5093,43 @@ int main(int argc, char** argv) {
         bool plan_any_emitted = false;
         auto* saved_any = g_any_emitted;
         g_any_emitted = &plan_any_emitted;
-        for (int pi = 0; pi < kMaxPlanIters; ++pi) {
-            if (prog.deem_plan_insts.empty()) break;
-            // The family has to EXIST before the plan can be written against
-            // it, and the demand for it lives in the same body as the call —
-            // discovered by this very sema. So drain here too: the producer is
-            // called where the demand appears, not at one privileged phase.
-            // STRICTLY IN THIS ORDER, one per iteration: the plan is written
-            // against the family handle, so the family must already be in the
-            // program when the plan's deem is lowered. Draining and
-            // instantiating in the same round lowers the deem before the
-            // factory metacall has run.
+        // ONE drain step, and the rules that make it correct live here rather
+        // than at each caller:
+        //
+        //   · at most ONE kind of producer advances per step. The plan is
+        //     written against the family handle, so the family must already be
+        //     in the program when the plan's deem is lowered; rendering both in
+        //     one step lowers that deem before the factory metacall has run.
+        //   · what a producer emits is an ORDINARY item, so it is consumed by
+        //     the metaprog dispatch — the window every user-level deem and
+        //     metacall passes through. Re-enter it, then re-lower.
+        //   · the dispatch restores its own emit globals on exit, so they are
+        //     re-wired here, once, instead of at each caller that forgets.
+        //
+        // 1 = something was produced, 0 = nothing left to do, -1 = the
+        // dispatch failed.
+        auto drain_step = [&]() -> int {
             int n = render_factory_chunks(prog, g_early_drained_hashes);
             if (n == 0) n = render_deem_plan_chunks(prog, g_deem_plan_seen);
-            if (n == 0) break;
-            // The instantiated item is an ordinary `deem`, and an ordinary
-            // deem is consumed by the metaprog dispatch — the window every
-            // user-level deem passes through before the final sema. Re-enter
-            // it, then re-run sema with the query fn present.
-            logos::compiler::MetaprogDispatchOpts popts;
-            popts.trace          = trace;
-            popts.dump_dir       = dump_metaprog_dir;
-            popts.dump_filter    = dump_metaprog_filter;
-            popts.archive_paths  = archive_paths;
-            popts.provenance_out = &ast_provenance;
-            popts.cfg_flags      = cfg_flags;
-            popts.binary_symbols = binary_symbols;
-            popts.dep_nominal_decls = dep_nominal_decls;
-            popts.stats_out      = stats_flag ? &top_stats : nullptr;
-            popts.sema_cache     = &sema_cache;
-            popts.implicit_prelude = implicit_prelude_pkg;
-            popts.module_ids     = &module_ids;
-            popts.self_module_id = "";
-            popts.module_name_to_id = module_name_to_id;
+            if (n == 0) return 0;
+            auto popts = dispatch_opts();
             if (logos::compiler::run_metaprog_dispatch(
                     asts, filenames, from_binary, pre_dispatch_entry_idx, popts) != 0)
-                return 1;
-            g_emit_seen = &emit_seen;   // the dispatch restored its own on exit
+                return -1;
+            g_emit_seen = &emit_seen;
             g_asts = &asts; g_filenames = &filenames; g_from_binary = &from_binary;
             g_any_emitted = &plan_any_emitted;
             prog = logos::compiler::sema_lower(asts, filenames, from_binary,
                                                default_opts, is_lazy, module_ids);
+            return 1;
+        };
+        // Runs to the worklist's IMMOBILITY — a step that produces nothing
+        // ends it. The count is a backstop, not the termination rule.
+        for (int pi = 0; pi < kMaxPlanIters; ++pi) {
+            if (prog.deem_plan_insts.empty()) break;
+            int r = drain_step();
+            if (r < 0) return 1;
+            if (r == 0) break;
         }
         g_any_emitted = saved_any;
     }
@@ -6093,21 +6098,7 @@ int main(int argc, char** argv) {
     // factory's items) and marks the sites DONE. Options mirror the Step 2b
     // discovery-loop wiring.
     {
-        logos::compiler::MetaprogDispatchOpts dopts;
-        dopts.trace          = trace;
-        dopts.dump_dir       = dump_metaprog_dir;
-        dopts.dump_filter    = dump_metaprog_filter;
-        dopts.archive_paths  = archive_paths;
-        dopts.provenance_out = &ast_provenance;
-        dopts.cfg_flags      = cfg_flags;
-        dopts.binary_symbols = binary_symbols;
-        dopts.dep_nominal_decls = dep_nominal_decls;  // G156-1 ambiguity universe
-        dopts.stats_out      = stats_flag ? &top_stats : nullptr;
-        dopts.sema_cache     = &sema_cache;
-        dopts.implicit_prelude = implicit_prelude_pkg;
-        dopts.module_ids     = &module_ids;
-        dopts.self_module_id = "";
-        dopts.module_name_to_id = module_name_to_id;
+        auto dopts = dispatch_opts();
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, dopts) != 0)
             return 1;
