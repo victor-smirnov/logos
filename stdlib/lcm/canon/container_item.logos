@@ -2565,8 +2565,15 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
 // forwarding into the btvec prototype, the cursor pair for seek. v0 columns
 // are u64 (validated at the factory gate); the typed cast boundary arrives
 // with 8c alongside the other families'.
-fn emit_btvec_family(name: str, mexpr: ExprBlob) {
+// `vty` is the DECLARED value type. The storage cell stays an unordered FSE64
+// column — btvec's own format — and the family's surface is typed by the
+// declaration, bridging through the cell's low bytes (`as u64` / `as #(vt)`).
+// So a `container … { kind vector; entry { elem: i64 } }` gets an i64 surface
+// without btvec knowing anything about it: the family is generated per CONFIG,
+// and the config carries the type, so nothing here is generic.
+fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
     let nm: Ident = Ident::new(name);
+    let vt: ExprBlob = parse_type(vty);
     let nd: Ident = Ident::new(MEM_STORE_NODE);
     let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
     let mut lbs_s: String = fmt_display_to_string(&scfg.leaf_bytes());
@@ -2598,9 +2605,9 @@ fn emit_btvec_family(name: str, mexpr: ExprBlob) {
         pub struct #cid { pub found: bool, leaf: *mut u8, idx: u32 }
         impl #cid {
             pub fn valid(self: &#cid) -> bool { return self.found; }
-            pub fn value(self: &#cid) -> u64 {
+            pub fn value(self: &#cid) -> #(vt) {
                 let c: BtvecCur = BtvecCur { found: self.found, leaf: self.leaf, idx: self.idx };
-                return btvec_cur_value::<#nd>(&c);
+                return btvec_cur_value::<#nd>(&c) as #(vt);
             }
         }
         impl #nm {
@@ -2676,10 +2683,10 @@ fn emit_btvec_family(name: str, mexpr: ExprBlob) {
                 self.leaf_bytes = leaf_bytes;
                 self.branch_bytes = branch_bytes;
             }
-            pub fn append(self: &#nm, v: u64) {
+            pub fn append(self: &#nm, v: #(vt)) {
                 unsafe {
                     let mut t: Btvec<#nd> = self.tree_mut();
-                    btvec_append::<#nd>(self.ms(), &mut t, v);
+                    btvec_append::<#nd>(self.ms(), &mut t, v as u64);
                     {
                         let __mroot: *mut u8 = ctr_publish_meta_static(t.root, #(mexpr));
                         self.ms().set_root(self.ctr_id, __mroot, t.level);
@@ -2708,10 +2715,10 @@ fn emit_btvec_family(name: str, mexpr: ExprBlob) {
                     }
                 }
             }
-            pub fn insert_at(self: &#nm, pos: u64, v: u64) {
+            pub fn insert_at(self: &#nm, pos: u64, v: #(vt)) {
                 unsafe {
                     let mut t: Btvec<#nd> = self.tree_mut();
-                    btvec_insert_at::<#nd>(self.ms(), &mut t, pos, v);
+                    btvec_insert_at::<#nd>(self.ms(), &mut t, pos, v as u64);
                     {
                         let __mroot: *mut u8 = ctr_publish_meta_static(t.root, #(mexpr));
                         self.ms().set_root(self.ctr_id, __mroot, t.level);
@@ -2731,13 +2738,13 @@ fn emit_btvec_family(name: str, mexpr: ExprBlob) {
                     }
                 }
             }
-            pub fn get(self: &#nm, pos: u64) -> u64 {
+            pub fn get(self: &#nm, pos: u64) -> #(vt) {
                 let t: Btvec<#nd> = self.tree();
-                return btvec_get::<#nd>(self.ms(), &t, pos);
+                return btvec_get::<#nd>(self.ms(), &t, pos) as #(vt);
             }
-            pub fn set(self: &#nm, pos: u64, v: u64) {
+            pub fn set(self: &#nm, pos: u64, v: #(vt)) {
                 let t: Btvec<#nd> = self.tree();
-                btvec_set::<#nd>(self.ms(), &t, pos, v);
+                btvec_set::<#nd>(self.ms(), &t, pos, v as u64);
             }
             /// Cursor at the `pos`-th entry (0-based; the entry-number seek).
             pub fn seek(self: &#nm, pos: u64) -> #cid {
@@ -2980,10 +2987,6 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         let vty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"value\""));
         if vty.len() == 0i64 {
             error("container factory: vector CFG document has no readable `value` type slot (emit_cfg_doc format skew?)");
-            return out;
-        }
-        if !str_eq(vty, "u64") {
-            error("container factory: vector v0 generates u64 value columns only — generic value types land with 8c");
             return out;
         }
         sp.push_str("pub=1|generics=|gnames=|backing=u8|backing_pkg=|kind=vector|entry=val:");
@@ -3421,7 +3424,17 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
     // below keeps the wave-0 Deem scan projection (a different plane: source
     // rel over a declared backing, not a store-backed container).
     if !emit_cfg {
-        emit_btvec_family(name, mexpr);
+        // The declared value type — one entry column, `name:ty:prm`.
+        let ve: i64 = cs.entry.len();
+        let vb: i64 = cf_next_comma(cs.entry, 0i64, ve);
+        let vc1: i64 = cf_find(cs.entry, 0i64, 58u8);
+        let mut vc2: i64 = vb - 1i64;
+        while vc2 > 0i64 && str_byte_at(cs.entry, vc2) != 58u8 { vc2 = vc2 - 1i64; }
+        if vc1 < 0i64 || vc2 <= vc1 {
+            error("container factory: malformed vector entry column (spec skew?)");
+            return;
+        }
+        emit_btvec_family(name, unsafe { cf_sub(cs.entry, vc1 + 1i64, vc2) }, mexpr);
         return;
     }
     // The config document — what a `create_ctr::<typeof(V::<…>)>` demand
