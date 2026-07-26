@@ -1873,6 +1873,40 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         }
     };
     unsafe { logos_emit_item_blob_subst(&cq); }
+
+    // ── the Deem projection: the map AS A RELATION ─────────────────────────
+    // `rel entry(key, val)` — the container's own vocabulary, one row per entry
+    // in key order. The materializer walks the entry-number cursor (the same
+    // descent `seek` exposes), so the projection rides the container's public
+    // read surface and holds no layout knowledge of its own.
+    //
+    // FSE values only for now: a volume family's value is a `&[u8]`, which
+    // projects as a `str` rel column — a second shape, not a harder one.
+    if !vol {
+        let mut rows_s: String = String::new();
+        rows_s.push_str("__ctr_rows_");
+        rows_s.push_str(name);
+        let rowsfn: Ident = Ident::new(rows_s.as_str());
+        let pq: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.map;             // trait OrderedMapSource — the hub rel
+            use logos.mem.collections.vec;
+            pub fn #rowsfn(c: &#nm) -> Vec<(i64, i64)> {
+                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+                let n: u64 = c.size();
+                let mut i: u64 = 0u64;
+                while i < n {
+                    let cu: #cid = c.seek(i);
+                    if cu.valid() {
+                        out.push((cu.key() as i64, cu.value() as i64));
+                    }
+                    i = i + 1u64;
+                }
+                return out;
+            }
+            impl OrderedMapSource for #nm { rel entry = #rowsfn; }
+        };
+        unsafe { logos_emit_item_blob_subst(&pq); }
+    }
 }
 
 // ── ADR 0021 Phase 4b: the container's CFG document ───────────────────────

@@ -97,6 +97,20 @@ pub trait Ctr {
     fn size(self: &Self) -> u64;
 }
 
+/// The RELATIONAL projection of an ordered map — the Deem plane's view of any
+/// `kind ordered_map` container, in the container's own vocabulary: one row per
+/// entry, in key order.
+///
+/// ONE trait for every map family, declared here in the hub rather than
+/// per-family: a family's type is hash-named (`Hs<content-hash>`), so a query
+/// written against a per-family trait could not be written by hand. Against
+/// this one it can — `mapping M<S: OrderedMapSource>(m: &S) { from m e … }`
+/// names no family at all, and only the INSTANTIATION site mentions a concrete
+/// container. The generated family supplies the materializer.
+pub trait OrderedMapSource {
+    rel entry(key: i64, val: i64);
+}
+
 /// The boundary IDENTITY type: an opaque 256-bit POD (fits a UID256). The
 /// compiled Deem plane sees ONE layout for snapshot/block/container ids
 /// regardless of the store's internal id types; a store maps its own ids in
