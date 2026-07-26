@@ -1940,9 +1940,43 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
 // no other emission left — a silent skip would surface as "unknown type"
 // at every consumer instead of the real error).
 fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
+    // The POSITIONAL container's config: kind + the single value column. The
+    // factory has generated b+tree-backed vector families (emit_btvec_family)
+    // since 8b — what was missing is a way to ASK for one, because a family is
+    // demanded by naming `typeof(V::<…>)`, and that needs a config document to
+    // name. A vector without one could only ever be reached through a
+    // hand-written backing type, which is the wave-0 scaffold this removes.
+    if str_eq(cs.kind, KIND_VECTOR) {
+        let ce0: i64 = cs.entry.len();
+        let b0: i64 = cf_next_comma(cs.entry, 0i64, ce0);
+        if b0 != ce0 {
+            error("container item: a `kind vector` config takes exactly one entry column");
+            return false;
+        }
+        let c1: i64 = cf_find(cs.entry, 0i64, 58u8);       // ':' after the name
+        let mut c2: i64 = b0 - 1i64;
+        while c2 > 0i64 && str_byte_at(cs.entry, c2) != 58u8 { c2 = c2 - 1i64; }
+        if c1 < 0i64 || c2 <= c1 {
+            error("container item: malformed vector entry column (compiler seam regression?)");
+            return false;
+        }
+        let vty0: str = unsafe { cf_sub(cs.entry, c1 + 1i64, c2) };
+        let mut cfgnm0_s: String = String::new();
+        cfgnm0_s.push_str(name);
+        cfgnm0_s.push_str("Cfg");
+        let cfgnm0: Ident = Ident::new(cfgnm0_s.as_str());
+        let gp0: ExprBlob = parse_type_params(cs.generics);
+        let vt0: ExprBlob = parse_type(vty0);
+        let b: QuoteItemBlob = quote_item! {
+            use logos.lang.writ.wstatic;
+            pub const #cfgnm0 #(gp0): WritStatic = @{ "kind": "vector", "value": <type:#(vt0)> };
+        };
+        unsafe { logos_emit_item_blob_subst(&b); }
+        return true;
+    }
     if !str_eq(cs.kind, KIND_ORDERED_MAP) {
         return true;
-    } // map-only surface
+    } // map + vector surface
     if cs.pkg.len() == 0i64 {
         error("container item: ordered_map spec carries no `pkg=` segment (compiler seam regression?)");
         return false;
@@ -2731,6 +2765,38 @@ fn emit_btvec_family(name: str, mexpr: ExprBlob) {
         }
     };
     unsafe { logos_emit_item_blob_subst(&b); }
+
+    // ── the Deem projection: the vector AS A RELATION ───────────────────────
+    // `rel row(pos, val)` — one row per element in position order, walked
+    // through the same positional cursor `seek` exposes, so the projection
+    // rides the family's public read surface and holds no layout knowledge.
+    // Without this a generated vector family could be READ but not QUERIED,
+    // and a query would have to go back through a hand-written backing type.
+    {
+        let mut vrows_s: String = String::new();
+        vrows_s.push_str("__ctr_rows_");
+        vrows_s.push_str(name);
+        let vrowsfn: Ident = Ident::new(vrows_s.as_str());
+        let pq: QuoteItemBlob = quote_item! {
+            use logos.mem.bt.map;             // trait PositionalSource — the hub rel
+            use logos.mem.collections.vec;
+            pub fn #vrowsfn(c: &#nm) -> Vec<(i64, i64)> {
+                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+                let n: u64 = c.size();
+                let mut i: u64 = 0u64;
+                while i < n {
+                    let cu: #cid = c.seek(i);
+                    if cu.valid() {
+                        out.push(((i as i64), (cu.value() as i64)));
+                    }
+                    i = i + 1u64;
+                }
+                return out;
+            }
+            impl PositionalSource for #nm { rel row = #vrowsfn; }
+        };
+        unsafe { logos_emit_item_blob_subst(&pq); }
+    }
 }
 
 // ── ADR 0021 §3 Phase 3: the metaclass FACTORY — the real container family ──
@@ -3356,6 +3422,16 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
     // rel over a declared backing, not a store-backed container).
     if !emit_cfg {
         emit_btvec_family(name, mexpr);
+        return;
+    }
+    // The config document — what a `create_ctr::<typeof(V::<…>)>` demand
+    // names, and therefore the only way to ASK for a generated family.
+    let _okv: bool = emit_cfg_doc(name, &cs);
+    // A declaration with NO backing type — `for u8`, the placeholder every
+    // store-backed container carries — has nothing to project a source rel
+    // over: its family, and with it the projection, come from the factory.
+    // The declaration's only business is the config document.
+    if str_eq(cs.backing, "u8") {
         return;
     }
     if !cv_has_cap(vm, name, "can_scan") {

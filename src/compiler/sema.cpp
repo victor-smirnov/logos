@@ -6594,10 +6594,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 std::fprintf(stderr, "\n");
             }
             if (ci) {
-                if (ci->kind != "ordered_map" && ci->kind != "multimap") {
+                if (ci->kind != "ordered_map" && ci->kind != "multimap" &&
+                    ci->kind != "vector") {
                     error(std::format(
                         "typeof over container '{}': kind '{}' carries no "
-                        "config document (ordered_map and multimap do)",
+                        "config document (ordered_map, multimap and vector do)",
                         ci->name, ci->kind));
                     return error_t();
                 }

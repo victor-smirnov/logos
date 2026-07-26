@@ -1,0 +1,71 @@
+// ctr_gen_vector_deem — a positional container with NO hand-written backing.
+//
+//     container Series for u8 { kind vector; entry { val: u64 } }
+//
+// Nothing here writes a storage type. `for u8` is the placeholder that says
+// "there is no backing — generate one": the factory produces the b+tree-backed
+// positional family (logos.mem.bt.btvec) exactly as it does for maps, and now
+// also its RELATION, so the family can be queried and not merely read.
+//
+// The query binds the CLASS, so it names neither the generated family nor any
+// storage type. Between them these close the wave-0 shortcut where a `kind
+// vector` declaration had to be draped over a hand-written `VecCtr<T>`.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
+
+container Series for u8 {
+    kind vector;
+    entry { val: u64 }
+}
+
+// THE query — over the class. No family, no storage type, no `typeof`.
+pub deem tall(s: Series) {
+    from s r where r.val > 100 select (r.pos, r.val)
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let s = create_ctr::<typeof(Series)>(&snap, 1u64);
+
+    // 10, 20, … 160 — past a leaf split.
+    let mut i: u64 = 0u64;
+    while i < 16u64 { s.append((i + 1u64) * 10u64); i = i + 1u64; }
+    if s.size() != 16u64 { return 1i32; }
+
+    let rows: Vec<(i64, i64)> = match tall(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    // values above 100 are positions 10..15 — six rows, val == (pos+1)*10.
+    if rows.len() != 6i64 { return 3i32; }
+    let mut k: i64 = 0i64;
+    let mut mask: i64 = 0i64;
+    while k < rows.len() {
+        let r: (i64, i64) = rows.get(k);
+        if r.1 != (r.0 + 1i64) * 10i64 { return 4i32; }
+        if r.1 <= 100i64 { return 5i32; }
+        mask = mask | (1i64 << (r.0 - 10i64));
+        k = k + 1i64;
+    }
+    if mask != 63i64 { return 6i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_gen_vector_deem: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

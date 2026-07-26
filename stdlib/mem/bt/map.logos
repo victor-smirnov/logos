@@ -111,6 +111,17 @@ pub trait OrderedMapSource {
     rel entry(key: i64, val: i64);
 }
 
+/// The RELATIONAL projection of a POSITIONAL container — the Deem plane's view
+/// of any `kind vector` family: one row per element, in position order.
+///
+/// Declared in the hub for the same reason `OrderedMapSource` is: a generated
+/// family is hash-named, so a query written against a per-family trait could
+/// not be written by hand. Against this one it can — the query names the
+/// CLASS, and the family supplies the materializer.
+pub trait PositionalSource {
+    rel row(pos: i64, val: i64);
+}
+
 /// The boundary IDENTITY type: an opaque 256-bit POD (fits a UID256). The
 /// compiled Deem plane sees ONE layout for snapshot/block/container ids
 /// regardless of the store's internal id types; a store maps its own ids in
