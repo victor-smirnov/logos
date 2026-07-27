@@ -1772,6 +1772,34 @@ fn pw_cmp_name(op: i32, col_left: bool) -> str {
     return "";
 }
 
+// Local externs rather than `logos.std.env`/`io`: this file is compiled into a
+// tier that must not depend on those, and a trace is not worth a module edge —
+// the same choice Canon made for the trace this replaces.
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+/// Is the plan trace on? `LOGOS_TRACE_PLAN=1`. It lives HERE, with the decision
+/// it describes (ADR 0024 S6.3): a trace produced anywhere but at the point of
+/// choosing is a second opinion, and one that can drift from the plan.
+fn pick_trace_on() -> bool {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_TRACE_PLAN");
+    c.push_u8(0u8);
+    unsafe { return getenv(c.as_ptr()) != 0 as *const u8; }
+}
+
+/// The decision, with the antecedent that decided it — which for a scan is
+/// also the remedy: what the source would have to declare to do better.
+fn pick_trace(rel: str, path: str, col: str, why: str) {
+    if !pick_trace_on() { return; }
+    let mut ln: String = String::new();
+    ln.push_str("[plan] "); ln.push_str(rel);
+    ln.push_str(" -> "); ln.push_str(path);
+    if col.len() > 0i64 { ln.push_str(" on "); ln.push_str(col); }
+    ln.push_str("   ("); ln.push_str(why); ln.push_str(")\n");
+    unsafe { write(2i32, ln.as_ptr(), ln.len()); }
+}
+
 /// Choose a narrowing operation for the query's demand, when the source
 /// declares one that covers it. Only the SIMPLE shape narrows today; a join or
 /// an aggregate keeps its full scan, and says so by leaving the binding alone.
@@ -1786,13 +1814,21 @@ fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String) {
             if !sq.has_where { return; }
             let ri: i64 = prm.rel_find_name(sq.src_name);
             if ri < 0i64 { return; }
-            if prm.op_cnt[ri] == 0i64 { return; }
+            if prm.op_cnt[ri] == 0i64 {
+                pick_trace(sq.src_name, "scan", "",
+                           "the source declares no access operations");
+                return;
+            }
             match sq.where_expr() {
                 SExpr::Bin(b) => {
                     let mut col: str = pw_field_col(b.lhs_expr());
                     let mut col_left: bool = col.len() > 0i64;
                     if !col_left { col = pw_field_col(b.rhs_expr()); }
-                    if col.len() == 0i64 { return; }
+                    if col.len() == 0i64 {
+                        pick_trace(sq.src_name, "scan", "",
+                                   "neither side of the filter is a column");
+                        return;
+                    }
                     // The constant the column is compared against; a narrowing
                     // needs the VALUE, not just the shape.
                     let mut has_lit: bool = false;
@@ -1813,11 +1849,23 @@ fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String) {
                             _ => { }
                         }
                     }
-                    if !has_lit { return; }
+                    if !has_lit {
+                        pick_trace(sq.src_name, "scan", col,
+                                   "the comparison carries no constant to narrow to");
+                        return;
+                    }
                     let cmp: str = pw_cmp_name(b.op, col_left);
-                    if cmp.len() == 0i64 { return; }
+                    if cmp.len() == 0i64 {
+                        pick_trace(sq.src_name, "scan", col,
+                                   "the filter is not a comparison a source can answer");
+                        return;
+                    }
                     let oi: i64 = prm.rel_find_op(ri, col, cmp);
-                    if oi < 0i64 { return; }
+                    if oi < 0i64 {
+                        pick_trace(sq.src_name, "scan", col,
+                                   "the source declares no operation covering that comparison on that column");
+                        return;
+                    }
                     // The constant is typed by the COLUMN, which is why the
                     // column types had to stop being i64 first (S2/S3).
                     argb.push_i64(lit);
@@ -1832,6 +1880,10 @@ fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String) {
                     }
                     prm.rel_mat[ri]   = prm.opc_fn[oi];
                     prm.rel_marg2[ri] = string_as_str(argb);
+                    pick_trace(sq.src_name, prm.opc_fn[oi], col,
+                               if prm.rel_op_is_exact(oi, cmp)
+                               { "the source declares an operation EXACT for that comparison" }
+                               else { "the source declares a covering operation; its rows are a superset, so the filter stays" });
                 }
                 _ => { }
             }

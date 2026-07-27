@@ -3017,62 +3017,7 @@ fn cfg_read_type_slot(src: str, at: i64) -> str {
     return "";
 }
 
-// The COLUMN a (ctr, cap) verdict row carries — `can_seek` names one, the
-// capability rows without a column leave it empty.
-fn cv_cap_col(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> str {
-    let av: WAny = vroot.get(V_CAPS);
-    if !av.is_array() { return ""; }
-    let arr: &WArray<WAny> = av.as_array();
-    let mut i: i64 = 0i64;
-    while i < arr.len() {
-        let e: WAny = arr.get(i);
-        if e.is_map() {
-            let em: &WMap<WString, WAny> = e.as_map();
-            let a1: WAny = em.get(K_CTR);
-            let a2: WAny = em.get(K_CAP);
-            if a1.is_string() && a2.is_string()
-               && str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), cap) {
-                let a3: WAny = em.get(K_COL);
-                if a3.is_string() { return a3.as_wstr(); }
-                return "";
-            }
-        }
-        i = i + 1i64;
-    }
-    return "";
-}
 
-// The DECLARATION column a hub-relation column stands for. A query speaks the
-// hub's vocabulary — `entry(key, val)` for a map, `row(pos, val)` for a vector
-// — because one relation serves every family; the capability verdicts name the
-// DECLARATION's columns. The correspondence is positional, which is the whole
-// of the mapping: map key/val are entry columns 0/1, a vector's val is its
-// only column, and a vector's `pos` is not a column at all.
-fn plan_decl_col(cs: &ContainerSpec, hub_col: str) -> str {
-    let mut want: i64 = -1i64;
-    if str_eq(cs.kind, KIND_ORDERED_MAP) {
-        if str_eq(hub_col, "key") { want = 0i64; }
-        else if str_eq(hub_col, "val") { want = 1i64; }
-    } else if str_eq(cs.kind, KIND_VECTOR) {
-        if str_eq(hub_col, "val") { want = 0i64; }
-    }
-    if want < 0i64 { return ""; }
-    // entry = `name:ty:prm,…` — take the want-th name.
-    let e: i64 = cs.entry.len();
-    let mut idx: i64 = 0i64;
-    let mut a: i64 = 0i64;
-    while a <= e {
-        let b: i64 = cf_next_comma(cs.entry, a, e);
-        if idx == want {
-            let c: i64 = cf_find(cs.entry, a, 58u8);
-            if c < 0i64 || c > b { return ""; }
-            return unsafe { cf_sub(cs.entry, a, c) };
-        }
-        idx = idx + 1i64;
-        a = b + 1i64;
-    }
-    return "";
-}
 
 // `LOGOS_TRACE_PLAN` — the plan trace's gate, and its output.
 //
@@ -3093,62 +3038,8 @@ fn plan_trace_on() -> bool {
     unsafe { return getenv(c.as_ptr()) != 0 as *const u8; }
 }
 
-/// A PLAN DECISION together with what entailed it (ADR 0024 S4).
-///
-/// The access path used to be a bare `str` and its reasons a handful of locals
-/// that existed only to build a trace line — so outside the trace the decision
-/// was a word with no provenance, and "why a scan and not a seek" had to be
-/// reconstructed by reading the code. A decision that has already lost its
-/// grounds cannot be explained afterwards, only guessed at.
-///
-/// This is the DL-justification shape, minimally: the conclusion, the facts
-/// consulted, and the ONE antecedent that decided — the fact that admitted the
-/// narrowing, or the one that failed and left a scan. The failed antecedent is
-/// also the remedy, which is what makes the "how" of a diagnostic derivable
-/// rather than written by hand.
-pub struct PlanDecision {
-    /// The conclusion: "scan" | "point_get" | "range".
-    pub path:      str,
-    /// The demand: the column the query filters on, as the QUERY spells it.
-    pub col:       str,
-    /// …the same column as the DECLARATION spells it ("" = no such column).
-    pub decl_col:  str,
-    /// The column the source's capability covers ("" = none published).
-    pub cap_col:   str,
-    /// The comparison, normalized to the column's point of view, and its
-    /// constant. `has_lit` is false when the demand carries no literal.
-    pub op:        i32,
-    pub lit:       i64,
-    pub has_lit:   bool,
-    /// The deciding antecedent, in the user's terms. For a narrowing: what
-    /// admitted it. For a scan: what failed.
-    pub why:       str,
-}
 
-pub fn plan_decision_new() -> PlanDecision {
-    return PlanDecision { path: "scan", col: "", decl_col: "", cap_col: "",
-                          op: 0i32, lit: 0i64, has_lit: false,
-                          why: "no `where`" };
-}
 
-/// The decision as one line, for a trace or a diagnostic. ONE renderer, so the
-/// explanation a user sees and the one a developer traces are the same text.
-pub fn plan_decision_render(d: &PlanDecision) -> String {
-    let mut s: String = String::new();
-    s.push_str(d.path);
-    if d.col.len() > 0i64 { s.push_str(" on "); s.push_str(d.col); }
-    s.push_str("   (");
-    s.push_str(d.why);
-    if d.col.len() > 0i64 && str_eq(d.path, "scan") {
-        s.push_str(": filters "); s.push_str(d.col);
-        s.push_str(" -> ");
-        s.push_str(if d.decl_col.len() > 0i64 { d.decl_col } else { "no declared column" });
-        s.push_str(", seek column is ");
-        s.push_str(if d.cap_col.len() > 0i64 { d.cap_col } else { "none" });
-    }
-    s.push_str(")");
-    return s;
-}
 
 fn plan_trace_line(s: &String) {
     unsafe {
@@ -3197,31 +3088,6 @@ fn param_name_of(params: str) -> str {
     return unsafe { cf_sub(params, b, e) };
 }
 
-// The COLUMN a row-field access names. A plain `e.key` parses as an SField
-// with a NULL base whose `name` is the dotted path — the same shape
-// optimize.logos's name_refs classifies by its root — so the column is what
-// follows the last dot. A field over a real base (a graph step) is not a
-// column of this row and does not narrow anything.
-fn plan_field_col(e: SExpr) -> str {
-    match e {
-        SExpr::Field(f) => {
-            if !f.base.any().is_null() {
-                // base present: `<var>.<col>` — the column is the field name.
-                return f.name;
-            }
-            let n: str = f.name;
-            let mut i: i64 = n.len() - 1i64;
-            while i >= 0i64 {
-                if str_byte_at(n, i) == 46u8 {
-                    return unsafe { cf_sub(n, i + 1i64, n.len()) };
-                }
-                i = i - 1i64;
-            }
-            return n;          // bare `col` — already the column
-        }
-        _ => { return ""; }
-    }
-}
 
 /// One comparison found in a predicate: the hub column it tests and how.
 /// `col` empty = no usable comparison, and `why` says which shape it was —
@@ -3233,51 +3099,6 @@ pub struct PlanCmp { pub col: str, pub op: i32, pub why: str,
                     /// wrong way, which no later stage could catch.
                     pub col_left: bool }
 
-// One comparison against a column: `<var>.<col> <op> <literal>`, in either
-// order. Only the SHAPE matters here — the value is slice 3.3's business.
-fn plan_cmp_col(e: SExpr) -> PlanCmp {
-    match e {
-        SExpr::Bin(b) => {
-            let o: i32 = b.op;
-            if o == OP_AND() {
-                // A conjunction narrows by whichever side can; take the first.
-                let l: PlanCmp = plan_cmp_col(b.lhs_expr());
-                if l.col.len() > 0i64 { return l; }
-                return plan_cmp_col(b.rhs_expr());
-            }
-            if o != OP_EQ() && o != OP_LT() && o != OP_LE()
-               && o != OP_GT() && o != OP_GE() {
-                return PlanCmp { col: "", op: 0i32, why: "not-a-comparison",
-                                 has_lit: false, lit: 0i64, col_left: true };
-            }
-            let mut fld: str = plan_field_col(b.lhs_expr());
-            let mut cl: bool = fld.len() > 0i64;
-            if !cl { fld = plan_field_col(b.rhs_expr()); }
-            if fld.len() == 0i64 {
-                return PlanCmp { col: "", op: 0i32, why: "neither side is a column",
-                                 has_lit: false, lit: 0i64, col_left: true };
-            }
-            // The constant the column is compared against, when the other
-            // side is one. A pushdown needs the VALUE, not just the shape.
-            let mut hl: bool = false;
-            let mut lv: i64 = 0i64;
-            match b.rhs_expr() {
-                SExpr::Lit(l) => { let w: WAny = l.val; if w.is_int() { hl = true; lv = w.as_i64(); } }
-                _ => { }
-            }
-            if !hl {
-                match b.lhs_expr() {
-                    SExpr::Lit(l2) => { let w2: WAny = l2.val; if w2.is_int() { hl = true; lv = w2.as_i64(); } }
-                    _ => { }
-                }
-            }
-            return PlanCmp { col: fld, op: o, why: "", has_lit: hl, lit: lv,
-                             col_left: cl };
-        }
-        _ => { return PlanCmp { col: "", op: 0i32, why: "predicate is not a comparison",
-                                has_lit: false, lit: 0i64, col_left: true }; }
-    }
-}
 
 // ── the deem PLAN's binding (slice 3.0) ─────────────────────────────────────
 //
@@ -3335,106 +3156,19 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     // always available and always correct; a narrowing is admissible only when
     // it returns a SUPERSET of the matches, and since the query keeps its own
     // `where`, the answer cannot change with it.
-    let vroot0: WAny = verd.root();
-    let qdoc: Writ = writ_new(8192i64);
-    let qroot: WAny = parse_program(query, &qdoc);
-    // The decision is BUILT AS IT IS MADE (ADR 0024 S4): every branch that
-    // concludes something also records what entailed it, because a conclusion
-    // that outlives its grounds cannot be explained afterwards.
-    let mut dec: PlanDecision = plan_decision_new();
-    if !qroot.is_null() {
-        let qprog: RQProgram = qroot.view::<RQProgram>();
-        match qprog.entry_any().view::<RQuery>() {
-            RQuery::Simple(sq) => {
-                if sq.has_where {
-                    let cmp: PlanCmp = plan_cmp_col(sq.where_expr());
-                    dec.col = cmp.col;
-                    dec.why = cmp.why;
-                    if cmp.col.len() > 0i64 {
-                        dec.decl_col = plan_decl_col(&cs, cmp.col);
-                        dec.cap_col = if vroot0.is_map() {
-                            cv_cap_col(vroot0.as_map(), family, CAP_SEEK)
-                        } else { "" };
-                        // Each arm names the ANTECEDENT that failed — which is
-                        // also the remedy, and is what makes a diagnostic's
-                        // "how" derivable instead of hand-written.
-                        if dec.decl_col.len() == 0i64 {
-                            dec.why = "the filtered column is not one the class declares";
-                        } else if dec.cap_col.len() == 0i64 {
-                            dec.why = "the source publishes no seek capability";
-                        } else if !str_eq(dec.decl_col, dec.cap_col) {
-                            dec.why = "the filtered column is not the seek column";
-                        } else if !cmp.has_lit {
-                            dec.why = "the comparison carries no constant to seek to";
-                        } else {
-                            dec.lit = cmp.lit;
-                            dec.has_lit = true;
-                            // Normalize to the column's point of view.
-                            let mut o2: i32 = cmp.op;
-                            if !cmp.col_left {
-                                if o2 == OP_LT() { o2 = OP_GT(); }
-                                else if o2 == OP_LE() { o2 = OP_GE(); }
-                                else if o2 == OP_GT() { o2 = OP_LT(); }
-                                else if o2 == OP_GE() { o2 = OP_LE(); }
-                            }
-                            dec.op = o2;
-                            if o2 == OP_EQ() { dec.path = "point_get"; }
-                            else { dec.path = "range"; }
-                            dec.why = "the filtered column IS the seek column";
-                        }
-                    }
-                }
-            }
-            _ => { }
-        }
-    }
-    // What the rest of this function reads. These are VIEWS on the decision
-    // now, not the decision itself.
-    let strategy: str = dec.path;
-    let on_col: str = if str_eq(dec.path, "scan") { "" } else { dec.col };
-    let key_lit: i64 = dec.lit;
-    let key_op: i32 = dec.op;
-    if plan_trace_on() {
-        let mut ln: String = String::new();
-        ln.push_str("[plan] "); ln.push_str(vis_name);
-        ln.push_str(" over "); ln.push_str(family);
-        ln.push_str(" -> ");
-        ln.push_str(plan_decision_render(&dec).as_str());
-        plan_trace_line(&ln);
-    }
-
-    // ── choose the family's narrowing producer ────────────────────────────
-    // Nothing is generated here any more: the family publishes one producer
-    // per narrowing shape, and a plan only picks which and supplies the
-    // constant. Deciding is the plan compiler's job; walking storage is the
-    // container's.
-    let mut matfn: String = String::new();
-    if on_col.len() > 0i64 {
-        let kty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
-        if kty.len() == 0i64 {
-            error("deem bind: family config has no readable key type slot");
-            return out;
-        }
-        if str_eq(strategy, "point_get") { matfn.push_str("__ctr_at_"); }
-        else if key_op == OP_GT() || key_op == OP_GE() { matfn.push_str("__ctr_from_"); }
-        else { matfn.push_str("__ctr_upto_"); }
-        matfn.push_str(family);
-        matfn.push_str("#");                       // the narrowing constant
-        let lit_s: String = fmt_display_to_string(&key_lit);
-        matfn.push_str(lit_s.as_str());
-        matfn.push_str(kty);
-    }
+    // NO PLAN IS MADE HERE (ADR 0024 S6.3). Canon builds the container from its
+    // declarative spec and publishes what it can do; choosing among those
+    // operations is the planner's work, and the planner is Deem's. Computing a
+    // decision here as well — even only to trace it — would be a second
+    // planner that can drift from the one that decides, and a trace that
+    // disagrees with the plan is worse than no trace.
 
     let mut em: Emitter = Emitter::new();
     em.emit_into(cs.pkg);
     em.push_text("use logos.gen; use logos.mem.bt.map; use logos.std.wql.wql; ");
     em.push_text("use logos.mem.collections.vec; use logos.lang.result; ");
-    // The narrowing is NO LONGER chosen here (ADR 0024 S6.3). Canon builds the
-    // container from its declarative spec and publishes what it can do; which
-    // operation a query uses is the PLANNER's call, and the planner is Deem's.
     // `#[deem_source(…)]` stays in the language as a deliberate override — it
     // just stopped being how a pushdown happens.
-    let _ = matfn;
     if priv0 { em.push_text("deem "); } else { em.push_text("pub deem "); }
     em.push_text(vis_name);
     em.push_text("(");
