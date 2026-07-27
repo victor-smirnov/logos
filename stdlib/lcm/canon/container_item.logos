@@ -3429,11 +3429,12 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     em.emit_into(cs.pkg);
     em.push_text("use logos.gen; use logos.mem.bt.map; use logos.std.wql.wql; ");
     em.push_text("use logos.mem.collections.vec; use logos.lang.result; ");
-    if matfn.len() > 0i64 {
-        em.push_text("#[deem_source(");
-        em.push_text(param_name_of(params));
-        em.push_text(" = \""); em.push_text(matfn.as_str()); em.push_text("\")] ");
-    }
+    // The narrowing is NO LONGER chosen here (ADR 0024 S6.3). Canon builds the
+    // container from its declarative spec and publishes what it can do; which
+    // operation a query uses is the PLANNER's call, and the planner is Deem's.
+    // `#[deem_source(…)]` stays in the language as a deliberate override — it
+    // just stopped being how a pushdown happens.
+    let _ = matfn;
     if priv0 { em.push_text("deem "); } else { em.push_text("pub deem "); }
     em.push_text(vis_name);
     em.push_text("(");
