@@ -34,6 +34,11 @@ use logos.lang.str;                // str_byte_at, str_eq, str_from_raw
 use logos.mem.string;              // String (diagnostic composition)
 use logos.mem.fmt;                 // fmt_display_to_string — geometry splices
 use logos.lcm.canon.vocab;        // shared fact/verdict vocabulary (no bare strings across the Canon seam)
+use logos.std.wql.wql_surface_parser;  // parse_program — the query, read on THIS side
+use logos.std.wql.plan;                // RQProgram / RQuery / RQSimple views
+use logos.std.wql.ir;                  // SExpr family + the comparison opcodes
+use logos.std.env;                     // var_is_set — the plan trace gate
+use logos.std.io;                      // eprintln_string
 use logos.mem.bt.ops;             // NOT used here — carries the MODULE-GRAPH edge
 use logos.lcm.canon.alg_kernel;   // the node stream-CRUD kernel generator
                                   // (ADR 0023 S4): the leaf's mutation
@@ -2852,6 +2857,122 @@ fn cfg_read_type_slot(src: str, at: i64) -> str {
     return "";
 }
 
+// The COLUMN a (ctr, cap) verdict row carries — `can_seek` names one, the
+// capability rows without a column leave it empty.
+fn cv_cap_col(vroot: &WMap<WString, WAny>, ctr: str, cap: str) -> str {
+    let av: WAny = vroot.get(V_CAPS);
+    if !av.is_array() { return ""; }
+    let arr: &WArray<WAny> = av.as_array();
+    let mut i: i64 = 0i64;
+    while i < arr.len() {
+        let e: WAny = arr.get(i);
+        if e.is_map() {
+            let em: &WMap<WString, WAny> = e.as_map();
+            let a1: WAny = em.get(K_CTR);
+            let a2: WAny = em.get(K_CAP);
+            if a1.is_string() && a2.is_string()
+               && str_eq(a1.as_wstr(), ctr) && str_eq(a2.as_wstr(), cap) {
+                let a3: WAny = em.get(K_COL);
+                if a3.is_string() { return a3.as_wstr(); }
+                return "";
+            }
+        }
+        i = i + 1i64;
+    }
+    return "";
+}
+
+// The DECLARATION column a hub-relation column stands for. A query speaks the
+// hub's vocabulary — `entry(key, val)` for a map, `row(pos, val)` for a vector
+// — because one relation serves every family; the capability verdicts name the
+// DECLARATION's columns. The correspondence is positional, which is the whole
+// of the mapping: map key/val are entry columns 0/1, a vector's val is its
+// only column, and a vector's `pos` is not a column at all.
+fn plan_decl_col(cs: &ContainerSpec, hub_col: str) -> str {
+    let mut want: i64 = -1i64;
+    if str_eq(cs.kind, KIND_ORDERED_MAP) {
+        if str_eq(hub_col, "key") { want = 0i64; }
+        else if str_eq(hub_col, "val") { want = 1i64; }
+    } else if str_eq(cs.kind, KIND_VECTOR) {
+        if str_eq(hub_col, "val") { want = 0i64; }
+    }
+    if want < 0i64 { return ""; }
+    // entry = `name:ty:prm,…` — take the want-th name.
+    let e: i64 = cs.entry.len();
+    let mut idx: i64 = 0i64;
+    let mut a: i64 = 0i64;
+    while a <= e {
+        let b: i64 = cf_next_comma(cs.entry, a, e);
+        if idx == want {
+            let c: i64 = cf_find(cs.entry, a, 58u8);
+            if c < 0i64 || c > b { return ""; }
+            return unsafe { cf_sub(cs.entry, a, c) };
+        }
+        idx = idx + 1i64;
+        a = b + 1i64;
+    }
+    return "";
+}
+
+// The COLUMN a row-field access names. A plain `e.key` parses as an SField
+// with a NULL base whose `name` is the dotted path — the same shape
+// optimize.logos's name_refs classifies by its root — so the column is what
+// follows the last dot. A field over a real base (a graph step) is not a
+// column of this row and does not narrow anything.
+fn plan_field_col(e: SExpr) -> str {
+    match e {
+        SExpr::Field(f) => {
+            if !f.base.any().is_null() {
+                // base present: `<var>.<col>` — the column is the field name.
+                return f.name;
+            }
+            let n: str = f.name;
+            let mut i: i64 = n.len() - 1i64;
+            while i >= 0i64 {
+                if str_byte_at(n, i) == 46u8 {
+                    return unsafe { cf_sub(n, i + 1i64, n.len()) };
+                }
+                i = i - 1i64;
+            }
+            return n;          // bare `col` — already the column
+        }
+        _ => { return ""; }
+    }
+}
+
+/// One comparison found in a predicate: the hub column it tests and how.
+/// `col` empty = no usable comparison, and `why` says which shape it was —
+/// the trace prints it, and slice 3.3 will want the same distinction.
+pub struct PlanCmp { pub col: str, pub op: i32, pub why: str }
+
+// One comparison against a column: `<var>.<col> <op> <literal>`, in either
+// order. Only the SHAPE matters here — the value is slice 3.3's business.
+fn plan_cmp_col(e: SExpr) -> PlanCmp {
+    match e {
+        SExpr::Bin(b) => {
+            let o: i32 = b.op;
+            if o == OP_AND() {
+                // A conjunction narrows by whichever side can; take the first.
+                let l: PlanCmp = plan_cmp_col(b.lhs_expr());
+                if l.col.len() > 0i64 { return l; }
+                return plan_cmp_col(b.rhs_expr());
+            }
+            if o != OP_EQ() && o != OP_LT() && o != OP_LE()
+               && o != OP_GT() && o != OP_GE() {
+                return PlanCmp { col: "", op: 0i32, why: "not-a-comparison" };
+            }
+            let mut fld: str = "";
+            fld = plan_field_col(b.lhs_expr());
+            if fld.len() == 0i64 { fld = plan_field_col(b.rhs_expr()); }
+            if fld.len() == 0i64 {
+                return PlanCmp { col: "", op: 0i32, why: "neither side is a column" };
+            }
+            return PlanCmp { col: fld, op: o, why: "" };
+        }
+        _ => { return PlanCmp { col: "", op: 0i32, why: "predicate is not a comparison" }; }
+    }
+}
+
 // ── the deem PLAN's binding (slice 3.0) ─────────────────────────────────────
 //
 // A `deem` whose source binds a container CLASS is compiled where the class
@@ -2879,12 +3000,18 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     // The spec must still describe the class it came from — this is the seam
     // where a serialization drift would otherwise surface much later, as a
     // wrong verdict rather than a broken string.
+    // `-`-prefixed name = non-pub (the params.logos convention), spelled out
+    // here rather than imported: canon must not depend on the wql surface.
+    let priv0: bool = str_byte_at(name, 0i64) == 45u8;
+    let vis_name: str = if priv0 { unsafe { cf_sub(name, 1i64, name.len()) } } else { name };
+
     let facts: Writ = container_facts(family, spec);
     let froot: WAny = facts.root();
     if froot.is_null() || !froot.is_map() {
         error("deem bind: the class spec did not reconstruct into facts (spec drift?)");
         return out;
     }
+    let verd: Writ = canon_verdicts(&facts);
 
     let mut cs: ContainerSpec = container_spec_new();
     if !parse_container_spec(spec, &mut cs) {
@@ -2892,15 +3019,72 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
         return out;
     }
 
+    // ── the join: what the query DEMANDS ⋈ what the class CAN ─────────────
+    // Reported, not yet acted on (slice 3.1). The strategy names the narrowing
+    // a specialized materializer would apply; `scan` is what every plan gets
+    // today, and is always correct — a pushdown only ever narrows, and the
+    // query's own `where` stays, so the answer cannot change with it.
+    if var_is_set("LOGOS_TRACE_PLAN") {
+        let vroot0: WAny = verd.root();
+        let qdoc: Writ = writ_new(8192i64);
+        let qroot: WAny = parse_program(query, &qdoc);
+        let mut strategy: str = "scan";
+        let mut on_col: str = "";
+        let mut dbg_hub: str = "";
+        let mut dbg_decl: str = "";
+        let mut dbg_seek: str = "";
+        let mut dbg_why: str = "no `where`";
+        if !qroot.is_null() {
+            let qprog: RQProgram = qroot.view::<RQProgram>();
+            match qprog.entry_any().view::<RQuery>() {
+                RQuery::Simple(sq) => {
+                    if sq.has_where {
+                        let cmp: PlanCmp = plan_cmp_col(sq.where_expr());
+                        dbg_hub = cmp.col;
+                        dbg_why = cmp.why;
+                        if cmp.col.len() > 0i64 {
+                            let dc: str = plan_decl_col(&cs, cmp.col);
+                            dbg_decl = dc;
+                            let seek: str = if vroot0.is_map() {
+                                cv_cap_col(vroot0.as_map(), family, CAP_SEEK)
+                            } else { "" };
+                            dbg_seek = seek;
+                            if dc.len() > 0i64 && str_eq(dc, seek) {
+                                on_col = cmp.col;
+                                if cmp.op == OP_EQ() { strategy = "point_get"; }
+                                else { strategy = "range"; }
+                            }
+                        }
+                    }
+                }
+                _ => { }
+            }
+        }
+        let mut ln: String = String::new();
+        ln.push_str("[plan] "); ln.push_str(vis_name);
+        ln.push_str(" over "); ln.push_str(family);
+        ln.push_str(" -> "); ln.push_str(strategy);
+        if on_col.len() > 0i64 { ln.push_str(" on "); ln.push_str(on_col); }
+        if str_eq(strategy, "scan") {
+            ln.push_str("   (");
+            if dbg_hub.len() == 0i64 { ln.push_str(dbg_why); }
+            else {
+                ln.push_str("filters "); ln.push_str(dbg_hub);
+                ln.push_str(" -> "); ln.push_str(dbg_decl);
+                ln.push_str(", seek column is ");
+                ln.push_str(if dbg_seek.len() > 0i64 { dbg_seek } else { "none" });
+            }
+            ln.push_str(")");
+        }
+        eprintln_string(&ln);
+    }
+
     let mut em: Emitter = Emitter::new();
     em.emit_into(cs.pkg);
     em.push_text("use logos.gen; use logos.mem.bt.map; use logos.std.wql.wql; ");
     em.push_text("use logos.mem.collections.vec; use logos.lang.result; ");
-    // `-`-prefixed name = non-pub (the params.logos convention), spelled out
-    // here rather than imported: canon must not depend on the wql surface.
-    let priv0: bool = str_byte_at(name, 0i64) == 45u8;
     if priv0 { em.push_text("deem "); } else { em.push_text("pub deem "); }
-    em.push_text(if priv0 { unsafe { cf_sub(name, 1i64, name.len()) } } else { name });
+    em.push_text(vis_name);
     em.push_text("(");
     em.push_text(params);
     em.push_text(") {");
