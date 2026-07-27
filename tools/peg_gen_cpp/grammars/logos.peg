@@ -343,7 +343,7 @@
     WRIT_BLOB                   = 261   // pre-serialised Writ static blob (driver splice from a metacall WritStatic return); VALUE = raw blob bytes (Varchar)
     MAPPING_DEF_DONE            = 265   // a CONSUMED mapping item (its thunk ran; per-rel fns emitted). Distinct from FN_MACRO_CALL_ITEM_DONE so a consumer compiling against the ARCHIVE can still recognize the node and register the mapping (name/params/rels/bodies all survive the flip — only CODE changes) for cross-module fusion.
     REL_SIG                     = 262   // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
-    REL_OP                      = 270   // ADR 0024 S6: an `op` member of an IMPL — `op entry.key eq = __ctr_at_Hs…, exact;`. REL_KW = lead ident (must be "op"); NAME = the rel; FIELD = the column; OP = the comparison class this op answers (eq/ge/le/gt/lt, a captured IDENT); VALUE = the implementing fn; RET_TYPE = the optional exactness flag (reuses the RET_TYPE slot — a rel op has no return type). Declares ONE access operation of a source, so a planner matches a demand against what the source SAYS instead of against names it knows by convention.
+    REL_OP                      = 270   // ADR 0024 S6: an `op` member of an IMPL — `op entry.key eq = __ctr_at_Hs…, exact;`. REL_KW = lead ident (must be "op"); TYPE_NAME = the rel; FIELD = the column; OP = the comparison class this op answers (eq/ge/le/gt/lt, a captured IDENT); NAME = the implementing fn — NAME because the antiquote substituter writes a resolved `#ident` there by convention, so anything else in that slot is clobbered; RET_TYPE = the optional exactness flag (reuses the RET_TYPE slot — a rel op has no return type). Declares ONE access operation of a source, so a planner matches a demand against what the source SAYS instead of against names it knows by convention.
     REL_BIND                    = 263   // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
     DEEM_DEF                    = 264   // ADR 0016: `pub? deem q<V: Bound>?(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; TYPE_PARAMS = optional type-param list (re-emitted verbatim onto the generated fn heads — one query per container FAMILY); PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.
     CONTAINER_DEF_DONE          = 267   // ADR 0020 wave-0: a CONSUMED container item. Same convention as MAPPING_DEF_DONE — only CODE flips (driver); NAME/TYPE_PARAMS/TYPE/FIELDS survive so a consumer compiling against the ARCHIVE re-registers the declaration (cross-module Canon reasoning).
@@ -1357,8 +1357,16 @@
     // query's residual filter can be dropped. Absent = a SUPERSET, and the
     // filter stays. Declared rather than derived: `upto` stops ON the key and
     // IS exact even though it is a range, so "range ⇒ superset" would be wrong.
-    rel_op <- IDENT IDENT_ANY DOT IDENT_ANY IDENT ASSIGN IDENT_ANY IDENT_ANY? SEMI
-           => { CODE: REL_OP, REL_KW: $1, NAME: $2, FIELD: $4, OP: $5, VALUE: $7, RET_TYPE: $8 }
+    // The `#fn` form comes FIRST, like rel_bind's: inside a quote body the
+    // implementing fn is an antiquotation, not an identifier.
+    // NAME carries the IMPLEMENTING FN in both forms, and the rel goes in
+    // TYPE_NAME: the antiquote substituter writes a resolved `#ident` into
+    // NAME by convention, so a node that put anything else there would have it
+    // silently clobbered (it did — the rel name came out as the fn's).
+    rel_op <- IDENT IDENT_ANY DOT IDENT_ANY IDENT ASSIGN HASH IDENT IDENT_ANY? SEMI
+           => { CODE: REL_OP, REL_KW: $1, TYPE_NAME: $2, FIELD: $4, OP: $5, NAME_VAR: $8, RET_TYPE: $9 }
+            / IDENT IDENT_ANY DOT IDENT_ANY IDENT ASSIGN IDENT_ANY IDENT_ANY? SEMI
+           => { CODE: REL_OP, REL_KW: $1, TYPE_NAME: $2, FIELD: $4, OP: $5, NAME: $7, RET_TYPE: $8 }
 
     rel_bind <- IDENT IDENT_ANY ASSIGN HASH IDENT SEMI
              => { CODE: REL_BIND, REL_KW: $1, NAME: $2, NAME_VAR: $5 }

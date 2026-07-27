@@ -1911,7 +1911,17 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             // the emitter printed every integer literal as i64. Neither is true
             // any more (ADR 0024 S2/S3): the impl states the types, and the
             // emitter takes a literal's type from the column it is compared to.
-            impl OrderedMapSource<#(kid), #(vo)> for #nm { rel entry = #rowsfn; }
+            // The family SAYS what it can do (ADR 0024 S6), instead of a
+            // planner knowing its producers by name. `exact` is exact FOR THE
+            // DECLARED COMPARISON: `from` returns precisely the rows with
+            // `key >= lo`, so answering a `>` demand with it yields a superset
+            // — the distinction a name convention could not express at all.
+            impl OrderedMapSource<#(kid), #(vo)> for #nm {
+                rel entry = #rowsfn;
+                op entry.key eq = #atfn    exact;
+                op entry.key ge = #fromfn  exact;
+                op entry.key le = #uptofn  exact;
+            }
             /// The NARROWING producers. A plan that filters on the seek column
             /// calls one of these instead of the full scan above — the
             /// capability belongs to the FAMILY and is published once, rather

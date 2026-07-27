@@ -1755,6 +1755,26 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         return s;
     }
 
+    case la::REL_OP: {
+        // `op rel.col cmp = fn [exact];` (impl member, ADR 0024 S6). The render
+        // must REPARSE to this node — a display channel that drops a member is
+        // how a rendered source silently stops being the source.
+        std::string s = "op ";
+        s += std::string(str_of(node.get(la::TYPE_NAME.code)));
+        s += ".";
+        s += std::string(str_of(node.get(la::FIELD.code)));
+        s += " ";
+        s += std::string(str_of(node.get(la::OP.code)));
+        s += " = ";
+        s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::RET_TYPE)) {
+            std::string flag(str_of(node.get(la::RET_TYPE.code)));
+            if (!flag.empty()) { s += "  "; s += flag; }
+        }
+        s += ";";
+        return s;
+    }
+
     case la::REL_BIND: {
         // `rel name = materializer;` (impl member, ADR 0016 §6).
         std::string s = "rel ";

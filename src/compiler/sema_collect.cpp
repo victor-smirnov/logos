@@ -3440,10 +3440,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     continue;
                 }
                 SourceRelOp so;
-                std::string rn(str_of(m.get(la::NAME.code)));
+                std::string rn(str_of(m.get(la::TYPE_NAME.code)));
                 so.col = std::string(str_of(m.get(la::FIELD.code)));
                 so.cmp = std::string(str_of(m.get(la::OP.code)));
-                so.fn  = std::string(str_of(m.get(la::VALUE.code)));
+                // NAME in both forms: a `#ident` antiquotation is resolved INTO
+                // NAME before this ever collects.
+                so.fn  = std::string(str_of(m.get(la::NAME.code)));
                 std::string flag(m.has_key(la::RET_TYPE)
                                  ? std::string(str_of(m.get(la::RET_TYPE.code)))
                                  : std::string());
