@@ -3083,6 +3083,63 @@ fn plan_trace_on() -> bool {
     unsafe { return getenv(c.as_ptr()) != 0 as *const u8; }
 }
 
+/// A PLAN DECISION together with what entailed it (ADR 0024 S4).
+///
+/// The access path used to be a bare `str` and its reasons a handful of locals
+/// that existed only to build a trace line — so outside the trace the decision
+/// was a word with no provenance, and "why a scan and not a seek" had to be
+/// reconstructed by reading the code. A decision that has already lost its
+/// grounds cannot be explained afterwards, only guessed at.
+///
+/// This is the DL-justification shape, minimally: the conclusion, the facts
+/// consulted, and the ONE antecedent that decided — the fact that admitted the
+/// narrowing, or the one that failed and left a scan. The failed antecedent is
+/// also the remedy, which is what makes the "how" of a diagnostic derivable
+/// rather than written by hand.
+pub struct PlanDecision {
+    /// The conclusion: "scan" | "point_get" | "range".
+    pub path:      str,
+    /// The demand: the column the query filters on, as the QUERY spells it.
+    pub col:       str,
+    /// …the same column as the DECLARATION spells it ("" = no such column).
+    pub decl_col:  str,
+    /// The column the source's capability covers ("" = none published).
+    pub cap_col:   str,
+    /// The comparison, normalized to the column's point of view, and its
+    /// constant. `has_lit` is false when the demand carries no literal.
+    pub op:        i32,
+    pub lit:       i64,
+    pub has_lit:   bool,
+    /// The deciding antecedent, in the user's terms. For a narrowing: what
+    /// admitted it. For a scan: what failed.
+    pub why:       str,
+}
+
+pub fn plan_decision_new() -> PlanDecision {
+    return PlanDecision { path: "scan", col: "", decl_col: "", cap_col: "",
+                          op: 0i32, lit: 0i64, has_lit: false,
+                          why: "no `where`" };
+}
+
+/// The decision as one line, for a trace or a diagnostic. ONE renderer, so the
+/// explanation a user sees and the one a developer traces are the same text.
+pub fn plan_decision_render(d: &PlanDecision) -> String {
+    let mut s: String = String::new();
+    s.push_str(d.path);
+    if d.col.len() > 0i64 { s.push_str(" on "); s.push_str(d.col); }
+    s.push_str("   (");
+    s.push_str(d.why);
+    if d.col.len() > 0i64 && str_eq(d.path, "scan") {
+        s.push_str(": filters "); s.push_str(d.col);
+        s.push_str(" -> ");
+        s.push_str(if d.decl_col.len() > 0i64 { d.decl_col } else { "no declared column" });
+        s.push_str(", seek column is ");
+        s.push_str(if d.cap_col.len() > 0i64 { d.cap_col } else { "none" });
+    }
+    s.push_str(")");
+    return s;
+}
+
 fn plan_trace_line(s: &String) {
     unsafe {
         write(2i32, s.as_ptr(), s.len());
@@ -3271,32 +3328,37 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     let vroot0: WAny = verd.root();
     let qdoc: Writ = writ_new(8192i64);
     let qroot: WAny = parse_program(query, &qdoc);
-    let mut strategy: str = "scan";
-    let mut on_col: str = "";
-    let mut key_lit: i64 = 0i64;
-    let mut key_op: i32 = 0i32;   // read FROM the column: `42 > e.key` ⇒ `<`
-    let mut dbg_hub: str = "";
-    let mut dbg_decl: str = "";
-    let mut dbg_seek: str = "";
-    let mut dbg_why: str = "no `where`";
+    // The decision is BUILT AS IT IS MADE (ADR 0024 S4): every branch that
+    // concludes something also records what entailed it, because a conclusion
+    // that outlives its grounds cannot be explained afterwards.
+    let mut dec: PlanDecision = plan_decision_new();
     if !qroot.is_null() {
         let qprog: RQProgram = qroot.view::<RQProgram>();
         match qprog.entry_any().view::<RQuery>() {
             RQuery::Simple(sq) => {
                 if sq.has_where {
                     let cmp: PlanCmp = plan_cmp_col(sq.where_expr());
-                    dbg_hub = cmp.col;
-                    dbg_why = cmp.why;
+                    dec.col = cmp.col;
+                    dec.why = cmp.why;
                     if cmp.col.len() > 0i64 {
-                        let dc: str = plan_decl_col(&cs, cmp.col);
-                        dbg_decl = dc;
-                        let seek: str = if vroot0.is_map() {
+                        dec.decl_col = plan_decl_col(&cs, cmp.col);
+                        dec.cap_col = if vroot0.is_map() {
                             cv_cap_col(vroot0.as_map(), family, CAP_SEEK)
                         } else { "" };
-                        dbg_seek = seek;
-                        if dc.len() > 0i64 && str_eq(dc, seek) && cmp.has_lit {
-                            on_col = cmp.col;
-                            key_lit = cmp.lit;
+                        // Each arm names the ANTECEDENT that failed — which is
+                        // also the remedy, and is what makes a diagnostic's
+                        // "how" derivable instead of hand-written.
+                        if dec.decl_col.len() == 0i64 {
+                            dec.why = "the filtered column is not one the class declares";
+                        } else if dec.cap_col.len() == 0i64 {
+                            dec.why = "the source publishes no seek capability";
+                        } else if !str_eq(dec.decl_col, dec.cap_col) {
+                            dec.why = "the filtered column is not the seek column";
+                        } else if !cmp.has_lit {
+                            dec.why = "the comparison carries no constant to seek to";
+                        } else {
+                            dec.lit = cmp.lit;
+                            dec.has_lit = true;
                             // Normalize to the column's point of view.
                             let mut o2: i32 = cmp.op;
                             if !cmp.col_left {
@@ -3305,9 +3367,10 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
                                 else if o2 == OP_GT() { o2 = OP_LT(); }
                                 else if o2 == OP_GE() { o2 = OP_LE(); }
                             }
-                            key_op = o2;
-                            if o2 == OP_EQ() { strategy = "point_get"; }
-                            else { strategy = "range"; }
+                            dec.op = o2;
+                            if o2 == OP_EQ() { dec.path = "point_get"; }
+                            else { dec.path = "range"; }
+                            dec.why = "the filtered column IS the seek column";
                         }
                     }
                 }
@@ -3315,23 +3378,18 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
             _ => { }
         }
     }
+    // What the rest of this function reads. These are VIEWS on the decision
+    // now, not the decision itself.
+    let strategy: str = dec.path;
+    let on_col: str = if str_eq(dec.path, "scan") { "" } else { dec.col };
+    let key_lit: i64 = dec.lit;
+    let key_op: i32 = dec.op;
     if plan_trace_on() {
         let mut ln: String = String::new();
         ln.push_str("[plan] "); ln.push_str(vis_name);
         ln.push_str(" over "); ln.push_str(family);
-        ln.push_str(" -> "); ln.push_str(strategy);
-        if on_col.len() > 0i64 { ln.push_str(" on "); ln.push_str(on_col); }
-        if str_eq(strategy, "scan") {
-            ln.push_str("   (");
-            if dbg_hub.len() == 0i64 { ln.push_str(dbg_why); }
-            else {
-                ln.push_str("filters "); ln.push_str(dbg_hub);
-                ln.push_str(" -> "); ln.push_str(dbg_decl);
-                ln.push_str(", seek column is ");
-                ln.push_str(if dbg_seek.len() > 0i64 { dbg_seek } else { "none" });
-            }
-            ln.push_str(")");
-        }
+        ln.push_str(" -> ");
+        ln.push_str(plan_decision_render(&dec).as_str());
         plan_trace_line(&ln);
     }
 
