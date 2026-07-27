@@ -1795,7 +1795,46 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             if i >= n || str_byte_at(natspec, i) == 41u8 { break; }
             i = i + 1i64;                                                    // ','
         }
-        i = i + 2i64;                                                        // ') ;'
+        i = i + 1i64;                                                        // ')'
+        // `{col cmp fn x,…}` — the source's DECLARED OPERATIONS (ADR 0024 S6).
+        // Absent for a source that declares none, which is every hand-written
+        // one until it says otherwise. Held in locals here and registered
+        // after the rel itself is (rel_add_op keys off the LAST registered).
+        let mut op_col: [str; 8] = ["", "", "", "", "", "", "", ""];
+        let mut op_cmp: [str; 8] = ["", "", "", "", "", "", "", ""];
+        let mut op_fn:  [str; 8] = ["", "", "", "", "", "", "", ""];
+        let mut op_ex:  [bool; 8] = [false; 8];
+        let mut nops: i64 = 0i64;
+        if i < n && str_byte_at(natspec, i) == 123u8 {                        // '{'
+            i = i + 1i64;
+            loop {
+                if i >= n || str_byte_at(natspec, i) == 125u8 { break; }      // '}'
+                let c0: i64 = i;
+                while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; }
+                let ocol: str = pw_slice(natspec, c0, i);
+                i = i + 1i64;
+                let m0: i64 = i;
+                while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; }
+                let ocmp: str = pw_slice(natspec, m0, i);
+                i = i + 1i64;
+                let f0: i64 = i;
+                while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; }
+                let ofn: str = pw_slice(natspec, f0, i);
+                i = i + 1i64;
+                let x0: i64 = i;
+                while i < n && str_byte_at(natspec, i) != 44u8
+                      && str_byte_at(natspec, i) != 125u8 { i = i + 1i64; }
+                let oex: str = pw_slice(natspec, x0, i);
+                if nops < 8i64 {
+                    op_col[nops] = ocol; op_cmp[nops] = ocmp; op_fn[nops] = ofn;
+                    op_ex[nops] = str_eq(oex, "e");
+                    nops = nops + 1i64;
+                }
+                if i < n && str_byte_at(natspec, i) == 44u8 { i = i + 1i64; } // ','
+            }
+            if i < n && str_byte_at(natspec, i) == 125u8 { i = i + 1i64; }    // '}'
+        }
+        i = i + 1i64;                                                        // ';'
         rowtyb[k].push_str(")");
         // Single-column rows are the bare type, not a 1-tuple.
         let rowty: str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
@@ -1809,6 +1848,11 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         while c < nc {
             prm.rel_add_col(cnames[c], ctys[c]);
             c = c + 1i64;
+        }
+        let mut o: i64 = 0i64;
+        while o < nops {
+            prm.rel_add_op(op_col[o], op_cmp[o], op_fn[o], op_ex[o]);
+            o = o + 1i64;
         }
         k = k + 1i64;
     }

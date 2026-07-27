@@ -21348,7 +21348,28 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             spec += " ";
             spec += resolve_col_ty(b.cols[i].ty);
         }
-        spec += ");";
+        spec += ")";
+        // ── the DECLARED OPERATIONS (ADR 0024 S6) ────────────────────────
+        // `{col cmp fn x,…}` — x is `e` (exact for THIS comparison) or `s`
+        // (a superset). Empty section omitted, so a source that declares none
+        // costs nothing. This is what lets the planner match a demand against
+        // what the source SAYS instead of against names it knows by
+        // convention — and the planner is Deem's, which is why the facts have
+        // to travel rather than be read where they were collected.
+        if (!b.ops.empty()) {
+            spec += "{";
+            for (size_t i = 0; i < b.ops.size(); ++i) {
+                if (i) spec += ",";
+                spec += b.ops[i].col;
+                spec += " ";
+                spec += b.ops[i].cmp;
+                spec += " ";
+                spec += b.ops[i].fn;
+                spec += b.ops[i].exact ? " e" : " s";
+            }
+            spec += "}";
+        }
+        spec += ";";
     }
     return spec;
 }

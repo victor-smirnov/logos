@@ -117,6 +117,19 @@ pub struct MacroParams {
     // calls between those fns infer their args from the source param, so no
     // turbofish is ever printed. Set by the deem handler from the compiler's
     // slot-4 blob; trama!/catalog leave it empty.
+    // ── the source's DECLARED ACCESS OPERATIONS (ADR 0024 S6) ────────────
+    // Flat, rel-indexed like the column table: `op_off`/`op_cnt` slice into
+    // the shared arrays. What each entry says is what the source declared —
+    // the column, the comparison it answers, what implements it, and whether
+    // its rows are EXACTLY the matches of that comparison (a `ge` operation is
+    // exact for `>=` and a superset when it answers `>`).
+    pub op_off:   [i64; 8],
+    pub op_cnt:   [i64; 8],
+    pub opc_col:  [str; 32],
+    pub opc_cmp:  [str; 32],
+    pub opc_fn:   [str; 32],
+    pub opc_exact:[bool; 32],
+    pub op_n:     i64,
     pub tparams:     str,
     // ── the query as a SOURCE (ADR 0024 S0) ──────────────────────────────
     // The parsed root, carried so that ANY diagnostic reached from the walk can
@@ -161,6 +174,13 @@ pub fn macro_params_new() -> MacroParams {
         rel_marg:    [""; 8],
         rel_marg2:   [""; 8],
         rel_mod:     [""; 8],
+        op_off:   [0i64; 8],
+        op_cnt:   [0i64; 8],
+        opc_col:  [""; 32],
+        opc_cmp:  [""; 32],
+        opc_fn:   [""; 32],
+        opc_exact:[false; 32],
+        op_n:     0i64,
         tparams:     "",
         src_root:    nul,
     };
@@ -265,6 +285,60 @@ impl MacroParams {
     }
 
     // Append one column to the LAST registered rel.
+    /// Record one declared operation for the rel most recently registered.
+    pub fn rel_add_op(self: &mut MacroParams, col: str, cmp: str, fn_name: str,
+                      exact: bool) {
+        if self.op_n >= 32i64 { return; }
+        let r: i64 = self.rel_n - 1i64;
+        if r < 0i64 { return; }
+        if self.op_cnt[r] == 0i64 { self.op_off[r] = self.op_n; }
+        self.opc_col[self.op_n]   = col;
+        self.opc_cmp[self.op_n]   = cmp;
+        self.opc_fn[self.op_n]    = fn_name;
+        self.opc_exact[self.op_n] = exact;
+        self.op_n = self.op_n + 1i64;
+        self.op_cnt[r] = self.op_cnt[r] + 1i64;
+    }
+
+    /// The operation that answers `cmp` on `col` for rel `ri`, or -1.
+    ///
+    /// An exact match on the comparison is preferred; failing that, a WEAKER
+    /// operation that still covers the demand is admissible as a superset —
+    /// `>=` covers `>`, `<=` covers `<` — because the query keeps its own
+    /// filter. Returns the index into the flat op arrays.
+    pub fn rel_find_op(self: &MacroParams, ri: i64, col: str, cmp: str) -> i64 {
+        if ri < 0i64 || ri >= 8i64 { return -1i64; }
+        let off: i64 = self.op_off[ri];
+        let cnt: i64 = self.op_cnt[ri];
+        let mut i: i64 = 0i64;
+        while i < cnt {
+            if str_eq(self.opc_col[off + i], col)
+                && str_eq(self.opc_cmp[off + i], cmp) { return off + i; }
+            i = i + 1i64;
+        }
+        // The weaker-but-covering fallback.
+        let mut want: str = "";
+        if str_eq(cmp, "gt") { want = "ge"; }
+        else if str_eq(cmp, "lt") { want = "le"; }
+        if want.len() == 0i64 { return -1i64; }
+        i = 0i64;
+        while i < cnt {
+            if str_eq(self.opc_col[off + i], col)
+                && str_eq(self.opc_cmp[off + i], want) { return off + i; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
+
+    /// True when the operation at `oi` answers `cmp` EXACTLY — the query's
+    /// residual filter is then redundant. False for a superset, where it is
+    /// what keeps the answer correct.
+    pub fn rel_op_is_exact(self: &MacroParams, oi: i64, cmp: str) -> bool {
+        if oi < 0i64 || oi >= self.op_n { return false; }
+        if !self.opc_exact[oi] { return false; }
+        return str_eq(self.opc_cmp[oi], cmp);
+    }
+
     pub fn rel_add_col(self: &mut MacroParams, col_name: str, col_ty: str) {
         if self.rel_n == 0i64 { return; }
         let i: i64 = self.rel_n - 1i64;
