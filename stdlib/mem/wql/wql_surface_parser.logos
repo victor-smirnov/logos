@@ -504,6 +504,7 @@ fn alt_program_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_rel_list(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
     let cap2: *const u8 = rule_query(lex, doc);
@@ -518,6 +519,7 @@ fn alt_program_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_query(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
     let node: RQProgram = doc.make::<RQProgram>();
@@ -535,6 +537,7 @@ fn alt_rel_block_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_REL { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -573,6 +576,7 @@ fn alt_rel_list_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let cap1: *const u8 = rule_rel_block(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
@@ -606,6 +610,7 @@ fn alt_rel_col_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -630,6 +635,7 @@ fn alt_rel_cols_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let cap1: *const u8 = rule_rel_col(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
@@ -677,6 +683,7 @@ fn alt_rel_bodies_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let cap1: *const u8 = rule_query(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
@@ -727,6 +734,7 @@ fn alt_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_join_query(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
     return cap1;
@@ -736,6 +744,7 @@ fn alt_query_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_aggr_query(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
     return cap1;
@@ -745,6 +754,7 @@ fn alt_query_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_find_query(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
     return cap1;
@@ -754,6 +764,7 @@ fn alt_query_3(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_simple_query(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
     return cap1;
@@ -785,6 +796,7 @@ fn alt_simple_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -871,6 +883,7 @@ fn alt_simple_query_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -963,6 +976,7 @@ fn alt_find_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -993,6 +1007,7 @@ fn alt_join_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1082,6 +1097,7 @@ fn alt_join_query_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1177,6 +1193,7 @@ fn alt_aggr_query_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1293,6 +1310,7 @@ fn alt_aggr_query_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_FROM { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1415,6 +1433,7 @@ fn alt_gstep_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_DOT { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1438,6 +1457,7 @@ fn alt_gstep_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_LBRACK { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1463,6 +1483,7 @@ fn alt_gstep_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_LBRACK { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1489,6 +1510,7 @@ fn alt_gstep_3(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_STAR2 { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1508,6 +1530,7 @@ fn alt_gstep_4(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_STAR { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1527,6 +1550,7 @@ fn alt_gstep_5(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_LBRACE { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1563,6 +1587,7 @@ fn alt_gsteps_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let cap1: *const u8 = rule_gstep(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
@@ -1610,6 +1635,7 @@ fn alt_join_step_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let mut cap1: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
@@ -1647,6 +1673,7 @@ fn alt_join_step_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let mut cap1: *const u8 = WqNULLP;
     {
         let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
@@ -1686,6 +1713,7 @@ fn alt_on_clause_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_ON { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1703,6 +1731,7 @@ fn alt_path_seg_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_DOT { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1723,6 +1752,7 @@ fn alt_path_segs_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let cap1: *const u8 = rule_path_seg(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
@@ -1756,6 +1786,7 @@ fn alt_join_steps_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let cap1: *const u8 = rule_join_step(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
@@ -1803,6 +1834,7 @@ fn alt_where_clause_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_WHERE { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1834,6 +1866,7 @@ fn alt_having_clause_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_HAVING { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1851,6 +1884,7 @@ fn alt_order_clause_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_KW_ORDER { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1885,6 +1919,7 @@ fn alt_result_clause_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_COLON { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1917,6 +1952,7 @@ fn alt_where_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
     let est_cap1: i64 = lex.save_pos();
     let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
@@ -1940,6 +1976,7 @@ fn alt_sel_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
     let est_cap1: i64 = lex.save_pos();
     let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
@@ -1977,6 +2014,7 @@ fn alt_on_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
     let est_cap1: i64 = lex.save_pos();
     let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
@@ -2014,6 +2052,7 @@ fn alt_key_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
     let est_cap1: i64 = lex.save_pos();
     let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
@@ -2037,6 +2076,7 @@ fn alt_agg_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
     let est_cap1: i64 = lex.save_pos();
     let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
@@ -2060,6 +2100,7 @@ fn alt_having_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
     let est_cap1: i64 = lex.save_pos();
     let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
@@ -2083,6 +2124,7 @@ fn alt_order_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
     let est_cap1: i64 = lex.save_pos();
     let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
@@ -2106,6 +2148,7 @@ fn alt_find_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     // ── embedded cross-grammar parse (T2): scan raw sub-range + sub-parse ──
     let est_cap1: i64 = lex.save_pos();
     let ecl_cap1: i64 = embed_find_close(lex.src, est_cap1, lex.src.len());
@@ -2129,6 +2172,7 @@ fn alt_agg_list_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let cap1: *const u8 = rule_agg_item(lex, doc);
     if cap1 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
@@ -2176,6 +2220,7 @@ fn alt_agg_item_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -2202,6 +2247,7 @@ fn alt_agg_item_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));

@@ -428,6 +428,7 @@ fn alt_expr_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_ternary(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     return cap1;
@@ -456,6 +457,7 @@ fn alt_ternary_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_or(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -480,6 +482,7 @@ fn alt_ternary_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.e = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_4_2));
                 gnode.c = WRef::<SExpr>::from_any(hand_any(foldacc0));
                 gnode.t = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_2));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 ogdone1 = true;
                 break;
@@ -500,6 +503,7 @@ fn alt_or_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_and(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -520,6 +524,7 @@ fn alt_or_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 1 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -543,6 +548,7 @@ fn alt_and_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_equality(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -563,6 +569,7 @@ fn alt_and_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 2 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -586,6 +593,7 @@ fn alt_equality_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_compare(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -606,6 +614,7 @@ fn alt_equality_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 3 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -623,6 +632,7 @@ fn alt_equality_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 4 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_2));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -646,6 +656,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_add(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -666,6 +677,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 6 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -683,6 +695,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 8 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_2));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -700,6 +713,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 5 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_3));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -717,6 +731,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 7 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_4));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -740,6 +755,7 @@ fn alt_add_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_mul(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -760,6 +776,7 @@ fn alt_add_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 9 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -777,6 +794,7 @@ fn alt_add_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 10 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_2));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -800,6 +818,7 @@ fn alt_mul_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_unary(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -820,6 +839,7 @@ fn alt_mul_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 11 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -837,6 +857,7 @@ fn alt_mul_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 12 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_2));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -854,6 +875,7 @@ fn alt_mul_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 gnode.op = 13 as i32;
                 gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_3));
                 gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -877,6 +899,7 @@ fn alt_unary_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_BANG { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -885,6 +908,7 @@ fn alt_unary_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let node: SUn = doc.make::<SUn>();
     node.op = 1 as i32;
     node.arg = WRef::<SExpr>::from_any(hand_any(cap2));
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -892,6 +916,7 @@ fn alt_unary_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_MINUS { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -900,6 +925,7 @@ fn alt_unary_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let node: SUn = doc.make::<SUn>();
     node.op = 2 as i32;
     node.arg = WRef::<SExpr>::from_any(hand_any(cap2));
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -907,6 +933,7 @@ fn alt_unary_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_postfix(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     return cap1;
@@ -937,6 +964,7 @@ fn alt_postfix_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_primary(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -957,6 +985,7 @@ fn alt_postfix_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 let gnode: SField = doc.make::<SField>();
                 gnode.base = WRef::<SExpr>::from_any(hand_any(foldacc0));
                 gnode.name = wstr_as_str(gfoldtmp0_2_1);
+                gnode.soff = fstart;
                 foldtmp0 = gnode.as_ref().raw() as *const u8;
                 foldtmp0_ok = true;
                 break;
@@ -980,6 +1009,7 @@ fn alt_primary_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_comprehension(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     return cap1;
@@ -989,6 +1019,7 @@ fn alt_primary_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_LPAREN { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -999,6 +1030,7 @@ fn alt_primary_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let cap3: *const u8 = wstr_p(doc, tk3.text(lex.src));
     let node: STuple = doc.make::<STuple>();
     node.items = WRef::<SExprArr>::from_any(hand_any(cap2));
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1006,6 +1038,7 @@ fn alt_primary_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_LPAREN { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1021,11 +1054,13 @@ fn alt_primary_3(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_TRUE { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let node: SLit = doc.make::<SLit>();
     node.val = WAny::from(true);
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1033,11 +1068,13 @@ fn alt_primary_4(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_FALSE { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let node: SLit = doc.make::<SLit>();
     node.val = WAny::from(false);
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1045,11 +1082,13 @@ fn alt_primary_5(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_STRING { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let node: SLit = doc.make::<SLit>();
     node.val = WAny::ref_to(wstr_unquote(doc, cap1));
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1057,11 +1096,13 @@ fn alt_primary_6(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_FLOAT { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let node: SLit = doc.make::<SLit>();
     node.val = doc.float(wstr_decode_f64(cap1));
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1069,11 +1110,13 @@ fn alt_primary_7(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_INTEGER { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let node: SLit = doc.make::<SLit>();
     node.val = doc.int(wstr_decode_i64(cap1));
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1081,6 +1124,7 @@ fn alt_primary_8(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_DOLLAR { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1089,6 +1133,7 @@ fn alt_primary_8(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
     let node: SParam = doc.make::<SParam>();
     node.name = wstr_as_str(cap2);
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1096,6 +1141,7 @@ fn alt_primary_9(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_IDENT { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1109,6 +1155,7 @@ fn alt_primary_9(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let node: SCall = doc.make::<SCall>();
     node.fn_name = wstr_as_str(cap1);
     node.args = WRef::<SExprArr>::from_any(hand_any(cap3));
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1116,12 +1163,14 @@ fn alt_primary_10(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_IDENT { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let node: SField = doc.make::<SField>();
     node.base = WRef::<SExpr>::from_any(hand_any(ElNULLP));
     node.name = wstr_as_str(cap1);
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1144,6 +1193,7 @@ fn alt_arglist_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let mut cap1: *const u8 = ElNULLP;
     {
@@ -1204,6 +1254,7 @@ fn alt_tuple_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let rcap: &mut WArray<WAny> = doc.array(4i64);
     let cap1: *const u8 = rule_expr(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
@@ -1257,6 +1308,7 @@ fn alt_comprehension_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_LBRACKET { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
@@ -1280,6 +1332,7 @@ fn alt_comprehension_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     node.plan = WRef::<RExpr>::from_any(hand_any(cap6));
     node.head = WRef::<SExpr>::from_any(hand_any(cap2));
     node.var = wstr_as_str(cap4);
+    node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
 
@@ -1292,6 +1345,7 @@ fn alt_comp_plan_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     let cap1: *const u8 = rule_comp_source(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
@@ -1330,6 +1384,7 @@ fn alt_comp_source_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sp: i64 = lex.save_pos();
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
     if lex.peek().kind != ElTK_IDENT { lex.reset(sp, sln); return ElNULLP; }
     let tk1: Token = lex.next();
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));

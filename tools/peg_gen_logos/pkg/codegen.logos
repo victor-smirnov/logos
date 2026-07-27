@@ -2716,6 +2716,11 @@ fn emit_alt_fn(cg: &mut Codegen, w: &mut CodeWriter, rname: str, group: str, ai:
     w.line("let sp: i64 = lex.save_pos();");
     w.line("let sln: i64 = lex.save_line();");
     w.line("let fline: i64 = lex.peek().line;");
+    // The BYTE OFFSET of this alt's first token. A line alone cannot underline a
+    // column, and a diagnostic about a query has to point INSIDE one line of it.
+    // Stamped into any schema declaring `soff` (see emit_schema_action) — the
+    // schema opts in, the generator does not guess.
+    w.line("let fstart: i64 = lex.peek().start;");
 
     let seq_len: i64 = cg.alts.borrow(alt_idx).seq.len();
     let has_action: bool = cg.alts.borrow(alt_idx).has_action;
@@ -3702,6 +3707,15 @@ fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_v
         }
         fi = fi + 1i64;
     }
+    // SOURCE POSITION — stamped exactly when the schema DECLARES `soff`, so a
+    // grammar with no use for positions pays no slot and no write. The offset is
+    // the alt's first token: a diagnostic points at where the construct BEGINS,
+    // which is what a caret under a query needs.
+    if schema_field_type(cg, sidx, "soff").len() > 0i64 {
+        let mut sl: String = String::new();
+        sl.push_str(node_var); sl.push_str(".soff = fstart;");
+        w.line(sl.as_str());
+    }
     // Return the node's edge handle as a raw word (no borrow) → *const u8.
     let mut rl: String = String::new();
     if ret_via_cap.len() > 0i64 {
@@ -3759,6 +3773,12 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
                               ekind, sval.as_str(), ival, foldv.as_str(), cg.ref_wrap.as_str(), is_int_tok, is_str_tok, is_flt_tok);
         }
         fi = fi + 1i64;
+    }
+    // Same opt-in stamp as the rule-level action. A fold node (`a ('+' b)*`)
+    // takes the position of the WHOLE expression, not of the operator: `fstart`
+    // is the alt's first token, which is where the construct begins.
+    if schema_field_type(cg, sidx, "soff").len() > 0i64 {
+        w.line("gnode.soff = fstart;");
     }
     let mut rl: String = String::new();
     rl.push_str(cap); rl.push_str(" = gnode.as_ref().raw() as *const u8;");

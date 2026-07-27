@@ -1062,6 +1062,14 @@ private:
             w.line("    size_t i = off; while (i > 0 && source_[i - 1] != '\\n') --i;");
             w.line("    return static_cast<uint32_t>(off - i + 1);");
             w.line("}");
+            // BYTE OFFSET of a token within source_ — what a schema's `soff`
+            // field is stamped with. A line alone cannot underline a column,
+            // and a query lives inside one line of its enclosing item.
+            w.line("uint32_t tok_offset_(std::string_view t) const {");
+            w.line("    if (t.data() < source_.data() ||");
+            w.line("        t.data() > source_.data() + source_.size()) return 0;");
+            w.line("    return static_cast<uint32_t>(t.data() - source_.data());");
+            w.line("}");
             w.line();
         }
 
@@ -2319,6 +2327,9 @@ private:
         w.indent();
         // first_line_: line of the first token of this alt's match (for SRC_LINE in AST nodes).
         w.line("[[maybe_unused]] uint32_t first_line_ = peek_token().line;");
+        // Byte offset of that same first token — stamped into any schema that
+        // declares `soff` (see emit_schema_action). Opt-in per schema.
+        w.line("[[maybe_unused]] uint32_t first_start_ = tok_offset_(peek_token().text);");
 
         // Backtrack label for this alternative — used as fail_label for all items.
         std::string alt_fail = std::format("bt_{}_{}", rule.name, idx);
@@ -3152,6 +3163,14 @@ private:
             if (f.name == "CODE") continue;
             emit_schema_field(w, *sd, *sd->find(f.name), f, captures, seq);
         }
+
+        // SOURCE POSITION — stamped exactly when the schema DECLARES `soff`, so
+        // a grammar with no use for positions pays no slot and no write. The
+        // offset is the alt's first token: where the construct BEGINS, which is
+        // what a caret under a query needs. Mirrors peg_gen_logos.
+        if (const SchemaField* so = sd->find("soff"); so && so->has_key)
+            w.fmt("node->put({}, AnyVal::from_value(int64_t(first_start_)), "
+                  "logos::writ::WritAccess::arena(doc_)).get();", so->key);
 
         w.line("{");
         w.indent();

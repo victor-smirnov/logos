@@ -140,16 +140,16 @@ impl SExprArr {
 // view" + the seam's "backends trust the IR". A separate name→type dictionary
 // (built by the handler from schema reflection + the macro param list)
 // supplies value-types.
-pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0 }                                  // literal, value verbatim
-pub schema SParam : code(0x0010_0000_0000_0001) { name: str = 0 }                                  // bound parameter (prepared-stmt arg) — by NAME
-pub schema SVar   : code(0x0010_0000_0000_0002) { name: str = 0 }                                  // comprehension-bound row variable — by NAME
-pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: str = 1 }           // ONE field / edge step — field NAME
-pub schema SBin   : code(0x0010_0000_0000_0004) { op: i32 = 0, lhs: WRef<SExpr> = 1, rhs: WRef<SExpr> = 2 }
-pub schema SUn    : code(0x0010_0000_0000_0005) { op: i32 = 0, arg: WRef<SExpr> = 1 }
-pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: str = 0, args: WRef<SExprArr> = 1 }     // function/filter call — call NAME
-pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2 }  // ternary
-pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1, var: str = 2 }   // comprehension → list value; `var` = loop-var NAME
-pub schema STuple : code(0x0010_0000_0000_0009) { items: WRef<SExprArr> = 0 }                       // tuple projection `(a, b, …)` — ≥2 components
+pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0, soff: i64 = 1 }                                  // literal, value verbatim
+pub schema SParam : code(0x0010_0000_0000_0001) { name: str = 0, soff: i64 = 1 }                                  // bound parameter (prepared-stmt arg) — by NAME
+pub schema SVar   : code(0x0010_0000_0000_0002) { name: str = 0, soff: i64 = 1 }                                  // comprehension-bound row variable — by NAME
+pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: str = 1, soff: i64 = 2 }           // ONE field / edge step — field NAME
+pub schema SBin   : code(0x0010_0000_0000_0004) { op: i32 = 0, lhs: WRef<SExpr> = 1, rhs: WRef<SExpr> = 2, soff: i64 = 3 }
+pub schema SUn    : code(0x0010_0000_0000_0005) { op: i32 = 0, arg: WRef<SExpr> = 1, soff: i64 = 2 }
+pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: str = 0, args: WRef<SExprArr> = 1, soff: i64 = 2 }     // function/filter call — call NAME
+pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2, soff: i64 = 3 }  // ternary
+pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1, var: str = 2, soff: i64 = 3 }   // comprehension → list value; `var` = loop-var NAME
+pub schema STuple : code(0x0010_0000_0000_0009) { items: WRef<SExprArr> = 0, soff: i64 = 1 }                       // tuple projection `(a, b, …)` — ≥2 components
 
 pub schema enum SExpr : category(0x0010_0000_0000_0000) {
     Lit(SLit), Param(SParam), Var(SVar), Field(SField),

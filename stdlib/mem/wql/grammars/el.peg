@@ -105,16 +105,16 @@
     // `doc.make::<S>()` stamps the type code); the C++ backend has no second pass
     // and must bake them in. Carrying them HERE is what makes this file the single
     // source of truth for both backends, instead of a hand-checked mirror.
-    SLit     : code(0x0010_0000_0000_0000) cap(1) { val: "WAny" = 0 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
-    SParam   : code(0x0010_0000_0000_0001) cap(1) { name: "str" = 0 }    // $name — captured IDENT
-    SVar     : code(0x0010_0000_0000_0002) cap(1) { name: "str" = 0 }    // loop var — captured IDENT
-    SField   : code(0x0010_0000_0000_0003) cap(2) { base: "ref SExpr" = 0, name: "str" = 1 }   // field NAME — captured IDENT
-    SBin     : code(0x0010_0000_0000_0004) cap(3) { op: "i32" = 0, lhs: "ref SExpr" = 1, rhs: "ref SExpr" = 2 }
-    SUn      : code(0x0010_0000_0000_0005) cap(2) { op: "i32" = 0, arg: "ref SExpr" = 1 }
-    SCall    : code(0x0010_0000_0000_0006) cap(2) { fn_name: "str" = 0, args: "ref SExprArr" = 1 }   // call NAME — captured IDENT
-    SCond    : code(0x0010_0000_0000_0007) cap(3) { c: "ref SExpr" = 0, t: "ref SExpr" = 1, e: "ref SExpr" = 2 }
-    SComp    : code(0x0010_0000_0000_0008) cap(3) { plan: "ref RExpr" = 0, head: "ref SExpr" = 1, var: "str" = 2 }
-    STuple   : code(0x0010_0000_0000_0009) cap(1) { items: "ref SExprArr" = 0 }   // tuple projection `(a, b, …)`
+    SLit     : code(0x0010_0000_0000_0000) cap(2) { val: "WAny" = 0, soff: "i64" = 1 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
+    SParam   : code(0x0010_0000_0000_0001) cap(2) { name: "str" = 0, soff: "i64" = 1 }    // $name — captured IDENT
+    SVar     : code(0x0010_0000_0000_0002) cap(2) { name: "str" = 0, soff: "i64" = 1 }    // loop var — captured IDENT
+    SField   : code(0x0010_0000_0000_0003) cap(3) { base: "ref SExpr" = 0, name: "str" = 1, soff: "i64" = 2 }   // field NAME — captured IDENT
+    SBin     : code(0x0010_0000_0000_0004) cap(4) { op: "i32" = 0, lhs: "ref SExpr" = 1, rhs: "ref SExpr" = 2, soff: "i64" = 3 }
+    SUn      : code(0x0010_0000_0000_0005) cap(3) { op: "i32" = 0, arg: "ref SExpr" = 1, soff: "i64" = 2 }
+    SCall    : code(0x0010_0000_0000_0006) cap(3) { fn_name: "str" = 0, args: "ref SExprArr" = 1, soff: "i64" = 2 }   // call NAME — captured IDENT
+    SCond    : code(0x0010_0000_0000_0007) cap(4) { c: "ref SExpr" = 0, t: "ref SExpr" = 1, e: "ref SExpr" = 2, soff: "i64" = 3 }
+    SComp    : code(0x0010_0000_0000_0008) cap(4) { plan: "ref RExpr" = 0, head: "ref SExpr" = 1, var: "str" = 2, soff: "i64" = 3 }
+    STuple   : code(0x0010_0000_0000_0009) cap(2) { items: "ref SExprArr" = 0, soff: "i64" = 1 }   // tuple projection `(a, b, …)`
 
     // The materialized argument list. A fan-out field spreads an ARRAY_CAPTURE
     // ($...) of parsed arg edges into the node's fixed slots — multi-arg calls
