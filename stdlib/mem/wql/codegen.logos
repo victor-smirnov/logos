@@ -729,14 +729,6 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
     }
 }
 
-// Map an EL value-type tag → the Logos type NAME for an emitted binding /
-// Vec element (str → `str`, bool → `bool`, flt → `f64`, else the i64 baseline).
-pub fn el_ty_name(ty: i32) -> str {
-    if ty == EL_TY_STR()  { return "str"; }
-    if ty == EL_TY_BOOL() { return "bool"; }
-    if ty == EL_TY_FLT()  { return "f64"; }
-    return "i64";
-}
 
 // Append `v` as a LOGOS f64 LITERAL (`2.5f64`): the shortest round-trip decimal
 // (%g), forced to carry a `.0` when it prints as a bare integer (e.g. `2` →
@@ -795,7 +787,7 @@ pub fn emit_comp(out: &mut String, cp: SComp, t: &ElTypes, var: str) {
         }
         _ => { }
     }
-    let head_ty: str = el_ty_name(infer_ty(head, t));
+    let head_ty: str = el_class_repr(infer_ty(head, t));
     // The comprehension var name — off the SComp node (self-describing IR).
     let vname: str = cp.var;
 

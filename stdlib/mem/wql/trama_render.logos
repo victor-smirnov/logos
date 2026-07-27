@@ -548,11 +548,13 @@ fn emit_one(em: &mut Emitter, e: TStmt, ty: &ElTypes, vtys: &TVarTys, ctx: str, 
 // Is a Logos type NAME a primitive (Copy scalar rendered by value)? Struct/schema
 // element types are everything else — bound by reference in the loop element.
 fn is_primitive_ty(name: str) -> bool {
-    return str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
-        || str_eq(name, "i8")  || str_eq(name, "u64") || str_eq(name, "u32")
-        || str_eq(name, "u16") || str_eq(name, "u8")  || str_eq(name, "bool")
-        || str_eq(name, "f64") || str_eq(name, "f32") || str_eq(name, "str")
-        || str_eq(name, "usize") || str_eq(name, "isize") || str_eq(name, "char");
+    // A scalar-lattice name is a primitive, with two corrections the lattice
+    // cannot make: `String` OWNS its buffer, so binding it by value would move
+    // it out of the row — it stays by-reference, as it was before this routed
+    // through the shared table; `char` is a scalar the lattice has no class for.
+    if str_eq(name, "String") { return false; }
+    if el_class_lookup(name) >= 0i32 { return true; }
+    return str_eq(name, "char");
 }
 
 // ── The resource handler ───────────────────────────────────────────────────

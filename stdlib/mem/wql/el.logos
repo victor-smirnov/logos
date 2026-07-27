@@ -172,12 +172,12 @@ pub fn EL_TY_FLT()  -> i32 { return 3i32; }
 // INT (the integer family is rendered identically by `push_i64`). Unknown
 // names default to INT.
 pub fn el_ty_of_name(name: str) -> i32 {
-    if str_eq(name, "str")    { return EL_TY_STR(); }
-    if str_eq(name, "String") { return EL_TY_STR(); }
-    if str_eq(name, "bool")   { return EL_TY_BOOL(); }
-    if str_eq(name, "f64")    { return EL_TY_FLT(); }
-    if str_eq(name, "f32")    { return EL_TY_FLT(); }
-    return EL_TY_INT();
+    // LENIENT policy over the same table: an unknown FIELD name is a nested
+    // struct the EL never reads scalars from, so INT is the harmless default.
+    // The strict policy (`el_ret_class`) reports instead — see there.
+    let c: i32 = el_class_lookup(name);
+    if c < 0i32 { return EL_TY_INT(); }
+    return c;
 }
 
 // STRICT return-type classification for user-defined fns callable from the EL
@@ -191,8 +191,10 @@ pub fn el_ty_of_name(name: str) -> i32 {
 // `as i64` widening cast at the emit site — u64/u128/i128 values beyond the
 // i64 range TRUNCATE, documented MVP semantics).
 // The representative type NAME of a class — the answer when no declared name
-// was recorded. Mirrors codegen::el_ty_name, kept here because `el` sits below
-// `codegen` in the module graph and must not import upward.
+// was recorded. NOT "the type name": a class has many types, and picking one
+// is exactly how column widths were lost before `infer_ty_name` existed.
+// THE definition: `el` sits below `codegen`, and a second copy up there is
+// what this replaced.
 pub fn el_class_repr(ty: i32) -> str {
     if ty == EL_TY_STR()  { return "str"; }
     if ty == EL_TY_BOOL() { return "bool"; }
@@ -200,17 +202,28 @@ pub fn el_class_repr(ty: i32) -> str {
     return "i64";
 }
 
-pub fn el_ret_class(name: str) -> i32 {
+/// The scalar-lattice class of a type NAME, or -1 when the name is outside the
+/// lattice. THE table — every classification in the query stack goes through
+/// it, so a type is admitted (or not) in one place rather than in each caller's
+/// own list of names.
+pub fn el_class_lookup(name: str) -> i32 {
     if str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
        || str_eq(name, "i8") || str_eq(name, "u64") || str_eq(name, "u32")
        || str_eq(name, "u16") || str_eq(name, "u8")
        || str_eq(name, "usize") || str_eq(name, "isize")
-       || str_eq(name, "i128") || str_eq(name, "u128") { return EL_TY_INT(); }
+       || str_eq(name, "i128") || str_eq(name, "u128")
+       // Writ's packed widths — present in the catalog's copy of this table and
+       // absent here, which is what a duplicated table costs. Merged on the way
+       // to having one.
+       || str_eq(name, "i56")  || str_eq(name, "u56")  { return EL_TY_INT(); }
     if str_eq(name, "f64") || str_eq(name, "f32")      { return EL_TY_FLT(); }
     if str_eq(name, "bool")                            { return EL_TY_BOOL(); }
     if str_eq(name, "str") || str_eq(name, "String")   { return EL_TY_STR(); }
     return -1i32;
 }
+
+/// STRICT classification: an out-of-lattice name is reported, not guessed.
+pub fn el_ret_class(name: str) -> i32 { return el_class_lookup(name); }
 
 // ── The GENERIC aggregate rule table (ADR 0012-queue2 §6) ──────────────────
 // ONE `agg_result_ty(fn, arg_ty) -> ty` map shared by every backend tier:
@@ -292,11 +305,11 @@ pub struct ElTypes {
     // The LOGOS TYPE NAME behind each binding (ADR 0024 S3). `tys` is a
     // four-value classification — INT/FLT/BOOL/STR — which is the right shape
     // for choosing a join strategy and the wrong shape for EMITTING: every
-    // integer width collapses to INT and comes back out of `el_ty_name` as
+    // integer width collapses to INT and comes back out of `el_class_repr` as
     // `i64`, so a `u64` column produced `i64` literals and an `i64` row type.
     // Carrying the name alongside the class keeps both answers available; the
     // same pair already exists for UDF returns (`udf_ret` + `udf_rets`).
-    // Empty = the name was never recorded, and `el_ty_name(class)` answers.
+    // Empty = the name was never recorded, and `el_class_repr(class)` answers.
     pub tns:    [str; 64],
     pub n:      i64,
     pub udf_names: [str; 32],

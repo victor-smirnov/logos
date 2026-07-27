@@ -30,7 +30,8 @@
 // hook emitting the same per-schema blob entries) in a later slice.
 package logos.std.wql.catalog_macro;
 
-use logos.std.compiler.metaprog;   // Emitter, ItemList, item_list_new, error, OView
+use logos.std.compiler.metaprog;
+use logos.std.wql.el;             // el_class_lookup / el_class_repr — THE type table   // Emitter, ItemList, item_list_new, error, OView
 use logos.lang.writ.anyval;        // WAny
 use logos.std.wql.reflect;         // find_decl_by_name — the module-item walk
 use logos.mem.string;
@@ -92,10 +93,7 @@ fn expr_u64(view: &OView, expr: WAny) -> U64Lit {
 
 // ── Field-type classification ───────────────────────────────────────────────
 fn is_int_family(name: str) -> bool {
-    return str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
-        || str_eq(name, "i8")  || str_eq(name, "u64") || str_eq(name, "u32")
-        || str_eq(name, "u16") || str_eq(name, "u8")  || str_eq(name, "i56")
-        || str_eq(name, "u56") || str_eq(name, "usize") || str_eq(name, "isize");
+    return el_class_lookup(name) == EL_TY_INT();
 }
 
 // The catalog value-type name of a field's TYPE node; edges report "edge" and
@@ -118,10 +116,11 @@ fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
         return FieldTy { ty: "any", target: "" };
     }
     let name: str = sv_str(view.ast_node_name(tynode));
-    if is_int_family(name)                            { return FieldTy { ty: "i64",  target: "" }; }
-    if str_eq(name, "f64") || str_eq(name, "f32")     { return FieldTy { ty: "f64",  target: "" }; }
-    if str_eq(name, "bool")                           { return FieldTy { ty: "bool", target: "" }; }
-    if str_eq(name, "str") || str_eq(name, "String")  { return FieldTy { ty: "str",  target: "" }; }
+    // ONE classification table (logos.std.wql.el), one representative per
+    // class. The catalog's own copy of it had drifted — it knew `i56`/`u56`
+    // and the canonical one did not.
+    let cls: i32 = el_class_lookup(name);
+    if cls >= 0i32 { return FieldTy { ty: el_class_repr(cls), target: "" }; }
     return FieldTy { ty: "any", target: "" };
 }
 

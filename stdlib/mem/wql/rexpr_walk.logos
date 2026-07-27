@@ -480,7 +480,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
     let is_comp: bool = is_comp_root(proj_opt);
     if !has_result_ty && is_comp {
-        result_ty = el_ty_name(comp_head_ty(proj_opt, &ty));
+        result_ty = el_class_repr(comp_head_ty(proj_opt, &ty));
     }
     let mut elem_ty: String = String::new();
     if is_comp {
@@ -763,7 +763,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        result_ty = el_class_repr(infer_ty(proj_opt, &ty));
         // A String-returning call (upper/lower or a String UDF) projects an
         // OWNED element: Vec<String> / Option<String> — a borrowed `str` view
         // of the call's temporary would dangle.
@@ -777,7 +777,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
     let is_comp: bool = is_comp_root(proj_opt);
     if !has_result_ty && is_comp {
-        result_ty = el_ty_name(comp_head_ty(proj_opt, &ty));
+        result_ty = el_class_repr(comp_head_ty(proj_opt, &ty));
     }
     let mut elem_ty: String = String::new();
     if is_comp {
@@ -806,7 +806,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         if !reject_tuple(key_e, "wql!: `order by`") { return false; }
         if !check_calls(key_e, &ty, "wql!: `order by`") { return false; }
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
-        key_ty = el_ty_name(infer_ty(key_opt, &ty));
+        key_ty = el_class_repr(infer_ty(key_opt, &ty));
         emit_sexpr(&mut key_body, key_opt, &ty, var_name);
     }
     let lim_cond: String = limit_cond_text(&mods);
@@ -1323,7 +1323,7 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ,
                                            &mut st_build[i], &mut st_probe[i],
                                            &mut st_resid[i], &mut st_pred[i]);
             st_strat[i]  = ss.strat;
-            st_ktn[i]    = el_ty_name(ss.key_ty);
+            st_ktn[i]    = el_class_repr(ss.key_ty);
             st_hasres[i] = ss.has_resid;
             st_equi[i]   = ss.has_equi;
         }
@@ -1864,7 +1864,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        result_ty = el_class_repr(infer_ty(proj_opt, &ty));
         // Owned-String projection (String-returning call at the select root).
         if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
@@ -1885,7 +1885,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut key_ty: str = "i64";
     if mods.has_sort {
         let key_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
-        key_ty = el_ty_name(infer_ty(key_opt, &ty));
+        key_ty = el_class_repr(infer_ty(key_opt, &ty));
         emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
     }
     let lim_cond: String = limit_cond_text(&mods);
@@ -2193,7 +2193,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
         return false;
     }
-    let key_ty: str = el_ty_name(key_ety);
+    let key_ty: str = el_class_repr(key_ety);
     ty.set_ty("key", key_ety);
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
@@ -2217,7 +2217,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        result_ty = el_class_repr(infer_ty(proj_opt, &ty));
         // Owned-String projection (String-returning call at the select root).
         if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
@@ -2257,7 +2257,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         if !reject_tuple(okey_e, "wql!: `order by`") { return false; }
         if !check_calls(okey_e, &ty, "wql!: `order by`") { return false; }
         let okey_opt: SExpr = simplify_sexpr(okey_e, h).any().view::<SExpr>();
-        okey_ty = el_ty_name(infer_ty(okey_opt, &ty));
+        okey_ty = el_class_repr(infer_ty(okey_opt, &ty));
         emit_sexpr(&mut okey_body, okey_opt, &ty, x_var);
     }
     let lim_cond: String = limit_cond_text(&mods);
@@ -2827,7 +2827,7 @@ fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
     let mut i: i64 = 0i64;
     while i < acount {
         if i < 8i64 {
-            if uda[i] { act[i] = el_ty_name(aret[i]); }
+            if uda[i] { act[i] = el_class_repr(aret[i]); }
             else if agg_flt[i] { act[i] = "f64"; }
             else { act[i] = "i64"; }
         }
@@ -2908,7 +2908,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
         return false;
     }
-    let key_ty: str = el_ty_name(key_ety);
+    let key_ty: str = el_class_repr(key_ety);
     ty.set_ty("key", key_ety);
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
@@ -2944,7 +2944,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        result_ty = el_class_repr(infer_ty(proj_opt, &ty));
         // Owned-String projection (String-returning call at the select root).
         if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
@@ -2976,7 +2976,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
         if !reject_tuple(mods.sort_key.any().view::<SExpr>(), "wql!: `order by`") { return false; }
         if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
         let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
-        okey_ty = el_ty_name(infer_ty(okey_opt, &ty));
+        okey_ty = el_class_repr(infer_ty(okey_opt, &ty));
         emit_sexpr(&mut okey_body, okey_opt, &ty, ch.base_var);
     }
     let lim_cond: String = limit_cond_text(&mods);
@@ -3499,7 +3499,7 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
         m2.push_str("' column '");
         m2.push_str(col_name);
         m2.push_str("': select component has type ");
-        m2.push_str(el_ty_name(got));
+        m2.push_str(el_class_repr(got));
         m2.push_str(", declared ");
         m2.push_str(col_ty);
         error(string_as_str(&m2));

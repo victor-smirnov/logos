@@ -1,0 +1,141 @@
+# Deem / Canon / Memoria — generalization audit (2026-07-27)
+
+A sweep for UNDER-GENERALIZATION across the query stack: places where one idea is
+written several times, or where a rule that should hold for every source holds
+only for the one it was written against. Ordered by value/risk, with the
+evidence that made each visible. Closed items keep their entry — the point of
+the record is that the same shape recurs.
+
+The trigger was a small one: the showcase tests needed one result-set printer per
+row shape. That turned out to be a mistake of mine (`Display` + the `ToString`
+blanket generalizes it fine), but the question it raised — *what else is written
+per-case that should be written once* — is what this audit answers.
+
+---
+
+## 1. The plan picks a producer by MANGLING A NAME — OPEN
+
+`container_item.logos` (`__deem_bind`) chooses the family's narrowing producer
+with a three-way `if` over a strategy string, concatenating one of three fixed
+prefixes:
+
+```
+if str_eq(strategy, "point_get") { matfn.push_str("__ctr_at_"); }
+else if key_op == OP_GT() || key_op == OP_GE() { matfn.push_str("__ctr_from_"); }
+else { matfn.push_str("__ctr_upto_"); }
+```
+
+The family's operations are not DECLARED anywhere; the planner knows their names
+by convention and their applicability by a hardcoded rule. A source that offers
+a fourth shape has no way to say so, and one that offers only two cannot say
+that either.
+
+This is ADR 0024 **S6** (declared operation sets), and it is the largest single
+item in this list. Everything below either feeds it or is blocked by it.
+
+## 2. The POSITIONAL family has no narrowing producers at all — OPEN
+
+The ordered-map family publishes `__ctr_rows_` / `__ctr_at_` / `__ctr_from_` /
+`__ctr_upto_`. The vector family publishes `__ctr_rows_` and nothing else, so
+`from s r where r.pos > 100` scans the whole container — even though `seek` is
+one descent and `skip` is an index bump (both landed in `1f2dabe1`).
+
+Blocked by #3: the planner narrows on a column, and the position is not a column
+Canon knows about.
+
+## 3. The position is a column NOTHING declares — OPEN
+
+`PositionalSource<V>` projects `row(pos: i64, val: V)`, but `container Series<V>
+{ kind vector; entry { val: V } }` declares ONE column. The ordinal is invented
+by the projection: it appears in the relation, not in the declaration, and
+therefore not in Canon's `col_fact` / `max_meas`. Canon cannot reason about it,
+so `can_seek` cannot hold for it, so #2 cannot be planned.
+
+The fix is not a special case in the rule (`kind == VECTOR` as a second
+disjunct) — it is that a container's fact set must include the columns its KIND
+implies, so the rule stays `can_seek(C,col) ← ordered(C,col)`. That needs a
+union of rules in the Canon Datalog (the recorded `edb_union` item), which is
+why this is stated rather than done.
+
+⚠ Note the shape: a fact that "everyone knows" is exactly the fact nobody
+writes down, and the planner then cannot use it.
+
+## 4. Four near-identical walk producers — OPEN (low)
+
+`rows` / `from` / `upto` differ only in where they land and when they stop;
+`at` is a probe. One emitter parameterized by (landing, bound) would replace
+four quote blocks — and would make #2 nearly free, since the vector's producers
+are the same shape with `seek(pos)` as the landing.
+
+## 5. Two aggregate emitters — OPEN
+
+`emit_aggregate` (scan) and `emit_aggregate_join` (join chain) are ~720 lines
+each and share 176 lines verbatim. The duplication is real but the two are not
+a mechanical copy; splitting the shared middle out is a refactor with its own
+risk budget, listed here so it is not rediscovered.
+
+## 6. The type-classification table, written FOUR times — CLOSED (this pass)
+
+`el_ty_of_name` (lenient) and `el_ret_class` (strict) carried the same table
+with different unknown-name policies; `catalog_macro::classify_field_type` had a
+third copy; `trama_render::is_primitive_ty` a fourth.
+
+They had **diverged**: the catalog's copy knew `i56`/`u56` and the canonical one
+did not. That is the concrete cost of duplication, and it is why this was worth
+doing even though each copy "worked".
+
+Now: one `el_class_lookup(name) -> class | -1`, with the policies as thin
+wrappers, and every caller routed through it. Two corrections the shared table
+cannot make are kept explicit at the call site rather than folded in:
+`String` is not a by-value primitive (it owns its buffer), and `char` is a
+scalar the lattice has no class for.
+
+## 7. `el_ty_name` / `el_class_repr` — CLOSED (this pass)
+
+A duplicate I introduced the same day, in `codegen` and `el`. Kept the one in
+`el` (the lower module) and, more usefully, kept the HONEST name: after S3 the
+"type name" of an expression is `infer_ty_name`; this function returns a class
+REPRESENTATIVE, and calling it `el_ty_name` is what made losing column widths
+look reasonable.
+
+## 8. Keywords are rejected wherever an identifier is expected — OPEN
+
+Two confirmed instances: `WAny::null()` cannot be parsed (`null` is `KW_NULL`,
+and the public fn at `anyval.logos:79` is therefore uncallable by anyone), and a
+rel cannot be named `tagged` (`KW_TAGGED`, for `&tagged<TS>`). The diagnostic
+points at the punctuation, not the name, which is why the second one read like a
+multi-rel parser bug and cost a long bisection.
+
+The general fix is an opt-in token class — "identifier or word-like keyword" —
+used only where a keyword is grammatically impossible (after `::`, after `.`, in
+a member/rel NAME position). That is a peg_gen feature, not a grammar tweak,
+which is why it is listed rather than done.
+
+## 9. An unsatisfied trait bound reaches MLIR-gen — OPEN
+
+`fn f<V: Into<i64>>(…)` compiles past sema and dies as `logosc: MLIR generation
+failed` with an IR dump and no diagnostic — and there is no `impl Into<i64>` for
+anything in the stdlib, so the bound is satisfiable by nothing. Bound checking
+must complete before mono; `check_type_bounds` and its quiet probe already
+exist, so some instantiation path is not consulting them.
+
+## 10. A `#[derive_hash]` type is not admissible as a rel column — OPEN
+
+`check_rel_column_types` waits for the item-macro drain
+(`metaprog_pending_pkgs_`), but annotation-triggered emission is not covered by
+that signal, so the derived `impl Hash` does not exist when the check looks. A
+hand-written impl is admitted. This is the extension path the universal query
+compiler is built on (§S6), so it matters more than its size suggests.
+
+---
+
+## What this list is for
+
+Items 1–3 are one arc: a source should DECLARE its columns and its operations,
+and the planner should match a demand against that declaration. Everything else
+in the query stack that is "written per case" is downstream of not having that.
+
+Items 6 and 7 are done and are the cheap kind: one idea, N copies, merge. The
+audit's value is in noticing that #1–#3 are the same failure at a different
+scale — the map's capabilities were written for the map, and there was no
+mechanism that would have made writing them for the vector automatic.
