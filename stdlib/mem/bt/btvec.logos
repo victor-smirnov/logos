@@ -105,12 +105,19 @@ pub fn btvec_size<P: NodeProfile>(t: &Btvec<P>) -> u64 {
     return s;
 }
 
-/// Where a positional seek landed: the owning leaf and the LOCAL index.
-/// `found = false` ⇔ pos >= size() (idx then = the leaf's count).
+/// Where a positional seek landed: the owning leaf, the LOCAL index, and the
+/// ABSOLUTE ordinal. `found = false` ⇔ the cursor addresses no entry (past the
+/// end, idx then = the leaf's count; or before the start, from `prev` at 0).
+///
+/// `pos` is carried for the same reason the map cursor carries it: a cursor
+/// that does not know its ordinal cannot find the next entry once its leaf is
+/// exhausted, and a consumer forced to supply the destination re-descends per
+/// row.
 pub struct BtvecCur {
     pub found: bool,
     pub leaf: *mut u8,
     pub idx: u32,
+    pub pos: u64,
 }
 
 /// Cursor at the `pos`-th entry (0-based) — the count descent.
@@ -143,9 +150,52 @@ pub fn btvec_seek<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, pos: u64)
     }
     let cnt: u64 = bv_vals(&node_view_at(node)).size();
     if rem >= cnt {
-        return BtvecCur { found: false, leaf: node, idx: cnt as u32 };
+        return BtvecCur { found: false, leaf: node, idx: cnt as u32, pos: pos };
     }
-    return BtvecCur { found: true, leaf: node, idx: rem as u32 };
+    return BtvecCur { found: true, leaf: node, idx: rem as u32, pos: pos };
+}
+
+// ── cursor navigation ────────────────────────────────────────────────────────
+//
+// The positional counterpart of the map's walk (logos.mem.bt.ops). A vector has
+// no key order to land on, so the set is movement only: forward, back, stride.
+
+/// Step to the NEXT entry — an index bump inside the leaf, one descent at a
+/// leaf boundary. Stepping off the end stays off the end and costs nothing.
+pub fn btvec_cur_next<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: BtvecCur) -> BtvecCur {
+    if !cur.found { return cur; }
+    let cnt: u64 = bv_vals(&node_view_at(cur.leaf)).size();
+    if (cur.idx as u64) + 1u64 < cnt {
+        return BtvecCur { found: true, leaf: cur.leaf, idx: cur.idx + 1u32, pos: cur.pos + 1u64 };
+    }
+    return btvec_seek::<P>(snap, t, cur.pos + 1u64);
+}
+
+/// Step to the PREVIOUS entry. From a past-the-end cursor this lands on the
+/// last entry; before the start there is none, and the cursor comes back
+/// invalid rather than clamping to zero.
+pub fn btvec_cur_prev<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: BtvecCur) -> BtvecCur {
+    if cur.pos == 0u64 {
+        return BtvecCur { found: false, leaf: cur.leaf, idx: 0u32, pos: 0u64 };
+    }
+    if cur.idx > 0u32 {
+        return BtvecCur { found: true, leaf: cur.leaf, idx: cur.idx - 1u32, pos: cur.pos - 1u64 };
+    }
+    return btvec_seek::<P>(snap, t, cur.pos - 1u64);
+}
+
+/// Jump `n` entries forward: a bump while the destination stays in this leaf,
+/// otherwise ONE descent to it rather than `n` steps.
+pub fn btvec_cur_skip<P: NodeProfile>(snap: &MemorySnapshot, t: &Btvec<P>, cur: BtvecCur, n: u64) -> BtvecCur {
+    if n == 0u64 { return cur; }
+    if cur.found {
+        let cnt: u64 = bv_vals(&node_view_at(cur.leaf)).size();
+        if (cur.idx as u64) + n < cnt {
+            return BtvecCur { found: true, leaf: cur.leaf,
+                              idx: cur.idx + (n as u32), pos: cur.pos + n };
+        }
+    }
+    return btvec_seek::<P>(snap, t, cur.pos + n);
 }
 
 /// The `pos`-th entry's cell (traps past the end — use btvec_seek for the

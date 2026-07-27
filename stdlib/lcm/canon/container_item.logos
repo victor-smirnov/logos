@@ -1794,9 +1794,12 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         // volume family's `value()` returns a &[u8] view whose borrow must
         // run through `self` — a view derived from a locally adopted leaf
         // would be a dangling reference, and borrowck says so.
-        pub struct #cid { pub found: bool, lf: #lid, idx: u32 }
+        pub struct #cid { pub found: bool, lf: #lid, idx: u32, at: u64 }
         impl #cid {
             pub fn valid(self: &#cid) -> bool { return self.found; }
+            /// The cursor's ORDINAL in key order — what a plan reports as a
+            /// position and what navigation moves.
+            pub fn pos(self: &#cid) -> u64 { return self.at; }
             pub fn key(self: &#cid) -> #(kid) {
                 assert(self.found, "cursor: key() past the end");
                 return self.lf.key_at(self.idx);
@@ -1813,7 +1816,51 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 unsafe {
                     let e: DirEntry = self.ms().root_of(self.ctr_id);
                     let c: BtCur = bt_seek_at::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, pos);
-                    return #cid { found: c.found, lf: #lid::adopt(c.leaf), idx: c.idx };
+                    return #cid { found: c.found, lf: #lid::adopt(c.leaf), idx: c.idx, at: c.pos };
+                }
+            }
+            /// Cursor at the first entry with key `>= key` — the ordered
+            /// landing, in ONE descent. `rank_of` followed by `seek` reaches
+            /// the same entry and pays two.
+            pub fn seek_key(self: &#nm, key: #(kid)) -> #cid {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let c: BtCur = bt_cur_seek_key::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key);
+                    return #cid { found: c.found, lf: #lid::adopt(c.leaf), idx: c.idx, at: c.pos };
+                }
+            }
+            /// Walk forward one entry. Navigation is a CONTAINER method rather
+            /// than a cursor method because crossing a leaf boundary needs the
+            /// root, which a cursor deliberately does not hold — holding it
+            /// would tie every cursor to a borrow of the container.
+            pub fn next(self: &#nm, cur: &#cid) -> #cid {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let c0: BtCur = BtCur { found: cur.found, leaf: cur.lf.block(),
+                                            idx: cur.idx, pos: cur.at };
+                    let c: BtCur = bt_cur_next::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, c0);
+                    return #cid { found: c.found, lf: #lid::adopt(c.leaf), idx: c.idx, at: c.pos };
+                }
+            }
+            /// Walk back one entry. From a past-the-end cursor this lands on
+            /// the LAST entry, which is how a plan reads a container backwards.
+            pub fn prev(self: &#nm, cur: &#cid) -> #cid {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let c0: BtCur = BtCur { found: cur.found, leaf: cur.lf.block(),
+                                            idx: cur.idx, pos: cur.at };
+                    let c: BtCur = bt_cur_prev::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, c0);
+                    return #cid { found: c.found, lf: #lid::adopt(c.leaf), idx: c.idx, at: c.pos };
+                }
+            }
+            /// Jump `n` entries forward — a plan's `offset`, and a stride.
+            pub fn skip(self: &#nm, cur: &#cid, n: u64) -> #cid {
+                unsafe {
+                    let e: DirEntry = self.ms().root_of(self.ctr_id);
+                    let c0: BtCur = BtCur { found: cur.found, leaf: cur.lf.block(),
+                                            idx: cur.idx, pos: cur.at };
+                    let c: BtCur = bt_cur_skip::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, c0, n);
+                    return #cid { found: c.found, lf: #lid::adopt(c.leaf), idx: c.idx, at: c.pos };
                 }
             }
         }
@@ -1846,16 +1893,15 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             use logos.mem.bt.map;             // trait OrderedMapSource — the hub rel
             use logos.mem.collections.vec;
             use logos.lang.option;            // Option — absence, from `find`
+            /// The full projection: ONE descent to the first entry, then a
+            /// walk. The walk ends when the cursor falls off the end, so the
+            /// producer never asks for `size()` and never re-descends per row.
             pub fn #rowsfn(c: &#nm) -> Vec<(i64, i64)> {
                 let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
-                let n: u64 = c.size();
-                let mut i: u64 = 0u64;
-                while i < n {
-                    let cu: #cid = c.seek(i);
-                    if cu.valid() {
-                        out.push((cu.key() as i64, cu.value() as i64));
-                    }
-                    i = i + 1u64;
+                let mut cu: #cid = c.seek(0u64);
+                while cu.valid() {
+                    out.push((cu.key() as i64, cu.value() as i64));
+                    cu = c.next(&cu);
                 }
                 return out;
             }
@@ -1874,27 +1920,27 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 }
                 return out;
             }
+            /// A SUFFIX of the key order: land on the lower bound in one
+            /// descent, then walk to the end.
             pub fn #fromfn(c: &#nm, lo: #(kid)) -> Vec<(i64, i64)> {
                 let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
-                let n: u64 = c.size();
-                let mut i: u64 = c.rank_of(lo);
-                while i < n {
-                    let cu: #cid = c.seek(i);
-                    if cu.valid() { out.push(((cu.key() as i64), (cu.value() as i64))); }
-                    i = i + 1u64;
+                let mut cu: #cid = c.seek_key(lo);
+                while cu.valid() {
+                    out.push(((cu.key() as i64), (cu.value() as i64)));
+                    cu = c.next(&cu);
                 }
                 return out;
             }
+            /// A PREFIX of the key order: walk from the start and stop on the
+            /// bound. Once the walk exists the end is expressed by the KEY, so
+            /// this no longer descends for a rank first — the entries are
+            /// visited in key order and the first one past `hi` ends it.
             pub fn #uptofn(c: &#nm, hi: #(kid)) -> Vec<(i64, i64)> {
                 let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
-                let n: u64 = c.size();
-                let mut e: u64 = c.rank_of(hi) + 1u64;
-                if e > n { e = n; }
-                let mut i: u64 = 0u64;
-                while i < e {
-                    let cu: #cid = c.seek(i);
-                    if cu.valid() { out.push(((cu.key() as i64), (cu.value() as i64))); }
-                    i = i + 1u64;
+                let mut cu: #cid = c.seek(0u64);
+                while cu.valid() && cu.key() <= hi {
+                    out.push(((cu.key() as i64), (cu.value() as i64)));
+                    cu = c.next(&cu);
                 }
                 return out;
             }
@@ -2596,11 +2642,15 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
             leaf_bytes: u32,
             branch_bytes: u32,
         }
-        pub struct #cid { pub found: bool, leaf: *mut u8, idx: u32 }
+        pub struct #cid { pub found: bool, leaf: *mut u8, idx: u32, at: u64 }
         impl #cid {
             pub fn valid(self: &#cid) -> bool { return self.found; }
+            /// The cursor's ORDINAL — for a positional container this is the
+            /// row's identity, so a plan reads it directly.
+            pub fn pos(self: &#cid) -> u64 { return self.at; }
             pub fn value(self: &#cid) -> #(vt) {
-                let c: BtvecCur = BtvecCur { found: self.found, leaf: self.leaf, idx: self.idx };
+                let c: BtvecCur = BtvecCur { found: self.found, leaf: self.leaf,
+                                             idx: self.idx, pos: self.at };
                 return btvec_cur_value::<#nd>(&c) as #(vt);
             }
         }
@@ -2744,7 +2794,34 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
             pub fn seek(self: &#nm, pos: u64) -> #cid {
                 let t: Btvec<#nd> = self.tree();
                 let c: BtvecCur = btvec_seek::<#nd>(self.ms(), &t, pos);
-                return #cid { found: c.found, leaf: c.leaf, idx: c.idx };
+                return #cid { found: c.found, leaf: c.leaf, idx: c.idx, at: c.pos };
+            }
+            /// Walk forward one row. A container method, not a cursor method:
+            /// crossing a leaf boundary needs the tree, which the cursor does
+            /// not hold.
+            pub fn next(self: &#nm, cur: &#cid) -> #cid {
+                let t: Btvec<#nd> = self.tree();
+                let c0: BtvecCur = BtvecCur { found: cur.found, leaf: cur.leaf,
+                                              idx: cur.idx, pos: cur.at };
+                let c: BtvecCur = btvec_cur_next::<#nd>(self.ms(), &t, c0);
+                return #cid { found: c.found, leaf: c.leaf, idx: c.idx, at: c.pos };
+            }
+            /// Walk back one row; from past-the-end this lands on the last.
+            pub fn prev(self: &#nm, cur: &#cid) -> #cid {
+                let t: Btvec<#nd> = self.tree();
+                let c0: BtvecCur = BtvecCur { found: cur.found, leaf: cur.leaf,
+                                              idx: cur.idx, pos: cur.at };
+                let c: BtvecCur = btvec_cur_prev::<#nd>(self.ms(), &t, c0);
+                return #cid { found: c.found, leaf: c.leaf, idx: c.idx, at: c.pos };
+            }
+            /// Jump `n` rows forward — a plan's `offset` over a positional
+            /// container, and its stride.
+            pub fn skip(self: &#nm, cur: &#cid, n: u64) -> #cid {
+                let t: Btvec<#nd> = self.tree();
+                let c0: BtvecCur = BtvecCur { found: cur.found, leaf: cur.leaf,
+                                              idx: cur.idx, pos: cur.at };
+                let c: BtvecCur = btvec_cur_skip::<#nd>(self.ms(), &t, c0, n);
+                return #cid { found: c.found, leaf: c.leaf, idx: c.idx, at: c.pos };
             }
             pub fn size(self: &#nm) -> u64 {
                 let t: Btvec<#nd> = self.tree();
@@ -2781,16 +2858,14 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
         let pq: QuoteItemBlob = quote_item! {
             use logos.mem.bt.map;             // trait PositionalSource — the hub rel
             use logos.mem.collections.vec;
+            /// ONE descent to row 0, then a walk — the position comes off the
+            /// cursor, so nothing here counts rows by hand.
             pub fn #vrowsfn(c: &#nm) -> Vec<(i64, i64)> {
                 let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
-                let n: u64 = c.size();
-                let mut i: u64 = 0u64;
-                while i < n {
-                    let cu: #cid = c.seek(i);
-                    if cu.valid() {
-                        out.push(((i as i64), (cu.value() as i64)));
-                    }
-                    i = i + 1u64;
+                let mut cu: #cid = c.seek(0u64);
+                while cu.valid() {
+                    out.push(((cu.pos() as i64), (cu.value() as i64)));
+                    cu = c.next(&cu);
                 }
                 return out;
             }

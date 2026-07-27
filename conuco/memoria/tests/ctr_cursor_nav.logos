@@ -1,0 +1,207 @@
+// ctr_cursor_nav — the cursor's navigation set.
+//
+// Landing was published from the start (`seek`, `find`, `rank_of`); WALKING was
+// not, so every consumer synthesized it out of repeated landings and paid a
+// root-to-leaf descent per entry. These are the operations that close that:
+// `next`, `prev`, `skip`, and the ordered landing `seek_key`.
+//
+// The oracle throughout is `seek(i)` — the descent that was always correct.
+// A walk is right iff it visits exactly what independent seeks would, so every
+// check here compares movement against a landing rather than against another
+// movement, which would only prove the walk agrees with itself.
+//
+// The data crosses leaf boundaries by construction (300 entries past a split):
+// stepping inside a leaf is an index bump and stepping across it re-descends,
+// and only the second is interesting.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.mem.string;
+use logos.std.io;
+
+container Ledger<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+// The POSITIONAL family walks too. It has no key order to land on, so its set
+// is movement only — and its ordinal IS the row's identity, which is why the
+// projection reads `pos()` off the cursor instead of counting rows by hand.
+container Series<V> {
+    kind vector;
+    entry { val: V }
+}
+
+fn vector_nav() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let s = create_ctr::<typeof(Series::<u64>)>(&snap, 9u64);
+
+    let n: u64 = 400u64;                     // several leaves
+    let mut i: u64 = 0u64;
+    while i < n { s.append(i * 2u64); i = i + 1u64; }
+
+    // forward, against the landing
+    let mut cu = s.seek(0u64);
+    let mut seen: u64 = 0u64;
+    while cu.valid() {
+        if cu.pos() != seen             { return 41i32; }
+        if cu.value() != seen * 2u64    { return 42i32; }
+        seen = seen + 1u64;
+        cu = s.next(&cu);
+    }
+    if seen != n { return 43i32; }
+    if s.next(&cu).valid() { return 44i32; } // off the end stays off
+
+    // backward, from past-the-end
+    let past = s.seek(n);
+    if past.valid() { return 45i32; }
+    let mut bw = s.prev(&past);
+    if !bw.valid()          { return 46i32; }
+    if bw.pos() != n - 1u64 { return 47i32; }
+    let mut back: u64 = 0u64;
+    while bw.valid() {
+        if bw.value() != (n - 1u64 - back) * 2u64 { return 48i32; }
+        back = back + 1u64;
+        bw = s.prev(&bw);
+    }
+    if back != n { return 49i32; }
+
+    // stride, crossing leaves, against the landing
+    let base = s.seek(0u64);
+    let mut d: u64 = 0u64;
+    while d < n {
+        let sk = s.skip(&base, d);
+        if !sk.valid()                { return 50i32; }
+        if sk.pos() != d              { return 51i32; }
+        if sk.value() != d * 2u64     { return 52i32; }
+        d = d + 11u64;
+    }
+    if s.skip(&base, n + 1u64).valid() { return 53i32; }
+    return 0i32;
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let m = create_ctr::<typeof(Ledger::<u64, u64>)>(&snap, 1u64);
+
+    let n: u64 = 300u64;
+    let mut k: u64 = 0u64;
+    while k < n { m.insert(k, k * 3u64); k = k + 1u64; }
+
+    // ── forward walk: one landing, then steps ────────────────────────────────
+    // Against the oracle at every position, not just at the ends.
+    let mut cu = m.seek(0u64);
+    let mut seen: u64 = 0u64;
+    while cu.valid() {
+        if cu.pos() != seen { return 1i32; }
+        let want = m.seek(seen);
+        if !want.valid()            { return 2i32; }
+        if cu.key()   != want.key() { return 3i32; }
+        if cu.value() != want.value() { return 4i32; }
+        if cu.key()   != seen       { return 5i32; }   // keys are 0..n
+        seen = seen + 1u64;
+        cu = m.next(&cu);
+    }
+    if seen != n { return 6i32; }                      // visited every entry
+
+    // stepping off the end stays off the end — and does not trap
+    let end = m.next(&cu);
+    if end.valid() { return 7i32; }
+
+    // ── backward walk ────────────────────────────────────────────────────────
+    // From past-the-end, `prev` lands on the LAST entry: that is how a plan
+    // reads a container backwards without first asking for its size.
+    let past = m.seek(n);
+    if past.valid() { return 8i32; }
+    let mut bw = m.prev(&past);
+    if !bw.valid()            { return 9i32; }
+    if bw.pos() != n - 1u64   { return 10i32; }
+    if bw.key() != n - 1u64   { return 11i32; }
+
+    let mut back: u64 = 0u64;
+    while bw.valid() {
+        let want2 = m.seek(n - 1u64 - back);
+        if bw.key() != want2.key() { return 12i32; }
+        back = back + 1u64;
+        bw = m.prev(&bw);                              // at 0 this ends the walk
+    }
+    if back != n { return 13i32; }                     // walked the whole way
+
+    // before the start there is no entry — the cursor says so instead of
+    // clamping to zero, which would report the first entry a second time
+    let first = m.seek(0u64);
+    let before = m.prev(&first);
+    if before.valid() { return 14i32; }
+
+    // ── skip ─────────────────────────────────────────────────────────────────
+    // Both inside a leaf and across many of them, a jump must equal the landing.
+    let base = m.seek(0u64);
+    let mut d: u64 = 0u64;
+    while d < n {
+        let sk = m.skip(&base, d);
+        let want3 = m.seek(d);
+        if sk.valid() != want3.valid() { return 15i32; }
+        if sk.pos() != d               { return 16i32; }
+        if sk.key() != want3.key()     { return 17i32; }
+        d = d + 7u64;                                  // a stride, crossing leaves
+    }
+    let id = m.skip(&base, 0u64);
+    if !id.valid() || id.pos() != 0u64 { return 18i32; }
+    let over = m.skip(&base, n + 5u64);
+    if over.valid() { return 19i32; }
+
+    // skipping from a MID cursor, not only from the start
+    let mid = m.seek(100u64);
+    let mid_sk = m.skip(&mid, 50u64);
+    if !mid_sk.valid()          { return 20i32; }
+    if mid_sk.pos() != 150u64   { return 21i32; }
+    if mid_sk.key() != 150u64   { return 22i32; }
+
+    // ── seek_key: the ordered landing in ONE descent ─────────────────────────
+    // Its oracle is the two-descent form it replaces: rank, then seek to it.
+    let mut probe: u64 = 0u64;
+    while probe < n {
+        let sk2 = m.seek_key(probe);
+        let want4 = m.seek(m.rank_of(probe));
+        if sk2.valid() != want4.valid() { return 23i32; }
+        if sk2.pos() != want4.pos()     { return 24i32; }
+        if sk2.key() != probe           { return 25i32; }   // present ⇒ lands ON it
+        probe = probe + 13u64;
+    }
+    // an ABSENT key lands on the first entry after it (lower bound, not equality)
+    m.insert(1000u64, 7u64);
+    let gap = m.seek_key(500u64);
+    if !gap.valid()          { return 26i32; }
+    if gap.key() != 1000u64  { return 27i32; }
+    // past every key ⇒ invalid, not a trap and not a clamp to the last entry
+    let far = m.seek_key(99999u64);
+    if far.valid() { return 28i32; }
+
+    // ── the walk and the landing agree on a SUFFIX ───────────────────────────
+    // This is the shape a range query compiles to, checked end to end.
+    let mut cu2 = m.seek_key(250u64);
+    let mut cnt: u64 = 0u64;
+    while cu2.valid() { cnt = cnt + 1u64; cu2 = m.next(&cu2); }
+    if cnt != (n - 250u64) + 1u64 { return 29i32; }    // 250..299 plus key 1000
+
+    return vector_nav();
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_cursor_nav: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

@@ -63,6 +63,89 @@ pub fn bt_descend_find<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, 
     return Option::None;
 }
 
+// ── cursor navigation ────────────────────────────────────────────────────────
+//
+// A structure is the materialization of the access pattern an algorithm makes.
+// The pattern a query makes over an ordered map is: land somewhere, then walk.
+// Landing was published (`bt_seek_at`, `bt_descend_find`, `bt_descend_rank`);
+// walking was not, so every consumer had to synthesize it out of repeated
+// landings and pay a root-to-leaf descent per entry. These are the walk.
+
+/// Step to the NEXT entry. Inside a leaf this is an index bump; only a leaf
+/// boundary descends again. Stepping off the end stays off the end without
+/// paying a descent, so a loop that overruns costs nothing extra.
+pub fn bt_cur_next<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    root: *mut u8, level: u32, cur: BtCur) -> BtCur {
+    if !cur.found { return cur; }
+    let lf: L = L::adopt(cur.leaf);
+    if cur.idx + 1u32 < lf.count() {
+        return BtCur { found: true, leaf: cur.leaf, idx: cur.idx + 1u32, pos: cur.pos + 1u64 };
+    }
+    return bt_seek_at::<K, VIn, VOut, L, B>(root, level, cur.pos + 1u64);
+}
+
+/// Step to the PREVIOUS entry. Symmetric to `next`, with one asymmetry the
+/// shape forces: a past-the-end cursor has a valid leaf and `idx == count`, so
+/// stepping back from it lands on the last entry — the natural way to reach the
+/// end of a container. Before the start there is no entry, and the cursor comes
+/// back invalid rather than clamping to zero, which would silently report the
+/// first entry twice.
+pub fn bt_cur_prev<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    root: *mut u8, level: u32, cur: BtCur) -> BtCur {
+    if cur.pos == 0u64 {
+        return BtCur { found: false, leaf: cur.leaf, idx: 0u32, pos: 0u64 };
+    }
+    if cur.idx > 0u32 {
+        return BtCur { found: true, leaf: cur.leaf, idx: cur.idx - 1u32, pos: cur.pos - 1u64 };
+    }
+    return bt_seek_at::<K, VIn, VOut, L, B>(root, level, cur.pos - 1u64);
+}
+
+/// Jump `n` entries forward. Within the current leaf it is still a bump — which
+/// matters for a plan that filters by position or samples a stride — and past
+/// it, ONE descent to the destination rather than `n` steps.
+pub fn bt_cur_skip<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    root: *mut u8, level: u32, cur: BtCur, n: u64) -> BtCur {
+    if n == 0u64 { return cur; }
+    if cur.found {
+        let lf: L = L::adopt(cur.leaf);
+        if (cur.idx as u64) + n < (lf.count() as u64) {
+            return BtCur { found: true, leaf: cur.leaf,
+                           idx: cur.idx + (n as u32), pos: cur.pos + n };
+        }
+    }
+    return bt_seek_at::<K, VIn, VOut, L, B>(root, level, cur.pos + n);
+}
+
+/// Position at the first entry whose key is `>= key` — the ordered landing a
+/// range query wants. This is `bt_descend_rank`'s walk with its result KEPT:
+/// that function computes exactly this position and then throws the leaf away,
+/// so a caller had to descend twice (rank, then seek to it) for one answer.
+/// The returned cursor is invalid iff every key sorts before `key`.
+pub fn bt_cur_seek_key<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    root: *mut u8, level: u32, key: K) -> BtCur {
+    let mut node: *mut u8 = root;
+    let mut lvl: u32 = level;
+    let mut rank: u64 = 0u64;
+    while lvl > 0u32 {
+        let br: B = B::adopt(node);
+        let c: u32 = br.find_child(key);
+        let mut j: u32 = 0u32;
+        while j < c { rank = rank + br.count_at(j, 0u32); j = j + 1u32; }
+        node = br.child_addr(c);
+        lvl = lvl - 1u32;
+    }
+    let lf: L = L::adopt(node);
+    let lb: u32 = lf.lower_bound(key);
+    let cnt: u32 = lf.count();
+    if lb >= cnt {
+        // Past this leaf's last entry. The next leaf's first entry is the
+        // answer when one exists; `bt_seek_at` decides that by ordinal.
+        return bt_seek_at::<K, VIn, VOut, L, B>(root, level, rank + (lb as u64));
+    }
+    return BtCur { found: true, leaf: node, idx: lb, pos: rank + (lb as u64) };
+}
+
 /// The RANK of `key`: how many entries sort strictly before it — equivalently,
 /// the position `bt_seek_at` would land on for the first entry with a key ≥
 /// `key`. The descent is the ordered one, with the subtree counts the branch
@@ -328,15 +411,29 @@ pub unsafe fn bt_cow_with_entry<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn
 // (matching lower_bound's discipline); flips to one SUM-index find_gt per
 // level when the branch count column graduates to the SUM order.
 
-/// Where a positional seek landed: the owning leaf and the LOCAL entry index.
-/// `found = false` ⇔ `pos >= size()` (leaf/idx are then the past-the-end
-/// position: the last leaf and its count). The v0 cursor is this pair — leaf
-/// identity + local offset; movement (next/prev with a parent path) is the
-/// cursors arc.
+/// Where a seek landed: the owning leaf, the LOCAL entry index, and the
+/// ABSOLUTE ordinal. `found = false` ⇔ the cursor addresses no entry (past the
+/// end, where leaf/idx are the last leaf and its count; or before the start,
+/// which `bt_cur_prev` produces at ordinal 0).
+///
+/// `pos` is what makes the cursor NAVIGABLE. A cursor that knows only its leaf
+/// and offset cannot say where the next entry is once the leaf runs out, so
+/// every step would have to be handed its own destination from outside — which
+/// is how a scan degenerates into a re-descent per row. Carrying the ordinal
+/// costs 8 bytes and makes movement self-contained.
+///
+/// A CoW tree cannot use the classic sibling pointer: rewriting a leaf changes
+/// its address, so the left neighbour's link would have to be rewritten too,
+/// and that cascade runs to the whole level. Movement here therefore crosses a
+/// leaf boundary by descending again — n/fanout descents across a full scan
+/// instead of n. Threading the parent path through the cursor would make that
+/// amortized O(1); it is an implementation change behind this same operation
+/// set, not a change to the set.
 pub struct BtCur {
     pub found: bool,
     pub leaf: *mut u8,
     pub idx: u32,
+    pub pos: u64,
 }
 
 /// Descend `(root, level)` to the entry at ordinal `pos` (0-based, stream 0).
@@ -370,9 +467,9 @@ pub fn bt_seek_at<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: Bt
     let lf: L = L::adopt(node);
     let cnt: u32 = lf.count();
     if (rem as u32) >= cnt {
-        return BtCur { found: false, leaf: node, idx: cnt };
+        return BtCur { found: false, leaf: node, idx: cnt, pos: pos };
     }
-    return BtCur { found: true, leaf: node, idx: rem as u32 };
+    return BtCur { found: true, leaf: node, idx: rem as u32, pos: pos };
 }
 
 // ── size ─────────────────────────────────────────────────────────────────────
