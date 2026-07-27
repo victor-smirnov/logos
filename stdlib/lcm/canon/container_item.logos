@@ -1624,6 +1624,16 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         return bt_descend_find::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key);
                     }
                 }
+                /// How many entries sort strictly before `key` — the position
+                /// a range starts reading from. Demanded by the plan compiler
+                /// for the same reason `find` was: a filter it can answer with
+                /// a descent should not become a scan.
+                pub fn rank_of(self: &#nm, key: #(kid)) -> u64 {
+                    unsafe {
+                        let e: DirEntry = self.ms().root_of(self.ctr_id);
+                        return bt_descend_rank::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key);
+                    }
+                }
             }
         };
         unsafe { logos_emit_item_blob_subst(&g); }
@@ -2996,7 +3006,11 @@ fn plan_field_col(e: SExpr) -> str {
 /// `col` empty = no usable comparison, and `why` says which shape it was —
 /// the trace prints it, and slice 3.3 will want the same distinction.
 pub struct PlanCmp { pub col: str, pub op: i32, pub why: str,
-                    pub has_lit: bool, pub lit: i64 }
+                    pub has_lit: bool, pub lit: i64,
+                    /// The comparison as READ FROM THE COLUMN: `42 > e.key` is
+                    /// `key < 42`. Without this a reversed literal narrows the
+                    /// wrong way, which no later stage could catch.
+                    pub col_left: bool }
 
 // One comparison against a column: `<var>.<col> <op> <literal>`, in either
 // order. Only the SHAPE matters here — the value is slice 3.3's business.
@@ -3013,14 +3027,14 @@ fn plan_cmp_col(e: SExpr) -> PlanCmp {
             if o != OP_EQ() && o != OP_LT() && o != OP_LE()
                && o != OP_GT() && o != OP_GE() {
                 return PlanCmp { col: "", op: 0i32, why: "not-a-comparison",
-                                 has_lit: false, lit: 0i64 };
+                                 has_lit: false, lit: 0i64, col_left: true };
             }
-            let mut fld: str = "";
-            fld = plan_field_col(b.lhs_expr());
-            if fld.len() == 0i64 { fld = plan_field_col(b.rhs_expr()); }
+            let mut fld: str = plan_field_col(b.lhs_expr());
+            let mut cl: bool = fld.len() > 0i64;
+            if !cl { fld = plan_field_col(b.rhs_expr()); }
             if fld.len() == 0i64 {
                 return PlanCmp { col: "", op: 0i32, why: "neither side is a column",
-                                 has_lit: false, lit: 0i64 };
+                                 has_lit: false, lit: 0i64, col_left: true };
             }
             // The constant the column is compared against, when the other
             // side is one. A pushdown needs the VALUE, not just the shape.
@@ -3036,10 +3050,11 @@ fn plan_cmp_col(e: SExpr) -> PlanCmp {
                     _ => { }
                 }
             }
-            return PlanCmp { col: fld, op: o, why: "", has_lit: hl, lit: lv };
+            return PlanCmp { col: fld, op: o, why: "", has_lit: hl, lit: lv,
+                             col_left: cl };
         }
         _ => { return PlanCmp { col: "", op: 0i32, why: "predicate is not a comparison",
-                                has_lit: false, lit: 0i64 }; }
+                                has_lit: false, lit: 0i64, col_left: true }; }
     }
 }
 
@@ -3105,6 +3120,7 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     let mut strategy: str = "scan";
     let mut on_col: str = "";
     let mut key_lit: i64 = 0i64;
+    let mut key_op: i32 = 0i32;   // read FROM the column: `42 > e.key` ⇒ `<`
     let mut dbg_hub: str = "";
     let mut dbg_decl: str = "";
     let mut dbg_seek: str = "";
@@ -3127,7 +3143,16 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
                         if dc.len() > 0i64 && str_eq(dc, seek) && cmp.has_lit {
                             on_col = cmp.col;
                             key_lit = cmp.lit;
-                            if cmp.op == OP_EQ() { strategy = "point_get"; }
+                            // Normalize to the column's point of view.
+                            let mut o2: i32 = cmp.op;
+                            if !cmp.col_left {
+                                if o2 == OP_LT() { o2 = OP_GT(); }
+                                else if o2 == OP_LE() { o2 = OP_GE(); }
+                                else if o2 == OP_GT() { o2 = OP_LT(); }
+                                else if o2 == OP_GE() { o2 = OP_LE(); }
+                            }
+                            key_op = o2;
+                            if o2 == OP_EQ() { strategy = "point_get"; }
                             else { strategy = "range"; }
                         }
                     }
@@ -3163,7 +3188,7 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     // `range` is recognised but still scans — it wants a rank descent the
     // handle does not expose yet.
     let mut matfn: String = String::new();
-    if str_eq(strategy, "point_get") {
+    if str_eq(strategy, "point_get") || str_eq(strategy, "range") {
         matfn.push_str("__ctr_rows_");
         matfn.push_str(vis_name);
         matfn.push_str("_");
@@ -3187,13 +3212,38 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
         mem.push_text("(c: &"); mem.push_text(family);
         mem.push_text(") -> Vec<(i64, i64)> {\n");
         mem.push_text("    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();\n");
-        mem.push_text("    let o: Option<"); mem.push_text(vty);
-        mem.push_text("> = c.find("); mem.push_text(lit_s.as_str()); mem.push_text(");\n");
-        mem.push_text("    match o {\n");
-        mem.push_text("        Option::Some(v) => { out.push(((");
-        mem.push_text(lit_s.as_str()); mem.push_text(") as i64, v as i64)); }\n");
-        mem.push_text("        Option::None => { }\n");
-        mem.push_text("    }\n    return out;\n}\n");
+        if str_eq(strategy, "point_get") {
+            mem.push_text("    let o: Option<"); mem.push_text(vty);
+            mem.push_text("> = c.find("); mem.push_text(lit_s.as_str()); mem.push_text(");\n");
+            mem.push_text("    match o {\n");
+            mem.push_text("        Option::Some(v) => { out.push(((");
+            mem.push_text(lit_s.as_str()); mem.push_text(") as i64, v as i64)); }\n");
+            mem.push_text("        Option::None => { }\n");
+            mem.push_text("    }\n");
+        } else {
+            // A half-open window around the rank. Both ends are DELIBERATELY
+            // loose by one: the entry at the rank may compare equal, and the
+            // query's own `where` decides. A narrowing may only ever return a
+            // superset — being generous here is what makes that true without
+            // reasoning about strictness.
+            mem.push_text("    let n: u64 = c.size();\n");
+            mem.push_text("    let r: u64 = c.rank_of("); mem.push_text(lit_s.as_str());
+            mem.push_text(");\n");
+            let asc: bool = key_op == OP_GT() || key_op == OP_GE();
+            if asc {
+                mem.push_text("    let mut i: u64 = r;\n");
+                mem.push_text("    while i < n {\n");
+            } else {
+                mem.push_text("    let mut hi: u64 = r + 1u64;\n");
+                mem.push_text("    if hi > n { hi = n; }\n");
+                mem.push_text("    let mut i: u64 = 0u64;\n");
+                mem.push_text("    while i < hi {\n");
+            }
+            mem.push_text("        let cu = c.seek(i);\n");
+            mem.push_text("        if cu.valid() { out.push((cu.key() as i64, cu.value() as i64)); }\n");
+            mem.push_text("        i = i + 1u64;\n    }\n");
+        }
+        mem.push_text("    return out;\n}\n");
         mem.commit();
     }
 

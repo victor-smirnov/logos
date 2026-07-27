@@ -1,9 +1,10 @@
 // ctr_plan_pushdown — the plan compiles the filter INTO the container.
 //
 // `where e.key == 7` over a class whose seek column is `key` is compiled to a
-// single `find` probe instead of a full scan: Deem's demand (equality on a
-// column) joined with Canon's verdict (`can_seek(ctr, key)`) picks the
-// narrowing, and the family supplies the operation.
+// single `find` probe instead of a full scan, and `where e.key > 250` to a read
+// that starts at the key's RANK instead of at zero: Deem's demand joined with
+// Canon's verdict (`can_seek(ctr, key)`) picks the narrowing, and the family
+// supplies the operation.
 //
 // What makes that safe is the invariant, and this test is built to check it
 // rather than to trust it: a narrowing producer returns a SUPERSET of the
@@ -40,6 +41,10 @@ pub deem at_7<K, V>(m: Ledger<K, V>)  { from m e where e.key == 7 select (e.key,
 pub deem at_999<K, V>(m: Ledger<K, V>) { from m e where e.key == 999 select (e.key, e.val) }
 // scan — the same shape of filter, but on a column with no seek capability
 pub deem val_7<K, V>(m: Ledger<K, V>) { from m e where e.val == 7 select (e.key, e.val) }
+// range — a suffix of the key order, read from the rank instead of from zero
+pub deem after_250<K, V>(m: Ledger<K, V>) { from m e where e.key > 250 select (e.key, e.val) }
+// …and the same window written with the literal FIRST, which reads as `key <`
+pub deem before_50<K, V>(m: Ledger<K, V>) { from m e where 50 > e.key select (e.key, e.val) }
 
 fn same(a: &Vec<(i64, i64)>, b: &Vec<(i64, i64)>) -> bool {
     if a.len() != b.len() { return false; }
@@ -93,6 +98,33 @@ fn run_all() -> i32 {
     let byval: Vec<(i64, i64)> = match val_7(&m)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
     if byval.len() != 0i64 { return 10i32; }
+
+    // ── the range window, against a reference walk ──────────────────────────
+    let mut want_hi: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut want_lo: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    {
+        let n2: u64 = m.size();
+        let mut i2: u64 = 0u64;
+        while i2 < n2 {
+            let cu2 = m.seek(i2);
+            if cu2.valid() {
+                let row: (i64, i64) = (cu2.key() as i64, cu2.value() as i64);
+                if cu2.key() > 250u64 { want_hi.push(row); }
+                if cu2.key() < 50u64  { want_lo.push(row); }
+            }
+            i2 = i2 + 1u64;
+        }
+    }
+    let hi: Vec<(i64, i64)> = match after_250(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if !same(&hi, &want_hi) { return 12i32; }
+    if hi.len() != 49i64    { return 13i32; }      // keys 251..299
+
+    // the reversed spelling narrows the OTHER way — `50 > e.key` is `key < 50`
+    let lo: Vec<(i64, i64)> = match before_50(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
+    if !same(&lo, &want_lo) { return 15i32; }
+    if lo.len() != 50i64    { return 16i32; }      // keys 0..49
     return 0i32;
 }
 

@@ -63,6 +63,31 @@ pub fn bt_descend_find<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, 
     return Option::None;
 }
 
+/// The RANK of `key`: how many entries sort strictly before it — equivalently,
+/// the position `bt_seek_at` would land on for the first entry with a key ≥
+/// `key`. The descent is the ordered one, with the subtree counts the branch
+/// already maintains for positional seek summed on the way down.
+///
+/// This is what a RANGE demand needs: a query filtering `key > K` reads from
+/// this position instead of from zero, and reads a superset of its matches
+/// (the entry AT the rank may be `== K`), which is all a narrowing may claim.
+pub fn bt_descend_rank<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    root: *mut u8, level: u32, key: K) -> u64 {
+    let mut node: *mut u8 = root;
+    let mut lvl: u32 = level;
+    let mut rank: u64 = 0u64;
+    while lvl > 0u32 {
+        let br: B = B::adopt(node);
+        let c: u32 = br.find_child(key);
+        let mut j: u32 = 0u32;
+        while j < c { rank = rank + br.count_at(j, 0u32); j = j + 1u32; }
+        node = br.child_addr(c);
+        lvl = lvl - 1u32;
+    }
+    let lf: L = L::adopt(node);
+    return rank + (lf.lower_bound(key) as u64);
+}
+
 // ── insert result (shared by the plain and the CoW insert) ────────────────────
 
 /// The bottom-up insert report: the (possibly still-`node`) left result plus an
