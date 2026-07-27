@@ -51,17 +51,17 @@ fn run_all() -> i32 {
     let a = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 1u64);
     let mut k: u64 = 0u64;
     while k < 500u64 { a.insert(k, k * 3u64); k = k + 1u64; }
-    let ra: Vec<(i64, i64)> = match high_value_entries(&a)
+    let ra: Vec<(u64, u64)> = match high_value_entries(&a)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     // val = key*3 > 1400 ⟺ key ≥ 467 ⇒ 33 rows, in key order.
     if ra.len() != 33i64 { return 2i32; }
-    let f: (i64, i64) = ra.get(0i64);
-    if f.0 != 467i64 || f.1 != 467i64 * 3i64 { return 3i32; }
+    let f: (u64, u64) = ra.get(0i64);
+    if f.0 != 467u64 || f.1 != 467u64 * 3u64 { return 3i32; }
     let mut i: i64 = 0i64;
     while i < ra.len() {
-        let r: (i64, i64) = ra.get(i);
-        if r.1 != r.0 * 3i64 { return 4i32; }
-        if r.1 <= 1400i64    { return 5i32; }
+        let r: (u64, u64) = ra.get(i);
+        if r.1 != r.0 * 3u64 { return 4i32; }
+        if r.1 <= 1400u64    { return 5i32; }
         i = i + 1i64;
     }
 
@@ -71,11 +71,11 @@ fn run_all() -> i32 {
     let b = create_ctr::<typeof(Map::<u64, i64>)>(&snap, 2u64);
     let mut j: u64 = 0u64;
     while j < 600u64 { b.insert(j, (j as i64) * 3i64); j = j + 1u64; }
-    let rb: Vec<(i64, i64)> = match high_value_entries(&b)
+    let rb: Vec<(u64, i64)> = match high_value_entries(&b)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
     if rb.len() != 133i64 { return 7i32; }
-    let g: (i64, i64) = rb.get(0i64);
-    if g.0 != 467i64 { return 8i32; }
+    let g: (u64, i64) = rb.get(0i64);
+    if g.0 != 467u64 { return 8i32; }
     return 0i32;
 }
 

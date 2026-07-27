@@ -140,16 +140,18 @@ pub fn stamp_rel_source(ty: &mut ElTypes, prm: &MacroParams,
         // the column binds the WHOLE row (idx -1 → the codegen emits `(*var)`).
         let cn0: str = prm.relc_name[off];
         let ct0: i32 = el_ty_of_name(prm.relc_ty[off]);
-        ty.set_ty(cn0, ct0);
-        ty.rel_bind(var_name, cn0, -1i64, ct0);
+        // The column's DECLARED type, which for a native source came from the
+        // impl's trait args (ADR 0024 S2/S3) — not just its four-value class.
+        ty.set_ty_named(cn0, prm.relc_ty[off]);
+        ty.rel_bind_named(var_name, cn0, -1i64, ct0, prm.relc_ty[off]);
         return true;
     }
     let mut k: i64 = 0i64;
     while k < nc {
         let cn: str = prm.relc_name[off + k];
         let ct: i32 = el_ty_of_name(prm.relc_ty[off + k]);
-        ty.set_ty(cn, ct);
-        ty.rel_bind(var_name, cn, k, ct);
+        ty.set_ty_named(cn, prm.relc_ty[off + k]);
+        ty.rel_bind_named(var_name, cn, k, ct, prm.relc_ty[off + k]);
         k = k + 1i64;
     }
     return true;
@@ -164,7 +166,7 @@ fn apply_scalar_params(ty: &mut ElTypes, prm: &MacroParams) {
     let mut i: i64 = 0i64;
     while i < prm.n {
         if !prm.is_slice[i] {
-            ty.set_ty(prm.names[i], el_ty_of_name(prm.tys[i]));
+            ty.set_ty_named(prm.names[i], prm.tys[i]);
         }
         i = i + 1i64;
     }
@@ -467,7 +469,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = el_ty_name(infer_ty(proj_opt, &ty));
+        result_ty = infer_ty_name(proj_opt, &ty);
         // A String-returning call projects an OWNED element (Vec<String>).
         if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }

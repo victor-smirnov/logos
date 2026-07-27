@@ -72,26 +72,26 @@ fn run_all() -> i32 {
     while s < 50u64 { tal.insert(s, s as i64); s = s + 1u64; }
 
     // keys 101..199 → 99 rows, each val == key * 3.
-    let rows: Vec<(i64, i64)> = match big_entries(&led)
+    let rows: Vec<(u64, u64)> = match big_entries(&led)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     if rows.len() != 99i64 { return 2i32; }
     let mut i: i64 = 0i64;
     while i < rows.len() {
-        let r: (i64, i64) = rows.get(i);
-        if r.0 <= 100i64      { return 3i32; }
-        if r.1 != r.0 * 3i64  { return 4i32; }
+        let r: (u64, u64) = rows.get(i);
+        if r.0 <= 100u64      { return 3i32; }
+        if r.1 != r.0 * 3u64  { return 4i32; }
         i = i + 1i64;
     }
 
     // slots 41..49 → 9 rows (hits == slot).
-    let hot: Vec<(i64, i64)> = match hot_slots(&tal)
+    let hot: Vec<(u64, i64)> = match hot_slots(&tal)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
     if hot.len() != 9i64 { return 6i32; }
     let mut j: i64 = 0i64;
     while j < hot.len() {
-        let h: (i64, i64) = hot.get(j);
-        if h.0 != h.1  { return 7i32; }
-        if h.0 <= 40i64 { return 8i32; }
+        let h: (u64, i64) = hot.get(j);
+        if h.0 != (h.1 as u64) { return 7i32; }
+        if h.0 <= 40u64 { return 8i32; }
         j = j + 1i64;
     }
     return 0i32;

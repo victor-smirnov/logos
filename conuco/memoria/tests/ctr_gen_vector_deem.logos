@@ -51,16 +51,16 @@ fn run_all() -> i32 {
     }
     if s.size() != 16u64 { return 1i32; }
 
-    let rows: Vec<(i64, i64)> = match tall(&s)
+    let rows: Vec<(i64, u64)> = match tall(&s)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
     // values above 100 are positions 10..15 — six rows, val == (pos+1)*10.
     if rows.len() != 6i64 { return 3i32; }
     let mut k: i64 = 0i64;
     let mut mask: i64 = 0i64;
     while k < rows.len() {
-        let r: (i64, i64) = rows.get(k);
-        if r.1 != (r.0 + 1i64) * 10i64 { return 4i32; }
-        if r.1 <= 100i64 { return 5i32; }
+        let r: (i64, u64) = rows.get(k);
+        if r.1 != (((r.0 + 1i64) * 10i64) as u64) { return 4i32; }
+        if r.1 <= 100u64 { return 5i32; }
         mask = mask | (1i64 << (r.0 - 10i64));
         k = k + 1i64;
     }
@@ -72,7 +72,11 @@ fn run_all() -> i32 {
     if rows2.len() != rows.len() { return 8i32; }
     let mut z: i64 = 0i64;
     while z < rows2.len() {
-        if rows2.get(z) != rows.get(z) { return 9i32; }
+        // Two FAMILIES, one query: `Series<i64>` and `Series<u64>` now yield
+        // rows typed by their own element type, so the comparison is per
+        // component rather than tuple-to-tuple.
+        if rows2.get(z).0 != rows.get(z).0 { return 9i32; }
+        if (rows2.get(z).1 as u64) != rows.get(z).1 { return 9i32; }
         z = z + 1i64;
     }
     return 0i32;

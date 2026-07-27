@@ -170,6 +170,56 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
     }
 }
 
+// The LOGOS TYPE NAME of an expression — `infer_ty`'s answer, but as the type
+// the emitter must actually PRINT (ADR 0024 S3).
+//
+// `infer_ty` returns a four-value class, which is what the join-strategy
+// cascade wants and exactly the wrong thing to emit: every integer width
+// collapses to INT, so a `u64` column printed `i64` and the row type of a
+// query over it was wrong by construction. This walks the same cases and
+// returns the DECLARED name wherever one was recorded, falling back to the
+// class's representative where no name exists (a literal has no type of its
+// own — it takes one from its context).
+pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
+    match e {
+        SExpr::Param(pp) => { return t.ty_name_of(pp.name); }
+        SExpr::Var(vv)   => { return t.ty_name_of(vv.name); }
+        SExpr::Field(f)  => {
+            let base_ref: WRef<SExpr> = f.base;
+            if !base_ref.any().is_null() {
+                let rn: str = root_ident_name(f.base_expr());
+                if rn.len() > 0i64 {
+                    let nm: str = t.rel_col_ty_name(rn, f.name);
+                    if nm.len() > 0i64 { return nm; }
+                }
+            }
+            return t.ty_name_of(f.name);
+        }
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            if op == OP_OR() || op == OP_AND()
+               || op == OP_EQ() || op == OP_NE()
+               || op == OP_LT() || op == OP_LE()
+               || op == OP_GT() || op == OP_GE() { return "bool"; }
+            // Arithmetic keeps the operands' type. A literal contributes no
+            // name, so the named side wins — `e.n + 1` over a u64 column is
+            // u64, which is also what the host compiler would infer.
+            let ln: str = infer_ty_name(b.lhs_expr(), t);
+            let rn2: str = infer_ty_name(b.rhs_expr(), t);
+            if str_eq(ln, "f64") || str_eq(rn2, "f64") { return "f64"; }
+            if str_eq(ln, "str") || str_eq(rn2, "str") { return "str"; }
+            if !str_eq(ln, "i64") { return ln; }
+            return rn2;
+        }
+        SExpr::Un(u) => {
+            if u.op == OP_NOT() { return "bool"; }
+            return infer_ty_name(u.arg_expr(), t);
+        }
+        SExpr::Cond(c) => { return infer_ty_name(c.then_expr(), t); }
+        _ => { return el_class_repr(infer_ty(e, t)); }
+    }
+}
+
 // The bare-identifier ROOT name of `e` — the name when `e` is a root-shaped
 // leaf (a null-base SField — the EL parser's bare-ident node — or an SVar /
 // SParam), "" otherwise. The rel-binding lookups key off this (a rel row var
@@ -226,7 +276,7 @@ pub fn push_tuple_ty(out: &mut String, tp: STuple, t: &ElTypes) {
             SExpr::Tuple(nt) => { push_tuple_ty(out, nt, t); }
             _ => {
                 if returns_string(c, t) { out.push_str("String"); }
-                else { out.push_str(el_ty_name(infer_ty(c, t))); }
+                else { out.push_str(infer_ty_name(c, t)); }
             }
         }
         i = i + 1i64;
@@ -262,6 +312,17 @@ pub fn tuple_has_flt(tp: STuple, t: &ElTypes) -> bool {
 //   • SBin / SUn                 → parenthesised operator application.
 // `t` is the type dictionary; `var` is a fallback name for a comprehension SVar.
 pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+    emit_sexpr_as(out, e, t, var, "");
+}
+
+/// `emit_sexpr` with an EXPECTED type for integer literals (ADR 0024 S3).
+///
+/// A literal has no type of its own — it takes one from its context, exactly as
+/// it does in Logos. `e.val > 100` over a `u64` column must print `100u64`;
+/// printing `100i64` is how a widened column met `operator '>': type mismatch`.
+/// `want` is advisory: it applies only to an integer literal, and only when it
+/// names an integer type.
+pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: str) {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
@@ -278,7 +339,11 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
                 push_f64_lit(out, v.as_f64());
             } else {
                 out.push_i64(v.as_i64());
-                out.push_str("i64");
+                if want.len() > 0i64 && el_ret_class(want) == EL_TY_INT() {
+                    out.push_str(want);
+                } else {
+                    out.push_str("i64");
+                }
             }
         }
         SExpr::Param(pp) => {
@@ -345,12 +410,18 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
                               || op == OP_DIV() || op == OP_MOD();
             let res_int: bool = is_arith && lt != EL_TY_FLT() && rt != EL_TY_FLT()
                 && !(op == OP_ADD() && (lt == EL_TY_STR() || rt == EL_TY_STR()));
+            // Each operand's literal takes the OTHER side's declared type: a
+            // comparison or arithmetic between a column and a literal is where
+            // the width actually matters, and the column is the side that has
+            // a type to give.
+            let want_l: str = infer_ty_name(rhs, t);
+            let want_r: str = infer_ty_name(lhs, t);
             if res_int {
                 out.push_str(el_int_op_fn(op));
                 out.push_str("((");
-                emit_sexpr(out, lhs, t, var);
+                emit_sexpr_as(out, lhs, t, var, want_l);
                 out.push_str("), (");
-                emit_sexpr(out, rhs, t, var);
+                emit_sexpr_as(out, rhs, t, var, want_r);
                 out.push_str("))?");
                 return;
             }
@@ -358,11 +429,11 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
             let cast_r: bool = rt == EL_TY_INT() && lt == EL_TY_FLT();
             out.push_str("(");
             if cast_l { out.push_str("(("); }
-            emit_sexpr(out, lhs, t, var);
+            emit_sexpr_as(out, lhs, t, var, want_l);
             if cast_l { out.push_str(") as f64)"); }
             out.push_str(emit_binop(op));
             if cast_r { out.push_str("(("); }
-            emit_sexpr(out, rhs, t, var);
+            emit_sexpr_as(out, rhs, t, var, want_r);
             if cast_r { out.push_str(") as f64)"); }
             out.push_str(")");
         }

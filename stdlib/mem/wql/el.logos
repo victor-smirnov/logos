@@ -190,6 +190,16 @@ pub fn el_ty_of_name(name: str) -> i32 {
 // maps to INT (the i64 lattice baseline; narrower ints get an explicit
 // `as i64` widening cast at the emit site — u64/u128/i128 values beyond the
 // i64 range TRUNCATE, documented MVP semantics).
+// The representative type NAME of a class — the answer when no declared name
+// was recorded. Mirrors codegen::el_ty_name, kept here because `el` sits below
+// `codegen` in the module graph and must not import upward.
+pub fn el_class_repr(ty: i32) -> str {
+    if ty == EL_TY_STR()  { return "str"; }
+    if ty == EL_TY_BOOL() { return "bool"; }
+    if ty == EL_TY_FLT()  { return "f64"; }
+    return "i64";
+}
+
 pub fn el_ret_class(name: str) -> i32 {
     if str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
        || str_eq(name, "i8") || str_eq(name, "u64") || str_eq(name, "u32")
@@ -279,6 +289,15 @@ pub fn agg_result_ty(fn_name: str, arg_ty: i32) -> i32 {
 pub struct ElTypes {
     pub names:  [str; 64],
     pub tys:    [i32; 64],
+    // The LOGOS TYPE NAME behind each binding (ADR 0024 S3). `tys` is a
+    // four-value classification — INT/FLT/BOOL/STR — which is the right shape
+    // for choosing a join strategy and the wrong shape for EMITTING: every
+    // integer width collapses to INT and comes back out of `el_ty_name` as
+    // `i64`, so a `u64` column produced `i64` literals and an `i64` row type.
+    // Carrying the name alongside the class keeps both answers available; the
+    // same pair already exists for UDF returns (`udf_ret` + `udf_rets`).
+    // Empty = the name was never recorded, and `el_ty_name(class)` answers.
+    pub tns:    [str; 64],
     pub n:      i64,
     pub udf_names: [str; 32],
     pub udf_ret:   [i32; 32],
@@ -289,11 +308,19 @@ pub struct ElTypes {
     pub rb_col: [str; 32],
     pub rb_idx: [i64; 32],
     pub rb_ty:  [i32; 32],
+    // The column's DECLARED type name, per binding (ADR 0024 S3). The flat name
+    // dict can collide across rels that share a column name; this table is the
+    // precise one, so the NAME belongs here too and not only the class.
+    pub rb_tn:  [str; 32],
     pub rb_n:   i64,
 }
 
 pub fn el_types_new() -> ElTypes {
     return ElTypes {
+        tns:    ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         names:  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
@@ -313,6 +340,8 @@ pub fn el_types_new() -> ElTypes {
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         rb_idx: [0i64; 32],
         rb_ty:  [0i32; 32],
+        rb_tn:  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         rb_n:   0i64,
     };
 }
@@ -340,6 +369,42 @@ impl ElTypes {
         self.names[self.n] = name;
         self.tys[self.n]   = ty;
         self.n = self.n + 1i64;
+    }
+
+    // Record `name` with its LOGOS TYPE NAME as well as its class. Callers that
+    // know the declared type — reflection over a struct's fields, a native
+    // rel's columns — use this; the class is still derived so every existing
+    // consumer keeps working unchanged.
+    pub fn set_ty_named(self: &mut ElTypes, name: str, ty_name: str) {
+        let cls: i32 = el_ret_class(ty_name);
+        let c: i32 = if cls < 0i32 { EL_TY_INT() } else { cls };
+        let mut i: i64 = 0i64;
+        while i < self.n {
+            if str_eq(self.names[i], name) {
+                self.tys[i] = c; self.tns[i] = ty_name; return;
+            }
+            i = i + 1i64;
+        }
+        if self.n >= 64i64 { return; }
+        self.names[self.n] = name;
+        self.tys[self.n]   = c;
+        self.tns[self.n]   = ty_name;
+        self.n = self.n + 1i64;
+    }
+
+    // The LOGOS TYPE NAME for `name` — the declared type when it was recorded,
+    // otherwise the class's representative (`el_ty_name`). This is what the
+    // emitter must print: a type, a literal suffix, a row-tuple component.
+    pub fn ty_name_of(self: &ElTypes, name: str) -> str {
+        let mut i: i64 = 0i64;
+        while i < self.n {
+            if str_eq(self.names[i], name) {
+                if self.tns[i].len() > 0i64 { return self.tns[i]; }
+                return el_class_repr(self.tys[i]);
+            }
+            i = i + 1i64;
+        }
+        return "i64";
     }
 
     // The UDF-table index of the fn named `name`, or -1 when unregistered.
@@ -380,12 +445,32 @@ impl ElTypes {
 
     // Bind (var, col) → tuple component `idx` of EL type `ty`.
     pub fn rel_bind(self: &mut ElTypes, var: str, col: str, idx: i64, ty: i32) {
+        self.rel_bind_named(var, col, idx, ty, "");
+    }
+
+    /// Bind with the column's DECLARED type name as well as its class.
+    pub fn rel_bind_named(self: &mut ElTypes, var: str, col: str, idx: i64,
+                          ty: i32, ty_name: str) {
         if self.rb_n >= 32i64 { return; }
         self.rb_var[self.rb_n] = var;
         self.rb_col[self.rb_n] = col;
         self.rb_idx[self.rb_n] = idx;
         self.rb_ty[self.rb_n]  = ty;
+        self.rb_tn[self.rb_n]  = ty_name;
         self.rb_n = self.rb_n + 1i64;
+    }
+
+    /// The declared type NAME of `var.col`, or "" when this is not a rel
+    /// binding or the name was never recorded.
+    pub fn rel_col_ty_name(self: &ElTypes, var: str, col: str) -> str {
+        let mut i: i64 = 0i64;
+        while i < self.rb_n {
+            if str_eq(self.rb_var[i], var) && str_eq(self.rb_col[i], col) {
+                return self.rb_tn[i];
+            }
+            i = i + 1i64;
+        }
+        return "";
     }
 
     // The tuple component index of `var.col`, or -1 (not a rel binding).

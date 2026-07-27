@@ -311,7 +311,9 @@ pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str) 
         let fnm: str = sview_str(view.ast_field_name(fld));
         let tyname: str = sview_str(view.ast_field_type_name(fld));
         if fnm.len() > 0i64 && tyname.len() > 0i64 {
-            t.set_ty(fnm, el_ty_of_name(tyname));
+            // The DECLARED name, not just its class: a `u64` field must not
+            // come back out of the emitter as `i64` (ADR 0024 S3).
+            t.set_ty_named(fnm, tyname);
         }
         i = i + (1 as u64);
     }

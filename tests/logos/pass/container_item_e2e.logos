@@ -62,7 +62,7 @@ fn main() -> i32 {
     c.append(25u64);
     c.append(7u64);
     c.append(42u64);
-    let rows: Vec<(i64, i64)> = match big(&c)
+    let rows: Vec<(i64, u64)> = match big(&c)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     if rows.len() != 2i64 { return 2i32; }
     // Set semantics — assert membership, not order.
@@ -70,9 +70,9 @@ fn main() -> i32 {
     let mut seen42: bool = false;
     let mut i: i64 = 0i64;
     while i < rows.len() {
-        let r: (i64, i64) = rows.get(i);
-        if r.0 == 1i64 && r.1 == 25i64 { seen25 = true; }
-        else if r.0 == 3i64 && r.1 == 42i64 { seen42 = true; }
+        let r: (i64, u64) = rows.get(i);
+        if r.0 == 1i64 && r.1 == 25u64 { seen25 = true; }
+        else if r.0 == 3i64 && r.1 == 42u64 { seen42 = true; }
         else { return 3i32; }
         i = i + 1i64;
     }

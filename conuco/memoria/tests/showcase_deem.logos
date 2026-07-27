@@ -101,7 +101,34 @@ fn kind_of(ms: &MemorySnapshot, ctr_id: u64) -> String {
     return out;
 }
 
-fn report(label: str, rows: &Vec<(i64, i64)>) {
+// Generic over the VALUE column: the same query over two families now
+// yields two row types, because the relation carries each container's own
+// column types instead of casting both to i64 (ADR 0024 S2/S3).
+// One query now yields as many ROW TYPES as there are families it serves —
+// each carrying its container's own column types instead of everything being
+// cast to i64 (ADR 0024 S2/S3). One printer per shape: there is no
+// `Into<i64>` in the stdlib to write a single generic one over.
+fn report(label: str, rows: &Vec<(i64, u64)>) {
+    let mut line: String = String::new();
+    line.push_str("  ");
+    line.push_str(label);
+    line.push_str(" -> ");
+    line.push_i64(rows.len());
+    line.push_str(" row(s):");
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: (i64, u64) = rows.get(i);
+        line.push_str(" (");
+        line.push_i64(r.0);
+        line.push_str(",");
+        line.push_u64(r.1);
+        line.push_str(")");
+        i = i + 1i64;
+    }
+    println_string(&line);
+}
+
+fn report_i(label: str, rows: &Vec<(i64, i64)>) {
     let mut line: String = String::new();
     line.push_str("  ");
     line.push_str(label);
@@ -115,6 +142,26 @@ fn report(label: str, rows: &Vec<(i64, i64)>) {
         line.push_i64(r.0);
         line.push_str(",");
         line.push_i64(r.1);
+        line.push_str(")");
+        i = i + 1i64;
+    }
+    println_string(&line);
+}
+
+fn report_kv(label: str, rows: &Vec<(u64, u64)>) {
+    let mut line: String = String::new();
+    line.push_str("  ");
+    line.push_str(label);
+    line.push_str(" -> ");
+    line.push_i64(rows.len());
+    line.push_str(" row(s):");
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: (u64, u64) = rows.get(i);
+        line.push_str(" (");
+        line.push_u64(r.0);
+        line.push_str(",");
+        line.push_u64(r.1);
         line.push_str(")");
         i = i + 1i64;
     }
@@ -135,12 +182,12 @@ fn run_all() -> i32 {
     }
 
     { let mut h: String = String::new(); h.push_str("one query, two element types:"); println_string(&h); }
-    let r64: Vec<(i64, i64)> = match above(&a)
+    let r64: Vec<(i64, u64)> = match above(&a)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     let ri64: Vec<(i64, i64)> = match above(&b)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
     report("Vector<u64>", &r64);
-    report("Vector<i64>", &ri64);
+    report_i("Vector<i64>", &ri64);
     if r64.len() != 6i64 || ri64.len() != 6i64 { return 3i32; }
 
     // ── §3 a store that describes itself ────────────────────────────────────
@@ -174,19 +221,19 @@ fn run_all() -> i32 {
 
     // ── §4 the query, over that same store-backed map ───────────────────────
     { let mut h: String = String::new(); h.push_str("the query, over a container in the store:"); println_string(&h); }
-    let big: Vec<(i64, i64)> = match big_vals(&led)
+    let big: Vec<(u64, u64)> = match big_vals(&led)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
-    report("Ledger (val > 1400)", &big);
+    report_kv("Ledger (val > 1400)", &big);
     // keys 0..499 with val = key*3 ⇒ val > 1400 ⟺ key ≥ 467: 33 rows.
     if big.len() != 33i64 { return 9i32; }
-    let b0: (i64, i64) = big.get(0i64);
-    if b0.0 != 467i64 || b0.1 != 467i64 * 3i64 { return 10i32; }
+    let b0: (u64, u64) = big.get(0i64);
+    if b0.0 != 467u64 || b0.1 != 467u64 * 3u64 { return 10i32; }
 
     // ── §5 the same answer, from a query that names nothing generated ───────
     { let mut h: String = String::new(); h.push_str("the same query, written against the CLASS:"); println_string(&h); }
-    let byc: Vec<(i64, i64)> = match big_vals_by_class(&led)
+    let byc: Vec<(u64, u64)> = match big_vals_by_class(&led)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
-    report("Ledger (by class)", &byc);
+    report_kv("Ledger (by class)", &byc);
     if byc.len() != big.len() { return 12i32; }
     let mut z: i64 = 0i64;
     while z < byc.len() {

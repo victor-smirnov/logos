@@ -1896,46 +1896,43 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// The full projection: ONE descent to the first entry, then a
             /// walk. The walk ends when the cursor falls off the end, so the
             /// producer never asks for `size()` and never re-descends per row.
-            pub fn #rowsfn(c: &#nm) -> Vec<(i64, i64)> {
-                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+            pub fn #rowsfn(c: &#nm) -> Vec<(#(kid), #(vo))> {
+                let mut out: Vec<(#(kid), #(vo))> = vec_new::<(#(kid), #(vo))>();
                 let mut cu: #cid = c.seek(0u64);
                 while cu.valid() {
-                    out.push((cu.key() as i64, cu.value() as i64));
+                    out.push((cu.key(), cu.value()));
                     cu = c.next(&cu);
                 }
                 return out;
             }
-            // The hub trait no longer FIXES the column types — the impl states
-            // them, and `<i64, i64>` here is a statement about this producer,
-            // not a limit of the plane. It still projects through i64 (which is
-            // where a stored `u64::MAX` becomes `-1`) because the EMITTER is
-            // untyped: it prints integer literals as i64 and derives the result
-            // row type from nothing. Flipping these to `#(kid)`/`#(vo)` is the
-            // first observable win of ADR 0024 S3, and it fails loudly today:
-            //   operator '>': type mismatch (u64 vs i64)
-            //   Vec__push arg 1: expected (i64, i64), got (u64, u64)
-            impl OrderedMapSource<i64, i64> for #nm { rel entry = #rowsfn; }
+            // The relation carries the container's OWN column types. It used
+            // to project through i64 — which is where a stored `u64::MAX`
+            // became `-1` — because the hub trait fixed the columns there and
+            // the emitter printed every integer literal as i64. Neither is true
+            // any more (ADR 0024 S2/S3): the impl states the types, and the
+            // emitter takes a literal's type from the column it is compared to.
+            impl OrderedMapSource<#(kid), #(vo)> for #nm { rel entry = #rowsfn; }
             /// The NARROWING producers. A plan that filters on the seek column
             /// calls one of these instead of the full scan above — the
             /// capability belongs to the FAMILY and is published once, rather
             /// than being written per query. Each returns a SUPERSET of its
             /// window (the entry at a rank may compare equal), which is all a
             /// narrowing may claim; the query keeps its own `where`.
-            pub fn #atfn(c: &#nm, k: #(kid)) -> Vec<(i64, i64)> {
-                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+            pub fn #atfn(c: &#nm, k: #(kid)) -> Vec<(#(kid), #(vo))> {
+                let mut out: Vec<(#(kid), #(vo))> = vec_new::<(#(kid), #(vo))>();
                 match c.find(k) {
-                    Option::Some(v) => { out.push(((k as i64), (v as i64))); }
+                    Option::Some(v) => { out.push((k, v)); }
                     Option::None => { }
                 }
                 return out;
             }
             /// A SUFFIX of the key order: land on the lower bound in one
             /// descent, then walk to the end.
-            pub fn #fromfn(c: &#nm, lo: #(kid)) -> Vec<(i64, i64)> {
-                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+            pub fn #fromfn(c: &#nm, lo: #(kid)) -> Vec<(#(kid), #(vo))> {
+                let mut out: Vec<(#(kid), #(vo))> = vec_new::<(#(kid), #(vo))>();
                 let mut cu: #cid = c.seek_key(lo);
                 while cu.valid() {
-                    out.push(((cu.key() as i64), (cu.value() as i64)));
+                    out.push((cu.key(), cu.value()));
                     cu = c.next(&cu);
                 }
                 return out;
@@ -1944,11 +1941,11 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// bound. Once the walk exists the end is expressed by the KEY, so
             /// this no longer descends for a rank first — the entries are
             /// visited in key order and the first one past `hi` ends it.
-            pub fn #uptofn(c: &#nm, hi: #(kid)) -> Vec<(i64, i64)> {
-                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+            pub fn #uptofn(c: &#nm, hi: #(kid)) -> Vec<(#(kid), #(vo))> {
+                let mut out: Vec<(#(kid), #(vo))> = vec_new::<(#(kid), #(vo))>();
                 let mut cu: #cid = c.seek(0u64);
                 while cu.valid() && cu.key() <= hi {
-                    out.push(((cu.key() as i64), (cu.value() as i64)));
+                    out.push((cu.key(), cu.value()));
                     cu = c.next(&cu);
                 }
                 return out;
@@ -2869,16 +2866,16 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
             use logos.mem.collections.vec;
             /// ONE descent to row 0, then a walk — the position comes off the
             /// cursor, so nothing here counts rows by hand.
-            pub fn #vrowsfn(c: &#nm) -> Vec<(i64, i64)> {
-                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+            pub fn #vrowsfn(c: &#nm) -> Vec<(i64, #(vt))> {
+                let mut out: Vec<(i64, #(vt))> = vec_new::<(i64, #(vt))>();
                 let mut cu: #cid = c.seek(0u64);
                 while cu.valid() {
-                    out.push(((cu.pos() as i64), (cu.value() as i64)));
+                    out.push(((cu.pos() as i64), cu.value()));
                     cu = c.next(&cu);
                 }
                 return out;
             }
-            impl PositionalSource<i64> for #nm { rel row = #vrowsfn; }
+            impl PositionalSource<#(vt)> for #nm { rel row = #vrowsfn; }
         };
         unsafe { logos_emit_item_blob_subst(&pq); }
     }

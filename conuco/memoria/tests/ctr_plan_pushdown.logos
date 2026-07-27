@@ -14,7 +14,9 @@
 // prove the plan compiler agrees with itself.
 //
 // The seeded data includes the case a sentinel cannot express: a key whose
-// value IS u64::MAX. A pushdown built on `get_or` would report it as missing.
+// value IS u64::MAX. A pushdown built on `get_or` would report it as missing —
+// and, until the relation carried the container's own column types, so would
+// the projection: it cast through i64 and the value came back as -1.
 package test;
 
 use logos.lcm.canon.container_item;
@@ -46,7 +48,7 @@ pub deem after_250<K, V>(m: Ledger<K, V>) { from m e where e.key > 250 select (e
 // …and the same window written with the literal FIRST, which reads as `key <`
 pub deem before_50<K, V>(m: Ledger<K, V>) { from m e where 50 > e.key select (e.key, e.val) }
 
-fn same(a: &Vec<(i64, i64)>, b: &Vec<(i64, i64)>) -> bool {
+fn same(a: &Vec<(u64, u64)>, b: &Vec<(u64, u64)>) -> bool {
     if a.len() != b.len() { return false; }
     let mut i: i64 = 0i64;
     while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
@@ -65,63 +67,66 @@ fn run_all() -> i32 {
     // The reference, walked through the container's own cursor — inline,
     // because naming the family's handle type is precisely what this arc
     // removed, and a test may not reach for what a user cannot write.
-    let mut want: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut want: Vec<(u64, u64)> = vec_new::<(u64, u64)>();
     {
         let n: u64 = m.size();
         let mut i: u64 = 0u64;
         while i < n {
             let cu = m.seek(i);
             if cu.valid() && cu.key() == 7u64 {
-                want.push((cu.key() as i64, cu.value() as i64));
+                want.push((cu.key(), cu.value()));
             }
             i = i + 1u64;
         }
     }
 
-    let got: Vec<(i64, i64)> = match at_7(&m)
+    let got: Vec<(u64, u64)> = match at_7(&m)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     if !same(&got, &want) { return 2i32; }
     if got.len() != 1i64  { return 3i32; }
 
     // the sentinel case survived the narrowing
-    let r: (i64, i64) = got.get(0i64);
-    if r.0 != 7i64 { return 4i32; }
-    if r.1 != -1i64 { return 5i32; }        // u64::MAX as i64
+    let r: (u64, u64) = got.get(0i64);
+    if r.0 != 7u64 { return 4i32; }
+    // The stored value arrives INTACT. It used to be compared against -1:
+    // the relation was declared i64 by the hub trait, so the producer cast,
+    // and a data loss became an asserted invariant (ADR 0024 S2/S3).
+    if r.1 != 18446744073709551615u64 { return 5i32; }
 
     // absent key: the probe says no, and so does the reference
-    let none: Vec<(i64, i64)> = match at_999(&m)
+    let none: Vec<(u64, u64)> = match at_999(&m)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
     if none.len() != 0i64 { return 7i32; }
 
     // the un-narrowed sibling still answers correctly: val == 7 matches no row
     // (values are key*3, and 7 is not a multiple of 3)
-    let byval: Vec<(i64, i64)> = match val_7(&m)
+    let byval: Vec<(u64, u64)> = match val_7(&m)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
     if byval.len() != 0i64 { return 10i32; }
 
     // ── the range window, against a reference walk ──────────────────────────
-    let mut want_hi: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
-    let mut want_lo: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut want_hi: Vec<(u64, u64)> = vec_new::<(u64, u64)>();
+    let mut want_lo: Vec<(u64, u64)> = vec_new::<(u64, u64)>();
     {
         let n2: u64 = m.size();
         let mut i2: u64 = 0u64;
         while i2 < n2 {
             let cu2 = m.seek(i2);
             if cu2.valid() {
-                let row: (i64, i64) = (cu2.key() as i64, cu2.value() as i64);
+                let row: (u64, u64) = (cu2.key(), cu2.value());
                 if cu2.key() > 250u64 { want_hi.push(row); }
                 if cu2.key() < 50u64  { want_lo.push(row); }
             }
             i2 = i2 + 1u64;
         }
     }
-    let hi: Vec<(i64, i64)> = match after_250(&m)
+    let hi: Vec<(u64, u64)> = match after_250(&m)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
     if !same(&hi, &want_hi) { return 12i32; }
     if hi.len() != 49i64    { return 13i32; }      // keys 251..299
 
     // the reversed spelling narrows the OTHER way — `50 > e.key` is `key < 50`
-    let lo: Vec<(i64, i64)> = match before_50(&m)
+    let lo: Vec<(u64, u64)> = match before_50(&m)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
     if !same(&lo, &want_lo) { return 15i32; }
     if lo.len() != 50i64    { return 16i32; }      // keys 0..49
