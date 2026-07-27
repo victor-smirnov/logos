@@ -1495,7 +1495,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
-        plan_pick_ops(prm, &mut pick_argb);
+        plan_pick_ops(prm, &mut pick_argb, h);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
         // — recursion is legal, realized by the SCC fixpoint. Dep edges + the
@@ -1530,7 +1530,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
-        plan_pick_ops(prm, &mut pick_argb);
+        plan_pick_ops(prm, &mut pick_argb, h);
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
         }
@@ -1806,7 +1806,7 @@ fn pick_trace(rel: str, path: str, col: str, why: str) {
 // `argb` is FRAME-HELD by the caller: the narrowing constant's text outlives
 // this call as `rel_marg2`, and a local String here would leave a dangling view
 // the moment the frame goes — the same discipline nat_src_bufs follows.
-fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String) {
+fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String, h: &Writ) {
     if prm.src_root.is_null() { return; }
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
     match prog.entry_any().view::<RQuery>() {
@@ -1880,10 +1880,23 @@ fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String) {
                     }
                     prm.rel_mat[ri]   = prm.opc_fn[oi];
                     prm.rel_marg2[ri] = string_as_str(argb);
+                    // EXACTNESS APPLIED (ADR 0024 S6): when the operation
+                    // returns precisely the rows of THIS comparison, the
+                    // query's own filter re-tests what the source already
+                    // decided. Dropping it is a REWRITE of the plan — the plan
+                    // said "filter", the planner proved it redundant — and it
+                    // is sound only because the demand IS this comparison: the
+                    // picker matches a top-level comparison, never a
+                    // conjunction, so nothing else is riding on the predicate.
+                    let exact: bool = prm.rel_op_is_exact(oi, cmp);
+                    if exact {
+                        let fs: RQSimple = rq_fat_simple(prm.src_root.view::<RQProgram>().entry_any(), h);
+                        fs.has_where = false;
+                    }
                     pick_trace(sq.src_name, prm.opc_fn[oi], col,
-                               if prm.rel_op_is_exact(oi, cmp)
-                               { "the source declares an operation EXACT for that comparison" }
-                               else { "the source declares a covering operation; its rows are a superset, so the filter stays" });
+                               if exact
+                               { "an operation EXACT for that comparison — the residual filter is redundant and was dropped" }
+                               else { "a covering operation; its rows are a superset, so the filter stays" });
                 }
                 _ => { }
             }
