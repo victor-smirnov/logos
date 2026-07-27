@@ -4056,12 +4056,47 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     { extra_ok = false; break; }
                             }
                             if (!extra_ok) continue;
-                            std::string dest_bare = cname + "__" + method_tail;
+                            // A blanket may carry type params the RECEIVER cannot
+                            // bind: the OUTPUT param of
+                            // `impl<S, T: From<S>> Into<T> for S` is fixed by the
+                            // call's RESULT, not by self. Bind those by unifying
+                            // the template's return type against this call's.
+                            //
+                            // Without it the clone keeps `T` open and mlir-gen
+                            // reports `unresolved TypeVar 'T'` — which is what a
+                            // `.into()` through a generic fn's bound did, while the
+                            // same call written directly worked (there the expected
+                            // type reached the eager path).
+                            SubstMap bsubst;
+                            bsubst[bi.target_typevar] = inner_rt;
+                            {
+                                TypeRef tret = btmpl.ret_type(out_.type_pool.impl());
+                                TypeRef cret = subst_type(eref.type(out_.type_pool.impl()), s);
+                                if (tret && cret) unify_impl_target(cret, tret, bsubst);
+                            }
+                            // Every param must be bound; a partially-bound clone is
+                            // the failure this hook exists to avoid, so fall through
+                            // to the unchanged path rather than emit one.
+                            bool bp_all_bound = true;
+                            std::string extra_args;
+                            for (auto& tp : btmpl.type_params()) {
+                                if (tp.is_variadic()) continue;
+                                std::string tn(tp.name());
+                                auto bit = bsubst.find(tn);
+                                if (bit == bsubst.end()) { bp_all_bound = false; break; }
+                                if (tn == bi.target_typevar) continue;
+                                extra_args += "__";
+                                extra_args += type_str(TypeRef(bit->second));
+                            }
+                            if (!bp_all_bound) continue;
+                            // The extra bindings are part of the INSTANCE IDENTITY:
+                            // two calls differing only in the output type are two
+                            // functions, and one name for both would silently take
+                            // whichever was cloned first.
+                            std::string dest_bare = cname + "__" + method_tail + extra_args;
                             std::string dest = btmpl_pkg.empty()
                                 ? dest_bare : btmpl_pkg + "." + dest_bare;
                             if (!done_.count(dest)) {
-                                SubstMap bsubst;
-                                bsubst[bi.target_typevar] = inner_rt;
                                 done_.insert(dest);
                                 worklist_.push_back({dest, btmpl,
                                                      std::move(bsubst), {}, depth_ + 1, {}});

@@ -1,0 +1,44 @@
+// A blanket impl whose trait carries an OUTPUT type param, reached through a
+// generic function's BOUND.
+//
+//   impl<S, T: MkFrom<S>> Into2<T> for S
+//
+// `T` is fixed by the CALL's result, not by the receiver. The eager blanket
+// pass deliberately skips such methods ("those instantiate at the real call
+// site with full type_args"), and the lazy call-site hook bound only the SELF
+// param — so the clone kept `T` open and mlir-gen reported `unresolved TypeVar
+// 'T'`. Written DIRECTLY the same call worked, which is what made this look
+// like a bound-check problem rather than an instantiation one.
+//
+// The two bounds below differ ONLY in the output type. They must produce two
+// distinct functions: if the instance name ignored the bound param, one call
+// would silently take the other's clone and the arithmetic would agree with
+// the wrong one.
+package test;
+
+pub trait MkFrom<S> { fn mk_from(v: &S) -> Self; }
+pub trait Into2<T>  { fn into2(&self) -> T; }
+
+impl<S, T: MkFrom<S>> Into2<T> for S {
+    fn into2(&self) -> T { return T::mk_from(self); }
+}
+
+struct B { pub n: i64 }
+struct C { pub n: i64 }
+impl MkFrom<i64> for B { fn mk_from(v: &i64) -> B { return B { n: *v * 2i64 }; } }
+impl MkFrom<i64> for C { fn mk_from(v: &i64) -> C { return C { n: *v * 3i64 }; } }
+
+fn to_b<V: Into2<B>>(x: &V) -> i64 { let b: B = x.into2(); return b.n; }
+fn to_c<V: Into2<C>>(x: &V) -> i64 { let c: C = x.into2(); return c.n; }
+
+// The direct form, which always worked — kept so a regression that breaks it
+// while fixing the bound path is caught here rather than somewhere downstream.
+fn direct() -> i64 { let a: i64 = 7i64; let b: B = a.into2(); return b.n; }
+
+fn main() -> i32 {
+    let a: i64 = 5i64;
+    if to_b(&a)  != 10i64 { return 1i32; }
+    if to_c(&a)  != 15i64 { return 2i32; }
+    if direct()  != 14i64 { return 3i32; }
+    return 0i32;
+}

@@ -111,7 +111,7 @@ used only where a keyword is grammatically impossible (after `::`, after `.`, in
 a member/rel NAME position). That is a peg_gen feature, not a grammar tweak,
 which is why it is listed rather than done.
 
-## 9. A blanket trait's OUTPUT param is unresolved through a bound — OPEN
+## 9. A blanket trait's OUTPUT param is unresolved through a bound — CLOSED
 ##    (…and the diagnosis above it was wrong — see below)
 
 Originally recorded as "an unsatisfied bound reaches MLIR-gen with no
@@ -130,6 +130,14 @@ bound's trait args are not propagated into the blanket instantiation.
 Checks already run, so they are not repeated: explicit turbofish, inferred bare
 param, a param inside a compound type, a nonexistent trait in a bound, a
 user-defined parametrized trait — all diagnosed correctly.
+
+**FIXED.** The lazy call-site hook (`mono_clone.cpp`, G159-1) bound only the
+blanket's SELF param. It now also binds the remaining ones by unifying the
+template's return type against the call's, and those bindings are part of the
+INSTANCE NAME — two bounds differing only in the output type are two functions,
+and one name for both would have silently taken whichever cloned first. A clone
+that cannot bind every param falls through to the unchanged path rather than
+emitting a partial one. Test: `mono_blanket_output_param_via_bound`.
 
 **Why the first diagnosis was wrong — CLOSED.** An mlir_gen verification failure
 dumped the entire module to stderr: the cause printed on line 1, then ~12 000
