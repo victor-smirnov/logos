@@ -57,6 +57,7 @@ pub const ElTK_IDENT: i32 = 33i32;
 
 // ── Runtime preamble ───────────────────────────────────────────────────────
 pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }
+fn is_soft_ident(k: i32) -> bool { return k == ElTK_IDENT || k == ElTK_KW_FOR || k == ElTK_KW_IN || k == ElTK_KW_IF || k == ElTK_TRUE || k == ElTK_FALSE; }
 impl Token {
     pub fn text(self: &Token, src: str) -> str {
         return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };

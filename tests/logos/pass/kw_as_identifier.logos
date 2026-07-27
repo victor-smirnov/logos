@@ -1,0 +1,31 @@
+// A KEYWORD is a perfectly good NAME where no keyword may appear.
+//
+// The lexer emits a keyword token whenever the text matches, so `null` and
+// `tagged` were unusable as ordinary names everywhere — including positions
+// where the grammar could not accept a keyword anyway. Two consequences, both
+// real: `WAny::null()` could not be PARSED, so the public fn declared at
+// anyval.logos:79 was uncallable by anyone; and a rel could not be named
+// `tagged` (KW_TAGGED, for `&tagged<TS>`), which failed by pointing at the
+// NEXT member and read like a multi-rel parser bug.
+//
+// `IDENT_ANY` is the opt-in matcher — identifier OR word-like keyword — used
+// only in those positions. It replaces the per-keyword patching the grammar had
+// been doing: dedicated `KW_NEW` / `KW_NULL` alternatives, one per position.
+package test;
+
+use logos.lang.writ.anyval;
+
+// A rel named after a keyword, next to an ordinary one so the failure mode
+// (the error landing on the FOLLOWING member) would still be visible.
+pub trait Src {
+    rel plain(a: i64, b: i64);
+    rel tagged(t: i64, n: i64);
+    rel template(x: i64);
+}
+
+fn main() -> i32 {
+    // The uncallable public API, called.
+    let a: WAny = WAny::null();
+    if !a.is_null() { return 1i32; }
+    return 0i32;
+}

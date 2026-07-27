@@ -346,6 +346,28 @@ fn find_schema(cg: &Codegen, name: str) -> i64 {
 }
 
 // The field-type string for schema `sidx`'s field `fname` (empty if not found).
+// A token pattern that is entirely alnum/underscore and at least two chars —
+// i.e. a WORD keyword, whose text could equally be an identifier. Punctuation
+// and single characters are excluded.
+fn tok_pattern_is_word(pat: str) -> bool {
+    // Patterns arrive quoted ("fn") — compare the inside.
+    let n: i64 = pat.len();
+    let mut i: i64 = 0i64;
+    let mut lo: i64 = 0i64;
+    let mut hi: i64 = n;
+    if n >= 2i64 && str_byte_at(pat, 0i64) == 34u8 { lo = 1i64; hi = n - 1i64; }
+    if hi - lo < 2i64 { return false; }
+    i = lo;
+    while i < hi {
+        let c: u8 = str_byte_at(pat, i);
+        let ok: bool = (c >= 48u8 && c <= 57u8) || (c >= 65u8 && c <= 90u8)
+                    || (c >= 97u8 && c <= 122u8) || c == 95u8;
+        if !ok { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
 fn schema_field_type(cg: &Codegen, sidx: i64, fname: str) -> String {
     if sidx < 0i64 { return String::new(); }
     let nf: i64 = cg.schemas.borrow(sidx).fields.len();
@@ -1194,6 +1216,25 @@ fn emit_token_consts(cg: &mut Codegen, w: &mut CodeWriter) {
 fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     w.line("// ── Runtime preamble ───────────────────────────────────────────────────────");
     w.line("pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }");
+    // Is a token kind usable as an ordinary identifier? True for IDENT and for
+    // every WORD-LIKE keyword — a keyword's text is a perfectly good name in a
+    // position where no keyword may appear. Consumed by the IDENT_ANY matcher.
+    {
+        let mut pred: String = String::new();
+        pred.push_str("fn is_soft_ident(k: i32) -> bool { return k == TK_IDENT");
+        let nt: i64 = cg.tokens.len();
+        let mut ti: i64 = 0i64;
+        while ti < nt {
+            let tname: String = String::from(cg.tokens.borrow(ti).name.as_str());
+            let pat: String = String::from(cg.tokens.borrow(ti).pattern.as_str());
+            if tok_pattern_is_word(pat.as_str()) {
+                pred.push_str(" || k == TK_"); pred.push_str(tname.as_str());
+            }
+            ti = ti + 1i64;
+        }
+        pred.push_str("; }");
+        w.line(pred.as_str());
+    }
     w.line("impl Token {");
     w.line("    pub fn text(self: &Token, src: str) -> str {");
     w.line("        return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };");
@@ -2844,7 +2885,17 @@ fn emit_item(cg: &mut Codegen, w: &mut CodeWriter, item_idx: i64, capn: i64, use
     if kind == TOKEN_REF {
         if !emit_pseudo_match(w, iname.as_str(), cap.as_str(), "lex.reset(sp, sln); return NULLP;") {
             let mut cond: String = String::new();
-            cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
+            if str_eq(iname.as_str(), "IDENT_ANY") {
+                // IDENT_ANY — an identifier OR a word-like keyword. A reserved
+                // matcher NAME, not a lexed token: the lexer emits a keyword
+                // whenever the text matches, so words like `null` and `tagged`
+                // are unusable as ordinary names even where no keyword may
+                // appear. Used only in those positions, so nothing that relies
+                // on IDENT failing for a keyword changes. Mirrors peg_gen_cpp.
+                cond.push_str("if !is_soft_ident(lex.peek().kind)");
+            } else {
+                cond.push_str("if lex.peek().kind != TK_"); cond.push_str(iname.as_str());
+            }
             cond.push_str(" { lex.reset(sp, sln); return NULLP; }");
             w.line(cond.as_str());
             let mut tl: String = String::new();

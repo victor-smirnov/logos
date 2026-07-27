@@ -60,6 +60,7 @@ pub const WqTK_IDENT: i32 = 33i32;
 
 // ── Runtime preamble ───────────────────────────────────────────────────────
 pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }
+fn is_soft_ident(k: i32) -> bool { return k == WqTK_IDENT || k == WqTK_KW_REL || k == WqTK_KW_FROM || k == WqTK_KW_WHERE || k == WqTK_KW_SELECT || k == WqTK_KW_ANTI || k == WqTK_KW_JOIN || k == WqTK_KW_ON || k == WqTK_KW_GROUP || k == WqTK_KW_BY || k == WqTK_KW_AGGREGATE || k == WqTK_KW_HAVING || k == WqTK_KW_DISTINCT || k == WqTK_KW_FIRST || k == WqTK_KW_FIND || k == WqTK_KW_ORDER || k == WqTK_KW_DESC || k == WqTK_KW_LIMIT; }
 impl Token {
     pub fn text(self: &Token, src: str) -> str {
         return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };

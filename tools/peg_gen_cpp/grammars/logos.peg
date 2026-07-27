@@ -1344,9 +1344,9 @@
     deem_def     <- IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
                  => { CODE: DEEM_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RAW_TEXT: $7 }
 
-    rel_sig  <- IDENT IDENT LPAREN param_list? RPAREN SEMI
+    rel_sig  <- IDENT IDENT_ANY LPAREN param_list? RPAREN SEMI
              => { CODE: REL_SIG, REL_KW: $1, NAME: $2, PARAMS: $4 }
-    rel_bind <- IDENT IDENT ASSIGN HASH IDENT SEMI
+    rel_bind <- IDENT IDENT_ANY ASSIGN HASH IDENT SEMI
              => { CODE: REL_BIND, REL_KW: $1, NAME: $2, NAME_VAR: $5 }
               / IDENT IDENT ASSIGN IDENT SEMI
              => { CODE: REL_BIND, REL_KW: $1, NAME: $2, VALUE: $4 }
@@ -3548,7 +3548,7 @@
               => { CODE: GENERIC_CALL, CALLEE: $4, RECEIVER: $1, QUAL_PARTS: $2, TYPE_PARAMS: $7, ARGS: $10 }
                / IDENT path_dot_ident+ COLONCOLON IDENT LPAREN call_arg_list? RPAREN
               => { CODE: CALL, CALLEE: $4, RECEIVER: $1, QUAL_PARTS: $2, ARGS: $6 }
-               / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON IDENT LPAREN call_arg_list? RPAREN
+               / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON IDENT_ANY LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
                / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
@@ -3568,9 +3568,9 @@
                // generics), distinct from `Type::<T>::method(...)` (turbofish on
                // the type). TYPE_PARAMS are the method's args; sema applies them
                // to the associated fn. Must precede the plain `Type::method(...)`.
-               / IDENT COLONCOLON IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+               / IDENT COLONCOLON IDENT_ANY COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, TYPE_PARAMS: $6, ARGS: $9 }
-               / IDENT COLONCOLON IDENT  LPAREN call_arg_list? RPAREN
+               / IDENT COLONCOLON IDENT_ANY  LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }
                / IDENT COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }

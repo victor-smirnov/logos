@@ -98,7 +98,7 @@ A duplicate I introduced the same day, in `codegen` and `el`. Kept the one in
 REPRESENTATIVE, and calling it `el_ty_name` is what made losing column widths
 look reasonable.
 
-## 8. Keywords are rejected wherever an identifier is expected — OPEN
+## 8. Keywords are rejected wherever an identifier is expected — CLOSED
 
 Two confirmed instances: `WAny::null()` cannot be parsed (`null` is `KW_NULL`,
 and the public fn at `anyval.logos:79` is therefore uncallable by anyone), and a
@@ -106,10 +106,16 @@ rel cannot be named `tagged` (`KW_TAGGED`, for `&tagged<TS>`). The diagnostic
 points at the punctuation, not the name, which is why the second one read like a
 multi-rel parser bug and cost a long bisection.
 
-The general fix is an opt-in token class — "identifier or word-like keyword" —
-used only where a keyword is grammatically impossible (after `::`, after `.`, in
-a member/rel NAME position). That is a peg_gen feature, not a grammar tweak,
-which is why it is listed rather than done.
+**FIXED** with the opt-in matcher `IDENT_ANY` — identifier OR word-like keyword
+— a reserved matcher NAME in both peg_gen backends (like `RAW_GROUP_*`), not a
+lexed token. Used only where a keyword is grammatically impossible: the method
+name after `::`, and a rel's name. Nothing that relies on `IDENT` failing for a
+keyword changes.
+
+Worth noting what it replaces: the grammar already carried dedicated `KW_NEW` /
+`KW_NULL` alternatives — 46 mentions — one per keyword per position. That is the
+same under-generalization this audit is about, and it had been paid for by hand
+each time a keyword collided with a name someone wanted.
 
 ## 9. A blanket trait's OUTPUT param is unresolved through a bound — CLOSED
 ##    (…and the diagnosis above it was wrong — see below)

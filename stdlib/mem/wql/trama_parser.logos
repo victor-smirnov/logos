@@ -47,6 +47,7 @@ pub const TrTK_TEXT: i32 = 20i32;
 
 // ── Runtime preamble ───────────────────────────────────────────────────────
 pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }
+fn is_soft_ident(k: i32) -> bool { return k == TrTK_IDENT || k == TrTK_KW_IF || k == TrTK_KW_ELIF || k == TrTK_KW_ELSE || k == TrTK_KW_ENDIF || k == TrTK_KW_FOR || k == TrTK_KW_IN || k == TrTK_KW_ENDFOR || k == TrTK_KW_SET; }
 impl Token {
     pub fn text(self: &Token, src: str) -> str {
         return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };

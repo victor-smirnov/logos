@@ -1120,6 +1120,25 @@ private:
         if (!g_.tokens.empty()) {
             w.fmt("using TK = TK_{};", to_upper(g_.name));
             w.line("struct Token { TK kind; std::string_view text; uint32_t line = 0; };");
+            // Is a token kind usable as an ordinary identifier? True for IDENT
+            // and for every WORD-LIKE keyword: a keyword's text is a perfectly
+            // good name where no keyword may appear. Consumed by the IDENT_ANY
+            // matcher (see the TOKEN_REF case).
+            {
+                std::string arms;
+                for (const auto& t : g_.tokens) {
+                    std::string pat = std::string(unquote(t.pattern));
+                    if (pat.size() < 2) continue;
+                    bool is_word = std::all_of(pat.begin(), pat.end(), [](char ch) {
+                        return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_';
+                    });
+                    if (!is_word) continue;
+                    arms += " || k == TK::" + safe_tok_name(t.name);
+                }
+                w.line("static bool is_soft_ident(TK k) {");
+                w.fmt("    return k == TK::IDENT{};", arms);
+                w.line("}");
+            }
             if (g_.schema_mode()) {
                 // %schema value decoders. A `WAny`/scalar field encodes the RAW
                 // TEXT of the token that produced it, so the generated parser
@@ -2426,6 +2445,19 @@ private:
                 w.fmt("std::string_view rg_{0}_text;", cap);
                 w.fmt("if (!{0}(rg_{1}_text)) goto {2};", fn, cap, fail_label);
                 w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(rg_{0}_text).get().to_anyval();", cap);
+                break;
+            }
+            // IDENT_ANY — an identifier OR a word-like keyword. A reserved
+            // matcher name (like RAW_GROUP_*), not a lexed token: the lexer
+            // emits a keyword whenever the text matches, so `null`, `tagged`
+            // and friends are unusable as ordinary names even where a keyword
+            // is grammatically impossible — a path segment after `::`, a member
+            // name, a rel name. Used ONLY in those positions, so nothing that
+            // relies on IDENT failing for a keyword changes.
+            if (item.name == "IDENT_ANY") {
+                w.fmt("if (!is_soft_ident(peek_token().kind)) goto {};", fail_label);
+                w.fmt("Token tok_{0}_ = next_token();", cap);
+                w.fmt("[[maybe_unused]] AnyVal {0} = doc_.make_string(tok_{0}_.text).get().to_anyval();", cap);
                 break;
             }
             // Match token, intern text as arena string → AnyVal offset.
