@@ -37,8 +37,6 @@ use logos.lcm.canon.vocab;        // shared fact/verdict vocabulary (no bare str
 use logos.std.wql.wql_surface_parser;  // parse_program — the query, read on THIS side
 use logos.std.wql.plan;                // RQProgram / RQuery / RQSimple views
 use logos.std.wql.ir;                  // SExpr family + the comparison opcodes
-use logos.std.env;                     // var_is_set — the plan trace gate
-use logos.std.io;                      // eprintln_string
 use logos.mem.bt.ops;             // NOT used here — carries the MODULE-GRAPH edge
 use logos.lcm.canon.alg_kernel;   // the node stream-CRUD kernel generator
                                   // (ADR 0023 S4): the leaf's mutation
@@ -2937,6 +2935,33 @@ fn plan_decl_col(cs: &ContainerSpec, hub_col: str) -> str {
     return "";
 }
 
+// `LOGOS_TRACE_PLAN` — the plan trace's gate, and its output.
+//
+// NOT `use logos.std.env` / `use logos.std.io`: the module graph builds
+// logos-lcm BEFORE logos-std (stdlib/std/logos.module says `depends
+// logos-lcm`), so canon cannot import from it — a local build can mask that,
+// a clean one cannot. Both facilities are C symbols, so declaring them here
+// costs nothing and adds no module edge. (The `logos.std.wql.*` imports above
+// are fine: that PACKAGE lives under stdlib/mem, which lcm does depend on —
+// package names and modules are not the same thing.)
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+fn plan_trace_on() -> bool {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_TRACE_PLAN");
+    c.push_u8(0u8);
+    unsafe { return getenv(c.as_ptr()) != 0 as *const u8; }
+}
+
+fn plan_trace_line(s: &String) {
+    unsafe {
+        write(2i32, s.as_ptr(), s.len());
+        let nl: str = "\n";
+        write(2i32, nl.as_ptr(), 1i64);
+    }
+}
+
 // The declared TYPE of entry column `idx` — the family's surface is typed by
 // the declaration, so a producer calling into it must spell the same types.
 fn plan_col_ty(cs: &ContainerSpec, idx: i64) -> str {
@@ -3161,7 +3186,7 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
             _ => { }
         }
     }
-    if var_is_set("LOGOS_TRACE_PLAN") {
+    if plan_trace_on() {
         let mut ln: String = String::new();
         ln.push_str("[plan] "); ln.push_str(vis_name);
         ln.push_str(" over "); ln.push_str(family);
@@ -3178,7 +3203,7 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
             }
             ln.push_str(")");
         }
-        eprintln_string(&ln);
+        plan_trace_line(&ln);
     }
 
     // ── the narrowing producer ────────────────────────────────────────────
