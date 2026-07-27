@@ -625,6 +625,26 @@ static std::set<std::string> g_deem_plan_seen;
 // CFG hashes already drained, shared by every drain site.
 static std::unordered_set<uint64_t> g_early_drained_hashes;
 
+// Escape a string for a Logos string literal (the table render_ctfe_lit's
+// str case uses). Shared by every chunk renderer that splices text through a
+// metacall argument.
+static std::string esc_lit(std::string_view in) {
+    std::string out;
+    out.reserve(in.size() + 16);
+    for (char c : in) {
+        switch (c) {
+        case '\\': out += "\\\\"; break;
+        case '"':  out += "\\\""; break;
+        case '\n': out += "\\n";  break;
+        case '\r': out += "\\r";  break;
+        case '\t': out += "\\t";  break;
+        case '\0': out += "\\0";  break;
+        default:   out += c;      break;
+        }
+    }
+    return out;
+}
+
 // Render + emit one `metacall __container_factory(hash, cfg_src)` chunk per
 // undrained factory demand. Factored out of the driver's post-mono drain loop
 // so the SAME rendering serves every point a demand can be discovered — the
@@ -644,19 +664,7 @@ static int render_factory_chunks(const logos::compiler::lir::LProgram& prog,
         if (src_it == prog.wstatic_sources.end()) continue;
         char hex[17];
         std::snprintf(hex, sizeof hex, "%016llx", (unsigned long long)fd.cfg_hash);
-        std::string esc;
-        esc.reserve(src_it->second.size() + 16);
-        for (char c : src_it->second) {
-            switch (c) {
-            case '\\': esc += "\\\\"; break;
-            case '"':  esc += "\\\""; break;
-            case '\n': esc += "\\n";  break;
-            case '\r': esc += "\\r";  break;
-            case '\t': esc += "\\t";  break;
-            case '\0': esc += "\\0";  break;
-            default:   esc += c;      break;
-            }
-        }
+        std::string esc = esc_lit(src_it->second);
         std::string chunk;
         chunk += "package logos.gen;\n";
         chunk += "use logos.lcm.canon.container_item;\n";
@@ -729,18 +737,27 @@ static int render_deem_plan_chunks(const logos::compiler::lir::LProgram& prog,
             }
             flush(t.size());
         }
-        // The instantiated form is CONCRETE: the item's own type params are
-        // bound by the family and do not survive into it.
+        // The binding is DECIDED in Logos, not here. Which container
+        // operations a query should use is a join of its demands with the
+        // class's capabilities, and neither is readable from C++: the wql AST
+        // has no node constants on this side, and Canon's verdicts are computed
+        // in the handler. So this renders a metacall and hands over the pieces
+        // — the query, the family it runs against, and the class declaration
+        // whose facts the verdicts come from.
         std::string chunk;
-        chunk += "package " + (p.package.empty() ? std::string("main") : p.package) + ";\n";
-        chunk += "use logos.gen;\n";              // the generated family
-        chunk += "use logos.mem.bt.map;\n";       // the hub source trait
-        chunk += "use logos.std.wql.wql;\n";      // the deem handler
-        chunk += "use logos.mem.collections.vec;\n";
-        chunk += "use logos.lang.result;\n";
-        chunk += p.is_pub ? "pub deem " : "deem ";
-        chunk += p.name;
-        chunk += "(" + params + ") {" + p.query_text + "}\n";
+        chunk += "package logos.gen;\n";
+        chunk += "use logos.lcm.canon.container_item;\n";
+        chunk += "metacall __deem_bind(\"";
+        chunk += esc_lit(p.is_pub ? p.name : ("-" + p.name));
+        chunk += "\", \"";
+        chunk += esc_lit(params);
+        chunk += "\", \"";
+        chunk += esc_lit(p.query_text);
+        chunk += "\", \"";
+        chunk += esc_lit(family);
+        chunk += "\", \"";
+        chunk += esc_lit(p.class_spec);
+        chunk += "\");\n";
         if (logos_emit_source(chunk.c_str())) ++emitted;
     }
     return emitted;
@@ -6072,19 +6089,7 @@ int main(int argc, char** argv) {
         std::snprintf(hex, sizeof hex, "%016llx", (unsigned long long)fd.cfg_hash);
         // Escape the CFG source for a Logos string literal (same table as
         // render_ctfe_lit's str case).
-        std::string esc;
-        esc.reserve(src_it->second.size() + 16);
-        for (char c : src_it->second) {
-            switch (c) {
-            case '\\': esc += "\\\\"; break;
-            case '"':  esc += "\\\""; break;
-            case '\n': esc += "\\n";  break;
-            case '\r': esc += "\\r";  break;
-            case '\t': esc += "\\t";  break;
-            case '\0': esc += "\\0";  break;
-            default:   esc += c;      break;
-            }
-        }
+        std::string esc = esc_lit(src_it->second);
         std::string chunk;
         chunk += "package logos.gen;\n";
         chunk += "use logos.lcm.canon.container_item;\n";

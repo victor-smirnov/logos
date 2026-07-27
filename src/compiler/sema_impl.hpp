@@ -4579,6 +4579,9 @@ private:
     // non-empty entry, measure arities) — COMPLETENESS (ordered_map requires
     // measure(max(first key col))) is Canon's verdict, never sema's
     // (judge-not-doer, ADR 0020 §5).
+    // The one-line `k=v` serialization of a container DECLARATION, shared by
+    // the item's lowering and by a deem plan's record.
+    std::string   container_spec_line(const ContainerInfo& info) const;
     bool          reconstruct_container_def(writ::TinyMapView node,
                                             ContainerInfo& out,
                                             std::string& err);

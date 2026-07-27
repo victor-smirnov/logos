@@ -935,6 +935,9 @@ struct LProgram {
         std::string tparams;     // the item's own type-param list, verbatim
         std::string params_text; // the full parameter list, canonical syntax
         std::string query_text;  // the raw query body
+        std::string class_spec;  // the class DECLARATION, serialized — the
+                                 // binding needs its facts, and through them
+                                 // Canon's verdicts, at instantiation
         bool        is_pub = false;
         std::string file; int line = 0;   // the site, for diagnostics
     };

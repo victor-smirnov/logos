@@ -21928,19 +21928,12 @@ bool SemaChecker::reconstruct_container_clauses(writ::ArrayView carr,
 // the token-macro item seam to `__container_item`
 // (logos.std.canon.container_item), which builds the fact Writ doc and asks
 // Canon for verdicts. The compiler RECORDS; it never judges and never emits.
-void SemaChecker::lower_container_def(writ::TinyMapView node,
-                                      lir::LProgram& prog) {
-    node_line_ = get_line(node);   // errors point at THIS item, not at stale state
-    ContainerInfo info;
-    std::string err;
-    if (!reconstruct_container_def(node, info, err)) {
-        error(err);
-        return;
-    }
-    const std::string cname = info.name;
-
-    // ── the spec string (compiler → handler): one line, `|`-separated `k=v`
-    // (values never contain `|`), fixed key order.
+// ONE spec serializer. The container item's lowering builds it for the
+// handler, and a `deem` PLAN carries it too — the plan's binding needs the
+// class's facts (and through them Canon's verdicts) at instantiation, and two
+// copies of this format would diverge silently, which is the exact failure the
+// vocabulary in vocab.logos exists to prevent on the other side of the seam.
+std::string SemaChecker::container_spec_line(const ContainerInfo& info) const {
     std::string spec = std::format("pub={}|generics={}|gnames=",
                                    info.is_pub ? 1 : 0, info.generics_src);
     for (size_t i = 0; i < info.generic_names.size(); ++i) {
@@ -22027,6 +22020,21 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
     // whole-source chunk via logos_emit_source, which needs an explicit
     // `package <pkg>;` (unlike the quote-blob emitters, which inherit it).
     spec += std::format("|pkg={}", info.package);
+    return spec;
+}
+
+void SemaChecker::lower_container_def(writ::TinyMapView node,
+                                      lir::LProgram& prog) {
+    node_line_ = get_line(node);   // errors point at THIS item, not at stale state
+    ContainerInfo info;
+    std::string err;
+    if (!reconstruct_container_def(node, info, err)) {
+        error(err);
+        return;
+    }
+    const std::string cname = info.name;
+
+    const std::string spec = container_spec_line(info);
 
     // Register (idempotent overwrite — the lower_module_items pre-scan
     // already did this for source-level containers; macro-GENERATED ones in
@@ -22365,6 +22373,7 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
             p.tparams     = tparams_text;
             p.params_text = params_text;
             p.query_text  = raw_text;
+            p.class_spec  = container_spec_line(*class_src);
             p.is_pub      = is_pub_plan;
             p.file        = file_;
             p.line        = node_line_;

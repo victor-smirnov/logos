@@ -2852,6 +2852,64 @@ fn cfg_read_type_slot(src: str, at: i64) -> str {
     return "";
 }
 
+// ── the deem PLAN's binding (slice 3.0) ─────────────────────────────────────
+//
+// A `deem` whose source binds a container CLASS is compiled where the class
+// meets its type arguments. The driver used to render that binding itself, in
+// C++ — which put the decision in the one place that CANNOT make it: choosing
+// which container operations a query should use is a join of the query's
+// demands with the class's CAPABILITIES, and neither side is readable there
+// (the wql AST has no C++ node constants, and Canon's verdicts are computed
+// here). So the driver now renders a metacall to THIS, and the decision has a
+// home.
+//
+// Today it does exactly what the driver did: re-emit the query as an ordinary
+// `deem` over the family handle, whose materializer is the family's own
+// full-scan projection. `spec` is the class declaration, carried so the facts
+// — and through them the verdicts — are available; slice 3.1 starts reading
+// them. A leading `-` on `name` marks a non-pub query (the params.logos
+// convention).
+pub fn __deem_bind(name: str, params: str, query: str, family: str,
+                   spec: str) -> ItemList {
+    let out: ItemList = item_list_new();
+    if name.len() == 0i64 || family.len() == 0i64 {
+        error("deem bind: empty query name or family (driver seam regression?)");
+        return out;
+    }
+    // The spec must still describe the class it came from — this is the seam
+    // where a serialization drift would otherwise surface much later, as a
+    // wrong verdict rather than a broken string.
+    let facts: Writ = container_facts(family, spec);
+    let froot: WAny = facts.root();
+    if froot.is_null() || !froot.is_map() {
+        error("deem bind: the class spec did not reconstruct into facts (spec drift?)");
+        return out;
+    }
+
+    let mut cs: ContainerSpec = container_spec_new();
+    if !parse_container_spec(spec, &mut cs) {
+        error("deem bind: malformed class spec (driver seam regression?)");
+        return out;
+    }
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_into(cs.pkg);
+    em.push_text("use logos.gen; use logos.mem.bt.map; use logos.std.wql.wql; ");
+    em.push_text("use logos.mem.collections.vec; use logos.lang.result; ");
+    // `-`-prefixed name = non-pub (the params.logos convention), spelled out
+    // here rather than imported: canon must not depend on the wql surface.
+    let priv0: bool = str_byte_at(name, 0i64) == 45u8;
+    if priv0 { em.push_text("deem "); } else { em.push_text("pub deem "); }
+    em.push_text(if priv0 { unsafe { cf_sub(name, 1i64, name.len()) } } else { name });
+    em.push_text("(");
+    em.push_text(params);
+    em.push_text(") {");
+    em.push_text(query);
+    em.push_text("}\n");
+    em.commit();
+    return out;
+}
+
 pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
     let out: ItemList = item_list_new();
     if hash_hex.len() == 0i64 {
