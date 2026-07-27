@@ -1833,9 +1833,19 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         rows_s.push_str("__ctr_rows_");
         rows_s.push_str(name);
         let rowsfn: Ident = Ident::new(rows_s.as_str());
+        let mut at_s: String = String::new();
+        at_s.push_str("__ctr_at_"); at_s.push_str(name);
+        let atfn: Ident = Ident::new(at_s.as_str());
+        let mut from_s: String = String::new();
+        from_s.push_str("__ctr_from_"); from_s.push_str(name);
+        let fromfn: Ident = Ident::new(from_s.as_str());
+        let mut upto_s: String = String::new();
+        upto_s.push_str("__ctr_upto_"); upto_s.push_str(name);
+        let uptofn: Ident = Ident::new(upto_s.as_str());
         let pq: QuoteItemBlob = quote_item! {
             use logos.mem.bt.map;             // trait OrderedMapSource — the hub rel
             use logos.mem.collections.vec;
+            use logos.lang.option;            // Option — absence, from `find`
             pub fn #rowsfn(c: &#nm) -> Vec<(i64, i64)> {
                 let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
                 let n: u64 = c.size();
@@ -1850,6 +1860,44 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 return out;
             }
             impl OrderedMapSource for #nm { rel entry = #rowsfn; }
+            /// The NARROWING producers. A plan that filters on the seek column
+            /// calls one of these instead of the full scan above — the
+            /// capability belongs to the FAMILY and is published once, rather
+            /// than being written per query. Each returns a SUPERSET of its
+            /// window (the entry at a rank may compare equal), which is all a
+            /// narrowing may claim; the query keeps its own `where`.
+            pub fn #atfn(c: &#nm, k: #(kid)) -> Vec<(i64, i64)> {
+                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+                match c.find(k) {
+                    Option::Some(v) => { out.push(((k as i64), (v as i64))); }
+                    Option::None => { }
+                }
+                return out;
+            }
+            pub fn #fromfn(c: &#nm, lo: #(kid)) -> Vec<(i64, i64)> {
+                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+                let n: u64 = c.size();
+                let mut i: u64 = c.rank_of(lo);
+                while i < n {
+                    let cu: #cid = c.seek(i);
+                    if cu.valid() { out.push(((cu.key() as i64), (cu.value() as i64))); }
+                    i = i + 1u64;
+                }
+                return out;
+            }
+            pub fn #uptofn(c: &#nm, hi: #(kid)) -> Vec<(i64, i64)> {
+                let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+                let n: u64 = c.size();
+                let mut e: u64 = c.rank_of(hi) + 1u64;
+                if e > n { e = n; }
+                let mut i: u64 = 0u64;
+                while i < e {
+                    let cu: #cid = c.seek(i);
+                    if cu.valid() { out.push(((cu.key() as i64), (cu.value() as i64))); }
+                    i = i + 1u64;
+                }
+                return out;
+            }
         };
         unsafe { logos_emit_item_blob_subst(&pq); }
     }
@@ -3206,70 +3254,26 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
         plan_trace_line(&ln);
     }
 
-    // ── the narrowing producer ────────────────────────────────────────────
-    // Only `point_get` is emitted today: one probe through `find`, which is the
-    // operation this plan compiler asked the family for (a sentinel cannot say
-    // "absent", and absence is the difference between one row and none).
-    // `range` is recognised but still scans — it wants a rank descent the
-    // handle does not expose yet.
+    // ── choose the family's narrowing producer ────────────────────────────
+    // Nothing is generated here any more: the family publishes one producer
+    // per narrowing shape, and a plan only picks which and supplies the
+    // constant. Deciding is the plan compiler's job; walking storage is the
+    // container's.
     let mut matfn: String = String::new();
-    if str_eq(strategy, "point_get") || str_eq(strategy, "range") {
-        matfn.push_str("__ctr_rows_");
-        matfn.push_str(vis_name);
-        matfn.push_str("_");
-        matfn.push_str(family);
-        // The CONCRETE column types come from the family's CONFIG, not from
-        // the class declaration — the declaration's are its type PARAMETERS
-        // (`entry=key:K:1`), and a producer calling into the family must spell
-        // what the family actually is.
+    if on_col.len() > 0i64 {
         let kty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
-        let vty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"value\""));
-        if kty.len() == 0i64 || vty.len() == 0i64 {
-            error("deem bind: family config has no readable key/value type slot");
+        if kty.len() == 0i64 {
+            error("deem bind: family config has no readable key type slot");
             return out;
         }
-        let mut lit_s: String = fmt_display_to_string(&key_lit);
-        lit_s.push_str(kty);
-        let mut mem: Emitter = Emitter::new();
-        mem.emit_into(cs.pkg);
-        mem.push_text("use logos.gen; use logos.mem.collections.vec; use logos.lang.option;\n");
-        mem.push_text("pub fn "); mem.push_text(matfn.as_str());
-        mem.push_text("(c: &"); mem.push_text(family);
-        mem.push_text(") -> Vec<(i64, i64)> {\n");
-        mem.push_text("    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();\n");
-        if str_eq(strategy, "point_get") {
-            mem.push_text("    let o: Option<"); mem.push_text(vty);
-            mem.push_text("> = c.find("); mem.push_text(lit_s.as_str()); mem.push_text(");\n");
-            mem.push_text("    match o {\n");
-            mem.push_text("        Option::Some(v) => { out.push(((");
-            mem.push_text(lit_s.as_str()); mem.push_text(") as i64, v as i64)); }\n");
-            mem.push_text("        Option::None => { }\n");
-            mem.push_text("    }\n");
-        } else {
-            // A half-open window around the rank. Both ends are DELIBERATELY
-            // loose by one: the entry at the rank may compare equal, and the
-            // query's own `where` decides. A narrowing may only ever return a
-            // superset — being generous here is what makes that true without
-            // reasoning about strictness.
-            mem.push_text("    let n: u64 = c.size();\n");
-            mem.push_text("    let r: u64 = c.rank_of("); mem.push_text(lit_s.as_str());
-            mem.push_text(");\n");
-            let asc: bool = key_op == OP_GT() || key_op == OP_GE();
-            if asc {
-                mem.push_text("    let mut i: u64 = r;\n");
-                mem.push_text("    while i < n {\n");
-            } else {
-                mem.push_text("    let mut hi: u64 = r + 1u64;\n");
-                mem.push_text("    if hi > n { hi = n; }\n");
-                mem.push_text("    let mut i: u64 = 0u64;\n");
-                mem.push_text("    while i < hi {\n");
-            }
-            mem.push_text("        let cu = c.seek(i);\n");
-            mem.push_text("        if cu.valid() { out.push((cu.key() as i64, cu.value() as i64)); }\n");
-            mem.push_text("        i = i + 1u64;\n    }\n");
-        }
-        mem.push_text("    return out;\n}\n");
-        mem.commit();
+        if str_eq(strategy, "point_get") { matfn.push_str("__ctr_at_"); }
+        else if key_op == OP_GT() || key_op == OP_GE() { matfn.push_str("__ctr_from_"); }
+        else { matfn.push_str("__ctr_upto_"); }
+        matfn.push_str(family);
+        matfn.push_str("#");                       // the narrowing constant
+        let lit_s: String = fmt_display_to_string(&key_lit);
+        matfn.push_str(lit_s.as_str());
+        matfn.push_str(kty);
     }
 
     let mut em: Emitter = Emitter::new();

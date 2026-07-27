@@ -1699,7 +1699,7 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
 // surfaced by the caller). `disp` = the rel's DECLARED name text (backed by
 // the caller's frame Strings).
 fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
-              mat: str, marg: str, module: str,
+              mat: str, marg: str, marg2: str, module: str,
               srcb: &mut String, dsrcb: &mut String) -> i64 {
     srcb.push_str("__rel_");
     srcb.push_str(disp);
@@ -1712,6 +1712,7 @@ fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
         prm.rel_native[idx] = true;
         prm.rel_mat[idx] = mat;
         prm.rel_marg[idx] = marg;
+        prm.rel_marg2[idx] = marg2;
         prm.rel_mod[idx] = module;
     }
     return idx;
@@ -1744,8 +1745,18 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // <matfn>[@<module>]:
         let s1: i64 = i;
         while i < n && str_byte_at(natspec, i) != 64u8
-              && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }           // '@' | ':'
+              && str_byte_at(natspec, i) != 35u8
+              && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }     // '@' | '#' | ':'
         let mat: str = pw_slice(natspec, s1, i);
+        // `#<arg>` — the narrowing constant, when this binding takes one.
+        let mut marg2: str = "";
+        if i < n && str_byte_at(natspec, i) == 35u8 {
+            i = i + 1i64;
+            let sa: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 64u8
+                  && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }
+            marg2 = pw_slice(natspec, sa, i);
+        }
         let mut module: str = "";
         if i < n && str_byte_at(natspec, i) == 64u8 {
             i = i + 1i64;
@@ -1783,7 +1794,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         rowtyb[k].push_str(")");
         // Single-column rows are the bare type, not a 1-tuple.
         let rowty: str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
-        let idx: i64 = reg_native(prm, regname, rowty, mat, marg, module,
+        let idx: i64 = reg_native(prm, regname, rowty, mat, marg, marg2, module,
                                   &mut srcb[k], &mut dsrcb[k]);
         if idx < 0i64 {
             error("wql!: too many rels (max 8, native source params included)");
@@ -1823,6 +1834,10 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
         prelude.push_str(prm.rel_mat[r]);
         prelude.push_str("(");
         prelude.push_str(prm.rel_marg[r]);
+        if prm.rel_marg2[r].len() > 0i64 {
+            prelude.push_str(", ");
+            prelude.push_str(prm.rel_marg2[r]);
+        }
         prelude.push_str(");\n");
         prelude.push_str("    let ");
         prelude.push_str(prm.rel_srcs[r]);
