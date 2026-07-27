@@ -1,0 +1,76 @@
+// ctr_map_find — the point lookup that can say NO.
+//
+// `get_or(key, sentinel)` answers a missing key with a value drawn from the
+// value domain, so a STORED value equal to that sentinel is indistinguishable
+// from absence. For a query filtering on equality the distinction is the whole
+// answer — one row or none — so the family grows `find(key) -> Option<V>`.
+//
+// The test is built around exactly the case the sentinel cannot cover: a key
+// whose stored value IS the sentinel anyone would reach for.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.mem.string;
+use logos.std.io;
+
+container Ledger<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let m = create_ctr::<typeof(Ledger::<u64, u64>)>(&snap, 1u64);
+
+    let sentinel: u64 = 18446744073709551615u64;   // u64::MAX — the obvious one
+    let mut k: u64 = 0u64;
+    while k < 200u64 { m.insert(k, k * 3u64); k = k + 1u64; }
+    m.insert(7u64, sentinel);                      // a value EQUAL to it
+
+    // present, ordinary value
+    let o1: Option<u64> = m.find(11u64);
+    match o1 {
+        Option::Some(v) => { if v != 33u64 { return 1i32; } }
+        Option::None    => { return 2i32; }
+    }
+    // ABSENT
+    let o2: Option<u64> = m.find(999u64);
+    match o2 {
+        Option::Some(_v) => { return 3i32; }
+        Option::None     => { }
+    }
+    // present, and its value is the sentinel — the case `get_or` cannot answer
+    let o3: Option<u64> = m.find(7u64);
+    match o3 {
+        Option::Some(v2) => { if v2 != sentinel { return 4i32; } }
+        Option::None     => { return 5i32; }
+    }
+    // …and here is `get_or` failing to distinguish them, which is why `find` exists
+    if m.get_or(7u64, sentinel) != m.get_or(999u64, sentinel) { return 6i32; }
+
+    // across a leaf split, the descent still lands right
+    let o4: Option<u64> = m.find(199u64);
+    match o4 {
+        Option::Some(v3) => { if v3 != 597u64 { return 7i32; } }
+        Option::None     => { return 8i32; }
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_map_find: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

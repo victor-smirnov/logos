@@ -42,6 +42,27 @@ pub fn bt_descend_get<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B
     return sentinel;
 }
 
+/// The same descent as `bt_descend_get`, but ABSENCE IS A VALUE. A sentinel
+/// cannot express it: the sentinel is drawn from the value domain, so a stored
+/// value equal to it is indistinguishable from a missing key. A query that
+/// filters on equality needs the distinction — it is the difference between
+/// "one row" and "no rows" — so the container grows the operation that carries
+/// it rather than the query guessing a value no user will store.
+pub fn bt_descend_find<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+    root: *mut u8, level: u32, key: K) -> Option<VOut> {
+    let mut node: *mut u8 = root;
+    let mut lvl: u32 = level;
+    while lvl > 0u32 {
+        let br: B = B::adopt(node);
+        node = br.child_addr(br.find_child(key));
+        lvl = lvl - 1u32;
+    }
+    let lf: L = L::adopt(node);
+    let p: u32 = lf.lower_bound(key);
+    if p < lf.count() && lf.key_at(p) == key { return Option::Some(lf.val_at(p)); }
+    return Option::None;
+}
+
 // ── insert result (shared by the plain and the CoW insert) ────────────────────
 
 /// The bottom-up insert report: the (possibly still-`node`) left result plus an

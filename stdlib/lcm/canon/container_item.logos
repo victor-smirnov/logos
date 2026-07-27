@@ -1604,11 +1604,24 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         use logos.mem.bt.meta;           // the container SCHEMA document plane
         use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
             use logos.mem.bt.ops;
+            use logos.lang.option;        // Option — absence, as a value
             impl #nm {
                 pub fn get_or(self: &#nm, key: #(kid), sentinel: #(vo)) -> #(vo) {
                     unsafe {
                         let e: DirEntry = self.ms().root_of(self.ctr_id);
                         return bt_descend_get::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key, sentinel);
+                    }
+                }
+                /// The point lookup that can say NO. `get_or` answers with a
+                /// sentinel drawn from the value domain, so a stored value
+                /// equal to it reads as a missing key — a distinction an
+                /// equality query needs, since it is the difference between
+                /// one row and none. Demanded by the plan compiler, which is
+                /// why it exists.
+                pub fn find(self: &#nm, key: #(kid)) -> Option<#(vo)> {
+                    unsafe {
+                        let e: DirEntry = self.ms().root_of(self.ctr_id);
+                        return bt_descend_find::<#(kid), #(vi), #(vo), #(lid), #(bid)>(e.root, e.level, key);
                     }
                 }
             }
