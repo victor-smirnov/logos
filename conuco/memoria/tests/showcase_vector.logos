@@ -20,6 +20,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.result;
 use logos.mem.string;
+use logos.mem.fmt;      // Display + the ToString blanket — one generic printer
 use logos.std.io;
 
 container Series<V> {
@@ -59,7 +60,7 @@ fn run_all() -> i32 {
     };
 
     report("Series<u64>", &ra);
-    report_i("Series<i64>", &rb);
+    report("Series<i64>", &rb);
 
     // values above 100 are positions 10..15, each val == (pos + 1) * 10
     if ra.len() != 6i64 || rb.len() != 6i64 { return 3i32; }
@@ -79,11 +80,12 @@ fn run_all() -> i32 {
 // Generic over the VALUE column: the same query over two families now
 // yields two row types, because the relation carries each container's own
 // column types instead of casting both to i64 (ADR 0024 S2/S3).
-// One query now yields as many ROW TYPES as there are families it serves —
-// each carrying its container's own column types instead of everything being
-// cast to i64 (ADR 0024 S2/S3). One printer per shape: there is no
-// `Into<i64>` in the stdlib to write a single generic one over.
-fn report(label: str, rows: &Vec<(i64, u64)>) {
+// ONE printer for every row shape. A query over N families now yields N row
+// types — each carrying its container's own column types (ADR 0024 S2/S3) —
+// and the printer is generic over both columns rather than duplicated per
+// shape: `Display` is implemented for every integer width, and the blanket
+// `impl<T: Display> ToString for T` turns that into `.to_string()`.
+fn report<K: Display + Copy, V: Display + Copy>(label: str, rows: &Vec<(K, V)>) {
     let mut line: String = String::new();
     line.push_str("  ");
     line.push_str(label);
@@ -92,36 +94,17 @@ fn report(label: str, rows: &Vec<(i64, u64)>) {
     line.push_str(" row(s):");
     let mut i: i64 = 0i64;
     while i < rows.len() {
-        let r: (i64, u64) = rows.get(i);
+        let r: (K, V) = rows.get(i);
         line.push_str(" (");
-        line.push_i64(r.0);
+        line.push_str(r.0.to_string().as_str());
         line.push_str(",");
-        line.push_u64(r.1);
+        line.push_str(r.1.to_string().as_str());
         line.push_str(")");
         i = i + 1i64;
     }
     println_string(&line);
 }
 
-fn report_i(label: str, rows: &Vec<(i64, i64)>) {
-    let mut line: String = String::new();
-    line.push_str("  ");
-    line.push_str(label);
-    line.push_str(" -> ");
-    line.push_i64(rows.len());
-    line.push_str(" row(s):");
-    let mut i: i64 = 0i64;
-    while i < rows.len() {
-        let r: (i64, i64) = rows.get(i);
-        line.push_str(" (");
-        line.push_i64(r.0);
-        line.push_str(",");
-        line.push_i64(r.1);
-        line.push_str(")");
-        i = i + 1i64;
-    }
-    println_string(&line);
-}
 
 fn main() -> i32 {
     let code: i32 = run_all();
