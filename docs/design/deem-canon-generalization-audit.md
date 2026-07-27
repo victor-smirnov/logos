@@ -111,13 +111,33 @@ used only where a keyword is grammatically impossible (after `::`, after `.`, in
 a member/rel NAME position). That is a peg_gen feature, not a grammar tweak,
 which is why it is listed rather than done.
 
-## 9. An unsatisfied trait bound reaches MLIR-gen — OPEN
+## 9. A blanket trait's OUTPUT param is unresolved through a bound — OPEN
+##    (…and the diagnosis above it was wrong — see below)
 
-`fn f<V: Into<i64>>(…)` compiles past sema and dies as `logosc: MLIR generation
-failed` with an IR dump and no diagnostic — and there is no `impl Into<i64>` for
-anything in the stdlib, so the bound is satisfiable by nothing. Bound checking
-must complete before mono; `check_type_bounds` and its quiet probe already
-exist, so some instantiation path is not consulting them.
+Originally recorded as "an unsatisfied bound reaches MLIR-gen with no
+diagnostic". Both halves were false, and the correction is the more useful
+entry.
+
+`fn f<V: Into<i64> + Copy>(x: V) -> i64 { return x.into(); }` fails for EVERY V,
+including `u8` where `impl From<u8> for i64` exists — so the bound is satisfied
+and this is not a bound-check gap. `Into` is blanket-derived
+(`impl<S, T: From<S>> Into<T> for S`); `T` is an OUTPUT param, fixed by the
+call's expected type. Mono instantiates blanket methods per concrete SELF, which
+resolves `S` and leaves `T` open. Called directly (`let b: i64 = a.into()`) the
+expected type fixes it; called through a generic fn whose BOUND fixes it, the
+bound's trait args are not propagated into the blanket instantiation.
+
+Checks already run, so they are not repeated: explicit turbofish, inferred bare
+param, a param inside a compound type, a nonexistent trait in a bound, a
+user-defined parametrized trait — all diagnosed correctly.
+
+**Why the first diagnosis was wrong — CLOSED.** An mlir_gen verification failure
+dumped the entire module to stderr: the cause printed on line 1, then ~12 000
+lines of IR. In scrollback that is indistinguishable from a silent crash, and I
+concluded the wrong thing from it with confidence. The module now goes to a
+file and the failure reads in six lines, naming the symbol that broke
+(`u8__into__g__S`) and the unresolved var. A buried diagnostic is not a
+diagnostic.
 
 ## 10. A `#[derive_hash]` type is not admissible as a rel column — OPEN
 

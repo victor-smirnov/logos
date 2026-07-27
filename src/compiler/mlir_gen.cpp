@@ -14,7 +14,9 @@
 #include "mlir_gen_impl.hpp"
 #include <chrono>
 #include <cstring>
+#include <algorithm>
 #include <cstdio>
+#include <llvm/Support/raw_ostream.h>
 #include <cstdlib>
 #include <deque>
 #include <functional>
@@ -667,8 +669,28 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     emit_debug_metadata(mod);
 
     if (mlir::failed(mlir::verify(mod))) {
+        // The module goes to a FILE, not to stderr. Dumping it inline buries
+        // the diagnostics that precede it — a real failure prints its cause on
+        // line 1 and then ~12k lines of IR, so the cause is invisible in
+        // scrollback and the reader concludes the compiler died silently. It
+        // is still written every time: when verification fails the module is
+        // exactly what one needs to look at.
+        const char* path = "logos-mlir-verify-fail.mlir";
+        std::string body;
+        {
+            llvm::raw_string_ostream os(body);
+            mod.print(os);
+        }
         std::fprintf(stderr, "mlir_gen: module verification failed\n");
-        mod.dump();
+        if (std::FILE* f = std::fopen(path, "w")) {
+            std::fwrite(body.data(), 1, body.size(), f);
+            std::fclose(f);
+            std::fprintf(stderr, "mlir_gen: module written to %s (%zu lines) — "
+                                 "the CAUSE is in the diagnostics above, not here\n",
+                         path, size_t(std::count(body.begin(), body.end(), '\n')) + 1);
+        } else {
+            std::fprintf(stderr, "mlir_gen: could not write %s\n", path);
+        }
         return nullptr;
     }
     pt.tick("verify");
