@@ -4650,11 +4650,27 @@ private:
         return sema_has_impl_recursive("Hash", ty, {}, seen);
     }
     void check_rel_column_types();
+    // ADR 0024 S6 — ONE declared access operation of a source.
+    //
+    // A planner used to know a family's operations by NAME CONVENTION
+    // (`__ctr_at_` / `__ctr_from_` / `__ctr_upto_`) and their applicability by
+    // a hardcoded rule, so a source offering a fourth shape had no way to say
+    // so and one offering two could not say that either. This is the source
+    // SAYING it: which column, which comparison it answers, what implements
+    // it, and whether the rows it returns are exactly the matches.
+    struct SourceRelOp {
+        std::string col;      // the column the operation keys on
+        std::string cmp;      // the comparison class: eq / ge / le / gt / lt
+        std::string fn;       // the implementing materializer
+        bool        exact = false;   // false = a SUPERSET; the query keeps its filter
+    };
+
     struct SourceRelBind {
         std::string trait_name;           // which trait declared the rel
         std::string rel;                  // trait rel name
         std::string mat_fn;               // materializer: fn(&T) -> Vec<RowTuple>
         std::string mat_module;           // its package (empty = resolve at use)
+        std::vector<SourceRelOp> ops;     // declared access operations (ADR 0024 S6)
         std::vector<TraitRelCol> cols;
     };
     std::unordered_map<std::string, std::vector<SourceRelBind>> source_impls_;

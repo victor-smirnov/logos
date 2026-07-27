@@ -1,0 +1,19 @@
+// An access operation must say which COMPARISON it answers, from the set a
+// planner can match a demand against (ADR 0024 S6). An unknown one is a typo
+// or a shape the plane does not model yet — either way it must be named, not
+// silently ignored, or the operation would be declared and never chosen.
+package test;
+
+use logos.mem.collections.vec;
+
+pub trait Rows<K, V> { rel item(k: K, v: V); }
+struct Led { pub xs: Vec<(i64, i64)> }
+pub fn led_all(l: &Led)  -> Vec<(i64, i64)> { return vec_new::<(i64, i64)>(); }
+pub fn led_near(l: &Led) -> Vec<(i64, i64)> { return vec_new::<(i64, i64)>(); }
+
+impl Rows<i64, i64> for Led {
+    rel item = led_all;
+    op item.k near = led_near;
+}
+
+fn main() -> i32 { return 0i32; }

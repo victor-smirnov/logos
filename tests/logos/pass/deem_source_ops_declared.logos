@@ -1,0 +1,39 @@
+// A source DECLARES its access operations (ADR 0024 S6).
+//
+// Until now a planner knew a family's operations by NAME CONVENTION
+// (`__ctr_at_` / `__ctr_from_` / `__ctr_upto_`) and their applicability by a
+// rule written for one container kind. A source offering a fourth shape had no
+// way to say so, and one offering two could not say that either — which is why
+// the positional family, whose `seek` is one descent, was scanned in full.
+//
+//   op <rel>.<col> <cmp> = <fn> [exact];
+//
+// `exact` is DECLARED, not derived from the comparison: `upto` stops ON the key
+// and is exact although it is a range, so "range ⇒ superset" would be wrong.
+// Absent means the operation returns a superset and the query keeps its filter.
+//
+// Nothing consumes these yet — this pins the declaration and its diagnostics.
+package test;
+
+use logos.mem.collections.vec;
+
+pub trait Rows<K, V> { rel item(k: K, v: V); }
+
+struct Led { pub xs: Vec<(i64, i64)> }
+
+pub fn led_all(l: &Led)  -> Vec<(i64, i64)> { return vec_new::<(i64, i64)>(); }
+pub fn led_at(l: &Led)   -> Vec<(i64, i64)> { return vec_new::<(i64, i64)>(); }
+pub fn led_from(l: &Led) -> Vec<(i64, i64)> { return vec_new::<(i64, i64)>(); }
+pub fn led_upto(l: &Led) -> Vec<(i64, i64)> { return vec_new::<(i64, i64)>(); }
+
+impl Rows<i64, i64> for Led {
+    rel item = led_all;
+    // A point probe returns exactly the matches…
+    op item.k eq = led_at  exact;
+    // …an open suffix returns a superset (the row AT the bound may not match)…
+    op item.k ge = led_from;
+    // …and a prefix that stops ON the bound is exact even though it is a range.
+    op item.k le = led_upto  exact;
+}
+
+fn main() -> i32 { return 0i32; }

@@ -3426,6 +3426,77 @@ void SemaChecker::collect_impl(TinyMapView node) {
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto m = map_of(items.get(i));
             if (try_append_doc(pending_doc_, m)) continue;
+            if (code_of(m) == la::REL_OP) {
+                // ADR 0024 S6: `op entry.key eq = __ctr_at_Hs…  exact;` — ONE
+                // access operation the source publishes. Collected onto the
+                // rel binding it names, so a planner reads what the source
+                // SAYS rather than guessing from a materializer's name.
+                std::string lead(str_of(m.get(la::REL_KW.code)));
+                if (lead != "op") {
+                    error(std::format(
+                        "impl for '{}': unexpected member '{} …' — an access "
+                        "operation is written `op <rel>.<col> <cmp> = <fn> "
+                        "[exact];`", target, lead));
+                    continue;
+                }
+                SourceRelOp so;
+                std::string rn(str_of(m.get(la::NAME.code)));
+                so.col = std::string(str_of(m.get(la::FIELD.code)));
+                so.cmp = std::string(str_of(m.get(la::OP.code)));
+                so.fn  = std::string(str_of(m.get(la::VALUE.code)));
+                std::string flag(m.has_key(la::RET_TYPE)
+                                 ? std::string(str_of(m.get(la::RET_TYPE.code)))
+                                 : std::string());
+                if (!flag.empty() && flag != "exact") {
+                    error(std::format(
+                        "impl for '{}': `op {}.{}` — unknown flag '{}'; the only "
+                        "one is `exact` (absent = the operation returns a "
+                        "SUPERSET and the query keeps its filter)",
+                        target, rn, so.col, flag));
+                    continue;
+                }
+                so.exact = (flag == "exact");
+                if (so.cmp != "eq" && so.cmp != "ge" && so.cmp != "le"
+                    && so.cmp != "gt" && so.cmp != "lt") {
+                    error(std::format(
+                        "impl for '{}': `op {}.{}` answers comparison '{}' — "
+                        "expected one of eq / ge / le / gt / lt",
+                        target, rn, so.col, so.cmp));
+                    continue;
+                }
+                bool bound_found = false;
+                for (auto& e : source_impls_[target])
+                    if (e.rel == rn) {
+                        bool dup = false;
+                        for (auto& prev : e.ops)
+                            if (prev.col == so.col && prev.cmp == so.cmp) {
+                                // Collect runs in several phases, so seeing the
+                                // same operation again is CONFIRMATION — the
+                                // same rule rel_bind already follows. Only a
+                                // conflicting redeclaration is an error.
+                                if (prev.fn != so.fn || prev.exact != so.exact)
+                                    error(std::format(
+                                        "impl for '{}': `op {}.{} {}` declared "
+                                        "twice with different meanings ('{}'{} "
+                                        "vs '{}'{}) — one operation per "
+                                        "(column, comparison)",
+                                        target, rn, so.col, so.cmp,
+                                        prev.fn, prev.exact ? " exact" : "",
+                                        so.fn, so.exact ? " exact" : ""));
+                                dup = true;
+                                break;
+                            }
+                        if (!dup) e.ops.push_back(std::move(so));
+                        bound_found = true;
+                        break;
+                    }
+                if (!bound_found)
+                    error(std::format(
+                        "impl for '{}': `op {}.{}` names no bound rel — declare "
+                        "`rel {} = <materializer>;` in this impl first",
+                        target, rn, so.col, rn));
+                continue;
+            }
             if (code_of(m) == la::REL_BIND) {
                 // ADR 0016 §6: `rel edge = writ_graph_edges;` — bind one
                 // trait rel to its native materializer for this type.
