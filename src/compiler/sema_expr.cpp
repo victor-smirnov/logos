@@ -21216,18 +21216,26 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
     }
     std::string spec;
     const bool single = (it->second.size() == 1);
+    // A deem item may name the materializer for THIS parameter itself
+    // (`#[deem_source(w = "…")]`). The relation is unchanged — same columns,
+    // same vocabulary — so nothing downstream shifts; only the function that
+    // produces the rows does, which is how a capability-directed plan swaps a
+    // full scan for a narrowed one.
+    auto ovr = deem_source_override_.find(std::string(pname));
+    const std::string* override_fn =
+        ovr == deem_source_override_.end() ? nullptr : &ovr->second;
     for (const auto& b : it->second) {
         // Registered rel name: the param itself carries a single-rel
         // vocabulary (`from g …`); a multi-rel one is param-prefixed
         // (`from e_trace t`). Preserves both pre-trait surfaces verbatim.
         spec += single ? pname : (pname + "_" + b.rel);
         spec += "=";
-        spec += b.mat_fn;
+        spec += override_fn ? *override_fn : b.mat_fn;
         // The emitted chunk imports the materializer's module — omitted when
         // it already lives in the consuming package (importing your own
         // package from a chunk is a cycle).
-        std::string mod = b.mat_module;
-        {
+        std::string mod = override_fn ? std::string() : b.mat_module;
+        if (!override_fn) {
             // Prefer the fn's REAL defining package when it is known — the
             // impl may bind an imported fn.
             auto ovit = func_overloads_.find(b.mat_fn);

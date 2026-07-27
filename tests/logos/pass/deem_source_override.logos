@@ -1,0 +1,52 @@
+// `#[deem_source(<param> = "<fn>")]` — a deem item names the materializer for
+// its own source instead of taking the one its source impl carries.
+//
+// This is the seam a capability-directed plan needs. A specialized scan is
+// still the SAME relation — same columns, same vocabulary — so nothing
+// downstream of the source shifts; only the function producing the rows does.
+//
+// It is also why a pushdown is safe to reason about: the narrowed producer
+// returns a SUPERSET of the matches, the query keeps its own `where`, and so
+// the answer cannot change. Asserted directly below — the two queries differ
+// only in where their rows come from, and must agree row for row.
+package test;
+use logos.lcm.canon.canon;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.io;
+use logos.mem.string;
+
+pub struct Col { pub n: i64 }
+pub trait ColSource { rel cell(pos: i64, val: i64); }
+pub fn col_all(c: &Col) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < c.n { out.push((i, i * 10i64)); i = i + 1i64; }
+    return out;
+}
+impl ColSource for Col { rel cell = col_all; }
+
+// a NARROWED producer: only the rows that can match `val > 100`
+pub fn col_big(c: &Col) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 11i64;
+    while i < c.n { out.push((i, i * 10i64)); i = i + 1i64; }
+    return out;
+}
+
+pub deem plain(c: &Col) { from c r where r.val > 100 select (r.pos, r.val) }
+
+#[deem_source(c = "col_big")]
+pub deem narrowed(c: &Col) { from c r where r.val > 100 select (r.pos, r.val) }
+
+fn main() -> i32 {
+    let c: Col = Col { n: 16i64 };
+    let a: Vec<(i64, i64)> = match plain(&c)    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    let b: Vec<(i64, i64)> = match narrowed(&c) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if a.len() != b.len() { return 3i32; }
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return 4i32; } i = i + 1i64; }
+    if a.len() != 5i64 { return 5i32; }
+    return 0i32;
+}

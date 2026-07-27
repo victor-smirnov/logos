@@ -4679,6 +4679,12 @@ private:
                                      std::string& enrich,
                                      std::string& natspec);
     void          lower_deem_def(writ::TinyMapView node, lir::LProgram& prog);
+    // `#[deem_source(<param> = "<materializer>")]` on a deem item: bind that
+    // parameter's rel to the NAMED materializer instead of the one its source
+    // impl carries. The seam a capability-directed plan needs — a specialized
+    // scan is still the same relation, so everything downstream is unchanged;
+    // only which function produces the rows differs. Empty = no override.
+    logos::compiler::StrMap<std::string> deem_source_override_;
 
     // Shared tail of the #[token_macro] ITEM path (pack arg blobs, synth the
     // JIT thunk, register the MetacallSiteStage); factored from

@@ -8843,6 +8843,28 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             continue;
         }
         if (c == la::DEEM_DEF) {
+            // `#[deem_source(w = "fn")]` — read from the annotations that
+            // precede this item, consumed by lower_deem_def below.
+            deem_source_override_.clear();
+            for (auto ann : pending_annots) {
+                if (!ann.has_key(la::NAME.code)) continue;
+                if (str_of(ann.get(la::NAME.code)) != "deem_source") continue;
+                if (!ann.has_key(la::ARGS.code)) continue;
+                auto am = map_of(ann.get(la::ARGS.code));
+                if (!am.has_key(la::ITEMS.code)) continue;
+                auto items_arr = arr_of(am.get(la::ITEMS.code));
+                for (uint64_t kk = 0; kk < items_arr.size(); ++kk) {
+                    auto a = map_of(items_arr.get(kk));
+                    if (code_of(a) != la::ANNOT_KV) continue;
+                    if (!a.has_key(la::NAME.code) || !a.has_key(la::VALUE.code)) continue;
+                    auto v = map_of(a.get(la::VALUE.code));
+                    if (code_of(v) != la::LIT_STR) continue;
+                    std::string raw(str_of(v.get(la::VALUE.code)));
+                    if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+                        raw = raw.substr(1, raw.size() - 2);
+                    deem_source_override_[std::string(str_of(a.get(la::NAME.code)))] = raw;
+                }
+            }
             // ADR 0016: `pub? deem q(params) { <query> }` — the item form of
             // `resource q = deem!(params){…}`; same handler, same seam.
             lower_deem_def(item, prog);
