@@ -21506,12 +21506,19 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
                         std::string cn(str_of(cp.get(la::NAME.code)));
                         std::string ct = render_type_src_syntactic_(
                             map_of(cp.get(la::TYPE.code)));
-                        if (ct != "i64" && ct != "str" && ct != "bool") {
+                        // Same requirement as a source trait's rel, checked
+                        // the same way (ADR 0024 S1/S2): a column is a join key
+                        // in a set of rows, so it must be hashable. This path
+                        // runs at lowering, after every impl is collected, so
+                        // the check is inline rather than deferred.
+                        if (!rel_col_type_hashable(ct)) {
                             out.err = std::format(
-                                "mapping '{}': rel '{}' column '{}' has type "
-                                "`{}` — rel columns are i64/str/bool (rows "
-                                "are set-deduplicated; the column type must "
-                                "be joinable/Eq)", mname, rn, cn, ct);
+                                "mapping '{}': rel '{}' column '{}: {}' — a rel "
+                                "column type must implement `Hash` (rows are "
+                                "set-deduplicated and columns are join keys). "
+                                "`{}` does not; derive it with #[derive(Hash)], "
+                                "or use a hashable column type",
+                                mname, rn, cn, ct, ct);
                             return false;
                         }
                         if (ncols) cols_text += ", ";

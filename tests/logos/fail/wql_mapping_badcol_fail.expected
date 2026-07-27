@@ -1,1 +1,1 @@
-rel columns are i64/str/bool
+must implement `Hash` (rows are set-deduplicated and columns are join keys)

@@ -700,6 +700,10 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
     // Deferred because impl Foo for T and impl Super for T may appear in any order.
     check_supertrait_impls();
 
+    // Same reason: a rel column's type must be hashable, and `impl Hash for T`
+    // may follow the trait that names T as a column (ADR 0024 S1/S2).
+    check_rel_column_types();
+
     // G3-tg-03: structural auto-Copy. After manual `impl Copy` entries are
     // collected, walk structs_ once more and promote any non-Drop struct
     // whose every field is itself Copy. Closes the most surprising Logos-
@@ -2754,6 +2758,8 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 }
                 TraitRelSig sig;
                 sig.rel = std::string(str_of(m.get(la::NAME.code)));
+                sig.file = file_;
+                sig.line = get_line(node);   // the trait's declaration
                 if (m.has_key(la::PARAMS)) {
                     auto cl = map_of(m.get(la::PARAMS.code));
                     if (!cl.is_null() && cl.has_key(la::ITEMS.code)) {
@@ -2764,14 +2770,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
                             std::string cn(str_of(cp.get(la::NAME.code)));
                             std::string ct = render_type_src_syntactic_(
                                 map_of(cp.get(la::TYPE.code)));
-                            if (ct != "i64" && ct != "str" && ct != "bool") {
-                                error(std::format(
-                                    "trait '{}': rel '{}' column '{}' has type "
-                                    "`{}` — rel columns are i64/str/bool (rows "
-                                    "are set-deduplicated; the column type must "
-                                    "be joinable/Eq)", tname, sig.rel, cn, ct));
-                                ct = "i64";   // recover, keep collecting
-                            }
+                            // The type is RECORDED here and JUDGED in the final
+                            // pass (check_rel_column_types): `impl Hash for T`
+                            // may be collected after this trait, and a check
+                            // that depends on declaration order is a diagnostic
+                            // that fires or not by accident.
                             sig.cols.push_back({cn, ct});
                         }
                     }
@@ -5503,6 +5506,46 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
 
 
 // ---------------------------------------------------------------------------
+// check_rel_column_types — deferred rel-column admissibility (ADR 0024 S1/S2).
+//
+// A rel is a SET of rows and its columns are join keys, so the requirement on a
+// column type is that it can be hashed and compared. That used to be spelled as
+// a three-name allowlist (`i64`/`str`/`bool`), which is neither the requirement
+// nor extensible: it rejected `u64` — forcing every generated container
+// producer to cast, so a stored `u64::MAX` arrived as `-1` — while admitting
+// nothing a user could bring.
+//
+// `Hash` is the requirement in checkable form. The stdlib implements it for
+// i8/i32/i64/u8/u32/u64/usize/bool/str and, correctly, not for floats: NaN
+// breaks both the hash-key contract and the total order a join needs. A user
+// type joins the query plane by deriving it — which is the extension path the
+// universal query compiler is built around.
+void SemaChecker::check_rel_column_types() {
+    // DRAIN BEFORE JUDGING. `#[derive_hash]` synthesizes `impl Hash for T` in a
+    // later metaprog round, so a check that runs while emission is still
+    // pending would reject exactly the types the user asked the compiler to
+    // make hashable. Nothing is lost by waiting: the round where nothing is
+    // pending is the round that judges.
+    if (!metaprog_pending_pkgs_.empty()) return;
+    for (auto& [tname, sigs] : trait_rels_) {
+        for (auto& sig : sigs) {
+            for (auto& col : sig.cols) {
+                if (col.ty.empty() || rel_col_type_hashable(col.ty)) continue;
+                // Restore the declaration's place — see TraitRelSig.
+                if (!sig.file.empty()) file_ = sig.file;
+                node_line_ = sig.line;
+                ctx_ = std::format("trait {}", tname);
+                error(std::format(
+                    "trait '{}': rel '{}' column '{}: {}' — a rel column type "
+                    "must implement `Hash` (rows are set-deduplicated and "
+                    "columns are join keys). `{}` does not; derive it with "
+                    "#[derive(Hash)], or use a hashable column type",
+                    tname, sig.rel, col.name, col.ty, col.ty));
+            }
+        }
+    }
+}
+
 // check_supertrait_impls — deferred supertrait impl completeness check
 //
 // For every registered impl "Trait::Type", walk Trait's supertrait chain and

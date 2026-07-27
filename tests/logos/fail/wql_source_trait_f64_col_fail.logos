@@ -1,4 +1,4 @@
-// ADR 0016 §6: rel columns are i64/str/bool — rows are set-deduplicated, so a
+// ADR 0016 §6: rel columns are hashable (rows are a set; columns are join keys) — rows are set-deduplicated, so a
 // column type must be joinable/Eq. f64 cannot be a rel column (the same honest
 // boundary as mapping rel columns; val_f64 is impossible as a rel).
 package test;

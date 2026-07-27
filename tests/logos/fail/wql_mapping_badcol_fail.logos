@@ -1,5 +1,6 @@
 // mapping ITEM (ADR 0016) — REL COLUMN TYPE diagnostic. Rel rows are
-// set-deduplicated, so column types must be joinable/Eq: i64/str/bool.
+// set-deduplicated and columns are join keys, so a column type must be
+// hashable — the requirement, not a fixed list of admissible names.
 // An f64 column must be rejected AT THE ITEM (sema lower_mapping_def),
 // naming the mapping, the rel, the column, and the offending type.
 package test;

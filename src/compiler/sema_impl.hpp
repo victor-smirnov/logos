@@ -4625,8 +4625,31 @@ private:
     // seeded here as the FIRST registrations of the open mechanism; they move
     // to stdlib declarations when cross-module decl-export lands.
     struct TraitRelCol { std::string name, ty; };
-    struct TraitRelSig { std::string rel; std::vector<TraitRelCol> cols; };
+    // `file`/`line` are the trait DECLARATION's place, carried because the
+    // column check is deferred to the final pass: by then the walk is over and
+    // the ambient diagnostic context belongs to whatever item happened to be
+    // last, which would attribute a rel error to an unrelated impl.
+    struct TraitRelSig { std::string rel; std::vector<TraitRelCol> cols;
+                         std::string file; uint32_t line = 0; };
     std::unordered_map<std::string, std::vector<TraitRelSig>> trait_rels_;
+
+    // ── rel COLUMN TYPES (ADR 0024 S1/S2) ────────────────────────────────
+    // A rel's rows are a SET (deduplicated) and its columns are join keys, so
+    // a column type must be hashable — that, and not membership of a fixed
+    // three-name list, is the actual requirement. `Hash` is the checkable form
+    // of it: the stdlib impls it for i8/i32/i64/u8/u32/u64/usize/bool/str and
+    // deliberately NOT for floats (NaN != NaN breaks both the hash key and the
+    // total order), which is exactly the admissible set. A user type joins by
+    // deriving it.
+    //
+    // Checked in the FINAL pass, never at collect time: `trait S { rel r(c: T) }`
+    // and `impl Hash for T` may appear in any order, and an order-dependent
+    // diagnostic is worse than none.
+    bool rel_col_type_hashable(const std::string& ty) {
+        logos::compiler::StrSet seen;
+        return sema_has_impl_recursive("Hash", ty, {}, seen);
+    }
+    void check_rel_column_types();
     struct SourceRelBind {
         std::string trait_name;           // which trait declared the rel
         std::string rel;                  // trait rel name

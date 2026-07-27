@@ -1,0 +1,49 @@
+// A rel column's type is admitted by its CAPABILITY, not by membership of a
+// three-name list (ADR 0024 S1/S2).
+//
+// A rel is a set of rows and its columns are join keys, so the requirement is
+// that a column can be hashed and compared. `u64` always could — it was
+// rejected only because the allowlist read `i64`/`str`/`bool`, which is why
+// every generated container producer had to cast and a stored `u64::MAX`
+// arrived as `-1`.
+//
+// The widening is checked across the width family. A user type that gains Hash
+// through `#[derive_hash]` is NOT yet admissible: the column check judges after
+// the item-macro drain but before annotation-triggered emission, so the derived
+// impl does not exist when it looks. That is the extension path the universal
+// query compiler needs, and it is a known gap, not a design limit — a
+// hand-written `impl Hash for T` is admitted today.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.std.compiler.metaprog;   // registers the #[derive_hash] trigger
+use logos.lang.hash;
+
+struct Tag { pub a: i64 }
+impl Hash for Tag {
+    fn hash<H: Hasher>(self: &Tag, h: &mut H) { self.a.hash::<H>(h); }
+}
+
+pub trait WideSource {
+    rel entry(key: u64, val: u32);
+    rel small(k: u8, ok: bool);
+    rel named(who: str, n: usize);
+    rel derived(t: Tag, n: i64);
+}
+
+struct Ledger { pub xs: Vec<(u64, u32)> }
+
+pub fn led_entry(l: &Ledger)  -> Vec<(u64, u32)>  { return vec_new::<(u64, u32)>(); }
+pub fn led_small(l: &Ledger)  -> Vec<(u8, bool)>  { return vec_new::<(u8, bool)>(); }
+pub fn led_named(l: &Ledger)  -> Vec<(str, usize)>{ return vec_new::<(str, usize)>(); }
+pub fn led_tagged(l: &Ledger) -> Vec<(Tag, i64)>  { return vec_new::<(Tag, i64)>(); }
+
+impl WideSource for Ledger {
+    rel entry  = led_entry;
+    rel small  = led_small;
+    rel named  = led_named;
+    rel derived = led_tagged;
+}
+
+fn main() -> i32 { return 0i32; }
