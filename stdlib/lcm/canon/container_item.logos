@@ -2927,6 +2927,45 @@ fn plan_decl_col(cs: &ContainerSpec, hub_col: str) -> str {
     return "";
 }
 
+// The declared TYPE of entry column `idx` — the family's surface is typed by
+// the declaration, so a producer calling into it must spell the same types.
+fn plan_col_ty(cs: &ContainerSpec, idx: i64) -> str {
+    let e: i64 = cs.entry.len();
+    let mut n: i64 = 0i64;
+    let mut a: i64 = 0i64;
+    while a <= e {
+        let b: i64 = cf_next_comma(cs.entry, a, e);
+        if n == idx {
+            let c1: i64 = cf_find(cs.entry, a, 58u8);
+            if c1 < 0i64 || c1 > b { return ""; }
+            let mut c2: i64 = b - 1i64;
+            while c2 > c1 && str_byte_at(cs.entry, c2) != 58u8 { c2 = c2 - 1i64; }
+            if c2 <= c1 { return ""; }
+            return unsafe { cf_sub(cs.entry, c1 + 1i64, c2) };
+        }
+        n = n + 1i64;
+        a = b + 1i64;
+    }
+    return "";
+}
+
+// The FIRST parameter's name in a rendered parameter list (`w: &Hs…, …`) —
+// the source the override attaches to.
+fn param_name_of(params: str) -> str {
+    let n: i64 = params.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(params, i);
+        if c == 58u8 || c == 44u8 { break; }
+        i = i + 1i64;
+    }
+    let mut e: i64 = i;
+    while e > 0i64 && str_byte_at(params, e - 1i64) == 32u8 { e = e - 1i64; }
+    let mut b: i64 = 0i64;
+    while b < e && str_byte_at(params, b) == 32u8 { b = b + 1i64; }
+    return unsafe { cf_sub(params, b, e) };
+}
+
 // The COLUMN a row-field access names. A plain `e.key` parses as an SField
 // with a NULL base whose `name` is the dotted path — the same shape
 // optimize.logos's name_refs classifies by its root — so the column is what
@@ -2956,7 +2995,8 @@ fn plan_field_col(e: SExpr) -> str {
 /// One comparison found in a predicate: the hub column it tests and how.
 /// `col` empty = no usable comparison, and `why` says which shape it was —
 /// the trace prints it, and slice 3.3 will want the same distinction.
-pub struct PlanCmp { pub col: str, pub op: i32, pub why: str }
+pub struct PlanCmp { pub col: str, pub op: i32, pub why: str,
+                    pub has_lit: bool, pub lit: i64 }
 
 // One comparison against a column: `<var>.<col> <op> <literal>`, in either
 // order. Only the SHAPE matters here — the value is slice 3.3's business.
@@ -2972,17 +3012,34 @@ fn plan_cmp_col(e: SExpr) -> PlanCmp {
             }
             if o != OP_EQ() && o != OP_LT() && o != OP_LE()
                && o != OP_GT() && o != OP_GE() {
-                return PlanCmp { col: "", op: 0i32, why: "not-a-comparison" };
+                return PlanCmp { col: "", op: 0i32, why: "not-a-comparison",
+                                 has_lit: false, lit: 0i64 };
             }
             let mut fld: str = "";
             fld = plan_field_col(b.lhs_expr());
             if fld.len() == 0i64 { fld = plan_field_col(b.rhs_expr()); }
             if fld.len() == 0i64 {
-                return PlanCmp { col: "", op: 0i32, why: "neither side is a column" };
+                return PlanCmp { col: "", op: 0i32, why: "neither side is a column",
+                                 has_lit: false, lit: 0i64 };
             }
-            return PlanCmp { col: fld, op: o, why: "" };
+            // The constant the column is compared against, when the other
+            // side is one. A pushdown needs the VALUE, not just the shape.
+            let mut hl: bool = false;
+            let mut lv: i64 = 0i64;
+            match b.rhs_expr() {
+                SExpr::Lit(l) => { let w: WAny = l.val; if w.is_int() { hl = true; lv = w.as_i64(); } }
+                _ => { }
+            }
+            if !hl {
+                match b.lhs_expr() {
+                    SExpr::Lit(l2) => { let w2: WAny = l2.val; if w2.is_int() { hl = true; lv = w2.as_i64(); } }
+                    _ => { }
+                }
+            }
+            return PlanCmp { col: fld, op: o, why: "", has_lit: hl, lit: lv };
         }
-        _ => { return PlanCmp { col: "", op: 0i32, why: "predicate is not a comparison" }; }
+        _ => { return PlanCmp { col: "", op: 0i32, why: "predicate is not a comparison",
+                                has_lit: false, lit: 0i64 }; }
     }
 }
 
@@ -3004,7 +3061,7 @@ fn plan_cmp_col(e: SExpr) -> PlanCmp {
 // them. A leading `-` on `name` marks a non-pub query (the params.logos
 // convention).
 pub fn __deem_bind(name: str, params: str, query: str, family: str,
-                   spec: str) -> ItemList {
+                   spec: str, cfg_src: str) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 || family.len() == 0i64 {
         error("deem bind: empty query name or family (driver seam regression?)");
@@ -3037,42 +3094,49 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     // a specialized materializer would apply; `scan` is what every plan gets
     // today, and is always correct — a pushdown only ever narrows, and the
     // query's own `where` stays, so the answer cannot change with it.
-    if var_is_set("LOGOS_TRACE_PLAN") {
-        let vroot0: WAny = verd.root();
-        let qdoc: Writ = writ_new(8192i64);
-        let qroot: WAny = parse_program(query, &qdoc);
-        let mut strategy: str = "scan";
-        let mut on_col: str = "";
-        let mut dbg_hub: str = "";
-        let mut dbg_decl: str = "";
-        let mut dbg_seek: str = "";
-        let mut dbg_why: str = "no `where`";
-        if !qroot.is_null() {
-            let qprog: RQProgram = qroot.view::<RQProgram>();
-            match qprog.entry_any().view::<RQuery>() {
-                RQuery::Simple(sq) => {
-                    if sq.has_where {
-                        let cmp: PlanCmp = plan_cmp_col(sq.where_expr());
-                        dbg_hub = cmp.col;
-                        dbg_why = cmp.why;
-                        if cmp.col.len() > 0i64 {
-                            let dc: str = plan_decl_col(&cs, cmp.col);
-                            dbg_decl = dc;
-                            let seek: str = if vroot0.is_map() {
-                                cv_cap_col(vroot0.as_map(), family, CAP_SEEK)
-                            } else { "" };
-                            dbg_seek = seek;
-                            if dc.len() > 0i64 && str_eq(dc, seek) {
-                                on_col = cmp.col;
-                                if cmp.op == OP_EQ() { strategy = "point_get"; }
-                                else { strategy = "range"; }
-                            }
+    // ── the join: what the query DEMANDS ⋈ what the class CAN ─────────────
+    // A strategy names the narrowing a specialized producer applies. `scan` is
+    // always available and always correct; a narrowing is admissible only when
+    // it returns a SUPERSET of the matches, and since the query keeps its own
+    // `where`, the answer cannot change with it.
+    let vroot0: WAny = verd.root();
+    let qdoc: Writ = writ_new(8192i64);
+    let qroot: WAny = parse_program(query, &qdoc);
+    let mut strategy: str = "scan";
+    let mut on_col: str = "";
+    let mut key_lit: i64 = 0i64;
+    let mut dbg_hub: str = "";
+    let mut dbg_decl: str = "";
+    let mut dbg_seek: str = "";
+    let mut dbg_why: str = "no `where`";
+    if !qroot.is_null() {
+        let qprog: RQProgram = qroot.view::<RQProgram>();
+        match qprog.entry_any().view::<RQuery>() {
+            RQuery::Simple(sq) => {
+                if sq.has_where {
+                    let cmp: PlanCmp = plan_cmp_col(sq.where_expr());
+                    dbg_hub = cmp.col;
+                    dbg_why = cmp.why;
+                    if cmp.col.len() > 0i64 {
+                        let dc: str = plan_decl_col(&cs, cmp.col);
+                        dbg_decl = dc;
+                        let seek: str = if vroot0.is_map() {
+                            cv_cap_col(vroot0.as_map(), family, CAP_SEEK)
+                        } else { "" };
+                        dbg_seek = seek;
+                        if dc.len() > 0i64 && str_eq(dc, seek) && cmp.has_lit {
+                            on_col = cmp.col;
+                            key_lit = cmp.lit;
+                            if cmp.op == OP_EQ() { strategy = "point_get"; }
+                            else { strategy = "range"; }
                         }
                     }
                 }
-                _ => { }
             }
+            _ => { }
         }
+    }
+    if var_is_set("LOGOS_TRACE_PLAN") {
         let mut ln: String = String::new();
         ln.push_str("[plan] "); ln.push_str(vis_name);
         ln.push_str(" over "); ln.push_str(family);
@@ -3092,10 +3156,56 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
         eprintln_string(&ln);
     }
 
+    // ── the narrowing producer ────────────────────────────────────────────
+    // Only `point_get` is emitted today: one probe through `find`, which is the
+    // operation this plan compiler asked the family for (a sentinel cannot say
+    // "absent", and absence is the difference between one row and none).
+    // `range` is recognised but still scans — it wants a rank descent the
+    // handle does not expose yet.
+    let mut matfn: String = String::new();
+    if str_eq(strategy, "point_get") {
+        matfn.push_str("__ctr_rows_");
+        matfn.push_str(vis_name);
+        matfn.push_str("_");
+        matfn.push_str(family);
+        // The CONCRETE column types come from the family's CONFIG, not from
+        // the class declaration — the declaration's are its type PARAMETERS
+        // (`entry=key:K:1`), and a producer calling into the family must spell
+        // what the family actually is.
+        let kty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"key\""));
+        let vty: str = cfg_read_type_slot(cfg_src, cfg_value_pos(cfg_src, "\"value\""));
+        if kty.len() == 0i64 || vty.len() == 0i64 {
+            error("deem bind: family config has no readable key/value type slot");
+            return out;
+        }
+        let mut lit_s: String = fmt_display_to_string(&key_lit);
+        lit_s.push_str(kty);
+        let mut mem: Emitter = Emitter::new();
+        mem.emit_into(cs.pkg);
+        mem.push_text("use logos.gen; use logos.mem.collections.vec; use logos.lang.option;\n");
+        mem.push_text("pub fn "); mem.push_text(matfn.as_str());
+        mem.push_text("(c: &"); mem.push_text(family);
+        mem.push_text(") -> Vec<(i64, i64)> {\n");
+        mem.push_text("    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();\n");
+        mem.push_text("    let o: Option<"); mem.push_text(vty);
+        mem.push_text("> = c.find("); mem.push_text(lit_s.as_str()); mem.push_text(");\n");
+        mem.push_text("    match o {\n");
+        mem.push_text("        Option::Some(v) => { out.push(((");
+        mem.push_text(lit_s.as_str()); mem.push_text(") as i64, v as i64)); }\n");
+        mem.push_text("        Option::None => { }\n");
+        mem.push_text("    }\n    return out;\n}\n");
+        mem.commit();
+    }
+
     let mut em: Emitter = Emitter::new();
     em.emit_into(cs.pkg);
     em.push_text("use logos.gen; use logos.mem.bt.map; use logos.std.wql.wql; ");
     em.push_text("use logos.mem.collections.vec; use logos.lang.result; ");
+    if matfn.len() > 0i64 {
+        em.push_text("#[deem_source(");
+        em.push_text(param_name_of(params));
+        em.push_text(" = \""); em.push_text(matfn.as_str()); em.push_text("\")] ");
+    }
     if priv0 { em.push_text("deem "); } else { em.push_text("pub deem "); }
     em.push_text(vis_name);
     em.push_text("(");

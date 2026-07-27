@@ -757,6 +757,18 @@ static int render_deem_plan_chunks(const logos::compiler::lir::LProgram& prog,
         chunk += esc_lit(family);
         chunk += "\", \"";
         chunk += esc_lit(p.class_spec);
+        chunk += "\", \"";
+        // The family's CONFIG: the class spec carries the declaration's type
+        // PARAMETERS, and a producer emitted against the family has to spell
+        // what the family concretely is.
+        {
+            uint64_t h = 0;
+            if (family.size() > 2)
+                h = std::strtoull(family.c_str() + 2, nullptr, 16);
+            auto cit = prog.wstatic_sources.find(h);
+            chunk += esc_lit(cit == prog.wstatic_sources.end() ? std::string()
+                                                              : cit->second);
+        }
         chunk += "\");\n";
         if (logos_emit_source(chunk.c_str())) ++emitted;
     }

@@ -1,0 +1,107 @@
+// ctr_plan_pushdown — the plan compiles the filter INTO the container.
+//
+// `where e.key == 7` over a class whose seek column is `key` is compiled to a
+// single `find` probe instead of a full scan: Deem's demand (equality on a
+// column) joined with Canon's verdict (`can_seek(ctr, key)`) picks the
+// narrowing, and the family supplies the operation.
+//
+// What makes that safe is the invariant, and this test is built to check it
+// rather than to trust it: a narrowing producer returns a SUPERSET of the
+// matches and the query keeps its own `where`, so the answer must equal what
+// an ordinary scan would give. The reference here is computed independently,
+// through the container's own cursor — not by a second plan, which would only
+// prove the plan compiler agrees with itself.
+//
+// The seeded data includes the case a sentinel cannot express: a key whose
+// value IS u64::MAX. A pushdown built on `get_or` would report it as missing.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+use logos.mem.string;
+use logos.std.io;
+
+container Ledger<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+// point_get — equality on the seek column
+pub deem at_7<K, V>(m: Ledger<K, V>)  { from m e where e.key == 7 select (e.key, e.val) }
+// point_get on a key that is NOT present
+pub deem at_999<K, V>(m: Ledger<K, V>) { from m e where e.key == 999 select (e.key, e.val) }
+// scan — the same shape of filter, but on a column with no seek capability
+pub deem val_7<K, V>(m: Ledger<K, V>) { from m e where e.val == 7 select (e.key, e.val) }
+
+fn same(a: &Vec<(i64, i64)>, b: &Vec<(i64, i64)>) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let m = create_ctr::<typeof(Ledger::<u64, u64>)>(&snap, 1u64);
+
+    let mut k: u64 = 0u64;
+    while k < 300u64 { m.insert(k, k * 3u64); k = k + 1u64; }   // past a split
+    m.insert(7u64, 18446744073709551615u64);                    // value == u64::MAX
+
+    // The reference, walked through the container's own cursor — inline,
+    // because naming the family's handle type is precisely what this arc
+    // removed, and a test may not reach for what a user cannot write.
+    let mut want: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    {
+        let n: u64 = m.size();
+        let mut i: u64 = 0u64;
+        while i < n {
+            let cu = m.seek(i);
+            if cu.valid() && cu.key() == 7u64 {
+                want.push((cu.key() as i64, cu.value() as i64));
+            }
+            i = i + 1u64;
+        }
+    }
+
+    let got: Vec<(i64, i64)> = match at_7(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if !same(&got, &want) { return 2i32; }
+    if got.len() != 1i64  { return 3i32; }
+
+    // the sentinel case survived the narrowing
+    let r: (i64, i64) = got.get(0i64);
+    if r.0 != 7i64 { return 4i32; }
+    if r.1 != -1i64 { return 5i32; }        // u64::MAX as i64
+
+    // absent key: the probe says no, and so does the reference
+    let none: Vec<(i64, i64)> = match at_999(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if none.len() != 0i64 { return 7i32; }
+
+    // the un-narrowed sibling still answers correctly: val == 7 matches no row
+    // (values are key*3, and 7 is not a multiple of 3)
+    let byval: Vec<(i64, i64)> = match val_7(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
+    if byval.len() != 0i64 { return 10i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_plan_pushdown: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
