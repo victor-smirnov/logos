@@ -72,6 +72,7 @@ use logos.std.wql.reflect;        // find_decl_by_name / has_field / field_trave
 use logos.std.wql.ward;           // WardProg / check_warded — Track A: warded Datalog± verdict
 use logos.mem.string;
 use logos.lang.str;
+use logos.std.wql.srcloc;         // the query as a source — located diagnostics (ADR 0024 S0)
 
 // ── The walker entry: entry RQuery plan → RExpr algebra → emitted native fn ──
 // `prelude` — statements spliced after the generated fn's opening brace (the
@@ -86,8 +87,8 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
         RQuery::Simple(s) => {
             let mut mode: i32 = SELM_ALL();
             if s.sel_first {
-                if s.distinct  { error("wql!: `select first` cannot be combined with `distinct` — first returns a single value"); return false; }
-                if s.has_limit { error("wql!: `select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
+                if s.distinct  { wql_error(prm, "`select first` cannot be combined with `distinct` — first returns a single value"); return false; }
+                if s.has_limit { wql_error(prm, "`select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
                 mode = SELM_FIRST();
             }
             return lower_simplify_emit(plan, s.fn_name, params_text, prm, s.result_ty, s.has_result_ty, mode, prelude, h);
@@ -95,14 +96,14 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
         RQuery::Join(j) => {
             let mut mode: i32 = SELM_ALL();
             if j.sel_first {
-                if j.distinct  { error("wql!: `select first` cannot be combined with `distinct` — first returns a single value"); return false; }
-                if j.has_limit { error("wql!: `select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
+                if j.distinct  { wql_error(prm, "`select first` cannot be combined with `distinct` — first returns a single value"); return false; }
+                if j.has_limit { wql_error(prm, "`select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
                 mode = SELM_FIRST();
             }
             return lower_simplify_emit(plan, j.fn_name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h);
         }
         RQuery::Aggr(g) => {
-            if g.sel_first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
+            if g.sel_first { wql_error(prm, "`select first` is not supported on aggregate queries"); return false; }
             return lower_simplify_emit(plan, g.fn_name, params_text, prm, g.result_ty, g.has_result_ty, SELM_ALL(), prelude, h);
         }
         RQuery::Find(f) => {
@@ -1385,6 +1386,10 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                            natspec: str, prm: &mut MacroParams, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
     let prog: RQProgram = root.view::<RQProgram>();
+    // The query is a source, and every check downstream may need to say where
+    // it is (ADR 0024 S0). Carried in the walker's context because that is what
+    // a diagnostic has in hand, wherever it fires.
+    prm.src_root = root;
     let mut deps: RelDeps = rel_deps_new();
     let mut scc: RelScc = rel_scc_new();
     let mut src_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),

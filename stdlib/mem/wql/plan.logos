@@ -651,6 +651,77 @@ impl RQRelArr {
 pub schema RQProgram : code(0x0012_0000_0000_0019) {
     rels:  WRef<RQRelArr> = 0,
     entry: WRef<RQuery>   = 1,
+    // ── SOURCE ORIGIN (ADR 0024 S0) ──────────────────────────────────────
+    // The query is its own source: it has text, offsets into that text (every
+    // SExpr carries `soff`), and — here — where that text came from. Carried on
+    // the ROOT rather than through the handler's argument slots because it is a
+    // property OF THIS DOCUMENT, and the document is already what gets handed
+    // over. A new site-level fact must not cost a new slot in a flat tuple.
+    src_file: str            = 2,   // the file the query was written in
+    src_line: i64            = 3,   // line of the item's head; body line 1 IS this line
+    segs:     WRef<RQSrcSegArr> = 4,   // fusion provenance; null when nothing was spliced
+    // The TEXT that was parsed. A source is text plus a name: without the text
+    // an offset cannot become a line and a column, and the handler receives the
+    // parsed IR only. Carrying it here is what makes the query a source in its
+    // own right rather than a fragment whose position only the compiler can
+    // interpret.
+    src_text: str            = 5,
+}
+
+// One PREPENDED segment of the fused query text. `enrich_deem_params` splices
+// every bound mapping's rule bodies ahead of what the user wrote, so an offset
+// in the fused text does not mean what it appears to mean: below the last
+// segment's end it belongs to a MAPPING, and a diagnostic that ignores this
+// lies exactly where mappings are in play. `end` is exclusive; segments are in
+// splice order, and everything at or past the last `end` is the written query.
+pub schema RQSrcSeg : code(0x0012_0000_0000_001E) {
+    end:    i64 = 0,
+    origin: str = 1,        // the mapping's name
+}
+
+pub schema RQSrcSegArr : code(0x0012_0000_0000_001F) {
+    count: i32 = 0,
+    a0: WRef<RQSrcSeg> = 1,
+    a1: WRef<RQSrcSeg> = 2,
+    a2: WRef<RQSrcSeg> = 3,
+    a3: WRef<RQSrcSeg> = 4,
+    a4: WRef<RQSrcSeg> = 5,
+    a5: WRef<RQSrcSeg> = 6,
+    a6: WRef<RQSrcSeg> = 7,
+    a7: WRef<RQSrcSeg> = 8,
+}
+
+pub fn RQSEG_MAX() -> i64 { return 8i64; }
+
+impl RQSrcSeg {
+    pub fn as_ref(self: &RQSrcSeg) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
+}
+
+impl RQSrcSegArr {
+    pub fn len(self: &RQSrcSegArr) -> i64 { return self.count as i64; }
+    pub fn seg_at(self: &RQSrcSegArr, i: i64) -> RQSrcSeg {
+        if i == 0i64 { return self.a0.any().view::<RQSrcSeg>(); }
+        if i == 1i64 { return self.a1.any().view::<RQSrcSeg>(); }
+        if i == 2i64 { return self.a2.any().view::<RQSrcSeg>(); }
+        if i == 3i64 { return self.a3.any().view::<RQSrcSeg>(); }
+        if i == 4i64 { return self.a4.any().view::<RQSrcSeg>(); }
+        if i == 5i64 { return self.a5.any().view::<RQSrcSeg>(); }
+        if i == 6i64 { return self.a6.any().view::<RQSrcSeg>(); }
+        return self.a7.any().view::<RQSrcSeg>();
+    }
+    pub fn set_seg(self: &mut RQSrcSegArr, i: i64, h: WAny) {
+        let r: WRef<RQSrcSeg> = WRef::<RQSrcSeg>::from_any(h);
+        if i == 0i64 { self.a0 = r; return; }
+        if i == 1i64 { self.a1 = r; return; }
+        if i == 2i64 { self.a2 = r; return; }
+        if i == 3i64 { self.a3 = r; return; }
+        if i == 4i64 { self.a4 = r; return; }
+        if i == 5i64 { self.a5 = r; return; }
+        if i == 6i64 { self.a6 = r; return; }
+        self.a7 = r;
+    }
+    pub fn set_len(self: &mut RQSrcSegArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: &RQSrcSegArr) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); }
 }
 
 impl RQProgram {

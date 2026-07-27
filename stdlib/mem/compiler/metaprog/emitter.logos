@@ -146,6 +146,7 @@ extern fn logos_metaprog_test_module_blob(src: *const u8, src_len: u64,
 // errors per invocation; all surface together.
 extern fn logos_metaprog_error(msg: *const u8) -> ();
 extern fn logos_metaprog_error_at(target_offset: u32, msg: *const u8) -> ();
+extern fn logos_metaprog_error_located(msg: *const u8) -> ();
 
 // Push a NUL-terminated copy of `msg` to the host diag channel.
 // Allocates a small heap buffer (str isn't NUL-terminated by default).
@@ -162,6 +163,17 @@ pub fn error(msg: str) {
 // `target_offset` — typically the offset received by a
 // #[metaprog_handler] hook. Host prefixes the message with
 // <file>:<line>: read from the node's SRC_LINE field.
+/// Reports `msg` ALREADY LOCATED by the caller — the host adds no site prefix.
+/// For reporters that know their position better than the site does (a query
+/// resolves offsets against its own text); using plain `error` there prints the
+/// location twice, the coarse one first.
+pub fn error_located(msg: str) {
+    let mut buf: String = String::new();
+    buf.push_str(msg);
+    buf.push_u8(0);
+    unsafe { logos_metaprog_error_located(buf.as_ptr() as *const u8); }
+}
+
 /// Reports `msg` like `error`, attributed to the user-AST node at `target_offset`.
 /// The host prefixes the message with `<file>:<line>:` from the node's `SRC_LINE` field.
 pub fn error_at(target_offset: u32, msg: str) {

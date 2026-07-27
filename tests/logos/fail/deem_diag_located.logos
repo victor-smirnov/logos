@@ -1,0 +1,22 @@
+// The query is a SOURCE, and a diagnostic about it says WHERE — with a column,
+// on the line the offending query actually sits on (ADR 0024 S0).
+//
+// The check being violated is incidental; what is under test is the LOCATION.
+// The item is placed deep in the file on purpose: a diagnostic that fell back
+// to the file's start, to the item that happens to be first, or to generated
+// code would not print `:16:`. Before this, a Deem diagnostic carried no
+// position at all, and the nearest thing to one — a type error — could only
+// surface from the HOST compiler against `<metaprog>:N`, a line inside a
+// synthesized string that names neither the query nor the column.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct P { pub v: i64 }
+
+pub deem fine(xs: &[P]) { from xs x select x.v }
+
+pub deem bad(xs: &[P]) { from xs x select first distinct x.v }
+
+fn main() -> i32 { return 0i32; }

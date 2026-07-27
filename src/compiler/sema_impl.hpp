@@ -4686,6 +4686,14 @@ private:
     // only which function produces the rows differs. Empty = no override.
     logos::compiler::StrMap<std::string> deem_source_override_;
 
+    // FUSION PROVENANCE (ADR 0024 S0). `enrich_deem_params` splices every bound
+    // mapping's rule bodies AHEAD of the query the user wrote, so an offset in
+    // the text handed to the parser does not mean what it appears to mean. Each
+    // entry is one prepended segment: its EXCLUSIVE end in the fused text and
+    // the mapping it came from. Recorded at the splice, stamped onto the parsed
+    // root, cleared per item. Empty = nothing spliced, offsets are the user's.
+    std::vector<std::pair<size_t, std::string>> deem_fusion_segs_;
+
     // Shared tail of the #[token_macro] ITEM path (pack arg blobs, synth the
     // JIT thunk, register the MetacallSiteStage); factored from
     // lower_fn_macro_call_item so lower_mapping_def rides the same seam.

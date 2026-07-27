@@ -189,7 +189,10 @@
     RQPathSegArr  : code(0x0012_0000_0000_001B) cap(9) { count: "i32" = 0, segs: "fan set_seg RQPSEG_MAX 8" = 1 }
 
     // ── rel blocks + the program envelope (slice B static Datalog) ────────
-    RQProgram     : code(0x0012_0000_0000_0019) cap(2) { rels: "ref RQRelArr" = 0, entry: "ref RQuery" = 1 }
+    // cap covers the SOURCE-ORIGIN fields the COMPILER stamps after parsing
+    // (src_file/src_line/segs — ADR 0024 S0). A TinyObjectMap's capacity is
+    // fixed at construction, so the parser must size for writes it never makes.
+    RQProgram     : code(0x0012_0000_0000_0019) cap(6) { rels: "ref RQRelArr" = 0, entry: "ref RQuery" = 1 }
     RQRel         : code(0x0012_0000_0000_0016) cap(3) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2 }
     RQRelCol      : code(0x0012_0000_0000_0014) cap(2) { name: "str" = 0, ty_name: "str" = 1 }
     RQRelColArr   : code(0x0012_0000_0000_0015) cap(9) { count: "i32" = 0, cols: "fan set_col RQRELCOL_MAX 8" = 1 }

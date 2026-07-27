@@ -1,0 +1,158 @@
+// logos.std.wql.srcloc — the query as a SOURCE (ADR 0024 S0).
+//
+// A diagnostic about a query has to say WHERE. Until now it could not: the
+// nodes carried no position, and even with one there was nothing to resolve it
+// against — the handler receives a parsed IR, not the text it came from.
+//
+// Both halves are now on the root. `RQProgram` carries the text that was
+// parsed, the file it was written in, and the line its item's head sits on;
+// every `SExpr` carries `soff`, a byte offset into that text. This module is
+// the arithmetic between them.
+//
+// FUSION IS THE TRAP. `enrich_deem_params` splices every bound mapping's rule
+// bodies AHEAD of what the user wrote, so a low offset belongs to a mapping and
+// not to the query at all. `segs` records each spliced segment's exclusive end;
+// resolving without consulting it misattributes a mapping's text to the user
+// exactly where mappings are in play — the one case where being wrong is worst,
+// because the user cannot see the text being blamed.
+//
+// Deem formats its own locations rather than going through the host's
+// `error_at`: that entry point attributes to a USER-AST node and reads its
+// SRC_LINE, and a position inside a query is not a node of that tree. The query
+// is a source; a source knows how to name a place in itself.
+package logos.std.wql.srcloc;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.plan;
+use logos.mem.string;
+use logos.std.compiler.metaprog;   // error — the metaprog diag channel
+use logos.std.wql.params;      // MacroParams — the walker context a check has in hand
+
+/// Where an offset in the parsed text came from.
+///
+/// `in_mapping` distinguishes the two cases a diagnostic must never confuse:
+/// text the user wrote (line/col in `file`) and text a mapping supplied (named
+/// by `origin`, positioned within that mapping's own body).
+pub struct QueryLoc {
+    pub in_mapping: bool,
+    pub origin:     str,    // mapping name; "" when the text is the user's
+    pub file:       str,
+    pub line:       i64,    // 1-based, absolute in `file` (user text only)
+    pub col:        i64,    // 1-based
+}
+
+/// Resolve a byte offset in the parsed text to a place.
+///
+/// The line arithmetic follows the convention the parse-error path already
+/// uses: body line 1 IS the item's head line, so an offset on the body's first
+/// line reports the head's line. Columns are counted from the last newline at
+/// or before the offset; on the body's first line the column is relative to the
+/// body's own start, which is the honest answer while the item's head column is
+/// not recorded.
+pub fn resolve(prog: &RQProgram, soff: i64) -> QueryLoc {
+    let text: str = prog.src_text;
+    let mut off: i64 = soff;
+    if off < 0i64 { off = 0i64; }
+    if off > text.len() { off = text.len(); }
+
+    // Spliced mapping text sorts BEFORE the written query. Segment ends are
+    // exclusive and in splice order, so the first end above `off` owns it.
+    let segs_any: WAny = prog.segs.any();
+    let mut base: i64 = 0i64;
+    if !segs_any.is_null() {
+        let segs: RQSrcSegArr = segs_any.view::<RQSrcSegArr>();
+        let n: i64 = segs.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let sg: RQSrcSeg = segs.seg_at(i);
+            if off < sg.end {
+                // Inside a mapping's body — position it within THAT body, and
+                // say so. Reporting a file line here would point at the query,
+                // which is not where the text lives.
+                let lo: i64 = if i == 0i64 { 0i64 } else { segs.seg_at(i - 1i64).end };
+                let (ml, mc): (i64, i64) = line_col_in(text, lo, off);
+                return QueryLoc { in_mapping: true, origin: sg.origin,
+                                  file: prog.src_file, line: ml, col: mc };
+            }
+            i = i + 1i64;
+        }
+        if n > 0i64 { base = segs.seg_at(n - 1i64).end; }
+    }
+
+    let (l, c): (i64, i64) = line_col_in(text, base, off);
+    return QueryLoc { in_mapping: false, origin: "", file: prog.src_file,
+                      line: prog.src_line + (l - 1i64), col: c };
+}
+
+/// 1-based (line, col) of `off` counted from `lo` — the segment's own start.
+fn line_col_in(text: str, lo: i64, off: i64) -> (i64, i64) {
+    let b: &[u8] = text.as_bytes();
+    let mut line: i64 = 1i64;
+    let mut last_nl: i64 = lo - 1i64;
+    let mut i: i64 = lo;
+    while i < off {
+        if b[i] == 10u8 { line = line + 1i64; last_nl = i; }
+        i = i + 1i64;
+    }
+    return (line, off - last_nl);
+}
+
+/// `<file>:<line>:<col>: ` — or, for spliced text, a prefix naming the mapping.
+/// The mapping form deliberately does NOT print a file line: the offending text
+/// is not in the file at that line, and a plausible-looking wrong location is
+/// worse than an honest indirect one.
+pub fn prefix(loc: &QueryLoc) -> String {
+    let mut s: String = String::new();
+    if loc.in_mapping {
+        s.push_str("in mapping `");
+        s.push_str(loc.origin);
+        s.push_str("` (");
+        s.push_str(loc.file);
+        s.push_str(") line ");
+        s.push_i64(loc.line);
+        s.push_str(":");
+        s.push_i64(loc.col);
+        s.push_str(": ");
+        return s;
+    }
+    s.push_str(loc.file);
+    s.push_str(":");
+    s.push_i64(loc.line);
+    s.push_str(":");
+    s.push_i64(loc.col);
+    s.push_str(": ");
+    return s;
+}
+
+/// Report `msg` against the query position `soff`. This is Deem's diagnostic
+/// channel: the message is located before it leaves, so the host never has to
+/// guess and never reports a position inside generated code.
+pub fn error_at_query(prog: &RQProgram, soff: i64, msg: str) {
+    let loc: QueryLoc = resolve(prog, soff);
+    let mut out: String = String::new();
+    out.push_str(prefix(&loc).as_str());
+    out.push_str(msg);
+    error_located(out.as_str());
+}
+
+/// The walker's diagnostic channel: report `msg` located at the query itself.
+///
+/// Takes the walker context rather than a root because that is what a check has
+/// in hand wherever it fires — a position available only where it was produced
+/// is a position nobody can use. Falls back to the un-located form when the
+/// surface has no query root (trama!/catalog), so this is always safe to call.
+pub fn wql_error(prm: &MacroParams, msg: str) {
+    let mut out: String = String::new();
+    if !prm.src_root.is_null() {
+        let prog: RQProgram = prm.src_root.view::<RQProgram>();
+        // No node offset here: these checks are about the query's SHAPE, not
+        // about one expression in it. The query's own start is the honest
+        // position — refining it needs a node, and shape has none.
+        let loc: QueryLoc = resolve(&prog, 0i64);
+        out.push_str(prefix(&loc).as_str());
+    }
+    out.push_str("deem: ");
+    out.push_str(msg);
+    error_located(out.as_str());
+}

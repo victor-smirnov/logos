@@ -20,6 +20,7 @@
 package logos.std.wql.params;
 
 use logos.lang.str;
+use logos.lang.writ.anyval;   // WAny — the parsed query root (ADR 0024 S0)
 use logos.mem.string;   // String — native_use_text builds the chunk's use-decl text
 use logos.mem.collections.vec;   // per-module use-decl dedup
 
@@ -117,9 +118,16 @@ pub struct MacroParams {
     // turbofish is ever printed. Set by the deem handler from the compiler's
     // slot-4 blob; trama!/catalog leave it empty.
     pub tparams:     str,
+    // ── the query as a SOURCE (ADR 0024 S0) ──────────────────────────────
+    // The parsed root, carried so that ANY diagnostic reached from the walk can
+    // locate itself. A position is useless if it is only available where it was
+    // produced; the walker's context is what every check already has in hand.
+    // Null for surfaces that have no query root (trama!/catalog).
+    pub src_root:    WAny,
 }
 
 pub fn macro_params_new() -> MacroParams {
+    let nul: WAny = WAny::Ref(0i64 as *const u8);
     return MacroParams {
         names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
@@ -154,6 +162,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_marg2:   [""; 8],
         rel_mod:     [""; 8],
         tparams:     "",
+        src_root:    nul,
     };
 }
 

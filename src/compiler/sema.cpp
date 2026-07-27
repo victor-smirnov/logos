@@ -8846,6 +8846,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             // `#[deem_source(w = "fn")]` — read from the annotations that
             // precede this item, consumed by lower_deem_def below.
             deem_source_override_.clear();
+            deem_fusion_segs_.clear();   // provenance is per item (ADR 0024 S0)
             for (auto ann : pending_annots) {
                 if (!ann.has_key(la::NAME.code)) continue;
                 if (str_of(ann.get(la::NAME.code)) != "deem_source") continue;

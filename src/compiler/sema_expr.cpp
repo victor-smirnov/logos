@@ -20875,6 +20875,47 @@ void SemaChecker::emit_token_macro_item_site(
                                     macro_info->base_name, near_sfx));
                 return;
             }
+            // ── SOURCE ORIGIN (ADR 0024 S0) ─────────────────────────────
+            // The query is its own source. Every SExpr already carries `soff`,
+            // an offset into the text that was parsed; what that text IS lives
+            // here, on the root — a property of this document, travelling with
+            // the document rather than costing a slot in the handler's argument
+            // tuple. `src_line` is the item's head line, which by the same
+            // convention the parse-error path above uses is body line 1.
+            //
+            // `segs` is the fusion provenance: `enrich_deem_params` splices
+            // bound mappings' rule bodies AHEAD of the written query, so an
+            // offset below the last segment end belongs to a mapping. Without
+            // it a diagnostic misattributes mapping text to the user, exactly
+            // where mappings are in play.
+            if (ir_entry != IrEntry::RelList) {
+                if (auto* rn = root.as_ptr<logos::writ::TinyObjectMap>()) {
+                    auto& ar = logos::writ::WritAccess::arena(doc);
+                    rn->put(uint8_t(2), doc.make_string(file_).get().to_anyval(), ar).get();
+                    rn->put(uint8_t(3),
+                            logos::writ::AnyVal::from_value(int64_t(node_line_)), ar).get();
+                    rn->put(uint8_t(5), doc.make_string(raw_text).get().to_anyval(), ar).get();
+                    if (!deem_fusion_segs_.empty()) {
+                        const size_t n = std::min<size_t>(deem_fusion_segs_.size(), 8);
+                        auto* segs = logos::writ::WritAccess::raw_tiny_map(doc, 9).get();
+                        segs->set_schema_type_code(5066549580791839ull);   // RQSrcSegArr
+                        segs->put(uint8_t(0),
+                                  logos::writ::AnyVal::from_value(int32_t(n)), ar).get();
+                        for (size_t i = 0; i < n; ++i) {
+                            auto* sg = logos::writ::WritAccess::raw_tiny_map(doc, 2).get();
+                            sg->set_schema_type_code(5066549580791838ull);  // RQSrcSeg
+                            sg->put(uint8_t(0), logos::writ::AnyVal::from_value(
+                                        int64_t(deem_fusion_segs_[i].first)), ar).get();
+                            sg->put(uint8_t(1), doc.make_string(
+                                        deem_fusion_segs_[i].second).get().to_anyval(), ar).get();
+                            logos::writ::AnyVal sref; sref.set_ref(sg);
+                            segs->put(uint8_t(1 + i), sref, ar).get();
+                        }
+                        logos::writ::AnyVal aref; aref.set_ref(segs);
+                        rn->put(uint8_t(4), aref, ar).get();
+                    }
+                }
+            }
             logos::compiler::rule_ir::put(site_id, std::move(doc), root);
         } else if (nargs == 3) {
             blobs.push_back(pack_blob(resource_name));
@@ -22620,6 +22661,10 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                 enrich += std::format("{}={}@{}-{};", mi.src_param_name, pn,
                                       next_rel, next_rel + mi.nrels);
                 prefix_body += mi.body_text;
+                // Record the segment as it is spliced: everything below this
+                // end belongs to `mbase`, not to what the user wrote. Read back
+                // when the parsed root is stamped (ADR 0024 S0).
+                deem_fusion_segs_.emplace_back(prefix_body.size(), mbase);
                 next_rel += mi.nrels;
                 // Services → &Writ; Reach<G1> → &G1 — the emitted fn takes the
                 // real source, and the natspec loop below (post-substitution)

@@ -77,6 +77,12 @@ void logos_metaprog_error_at(uint32_t target_offset, const char* msg) {
 }
 
 __attribute__((weak))
+void logos_metaprog_error_located(const char* msg) {
+    (void)msg;
+    metaprog_unavailable("logos_metaprog_error_located");
+}
+
+__attribute__((weak))
 const uint8_t* logos_test_make_bin_op_blob(void) {
     metaprog_unavailable("logos_test_make_bin_op_blob");
 }

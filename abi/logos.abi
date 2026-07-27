@@ -11824,6 +11824,7 @@ sym	logos_mem.logos.mem.writ.wbs$wbs_read__f__ref_Writ__pcst_u8__i64
 sym	logos_mem.logos.mem.writ.wbs$wbs_write__f__WAny
 sym	logos_mem.logos.std.compiler.metaprog$error__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$error_at__f__u32__slice_u8
+sym	logos_mem.logos.std.compiler.metaprog$error_located__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$gensym__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$is_array__f__Type
 sym	logos_mem.logos.std.compiler.metaprog$is_bool_kind__f__Type

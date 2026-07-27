@@ -523,6 +523,23 @@ extern "C" void logos_metaprog_error(const char* msg) {
 // into the user-root Writ doc; host reads SRC_LINE from the node
 // there and prefixes the diag with `<file>:<line>:`. offset==0 (no
 // span) falls back to the un-spanned form.
+// Like logos_metaprog_error, but WITHOUT the site prefix: the caller already
+// located the message itself, more precisely than the site can. The site's
+// file:line is a fallback for handlers that do not know where they are; a
+// reporter that DOES know must win, or every located diagnostic reads its
+// position twice (ADR 0024 S0 — Deem locates against the query's own source).
+extern "C" void logos_metaprog_error_located(const char* msg) {
+    if (!g_metaprog_diags || !msg) return;
+    std::string out;
+    if (g_current_hook_name) {
+        out.append("metaprog hook '");
+        out.append(g_current_hook_name);
+        out.append("': ");
+    }
+    out.append(msg);
+    g_metaprog_diags->push_back(std::move(out));
+}
+
 extern "C" void logos_metaprog_error_at(uint32_t target_offset,
                                          const char* msg) {
     if (!g_metaprog_diags || !msg) return;
@@ -3043,6 +3060,7 @@ static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
         && bind("logos_holder_release",            reinterpret_cast<void*>(&logos_holder_release))
         && bind("logos_metaprog_error",            reinterpret_cast<void*>(&logos_metaprog_error))
         && bind("logos_metaprog_error_at",         reinterpret_cast<void*>(&logos_metaprog_error_at))
+        && bind("logos_metaprog_error_located",    reinterpret_cast<void*>(&logos_metaprog_error_located))
         && bind("logos_macro_arg",                 reinterpret_cast<void*>(&logos_macro_arg))
         && bind("logos_rule_ir",                   reinterpret_cast<void*>(&logos_rule_ir));
 }
