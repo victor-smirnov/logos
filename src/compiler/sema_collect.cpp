@@ -5529,8 +5529,20 @@ void SemaChecker::check_rel_column_types() {
     if (!metaprog_pending_pkgs_.empty()) return;
     for (auto& [tname, sigs] : trait_rels_) {
         for (auto& sig : sigs) {
+            // A column typed by one of the trait's TYPE PARAMETERS names no
+            // concrete type here — `trait Src<K> { rel r(k: K) }` says what the
+            // shape is, and the impl says what K is. The capability is checked
+            // where the answer exists: at the impl, against its trait args.
+            auto tit = traits_.find(tname);
+            auto is_trait_param = [&](const std::string& ty) {
+                if (tit == traits_.end()) return false;
+                for (const auto& tp : tit->second.type_params)
+                    if (tp.name == ty) return true;
+                return false;
+            };
             for (auto& col : sig.cols) {
-                if (col.ty.empty() || rel_col_type_hashable(col.ty)) continue;
+                if (col.ty.empty() || is_trait_param(col.ty)) continue;
+                if (rel_col_type_hashable(col.ty)) continue;
                 // Restore the declaration's place — see TraitRelSig.
                 if (!sig.file.empty()) file_ = sig.file;
                 node_line_ = sig.line;

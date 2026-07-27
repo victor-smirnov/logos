@@ -1905,7 +1905,16 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 }
                 return out;
             }
-            impl OrderedMapSource for #nm { rel entry = #rowsfn; }
+            // The hub trait no longer FIXES the column types — the impl states
+            // them, and `<i64, i64>` here is a statement about this producer,
+            // not a limit of the plane. It still projects through i64 (which is
+            // where a stored `u64::MAX` becomes `-1`) because the EMITTER is
+            // untyped: it prints integer literals as i64 and derives the result
+            // row type from nothing. Flipping these to `#(kid)`/`#(vo)` is the
+            // first observable win of ADR 0024 S3, and it fails loudly today:
+            //   operator '>': type mismatch (u64 vs i64)
+            //   Vec__push arg 1: expected (i64, i64), got (u64, u64)
+            impl OrderedMapSource<i64, i64> for #nm { rel entry = #rowsfn; }
             /// The NARROWING producers. A plan that filters on the seek column
             /// calls one of these instead of the full scan above — the
             /// capability belongs to the FAMILY and is published once, rather
@@ -2869,7 +2878,7 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
                 }
                 return out;
             }
-            impl PositionalSource for #nm { rel row = #vrowsfn; }
+            impl PositionalSource<i64> for #nm { rel row = #vrowsfn; }
         };
         unsafe { logos_emit_item_blob_subst(&pq); }
     }

@@ -107,8 +107,8 @@ pub trait Ctr {
 /// this one it can — `mapping M<S: OrderedMapSource>(m: &S) { from m e … }`
 /// names no family at all, and only the INSTANTIATION site mentions a concrete
 /// container. The generated family supplies the materializer.
-pub trait OrderedMapSource {
-    rel entry(key: i64, val: i64);
+pub trait OrderedMapSource<K, V> {
+    rel entry(key: K, val: V);
 }
 
 /// The RELATIONAL projection of a POSITIONAL container — the Deem plane's view
@@ -118,8 +118,8 @@ pub trait OrderedMapSource {
 /// family is hash-named, so a query written against a per-family trait could
 /// not be written by hand. Against this one it can — the query names the
 /// CLASS, and the family supplies the materializer.
-pub trait PositionalSource {
-    rel row(pos: i64, val: i64);
+pub trait PositionalSource<V> {
+    rel row(pos: i64, val: V);
 }
 
 /// The boundary IDENTITY type: an opaque 256-bit POD (fits a UID256). The

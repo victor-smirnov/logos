@@ -21310,6 +21310,35 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             spec += "@";
             spec += mods;
         }
+        // COLUMN TYPES — the trait's declaration, with its TYPE PARAMETERS
+        // resolved through THIS impl's trait args (ADR 0024 S2). A hub trait
+        // is written once for a whole family of sources
+        // (`trait OrderedMapSource<K, V> { rel entry(key: K, val: V) }`), so
+        // the concrete types live on the impl, and it is those that must reach
+        // the query: they are the row type the producer returns and the type
+        // every comparison against a column is checked against. Substituting
+        // here is what lets a container publish `u64` instead of casting to
+        // i64 — the cast is where a stored `u64::MAX` became `-1`.
+        std::vector<std::string> trait_params;
+        std::vector<std::string> trait_args;
+        if (auto trt = traits_.find(b.trait_name); trt != traits_.end())
+            for (const auto& tp : trt->second.type_params)
+                trait_params.push_back(tp.name);
+        if (!trait_params.empty()) {
+            std::string base = ptype_stripped;
+            if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
+            while (!base.empty() && base.back() == ' ') base.pop_back();
+            if (auto iit = impls_.find(b.trait_name + "::" + base);
+                iit != impls_.end())
+                for (auto ta : iit->second.trait_type_args)
+                    trait_args.push_back(type_str(ta));
+        }
+        auto resolve_col_ty = [&](const std::string& ty) -> std::string {
+            for (size_t p = 0; p < trait_params.size(); ++p)
+                if (trait_params[p] == ty)
+                    return p < trait_args.size() ? trait_args[p] : ty;
+            return ty;
+        };
         spec += ":";
         spec += pname;
         spec += "(";
@@ -21317,7 +21346,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             if (i) spec += ",";
             spec += b.cols[i].name;
             spec += " ";
-            spec += b.cols[i].ty;
+            spec += resolve_col_ty(b.cols[i].ty);
         }
         spec += ");";
     }

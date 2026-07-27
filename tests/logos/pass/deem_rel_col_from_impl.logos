@@ -1,0 +1,53 @@
+// A hub trait declares the SHAPE of a relation; the impl says what its columns
+// ARE (ADR 0024 S2).
+//
+// `trait Rows<K, V> { rel item(k: K, v: V); }` names no concrete type, so its
+// columns cannot be judged at the declaration — and must not be, since the same
+// trait serves every source of that shape. The types arrive from the IMPL's
+// trait arguments, and it is those the query is compiled against: the row type
+// the materializer returns, and the type each comparison is checked against.
+//
+// This is what a hash-named generated family needs. Its type cannot be written
+// by hand, so the query binds a trait rather than the family — but the trait
+// must not then FIX the column types for everyone, which is exactly what the
+// hub used to do (`rel entry(key: i64, val: i64)`) and why every container
+// producer had to cast.
+//
+// The proof that substitution happened is that the query runs at all: without
+// it the natspec would carry the parameter NAMES `K`/`V`, and the generated fn
+// would be typed by nonexistent types.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.wql.el;
+
+pub trait Rows<K, V> { rel item(k: K, v: V); }
+
+struct Ledger { pub xs: Vec<(i64, i64)> }
+
+pub fn ledger_items(l: &Ledger) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < l.xs.len() { out.push(l.xs.get(i)); i = i + 1i64; }
+    return out;
+}
+
+impl Rows<i64, i64> for Ledger { rel item = ledger_items; }
+
+pub deem big(l: &Ledger) { from l e where e.v > 20 select (e.k, e.v) }
+
+fn main() -> i32 {
+    let mut xs: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    xs.push((1i64, 10i64));
+    xs.push((2i64, 30i64));
+    xs.push((3i64, 50i64));
+    let led: Ledger = Ledger { xs: xs };
+    let got: Vec<(i64, i64)> = match big(&led)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if got.len() != 2i64 { return 2i32; }
+    if got.get(0i64).0 != 2i64 { return 3i32; }
+    if got.get(1i64).1 != 50i64 { return 4i32; }
+    return 0i32;
+}
