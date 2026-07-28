@@ -655,19 +655,27 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     if (MODE STREQUAL pass)
         logos_pass_extra_args(${BASE} EXTRA)
         set(_timeout 30)
-        # A test that FORGES A CONTAINER FAMILY runs the metaclass factory, and
-        # that is legitimately ~4x the suite median (6-9s solo). Under a -j12
-        # full run those overshoot 30s and fail as TIMEOUT — a flake that reads
-        # exactly like a hang, and it has cost several L4 runs.
+        # A test that FORGES A CONTAINER FAMILY runs the metaclass factory and
+        # costs 6-9s alone against a suite median well under one. Under the full
+        # `ctest -j12` those overshoot the 30s limit and fail as TIMEOUT — a
+        # flake that reads exactly like a hang.
         #
-        # DERIVED, not listed. The first fix here was a hand-written list of
-        # five names, and the very next full run failed on `metaclass_*` tests
-        # that were not on it — the same under-generalization the query stack
-        # keeps producing. A test forges a family iff it imports the factory, so
-        # that is what is asked. A new test needs no edit here.
+        # DERIVED, not listed: a test forges a family iff it imports the
+        # factory, so the rule asks the source rather than naming tests. The
+        # first attempt here WAS a list of five names and the next full run
+        # failed on `metaclass_*` tests that were not on it.
+        #
+        # ⚠ History worth keeping, because it cuts both ways. An external OCR
+        # process was hogging the box during part of this, which is a real
+        # confounder and the reason to check `top` before theorising about a
+        # load-shaped flake. But the raise was reverted on that news and the very
+        # next run — on a quiet box — timed out on `container_item_e2e` again.
+        # The cost signal is real and independent of the confounder. 60s, not
+        # 120: measured contention is ~4x, so this keeps ~7x headroom while
+        # still catching a genuine hang.
         file(READ "${LOGOS_FILE}" _src)
         if (_src MATCHES "logos\\.lcm\\.canon\\.(metaclass|container_item)")
-            set(_timeout 120)
+            set(_timeout 60)
         endif()
     else()
         logos_fail_extra_args(${BASE} EXTRA)
