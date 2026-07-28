@@ -1,0 +1,220 @@
+// logos.std.wql.join_sel — THE JOIN-STEP STRATEGY DECISION (ADR 0024 S4).
+//
+// A join step is executed in one of three shapes, and which one is a DECISION:
+//
+//   HASH — index the step's source by the equi-key ONCE, probe per bound row;
+//   TREE — the same, over an ordered index (an Ord-only key type);
+//   LOOP — rescan the step's source for every bound row.
+//
+// Two of the three read the step's source EXACTLY ONCE. That is not a detail of
+// how they are emitted, it is the whole difference between a step that can
+// stream its source and one that cannot — so the fact has to be available to
+// the PLANNER, which decides materialize-vs-stream before any code exists.
+// While the cascade lived inside the emitter it ran after the prelude had
+// already been built, and the plan could only answer "a join step's source is
+// built or rescanned by a strategy the plan does not own yet".
+//
+// So the decision moved here, ahead of both consumers, and it is made ONCE:
+// `plan_walker` decides and records the answer on the step's IR node, and the
+// emitter READS it. That ordering is what makes the widening safe. Re-deriving
+// the same rule in the emitter would look equivalent and is not — the two sides
+// build their type environments separately, and a key that types differently on
+// the two sides would select LOOP against a source the plan had already turned
+// into a consumed iterator. A plan that reads a spent iterator does not run
+// slowly; it silently returns fewer rows.
+//
+// What lives here is the RULE, in one copy:
+//   • `step_terms`   — the step predicate's top-level `&&` conjunction, after
+//     const folding. Both sides call it, so a term INDEX means the same thing
+//     to both, which is how the emitter can be told WHICH term is the key
+//     rather than looking for one itself.
+//   • `step_equi_key` — which term supplies the join key.
+//   • `step_cascade`  — the key's capabilities select the strategy.
+//
+// `join_key_caps` remains the single capability seam: the structural-key
+// version (ADR 0024 S1/S6) swaps its body for metaprog `has_trait` queries
+// without touching anything that reads it.
+package logos.std.wql.join_sel;
+
+use logos.std.compiler.metaprog;  // error
+use logos.lang.writ.container;    // Writ
+use logos.lang.writ.anyval;       // WAny
+use logos.std.wql.ir;             // SExpr / SBin / WRef
+use logos.std.wql.el;             // ElTypes, EL_TY_*, OP_EQ
+use logos.std.wql.codegen;        // infer_ty
+use logos.std.wql.optimize;       // TermList / split_and_terms / refs_mask / simplify_sexpr
+
+// ── The three shapes ──────────────────────────────────────────────────────
+// 0 is NOT one of them: it is "undecided", the value an IR node carries before
+// a planner has looked at it. A sentinel distinct from every real answer is
+// what lets the emitter tell "the plan chose LOOP" from "no plan ran here",
+// and those two must never be confused — the first permits a rescan, the
+// second forbids assuming anything at all.
+pub fn JS_NONE() -> i32 { return 0i32; }
+pub fn JS_HASH() -> i32 { return 1i32; }
+pub fn JS_TREE() -> i32 { return 2i32; }
+pub fn JS_LOOP() -> i32 { return 3i32; }
+
+pub fn js_name(s: i32) -> str {
+    if s == JS_HASH() { return "hash join"; }
+    if s == JS_TREE() { return "tree join"; }
+    if s == JS_LOOP() { return "loop join"; }
+    return "undecided";
+}
+
+/// Does this strategy read the step's source exactly once?
+///
+/// HASH and TREE both build their index in a single pass over the source and
+/// then probe the INDEX, never the source again. LOOP is the one that rescans.
+/// The planner's single-read proof for a step is this predicate and nothing
+/// else, which is why it is written here rather than restated at the caller.
+pub fn js_reads_once(s: i32) -> bool {
+    return s == JS_HASH() || s == JS_TREE();
+}
+
+// ── The key-capability table — THE selector seam ──────────────────────────
+// ONE function maps an EL value-type to its {hash, ord, eq} capability row;
+// the strategy cascade reads ONLY this. The future structural-key version
+// swaps the body for metaprog has_trait queries (Hash / Ord / PartialEq over
+// the key's schema type) without touching the cascade.
+pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
+
+pub fn join_key_caps(el_ty: i32) -> KeyCaps {
+    // i64 / str / bool: Hash+Eq (also Ord — hash wins first in the cascade).
+    if el_ty == EL_TY_INT() || el_ty == EL_TY_STR() || el_ty == EL_TY_BOOL() {
+        return KeyCaps { hash: true, ord: true, eq: true };
+    }
+    // f64: PartialEq ONLY — NaN breaks the Hash key contract (NaN != NaN) and
+    // the total order Ord demands; == on the key is still meaningful.
+    if el_ty == EL_TY_FLT() {
+        return KeyCaps { hash: false, ord: false, eq: true };
+    }
+    return KeyCaps { hash: false, ord: false, eq: false };
+}
+
+// DEV toggle: force the TREE tier for Hash-capable keys — compiles + runs the
+// (today unreachable) Ord-only tier end-to-end during development. MUST stay
+// false in committed code.
+pub fn join_force_tree() -> bool { return false; }
+
+// ── The predicate's terms ─────────────────────────────────────────────────
+/// The step predicate, const-folded, and its top-level `&&` conjunction.
+///
+/// Both the planner and the emitter call this on the same node, so term index
+/// `i` denotes the same term on both sides. That identity is load-bearing: the
+/// plan records WHICH term it took as the key, and the emitter composes the
+/// residual out of the others — neither has to re-run the selection rule.
+pub struct StepTerms { pub opt: WRef<SExpr>, pub tl: TermList }
+
+pub fn step_terms(on: WRef<SExpr>, h: &Writ) -> StepTerms {
+    let o: WRef<SExpr> = simplify_sexpr(on.any().view::<SExpr>(), h);
+    let mut tl: TermList = term_list_new();
+    split_and_terms(o, &mut tl);
+    return StepTerms { opt: o, tl: tl };
+}
+
+// ── The equi-key selection rule — ONE copy ────────────────────────────────
+/// An EQUI-TERM is `<bound-side> == <new-side>` (either order) where one side
+/// references ONLY already-bound vars / scalar params / constants and the other
+/// ONLY the step's NEW row var, AND both sides infer to the SAME value type —
+/// a mixed-type `==` (int vs float) would have to hash across a promotion, so
+/// it stays residual. The FIRST usable term wins; the rest join the residual
+/// (COMPOSITE KEYS DEFERRED — one key column per step today).
+///
+/// `sel < 0` means no term qualifies, which is the honest form of "this step
+/// has no join key" and is what forces LOOP.
+pub struct StepKey { pub sel: i64, pub bw: i64, pub pw: i64, pub kty: i32 }
+
+/// Split ONE candidate term into its BUILD side (the half referencing only the
+/// step's new row var) and its PROBE side (the half referencing only already-
+/// bound names). `bw == 0` ⇒ the term is not an equi-term of this step.
+///
+/// The emitter needs this answer too — it is handed the term INDEX by the plan
+/// and must still know which half is which — so it is a function rather than
+/// two lines inside the selection loop. Which half is which is not a detail of
+/// emission: it is the same fact that made the term selectable.
+pub struct EquiSides { pub bw: i64, pub pw: i64 }
+
+pub fn equi_term_sides(te: SExpr, new_var: str) -> EquiSides {
+    match te {
+        SExpr::Bin(b) => {
+            if b.op == OP_EQ() {
+                let lm: i32 = refs_mask(b.lhs_expr(), new_var);
+                let rm: i32 = refs_mask(b.rhs_expr(), new_var);
+                if lm == 1i32 && (rm & 1i32) == 0i32 {
+                    return EquiSides { bw: b.lhs.any().raw(), pw: b.rhs.any().raw() };
+                }
+                if rm == 1i32 && (lm & 1i32) == 0i32 {
+                    return EquiSides { bw: b.rhs.any().raw(), pw: b.lhs.any().raw() };
+                }
+            }
+        }
+        _ => { }
+    }
+    return EquiSides { bw: 0i64, pw: 0i64 };
+}
+
+pub fn step_equi_key(tl: &TermList, new_var: str, t: &ElTypes) -> StepKey {
+    let mut i: i64 = 0i64;
+    while i < tl.n {
+        let te: SExpr = WAny::ref_to(tl.w[i] as *const u8).view::<SExpr>();
+        let sd: EquiSides = equi_term_sides(te, new_var);
+        if sd.bw != 0i64 {
+            let kb: i32 = infer_ty(WAny::ref_to(sd.bw as *const u8).view::<SExpr>(), t);
+            let kp: i32 = infer_ty(WAny::ref_to(sd.pw as *const u8).view::<SExpr>(), t);
+            if kb == kp {
+                return StepKey { sel: i, bw: sd.bw, pw: sd.pw, kty: kb };
+            }
+        }
+        i = i + 1i64;
+    }
+    return StepKey { sel: -1i64, bw: 0i64, pw: 0i64, kty: EL_TY_INT() };
+}
+
+// ── The cascade ───────────────────────────────────────────────────────────
+/// A join step's chosen strategy AND what entailed it. The cascade always
+/// produced the choice; recording the ground alongside it is what makes a plan
+/// explainable instead of merely reproducible — and now the ground travels ON
+/// the plan, so the emitter's trace and the planner's are the same sentence.
+pub struct StepSel { pub strat: i32, pub key_ty: i32, pub sel: i64, pub why: str }
+
+pub fn step_cascade(k: StepKey) -> StepSel {
+    if k.sel < 0i64 {
+        return StepSel { strat: JS_LOOP(), key_ty: k.kty, sel: -1i64,
+                         why: "no equi-join key — a nested loop is the only shape left" };
+    }
+    let caps: KeyCaps = join_key_caps(k.kty);
+    if caps.hash && !join_force_tree() {
+        return StepSel { strat: JS_HASH(), key_ty: k.kty, sel: k.sel,
+                         why: "the key type is hashable — build once, probe per row" };
+    }
+    if caps.ord {
+        return StepSel { strat: JS_TREE(), key_ty: k.kty, sel: k.sel,
+                         why: if join_force_tree()
+                              { "the tree tier is forced (LOGOS_JOIN_TREE) — the key is hashable but ordered access is being exercised" }
+                              else { "the key type is ordered but not hashable — a sorted index, not a hash one" } };
+    }
+    if caps.eq {
+        return StepSel { strat: JS_LOOP(), key_ty: k.kty, sel: k.sel,
+                         why: "the key type has equality only — no index can be built, so every pair is tested" };
+    }
+    error("wql!: join key type supports neither Hash, Ord, nor equality — cannot execute this join step (scalar i64/str/bool/f64 keys only today)");
+    return StepSel { strat: JS_LOOP(), key_ty: k.kty, sel: -1i64,
+                     why: "the key type has no usable capability" };
+}
+
+/// The whole decision for one classic (non-traversal) step.
+pub fn decide_join_step(on: WRef<SExpr>, new_var: str, t: &ElTypes, h: &Writ) -> StepSel {
+    let st: StepTerms = step_terms(on, h);
+    return step_cascade(step_equi_key(&st.tl, new_var, t));
+}
+
+/// The decision for a TRAVERSAL step (`join d.emps e`). Containment has no key
+/// and the source expression depends on outer row vars, so no build-once index
+/// can exist — it is a nested loop by construction, not by cascade. Stated as a
+/// decision anyway so that "why is this a loop" has an answer on the plan
+/// rather than only in a comment.
+pub fn traversal_step_sel() -> StepSel {
+    return StepSel { strat: JS_LOOP(), key_ty: EL_TY_INT(), sel: -1i64,
+                     why: "a traversal step ranges over a field path of an outer row — the source is re-derived per bound row, so no index can be built over it" };
+}

@@ -155,10 +155,15 @@ otherwise, so the same filter over the same source narrowed in a scan and was
 ignored in a join or an aggregate. The shape is read in one place and
 contributes one thing — whether an exact access may RETIRE the filter, which
 only a simple scan's `where` permits, because a join's ranges over every bound
-variable. *Remaining:* cost on the relational IR nodes proper, and the
-join-strategy decision itself — it is still the emitter's, and moving it into
-the plan is what would let the hash and tree strategies stream their side too,
-since both build their index in one pass.
+variable. **S4f** — the JOIN-STRATEGY decision moved out of the emitter
+(`logos.std.wql.join_sel`) and onto the plan: it is made before the prelude
+exists and recorded on the step's IR node, so a step whose strategy reads its
+source once (hash, tree) streams it. The equi-key selection rule has one copy,
+used by the planner to CHOOSE the key term and by the emitter to compose text
+from the term the plan chose. A streamed step's hash index holds the ROWS
+rather than row indices — there is no slice left to index — which also removes
+the second structure the drained path built. *Remaining:* cost on the
+relational IR nodes proper.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

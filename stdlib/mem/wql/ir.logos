@@ -262,8 +262,16 @@ pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name:
 pub schema REdge   : code(0x0011_0000_0000_0001) { input: WRef<RExpr> = 0, src: str = 1, base_var: str = 2, path: str = 3, var_name: str = 4, row_ty: str = 5, on: WRef<SExpr> = 6, has_on: bool = 7, is_anti: bool = 8 }
 pub schema RFilter : code(0x0011_0000_0000_0002) { input: WRef<RExpr> = 0, pred: WRef<SExpr> = 1 }    // σ
 pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, sel: WRef<SExpr> = 1 }     // π — the projection expr
-pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2 }
-pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2 }
+// RJoin / RAnti carry the PLAN's decision for the step, not just its shape
+// (ADR 0024 S4): `jstrat` — hash / tree / loop, `JS_NONE` when no planner has
+// looked at this node; `jkey` — the equi-key's value class; `jsel` — WHICH term
+// of the const-folded `on` conjunction supplies the key (-1 = none), so the
+// emitter composes build/probe/residual without re-running the selection rule;
+// `jwhy` — the ground, travelling with the decision. Lowering copies these off
+// the surface step; the relational peephole passes the join subtree through
+// unchanged, so they survive to the emitter.
+pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jkey: i32 = 4, jsel: i32 = 5, jwhy: str = 6 }
+pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jkey: i32 = 4, jsel: i32 = 5, jwhy: str = 6 }
 pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, aggs: WRef<RAggArr> = 2 } // γ — single group key + agg specs
 pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: WRef<RExpr> = 1 }      // fixpoint — DECLARED, NOT impl in queue 1
 // ── ORDER/LIMIT/DISTINCT tier (`select [distinct] S [order by O [desc]] [limit …]`) ──

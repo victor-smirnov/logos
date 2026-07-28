@@ -1,0 +1,127 @@
+// A JOIN STEP streams its source when the PLAN says the strategy reads it once
+// (ADR 0024 S4).
+//
+// The join-strategy cascade used to run inside the emitter, one phase after the
+// prelude had already decided materialize-vs-stream. So the plan could only
+// say: "a join step's source is built or rescanned by a strategy the plan does
+// not own yet", and every step materialized — including the two thirds of them
+// that read their source exactly once. HASH builds its index in ONE pass and
+// then probes the index; TREE likewise; only LOOP rescans.
+//
+// The decision now lives in `logos.std.wql.join_sel`, is made by the planner
+// before the prelude exists, and is recorded ON the step's IR node. The emitter
+// READS it. `plan_mark_single_pass` marks a step read-once exactly when its
+// recorded strategy reads once.
+//
+// ORACLE: the pull count, and the rows.
+//
+// `q_hash` joins on an equality, so the step is a HASH join: its source is
+// pulled exactly `n` times — one pass — and the buckets hold the ROWS, because
+// a streamed source has no slice left to index into.
+//
+// `q_loop` joins on `>`, which supplies no equi-key, so the step is a NESTED
+// LOOP: it rescans its source once per bound row. The plan must REFUSE to
+// stream that one — and the row assertions are what prove it did. A nested loop
+// over a consumed iterator finds rows for the first bound row and nothing after
+// it, which is silence, not a crash. That is why the widening is a fact about
+// the emitted shape rather than an expectation about it.
+//
+// Both queries drain the source exactly once, so the pull count alone does not
+// separate stream from drain — the rows do.
+//
+// PLAN TRACE (LOGOS_TRACE_PLAN=1):
+//   [plan] e -> hash join on i64   (the key type is hashable — build once, probe per row)
+//   [plan] s -> scan [every row]   (no filter reaches this rel)
+//   [plan] s -> stream   (streamed: the producer is an iterator and the plan reads it once)
+//   [plan] e -> loop join on i64   (no equi-join key — a nested loop is the only shape left)
+//   [plan] s -> scan [every row]   (no filter reaches this rel)
+//   [plan] s -> materialize   (materialized: this step is a nested loop, which rescans its source once per bound row)
+//
+// EMITTED, q_hash — the index IS the materialization, and it holds the rows:
+//   let mut __rel_s: StepsIter = steps_rows(s);
+//   let mut __hm1: HashMap<i64, Vec<(i64, i64)>> = hashmap_new::<i64, Vec<(i64, i64)>>();
+//   loop { let __bo1: Option<(i64, i64)> = __rel_s.next(); if __bo1.is_none() { break; } … }
+//   …  let e: &(i64, i64) = __bv1.borrow(__p1);
+// EMITTED, q_loop — drained first, then rescanned from the slice:
+//   let mut __it_s: StepsIter = steps_rows(s);
+//   let mut __rel_s: Vec<(i64, i64)> = Vec::<(i64, i64)>::new();
+//   loop { let __dr: Option<(i64, i64)> = __it_s.next(); … __rel_s.push(__dr.unwrap()); }
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;             // trait MapSource
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+
+static mut PULLED: i64 = 0i64;
+
+pub struct Steps { pub n: i64 }
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter { return StepsIter { n: s.n, i: 0i64 }; }
+
+impl MapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+}
+
+// The DRIVING side is an ordinary slice — it is not the subject here, and
+// keeping it a slice makes every pull in the count the step's own.
+pub struct Bound { pub k: i64, pub tag: i64 }
+
+// EQUALITY on the step's key ⇒ HASH ⇒ one pass ⇒ the step may stream.
+pub deem q_hash(xs: &[Bound], s: &Steps) {
+    from xs x join s e on x.k == e.key select (x.k, e.val)
+}
+
+// NO equi-term ⇒ NESTED LOOP ⇒ the source is rescanned per bound row ⇒ the
+// plan must leave it materialized.
+pub deem q_loop(xs: &[Bound], s: &Steps) {
+    from xs x join s e on e.key > x.k select (x.k, e.val)
+}
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 6i64 };          // keys 0..5, vals key*10
+    let mut xs: Vec<Bound> = vec_new::<Bound>();
+    xs.push(Bound { k: 2i64, tag: 1i64 });
+    xs.push(Bound { k: 4i64, tag: 2i64 });
+    xs.push(Bound { k: 9i64, tag: 3i64 });     // no match at all
+
+    // ── HASH: streamed, one pass ────────────────────────────────────────────
+    unsafe { PULLED = 0i64; }
+    let rh: Vec<(i64, i64)> = match q_hash(xs.as_slice(), &s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if rh.len() != 2i64 { return 2i32; }
+    if rh.get(0i64).0 != 2i64 || rh.get(0i64).1 != 20i64 { return 3i32; }
+    if rh.get(1i64).0 != 4i64 || rh.get(1i64).1 != 40i64 { return 4i32; }
+    // ONE pass: six rows pulled for three bound rows. A rescanning strategy
+    // over a slice would have read the source three times.
+    unsafe { if PULLED != 6i64 { return 5i32; } }
+
+    // ── LOOP: materialized, rescanned ───────────────────────────────────────
+    unsafe { PULLED = 0i64; }
+    let rl: Vec<(i64, i64)> = match q_loop(xs.as_slice(), &s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    // x.k=2 → keys 3,4,5 · x.k=4 → key 5 · x.k=9 → none.
+    if rl.len() != 4i64 { return 7i32; }
+    if rl.get(0i64).0 != 2i64 || rl.get(0i64).1 != 30i64 { return 8i32; }
+    if rl.get(1i64).0 != 2i64 || rl.get(1i64).1 != 40i64 { return 9i32; }
+    if rl.get(2i64).0 != 2i64 || rl.get(2i64).1 != 50i64 { return 10i32; }
+    if rl.get(3i64).0 != 4i64 || rl.get(3i64).1 != 50i64 { return 11i32; }
+    // The iterator was drained ONCE into a Vec and the loop rescanned the Vec;
+    // had the plan streamed it, bound rows two and three would have found an
+    // empty source and the row count above would be one, not four.
+    unsafe { if PULLED != 6i64 { return 12i32; } }
+    return 0i32;
+}

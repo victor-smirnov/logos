@@ -74,6 +74,7 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.std.wql.srcloc;         // the query as a source — located diagnostics (ADR 0024 S0)
 use logos.std.wql.access_plan;    // AccessPlan — the plan as an object (ADR 0024 S4)
+use logos.std.wql.join_sel;       // the JOIN-STEP decision — decided here, read by the emitter
 
 // ── The walker entry: entry RQuery plan → RExpr algebra → emitted native fn ──
 // `prelude` — statements spliced after the generated fn's opening brace (the
@@ -1500,6 +1501,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // by registry idx), BEFORE the body pass (bodies may reference them).
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs) { return false; }
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
+        plan_decide_joins(prm, h);
         plan_mark_single_pass(prm, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
@@ -1538,6 +1540,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // the prelude loop below materializes them.
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs) { return false; }
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
+        plan_decide_joins(prm, h);
         plan_mark_single_pass(prm, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
@@ -1960,6 +1963,107 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
     }
 }
 
+// ── THE JOIN-STRATEGY DECISION (ADR 0024 S4) ──────────────────────────────
+// Decide how each join step will read its source, and record the answer ON the
+// step, BEFORE the prelude is built. Two of the three strategies (hash, tree)
+// index the step's source in a single pass and then probe the index; only a
+// nested loop rescans. That is the fact `plan_mark_single_pass` needs and could
+// not have while the cascade ran inside the emitter, one phase too late.
+//
+// Deciding is read-only over the params and writes nothing but the decision.
+//
+// ⚠ The type environment must be the emitter's. The rule types the equi-key's
+// two sides and rejects a mixed-type `==`, so a key that types differently on
+// the two sides would select a different strategy — and since the emitter now
+// READS this answer, a wrong one is not a slower plan but a hash index built
+// with the wrong key type, or worse, a rescan promised as a single read. The
+// stamping order below mirrors `emit_join_chain` exactly: per source, schema
+// then rel columns, then the scalar params, then the module's UDF returns.
+
+/// Seed one source's contribution to the type dict, from the UNSTAMPED query
+/// node (`resolve_source` has not run yet, so the node still names the rel).
+fn plan_stamp_src(t: &mut ElTypes, view: &OView, prm: &MacroParams, src: str, var: str) {
+    let pi: i64 = prm.index_of(src);
+    if pi >= 0i64 && prm.is_slice[pi] {
+        stamp_types_from_schema(view, t, prm.tys[pi]);
+        return;
+    }
+    let ri: i64 = prm.rel_find_name(src);
+    if ri >= 0i64 { let _b: bool = stamp_rel_columns(t, prm, ri, var); return; }
+    // An already-rewritten source name (the idempotent re-walk) or an unknown
+    // one: the later resolve reports it. Nothing to stamp, and a step whose
+    // sides do not type stays a nested loop, which is the safe answer.
+    let si: i64 = prm.rel_find_src(src);
+    if si >= 0i64 { let _b2: bool = stamp_rel_columns(t, prm, si, var); }
+}
+
+/// Decide every classic step of ONE chain and stamp the decision on the nodes.
+///
+/// Traversal (`is_edge`) steps are nested loops by construction. They also STOP
+/// the walk: a traversal binds a row var whose element type the planner cannot
+/// reflect before `stamp_edge_step` has run, so any later step's `on` may
+/// reference a name this type dict does not have. Deciding it anyway would risk
+/// a key typed here and typed differently there. Later steps are left
+/// `JS_NONE`; `plan_mark_single_pass` reads that as "not proven read-once".
+fn plan_decide_chain(prm: &MacroParams, view: &OView,
+                     base_src: str, base_var: str,
+                     steps: RQJoinStepArr, h: &Writ) {
+    let mut t: ElTypes = el_types_new();
+    plan_stamp_src(&mut t, view, prm, base_src, base_var);
+    let ns: i64 = steps.len();
+    let mut i: i64 = 0i64;
+    while i < ns {
+        let st0: RQJoinStep = steps.step_at(i);
+        if st0.is_edge { i = ns; }
+        else {
+            plan_stamp_src(&mut t, view, prm, st0.src_name, st0.var_name);
+            i = i + 1i64;
+        }
+    }
+    apply_scalar_params(&mut t, prm);
+    stamp_udfs_from_module(view, &mut t);
+    let mut k: i64 = 0i64;
+    while k < ns {
+        let st: RQJoinStep = rq_fat_step(steps.step_any(k), h);
+        if st.is_edge {
+            let ts: StepSel = traversal_step_sel();
+            st.jstrat = ts.strat; st.jkey = ts.key_ty;
+            st.jsel = -1i32;      st.jwhy = ts.why;
+            return;               // and every step after it stays undecided
+        }
+        let ss: StepSel = decide_join_step(st.on, st.var_name, &t, h);
+        st.jstrat = ss.strat;
+        st.jkey   = ss.key_ty;
+        st.jsel   = ss.sel as i32;
+        st.jwhy   = ss.why;
+        plan_trace(st.var_name, js_name(ss.strat), el_class_repr(ss.key_ty), ss.why);
+        k = k + 1i64;
+    }
+}
+
+/// Decide the join steps of the ENTRY query.
+///
+/// Rel BODIES are not visited: a program with rel blocks materializes every
+/// source anyway (a body may scan a native rel any number of times), so no
+/// decision of theirs could widen anything. Their nodes stay `JS_NONE` and the
+/// emitter decides them by the same rule at emission — stated in `analyze_chain`.
+fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
+    if prm.src_root.is_null() { return; }
+    let prog: RQProgram = prm.src_root.view::<RQProgram>();
+    let view: OView = oview_module_ast();
+    match prog.entry_any().view::<RQuery>() {
+        RQuery::Join(jq) => {
+            plan_decide_chain(prm, &view, jq.a_name, jq.x_var, jq.steps_arr(), h);
+        }
+        RQuery::Aggr(gq) => {
+            if gq.has_steps() {
+                plan_decide_chain(prm, &view, gq.a_name, gq.x_var, gq.steps_arr(), h);
+            }
+        }
+        _ => { }
+    }
+}
+
 /// Which rels does this plan read EXACTLY ONCE?
 ///
 /// The conservative direction is fixed by what a wrong answer costs: a wrong
@@ -1971,13 +2075,17 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 ///     rows by position after collecting them, or a graph path lowers it to a
 ///     join chain.
 ///   • JOIN — the BASE is the outermost loop of a left-deep nest, so it is read
-///     once BY CONSTRUCTION. The steps are not: whether a step's source is
-///     built once or rescanned per bound row is decided by the join-strategy
-///     cascade, which the emitter still owns. That is the next thing to move
-///     into the plan, and until it moves, a step says so rather than guessing.
+///     once BY CONSTRUCTION. A STEP is read once exactly when the strategy the
+///     plan chose for it reads once: hash and tree index the source in one pass
+///     and then probe the index; a nested loop rescans. `order by` blocks both,
+///     because the sort phase re-binds every joined row BY INDEX after
+///     collecting the matches — an iterator has no index and is already spent.
 ///
-/// A rel named more than once in the same query (a self-join) is read as many
-/// times as it is named, so the base only counts when no step repeats it.
+/// A rel NAMED MORE THAN ONCE in one chain is read once per naming, whatever
+/// each naming's strategy — so the count comes first and overrides everything.
+/// (This generalizes the old base-vs-step self-join guard: two STEPS naming the
+/// same rel are the same hazard, and were not checked while every step was
+/// unconditionally materialized.)
 fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
     if prm.src_root.is_null() { return; }
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
@@ -2010,23 +2118,45 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
             let bi: i64 = prm.rel_find_name(jq.a_name);
             let steps: RQJoinStepArr = jq.steps_arr();
             let ns: i64 = steps.len();
+            // How many times does the chain NAME each rel?
+            let mut cnt: [i64; 8] = [0i64; 8];
+            if bi >= 0i64 { cnt[bi] = cnt[bi] + 1i64; }
+            let mut c: i64 = 0i64;
+            while c < ns {
+                let sc: i64 = prm.rel_find_name(steps.step_at(c).src_name);
+                if sc >= 0i64 { cnt[sc] = cnt[sc] + 1i64; }
+                c = c + 1i64;
+            }
             let mut k: i64 = 0i64;
             while k < ns {
                 let st: RQJoinStep = steps.step_at(k);
                 let si: i64 = prm.rel_find_name(st.src_name);
                 if si >= 0i64 {
-                    ap.read_once(si, false,
-                        "materialized: a join step's source is built or rescanned by a strategy the plan does not own yet");
-                }
-                if si >= 0i64 && si == bi {
-                    // The base is named again — a self-join reads it twice.
-                    ap.read_once(bi, false,
-                        "materialized: the query names this source on both sides of a join");
+                    if cnt[si] > 1i64 {
+                        ap.read_once(si, false,
+                            "materialized: the query names this source more than once in one join chain");
+                    } else if jq.has_order {
+                        ap.read_once(si, false,
+                            "materialized: `order by` re-binds joined rows by index after collecting the matches");
+                    } else if st.jstrat == JS_NONE() {
+                        ap.read_once(si, false,
+                            "materialized: no strategy was decided for this step — a traversal earlier in the chain binds a var the plan cannot type yet");
+                    } else if js_reads_once(st.jstrat) {
+                        ap.read_once(si, true, "");
+                    } else {
+                        ap.read_once(si, false,
+                            "materialized: this step is a nested loop, which rescans its source once per bound row");
+                    }
                 }
                 k = k + 1i64;
             }
             if bi < 0i64 { return; }
-            if ap.owhy[bi].len() > 0i64 { return; }   // already blocked above
+            if cnt[bi] > 1i64 {
+                // The base is named again — a self-join reads it twice.
+                ap.read_once(bi, false,
+                    "materialized: the query names this source on both sides of a join");
+                return;
+            }
             if jq.has_order {
                 ap.read_once(bi, false,
                     "materialized: `order by` revisits base rows by position after collecting them");
@@ -2046,6 +2176,23 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
             if ai >= 0i64 {
                 ap.read_once(ai, false,
                     "materialized: the aggregate revisits rows after grouping them");
+            }
+            // An aggregate's join STEPS carry a decided strategy too, but the
+            // joined-stream fold re-binds matched rows by index in its finalize
+            // pass exactly as the sort phase does, so none of them may stream
+            // yet. Said out loud rather than left to the default.
+            if gq.has_steps() {
+                let gs: RQJoinStepArr = gq.steps_arr();
+                let ng: i64 = gs.len();
+                let mut gk: i64 = 0i64;
+                while gk < ng {
+                    let gi: i64 = prm.rel_find_name(gs.step_at(gk).src_name);
+                    if gi >= 0i64 {
+                        ap.read_once(gi, false,
+                            "materialized: the aggregate's finalize pass re-binds joined rows by index");
+                    }
+                    gk = gk + 1i64;
+                }
             }
         }
         _ => { }

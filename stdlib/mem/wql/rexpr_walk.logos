@@ -40,6 +40,7 @@ use logos.std.wql.el;         // ElTypes, el_types_new, el_ty_of_name, EL_TY_*
 use logos.std.wql.params;     // MacroParams — the parsed deem!(…) param list
 use logos.std.wql.codegen;    // emit_sexpr / infer_ty / el_ty_name / …
 use logos.std.wql.optimize;   // simplify_sexpr + TermList/split_and_terms/refs_mask (shared IR-level analysis)
+use logos.std.wql.join_sel;   // JS_* / StepSel / step_terms / decide_join_step — THE join-step decision
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
 use logos.std.wql.reflect;    // stamp_types_from_schema
 use logos.mem.string;
@@ -133,6 +134,16 @@ pub fn stamp_rel_source(ty: &mut ElTypes, prm: &MacroParams,
                         src_name: str, var_name: str) -> bool {
     let ri: i64 = prm.rel_find_src(src_name);
     if ri < 0i64 { return false; }
+    return stamp_rel_columns(ty, prm, ri, var_name);
+}
+
+/// The same stamping, by rel INDEX. The planner reaches a rel before its
+/// source name has been written onto the query node, so it has the index and
+/// not the name; splitting the lookup off the stamping is what lets one copy of
+/// the column binding serve both.
+pub fn stamp_rel_columns(ty: &mut ElTypes, prm: &MacroParams,
+                         ri: i64, var_name: str) -> bool {
+    if ri < 0i64 { return false; }
     let off: i64 = prm.rel_coff[ri];
     let nc: i64  = prm.rel_ccnt[ri];
     if nc == 1i64 {
@@ -162,7 +173,7 @@ pub fn stamp_rel_source(ty: &mut ElTypes, prm: &MacroParams,
 // Slice params are SOURCES (their row schemas are reflected separately); a
 // scalar param referenced BARE in EL (`e.salary > min_sal`, `limit n`) types
 // through this seeding.
-fn apply_scalar_params(ty: &mut ElTypes, prm: &MacroParams) {
+pub fn apply_scalar_params(ty: &mut ElTypes, prm: &MacroParams) {
     let mut i: i64 = 0i64;
     while i < prm.n {
         if !prm.is_slice[i] {
@@ -1097,7 +1108,19 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 //      DEFERRED — one key column per step today);
 //   3. the key's EL value-type selects the strategy BY CAPABILITY
 //      (`join_key_caps` — the single seam a future structural-key version
-//      swaps for metaprog has_trait queries):
+//      swaps for metaprog has_trait queries).
+//
+// ⚠ STEPS 1-3 ARE NOT THIS FILE'S ANY MORE (ADR 0024 S4). They live in
+// `logos.std.wql.join_sel` and run in the PLANNER, before the prelude decides
+// whether each source materializes or streams — because hash and tree read the
+// step's source exactly once and loop does not, which is precisely the fact
+// materialize-vs-stream needs. The emitter READS `RJoin.jstrat`/`jkey`/`jsel`
+// off the node and composes text from them. It re-decides only for a node no
+// planner reached (`JS_NONE`), and a step whose source STREAMS must carry a
+// decision that reads once — asserted below, because getting that wrong emits
+// a rescan of a consumed iterator, which loses rows in silence.
+//
+// The tiers the decision selects:
 //        Hash+Eq (i64/str/bool) → HASH — HashMap<K, Vec<i64>> (key → row
 //                                 indices) built ONCE over the new source,
 //                                 probed per bound-row; residual checked per
@@ -1116,38 +1139,12 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 //                                 exists for future structural keys).
 //   No equi-term at all → nested loop on the full step predicate.
 //
-// Bucket payloads are row INDICES in scan order, so probe hits replay in
-// source order and the joined-row ordering matches the nested-loop baseline
-// exactly (order-sensitive e2e expectations are preserved).
-
-fn JS_HASH() -> i32 { return 1i32; }
-fn JS_TREE() -> i32 { return 2i32; }
-fn JS_LOOP() -> i32 { return 3i32; }
-
-// ── The key-capability table — THE selector seam ─────────────────────────────
-// ONE function maps an EL value-type to its {hash, ord, eq} capability row;
-// the strategy selector reads ONLY this. The future structural-key version
-// swaps the body for metaprog has_trait queries (Hash / Ord / PartialEq over
-// the key's schema type) without touching the selector logic.
-pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
-
-pub fn join_key_caps(el_ty: i32) -> KeyCaps {
-    // i64 / str / bool: Hash+Eq (also Ord — hash wins first in the cascade).
-    if el_ty == EL_TY_INT() || el_ty == EL_TY_STR() || el_ty == EL_TY_BOOL() {
-        return KeyCaps { hash: true, ord: true, eq: true };
-    }
-    // f64: PartialEq ONLY — NaN breaks the Hash key contract (NaN != NaN) and
-    // the total order Ord demands; == on the key is still meaningful.
-    if el_ty == EL_TY_FLT() {
-        return KeyCaps { hash: false, ord: false, eq: true };
-    }
-    return KeyCaps { hash: false, ord: false, eq: false };
-}
-
-// DEV toggle: force the TREE tier for Hash-capable keys — compiles + runs the
-// (today unreachable) Ord-only tier end-to-end during development. MUST stay
-// false in committed code.
-fn join_force_tree() -> bool { return false; }
+// Bucket payloads are row INDICES in scan order over an INDEXABLE source, so
+// probe hits replay in source order and the joined-row ordering matches the
+// nested-loop baseline exactly (order-sensitive e2e expectations are
+// preserved). A STREAMED step has no indexable source at all: its build phase
+// drains the iterator and the buckets hold the ROWS themselves, in arrival
+// order — the same replay order, one structure instead of two.
 
 // ── Small emission helpers ───────────────────────────────────────────────────
 // Push `prefix` + decimal `k` — the generated-name spelling (`__pk3`, `__hm2`).
@@ -1178,6 +1175,8 @@ fn ind_string(lvl: i64) -> String {
 // `on` — containment IS the join). `byval[i]` — the step binds a SCALAR
 // element (Vec<str> → `let s: str = (e.skills)[j]`) by VALUE (Copy lattice),
 // not by reference.
+// `jstrat`/`jkey`/`jsel`/`jwhy` — the PLAN'S DECISION, carried off the node
+// (`JS_NONE` = no planner reached it; see analyze_chain).
 struct JChain {
     base_src: str,
     base_ty:  str,
@@ -1190,6 +1189,10 @@ struct JChain {
     onw:  [i64; 8],     // raw arena words of the per-step on-pred edges (0 = none)
     edge:  [bool; 8],
     byval: [bool; 8],
+    jstrat: [i32; 8],
+    jkey:   [i32; 8],
+    jsel:   [i64; 8],
+    jwhy:   [str; 8],
 }
 
 fn jchain_new() -> JChain {
@@ -1200,7 +1203,11 @@ fn jchain_new() -> JChain {
                     anti: [false; 8],
                     onw:  [0i64; 8],
                     edge:  [false; 8],
-                    byval: [false; 8] };
+                    byval: [false; 8],
+                    jstrat: [0i32; 8],
+                    jkey:   [0i32; 8],
+                    jsel:   [-1i64; 8],
+                    jwhy:   ["", "", "", "", "", "", "", ""] };
 }
 
 // Walk the left spine of the binary join tree: the recursion bottoms out at
@@ -1216,6 +1223,10 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.var[ch.n] = rs.var_name;
                 ch.anti[ch.n] = false;
                 ch.onw[ch.n]  = jn.on.any().raw();
+                ch.jstrat[ch.n] = jn.jstrat;
+                ch.jkey[ch.n]   = jn.jkey;
+                ch.jsel[ch.n]   = jn.jsel as i64;
+                ch.jwhy[ch.n]   = jn.jwhy;
                 ch.n = ch.n + 1i64;
             }
             return;
@@ -1229,6 +1240,10 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.var[ch.n] = rs.var_name;
                 ch.anti[ch.n] = true;
                 ch.onw[ch.n]  = an.on.any().raw();
+                ch.jstrat[ch.n] = an.jstrat;
+                ch.jkey[ch.n]   = an.jkey;
+                ch.jsel[ch.n]   = an.jsel as i64;
+                ch.jwhy[ch.n]   = an.jwhy;
                 ch.n = ch.n + 1i64;
             }
             return;
@@ -1262,116 +1277,72 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
 // Rebuild an SExpr view from a raw arena word (the provenance-laundering idiom).
 fn sexpr_of_word(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
 
-// The per-step strategy decision (POD; the emitted TEXT lands in the caller's
-// build/probe/resid/pred Strings).
-// A join step's chosen strategy AND what entailed it (ADR 0024 S4). The
-// cascade always produced the choice; recording the ground alongside it is
-// what makes a plan explainable instead of merely reproducible.
-pub struct StepSel { pub strat: i32, pub key_ty: i32, pub has_equi: bool, pub has_resid: bool, pub why: str }
-
-// Analyze ONE step's on-predicate: simplify, split the conjunction, pick the
-// FIRST usable equi-term (same EL type on both sides), compose the residual,
-// and run the capability cascade. `pred` always receives the FULL simplified
-// predicate (the nested-loop tier's condition).
-fn analyze_step(on_ref: WRef<SExpr>, new_var: str, t: &ElTypes, var0: str, h: &Writ,
-                build: &mut String, probe: &mut String,
-                resid: &mut String, pred: &mut String) -> StepSel {
-    let on_opt: WRef<SExpr> = simplify_sexpr(on_ref.any().view::<SExpr>(), h);
-    emit_sexpr(pred, on_opt.any().view::<SExpr>(), t, var0);
-
-    let mut tl: TermList = term_list_new();
-    split_and_terms(on_opt, &mut tl);
-
-    let mut sel_i: i64 = -1i64;
-    let mut bw: i64 = 0i64;
-    let mut pw: i64 = 0i64;
-    let mut kt: i32 = EL_TY_INT();
-    let mut i: i64 = 0i64;
-    while i < tl.n {
-        if sel_i < 0i64 {
-            let te: SExpr = sexpr_of_word(tl.w[i]);
-            match te {
-                SExpr::Bin(b) => {
-                    if b.op == OP_EQ() {
-                        let lm: i32 = refs_mask(b.lhs_expr(), new_var);
-                        let rm: i32 = refs_mask(b.rhs_expr(), new_var);
-                        let mut cw: i64 = 0i64;
-                        let mut cp: i64 = 0i64;
-                        if lm == 1i32 && (rm & 1i32) == 0i32 { cw = b.lhs.any().raw(); cp = b.rhs.any().raw(); }
-                        if rm == 1i32 && (lm & 1i32) == 0i32 { cw = b.rhs.any().raw(); cp = b.lhs.any().raw(); }
-                        if cw != 0i64 {
-                            // Usable key ⇔ both sides infer to the SAME EL type
-                            // (no cross-type hashing through int→f64 promotion —
-                            // a mixed-type == stays residual).
-                            let kb: i32 = infer_ty(sexpr_of_word(cw), t);
-                            let kp: i32 = infer_ty(sexpr_of_word(cp), t);
-                            if kb == kp {
-                                sel_i = i;
-                                bw = cw;
-                                pw = cp;
-                                kt = kb;
-                            }
-                        }
-                    }
-                }
-                _ => { }
-            }
+// Compose ONE step's emitted TEXT from the decision the plan already made.
+// This function no longer CHOOSES anything: `sel` is the index, in the split of
+// the const-folded `on` conjunction, of the term the planner took as the equi-
+// key (-1 = none). `build`/`probe` receive that term's new-side and bound-side
+// halves; `resid` receives the AND of every other term; `pred` always receives
+// the FULL simplified predicate (the nested-loop tier's condition). Returns
+// whether a residual exists.
+//
+// The split is `join_sel::step_terms`, the same call the planner made, so term
+// index `sel` denotes the same term here as it did there.
+fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, t: &ElTypes, var0: str, h: &Writ,
+                   build: &mut String, probe: &mut String,
+                   resid: &mut String, pred: &mut String) -> bool {
+    let st: StepTerms = step_terms(on_ref, h);
+    emit_sexpr(pred, st.opt.any().view::<SExpr>(), t, var0);
+    if sel < 0i64 { return false; }
+    let tl: TermList = st.tl;
+    // Which half of the key term is the build side is `equi_term_sides` — the
+    // same function that made the term selectable, asked again rather than
+    // re-derived.
+    let sd: EquiSides = equi_term_sides(sexpr_of_word(tl.w[sel]), new_var);
+    emit_sexpr(build, sexpr_of_word(sd.bw), t, var0);
+    emit_sexpr(probe, sexpr_of_word(sd.pw), t, var0);
+    let mut k: i64 = 0i64;
+    let mut none_yet: bool = true;
+    while k < tl.n {
+        if k != sel {
+            if !none_yet { resid.push_str(" && "); }
+            resid.push_str("(");
+            emit_sexpr(resid, sexpr_of_word(tl.w[k]), t, var0);
+            resid.push_str(")");
+            none_yet = false;
         }
-        i = i + 1i64;
+        k = k + 1i64;
     }
-
-    let mut ss: StepSel = StepSel { strat: JS_LOOP(), key_ty: kt, has_equi: false, has_resid: false, why: "no equi-join key — a nested loop is the only shape left" };
-    if sel_i >= 0i64 {
-        ss.has_equi = true;
-        emit_sexpr(build, sexpr_of_word(bw), t, var0);
-        emit_sexpr(probe, sexpr_of_word(pw), t, var0);
-        // Residual = AND of every non-selected term (checked after the probe).
-        let mut k: i64 = 0i64;
-        let mut none_yet: bool = true;
-        while k < tl.n {
-            if k != sel_i {
-                if !none_yet { resid.push_str(" && "); }
-                resid.push_str("(");
-                emit_sexpr(resid, sexpr_of_word(tl.w[k]), t, var0);
-                resid.push_str(")");
-                none_yet = false;
-            }
-            k = k + 1i64;
-        }
-        ss.has_resid = !none_yet;
-        // THE CASCADE — by key capability.
-        let caps: KeyCaps = join_key_caps(kt);
-        if caps.hash && !join_force_tree() {
-            ss.strat = JS_HASH();
-            ss.why = "the key type is hashable — build once, probe per row";
-        } else if caps.ord {
-            ss.strat = JS_TREE();
-            ss.why = if join_force_tree()
-                     { "the tree tier is forced (LOGOS_JOIN_TREE) — the key is hashable but ordered access is being exercised" }
-                     else { "the key type is ordered but not hashable — a sorted index, not a hash one" };
-        } else if caps.eq {
-            ss.strat = JS_LOOP();
-            ss.why = "the key type has equality only — no index can be built, so every pair is tested";
-        }
-        else {
-            error("wql!: join key type supports neither Hash, Ord, nor equality — cannot execute this join step (scalar i64/str/bool/f64 keys only today)");
-        }
-    }
-    return ss;
+    return !none_yet;
 }
 
 // Analyze EVERY step of a chain into the caller's parallel arrays.
-// TRAVERSAL steps (edge) BYPASS the strategy cascade entirely: containment has
-// no key and the source expression depends on outer row vars (a build-once
-// index cannot exist), so the step is ALWAYS a nested loop — its optional `on`
-// is just the loop's residual filter ("true" when absent).
-fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ,
+//
+// The STRATEGY is READ, not chosen: `ch.jstrat[i]` came off the IR node, where
+// the planner recorded it before the prelude decided materialize-vs-stream.
+// A node the planner never reached carries `JS_NONE` — today that is a rel
+// body's own join chain, which is emitted from a program that has rel blocks,
+// and a rel block already forces every source to materialize. Such a node is
+// decided here, by the SAME rule, and the assertion below is what keeps that
+// fallback from ever meeting a streamed source.
+//
+// TRAVERSAL steps (edge) are nested loops by construction: containment has no
+// key and the source expression is re-derived per bound row.
+//
+// ⚠ THE ASSERTION. A streamed source is an iterator that yields its rows once.
+// A LOOP step rescans its source per bound row, so pairing the two produces a
+// join that silently drops every row after the first bound one. The plan
+// promises this cannot happen (it only marks a step read-once when its
+// strategy reads once); the check is here because the cost of the promise
+// being broken is silence rather than a crash.
+fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
                  st_build: &mut [String; 8], st_probe: &mut [String; 8],
                  st_resid: &mut [String; 8], st_pred: &mut [String; 8],
                  st_strat: &mut [i32; 8], st_ktn: &mut [str; 8],
-                 st_hasres: &mut [bool; 8], st_equi: &mut [bool; 8]) {
+                 st_hasres: &mut [bool; 8], st_equi: &mut [bool; 8],
+                 st_stream: &mut [bool; 8]) -> bool {
     let mut i: i64 = 0i64;
     while i < ch.n {
+        st_stream[i] = prm.rel_src_streams(ch.src[i]);
         if ch.edge[i] {
             st_strat[i]  = JS_LOOP();
             st_ktn[i]    = "";
@@ -1385,21 +1356,35 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ,
             }
         } else {
             let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[i] as *const u8));
-            let ss: StepSel = analyze_step(onr, ch.var[i], t, var0, h,
+            let mut strat: i32 = ch.jstrat[i];
+            let mut kty: i32   = ch.jkey[i];
+            let mut sel: i64   = ch.jsel[i];
+            if strat == JS_NONE() {
+                let ss: StepSel = decide_join_step(onr, ch.var[i], t, h);
+                strat = ss.strat; kty = ss.key_ty; sel = ss.sel;
+                // Traced HERE because this is where it was decided. A step the
+                // planner decided was already traced there, and echoing it
+                // would put the same decision in the log twice.
+                plan_trace(ch.var[i], js_name(strat), el_class_repr(kty), ss.why);
+            }
+            if st_stream[i] && !js_reads_once(strat) {
+                let mut m: String = String::new();
+                m.push_str("wql!: internal — join step over `");
+                m.push_str(ch.src[i]);
+                m.push_str("` is streamed but its strategy rescans the source; the plan proved a single read that the emitted shape does not have");
+                error(string_as_str(&m));
+                return false;
+            }
+            st_strat[i]  = strat;
+            st_hasres[i] = emit_step_texts(onr, ch.var[i], sel, t, var0, h,
                                            &mut st_build[i], &mut st_probe[i],
                                            &mut st_resid[i], &mut st_pred[i]);
-            st_strat[i]  = ss.strat;
-            plan_trace(ch.var[i],
-                       if ss.strat == JS_HASH() { "hash join" }
-                       else if ss.strat == JS_TREE() { "tree join" }
-                       else { "loop join" },
-                       el_class_repr(ss.key_ty), ss.why);
-            st_ktn[i]    = el_class_repr(ss.key_ty);
-            st_hasres[i] = ss.has_resid;
-            st_equi[i]   = ss.has_equi;
+            st_ktn[i]    = el_class_repr(kty);
+            st_equi[i]   = sel >= 0i64;
         }
         i = i + 1i64;
     }
+    return true;
 }
 
 // The `// join strategy: …` trace line (visible via LOGOS_TRACE_EMIT).
@@ -1435,14 +1420,32 @@ fn emit_strategy_comment(em: &mut Emitter, s: i64, strat: i32, anti: bool,
 }
 
 // ── Build phase (once per hash/tree step, before the loop nest) ──────────────
-// Index the step's source by the NEW-side key: HashMap<K, Vec<i64>> (key → row
-// indices) — or HashSet<K> for anti-without-residual (pure absence test) — or
-// BTreeMap<K, Vec<i64>> on the (today unreachable) Ord-only tier. NOTE:
-// BTreeMap has no auto-Drop yet (btreemap_free is manual), so the tree index
-// leaks at fn exit — acceptable for the unreachable tier; revisit when a
-// real Ord-only key type lands.
+// Index the step's source by the NEW-side key: HashMap<K, Vec<Payload>> — or
+// HashSet<K> for anti-without-residual (pure absence test) — or BTreeMap<K,
+// Vec<Payload>> on the (today unreachable) Ord-only tier. NOTE: BTreeMap has no
+// auto-Drop yet (btreemap_free is manual), so the tree index leaks at fn exit —
+// acceptable for the unreachable tier; revisit when a real Ord-only key type
+// lands.
+//
+// THE PAYLOAD depends on whether the source can be revisited:
+//
+//   INDEXABLE source (a slice) — the payload is the row INDEX. The rows already
+//     live somewhere addressable, so storing anything else would copy them.
+//   STREAMED source (`streams`) — the payload is the ROW. There is no index to
+//     store: the iterator yields each row once and the plan proved this build is
+//     that one reading, so the bucket IS where the rows live from here on. That
+//     is the whole win — before, a streamable step source was drained into a
+//     `Vec` in the prelude AND indexed into a HashMap here, two structures for
+//     one pass; now the hash index is the only one.
+//
+// Both keep arrival order within a bucket, so probe hits replay in source order
+// exactly as the nested-loop baseline does.
+fn push_payload_ty(em: &mut Emitter, streams: bool, ty: str) {
+    if streams { em.push_text(ty); } else { em.push_text("i64"); }
+}
+
 fn emit_build_phase(em: &mut Emitter, s: i64, strat: i32, anti: bool, has_resid: bool,
-                    ktn: str, src: str, ty: str, var: str, build_key: str) {
+                    ktn: str, src: str, ty: str, var: str, build_key: str, streams: bool) {
     if strat == JS_LOOP() { return; }
     let set_form: bool = strat == JS_HASH() && anti && !has_resid;
     // Container + ONE raw pointer to it, taken at the declaration (the
@@ -1468,14 +1471,20 @@ fn emit_build_phase(em: &mut Emitter, s: i64, strat: i32, anti: bool, has_resid:
         push_nk(em, "__hm", s);
         em.push_text(": HashMap<");
         em.push_text(ktn);
-        em.push_text(", Vec<i64>> = hashmap_new::<");
+        em.push_text(", Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">> = hashmap_new::<");
         em.push_text(ktn);
-        em.push_text(", Vec<i64>>();\n");
+        em.push_text(", Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">>();\n");
         em.push_text("    let ");
         push_nk(em, "__mp", s);
         em.push_text(": *mut HashMap<");
         em.push_text(ktn);
-        em.push_text(", Vec<i64>> = &mut ");
+        em.push_text(", Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">> = &mut ");
         push_nk(em, "__hm", s);
         em.push_text(";\n");
     } else {
@@ -1483,32 +1492,68 @@ fn emit_build_phase(em: &mut Emitter, s: i64, strat: i32, anti: bool, has_resid:
         push_nk(em, "__bt", s);
         em.push_text(": BTreeMap<");
         em.push_text(ktn);
-        em.push_text(", Vec<i64>> = btreemap_new::<");
+        em.push_text(", Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">> = btreemap_new::<");
         em.push_text(ktn);
-        em.push_text(", Vec<i64>>();\n");
+        em.push_text(", Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">>();\n");
         em.push_text("    let ");
         push_nk(em, "__tp", s);
         em.push_text(": *mut BTreeMap<");
         em.push_text(ktn);
-        em.push_text(", Vec<i64>> = &mut ");
+        em.push_text(", Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">> = &mut ");
         push_nk(em, "__bt", s);
         em.push_text(";\n");
     }
-    em.push_text("    {\n        let mut ");
-    push_nk(em, "__b", s);
-    em.push_text(": i64 = 0i64;\n        while ");
-    push_nk(em, "__b", s);
-    em.push_text(" < (");
-    em.push_text(src);
-    em.push_text(").len() {\n            let ");
-    em.push_text(var);
-    em.push_text(": &");
-    em.push_text(ty);
-    em.push_text(" = &(");
-    em.push_text(src);
-    em.push_text(")[");
-    push_nk(em, "__b", s);
-    em.push_text("];\n            let ");
+    em.push_text("    {\n");
+    if streams {
+        // ONE pass over the iterator, and the only one. The row type is
+        // ANNOTATED for the same reason the scan loop annotates it: `next()`'s
+        // result type is the trait's parameter, and an associated-type source
+        // spelling leaves it unselected.
+        em.push_text("        loop {\n            let ");
+        push_nk(em, "__bo", s);
+        em.push_text(": Option<");
+        em.push_text(ty);
+        em.push_text("> = ");
+        em.push_text(src);
+        em.push_text(".next();\n            if ");
+        push_nk(em, "__bo", s);
+        em.push_text(".is_none() { break; }\n            let ");
+        push_nk(em, "__br", s);
+        em.push_text(": ");
+        em.push_text(ty);
+        em.push_text(" = ");
+        push_nk(em, "__bo", s);
+        em.push_text(".unwrap();\n            let ");
+        em.push_text(var);
+        em.push_text(": &");
+        em.push_text(ty);
+        em.push_text(" = &");
+        push_nk(em, "__br", s);
+        em.push_text(";\n");
+    } else {
+        em.push_text("        let mut ");
+        push_nk(em, "__b", s);
+        em.push_text(": i64 = 0i64;\n        while ");
+        push_nk(em, "__b", s);
+        em.push_text(" < (");
+        em.push_text(src);
+        em.push_text(").len() {\n            let ");
+        em.push_text(var);
+        em.push_text(": &");
+        em.push_text(ty);
+        em.push_text(" = &(");
+        em.push_text(src);
+        em.push_text(")[");
+        push_nk(em, "__b", s);
+        em.push_text("];\n");
+    }
+    em.push_text("            let ");
     push_nk(em, "__k", s);
     em.push_text(": ");
     em.push_text(ktn);
@@ -1524,30 +1569,42 @@ fn emit_build_phase(em: &mut Emitter, s: i64, strat: i32, anti: bool, has_resid:
     } else if strat == JS_HASH() {
         em.push_text("            unsafe {\n                let ");
         push_nk(em, "__vp", s);
-        em.push_text(": *mut Vec<i64> = ");
+        em.push_text(": *mut Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text("> = ");
         push_nk(em, "__mp", s);
         em.push_text(".get_or_insert(");
         push_nk(em, "__k", s);
-        em.push_text(", Vec::<i64>::new());\n                (&mut *");
+        em.push_text(", Vec::<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">::new());\n                (&mut *");
         push_nk(em, "__vp", s);
         em.push_text(").push(");
-        push_nk(em, "__b", s);
+        if streams { push_nk(em, "__br", s); } else { push_nk(em, "__b", s); }
         em.push_text(");\n            }\n");
     } else {
         em.push_text("            unsafe {\n                let ");
         push_nk(em, "__vp", s);
-        em.push_text(": *mut Vec<i64> = ");
+        em.push_text(": *mut Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text("> = ");
         push_nk(em, "__tp", s);
         em.push_text(".get_mut(&");
         push_nk(em, "__k", s);
         em.push_text(");\n                if ");
         push_nk(em, "__vp", s);
-        em.push_text(" == (0i64 as *mut Vec<i64>) {\n                    let mut ");
+        em.push_text(" == (0i64 as *mut Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">) {\n                    let mut ");
         push_nk(em, "__nv", s);
-        em.push_text(": Vec<i64> = Vec::<i64>::new();\n                    ");
+        em.push_text(": Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text("> = Vec::<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">::new();\n                    ");
         push_nk(em, "__nv", s);
         em.push_text(".push(");
-        push_nk(em, "__b", s);
+        if streams { push_nk(em, "__br", s); } else { push_nk(em, "__b", s); }
         em.push_text(");\n                    ");
         push_nk(em, "__tp", s);
         em.push_text(".insert(");
@@ -1557,20 +1614,24 @@ fn emit_build_phase(em: &mut Emitter, s: i64, strat: i32, anti: bool, has_resid:
         em.push_text(");\n                } else {\n                    (&mut *");
         push_nk(em, "__vp", s);
         em.push_text(").push(");
-        push_nk(em, "__b", s);
+        if streams { push_nk(em, "__br", s); } else { push_nk(em, "__b", s); }
         em.push_text(");\n                }\n            }\n");
     }
-    em.push_text("            ");
-    push_nk(em, "__b", s);
-    em.push_text(" = ");
-    push_nk(em, "__b", s);
-    em.push_text(" + 1i64;\n        }\n    }\n");
+    if !streams {
+        em.push_text("            ");
+        push_nk(em, "__b", s);
+        em.push_text(" = ");
+        push_nk(em, "__b", s);
+        em.push_text(" + 1i64;\n");
+    }
+    em.push_text("        }\n    }\n");
 }
 
 // Emit the probe-side bucket LOOKUP through the once-taken container pointer.
 // TREE probes via `get_mut` (the *mut-receiver accessor) cast to *const — one
 // pointer serves build + probe, keeping the borrow single.
-fn emit_bucket_lookup(em: &mut Emitter, lvl: i64, s: i64, strat: i32, ktn: str) {
+fn emit_bucket_lookup(em: &mut Emitter, lvl: i64, s: i64, strat: i32, ktn: str,
+                      streams: bool, ty: str) {
     push_ind(em, lvl);
     if strat == JS_HASH() {
         em.push_text("unsafe { ");
@@ -1587,7 +1648,9 @@ fn emit_bucket_lookup(em: &mut Emitter, lvl: i64, s: i64, strat: i32, ktn: str) 
         push_nk(em, "__tp", s);
         em.push_text(".get_mut(&");
         push_nk(em, "__pk", s);
-        em.push_text(") as *const Vec<i64>; }\n");
+        em.push_text(") as *const Vec<");
+        push_payload_ty(em, streams, ty);
+        em.push_text(">; }\n");
     }
 }
 
@@ -1596,9 +1659,14 @@ fn emit_bucket_lookup(em: &mut Emitter, lvl: i64, s: i64, strat: i32, ktn: str) 
 // reference: scalar-element traversal steps (the Copy lattice — a `&str` local
 // would not compose with the EL clauses, which reference the element bare).
 // Only meaningful on the JS_LOOP tier (traversal is always nested-loop).
+// `streams` — the step's source was consumed by the build phase and the bucket
+// holds the ROWS, so a hit binds out of the bucket instead of indexing `src`.
+// It never combines with JS_LOOP: a rescan of a spent iterator is exactly the
+// shape `analyze_chain` refuses to emit.
 fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
                   has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
-                  probe_key: str, residual: str, pred: str, lim: str) -> i64 {
+                  probe_key: str, residual: str, pred: str, lim: str,
+                  streams: bool) -> i64 {
     // The probe key (hash/tree tiers) — over the ALREADY-BOUND vars/params.
     if strat != JS_LOOP() {
         push_ind(em, lvl);
@@ -1688,16 +1756,24 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
             push_ind(em, lvl + 1i64);
             em.push_text("let mut ");
             push_nk(em, "__bp", s);
-            em.push_text(": *const Vec<i64> = 0i64 as *const Vec<i64>;\n");
-            emit_bucket_lookup(em, lvl + 1i64, s, strat, ktn);
+            em.push_text(": *const Vec<");
+            push_payload_ty(em, streams, ty);
+            em.push_text("> = 0i64 as *const Vec<");
+            push_payload_ty(em, streams, ty);
+            em.push_text(">;\n");
+            emit_bucket_lookup(em, lvl + 1i64, s, strat, ktn, streams, ty);
             push_ind(em, lvl + 1i64);
             em.push_text("if ");
             push_nk(em, "__bp", s);
-            em.push_text(" != (0i64 as *const Vec<i64>) {\n");
+            em.push_text(" != (0i64 as *const Vec<");
+            push_payload_ty(em, streams, ty);
+            em.push_text(">) {\n");
             push_ind(em, lvl + 2i64);
             em.push_text("let ");
             push_nk(em, "__bv", s);
-            em.push_text(": &Vec<i64> = unsafe { &*");
+            em.push_text(": &Vec<");
+            push_payload_ty(em, streams, ty);
+            em.push_text("> = unsafe { &*");
             push_nk(em, "__bp", s);
             em.push_text(" };\n");
             push_ind(em, lvl + 2i64);
@@ -1715,13 +1791,21 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
             em.push_text(var);
             em.push_text(": &");
             em.push_text(ty);
-            em.push_text(" = &(");
-            em.push_text(src);
-            em.push_text(")[");
-            push_nk(em, "__bv", s);
-            em.push_text(".get(");
-            push_nk(em, "__p", s);
-            em.push_text(")];\n");
+            if streams {
+                em.push_text(" = ");
+                push_nk(em, "__bv", s);
+                em.push_text(".borrow(");
+                push_nk(em, "__p", s);
+                em.push_text(");\n");
+            } else {
+                em.push_text(" = &(");
+                em.push_text(src);
+                em.push_text(")[");
+                push_nk(em, "__bv", s);
+                em.push_text(".get(");
+                push_nk(em, "__p", s);
+                em.push_text(")];\n");
+            }
             push_ind(em, lvl + 3i64);
             em.push_text("if (");
             em.push_text(residual);
@@ -1783,16 +1867,24 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
     push_ind(em, lvl);
     em.push_text("let mut ");
     push_nk(em, "__bp", s);
-    em.push_text(": *const Vec<i64> = 0i64 as *const Vec<i64>;\n");
-    emit_bucket_lookup(em, lvl, s, strat, ktn);
+    em.push_text(": *const Vec<");
+    push_payload_ty(em, streams, ty);
+    em.push_text("> = 0i64 as *const Vec<");
+    push_payload_ty(em, streams, ty);
+    em.push_text(">;\n");
+    emit_bucket_lookup(em, lvl, s, strat, ktn, streams, ty);
     push_ind(em, lvl);
     em.push_text("if ");
     push_nk(em, "__bp", s);
-    em.push_text(" != (0i64 as *const Vec<i64>) {\n");
+    em.push_text(" != (0i64 as *const Vec<");
+    push_payload_ty(em, streams, ty);
+    em.push_text(">) {\n");
     push_ind(em, lvl + 1i64);
     em.push_text("let ");
     push_nk(em, "__bv", s);
-    em.push_text(": &Vec<i64> = unsafe { &*");
+    em.push_text(": &Vec<");
+    push_payload_ty(em, streams, ty);
+    em.push_text("> = unsafe { &*");
     push_nk(em, "__bp", s);
     em.push_text(" };\n");
     push_ind(em, lvl + 1i64);
@@ -1807,6 +1899,20 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
     em.push_text(".len()");
     em.push_text(lim);
     em.push_text(" {\n");
+    if streams {
+        // The bucket holds the rows themselves — there is no index and no
+        // source left to index into.
+        push_ind(em, lvl + 2i64);
+        em.push_text("let ");
+        em.push_text(var);
+        em.push_text(": &");
+        em.push_text(ty);
+        em.push_text(" = ");
+        push_nk(em, "__bv", s);
+        em.push_text(".borrow(");
+        push_nk(em, "__p", s);
+        em.push_text(");\n");
+    } else {
     push_ind(em, lvl + 2i64);
     em.push_text("let ");
     push_nk(em, "__ri", s);
@@ -1825,6 +1931,7 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
     em.push_text(")[");
     push_nk(em, "__ri", s);
     em.push_text("];\n");
+    }
     if has_resid {
         push_ind(em, lvl + 2i64);
         em.push_text("if (");
@@ -1979,9 +2086,11 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
     let mut st_hasres: [bool; 8] = [false; 8];
     let mut st_equi:   [bool; 8] = [false; 8];
-    analyze_chain(&ch, &ty, ch.base_var, h,
-                  &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
-                  &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi);
+    let mut st_stream: [bool; 8] = [false; 8];
+    if !analyze_chain(&ch, &ty, ch.base_var, h, prm,
+                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
+                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
+                      &mut st_stream) { return false; }
 
     // 5. Bound sources (base + non-anti steps): rebind targets for the sort /
     // output phases; idx = the generated row-index expression per source. A
@@ -2047,7 +2156,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     while bpi < ch.n {
         emit_build_phase(&mut em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                          st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                         string_as_str(&st_build[bpi]));
+                         string_as_str(&st_build[bpi]), st_stream[bpi]);
         bpi = bpi + 1i64;
     }
     if has_sort {
@@ -2128,7 +2237,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
                                    st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
                                    ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
                                    string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
-                                   lim_use);
+                                   lim_use, st_stream[oi]);
         lvl = lvl + opens[oi];
         oi = oi + 1i64;
     }
@@ -3108,9 +3217,11 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
     let mut st_hasres: [bool; 8] = [false; 8];
     let mut st_equi:   [bool; 8] = [false; 8];
-    analyze_chain(ch, &ty, ch.base_var, h,
-                  &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
-                  &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi);
+    let mut st_stream: [bool; 8] = [false; 8];
+    if !analyze_chain(ch, &ty, ch.base_var, h, prm,
+                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
+                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
+                      &mut st_stream) { return false; }
 
     // Head + strategy trace + build phases + accumulator columns.
     let mut em: Emitter = Emitter::new();
@@ -3137,7 +3248,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
     while bpi < ch.n {
         emit_build_phase(&mut em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                          st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                         string_as_str(&st_build[bpi]));
+                         string_as_str(&st_build[bpi]), st_stream[bpi]);
         bpi = bpi + 1i64;
     }
     em.push_text("    let mut __g_key: Vec<");
@@ -3190,7 +3301,7 @@ fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
                                    st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
                                    ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
                                    string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
-                                   "");
+                                   "", st_stream[oi]);
         lvl = lvl + opens[oi];
         oi = oi + 1i64;
     }
@@ -3955,9 +4066,11 @@ fn emit_chain_body(em: &mut Emitter, ch: &JChain, ri: i64, prm: &MacroParams,
     let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
     let mut st_hasres: [bool; 8] = [false; 8];
     let mut st_equi:   [bool; 8] = [false; 8];
-    analyze_chain(ch, &ty, ch.base_var, h,
-                  &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
-                  &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi);
+    let mut st_stream: [bool; 8] = [false; 8];
+    if !analyze_chain(ch, &ty, ch.base_var, h, prm,
+                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
+                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
+                      &mut st_stream) { return false; }
 
     // The body block: builds + nest + shared inner dedup-push.
     em.push_text("    {\n");
@@ -3971,7 +4084,7 @@ fn emit_chain_body(em: &mut Emitter, ch: &JChain, ri: i64, prm: &MacroParams,
     while bpi < ch.n {
         emit_build_phase(em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                          st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                         string_as_str(&st_build[bpi]));
+                         string_as_str(&st_build[bpi]), st_stream[bpi]);
         bpi = bpi + 1i64;
     }
     let mut lvl: i64 = 2i64;
@@ -3997,7 +4110,7 @@ fn emit_chain_body(em: &mut Emitter, ch: &JChain, ri: i64, prm: &MacroParams,
                                    st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
                                    ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
                                    string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
-                                   "");
+                                   "", st_stream[oi]);
         lvl = lvl + opens[oi];
         oi = oi + 1i64;
     }

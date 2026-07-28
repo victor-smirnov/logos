@@ -92,6 +92,31 @@ joined row over variables from every side, so it narrows and keeps the filter.
 every side, so the planner must verify the column belongs to THIS rel. Two
 sources with a same-named column is the ordinary case, not the exotic one.
 
+## 14. The join strategy was DECIDED WHERE IT WAS EMITTED — CLOSED (S4f)
+
+`analyze_step` ran the equi-key selection and the capability cascade inside the
+emitter, which runs AFTER the prelude has already materialized or streamed each
+source. The consequence was not a missing feature but a false statement the plan
+had to make about itself: every join step was marked "not read once", with the
+reason "a strategy the plan does not own yet". Two of the three strategies read
+their source exactly once.
+
+A decision made where its effect is emitted cannot be consulted by anything that
+runs earlier — the same shape as #13 and as `access_plan` itself. The rule now
+lives in `logos.std.wql.join_sel`, the planner calls it and records the answer on
+the step's IR node, and the emitter reads it.
+
+⚠ The trap this ordering avoids: having BOTH sides call the same rule looks
+equivalent and is not. They build their type environments separately, so a key
+that types differently on the two sides would give the emitter a nested loop over
+a source the plan had already turned into a consumed iterator — a join that
+returns fewer rows and reports nothing. One evaluation, one answer, and the
+emitter refuses outright to pair a streamed source with a rescanning strategy.
+
+⚠ The other half of the widening is a fact about the EMITTED SHAPE, not about
+the plan: a hash bucket over a streamed step must hold the ROWS, because the
+index it used to hold pointed into a slice that no longer exists.
+
 ## 5. Two aggregate emitters — OPEN
 
 `emit_aggregate` (scan) and `emit_aggregate_join` (join chain) are ~720 lines

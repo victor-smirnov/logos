@@ -167,11 +167,15 @@ pub fn fold_join_steps(input0: WRef<RExpr>, steps: RQJoinStepArr, h: &Writ) -> W
             let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
             let n: RAnti = h.make::<RAnti>();
             n.left = cur; n.right = right; n.on = st.on;
+            // The plan's decision rides along (ADR 0024 S4) — lowering is a
+            // change of representation, not of plan.
+            n.jstrat = st.jstrat; n.jkey = st.jkey; n.jsel = st.jsel; n.jwhy = st.jwhy;
             cur = WRef::<RExpr>::from_any(n.as_ref());
         } else {
             let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
             let n: RJoin = h.make::<RJoin>();
             n.left = cur; n.right = right; n.on = st.on;
+            n.jstrat = st.jstrat; n.jkey = st.jkey; n.jsel = st.jsel; n.jwhy = st.jwhy;
             cur = WRef::<RExpr>::from_any(n.as_ref());
         }
         i = i + 1i64;

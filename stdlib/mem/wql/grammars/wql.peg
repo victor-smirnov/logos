@@ -173,7 +173,10 @@
     RQAgg         : code(0x0012_0000_0000_0010) cap(4) { name: "str" = 0, fn_name: "str" = 1, arg: "ref SExpr" = 2, has_arg: "bool" = 3 }
     RQAggArr      : code(0x0012_0000_0000_0011) cap(9) { count: "i32" = 0, aggs: "fan set_agg RQAGG_MAX 8" = 1 }
 
-    RQJoinStep    : code(0x0012_0000_0000_0012) cap(9) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
+    // cap covers the four PLAN-DECISION fields the planner stamps after parsing
+    // (jstrat/jkey/jsel/jwhy — ADR 0024 S4). A TinyObjectMap's capacity is fixed
+    // at construction, so the parser must size for writes it never makes.
+    RQJoinStep    : code(0x0012_0000_0000_0012) cap(13) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
                     is_edge: "bool" = 5, has_on: "bool" = 6, base_var: "str" = 7,
                     path: "ref RQPathSegArr" = 8 }
     RQJoinStepArr : code(0x0012_0000_0000_0013) cap(9) { count: "i32" = 0, steps: "fan set_step RQJSTEP_MAX 8" = 1 }

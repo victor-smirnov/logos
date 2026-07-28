@@ -6,12 +6,11 @@
 // recorded PER REL, which is what lets one source in a query stream while
 // another is drained.
 //
-// The steps do not stream, and the plan says why rather than staying silent:
-// whether a step's source is built once (hash/tree) or rescanned per bound row
-// (loop) is decided by the join-strategy cascade, which still lives in the
-// emitter. Moving that decision into the plan is what would let two of the
-// three strategies stream their side too — the next widening, and it owes the
-// same kind of reason this one gives.
+// The STEP side is now decided the same way (S4f): its `on` is an equality, so
+// the plan chooses a hash join, which reads the step's source once — and it
+// streams too. What this test still pins is the DRIVING side's proof, which is
+// structural (outermost loop of a left-deep nest) rather than strategic, and
+// the self-join guard that withdraws it.
 //
 // ORACLE: the pull count again. Both plans return the same row; only the number
 // of `next()` calls on the base says which one ran. The base holds 200 rows and
@@ -57,10 +56,10 @@ impl OrderedMapSource<i64, i64> for Steps {
     op entry.key ge = steps_from  exact;
 }
 
-// The small side OFFERS streaming too — deliberately. With both sources
-// iterator-backed, the trace shows the two facts pulling apart: same offer,
-// different proof. The step is DRAINED into a Vec by the plan, which is the
-// fallback that lets a source declare one producer instead of two.
+// The small side offers streaming too, and since S4f it gets it: an equality
+// `on` makes the step a hash join, whose index is built in one pass. Both
+// sources therefore stream here, by two DIFFERENT proofs — the base by the
+// nest's structure, the step by its chosen strategy.
 pub struct Probe { pub xs: Vec<(i64, i64)> }
 pub struct ProbeIter { pub p: *const Probe, pub i: i64 }
 
