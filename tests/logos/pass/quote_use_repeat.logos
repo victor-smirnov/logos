@@ -1,0 +1,48 @@
+// A quote carries a RUNTIME-SIZED import list (`#( use #us; )*`).
+//
+// An emitter's imports are sized while it runs: a query imports the module of
+// each native source it happens to bind. A quote is otherwise a fixed shape, so
+// the only way to carry that was a row of optional slots — one per import that
+// might occur — which works (`quote_optional_use`) but has to be sized for the
+// worst case and says nothing about what is actually there.
+//
+// The repeat form `field_def` already had for fields now exists for imports, so
+// one slot covers any count. Uses are NOT items in this grammar — they are a
+// separate list on the module and on the quote — which is why the repeat had to
+// go on `any_use_decl`; putting it on `item` parses the `#` and then fails on
+// the `use` inside, which is what the first attempt did.
+//
+// ⚠ The assertion is the COMPILE. The emitted fn calls `vec_new` and `Vec`, so
+// if the repeated import did not land the chunk would not resolve them. Nothing
+// needs to be checked at runtime for the import to have been proven.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+
+fn gen() -> QuoteItemBlob {
+    let mut us: Vec<Ident> = vec_new::<Ident>();
+    us.push(Ident::new("logos.mem.collections.vec"));
+    us.push(Ident::new("logos.lang.option"));
+    return quote_item! {
+        #( use #us; )*
+        pub fn made() -> i64 {
+            let mut v: Vec<i64> = vec_new::<i64>();
+            v.push(41i64);
+            // Both imports are load-bearing: `Vec`/`vec_new` from the first,
+            // `Option` from the second.
+            let o: Option<i64> = Option::Some(v.get(0i64));
+            match o {
+                Option::Some(x) => { return x + 1i64; }
+                Option::None => { return 0i64; }
+            }
+        }
+    };
+}
+
+metacall gen();
+
+fn main() -> i32 {
+    if made() != 42i64 { return 1i32; }
+    return 0i32;
+}

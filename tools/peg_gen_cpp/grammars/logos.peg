@@ -528,7 +528,15 @@
     module :group mod: <- (inner_doc_decl / inner_doc_block_decl / inner_annotation)* KW_PACKAGE IDENT path_dot_ident* SEMI any_use_decl* item*
            => { CODE: MODULE, NAME: $3, PATH_PARTS: $4, USES: $6, ITEMS: $... }
 
-    any_use_decl <- pub_use_decl / use_variants_decl / use_decl
+    // `#( use #us; )*` — a repeat over IMPORTS inside a quote body, the same
+    // shape `field_def` already has for fields. An emitter's import list is
+    // sized at runtime (one module per native source the query binds), and a
+    // quote is otherwise a fixed shape; the alternative was a row of optional
+    // slots, one per import that might occur. The `HASH LPAREN` lead is
+    // disjoint from every real use-decl, so ordinary code is unaffected.
+    any_use_decl <- HASH LPAREN any_use_decl RPAREN STAR
+                 => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
+                  / pub_use_decl / use_variants_decl / use_decl
 
     // §3: `[pub] use pkg.path [from <module>];`. The from-bearing alt is tried
     // FIRST. After `path_dot_ident*`, a bare IDENT can only be the contextual
