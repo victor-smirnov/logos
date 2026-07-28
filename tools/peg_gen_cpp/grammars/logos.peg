@@ -14,7 +14,7 @@
     output:    "logos_parser"
 }
 
-%export { module type_param_list type_ref expr wstatic_lit_type block }
+%export { module type_param_list type_ref expr wstatic_lit_type block param_list }
 
 // ── AST field keys ────────────────────────────────────────────────────────
 %fields {
@@ -1638,7 +1638,24 @@
     // marker in extern fns).  Negative lookahead avoids the ambiguity
     // that would let param_list eat the comma intended for the
     // `, ...` separator (closes B-fn-03).
-    param_list <- param (COMMA param)* (COMMA !DOTDOTDOT)?
+    // `#(ps)` — the WHOLE parameter list as an antiquote, valid only inside a
+    // quote body (the leading HASH cannot begin a real param, so ordinary code
+    // is untouched). Placed on `param_list` itself rather than as a variant of
+    // every fn alternative: there are dozens of those, and a trait method and a
+    // closure want the same thing.
+    //
+    // The node IS a VAR_REF, which is what the ExprBlob substituter replaces
+    // wholesale — it swaps the placeholder for a deep copy of the fragment's
+    // root, and a `param_list` fragment's root is `{ITEMS: [...]}`, exactly what
+    // this rule's other alternative produces. So the splice lands a real
+    // parameter list in the PARAMS slot rather than nesting one inside another.
+    //
+    // This is what lets an EMITTER quote a whole fn: it builds its parameters as
+    // text (they come from the query's own param list, verbatim) and had to
+    // concatenate the signature by hand until the slot existed (ADR 0024 S5).
+    param_list <- HASH LPAREN expr RPAREN
+              => { CODE: VAR_REF, NAME_VAR: $3 }
+               / param (COMMA param)* (COMMA !DOTDOTDOT)?
               => { ITEMS: $... }
 
     param <- AMP KW_MUT IDENT

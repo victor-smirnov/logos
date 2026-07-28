@@ -2888,6 +2888,10 @@ extern "C" const uint8_t* logos_parse_as(const uint8_t* s, uint64_t len,
             // at — assembling the body — while the ITEM around it becomes a real
             // quote instead of raw push_text (ADR 0024 S5).
             case 4: doc = parser.parse_block();           break;
+            // rule 5 (param_list) — `a: &Foo, b: i64`. The other half of what a
+            // quoted emitted FN needs: an emitter builds its signature's
+            // parameters as text, verbatim from the query's own param list.
+            case 5: doc = parser.parse_param_list();      break;
             default:
                 std::fprintf(stderr, "logos_parse_as: unknown rule_id %u\n", rule_id);
                 return nullptr;
