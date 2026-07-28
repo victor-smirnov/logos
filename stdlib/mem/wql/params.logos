@@ -240,6 +240,50 @@ impl MacroParams {
     /// materializers — one per DISTINCT non-empty rel_mod. Replaces the old
     /// has_engine_param flag: which modules a chunk needs is now data carried
     /// by the natspec, not a type the walker knows about.
+    /// The k-th DISTINCT module a native rel's materializer needs, or "" past
+    /// the end — the same list `native_use_text` renders, reachable by index.
+    ///
+    /// Text and idents are two RENDERINGS of one list. A quote carries its
+    /// imports as `Ident`s (`#( use #us; )*`), a text chunk carries them as
+    /// source; a second copy of the dedup walk would drift the moment either
+    /// changed, which is the failure this whole audit keeps finding.
+    pub fn native_use_at(self: &MacroParams, k: i64) -> str {
+        let mut seen: i64 = 0i64;
+        let mut emitted: Vec<str> = Vec::<str>::new();
+        let mut i: i64 = 0i64;
+        while i < self.rel_n {
+            if self.rel_native[i] && self.rel_mod[i].len() > 0i64 {
+                let m: str = self.rel_mod[i];
+                let ml: i64 = m.len();
+                let mut a: i64 = 0i64;
+                while a < ml {
+                    let mut b: i64 = a;
+                    while b < ml && str_byte_at(m, b) != 44u8 { b = b + 1i64; }
+                    if b > a {
+                        let one: str = unsafe {
+                            str_from_raw(((m.as_ptr() as i64) + a) as *const u8,
+                                         b - a)
+                        };
+                        let mut dup: bool = false;
+                        let mut j: i64 = 0i64;
+                        while j < emitted.len() {
+                            if str_eq(emitted.get(j), one) { dup = true; break; }
+                            j = j + 1i64;
+                        }
+                        if !dup {
+                            if seen == k { return one; }
+                            emitted.push(one);
+                            seen = seen + 1i64;
+                        }
+                    }
+                    a = b + 1i64;
+                }
+            }
+            i = i + 1i64;
+        }
+        return "";
+    }
+
     pub fn native_use_text(self: &MacroParams, out: &mut String) {
         // The `@` annotation carries a COMMA-separated module list
         // (materializer's module + the source param type's defining package).

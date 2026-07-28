@@ -41,6 +41,7 @@ use logos.std.wql.params;     // MacroParams — the parsed deem!(…) param lis
 use logos.std.wql.codegen;    // emit_sexpr / infer_ty / el_ty_name / …
 use logos.std.wql.optimize;   // simplify_sexpr + TermList/split_and_terms/refs_mask (shared IR-level analysis)
 use logos.std.wql.join_sel;   // JS_* / StepSel / step_terms / decide_join_step — THE join-step decision
+use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
 use logos.std.wql.reflect;    // stamp_types_from_schema
 use logos.mem.string;
@@ -1045,42 +1046,81 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
         emit_sexpr(&mut pred_body, pred_opt, &ty, var_name);
     }
 
-    let mut em: Emitter = Emitter::new();
-    let mut __uses: String = String::new();
-    prm.native_use_text(&mut __uses);
-    begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
-    em.push_text(") -> Result<Option<&");
-    em.push_text(row_ty);
-    em.push_text(">, ElError> {\n");
-    em.push_text(prelude);
-    em.push_text("    let mut __i: i64 = 0i64;\n");
-    em.push_text("    while __i < (");
-    em.push_text(src_name);
-    em.push_text(").len() {\n");
-    em.push_text("        let ");
-    em.push_text(var_name);
-    em.push_text(": &");
-    em.push_text(row_ty);
-    em.push_text(" = &(");
-    em.push_text(src_name);
-    em.push_text(")[__i];\n");
+    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
+    // The BODY is still built as text, because its shape is a runtime value and
+    // no template expresses that; everything around it is structured. What this
+    // replaces is a fn assembled by concatenation, where a missing `>` or a
+    // stray space failed as a syntax error inside generated source with no
+    // position a reader could use.
+    let mut bt: String = String::new();
+    bt.push_str("{\n");
+    bt.push_str(prelude);
+    bt.push_str("    let mut __i: i64 = 0i64;\n");
+    bt.push_str("    while __i < (");
+    bt.push_str(src_name);
+    bt.push_str(").len() {\n");
+    bt.push_str("        let ");
+    bt.push_str(var_name);
+    bt.push_str(": &");
+    bt.push_str(row_ty);
+    bt.push_str(" = &(");
+    bt.push_str(src_name);
+    bt.push_str(")[__i];\n");
     if has_pred {
-        em.push_text("        if ");
-        em.push_text(string_as_str(&pred_body));
-        em.push_text(" { return Result::Ok(Option::Some(");
-        em.push_text(var_name);
-        em.push_text(")); }\n");
+        bt.push_str("        if ");
+        bt.push_str(string_as_str(&pred_body));
+        bt.push_str(" { return Result::Ok(Option::Some(");
+        bt.push_str(var_name);
+        bt.push_str(")); }\n");
     } else {
-        em.push_text("        return Result::Ok(Option::Some(");
-        em.push_text(var_name);
-        em.push_text("));\n");
+        bt.push_str("        return Result::Ok(Option::Some(");
+        bt.push_str(var_name);
+        bt.push_str("));\n");
     }
-    em.push_text("        __i = __i + 1i64;\n");
-    em.push_text("    }\n");
-    em.push_text("    return Result::Ok(Option::None);\n");
-    em.push_text("}\n");
-    em.commit();
+    bt.push_str("        __i = __i + 1i64;\n");
+    bt.push_str("    }\n");
+    bt.push_str("    return Result::Ok(Option::None);\n");
+    bt.push_str("}\n");
+
+    // The imports a native source's materializer needs are a RUNTIME list —
+    // one module per source the query binds — carried by a repeat rather than
+    // by a row of slots sized for the worst case.
+    let mut uses: Vec<Ident> = vec_new::<Ident>();
+    let mut uk: i64 = 0i64;
+    loop {
+        let um: str = prm.native_use_at(uk);
+        if um.len() == 0i64 { break; }
+        uses.push(Ident::new(um));
+        uk = uk + 1i64;
+    }
+    let nm: Ident   = Ident::new(vis_strip(fn_name));
+    let ps: ExprBlob = parse_params(params_text);
+    let tps: ExprBlob = parse_type_params(prm.tparams);
+    let rt: ExprBlob = parse_type(row_ty);
+    let body: ExprBlob = parse_block(bt.as_str());
+    // ⚠ Two variants, not a `pub(#v)` antiquote: a PRIVATE fn has no visibility
+    // node at all, and the marker Deem carries (`-` on the name) says which.
+    if vis_is_priv(fn_name) {
+        let q: QuoteItemBlob = quote_item! {
+            use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
+            use logos.mem.collections.hashmap; use logos.mem.collections.set;
+            use logos.mem.collections.btree; use logos.lang.result;
+            use logos.std.wql.el;
+            #( use #uses; )*
+            fn #nm #(tps) (#(ps)) -> Result<Option<&#(rt)>, ElError> { #(body) }
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
+    } else {
+        let q: QuoteItemBlob = quote_item! {
+            use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
+            use logos.mem.collections.hashmap; use logos.mem.collections.set;
+            use logos.mem.collections.btree; use logos.lang.result;
+            use logos.std.wql.el;
+            #( use #uses; )*
+            pub fn #nm #(tps) (#(ps)) -> Result<Option<&#(rt)>, ElError> { #(body) }
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
+    }
     return true;
 }
 
