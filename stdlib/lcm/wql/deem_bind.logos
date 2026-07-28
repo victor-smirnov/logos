@@ -1,0 +1,157 @@
+// logos.std.wql.deem_bind — DEEM's binding of a query plan to a container
+// FAMILY (ADR 0024).
+//
+// A `deem` whose source binds a container CLASS (`map: Map<K, V>`) cannot be
+// compiled at its declaration: which code it becomes is a question about the
+// class TOGETHER WITH its type arguments, and that pair only exists where the
+// factory has generated a family. The compiler driver therefore records the
+// query as a PLAN and, at the family's generation point, renders a metacall to
+// the handler below — one binding per (plan, family) pair. One query name
+// yields one overload per family, so the call site keeps writing the name it
+// wrote and the generated type never appears in user source.
+//
+// WHY IT LIVES HERE AND NOT IN CANON. Binding a query is the query compiler's
+// work: it joins the query's demands with what the source can do. Canon's work
+// is the other half of that join — it builds a container from its declarative
+// spec and publishes the facts (and, through `canon_verdicts`, the judgements)
+// that say what the family can do. Keeping the binder inside
+// `logos.lcm.canon.container_item` made Deem a part of the Memoria-side
+// container factory, which inverts the ADR 0024 relation: Deem is a separate
+// entity and Canon is its SUPPLIER of facts and its codegen instrument.
+//
+// ⚠ WHY THE FILE SITS UNDER `stdlib/lcm/` WHILE THE PACKAGE IS `logos.std.wql`.
+// Package name and build TIER are different things (the rest of
+// `logos.std.wql.*` lives under `stdlib/mem/`, BELOW Canon — which is how Canon
+// may import the query surface in the first place). This module CONSUMES Canon
+// (`container_facts`, `canon_verdicts`, `parse_container_spec`), so it must be
+// built after logos-lcm, and lcm is the earliest tier where that holds. The mem
+// tier, where the rest of Deem lives, is built before logos-lcm: the facts this
+// binder validates against would not exist yet.
+//
+// ⚠ It reads `logos.lcm.canon.spec`, NEVER `logos.lcm.canon.container_item`.
+// The metacall chunk the driver emits cannot itself LOAD this module — an
+// emitted `use` only resolves names — so the edge rides in from container_item,
+// which every container-declaring unit imports. That edge is
+// container_item → deem_bind → spec; a back-edge to container_item closes it
+// into a cycle.
+package logos.std.wql.deem_bind;
+
+use logos.std.compiler.metaprog;      // ItemList, item_list_new, error, Emitter
+use logos.lcm.canon.spec;             // ContainerSpec / parse_container_spec /
+                                      // container_facts / cf_sub — Canon
+                                      // SUPPLIES the facts this binder checks
+use logos.lcm.canon.canon;            // canon_verdicts — the JUDGE (ADR 0020 §5)
+use logos.lang.writ.container;        // Writ — the fact document
+use logos.lang.writ.anyval;           // WAny — its root
+use logos.lang.str;                   // str_byte_at
+use logos.std.wql.wql_surface_parser; // NOT used here — these three carry the
+use logos.std.wql.plan;               // MODULE-GRAPH edge for the query
+use logos.std.wql.ir;                 // vocabulary into the binding path, the
+                                      // way container_item carried it before
+                                      // the binder moved out of Canon.
+
+// The FIRST parameter's name in a rendered parameter list (`w: &Hs…, …`) —
+// the source the override attaches to.
+fn param_name_of(params: str) -> str {
+    let n: i64 = params.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(params, i);
+        if c == 58u8 || c == 44u8 { break; }
+        i = i + 1i64;
+    }
+    let mut e: i64 = i;
+    while e > 0i64 && str_byte_at(params, e - 1i64) == 32u8 { e = e - 1i64; }
+    let mut b: i64 = 0i64;
+    while b < e && str_byte_at(params, b) == 32u8 { b = b + 1i64; }
+    return unsafe { cf_sub(params, b, e) };
+}
+
+
+/// One comparison found in a predicate: the hub column it tests and how.
+/// `col` empty = no usable comparison, and `why` says which shape it was —
+/// the trace prints it, and slice 3.3 will want the same distinction.
+pub struct PlanCmp { pub col: str, pub op: i32, pub why: str,
+                    pub has_lit: bool, pub lit: i64,
+                    /// The comparison as READ FROM THE COLUMN: `42 > e.key` is
+                    /// `key < 42`. Without this a reversed literal narrows the
+                    /// wrong way, which no later stage could catch.
+                    pub col_left: bool }
+
+
+// ── the deem PLAN's binding (slice 3.0) ─────────────────────────────────────
+//
+// A `deem` whose source binds a container CLASS is compiled where the class
+// meets its type arguments. The driver used to render that binding itself, in
+// C++ — which put the decision in the one place that CANNOT make it: choosing
+// which container operations a query should use is a join of the query's
+// demands with the class's CAPABILITIES, and neither side is readable there
+// (the wql AST has no C++ node constants, and Canon's verdicts are computed on
+// this side). So the driver renders a metacall to THIS, and the decision has a
+// home — inside the query compiler.
+//
+// Today it does exactly what the driver did: re-emit the query as an ordinary
+// `deem` over the family handle, whose materializer is the family's own
+// full-scan projection. `spec` is the class declaration, carried so the facts
+// — and through them the verdicts — are available; slice 3.1 starts reading
+// them. A leading `-` on `name` marks a non-pub query (the params.logos
+// convention).
+pub fn __deem_bind(name: str, params: str, query: str, family: str,
+                   spec: str, cfg_src: str) -> ItemList {
+    let out: ItemList = item_list_new();
+    if name.len() == 0i64 || family.len() == 0i64 {
+        error("deem bind: empty query name or family (driver seam regression?)");
+        return out;
+    }
+    // The spec must still describe the class it came from — this is the seam
+    // where a serialization drift would otherwise surface much later, as a
+    // wrong verdict rather than a broken string.
+    // `-`-prefixed name = non-pub (the params.logos convention), spelled out
+    // here rather than imported from `logos.std.wql.params`: that module is the
+    // macro parameter-list parser, and the binder needs one byte of it.
+    let priv0: bool = str_byte_at(name, 0i64) == 45u8;
+    let vis_name: str = if priv0 { unsafe { cf_sub(name, 1i64, name.len()) } } else { name };
+
+    let facts: Writ = container_facts(family, spec);
+    let froot: WAny = facts.root();
+    if froot.is_null() || !froot.is_map() {
+        error("deem bind: the class spec did not reconstruct into facts (spec drift?)");
+        return out;
+    }
+    let verd: Writ = canon_verdicts(&facts);
+
+    let mut cs: ContainerSpec = container_spec_new();
+    if !parse_container_spec(spec, &mut cs) {
+        error("deem bind: malformed class spec (driver seam regression?)");
+        return out;
+    }
+
+    // ── the join: what the query DEMANDS ⋈ what the class CAN ─────────────
+    // A strategy names the narrowing a specialized producer applies. `scan` is
+    // always available and always correct; a narrowing is admissible only when
+    // it returns a SUPERSET of the matches, and since the query keeps its own
+    // `where`, the answer cannot change with it.
+    // NO PLAN IS MADE HERE (ADR 0024 S6.3). Canon builds the container from its
+    // declarative spec and publishes what it can do; choosing among those
+    // operations is the planner's work, and the planner is the one Deem already
+    // owns (`logos.std.wql.access_plan`). Computing a decision here as well —
+    // even only to trace it — would be a second planner that can drift from the
+    // one that decides, and a trace that disagrees with the plan is worse than
+    // no trace.
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_into(cs.pkg);
+    em.push_text("use logos.gen; use logos.mem.bt.map; use logos.std.wql.wql; ");
+    em.push_text("use logos.mem.collections.vec; use logos.lang.result; ");
+    // `#[deem_source(…)]` stays in the language as a deliberate override — it
+    // just stopped being how a pushdown happens.
+    if priv0 { em.push_text("deem "); } else { em.push_text("pub deem "); }
+    em.push_text(vis_name);
+    em.push_text("(");
+    em.push_text(params);
+    em.push_text(") {");
+    em.push_text(query);
+    em.push_text("}\n");
+    em.commit();
+    return out;
+}

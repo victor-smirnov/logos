@@ -1,0 +1,347 @@
+// logos.lcm.canon.spec — the container DECLARATION, parsed, and the FACT
+// document built from it. Canon's SUPPLIER half (ADR 0020 §5, ADR 0024).
+//
+// A `container` declaration is serialized by the compiler (sema
+// lower_container_def) to a one-line spec string; this module is the only
+// reader of that format, and the only writer of the fact Writ doc the Canon
+// rules are evaluated over. It DECIDES nothing and EMITS nothing.
+//
+// It is a module of its own because it has two consumers that must not depend
+// on each other: `logos.lcm.canon.container_item`, which builds the container
+// from the declaration, and `logos.std.wql.deem_bind`, which binds a QUERY to
+// the family that declaration produced. The binder is Deem's, the builder is
+// Memoria's, and both read the same facts — so the facts live below both.
+// ⚠ Keep it free of `use logos.lcm.canon.container_item;`: the edge that lets a
+// declaring unit reach the binder runs container_item → deem_bind → spec, and
+// a back-edge from here would close that into a cycle.
+//
+// The spec string (compiler → handler): one line, `|`-separated `k=v` in fixed
+// key order, values never containing `|`:
+//
+//   pub=1|generics=<T>|gnames=T|backing=VecCtr<T>|backing_pkg=|kind=vector|entry=elem:T:1|measures=count
+//
+// entry cols = comma-separated `name:ty:is_param(0|1)`; measures =
+// comma-separated `mfn` or `mfn(arg)`.
+package logos.lcm.canon.spec;
+
+use logos.lang.writ.container;     // Writ, writ_new
+use logos.lang.writ.wmap;          // doc.map / WMap::set
+use logos.lang.writ.array;         // doc.array / WArray::push
+use logos.lang.writ.anyval;        // WAny
+use logos.lang.writ.wstring;       // WString
+use logos.lang.str;                // str_byte_at, str_eq, str_from_raw
+use logos.lcm.canon.vocab;         // the shared fact vocabulary (no bare strings)
+
+pub unsafe fn cf_sub(s: str, a: i64, b: i64) -> str {
+    let l: i64 = if b > a { b - a } else { 0i64 };
+    return str_from_raw((s.as_ptr() as i64 + a) as *const u8, l);
+}
+
+pub fn cf_find(s: str, from: i64, c: u8) -> i64 {
+    let n: i64 = s.len();
+    let mut i: i64 = from;
+    while i < n {
+        if str_byte_at(s, i) == c {
+            return i;
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+// Index of the next TOP-LEVEL `,` in s[from, end) — commas nested in
+// `<…>` / `(…)` / `[…]` (generic args in a column type) don't split.
+pub fn cf_next_comma(s: str, from: i64, end: i64) -> i64 {
+    let mut i: i64 = from;
+    let mut depth: i64 = 0i64;
+    while i < end {
+        let c: u8 = str_byte_at(s, i);
+        if c == 60u8 || c == 40u8 || c == 91u8 {
+            depth = depth + 1i64;
+        }
+        else if c == 62u8 || c == 41u8 || c == 93u8 {
+            depth = depth - 1i64;
+        }
+        else if c == 44u8 && depth == 0i64 {
+            return i;
+        }
+        i = i + 1i64;
+    }
+    return end;
+}
+
+/// One parsed container spec — string fields borrow the spec line.
+pub struct ContainerSpec {
+    pub is_pub:      bool,
+    pub generics:    str,   // "<T>" verbatim (bounds included), "" = concrete
+    pub gnames:      str,   // "T" / "K,V"
+    pub backing:     str,   // "VecCtr<T>" (syntactic)
+    pub backing_pkg: str,   // defining package of the backing base type, or ""
+    pub kind:        str,   // "vector" | "ordered_map" | "node" | "branch" | "multimap"
+    pub entry:       str,   // raw "name:ty:p,…"; stream-qualified "keys.key:K:1,…" for a multistream decl
+    pub measures:    str,   // raw "count,max(key)"; stream-qualified "keys.max(key),values.count"
+    pub pkg:         str,   // declaring package (ADR 0021 CFG-doc emission), "" if absent
+    pub streams:     str,   // BTFL 8b: "keys,values" in declaration order; "" = BTSS sugar (one anonymous stream)
+    pub ops:         str,   // BTFL 8b: "keys.seek(max(key)),keys.insert,values.scan(val),…"; unqualified for BTSS sugar; "" = none
+}
+
+pub fn container_spec_new() -> ContainerSpec {
+    return ContainerSpec {
+        is_pub: false, generics: "", gnames: "", backing: "",
+        backing_pkg: "", kind: "", entry: "", measures: "", pkg: "",
+        streams: "", ops: "",
+    };
+}
+
+/// Parses the compiler's spec line. Returns false on any shape violation
+/// (unknown key, missing segment, empty kind/entry) — the caller diagnoses.
+pub fn parse_container_spec(spec: str, out: &mut ContainerSpec) -> bool {
+    let n: i64 = spec.len();
+    let mut pos: i64 = 0i64;
+    let mut seen: i64 = 0i64;
+    while pos < n {
+        let mut end: i64 = cf_find(spec, pos, 124u8);   // '|'
+        if end < 0i64 {
+            end = n;
+        }
+        let eq: i64 = cf_find(spec, pos, 61u8);          // '='
+        if eq < 0i64 || eq >= end {
+            return false;
+        }
+        let key: str = unsafe { cf_sub(spec, pos, eq) };
+        let val: str = unsafe { cf_sub(spec, eq + 1i64, end) };
+        if str_eq(key, "pub") {
+            out.is_pub = str_eq(val, "1");
+        }
+        else if str_eq(key, "generics") {
+            out.generics = val;
+        }
+        else if str_eq(key, "gnames") {
+            out.gnames = val;
+        }
+        else if str_eq(key, "backing") {
+            out.backing = val;
+        }
+        else if str_eq(key, "backing_pkg") {
+            out.backing_pkg = val;
+        }
+        else if str_eq(key, "kind") {
+            out.kind = val;
+        }
+        else if str_eq(key, "entry") {
+            out.entry = val;
+        }
+        else if str_eq(key, "measures") {
+            out.measures = val;
+        }
+        else if str_eq(key, "pkg") {
+            out.pkg = val;
+        }
+        else if str_eq(key, "streams") {
+            out.streams = val;
+        }
+        else if str_eq(key, "ops") {
+            out.ops = val;
+        }
+        else {
+            return false;
+        }
+        seen = seen + 1i64;
+        pos = end + 1i64;
+    }
+    // 8 = legacy/hand-built spec (canon_container_facts); 9 = compiler seam
+    // with the ADR-0021 `pkg=` segment; +streams/+ops = the BTFL 8b
+    // multistream segments (emitted only when present, so BTSS-sugar spec
+    // lines stay byte-identical). kind+entry are the load-bearing fields.
+    return seen >= 8i64 && seen <= 11i64 && out.kind.len() > 0i64 && out.entry.len() > 0i64;
+}
+
+// Index of the '.' splitting a stream-qualified name in s[from, to), or -1
+// (BTFL 8b: `keys.key` / `keys.max` / `keys.seek` spec segments; a BTSS-sugar
+// segment has no qualifier and belongs to the anonymous stream "").
+pub fn cf_dot(s: str, from: i64, to: i64) -> i64 {
+    let mut i: i64 = from;
+    while i < to {
+        if str_byte_at(s, i) == 46u8 {
+            return i;
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+/// Builds the FACT Writ doc for ONE container item (wave-0 has no cross-item
+/// accumulation) — the ADR 0020 §5 fact vocabulary restricted to wave-0 +
+/// the BTFL 8b stream/ops sections:
+///
+///   { containers: [ { name, pub, generics, backing, kind } ],
+///     cols:       [ { ctr, idx, name, ty, param, stream } … ],
+///     measures:   [ { ctr, mfn, arg, stream } … ],
+///     streams:    [ { ctr, idx, name } … ],
+///     ops:        [ { ctr, stream, verb, ahead, ainner } … ] }
+///
+/// stream = "" is the anonymous BTSS-sugar stream. Convenience shape for the
+/// deem-over-&Writ graph source: top-level WMap, arrays of FLAT maps, scalar
+/// leaves only. A malformed spec yields a doc with a NULL root — the caller
+/// diagnoses.
+pub fn container_facts(name: str, spec: str) -> Writ {
+    let doc: Writ = writ_new(65536i64);
+    let mut cs: ContainerSpec = container_spec_new();
+    if !parse_container_spec(spec, &mut cs) {
+        return doc;
+    }
+
+    let root: &mut WMap<WString, WAny> = doc.map(8i64);
+
+    let ctrs: &mut WArray<WAny> = doc.array(1i64);
+    {
+        let c0: &mut WMap<WString, WAny> = doc.map(8i64);
+        c0.set(K_NAME, name);
+        c0.set("pub", cs.is_pub);
+        c0.set("generics", cs.gnames);
+        c0.set("backing", cs.backing);
+        c0.set(K_KIND, cs.kind);
+        ctrs.push(WAny::from(&*c0));
+    }
+    root.set(SEC_CONTAINERS, &*ctrs);
+
+    let cols: &mut WArray<WAny> = doc.array(4i64);
+    {
+        let ce: i64 = cs.entry.len();
+        let mut a: i64 = 0i64;
+        let mut idx: i64 = 0i64;
+        while a < ce {
+            let b: i64 = cf_next_comma(cs.entry, a, ce);
+            // `name:ty:p` — name up to the FIRST ':', flag after the LAST
+            // (the type may itself contain `:` never, but generic commas do
+            // occur — hence the depth-aware outer split).
+            let c1: i64 = cf_find(cs.entry, a, 58u8);        // ':'
+            let mut c2: i64 = b - 1i64;
+            while c2 > a && str_byte_at(cs.entry, c2) != 58u8 {
+                c2 = c2 - 1i64;
+            }
+            if c1 < 0i64 || c1 >= b || c2 <= c1 {
+                return writ_new(64i64);
+            }
+            let r: &mut WMap<WString, WAny> = doc.map(8i64);
+            r.set(K_CTR, name);
+            r.set(K_IDX, idx);
+            // `keys.key` = stream-qualified (BTFL 8b); bare = the "" stream.
+            let dot: i64 = cf_dot(cs.entry, a, c1);
+            if dot >= 0i64 {
+                r.set(K_STREAM, unsafe { cf_sub(cs.entry, a, dot) });
+                r.set(K_NAME, unsafe { cf_sub(cs.entry, dot + 1i64, c1) });
+            } else {
+                r.set(K_STREAM, "");
+                r.set(K_NAME, unsafe { cf_sub(cs.entry, a, c1) });
+            }
+            r.set(K_TY, unsafe { cf_sub(cs.entry, c1 + 1i64, c2) });
+            r.set(K_PARAM, str_eq(unsafe { cf_sub(cs.entry, c2 + 1i64, b) }, "1"));
+            cols.push(WAny::from(&*r));
+            idx = idx + 1i64;
+            a = b + 1i64;
+        }
+    }
+    root.set(SEC_COLS, &*cols);
+
+    let meas: &mut WArray<WAny> = doc.array(4i64);
+    {
+        let cm: i64 = cs.measures.len();
+        let mut a: i64 = 0i64;
+        while a < cm {
+            let b: i64 = cf_next_comma(cs.measures, a, cm);
+            let lp: i64 = cf_find(cs.measures, a, 40u8);     // '('
+            let r: &mut WMap<WString, WAny> = doc.map(8i64);
+            r.set(K_CTR, name);
+            let head_end: i64 = if lp >= 0i64 && lp < b { lp } else { b };
+            let dot: i64 = cf_dot(cs.measures, a, head_end);
+            let mstart: i64 = if dot >= 0i64 { dot + 1i64 } else { a };
+            if dot >= 0i64 {
+                r.set(K_STREAM, unsafe { cf_sub(cs.measures, a, dot) });
+            } else {
+                r.set(K_STREAM, "");
+            }
+            if lp >= 0i64 && lp < b {
+                if str_byte_at(cs.measures, b - 1i64) != 41u8 {   // ')'
+                    return writ_new(64i64);
+                }
+                r.set(K_MFN, unsafe { cf_sub(cs.measures, mstart, lp) });
+                r.set(K_ARG, unsafe { cf_sub(cs.measures, lp + 1i64, b - 1i64) });
+            } else {
+                r.set(K_MFN, unsafe { cf_sub(cs.measures, mstart, b) });
+                r.set(K_ARG, "");
+            }
+            meas.push(WAny::from(&*r));
+            a = b + 1i64;
+        }
+    }
+    root.set(SEC_MEASURES, &*meas);
+
+    // ── BTFL 8b: stream + ops fact rows ─────────────────────────────────────
+    let strs: &mut WArray<WAny> = doc.array(4i64);
+    {
+        let cn: i64 = cs.streams.len();
+        let mut a: i64 = 0i64;
+        let mut idx: i64 = 0i64;
+        while a < cn {
+            let b: i64 = cf_next_comma(cs.streams, a, cn);
+            let r: &mut WMap<WString, WAny> = doc.map(4i64);
+            r.set(K_CTR, name);
+            r.set(K_IDX, idx);
+            r.set(K_NAME, unsafe { cf_sub(cs.streams, a, b) });
+            strs.push(WAny::from(&*r));
+            idx = idx + 1i64;
+            a = b + 1i64;
+        }
+    }
+    root.set(SEC_STREAMS, &*strs);
+
+    let opsa: &mut WArray<WAny> = doc.array(8i64);
+    {
+        // `keys.seek(max(key))` / `keys.insert` / `scan(val)` (unqualified =
+        // the "" stream) → { ctr, stream, verb, ahead, ainner }.
+        let cn: i64 = cs.ops.len();
+        let mut a: i64 = 0i64;
+        while a < cn {
+            let b: i64 = cf_next_comma(cs.ops, a, cn);
+            let lp: i64 = cf_find(cs.ops, a, 40u8);      // '('
+            let head_end: i64 = if lp >= 0i64 && lp < b { lp } else { b };
+            let dot: i64 = cf_dot(cs.ops, a, head_end);
+            let vstart: i64 = if dot >= 0i64 { dot + 1i64 } else { a };
+            let r: &mut WMap<WString, WAny> = doc.map(8i64);
+            r.set(K_CTR, name);
+            if dot >= 0i64 {
+                r.set(K_STREAM, unsafe { cf_sub(cs.ops, a, dot) });
+            } else {
+                r.set(K_STREAM, "");
+            }
+            r.set(K_VERB, unsafe { cf_sub(cs.ops, vstart, head_end) });
+            if lp >= 0i64 && lp < b {
+                if str_byte_at(cs.ops, b - 1i64) != 41u8 {   // ')'
+                    return writ_new(64i64);
+                }
+                // arg = `max(key)` (measure ref) or a bare ident
+                let ilp: i64 = cf_find(cs.ops, lp + 1i64, 40u8);
+                if ilp >= 0i64 && ilp < b - 1i64 {
+                    if str_byte_at(cs.ops, b - 2i64) != 41u8 {   // inner ')'
+                        return writ_new(64i64);
+                    }
+                    r.set(K_AHEAD, unsafe { cf_sub(cs.ops, lp + 1i64, ilp) });
+                    r.set(K_AINNER, unsafe { cf_sub(cs.ops, ilp + 1i64, b - 2i64) });
+                } else {
+                    r.set(K_AHEAD, unsafe { cf_sub(cs.ops, lp + 1i64, b - 1i64) });
+                    r.set(K_AINNER, "");
+                }
+            } else {
+                r.set(K_AHEAD, "");
+                r.set(K_AINNER, "");
+            }
+            opsa.push(WAny::from(&*r));
+            a = b + 1i64;
+        }
+    }
+    root.set(SEC_OPS, &*opsa);
+
+    doc.set_root(WAny::from(&*root));
+    return doc;
+}

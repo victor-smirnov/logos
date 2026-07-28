@@ -10,6 +10,7 @@
 package test;
 
 use logos.lcm.canon.container_item;
+use logos.lcm.canon.spec;         // container_facts — the fact builder under test
 use logos.lang.writ.container;
 use logos.lang.writ.wmap;
 use logos.lang.writ.array;

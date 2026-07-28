@@ -180,9 +180,25 @@ facts of their own. A library `TreeMap<K,V>` joins here, by declaration.
 
 The compiler becomes a separate entity, not segmented by domain: one query may
 join a Memoria container, Writ and `mem`, because rows share a language of types
-rather than a domain of four tags. `__deem_bind`, which lives inside
-`logos.lcm.canon.container_item` today, moves out; Canon remains its supplier of
-container facts and its codegen instrument.
+rather than a domain of four tags. `__deem_bind` HAS moved out of
+`logos.lcm.canon.container_item`: it is `logos.std.wql.deem_bind`, and Canon is
+its supplier of container facts (`logos.lcm.canon.spec`) and its codegen
+instrument.
+
+⚠ The move forced the supplier to become a module of its own, and the reason is
+worth keeping. The binder consumes Canon, so it must be built AFTER logos-lcm —
+which rules out the mem tier where the rest of `logos.std.wql.*` lives, since
+logos-mem is built BEFORE logos-lcm (package name and build tier are different
+things; that inversion is also how Canon may import the query surface at all).
+It therefore sits in the lcm tier, the earliest one that can see Canon. But an
+emitted `use` resolves names without LOADING a module, so the driver's metacall
+chunk cannot pull the binder in by itself: the edge has to ride in from
+`container_item`, which every container-declaring unit imports. That makes
+container_item → deem_bind a required edge, and a binder reading container_item
+would close the cycle. Hence `logos.lcm.canon.spec` — the declaration parser and
+the fact builder, with no emission and no decision in it — below both the
+container builder and the query binder. Canon-as-supplier stopped being a
+description and became a module boundary.
 
 Cost: `rexpr_walk.logos` (~4000 lines) is rewritten across several cycles, and
 Deem grows a type layer. The slicing above is what keeps that from being a

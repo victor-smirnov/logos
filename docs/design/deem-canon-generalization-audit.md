@@ -15,9 +15,9 @@ per-case that should be written once* — is what this audit answers.
 
 ## 1. The plan picks a producer by MANGLING A NAME — CLOSED (S6)
 
-`container_item.logos` (`__deem_bind`) chooses the family's narrowing producer
-with a three-way `if` over a strategy string, concatenating one of three fixed
-prefixes:
+`__deem_bind` (then in `container_item.logos`, now `logos.std.wql.deem_bind`)
+chooses the family's narrowing producer with a three-way `if` over a strategy
+string, concatenating one of three fixed prefixes:
 
 ```
 if str_eq(strategy, "point_get") { matfn.push_str("__ctr_at_"); }

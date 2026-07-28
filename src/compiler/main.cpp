@@ -754,16 +754,17 @@ static int render_deem_plan_chunks(const logos::compiler::lir::LProgram& prog,
             }
             flush(t.size());
         }
-        // The binding is DECIDED in Logos, not here. Which container
-        // operations a query should use is a join of its demands with the
-        // class's capabilities, and neither is readable from C++: the wql AST
-        // has no node constants on this side, and Canon's verdicts are computed
-        // in the handler. So this renders a metacall and hands over the pieces
-        // — the query, the family it runs against, and the class declaration
-        // whose facts the verdicts come from.
+        // The binding is DECIDED in Logos, not here, and by DEEM, not by
+        // Canon. Which container operations a query should use is a join of its
+        // demands with the class's capabilities, and neither is readable from
+        // C++: the wql AST has no node constants on this side, and Canon's
+        // verdicts are computed in the handler. So this renders a metacall to
+        // the query compiler and hands over the pieces — the query, the family
+        // it runs against, and the class declaration whose facts the verdicts
+        // come from. Canon supplies those facts; it does not own the binding.
         std::string chunk;
         chunk += "package logos.gen;\n";
-        chunk += "use logos.lcm.canon.container_item;\n";
+        chunk += "use logos.std.wql.deem_bind;\n";
         chunk += "metacall __deem_bind(\"";
         chunk += esc_lit(p.is_pub ? p.name : ("-" + p.name));
         chunk += "\", \"";
