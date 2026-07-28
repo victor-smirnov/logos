@@ -199,10 +199,15 @@ The opt-in is the producer's RETURN TYPE, and deliberately not a keyword: a
 declaration that says `stream` while returning a `Vec` is a claim nothing
 checks, and the plan would be built on it. A return type cannot drift.
 
-⚠ Still open: Canon's generated families all return `Vec`, so today a
-hand-written source streams and a container does not. The walk exists (the
-family cursor has `seek`/`next`/`skip` since `1f2dabe1`); what is missing is the
-`Iterator` impl over it.
+⚠ Still open, and BLOCKED rather than unwritten: Canon's generated families all
+return `Vec`, so today a hand-written source streams and a container does not.
+The conversion was written and reverted — the four producers collapse to one
+`…Walk` type with four constructors, which also closes #4 — because a query
+spelled `&<typeof(C) as CtrFamily>::Handle` cannot resolve `next()` against a
+trait impl emitted in the same round. The CLASS spelling works with the very
+same impl, which is what identifies the fault as round scheduling in the
+compiler rather than anything about Deem. Ruled out along the way: the missing
+trait import, the inferred binding, and impl registration itself.
 
 ⚠ Also open, and recorded rather than overlooked: sema checks trait MEMBERSHIP
 only, not that the iterator's item type matches the relation's row type. A

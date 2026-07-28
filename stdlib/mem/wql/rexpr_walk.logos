@@ -913,7 +913,15 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             em.push_text(string_as_str(&lim_cond));
             em.push_text(") { break; }\n");
         }
-        em.push_text("        let __row = match ");
+        // The row type is ANNOTATED, not inferred. `next()` is a trait method
+        // whose result type is the trait's parameter, so inferring it means
+        // selecting the impl — and where the source is spelled as an associated
+        // type (`&<typeof(C) as CtrFamily>::Handle`) that selection has not
+        // happened yet and the type var escapes. The plan knows the row type;
+        // withholding it would be the emitter pretending it does not.
+        em.push_text("        let __row: ");
+        em.push_text(row_ty);
+        em.push_text(" = match ");
         em.push_text(src_name);
         em.push_text(".next() { Option::Some(__r) => { __r } Option::None => { break; } };\n");
         em.push_text("        let ");

@@ -4679,10 +4679,11 @@ private:
     // Build the native-source spec for one deem!/mapping param, or "" when its
     // type implements no source trait. Entry grammar (consumed by
     // plan_walker::register_native_rels):
-    //   <regname>=<matfn>[!<flags>][#<arg>][@<module>]:<param>(<col> <ty>,…)
-    //           [{<col> <cmp> <fn> <flags>,…}];
+    //   <regname>=<matfn>[!<flags>[%<ret-ty>]][#<arg>][@<module>]
+    //           :<param>(<col> <ty>,…)[{<col> <cmp> <fn> <flags>[%<ret-ty>]|…}];
     // flags are a SET of letters: `e` exact / `s` superset (operations only),
-    // `i` the producer returns an iterator (ADR 0024 S4).
+    // `i` the producer returns an iterator (ADR 0024 S4). Operations are
+    // separated by `|`, not `,`, because a return type may contain commas.
     // regname = the param name itself for a single-rel vocabulary, else
     // <param>_<rel>; module omitted when the materializer lives in the
     // consuming package.
@@ -4703,6 +4704,9 @@ private:
     // host compiler on generated code, which is exactly the diagnostic this ADR
     // is trying to abolish — recorded as debt, not overlooked.
     bool          producer_streams_(const std::string& fn_name);
+    // The producer's return type, as TEXT — what the emitted binding is
+    // annotated with. Empty when the function is not resolvable.
+    std::string   producer_ret_type_(const std::string& fn_name);
     // Does this parameter-type TEXT name something the deem pipeline can bind
     // a source from — a registered mapping, or a type (or type family, by
     // base name) carrying a source impl? The pipeline matches by text, so a

@@ -102,6 +102,11 @@ pub struct MacroParams {
     /// than once must still be drained, so the offer is not the decision).
     pub rel_iter:    [bool; 8],
     pub rel_stream:  [bool; 8],
+    /// The producer's RETURN TYPE, as text. The emitted binding is annotated
+    /// with it rather than inferring: a generated producer's signature is not
+    /// always resolvable in the round its consumer is compiled, and an inferred
+    /// `let` then carries an unresolved type var into the loop.
+    pub rel_itty:    [str; 8],
     /// The un-sliced binding name (`__rel_<r>`), used when the rel streams —
     /// carrying a name that ends in `_sl` for something that is not a slice
     /// would make generated code lie to whoever reads it.
@@ -140,6 +145,7 @@ pub struct MacroParams {
     pub opc_fn:   [str; 32],
     pub opc_exact:[bool; 32],
     pub opc_iter: [bool; 32],
+    pub opc_itty: [str; 32],
     pub op_n:     i64,
     pub tparams:     str,
     // ── the query as a SOURCE (ADR 0024 S0) ──────────────────────────────
@@ -183,6 +189,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_native:  [false; 8],
         rel_iter:    [false; 8],
         rel_stream:  [false; 8],
+        rel_itty:    [""; 8],
         rel_ssrc:    [""; 8],
         rel_mat:     [""; 8],
         rel_marg:    [""; 8],
@@ -195,6 +202,7 @@ pub fn macro_params_new() -> MacroParams {
         opc_fn:   [""; 32],
         opc_exact:[false; 32],
         opc_iter: [false; 32],
+        opc_itty: [""; 32],
         op_n:     0i64,
         tparams:     "",
         src_root:    nul,
@@ -271,6 +279,17 @@ impl MacroParams {
             }
             i = i + 1i64;
         }
+        // A streaming or drained source calls `next()`, which is a TRAIT
+        // method: without the trait in scope the chunk cannot resolve it, and
+        // the failure surfaces as the item type escaping as a bare type var —
+        // a diagnostic that names neither the trait nor the missing import.
+        let mut it: i64 = 0i64;
+        while it < self.rel_n {
+            if self.rel_iter[it] {
+                out.push_str("use logos.lang.iter; ");
+                it = self.rel_n;
+            } else { it = it + 1i64; }
+        }
     }
 
     // The CORE type name of the param named `name` ("" if absent).
@@ -302,7 +321,7 @@ impl MacroParams {
     // Append one column to the LAST registered rel.
     /// Record one declared operation for the rel most recently registered.
     pub fn rel_add_op(self: &mut MacroParams, col: str, cmp: str, fn_name: str,
-                      exact: bool, iter: bool) {
+                      exact: bool, iter: bool, ity: str) {
         if self.op_n >= 32i64 { return; }
         let r: i64 = self.rel_n - 1i64;
         if r < 0i64 { return; }
@@ -312,6 +331,7 @@ impl MacroParams {
         self.opc_fn[self.op_n]    = fn_name;
         self.opc_exact[self.op_n] = exact;
         self.opc_iter[self.op_n]  = iter;
+        self.opc_itty[self.op_n]  = ity;
         self.op_n = self.op_n + 1i64;
         self.op_cnt[r] = self.op_cnt[r] + 1i64;
     }

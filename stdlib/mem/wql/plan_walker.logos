@@ -1722,6 +1722,7 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
 // the caller's frame Strings).
 fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
               mat: str, marg: str, marg2: str, module: str, iter: bool,
+              ity: str,
               srcb: &mut String, dsrcb: &mut String, ssrcb: &mut String) -> i64 {
     srcb.push_str("__rel_");
     srcb.push_str(disp);
@@ -1737,6 +1738,7 @@ fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
     if idx >= 0i64 {
         prm.rel_native[idx] = true;
         prm.rel_iter[idx]   = iter;
+        prm.rel_itty[idx]   = ity;
         prm.rel_ssrc[idx]   = string_as_str(ssrcb);
         prm.rel_mat[idx] = mat;
         prm.rel_marg[idx] = marg;
@@ -1966,6 +1968,10 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
         if ap.op[ri] >= 0i64 {
             prm.rel_mat[ri]   = ap.fnm[ri];
             prm.rel_marg2[ri] = ap.arg[ri];
+            // The chosen operation's producer type replaces the rel's own —
+            // the binding is annotated with what will actually be called.
+            prm.rel_iter[ri]  = prm.opc_iter[ap.op[ri]];
+            prm.rel_itty[ri]  = prm.opc_itty[ap.op[ri]];
         }
         if ap.stream[ri] {
             prm.rel_stream[ri] = true;
@@ -2006,13 +2012,25 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // `!<flags>` — properties of the BINDING. `i` = the producer returns an
         // iterator, so the plan MAY consume it in place (ADR 0024 S4).
         let mut mat_iter: bool = false;
+        let mut mat_ity: str = "";
         if i < n && str_byte_at(natspec, i) == 33u8 {
             i = i + 1i64;
             let fl: i64 = i;
             while i < n && str_byte_at(natspec, i) != 64u8
                   && str_byte_at(natspec, i) != 35u8
-                  && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }
+                  && str_byte_at(natspec, i) != 37u8
+                  && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }   // …|'%'
             mat_iter = pw_flag(pw_slice(natspec, fl, i), 105u8);              // 'i'
+            // `%<ret-ty>` — the producer's return type, which the emitted
+            // binding is ANNOTATED with rather than inferring.
+            if i < n && str_byte_at(natspec, i) == 37u8 {
+                i = i + 1i64;
+                let ty0: i64 = i;
+                while i < n && str_byte_at(natspec, i) != 64u8
+                      && str_byte_at(natspec, i) != 35u8
+                      && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }
+                mat_ity = pw_slice(natspec, ty0, i);
+            }
         }
         // `#<arg>` — the narrowing constant, when this binding takes one.
         let mut marg2: str = "";
@@ -2066,6 +2084,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         let mut op_fn:  [str; 8] = ["", "", "", "", "", "", "", ""];
         let mut op_ex:  [bool; 8] = [false; 8];
         let mut op_it:  [bool; 8] = [false; 8];
+        let mut op_ity: [str; 8] = [""; 8];
         let mut nops: i64 = 0i64;
         if i < n && str_byte_at(natspec, i) == 123u8 {                        // '{'
             i = i + 1i64;
@@ -2084,16 +2103,26 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                 let ofn: str = pw_slice(natspec, f0, i);
                 i = i + 1i64;
                 let x0: i64 = i;
-                while i < n && str_byte_at(natspec, i) != 44u8
+                while i < n && str_byte_at(natspec, i) != 124u8
+                      && str_byte_at(natspec, i) != 37u8
                       && str_byte_at(natspec, i) != 125u8 { i = i + 1i64; }
                 let oex: str = pw_slice(natspec, x0, i);
+                let mut oity: str = "";
+                if i < n && str_byte_at(natspec, i) == 37u8 {                 // '%'
+                    i = i + 1i64;
+                    let t0: i64 = i;
+                    while i < n && str_byte_at(natspec, i) != 124u8
+                          && str_byte_at(natspec, i) != 125u8 { i = i + 1i64; }
+                    oity = pw_slice(natspec, t0, i);
+                }
                 if nops < 8i64 {
                     op_col[nops] = ocol; op_cmp[nops] = ocmp; op_fn[nops] = ofn;
                     op_ex[nops] = pw_flag(oex, 101u8);                        // 'e'
                     op_it[nops] = pw_flag(oex, 105u8);                        // 'i'
+                    op_ity[nops] = oity;
                     nops = nops + 1i64;
                 }
-                if i < n && str_byte_at(natspec, i) == 44u8 { i = i + 1i64; } // ','
+                if i < n && str_byte_at(natspec, i) == 124u8 { i = i + 1i64; } // '|'
             }
             if i < n && str_byte_at(natspec, i) == 125u8 { i = i + 1i64; }    // '}'
         }
@@ -2102,7 +2131,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // Single-column rows are the bare type, not a 1-tuple.
         let rowty: str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
         let idx: i64 = reg_native(prm, regname, rowty, mat, marg, marg2, module,
-                                  mat_iter, &mut srcb[k], &mut dsrcb[k],
+                                  mat_iter, mat_ity, &mut srcb[k], &mut dsrcb[k],
                                   &mut ssrcb[k]);
         if idx < 0i64 {
             error("wql!: too many rels (max 8, native source params included)");
@@ -2115,7 +2144,8 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         }
         let mut o: i64 = 0i64;
         while o < nops {
-            prm.rel_add_op(op_col[o], op_cmp[o], op_fn[o], op_ex[o], op_it[o]);
+            prm.rel_add_op(op_col[o], op_cmp[o], op_fn[o], op_ex[o], op_it[o],
+                           op_ity[o]);
             o = o + 1i64;
         }
         k = k + 1i64;
@@ -2157,6 +2187,8 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
         if prm.rel_stream[r] {
             prelude.push_str("    let mut ");
             prelude.push_str(prm.rel_srcs[r]);
+            prelude.push_str(": ");
+            prelude.push_str(prm.rel_itty[r]);
             prelude.push_str(" = ");
             prelude.push_str(prm.rel_mat[r]);
             prelude.push_str("(");
@@ -2166,6 +2198,52 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                 prelude.push_str(prm.rel_marg2[r]);
             }
             prelude.push_str(");\n");
+            return;
+        }
+        // DRAINED: the producer streams but this plan cannot read it once, so
+        // the iterator is emptied into a Vec and everything downstream sees the
+        // slice it always saw. This is what lets a source declare ONE producer
+        // per operation instead of two — the general form is the iterator, and
+        // materializing is a step the plan adds, not a second thing the source
+        // must write.
+        if prm.rel_iter[r] {
+            prelude.push_str("    let mut __it_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(": ");
+            prelude.push_str(prm.rel_itty[r]);
+            prelude.push_str(" = ");
+            prelude.push_str(prm.rel_mat[r]);
+            prelude.push_str("(");
+            prelude.push_str(prm.rel_marg[r]);
+            if prm.rel_marg2[r].len() > 0i64 {
+                prelude.push_str(", ");
+                prelude.push_str(prm.rel_marg2[r]);
+            }
+            prelude.push_str(");\n");
+            prelude.push_str("    let mut __rel_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(": Vec<");
+            prelude.push_str(prm.rel_rowty[r]);
+            prelude.push_str("> = Vec::<");
+            prelude.push_str(prm.rel_rowty[r]);
+            prelude.push_str(">::new();\n");
+            // Annotated for the same reason the streaming loop annotates: the
+            // item type of `next()` is the trait's parameter, and an associated-
+            // type source spelling leaves it unselected.
+            prelude.push_str("    loop { let __dr: Option<");
+            prelude.push_str(prm.rel_rowty[r]);
+            prelude.push_str("> = __it_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(".next(); match __dr { Option::Some(__v) => { __rel_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(".push(__v); } Option::None => { break; } } }\n");
+            prelude.push_str("    let ");
+            prelude.push_str(prm.rel_srcs[r]);
+            prelude.push_str(": &[");
+            prelude.push_str(prm.rel_rowty[r]);
+            prelude.push_str("] = __rel_");
+            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(".as_slice();\n");
             return;
         }
         prelude.push_str("    let __rel_");

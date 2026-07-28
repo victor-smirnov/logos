@@ -21240,6 +21240,14 @@ bool SemaChecker::source_named_by_text_(std::string_view ptype) const {
     return mappings_.count(base) > 0 || source_impls_.count(base) > 0;
 }
 
+std::string SemaChecker::producer_ret_type_(const std::string& fn_name) {
+    auto ovit = func_overloads_.find(fn_name);
+    if (ovit == func_overloads_.end() || ovit->second.empty()) return {};
+    auto fit = funcs_.find(ovit->second.front());
+    if (fit == funcs_.end() || !fit->second.ret_type) return {};
+    return type_str(fit->second.ret_type);
+}
+
 bool SemaChecker::producer_streams_(const std::string& fn_name) {
     if (fn_name.empty()) return false;
     auto ovit = func_overloads_.find(fn_name);
@@ -21291,10 +21299,18 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         spec += "=";
         const std::string& mat_fn_used = override_fn ? *override_fn : b.mat_fn;
         spec += mat_fn_used;
-        // `!<flags>` — properties of the BINDING, not of the relation. Today
-        // one: `i`, the producer returns an iterator, so the plan may consume
-        // it in place instead of draining it into a Vec first (ADR 0024 S4).
-        if (producer_streams_(mat_fn_used)) spec += "!i";
+        // `!<flags>[%<ret-type>]` — properties of the BINDING, not of the
+        // relation. Today one flag: `i`, the producer returns an iterator, so
+        // the plan may consume it in place instead of draining it into a Vec
+        // (ADR 0024 S4). The RETURN TYPE travels with it because the emitted
+        // binding must be ANNOTATED: a generated producer's signature is not
+        // always resolvable in the round its consumer is compiled (a
+        // factory-family query lowers in the same round the family lands), and
+        // an inferred `let` then carries an unresolved var into the loop.
+        if (producer_streams_(mat_fn_used)) {
+            spec += "!i%";
+            spec += producer_ret_type_(mat_fn_used);
+        }
         // The emitted chunk imports the materializer's module — omitted when
         // it already lives in the consuming package (importing your own
         // package from a chunk is a cycle).
@@ -21426,16 +21442,22 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         if (!b.ops.empty()) {
             spec += "{";
             for (size_t i = 0; i < b.ops.size(); ++i) {
-                if (i) spec += ",";
+                // `|` separates operations, NOT `,`: an operation now carries
+                // its producer's return TYPE, and a type may contain commas.
+                if (i) spec += "|";
                 spec += b.ops[i].col;
                 spec += " ";
                 spec += b.ops[i].cmp;
                 spec += " ";
                 spec += b.ops[i].fn;
                 // A FLAG SET, not a single letter: `e` exact / `s` superset,
-                // plus `i` when the operation's producer streams.
+                // plus `i` when the operation's producer streams — followed by
+                // `%<ret-type>` for the same reason the rel binding carries one.
                 spec += b.ops[i].exact ? " e" : " s";
-                if (producer_streams_(b.ops[i].fn)) spec += "i";
+                if (producer_streams_(b.ops[i].fn)) {
+                    spec += "i%";
+                    spec += producer_ret_type_(b.ops[i].fn);
+                }
             }
             spec += "}";
         }

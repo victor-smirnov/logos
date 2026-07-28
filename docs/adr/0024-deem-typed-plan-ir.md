@@ -147,7 +147,10 @@ conservative (a lone native rel under a simple scan with no `order by`);
 widening it is how a join's driving side learns to stream. *Remaining:* cost on
 the relational IR nodes proper, and Canon's generated families — their producers
 still build a `Vec`, so a container does not yet stream where a hand-written
-source does.
+source does. That last one is BLOCKED, not unwritten: a query spelled
+`&<typeof(C) as CtrFamily>::Handle` cannot resolve `next()` against a trait impl
+emitted in the same round, while the class spelling resolves the same impl
+fine — a compiler scheduling gap, tracked separately.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that
