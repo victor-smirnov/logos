@@ -1,0 +1,95 @@
+// A POSITIONAL container can be narrowed too (ADR 0024 S6).
+//
+// Its ordinal is a column like any other, and `seek` is one descent — so a
+// filter on `pos` has no business scanning. That it did until now was never a
+// property of vectors: it was the old capability model, which derived
+// `can_seek` from a b+tree's MEASURES and therefore had nothing to say about a
+// position. Once capability became something a source DECLARES, the vector
+// family had only to say what it can do.
+//
+// The reference is computed independently, through the container's own cursor,
+// so a narrowing that drops or duplicates rows shows up as a wrong answer.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
+
+container Series<V> {
+    kind vector;
+    entry { val: V }
+}
+
+// `>=` is answered EXACTLY, so this carries no residual filter.
+pub deem from_250<V>(s: Series<V>) { from s r where r.pos >= 250 select (r.pos, r.val) }
+// `<=` likewise — the walk stops ON the bound.
+pub deem upto_9<V>(s: Series<V>)   { from s r where r.pos <= 9 select (r.pos, r.val) }
+// `>` has no exact operation; `ge` covers it and the query's filter excludes
+// the boundary row. Getting one row too many here means it was dropped wrongly.
+pub deem above_250<V>(s: Series<V>) { from s r where r.pos > 250 select (r.pos, r.val) }
+// A point probe on the ordinal.
+pub deem at_7<V>(s: Series<V>)     { from s r where r.pos == 7 select (r.pos, r.val) }
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let s = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
+
+    let n: u64 = 300u64;                       // several leaves
+    let mut i: u64 = 0u64;
+    while i < n { s.append(i * 2u64); i = i + 1u64; }
+
+    // The reference: walked through the container's own cursor.
+    let mut want_from: Vec<(i64, u64)> = vec_new::<(i64, u64)>();
+    let mut want_above: Vec<(i64, u64)> = vec_new::<(i64, u64)>();
+    let mut want_upto: Vec<(i64, u64)> = vec_new::<(i64, u64)>();
+    {
+        let mut cu = s.seek(0u64);
+        while cu.valid() {
+            let row: (i64, u64) = (cu.pos() as i64, cu.value());
+            if cu.pos() >= 250u64 { want_from.push(row); }
+            if cu.pos() >  250u64 { want_above.push(row); }
+            if cu.pos() <= 9u64   { want_upto.push(row); }
+            cu = s.next(&cu);
+        }
+    }
+
+    let f: Vec<(i64, u64)> = match from_250(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if f.len() != want_from.len() { return 2i32; }
+    if f.len() != 50i64           { return 3i32; }
+
+    let g: Vec<(i64, u64)> = match above_250(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if g.len() != want_above.len() { return 5i32; }
+    if g.len() != 49i64            { return 6i32; }   // the boundary row excluded
+
+    let u: Vec<(i64, u64)> = match upto_9(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if u.len() != want_upto.len() { return 8i32; }
+    if u.len() != 10i64           { return 9i32; }
+
+    let a: Vec<(i64, u64)> = match at_7(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if a.len() != 1i64        { return 11i32; }
+    if a.get(0i64).0 != 7i64  { return 12i32; }
+    if a.get(0i64).1 != 14u64 { return 13i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_vec_pos_pushdown: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}

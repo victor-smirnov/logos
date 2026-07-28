@@ -13,7 +13,7 @@ per-case that should be written once* — is what this audit answers.
 
 ---
 
-## 1. The plan picks a producer by MANGLING A NAME — OPEN
+## 1. The plan picks a producer by MANGLING A NAME — CLOSED (S6)
 
 `container_item.logos` (`__deem_bind`) chooses the family's narrowing producer
 with a three-way `if` over a strategy string, concatenating one of three fixed
@@ -33,7 +33,7 @@ that either.
 This is ADR 0024 **S6** (declared operation sets), and it is the largest single
 item in this list. Everything below either feeds it or is blocked by it.
 
-## 2. The POSITIONAL family has no narrowing producers at all — OPEN
+## 2. The POSITIONAL family has no narrowing producers at all — CLOSED (S6)
 
 The ordered-map family publishes `__ctr_rows_` / `__ctr_at_` / `__ctr_from_` /
 `__ctr_upto_`. The vector family publishes `__ctr_rows_` and nothing else, so
@@ -43,7 +43,7 @@ one descent and `skip` is an index bump (both landed in `1f2dabe1`).
 Blocked by #3: the planner narrows on a column, and the position is not a column
 Canon knows about.
 
-## 3. The position is a column NOTHING declares — OPEN
+## 3. The position is a column NOTHING declares — DISSOLVED (S6)
 
 `PositionalSource<V>` projects `row(pos: i64, val: V)`, but `container Series<V>
 { kind vector; entry { val: V } }` declares ONE column. The ordinal is invented
@@ -51,11 +51,17 @@ by the projection: it appears in the relation, not in the declaration, and
 therefore not in Canon's `col_fact` / `max_meas`. Canon cannot reason about it,
 so `can_seek` cannot hold for it, so #2 cannot be planned.
 
-The fix is not a special case in the rule (`kind == VECTOR` as a second
-disjunct) — it is that a container's fact set must include the columns its KIND
-implies, so the rule stays `can_seek(C,col) ← ordered(C,col)`. That needs a
-union of rules in the Canon Datalog (the recorded `edb_union` item), which is
-why this is stated rather than done.
+**It stopped being a problem rather than being solved.** The blocker was an
+artifact of the model it was stated in: capability was DERIVED from Canon's
+facts, so a column Canon did not know about could not be planned on. Once a
+source DECLARES its operations (S6) the planner never consults those facts —
+and `pos` was always a declared column of the hub relation
+(`PositionalSource<V> { rel row(pos, val) }`). The vector family had only to say
+what it can do. `edb_union` is still wanted for Canon's own reasoning; it was
+never what stood between a positional container and a pushdown.
+
+⚠ Worth keeping: a blocker that dissolves when the surrounding model changes was
+not a blocker, it was a symptom. I had it recorded as the thing to build next.
 
 ⚠ Note the shape: a fact that "everyone knows" is exactly the fact nobody
 writes down, and the planner then cannot use it.

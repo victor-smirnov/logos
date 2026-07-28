@@ -2871,6 +2871,15 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
         vrows_s.push_str("__ctr_rows_");
         vrows_s.push_str(name);
         let vrowsfn: Ident = Ident::new(vrows_s.as_str());
+        let mut vat_s: String = String::new();
+        vat_s.push_str("__ctr_at_"); vat_s.push_str(name);
+        let vatfn: Ident = Ident::new(vat_s.as_str());
+        let mut vfrom_s: String = String::new();
+        vfrom_s.push_str("__ctr_from_"); vfrom_s.push_str(name);
+        let vfromfn: Ident = Ident::new(vfrom_s.as_str());
+        let mut vupto_s: String = String::new();
+        vupto_s.push_str("__ctr_upto_"); vupto_s.push_str(name);
+        let vuptofn: Ident = Ident::new(vupto_s.as_str());
         let pq: QuoteItemBlob = quote_item! {
             use logos.mem.bt.map;             // trait PositionalSource — the hub rel
             use logos.mem.collections.vec;
@@ -2885,7 +2894,46 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
                 }
                 return out;
             }
-            impl PositionalSource<#(vt)> for #nm { rel row = #vrowsfn; }
+            /// The point probe on POSITION: one descent, one row or none.
+            /// EXACT — a position identifies at most one row.
+            pub fn #vatfn(c: &#nm, p: u64) -> Vec<(i64, #(vt))> {
+                let mut out: Vec<(i64, #(vt))> = vec_new::<(i64, #(vt))>();
+                let cu: #cid = c.seek(p);
+                if cu.valid() { out.push(((cu.pos() as i64), cu.value())); }
+                return out;
+            }
+            /// A SUFFIX: land on the position, then walk. EXACT for `>=`.
+            pub fn #vfromfn(c: &#nm, p: u64) -> Vec<(i64, #(vt))> {
+                let mut out: Vec<(i64, #(vt))> = vec_new::<(i64, #(vt))>();
+                let mut cu: #cid = c.seek(p);
+                while cu.valid() {
+                    out.push(((cu.pos() as i64), cu.value()));
+                    cu = c.next(&cu);
+                }
+                return out;
+            }
+            /// A PREFIX, inclusive of the bound. EXACT for `<=` — the walk
+            /// stops ON the position rather than past it.
+            pub fn #vuptofn(c: &#nm, p: u64) -> Vec<(i64, #(vt))> {
+                let mut out: Vec<(i64, #(vt))> = vec_new::<(i64, #(vt))>();
+                let mut cu: #cid = c.seek(0u64);
+                while cu.valid() && cu.pos() <= p {
+                    out.push(((cu.pos() as i64), cu.value()));
+                    cu = c.next(&cu);
+                }
+                return out;
+            }
+            // A positional container CAN be narrowed — its ordinal is a column
+            // like any other, and `seek` is one descent. That this was scanned
+            // in full until now was never a property of vectors: it was the old
+            // capability model, which derived `can_seek` from a b+tree's
+            // measures and so had nothing to say about a position.
+            impl PositionalSource<#(vt)> for #nm {
+                rel row = #vrowsfn;
+                op row.pos eq = #vatfn    exact;
+                op row.pos ge = #vfromfn  exact;
+                op row.pos le = #vuptofn  exact;
+            }
         };
         unsafe { logos_emit_item_blob_subst(&pq); }
     }
