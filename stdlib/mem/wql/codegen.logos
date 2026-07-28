@@ -180,6 +180,35 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
 // returns the DECLARED name wherever one was recorded, falling back to the
 // class's representative where no name exists (a literal has no type of its
 // own — it takes one from its context).
+// ── the PLAN TRACE (ADR 0024 S4) ────────────────────────────────────────────
+//
+// ONE channel for every plan decision, so a trace is a record of what the
+// planner concluded rather than a per-site debug print. Local externs rather
+// than `logos.std.env`/`io`: this tier must not depend on those, and a trace is
+// not worth a module edge.
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+/// `LOGOS_TRACE_PLAN=1`.
+pub fn plan_trace_on() -> bool {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_TRACE_PLAN");
+    c.push_u8(0u8);
+    unsafe { return getenv(c.as_ptr()) != 0 as *const u8; }
+}
+
+/// One decision: what was concluded, about what, and the antecedent that
+/// decided it — which for a fallback is also the remedy.
+pub fn plan_trace(subject: str, verdict: str, about: str, why: str) {
+    if !plan_trace_on() { return; }
+    let mut ln: String = String::new();
+    ln.push_str("[plan] "); ln.push_str(subject);
+    ln.push_str(" -> "); ln.push_str(verdict);
+    if about.len() > 0i64 { ln.push_str(" on "); ln.push_str(about); }
+    ln.push_str("   ("); ln.push_str(why); ln.push_str(")\n");
+    unsafe { write(2i32, ln.as_ptr(), ln.len()); }
+}
+
 pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
     match e {
         SExpr::Param(pp) => { return t.ty_name_of(pp.name); }

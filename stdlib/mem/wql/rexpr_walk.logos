@@ -1210,7 +1210,10 @@ fn sexpr_of_word(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<S
 
 // The per-step strategy decision (POD; the emitted TEXT lands in the caller's
 // build/probe/resid/pred Strings).
-pub struct StepSel { pub strat: i32, pub key_ty: i32, pub has_equi: bool, pub has_resid: bool }
+// A join step's chosen strategy AND what entailed it (ADR 0024 S4). The
+// cascade always produced the choice; recording the ground alongside it is
+// what makes a plan explainable instead of merely reproducible.
+pub struct StepSel { pub strat: i32, pub key_ty: i32, pub has_equi: bool, pub has_resid: bool, pub why: str }
 
 // Analyze ONE step's on-predicate: simplify, split the conjunction, pick the
 // FIRST usable equi-term (same EL type on both sides), compose the residual,
@@ -1263,7 +1266,7 @@ fn analyze_step(on_ref: WRef<SExpr>, new_var: str, t: &ElTypes, var0: str, h: &W
         i = i + 1i64;
     }
 
-    let mut ss: StepSel = StepSel { strat: JS_LOOP(), key_ty: kt, has_equi: false, has_resid: false };
+    let mut ss: StepSel = StepSel { strat: JS_LOOP(), key_ty: kt, has_equi: false, has_resid: false, why: "no equi-join key — a nested loop is the only shape left" };
     if sel_i >= 0i64 {
         ss.has_equi = true;
         emit_sexpr(build, sexpr_of_word(bw), t, var0);
@@ -1284,9 +1287,18 @@ fn analyze_step(on_ref: WRef<SExpr>, new_var: str, t: &ElTypes, var0: str, h: &W
         ss.has_resid = !none_yet;
         // THE CASCADE — by key capability.
         let caps: KeyCaps = join_key_caps(kt);
-        if caps.hash && !join_force_tree() { ss.strat = JS_HASH(); }
-        else if caps.ord                   { ss.strat = JS_TREE(); }
-        else if caps.eq                    { ss.strat = JS_LOOP(); }
+        if caps.hash && !join_force_tree() {
+            ss.strat = JS_HASH();
+            ss.why = "the key type is hashable — build once, probe per row";
+        } else if caps.ord {
+            ss.strat = JS_TREE();
+            ss.why = if join_force_tree()
+                     { "the tree tier is forced (LOGOS_JOIN_TREE) — the key is hashable but ordered access is being exercised" }
+                     else { "the key type is ordered but not hashable — a sorted index, not a hash one" };
+        } else if caps.eq {
+            ss.strat = JS_LOOP();
+            ss.why = "the key type has equality only — no index can be built, so every pair is tested";
+        }
         else {
             error("wql!: join key type supports neither Hash, Ord, nor equality — cannot execute this join step (scalar i64/str/bool/f64 keys only today)");
         }
@@ -1323,6 +1335,11 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ,
                                            &mut st_build[i], &mut st_probe[i],
                                            &mut st_resid[i], &mut st_pred[i]);
             st_strat[i]  = ss.strat;
+            plan_trace(ch.var[i],
+                       if ss.strat == JS_HASH() { "hash join" }
+                       else if ss.strat == JS_TREE() { "tree join" }
+                       else { "loop join" },
+                       el_class_repr(ss.key_ty), ss.why);
             st_ktn[i]    = el_class_repr(ss.key_ty);
             st_hasres[i] = ss.has_resid;
             st_equi[i]   = ss.has_equi;
