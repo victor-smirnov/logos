@@ -144,13 +144,11 @@ in place, one that returns a container is drained. A keyword would have been
 weaker — it can drift from what the function does, and a return type cannot. The
 planner still has to prove the plan reads the source ONCE, and that proof starts
 conservative (a lone native rel under a simple scan with no `order by`);
-widening it is how a join's driving side learns to stream. *Remaining:* cost on
-the relational IR nodes proper, and Canon's generated families — their producers
-still build a `Vec`, so a container does not yet stream where a hand-written
-source does. That last one is BLOCKED, not unwritten: a query spelled
-`&<typeof(C) as CtrFamily>::Handle` cannot resolve `next()` against a trait impl
-emitted in the same round, while the class spelling resolves the same impl
-fine — a compiler scheduling gap, tracked separately.
+widening it is how a join's driving side learns to stream. Canon's generated
+families stream as well: their four producers are one walk type with four
+constructors, so a store-backed container pays no materialization for a query
+that reads it once. *Remaining:* cost on the relational IR nodes proper, and
+widening the single-read proof to a join's driving side.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

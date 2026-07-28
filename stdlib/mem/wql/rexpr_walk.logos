@@ -919,11 +919,15 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         // type (`&<typeof(C) as CtrFamily>::Handle`) that selection has not
         // happened yet and the type var escapes. The plan knows the row type;
         // withholding it would be the emitter pretending it does not.
+        em.push_text("        let __opt: Option<");
+        em.push_text(row_ty);
+        em.push_text("> = ");
+        em.push_text(src_name);
+        em.push_text(".next();\n");
+        em.push_text("        if __opt.is_none() { break; }\n");
         em.push_text("        let __row: ");
         em.push_text(row_ty);
-        em.push_text(" = match ");
-        em.push_text(src_name);
-        em.push_text(".next() { Option::Some(__r) => { __r } Option::None => { break; } };\n");
+        em.push_text(" = __opt.unwrap();\n");
         em.push_text("        let ");
         em.push_text(var_name);
         em.push_text(": &");

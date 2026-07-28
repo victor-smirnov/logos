@@ -1889,21 +1889,57 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         let mut upto_s: String = String::new();
         upto_s.push_str("__ctr_upto_"); upto_s.push_str(name);
         let uptofn: Ident = Ident::new(upto_s.as_str());
+        let mut it_s: String = String::new();
+        it_s.push_str(name); it_s.push_str("Walk");
+        let itid: Ident = Ident::new(it_s.as_str());
         let pq: QuoteItemBlob = quote_item! {
             use logos.mem.bt.map;             // trait OrderedMapSource — the hub rel
             use logos.mem.collections.vec;
             use logos.lang.option;            // Option — absence, from `find`
-            /// The full projection: ONE descent to the first entry, then a
-            /// walk. The walk ends when the cursor falls off the end, so the
-            /// producer never asks for `size()` and never re-descends per row.
-            pub fn #rowsfn(c: &#nm) -> Vec<(#(kid), #(vo))> {
-                let mut out: Vec<(#(kid), #(vo))> = vec_new::<(#(kid), #(vo))>();
-                let mut cu: #cid = c.seek(0u64);
-                while cu.valid() {
-                    out.push((cu.key(), cu.value()));
-                    cu = c.next(&cu);
+            use logos.lang.iter;              // trait Iterator — the streaming protocol
+            /// The relation as a WALK — ONE landing, then movement, and no Vec
+            /// between the container and the query (ADR 0024 S4).
+            ///
+            /// All four access shapes are THIS type with a different landing
+            /// and a different bound; they used to be four near-identical
+            /// producers that differed only in those two things while each
+            /// wrote out the same loop.
+            ///
+            /// The container is held as a RAW POINTER, as `HashMapIter` holds
+            /// its map. Movement needs the root, which is exactly why it is a
+            /// container method and not a cursor method — a cursor that held
+            /// the borrow would tie every cursor to the container's lifetime.
+            /// The contract is an iterator's: it is drained inside the scope
+            /// that lent it the container, and the query fn is that scope.
+            ///
+            /// The upper bound is an `Option`, not a flag beside a value: an
+            /// unbounded walk has no key to put there, and inventing one would
+            /// mean every reader has to know which field is meaningless.
+            pub struct #itid {
+                c: *const #nm,
+                cu: #cid,
+                hi: Option<#(kid)>,
+            }
+            impl Iterator<(#(kid), #(vo))> for #itid {
+                fn next(self: &mut #itid) -> Option<(#(kid), #(vo))> {
+                    if !self.cu.valid() { return Option::None; }
+                    let k: #(kid) = self.cu.key();
+                    match self.hi {
+                        Option::Some(h) => { if k > h { return Option::None; } }
+                        Option::None => { }
+                    }
+                    let row: (#(kid), #(vo)) = (k, self.cu.value());
+                    unsafe {
+                        let cp: &#nm = &*self.c;
+                        self.cu = cp.next(&self.cu);
+                    }
+                    return Option::Some(row);
                 }
-                return out;
+            }
+            /// The full projection: land on the first entry and walk to the end.
+            pub fn #rowsfn(c: &#nm) -> #itid {
+                return #itid { c: c as *const #nm, cu: c.seek(0u64),
+                               hi: Option::None };
             }
             // The relation carries the container's OWN column types. It used
             // to project through i64 — which is where a stored `u64::MAX`
@@ -1922,43 +1958,30 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 op entry.key ge = #fromfn  exact;
                 op entry.key le = #uptofn  exact;
             }
-            /// The NARROWING producers. A plan that filters on the seek column
-            /// calls one of these instead of the full scan above — the
-            /// capability belongs to the FAMILY and is published once, rather
-            /// than being written per query. Each returns a SUPERSET of its
-            /// window (the entry at a rank may compare equal), which is all a
-            /// narrowing may claim; the query keeps its own `where`.
-            pub fn #atfn(c: &#nm, k: #(kid)) -> Vec<(#(kid), #(vo))> {
-                let mut out: Vec<(#(kid), #(vo))> = vec_new::<(#(kid), #(vo))>();
-                match c.find(k) {
-                    Option::Some(v) => { out.push((k, v)); }
-                    Option::None => { }
-                }
-                return out;
+            /// The NARROWING producers — the same walk with a different landing
+            /// and a different bound. A plan that filters on the seek column
+            /// calls one of these instead of the full scan above; the
+            /// capability belongs to the FAMILY and is published once.
+            ///
+            /// A POINT probe: land on the first entry `>= k` and stop as soon
+            /// as a key exceeds it. Expressed as a bounded walk rather than a
+            /// `find`, so a family whose keys repeat needs no second shape.
+            pub fn #atfn(c: &#nm, k: #(kid)) -> #itid {
+                return #itid { c: c as *const #nm, cu: c.seek_key(k),
+                               hi: Option::Some(k) };
             }
             /// A SUFFIX of the key order: land on the lower bound in one
             /// descent, then walk to the end.
-            pub fn #fromfn(c: &#nm, lo: #(kid)) -> Vec<(#(kid), #(vo))> {
-                let mut out: Vec<(#(kid), #(vo))> = vec_new::<(#(kid), #(vo))>();
-                let mut cu: #cid = c.seek_key(lo);
-                while cu.valid() {
-                    out.push((cu.key(), cu.value()));
-                    cu = c.next(&cu);
-                }
-                return out;
+            pub fn #fromfn(c: &#nm, lo: #(kid)) -> #itid {
+                return #itid { c: c as *const #nm, cu: c.seek_key(lo),
+                               hi: Option::None };
             }
-            /// A PREFIX of the key order: walk from the start and stop on the
+            /// A PREFIX of the key order: walk from the start and stop ON the
             /// bound. Once the walk exists the end is expressed by the KEY, so
-            /// this no longer descends for a rank first — the entries are
-            /// visited in key order and the first one past `hi` ends it.
-            pub fn #uptofn(c: &#nm, hi: #(kid)) -> Vec<(#(kid), #(vo))> {
-                let mut out: Vec<(#(kid), #(vo))> = vec_new::<(#(kid), #(vo))>();
-                let mut cu: #cid = c.seek(0u64);
-                while cu.valid() && cu.key() <= hi {
-                    out.push((cu.key(), cu.value()));
-                    cu = c.next(&cu);
-                }
-                return out;
+            /// this never descends for a rank first.
+            pub fn #uptofn(c: &#nm, hi: #(kid)) -> #itid {
+                return #itid { c: c as *const #nm, cu: c.seek(0u64),
+                               hi: Option::Some(hi) };
             }
         };
         unsafe { logos_emit_item_blob_subst(&pq); }
@@ -2880,48 +2903,65 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
         let mut vupto_s: String = String::new();
         vupto_s.push_str("__ctr_upto_"); vupto_s.push_str(name);
         let vuptofn: Ident = Ident::new(vupto_s.as_str());
+        let mut vit_s: String = String::new();
+        vit_s.push_str(name); vit_s.push_str("Walk");
+        let vitid: Ident = Ident::new(vit_s.as_str());
         let pq: QuoteItemBlob = quote_item! {
             use logos.mem.bt.map;             // trait PositionalSource — the hub rel
             use logos.mem.collections.vec;
+            use logos.lang.option;
+            use logos.lang.iter;              // trait Iterator — the streaming protocol
+            /// The relation as a WALK — one landing, then movement, and no Vec
+            /// between the container and the query (ADR 0024 S4). All four
+            /// access shapes are THIS type with a different landing and bound.
+            ///
+            /// Raw pointer to the container for the same reason the ordered
+            /// family's walk holds one: movement needs the root, so it is a
+            /// container method, and a cursor holding the borrow would tie
+            /// every cursor to the container's lifetime.
+            pub struct #vitid {
+                c: *const #nm,
+                cu: #cid,
+                hi: Option<u64>,
+            }
+            impl Iterator<(i64, #(vt))> for #vitid {
+                fn next(self: &mut #vitid) -> Option<(i64, #(vt))> {
+                    if !self.cu.valid() { return Option::None; }
+                    let p: u64 = self.cu.pos();
+                    match self.hi {
+                        Option::Some(h) => { if p > h { return Option::None; } }
+                        Option::None => { }
+                    }
+                    let row: (i64, #(vt)) = ((p as i64), self.cu.value());
+                    unsafe {
+                        let cp: &#nm = &*self.c;
+                        self.cu = cp.next(&self.cu);
+                    }
+                    return Option::Some(row);
+                }
+            }
             /// ONE descent to row 0, then a walk — the position comes off the
             /// cursor, so nothing here counts rows by hand.
-            pub fn #vrowsfn(c: &#nm) -> Vec<(i64, #(vt))> {
-                let mut out: Vec<(i64, #(vt))> = vec_new::<(i64, #(vt))>();
-                let mut cu: #cid = c.seek(0u64);
-                while cu.valid() {
-                    out.push(((cu.pos() as i64), cu.value()));
-                    cu = c.next(&cu);
-                }
-                return out;
+            pub fn #vrowsfn(c: &#nm) -> #vitid {
+                return #vitid { c: c as *const #nm, cu: c.seek(0u64),
+                                hi: Option::None };
             }
             /// The point probe on POSITION: one descent, one row or none.
             /// EXACT — a position identifies at most one row.
-            pub fn #vatfn(c: &#nm, p: u64) -> Vec<(i64, #(vt))> {
-                let mut out: Vec<(i64, #(vt))> = vec_new::<(i64, #(vt))>();
-                let cu: #cid = c.seek(p);
-                if cu.valid() { out.push(((cu.pos() as i64), cu.value())); }
-                return out;
+            pub fn #vatfn(c: &#nm, p: u64) -> #vitid {
+                return #vitid { c: c as *const #nm, cu: c.seek(p),
+                                hi: Option::Some(p) };
             }
             /// A SUFFIX: land on the position, then walk. EXACT for `>=`.
-            pub fn #vfromfn(c: &#nm, p: u64) -> Vec<(i64, #(vt))> {
-                let mut out: Vec<(i64, #(vt))> = vec_new::<(i64, #(vt))>();
-                let mut cu: #cid = c.seek(p);
-                while cu.valid() {
-                    out.push(((cu.pos() as i64), cu.value()));
-                    cu = c.next(&cu);
-                }
-                return out;
+            pub fn #vfromfn(c: &#nm, p: u64) -> #vitid {
+                return #vitid { c: c as *const #nm, cu: c.seek(p),
+                                hi: Option::None };
             }
             /// A PREFIX, inclusive of the bound. EXACT for `<=` — the walk
             /// stops ON the position rather than past it.
-            pub fn #vuptofn(c: &#nm, p: u64) -> Vec<(i64, #(vt))> {
-                let mut out: Vec<(i64, #(vt))> = vec_new::<(i64, #(vt))>();
-                let mut cu: #cid = c.seek(0u64);
-                while cu.valid() && cu.pos() <= p {
-                    out.push(((cu.pos() as i64), cu.value()));
-                    cu = c.next(&cu);
-                }
-                return out;
+            pub fn #vuptofn(c: &#nm, p: u64) -> #vitid {
+                return #vitid { c: c as *const #nm, cu: c.seek(0u64),
+                                hi: Option::Some(p) };
             }
             // A positional container CAN be narrowed — its ordinal is a column
             // like any other, and `seek` is one descent. That this was scanned

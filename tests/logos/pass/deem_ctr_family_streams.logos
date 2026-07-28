@@ -1,0 +1,80 @@
+// A GENERATED container family streams (ADR 0024 S4).
+//
+// `deem_source_streams` proved the protocol on a hand-written source. This is
+// the case that matters and the one that was blocked: a family Canon forges,
+// named by a content hash, queried through the projection spelling
+// `&<typeof(C) as CtrFamily>::Handle` — the only way to name a family whose
+// type nobody can write.
+//
+// What the family publishes is ONE walk type with four constructors differing
+// only in where they land and where they stop. It used to publish four
+// near-identical producers, each writing out the same loop into its own `Vec`,
+// so a `where key >= lo` over a million-entry container allocated the whole
+// suffix before the query looked at a row.
+//
+// ⚠ THE BUG THIS TEST PINS was not where every plausible reading put it. The
+// failure — `let '__row': type mismatch — expected (u64, u64), got T` — looked
+// like a resolution problem, and three separate causes each looked decisive and
+// each was refuted: the trait import, the inferred binding, and impl
+// registration (`sema_has_impl_recursive("Iterator", …)` returns TRUE at
+// lowering time, which is how the plan decides to stream at all). Even an
+// INHERENT `next` beside the trait one failed, which killed the "trait impls
+// index late" reading too.
+//
+// It was the MATCH ARM: `match it.next() { Option::Some(r) => { r } … }` bound
+// `r` at `Option`'s declared parameter instead of the substituted row type. The
+// generated loop now reads the option and unwraps it, which is also the plainer
+// code. The class spelling worked throughout — that difference is what sent
+// four readings down the wrong path, and it was a coincidence of which
+// substitution happened to land.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+// The projection spelling: the family has no name a human can write.
+pub deem from_five(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e where e.key >= 5 select (e.key, e.val)
+}
+
+// A point demand answered through the SAME walk, bounded to one key.
+pub deem at_three(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e where e.key == 3 select (e.key, e.val)
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 8u64 { c.insert(k, k * 10u64); k = k + 1u64; }
+
+    // Landed at 5 in one descent, then walked — never past the end, and the
+    // rows must still be exactly the suffix, in key order.
+    let f: Vec<(u64, u64)> = match from_five(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if f.len() != 3i64 { return 2i32; }
+    if f.get(0i64).0 != 5u64 || f.get(0i64).1 != 50u64 { return 3i32; }
+    if f.get(2i64).0 != 7u64 || f.get(2i64).1 != 70u64 { return 4i32; }
+
+    // The point probe is a bounded walk: land on the first entry >= 3, stop
+    // when a key passes it. One row here, and it must be the right one.
+    let a: Vec<(u64, u64)> = match at_three(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if a.len() != 1i64 { return 6i32; }
+    if a.get(0i64).0 != 3u64 || a.get(0i64).1 != 30u64 { return 7i32; }
+    return 0i32;
+}

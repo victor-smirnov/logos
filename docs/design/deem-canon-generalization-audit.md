@@ -66,12 +66,14 @@ not a blocker, it was a symptom. I had it recorded as the thing to build next.
 ⚠ Note the shape: a fact that "everyone knows" is exactly the fact nobody
 writes down, and the planner then cannot use it.
 
-## 4. Four near-identical walk producers — OPEN (low)
+## 4. Four near-identical walk producers — CLOSED (S4c)
 
 `rows` / `from` / `upto` differ only in where they land and when they stop;
-`at` is a probe. One emitter parameterized by (landing, bound) would replace
-four quote blocks — and would make #2 nearly free, since the vector's producers
-are the same shape with `seek(pos)` as the landing.
+`at` is a probe. They are now ONE `…Walk` type per family with four
+constructors — a landing and an `Option` bound — and the loop each of them used
+to write out is the walk's `next`. Closed as a side effect of streaming, which
+is the usual shape: the duplication was the `Vec` each producer built, not the
+logic.
 
 ## 5. Two aggregate emitters — OPEN
 
@@ -199,15 +201,26 @@ The opt-in is the producer's RETURN TYPE, and deliberately not a keyword: a
 declaration that says `stream` while returning a `Vec` is a claim nothing
 checks, and the plan would be built on it. A return type cannot drift.
 
-⚠ Still open, and BLOCKED rather than unwritten: Canon's generated families all
-return `Vec`, so today a hand-written source streams and a container does not.
-The conversion was written and reverted — the four producers collapse to one
-`…Walk` type with four constructors, which also closes #4 — because a query
-spelled `&<typeof(C) as CtrFamily>::Handle` cannot resolve `next()` against a
-trait impl emitted in the same round. The CLASS spelling works with the very
-same impl, which is what identifies the fault as round scheduling in the
-compiler rather than anything about Deem. Ruled out along the way: the missing
-trait import, the inferred binding, and impl registration itself.
+Canon's families stream too, and their four producers collapsed into one `…Walk`
+type with four constructors differing only in landing and bound — which CLOSES
+#4 below.
+
+⚠ The obstacle on the way there is worth more than the feature. The failure
+(`expected (u64, u64), got T`) read as a resolution problem and four separate
+causes each looked decisive: the missing trait import, the inferred binding,
+impl registration, and "trait-impl members index a round later than free
+functions". All four were refuted, the last by putting an INHERENT `next` beside
+the trait one and watching it fail identically.
+
+It was the MATCH ARM: `Option::Some(r) => { r }` bound `r` at `Option`'s
+declared parameter rather than the substituted row type. The emitted loop now
+reads the option and unwraps it.
+
+What sent four readings astray was a DIFFERENTIAL — the class spelling compiled
+against the same generated impl, so "class works, projection doesn't" got
+promoted into a causal story about rounds. A differential is evidence about
+where, never about why. What settled it was changing the shape of the emitted
+code itself.
 
 ⚠ Also open, and recorded rather than overlooked: sema checks trait MEMBERSHIP
 only, not that the iterator's item type matches the relation's row type. A

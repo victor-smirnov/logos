@@ -2234,9 +2234,9 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             prelude.push_str(prm.rel_rowty[r]);
             prelude.push_str("> = __it_");
             prelude.push_str(prm.rel_names[r]);
-            prelude.push_str(".next(); match __dr { Option::Some(__v) => { __rel_");
+            prelude.push_str(".next(); if __dr.is_none() { break; } __rel_");
             prelude.push_str(prm.rel_names[r]);
-            prelude.push_str(".push(__v); } Option::None => { break; } } }\n");
+            prelude.push_str(".push(__dr.unwrap()); }\n");
             prelude.push_str("    let ");
             prelude.push_str(prm.rel_srcs[r]);
             prelude.push_str(": &[");
