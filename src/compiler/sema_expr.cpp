@@ -21240,6 +21240,24 @@ bool SemaChecker::source_named_by_text_(std::string_view ptype) const {
     return mappings_.count(base) > 0 || source_impls_.count(base) > 0;
 }
 
+bool SemaChecker::producer_streams_(const std::string& fn_name) {
+    if (fn_name.empty()) return false;
+    auto ovit = func_overloads_.find(fn_name);
+    if (ovit == func_overloads_.end() || ovit->second.empty()) return false;
+    auto fit = funcs_.find(ovit->second.front());
+    if (fit == funcs_.end()) return false;
+    TypeRef rt = fit->second.ret_type;
+    if (!rt) return false;
+    std::string base = type_str(rt);
+    if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
+    while (!base.empty() && base.back() == ' ') base.pop_back();
+    while (!base.empty() && (base.front() == '&' || base.front() == ' '))
+        base.erase(base.begin());
+    if (base.empty()) return false;
+    logos::compiler::StrSet seen;
+    return sema_has_impl_recursive("Iterator", base, {}, seen);
+}
+
 std::string SemaChecker::native_source_spec(const std::string& pname,
                                             const std::string& ptype_stripped) {
     auto it = source_impls_.find(ptype_stripped);
@@ -21271,7 +21289,12 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         // (`from e_trace t`). Preserves both pre-trait surfaces verbatim.
         spec += single ? pname : (pname + "_" + b.rel);
         spec += "=";
-        spec += override_fn ? *override_fn : b.mat_fn;
+        const std::string& mat_fn_used = override_fn ? *override_fn : b.mat_fn;
+        spec += mat_fn_used;
+        // `!<flags>` — properties of the BINDING, not of the relation. Today
+        // one: `i`, the producer returns an iterator, so the plan may consume
+        // it in place instead of draining it into a Vec first (ADR 0024 S4).
+        if (producer_streams_(mat_fn_used)) spec += "!i";
         // The emitted chunk imports the materializer's module — omitted when
         // it already lives in the consuming package (importing your own
         // package from a chunk is a cycle).
@@ -21409,7 +21432,10 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
                 spec += b.ops[i].cmp;
                 spec += " ";
                 spec += b.ops[i].fn;
+                // A FLAG SET, not a single letter: `e` exact / `s` superset,
+                // plus `i` when the operation's producer streams.
                 spec += b.ops[i].exact ? " e" : " s";
+                if (producer_streams_(b.ops[i].fn)) spec += "i";
             }
             spec += "}";
         }

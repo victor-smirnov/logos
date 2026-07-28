@@ -138,9 +138,16 @@ object (`logos.std.wql.access_plan`): deciding is read-only and returns an
 `AccessPlan`, applying is the only thing that mutates, and every rel reports
 including the ones left scanning. Cardinality enters as an ordinal class, which
 is what makes choosing among covering operations a comparison rather than a
-search order. *Remaining:* cost on the relational IR nodes proper, and
-materialize-vs-stream — which needs the operation protocol to admit a walk, not
-just a `Vec`, and so changes the S6 declaration surface.
+search order. **S4c** — MATERIALIZE-VS-STREAM is a decision. The opt-in is the
+producer's RETURN TYPE: a source that returns an `Iterator<Row>` may be consumed
+in place, one that returns a container is drained. A keyword would have been
+weaker — it can drift from what the function does, and a return type cannot. The
+planner still has to prove the plan reads the source ONCE, and that proof starts
+conservative (a lone native rel under a simple scan with no `order by`);
+widening it is how a join's driving side learns to stream. *Remaining:* cost on
+the relational IR nodes proper, and Canon's generated families — their producers
+still build a `Vec`, so a container does not yet stream where a hand-written
+source does.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

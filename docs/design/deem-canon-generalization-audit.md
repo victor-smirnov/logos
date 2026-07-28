@@ -183,6 +183,32 @@ retires the filter). Test: `deem_bound_covers_equality`.
 policy is implicit in the control flow. Neither can be tested, and neither can
 be extended without editing the other.
 
+## 12. Every producer returned a `Vec` — PARTLY CLOSED (S4c)
+
+"Materialize or stream" was nobody's decision. Every access producer returned a
+`Vec` and the emitter looped it, so a query paid for a full materialization of
+whatever the access admitted before looking at a single row — and for
+`select … first` that is the entire cost of the query spent on rows nobody
+reads.
+
+The general form is the ITERATOR; a `Vec` is an eagerly-drained one. Never the
+reverse — which is why draining is always available as the fallback and
+streaming needs a proof.
+
+The opt-in is the producer's RETURN TYPE, and deliberately not a keyword: a
+declaration that says `stream` while returning a `Vec` is a claim nothing
+checks, and the plan would be built on it. A return type cannot drift.
+
+⚠ Still open: Canon's generated families all return `Vec`, so today a
+hand-written source streams and a container does not. The walk exists (the
+family cursor has `seek`/`next`/`skip` since `1f2dabe1`); what is missing is the
+`Iterator` impl over it.
+
+⚠ Also open, and recorded rather than overlooked: sema checks trait MEMBERSHIP
+only, not that the iterator's item type matches the relation's row type. A
+source that returns `Iterator<WrongThing>` is diagnosed by the host compiler on
+generated code — the exact diagnostic this ADR exists to abolish.
+
 ## 10. A `#[derive_hash]` type is not admissible as a rel column — OPEN
 
 `check_rel_column_types` waits for the item-macro drain

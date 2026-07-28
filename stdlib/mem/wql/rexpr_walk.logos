@@ -901,6 +901,48 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             em.push_text("        __o = __o + 1i64;\n");
             em.push_text("    }\n");
         }
+    } else if prm.rel_src_streams(src_name) {
+        // STREAMED (ADR 0024 S4). The plan proved this source is read exactly
+        // once, so no Vec is built: rows arrive from `next()` and the loop ends
+        // when the iterator does. With `first` this is the whole point — the
+        // walk stops at the first match instead of materializing every row that
+        // could have matched and then taking one.
+        em.push_text("    loop {\n");
+        if mods.has_limit {
+            em.push_text("        if !(true");
+            em.push_text(string_as_str(&lim_cond));
+            em.push_text(") { break; }\n");
+        }
+        em.push_text("        let __row = match ");
+        em.push_text(src_name);
+        em.push_text(".next() { Option::Some(__r) => { __r } Option::None => { break; } };\n");
+        em.push_text("        let ");
+        em.push_text(var_name);
+        em.push_text(": &");
+        em.push_text(row_ty);
+        em.push_text(" = &__row;\n");
+        if has_where {
+            em.push_text("        if ");
+            em.push_text(string_as_str(&pred_body));
+            em.push_text(" {\n");
+            if first {
+                em.push_text("            return Result::Ok(Option::Some(");
+                em.push_text(string_as_str(&body));
+                em.push_text("));\n");
+            } else {
+                emit_push_guarded(&mut em, "            ", result_elem, string_as_str(&body), mods.distinct);
+            }
+            em.push_text("        }\n");
+        } else {
+            if first {
+                em.push_text("        return Result::Ok(Option::Some(");
+                em.push_text(string_as_str(&body));
+                em.push_text("));\n");
+            } else {
+                emit_push_guarded(&mut em, "        ", result_elem, string_as_str(&body), mods.distinct);
+            }
+        }
+        em.push_text("    }\n");
     } else {
         em.push_text("    let mut __i: i64 = 0i64;\n");
         em.push_text("    while __i < (");

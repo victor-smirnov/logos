@@ -1,0 +1,90 @@
+// A source that STREAMS is read exactly as far as the answer needs (ADR 0024
+// S4).
+//
+// Every query producer used to hand back a `Vec`, so every query paid for a
+// full materialization of whatever the access admitted before the first row was
+// looked at. For `select … first` that is the entire cost of the query spent on
+// rows nobody reads. "Materialize or stream" was not anybody's decision — the
+// emitter materialized because that is how it was written.
+//
+// The opt-in is the PRODUCER'S RETURN TYPE, and nothing else. A `stream` keyword
+// on the declaration could drift from what the function actually does; a return
+// type cannot, because the type system already enforces it. So a source joins
+// the streaming plane by returning an `Iterator`, and Deem asks the type rather
+// than asking the author.
+//
+// `Steps` is a source with NO STORAGE — its rows are computed, which is the
+// sharpest form of the point: there is no container here to be a special case
+// of. Materializing `steps_rows` would build a thousand rows to answer a
+// question about one.
+//
+// THE ORACLE IS THE PULL COUNT, not the answer: both plans return the same rows,
+// and only the number of times `next()` ran says which plan ran. A regression to
+// materializing shows up as 1000 pulls, not as a wrong result.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;             // trait OrderedMapSource
+use logos.mem.collections.vec;
+use logos.lang.iter;              // trait Iterator — the streaming protocol
+use logos.lang.option;
+use logos.lang.result;
+
+static mut PULLED: i64 = 0i64;
+
+pub struct Steps { pub n: i64 }
+
+/// Rows `(i, i*10)` for `i` in `[i0, n)`, produced on demand.
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter {
+    return StepsIter { n: s.n, i: 0i64 };
+}
+
+/// The suffix `key >= lo` — one arithmetic landing, no walk to get there.
+pub fn steps_from(s: &Steps, lo: i64) -> StepsIter {
+    let start: i64 = if lo < 0i64 { 0i64 } else { lo };
+    return StepsIter { n: s.n, i: start };
+}
+
+impl OrderedMapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+    op entry.key ge = steps_from  exact;
+}
+
+// No narrowing applies: the plan scans, and streams the scan.
+pub deem head3(s: &Steps) { from s e select (e.key, e.val) limit 3 }
+// Narrowed AND streamed — the two decisions are independent and compose.
+pub deem tail(s: &Steps) { from s e where e.key >= 997 select (e.key, e.val) }
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 1000i64 };
+
+    // A `limit` over a streamed scan pulls what it keeps and stops. Under the
+    // materializing plan this pulled all 1000 rows before looking at one.
+    let a: Vec<(i64, i64)> = match head3(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 3i64 { return 2i32; }
+    if a.get(0i64).0 != 0i64 || a.get(2i64).1 != 20i64 { return 3i32; }
+    unsafe { if PULLED > 4i64 { return 4i32; } }
+
+    unsafe { PULLED = 0i64; }
+    // The narrowing lands at 997, so only the tail is ever produced: 3 rows and
+    // the one pull that reports exhaustion.
+    let t: Vec<(i64, i64)> = match tail(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if t.len() != 3i64 { return 6i32; }
+    if t.get(0i64).0 != 997i64 || t.get(2i64).1 != 9990i64 { return 7i32; }
+    unsafe { if PULLED > 4i64 { return 8i32; } }
+    return 0i32;
+}

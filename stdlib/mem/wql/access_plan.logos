@@ -113,6 +113,20 @@ pub struct AccessPlan {
     pub cmp:   [str; 8],   // the DEMAND this access answers
     pub exact: [bool; 8],  // its rows are precisely the demand's matches
     pub why:   [str; 8],
+    /// STREAM instead of materialize (ADR 0024 S4). The producer hands back an
+    /// iterator AND the plan consumes it exactly once, so no `Vec` is built at
+    /// all: a `find` over a million rows stops at the first match, and a scan
+    /// pays no allocation proportional to the answer.
+    ///
+    /// The two conjuncts are different KINDS of fact and must not be collapsed.
+    /// "The source can stream" is the source's to declare. "This plan reads it
+    /// once" is the planner's to know, and it is the one that can be wrong: a
+    /// rel re-scanned by a join, revisited by a fixpoint, or indexed after a
+    /// sort must be drained first. An iterator is the general form and a `Vec`
+    /// is an eagerly-drained one — never the reverse — which is why draining is
+    /// always available as the fallback.
+    pub stream: [bool; 8],
+    pub swhy:   [str; 8],
     pub n:     i64,
     /// The residual filter is redundant and will be dropped. A property of the
     /// QUERY, not of a rel: the filter belongs to the query node, and only an
@@ -131,9 +145,34 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         cmp:   ["", "", "", "", "", "", "", ""],
         exact: [false; 8],
         why:   ["", "", "", "", "", "", "", ""],
+        stream: [false; 8],
+        swhy:  ["", "", "", "", "", "", "", ""],
         n: n,
         drop_where: false,
     };
+}
+
+/// Decide MATERIALIZE vs STREAM for every rel, given whether the query reads
+/// each of them exactly once. Separated from the access choice because it is a
+/// different question: the access says WHICH rows, this says how they travel.
+pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams,
+                               single_pass: bool, blocker: str) {
+    let mut ri: i64 = 0i64;
+    while ri < ap.n {
+        // Which producer will actually run — the chosen operation's, or the
+        // rel's own binding when nothing narrowed.
+        let offers: bool = if ap.op[ri] >= 0i64 { prm.opc_iter[ap.op[ri]] }
+                           else { prm.rel_iter[ri] };
+        if !offers {
+            ap.swhy[ri] = "materialized: the producer returns a container, not an iterator";
+        } else if !single_pass {
+            ap.swhy[ri] = blocker;
+        } else {
+            ap.stream[ri] = true;
+            ap.swhy[ri] = "streamed: the producer is an iterator and the plan reads it once";
+        }
+        ri = ri + 1i64;
+    }
 }
 
 impl AccessPlan {
@@ -173,6 +212,11 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
         let w: str = if ap.why[ri].len() > 0i64 { ap.why[ri] }
                      else { "no filter reaches this rel" };
         plan_trace(prm.rel_names[ri], string_as_str(&vb), ap.col[ri], w);
+        if ap.swhy[ri].len() > 0i64 {
+            plan_trace(prm.rel_names[ri],
+                       if ap.stream[ri] { "stream" } else { "materialize" },
+                       "", ap.swhy[ri]);
+        }
         ri = ri + 1i64;
     }
 }

@@ -4679,12 +4679,30 @@ private:
     // Build the native-source spec for one deem!/mapping param, or "" when its
     // type implements no source trait. Entry grammar (consumed by
     // plan_walker::register_native_rels):
-    //   <regname>=<matfn>[@<module>]:<param>(<col> <ty>,…);
+    //   <regname>=<matfn>[!<flags>][#<arg>][@<module>]:<param>(<col> <ty>,…)
+    //           [{<col> <cmp> <fn> <flags>,…}];
+    // flags are a SET of letters: `e` exact / `s` superset (operations only),
+    // `i` the producer returns an iterator (ADR 0024 S4).
     // regname = the param name itself for a single-rel vocabulary, else
     // <param>_<rel>; module omitted when the materializer lives in the
     // consuming package.
     std::string   native_source_spec(const std::string& pname,
                                      const std::string& ptype_stripped);
+    // ADR 0024 S4 — does this producer STREAM? True when its return type
+    // implements `Iterator<Item>`, false when it hands back a container.
+    //
+    // The source is not asked. Making streaming a KEYWORD on the declaration
+    // would let it drift — a source could say `stream` and return a `Vec`, and
+    // the plan would be built on a claim nothing checks. The return type cannot
+    // lie: it is the declaration, and the type system already enforces it. So
+    // a source joins the streaming plane by returning an iterator, and that is
+    // the whole of the opt-in.
+    //
+    // ⚠ Membership only: the ITEM type is not matched against the relation's
+    // row type. A source returning `Iterator<WrongThing>` is diagnosed by the
+    // host compiler on generated code, which is exactly the diagnostic this ADR
+    // is trying to abolish — recorded as debt, not overlooked.
+    bool          producer_streams_(const std::string& fn_name);
     // Does this parameter-type TEXT name something the deem pipeline can bind
     // a source from — a registered mapping, or a type (or type family, by
     // base name) carrying a source impl? The pipeline matches by text, so a

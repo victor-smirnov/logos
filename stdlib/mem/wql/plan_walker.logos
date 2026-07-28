@@ -1410,6 +1410,9 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                                           String::new(), String::new(), String::new(), String::new()];
     let mut nat_name_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                           String::new(), String::new(), String::new(), String::new()];
+    // The STREAM binding names (`__rel_<r>`), same discipline again.
+    let mut nat_ssrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new()];
 
     if prog.has_rels() {
         let rels: RQRelArr = prog.rels_arr();
@@ -1495,8 +1498,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // generic graph-edge relation AFTER the parse-side rels (registry
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
-        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
-        let pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
+        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs) { return false; }
+        let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
+        let mut pick_blk: str = "";
+        let pick_sp: bool = plan_single_pass(prm, &mut pick_blk);
+        access_plan_decide_mode(&mut pick_ap, prm, pick_sp, pick_blk);
         plan_apply_access(prm, &pick_ap, h);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
@@ -1531,8 +1537,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // No parse-side rels — native params may still register (an entry
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
-        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
-        let pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
+        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs) { return false; }
+        let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
+        let mut pick_blk: str = "";
+        let pick_sp: bool = plan_single_pass(prm, &mut pick_blk);
+        access_plan_decide_mode(&mut pick_ap, prm, pick_sp, pick_blk);
         plan_apply_access(prm, &pick_ap, h);
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
@@ -1712,17 +1721,23 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
 // surfaced by the caller). `disp` = the rel's DECLARED name text (backed by
 // the caller's frame Strings).
 fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
-              mat: str, marg: str, marg2: str, module: str,
-              srcb: &mut String, dsrcb: &mut String) -> i64 {
+              mat: str, marg: str, marg2: str, module: str, iter: bool,
+              srcb: &mut String, dsrcb: &mut String, ssrcb: &mut String) -> i64 {
     srcb.push_str("__rel_");
     srcb.push_str(disp);
     srcb.push_str("_sl");
     dsrcb.push_str("__dl_");
     dsrcb.push_str(disp);
     dsrcb.push_str("_sl");
+    // The STREAM binding names the iterator itself — no `_sl`, because it is
+    // not a slice and generated code that says otherwise misleads its reader.
+    ssrcb.push_str("__rel_");
+    ssrcb.push_str(disp);
     let idx: i64 = prm.rel_add(disp, string_as_str(srcb), string_as_str(dsrcb), rowty);
     if idx >= 0i64 {
         prm.rel_native[idx] = true;
+        prm.rel_iter[idx]   = iter;
+        prm.rel_ssrc[idx]   = string_as_str(ssrcb);
         prm.rel_mat[idx] = mat;
         prm.rel_marg[idx] = marg;
         prm.rel_marg2[idx] = marg2;
@@ -1905,8 +1920,44 @@ fn plan_decide_access(prm: &MacroParams, argb: &mut String) -> AccessPlan {
     return ap;
 }
 
-/// APPLY the plan: bind each rel to the access that was chosen, retire the
-/// residual filter if the plan retired it, and read the plan back out.
+/// Does this query read each of its rels EXACTLY ONCE?
+///
+/// The conservative answer, and deliberately so: a wrong `true` here does not
+/// produce a slow plan, it produces a plan that reads a consumed iterator. The
+/// single certain shape is a lone native rel scanned by a simple query with no
+/// re-entry — no second rel that could reference it, no join, no fixpoint, and
+/// no `order by` (whose second phase indexes the source by the positions its
+/// first phase collected). Widening this is how a join's driving side learns to
+/// stream, and every widening owes a reason of the same kind.
+fn plan_single_pass(prm: &MacroParams, blocker: &mut str) -> bool {
+    if prm.src_root.is_null() { *blocker = "materialized: the query has no parsed root"; return false; }
+    if prm.rel_n != 1i64 {
+        *blocker = "materialized: more than one relation is in play, so a single read cannot be proven";
+        return false;
+    }
+    let prog: RQProgram = prm.src_root.view::<RQProgram>();
+    match prog.entry_any().view::<RQuery>() {
+        RQuery::Simple(sq) => {
+            if sq.has_order {
+                *blocker = "materialized: `order by` revisits rows by position after collecting them";
+                return false;
+            }
+            if sq.has_gpath {
+                *blocker = "materialized: a graph path lowers to a join chain, which rescans";
+                return false;
+            }
+            return true;
+        }
+        _ => {
+            *blocker = "materialized: only a simple scan is proven to read its source once";
+            return false;
+        }
+    }
+}
+
+/// APPLY the plan: bind each rel to the access that was chosen, bind a streamed
+/// rel to its iterator name, retire the residual filter if the plan retired it,
+/// and read the plan back out.
 ///
 /// Everything that mutates is here, and it consults nothing but the plan.
 fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
@@ -1915,6 +1966,10 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
         if ap.op[ri] >= 0i64 {
             prm.rel_mat[ri]   = ap.fnm[ri];
             prm.rel_marg2[ri] = ap.arg[ri];
+        }
+        if ap.stream[ri] {
+            prm.rel_stream[ri] = true;
+            prm.rel_srcs[ri]   = prm.rel_ssrc[ri];
         }
         ri = ri + 1i64;
     }
@@ -1927,7 +1982,7 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
 
 fn register_native_rels(prm: &mut MacroParams, natspec: str,
                         srcb: &mut [String; 8], dsrcb: &mut [String; 8],
-                        rowtyb: &mut [String; 8]) -> bool {
+                        rowtyb: &mut [String; 8], ssrcb: &mut [String; 8]) -> bool {
     let n: i64 = natspec.len();
     let mut i: i64 = 0i64;
     let mut k: i64 = 0i64;
@@ -1941,12 +1996,24 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         while i < n && str_byte_at(natspec, i) != 61u8 { i = i + 1i64; }     // '='
         let regname: str = pw_slice(natspec, s0, i);
         i = i + 1i64;
-        // <matfn>[@<module>]:
+        // <matfn>[!<flags>][#<arg>][@<module>]:
         let s1: i64 = i;
         while i < n && str_byte_at(natspec, i) != 64u8
               && str_byte_at(natspec, i) != 35u8
-              && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }     // '@' | '#' | ':'
+              && str_byte_at(natspec, i) != 33u8
+              && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; } // '@'|'#'|'!'|':'
         let mat: str = pw_slice(natspec, s1, i);
+        // `!<flags>` — properties of the BINDING. `i` = the producer returns an
+        // iterator, so the plan MAY consume it in place (ADR 0024 S4).
+        let mut mat_iter: bool = false;
+        if i < n && str_byte_at(natspec, i) == 33u8 {
+            i = i + 1i64;
+            let fl: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 64u8
+                  && str_byte_at(natspec, i) != 35u8
+                  && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }
+            mat_iter = pw_flag(pw_slice(natspec, fl, i), 105u8);              // 'i'
+        }
         // `#<arg>` — the narrowing constant, when this binding takes one.
         let mut marg2: str = "";
         if i < n && str_byte_at(natspec, i) == 35u8 {
@@ -1998,6 +2065,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         let mut op_cmp: [str; 8] = ["", "", "", "", "", "", "", ""];
         let mut op_fn:  [str; 8] = ["", "", "", "", "", "", "", ""];
         let mut op_ex:  [bool; 8] = [false; 8];
+        let mut op_it:  [bool; 8] = [false; 8];
         let mut nops: i64 = 0i64;
         if i < n && str_byte_at(natspec, i) == 123u8 {                        // '{'
             i = i + 1i64;
@@ -2021,7 +2089,8 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                 let oex: str = pw_slice(natspec, x0, i);
                 if nops < 8i64 {
                     op_col[nops] = ocol; op_cmp[nops] = ocmp; op_fn[nops] = ofn;
-                    op_ex[nops] = str_eq(oex, "e");
+                    op_ex[nops] = pw_flag(oex, 101u8);                        // 'e'
+                    op_it[nops] = pw_flag(oex, 105u8);                        // 'i'
                     nops = nops + 1i64;
                 }
                 if i < n && str_byte_at(natspec, i) == 44u8 { i = i + 1i64; } // ','
@@ -2033,7 +2102,8 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // Single-column rows are the bare type, not a 1-tuple.
         let rowty: str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
         let idx: i64 = reg_native(prm, regname, rowty, mat, marg, marg2, module,
-                                  &mut srcb[k], &mut dsrcb[k]);
+                                  mat_iter, &mut srcb[k], &mut dsrcb[k],
+                                  &mut ssrcb[k]);
         if idx < 0i64 {
             error("wql!: too many rels (max 8, native source params included)");
             return false;
@@ -2045,7 +2115,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         }
         let mut o: i64 = 0i64;
         while o < nops {
-            prm.rel_add_op(op_col[o], op_cmp[o], op_fn[o], op_ex[o]);
+            prm.rel_add_op(op_col[o], op_cmp[o], op_fn[o], op_ex[o], op_it[o]);
             o = o + 1i64;
         }
         k = k + 1i64;
@@ -2058,6 +2128,19 @@ fn pw_slice(s: str, a: i64, b: i64) -> str {
     return unsafe { str_from_raw(((s.as_ptr() as i64) + a) as *const u8, b - a) };
 }
 
+// A natspec flag field is a SET of letters, not a single letter — `e`/`s` say
+// what an operation's rows are, `i` says how they arrive, and the two are
+// independent. Testing membership rather than comparing the whole field is what
+// lets a third property be added without every reader changing.
+fn pw_flag(flags: str, c: u8) -> bool {
+    let mut i: i64 = 0i64;
+    while i < flags.len() {
+        if str_byte_at(flags, i) == c { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
 // One-shot rel `r` (singleton SCC, no self-edge — the slice-B path):
 //   let __rel_<r>: Vec<Row> = __wql_<fn>_rel_<r>(<params>[, dep slices]);
 //   let __rel_<r>_sl: &[Row] = __rel_<r>.as_slice();
@@ -2067,6 +2150,24 @@ fn pw_slice(s: str, a: i64, b: i64) -> str {
 fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                         scc: &RelScc, r: i64) {
     if prm.rel_native[r] {
+        // STREAMED (ADR 0024 S4): the producer's iterator is bound directly,
+        // and nothing is collected. The type is INFERRED — the iterator's type
+        // is the source's business, and naming it here would put a second copy
+        // of that decision in the query compiler.
+        if prm.rel_stream[r] {
+            prelude.push_str("    let mut ");
+            prelude.push_str(prm.rel_srcs[r]);
+            prelude.push_str(" = ");
+            prelude.push_str(prm.rel_mat[r]);
+            prelude.push_str("(");
+            prelude.push_str(prm.rel_marg[r]);
+            if prm.rel_marg2[r].len() > 0i64 {
+                prelude.push_str(", ");
+                prelude.push_str(prm.rel_marg2[r]);
+            }
+            prelude.push_str(");\n");
+            return;
+        }
         prelude.push_str("    let __rel_");
         prelude.push_str(prm.rel_names[r]);
         prelude.push_str(": Vec<");
