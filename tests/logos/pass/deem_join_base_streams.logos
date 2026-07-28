@@ -1,0 +1,111 @@
+// A JOIN streams its driving side (ADR 0024 S4).
+//
+// The single-read proof used to be one flag over the whole query, so a join
+// could stream nothing — even though its base is the outermost loop of a
+// left-deep nest and is therefore read once BY CONSTRUCTION. It is now a fact
+// recorded PER REL, which is what lets one source in a query stream while
+// another is drained.
+//
+// The steps do not stream, and the plan says why rather than staying silent:
+// whether a step's source is built once (hash/tree) or rescanned per bound row
+// (loop) is decided by the join-strategy cascade, which still lives in the
+// emitter. Moving that decision into the plan is what would let two of the
+// three strategies stream their side too — the next widening, and it owes the
+// same kind of reason this one gives.
+//
+// ORACLE: the pull count again. Both plans return the same row; only the number
+// of `next()` calls on the base says which one ran. The base holds 200 rows and
+// the query keeps one, so a materializing plan drains all 200 into a Vec before
+// the join looks at any — while a streamed one stops at the first match.
+//
+// ⚠ The conservative direction is not arbitrary. A wrong `false` costs speed; a
+// wrong `true` produces a plan that reads a consumed iterator. Hence the
+// self-join guard: a source named on both sides is read twice, and the base's
+// `once` has to be withdrawn even though the base alone would qualify.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;             // trait OrderedMapSource
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+
+static mut PULLED: i64 = 0i64;
+
+pub struct Steps { pub n: i64 }
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter { return StepsIter { n: s.n, i: 0i64 }; }
+pub fn steps_from(s: &Steps, lo: i64) -> StepsIter {
+    let start: i64 = if lo < 0i64 { 0i64 } else { lo };
+    return StepsIter { n: s.n, i: start };
+}
+
+impl OrderedMapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+    op entry.key ge = steps_from  exact;
+}
+
+// The small side OFFERS streaming too — deliberately. With both sources
+// iterator-backed, the trace shows the two facts pulling apart: same offer,
+// different proof. The step is DRAINED into a Vec by the plan, which is the
+// fallback that lets a source declare one producer instead of two.
+pub struct Probe { pub xs: Vec<(i64, i64)> }
+pub struct ProbeIter { pub p: *const Probe, pub i: i64 }
+
+impl Iterator<(i64, i64)> for ProbeIter {
+    fn next(self: &mut ProbeIter) -> Option<(i64, i64)> {
+        unsafe {
+            let src: &Probe = &*self.p;
+            if self.i >= src.xs.len() { return Option::None; }
+            let v: (i64, i64) = src.xs.get(self.i);
+            self.i = self.i + 1i64;
+            return Option::Some(v);
+        }
+    }
+}
+
+pub fn probe_rows(p: &Probe) -> ProbeIter {
+    return ProbeIter { p: p as *const Probe, i: 0i64 };
+}
+
+impl MapSource<i64, i64> for Probe {
+    rel entry = probe_rows;
+}
+
+// The generated source drives; the small side is joined against it. `limit 1`
+// is what makes the difference observable: a streamed base stops as soon as the
+// answer is full, a materialized one has already read everything.
+pub deem first_match(s: &Steps, p: &Probe) {
+    from s e join p q on e.key == q.key select (e.key, q.val) limit 1
+}
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 200i64 };
+    let mut p: Probe = Probe { xs: vec_new::<(i64, i64)>() };
+    p.xs.push((191i64, 7i64));
+    p.xs.push((195i64, 8i64));
+    p.xs.push((5i64,   9i64));   // the FIRST match in base order
+
+    let r: Vec<(i64, i64)> = match first_match(&s, &p)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if r.len() != 1i64 { return 2i32; }
+    // The base walks in key order, so the first match is key 5, not 191.
+    if r.get(0i64).0 != 5i64 || r.get(0i64).1 != 9i64 { return 3i32; }
+
+    // Six pulls to reach key 5 and one more for the limit check to fire. A
+    // materialized base would read all 200 before the join saw a row.
+    unsafe { if PULLED > 12i64 { return 4i32; } }
+    return 0i32;
+}

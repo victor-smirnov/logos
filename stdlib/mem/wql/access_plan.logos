@@ -127,6 +127,15 @@ pub struct AccessPlan {
     /// always available as the fallback.
     pub stream: [bool; 8],
     pub swhy:   [str; 8],
+    /// PER-REL: this plan reads the relation exactly once. Separate from
+    /// `stream` because it answers a different question — `stream` is the
+    /// conjunction of this and the source's offer — and separate PER REL
+    /// because one query can read one source once and another repeatedly. It
+    /// used to be a single flag over the whole query, which is why a join could
+    /// not stream anything even though its driving side is read once by
+    /// construction.
+    pub once:   [bool; 8],
+    pub owhy:   [str; 8],
     pub n:     i64,
     /// The residual filter is redundant and will be dropped. A property of the
     /// QUERY, not of a rel: the filter belongs to the query node, and only an
@@ -147,16 +156,27 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         why:   ["", "", "", "", "", "", "", ""],
         stream: [false; 8],
         swhy:  ["", "", "", "", "", "", "", ""],
+        once:  [false; 8],
+        owhy:  ["", "", "", "", "", "", "", ""],
         n: n,
         drop_where: false,
     };
 }
 
-/// Decide MATERIALIZE vs STREAM for every rel, given whether the query reads
-/// each of them exactly once. Separated from the access choice because it is a
-/// different question: the access says WHICH rows, this says how they travel.
-pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams,
-                               single_pass: bool, blocker: str) {
+impl AccessPlan {
+    /// Record that the plan reads rel `ri` exactly once, or why it may not.
+    pub fn read_once(self: &mut AccessPlan, ri: i64, yes: bool, why: str) {
+        if ri < 0i64 || ri >= 8i64 { return; }
+        self.once[ri] = yes;
+        self.owhy[ri] = why;
+    }
+}
+
+/// Decide MATERIALIZE vs STREAM for every rel: the source's offer AND the
+/// plan's proof, each of which was recorded separately and by whoever owns it.
+/// Separated from the access choice because it is a different question — the
+/// access says WHICH rows, this says how they travel.
+pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
     let mut ri: i64 = 0i64;
     while ri < ap.n {
         // Which producer will actually run — the chosen operation's, or the
@@ -165,8 +185,9 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams,
                            else { prm.rel_iter[ri] };
         if !offers {
             ap.swhy[ri] = "materialized: the producer returns a container, not an iterator";
-        } else if !single_pass {
-            ap.swhy[ri] = blocker;
+        } else if !ap.once[ri] {
+            ap.swhy[ri] = if ap.owhy[ri].len() > 0i64 { ap.owhy[ri] }
+                          else { "materialized: the plan cannot prove a single read" };
         } else {
             ap.stream[ri] = true;
             ap.swhy[ri] = "streamed: the producer is an iterator and the plan reads it once";

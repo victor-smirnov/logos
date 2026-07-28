@@ -1500,9 +1500,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // by registry idx), BEFORE the body pass (bodies may reference them).
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs) { return false; }
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
-        let mut pick_blk: str = "";
-        let pick_sp: bool = plan_single_pass(prm, &mut pick_blk);
-        access_plan_decide_mode(&mut pick_ap, prm, pick_sp, pick_blk);
+        plan_mark_single_pass(prm, &mut pick_ap);
+        access_plan_decide_mode(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
@@ -1539,9 +1538,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // the prelude loop below materializes them.
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs) { return false; }
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
-        let mut pick_blk: str = "";
-        let pick_sp: bool = plan_single_pass(prm, &mut pick_blk);
-        access_plan_decide_mode(&mut pick_ap, prm, pick_sp, pick_blk);
+        plan_mark_single_pass(prm, &mut pick_ap);
+        access_plan_decide_mode(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
@@ -1922,38 +1920,84 @@ fn plan_decide_access(prm: &MacroParams, argb: &mut String) -> AccessPlan {
     return ap;
 }
 
-/// Does this query read each of its rels EXACTLY ONCE?
+/// Which rels does this plan read EXACTLY ONCE?
 ///
-/// The conservative answer, and deliberately so: a wrong `true` here does not
-/// produce a slow plan, it produces a plan that reads a consumed iterator. The
-/// single certain shape is a lone native rel scanned by a simple query with no
-/// re-entry — no second rel that could reference it, no join, no fixpoint, and
-/// no `order by` (whose second phase indexes the source by the positions its
-/// first phase collected). Widening this is how a join's driving side learns to
-/// stream, and every widening owes a reason of the same kind.
-fn plan_single_pass(prm: &MacroParams, blocker: &mut str) -> bool {
-    if prm.src_root.is_null() { *blocker = "materialized: the query has no parsed root"; return false; }
-    if prm.rel_n != 1i64 {
-        *blocker = "materialized: more than one relation is in play, so a single read cannot be proven";
-        return false;
-    }
+/// The conservative direction is fixed by what a wrong answer costs: a wrong
+/// `false` gives a slower plan, a wrong `true` gives a plan that reads a
+/// consumed iterator. So every `true` here must be a fact about the emitted
+/// shape, not an expectation about it.
+///
+///   • SIMPLE — the lone source is scanned once, unless `order by` revisits
+///     rows by position after collecting them, or a graph path lowers it to a
+///     join chain.
+///   • JOIN — the BASE is the outermost loop of a left-deep nest, so it is read
+///     once BY CONSTRUCTION. The steps are not: whether a step's source is
+///     built once or rescanned per bound row is decided by the join-strategy
+///     cascade, which the emitter still owns. That is the next thing to move
+///     into the plan, and until it moves, a step says so rather than guessing.
+///
+/// A rel named more than once in the same query (a self-join) is read as many
+/// times as it is named, so the base only counts when no step repeats it.
+fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
+    if prm.src_root.is_null() { return; }
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
+    // A parse-side rel body may scan a native rel any number of times, and the
+    // body is not inspected here — so their presence blocks the whole question.
+    if prog.has_rels() {
+        let mut r0: i64 = 0i64;
+        while r0 < ap.n {
+            ap.read_once(r0, false,
+                "materialized: a rel block may scan this source repeatedly");
+            r0 = r0 + 1i64;
+        }
+        return;
+    }
     match prog.entry_any().view::<RQuery>() {
         RQuery::Simple(sq) => {
+            let ri: i64 = prm.rel_find_name(sq.src_name);
+            if ri < 0i64 { return; }
             if sq.has_order {
-                *blocker = "materialized: `order by` revisits rows by position after collecting them";
-                return false;
+                ap.read_once(ri, false,
+                    "materialized: `order by` revisits rows by position after collecting them");
+            } else if sq.has_gpath {
+                ap.read_once(ri, false,
+                    "materialized: a graph path lowers to a join chain, which rescans");
+            } else {
+                ap.read_once(ri, true, "");
             }
-            if sq.has_gpath {
-                *blocker = "materialized: a graph path lowers to a join chain, which rescans";
-                return false;
+        }
+        RQuery::Join(jq) => {
+            let bi: i64 = prm.rel_find_name(jq.a_name);
+            let steps: RQJoinStepArr = jq.steps_arr();
+            let ns: i64 = steps.len();
+            let mut k: i64 = 0i64;
+            while k < ns {
+                let st: RQJoinStep = steps.step_at(k);
+                let si: i64 = prm.rel_find_name(st.src_name);
+                if si >= 0i64 {
+                    ap.read_once(si, false,
+                        "materialized: a join step's source is built or rescanned by a strategy the plan does not own yet");
+                }
+                if si >= 0i64 && si == bi {
+                    // The base is named again — a self-join reads it twice.
+                    ap.read_once(bi, false,
+                        "materialized: the query names this source on both sides of a join");
+                }
+                k = k + 1i64;
             }
-            return true;
+            if bi < 0i64 { return; }
+            if ap.owhy[bi].len() > 0i64 { return; }   // already blocked above
+            if jq.has_order {
+                ap.read_once(bi, false,
+                    "materialized: `order by` revisits base rows by position after collecting them");
+            } else if jq.has_gpath {
+                ap.read_once(bi, false,
+                    "materialized: a graph path adds join levels over this source");
+            } else {
+                ap.read_once(bi, true, "");
+            }
         }
-        _ => {
-            *blocker = "materialized: only a simple scan is proven to read its source once";
-            return false;
-        }
+        _ => { }
     }
 }
 

@@ -2068,6 +2068,41 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 
     // 7. The loop nest: base scan + one level per step.
     let mut lvl: i64 = 1i64;
+    // The DRIVING side may stream: it is the outermost loop of a left-deep
+    // nest, so it is read once by construction — which is the fact the plan
+    // records (`AccessPlan.once`). The steps are not, and say so; whether a
+    // step's source is built once or rescanned per bound row is the join
+    // strategy's business, and that decision still lives in this emitter.
+    let base_streams: bool = prm.rel_src_streams(ch.base_src);
+    if base_streams {
+        push_ind(&mut em, lvl);
+        em.push_text("loop {\n");
+        lvl = lvl + 1i64;
+        if mods.has_limit {
+            push_ind(&mut em, lvl);
+            em.push_text("if !(true");
+            em.push_text(lim_use);
+            em.push_text(") { break; }\n");
+        }
+        push_ind(&mut em, lvl);
+        em.push_text("let __opt0: Option<");
+        em.push_text(ch.base_ty);
+        em.push_text("> = ");
+        em.push_text(ch.base_src);
+        em.push_text(".next();\n");
+        push_ind(&mut em, lvl);
+        em.push_text("if __opt0.is_none() { break; }\n");
+        push_ind(&mut em, lvl);
+        em.push_text("let __row0: ");
+        em.push_text(ch.base_ty);
+        em.push_text(" = __opt0.unwrap();\n");
+        push_ind(&mut em, lvl);
+        em.push_text("let ");
+        em.push_text(ch.base_var);
+        em.push_text(": &");
+        em.push_text(ch.base_ty);
+        em.push_text(" = &__row0;\n");
+    } else {
     push_ind(&mut em, lvl);
     em.push_text("let mut __i0: i64 = 0i64;\n");
     push_ind(&mut em, lvl);
@@ -2085,6 +2120,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     em.push_text(" = &(");
     em.push_text(ch.base_src);
     em.push_text(")[__i0];\n");
+    }
     let mut opens: [i64; 8] = [0i64; 8];
     let mut oi: i64 = 0i64;
     while oi < ch.n {
@@ -2143,8 +2179,11 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         lvl = lvl - closed;
         ki = ki - 1i64;
     }
-    push_ind(&mut em, lvl);
-    em.push_text("__i0 = __i0 + 1i64;\n");
+    // A streamed base has no index to advance — `next()` already did.
+    if !base_streams {
+        push_ind(&mut em, lvl);
+        em.push_text("__i0 = __i0 + 1i64;\n");
+    }
     lvl = lvl - 1i64;
     push_ind(&mut em, lvl);
     em.push_text("}\n");

@@ -655,6 +655,20 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     if (MODE STREQUAL pass)
         logos_pass_extra_args(${BASE} EXTRA)
         set(_timeout 30)
+        # A test that FORGES A CONTAINER FAMILY runs the metaclass factory, and
+        # that is legitimately ~4x the suite median (7-9s solo). Under a -j12
+        # full run those overshoot 30s and fail as TIMEOUT — a flake that reads
+        # like a hang and has bitten more than one L4 run. Raised only for the
+        # named tests, so the blanket limit keeps catching real hangs.
+        set(LOGOS_FACTORY_HEAVY
+            container_item_e2e
+            container_item_from_module
+            container_item_parse
+            deem_ctr_family_streams
+            deem_class_source_plan)
+        if (BASE IN_LIST LOGOS_FACTORY_HEAVY)
+            set(_timeout 120)
+        endif()
     else()
         logos_fail_extra_args(${BASE} EXTRA)
         set(_timeout 15)
