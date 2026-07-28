@@ -1,0 +1,132 @@
+// ONE query joins MEMORIA, WRIT and `mem` — the direction's claim, in full
+// (ADR 0024).
+//
+// `deem_cross_domain_join` proved two domains meet. Two can still be a
+// coincidence of two hand-fitted paths; three cannot, because nothing here was
+// written per source kind and the third source arrived through the same door as
+// the other two. `Led` is a store-backed b+tree forged by the metaclass factory
+// and reached through a projection; `HashMap` is a `mem` collection over raw
+// pointers; `Writ` is a self-describing document graph whose rows are EDGES,
+// materialized by `writ_graph_edges`. Their relations are declared, not
+// special-cased: Writ's is `trait GraphSource { rel edge(parent, key, idx,
+// child, kind, tag, vi, vs) }` — the same `rel`/`impl` a user writes for a
+// struct of their own (`wql_source_trait_e2e`).
+//
+// The row that comes out carries one column from each domain: `w.key` is a
+// Writ `str`, `e.val` a Memoria column, `q.val` a `mem` one. That is the point
+// of typed columns — the join key is `i64` on all three sides not because Deem
+// has an int tag but because all three DECLARE `i64`.
+//
+// The plan (LOGOS_TRACE_PLAN=1), which is the other half of the point:
+//
+//   [plan] c -> __ctr_from_Hs49ae69e66f789915 [a range] on key
+//                (an operation exact for that comparison, but the filter
+//                 ranges over more than this source, so it stays)
+//   [plan] c -> stream        (streamed: the producer is an iterator and the
+//                              plan reads it once)
+//   [plan] g -> scan [every row]   (no filter reaches this rel)
+//   [plan] g -> materialize   (materialized: the producer returns a container,
+//                              not an iterator)
+//   [plan] h -> scan [every row]   (no filter reaches this rel)
+//   [plan] h -> materialize   (materialized: the producer returns a container,
+//                              not an iterator)
+//   [plan] w -> hash join on i64   (the key type is hashable — build once,
+//                                   probe per row)
+//   [plan] q -> hash join on i64   (the key type is hashable — build once,
+//                                   probe per row)
+//
+// Three sources, three independent access decisions and three independent mode
+// decisions, each with its own ground. The container narrows through a declared
+// `ge` operation and STREAMS as the driving side; Writ and the HashMap are
+// drained, and each says why in its own terms. No decision names a domain.
+//
+// ⚠ The three predicates are each LOAD-BEARING — checked by deleting them:
+// without the Writ join the answer is 4 rows, without `w.kind == "i64"` 3 (the
+// document's `flag: true` leaf rides `vi == 1`, and container edges ride
+// `vi == 0`), without the `where` 3. Only all three together give 2.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.lang.result;
+use logos.lang.writ.container;
+use logos.mem.writ.parser;        // parse_writ
+use logos.lang.str;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: i64, val: i64 }
+    measure count;
+    measure max(key);
+}
+
+// The container drives; the document selects; the hash map enriches.
+// `w.kind == "i64"` restricts the Writ side to INT LEAVES — an edge relation is
+// generic over the whole graph, so the kind column is how a query says which
+// part of the document it means.
+pub deem hot_rows(c: &<typeof(Led) as CtrFamily>::Handle,
+                  g: &Writ,
+                  h: &HashMap<i64, i64>) {
+    from c e
+    join g w on w.vi == e.key && w.kind == "i64"
+    join h q on q.key == e.key
+    where e.key >= 1
+    select (w.key, e.key, e.val, q.val)
+}
+
+fn main() -> i32 {
+    // Int leaves: 0 (`zero`), 3 (`beta`), 5 (`gamma`). `flag` is a bool leaf —
+    // it rides vi == 1 and is exactly what the kind guard excludes.
+    let doc: Writ = parse_writ(
+        r#"{ hot: { zero: 0, beta: 3, gamma: 5 }, flag: true }"#);
+    if doc.root().is_null() { return 90i32; }
+
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut k: i64 = 0i64;
+    while k < 6i64 { c.insert(k, k * 10i64); k = k + 1i64; }
+
+    let mut h: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+    unsafe {
+        (&mut h as *mut HashMap<i64, i64>).insert(0i64, 900i64);
+        (&mut h as *mut HashMap<i64, i64>).insert(1i64, 100i64);
+        (&mut h as *mut HashMap<i64, i64>).insert(3i64, 300i64);
+        (&mut h as *mut HashMap<i64, i64>).insert(4i64, 400i64);
+        (&mut h as *mut HashMap<i64, i64>).insert(5i64, 500i64);
+    }
+
+    // container {0..5} ⋈ writ-int-leaves {0,3,5} ⋈ hash {0,1,3,4,5}, key >= 1
+    //   = {3, 5}  →  ("beta", 3, 30, 300) and ("gamma", 5, 50, 500).
+    let r: Vec<(str, i64, i64, i64)> = match hot_rows(&c, &doc, &h)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if r.len() != 2i64 { return 2i32; }
+
+    let mut seen_beta: bool = false;
+    let mut seen_gamma: bool = false;
+    let mut i: i64 = 0i64;
+    while i < r.len() {
+        let row: (str, i64, i64, i64) = r.get(i);
+        if str_eq(row.0, "beta") {
+            if row.1 != 3i64 { return 3i32; }
+            if row.2 != 30i64 { return 4i32; }
+            if row.3 != 300i64 { return 5i32; }
+            seen_beta = true;
+        } else if str_eq(row.0, "gamma") {
+            if row.1 != 5i64 { return 6i32; }
+            if row.2 != 50i64 { return 7i32; }
+            if row.3 != 500i64 { return 8i32; }
+            seen_gamma = true;
+        } else { return 9i32; }
+        i = i + 1i64;
+    }
+    if !seen_beta { return 10i32; }
+    if !seen_gamma { return 11i32; }
+    return 0i32;
+}
