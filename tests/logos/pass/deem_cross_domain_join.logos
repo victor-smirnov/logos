@@ -1,0 +1,91 @@
+// ONE query joins a MEMORIA container with a `mem` HashMap (ADR 0024).
+//
+// This is the claim the whole direction rests on: the query compiler is a
+// separate entity and is NOT segmented by domain. Everything built so far —
+// typed columns, declared operations, the access plan, streaming — was built to
+// make this sentence true, and until now nothing had actually asked it.
+//
+// The two sides could hardly be less alike. `Led` is a store-backed b+tree
+// forged by the metaclass factory, named by a content hash, reached through a
+// projection because no one can write its type; `HashMap` is a `mem` collection
+// over raw pointers. They meet because each DECLARES a relation with typed
+// columns and a set of access operations, and the planner matches the query's
+// demand against the declaration — never against what kind of thing the source
+// is.
+//
+// The plan for this query, which is the point:
+//
+//   [plan] c -> __ctr_from_Hs… [a range] on key
+//                 (an operation exact for that comparison, but the filter
+//                  ranges over more than this source, so it stays)
+//   [plan] c -> stream        (the producer is an iterator and the plan reads
+//                              it once)
+//   [plan] h -> materialize   (the producer returns a container, not an
+//                              iterator)
+//   [plan] q -> hash join on i64
+//
+// Three independent decisions over two domains: the container narrows through a
+// declared operation AND streams as the join's driving side; the HashMap, which
+// offers no iterator, is drained; the join goes hash because the key type is
+// hashable. Not one of them is written per source kind.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.lang.result;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: i64, val: i64 }
+    measure count;
+    measure max(key);
+}
+
+// The container drives; the hash map enriches. `where` narrows the CONTAINER
+// side through its declared `ge` operation, and the filter survives because in
+// a join it ranges over both sides.
+pub deem enrich(c: &<typeof(Led) as CtrFamily>::Handle, h: &HashMap<i64, i64>) {
+    from c e join h q on e.key == q.key where e.key >= 2 select (e.key, q.val)
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut k: i64 = 0i64;
+    while k < 6i64 { c.insert(k, k * 10i64); k = k + 1i64; }
+
+    let mut h: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+    unsafe {
+        (&mut h as *mut HashMap<i64, i64>).insert(1i64, 100i64);
+        (&mut h as *mut HashMap<i64, i64>).insert(3i64, 300i64);
+        (&mut h as *mut HashMap<i64, i64>).insert(4i64, 400i64);
+    }
+
+    // Keys present on BOTH sides are 1, 3, 4; the filter keeps 3 and 4. Key 1
+    // is what proves the filter was not dropped — an exact operation retiring
+    // it here would let key 1 through.
+    let r: Vec<(i64, i64)> = match enrich(&c, &h)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if r.len() != 2i64 { return 2i32; }
+
+    let mut seen3: bool = false;
+    let mut seen4: bool = false;
+    let mut i: i64 = 0i64;
+    while i < r.len() {
+        let row: (i64, i64) = r.get(i);
+        if row.0 == 3i64 && row.1 == 300i64 { seen3 = true; }
+        else if row.0 == 4i64 && row.1 == 400i64 { seen4 = true; }
+        else { return 3i32; }
+        i = i + 1i64;
+    }
+    if !seen3 { return 4i32; }
+    if !seen4 { return 5i32; }
+    return 0i32;
+}
