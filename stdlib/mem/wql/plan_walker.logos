@@ -1796,8 +1796,13 @@ fn pw_cmp_name(op: i32, col_left: bool) -> str {
 /// function is READ-ONLY over `prm`: between deciding and applying there is now
 /// a moment at which the plan exists and the query has not been rewritten, and
 /// that moment is where cost, EXPLAIN, and any decision that depends on another
-/// have to live. Only the SIMPLE shape narrows today; a join or an aggregate
-/// records a scan WITH its reason, which is not the same as recording nothing.
+/// have to live.
+///
+/// The QUERY SHAPE is read here and nowhere below it. A filter is a filter: a
+/// `where e.key >= 100` narrows the same way whether it sits in a simple scan,
+/// a join or an aggregate, and matching on the shape at every level is how the
+/// narrowing came to exist for one of the three. What the shape DOES decide is
+/// whether the residual filter may be retired — see `plan_narrow_rel`.
 // `argb` is FRAME-HELD by the caller: the narrowing constant's text outlives
 // this call as `AccessPlan.arg` and then as `rel_marg2`, and a local String here
 // would leave a dangling view the moment the frame goes — the same discipline
@@ -1808,116 +1813,151 @@ fn plan_decide_access(prm: &MacroParams, argb: &mut String) -> AccessPlan {
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
     match prog.entry_any().view::<RQuery>() {
         RQuery::Simple(sq) => {
-            let ri: i64 = prm.rel_find_name(sq.src_name);
-            if ri < 0i64 { return ap; }
-            if !sq.has_where {
-                ap.scan(ri, "the query asks for every row — no filter to narrow to");
-                return ap;
-            }
-            if prm.op_cnt[ri] == 0i64 {
-                ap.scan(ri, "the source declares no access operations");
-                return ap;
-            }
-            match sq.where_expr() {
-                SExpr::Bin(b) => {
-                    let mut col: str = pw_field_col(b.lhs_expr());
-                    let mut col_left: bool = col.len() > 0i64;
-                    if !col_left { col = pw_field_col(b.rhs_expr()); }
-                    if col.len() == 0i64 {
-                        ap.scan(ri, "neither side of the filter is a column");
-                        return ap;
-                    }
-                    // The constant the column is compared against; a narrowing
-                    // needs the VALUE, not just the shape.
-                    let mut has_lit: bool = false;
-                    let mut lit: i64 = 0i64;
-                    match b.rhs_expr() {
-                        SExpr::Lit(l) => {
-                            let w: WAny = l.val;
-                            if w.is_int() { has_lit = true; lit = w.as_i64(); }
-                        }
-                        _ => { }
-                    }
-                    if !has_lit {
-                        match b.lhs_expr() {
-                            SExpr::Lit(l2) => {
-                                let w2: WAny = l2.val;
-                                if w2.is_int() { has_lit = true; lit = w2.as_i64(); }
-                            }
-                            _ => { }
-                        }
-                    }
-                    if !has_lit {
-                        ap.scan(ri, "the comparison carries no constant to narrow to");
-                        return ap;
-                    }
-                    let cmp: str = pw_cmp_name(b.op, col_left);
-                    if cmp.len() == 0i64 {
-                        ap.scan(ri, "the filter is not a comparison a source can answer");
-                        return ap;
-                    }
-                    // ENUMERATE, then CHOOSE. Every declared operation that
-                    // covers the demand is a candidate; the narrowest wins, and
-                    // exactness breaks a tie because an exact access also
-                    // retires the filter. What this replaces is a SEARCH whose
-                    // order was the choice — first exact-comparison hit, else
-                    // one hardcoded weakening — which meant a source could not
-                    // improve its own plan by declaring more.
-                    let off: i64 = prm.op_off[ri];
-                    let cnt: i64 = prm.op_cnt[ri];
-                    let mut oi: i64 = -1i64;
-                    let mut best: i32 = CARD_ALL();
-                    let mut best_ex: bool = false;
-                    let mut k: i64 = 0i64;
-                    while k < cnt {
-                        let o: i64 = off + k;
-                        if str_eq(prm.opc_col[o], col) && ap_covers(prm.opc_cmp[o], cmp) {
-                            let c: i32 = ap_card_of_cmp(prm.opc_cmp[o]);
-                            let ex: bool = prm.rel_op_is_exact(o, cmp);
-                            if oi < 0i64 || (c as i64) < (best as i64)
-                                || ((c as i64) == (best as i64) && ex && !best_ex) {
-                                oi = o; best = c; best_ex = ex;
-                            }
-                        }
-                        k = k + 1i64;
-                    }
-                    if oi < 0i64 {
-                        ap.scan(ri, "the source declares no operation covering that comparison on that column");
-                        return ap;
-                    }
-                    // The constant is typed by the COLUMN, which is why the
-                    // column types had to stop being i64 first (S2/S3).
-                    argb.push_i64(lit);
-                    let cti: i64 = prm.rel_coff[ri];
-                    let cn: i64 = prm.rel_ccnt[ri];
-                    let mut c2: i64 = 0i64;
-                    while c2 < cn {
-                        if str_eq(prm.relc_name[cti + c2], col) {
-                            argb.push_str(prm.relc_ty[cti + c2]);
-                            c2 = cn;
-                        } else { c2 = c2 + 1i64; }
-                    }
-                    // EXACTNESS (ADR 0024 S6): when the operation returns
-                    // precisely the rows of THIS comparison, the query's own
-                    // filter re-tests what the source already decided. Retiring
-                    // it is a REWRITE — the query said "filter", the planner
-                    // proved it redundant — and it is sound only because the
-                    // demand IS this comparison: the decision matches a
-                    // top-level comparison, never a conjunction, so nothing
-                    // else is riding on the predicate.
-                    ap.choose(ri, oi, prm.opc_fn[oi], string_as_str(argb), col, cmp,
-                              prm.opc_cmp[oi], best_ex,
-                              if best_ex
-                              { "an operation EXACT for that comparison — the residual filter is redundant and was dropped" }
-                              else { "a covering operation; its rows are a superset, so the filter stays" });
-                    ap.drop_where = best_ex;
-                }
-                _ => { }
-            }
+            // A simple scan is the ONE shape whose `where` belongs entirely to
+            // its single source, so an exact operation may retire it.
+            plan_narrow_rel(prm, argb, &mut ap, sq.src_name, sq.has_where,
+                            sq.where_expr(), true);
+        }
+        RQuery::Join(jq) => {
+            // The BASE carries the query's `where`. Retiring it is NOT offered:
+            // the predicate is checked once per JOINED row, over variables from
+            // every side, and proving the base's narrowing subsumes it is a
+            // different claim from the one exactness makes.
+            plan_narrow_rel(prm, argb, &mut ap, jq.a_name, jq.has_where,
+                            jq.where_expr(), false);
+        }
+        RQuery::Aggr(gq) => {
+            plan_narrow_rel(prm, argb, &mut ap, gq.a_name, gq.has_where,
+                            gq.where_expr(), false);
         }
         _ => { }
     }
     return ap;
+}
+
+/// Narrow ONE rel against ONE filter, recording the choice and its ground.
+///
+/// `may_drop` is the shape's contribution and the only one: whether an access
+/// that is EXACT for the demand is allowed to retire the query's own filter.
+fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
+                   src_name: str, has_where: bool, wexpr: SExpr,
+                   may_drop: bool) {
+    let ri: i64 = prm.rel_find_name(src_name);
+    if ri < 0i64 { return; }
+    if !has_where {
+        ap.scan(ri, "the query asks for every row — no filter to narrow to");
+        return;
+    }
+    if prm.op_cnt[ri] == 0i64 {
+        ap.scan(ri, "the source declares no access operations");
+        return;
+    }
+    match wexpr {
+        SExpr::Bin(b) => {
+            let mut col: str = pw_field_col(b.lhs_expr());
+            let mut col_left: bool = col.len() > 0i64;
+            if !col_left { col = pw_field_col(b.rhs_expr()); }
+            if col.len() == 0i64 {
+                ap.scan(ri, "neither side of the filter is a column");
+                return;
+            }
+            // The column must belong to THIS rel. In a join the `where` ranges
+            // over every bound variable, so a filter on another side names a
+            // column this source may happen to have too — narrowing on it would
+            // be answering a different question.
+            let cti: i64 = prm.rel_coff[ri];
+            let cn: i64 = prm.rel_ccnt[ri];
+            let mut colty: str = "";
+            let mut c0: i64 = 0i64;
+            while c0 < cn {
+                if str_eq(prm.relc_name[cti + c0], col) {
+                    colty = prm.relc_ty[cti + c0];
+                    c0 = cn;
+                } else { c0 = c0 + 1i64; }
+            }
+            if colty.len() == 0i64 {
+                ap.scan(ri, "the filter names a column this source does not have");
+                return;
+            }
+            // The constant the column is compared against; a narrowing needs
+            // the VALUE, not just the shape.
+            let mut has_lit: bool = false;
+            let mut lit: i64 = 0i64;
+            match b.rhs_expr() {
+                SExpr::Lit(l) => {
+                    let w: WAny = l.val;
+                    if w.is_int() { has_lit = true; lit = w.as_i64(); }
+                }
+                _ => { }
+            }
+            if !has_lit {
+                match b.lhs_expr() {
+                    SExpr::Lit(l2) => {
+                        let w2: WAny = l2.val;
+                        if w2.is_int() { has_lit = true; lit = w2.as_i64(); }
+                    }
+                    _ => { }
+                }
+            }
+            if !has_lit {
+                ap.scan(ri, "the comparison carries no constant to narrow to");
+                return;
+            }
+            let cmp: str = pw_cmp_name(b.op, col_left);
+            if cmp.len() == 0i64 {
+                ap.scan(ri, "the filter is not a comparison a source can answer");
+                return;
+            }
+            // ENUMERATE, then CHOOSE. Every declared operation that covers the
+            // demand is a candidate; the narrowest wins, and exactness breaks a
+            // tie because an exact access also retires the filter. What this
+            // replaces is a SEARCH whose order was the choice — first
+            // exact-comparison hit, else one hardcoded weakening — which meant a
+            // source could not improve its own plan by declaring more.
+            let off: i64 = prm.op_off[ri];
+            let cnt: i64 = prm.op_cnt[ri];
+            let mut oi: i64 = -1i64;
+            let mut best: i32 = CARD_ALL();
+            let mut best_ex: bool = false;
+            let mut k: i64 = 0i64;
+            while k < cnt {
+                let o: i64 = off + k;
+                if str_eq(prm.opc_col[o], col) && ap_covers(prm.opc_cmp[o], cmp) {
+                    let c: i32 = ap_card_of_cmp(prm.opc_cmp[o]);
+                    let ex: bool = prm.rel_op_is_exact(o, cmp);
+                    if oi < 0i64 || (c as i64) < (best as i64)
+                        || ((c as i64) == (best as i64) && ex && !best_ex) {
+                        oi = o; best = c; best_ex = ex;
+                    }
+                }
+                k = k + 1i64;
+            }
+            if oi < 0i64 {
+                ap.scan(ri, "the source declares no operation covering that comparison on that column");
+                return;
+            }
+            // The constant is typed by the COLUMN, which is why the column
+            // types had to stop being i64 first (S2/S3).
+            argb.push_i64(lit);
+            argb.push_str(colty);
+            // EXACTNESS (ADR 0024 S6): when the operation returns precisely the
+            // rows of THIS comparison, the query's own filter re-tests what the
+            // source already decided. Retiring it is a REWRITE — the query said
+            // "filter", the planner proved it redundant — and it is sound only
+            // because the demand IS this comparison AND the filter belongs to
+            // this source alone, which is what `may_drop` carries.
+            let drops: bool = best_ex && may_drop;
+            ap.choose(ri, oi, prm.opc_fn[oi], string_as_str(argb), col, cmp,
+                      prm.opc_cmp[oi], best_ex,
+                      if drops
+                      { "an operation EXACT for that comparison — the residual filter is redundant and was dropped" }
+                      else if best_ex
+                      { "an operation exact for that comparison, but the filter ranges over more than this source, so it stays" }
+                      else { "a covering operation; its rows are a superset, so the filter stays" });
+            if drops { ap.drop_where = true; }
+        }
+        _ => { }
+    }
 }
 
 /// Which rels does this plan read EXACTLY ONCE?
@@ -1995,6 +2035,17 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                     "materialized: a graph path adds join levels over this source");
             } else {
                 ap.read_once(bi, true, "");
+            }
+        }
+        RQuery::Aggr(gq) => {
+            // The grouped scan collects per-group state and then finalizes over
+            // it; the emitter's two aggregate paths index their source after
+            // the grouping pass. Named explicitly so the trace never falls back
+            // to "cannot prove", which says nothing a reader can act on.
+            let ai: i64 = prm.rel_find_name(gq.a_name);
+            if ai >= 0i64 {
+                ap.read_once(ai, false,
+                    "materialized: the aggregate revisits rows after grouping them");
             }
         }
         _ => { }

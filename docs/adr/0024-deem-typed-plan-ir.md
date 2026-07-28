@@ -149,10 +149,16 @@ families stream as well: their four producers are one walk type with four
 constructors, so a store-backed container pays no materialization for a query
 that reads it once. **S4d** — the single-read proof became a PER-REL fact, so a
 join streams its DRIVING side (the outermost loop of a left-deep nest, read once
-by construction) while its steps are drained. *Remaining:* cost on the
-relational IR nodes proper, and the join-strategy decision itself — it is still
-the emitter's, and moving it into the plan is what would let the hash and tree
-strategies stream their side too, since both build their index in one pass.
+by construction) while its steps are drained. **S4e** — the ACCESS decision
+stopped being shape-specific: it matched `RQuery::Simple` and did nothing
+otherwise, so the same filter over the same source narrowed in a scan and was
+ignored in a join or an aggregate. The shape is read in one place and
+contributes one thing — whether an exact access may RETIRE the filter, which
+only a simple scan's `where` permits, because a join's ranges over every bound
+variable. *Remaining:* cost on the relational IR nodes proper, and the
+join-strategy decision itself — it is still the emitter's, and moving it into
+the plan is what would let the hash and tree strategies stream their side too,
+since both build their index in one pass.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

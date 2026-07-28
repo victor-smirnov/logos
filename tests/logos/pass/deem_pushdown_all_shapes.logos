@@ -1,0 +1,118 @@
+// Narrowing is not a property of the QUERY SHAPE (ADR 0024 S4).
+//
+// The access decision matched `RQuery::Simple` and silently did nothing
+// otherwise, so `where e.key >= 190` pushed into the source in a simple scan
+// and was ignored in a join or an aggregate — the same filter, the same source,
+// the same declared operation, three different outcomes. That is the shape this
+// audit keeps finding: a rule written against the case it was first needed for.
+//
+// The shape is now read in ONE place and contributes ONE thing: whether an
+// access that is EXACT for the demand may RETIRE the query's filter. A simple
+// scan's `where` belongs to its single source, so it may. A join's ranges over
+// every bound variable and is checked per joined row, so proving the base's
+// narrowing subsumes it is a different claim than exactness makes — it narrows
+// and keeps the filter. An aggregate is the same.
+//
+// ⚠ The guard that had to come with the widening: in a join the `where` names
+// columns from every side, so the planner must check the column belongs to THIS
+// rel. Both sources here have a `key` column, which is exactly the collision
+// that would otherwise narrow the base on the other side's predicate.
+//
+// ORACLE: the pull count. All plans return the same rows; only how far the
+// source was read distinguishes them.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+
+static mut PULLED: i64 = 0i64;
+
+pub struct Steps { pub n: i64 }
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter { return StepsIter { n: s.n, i: 0i64 }; }
+/// A suffix of the order: the landing is arithmetic here, a descent in a tree.
+pub fn steps_from(s: &Steps, lo: i64) -> StepsIter {
+    let start: i64 = if lo < 0i64 { 0i64 } else { lo };
+    return StepsIter { n: s.n, i: start };
+}
+
+impl OrderedMapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+    op entry.key ge = steps_from  exact;
+}
+
+pub struct Probe { pub xs: Vec<(i64, i64)> }
+
+pub fn probe_rows(p: &Probe) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < p.xs.len() { out.push(p.xs.get(i)); i = i + 1i64; }
+    return out;
+}
+
+impl MapSource<i64, i64> for Probe {
+    rel entry = probe_rows;
+}
+
+// The reference: a simple scan, which could already do this.
+pub deem tail_scan(s: &Steps) {
+    from s e where e.key >= 190 select (e.key, e.val)
+}
+
+// A JOIN over the same source and the same filter. `q.key` is deliberately a
+// column of the OTHER side with the same name.
+pub deem tail_join(s: &Steps, p: &Probe) {
+    from s e join p q on e.val == q.val where e.key >= 190 select (e.key, q.key)
+}
+
+// An AGGREGATE over the same source and the same filter.
+pub deem tail_count(s: &Steps) {
+    from s e where e.key >= 190 group by e.key aggregate n = count() select (e.key, n)
+}
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 200i64 };
+    let mut p: Probe = Probe { xs: vec_new::<(i64, i64)>() };
+    p.xs.push((3i64, 1910i64));   // q.val matches e.val at e.key 191
+    p.xs.push((4i64, 50i64));     // q.val matches e.val at e.key 5 — below the
+                                  // narrowing, so the filter must exclude it
+
+    unsafe { PULLED = 0i64; }
+    let a: Vec<(i64, i64)> = match tail_scan(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 10i64 { return 2i32; }
+    unsafe { if PULLED > 11i64 { return 3i32; } }
+
+    // The join must narrow the SAME way: ten rows walked, not two hundred. The
+    // filter stays (the plan may not retire it here), so the answer is the
+    // same either way — the count is what says the narrowing happened.
+    unsafe { PULLED = 0i64; }
+    let b: Vec<(i64, i64)> = match tail_join(&s, &p)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if b.len() != 1i64 { return 5i32; }
+    if b.get(0i64).0 != 191i64 || b.get(0i64).1 != 3i64 { return 6i32; }
+    unsafe { if PULLED > 11i64 { return 7i32; } }
+
+    // And the aggregate.
+    unsafe { PULLED = 0i64; }
+    let c: Vec<(i64, i64)> = match tail_count(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
+    if c.len() != 10i64 { return 9i32; }
+    unsafe { if PULLED > 11i64 { return 10i32; } }
+    return 0i32;
+}

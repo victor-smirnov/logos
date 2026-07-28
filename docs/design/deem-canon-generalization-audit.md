@@ -75,6 +75,23 @@ to write out is the walk's `next`. Closed as a side effect of streaming, which
 is the usual shape: the duplication was the `Vec` each producer built, not the
 logic.
 
+## 13. The access decision was SHAPE-SPECIFIC — CLOSED (S4e)
+
+`plan_decide_access` matched `RQuery::Simple` and silently did nothing
+otherwise. The same filter, over the same source, with the same declared
+operation, therefore narrowed in a scan and was ignored in a join or an
+aggregate — a rule written against the case it was first needed for, which is
+the shape this whole audit keeps finding.
+
+The query shape is now read in ONE place and contributes ONE thing: whether an
+access that is exact for the demand may RETIRE the query's filter. A simple
+scan's `where` belongs to its single source, so it may; a join's is checked per
+joined row over variables from every side, so it narrows and keeps the filter.
+
+⚠ The guard the widening required: in a join the `where` names columns from
+every side, so the planner must verify the column belongs to THIS rel. Two
+sources with a same-named column is the ordinary case, not the exotic one.
+
 ## 5. Two aggregate emitters — OPEN
 
 `emit_aggregate` (scan) and `emit_aggregate_join` (join chain) are ~720 lines
