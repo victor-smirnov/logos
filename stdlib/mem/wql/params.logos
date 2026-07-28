@@ -300,35 +300,11 @@ impl MacroParams {
         self.op_cnt[r] = self.op_cnt[r] + 1i64;
     }
 
-    /// The operation that answers `cmp` on `col` for rel `ri`, or -1.
-    ///
-    /// An exact match on the comparison is preferred; failing that, a WEAKER
-    /// operation that still covers the demand is admissible as a superset —
-    /// `>=` covers `>`, `<=` covers `<` — because the query keeps its own
-    /// filter. Returns the index into the flat op arrays.
-    pub fn rel_find_op(self: &MacroParams, ri: i64, col: str, cmp: str) -> i64 {
-        if ri < 0i64 || ri >= 8i64 { return -1i64; }
-        let off: i64 = self.op_off[ri];
-        let cnt: i64 = self.op_cnt[ri];
-        let mut i: i64 = 0i64;
-        while i < cnt {
-            if str_eq(self.opc_col[off + i], col)
-                && str_eq(self.opc_cmp[off + i], cmp) { return off + i; }
-            i = i + 1i64;
-        }
-        // The weaker-but-covering fallback.
-        let mut want: str = "";
-        if str_eq(cmp, "gt") { want = "ge"; }
-        else if str_eq(cmp, "lt") { want = "le"; }
-        if want.len() == 0i64 { return -1i64; }
-        i = 0i64;
-        while i < cnt {
-            if str_eq(self.opc_col[off + i], col)
-                && str_eq(self.opc_cmp[off + i], want) { return off + i; }
-            i = i + 1i64;
-        }
-        return -1i64;
-    }
+    // The op that answers a demand is no longer FOUND here. A search whose
+    // order is the choice cannot be costed, and the two weakenings this used to
+    // hardcode (`ge` for `gt`, `le` for `lt`) were not the only ones that hold.
+    // The covering relation is `access_plan::ap_covers`, written once, and the
+    // choice among covering ops is a comparison of cardinality — ADR 0024 S4.
 
     /// True when the operation at `oi` answers `cmp` EXACTLY — the query's
     /// residual filter is then redundant. False for a superset, where it is

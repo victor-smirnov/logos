@@ -1,0 +1,178 @@
+// logos.std.wql.access_plan — the ACCESS PLAN, as an OBJECT (ADR 0024 S4).
+//
+// Until this module existed, a plan decision was indistinguishable from its
+// effect. The picker wrote the chosen producer straight into
+// `MacroParams.rel_mat` and dropped the query's residual filter in the same
+// breath, so there was no moment at which a plan existed and had not yet been
+// executed. Three things follow from that, and all three were true:
+//
+//   • cost had nowhere to live — there is no point costing a choice that has
+//     already been made;
+//   • one decision could not read another's, because the earlier one was
+//     already baked into the params;
+//   • EXPLAIN was not a thing that could be written, only a thing that could be
+//     printed at the instant of deciding.
+//
+// So the plan is separated from its application. `AccessPlan` holds ONE record
+// per rel — what will be called, with which constant, on which column, why, and
+// how many rows the choice is expected to admit. Deciding fills it and mutates
+// nothing; applying reads it and rewrites the query.
+//
+// The decision itself lives in `plan_walker` (it needs the query views); what
+// lives here is the plan's SHAPE, the ordering that makes one access better
+// than another, and the explanation.
+package logos.std.wql.access_plan;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.wql.params;    // MacroParams — rel names, the declared op table
+use logos.std.wql.codegen;   // plan_trace / string_as_str — the ONE decision channel (S4a)
+
+// ── Access kinds ──────────────────────────────────────────────────────────
+// How the source will be read. A SCAN asks for every row; a POINT probe asks
+// for the rows at one key; a RANGE asks for a contiguous window of the order.
+// These are the shapes a source can DECLARE (ADR 0024 S6) — not a Memoria
+// vocabulary: `HashMap` offers a point probe and no range, a vector offers both
+// over its ordinal, and a hypothetical scan-only source offers neither.
+pub fn ACC_SCAN() -> i32  { return 0i32; }
+pub fn ACC_POINT() -> i32 { return 1i32; }
+pub fn ACC_RANGE() -> i32 { return 2i32; }
+
+// ── Cardinality class ─────────────────────────────────────────────────────
+// An ORDINAL, not a row count: at macro-expansion time there is no container to
+// count, and a plan that waited for one would never be made. What IS known is
+// the shape of the answer, and the shapes are totally ordered — which is all
+// "choose the narrower access" needs.
+//
+// ⚠ CARD_ONE says "the source answers at ONE key", not "one row": how many rows
+// live at a key is the source's business, and nothing declares it yet. The
+// ordering survives that gap, because a point probe cannot admit MORE rows than
+// a range over the same column — so preferring it is sound without uniqueness.
+// When multiplicity becomes declarable, this is the field it refines.
+pub fn CARD_ONE() -> i32  { return 0i32; }
+pub fn CARD_PART() -> i32 { return 1i32; }
+pub fn CARD_ALL() -> i32  { return 2i32; }
+
+pub fn ap_card_name(c: i32) -> str {
+    if c == CARD_ONE()  { return "one key"; }
+    if c == CARD_PART() { return "a range"; }
+    return "every row";
+}
+
+/// The cardinality an operation answering `cmp` admits.
+pub fn ap_card_of_cmp(cmp: str) -> i32 {
+    if str_eq(cmp, "eq") { return CARD_ONE(); }
+    if str_eq(cmp, "ge") || str_eq(cmp, "le")
+        || str_eq(cmp, "gt") || str_eq(cmp, "lt") { return CARD_PART(); }
+    return CARD_ALL();
+}
+
+pub fn ap_kind_of_cmp(cmp: str) -> i32 {
+    if str_eq(cmp, "eq") { return ACC_POINT(); }
+    if str_eq(cmp, "ge") || str_eq(cmp, "le")
+        || str_eq(cmp, "gt") || str_eq(cmp, "lt") { return ACC_RANGE(); }
+    return ACC_SCAN();
+}
+
+/// Does an operation declared for `have` ANSWER a demand for `want` — that is,
+/// are the rows it returns a superset of the demand's matches?
+///
+/// This is the covering relation, written once. It used to be a two-step search
+/// inside `rel_find_op` (exact match, then `ge` for `gt` / `le` for `lt`), which
+/// silently encoded two claims: that the only useful weakening is strict→
+/// non-strict, and that search ORDER is how a plan is chosen. Both were wrong.
+/// A bound also covers equality — `key >= k` returns every row `key == k` does
+/// and more — so a source declaring only `ge` can still answer `==` by a range
+/// walk plus the query's own filter, which beats reading the whole container.
+/// The rows it does not have are the rows it must not claim: `ge` says nothing
+/// about `le`'s demand, and equality covers no bound at all.
+pub fn ap_covers(have: str, want: str) -> bool {
+    if str_eq(have, want) { return true; }
+    if str_eq(want, "gt") { return str_eq(have, "ge"); }
+    if str_eq(want, "lt") { return str_eq(have, "le"); }
+    if str_eq(want, "eq") { return str_eq(have, "ge") || str_eq(have, "le"); }
+    return false;
+}
+
+// ── The plan ──────────────────────────────────────────────────────────────
+// One record per rel, indexed by the rel registry's index so the applier and
+// the explainer agree with the params without a side table.
+//
+// `op < 0` IS the scan: no operation was chosen, and `why` says what stopped
+// one from being chosen. That case carries as much information as the other —
+// "this reads the whole container BECAUSE the source declares nothing for that
+// column" is the answer a person debugging a slow query actually needs, and it
+// is exactly the answer a decision recorded only on success cannot give.
+pub struct AccessPlan {
+    pub kind:  [i32; 8],
+    pub card:  [i32; 8],
+    pub op:    [i64; 8],   // index into the flat op table, or -1 = scan
+    pub fnm:   [str; 8],   // the operation implementing it
+    pub arg:   [str; 8],   // the narrowing constant, typed by the column
+    pub col:   [str; 8],
+    pub cmp:   [str; 8],   // the DEMAND this access answers
+    pub exact: [bool; 8],  // its rows are precisely the demand's matches
+    pub why:   [str; 8],
+    pub n:     i64,
+    /// The residual filter is redundant and will be dropped. A property of the
+    /// QUERY, not of a rel: the filter belongs to the query node, and only an
+    /// access exact for the whole demand may retire it.
+    pub drop_where: bool,
+}
+
+pub fn access_plan_new(n: i64) -> AccessPlan {
+    return AccessPlan {
+        kind:  [ACC_SCAN(); 8],
+        card:  [CARD_ALL(); 8],
+        op:    [-1i64; 8],
+        fnm:   ["", "", "", "", "", "", "", ""],
+        arg:   ["", "", "", "", "", "", "", ""],
+        col:   ["", "", "", "", "", "", "", ""],
+        cmp:   ["", "", "", "", "", "", "", ""],
+        exact: [false; 8],
+        why:   ["", "", "", "", "", "", "", ""],
+        n: n,
+        drop_where: false,
+    };
+}
+
+impl AccessPlan {
+    /// Record the chosen operation for rel `ri`.
+    pub fn choose(self: &mut AccessPlan, ri: i64, oi: i64, fnm: str, arg: str,
+                  col: str, cmp: str, op_cmp: str, exact: bool, why: str) {
+        if ri < 0i64 || ri >= 8i64 { return; }
+        self.op[ri]    = oi;
+        self.fnm[ri]   = fnm;
+        self.arg[ri]   = arg;
+        self.col[ri]   = col;
+        self.cmp[ri]   = cmp;
+        self.kind[ri]  = ap_kind_of_cmp(op_cmp);
+        self.card[ri]  = ap_card_of_cmp(op_cmp);
+        self.exact[ri] = exact;
+        self.why[ri]   = why;
+    }
+
+    /// Record that rel `ri` is read whole, and the antecedent that decided it.
+    pub fn scan(self: &mut AccessPlan, ri: i64, why: str) {
+        if ri < 0i64 || ri >= 8i64 { return; }
+        self.why[ri] = why;
+    }
+}
+
+/// The plan, read back — the seed of EXPLAIN. Every rel reports, including the
+/// ones that were left alone: a plan that only speaks when it acted is a plan
+/// whose silence has two meanings.
+pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
+    if !plan_trace_on() { return; }
+    let mut ri: i64 = 0i64;
+    while ri < ap.n {
+        let mut vb: String = String::new();
+        if ap.op[ri] < 0i64 { vb.push_str("scan"); }
+        else { vb.push_str(ap.fnm[ri]); }
+        vb.push_str(" ["); vb.push_str(ap_card_name(ap.card[ri])); vb.push_str("]");
+        let w: str = if ap.why[ri].len() > 0i64 { ap.why[ri] }
+                     else { "no filter reaches this rel" };
+        plan_trace(prm.rel_names[ri], string_as_str(&vb), ap.col[ri], w);
+        ri = ri + 1i64;
+    }
+}

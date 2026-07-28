@@ -132,6 +132,16 @@ path, pushdown, materialize-vs-stream. `__deem_bind`'s welded pushdown becomes a
 rewrite. The planner returns a decision WITH its justification — recorded at the
 moment of deciding, because a returned `"scan"` has already lost it.
 
+*Landed so far:* **S4a** — one decision channel; the join strategy cascade
+records its ground alongside the access path. **S4b** — the ACCESS plan is an
+object (`logos.std.wql.access_plan`): deciding is read-only and returns an
+`AccessPlan`, applying is the only thing that mutates, and every rel reports
+including the ones left scanning. Cardinality enters as an ordinal class, which
+is what makes choosing among covering operations a comparison rather than a
+search order. *Remaining:* cost on the relational IR nodes proper, and
+materialize-vs-stream — which needs the operation protocol to admit a walk, not
+just a `Vec`, and so changes the S6 declaration surface.
+
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that
 `push_text` is a workaround rather than the intended codegen surface.

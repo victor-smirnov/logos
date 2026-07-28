@@ -159,6 +159,30 @@ file and the failure reads in six lines, naming the symbol that broke
 (`u8__into__g__S`) and the unresolved var. A buried diagnostic is not a
 diagnostic.
 
+## 11. The covering relation was a SEARCH ORDER — CLOSED (S4b)
+
+`rel_find_op` answered "which operation serves this demand" by looking for the
+demand's own comparison, then trying exactly two weakenings: `ge` for `gt`,
+`le` for `lt`. Two things were folded into one function and neither was stated.
+
+The first is the covering relation itself, and the two weakenings were not all
+of it: `key >= k` returns every row `key == k` returns, so a source declaring
+only a lower bound can answer an equality demand — it positions once and the
+query's own filter cuts the tail. That case fell to a full container scan.
+
+The second is that SEARCH ORDER was the choice. "First hit wins" is only right
+while there is exactly one hit, and it silently means a source cannot improve
+its plan by declaring MORE — a second covering operation is never seen.
+
+Now the covering relation is `ap_covers`, written once, and choosing is a
+comparison: every covering operation is enumerated and the narrowest
+cardinality class wins, with exactness breaking a tie (an exact access also
+retires the filter). Test: `deem_bound_covers_equality`.
+
+⚠ The shape to notice: a predicate and a policy sharing one function, where the
+policy is implicit in the control flow. Neither can be tested, and neither can
+be extended without editing the other.
+
 ## 10. A `#[derive_hash]` type is not admissible as a rel column — OPEN
 
 `check_rel_column_types` waits for the item-macro drain

@@ -73,6 +73,7 @@ use logos.std.wql.ward;           // WardProg / check_warded — Track A: warded
 use logos.mem.string;
 use logos.lang.str;
 use logos.std.wql.srcloc;         // the query as a source — located diagnostics (ADR 0024 S0)
+use logos.std.wql.access_plan;    // AccessPlan — the plan as an object (ADR 0024 S4)
 
 // ── The walker entry: entry RQuery plan → RExpr algebra → emitted native fn ──
 // `prelude` — statements spliced after the generated fn's opening brace (the
@@ -1495,7 +1496,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
-        plan_pick_ops(prm, &mut pick_argb, h);
+        let pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
+        plan_apply_access(prm, &pick_ap, h);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
         // — recursion is legal, realized by the SCC fixpoint. Dep edges + the
@@ -1530,7 +1532,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs) { return false; }
-        plan_pick_ops(prm, &mut pick_argb, h);
+        let pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
+        plan_apply_access(prm, &pick_ap, h);
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
         }
@@ -1772,24 +1775,33 @@ fn pw_cmp_name(op: i32, col_left: bool) -> str {
     return "";
 }
 
-/// Choose a narrowing operation for the query's demand, when the source
-/// declares one that covers it. Only the SIMPLE shape narrows today; a join or
-/// an aggregate keeps its full scan, and says so by leaving the binding alone.
+/// DECIDE the access for every rel, and change nothing.
+///
+/// The whole point of returning a plan instead of writing one is that this
+/// function is READ-ONLY over `prm`: between deciding and applying there is now
+/// a moment at which the plan exists and the query has not been rewritten, and
+/// that moment is where cost, EXPLAIN, and any decision that depends on another
+/// have to live. Only the SIMPLE shape narrows today; a join or an aggregate
+/// records a scan WITH its reason, which is not the same as recording nothing.
 // `argb` is FRAME-HELD by the caller: the narrowing constant's text outlives
-// this call as `rel_marg2`, and a local String here would leave a dangling view
-// the moment the frame goes — the same discipline nat_src_bufs follows.
-fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String, h: &Writ) {
-    if prm.src_root.is_null() { return; }
+// this call as `AccessPlan.arg` and then as `rel_marg2`, and a local String here
+// would leave a dangling view the moment the frame goes — the same discipline
+// nat_src_bufs follows.
+fn plan_decide_access(prm: &MacroParams, argb: &mut String) -> AccessPlan {
+    let mut ap: AccessPlan = access_plan_new(prm.rel_n);
+    if prm.src_root.is_null() { return ap; }
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
     match prog.entry_any().view::<RQuery>() {
         RQuery::Simple(sq) => {
-            if !sq.has_where { return; }
             let ri: i64 = prm.rel_find_name(sq.src_name);
-            if ri < 0i64 { return; }
+            if ri < 0i64 { return ap; }
+            if !sq.has_where {
+                ap.scan(ri, "the query asks for every row — no filter to narrow to");
+                return ap;
+            }
             if prm.op_cnt[ri] == 0i64 {
-                plan_trace(sq.src_name, "scan", "",
-                           "the source declares no access operations");
-                return;
+                ap.scan(ri, "the source declares no access operations");
+                return ap;
             }
             match sq.where_expr() {
                 SExpr::Bin(b) => {
@@ -1797,9 +1809,8 @@ fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String, h: &Writ) {
                     let mut col_left: bool = col.len() > 0i64;
                     if !col_left { col = pw_field_col(b.rhs_expr()); }
                     if col.len() == 0i64 {
-                        plan_trace(sq.src_name, "scan", "",
-                                   "neither side of the filter is a column");
-                        return;
+                        ap.scan(ri, "neither side of the filter is a column");
+                        return ap;
                     }
                     // The constant the column is compared against; a narrowing
                     // needs the VALUE, not just the shape.
@@ -1822,59 +1833,96 @@ fn plan_pick_ops(prm: &mut MacroParams, argb: &mut String, h: &Writ) {
                         }
                     }
                     if !has_lit {
-                        plan_trace(sq.src_name, "scan", col,
-                                   "the comparison carries no constant to narrow to");
-                        return;
+                        ap.scan(ri, "the comparison carries no constant to narrow to");
+                        return ap;
                     }
                     let cmp: str = pw_cmp_name(b.op, col_left);
                     if cmp.len() == 0i64 {
-                        plan_trace(sq.src_name, "scan", col,
-                                   "the filter is not a comparison a source can answer");
-                        return;
+                        ap.scan(ri, "the filter is not a comparison a source can answer");
+                        return ap;
                     }
-                    let oi: i64 = prm.rel_find_op(ri, col, cmp);
+                    // ENUMERATE, then CHOOSE. Every declared operation that
+                    // covers the demand is a candidate; the narrowest wins, and
+                    // exactness breaks a tie because an exact access also
+                    // retires the filter. What this replaces is a SEARCH whose
+                    // order was the choice — first exact-comparison hit, else
+                    // one hardcoded weakening — which meant a source could not
+                    // improve its own plan by declaring more.
+                    let off: i64 = prm.op_off[ri];
+                    let cnt: i64 = prm.op_cnt[ri];
+                    let mut oi: i64 = -1i64;
+                    let mut best: i32 = CARD_ALL();
+                    let mut best_ex: bool = false;
+                    let mut k: i64 = 0i64;
+                    while k < cnt {
+                        let o: i64 = off + k;
+                        if str_eq(prm.opc_col[o], col) && ap_covers(prm.opc_cmp[o], cmp) {
+                            let c: i32 = ap_card_of_cmp(prm.opc_cmp[o]);
+                            let ex: bool = prm.rel_op_is_exact(o, cmp);
+                            if oi < 0i64 || (c as i64) < (best as i64)
+                                || ((c as i64) == (best as i64) && ex && !best_ex) {
+                                oi = o; best = c; best_ex = ex;
+                            }
+                        }
+                        k = k + 1i64;
+                    }
                     if oi < 0i64 {
-                        plan_trace(sq.src_name, "scan", col,
-                                   "the source declares no operation covering that comparison on that column");
-                        return;
+                        ap.scan(ri, "the source declares no operation covering that comparison on that column");
+                        return ap;
                     }
                     // The constant is typed by the COLUMN, which is why the
                     // column types had to stop being i64 first (S2/S3).
                     argb.push_i64(lit);
                     let cti: i64 = prm.rel_coff[ri];
                     let cn: i64 = prm.rel_ccnt[ri];
-                    let mut c: i64 = 0i64;
-                    while c < cn {
-                        if str_eq(prm.relc_name[cti + c], col) {
-                            argb.push_str(prm.relc_ty[cti + c]);
-                            c = cn;
-                        } else { c = c + 1i64; }
+                    let mut c2: i64 = 0i64;
+                    while c2 < cn {
+                        if str_eq(prm.relc_name[cti + c2], col) {
+                            argb.push_str(prm.relc_ty[cti + c2]);
+                            c2 = cn;
+                        } else { c2 = c2 + 1i64; }
                     }
-                    prm.rel_mat[ri]   = prm.opc_fn[oi];
-                    prm.rel_marg2[ri] = string_as_str(argb);
-                    // EXACTNESS APPLIED (ADR 0024 S6): when the operation
-                    // returns precisely the rows of THIS comparison, the
-                    // query's own filter re-tests what the source already
-                    // decided. Dropping it is a REWRITE of the plan — the plan
-                    // said "filter", the planner proved it redundant — and it
-                    // is sound only because the demand IS this comparison: the
-                    // picker matches a top-level comparison, never a
-                    // conjunction, so nothing else is riding on the predicate.
-                    let exact: bool = prm.rel_op_is_exact(oi, cmp);
-                    if exact {
-                        let fs: RQSimple = rq_fat_simple(prm.src_root.view::<RQProgram>().entry_any(), h);
-                        fs.has_where = false;
-                    }
-                    plan_trace(sq.src_name, prm.opc_fn[oi], col,
-                               if exact
-                               { "an operation EXACT for that comparison — the residual filter is redundant and was dropped" }
-                               else { "a covering operation; its rows are a superset, so the filter stays" });
+                    // EXACTNESS (ADR 0024 S6): when the operation returns
+                    // precisely the rows of THIS comparison, the query's own
+                    // filter re-tests what the source already decided. Retiring
+                    // it is a REWRITE — the query said "filter", the planner
+                    // proved it redundant — and it is sound only because the
+                    // demand IS this comparison: the decision matches a
+                    // top-level comparison, never a conjunction, so nothing
+                    // else is riding on the predicate.
+                    ap.choose(ri, oi, prm.opc_fn[oi], string_as_str(argb), col, cmp,
+                              prm.opc_cmp[oi], best_ex,
+                              if best_ex
+                              { "an operation EXACT for that comparison — the residual filter is redundant and was dropped" }
+                              else { "a covering operation; its rows are a superset, so the filter stays" });
+                    ap.drop_where = best_ex;
                 }
                 _ => { }
             }
         }
         _ => { }
     }
+    return ap;
+}
+
+/// APPLY the plan: bind each rel to the access that was chosen, retire the
+/// residual filter if the plan retired it, and read the plan back out.
+///
+/// Everything that mutates is here, and it consults nothing but the plan.
+fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
+    let mut ri: i64 = 0i64;
+    while ri < ap.n {
+        if ap.op[ri] >= 0i64 {
+            prm.rel_mat[ri]   = ap.fnm[ri];
+            prm.rel_marg2[ri] = ap.arg[ri];
+        }
+        ri = ri + 1i64;
+    }
+    if ap.drop_where && !prm.src_root.is_null() {
+        let fs: RQSimple = rq_fat_simple(prm.src_root.view::<RQProgram>().entry_any(), h);
+        fs.has_where = false;
+    }
+    access_plan_explain(ap, prm);
 }
 
 fn register_native_rels(prm: &mut MacroParams, natspec: str,

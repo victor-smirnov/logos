@@ -1,0 +1,78 @@
+// A source that declares ONLY a lower bound still answers `==` (ADR 0024 S4).
+//
+// Choosing an access used to be a SEARCH whose order was the decision: the
+// picker looked for an operation declared for the demand's own comparison, then
+// tried exactly two hardcoded weakenings (`ge` for `>`, `le` for `<`). Anything
+// else fell to a full scan. That encoded a claim nobody had checked — that
+// strict→non-strict is the only weakening that holds.
+//
+// It is not. `key >= k` returns every row `key == k` returns and more, so a
+// source with only a lower bound can answer an equality demand by positioning
+// once and letting the query's own filter cut the tail. Whether that is the
+// BEST access is a separate question, and now a separate mechanism: the planner
+// enumerates every covering operation and takes the narrowest, so a source that
+// also declares `eq` still gets the point probe (`deem_btreemap_source` pins
+// that side).
+//
+// `Rung` declares one operation, and `at_two` demands equality. If the covering
+// rule were still the old one this would compile to a full scan and still
+// return the right row — so the assertion that matters is the one on the plan
+// trace, which the .expected file carries.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;             // trait OrderedMapSource
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub struct Rung { pub xs: Vec<(i64, i64)> }
+
+pub fn rung_rows(r: &Rung) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < r.xs.len() { out.push(r.xs.get(i)); i = i + 1i64; }
+    return out;
+}
+
+/// The suffix `key >= lo`, in key order — the ONE access this source offers.
+/// Exact for the bound it names; a superset for anything else it covers.
+pub fn rung_from(r: &Rung, lo: i64) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < r.xs.len() {
+        let p: (i64, i64) = r.xs.get(i);
+        if p.0 >= lo { out.push(p); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+impl OrderedMapSource<i64, i64> for Rung {
+    rel entry = rung_rows;
+    op entry.key ge = rung_from  exact;
+}
+
+pub deem at_two(r: &Rung) { from r e where e.key == 2 select (e.key, e.val) }
+pub deem from_two(r: &Rung) { from r e where e.key >= 2 select (e.key, e.val) }
+
+fn main() -> i32 {
+    let mut r: Rung = Rung { xs: vec_new::<(i64, i64)>() };
+    r.xs.push((1i64, 10i64));
+    r.xs.push((2i64, 20i64));
+    r.xs.push((3i64, 30i64));
+
+    // Narrowed through `ge`, which is a SUPERSET of the equality demand — so
+    // the residual filter must survive. Three rows here would mean the planner
+    // claimed an exactness the declaration never gave it.
+    let a: Vec<(i64, i64)> = match at_two(&r)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 1i64 { return 2i32; }
+    if a.get(0i64).0 != 2i64 || a.get(0i64).1 != 20i64 { return 3i32; }
+
+    // The demand the operation was declared for: exact, filter retired.
+    let f: Vec<(i64, i64)> = match from_two(&r)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if f.len() != 2i64 { return 5i32; }
+    if f.get(0i64).0 != 2i64 || f.get(1i64).0 != 3i64 { return 6i32; }
+    return 0i32;
+}
