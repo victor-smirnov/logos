@@ -1,0 +1,1 @@
+a rel column type must implement `Hash`

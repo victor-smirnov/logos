@@ -622,12 +622,19 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                     if (trigger_names.count(aname)) pending.push_back(std::move(aname));
                     continue;
                 }
-                for (auto& trig : pending)
+                for (auto& trig : pending) {
                     metaprog_targets_.push_back({
                         ai,
                         static_cast<uint32_t>(item.offset().value()),
                         trig
                     });
+                    // The item's NAME as well: a deferred check that judges a
+                    // TYPE needs to know the type is still waiting for a
+                    // handler to run. See check_rel_column_types.
+                    if (item.has_key(la::NAME))
+                        metaprog_annotated_types_.insert(
+                            std::string(str_of(item.get(la::NAME.code))));
+                }
                 pending.clear();
             }
         }
@@ -5616,6 +5623,23 @@ void SemaChecker::check_rel_column_types() {
             for (auto& col : sig.cols) {
                 if (col.ty.empty() || is_trait_param(col.ty)) continue;
                 if (rel_col_type_hashable(col.ty)) continue;
+                // A type whose capability is still being SYNTHESIZED is not a
+                // type that lacks it. `#[derive_hash] struct Sku` asks the
+                // compiler for `impl Hash for Sku`, and the handler runs in a
+                // later round — but this check runs ONCE, during the collect of
+                // the round that fails, so it judged before the answer existed
+                // and rejected exactly the type the user had asked to be made
+                // hashable. The same `Sku` worked as a HashMap key in the same
+                // file, which is how sharp the inconsistency was.
+                //
+                // ⚠ The guard above (`metaprog_pending_pkgs_`) reads as if it
+                // covered this and does not: pending-ness is discovered during
+                // LOWERING, one phase after this runs, so in the round that
+                // matters the set is always empty. "Nothing is pending" and
+                // "nothing has been examined yet" are indistinguishable there.
+                // The signal that IS available here is the staged handler
+                // target list, built earlier in this same collect.
+                if (metaprog_annotated_types_.count(col.ty)) continue;
                 // Restore the declaration's place — see TraitRelSig.
                 if (!sig.file.empty()) file_ = sig.file;
                 node_line_ = sig.line;

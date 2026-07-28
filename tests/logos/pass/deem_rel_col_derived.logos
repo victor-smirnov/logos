@@ -1,0 +1,67 @@
+// A DERIVED capability is a capability (ADR 0024 S1/S2).
+//
+// A rel column's type must implement `Hash` — rows are set-deduplicated and
+// columns are join keys. A user type joins the query plane by gaining it, and
+// `#[derive_hash]` is how a user asks for it without writing the impl. That is
+// the extension path the universal query compiler is built around, and it was
+// refused.
+//
+// ⚠ THE SHAPE OF THE BUG, which is the part worth keeping. The check reads:
+//
+//     if (!metaprog_pending_pkgs_.empty()) return;   // "drain before judging"
+//
+// and its comment says a derive synthesizes `impl Hash` in a later round, so
+// waiting is exactly what it does. It does not wait. Pending-ness is discovered
+// during LOWERING, one phase AFTER this check runs during collect, so in the
+// round that matters the set is always empty — and the check ran ONCE, judged a
+// type whose impl did not exist yet, and errored, which ended the compile
+// before the round that would have produced the answer. "Nothing is pending"
+// and "nothing has been examined yet" were the same value.
+//
+// The same `Sku` worked as a `HashMap` key in the same file. A capability check
+// that disagrees with the capability's own users is reporting on its own
+// timing, not on the type.
+//
+// The signal that IS available at collect time is the staged handler-target
+// list, built earlier in the same pass: a type annotated with a registered
+// handler is one whose capability is still being SYNTHESIZED, which is not the
+// same as lacking it. A type with no such annotation is still rejected — that
+// half is pinned by `deem_rel_col_hashable_fail`.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.compiler.metaprog;   // registers the #[derive_hash] trigger
+use logos.mem.collections.vec;
+use logos.lang.hash;
+use logos.lang.result;
+
+#[derive_hash]
+pub struct Sku { pub a: i64, pub b: i64 }
+
+pub trait Catalog { rel item(sku: Sku, qty: i64); }
+
+pub struct Shelf { pub xs: Vec<(Sku, i64)> }
+
+pub fn shelf_rows(s: &Shelf) -> Vec<(Sku, i64)> {
+    let mut out: Vec<(Sku, i64)> = vec_new::<(Sku, i64)>();
+    let mut i: i64 = 0i64;
+    while i < s.xs.len() { out.push(s.xs.get(i)); i = i + 1i64; }
+    return out;
+}
+
+impl Catalog for Shelf { rel item = shelf_rows; }
+
+// The relation is queryable, which is the point of admitting the column at all.
+pub deem heavy(s: &Shelf) { from s e where e.qty > 1 select (e.qty) }
+
+fn main() -> i32 {
+    let mut sh: Shelf = Shelf { xs: vec_new::<(Sku, i64)>() };
+    sh.xs.push((Sku { a: 1i64, b: 2i64 }, 5i64));
+    sh.xs.push((Sku { a: 3i64, b: 4i64 }, 1i64));
+
+    let r: Vec<i64> = match heavy(&sh)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if r.len() != 1i64 { return 2i32; }
+    if r.get(0i64) != 5i64 { return 3i32; }
+    return 0i32;
+}

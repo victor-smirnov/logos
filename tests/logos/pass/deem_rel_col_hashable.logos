@@ -7,12 +7,9 @@
 // every generated container producer had to cast and a stored `u64::MAX`
 // arrived as `-1`.
 //
-// The widening is checked across the width family. A user type that gains Hash
-// through `#[derive_hash]` is NOT yet admissible: the column check judges after
-// the item-macro drain but before annotation-triggered emission, so the derived
-// impl does not exist when it looks. That is the extension path the universal
-// query compiler needs, and it is a known gap, not a design limit — a
-// hand-written `impl Hash for T` is admitted today.
+// The widening is checked across the width family, and a user type joins by
+// gaining Hash — hand-written here, DERIVED in `deem_rel_col_derived`. Both are
+// the extension path the universal query compiler is built around.
 package test;
 
 use logos.std.wql.wql;

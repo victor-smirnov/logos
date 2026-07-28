@@ -269,7 +269,33 @@ only, not that the iterator's item type matches the relation's row type. A
 source that returns `Iterator<WrongThing>` is diagnosed by the host compiler on
 generated code — the exact diagnostic this ADR exists to abolish.
 
-## 10. A `#[derive_hash]` type is not admissible as a rel column — OPEN
+## 10. A `#[derive_hash]` type is not admissible as a rel column — CLOSED
+
+...and the recorded diagnosis was wrong, which is the useful part.
+
+It was written up as "the check waits for the item-macro drain, but
+annotation-triggered emission is not covered by that signal". The check does
+read `if (!metaprog_pending_pkgs_.empty()) return;` and its comment does say a
+derive synthesizes `impl Hash` later, so waiting is what it means to do.
+
+It never waits. Pending-ness is discovered during LOWERING, one phase AFTER this
+check runs during collect, so in the round that matters the set is always empty.
+The check ran ONCE, judged a type whose impl did not exist yet, and errored —
+which ended the compile before the round that would have produced the answer.
+"Nothing is pending" and "nothing has been examined yet" were the same value.
+
+⚠ Two hypotheses died before that one: widening the pending signal to count
+annotations changed nothing, and neither did adding an item macro to the same
+module. What settled it was one `fprintf` inside the check, printing the number
+of rounds and what was registered — direct observation of the failing construct,
+after two rounds of reasoning about its context.
+
+The signal that IS available at collect time is the staged handler-target list,
+built earlier in the same pass. A type annotated with a registered handler is
+one whose capability is being SYNTHESIZED, which is not the same as lacking it.
+Tests: `deem_rel_col_derived` (admitted) and `deem_rel_col_hashable_fail` (a type
+with no derive and no impl is still refused — the half that could have silently
+degraded).
 
 `check_rel_column_types` waits for the item-macro drain
 (`metaprog_pending_pkgs_`), but annotation-triggered emission is not covered by

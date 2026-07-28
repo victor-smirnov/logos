@@ -2106,6 +2106,10 @@ private:
     // `#[metaprog_handler("name")]` annotations on hook fns.
     std::vector<MetaprogHandlerStage> metaprog_handlers_;
     std::vector<MetaprogTargetStage>  metaprog_targets_;
+    // Type names carrying a metaprog-handler annotation whose emission has not
+    // happened yet this round. A deferred capability check must not read the
+    // ABSENCE of a synthesized impl as the type lacking the capability.
+    logos::compiler::StrSet           metaprog_annotated_types_;
 
     // Phase 7 slice 17: metaprog-compile mode. When metaprog_mode_ is true,
     // lower_fn skips body lowering for non-handler fns in the entry ast

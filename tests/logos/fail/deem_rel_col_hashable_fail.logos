@@ -1,0 +1,20 @@
+// The other half of `deem_rel_col_derived`: a type that has NOT been given the
+// capability is still refused.
+//
+// Admitting a DERIVED `Hash` works by noticing that the type is annotated with
+// a registered metaprog handler — its capability is being synthesized, which is
+// not the same as lacking it. That reasoning must not degrade into admitting
+// everything: `Sku` here carries no derive and no hand-written impl, so the
+// column check must still name the missing trait and why a rel column needs it.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.hash;
+
+pub struct Sku { pub a: i64, pub b: i64 }
+
+pub trait Catalog { rel item(sku: Sku, qty: i64); }
+
+fn main() -> i32 { return 0i32; }
