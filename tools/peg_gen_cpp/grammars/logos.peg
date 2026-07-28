@@ -14,7 +14,7 @@
     output:    "logos_parser"
 }
 
-%export { module type_param_list type_ref expr wstatic_lit_type }
+%export { module type_param_list type_ref expr wstatic_lit_type block }
 
 // ── AST field keys ────────────────────────────────────────────────────────
 %fields {

@@ -169,6 +169,18 @@ relational IR nodes proper.
 `push_text` gives way to quotes, which also settles the standing debt that
 `push_text` is a workaround rather than the intended codegen surface.
 
+*Enabling step landed:* the obstacle was never syntax. A generated fn's body can
+be a loop nest whose DEPTH is a runtime value (a join chain of N steps), which no
+fixed template expresses and `#( … )*` cannot either — a repeat produces a flat
+sequence and a nest is not flat. `parse_as` already carried the intended answer
+in its own comment (let an emitter BUILD fragments as strings and splice them
+hygienically) but had no rule for the one thing an emitter's body is. The
+grammar's `block` rule existed and was simply never exported; it is now rule 4,
+reachable as `parse_block`. ⚠ It splices at a STATEMENT position — the quote
+grammar has no antiquote alternative where a fn's BODY goes — so the fragment
+lands as a nested block statement, costing one scope. Removing that needs a new
+alternative in the fn rule plus substituter support for a block-typed slot.
+
 **S6 — DECLARED OPERATION SETS.** Capability stops being derived from node
 structure (`can_seek ← ordered_map ∧ measure(max,col)` is Memoria-specific) and
 becomes declared per source. `can_seek` as one boolean is already known wrong:

@@ -2879,6 +2879,15 @@ extern "C" const uint8_t* logos_parse_as(const uint8_t* s, uint64_t len,
             case 1: doc = parser.parse_type_ref();        break;
             case 2: doc = parser.parse_expr();            break;
             case 3: doc = parser.parse_wstatic_lit_type(); break;
+            // rule 4 (block) — a BRACED STATEMENT LIST. This is the rule the
+            // emitters need: they build a loop nest whose DEPTH is a runtime
+            // value (a join chain of N steps), which no fixed quote template can
+            // express and no `#( … )*` repeat can either, since a repeat
+            // produces a flat sequence and a nest is not flat. Reifying the
+            // built text as a block lets the emitter keep doing what it is good
+            // at — assembling the body — while the ITEM around it becomes a real
+            // quote instead of raw push_text (ADR 0024 S5).
+            case 4: doc = parser.parse_block();           break;
             default:
                 std::fprintf(stderr, "logos_parse_as: unknown rule_id %u\n", rule_id);
                 return nullptr;

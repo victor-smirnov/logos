@@ -1,0 +1,64 @@
+// A BLOCK built as text splices into a quote (ADR 0024 S5).
+//
+// `push_text` is a workaround, not the intended codegen surface, and the
+// standing requirement is that quotes reach 100% of Logos codegen. The obstacle
+// was never syntax: it is that a generated fn's body can have a shape no fixed
+// template expresses. A join chain of N steps is a loop nest N deep, N known
+// only while the emitter runs, and `#( … )*` does not help — a repeat produces a
+// flat SEQUENCE and a nest is not flat.
+//
+// `parse_as` already carried the idea, in its own comment: let an emitter keep
+// BUILDING fragments as strings, which is its strength, and splice them
+// hygienically into a structured quote. It had rules for a type, a generics
+// header, an expression and a WritStatic literal — everything except the one an
+// emitter's body actually is. `block` is that rule; the grammar had it all
+// along and simply never exported it.
+//
+// Here the body is assembled at metaprog time, with a nesting depth taken from
+// a runtime value, and the fn AROUND it is a quote rather than concatenated
+// text. That is the shape every emitter conversion will take.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+use logos.lang.str;
+
+fn gen(depth: i64) -> QuoteItemBlob {
+    // A nest `depth` levels deep — the case a fixed template cannot express.
+    let mut b: String = String::new();
+    b.push_str("{\n    let mut acc: i64 = 0i64;\n");
+    let mut i: i64 = 0i64;
+    while i < depth {
+        b.push_str("    let mut i");
+        b.push_i64(i);
+        b.push_str(": i64 = 0i64;\n    while i");
+        b.push_i64(i);
+        b.push_str(" < 2i64 {\n");
+        i = i + 1i64;
+    }
+    b.push_str("        acc = acc + 1i64;\n");
+    let mut c: i64 = 0i64;
+    while c < depth {
+        b.push_str("    i");
+        b.push_i64(depth - 1i64 - c);
+        b.push_str(" = i");
+        b.push_i64(depth - 1i64 - c);
+        b.push_str(" + 1i64;\n    }\n");
+        c = c + 1i64;
+    }
+    b.push_str("    return acc;\n}\n");
+
+    let body: ExprBlob = parse_block(b.as_str());
+    // The fn is a QUOTE; only its body arrives as a reified fragment.
+    return quote_item! {
+        pub fn nested() -> i64 { #(body) }
+    };
+}
+
+metacall gen(3);
+
+fn main() -> i32 {
+    // Three levels, two iterations each.
+    if nested() != 8i64 { return 1i32; }
+    return 0i32;
+}
