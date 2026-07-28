@@ -1740,13 +1740,21 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
                 push_nk(em, "__pk", s);
                 em.push_text("); }\n");
             } else {
+                // The null sentinel must be typed by the BUCKET, and the
+                // bucket's payload is the ROW when the source streams — the
+                // one site the payload generalization missed. Unreachable
+                // today (the tree tier needs an Ord-only key, which no scalar
+                // is), so a wrong type here fails only under `join_force_tree`
+                // — which is exactly what that toggle exists to catch.
                 em.push_text("unsafe { ");
                 push_nk(em, "__m", s);
                 em.push_text(" = ");
                 push_nk(em, "__tp", s);
                 em.push_text(".get_mut(&");
                 push_nk(em, "__pk", s);
-                em.push_text(") != (0i64 as *mut Vec<i64>); }\n");
+                em.push_text(") != (0i64 as *mut Vec<");
+                push_payload_ty(em, streams, ty);
+                em.push_text(">); }\n");
             }
         } else {
             // Bucket scan: matched ⇔ SOME bucket row passes the residual

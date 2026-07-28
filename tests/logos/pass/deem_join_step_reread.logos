@@ -1,0 +1,121 @@
+// A join step may stream ONLY when the chain reads its source once — and the
+// bucket must keep every row (ADR 0024 S4).
+//
+// `deem_join_step_streams` pins the strategy→stream implication itself. Two
+// facts it does not pin are the two that fail SILENTLY, and both are new with
+// the widening:
+//
+//   • DUPLICATE KEYS. A streamed step's hash bucket holds the ROWS, not indices
+//     into a slice that no longer exists. If a bucket kept one row per key — or
+//     if the probe re-read a spent iterator — the join would return FEWER rows
+//     and raise nothing. `q_dup` names the same key three times on the step side
+//     and twice on the bound side, so a bucket that loses rows and a plan that
+//     re-reads the source are both visible in the count.
+//
+//   • STEP-vs-STEP. The old guard withdrew the single-read proof when the BASE
+//     was named again by a step. A rel named by TWO STEPS is the same hazard and
+//     was not checked, because every step used to materialize unconditionally.
+//     `q_selfstep` names `d` on both steps: whichever step built second would
+//     find the iterator spent, and the join would return NOTHING.
+//
+// ORACLE: the row count, exactly. Both queries drain the source once, so the
+// pull count cannot separate them — only the rows can.
+//
+// PLAN TRACE (LOGOS_TRACE_PLAN=1):
+//   [plan] e -> hash join on i64
+//   [plan] d -> stream        (streamed: the producer is an iterator and the plan reads it once)
+//   [plan] e -> hash join on i64
+//   [plan] f -> hash join on i64
+//   [plan] d -> materialize   (materialized: the query names this source more than once in one join chain)
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;             // trait MapSource
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+
+static mut PULLED: i64 = 0i64;
+
+// Key 1 carries THREE rows; the keys are deliberately out of order so a bucket
+// that replays in arrival order is distinguishable from one that does not.
+pub struct Dup { pub n: i64 }
+pub struct DupIter { pub i: i64 }
+
+impl Iterator<(i64, i64)> for DupIter {
+    fn next(self: &mut DupIter) -> Option<(i64, i64)> {
+        if self.i >= 5i64 { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let mut k: i64 = 1i64;
+        let mut v: i64 = 10i64;
+        if self.i == 0i64 { k = 1i64; v = 10i64; }
+        if self.i == 1i64 { k = 1i64; v = 11i64; }
+        if self.i == 2i64 { k = 2i64; v = 20i64; }
+        if self.i == 3i64 { k = 1i64; v = 12i64; }
+        if self.i == 4i64 { k = 3i64; v = 30i64; }
+        self.i = self.i + 1i64;
+        return Option::Some((k, v));
+    }
+}
+
+pub fn dup_rows(d: &Dup) -> DupIter { return DupIter { i: 0i64 }; }
+
+impl MapSource<i64, i64> for Dup {
+    rel entry = dup_rows;
+}
+
+// The driving side is an ordinary slice, so every pull in the count is the
+// step's own.
+pub struct Bound { pub k: i64 }
+
+// ONE naming ⇒ hash ⇒ streamed. The bucket must hold all three rows of key 1
+// and must still hold them for the SECOND bound row that asks for key 1.
+pub deem q_dup(xs: &[Bound], d: &Dup) {
+    from xs x join d e on x.k == e.key select (x.k, e.val)
+}
+
+// TWO namings ⇒ the plan must withdraw the single-read proof, whatever each
+// step's strategy says on its own.
+pub deem q_selfstep(xs: &[Bound], d: &Dup) {
+    from xs x join d e on x.k == e.key join d f on x.k == f.key select (e.val, f.val)
+}
+
+fn main() -> i32 {
+    let d: Dup = Dup { n: 5i64 };
+    let mut xs: Vec<Bound> = vec_new::<Bound>();
+    xs.push(Bound { k: 1i64 });
+    xs.push(Bound { k: 2i64 });
+    xs.push(Bound { k: 1i64 });     // asks for key 1 a SECOND time
+
+    // ── Duplicate keys on a streamed step ───────────────────────────────────
+    unsafe { PULLED = 0i64; }
+    let r: Vec<(i64, i64)> = match q_dup(xs.as_slice(), &d)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    // x.k=1 → 10,11,12 · x.k=2 → 20 · x.k=1 → 10,11,12
+    if r.len() != 7i64 { return 2i32; }
+    if r.get(0i64).1 != 10i64 { return 3i32; }
+    if r.get(1i64).1 != 11i64 { return 4i32; }
+    if r.get(2i64).1 != 12i64 { return 5i32; }
+    if r.get(3i64).1 != 20i64 { return 6i32; }
+    if r.get(4i64).1 != 10i64 { return 7i32; }
+    if r.get(5i64).1 != 11i64 { return 8i32; }
+    if r.get(6i64).1 != 12i64 { return 9i32; }
+    // ONE pass, for three bound rows.
+    unsafe { if PULLED != 5i64 { return 10i32; } }
+
+    // ── The same rel named by TWO steps ─────────────────────────────────────
+    let mut ys: Vec<Bound> = vec_new::<Bound>();
+    ys.push(Bound { k: 1i64 });
+    unsafe { PULLED = 0i64; }
+    let r2: Vec<(i64, i64)> = match q_selfstep(ys.as_slice(), &d)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    // Key 1 has three rows on each side ⇒ nine pairs. A streamed step here
+    // would give ZERO — the second build reads an iterator the first spent.
+    if r2.len() != 9i64 { return 12i32; }
+    if r2.get(0i64).0 != 10i64 || r2.get(0i64).1 != 10i64 { return 13i32; }
+    if r2.get(8i64).0 != 12i64 || r2.get(8i64).1 != 12i64 { return 14i32; }
+    // Drained ONCE into a Vec; both indexes are built over that Vec.
+    unsafe { if PULLED != 5i64 { return 15i32; } }
+    return 0i32;
+}
