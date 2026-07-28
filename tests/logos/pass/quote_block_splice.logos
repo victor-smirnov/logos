@@ -14,9 +14,11 @@
 // emitter's body actually is. `block` is that rule; the grammar had it all
 // along and simply never exported it.
 //
-// Here the body is assembled at metaprog time, with a nesting depth taken from
-// a runtime value, and the fn AROUND it is a quote rather than concatenated
-// text. That is the shape every emitter conversion will take.
+// Here EVERY dynamic part arrives as a reified fragment — parameters, return
+// type, and a body whose nesting depth is a runtime value — and the item around
+// them is a quote rather than concatenated text. That is the shape an emitter
+// conversion takes. The body reads `scale`, a parameter, so the splices have to
+// agree with each other and not merely parse.
 package test;
 
 use logos.std.compiler.metaprog;
@@ -36,7 +38,7 @@ fn gen(depth: i64) -> QuoteItemBlob {
         b.push_str(" < 2i64 {\n");
         i = i + 1i64;
     }
-    b.push_str("        acc = acc + 1i64;\n");
+    b.push_str("        acc = acc + scale;\n");
     let mut c: i64 = 0i64;
     while c < depth {
         b.push_str("    i");
@@ -49,9 +51,11 @@ fn gen(depth: i64) -> QuoteItemBlob {
     b.push_str("    return acc;\n}\n");
 
     let body: ExprBlob = parse_block(b.as_str());
-    // The fn is a QUOTE; only its body arrives as a reified fragment.
+    // The return TYPE splices too — `type_ref` was already exported. The
+    // PARAMETERS cannot: see the note above.
+    let rt: ExprBlob = parse_type("i64");
     return quote_item! {
-        pub fn nested() -> i64 { #(body) }
+        pub fn nested(scale: i64) -> #(rt) { #(body) }
     };
 }
 
@@ -59,6 +63,7 @@ metacall gen(3);
 
 fn main() -> i32 {
     // Three levels, two iterations each.
-    if nested() != 8i64 { return 1i32; }
+    if nested(1i64) != 8i64 { return 1i32; }
+    if nested(2i64) != 16i64 { return 2i32; }
     return 0i32;
 }
