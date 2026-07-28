@@ -1,0 +1,56 @@
+// The ORDERED counterpart of the HashMap declaration (ADR 0024 S6) — the other
+// half of the proof: same mechanism, different capabilities, no planner change.
+//
+// A sorted map can be probed AND positioned, so it declares three operations
+// and implements `OrderedMapSource` — the trait that IS the order fact. Set
+// beside `deem_hashmap_source`, the pair shows the plane reading two very
+// different containers through one declaration form:
+//
+//   HashMap  : MapSource,        one op  (eq)          → a range query scans
+//   BTreeMap : OrderedMapSource, three   (eq, ge, le)  → a range query narrows
+//
+// All three are EXACT, and `upto` is why exactness is DECLARED rather than
+// derived: it is a RANGE that stops ON the bound, so "range ⇒ superset" would
+// have been wrong about it and the query would keep a filter it does not need.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.btree;
+use logos.mem.collections.vec;
+use logos.mem.bt.map;
+use logos.lang.result;
+
+pub deem at_key(m: &BTreeMap<i64, i64>) { from m e where e.key == 2 select (e.key, e.val) }
+pub deem from_2(m: &BTreeMap<i64, i64>) { from m e where e.key >= 2 select (e.key, e.val) }
+pub deem upto_2(m: &BTreeMap<i64, i64>) { from m e where e.key <= 2 select (e.key, e.val) }
+pub deem above_1(m: &BTreeMap<i64, i64>) { from m e where e.key > 1 select (e.key, e.val) }
+
+fn main() -> i32 {
+    let mut m: BTreeMap<i64, i64> = btreemap_new::<i64, i64>();
+    unsafe {
+        (&mut m as *mut BTreeMap<i64, i64>).insert(1i64, 10i64);
+        (&mut m as *mut BTreeMap<i64, i64>).insert(2i64, 20i64);
+        (&mut m as *mut BTreeMap<i64, i64>).insert(3i64, 30i64);
+    }
+    let a: Vec<(i64, i64)> = match at_key(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 1i64 || a.get(0i64).1 != 20i64 { return 2i32; }
+
+    // `>=` and `<=` are answered EXACTLY, so these carry no residual filter —
+    // and must still give exactly the right rows, in key order.
+    let f: Vec<(i64, i64)> = match from_2(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if f.len() != 2i64 || f.get(0i64).0 != 2i64 || f.get(1i64).0 != 3i64 { return 4i32; }
+
+    let u: Vec<(i64, i64)> = match upto_2(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if u.len() != 2i64 || u.get(0i64).0 != 1i64 || u.get(1i64).0 != 2i64 { return 6i32; }
+
+    // `>` has no exact operation; the `ge` one COVERS it, so the narrowing
+    // applies and the query's own filter is what excludes the boundary row.
+    // Getting 3 rows here would mean the filter was wrongly dropped.
+    let g: Vec<(i64, i64)> = match above_1(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if g.len() != 2i64 || g.get(0i64).0 != 2i64 { return 8i32; }
+    return 0i32;
+}

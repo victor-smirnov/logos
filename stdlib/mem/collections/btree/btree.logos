@@ -17,6 +17,8 @@ use logos.lang.cmp;
 use logos.lang.iter;
 use logos.lang.ops;
 use logos.lang.option;
+use logos.mem.collections.vec;   // Vec — the relational projection's rows
+use logos.mem.bt.map;            // trait OrderedMapSource — the query plane (ADR 0024 S6)
 
 /// Ordered map backed by a sorted parallel-array (not a real B-tree).
 ///
@@ -196,4 +198,82 @@ impl<K: Ord, V> Iterator<ZipPair<&K, &V>> for BTreeMapIter<K, V> {
 pub unsafe fn btreemap_free<K: Ord, V>(m: *mut BTreeMap<K, V>) {
     dealloc(m.keys as *mut u8);
     dealloc(m.vals as *mut u8);
+}
+
+// ── the query plane (ADR 0024 S6) ───────────────────────────────────────────
+//
+// The ordered counterpart of the HashMap declaration, and the other half of the
+// proof: same mechanism, different capabilities, no planner change. A sorted
+// map can be probed AND positioned, so it declares three operations and
+// implements `OrderedMapSource` — the trait that IS the order fact.
+//
+// All three are EXACT: the landing is a binary search and the walk stops on the
+// bound, so each returns precisely the rows of its comparison and a query
+// narrowed by one needs no residual filter. `upto` being exact is the case that
+// makes exactness worth declaring rather than deriving — it is a RANGE, and the
+// rule "range ⇒ superset" would have been wrong about it.
+
+/// Every entry as a row, in key order.
+pub fn btree_rows<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>) -> Vec<(K, V)> {
+    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
+    unsafe {
+        let p: *const BTreeMap<K, V> = m as *const BTreeMap<K, V>;
+        let mut i: i64 = 0i64;
+        while i < p.len { out.push((p.keys[i], p.vals[i])); i = i + 1i64; }
+    }
+    return out;
+}
+
+/// The point probe — the row for `k`, or none. EXACT for `==`.
+pub fn btree_at<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, k: K) -> Vec<(K, V)> {
+    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
+    unsafe {
+        let p: *const BTreeMap<K, V> = m as *const BTreeMap<K, V>;
+        let pos: i64 = p.lower_bound(&k);
+        if pos < p.len {
+            let kk: K = p.keys[pos];
+            match (&kk).cmp(&k) {
+                Ordering::Equal => { out.push((p.keys[pos], p.vals[pos])); }
+                _               => { }
+            }
+        }
+    }
+    return out;
+}
+
+/// The suffix from `lo` — one binary search, then a walk. EXACT for `>=`.
+pub fn btree_from<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, lo: K) -> Vec<(K, V)> {
+    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
+    unsafe {
+        let p: *const BTreeMap<K, V> = m as *const BTreeMap<K, V>;
+        let mut i: i64 = p.lower_bound(&lo);
+        while i < p.len { out.push((p.keys[i], p.vals[i])); i = i + 1i64; }
+    }
+    return out;
+}
+
+/// The prefix up to `hi`, inclusive — the walk stops ON the bound, which is
+/// what makes a RANGE exact. EXACT for `<=`.
+pub fn btree_upto<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, hi: K) -> Vec<(K, V)> {
+    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
+    unsafe {
+        let p: *const BTreeMap<K, V> = m as *const BTreeMap<K, V>;
+        let mut i: i64 = 0i64;
+        let mut go: bool = true;
+        while go && i < p.len {
+            let kk: K = p.keys[i];
+            match (&kk).cmp(&hi) {
+                Ordering::Greater => { go = false; }
+                _                 => { out.push((p.keys[i], p.vals[i])); i = i + 1i64; }
+            }
+        }
+    }
+    return out;
+}
+
+impl<K: Ord + Copy, V: Copy> OrderedMapSource<K, V> for BTreeMap<K, V> {
+    rel entry = btree_rows;
+    op entry.key eq = btree_at    exact;
+    op entry.key ge = btree_from  exact;
+    op entry.key le = btree_upto  exact;
 }
