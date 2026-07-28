@@ -181,6 +181,15 @@ grammar has no antiquote alternative where a fn's BODY goes — so the fragment
 lands as a nested block statement, costing one scope. Removing that needs a new
 alternative in the fn rule plus substituter support for a block-typed slot.
 
+The rest of the route is now proven too. `param_list` gained an antiquote
+alternative — on the LIST, not on the dozens of fn rules — so parameters splice;
+`type_ref` already handled the return type; and `use #pkg?;` carries a
+runtime-sized import list by dropping the slots whose path is empty. Together
+those answer the mechanism question this arc had left open: an `Emitter` does not
+need to learn to take a `QuoteItemBlob`, because the quote route replaces the
+text CHUNK outright — uses included. What remains is the conversion itself,
+emitter by emitter, with L4 as the oracle.
+
 **S6 — DECLARED OPERATION SETS.** Capability stops being derived from node
 structure (`can_seek ← ordered_map ∧ measure(max,col)` is Memoria-specific) and
 becomes declared per source. `can_seek` as one boolean is already known wrong:

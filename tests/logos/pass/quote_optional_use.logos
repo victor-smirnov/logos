@@ -1,0 +1,47 @@
+// A quote carries CONDITIONAL imports (`use #pkg?;`).
+//
+// The last unknown between the quote system and a converted emitter. An emitter
+// writes a text CHUNK today — its own module document with its own use-decls —
+// and the reason that looked load-bearing is that its imports are DYNAMIC: a
+// query imports the module of each native source it happens to bind, a list
+// known only while the emitter runs.
+//
+// The quote route already answers that. `use #pkg?;` drops the whole import when
+// the substituted path is EMPTY, so a fixed set of optional slots expresses a
+// runtime-sized import list without a blob variant per present/absent
+// combination — and the emitters' list is bounded (at most one module per rel,
+// and a query binds at most 8).
+//
+// ⚠ Nothing in stdlib used this form, so it was machinery no test covered. It
+// is exercised BOTH ways here on purpose: an absent import must not merely be
+// harmless, it must actually be dropped — a `use` of the empty path would be a
+// resolution error, so a passing compile is the assertion.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+use logos.lang.str;
+
+fn gen(want_vec: bool) -> QuoteItemBlob {
+    // The PRESENT case: a real module path, chosen at metaprog time.
+    let a: Ident = if want_vec { Ident::new("logos.mem.collections.vec") }
+                   else { Ident::new("") };
+    // The ABSENT case: an empty path, so this import must vanish entirely.
+    let b: Ident = Ident::new("");
+    return quote_item! {
+        use #a?;
+        use #b?;
+        pub fn made() -> i64 {
+            let mut v: Vec<i64> = vec_new::<i64>();
+            v.push(41i64);
+            return v.get(0i64) + 1i64;
+        }
+    };
+}
+
+metacall gen(true);
+
+fn main() -> i32 {
+    if made() != 42i64 { return 1i32; }
+    return 0i32;
+}
