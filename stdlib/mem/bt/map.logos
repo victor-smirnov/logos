@@ -97,6 +97,18 @@ pub trait Ctr {
     fn size(self: &Self) -> u64;
 }
 
+/// The RELATIONAL projection of a map — one row per entry, in NO GUARANTEED
+/// ORDER (ADR 0024 S6).
+///
+/// Order is a SEPARATE FACT from being a map, and conflating them is what
+/// `OrderedMapSource` did: a `HashMap` answers `key == k` in O(1) and cannot
+/// answer `key > k` at all, so it is a perfectly good map source and not an
+/// ordered one. A source says which it is by which trait it implements, and
+/// declares what it can DO with `op` members either way.
+pub trait MapSource<K, V> {
+    rel entry(key: K, val: V);
+}
+
 /// The RELATIONAL projection of an ordered map — the Deem plane's view of any
 /// `kind ordered_map` container, in the container's own vocabulary: one row per
 /// entry, in key order.
@@ -107,6 +119,10 @@ pub trait Ctr {
 /// this one it can — `mapping M<S: OrderedMapSource>(m: &S) { from m e … }`
 /// names no family at all, and only the INSTANTIATION site mentions a concrete
 /// container. The generated family supplies the materializer.
+// INDEPENDENT of MapSource, not a refinement of it: a source implements one or
+// the other, and which one IS the order fact. A supertrait would oblige every
+// ordered source to write both impls binding the same relation, which the rel
+// binding rightly refuses — one materializer, one declaration.
 pub trait OrderedMapSource<K, V> {
     rel entry(key: K, val: V);
 }

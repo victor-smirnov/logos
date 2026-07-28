@@ -1,0 +1,61 @@
+// A STANDARD-LIBRARY container joins the query plane by DECLARING itself
+// (ADR 0024 S6) — and `HashMap` is the one that proves the plane is not
+// container-shaped, because it breaks the model the plane was first built for.
+//
+// A hash table answers `key == k` in O(1), cannot answer `key > k` AT ALL, and
+// has no order to offer. So it implements `MapSource`, not `OrderedMapSource`
+// — order is a separate fact from being a map — and declares exactly one
+// operation. Nothing in the planner knows this type; it reads the same
+// declaration a generated Memoria family writes.
+//
+// The two queries below take different paths for reasons the plan can state:
+//
+//   [plan] m -> hashmap_at on key  (an operation EXACT for that comparison —
+//                                   the residual filter is redundant and was dropped)
+//   [plan] m -> scan on key        (the source declares no operation covering
+//                                   that comparison on that column)
+//
+// A model with `can_seek` as one boolean could not express either line: it
+// would have to claim a hash table can seek, or that it cannot be probed.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.vec;
+use logos.mem.bt.map;
+use logos.lang.result;
+
+pub deem at_key(m: &HashMap<i64, i64>) { from m e where e.key == 2 select (e.key, e.val) }
+pub deem above(m: &HashMap<i64, i64>)  { from m e where e.key > 1 select (e.key, e.val) }
+
+fn main() -> i32 {
+    let mut m: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+    unsafe {
+        (&mut m as *mut HashMap<i64, i64>).insert(1i64, 10i64);
+        (&mut m as *mut HashMap<i64, i64>).insert(2i64, 20i64);
+        (&mut m as *mut HashMap<i64, i64>).insert(3i64, 30i64);
+    }
+    // The narrowed path: one probe, no filter — and the answer must still be
+    // exactly the matching row.
+    let a: Vec<(i64, i64)> = match at_key(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 1i64          { return 2i32; }
+    if a.get(0i64).0 != 2i64    { return 3i32; }
+    if a.get(0i64).1 != 20i64   { return 4i32; }
+
+    // The scanned path: no operation covers `>`, so every row is read and the
+    // query's own filter selects. Set semantics — assert the count, not order,
+    // because a hash table has none to assert.
+    let b: Vec<(i64, i64)> = match above(&m)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if b.len() != 2i64 { return 6i32; }
+    let mut sum: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < b.len() {
+        if b.get(i).0 <= 1i64 { return 7i32; }
+        sum = sum + b.get(i).1;
+        i = i + 1i64;
+    }
+    if sum != 50i64 { return 8i32; }
+    return 0i32;
+}

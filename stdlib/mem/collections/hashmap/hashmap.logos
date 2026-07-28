@@ -15,6 +15,8 @@ use logos.lang.cmp;
 use logos.lang.option;
 use logos.lang.iter;
 use logos.lang.ops;
+use logos.mem.collections.vec;   // Vec — the relational projection's rows
+use logos.mem.bt.map;            // trait MapSource — the query plane (ADR 0024 S6)
 
 let SLOT_EMPTY:     u8 = 0 as u8;
 let SLOT_OCCUPIED:  u8 = 1 as u8;
@@ -353,4 +355,49 @@ impl<K, V> Drop for HashMap<K, V> {
             }
         }
     }
+}
+
+// ── the query plane (ADR 0024 S6) ───────────────────────────────────────────
+//
+// A HashMap joins Deem's query plane by DECLARING itself: the relation it
+// projects, and what it can do with it. Nothing about the planner knows this
+// type — it reads the declaration, the same one a generated Memoria family
+// writes, which is the test that the planner is not container-shaped.
+//
+// What it declares is exactly what a hash table CAN do, and the shape of that
+// is the point: a point probe on the key, and nothing else. No `ge`, no `le`,
+// and `MapSource` rather than `OrderedMapSource` — a hash table has no order
+// to offer, so a query that filters on a range gets a full scan and the plan
+// says why. A model that had `can_seek` as one boolean could not express this.
+
+/// Every entry as a row, in the table's internal order — which is to say, in
+/// no order a caller may rely on.
+pub fn hashmap_rows<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>) -> Vec<(K, V)> {
+    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
+    unsafe {
+        let mut it: HashMapIter<K, V> = (m as *const HashMap<K, V>).iter();
+        loop {
+            match it.next() {
+                Option::Some(p) => { out.push((*p.first, *p.second)); }
+                Option::None    => { break; }
+            }
+        }
+    }
+    return out;
+}
+
+/// The point probe: the row for `k`, or none. EXACT — it returns precisely the
+/// rows satisfying `key == k`, so a query narrowed by it needs no filter.
+pub fn hashmap_at<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>, k: K) -> Vec<(K, V)> {
+    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
+    unsafe {
+        let p: *const V = (m as *const HashMap<K, V> as *mut HashMap<K, V>).get(&k);
+        if p != (0 as *const V) { out.push((k, *p)); }
+    }
+    return out;
+}
+
+impl<K: Hash + Eq + Copy, V: Copy> MapSource<K, V> for HashMap<K, V> {
+    rel entry = hashmap_rows;
+    op entry.key eq = hashmap_at  exact;
 }

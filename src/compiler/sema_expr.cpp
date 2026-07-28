@@ -21329,9 +21329,53 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
             while (!base.empty() && base.back() == ' ') base.pop_back();
             if (auto iit = impls_.find(b.trait_name + "::" + base);
-                iit != impls_.end())
-                for (auto ta : iit->second.trait_type_args)
-                    trait_args.push_back(type_str(ta));
+                iit != impls_.end()) {
+                // A GENERIC source impl (`impl<K,V> MapSource<K,V> for
+                // HashMap<K,V>`) states its trait args as its own TYPE PARAMS,
+                // so taking them verbatim yields `K`/`V` and the query is typed
+                // by names that do not exist. Bind them from the CONCRETE type
+                // at the use site — `HashMap<i64,i64>` — by unifying it against
+                // the impl's target pattern, exactly as a call site binds a
+                // generic fn's params.
+                // The use site's own type arguments, in order: `HashMap<i64,
+                // i64>` → ["i64", "i64"]. A generic source impl states its
+                // trait args as its own params (`MapSource<K,V> for
+                // HashMap<K,V>`), so arg i of the trait is arg i of the target,
+                // and the concrete spelling is right here.
+                std::vector<std::string> site_args;
+                if (auto lt = ptype_stripped.find('<');
+                    lt != std::string::npos && ptype_stripped.back() == '>') {
+                    std::string inner = ptype_stripped.substr(lt + 1,
+                                            ptype_stripped.size() - lt - 2);
+                    int depth = 0; std::string cur;
+                    for (char c : inner) {
+                        if (c == '<') ++depth;
+                        else if (c == '>') --depth;
+                        if (c == ',' && depth == 0) {
+                            while (!cur.empty() && cur.front() == ' ') cur.erase(cur.begin());
+                            while (!cur.empty() && cur.back() == ' ') cur.pop_back();
+                            site_args.push_back(cur); cur.clear(); continue;
+                        }
+                        cur += c;
+                    }
+                    while (!cur.empty() && cur.front() == ' ') cur.erase(cur.begin());
+                    while (!cur.empty() && cur.back() == ' ') cur.pop_back();
+                    if (!cur.empty()) site_args.push_back(cur);
+                }
+                size_t ai = 0;
+                for (auto ta : iit->second.trait_type_args) {
+                    TypeRef t(ta);
+                    std::string as = type_str(ta);
+                    // An arg that is still a TYPE VAR is the impl's own
+                    // parameter; the concrete one sits at the same position of
+                    // the use site's type.
+                    if (t && t.kind() == LogosType::Kind::TypeVar
+                        && ai < site_args.size())
+                        as = site_args[ai];
+                    trait_args.push_back(as);
+                    ++ai;
+                }
+            }
         }
         auto resolve_col_ty = [&](const std::string& ty) -> std::string {
             for (size_t p = 0; p < trait_params.size(); ++p)
