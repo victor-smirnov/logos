@@ -1,0 +1,159 @@
+// WQL — join chains checked against an in-file NESTED-LOOP ORACLE, with 2x2
+// FAN-OUT at both levels of a 3-way chain. The existing chain tests pin small
+// hand-written result lists; this one pins the join against an independently
+// computed one, so a mis-nested loop body that loses or duplicates rows fails
+// on the COUNT rather than on a value that happens to still look plausible.
+//
+// Covers, over the same data: a 3-way hash chain; an anti join with a
+// residual; a HASH step and a nested-LOOP step (f64 key) in ONE query; and
+// `select first` with a descending order over a join.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub k: i64, pub m: i64, pub r: f64 }
+struct C { pub m: i64, pub w: i64 }
+struct F { pub r: f64, pub z: i64 }
+
+// 3-way chain, both steps i64 equi → hash tier at both levels.
+pub deem q3(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ a
+    join bs b on a.k == b.k
+    join cs c on b.m == c.m
+    select a.v * 100 + b.m * 10 + c.w }
+
+// anti join WITH a residual: keep a-rows with no b-row of the same k and m>5.
+pub deem anti_res(as_: &[A], bs: &[B]) {
+    from as_ a
+    anti join bs b on a.k == b.k && b.m > 5
+    select a.v }
+
+// HASH step (i64 key) and LOOP step (f64 key, PartialEq-only) in ONE query.
+pub deem mixed(as_: &[A], bs: &[B], fs: &[F]) {
+    from as_ a
+    join bs b on a.k == b.k
+    join fs f on b.r == f.r
+    select a.v * 1000 + b.m * 10 + f.z }
+
+// `select first` over a join with a descending order → the maximum.
+pub deem topjoin(as_: &[A], bs: &[B]) {
+    from as_ a
+    join bs b on a.k == b.k
+    select first a.v * 10 + b.m order by a.v * 10 + b.m desc }
+
+fn main() -> i32 {
+    let as_: [A; 4] = [
+        A { k: 1i64, v: 1i64 },
+        A { k: 1i64, v: 2i64 },
+        A { k: 2i64, v: 3i64 },
+        A { k: 7i64, v: 4i64 },
+    ];
+    let bs: [B; 4] = [
+        B { k: 1i64, m: 5i64, r: 1.5f64 },
+        B { k: 1i64, m: 6i64, r: 2.5f64 },
+        B { k: 2i64, m: 5i64, r: 1.5f64 },
+        B { k: 3i64, m: 9i64, r: 9.5f64 },
+    ];
+    let cs: [C; 4] = [
+        C { m: 5i64, w: 1i64 },
+        C { m: 5i64, w: 2i64 },
+        C { m: 6i64, w: 3i64 },
+        C { m: 8i64, w: 4i64 },
+    ];
+    let fs: [F; 3] = [
+        F { r: 1.5f64, z: 1i64 },
+        F { r: 2.5f64, z: 2i64 },
+        F { r: 1.5f64, z: 3i64 },
+    ];
+
+    // ── q3: independent nested-loop ORACLE over the same data ──────────────
+    let mut want: Vec<i64> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < 4i64 {
+        let mut j: i64 = 0i64;
+        while j < 4i64 {
+            if as_[i].k == bs[j].k {
+                let mut n: i64 = 0i64;
+                while n < 4i64 {
+                    if bs[j].m == cs[n].m {
+                        want.push(as_[i].v * 100i64 + bs[j].m * 10i64 + cs[n].w);
+                    }
+                    n = n + 1i64;
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+
+    let got: Vec<i64> = q3(&as_[..], &bs[..], &cs[..]).unwrap();
+    if got.len() != want.len() { return 1i32; }
+    if got.len() != 8i64      { return 2i32; }   // 2x2 fan-out, hard count
+    let mut p: i64 = 0i64;
+    while p < got.len() {
+        if got.get(p) != want.get(p) { return 3i32; }
+        p = p + 1i64;
+    }
+
+    // ── anti + residual ────────────────────────────────────────────────────
+    let mut want2: Vec<i64> = Vec::new();
+    i = 0i64;
+    while i < 4i64 {
+        let mut hit: bool = false;
+        let mut j: i64 = 0i64;
+        while j < 4i64 {
+            if as_[i].k == bs[j].k && bs[j].m > 5i64 { hit = true; }
+            j = j + 1i64;
+        }
+        if !hit { want2.push(as_[i].v); }
+        i = i + 1i64;
+    }
+    let g2: Vec<i64> = anti_res(&as_[..], &bs[..]).unwrap();
+    if g2.len() != want2.len() { return 4i32; }
+    if g2.len() != 2i64        { return 5i32; }
+    p = 0i64;
+    while p < g2.len() {
+        if g2.get(p) != want2.get(p) { return 6i32; }
+        p = p + 1i64;
+    }
+
+    // ── mixed hash step + f64 nested-loop step ─────────────────────────────
+    let mut want3: Vec<i64> = Vec::new();
+    i = 0i64;
+    while i < 4i64 {
+        let mut j: i64 = 0i64;
+        while j < 4i64 {
+            if as_[i].k == bs[j].k {
+                let mut n: i64 = 0i64;
+                while n < 3i64 {
+                    if bs[j].r == fs[n].r {
+                        want3.push(as_[i].v * 1000i64 + bs[j].m * 10i64 + fs[n].z);
+                    }
+                    n = n + 1i64;
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    let g3: Vec<i64> = mixed(&as_[..], &bs[..], &fs[..]).unwrap();
+    if g3.len() != want3.len() { return 7i32; }
+    if g3.len() != 8i64        { return 8i32; }
+    p = 0i64;
+    while p < g3.len() {
+        if g3.get(p) != want3.get(p) { return 9i32; }
+        p = p + 1i64;
+    }
+
+    // ── first + join + desc order → max of {15,16,25,26,35} = 35 ───────────
+    let t: Option<i64> = topjoin(&as_[..], &bs[..]).unwrap();
+    match t {
+        Option::Some(v) => { if v != 35i64 { return 10i32; } }
+        Option::None    => { return 11i32; }
+    }
+
+    return 0i32;
+}

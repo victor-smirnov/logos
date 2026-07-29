@@ -215,7 +215,7 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
 // Every emitter produces the same ITEM shape — visibility, name, generics,
 // parameters, return type, body — and differs only in the body, whose shape is
 // a runtime value. So the shell is written ONCE, here, and an emitter hands it
-// four fragments plus the body text it built.
+// five fragments, the body among them.
 //
 // ⚠ TWO variants, not a `pub(#v)` antiquote: a private fn has no visibility
 // node at all, so there is nothing for an antiquote to substitute into. Deem
@@ -225,15 +225,11 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
 // `Result<Option<X>, ElError>` and `Result<Vec<X>, ElError>` are two strings an
 // emitter already knows how to build; parsing the whole thing keeps this to one
 // quote shape instead of one per result flavour.
-fn emit_fn_quote(fn_name: str, params_text: str, tps: str, ret_ty: str,
-                 body_text: str, prm: &MacroParams) {
-    emit_fn_quote_blob(fn_name, params_text, tps, ret_ty,
-                       parse_block(body_text), prm);
-}
-
-// The same shell with the body already a FRAGMENT. This is the entry point an
-// emitter that builds structure uses; the `str` overload above is the text one,
-// kept for the emitters still assembling their body as source.
+//
+// (A `str`-body overload lived here, reifying a body with `parse_block`. It has
+// no callers: every emitter in this file, the four constant-body peepholes
+// included, now hands over a fragment it BUILT. A text overload is the seam a
+// new text body would come back through, so it is gone rather than unused.)
 fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
                       body: ExprBlob, prm: &MacroParams) {
     // The imports a native source's materializer needs are a RUNTIME list —
@@ -276,9 +272,9 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 
 // (`emit_fn_head` lived here — the hand-written `"fn "`/`"pub fn "` + name +
 // generics + `"("` prefix every emitter used to open its item with. It has no
-// callers: `emit_fn_quote` above is the only thing in this file that writes a
-// fn's HEAD, and it writes it as structure. Reintroducing a text head would
-// reintroduce the class of failure this arc removed — a missing `>` or a stray
+// callers: `emit_fn_quote_blob` above is the only thing in this file that
+// writes a fn's HEAD, and it writes it as structure. Reintroducing a text head
+// would reintroduce the class of failure this arc removed — a missing `>` or a stray
 // space surfacing as a syntax error inside generated source, at a position no
 // reader can use.)
 
@@ -587,29 +583,28 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     }
     let result_elem: str = string_as_str(&elem_ty);
 
-    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
+    // ── the item is a QUOTE (ADR 0024 S5), BODY INCLUDED ──────────────────
     // Both collapses are a return type plus a one-line constant body, and the
-    // two differ ONLY in those two strings — so the branch chooses the type
-    // and the body, and the item is emitted once.
+    // two differ ONLY in the type and that one line — so the branch chooses
+    // both and the item is emitted once. The element type is the only runtime
+    // content, and it rides a TYPE slot rather than a `Vec::<` … `>::new()`
+    // string whose angle brackets had to be matched by hand.
     let mut rty: String = String::new();
-    let mut bt: String  = String::new();
-    if first {
+    let bt: ExprBlob = if first {
         // Single-row mode: constant None (no scan loop).
         rty.push_str("Result<Option<");
         rty.push_str(result_elem);
         rty.push_str(">, ElError>");
-        bt.push_str("{\n    return Result::Ok(Option::None);\n}\n");
+        quote_block! { return Result::Ok(Option::None); }
     } else {
         rty.push_str("Result<Vec<");
         rty.push_str(result_elem);
         rty.push_str(">, ElError>");
         // The const-false filter proved emptiness: return the empty Vec directly.
-        bt.push_str("{\n    return Result::Ok(Vec::<");
-        bt.push_str(result_elem);
-        bt.push_str(">::new());\n}\n");
-    }
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  bt.as_str(), prm);
+        let et: ExprBlob = parse_type(result_elem);
+        quote_block! { return Result::Ok(Vec::<#(et)>::new()); }
+    };
+    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm);
     return true;
 }
 
@@ -618,10 +613,9 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
 fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
                   prm: &MacroParams, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
-    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
-    // The body is a CONSTANT here, but it still travels as text: `parse_block`
-    // is the one seam a fn-body antiquote accepts, and a shape that happens to
-    // be constant today does not deserve a second route.
+    // ── the item is a QUOTE (ADR 0024 S5), BODY INCLUDED ──────────────────
+    // The body is a CONSTANT here, and a constant is the one body with no
+    // excuse to travel as text at all.
     let mut rty: String = String::new();
     rty.push_str("Result<Option<&");
     rty.push_str(sc.row_ty);
@@ -631,8 +625,8 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
     // signature names: `params_text` is VERBATIM, so any param type defined in
     // a factory package needs that package imported. `prm` supplies exactly
     // the list the chunk route builds for every other emitter.
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  "{\n    return Result::Ok(Option::None);\n}\n", prm);
+    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(),
+                       quote_block! { return Result::Ok(Option::None); }, prm);
     return true;
 }
 
@@ -652,16 +646,15 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
     rty.push_str("Result<Option<&");
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
-    let mut bt: String = String::new();
-    bt.push_str("{\n    if (");
-    bt.push_str(src_name);
-    bt.push_str(").len() > 0i64 { return Result::Ok(Option::Some(&(");
-    bt.push_str(src_name);
-    bt.push_str(")[0i64])); }\n");
-    bt.push_str("    return Result::Ok(Option::None);\n");
-    bt.push_str("}\n");
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  bt.as_str(), prm);
+    // ⚠ ONE blob per SLOT: a spliced fragment is consumed where it lands, so
+    // the two occurrences of the source expression need two reifications.
+    let s1: ExprBlob = parse_expr(src_name);
+    let s2: ExprBlob = parse_expr(src_name);
+    let bt: ExprBlob = quote_block! {
+        if (#(s1)).len() > 0i64 { return Result::Ok(Option::Some(&(#(s2))[0i64])); }
+        return Result::Ok(Option::None);
+    };
+    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm);
     return true;
 }
 
@@ -684,12 +677,9 @@ fn emit_identity(scan_e: RExpr,
     rty.push_str("Result<&[");
     rty.push_str(row_ty);
     rty.push_str("], ElError>");
-    let mut bt: String = String::new();
-    bt.push_str("{\n    return Result::Ok(");
-    bt.push_str(src_name);
-    bt.push_str(");\n}\n");
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  bt.as_str(), prm);
+    let s1: ExprBlob = parse_expr(src_name);
+    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(),
+                       quote_block! { return Result::Ok(#(s1)); }, prm);
     return true;
 }
 

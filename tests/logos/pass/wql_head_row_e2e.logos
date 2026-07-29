@@ -1,0 +1,42 @@
+// WQL — the HEAD-ROW peephole (`emit_head_row`): `select first <rowvar>` over
+// an UNFILTERED scan. The identity selection means the first row IS the
+// answer, so it is BORROWED (`Option<&Row>`) rather than projected — zero
+// loop, zero copy.
+//
+// ⚠ This peephole had NO coverage anywhere in the corpus: no --gen-dir dump of
+// any pass test contained its shape, so its emitter was the one body the
+// quote conversion changed with nothing to catch a mistake. The pointer
+// assertion below is the point — a projecting fallback would still return the
+// right VALUES while silently copying.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+struct Row { pub a: i64, pub b: i64 }
+
+pub deem head(rs: &[Row]) { from rs r select first r }
+
+fn main() -> i32 {
+    let rs: [Row; 3] = [
+        Row { a: 1i64, b: 10i64 },
+        Row { a: 2i64, b: 20i64 },
+        Row { a: 3i64, b: 30i64 },
+    ];
+    match head(&rs[..]).unwrap() {
+        Option::Some(r) => {
+            if r.a != 1i64 || r.b != 10i64 { return 1i32; }
+            // it must be a BORROW of the source row, not a copy
+            if (r as *const Row) != (&rs[0i64] as *const Row) { return 2i32; }
+        }
+        Option::None => { return 3i32; }
+    }
+
+    let empty: [Row; 0] = [];
+    match head(&empty[..]).unwrap() {
+        Option::Some(_r) => { return 4i32; }
+        Option::None     => { }
+    }
+    return 0i32;
+}
