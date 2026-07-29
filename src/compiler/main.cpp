@@ -2804,13 +2804,21 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             return expand_andand(body_off, n);
         }
 
-        // 5c Option B: ExprBlob splice. Detect VAR_REF placeholders whose
-        // span kind=1 BEFORE allocating a TOM — we replace the entire node
-        // with a deep copy of the blob's root expr.
+        // 5c Option B: ExprBlob splice. Detect placeholders whose span kind=1
+        // BEFORE allocating a TOM — we replace the entire node with a deep
+        // copy of the blob's root.
         // Slice 1.6: kind=2 is the Vec<ExprBlob> cursor flavor — slots
         // is a contiguous *const u8 array (8-byte stride), and we pick
         // the cursor_i-th element per `#(...)*` iteration.
-        if (cd == la::VAR_REF.code && src_tom.has_key(la::NAME_VAR.code)) {
+        //
+        // ⚠ Gated on the SPAN KIND, not on the node's CODE. It used to demand
+        // VAR_REF, which silently excluded every antiquote the grammar puts on
+        // some other node — `#(ty)` in a type slot parses as TYPE_REF{NAME_VAR}
+        // — so a fragment spliced into a type fell through to the Ident path,
+        // read the blob pointer as an IdentPod and produced an EMPTY blob with
+        // no diagnostic at all. A kind-0 (Ident) span still falls through here,
+        // which is what keeps `#name` working on any node.
+        if (src_tom.has_key(la::NAME_VAR.code)) {
             AnyVal iv0 = src_tom.get(la::NAME_VAR.code);
             if (!iv0.is_null() && !iv0.is_pointer()) {
                 int32_t idx0 = iv0.as_value<int32_t>();

@@ -227,6 +227,15 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
 // quote shape instead of one per result flavour.
 fn emit_fn_quote(fn_name: str, params_text: str, tps: str, ret_ty: str,
                  body_text: str, prm: &MacroParams) {
+    emit_fn_quote_blob(fn_name, params_text, tps, ret_ty,
+                       parse_block(body_text), prm);
+}
+
+// The same shell with the body already a FRAGMENT. This is the entry point an
+// emitter that builds structure uses; the `str` overload above is the text one,
+// kept for the emitters still assembling their body as source.
+fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
+                      body: ExprBlob, prm: &MacroParams) {
     // The imports a native source's materializer needs are a RUNTIME list —
     // one module per source the query binds — carried by a repeat rather than
     // by a row of slots sized for the worst case.
@@ -242,7 +251,6 @@ fn emit_fn_quote(fn_name: str, params_text: str, tps: str, ret_ty: str,
     let ps: ExprBlob   = parse_params(params_text);
     let tp: ExprBlob   = parse_type_params(tps);
     let rt: ExprBlob   = parse_type(ret_ty);
-    let body: ExprBlob = parse_block(body_text);
     if vis_is_priv(fn_name) {
         let q: QuoteItemBlob = quote_item! {
             use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
@@ -402,8 +410,138 @@ fn peel_sort(e: RExpr, mods: &mut QMods) -> RExpr {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// FRAGMENT helpers — the emitters' vocabulary now that a BODY is a quote too.
+// ══════════════════════════════════════════════════════════════════════════
+
+// The generated-name spelling `prefix` + decimal `k` (`__pk3`, `__hm2`).
+//
+// ⚠ Returns the STRING, not the Ident. `Ident::new` BORROWS its bytes, so the
+// backing storage has to be a local of the frame that builds the quote; a
+// helper handing back an Ident would hand back a pointer into its own dead
+// frame, and that failure surfaces far away as "ExprBlob splice — null ptr".
+fn nk_str(prefix: str, k: i64) -> String {
+    let mut s: String = String::new();
+    s.push_str(prefix);
+    s.push_i64(k);
+    return s;
+}
+
+// The `limit` BOUND as an expression fragment — the literal or the param name.
+// Only called when `mods.has_limit`.
+//
+// ⚠ The integer literal goes through `parse_expr` on a three-character string
+// because metaprog has no "reify this i64 as a literal node" constructor. That
+// is the one leaf here that is still text, and it is a missing primitive, not a
+// shape the emitter chose.
+fn limit_expr(mods: &QMods) -> ExprBlob {
+    if mods.limit_is_param { return parse_expr(mods.limit_param); }
+    let mut s: String = String::new();
+    s.push_i64(mods.limit_n);
+    s.push_str("i64");
+    return parse_expr(string_as_str(&s));
+}
+
+// The rel PRELUDE as a statement-list fragment (empty block when absent).
+//
+// ⚠ It arrives as TEXT from `plan_walker` — the rel materializer statements are
+// built there, and converting THAT is a different arc — so `parse_block`
+// reifies it. It splices at a STATEMENT slot (`#(pre);`), which inlines: the
+// prelude declares `__rel_X` for the loops that follow, so a nested scope would
+// lose exactly the bindings it exists to publish.
+fn prelude_frag(prelude: str) -> ExprBlob {
+    if prelude.len() == 0i64 { return parse_block("{ }"); }
+    let mut s: String = String::new();
+    s.push_str("{\n");
+    s.push_str(prelude);
+    s.push_str("}\n");
+    return parse_block(string_as_str(&s));
+}
+
+// One guarded output push as a statement list: plain `__out.push(v)` without
+// `distinct`, else bind the projected value and push only when not already in
+// `__out` (linear scan — O(n²) MVP dedup; `==` covers i64/f64/str natively).
+// The INDENT parameter is gone with the text: a fragment has no column.
+fn push_guarded_frag(val_ty: str, body: ExprBlob, distinct: bool) -> ExprBlob {
+    if !distinct {
+        return quote_block! { __out.push(#(body)); };
+    }
+    let vt: ExprBlob = parse_type(val_ty);
+    return quote_block! {
+        let __pv: #(vt) = (#(body));
+        let mut __dup: bool = false;
+        let mut __d: i64 = 0i64;
+        while __d < __out.len() { if __out.get(__d) == __pv { __dup = true; } __d = __d + 1i64; }
+        if !__dup { __out.push(__pv); }
+    };
+}
+
+// The stable in-place insertion sort over the parallel (key, index) vecs
+// `__ks` + `__ix0`..`__ix{nidx-1}` (one index vec per BOUND source — 1 for a
+// simple/aggregate sort, 1 + non-anti steps for a join chain) — O(n²) MVP
+// codegen (strict compare keeps equal keys in source order = stable); `desc`
+// flips the comparison. str keys compare with the native `<`/`>` (sema lowers
+// str relationals to byte-lexicographic `str_cmp`).
+//
+// The per-index statements are RUNTIME-many, so they ride three Vec<ExprBlob>
+// cursors and splice flat — the shape that replaced `push_ixn` writing `__ix`
+// and a decimal into the middle of a half-written line.
+fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
+    let mut saves: Vec<ExprBlob>  = vec_new::<ExprBlob>();
+    let mut shifts: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut lands: Vec<ExprBlob>  = vec_new::<ExprBlob>();
+    let mut k: i64 = 0i64;
+    while k < nidx {
+        let sx: String = nk_str("__ix", k);
+        let sv: String = nk_str("__iv", k);
+        let ix: Ident = Ident::new(string_as_str(&sx));
+        let iv: Ident = Ident::new(string_as_str(&sv));
+        saves.push(quote_block!  { let #iv: i64 = #ix.get(__a); });
+        shifts.push(quote_block! { #ix.set(__b, #ix.get(__b - 1i64)); });
+        lands.push(quote_block!  { #ix.set(__b, #iv); });
+        k = k + 1i64;
+    }
+    let kt: ExprBlob = parse_type(key_ty);
+    if desc {
+        return quote_block! {
+            let mut __a: i64 = 1i64;
+            while __a < __ks.len() {
+                let __kv: #(kt) = __ks.get(__a);
+                #( #saves; )*
+                let mut __b: i64 = __a;
+                while __b > 0i64 && __ks.get(__b - 1i64) < __kv {
+                    __ks.set(__b, __ks.get(__b - 1i64));
+                    #( #shifts; )*
+                    __b = __b - 1i64;
+                }
+                __ks.set(__b, __kv);
+                #( #lands; )*
+                __a = __a + 1i64;
+            }
+        };
+    }
+    return quote_block! {
+        let mut __a: i64 = 1i64;
+        while __a < __ks.len() {
+            let __kv: #(kt) = __ks.get(__a);
+            #( #saves; )*
+            let mut __b: i64 = __a;
+            while __b > 0i64 && __ks.get(__b - 1i64) > __kv {
+                __ks.set(__b, __ks.get(__b - 1i64));
+                #( #shifts; )*
+                __b = __b - 1i64;
+            }
+            __ks.set(__b, __kv);
+            #( #lands; )*
+            __a = __a + 1i64;
+        }
+    };
+}
+
 // The `&& __out.len() < (N)` loop-condition suffix enforcing `limit` on every
 // output-producing loop ("" when no limit). N is the literal or the param name.
+// ⚠ TRANSITIONAL — the text twin of `limit_expr`, alive only for the join and
+// aggregate emitters that have not been converted yet.
 fn limit_cond_text(mods: &QMods) -> String {
     let mut s: String = String::new();
     if mods.has_limit {
@@ -880,11 +1018,13 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         key_ty = el_class_repr(infer_ty(key_opt, &ty));
         emit_sexpr(&mut key_body, key_opt, &ty, var_name);
     }
-    let lim_cond: String = limit_cond_text(&mods);
 
-    // The item is a QUOTE through the shared shell (ADR 0024 S5). `Emitter`
-    // survives here as what it has always been at this site — a body buffer;
-    // only the body is text, because only the body's SHAPE is a runtime value.
+    // ══ the BODY is a QUOTE too (ADR 0024 S5) ═════════════════════════════
+    // Only the SCALAR clauses arrive as text: `emit_sexpr` renders a `where` /
+    // `select` / `order by` body and `parse_expr` reifies it, because that
+    // lowering lives in codegen.logos and is a different arc. Everything this
+    // emitter itself decides — the loop, the guard, the binding names, the
+    // element type, which of the three scan shapes runs — is STRUCTURE.
     //
     // ⚠ WHAT BLOCKED THIS was recorded as TIMING — "a factory-generated handle
     // (`Hs…` in `logos.gen`) is registered a round after a spliced item is
@@ -895,106 +1035,101 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // numbered by the lowering, so every antiquoted import was dropped at
     // splice time. Once imports actually travel, the signature resolves in the
     // round it is checked and no round has to move.
-    let mut em: Emitter = Emitter::new();
+    let pre_f:  ExprBlob = prelude_frag(prelude);
+    let src_f:  ExprBlob = parse_expr(src_name);
+    let row_f:  ExprBlob = parse_type(row_ty);
+    let elem_f: ExprBlob = parse_type(result_elem);
+    let proj_f: ExprBlob = parse_expr(string_as_str(&body));
+    let vnm:    Ident    = Ident::new(var_name);
+
     let mut rty: String = String::new();
     if first {
         rty.push_str("Result<Option<");
         rty.push_str(result_elem);
         rty.push_str(">, ElError>");
-        em.push_text("{\n");
-        em.push_text(prelude);
     } else {
         rty.push_str("Result<Vec<");
         rty.push_str(result_elem);
         rty.push_str(">, ElError>");
-        em.push_text("{\n");
-        em.push_text(prelude);
-        em.push_text("    let mut __out: Vec<");
-        em.push_text(result_elem);
-        em.push_text("> = Vec::<");
-        em.push_text(result_elem);
-        em.push_text(">::new();\n");
     }
+
+    // The per-row TAIL — what happens once a row is bound and the filter
+    // passed. `first` early-returns the projection; otherwise the guarded push.
+    let mut hit_f: ExprBlob = quote_block! { };
+    if first {
+        hit_f = quote_block! { return Result::Ok(Option::Some(#(proj_f))); };
+    } else {
+        hit_f = push_guarded_frag(result_elem, proj_f, mods.distinct);
+    }
+    let mut row_f2: ExprBlob = hit_f;
+    if has_where {
+        let pred_f: ExprBlob = parse_expr(string_as_str(&pred_body));
+        row_f2 = quote_block! { if #(pred_f) #(hit_f) };
+    }
+
+    let mut scan_f: ExprBlob = quote_block! { };
     if mods.has_sort {
         // Phase 1: collect matching row indices + sort keys.
-        em.push_text("    let mut __ix0: Vec<i64> = Vec::<i64>::new();\n");
-        em.push_text("    let mut __ks: Vec<");
-        em.push_text(key_ty);
-        em.push_text("> = Vec::<");
-        em.push_text(key_ty);
-        em.push_text(">::new();\n");
-        em.push_text("    let mut __i: i64 = 0i64;\n");
-        em.push_text("    while __i < (");
-        em.push_text(src_name);
-        em.push_text(").len() {\n");
-        em.push_text("        let ");
-        em.push_text(var_name);
-        em.push_text(": &");
-        em.push_text(row_ty);
-        em.push_text(" = &(");
-        em.push_text(src_name);
-        em.push_text(")[__i];\n");
+        let key_f:  ExprBlob = parse_expr(string_as_str(&key_body));
+        let keyt_f: ExprBlob = parse_type(key_ty);
+        let mut coll_f: ExprBlob = quote_block! {
+            __ix0.push(__i);
+            __ks.push(#(key_f));
+        };
         if has_where {
-            em.push_text("        if ");
-            em.push_text(string_as_str(&pred_body));
-            em.push_text(" {\n");
-            em.push_text("            __ix0.push(__i);\n");
-            em.push_text("            __ks.push(");
-            em.push_text(string_as_str(&key_body));
-            em.push_text(");\n");
-            em.push_text("        }\n");
-        } else {
-            em.push_text("        __ix0.push(__i);\n");
-            em.push_text("        __ks.push(");
-            em.push_text(string_as_str(&key_body));
-            em.push_text(");\n");
+            let pred_f: ExprBlob = parse_expr(string_as_str(&pred_body));
+            coll_f = quote_block! { if #(pred_f) #(coll_f) };
         }
-        em.push_text("        __i = __i + 1i64;\n");
-        em.push_text("    }\n");
         // Phase 2: stable insertion sort of the (key, index) permutation.
-        emit_sort_perm(&mut em, key_ty, mods.sort_desc, 1i64);
+        let sort_f: ExprBlob = sort_perm_frag(key_ty, mods.sort_desc, 1i64);
+        // Phase 3: project in sorted order — the HEAD row only under `first`,
+        // else every row (distinct dedups; limit caps).
+        let mut proj_phase: ExprBlob = quote_block! { };
         if first {
-            // Phase 3 (single-row): project only the HEAD of the sorted order.
-            em.push_text("    if __ix0.len() > 0i64 {\n");
-            em.push_text("        let ");
-            em.push_text(var_name);
-            em.push_text(": &");
-            em.push_text(row_ty);
-            em.push_text(" = &(");
-            em.push_text(src_name);
-            em.push_text(")[__ix0.get(0i64)];\n");
-            em.push_text("        return Result::Ok(Option::Some(");
-            em.push_text(string_as_str(&body));
-            em.push_text("));\n");
-            em.push_text("    }\n");
+            proj_phase = quote_block! {
+                if __ix0.len() > 0i64 {
+                    let #vnm: &#(row_f) = &(#(src_f))[__ix0.get(0i64)];
+                    return Result::Ok(Option::Some(#(proj_f)));
+                }
+            };
         } else {
-            // Phase 3: project in sorted order (distinct dedups; limit caps).
-            em.push_text("    let mut __o: i64 = 0i64;\n");
-            em.push_text("    while __o < __ix0.len()");
-            em.push_text(string_as_str(&lim_cond));
-            em.push_text(" {\n");
-            em.push_text("        let ");
-            em.push_text(var_name);
-            em.push_text(": &");
-            em.push_text(row_ty);
-            em.push_text(" = &(");
-            em.push_text(src_name);
-            em.push_text(")[__ix0.get(__o)];\n");
-            emit_push_guarded(&mut em, "        ", result_elem, string_as_str(&body), mods.distinct);
-            em.push_text("        __o = __o + 1i64;\n");
-            em.push_text("    }\n");
+            let push_f: ExprBlob = push_guarded_frag(result_elem, proj_f, mods.distinct);
+            let mut ocond: ExprBlob = quote_expr! { __o < __ix0.len() };
+            if mods.has_limit {
+                let lim_f: ExprBlob = limit_expr(&mods);
+                ocond = quote_expr! { __o < __ix0.len() && __out.len() < (#(lim_f)) };
+            }
+            proj_phase = quote_block! {
+                let mut __o: i64 = 0i64;
+                while #(ocond) {
+                    let #vnm: &#(row_f) = &(#(src_f))[__ix0.get(__o)];
+                    #(push_f);
+                    __o = __o + 1i64;
+                }
+            };
         }
+        scan_f = quote_block! {
+            let mut __ix0: Vec<i64> = Vec::<i64>::new();
+            let mut __ks: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+            let mut __i: i64 = 0i64;
+            while __i < (#(src_f)).len() {
+                let #vnm: &#(row_f) = &(#(src_f))[__i];
+                #(coll_f);
+                __i = __i + 1i64;
+            }
+            #(sort_f);
+            #(proj_phase);
+        };
     } else if prm.rel_src_streams(src_name) {
         // STREAMED (ADR 0024 S4). The plan proved this source is read exactly
         // once, so no Vec is built: rows arrive from `next()` and the loop ends
         // when the iterator does. With `first` this is the whole point — the
         // walk stops at the first match instead of materializing every row that
         // could have matched and then taking one.
-        em.push_text("    loop {\n");
+        let mut brk_f: ExprBlob = quote_block! { };
         if mods.has_limit {
-            em.push_text("        if !(true");
-            em.push_text(string_as_str(&lim_cond));
-            em.push_text(") { break; }\n");
+            let lim_f: ExprBlob = limit_expr(&mods);
+            brk_f = quote_block! { if !(__out.len() < (#(lim_f))) { break; } };
         }
         // The row type is ANNOTATED, not inferred. `next()` is a trait method
         // whose result type is the trait's parameter, so inferring it means
@@ -1002,89 +1137,47 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         // type (`&<typeof(C) as CtrFamily>::Handle`) that selection has not
         // happened yet and the type var escapes. The plan knows the row type;
         // withholding it would be the emitter pretending it does not.
-        em.push_text("        let __opt: Option<");
-        em.push_text(row_ty);
-        em.push_text("> = ");
-        em.push_text(src_name);
-        em.push_text(".next();\n");
-        em.push_text("        if __opt.is_none() { break; }\n");
-        em.push_text("        let __row: ");
-        em.push_text(row_ty);
-        em.push_text(" = __opt.unwrap();\n");
-        em.push_text("        let ");
-        em.push_text(var_name);
-        em.push_text(": &");
-        em.push_text(row_ty);
-        em.push_text(" = &__row;\n");
-        if has_where {
-            em.push_text("        if ");
-            em.push_text(string_as_str(&pred_body));
-            em.push_text(" {\n");
-            if first {
-                em.push_text("            return Result::Ok(Option::Some(");
-                em.push_text(string_as_str(&body));
-                em.push_text("));\n");
-            } else {
-                emit_push_guarded(&mut em, "            ", result_elem, string_as_str(&body), mods.distinct);
+        scan_f = quote_block! {
+            loop {
+                #(brk_f);
+                let __opt: Option<#(row_f)> = (#(src_f)).next();
+                if __opt.is_none() { break; }
+                let __row: #(row_f) = __opt.unwrap();
+                let #vnm: &#(row_f) = &__row;
+                #(row_f2);
             }
-            em.push_text("        }\n");
-        } else {
-            if first {
-                em.push_text("        return Result::Ok(Option::Some(");
-                em.push_text(string_as_str(&body));
-                em.push_text("));\n");
-            } else {
-                emit_push_guarded(&mut em, "        ", result_elem, string_as_str(&body), mods.distinct);
-            }
-        }
-        em.push_text("    }\n");
+        };
     } else {
-        em.push_text("    let mut __i: i64 = 0i64;\n");
-        em.push_text("    while __i < (");
-        em.push_text(src_name);
-        em.push_text(").len()");
-        em.push_text(string_as_str(&lim_cond));
-        em.push_text(" {\n");
-        em.push_text("        let ");
-        em.push_text(var_name);
-        em.push_text(": &");
-        em.push_text(row_ty);
-        em.push_text(" = &(");
-        em.push_text(src_name);
-        em.push_text(")[__i];\n");
-        if has_where {
-            em.push_text("        if ");
-            em.push_text(string_as_str(&pred_body));
-            em.push_text(" {\n");
-            if first {
-                // Early exit: the FIRST matching row's projection is the answer.
-                em.push_text("            return Result::Ok(Option::Some(");
-                em.push_text(string_as_str(&body));
-                em.push_text("));\n");
-            } else {
-                emit_push_guarded(&mut em, "            ", result_elem, string_as_str(&body), mods.distinct);
-            }
-            em.push_text("        }\n");
-        } else {
-            if first {
-                em.push_text("        return Result::Ok(Option::Some(");
-                em.push_text(string_as_str(&body));
-                em.push_text("));\n");
-            } else {
-                emit_push_guarded(&mut em, "        ", result_elem, string_as_str(&body), mods.distinct);
-            }
+        let mut cond: ExprBlob = quote_expr! { __i < (#(src_f)).len() };
+        if mods.has_limit {
+            let lim_f: ExprBlob = limit_expr(&mods);
+            cond = quote_expr! { __i < (#(src_f)).len() && __out.len() < (#(lim_f)) };
         }
-        em.push_text("        __i = __i + 1i64;\n");
-        em.push_text("    }\n");
+        scan_f = quote_block! {
+            let mut __i: i64 = 0i64;
+            while #(cond) {
+                let #vnm: &#(row_f) = &(#(src_f))[__i];
+                #(row_f2);
+                __i = __i + 1i64;
+            }
+        };
     }
+
+    let mut head_f: ExprBlob = quote_block! {
+        let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
+    };
+    let mut tail_f: ExprBlob = quote_block! { return Result::Ok(__out); };
     if first {
-        em.push_text("    return Result::Ok(Option::None);\n");
-    } else {
-        em.push_text("    return Result::Ok(__out);\n");
+        head_f = quote_block! { };
+        tail_f = quote_block! { return Result::Ok(Option::None); };
     }
-    em.push_text("}\n");
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  string_as_str(&em.buf), prm);
+    let body_f: ExprBlob = quote_block! {
+        #(pre_f);
+        #(head_f);
+        #(scan_f);
+        #(tail_f);
+    };
+    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm);
     return true;
 }
 
@@ -1118,41 +1211,32 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
         emit_sexpr(&mut pred_body, pred_opt, &ty, var_name);
     }
 
-    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
-    // The BODY is still built as text, because its shape is a runtime value and
-    // no template expresses that; everything around it is structured. What this
-    // replaces is a fn assembled by concatenation, where a missing `>` or a
-    // stray space failed as a syntax error inside generated source with no
-    // position a reader could use.
-    let mut bt: String = String::new();
-    bt.push_str("{\n");
-    bt.push_str(prelude);
-    bt.push_str("    let mut __i: i64 = 0i64;\n");
-    bt.push_str("    while __i < (");
-    bt.push_str(src_name);
-    bt.push_str(").len() {\n");
-    bt.push_str("        let ");
-    bt.push_str(var_name);
-    bt.push_str(": &");
-    bt.push_str(row_ty);
-    bt.push_str(" = &(");
-    bt.push_str(src_name);
-    bt.push_str(")[__i];\n");
+    // ── the item AND the body are a QUOTE (ADR 0024 S5) ───────────────────
+    // The predicate is the only text: it comes from `emit_sexpr` (codegen.logos,
+    // a different arc) and `parse_expr` reifies it. What this replaces is a fn
+    // assembled by concatenation, where a missing `>` or a stray space failed
+    // as a syntax error inside generated source with no position a reader
+    // could use.
+    let pre_f: ExprBlob = prelude_frag(prelude);
+    let src_f: ExprBlob = parse_expr(src_name);
+    let row_f: ExprBlob = parse_type(row_ty);
+    let vnm:   Ident    = Ident::new(var_name);
+
+    let mut hit_f: ExprBlob = quote_block! { return Result::Ok(Option::Some(#vnm)); };
     if has_pred {
-        bt.push_str("        if ");
-        bt.push_str(string_as_str(&pred_body));
-        bt.push_str(" { return Result::Ok(Option::Some(");
-        bt.push_str(var_name);
-        bt.push_str(")); }\n");
-    } else {
-        bt.push_str("        return Result::Ok(Option::Some(");
-        bt.push_str(var_name);
-        bt.push_str("));\n");
+        let pred_f: ExprBlob = parse_expr(string_as_str(&pred_body));
+        hit_f = quote_block! { if #(pred_f) #(hit_f) };
     }
-    bt.push_str("        __i = __i + 1i64;\n");
-    bt.push_str("    }\n");
-    bt.push_str("    return Result::Ok(Option::None);\n");
-    bt.push_str("}\n");
+    let body_f: ExprBlob = quote_block! {
+        #(pre_f);
+        let mut __i: i64 = 0i64;
+        while __i < (#(src_f)).len() {
+            let #vnm: &#(row_f) = &(#(src_f))[__i];
+            #(hit_f);
+            __i = __i + 1i64;
+        }
+        return Result::Ok(Option::None);
+    };
 
     // The imports a native source's materializer needs are a RUNTIME list —
     // one module per source the query binds — carried by a repeat rather than
@@ -1161,8 +1245,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     rty.push_str("Result<Option<&");
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  bt.as_str(), prm);
+    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm);
     return true;
 }
 
